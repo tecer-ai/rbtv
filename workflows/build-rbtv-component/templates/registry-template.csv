@@ -1,0 +1,98 @@
+# Registry/Manifest Templates
+
+Use these templates to create CSV registries for BMAD.
+
+---
+
+## Agent Registry Template
+
+```csv
+name,displayName,title,icon,role,identity,communicationStyle,principles,module,path
+agent-id,"Display Name","Full Title",emoji,"Role description","Identity description","Style description","Principle 1. Principle 2.",module-name,path/to/agent.md
+```
+
+### Fields
+- **name**: Machine-readable identifier (matches agent file id)
+- **displayName**: Human-readable name
+- **title**: Full title for greetings
+- **icon**: Single emoji
+- **role**: From persona <role> element
+- **identity**: From persona <identity> element
+- **communicationStyle**: From persona <communication_style> element
+- **principles**: From persona <principles> element (concatenated)
+- **module**: Which module this agent belongs to
+- **path**: Relative path to agent file
+
+---
+
+## Workflow Registry Template
+
+```csv
+name,description,module,path
+workflow-name,"What this workflow does",module-name,path/to/workflow.md
+```
+
+### Fields
+- **name**: Machine-readable identifier (matches workflow frontmatter name)
+- **description**: Human-readable purpose
+- **module**: Which module this workflow belongs to
+- **path**: Relative path to workflow.md
+
+---
+
+## Task Registry Template
+
+```csv
+name,displayName,description,module,path,standalone
+task-name,"Display Name","What this task does",module-name,path/to/task.xml,true
+```
+
+### Fields
+- **name**: Machine-readable identifier
+- **displayName**: Human-readable name
+- **description**: What the task does
+- **module**: Which module this task belongs to
+- **path**: Relative path to task file
+- **standalone**: true if directly invocable, false if only called by others
+
+---
+
+## Help Catalog Template
+
+```csv
+module,phase,name,code,sequence,workflow-file,command,required,agent-name,description,output-location
+module-name,phase-name,workflow-name,XX,1,path/to/workflow,command-name,true,agent-name,"Description",path/to/output
+```
+
+### Fields
+- **module**: Which module
+- **phase**: Which phase (planning, implementation, testing)
+- **name**: Workflow name
+- **code**: 2-letter shortcut
+- **sequence**: Execution order within phase
+- **workflow-file**: Path to workflow.md
+- **command**: IDE command name
+- **required**: true/false
+- **agent-name**: Which agent runs this workflow
+- **description**: What it does
+- **output-location**: Where artifacts go
+
+---
+
+## When to Use Registries
+
+Add registries when you have:
+- 5+ agents
+- 10+ workflows
+- Need runtime discovery (master agent, help system)
+- Need party-mode to find agents
+
+---
+
+## Common Mistakes
+
+1. **Inconsistent names** — Registry `name` must match the component's actual `name` field
+
+2. **Stale paths** — Update registry when moving files
+
+3. **Missing entries** — New components must be added to registries

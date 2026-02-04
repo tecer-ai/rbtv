@@ -1,0 +1,95 @@
+<task id="_bmad/rbtv/tasks/context-search.xml"
+      name="Context Search"
+      standalone="true"
+      description="Search referenced files for knowledge relevant to conversation context and specific request">
+
+  <objective>
+    Analyze conversation context and specific request, search referenced files exhaustively, extract and return all relevant knowledge in complete detail so the invoking agent does not need to read the files.
+  </objective>
+
+  <llm critical="true">
+    <rule>Read the complete task before starting execution.</rule>
+    <rule>Follow steps in exact order.</rule>
+    <rule>Extract COMPLETE relevant content — the invoking agent will NOT read these files.</rule>
+    <rule>Return enough context for standalone understanding — no references to "see file X for details".</rule>
+    <rule>If no relevant knowledge found, state explicitly — do not fabricate or assume.</rule>
+  </llm>
+
+  <inputs>
+    <input name="conversation_context">The conversation history and current discussion topic provided by the invoking agent.</input>
+    <input name="specific_request">Explicit instruction from the invoking agent describing what knowledge to search for.</input>
+    <input name="referenced_files">List of file paths or patterns to search within.</input>
+  </inputs>
+
+  <flow>
+    <step n="1" title="Parse Request">
+      <substep n="1a" title="Identify Search Intent">
+        <action>Extract the specific request from the invoking agent — this is the primary search criterion.</action>
+        <action>Parse the conversation context to understand what problem is being solved.</action>
+        <action>Identify key concepts, terms, and patterns to search for.</action>
+      </substep>
+      <substep n="1b" title="Catalog Target Files">
+        <action>List all referenced files explicitly provided.</action>
+        <action>If patterns provided (e.g., "*.md in folder X"), resolve to concrete file list.</action>
+        <action>Prioritize files most likely to contain relevant knowledge based on names and paths.</action>
+      </substep>
+    </step>
+
+    <step n="2" title="Exhaustive Search">
+      <substep n="2a" title="Read All Referenced Files">
+        <action>Read each file completely — do not skim or sample.</action>
+        <action>For each file, note: file path, file purpose (inferred from content), sections/structure.</action>
+      </substep>
+      <substep n="2b" title="Extract Relevant Knowledge">
+        <action>For each file, identify ALL content relevant to the specific request.</action>
+        <action>Include: direct matches, related concepts, supporting context, examples, constraints.</action>
+        <action>Capture complete code blocks, templates, procedures — not just summaries.</action>
+      </substep>
+      <substep n="2c" title="Note Cross-References">
+        <action>If a file references other files that might contain relevant knowledge, note them.</action>
+        <action>If those files are accessible, read them and extract relevant content.</action>
+      </substep>
+    </step>
+
+    <step n="3" title="Synthesize Findings">
+      <substep n="3a" title="Organize by Relevance">
+        <action>Group findings by relevance level: directly answers request | provides supporting context | tangentially related.</action>
+        <action>Within each group, order by specificity and actionability.</action>
+      </substep>
+      <substep n="3b" title="Preserve Source Attribution">
+        <action>For each finding, include source file path and section/line reference.</action>
+        <action>If content spans multiple files, show how pieces connect.</action>
+      </substep>
+      <substep n="3c" title="Fill Knowledge Gaps">
+        <action>Identify what the specific request asked for that was NOT found.</action>
+        <action>State explicitly: "The following was requested but not found in referenced files: [list]".</action>
+      </substep>
+    </step>
+
+    <step n="4" title="Return Complete Results">
+      <substep n="4a" title="Format Response">
+        <action>Structure response using the output format below.</action>
+        <action>Include complete content — do not summarize if the full content is needed for understanding.</action>
+        <action>If content is very long but all relevant, include it with clear section markers.</action>
+      </substep>
+      <substep n="4b" title="Actionability Check">
+        <action>Verify: Can the invoking agent act on this response without reading any files?</action>
+        <action>If not, add the missing context needed for standalone actionability.</action>
+      </substep>
+    </step>
+  </flow>
+
+  <output-format>
+    <section name="Summary">One-paragraph overview of what was found and its relevance to the specific request.</section>
+    <section name="Direct Answers">Content that directly addresses the specific request. Include complete code, templates, procedures — not summaries.</section>
+    <section name="Supporting Context">Related knowledge that helps understand or apply the direct answers.</section>
+    <section name="Sources">List of files searched with brief note on what was found in each.</section>
+    <section name="Not Found">Explicit list of requested knowledge not found in the referenced files.</section>
+  </output-format>
+
+  <halt-conditions>
+    <condition>Referenced files cannot be accessed — report which files and why.</condition>
+    <condition>No relevant knowledge found in any file — report explicitly with search terms used.</condition>
+  </halt-conditions>
+
+</task>

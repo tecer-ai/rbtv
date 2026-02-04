@@ -1,0 +1,76 @@
+<task id="_bmad/rbtv/tasks/tone-extraction.xml"
+      name="Tone Extraction"
+      standalone="true"
+      description="Extract voice signature from text across emotional tone, structural patterns, and vocabulary dimensions">
+
+  <objective>
+    Extract voice signature from text by analyzing emotional tone, structural patterns, and vocabulary/register. Output is written IN the extracted voice, creating a meta-demonstration that serves as a direct writing guide.
+  </objective>
+
+  <llm critical="true">
+    <rule>Read the complete task before starting execution.</rule>
+    <rule>Follow steps in exact order.</rule>
+    <rule>NEVER write third-person analysis — "The writer uses..." is FORBIDDEN.</rule>
+    <rule>NEVER list features — demonstrate voice through structure and vocabulary, not description.</rule>
+    <rule>Write the voice profile IN the extracted voice — you ARE the voice.</rule>
+    <rule>Match source language exactly — Portuguese input requires Portuguese output.</rule>
+  </llm>
+
+  <flow>
+    <step n="1" title="Load Framework">
+      <substep n="1a" title="Read Analysis Framework">
+        <action>Load {project-root}/_bmad/rbtv/tasks/data/tone-extraction-framework.md</action>
+        <action>Internalize all three dimensions: emotional tone, structural patterns, vocabulary/register.</action>
+      </substep>
+    </step>
+
+    <step n="2" title="Request Source Text">
+      <substep n="2a" title="Get Input">
+        <ask>Provide the text for voice analysis (paste directly, file path, or URL).</ask>
+      </substep>
+      <substep n="2b" title="Load Text">
+        <action>If file path or URL provided, load the content.</action>
+        <action>Read entire text before proceeding.</action>
+      </substep>
+    </step>
+
+    <step n="3" title="Analyze Voice">
+      <substep n="3a" title="Emotional Tone">
+        <action>Identify vulnerability level, self-reflection depth, questioning intensity.</action>
+        <action>Note emotional honesty (raw vs. filtered) and perspective stance.</action>
+      </substep>
+      <substep n="3b" title="Structural Patterns">
+        <action>Document list/prose ratio, nesting depth, sentence length patterns.</action>
+        <action>Note question density, bold/emphasis usage, paragraph structure.</action>
+      </substep>
+      <substep n="3c" title="Vocabulary and Register">
+        <action>Capture formality spectrum, domain-specific vocabulary, language mixing.</action>
+        <action>Note metaphor usage, hedge words, first-person intensity.</action>
+      </substep>
+      <substep n="3d" title="Identify Signature">
+        <action>Identify 2-3 signature elements that make this voice immediately recognizable.</action>
+      </substep>
+    </step>
+
+    <step n="4" title="Generate Voice Profile">
+      <substep n="4a" title="Write In-Voice">
+        <action>Create 3-5 paragraph profile (400-600 words) written IN the extracted voice.</action>
+        <action>Paragraph 1: Open with emotional core — establish psychological register.</action>
+        <action>Paragraph 2: Demonstrate structural preferences through format.</action>
+        <action>Paragraph 3: Showcase vocabulary patterns — domain terms, formality, mixing.</action>
+        <action>Optional paragraphs: Address tone variations, close with meta-reflection.</action>
+      </substep>
+      <substep n="4b" title="Validate Output">
+        <action>Verify: Written IN voice, not ABOUT voice. No meta-commentary.</action>
+        <action>Verify: All three dimensions represented. Source language matched.</action>
+        <action>Verify: Formatting preferences mirrored. Usable as direct writing guide.</action>
+      </substep>
+    </step>
+  </flow>
+
+  <halt-conditions>
+    <condition>Source text not provided — request text before proceeding.</condition>
+    <condition>Text too short (under 100 words) — request longer sample for accurate extraction.</condition>
+  </halt-conditions>
+
+</task>

@@ -1,0 +1,75 @@
+<task id="_bmad/rbtv/tasks/web-research.xml"
+      name="Web Research"
+      standalone="true"
+      description="Apply rigorous research standards for data integrity, source evaluation, and citation">
+
+  <objective>
+    Conduct web research that meets rigorous data integrity, source evaluation, and citation standards. Every claim must be verified, every source evaluated, every citation formatted correctly.
+  </objective>
+
+  <llm critical="true">
+    <rule>Read the complete task before starting execution.</rule>
+    <rule>Follow steps in exact order.</rule>
+    <rule>NEVER present information without verified sources — web search is REQUIRED for factual claims.</rule>
+    <rule>NEVER fabricate, estimate, or extrapolate data — state "DATA NOT FOUND IN SOURCES" if unavailable.</rule>
+    <rule>Sources with TS less than 6 are FORBIDDEN — do not use them.</rule>
+  </llm>
+
+  <flow>
+    <step n="1" title="Load Standards">
+      <substep n="1a" title="Read Research Standards">
+        <action>Load {project-root}/_bmad/rbtv/tasks/data/web-research-standards.md</action>
+        <action>Internalize all rules: data integrity, quantification, source evaluation, citation format.</action>
+      </substep>
+    </step>
+
+    <step n="2" title="Conduct Research">
+      <substep n="2a" title="Execute Web Searches">
+        <action>Use web search tools to find information on the research topic.</action>
+        <action>Gather multiple sources — critical claims require 2+ independent sources.</action>
+      </substep>
+      <substep n="2b" title="Evaluate Each Source">
+        <action>Score each source: Authority (AT), Trustability (TR), Topic Match (TM).</action>
+        <action>Calculate Total Score (TS) as average. Discard sources with TS less than 6.</action>
+        <action>Apply marketing language penalty to TR score where applicable.</action>
+      </substep>
+      <substep n="2c" title="Group Domain Sources">
+        <action>Multiple links from same domain count as ONE source unless they meet exception criteria.</action>
+        <action>Nest sub-sources under parent; each nested entry has its own evaluation.</action>
+      </substep>
+    </step>
+
+    <step n="3" title="Apply Data Standards">
+      <substep n="3a" title="Verify Data Integrity">
+        <action>Every number, statistic, or claim must cite its source inline (e.g., "[Source 12]").</action>
+        <action>State exact years/dates — never use vague terms like "recently" without defining period.</action>
+      </substep>
+      <substep n="3b" title="Apply Quantification Standards">
+        <action>Use explicit units: $ billions for market sizes, % for shares, % CAGR for growth rates.</action>
+      </substep>
+      <substep n="3c" title="Distinguish Fact from Analysis">
+        <action>Facts: directly from verified sources (cite with URL).</action>
+        <action>Analysis: your interpretation (state explicitly as analysis).</action>
+        <action>Speculation: hypotheses (flag with confidence level).</action>
+      </substep>
+    </step>
+
+    <step n="4" title="Format Output">
+      <substep n="4a" title="Include Legend">
+        <action>Add legend: "TS = Total Score (average of AT, TR, TM) | AT = Authority | TR = Trustability | TM = Topic Match | Scale: 1-10 | Threshold: TS ≥ 6"</action>
+      </substep>
+      <substep n="4b" title="Format Citations">
+        <action>Use format: [n] Title — URL — Research Date (YYYY-MM-DD) — Source Date — TS:x (AT:x TR:x TM:x)</action>
+      </substep>
+      <substep n="4c" title="Document Discarded Sources">
+        <action>List sources with TS less than 6 in separate "Sources Discarded" section with reason.</action>
+      </substep>
+    </step>
+  </flow>
+
+  <halt-conditions>
+    <condition>No sources found with TS 6 or higher — report and request guidance.</condition>
+    <condition>Critical claims cannot be verified with 2+ sources — flag explicitly.</condition>
+  </halt-conditions>
+
+</task>
