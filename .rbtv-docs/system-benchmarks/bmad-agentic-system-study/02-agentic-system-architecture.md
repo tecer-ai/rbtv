@@ -395,9 +395,11 @@ To build the simplest useful agentic system, you need:
 project-root/
 ├── .claude/commands/          # or .cursor/commands/
 │   └── my-agent.md           # Entry point (thin loader)
-├── _system/
-│   ├── config.yaml           # Project-level variables
-│   └── agents/
+├── _bmad/
+│   ├── core/
+│   │   └── config.yaml       # Global configuration
+│   └── {module}/
+│       └── agents/
 │       └── my-agent.md       # Agent with persona + menu
 └── _output/                  # Where generated files go
 ```
@@ -405,9 +407,11 @@ project-root/
 To add workflow capabilities:
 
 ```
-_system/
-├── config.yaml
-├── agents/
+_bmad/
+├── core/
+│   └── config.yaml
+├── {module}/
+│   ├── agents/
 │   └── my-agent.md
 └── workflows/
     └── my-workflow/
@@ -422,9 +426,10 @@ _system/
 To add knowledge:
 
 ```
-_system/
+_bmad/
 ├── ...
-└── data/
+└── {module}/
+    └── data/
     ├── domain-knowledge.md
     └── reference-data.csv
 ```

@@ -216,7 +216,7 @@ Created a Product Requirements Document for the unified `/rbtv_doc` command that
 
 **Default Output Location:**
 - User specified: "can be configurable, but first location is on the [project folders]/docs/todos/"
-- Default: `{project-root}/RBTV/docs/to_dos/`
+- Default: `{project-root}/_bmad-output/` (inherited from core/config.yaml)
 
 ---
 

@@ -6,7 +6,7 @@ handoffType: 'project'
 targetAgent: '{description of receiving agent role}'
 stepsCompleted: []
 inputDocuments: []
-outputPath: '{handoff_output_folder}'
+outputPath: '{outputFolder}'
 date: '{date}'
 ---
 

@@ -7,7 +7,7 @@ Use this template to create a standalone BMAD task.
 ## Template
 
 ```xml
-<task id="_system/tasks/{task-name}.xml"
+<task id="_bmad/{module}/tasks/{task-name}.xml"
       name="{Display Name}"
       standalone="true"
       description="{What this task does}">

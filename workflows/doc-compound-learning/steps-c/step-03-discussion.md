@@ -2,7 +2,7 @@
 stepNumber: 3
 stepName: 'discussion'
 nextStepFile: ./step-04-document.md
-outputFile: '{compound_output_folder}/{filename}.md'
+outputFile: '{outputFolder}/{filename}.md'
 ---
 
 # Step 03: Discussion

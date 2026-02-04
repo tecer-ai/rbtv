@@ -31,9 +31,11 @@ There is no code to compile, no server to run. Your files ARE the application.
 your-project/
 ├── .claude/commands/       # Claude Code entry points
 ├── .cursor/commands/       # Cursor entry points
-├── _system/                # Core system (name this whatever fits)
-│   ├── config.yaml         # Global configuration
-│   ├── agents/             # Agent definitions
+├── _bmad/                  # Core system (BMAD uses _bmad/)
+│   ├── core/
+│   │   └── config.yaml     # Global configuration
+│   ├── {module}/           # Module-specific files
+│   │   ├── agents/         # Agent definitions
 │   ├── workflows/          # Workflow directories
 │   ├── tasks/              # Standalone task files
 │   ├── data/               # Shared knowledge bases
@@ -41,21 +43,23 @@ your-project/
 └── _output/                # Generated artifacts
 ```
 
-Pick a name for your system directory (`_system/`, `_agents/`, `_bmad/`, whatever fits your project). Use a leading underscore to signal "system files, not project files."
+Pick a name for your system directory (`_bmad/`, `_system/`, `_agents/`, whatever fits your project). BMAD uses `_bmad/`. Use a leading underscore to signal "system files, not project files."
 
 ### Step 1.2: Create the Global Configuration
 
-**File: `_system/config.yaml`**
+**File: `_bmad/core/config.yaml`**
 
 ```yaml
-# Project settings
-project_name: "Your Project"
+# Core Module Configuration (core/config.yaml)
+# These values are inherited by all modules unless overridden
+
+# User settings
 user_name: "Your Name"
 communication_language: English
 document_output_language: English
 
 # Output paths
-output_folder: "{project-root}/_output"
+output_folder: "{project-root}/_bmad-output"
 ```
 
 This is the single source of truth for project-wide settings. Every agent and workflow loads this file first.
@@ -69,7 +73,7 @@ This is the single source of truth for project-wide settings. Every agent and wo
 
 Start with ONE agent. Don't design the whole system upfront.
 
-**File: `_system/agents/my-agent.md`**
+**File: `_bmad/{module}/agents/my-agent.md`**
 
 Use the agent template from the [Component Patterns document](./03-component-patterns-and-templates.md#1-agent-patterns-and-template). Fill in:
 
@@ -100,7 +104,7 @@ description: 'what this agent does'
 You must fully embody this agent's persona and follow all activation instructions exactly as specified. NEVER break character until given an exit command.
 
 <agent-activation CRITICAL="TRUE">
-1. LOAD the FULL agent file from {project-root}/_system/agents/my-agent.md
+1. LOAD the FULL agent file from {project-root}/_bmad/{module}/agents/my-agent.md
 2. READ its entire contents
 3. FOLLOW every step in the <activation> section precisely
 4. DISPLAY the welcome/greeting as instructed
@@ -126,7 +130,7 @@ Before writing files, answer:
 ### Step 2.2: Create the Workflow Directory
 
 ```
-_system/workflows/my-workflow/
+_bmad/{module}/workflows/my-workflow/
 ├── workflow.md              # Entry point
 ├── steps-c/                 # Create mode steps
 │   ├── step-01-init.md
@@ -197,7 +201,7 @@ Follow the step file template from the [Component Patterns document](./03-compon
 Add a menu item to your agent that routes to this workflow:
 
 ```xml
-<item cmd="MW or fuzzy match on my workflow" workflow="{project-root}/_system/workflows/my-workflow/workflow.yaml">[MW] My Workflow: Description of what it does</item>
+<item cmd="MW or fuzzy match on my workflow" workflow="{project-root}/_bmad/{module}/workflows/my-workflow/workflow.yaml">[MW] My Workflow: Description of what it does</item>
 ```
 
 ### Step 2.7: Create the Workflow Command
@@ -210,7 +214,7 @@ name: 'my-workflow'
 description: 'what this workflow does'
 ---
 
-IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_system/workflows/my-workflow/workflow.md, READ its entire contents and follow its directions exactly!
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/{module}/workflows/my-workflow/workflow.md, READ its entire contents and follow its directions exactly!
 ```
 
 **Test it end to end.** Run the workflow command, go through each step, verify the output document is produced correctly.
@@ -324,7 +328,7 @@ The master agent (or help system) queries these registries to list available cap
 When your system grows beyond one domain, split into modules:
 
 ```
-_system/
+_bmad/
 ├── _config/            # Global registries
 │   ├── manifest.yaml
 │   ├── agent-manifest.csv
@@ -423,14 +427,14 @@ Agent activation loads memory files. Agent records new observations during inter
 
 7. **Don't forget adversarial review.** The AI agrees with everything unless you build in explicit challenge mechanisms.
 
-8. **Don't nest too deeply.** If you find yourself 5 directories deep, flatten. `_system/module/workflows/workflow-name/steps-c/` is about as deep as you should go.
+8. **Don't nest too deeply.** If you find yourself 5 directories deep, flatten. `_bmad/module/workflows/workflow-name/steps-c/` is about as deep as you should go.
 
 ---
 
 ## Checklist: Minimum Viable Agentic System
 
-- [ ] Directory structure created (`_system/`, `.claude/commands/`, `.cursor/commands/`)
-- [ ] config.yaml with project name, user name, output paths
+- [ ] Directory structure created (`_bmad/`, `.claude/commands/`, `.cursor/commands/`)
+- [ ] config.yaml with user name, communication language, output paths
 - [ ] One agent with distinct persona, menu, activation protocol
 - [ ] IDE command file for the agent (both IDEs)
 - [ ] Agent activates correctly and shows menu

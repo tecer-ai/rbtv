@@ -1,7 +1,7 @@
 ---
 name: 'playwright-automation-workflow'
 description: 'Navigate websites, capture screenshots, and interact with pages using Playwright MCP'
-main_config: '{project-root}/_bmad/rbtv/config.yaml'
+main_config: '{project-root}/_bmad/core/config.yaml'
 nextStep: ./steps-c/step-01-init.md
 ---
 

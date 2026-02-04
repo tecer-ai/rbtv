@@ -111,7 +111,7 @@ Every agent file follows this exact section order:
 
 | Location in Agent | Points To | How |
 |------------------|-----------|-----|
-| Activation step 2 | config.yaml | Hardcoded path: `{project-root}/_system/{module}/config.yaml` |
+| Activation step 2 | config.yaml | Hardcoded path: `{project-root}/_bmad/{module}/config.yaml` |
 | Activation step N | Memory files (Expert agents) | Hardcoded path to `_memory/{agent-name}/` directory |
 | Menu item `exec` attr | Markdown instruction files | Relative or `{project-root}` path to .md file |
 | Menu item `workflow` attr | Workflow YAML files | `{project-root}` path to workflow.yaml |
@@ -135,7 +135,7 @@ You must fully embody this agent's persona and follow all activation instruction
 <activation critical="MANDATORY">
 
 <step n="1">IMMEDIATELY load your persona from this file — adopt role, communication style, and principles as your own.</step>
-<step n="2">CRITICAL 🚨 MANDATORY 🚨 IMMEDIATE ACTION REQUIRED — BEFORE ANY OUTPUT: Load and read {project-root}/_system/{module}/config.yaml — Store ALL fields as session variables. VERIFY: If config not loaded, STOP and report error.</step>
+<step n="2">CRITICAL 🚨 MANDATORY 🚨 IMMEDIATE ACTION REQUIRED — BEFORE ANY OUTPUT: Load and read {project-root}/_bmad/{module}/config.yaml — Store ALL fields as session variables. VERIFY: If config not loaded, STOP and report error.</step>
 <step n="3">Remember the user's name from {user_name} — use it naturally, not in every sentence.</step>
 <!-- Add agent-specific initialization steps here (steps 4+) -->
 <step n="4">Greet the user warmly in character. Present numbered menu. WAIT for input.</step>
@@ -248,7 +248,7 @@ Every workflow.md follows this structure:
 | Frontmatter `nextStep` | First step file (Create mode) | Relative path: `./steps-c/step-01-init.md` |
 | Frontmatter `validateWorkflow` | First step file (Validate mode) | Relative path: `./steps-v/step-01-init.md` |
 | Frontmatter `editWorkflow` | First step file (Edit mode) | Relative path: `./steps-e/step-01-init.md` |
-| INITIALIZATION SEQUENCE | Module config.yaml | `{project-root}/_system/{module}/config.yaml` |
+| INITIALIZATION SEQUENCE | Module config.yaml | `{project-root}/_bmad/{module}/config.yaml` |
 | Agent menu item `workflow` attr | This workflow.md file | Path used by the workflow-executor to find and load this file |
 
 ### Wording Patterns
@@ -326,7 +326,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ## INITIALIZATION SEQUENCE
 
-1. Load module config: `{project-root}/_system/{module}/config.yaml`
+1. Load module config: `{project-root}/_bmad/{module}/config.yaml`
 2. Determine mode from user intent or frontmatter
 3. Load the first step file for the selected mode
 4. Follow step instructions exactly
@@ -580,7 +580,7 @@ Tasks are XML-structured instruction files for standalone or reusable operations
 ### Task Template
 
 ```xml
-<task id="_system/tasks/{task-name}.xml"
+<task id="_bmad/{module}/tasks/{task-name}.xml"
       name="{Display Name}"
       standalone="true"
       description="{What this task does}">
@@ -664,7 +664,7 @@ Configuration files serve two purposes: providing runtime variables and declarin
 | Module config.yaml | Referenced by every agent activation step 2 | Hardcoded path in agent file |
 | Module config.yaml | Referenced by every workflow initialization | Hardcoded path in workflow.md |
 | Module config variable values | Output directories | Used via placeholders in step frontmatter: `{planning_artifacts}` |
-| manifest.yaml `modules` section | Module directories | Module names map to `_system/{module-name}/` paths |
+| manifest.yaml `modules` section | Module directories | Module names map to `_bmad/{module-name}/` paths |
 
 ### Module Config Template
 
@@ -672,15 +672,15 @@ Configuration files serve two purposes: providing runtime variables and declarin
 # Module: {module-name}
 # Description: {what this module does}
 
-# User settings
-user_name: {user-name}
-communication_language: English
-document_output_language: English
+# User settings (inherited from core/config.yaml)
+# user_name: {inherited}
+# communication_language: {inherited}
+# document_output_language: {inherited}
 
-# Output paths
-output_folder: "{project-root}/_output"
-planning_artifacts: "{project-root}/_output/planning-artifacts"
-implementation_artifacts: "{project-root}/_output/implementation-artifacts"
+# Output paths (override if module needs different locations)
+# output_folder: "{project-root}/_bmad-output"  # inherited from core/config.yaml
+# planning_artifacts: "{project-root}/_bmad-output/planning-artifacts"  # optional override
+# implementation_artifacts: "{project-root}/_bmad-output/implementation-artifacts"  # optional override
 
 # Module-specific settings
 # {key}: {value}
@@ -744,9 +744,9 @@ The loading instruction is the cross-reference — it contains the exact path to
 
 | Location in Command | Points To | How |
 |--------------------|-----------|-----|
-| Agent command body | Agent definition file | `{project-root}/_system/{module}/agents/{agent-id}.md` |
-| Workflow command body | Workflow entry file | `{project-root}/_system/{module}/workflows/{path}/workflow.md` |
-| Task command body | Task XML file | `{project-root}/_system/tasks/{task-name}.xml` |
+| Agent command body | Agent definition file | `{project-root}/_bmad/{module}/agents/{agent-id}.md` |
+| Workflow command body | Workflow entry file | `{project-root}/_bmad/{module}/workflows/{path}/workflow.md` |
+| Task command body | Task XML file | `{project-root}/_bmad/{module}/tasks/{task-name}.xml` |
 
 ### Agent Command Template
 
@@ -759,7 +759,7 @@ description: '{agent-description}'
 You must fully embody this agent's persona and follow all activation instructions exactly as specified. NEVER break character until given an exit command.
 
 <agent-activation CRITICAL="TRUE">
-1. LOAD the FULL agent file from {project-root}/_system/{module}/agents/{agent-id}.md
+1. LOAD the FULL agent file from {project-root}/_bmad/{module}/agents/{agent-id}.md
 2. READ its entire contents
 3. FOLLOW every step in the <activation> section precisely
 4. DISPLAY the welcome/greeting as instructed
@@ -776,7 +776,7 @@ name: '{workflow-name}'
 description: '{workflow-description}'
 ---
 
-IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_system/{module}/workflows/{path}/workflow.md, READ its entire contents and follow its directions exactly!
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/{module}/workflows/{path}/workflow.md, READ its entire contents and follow its directions exactly!
 ```
 
 ---
@@ -1011,9 +1011,9 @@ This section shows every connection between component types — where the refere
 
 | Source Component | Source Location | Target Component | Target Location | Mechanism | When Triggered |
 |-----------------|----------------|------------------|-----------------|-----------|----------------|
-| IDE Command | Body text | Agent file | `_system/{module}/agents/{id}.md` | `{project-root}` path in LOAD instruction | User runs command |
-| IDE Command | Body text | Workflow file | `_system/{module}/workflows/{path}/workflow.md` | `{project-root}` path in LOAD instruction | User runs command |
-| Agent | Activation step 2 | Config.yaml | `_system/{module}/config.yaml` | Hardcoded `{project-root}` path | Agent activation (mandatory) |
+| IDE Command | Body text | Agent file | `_bmad/{module}/agents/{id}.md` | `{project-root}` path in LOAD instruction | User runs command |
+| IDE Command | Body text | Workflow file | `_bmad/{module}/workflows/{path}/workflow.md` | `{project-root}` path in LOAD instruction | User runs command |
+| Agent | Activation step 2 | Config.yaml | `_bmad/{module}/config.yaml` | Hardcoded `{project-root}` path | Agent activation (mandatory) |
 | Agent | Activation step N | Memory files | `_memory/{agent-name}/` | Hardcoded path (Expert agents only) | Agent activation |
 | Agent | Menu item `exec` | Instruction file / Task file | File path in `exec` attribute | AI reads file when user selects menu item | User menu selection |
 | Agent | Menu item `workflow` | Workflow YAML / workflow.md | File path in `workflow` attribute | AI loads workflow-executor task | User menu selection |
@@ -1021,7 +1021,7 @@ This section shows every connection between component types — where the refere
 | Agent | Menu item `action` | Inline prompt | `action="prompt-id"` | AI finds prompt with matching ID in agent file | User menu selection |
 | Workflow.md | Frontmatter `nextStep` | Step file | `./steps-c/step-01-init.md` | Relative path | Mode routing during init |
 | Workflow.md | Frontmatter `validateWorkflow` | Step file | `./steps-v/step-01-init.md` | Relative path | Mode routing during init |
-| Workflow.md | INITIALIZATION | Config.yaml | `{project-root}/_system/{module}/config.yaml` | Config variable path | Workflow start |
+| Workflow.md | INITIALIZATION | Config.yaml | `{project-root}/_bmad/{module}/config.yaml` | Config variable path | Workflow start |
 | Step file | Frontmatter `nextStepFile` | Next step file | `./step-{N+1}-{name}.md` | Relative path | User selects [C] Continue |
 | Step file | Frontmatter `outputFile` | Output document | `{planning_artifacts}/{name}.md` | Config variable path | Step writes content |
 | Step file | Frontmatter `dataFile` | Data file | Config variable path | Loaded when step executes | Step execution |
@@ -1086,7 +1086,7 @@ Robotville — a separate agentic system built for Cursor — uses Cursor-specif
 
 If building a system that supports both Claude Code and Cursor:
 
-1. **Core system files**: Store in a shared location (`_system/`, `system/`, or similar). Both IDEs read from here.
+1. **Core system files**: Store in a shared location (`_bmad/`, `_system/`, or similar). Both IDEs read from here.
 2. **IDE-specific entry points**: Duplicate minimal command files across `.claude/commands/` and `.cursor/commands/`.
 3. **Cursor-only features**: Use `.cursor/rules/` for auto-applying behavior, `.cursor/agents/` for native agent discovery. These have no Claude Code equivalent — Claude Code relies on command files for all entry points.
 4. **Keep commands identical**: If the command just loads an agent/workflow file, the content is the same for both IDEs.

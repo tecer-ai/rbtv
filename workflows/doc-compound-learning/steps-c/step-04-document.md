@@ -2,7 +2,7 @@
 stepNumber: 4
 stepName: 'document'
 nextStepFile: null
-outputFile: '{compound_output_folder}/{filename}.md'
+outputFile: '{outputFolder}/{filename}.md'
 ---
 
 # Step 04: Document
@@ -70,16 +70,19 @@ Fill in all remaining template sections:
 ### 2. Determine Output Filename
 
 - Suggest filename based on improvement title
-- Format: `{improvement-slug}.md` (lowercase, hyphens, descriptive)
+- Format: `cp-{component}-{description}.md` (lowercase, hyphens, component-first)
+- The `cp-` prefix identifies this as a compound PRD for easy tracking
+- Component should be the most affected system component (e.g., rule, workflow, agent, config)
 - Examples:
-  - `fix-rule-ambiguity-file-operations.md`
-  - `add-constraint-git-commit-hooks.md`
-  - `update-agent-persona-clarity.md`
+  - `cp-rule-file-operations-ambiguity.md`
+  - `cp-workflow-context-handoff-gap.md`
+  - `cp-agent-ana-persona-clarity.md`
+  - `cp-config-output-paths-inheritance.md`
 - Ask user for confirmation or override
 
 ### 3. Save Document
 
-- Write complete PRD to `{compound_output_folder}/{filename}.md`
+- Write complete PRD to `{outputFolder}/{filename}.md`
 - Preserve all frontmatter including `stepsCompleted` history
 - Ensure all sections are populated (no empty sections)
 
@@ -103,7 +106,7 @@ Fill in all remaining template sections:
 ```
 ✅ Compound PRD created successfully!
 
-📄 Location: {compound_output_folder}/{filename}.md
+📄 Location: {outputFolder}/{filename}.md
 
 📋 Summary:
 - Problem: [Brief problem statement]
@@ -138,8 +141,8 @@ None — this is the final step (`nextStepFile: null`).
 ## SUCCESS CRITERIA
 
 - ✅ All PRD sections populated with content (no empty sections except optional ones)
-- ✅ Output filename follows naming convention: lowercase, hyphens, descriptive (e.g., `fix-rule-ambiguity.md`)
-- ✅ Document saved to configured output location (`{compound_output_folder}/{filename}.md`)
+- ✅ Output filename follows naming convention: `cp-{component}-{description}.md` (e.g., `cp-rule-file-operations-ambiguity.md`)
+- ✅ Document saved to configured output location (`{outputFolder}/{filename}.md`)
 - ✅ `stepsCompleted` array contains exactly four entries: `step-01-init.md`, `step-02-self-assessment.md`, `step-03-discussion.md`, `step-04-document.md`
 - ✅ Completion summary displayed with full file path
 - ✅ Menu presented with `[N] New Compound` and `[DA] Dismiss Agent` options

@@ -12,7 +12,7 @@ todos:
       
       GOAL: Write the Architecture section of the PRD defining the doc component's structure: directory layout for `system/doc/`, component hierarchy (command → workflow → steps → templates), thin loader pattern for `.cursor/` files, and mode routing mechanism.
       
-      AGENT: Read `_bmad/rbtv/agents/builder.md` and embody the Builder agent. Understand the task, discuss doubts and alternatives with the user before executing, then write the Architecture section.
+      AGENT: Read `_bmad/rbtv/agents/component-creator.md` and embody the Builder agent. Understand the task, discuss doubts and alternatives with the user before executing, then write the Architecture section.
     status: completed
   - id: p1-condensation
     content: |
@@ -20,7 +20,7 @@ todos:
       
       GOAL: Condense p1-1 and p1-2 execution decisions into a single Phase 1 execution decisions file.
       
-      AGENT: Read `_bmad/rbtv/agents/builder.md` and embody the Builder agent. Review both task decisions, merge into cohesive phase summary.
+      AGENT: Read `_bmad/rbtv/agents/component-creator.md` and embody the Builder agent. Review both task decisions, merge into cohesive phase summary.
     status: completed
   - id: p1-checkpoint
     content: |
@@ -32,7 +32,7 @@ todos:
       
       3) UNDERSTAND YOUR GOAL: Verify Phase 1 completion - context document exists and captures all shaping decisions; architecture section defines clear directory structure for the doc component; BMAD pattern adoption is explicit and justified. PRD path: `docs/to_dos/doc-component-v2/doc_component_prd.md`
       
-      4) EXECUTE: Read `_bmad/rbtv/agents/builder.md` and follow its instructions.
+      4) EXECUTE: Read `_bmad/rbtv/agents/component-creator.md` and follow its instructions.
       
       5) VERIFY: Use the Task tool to invoke judge and have him verify your work.
       
@@ -44,7 +44,7 @@ todos:
       
       GOAL: Write the Modes section of the PRD defining mode taxonomy (product, handoff, learning, usecase), each mode's purpose/trigger/output, mode selection UX, and workflow mapping.
       
-      AGENT: Read `_bmad/rbtv/agents/builder.md` and embody the Builder agent. Understand the task, discuss doubts and alternatives with the user before executing, then write the Modes section.
+      AGENT: Read `_bmad/rbtv/agents/component-creator.md` and embody the Builder agent. Understand the task, discuss doubts and alternatives with the user before executing, then write the Modes section.
     status: completed
   - id: p2-2
     content: |
@@ -52,7 +52,7 @@ todos:
       
       GOAL: Write the Workflows section of the PRD covering master orchestrator workflow (mode routing), per-mode tri-modal structure (Create, Validate, Edit), workflow.md template pattern, and state persistence.
       
-      AGENT: Read `_bmad/rbtv/agents/builder.md` and embody the Builder agent. Understand the task, discuss doubts and alternatives with the user before executing, then write the Workflows section.
+      AGENT: Read `_bmad/rbtv/agents/component-creator.md` and embody the Builder agent. Understand the task, discuss doubts and alternatives with the user before executing, then write the Workflows section.
     status: completed
   - id: p2-3
     content: |
@@ -64,7 +64,7 @@ todos:
       
       3) UNDERSTAND YOUR GOAL: Write the Components section of the PRD listing all files to be created: entry point `.cursor/commands/rbtv_doc.md`, system files in `system/doc/` structure, workflows, steps, templates, data files, and their dependencies. PRD path: `docs/to_dos/doc-component-v2/doc_component_prd.md`
       
-      4) EXECUTE: Read `_bmad/rbtv/agents/builder.md` and follow its instructions.
+      4) EXECUTE: Read `_bmad/rbtv/agents/component-creator.md` and follow its instructions.
       
       5) VERIFY: Use the Task tool to invoke judge and have him verify your work.
     status: pending
@@ -78,7 +78,7 @@ todos:
       
       3) UNDERSTAND YOUR GOAL: Condense p2-1, p2-2, and p2-3 execution decisions into a single Phase 2 execution decisions file. PRD path: `docs/to_dos/doc-component-v2/doc_component_prd.md`
       
-      4) EXECUTE: Read `_bmad/rbtv/agents/builder.md` and follow its instructions.
+      4) EXECUTE: Read `_bmad/rbtv/agents/component-creator.md` and follow its instructions.
       
       5) VERIFY: Use the Task tool to invoke judge and have him verify your work.
     status: pending
@@ -92,7 +92,7 @@ todos:
       
       3) UNDERSTAND YOUR GOAL: Verify Phase 2 completion - all modes defined with clear purposes; workflow structure follows BMAD patterns; component list is complete and organized. PRD path: `docs/to_dos/doc-component-v2/doc_component_prd.md`
       
-      4) EXECUTE: Read `_bmad/rbtv/agents/builder.md` and follow its instructions.
+      4) EXECUTE: Read `_bmad/rbtv/agents/component-creator.md` and follow its instructions.
       
       5) VERIFY: Use the Task tool to invoke judge and have him verify your work.
       
@@ -108,7 +108,7 @@ todos:
       
       3) UNDERSTAND YOUR GOAL: Write step-file specifications section in the PRD for each mode's workflow: step sequence (step-01 through step-N), each step's goal/mandatory sequence/menu options, and step frontmatter fields (nextStepFile, outputFile, etc.). PRD path: `docs/to_dos/doc-component-v2/doc_component_prd.md`
       
-      4) EXECUTE: Read `_bmad/rbtv/agents/builder.md` and follow its instructions.
+      4) EXECUTE: Read `_bmad/rbtv/agents/component-creator.md` and follow its instructions.
       
       5) VERIFY: Use the Task tool to invoke judge and have him verify your work.
     status: pending
@@ -122,7 +122,7 @@ todos:
       
       3) UNDERSTAND YOUR GOAL: Write the Templates section of the PRD defining output document templates for each mode: product documentation, handoff summary, learning/backlog PRD, and use case documentation. PRD path: `docs/to_dos/doc-component-v2/doc_component_prd.md`
       
-      4) EXECUTE: Read `_bmad/rbtv/agents/builder.md` and follow its instructions.
+      4) EXECUTE: Read `_bmad/rbtv/agents/component-creator.md` and follow its instructions.
       
       5) VERIFY: Use the Task tool to invoke judge and have him verify your work.
     status: pending
@@ -136,7 +136,7 @@ todos:
       
       3) UNDERSTAND YOUR GOAL: Write the Entry Point section of the PRD specifying the `/rbtv_doc` command: command file structure (thin loader pattern), how it invokes the master orchestrator, argument parsing for mode selection, and menu fallback. PRD path: `docs/to_dos/doc-component-v2/doc_component_prd.md`
       
-      4) EXECUTE: Read `_bmad/rbtv/agents/builder.md` and follow its instructions.
+      4) EXECUTE: Read `_bmad/rbtv/agents/component-creator.md` and follow its instructions.
       
       5) VERIFY: Use the Task tool to invoke judge and have him verify your work.
     status: pending
@@ -150,7 +150,7 @@ todos:
       
       3) UNDERSTAND YOUR GOAL: Condense p3-1, p3-2, and p3-3 execution decisions into a single Phase 3 execution decisions file. PRD path: `docs/to_dos/doc-component-v2/doc_component_prd.md`
       
-      4) EXECUTE: Read `_bmad/rbtv/agents/builder.md` and follow its instructions.
+      4) EXECUTE: Read `_bmad/rbtv/agents/component-creator.md` and follow its instructions.
       
       5) VERIFY: Use the Task tool to invoke judge and have him verify your work.
     status: pending
@@ -164,7 +164,7 @@ todos:
       
       3) UNDERSTAND YOUR GOAL: Review and validate the complete PRD for consistency with context decisions, BMAD pattern compliance, completeness (all modes/workflows/steps/templates), and zero-context principle (self-contained). PRD path: `docs/to_dos/doc-component-v2/doc_component_prd.md`
       
-      4) EXECUTE: Read `_bmad/rbtv/agents/builder.md` and follow its instructions.
+      4) EXECUTE: Read `_bmad/rbtv/agents/component-creator.md` and follow its instructions.
       
       5) VERIFY: Use the Task tool to invoke judge and have him verify your work.
     status: pending
@@ -178,7 +178,7 @@ todos:
       
       3) UNDERSTAND YOUR GOAL: Review and update all file references in the PRD and context document to ensure accuracy and consistency. PRD path: `docs/to_dos/doc-component-v2/doc_component_prd.md`
       
-      4) EXECUTE: Read `_bmad/rbtv/agents/builder.md` and follow its instructions.
+      4) EXECUTE: Read `_bmad/rbtv/agents/component-creator.md` and follow its instructions.
       
       5) VERIFY: Use the Task tool to invoke judge and have him verify your work.
     status: pending
@@ -192,7 +192,7 @@ todos:
       
       3) UNDERSTAND YOUR GOAL: Condense all phase execution decisions into a single plan-level execution decisions file that captures the complete journey. PRD path: `docs/to_dos/doc-component-v2/doc_component_prd.md`
       
-      4) EXECUTE: Read `_bmad/rbtv/agents/builder.md` and follow its instructions.
+      4) EXECUTE: Read `_bmad/rbtv/agents/component-creator.md` and follow its instructions.
       
       5) VERIFY: Use the Task tool to invoke judge and have him verify your work.
     status: pending
@@ -206,7 +206,7 @@ todos:
       
       3) UNDERSTAND YOUR GOAL: Final checkpoint - verify PRD is complete, all sections written, all decisions captured, and document is ready for human approval. PRD path: `docs/to_dos/doc-component-v2/doc_component_prd.md`
       
-      4) EXECUTE: Read `_bmad/rbtv/agents/builder.md` and follow its instructions.
+      4) EXECUTE: Read `_bmad/rbtv/agents/component-creator.md` and follow its instructions.
       
       5) VERIFY: Use the Task tool to invoke judge and have him verify your work.
       

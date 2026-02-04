@@ -3,7 +3,7 @@ stepNumber: 1
 stepName: 'init'
 nextStepFile: ./step-02-context.md
 templateFile: ../templates/plan-template.md
-outputFile: '{plans_folder}/{plan-name}/{plan-name}.plan.md'
+outputFile: '{outputFolder}/{plan-name}/{plan-name}.plan.md'
 dataFile: ../data/plan-creation-rules.md
 ---
 
@@ -52,8 +52,8 @@ Wait for user confirmation before proceeding.
 
 ### 5. Create Plan Folder Structure
 
-- Create folder: `.cursor/plans/{plan-name}/`
-- Note: The plan file will be created at `.cursor/plans/{plan-name}/{plan-name}.plan.md`
+- Create folder: `{outputFolder}/{plan-name}/`
+- Note: The plan file will be created at `{outputFolder}/{plan-name}/{plan-name}.plan.md`
 
 ### 6. Present Menu
 

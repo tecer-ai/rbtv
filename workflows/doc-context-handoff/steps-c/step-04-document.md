@@ -2,7 +2,7 @@
 stepNumber: 4
 stepName: 'document'
 nextStepFile: null
-outputFile: '{handoff_output_folder}/{filename}.md'
+outputFile: '{outputFolder}/{filename}.md'
 ---
 
 # Step 04: Document Generation

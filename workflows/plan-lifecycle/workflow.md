@@ -1,10 +1,11 @@
 ---
 name: 'plan-workflow'
 description: 'Create high-quality plans and execute them following structured protocol with quality gates'
-main_config: '{project-root}/_bmad/rbtv/config.yaml'
+main_config: '{project-root}/_bmad/core/config.yaml'
 nextStep: ./steps-c/step-01-init.md
 executeWorkflow: ./steps-x/step-01-init.md
 templateFile: ./templates/plan-template.md
+outputFolder: '{project-root}/.cursor/plans'
 ---
 
 # Plan Workflow
@@ -58,7 +59,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ### 1. Load Module Config
 
-Load `{project-root}/_bmad/rbtv/config.yaml` and store all variables.
+Load `{main_config}` and store all variables.
 
 ### 2. Determine Mode
 
@@ -106,7 +107,7 @@ Load these files as needed:
 
 ## SPEC ARTIFACTS
 
-Created during step-02-context in `.cursor/plans/{plan-name}/`:
+Created during step-02-context in `{outputFolder}/{plan-name}/`:
 
 | Artifact | Purpose |
 |----------|---------|

@@ -2,25 +2,25 @@ type,name,path,description
 manifest,subagents,_bmad/rbtv/subagents-manifest.csv,Canonical list of rbtv subagents - id name path description; use id as subagent_type
 command,bmad-rbtv-doc,BMAD/.cursor/commands/bmad-rbtv-doc.md,Unified documentation generation (compound, handoff, product)
 command,bmad-rbtv-git,BMAD/.cursor/commands/bmad-rbtv-git.md,Git commit workflow with Conventional Commits
-command,bmad-rbtv-create,BMAD/.cursor/commands/bmad-rbtv-create.md,BMAD Builder - create components in BMAD architecture
-subagent,judge,BMAD/.cursor/agents/judge.md,Evaluates work against quality criteria - invoke after complex tasks
+command,bmad-rbtv-create,BMAD/.cursor/commands/bmad-rbtv-create-component.md,BMAD Builder - create components in BMAD architecture
+subagent,judge,BMAD/.cursor/agents/bmad-rbtv-quality-evaluator.md,Evaluates work against quality criteria - invoke after complex tasks
 task,web-research,_bmad/rbtv/tasks/web-research.xml,Apply rigorous research standards for data integrity and source evaluation
-skill,web-research,BMAD/.cursor/skills/web-research/SKILL.md,Thin loader for web research task - auto-applies during research
-subagent,web-research,BMAD/.cursor/agents/web-research.md,Rigorous web research executor with source evaluation - invoke for factual research
-workflow,visual-extraction,_bmad/rbtv/workflows/design/visual-extraction/workflow.md,Extract design tokens from website screenshots (4-step process)
-skill,visual-design-extraction,BMAD/.cursor/skills/visual-design-extraction/SKILL.md,Thin loader for visual design extraction workflow - auto-applies during design analysis
+skill,web-research,BMAD/.cursor/skills/bmad-rbtv-web-research/SKILL.md,Thin loader for web research task - auto-applies during research
+subagent,web-research,BMAD/.cursor/agents/bmad-rbtv-web-research.md,Rigorous web research executor with source evaluation - invoke for factual research
+workflow,visual-extraction,_bmad/rbtv/workflows/design-token-extraction/workflow.md,Extract design tokens from website screenshots (4-step process)
+skill,visual-design-extraction,BMAD/.cursor/skills/bmad-rbtv-visual-design-extraction/SKILL.md,Thin loader for visual design extraction workflow - auto-applies during design analysis
 task,tone-extraction,_bmad/rbtv/tasks/tone-extraction.xml,Extract voice signature from text across emotional tone structural patterns and vocabulary
-skill,tone-extraction,BMAD/.cursor/skills/tone-extraction/SKILL.md,Thin loader for tone extraction task - auto-applies during voice analysis
-workflow,design-validation,_bmad/rbtv/workflows/design/design-validation/workflow.md,Validate HTML designs using 4-layer framework (structural hierarchy brand UX)
-skill,design-validation,BMAD/.cursor/skills/design-validation/SKILL.md,Thin loader for design validation workflow - auto-applies during design QA
-workflow,playwright-automation,_bmad/rbtv/workflows/browser/playwright-automation/workflow.md,Navigate websites capture screenshots and interact with pages using Playwright MCP (4-step process)
-skill,playwright-browser-automation,BMAD/.cursor/skills/playwright-browser-automation/SKILL.md,Thin loader for playwright browser automation workflow - auto-applies during browser automation
-workflow,mermaid-conversion,_bmad/rbtv/workflows/diagram/mermaid-conversion/workflow.md,Convert Mermaid diagrams to PNG images using mmdc CLI with visual clarity validation (4-step process)
-skill,mermaid-conversion,BMAD/.cursor/skills/mermaid-conversion/SKILL.md,Thin loader for mermaid conversion workflow - auto-applies during Mermaid diagram conversion
-workflow,plan,_bmad/rbtv/workflows/planning/plan/workflow.md,Create and execute plans following structured protocol with quality gates (4-step create + 3-step execute)
+skill,tone-extraction,BMAD/.cursor/skills/bmad-rbtv-tone-extraction/SKILL.md,Thin loader for tone extraction task - auto-applies during voice analysis
+workflow,design-validation,_bmad/rbtv/workflows/design-qa-validation/workflow.md,Validate HTML designs using 4-layer framework (structural hierarchy brand UX)
+skill,design-validation,BMAD/.cursor/skills/bmad-rbtv-design-validation/SKILL.md,Thin loader for design validation workflow - auto-applies during design QA
+workflow,playwright-automation,_bmad/rbtv/workflows/browser-web-automation/workflow.md,Navigate websites capture screenshots and interact with pages using Playwright MCP (4-step process)
+skill,playwright-browser-automation,BMAD/.cursor/skills/bmad-rbtv-playwright-browser-automation/SKILL.md,Thin loader for playwright browser automation workflow - auto-applies during browser automation
+workflow,mermaid-conversion,_bmad/rbtv/workflows/diagram-mermaid-render/workflow.md,Convert Mermaid diagrams to PNG images using mmdc CLI with visual clarity validation (4-step process)
+skill,mermaid-conversion,BMAD/.cursor/skills/bmad-rbtv-mermaid-conversion/SKILL.md,Thin loader for mermaid conversion workflow - auto-applies during Mermaid diagram conversion
+workflow,plan,_bmad/rbtv/workflows/plan-lifecycle/workflow.md,Create and execute plans following structured protocol with quality gates (4-step create + 3-step execute)
 command,bmad-rbtv-plan,BMAD/.cursor/commands/bmad-rbtv-plan.md,Plan workflow command - create or execute plans with quality gates
 task,context-search,_bmad/rbtv/tasks/context-search.xml,Search referenced files for knowledge relevant to conversation context and specific request
-subagent,context-search,BMAD/.cursor/agents/context-search.md,Exhaustive knowledge extractor - searches files deeply and returns complete findings
+subagent,context-search,BMAD/.cursor/agents/bmad-rbtv-context-search.md,Exhaustive knowledge extractor - searches files deeply and returns complete findings
 command,bmad-rbtv-domcobb,_bmad/rbtv/.cursor/commands/bmad-rbtv-domcobb.md,Problem Architect & Prompting Expert - structure problems and craft prompts
 agent,domcobb,_bmad/rbtv/agents/domcobb.md,Problem Architect & Prompting Expert - converts vague needs into structured solutions
 workflow,problem-structuring,_bmad/rbtv/workflows/problem-structuring/workflow.md,Define and structure problems using MECE Pyramid Principle and Problem Trees (4-step process)

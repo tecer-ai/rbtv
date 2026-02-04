@@ -2,9 +2,11 @@
 title: 'Compound: [Improvement Title]'
 docType: 'compound'
 mode: 'create'
+priority: '[High | Medium | Low]'
+tracker: ''
 stepsCompleted: []
 inputDocuments: []
-outputPath: 'docs/to_dos/'
+outputPath: '{outputFolder}'
 date: '{date}'
 yoloMode: false
 ---
@@ -13,6 +15,7 @@ yoloMode: false
 
 **Type:** [Rule | System File | Constraint | Workflow | Other]  
 **Priority:** [High | Medium | Low]  
+**Tracker:** [GitHub issue, Jira ticket, or empty if not tracked]  
 **Status:** Backlog
 
 ---

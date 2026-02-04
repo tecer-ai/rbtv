@@ -2,7 +2,7 @@
 stepNumber: 3
 stepName: 'extraction'
 nextStepFile: ./step-04-document.md
-outputFile: '{handoff_output_folder}/{filename}.md'
+outputFile: '{outputFolder}/{filename}.md'
 advancedElicitationTask: '{project-root}/_bmad/core/workflows/advanced-elicitation/workflow.xml'
 ---
 

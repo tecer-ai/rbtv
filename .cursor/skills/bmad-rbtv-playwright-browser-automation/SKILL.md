@@ -23,7 +23,7 @@ description: Navigate websites, capture screenshots, manage viewports, and inter
 Load and follow the playwright browser automation workflow:
 
 ```
-{project-root}/_bmad/rbtv/workflows/browser/playwright-automation/workflow.md
+{project-root}/_bmad/rbtv/workflows/browser-web-automation/workflow.md
 ```
 
 This workflow provides:

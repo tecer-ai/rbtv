@@ -21,7 +21,7 @@ description: Validate HTML designs using browser automation and 4-layer framewor
 Load and follow the design validation workflow:
 
 ```
-{project-root}/_bmad/rbtv/workflows/design/design-validation/workflow.md
+{project-root}/_bmad/rbtv/workflows/design-qa-validation/workflow.md
 ```
 
 This workflow provides:

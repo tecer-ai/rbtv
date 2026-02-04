@@ -2,7 +2,7 @@
 stepNumber: 3
 stepName: 'structure'
 nextStepFile: ./step-04-finalize.md
-outputFile: '{plans_folder}/{plan-name}/{plan-name}.plan.md'
+outputFile: '{outputFolder}/{plan-name}/{plan-name}.plan.md'
 dataFile: ../data/plan-creation-rules.md
 ---
 

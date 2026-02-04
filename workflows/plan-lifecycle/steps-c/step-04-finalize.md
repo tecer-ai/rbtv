@@ -2,7 +2,7 @@
 stepNumber: 4
 stepName: 'finalize'
 nextStepFile: null
-outputFile: '{plans_folder}/{plan-name}/{plan-name}.plan.md'
+outputFile: '{outputFolder}/{plan-name}/{plan-name}.plan.md'
 templateFile: ../templates/plan-template.md
 ---
 

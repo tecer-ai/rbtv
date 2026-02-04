@@ -2,7 +2,7 @@
 stepNumber: 1
 stepId: init
 nextStepFile: ./step-02-discover.md
-outputFile: "{default_output_folder}/structured-problem-{date}.md"
+outputFile: "{output_folder}/structured-problem-{date}.md"
 ---
 
 # Step 1: Initialize Problem Structuring

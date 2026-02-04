@@ -2,7 +2,7 @@
 stepNumber: 2
 stepName: 'context'
 nextStepFile: ./step-03-structure.md
-outputFile: '{plans_folder}/{plan-name}/{plan-name}.plan.md'
+outputFile: '{outputFolder}/{plan-name}/{plan-name}.plan.md'
 ---
 
 # Step 02: Gather Context

@@ -21,7 +21,7 @@ description: Extract design tokens (colors, typography, spacing, layout, visual 
 Load and follow the visual design extraction workflow:
 
 ```
-{project-root}/_bmad/rbtv/workflows/design/visual-extraction/workflow.md
+{project-root}/_bmad/rbtv/workflows/design-token-extraction/workflow.md
 ```
 
 This workflow provides:

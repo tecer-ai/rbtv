@@ -3,7 +3,7 @@ stepNumber: 1
 stepName: 'init'
 nextStepFile: ./step-02-self-assessment.md
 templateFile: ../templates/compound-prd.md
-outputFile: '{compound_output_folder}/{filename}.md'
+outputFile: '{outputFolder}/{filename}.md'
 advancedElicitationTask: '{project-root}/_bmad/core/workflows/advanced-elicitation/workflow.xml'
 ---
 
@@ -25,7 +25,7 @@ Follow these instructions in exact order. Do NOT skip, reorder, or optimize.
 
 ### 2. Determine Sub-Mode
 
-- Scan `{compound_output_folder}` for existing compound PRDs
+- Scan `{outputFolder}` for existing compound PRDs
 - If no existing PRD found → Route to **Create** mode
 - If existing PRD found → Ask user: "Resume existing workflow or start new?"
   - If resume → Load existing PRD, check `stepsCompleted`, route to continuation
@@ -52,7 +52,7 @@ docType: 'compound'
 mode: 'create'
 stepsCompleted: []
 inputDocuments: []
-outputPath: '{compound_output_folder}'
+outputPath: '{outputFolder}'
 date: '{current-date}'
 yoloMode: {true|false}
 ---

@@ -6,7 +6,7 @@ handoffType: 'execution'
 targetAgent: 'Agent executing tasks from approved plan'
 stepsCompleted: []
 inputDocuments: []
-outputPath: '{handoff_output_folder}'
+outputPath: '{outputFolder}'
 date: '{date}'
 ---
 

@@ -49,7 +49,7 @@ rbtv/
 ├── subagents-manifest.csv   # Subagent registry for Task tool
 ├── agents/                  # Agent personas
 │   ├── ana.md               # Documentation Orchestrator
-│   ├── builder.md           # BMAD Component Builder
+│   ├── component-creator.md           # BMAD Component Builder
 │   └── domcobb.md           # Problem Architect & Prompting Expert
 ├── tasks/                   # Standalone procedures
 │   ├── context-search.xml
@@ -178,12 +178,14 @@ RBTV migrates Robotville capabilities to BMAD standards. Key differences:
 
 ## Configuration
 
-Module settings in `config.yaml`:
+Module configuration:
 
-| Setting | Purpose |
-|---------|---------|
-| `default_output_folder` | Compound and todo outputs |
-| `handoff_output_folder` | Handoff documents |
-| `planning_artifacts` | Plan spec artifacts |
-| `build_output_folder` | Component build outputs |
-| `communication_language` | Agent communication language |
+All settings inherited from `_bmad/core/config.yaml`:
+- `user_name`
+- `communication_language`
+- `document_output_language`
+- `output_folder`
+
+> **Note:** 
+> - Workflow-specific output paths defined in each workflow.md frontmatter
+> - Build paths defined in component-creator.md agent frontmatter

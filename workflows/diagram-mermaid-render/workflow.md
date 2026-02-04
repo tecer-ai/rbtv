@@ -1,7 +1,7 @@
 ---
 name: 'mermaid-conversion-workflow'
 description: 'Convert Mermaid diagrams to PNG images using mmdc CLI and validate clarity'
-main_config: '{project-root}/_bmad/rbtv/config.yaml'
+main_config: '{project-root}/_bmad/core/config.yaml'
 nextStep: ./steps-c/step-01-init.md
 ---
 

@@ -21,7 +21,7 @@ description: Convert Mermaid diagrams in Markdown files to PNG images using mmdc
 Load and follow the mermaid conversion workflow:
 
 ```
-{project-root}/_bmad/rbtv/workflows/diagram/mermaid-conversion/workflow.md
+{project-root}/_bmad/rbtv/workflows/diagram-mermaid-render/workflow.md
 ```
 
 This workflow provides:

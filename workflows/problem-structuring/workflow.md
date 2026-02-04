@@ -61,7 +61,7 @@ Load these files during Step 2 (Framework Selection):
 
 ## INITIALIZATION SEQUENCE
 
-1. Load module config: `{project-root}/_bmad/rbtv/config.yaml`
+1. Load module config: `{project-root}/_bmad/core/config.yaml`
 2. Determine mode from user intent or frontmatter
 3. Load the first step file for the selected mode
 4. Follow step instructions exactly

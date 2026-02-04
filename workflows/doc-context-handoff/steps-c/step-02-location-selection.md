@@ -2,7 +2,7 @@
 stepNumber: 2
 stepName: 'location-selection'
 nextStepFile: ./step-03-extraction.md
-outputFile: '{handoff_output_folder}/{filename}.md'
+outputFile: '{outputFolder}/{filename}.md'
 advancedElicitationTask: '{project-root}/_bmad/core/workflows/advanced-elicitation/workflow.xml'
 ---
 
@@ -51,7 +51,7 @@ Examine the conversation to generate relevant location suggestions:
 | Plan-related discussion | `.cursor/plans/{plan-name}/` |
 | Architecture/design context | `docs/architecture/` |
 | Product documentation context | `docs/product/` |
-| No specific context | `.cursor/handoff/` (default) |
+| No specific context | `{outputFolder}` (default from workflow.md) |
 
 ### 2. Generate Three Location Options
 
@@ -59,7 +59,7 @@ Create 3 contextually relevant suggestions:
 
 1. **Project-specific location** — If conversation involves a specific project
 2. **Topic-specific location** — Based on conversation topic
-3. **Default location** — `.cursor/handoff/` as fallback
+3. **Default location** — `{outputFolder}` as fallback (from workflow.md)
 
 ### 3. Present Location Selection
 
@@ -70,7 +70,7 @@ Before I create the handoff summary, where would you like me to save it?
 
 1. `{contextual suggestion 1}` — {brief reason}
 2. `{contextual suggestion 2}` — {brief reason}
-3. `.cursor/handoff/` — default handoff location
+3. `{outputFolder}` — default handoff location
 
 Please choose a number or specify a custom path.
 ```

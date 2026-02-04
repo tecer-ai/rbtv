@@ -6,7 +6,7 @@ handoffType: 'plan-development'
 targetAgent: 'Agent continuing plan creation or modification'
 stepsCompleted: []
 inputDocuments: []
-outputPath: '{handoff_output_folder}'
+outputPath: '{outputFolder}'
 date: '{date}'
 ---
 

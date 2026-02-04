@@ -10,15 +10,15 @@ Use these templates to create BMAD configuration files.
 # Module: {module-name}
 # Description: {what this module does}
 
-# User settings
-user_name: {user-name}
-communication_language: English
-document_output_language: English
+# User settings (inherited from core/config.yaml)
+# user_name: {inherited}
+# communication_language: {inherited}
+# document_output_language: {inherited}
 
-# Output paths
-output_folder: "{project-root}/RBTV/_output"
-planning_artifacts: "{project-root}/RBTV/_output/planning-artifacts"
-implementation_artifacts: "{project-root}/RBTV/_output/implementation-artifacts"
+# Output paths (override if module needs different locations)
+# output_folder: "{project-root}/_bmad-output"  # inherited from core/config.yaml
+# planning_artifacts: "{project-root}/_bmad-output/planning-artifacts"  # optional override
+# implementation_artifacts: "{project-root}/_bmad-output/implementation-artifacts"  # optional override
 
 # Module-specific settings
 # {key}: {value}

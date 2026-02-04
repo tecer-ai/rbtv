@@ -63,7 +63,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ## INITIALIZATION SEQUENCE
 
-1. Load module config: `{project-root}/RBTV/_system/{module}/config.yaml`
+1. Load module config: `{project-root}/_bmad/{module}/config.yaml`
 2. Determine mode from user intent or frontmatter
 3. Load the first step file for the selected mode
 4. Follow step instructions exactly

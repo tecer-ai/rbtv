@@ -90,7 +90,7 @@ api-testing,"API Testing Patterns","knowledge/api-testing.md","testing,api"
 ### Small Knowledge Base (< 10 files)
 Load eagerly during agent activation. Reference in activation steps:
 ```xml
-<step n="3">Load knowledge from {project-root}/RBTV/_system/data/*.md</step>
+<step n="3">Load knowledge from {project-root}/_bmad/{module}/data/*.md</step>
 ```
 
 ### Large Knowledge Base (10+ files)

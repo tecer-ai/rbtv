@@ -1,4 +1,4 @@
 id,name,path,description
-judge,Judge,BMAD/.cursor/agents/judge.md,Evaluates work against quality criteria - use for quality gates after complex tasks
-web-research,Web Research,BMAD/.cursor/agents/web-research.md,Rigorous web research with source evaluation - use for factual research
-context-search,Context Search,BMAD/.cursor/agents/context-search.md,Searches referenced files for knowledge - use for deep file analysis and improvement discovery
+judge,Judge,BMAD/.cursor/agents/bmad-rbtv-quality-evaluator.md,Evaluates work against quality criteria - use for quality gates after complex tasks
+web-research,Web Research,BMAD/.cursor/agents/bmad-rbtv-web-research.md,Rigorous web research with source evaluation - use for factual research
+context-search,Context Search,BMAD/.cursor/agents/bmad-rbtv-context-search.md,Searches referenced files for knowledge - use for deep file analysis and improvement discovery

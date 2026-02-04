@@ -1,8 +1,10 @@
 ---
 name: 'git-workflow'
 description: 'Execute git operations with Conventional Commits messages'
-main_config: '{project-root}/_bmad/rbtv/config.yaml'
+main_config: '{project-root}/_bmad/core/config.yaml'
 nextStep: ./steps-c/step-01-init.md
+defaultSize: 1000
+defaultPush: false
 ---
 
 # Git Workflow

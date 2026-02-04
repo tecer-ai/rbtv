@@ -216,7 +216,7 @@ Robotville is a business-side innovation framework for AI-assisted product devel
 | [system/founder/founder_process.md](system/founder/founder_process.md) | Founder module master navigation | Phase 3 |
 | [system/founder/m1_conception/conception_process.md](system/founder/m1_conception/conception_process.md) | M1 process to convert into step files | Phase 3 |
 | [system/founder/templates/founder_diary.md](system/founder/templates/founder_diary.md) | Diary template to extend with frontmatter | Phase 4 |
-| [.cursor/agents/judge.md](.cursor/agents/judge.md) | Judge agent for quality gates | Phase 5 |
+| [.cursor/agents/bmad-rbtv-quality-evaluator.md](.cursor/agents/bmad-rbtv-quality-evaluator.md) | Judge agent for quality gates | Phase 5 |
 | [.cursor/skills/plan-workflow/SKILL.md](.cursor/skills/plan-workflow/SKILL.md) | Plan execution protocol (preserve) | Phase 1 |
 
 ---
