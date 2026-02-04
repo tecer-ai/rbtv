@@ -1,0 +1,166 @@
+<task id="_bmad/rbtv/tasks/validate-plan-artifacts.xml"
+      name="Validate Plan Artifacts"
+      standalone="true"
+      description="Verify a plan folder contains all required artifacts: main plan, companion files, phase folders, and micro-step task files.">
+
+  <objective>
+    Validate that a plan folder contains the complete artifact set required for self-execution.
+    Report missing artifacts with specific paths.
+  </objective>
+
+  <llm critical="true">
+    <rule>Read the complete task before starting execution.</rule>
+    <rule>Follow steps in exact order.</rule>
+    <rule>NEVER assume artifacts exist — verify each one explicitly.</rule>
+    <rule>Report ALL missing artifacts, not just the first one found.</rule>
+  </llm>
+
+  <input>
+    <param name="plan_folder" required="true">Absolute path to the plan folder (e.g., .cursor/plans/{plan-name}/)</param>
+  </input>
+
+  <flow>
+    <step n="1" title="Identify Plan Folder">
+      <substep n="1a" title="Locate plan folder">
+        <action>If {plan_folder} not provided, ask user for the plan folder path.</action>
+      </substep>
+      <substep n="1b" title="Verify folder exists">
+        <action>List the plan folder contents.</action>
+        <check if="folder does not exist">
+          <action>HALT with error: "Plan folder not found: {plan_folder}"</action>
+        </check>
+      </substep>
+    </step>
+
+    <step n="2" title="Validate Core Files">
+      <substep n="2a" title="Find main plan file">
+        <action>Look for a file matching pattern *.plan.md in the plan folder.</action>
+        <check if="no .plan.md file found">
+          <action>Record missing: "Main plan file (*.plan.md)"</action>
+        </check>
+      </substep>
+      <substep n="2b" title="Check shape.md">
+        <action>Verify shape.md exists in the plan folder.</action>
+        <check if="shape.md not found">
+          <action>Record missing: "shape.md"</action>
+        </check>
+      </substep>
+      <substep n="2c" title="Check learnings.md">
+        <action>Verify learnings.md exists in the plan folder.</action>
+        <check if="learnings.md not found">
+          <action>Record missing: "learnings.md"</action>
+        </check>
+      </substep>
+    </step>
+
+    <step n="3" title="Parse Plan Structure">
+      <substep n="3a" title="Read plan frontmatter">
+        <action>Read the main plan file and parse YAML frontmatter.</action>
+        <check if="no frontmatter or no todos array">
+          <action>Record error: "Plan file missing YAML frontmatter or todos array"</action>
+        </check>
+      </substep>
+      <substep n="3b" title="Extract tasks">
+        <action>From the todos array, extract all task IDs.</action>
+        <action>Identify which tasks are checkpoints (id contains "checkpoint").</action>
+        <action>Build list of non-checkpoint tasks requiring micro-step files.</action>
+      </substep>
+      <substep n="3c" title="Determine phases">
+        <action>From task IDs (p1-1, p2-1, etc.), determine which phase folders should exist.</action>
+        <action>Map task prefix (p1, p2, pN) to folder name (phase-1, phase-2, phase-final).</action>
+      </substep>
+    </step>
+
+    <step n="4" title="Validate Phase Folders">
+      <substep n="4a" title="Check phase folders">
+        <action>For each required phase folder, verify it exists.</action>
+        <check if="phase folder missing">
+          <action>Record missing: "phase-{N}/" for each missing folder</action>
+        </check>
+      </substep>
+    </step>
+
+    <step n="5" title="Validate Micro-Step Files">
+      <substep n="5a" title="Check task files">
+        <action>For each non-checkpoint task, verify its micro-step file exists.</action>
+        <action>Expected location: phase-{N}/{task-id}.task.md</action>
+        <check if="task file missing">
+          <action>Record missing: "phase-{N}/{task-id}.task.md" for each missing file</action>
+        </check>
+      </substep>
+    </step>
+
+    <step n="6" title="Report Results">
+      <substep n="6a" title="Compile validation report">
+        <action>Generate validation summary with counts and status.</action>
+      </substep>
+      <substep n="6b" title="Display results">
+        <action>Present report using the format below.</action>
+      </substep>
+    </step>
+  </flow>
+
+  <output-format>
+    <template>
+## Plan Artifact Validation Report
+
+**Plan:** {plan-name}
+**Location:** {plan_folder}
+
+### Core Files
+
+| Artifact | Status |
+|----------|--------|
+| Main plan file | {✅ Found / ❌ Missing} |
+| shape.md | {✅ Found / ❌ Missing} |
+| learnings.md | {✅ Found / ❌ Missing} |
+
+### Phase Folders
+
+| Folder | Status |
+|--------|--------|
+| phase-1/ | {✅ Found / ❌ Missing} |
+| phase-2/ | {✅ Found / ❌ Missing} |
+| ... | ... |
+
+### Micro-Step Task Files
+
+| Task ID | File | Status |
+|---------|------|--------|
+| p1-1 | phase-1/p1-1.task.md | {✅ Found / ❌ Missing} |
+| p1-2 | phase-1/p1-2.task.md | {✅ Found / ❌ Missing} |
+| ... | ... | ... |
+
+### Summary
+
+- **Total artifacts expected:** {count}
+- **Found:** {count}
+- **Missing:** {count}
+
+**Result:** {✅ VALID — all artifacts present / ❌ INCOMPLETE — {count} artifacts missing}
+
+{If incomplete, list all missing artifacts with full paths}
+    </template>
+  </output-format>
+
+  <halt-conditions>
+    <condition>Plan folder does not exist</condition>
+    <condition>User requests to stop validation</condition>
+  </halt-conditions>
+
+  <mapping-rules>
+    <rule name="task-id-to-phase">
+      Task IDs follow pattern: p{N}-{name}
+      - p1-* → phase-1/
+      - p2-* → phase-2/
+      - pN-* (where N is last phase number) → phase-final/
+      - Exception: "checkpoint" tasks do NOT have micro-step files
+    </rule>
+    <rule name="task-id-to-file">
+      Task ID: p1-1 → File: phase-1/p1-1.task.md
+      Task ID: p2-setup → File: phase-2/p2-setup.task.md
+      Task ID: pN-compound → File: phase-final/pN-compound.task.md
+    </rule>
+  </mapping-rules>
+
+</task>
