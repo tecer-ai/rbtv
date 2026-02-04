@@ -21,3 +21,8 @@ workflow,plan,_bmad/rbtv/workflows/planning/plan/workflow.md,Create and execute 
 command,bmad-rbtv-plan,BMAD/.cursor/commands/bmad-rbtv-plan.md,Plan workflow command - create or execute plans with quality gates
 task,context-search,_bmad/rbtv/tasks/context-search.xml,Search referenced files for knowledge relevant to conversation context and specific request
 subagent,context-search,BMAD/.cursor/agents/context-search.md,Exhaustive knowledge extractor - searches files deeply and returns complete findings
+command,bmad-rbtv-domcobb,BMAD/.cursor/commands/bmad-rbtv-domcobb.md,Problem Architect & Prompting Expert - structure problems and craft prompts
+agent,domcobb,_bmad/rbtv/agents/domcobb.md,Problem Architect & Prompting Expert - converts vague needs into structured solutions
+workflow,problem-structuring,_bmad/rbtv/workflows/problem-structuring/workflow.md,Define and structure problems using MECE Pyramid Principle and Problem Trees (4-step process)
+workflow,prompting-assistance,_bmad/rbtv/workflows/prompting-assistance/workflow.md,Craft effective prompts using AI model knowledge and prompting techniques (4-step process)
+workflow,add-prompting-knowledge,_bmad/rbtv/workflows/add-prompting-knowledge/workflow.md,Route to Builder to create new AI model or prompting technique documentation
