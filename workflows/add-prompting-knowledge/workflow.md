@@ -89,9 +89,9 @@ Context to pass:
 ```
 
 **Template Sources:**
-- AI Model: `{project-root}/_bmad/rbtv/workflows/ai_model.md`
-- Prompting Technique: `{project-root}/_bmad/rbtv/workflows/prompting_technique.md`
-- Platform Knowledge: `{project-root}/_bmad/rbtv/workflows/platform_knowledge.md`
+- AI Model: `{project-root}/_bmad/rbtv/workflows/prompting-assistance/data/ai_model.md`
+- Prompting Technique: `{project-root}/_bmad/rbtv/workflows/prompting-assistance/data/prompting_technique.md`
+- Platform Knowledge: `{project-root}/_bmad/rbtv/workflows/prompting-assistance/data/platform_knowledge.md`
 
 ### 4. Update Knowledge Index
 
