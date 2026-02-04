@@ -47,24 +47,34 @@ For each phase, generate tasks following granularity rules:
 | No compound tasks | "Create and validate" → two separate tasks |
 | Room for judgment | Leave HOW decisions to executing agent unless user specified |
 
-### 5. First Task Must Create Log Infrastructure
+### 5. Assess Task Complexity
 
-**MANDATORY:** The first task of the plan MUST be:
+For each task, assess complexity across 5 dimensions:
+
+| Dimension | Low (1) | Medium (2) | High (3) |
+|-----------|---------|------------|----------|
+| Context size | Few files | Multiple files | Many files across folders |
+| Dependencies | Standalone | Some dependencies | Complex dependency chain |
+| Tool usage | Single tool | 2-3 tools | Multiple tools with coordination |
+| Decision density | Routine | Some judgment | Many design decisions |
+| Human review need | None | Optional | Required |
+
+**Scoring thresholds:**
+- 5-7: Simple task
+- 8-11: Moderate task
+- 12-15: Complex task (consider splitting)
+
+### 6. Add Final Compound Task
+
+**MANDATORY:** The last task of the final phase MUST be:
 
 ```yaml
-- id: p1-1
-  content: "p1-1: Create plan folder and initial execution decisions file"
+- id: pN-compound
+  content: "pN-compound: Review learnings.md and compound into system improvements"
   status: pending
 ```
 
-This establishes the logging structure before any work begins.
-
-### 6. Add Automatic Condensation Tasks
-
-Per workflow rules, add these tasks automatically:
-- **Phase condensation** — Before each milestone checkpoint
-- **File reference review** — Second-to-last task before final checkpoint
-- **Final condensation** — Last task before final checkpoint
+This reviews meta-learnings captured during execution and proposes BMAD/RBTV improvements.
 
 ### 7. Generate Checkpoints
 
@@ -173,8 +183,8 @@ On Continue selection:
 - ✅ Phases defined with clear goals
 - ✅ Tasks follow granularity rules (WHAT not HOW, single action each)
 - ✅ Tasks use explicit file operations (CREATE/UPDATE/DELETE/MOVE)
-- ✅ First task creates log infrastructure
-- ✅ Automatic condensation tasks included
+- ✅ Task complexity assessed (5-dimension scoring)
+- ✅ Final compound task included (pN-compound)
 - ✅ 3-6 checkpoints at inflection points
 - ✅ Task IDs follow format rules and sync with headers
 - ✅ Dependency ordering validated (no violations or user-approved overrides)

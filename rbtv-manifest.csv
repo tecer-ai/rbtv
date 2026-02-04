@@ -1,9 +1,9 @@
 type,name,path,description
-manifest,subagents,_bmad/rbtv/subagents-manifest.csv,Canonical list of rbtv subagents - id name path description; use id as subagent_type
+manifest,tools,_bmad/rbtv/tools-manifest.csv,Canonical list of RBTV tools with all entry points (command/skill/subagent); use id as subagent_type
 command,bmad-rbtv-doc,BMAD/.cursor/commands/bmad-rbtv-doc.md,Unified documentation generation (compound, handoff, product)
 command,bmad-rbtv-git,BMAD/.cursor/commands/bmad-rbtv-git.md,Git commit workflow with Conventional Commits
 command,bmad-rbtv-create,BMAD/.cursor/commands/bmad-rbtv-create-component.md,BMAD Builder - create components in BMAD architecture
-subagent,judge,BMAD/.cursor/agents/bmad-rbtv-quality-evaluator.md,Evaluates work against quality criteria - invoke after complex tasks
+subagent,judge,BMAD/.cursor/agents/bmad-rbtv-quality-review.md,Evaluates work against quality criteria - invoke after complex tasks
 task,web-research,_bmad/rbtv/tasks/web-research.xml,Apply rigorous research standards for data integrity and source evaluation
 skill,web-research,BMAD/.cursor/skills/bmad-rbtv-web-research/SKILL.md,Thin loader for web research task - auto-applies during research
 subagent,web-research,BMAD/.cursor/agents/bmad-rbtv-web-research.md,Rigorous web research executor with source evaluation - invoke for factual research
@@ -17,7 +17,7 @@ workflow,playwright-automation,_bmad/rbtv/workflows/browser-web-automation/workf
 skill,playwright-browser-automation,BMAD/.cursor/skills/bmad-rbtv-playwright-browser-automation/SKILL.md,Thin loader for playwright browser automation workflow - auto-applies during browser automation
 workflow,mermaid-conversion,_bmad/rbtv/workflows/diagram-mermaid-render/workflow.md,Convert Mermaid diagrams to PNG images using mmdc CLI with visual clarity validation (4-step process)
 skill,mermaid-conversion,BMAD/.cursor/skills/bmad-rbtv-mermaid-conversion/SKILL.md,Thin loader for mermaid conversion workflow - auto-applies during Mermaid diagram conversion
-workflow,plan,_bmad/rbtv/workflows/plan-lifecycle/workflow.md,Create and execute plans following structured protocol with quality gates (4-step create + 3-step execute)
+workflow,plan,_bmad/rbtv/workflows/plan-lifecycle/workflow.md,Create self-executing plans with micro-step task files (4-step create process)
 command,bmad-rbtv-plan,BMAD/.cursor/commands/bmad-rbtv-plan.md,Plan workflow command - create or execute plans with quality gates
 task,context-search,_bmad/rbtv/tasks/context-search.xml,Search referenced files for knowledge relevant to conversation context and specific request
 subagent,context-search,BMAD/.cursor/agents/bmad-rbtv-context-search.md,Exhaustive knowledge extractor - searches files deeply and returns complete findings

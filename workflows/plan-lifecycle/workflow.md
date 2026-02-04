@@ -1,18 +1,20 @@
 ---
 name: 'plan-workflow'
-description: 'Create high-quality plans and execute them following structured protocol with quality gates'
+description: 'Create high-quality, self-executing plans with micro-step task files'
 main_config: '{project-root}/_bmad/core/config.yaml'
 nextStep: ./steps-c/step-01-init.md
-executeWorkflow: ./steps-x/step-01-init.md
 templateFile: ./templates/plan-template.md
+microstepTemplateFile: ./templates/plan-task-microstep-template.md
+shapeTemplateFile: ./templates/shape-template.md
+learningsTemplateFile: ./templates/learnings-template.md
 outputFolder: '{project-root}/.cursor/plans'
 ---
 
 # Plan Workflow
 
-**Goal:** Create high-quality plans OR execute plan tasks following a structured protocol with quality gates.
+**Goal:** Create high-quality, self-executing plans with micro-step task files that contain complete execution instructions.
 
-**Your Role:** Strategic planner who creates actionable plans with proper task granularity, or disciplined executor who follows the 3-step guardrail workflow when executing plan tasks.
+**Your Role:** Strategic planner who creates actionable plans with proper task granularity. Plans are self-executing via micro-step files—no separate execution workflow.
 
 ---
 
@@ -50,8 +52,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 | Mode | Purpose | Entry Point | Output |
 |------|---------|-------------|--------|
-| Create | Build new plan from scratch | steps-c/step-01-init.md | Plan file (*.plan.md) |
-| Execute | Execute tasks in existing plan | steps-x/step-01-init.md | Execution decisions logs |
+| Create | Build new plan from scratch | steps-c/step-01-init.md | Plan file (*.plan.md), shape.md, learnings.md, micro-step files |
 
 ---
 
@@ -61,37 +62,24 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 Load `{main_config}` and store all variables.
 
-### 2. Determine Mode
+### 2. Load First Step
 
-- If user invokes `/plan` or "create plan" → Route to **Create** mode
-- If user references a `*.plan.md` file and says "execute task" or "execute plan" → Route to **Execute** mode
-- If ambiguous → Ask user: "Do you want to [C] Create a new plan or [E] Execute tasks in an existing plan?"
-
-### 3. Load First Step
-
-Load, read completely, then execute the appropriate first step file.
+Load, read completely, then execute the first step file: `{nextStep}`.
 
 ---
 
 ## PLAN-SPECIFIC RULES
 
-### For Creation Mode
-
 1. **Task granularity** — Describe WHAT to achieve, not HOW
 2. **Single action per task** — Never combine actions
 3. **Explicit file operations** — Use CREATE/UPDATE/DELETE/MOVE verbs
 4. **Zero-context plans** — Plans must be self-contained
-5. **Spec artifacts** — Create shape.md, standards.md, references.md
-6. **Dependency ordering** — Validate dependencies before dependents
-7. **Checkpoints required** — 3-6 checkpoints at inflection points
-8. **Architectural constraints** — Document patterns that MUST be followed
-
-### For Execution Mode
-
-1. **3-step guardrail** — Read decisions → Execute with Judge → Write decisions
-2. **Quality gates** — Invoke judge before marking tasks complete
-3. **State tracking** — Write execution decisions after each task
-4. **Context budgeting** — Split tasks exceeding ~100k tokens
+5. **Companion files** — Create shape.md and learnings.md alongside plan
+6. **Micro-step files** — Generate task files with complete execution instructions
+7. **Dependency ordering** — Validate dependencies before dependents
+8. **Checkpoints required** — 3-6 checkpoints at inflection points
+9. **Architectural constraints** — Document patterns that MUST be followed
+10. **Final compound task** — Last task is always pN-compound for learnings review
 
 ---
 
@@ -101,16 +89,17 @@ Load these files as needed:
 
 | File | Purpose | When to Load |
 |------|---------|--------------|
-| data/plan-creation-rules.md | Task granularity, file operations, dependency ordering, context budgeting | Create mode |
-| data/execution-protocol.md | 3-step guardrail, judge invocation, condensation rules | Execute mode |
-| {project-root}/_bmad/rbtv/subagents-manifest.csv | Available subagent ids for Task tool (subagent_type); use id column | When task requires invoking a subagent |
+| data/plan-creation-rules.md | Task granularity, file operations, dependency ordering, complexity assessment | During plan creation |
+| {project-root}/_bmad/rbtv/tools-manifest.csv | Available tools for Task tool; use id column for subagent_type | When task requires invoking a tool |
 
-## SPEC ARTIFACTS
+## OUTPUT ARTIFACTS
 
-Created during step-02-context in `{outputFolder}/{plan-name}/`:
+Created during plan finalization in `{outputFolder}/{plan-name}/`:
 
 | Artifact | Purpose |
 |----------|---------|
-| shape.md | Scope boundaries, constraints, shaping decisions |
-| standards.md | Applicable rules and patterns |
-| references.md | Key insights from research |
+| {plan-name}.plan.md | Main plan file with phases, tasks, and architecture diagram |
+| shape.md | Scope boundaries, constraints, shaping decisions, append-only execution log |
+| learnings.md | System improvement queue for BMAD/RBTV meta-learnings |
+| phase-N/ | Folders containing micro-step task files |
+| pN-X.task.md | Micro-step files with complete execution instructions per task |

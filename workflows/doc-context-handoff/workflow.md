@@ -6,7 +6,7 @@ nextStep: ./steps-c/step-01-init.md
 validateWorkflow: ./steps-v/step-01-init.md
 editWorkflow: ./steps-e/step-01-init.md
 templateFiles:
-  plan-development: ./templates/handoff-plan-development.md
+  plan-development: '{project-root}/_bmad/rbtv/workflows/plan-lifecycle/templates/shape-template.md'
   execution: ./templates/handoff-execution.md
   project: ./templates/handoff-project.md
 outputFolder: '{project-root}/_bmad-output/handoffs'
@@ -65,11 +65,13 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ## HANDOFF TYPES
 
-| Type | Purpose | Key Sections Emphasized |
-|------|---------|------------------------|
-| **Plan Development** | Continue plan creation/modification | Problem, Goals, Constraints, Decisions, Judge Feedback, Planning Resources |
-| **Execution** | Execute tasks from approved plan | Problem, Goals, Constraints, Decisions, Files to Load, Task Instructions |
-| **Project** | General project context transfer | Context Summary, Current State, Decisions, References |
+| Type | Purpose | Output | Key Sections |
+|------|---------|--------|--------------|
+| **Plan Development** | Continue plan creation/modification | `shape.md` | User Inputs, Collaborative Decisions, Scope, Constraints |
+| **Execution** | Execute tasks from approved plan | Handoff file | Problem, Goals, Decisions, Files to Load, Task Instructions |
+| **Project** | General project context transfer | Handoff file | Context Summary, Current State, Decisions, References |
+
+**Note:** Plan Development type creates/updates `shape.md` (the plan's companion file) rather than a separate handoff file. Shape.md serves as both the shaping document and the context transfer artifact.
 
 ---
 

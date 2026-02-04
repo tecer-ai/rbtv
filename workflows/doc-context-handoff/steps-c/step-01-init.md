@@ -3,7 +3,7 @@ stepNumber: 1
 stepName: 'init'
 nextStepFile: ./step-02-location-selection.md
 templateFiles:
-  plan-development: ../templates/handoff-plan-development.md
+  plan-development: '{project-root}/_bmad/rbtv/workflows/plan-lifecycle/templates/shape-template.md'
   execution: ../templates/handoff-execution.md
   project: ../templates/handoff-project.md
 outputFile: '{outputFolder}/{filename}.md'
@@ -79,11 +79,13 @@ HALT and wait for user selection.
 
 Select the template based on detected handoff type:
 
-| Handoff Type | Template File |
-|--------------|---------------|
-| `plan-development` | `../templates/handoff-plan-development.md` |
-| `execution` | `../templates/handoff-execution.md` |
-| `project` | `../templates/handoff-project.md` |
+| Handoff Type | Template File | Output |
+|--------------|---------------|--------|
+| `plan-development` | `shape-template.md` (plan-lifecycle) | `shape.md` |
+| `execution` | `../templates/handoff-execution.md` | `handoff-{slug}.md` |
+| `project` | `../templates/handoff-project.md` | `handoff-{slug}.md` |
+
+**Note:** Plan-development type creates/updates `shape.md` (the plan's companion file) rather than a separate handoff file. This captures user inputs and collaborative decisions in a structured format that serves both shaping and context transfer purposes.
 
 - Read the appropriate template from `{templateFiles}` based on `{handoffType}`
 - If template not found → Display error, present Retry/Exit menu
@@ -91,19 +93,31 @@ Select the template based on detected handoff type:
 
 ### 4. Create Output Document
 
-- Generate filename suggestion based on conversation context and handoff type
-  - Format: `handoff-{context-slug}.md` (lowercase, hyphens, descriptive)
-  - Examples: `handoff-auth-implementation.md`, `handoff-prd-review.md`
+- Generate filename based on handoff type:
+
+| Handoff Type | Filename | Location |
+|--------------|----------|----------|
+| `plan-development` | `shape.md` | Plan folder (e.g., `.cursor/plans/{plan-name}/`) |
+| `execution` | `handoff-{context-slug}.md` | User-selected or default |
+| `project` | `handoff-{context-slug}.md` | User-selected or default |
+
 - Store filename in session (user will confirm in step-02)
 - Create new document using template structure
-- Populate frontmatter:
+- Populate frontmatter based on type:
 
+**For plan-development (shape.md):**
+```yaml
+# No YAML frontmatter — shape.md uses markdown headers
+# Document starts with: # Shape - {Plan Name}
+```
+
+**For execution/project (handoff files):**
 ```yaml
 ---
 title: 'Handoff: {Context Title}'
 docType: 'handoff'
 mode: 'create'
-handoffType: '{plan-development|execution|project}'
+handoffType: '{execution|project}'
 targetAgent: '{description of receiving agent role}'
 stepsCompleted: []
 inputDocuments: []

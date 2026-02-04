@@ -88,56 +88,21 @@ Compile all gathered information into the plan's Context section:
 | [path] | [Why this file matters] | [Phase/task that needs it] |
 ```
 
-### 4. Create Spec Artifacts
+### 4. Prepare Companion Files Content
 
-Create structured artifacts that preserve planning decisions for executors:
+Gather content for companion files that will be created during finalization.
 
-**Create in `.cursor/plans/{plan-name}/`:**
+**shape.md content** — Scope and shaping decisions:
+- Scope boundaries (IN/OUT)
+- Key decisions made during planning with rationale
+- Constraints identified
+- User inputs captured verbatim
+- Standards that apply to this plan
 
-**shape.md** — Shaping decisions:
-```markdown
-# Shape: {plan-name}
-
-## Scope Boundaries
-- IN: [What's included]
-- OUT: [What's explicitly excluded]
-
-## Key Constraints
-- [Constraint 1]
-- [Constraint 2]
-
-## Shaping Decisions
-| Decision | Choice | Why |
-|----------|--------|-----|
-| [What was decided] | [Choice] | [Rationale] |
-```
-
-**standards.md** — Which rules apply:
-```markdown
-# Standards: {plan-name}
-
-## Applicable Rules
-| Rule File | Why It Applies |
-|-----------|----------------|
-| [path to rule] | [Relevance to this plan] |
-
-## Patterns to Follow
-- [Pattern 1]: [How to apply]
-- [Pattern 2]: [How to apply]
-```
-
-**references.md** — Key insights from research:
-```markdown
-# References: {plan-name}
-
-## Documents Studied
-| Document | Key Insight |
-|----------|-------------|
-| [path] | [What we learned] |
-
-## Patterns Extracted
-- [Pattern]: [Where it applies in this plan]
-```
+**learnings.md content** — System improvement queue:
+- This file captures meta-learnings about BMAD/RBTV
+- NOT for project-specific learnings
+- Will be populated during execution when user provides corrections/suggestions
 
 ### 5. Present Summary
 
@@ -148,10 +113,9 @@ Here's the complete context I've gathered for your plan:
 
 [Display compiled Context section]
 
-Spec artifacts created:
-- shape.md (scope and constraints)
-- standards.md (applicable rules)
-- references.md (research insights)
+Companion files will be created during finalization:
+- shape.md (scope, constraints, shaping decisions, append-only execution log)
+- learnings.md (system improvement queue for BMAD/RBTV meta-learnings)
 
 Is this complete and accurate?
 ```
@@ -184,7 +148,7 @@ On Continue selection:
 ## SUCCESS CRITERIA
 
 - ✅ All six context sections populated (problem, goals, constraints, decisions, rejected, files)
-- ✅ Spec artifacts created (shape.md, standards.md, references.md)
+- ✅ Content prepared for shape.md and learnings.md companion files
 - ✅ User confirmed context is complete and accurate
 - ✅ Context is detailed enough for zero-context execution (another agent could understand without additional context)
 - ✅ Menu presented with explicit HALT

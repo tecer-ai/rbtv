@@ -4,11 +4,14 @@ stepName: 'finalize'
 nextStepFile: null
 outputFile: '{outputFolder}/{plan-name}/{plan-name}.plan.md'
 templateFile: ../templates/plan-template.md
+microstepTemplateFile: ../templates/plan-task-microstep-template.md
+shapeTemplateFile: ../templates/shape-template.md
+learningsTemplateFile: ../templates/learnings-template.md
 ---
 
 # Step 04: Finalize and Write Plan
 
-**Purpose:** Write the complete plan file and create initial execution decisions log.
+**Purpose:** Write the complete plan file, companion files (shape.md, learnings.md), and generate micro-step task files.
 
 ---
 
@@ -16,10 +19,12 @@ templateFile: ../templates/plan-template.md
 
 Follow these instructions in exact order. Do NOT skip, reorder, or optimize.
 
-### 1. Load Template
+### 1. Load Templates
 
-- Read `{templateFile}` from frontmatter
-- Use template structure for output file
+- Read `{templateFile}` from frontmatter for plan structure
+- Read `{microstepTemplateFile}` for task file structure
+- Read `{shapeTemplateFile}` for shape.md structure
+- Read `{learningsTemplateFile}` for learnings.md structure
 
 ### 2. Compile YAML Frontmatter
 
@@ -31,12 +36,12 @@ name: {plan-name}
 overview: "{One-sentence summary of what this plan accomplishes}"
 todos:
   - id: p1-1
-    content: "p1-1: Create plan folder and initial execution decisions file"
-    status: pending
-  - id: p1-2
-    content: "p1-2: [Task description]"
+    content: "p1-1: [Task description]"
     status: pending
   # ... all tasks ...
+  - id: pN-compound
+    content: "pN-compound: Review learnings.md and compound into system improvements"
+    status: pending
 isProject: false
 ---
 ```
@@ -46,95 +51,95 @@ isProject: false
 Compile the complete plan document:
 
 1. **Title** — `# {Plan Name}`
-2. **Context Section** — From step-02 (Problem, Goals, Constraints, Decisions, Rejected)
-3. **Files to Load Table** — From step-02
-4. **Workflow Diagram** — Mermaid diagram from step-03
-5. **Phase Sections** — For each phase:
+2. **Architecture Overview** — Mermaid diagram from step-03
+3. **Phase Sections** — For each phase:
    - Phase header with goal
    - Task list with descriptions
    - Checkpoint (where applicable)
+4. **Key Files Summary** — Organized by phase with Action/File columns
 
-### 4. Create Plan Folder
+### 4. Create Plan Folder Structure
 
-Create the folder structure:
+Create the complete folder structure:
 
 ```
 .cursor/plans/{plan-name}/
-└── {plan-name}.plan.md
+├── {plan-name}.plan.md
+├── shape.md
+├── learnings.md
+├── phase-1/
+│   ├── p1-1.task.md
+│   ├── p1-2.task.md
+│   └── ...
+├── phase-2/
+│   └── ...
+└── phase-N/
+    └── pN-compound.task.md
 ```
 
 ### 5. Write Plan File
 
 Write the complete plan to: `.cursor/plans/{plan-name}/{plan-name}.plan.md`
 
-### 6. Create Initial Execution Decisions Log
+### 6. Write shape.md
 
-Create an initial execution decisions file to establish the logging structure:
+Create shape.md using `{shapeTemplateFile}` with content from step-02:
 
-**Location:** `.cursor/plans/{plan-name}/p1-1_execution_decisions.md`
+- **Original Shaping** section (immutable): scope, key decisions, constraints, user inputs
+- **Standards Applied** section: rules governing the plan
+- **Execution Log** section: empty, ready for append-only entries
+- **Execution Discoveries** section: empty, ready for discovery entries
 
-**Content:**
+### 7. Write learnings.md
 
-```markdown
-# Task p1-1 Execution Decisions
+Create learnings.md using `{learningsTemplateFile}`:
 
-**Task:** Create plan folder and initial execution decisions file
-**Completed:** {current-date}
-**Attempts:** 1
-**Outcome:** Approved
+- Purpose statement: System improvement queue for BMAD/RBTV meta-learnings
+- Empty structure ready for learning entries during execution
+- Per-learning format: source task, trigger, category, user words, recommended change
 
----
+### 8. Generate Micro-Step Task Files
 
-## Outcome
+For each task in the plan, generate a task file using `{microstepTemplateFile}`:
 
-Plan folder and initial structure created. Plan is ready for execution.
+**Location:** `.cursor/plans/{plan-name}/phase-{N}/{task-id}.task.md`
 
-## Key Decisions
+**Content includes:**
+- YAML frontmatter: task_id, status, phase, complexity_score, human_review
+- Goal section: what this task achieves
+- Context Files: task-specific documents to load
+- Tools: explicit declarations with mode (skill/subagent)
+- Execution Flow: phased steps (understand → execute → validate → close)
+- Discovery Handling: revolving plan rules
+- Output Requirements: what to produce and where
 
-| Decision | Rationale | Impact |
-|----------|-----------|--------|
-| Used plan workflow | Followed BMAD best practices | Ensures consistent plan structure |
-
-## Files Modified
-
-- `.cursor/plans/{plan-name}/{plan-name}.plan.md` — Created
-- `.cursor/plans/{plan-name}/p1-1_execution_decisions.md` — Created
-```
-
-### 7. Update First Task Status
-
-Mark `p1-1` as completed in the plan's YAML frontmatter:
-
-```yaml
-- id: p1-1
-  content: "p1-1: Create plan folder and initial execution decisions file"
-  status: completed
-```
-
-### 8. Display Completion Summary
+### 9. Display Completion Summary
 
 ```
 ✅ Plan Created Successfully
 
 **Plan:** {plan-name}
-**Location:** .cursor/plans/{plan-name}/{plan-name}.plan.md
+**Location:** .cursor/plans/{plan-name}/
+
+**Structure:**
+- Plan file: {plan-name}.plan.md
+- Companion files: shape.md, learnings.md
+- Task files: {count} micro-step files across {count} phases
+
 **Tasks:** {count} tasks across {count} phases
 **Checkpoints:** {count} checkpoints
-
-**First task completed:** p1-1 (create log infrastructure)
-**Next task:** p1-2
+**First task:** {first-task-id}
 
 ---
 
-To execute this plan, work through tasks in order. For each task:
-1. Read prior execution decisions
-2. Execute work and invoke judge
-3. Write execution decisions
-
-Would you like to start executing the plan now?
+Plans are self-executing. To work on this plan:
+1. Read the task's micro-step file (e.g., phase-1/p1-1.task.md)
+2. Follow the execution flow in the file
+3. Update shape.md with execution log entry when complete
+4. Capture any meta-learnings in learnings.md
 ```
 
-### 9. Present Menu
+### 10. Present Menu
 
 Present the following menu and HALT. Wait for user selection.
 
@@ -143,7 +148,7 @@ Present the following menu and HALT. Wait for user selection.
 ## MENU
 
 **Options:**
-- `[E] Execute Plan` → Start executing tasks (route to Execute workflow)
+- `[S] Start First Task` → Open and begin first task file
 - `[V] View Plan` → Display the complete plan file
 - `[D] Done` → Exit workflow (plan is saved)
 
@@ -151,7 +156,7 @@ Present the following menu and HALT. Wait for user selection.
 
 ## WORKFLOW COMPLETE
 
-This completes the Create workflow. The plan is saved and ready for execution.
+This completes the Create workflow. The plan and all supporting files are saved and ready for execution.
 
 ---
 
@@ -159,11 +164,12 @@ This completes the Create workflow. The plan is saved and ready for execution.
 
 - ✅ Plan file written to correct location
 - ✅ YAML frontmatter contains all tasks with correct IDs
-- ✅ Context section is complete and self-contained
-- ✅ Files to Load table included
-- ✅ Mermaid workflow diagram included
+- ✅ Architecture diagram included
 - ✅ Phase sections with task descriptions
-- ✅ Initial execution decisions log created (p1-1)
-- ✅ First task marked completed
+- ✅ shape.md created with original shaping content
+- ✅ learnings.md created with empty structure
+- ✅ Phase folders created (phase-1/, phase-2/, etc.)
+- ✅ Micro-step task files generated for all tasks
+- ✅ Final compound task included (pN-compound)
 - ✅ Completion summary displayed
 - ✅ Menu presented with explicit HALT
