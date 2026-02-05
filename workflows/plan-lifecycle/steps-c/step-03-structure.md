@@ -1,7 +1,7 @@
 ---
 stepNumber: 3
 stepName: 'structure'
-nextStepFile: ./step-04-finalize.md
+nextStepFile: ./step-04-generate-artifacts.md
 outputFile: '{outputFolder}/{plan-name}/{plan-name}.plan.md'
 dataFile: ../data/plan-creation-rules.md
 ---
@@ -163,7 +163,7 @@ Present the following menu and HALT. Wait for user selection.
 ## MENU
 
 **Options:**
-- `[C] Continue` → Proceed to plan file creation (step-04)
+- `[C] Continue` → Proceed to artifact generation (step-04-generate-artifacts); Switch to plan mode before selecting this option
 - `[A] Add Tasks` → Add more tasks to the structure
 - `[M] Modify` → Change existing tasks or phases
 - `[X] Exit Workflow` → Cancel plan creation
@@ -174,7 +174,7 @@ Present the following menu and HALT. Wait for user selection.
 
 On Continue selection:
 1. Store final structure in session memory
-2. Load and execute: `./step-04-finalize.md`
+2. Load and execute: `./step-04-generate-artifacts.md`
 
 ---
 

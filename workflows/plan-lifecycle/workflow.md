@@ -50,9 +50,19 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ## MODE OVERVIEW
 
-| Mode | Purpose | Entry Point | Output |
-|------|---------|-------------|--------|
-| Create | Build new plan from scratch | steps-c/step-01-init.md | Plan file (*.plan.md), shape.md, learnings.md, micro-step files |
+| Mode | Purpose | Entry Point | Steps | Output |
+|------|---------|-------------|-------|--------|
+| Create | Build new plan from scratch | steps-c/step-01-init.md | 6 steps | Plan file (*.plan.md), shape.md, learnings.md, micro-step files |
+
+**Create Mode Steps:**
+| Step | File | Mode Required | Purpose |
+|------|------|---------------|---------|
+| 01 | step-01-init.md | Any | Initialize, detect state |
+| 02 | step-02-context.md | Any | Gather context and scope |
+| 03 | step-03-structure.md | Any | Create phases, tasks, checkpoints |
+| 04 | step-04-generate-artifacts.md | **Agent mode** | Write shape.md, learnings.md, task files |
+| 05 | step-05-create-plan.md | **Agent mode** | CreatePlan tool writes .plan.md, then consolidate in artifact folder |
+| 06 | step-06-complete.md | Any | Validate, summary, final menu |
 
 ---
 
