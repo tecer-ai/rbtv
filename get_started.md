@@ -31,7 +31,7 @@ git clone https://github.com/bmadcode/rbtv.git rbtv
 
 ### Step 2: Run the Installation Script
 
-RBTV includes IDE configuration files (`.cursor/` and `.claude/`) that must be merged with BMAD's configuration. Run the installation script:
+RBTV includes IDE configuration files (`.cursor/`) that must be merged with BMAD's configuration. Run the installation script:
 
 ```bash
 cd rbtv
@@ -40,10 +40,10 @@ python install-rbtv.py
 
 **What the script does:**
 - Moves `rbtv/.cursor/` contents → `_bmad/.cursor/`
-- Moves `rbtv/.claude/` contents → `_bmad/.claude/`
+- Creates `_bmad/.claude/commands/` and replicates Cursor commands for Claude compatibility
 - Overwrites existing files if conflicts occur
 
-> **Important:** Run this script every time you update RBTV (`git pull` or `git fetch`). The script moves (not copies) the folders, so they won't exist in `rbtv/` until the next update.
+> **Important:** Run this script every time you update RBTV (`git pull` or `git fetch`). The script moves (not copies) the `.cursor/` folder, so it won't exist in `rbtv/` until the next update.
 
 ### Step 3: Open Your IDE
 
@@ -63,46 +63,6 @@ This shows all RBTV commands with the option to deep-dive into any command to un
 
 ---
 
-## Core Components
-
-### Founder Mode — The Star of RBTV
-
-**Command:** `/bmad-rbtv-mentor`
-
-A YC mentor who guides you through **17 innovation frameworks**, from idea to product-market fit.
-
-The Founder workflow spans 6 milestones:
-
-| Milestone | Focus | Frameworks |
-|-----------|-------|------------|
-| **M1** Conception | Define problem, customer, solution | Lean Canvas, Five Whys, JTBD, Competitive Landscape, Problem-Solution Fit, Working Backwards |
-| **M2** Validation | Test assumptions, size market | Assumption Mapping, Leap of Faith, Pre-mortem, TAM-SAM-SOM, TRL, Unit Economics |
-| **M3** Brand | Define identity and positioning | Brand Archetypes, Brand Prism, Brand Positioning, Golden Circle, Tone of Voice |
-| **M4** Prototypation | Build and test early versions | *(In development)* |
-| **M5** Market Validation | Prove demand with real sales | *(In development)* |
-| **M6** MVP | Build minimum viable product | *(In development)* |
-
-**How to work with Founder:**
-1. Start with `/bmad-rbtv-bi` and select `[BI] Business Innovation`
-2. The mentor guides you through frameworks sequentially
-3. Each framework produces artifacts saved to your output folder
-4. Resume anytime — progress is tracked in your project memo
-
----
-
-### Supporting Commands
-
-| Command | Purpose | Note |
-|---------|---------|------|
-| `/bmad-rbtv-domcobb` | Problem structuring (MECE, Pyramid) and prompting assistance | Routes to CIS for problem-solving |
-| `/bmad-rbtv-doc` | Documentation: compound learnings, context handoffs, product docs | |
-| `/bmad-rbtv-plan` | Create and execute structured plans with quality gates | **Do not start in Plan mode** — use Agent mode |
-| `/bmad-rbtv-git` | Conventional commits with context-aware messages | |
-
-**Other tools:** design validation, token extraction, Mermaid diagrams, browser automation, web research, tone extraction.
-
----
-
 ## Tool Delivery Mechanisms
 
 RBTV tools are available through three mechanisms:
@@ -115,7 +75,37 @@ RBTV tools are available through three mechanisms:
 
 All three share the same underlying workflows — the difference is how they're invoked and whether they preserve context.
 
-> **Deep dive:** See the [RBTV README](./readme.md) for full architectural details.
+**All 15 RBTV commands are mirrored as both Skills and Subagents** — thin loading layers that allow agents to access the same tools either within the current context (skills) or in isolated contexts (subagents).
+
+> **Deep dive:** See the [RBTV README](./readme.md) for full architectural details and complete entry point listings.
+
+---
+
+## Entry Points
+
+All RBTV tools are available through three delivery mechanisms: **Commands** (user-invoked), **Skills** (agent auto-detected), and **Subagents** (agent-delegated with fresh context). All three mechanisms are thin loading layers that point to the same underlying workflows and tasks.
+
+### Commands (15)
+
+User-invoked commands available via `/bmad-rbtv-{name}`:
+
+| Command | Purpose |
+|---------|---------|
+| `/bmad-rbtv-help` | List all RBTV commands with deep-dive option |
+| `/bmad-rbtv-mentor` | Business innovation lifecycle (Founder mode) |
+| `/bmad-rbtv-doc` | Documentation workflows (compound, handoff, product) |
+| `/bmad-rbtv-domcobb` | Problem structuring and prompting assistance |
+| `/bmad-rbtv-plan` | Create or execute plans with quality gates |
+| `/bmad-rbtv-git` | Git commit with Conventional Commits format |
+| `/bmad-rbtv-create-component` | Create BMAD components |
+| `/bmad-rbtv-context-search` | Search files for relevant knowledge |
+| `/bmad-rbtv-quality-review` | Evaluate work against quality criteria |
+| `/bmad-rbtv-web-research` | Rigorous web research with citations |
+| `/bmad-rbtv-design-validation` | Validate HTML designs (4-layer framework) |
+| `/bmad-rbtv-visual-design-extraction` | Extract design tokens from screenshots |
+| `/bmad-rbtv-tone-extraction` | Extract voice signature from text |
+| `/bmad-rbtv-mermaid-conversion` | Convert Mermaid diagrams to PNG |
+| `/bmad-rbtv-playwright-browser-automation` | Browser automation with Playwright |
 
 ---
 

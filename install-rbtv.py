@@ -2,7 +2,8 @@
 """
 RBTV Installation Script
 
-Moves .cursor/ and .claude/ folders from rbtv/ to the parent _bmad/ folder.
+Moves .cursor/ folder from rbtv/ to the parent _bmad/ folder.
+Creates .claude/commands/ and replicates Cursor commands for Claude compatibility.
 Run this script after every git pull or fetch to sync IDE configuration.
 
 Usage:
@@ -23,7 +24,7 @@ def get_paths():
     return {
         "rbtv": script_dir,
         "bmad": parent_dir,
-        "folders": [".cursor", ".claude"]
+        "folders": [".cursor"]
     }
 
 
@@ -80,6 +81,45 @@ def move_folder(src: Path, dst: Path) -> dict:
     return stats
 
 
+def replicate_commands_to_claude(bmad_path: Path) -> dict:
+    """
+    Replicate .cursor/commands/ to .claude/commands/.
+    Returns stats about the operation.
+    """
+    stats = {"copied": 0, "replaced": 0, "errors": []}
+    
+    cursor_commands = bmad_path / ".cursor" / "commands"
+    claude_commands = bmad_path / ".claude" / "commands"
+    
+    if not cursor_commands.exists():
+        return {"skipped": 1, "reason": ".cursor/commands/ does not exist"}
+    
+    # Create .claude/commands/ directory
+    claude_commands.mkdir(parents=True, exist_ok=True)
+    
+    # Copy all command files
+    for cursor_file in cursor_commands.rglob("*"):
+        if cursor_file.is_file():
+            rel_path = cursor_file.relative_to(cursor_commands)
+            claude_file = claude_commands / rel_path
+            
+            # Create parent directories
+            claude_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            try:
+                if claude_file.exists():
+                    stats["replaced"] += 1
+                else:
+                    stats["copied"] += 1
+                
+                # Copy the file
+                shutil.copy2(str(cursor_file), str(claude_file))
+            except Exception as e:
+                stats["errors"].append(f"{rel_path}: {e}")
+    
+    return stats
+
+
 def main():
     """Main installation routine."""
     print("=" * 60)
@@ -121,11 +161,32 @@ def main():
         
         print()
     
+    # Replicate commands to Claude
+    print("Replicating commands to .claude/")
+    print(f"  From: {paths['bmad'] / '.cursor' / 'commands'}")
+    print(f"  To:   {paths['bmad'] / '.claude' / 'commands'}")
+    
+    claude_stats = replicate_commands_to_claude(paths["bmad"])
+    
+    if "reason" in claude_stats:
+        print(f"  Status: Skipped ({claude_stats['reason']})")
+    else:
+        print(f"  Copied: {claude_stats['copied']} files")
+        print(f"  Replaced: {claude_stats['replaced']} files")
+        
+        if claude_stats["errors"]:
+            print(f"  Errors:")
+            for err in claude_stats["errors"]:
+                print(f"    - {err}")
+    
+    print()
     print("-" * 60)
     print("Summary")
     print("-" * 60)
     print(f"Total files moved:    {total_moved}")
     print(f"Total files replaced: {total_replaced}")
+    if "copied" in claude_stats:
+        print(f"Commands replicated:  {claude_stats['copied'] + claude_stats['replaced']}")
     print()
     print("Installation complete.")
     print()
