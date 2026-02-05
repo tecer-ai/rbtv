@@ -27,7 +27,7 @@ human_review: required | optional | none
 
 ## Context Files
 
-Files to load before starting this task:
+**MUST read every file in the table below before any execution phase.** Do not proceed to Phase: Understand until all are loaded and read.
 
 | File | Purpose |
 |------|---------|
@@ -37,7 +37,19 @@ Files to load before starting this task:
 
 ## Tools
 
-Explicit tool declarations for this task:
+**IMPORTANT:** Only include this section if the task requires specialized skills or subagents from the RBTV manifest. Do NOT list basic agent tools like Read, Write, Shell, or Grep.
+
+**Include this section when:**
+- Task requires quality validation (quality-review, judge)
+- Task needs research capabilities (web-research, context-search)
+- Task needs codebase exploration (explore subagent)
+- Task uses specialized RBTV workflows (compound-learning, etc.)
+
+**Omit this section when:**
+- Task only uses standard agent tools (Read, Write, Shell, Grep, etc.)
+- Task is straightforward file operations without specialized tooling
+
+**If specialized tools are required, list them below:**
 
 | Tool | Mode | Purpose |
 |------|------|---------|
@@ -54,10 +66,11 @@ Explicit tool declarations for this task:
 
 ### Phase: Understand
 
-1. Read all context files listed above
-2. Review shape.md execution log for prior task context
-3. Confirm task requirements are clear
-4. {Task-specific understanding steps}
+1. **MUST** read every file in the Context Files table above. Do not continue until all are read.
+2. In the plan file (the `.plan.md` in this plan's directory), set this task's todo to `status: in_progress`. Match the todo `id` to this task's `task_id`.
+3. Review shape.md execution log for prior task context.
+4. Confirm task requirements are clear.
+5. {Task-specific understanding steps}
 
 ### Phase: Execute
 
@@ -77,9 +90,10 @@ Explicit tool declarations for this task:
 
 ### Phase: Close
 
-1. Append execution entry to shape.md (never modify existing entries)
-2. Mark task status as completed in plan YAML
-3. Notify user of completion and any plan changes
+1. Append execution entry to shape.md (never modify existing entries).
+2. **MUST** present a brief summary to the user (max 2000 characters) of what was done. Do not mark complete until the user approves.
+3. After user approval, set this task's todo to `status: completed` in the plan file.
+4. Notify user of completion and any plan changes.
 
 ---
 
@@ -126,8 +140,8 @@ PLAN MODIFIED:
 | Section | Purpose |
 |---------|---------|
 | Goal | Single deliverable statement |
-| Context Files | Documents to load before starting |
-| Tools | Explicit tool declarations with mode |
+| Context Files | Documents agent MUST read before any phase; include mandatory read instruction above table |
+| Tools | (Optional) Only include if task requires specialized RBTV skills/subagents |
 | Execution Flow | Phased steps (understand → execute → validate → close) |
 | Output Requirements | What to produce and where |
 | Revolving Plan Rules | Discovery handling instructions |

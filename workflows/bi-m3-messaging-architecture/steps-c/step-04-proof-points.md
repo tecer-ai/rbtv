@@ -1,19 +1,19 @@
 ---
 name: 'step-04-proof-points'
-description: 'Build evidence library with 2-3 proof points per message'
-nextStepFile: './step-05-cta-matrix.md'
+description: 'Attach evidence to each message'
+nextStepFile: './step-05-ctas-journey.md'
 outputFile: '{outputFolder}/messaging-architecture.md'
 ---
 
 # Step 4: Build Proof Points
 
-**Progress: Step 4 of 6** — Next: Define CTA Matrix
+**Progress: Step 4 of 6** — Next: CTAs & Journey
 
 ---
 
 ## STEP GOAL
 
-For each key message, define 2-3 proof points that make the message credible. Proof points are evidence: data, customer quotes, features framed as benefits, or third-party validation.
+For each key message, define 2-3 proof points that make the message credible. Proof points are evidence: data, customer quotes, features framed as benefits, or third-party validation. Flag messages with insufficient proof for M5 validation.
 
 ---
 
@@ -25,182 +25,174 @@ For each key message, define 2-3 proof points that make the message credible. Pr
 - Follow the MANDATORY SEQUENCE below exactly — do not deviate, skip, or optimize
 
 ### Role Reinforcement
-You are a YC mentor. Unattributed proof points are opinions, not evidence. "Customers love us" without a specific quote is marketing fiction. Every claim needs a source.
+You are a YC mentor. Unattributed proof points are opinions, not evidence. Claiming "customers love our product" without a specific quote, metric, or data point trains the audience to distrust your claims. Demand sources for everything.
 
 ### Step-Specific Rules
-- Each message MUST have at least 2 proof points
-- Each proof point MUST have documented source
-- At least one proof point per message from JTBD customer interviews
-- At least one proof point per message from M2 validation (if available)
-- Messages with <2 validated proof points are flagged for M5 validation
+- Each message MUST have 2-3 proof points
+- Each proof point MUST document: point, source, type, status (validated/hypothetical)
+- Work through audiences ONE AT A TIME
+- Flag messages with <2 validated proof points for M5 validation
+- Proof points must not contradict Brand Prism
 
 ---
 
 ## CONTEXT TO LOAD
 
-1. Read complete `{outputFolder}/messaging-architecture.md` from Steps 1-3
-2. Load upstream framework outputs:
-   - JTBD analysis (customer quotes, workarounds, forces)
-   - M2 Validation data (experiment results, survey data)
-   - Working Backwards (claims, features, customer quote)
-   - Lean Canvas Solution block (top features/capabilities)
-   - Problem-Solution Fit (before/after emotions, constraints — optional)
+1. Read `{outputFolder}/messaging-architecture.md` for key messages
+2. Read `{outputFolder}/jobs-to-be-done.md` for customer quotes, workarounds, forces
+3. Read `{outputFolder}/project-memo.md` M2 section for validation data (experiment results, survey data, interview findings)
+4. Read `{outputFolder}/working-backwards.md` for claims, features, customer quote
+5. Read `{outputFolder}/lean-canvas.md` for Solution block (top features/capabilities)
+6. Optional: Read `{outputFolder}/problem-solution-fit.md` for before/after emotions, constraints
 
 ---
 
 ## MANDATORY SEQUENCE
 
-### 1. Inventory Available Evidence
+### 1. Explain Proof Point Types
 
-Before building proof points, inventory what evidence exists:
+Present the four types of evidence:
 
-```markdown
-## Evidence Inventory
+> "For each message, we'll attach 2-3 proof points. Proof points are evidence that makes the message credible. Four types:
+>
+> 1. **Data points:** M2 validation results, survey percentages, experiment outcomes, market sizing numbers
+>    - Example: '73% of early adopters in M2 survey reported reducing reporting time by 50%'
+>
+> 2. **Customer language:** Direct quotes from JTBD interviews (verbatim, not paraphrased)
+>    - Example: '[Customer name]: "I was spending 4 hours every Friday on reports. Now it's 20 minutes."'
+>
+> 3. **Feature-as-benefit:** Product capability framed as what it enables for the customer
+>    - Example: 'Automated report generation reduces reporting time from 4 hours to 20 minutes'
+>    - NOT: 'We have automated reports' (that's just a feature)
+>
+> 4. **Third-party validation:** Industry analyst citations, press coverage, advisor endorsements, pilot results
+>    - Example: 'Featured in TechCrunch as "Top 10 Productivity Tools for 2026"'
+>
+> Each proof point needs a documented source and status (validated vs. hypothetical)."
 
-### From JTBD
-| Type | Content | Status |
-|------|---------|--------|
-| Customer quote | "[quote]" | Validated |
-| Customer quote | "[quote]" | Validated |
-| Workaround | [description] | Validated |
-| Force | [description] | Validated |
+### 2. Build Proof Points for Early Adopter Messages
 
-### From M2 Validation
-| Type | Content | Status |
-|------|---------|--------|
-| Experiment result | [result] | Validated |
-| Survey finding | [finding] | Validated |
-| Market data | [data] | Validated |
+For each Early Adopter message, ask:
 
-### From Working Backwards
-| Type | Content | Status |
-|------|---------|--------|
-| Customer quote | "[quote]" | Hypothetical |
-| Claim | [claim] | Hypothetical |
-| Feature-benefit | [feature → benefit] | Hypothetical |
+> "Message: '[message text]'
+>
+> Why should early adopters believe this? List every piece of evidence you currently have:
+> - Data from M2 validation?
+> - Customer quotes from JTBD interviews?
+> - Features framed as benefits?
+> - Third-party validation?"
 
-### From Lean Canvas
-| Type | Content | Status |
-|------|---------|--------|
-| Feature-benefit | [feature → outcome] | Hypothetical |
-| Metric | [metric] | Hypothetical |
+For each proof point proposed:
+
+**Document the proof point:**
+- The proof point itself (one sentence)
+- The source (which framework, interview, or data set)
+- The type (data, customer quote, feature-benefit, third-party)
+- The status (validated if from M2 validation or JTBD interviews, hypothetical if not yet tested)
+
+**Example format:**
+```
+Proof Point: "73% of early adopters in M2 survey reported reducing reporting time by 50%"
+Source: M2 Assumption Mapping validation experiment #3
+Type: Data
+Status: Validated
 ```
 
-Present inventory to user.
+**Select strongest 2-3 proof points per message:**
+- Most specific
+- Most verifiable
+- Most emotionally compelling to early adopters
 
-### 2. Map Evidence to Messages
+If message has fewer than 2 credible proof points:
 
-For each key message, identify available evidence:
+> "⚠️ **Insufficient Proof**
+>
+> This message has only [N] proof point(s). This is aspirational, not proven.
+>
+> Options:
+> 1. Demote to 'future message' requiring M5 validation
+> 2. Design M5 experiment to generate missing proof
+>
+> Which approach?"
 
-```markdown
-### Message: "[Message text]"
-**Audience:** [Audience]
-**Traceability:** [Source]
+Flag the message and record the gap.
 
-**Available Evidence:**
-1. [Evidence type]: [Content] — [Status: Validated/Hypothetical]
-2. [Evidence type]: [Content] — [Status]
-3. [Evidence type]: [Content] — [Status]
+Repeat for all Early Adopter messages.
 
-**Best 2-3 Proof Points:**
-- [ ] [Selected proof point 1]
-- [ ] [Selected proof point 2]
-- [ ] [Selected proof point 3]
-```
+### 3. Build Proof Points for Mainstream Customer Messages
 
-Work through each message systematically.
+Apply same process as Early Adopters:
+- For each message, ask: "Why should mainstream customers believe this?"
+- Document proof point, source, type, status
+- Select strongest 2-3 per message
+- Flag messages with insufficient proof
 
-### 3. Document Proof Points
+### 4. Build Proof Points for Partner Messages
 
-For each selected proof point, document:
+Apply same process:
+- For each message, ask: "Why should partners believe this?"
+- Document proof point, source, type, status
+- Select strongest 2-3 per message
+- Flag messages with insufficient proof
 
-**Proof Point Card:**
-```markdown
-| Field | Value |
-|-------|-------|
-| Message | "[Message it supports]" |
-| Proof Point | "[The evidence statement]" |
-| Source | [Framework, interview, data set] |
-| Type | [Data / Customer quote / Feature-benefit / Third-party] |
-| Status | [Validated / Hypothetical] |
-```
+### 5. Build Proof Points for Investor Messages
 
-### 4. Apply Quality Filters
+Apply same process:
+- For each message, ask: "Why should investors believe this?"
+- Document proof point, source, type, status
+- Select strongest 2-3 per message
+- Flag messages with insufficient proof
 
-**Filter 1: Source documented**
-- Can you cite exactly where this came from?
-- If no source, mark as hypothetical
+### 6. Cross-Check Against Brand Prism
 
-**Filter 2: Customer language (for quotes)**
-- Is it verbatim from interview?
-- Not paraphrased into corporate language?
+For all proof points, verify:
 
-**Filter 3: Feature-as-benefit formatted**
-- States the outcome, not the capability?
-- "Reduces 4 hours to 20 minutes" not "has automated reports"
+> "Do any of these proof points contradict your Brand Prism Culture ([culture facets]) or Relationship ([relationship type])?"
 
-**Filter 4: Prism consistency**
-- Doesn't contradict Culture or Relationship facets?
+Example contradiction: Citing aggressive competitive benchmarks if brand personality is collaborative.
 
-### 5. Flag Evidence Gaps
+If contradiction found, revise or remove the proof point.
 
-For each message, check:
-- Does it have at least 2 proof points?
-- Is at least one from JTBD?
-- Is at least one from M2 validation?
+### 7. Create Proof Point Library
 
-If <2 proof points or all hypothetical:
-
-```markdown
-## Evidence Gaps
-
-| Message | Gap | Recommended M5 Experiment |
-|---------|-----|---------------------------|
-| "[Message]" | No validated evidence | [Experiment to generate proof] |
-| "[Message]" | Missing customer quote | [Interview to conduct] |
-| "[Message]" | No metric data | [Survey or test to run] |
-```
-
-Flag these for M5 validation planning.
-
-### 6. Build Proof Point Library
-
-Compile into structured library:
+Compile all proof points into a flat table:
 
 ```markdown
 ## Proof Point Library
 
-| Message | Proof Point | Source | Type | Status |
-|---------|-------------|--------|------|--------|
-| [M1] | [PP1] | JTBD interview | Customer quote | Validated |
-| [M1] | [PP2] | M2 experiment | Data | Validated |
-| [M2] | [PP1] | Working Backwards | Feature-benefit | Hypothetical |
-| [M2] | [PP2] | Lean Canvas | Metric | Hypothetical |
-| ... | ... | ... | ... | ... |
+| Audience | Message | Proof Point | Source | Type | Status |
+|----------|---------|-------------|--------|------|--------|
+| Early Adopters | [Message 1] | [Proof 1] | [Source] | [Type] | [Status] |
+| Early Adopters | [Message 1] | [Proof 2] | [Source] | [Type] | [Status] |
+| Early Adopters | [Message 2] | [Proof 1] | [Source] | [Type] | [Status] |
+| ... | ... | ... | ... | ... | ... |
 
-### Evidence Gap Summary
+### Flagged Gaps
 
-**Messages with sufficient proof (≥2 validated):** [N]
-**Messages needing validation:** [N]
+Messages lacking sufficient validated proof (require M5 validation):
 
-**Flagged for M5:**
-- [List messages needing validation experiments]
+1. [Audience] - [Message] - Current proof: [N] points, [N] validated
+   - **Gap:** [What evidence is missing]
+   - **M5 Experiment Needed:** [Suggested experiment to generate proof]
+
+2. [Next flagged message if any]
 ```
 
-Update messaging-architecture.md with this section.
+### 8. Update Output Document
 
-### 7. Update Output Document
+Update messaging-architecture.md Proof Point Library section with the table and flagged gaps.
 
-Update messaging-architecture.md frontmatter:
+Update frontmatter:
 ```yaml
 stepsCompleted: ['step-01-init', 'step-02-brand-promise', 'step-03-key-messages', 'step-04-proof-points']
 ```
 
-### 8. Present Menu Options
+### 9. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine proof points further
-- **[C] Continue** — proceed to Define CTA Matrix
+- **[C] Continue** — proceed to CTAs & Journey mapping
+- **[R] Refine** — revise proof points for specific message
+- **[A] Advanced Elicitation** — deeper exploration of available evidence
 
 ALWAYS halt and wait for user selection.
 
@@ -209,14 +201,24 @@ ALWAYS halt and wait for user selection.
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when **[C] Continue** is selected:
-1. Verify Proof Point Library section is complete
-2. Verify evidence gaps are flagged
-3. Load `./step-05-cta-matrix.md` and follow its instructions
+1. Ensure Proof Point Library is complete with all messages having 2-3 proof points
+2. Ensure flagged gaps are documented with M5 experiment suggestions
+3. Verify `step-04-proof-points` is in `stepsCompleted`
+4. Load `./step-05-ctas-journey.md` and follow its instructions
+
+When **[R] Refine** is selected:
+- Ask which message to refine
+- Return to that message's proof point section and re-elicit evidence
+- Redisplay menu
+
+When **[A] Advanced Elicitation** is selected:
+- Ask deeper questions about available evidence sources, M2 validation data, or JTBD customer quotes
+- After elicitation, redisplay menu
 
 ---
 
 ## SUCCESS / FAILURE METRICS
 
-✅ **SUCCESS:** 2-3 proof points per message, all sourced, types documented, gaps flagged with M5 experiments
+✅ **SUCCESS:** Every message has 2-3 proof points with documented source/type/status, at least one proof point per message uses customer language from JTBD, at least one proof point per message references M2 validation data or concrete metric, messages with insufficient proof flagged with M5 experiment suggestions, no proof points contradict Brand Prism
 
-❌ **FAILURE:** Proof points without sources, fabricated evidence, gaps not flagged, customer quotes paraphrased
+❌ **FAILURE:** Proof points without documented sources, messages with fewer than 2 proof points not flagged, no customer language proof points, no M2 validation data proof points, proof points contradict Brand Prism, status (validated/hypothetical) not documented

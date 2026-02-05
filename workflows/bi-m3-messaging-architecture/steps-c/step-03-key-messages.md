@@ -1,19 +1,19 @@
 ---
 name: 'step-03-key-messages'
-description: 'Create 3-5 audience-specific key messages with traceability'
+description: 'Build audience-specific messages with traceability'
 nextStepFile: './step-04-proof-points.md'
 outputFile: '{outputFolder}/messaging-architecture.md'
 ---
 
 # Step 3: Create Key Messages
 
-**Progress: Step 3 of 6** — Next: Build Proof Points
+**Progress: Step 3 of 6** — Next: Proof Points
 
 ---
 
 ## STEP GOAL
 
-For each major audience, define 3-5 key messages that support the brand promise. Each message must trace to a validated assumption or framework output.
+For each major audience (early adopters, mainstream customers, partners, investors), define 3-5 key messages that support the brand promise. Each message must trace to a validated assumption or framework output.
 
 ---
 
@@ -25,163 +25,204 @@ For each major audience, define 3-5 key messages that support the brand promise.
 - Follow the MANDATORY SEQUENCE below exactly — do not deviate, skip, or optimize
 
 ### Role Reinforcement
-You are a YC mentor. Features are NOT messages. "We have real-time analytics" is a feature. "Your team ships decisions in hours, not weeks" is a message. Reject feature lists disguised as messaging.
+You are a YC mentor. Every message must trace to validated data or framework outputs. Messages without traceability are opinions, not strategy. Reject feature statements disguised as messages.
 
 ### Step-Specific Rules
-- Each message MUST trace to a framework output or validated assumption
-- Messages MUST use customer language from JTBD, not internal vocabulary
-- Each audience gets 3-5 DISTINCT messages — no overlap within audience
-- Messages are outcomes/beliefs/emotional shifts — NOT capabilities
+- Work through audiences ONE AT A TIME (early adopters first)
+- Each message MUST have traceability annotation: `[Source: framework-name]`
+- Messages describe outcomes/beliefs/emotional shifts, NOT features
+- Test each message against Brand Prism consistency
+- Eliminate overlapping messages for same audience
 
 ---
 
 ## CONTEXT TO LOAD
 
-1. Read complete `{outputFolder}/messaging-architecture.md` from Steps 1-2
-2. Load upstream framework outputs:
-   - Brand Promise (from Step 2)
-   - JTBD analysis (job stories, forces, customer language)
-   - Brand Prism (all facets for consistency check)
-   - Lean Canvas (Customer Segments, UVP, Problem)
-   - M2 Validation findings (validated assumptions)
-   - Brand Archetypes (themes, narrative patterns — optional)
+1. Read `{outputFolder}/messaging-architecture.md` for brand promise
+2. Read `{outputFolder}/jobs-to-be-done.md` for job stories, forces, customer language
+3. Read `{outputFolder}/brand-prism.md` for Culture, Personality, Relationship facets
+4. Read `{outputFolder}/lean-canvas.md` for Customer Segments, UVP, Problem
+5. Read `{outputFolder}/project-memo.md` M2 section for validated assumptions
+6. Optional: Read `{outputFolder}/brand-archetypes.md` for themes and narrative patterns
 
 ---
 
 ## MANDATORY SEQUENCE
 
-### 1. Define Audiences
+### 1. Define Primary Audiences
 
-Establish the primary audiences. For most startups:
+Present the four standard audiences with their concerns:
+
+> "We'll build messages for four audiences:
+>
+> 1. **Early Adopters** — First users who feel the pain most acutely and tolerate rough edges
+>    - Care about: JTBD primary job, push forces (pain with status quo), emotional job
+>
+> 2. **Mainstream Customers** — Larger segment you'll grow into after early traction
+>    - Care about: JTBD related jobs, pull forces (what attracts to new solution), anxieties
+>
+> 3. **Partners** — Technology, distribution, or integration partners who extend your reach
+>    - Care about: Lean Canvas Channels, Unfair Advantage, integration opportunities
+>
+> 4. **Investors** — Seed, Series A, or strategic investors who fund growth
+>    - Care about: Lean Canvas Problem, Customer Segments, Key Metrics, market size from M2
+>
+> We'll work through each audience one at a time, starting with Early Adopters."
+
+### 2. Build Early Adopter Messages
+
+From JTBD analysis, extract:
+- Primary job (functional, emotional, social)
+- Push forces (pain with status quo)
+- Emotional job (how they want to feel)
+
+Ask:
+> "Looking at your JTBD analysis:
+> - Primary job: [job statement]
+> - Push forces: [pain points]
+> - Emotional job: [desired feeling]
+>
+> What are 3-5 messages that would resonate with early adopters who feel this pain intensely? Each message should:
+> - Support your brand promise: '[promise]'
+> - Address their primary job or push forces
+> - Use language from JTBD customer interviews, not internal vocabulary"
+
+For each message proposed, ask:
+> "What framework or validated data supports this message? Where does it trace to?"
+
+Document traceability annotation: `[Source: JTBD primary job]` or `[Source: M2 validated assumption #3]`
+
+Test against Brand Prism:
+> "Does this message align with your brand's Culture ([culture facets]), Personality ([personality traits]), and Relationship ([relationship type])?"
+
+If contradicts Prism, revise message (not Prism).
+
+Eliminate feature statements:
+> "Is this describing an outcome/belief/emotional shift, or is it a feature in disguise?
+>
+> Feature: 'We offer real-time collaboration'
+> Message: 'Your team ships decisions in hours, not weeks'"
+
+If feature statement, reframe as outcome using JTBD "When / I want to / so I can" structure.
+
+Record final 3-5 messages with traceability annotations.
+
+### 3. Build Mainstream Customer Messages
+
+From JTBD analysis, extract:
+- Related jobs (adjacent to primary job)
+- Pull forces (what attracts to new solution)
+- Anxieties (what makes them hesitant)
+
+Ask:
+> "Mainstream customers are less pain-driven than early adopters. Looking at your JTBD:
+> - Related jobs: [job statements]
+> - Pull forces: [attractions]
+> - Anxieties: [hesitations]
+>
+> What 3-5 messages would address mainstream customers' pull forces while reducing their anxieties?"
+
+Apply same process as Early Adopters:
+- Demand traceability annotation for each message
+- Test against Brand Prism consistency
+- Eliminate feature statements
+- Check for overlap with Early Adopter messages (some overlap OK, but messages should emphasize different concerns)
+
+Record final 3-5 messages with traceability annotations.
+
+### 4. Build Partner Messages
+
+From Lean Canvas, extract:
+- Channels block (distribution, integration opportunities)
+- Unfair Advantage (what partners gain access to)
+- Key Resources (what partners could provide)
+
+Ask:
+> "Partners care about mutual value creation. Looking at your Lean Canvas:
+> - Channels: [channel list]
+> - Unfair Advantage: [advantage]
+> - Key Resources: [resources]
+>
+> What 3-5 messages would resonate with potential partners about integration opportunities, shared value, or market access?"
+
+Apply same process:
+- Demand traceability annotation
+- Test against Brand Prism
+- Eliminate feature statements
+- Ensure messages support brand promise
+
+Record final 3-5 messages with traceability annotations.
+
+### 5. Build Investor Messages
+
+From Lean Canvas and M2 validation, extract:
+- Problem (market pain)
+- Customer Segments (market size and definition)
+- Key Metrics (traction indicators)
+- M2 TAM/SAM/SOM (if completed)
+
+Ask:
+> "Investors care about market opportunity and traction potential. Looking at your frameworks:
+> - Problem: [problem statement]
+> - Customer Segments: [segments]
+> - Key Metrics: [metrics]
+> - Market Size: [TAM/SAM/SOM if available]
+>
+> What 3-5 messages would resonate with investors about market opportunity, competitive positioning, or growth potential?"
+
+Apply same process:
+- Demand traceability annotation
+- Test against Brand Prism
+- Eliminate feature statements
+- Ensure messages support brand promise
+
+Record final 3-5 messages with traceability annotations.
+
+### 6. Create Audience-Message Matrix
+
+Compile all messages into a table:
 
 ```markdown
-## Audience Definitions
+## Key Messages by Audience
 
-| Audience | Description | What They Care About | Primary Source |
-|----------|-------------|---------------------|----------------|
-| Early Adopters | [Who] | [Pain severity, tolerance] | JTBD primary job, push forces |
-| Mainstream Customers | [Who] | [Job completion, anxieties] | JTBD related jobs, pull forces |
-| Partners | [Who] | [Reach, integration] | Lean Canvas Channels |
-| Investors | [Who] | [Market, metrics] | Lean Canvas Problem, M2 TAM |
+### Early Adopters
+
+1. [Message 1] `[Source: framework]`
+2. [Message 2] `[Source: framework]`
+3. [Message 3] `[Source: framework]`
+4. [Message 4] `[Source: framework]` (if applicable)
+5. [Message 5] `[Source: framework]` (if applicable)
+
+### Mainstream Customers
+
+1. [Message 1] `[Source: framework]`
+2. [Message 2] `[Source: framework]`
+3. [Message 3] `[Source: framework]`
+4. [Message 4] `[Source: framework]` (if applicable)
+5. [Message 5] `[Source: framework]` (if applicable)
+
+### Partners
+
+1. [Message 1] `[Source: framework]`
+2. [Message 2] `[Source: framework]`
+3. [Message 3] `[Source: framework]`
+4. [Message 4] `[Source: framework]` (if applicable)
+5. [Message 5] `[Source: framework]` (if applicable)
+
+### Investors
+
+1. [Message 1] `[Source: framework]`
+2. [Message 2] `[Source: framework]`
+3. [Message 3] `[Source: framework]`
+4. [Message 4] `[Source: framework]` (if applicable)
+5. [Message 5] `[Source: framework]` (if applicable)
 ```
-
-Present to user for confirmation. Add or remove audiences as needed.
-
-### 2. Extract Audience Concerns
-
-For each audience, pull relevant content from upstream frameworks:
-
-**Early Adopters:**
-- JTBD primary job: [job]
-- Push forces (pain with status quo): [forces]
-- Emotional job: [emotional need]
-
-**Mainstream Customers:**
-- JTBD related jobs: [jobs]
-- Pull forces (attraction to new solution): [forces]
-- Anxieties: [concerns]
-
-**Partners:**
-- Lean Canvas Channels: [channels]
-- Unfair Advantage: [advantage]
-- Integration opportunities: [opportunities]
-
-**Investors:**
-- Lean Canvas Problem: [problem]
-- Customer Segments: [segments]
-- M2 TAM/SAM/SOM: [market size]
-
-Present extracted concerns for each audience.
-
-### 3. Draft Key Messages Per Audience
-
-For each audience, draft 3-5 messages that:
-1. Support the brand promise (trace upward)
-2. Address what that audience cares about
-3. Use language the audience uses (from JTBD)
-
-**Message format:**
-```markdown
-### [Audience Name] Messages
-
-**Brand Promise:** [reference]
-
-| # | Key Message | Traceability | Addresses |
-|---|-------------|--------------|-----------|
-| 1 | "[Message]" | [Source: JTBD primary job] | [Which concern] |
-| 2 | "[Message]" | [Source: M2 validated assumption #X] | [Which concern] |
-| 3 | "[Message]" | [Source: Lean Canvas UVP] | [Which concern] |
-| 4 | "[Message]" | [Source: JTBD push force] | [Which concern] |
-| 5 | "[Message]" | [Source: Working Backwards] | [Which concern] |
-```
-
-Draft for each audience before proceeding.
-
-### 4. Apply Quality Filters
-
-For each message, verify:
-
-**Filter 1: Not a feature**
-- Does it describe an outcome, belief, or emotional shift?
-- NOT a capability or specification
-
-**Filter 2: Has traceability**
-- Can you cite the specific framework output?
-- If no source, mark as hypothetical
-
-**Filter 3: No overlap**
-- Is it distinct from other messages for this audience?
-- If substantial overlap, merge or cut
-
-**Filter 4: Customer language**
-- For early adopter messages: uses verbatim JTBD language?
-- Not internal jargon?
-
-Present filter results for each audience.
-
-### 5. Brand Prism Consistency Check
-
-For each message, verify alignment with:
-- Culture facet: Does message align with brand values?
-- Personality facet: Does message match brand character?
-- Relationship facet: Does message fit brand-customer dynamic?
-
-If any message contradicts Brand Prism:
-> "⚠️ Message [N] contradicts Prism [facet]: [explanation]
-> Revise message to align (do NOT revise Prism)."
-
-### 6. Build Audience-Message Matrix
-
-Compile final messages into matrix:
-
-```markdown
-## Key Messages
-
-### Audience-Message Matrix
-
-| Audience | Message 1 | Message 2 | Message 3 | Message 4 | Message 5 |
-|----------|-----------|-----------|-----------|-----------|-----------|
-| Early Adopters | [M1] | [M2] | [M3] | [M4] | — |
-| Mainstream | [M1] | [M2] | [M3] | [M4] | [M5] |
-| Partners | [M1] | [M2] | [M3] | — | — |
-| Investors | [M1] | [M2] | [M3] | [M4] | — |
-
-### Detailed Messages
-
-#### Early Adopters
-
-1. **"[Message]"**
-   - Traceability: [Source]
-   - Addresses: [Concern]
-
-[Continue for all audiences...]
-```
-
-Update messaging-architecture.md with this section.
 
 ### 7. Update Output Document
 
-Update messaging-architecture.md frontmatter:
+Update messaging-architecture.md Key Messages section with the audience-message matrix.
+
+Update frontmatter:
 ```yaml
 stepsCompleted: ['step-01-init', 'step-02-brand-promise', 'step-03-key-messages']
 ```
@@ -189,8 +230,9 @@ stepsCompleted: ['step-01-init', 'step-02-brand-promise', 'step-03-key-messages'
 ### 8. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine messages further
-- **[C] Continue** — proceed to Build Proof Points
+- **[C] Continue** — proceed to Proof Points
+- **[R] Refine** — revise messages for specific audience
+- **[A] Advanced Elicitation** — deeper exploration of message options
 
 ALWAYS halt and wait for user selection.
 
@@ -199,14 +241,23 @@ ALWAYS halt and wait for user selection.
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when **[C] Continue** is selected:
-1. Verify Key Messages section is complete
-2. Verify all messages have traceability annotations
+1. Ensure all four audiences have 3-5 messages with traceability annotations
+2. Verify `step-03-key-messages` is in `stepsCompleted`
 3. Load `./step-04-proof-points.md` and follow its instructions
+
+When **[R] Refine** is selected:
+- Ask which audience to refine
+- Return to that audience's section and re-elicit messages
+- Redisplay menu
+
+When **[A] Advanced Elicitation** is selected:
+- Ask deeper questions about audience concerns, customer language, or message differentiation
+- After elicitation, redisplay menu
 
 ---
 
 ## SUCCESS / FAILURE METRICS
 
-✅ **SUCCESS:** 3-5 distinct messages per audience, all traced to sources, customer language used, no features, Prism-consistent
+✅ **SUCCESS:** Each audience has 3-5 distinct messages, every message has traceability annotation, no feature statements, all messages align with Brand Prism, messages support brand promise
 
-❌ **FAILURE:** Features disguised as messages, missing traceability, internal jargon, overlapping messages, Prism contradictions
+❌ **FAILURE:** Messages without traceability annotations, feature statements disguised as messages, messages contradict Brand Prism, overlapping messages within same audience, messages don't support brand promise

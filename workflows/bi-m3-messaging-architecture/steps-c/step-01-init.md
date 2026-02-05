@@ -7,13 +7,13 @@ outputFile: '{outputFolder}/messaging-architecture.md'
 
 # Step 1: Initialize Messaging Architecture
 
-**Progress: Step 1 of 6** — Next: Define Brand Promise
+**Progress: Step 1 of 6** — Next: Brand Promise
 
 ---
 
 ## STEP GOAL
 
-Verify Brand Positioning and prior framework prerequisites, load context from project-memo and upstream frameworks, explain Messaging Architecture methodology.
+Verify M1/M2/M3 prerequisites, load context from project-memo and prior frameworks, explain Messaging Architecture methodology.
 
 ---
 
@@ -25,13 +25,13 @@ Verify Brand Positioning and prior framework prerequisites, load context from pr
 - Follow the MANDATORY SEQUENCE below exactly — do not deviate, skip, or optimize
 
 ### Role Reinforcement
-You are a YC mentor. Every message must trace to evidence. "Great messaging" means nothing without proof points sourced from validated data.
+You are a YC mentor. Challenge messaging without proof. Demand traceability to validated data. Messaging without evidence is marketing fiction, not strategy.
 
 ### Step-Specific Rules
-- Brand Positioning MUST be complete before starting
+- M1, M2, AND M3 positioning/prism/golden-circle must be complete before starting
 - If prerequisites are missing, HALT and explain what's needed
 - If messaging-architecture.md exists with stepsCompleted, offer to continue
-- Do NOT define messages in this step — that starts in Step 2
+- Do NOT build messages in this step — that's Steps 2-5
 
 ---
 
@@ -39,16 +39,15 @@ You are a YC mentor. Every message must trace to evidence. "Great messaging" mea
 
 1. Read `{outputFolder}/project-memo.md` for project context and stepsCompleted
 2. Read `./data/messaging-architecture-framework.md` for framework knowledge
-3. Check prerequisites by verifying these exist in stepsCompleted:
-   - `bi-m3-brand-positioning` (REQUIRED — provides positioning foundation)
-   - `bi-m3-golden-circle` (REQUIRED — provides emotional Why)
-   - `bi-m1-working-backwards` (REQUIRED — provides PR headline)
-   - `bi-m1-jobs-to-be-done` (REQUIRED — provides customer language)
-4. Recommended (not required):
-   - `bi-m3-brand-prism` (personality consistency)
-   - `bi-m3-brand-archetypes` (narrative patterns)
-   - M2 validation frameworks (evidence for proof points)
-5. Check if `{outputFolder}/messaging-architecture.md` exists (continuation mode)
+3. Check M1/M2/M3 prerequisites by verifying these exist in stepsCompleted:
+   - `bi-m1-working-backwards`
+   - `bi-m1-jobs-to-be-done`
+   - `bi-m1-lean-canvas`
+   - At least 3 M2 frameworks
+   - `bi-m3-brand-positioning`
+   - `bi-m3-golden-circle`
+   - `bi-m3-brand-prism`
+4. Check if `{outputFolder}/messaging-architecture.md` exists (continuation mode)
 
 ---
 
@@ -58,33 +57,28 @@ You are a YC mentor. Every message must trace to evidence. "Great messaging" mea
 
 Check project-memo stepsCompleted for:
 
-**Required Frameworks:**
-- Brand Positioning (provides rational foundation — the benefit clause)
-- Golden Circle (provides emotional register — the Why)
-- Working Backwards (provides customer-facing narrative and PR headline)
-- Jobs-to-be-Done (provides customer language for messages)
+**Required M1 Frameworks:**
+- Working Backwards (PR headline, customer quote, narrative)
+- Jobs-to-be-Done (customer language, job stories, forces)
+- Lean Canvas (UVP, Customer Segments, Channels)
 
-**Recommended Frameworks:**
-- Lean Canvas (provides audience segments, channels, UVP)
-- Brand Prism (personality consistency check)
-- Brand Archetypes (narrative patterns)
-- M2 Validation (evidence for proof points)
+**Required M2 Frameworks:**
+- At least 3 M2 validation frameworks completed (for proof points)
 
-If missing required frameworks:
+**Required M3 Frameworks:**
+- Brand Positioning (positioning statement for rational foundation)
+- Golden Circle (Why statement for emotional register)
+- Brand Prism (all facets for message consistency)
+
+If missing:
 > "⛔ **Prerequisites Incomplete**
 >
-> Messaging Architecture builds the hierarchy from promise to proof. That requires:
+> Messaging Architecture requires:
+> - [Missing framework list]
 >
-> Missing required: [List missing frameworks]
+> Complete these before starting Messaging Architecture. You cannot build a messaging hierarchy without positioning, emotional foundation, and customer evidence.
 >
-> - Positioning gives you the rational benefit
-> - Golden Circle gives you the emotional Why
-> - Working Backwards gives you the customer narrative
-> - JTBD gives you customer language
->
-> Complete missing frameworks first.
->
-> Return to: [Missing framework]"
+> Return to: [M1/M2/M3 milestone]"
 
 HALT — do not proceed.
 
@@ -102,37 +96,26 @@ If prerequisites met:
 
 Explain Messaging Architecture briefly:
 
-> "Messaging Architecture is a hierarchical structure ensuring every word traces to strategy:
+> "Messaging Architecture is a hierarchical communication structure that ensures every piece of copy you produce traces to a single brand promise and is backed by concrete evidence. We'll build four levels:
 >
-> We'll build:
-> 1. **Brand Promise** — Single sentence (max 15 words) combining emotional + rational
-> 2. **Key Messages** — 3-5 per audience with traceability annotations
-> 3. **Proof Points** — 2-3 evidence items per message (data, quotes, features-as-benefits)
-> 4. **CTA Matrix** — Calls to action by journey stage and channel
+> 1. **Brand Promise** — Single sentence distilling your positioning + Golden Circle Why
+> 2. **Key Messages** — 3-5 messages per audience (early adopters, mainstream, partners, investors)
+> 3. **Proof Points** — 2-3 evidence items per message (data, customer quotes, feature-benefits)
+> 4. **CTAs** — Calls-to-action mapped to customer journey stages and channels
 >
-> Most startups write ad hoc copy. Then landing page says one thing, deck says another, onboarding says a third. This architecture prevents that."
+> Every message must trace to validated data from M1/M2. Messages without proof are flagged for M5 validation. The output becomes the canonical source for all brand copy in M4, M5, and M6."
 
-### 4. Load Positioning Foundation
+### 4. Project Context Summary
 
-From project-memo and upstream frameworks, extract:
+From project-memo and M1/M2/M3 frameworks, summarize:
+- Project name
+- Brand Positioning Statement (from M3)
+- Golden Circle Why (from M3)
+- Primary customer and emotional jobs (from M1 JTBD)
+- Key validated assumptions (from M2)
+- Available proof sources (M2 validation data, JTBD customer quotes)
 
-**From Brand Positioning:**
-- Full positioning statement
-- Key benefit clause (the "that [benefit]" part)
-- Competitive frame (unlike X which Y)
-
-**From Golden Circle:**
-- Why statement (emotional register)
-
-**From Working Backwards:**
-- PR headline
-- Customer quote
-
-**From JTBD:**
-- Primary job statement
-- Customer language examples
-
-Present: "Here's your foundation for the messaging hierarchy..."
+Present: "Here's the foundation we'll build your messaging hierarchy on..."
 
 ### 5. Create Output Document
 
@@ -152,7 +135,21 @@ status: in-progress
 
 *(To be completed in Step 2)*
 
-## Key Messages
+## Key Messages by Audience
+
+### Early Adopters
+
+*(To be completed in Step 3)*
+
+### Mainstream Customers
+
+*(To be completed in Step 3)*
+
+### Partners
+
+*(To be completed in Step 3)*
+
+### Investors
 
 *(To be completed in Step 3)*
 
@@ -168,7 +165,7 @@ status: in-progress
 
 *(To be completed in Step 6)*
 
-## Integration Notes
+## Synthesis
 
 *(To be completed in Step 6)*
 ```
@@ -176,7 +173,7 @@ status: in-progress
 ### 6. Present Menu Options
 
 **Select an Option:**
-- **[C] Continue** — proceed to Define Brand Promise
+- **[C] Continue** — proceed to Brand Promise definition
 
 ALWAYS halt and wait for user selection.
 
@@ -193,6 +190,6 @@ ONLY when **[C] Continue** is selected:
 
 ## SUCCESS / FAILURE METRICS
 
-✅ **SUCCESS:** Prerequisites verified, positioning foundation extracted, output document created
+✅ **SUCCESS:** Prerequisites verified, positioning/Golden Circle/Prism context summarized, available proof sources identified, output document created
 
-❌ **FAILURE:** Proceeding without Brand Positioning, defining messages in this step, skipping foundation extraction
+❌ **FAILURE:** Proceeding without M1/M2/M3 prerequisites, building messages in this step, skipping proof source identification

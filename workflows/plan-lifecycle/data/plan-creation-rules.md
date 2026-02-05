@@ -153,9 +153,10 @@ Rules for creating task files during plan creation.
 
 1. One file per non-checkpoint task
 2. Use `plan-task-microstep-template.md` as base
-3. Fill all sections: Goal, Context Files, Tools, Execution Flow, Output Requirements
-4. Include revolving plan rules section
-5. Set appropriate complexity_score in frontmatter
+3. Fill required sections: Goal, Context Files, Execution Flow, Output Requirements
+4. Include Tools section ONLY if task requires specialized RBTV skills/subagents (not for basic Read/Write/Shell)
+5. Include revolving plan rules section
+6. Set appropriate complexity_score in frontmatter
 
 ---
 

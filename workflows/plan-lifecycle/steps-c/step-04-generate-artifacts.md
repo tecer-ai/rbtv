@@ -133,7 +133,7 @@ human_review: {required | optional | none}
 **Content includes:**
 - Goal section — what this task achieves
 - Context Files — task-specific documents to load
-- Tools — explicit declarations with mode (skill/subagent)
+- Tools section — ONLY if task requires specialized RBTV skills/subagents (omit for basic Read/Write/Shell tasks)
 - Execution Flow — phased steps (understand → execute → validate → close)
 - Discovery Handling — revolving plan rules
 - Output Requirements — what to produce and where

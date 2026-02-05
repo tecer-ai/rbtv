@@ -79,6 +79,13 @@ You must fully embody this agent's persona and follow all activation instruction
   <item cmd="M2 or fuzzy match on validation, assumptions, market" workflow="{project-root}/_bmad/rbtv/workflows/bi-m2/workflow.md">[M2] Validation: Test assumptions, size market, model economics</item>
   <item cmd="M3 or fuzzy match on brand, identity, messaging" workflow="{project-root}/_bmad/rbtv/workflows/bi-m3/workflow.md">[M3] Brand: Define identity, positioning, voice</item>
   <item cmd="M4 or fuzzy match on prototype, build, mvp" workflow="{project-root}/_bmad/rbtv/workflows/bi-m4/workflow.md">[M4] Prototypation: Build and test early versions</item>
+  <!-- M4 Internal Structure (documented for reference):
+       [U] User Flow & IA → bi-m4-user-flow-ia (RBTV)
+       [D] Design Direction → bi-m4-design-context → BMAD create-ux-design (bridge)
+       [C] Conversion Optimization → bi-m4-conversion-centered-design (RBTV)
+       [H] Heuristic Evaluation → bi-m4-heuristic-evaluation (RBTV)
+       Note: Design discovery uses visual-design-extraction, playwright-browser-automation skills
+  -->
   <item cmd="M5 or fuzzy match on market validation, sales, revenue" workflow="{project-root}/_bmad/rbtv/workflows/bi-m5/workflow.md">[M5] Market Validation: Prove market demand with real sales</item>
   <item cmd="M6 or fuzzy match on mvp, launch, product" workflow="{project-root}/_bmad/rbtv/workflows/bi-m6/workflow.md">[M6] MVP: Build minimum viable product</item>
   <item cmd="PM or fuzzy match on party mode">[PM] Party Mode: Multi-agent discussion</item>

@@ -7,13 +7,13 @@ outputFile: '{outputFolder}/messaging-architecture.md'
 
 # Step 2: Define Brand Promise
 
-**Progress: Step 2 of 6** — Next: Create Key Messages
+**Progress: Step 2 of 6** — Next: Key Messages
 
 ---
 
 ## STEP GOAL
 
-Distill the Brand Positioning Statement into a single, customer-facing brand promise (max 15 words) that combines emotional aspiration with rational mechanism.
+Distill the Brand Positioning Statement into a single, customer-facing brand promise (max 15 words) that combines rational benefit and emotional register.
 
 ---
 
@@ -25,153 +25,152 @@ Distill the Brand Positioning Statement into a single, customer-facing brand pro
 - Follow the MANDATORY SEQUENCE below exactly — do not deviate, skip, or optimize
 
 ### Role Reinforcement
-You are a YC mentor. The promise is NOT a tagline. It's the strategic anchor for all messaging. Reject anything that sounds like ad copy.
+You are a YC mentor. The brand promise is not a clever tagline — it's a strategic commitment. Reject vague aspirations. Demand emotional resonance grounded in customer evidence.
 
 ### Step-Specific Rules
-- Promise MUST be one sentence, max 15 words
-- Promise MUST connect to Golden Circle Why (emotional) AND Positioning benefit (rational)
-- Promise MUST be customer-facing — not an internal strategy statement
-- A competitor CANNOT claim the identical promise without modification
+- Brand promise MUST be max 15 words
+- MUST connect explicitly to both Positioning (rational) and Golden Circle Why (emotional)
+- MUST pass all three filters: customer-facing, emotionally resonant, differentiated
+- Do NOT write multiple promise options — guide founder to ONE through questioning
 
 ---
 
 ## CONTEXT TO LOAD
 
-1. Read complete `{outputFolder}/messaging-architecture.md` from Step 1
-2. Load upstream framework outputs:
-   - Brand Positioning Statement (the "that [benefit]" clause)
-   - Golden Circle Why statement
-   - Working Backwards PR headline and customer quote
+1. Read `{outputFolder}/messaging-architecture.md` for current state
+2. Read `{outputFolder}/brand-positioning.md` for positioning statement
+3. Read `{outputFolder}/golden-circle.md` for Why statement
+4. Read `{outputFolder}/working-backwards.md` for PR headline and customer quote
+5. Read `{outputFolder}/brand-prism.md` for Culture and Relationship facets
 
 ---
 
 ## MANDATORY SEQUENCE
 
-### 1. Extract Promise Ingredients
+### 1. Extract Rational Foundation
 
-From Brand Positioning:
-- Identify the **core benefit claim** — the "that [key benefit]" clause
-- This is the rational foundation
+From Brand Positioning Statement, identify:
+- The "that [key benefit]" clause — this is the rational foundation
+- The competitive frame — what makes this benefit differentiated
 
-From Golden Circle:
-- Identify the **Why statement**
-- Note the emotional register: what belief or cause does the brand champion?
-- This is the emotional foundation
-
-Present both:
-> "**Rational foundation (Positioning benefit):**
-> [benefit clause]
+Ask:
+> "Your positioning says: '[positioning statement]'
 >
-> **Emotional foundation (Golden Circle Why):**
-> [Why statement]"
+> What is the core benefit claim in the 'that [key benefit]' clause? In one phrase, what changes for the customer?"
 
-### 2. Draft Brand Promise
+Wait for response. Record the rational benefit phrase.
 
-Combine rational and emotional into a single sentence using one of these structures:
+### 2. Extract Emotional Register
 
-**Structure A:** "[Emotional aspiration] through [rational mechanism]"
-**Structure B:** "[What changes for you] because [why we exist]"
+From Golden Circle Why, identify:
+- The belief or cause the brand champions
+- The emotional territory (confidence, relief, pride, control, freedom, etc.)
 
-Draft 2-3 variations:
+Ask:
+> "Your Golden Circle Why is: '[Why statement]'
+>
+> What emotion or aspiration does this Why connect to? When a customer engages with this brand, what should they FEEL?"
 
-```markdown
-**Draft Variations:**
+Wait for response. Record the emotional register.
 
-1. "[Draft 1]"
-   - Emotional hook: [Which part]
-   - Rational mechanism: [Which part]
+### 3. Draft Brand Promise
 
-2. "[Draft 2]"
-   - Emotional hook: [Which part]
-   - Rational mechanism: [Which part]
+Combine rational benefit and emotional register using one of these structures:
+- "[Emotional aspiration] through [rational mechanism]"
+- "[What changes for you] because [why we exist]"
 
-3. "[Draft 3]"
-   - Emotional hook: [Which part]
-   - Rational mechanism: [Which part]
-```
+Present draft:
+> "Let's combine these. Draft brand promise:
+>
+> '[Draft promise]'
+>
+> This is [N] words. Max is 15."
 
-Present drafts to user for feedback.
+If over 15 words, work with founder to compress without losing meaning.
 
-### 3. Apply Quality Filters
+### 4. Apply Three Filters
 
-Test each draft against three filters:
+Test the draft against each filter:
 
-**Filter 1: Customer-facing**
-- Would a real customer nod and say "yes, that's what I want"?
-- If it sounds like an internal strategy statement, FAIL
+**Filter 1: Customer-Facing**
 
-**Filter 2: Emotionally resonant**
-- Does it connect to a feeling (confidence, relief, pride, control)?
-- If it reads like a spec sheet, FAIL
+Ask:
+> "If a customer read this with NO context about your company, would they nod and say 'yes, that is what I want'?
+>
+> Or does it sound like an internal strategy statement?"
+
+If internal-sounding, revise to use customer language from JTBD interviews.
+
+**Filter 2: Emotionally Resonant**
+
+Ask:
+> "Does this connect to a FEELING (confidence, relief, pride, control), not just a feature?
+>
+> Read it out loud. Do you feel something, or is it just information?"
+
+If purely informational, strengthen the emotional register using Golden Circle Why.
 
 **Filter 3: Differentiated**
-- Could a competitor claim the exact same promise without changing a word?
-- If yes, sharpen using positioning's competitive frame
 
-Present filter results:
-
-```markdown
-| Draft | Customer-facing | Emotionally Resonant | Differentiated | Pass/Fail |
-|-------|-----------------|---------------------|----------------|-----------|
-| 1 | [Yes/No + why] | [Yes/No + why] | [Yes/No + why] | [Pass/Fail] |
-| 2 | [Yes/No + why] | [Yes/No + why] | [Yes/No + why] | [Pass/Fail] |
-| 3 | [Yes/No + why] | [Yes/No + why] | [Yes/No + why] | [Pass/Fail] |
-```
-
-### 4. Cross-Check Against Working Backwards
-
-Compare best draft(s) to:
-- Working Backwards PR headline
-- Working Backwards customer quote
-
-> "**Consistency check:**
-> - PR headline: [headline]
-> - Customer quote: [quote]
-> - Draft promise: [promise]
+Ask:
+> "Could [Top Competitor] claim the exact same promise without changing a word?
 >
-> Do they reinforce each other? [Yes/No + analysis]"
+> If yes, what makes YOUR version of this promise unique?"
 
-If contradiction found, reconcile before proceeding.
+If not differentiated, sharpen using the competitive frame from positioning.
 
-### 5. Select and Document Final Promise
+### 5. Cross-Check Against Working Backwards
 
-With user confirmation, select the final promise:
+Compare draft promise to Working Backwards PR headline and customer quote.
+
+Ask:
+> "Your Working Backwards PR headline was: '[headline]'
+>
+> Your customer quote was: '[quote]'
+>
+> Does your brand promise feel like the distilled essence of both? Or does it contradict either?"
+
+If contradictory, reconcile by adjusting promise to align with customer evidence.
+
+### 6. Document Rationale
+
+Record how the promise connects to upstream frameworks:
 
 ```markdown
 ## Brand Promise
 
-**Promise:** "[Final promise statement — max 15 words]"
+**Promise:** [Final brand promise — max 15 words]
 
-### Rationale
+**Rationale:**
+- **Rational Foundation (Positioning):** [How promise connects to "that [key benefit]" clause]
+- **Emotional Register (Golden Circle Why):** [How promise connects to Why statement and emotional territory]
+- **Differentiation:** [How promise distinguishes from competitors using competitive frame]
 
-**Emotional connection (from Golden Circle Why):**
-[How promise connects to Why]
+**Filter Validation:**
+- ✅ Customer-Facing: [Brief note on why this passes]
+- ✅ Emotionally Resonant: [Brief note on emotional connection]
+- ✅ Differentiated: [Brief note on competitive distinction]
 
-**Rational foundation (from Positioning):**
-[How promise connects to benefit clause]
-
-**Differentiation:**
-[Why competitor cannot claim this verbatim]
-
-**Working Backwards alignment:**
-- PR headline reinforces: [How]
-- Customer quote echoes: [How]
+**Working Backwards Alignment:**
+- PR Headline: [How promise aligns]
+- Customer Quote: [How promise aligns]
 ```
 
-Update messaging-architecture.md with this section.
+### 7. Update Output Document
 
-### 6. Update Output Document
+Update messaging-architecture.md Brand Promise section with the documented promise and rationale.
 
-Update messaging-architecture.md frontmatter:
+Update frontmatter:
 ```yaml
 stepsCompleted: ['step-01-init', 'step-02-brand-promise']
 ```
 
-### 7. Present Menu Options
+### 8. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine promise further
-- **[C] Continue** — proceed to Create Key Messages
+- **[C] Continue** — proceed to Key Messages definition
+- **[R] Refine** — revise brand promise with additional elicitation
+- **[A] Advanced Elicitation** — deeper exploration of promise options
 
 ALWAYS halt and wait for user selection.
 
@@ -180,14 +179,23 @@ ALWAYS halt and wait for user selection.
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when **[C] Continue** is selected:
-1. Verify Brand Promise section is complete
-2. Verify frontmatter updated
+1. Ensure Brand Promise section is complete with rationale
+2. Verify `step-02-brand-promise` is in `stepsCompleted`
 3. Load `./step-03-key-messages.md` and follow its instructions
+
+When **[R] Refine** is selected:
+- Return to Section 3 (Draft Brand Promise) with current draft as starting point
+- Re-apply filters and cross-checks
+- Redisplay menu
+
+When **[A] Advanced Elicitation** is selected:
+- Ask deeper questions about emotional territory, customer language, or competitive distinction
+- After elicitation, redisplay menu
 
 ---
 
 ## SUCCESS / FAILURE METRICS
 
-✅ **SUCCESS:** Promise is one sentence ≤15 words, connects to both Why and Positioning, passes all 3 filters, aligns with Working Backwards
+✅ **SUCCESS:** Brand promise is max 15 words, passes all three filters, has documented rationale connecting to positioning and Golden Circle Why, aligns with Working Backwards
 
-❌ **FAILURE:** Promise is vague tagline, exceeds 15 words, sounds like internal strategy, competitor could claim verbatim
+❌ **FAILURE:** Promise over 15 words, fails any filter, no documented rationale, contradicts Working Backwards PR headline or customer quote, sounds like tagline instead of strategic commitment

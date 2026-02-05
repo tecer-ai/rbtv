@@ -1,34 +1,19 @@
 type,name,path,description
 command,bmad-rbtv-mentor,_bmad/rbtv/.cursor/commands/rbtv/bmad-rbtv-mentor.md,Business Innovation - YC mentor guiding startup lifecycle
-command,bmad-rbtv-mentor,_bmad/rbtv/.claude/commands/rbtv/bmad-rbtv-mentor.md,Business Innovation - YC mentor guiding startup lifecycle (Claude)
 command,bmad-rbtv-help,_bmad/rbtv/.cursor/commands/rbtv/bmad-rbtv-help.md,Display RBTV commands and deep-dive into any command
-command,bmad-rbtv-help,_bmad/rbtv/.claude/commands/rbtv/bmad-rbtv-help.md,Display RBTV commands and deep-dive into any command (Claude)
 command,bmad-rbtv-doc,_bmad/rbtv/.cursor/commands/rbtv/bmad-rbtv-doc.md,Unified documentation generation (compound, handoff, product)
-command,bmad-rbtv-doc,_bmad/rbtv/.claude/commands/rbtv/bmad-rbtv-doc.md,Unified documentation generation (compound, handoff, product) (Claude)
 command,bmad-rbtv-git,_bmad/rbtv/.cursor/commands/rbtv/bmad-rbtv-git.md,Git commit workflow with Conventional Commits
-command,bmad-rbtv-git,_bmad/rbtv/.claude/commands/rbtv/bmad-rbtv-git.md,Git commit workflow with Conventional Commits (Claude)
 command,bmad-rbtv-create-component,_bmad/rbtv/.cursor/commands/rbtv/bmad-rbtv-create-component.md,BMAD Builder - create components in BMAD architecture
-command,bmad-rbtv-create-component,_bmad/rbtv/.claude/commands/rbtv/bmad-rbtv-create-component.md,BMAD Builder - create components in BMAD architecture (Claude)
 command,bmad-rbtv-domcobb,_bmad/rbtv/.cursor/commands/rbtv/bmad-rbtv-domcobb.md,Problem Architect & Prompting Expert - structure problems and craft prompts
-command,bmad-rbtv-domcobb,_bmad/rbtv/.claude/commands/rbtv/bmad-rbtv-domcobb.md,Problem Architect & Prompting Expert - structure problems and craft prompts (Claude)
 command,bmad-rbtv-plan,_bmad/rbtv/.cursor/commands/rbtv/bmad-rbtv-plan.md,Plan workflow command - create or execute plans with quality gates
-command,bmad-rbtv-plan,_bmad/rbtv/.claude/commands/rbtv/bmad-rbtv-plan.md,Plan workflow command - create or execute plans with quality gates (Claude)
 command,bmad-rbtv-context-search,_bmad/rbtv/.cursor/commands/rbtv/bmad-rbtv-context-search.md,Search referenced files for knowledge relevant to conversation context
-command,bmad-rbtv-context-search,_bmad/rbtv/.claude/commands/rbtv/bmad-rbtv-context-search.md,Search referenced files for knowledge relevant to conversation context (Claude)
 command,bmad-rbtv-design-validation,_bmad/rbtv/.cursor/commands/rbtv/bmad-rbtv-design-validation.md,Validate HTML designs using 4-layer framework
-command,bmad-rbtv-design-validation,_bmad/rbtv/.claude/commands/rbtv/bmad-rbtv-design-validation.md,Validate HTML designs using 4-layer framework (Claude)
 command,bmad-rbtv-visual-design-extraction,_bmad/rbtv/.cursor/commands/rbtv/bmad-rbtv-visual-design-extraction.md,Extract design tokens from website screenshots
-command,bmad-rbtv-visual-design-extraction,_bmad/rbtv/.claude/commands/rbtv/bmad-rbtv-visual-design-extraction.md,Extract design tokens from website screenshots (Claude)
 command,bmad-rbtv-tone-extraction,_bmad/rbtv/.cursor/commands/rbtv/bmad-rbtv-tone-extraction.md,Extract voice signature from text
-command,bmad-rbtv-tone-extraction,_bmad/rbtv/.claude/commands/rbtv/bmad-rbtv-tone-extraction.md,Extract voice signature from text (Claude)
 command,bmad-rbtv-mermaid-conversion,_bmad/rbtv/.cursor/commands/rbtv/bmad-rbtv-mermaid-conversion.md,Convert Mermaid diagrams to PNG images
-command,bmad-rbtv-mermaid-conversion,_bmad/rbtv/.claude/commands/rbtv/bmad-rbtv-mermaid-conversion.md,Convert Mermaid diagrams to PNG images (Claude)
 command,bmad-rbtv-playwright-browser-automation,_bmad/rbtv/.cursor/commands/rbtv/bmad-rbtv-playwright-browser-automation.md,Navigate websites and capture screenshots using Playwright
-command,bmad-rbtv-playwright-browser-automation,_bmad/rbtv/.claude/commands/rbtv/bmad-rbtv-playwright-browser-automation.md,Navigate websites and capture screenshots using Playwright (Claude)
 command,bmad-rbtv-quality-review,_bmad/rbtv/.cursor/commands/rbtv/bmad-rbtv-quality-review.md,Evaluate work against quality criteria
-command,bmad-rbtv-quality-review,_bmad/rbtv/.claude/commands/rbtv/bmad-rbtv-quality-review.md,Evaluate work against quality criteria (Claude)
 command,bmad-rbtv-web-research,_bmad/rbtv/.cursor/commands/rbtv/bmad-rbtv-web-research.md,Rigorous web research with source evaluation
-command,bmad-rbtv-web-research,_bmad/rbtv/.claude/commands/rbtv/bmad-rbtv-web-research.md,Rigorous web research with source evaluation (Claude)
 subagent,judge,_bmad/rbtv/.cursor/agents/rbtv/bmad-rbtv-quality-review.md,Evaluates work against quality criteria - invoke after complex tasks
 subagent,web-research,_bmad/rbtv/.cursor/agents/rbtv/bmad-rbtv-web-research.md,Rigorous web research executor with source evaluation - invoke for factual research
 subagent,context-search,_bmad/rbtv/.cursor/agents/rbtv/bmad-rbtv-context-search.md,Exhaustive knowledge extractor - searches files deeply and returns complete findings
