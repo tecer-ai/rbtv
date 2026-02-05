@@ -39,8 +39,8 @@ python install-rbtv.py
 ```
 
 **What the script does:**
-- Moves `rbtv/.cursor/` contents → `_bmad/.cursor/`
-- Creates `_bmad/.claude/commands/` and replicates Cursor commands for Claude compatibility
+- Moves `rbtv/.cursor/` contents → BMAD root `/.cursor/`
+- Creates BMAD root `/.claude/commands/` and replicates Cursor commands for Claude compatibility
 - Overwrites existing files if conflicts occur
 
 > **Important:** Run this script every time you update RBTV (`git pull` or `git fetch`). The script moves (not copies) the `.cursor/` folder, so it won't exist in `rbtv/` until the next update.

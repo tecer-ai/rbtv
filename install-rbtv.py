@@ -18,12 +18,13 @@ from pathlib import Path
 
 def get_paths():
     """Get source and destination paths."""
-    script_dir = Path(__file__).parent.resolve()
-    parent_dir = script_dir.parent
+    script_dir = Path(__file__).parent.resolve()  # _bmad/rbtv/
+    bmad_modules_dir = script_dir.parent  # _bmad/
+    bmad_root = bmad_modules_dir.parent  # BMAD/ (project root)
     
     return {
         "rbtv": script_dir,
-        "bmad": parent_dir,
+        "bmad": bmad_root,
         "folders": [".cursor"]
     }
 
