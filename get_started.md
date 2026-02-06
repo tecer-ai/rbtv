@@ -8,12 +8,19 @@ Welcome to **RBTV** (Robotville), a BMAD module for business innovation, documen
 
 RBTV requires the following BMAD modules installed:
 
-| Module | Provides | Purpose | Required |
-|--------|----------|---------|----------|
-| **BMAD Core** | `core/`, `bmm/` | Workflow engine, config, brainstorming; product documentation (Brief, PRD, UX) | Yes |
-| **cis** | `cis/` | Problem-solving methodologies (used by domcobb) | Yes |
+| Module | Tick in installer | Provides | Purpose | Required |
+|--------|-------------------|----------|---------|----------|
+| BMAD Core | **BMad Core** | `core/`, `bmm/` | Workflow engine, config, brainstorming; product documentation (Brief, PRD, UX) | Yes |
+| cis | **BMad Creative Innovation Suite** | `cis/` | Problem-solving methodologies (used by domcobb) | Yes |
 
-Install BMAD with these modules before proceeding: [BMAD GitHub Repository](https://github.com/bmadcode/BMAD-METHOD). When you select **BMad Core** during installation, both `core/` and `bmm/` folders are created in `_bmad/`.
+**Install BMAD** with these modules before proceeding. Use either:
+
+- **Guided (recommended):** `npx bmad-method install` — interactive installer, select the modules above when prompted
+- **Manual:** Clone [BMAD-METHOD](https://github.com/bmadcode/BMAD-METHOD) and set up `_bmad/` yourself
+
+When you select **BMad Core** during installation, both `core/` and `bmm/` folders are created in `_bmad/`.
+
+**MCP requirement for Business Innovation:** The **Playwright MCP** must be configured to use the Business Innovation module from milestone 3 onward (milestone 3 inclusive).
 
 ---
 
@@ -55,7 +62,7 @@ BMAD-METHOD/                    (installed from github.com/bmadcode/BMAD-METHOD)
 Navigate to your BMAD `_bmad/` folder and clone RBTV:
 
 ```bash
-cd path/to/your/project/BMAD-METHOD/_bmad
+cd path/to/BMAD-METHOD/_bmad
 git clone https://github.com/bmadcode/rbtv.git rbtv
 ```
 
