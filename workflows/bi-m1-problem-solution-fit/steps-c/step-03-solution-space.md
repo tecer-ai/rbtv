@@ -3,6 +3,7 @@ name: 'step-03-solution-space'
 description: 'Articulate solution in context of observed behaviours and constraints'
 nextStepFile: './step-04-assumptions.md'
 outputFile: '{outputFolder}/problem-solution-fit.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Solution Articulation
@@ -143,6 +144,8 @@ Update problem-solution-fit.md with "Our Solution" section.
 - **[A] Advanced Elicitation** — refine solution articulation or traceability
 - **[P] Party Mode** — get multi-perspective challenge on solution fit
 - **[C] Continue** — proceed to Critical Assumptions
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

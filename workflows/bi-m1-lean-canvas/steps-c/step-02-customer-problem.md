@@ -3,6 +3,7 @@ name: 'step-02-customer-problem'
 description: 'Populate Problem, Customer Segments, and Early Adopters blocks'
 nextStepFile: './step-03-value-solution.md'
 outputFile: '{outputFolder}/lean-canvas.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Customer & Problem Blocks
@@ -181,6 +182,8 @@ Update lean-canvas.md with completed Problem and Customer Segments blocks.
 - **[A] Advanced Elicitation** — go deeper on problem definition or segment refinement
 - **[P] Party Mode** — get multi-perspective challenge on blocks
 - **[C] Continue** — proceed to Value & Solution blocks
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

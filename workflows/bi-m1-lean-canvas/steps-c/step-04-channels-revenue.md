@@ -3,6 +3,7 @@ name: 'step-04-channels-revenue'
 description: 'Populate Channels, Revenue Streams, and Cost Structure blocks'
 nextStepFile: './step-05-metrics-advantage.md'
 outputFile: '{outputFolder}/lean-canvas.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Channels & Revenue Blocks
@@ -211,6 +212,8 @@ Update lean-canvas.md with completed Channels, Revenue Streams, and Cost Structu
 - **[A] Advanced Elicitation** — refine economic model or channel strategy
 - **[P] Party Mode** — get multi-perspective challenge on business model
 - **[C] Continue** — proceed to Metrics & Advantage blocks
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

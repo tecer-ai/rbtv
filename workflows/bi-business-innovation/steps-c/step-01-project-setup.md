@@ -1,14 +1,14 @@
 ---
-stepNumber: 2
+stepNumber: 1
 stepName: 'project-setup'
-nextStepFile: ./step-03-milestone-select.md
+nextStepFile: ./step-02-milestone-select.md
 projectMemoTemplate: ../templates/project-memo.md
 outputFolder: '{project-root}/_bmad-output/{project-name}/founder'
 ---
 
-# Step 02: Project Setup
+# Step 01: Project Setup
 
-**Progress: Step 2 of 3** — Next: Milestone Selection
+**Progress: Step 1 of 2** — Next: Milestone Selection
 
 ---
 
@@ -59,12 +59,12 @@ I'll create the following structure for "{project-name}":
 
 _bmad-output/{project-name}/founder/
 ├── project-memo.md        # Your cumulative project summary + state tracking
-├── m1-conception/         # M1 framework outputs + shape.md
-├── m2-validation/         # M2 framework outputs + shape.md
-├── m3-brand/              # M3 framework outputs + shape.md
-├── m4-prototypation/      # M4 framework outputs + shape.md
-├── m5-market-validation/  # M5 framework outputs + shape.md
-└── m6-mvp/                # M6 framework outputs + shape.md
+├── m1-conception/         # M1 framework outputs
+├── m2-validation/         # M2 framework outputs
+├── m3-brand/              # M3 framework outputs
+├── m4-prototypation/      # M4 framework outputs
+├── m5-market-validation/  # M5 framework outputs
+└── m6-mvp/                # M6 framework outputs
 
 Proceed with setup? [Y/N]
 ```

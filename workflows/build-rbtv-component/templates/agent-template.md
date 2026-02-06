@@ -72,7 +72,7 @@ When a menu item has action="some-id": Find the prompt with that id below and fo
 <item cmd="XX or fuzzy match on action name" exec="{path}">[XX] Action Name: Brief description</item>
 <item cmd="YY or fuzzy match on another action" workflow="{path}">[YY] Another Action: Brief description</item>
 <!-- Add more menu items -->
-<item cmd="PM or fuzzy match on party mode" action="party-mode">[PM] Party Mode: Multi-agent discussion</item>
+<item cmd="PM or fuzzy match on party mode" exec="{project-root}/_bmad/core/workflows/party-mode/workflow.md">[PM] Party Mode: Multi-agent discussion</item>
 <item cmd="DA or fuzzy match on done exit" action="exit">[DA] Done / Exit Agent</item>
 </menu>
 

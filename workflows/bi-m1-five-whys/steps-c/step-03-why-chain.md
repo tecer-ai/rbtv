@@ -3,6 +3,7 @@ name: 'step-03-why-chain'
 description: 'Run 5 Whys chains, capture causal narrative, separate facts from hypotheses'
 nextStepFile: './step-04-root-cause.md'
 outputFile: '{outputFolder}/five-whys.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Run 5 Whys Chains
@@ -182,6 +183,8 @@ If any fail, iterate before continuing.
 - **[A] Advanced Elicitation** — add another chain or go deeper on existing chain
 - **[P] Party Mode** — get multi-perspective challenge on chain logic
 - **[C] Continue** — proceed to Root Cause Synthesis
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

@@ -58,7 +58,7 @@ Extract these elements from the conversation:
 
 | Handoff Type | Additional Elements |
 |--------------|---------------------|
-| **plan-development** | Judge Feedback Summary (status, issues, coverage) |
+| **plan-development** | Quality Review Feedback Summary (status, issues, coverage). Quality-review is a subagent invoked via Task tool with `subagent_type='quality-review'`. |
 | **execution** | Specific task instructions, execution order |
 | **project** | Root cause (if applicable), related work |
 
@@ -126,7 +126,7 @@ List critical files:
 **For plan-development handoffs:**
 
 ```
-## Judge Feedback Summary
+## Quality Review Feedback Summary
 
 **Status:** {Approved | Needs Revision | Pending Review}
 

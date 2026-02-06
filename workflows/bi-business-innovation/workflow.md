@@ -1,7 +1,8 @@
 ---
 name: 'bi-business-innovation'
 description: 'Guide users through 6-milestone business innovation lifecycle from idea to MVP'
-nextStep: ./steps-c/step-01-init.md
+newProjectStep: ./steps-c/step-01-project-setup.md
+continueProjectStep: ./steps-c/step-02-milestone-select.md
 outputFolder: '{project-root}/_bmad-output/{project-name}/founder'
 projectMemoTemplate: ./templates/project-memo.md
 knowledgeFile: ./data/founder-process.md
@@ -49,18 +50,24 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 | Mode | Purpose | Entry Point | Output |
 |------|---------|-------------|--------|
-| Create | Start new business innovation project | steps-c/step-01-init.md | project-memo.md |
-| Continue | Resume existing project | steps-c/step-01-init.md (auto-detects) | Updated project-memo.md |
+| New Project | Start new business innovation project | step-01-project-setup.md | project-memo.md |
+| Continue Project | Resume existing project | step-02-milestone-select.md | Updated project-memo.md |
+
+**Note:** Mode selection is handled by the Mentor agent. The workflow steps are loaded directly based on user selection.
 
 ---
 
 ## INITIALIZATION SEQUENCE
 
-1. Load module config: `{project-root}/_bmad/core/config.yaml`
-2. Check for existing project-memo in context (determines mode)
-3. Load knowledge file: `{knowledgeFile}`
-4. Load first step: `{nextStep}`
-5. Follow step instructions exactly
+When invoked via Mentor agent:
+1. Mentor detects if project-memo is in context
+2. User selects [N] New Project or [C] Continue Project
+3. Mentor loads the appropriate step file directly
+
+When invoked directly (without Mentor):
+1. Load module config: `	{project-root}/_bmad/rbtv/config.yaml`
+2. If new project: Load `{newProjectStep}`
+3. If continuing: Load `{continueProjectStep}` (requires project-memo in context)
 
 ---
 
@@ -81,5 +88,5 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 | File | Purpose | When to Load |
 |------|---------|--------------|
-| data/founder-process.md | Milestone overview, framework routing | Step 01 |
+| data/founder-process.md | Milestone overview, framework routing | Direct route to current milestone |
 | templates/project-memo.md | Project summary template | New project setup |

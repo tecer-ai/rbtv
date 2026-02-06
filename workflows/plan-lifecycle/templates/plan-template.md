@@ -131,7 +131,7 @@ Plans are self-executing. Each task's micro-step file contains complete executio
 |----------|------|
 | Need prior conversation context | Skill (same context window) |
 | Context window saturated | Subagent (fresh context) |
-| Complex validation needed | Subagent (judge) |
+| Complex validation needed | Subagent (quality-review) |
 | Quick lookup | Skill |
 | Already running as subagent | Skill only (no nesting) |
 

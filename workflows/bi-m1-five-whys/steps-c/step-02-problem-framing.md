@@ -3,6 +3,7 @@ name: 'step-02-problem-framing'
 description: 'Select and frame concrete problem scenario for 5 Whys analysis'
 nextStepFile: './step-03-why-chain.md'
 outputFile: '{outputFolder}/five-whys.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Problem Framing
@@ -163,6 +164,8 @@ Update five-whys.md with:
 - **[A] Advanced Elicitation** — refine problem statement or scenario brief
 - **[P] Party Mode** — get multi-perspective challenge on problem framing
 - **[C] Continue** — proceed to Run 5 Whys Chains
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

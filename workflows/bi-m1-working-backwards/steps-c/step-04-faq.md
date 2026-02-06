@@ -3,6 +3,7 @@ name: 'step-04-faq'
 description: 'Draft external and internal FAQ, answer Is it worth doing?'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{outputFolder}/working-backwards.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Draft FAQ
@@ -165,6 +166,8 @@ Update working-backwards.md with:
 - **[A] Advanced Elicitation** — go deeper on specific FAQ areas
 - **[P] Party Mode** — stress-test "Is it worth doing?" from multiple perspectives
 - **[C] Continue** — proceed to Synthesis
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

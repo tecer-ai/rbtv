@@ -3,6 +3,7 @@ name: 'step-04-positioning'
 description: 'Analyze competitor strengths/weaknesses and map competitive positioning'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{outputFolder}/competitive-landscape.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Competitor Analysis & Positioning
@@ -224,6 +225,8 @@ stepsCompleted: ['step-01-init', 'step-02-competitor-id', 'step-03-benchmarking'
 - **[A] Advanced Elicitation** — deeper analysis on specific competitors or positioning
 - **[P] Party Mode** — get multi-agent perspectives on positioning strategy
 - **[C] Continue** — proceed to Synthesis & Project Memo Update
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

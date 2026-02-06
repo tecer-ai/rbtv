@@ -3,6 +3,7 @@ name: 'step-04-assumptions'
 description: 'Extract and tag critical assumptions for validation'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{outputFolder}/problem-solution-fit.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Critical Assumptions
@@ -159,6 +160,8 @@ Update problem-solution-fit.md with "Critical Assumptions" section.
 - **[A] Advanced Elicitation** — go deeper on specific assumptions
 - **[P] Party Mode** — get multi-perspective challenge on assumptions
 - **[C] Continue** — proceed to Synthesis
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

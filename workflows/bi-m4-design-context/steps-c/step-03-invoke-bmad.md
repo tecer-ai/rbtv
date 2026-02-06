@@ -1,7 +1,7 @@
 ---
 name: 'step-03-invoke-bmad'
 description: 'Instruct run BMAD create-ux-design with prepared context'
-nextStepFile: './step-04-synthesis.md'
+nextStepFile: './step-03b-restore-config.md'
 ---
 
 # Step 3: Invoke BMAD create-ux-design
@@ -56,7 +56,7 @@ Present clear instructions:
 >    BMAD create-ux-design discovers input from planning_artifacts, output_folder, and product_knowledge. Ensure the design-context document is in scope (e.g. same output folder or planning artifacts path).
 >
 > 3. **What BMAD will do:**  
->    Create UX design specifications: design brief, visual foundation, design directions, user journeys, component strategy, UX patterns, responsive and accessibility specs. Discovery uses bmad-rbtv-visual-design-extraction, bmad-rbtv-playwright-browser-automation; optionally bmad-rbtv-design-validation.
+>    Create UX design specifications: design brief, visual foundation, design directions, user journeys, component strategy, UX patterns, responsive and accessibility specs. Discovery uses visual-design-extraction, playwright-browser-automation; optionally design-validation.
 >
 > 4. **After BMAD completes:**  
 >    Return to this bridge workflow and select **[C] Continue** to run Step 4 (Synthesis). Step 4 will integrate BMAD output (e.g. design specification, design_brief.md, design.json if produced) into project-memo and instruct return to M4 milestone menu."
@@ -70,7 +70,7 @@ HALT — wait for user confirmation.
 ### 3. Present Menu Options
 
 **Select an Option:**
-- **[C] Continue** — BMAD complete; proceed to Synthesis (Step 4)
+- **[C] Continue** — BMAD complete; proceed to Restore Config (Step 3b)
 
 ALWAYS halt and wait for user selection.
 
@@ -79,7 +79,7 @@ ALWAYS halt and wait for user selection.
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when **[C] Continue** is selected (user has completed BMAD create-ux-design):
-1. Load `./step-04-synthesis.md` and follow its instructions
+1. Load `./step-03b-restore-config.md` and follow its instructions
 
 ---
 

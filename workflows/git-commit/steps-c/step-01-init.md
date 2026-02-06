@@ -41,8 +41,14 @@ Extract from user command:
 - **Mode**: ST, CO, OR, SQ (case-insensitive)
 - **Size**: 280, 1000, 2000
 - **Push**: +push flag presence
+- **YOLO**: +yolo flag presence
 
 Store detected values in session.
+
+If YOLO mode detected:
+- Set yoloMode = true
+- If size not specified, use defaultSize (1000)
+- Skip menu presentations in subsequent steps
 
 ### 2. Prompt for Missing Mode
 
@@ -59,9 +65,15 @@ Which mode?
 
 HALT and wait for user selection.
 
+**YOLO Mode Exception:** This prompt is REQUIRED even in YOLO mode.
+
 ### 3. Prompt for Missing Size
 
-If size not detected, present:
+If size not detected:
+
+**YOLO Mode:** Skip prompt, use defaultSize (1000)
+
+**Normal Mode:** Present:
 
 ```
 Commit message size?
@@ -86,6 +98,8 @@ Push after commit?
 
 HALT and wait for user selection.
 
+**YOLO Mode Exception:** This prompt is REQUIRED even in YOLO mode.
+
 ### 5. Validate Mode Prerequisites
 
 | Mode | Prerequisite | Error Message |
@@ -104,6 +118,11 @@ If prerequisite fails → Display error and HALT.
 - Mode: `{mode}`
 - Size: `{size}`
 - Push: `{+push | no push}`
+- YOLO: `{yes | no}`
+
+**YOLO Mode:** Skip menu, automatically proceed to step 2.
+
+**Normal Mode:**
 
 **Select an Option:**
 
@@ -117,9 +136,11 @@ ALWAYS halt and wait for user selection.
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY when **[C] Continue** is selected:
+**Normal Mode:** ONLY when **[C] Continue** is selected:
 
-1. Store mode, size, push in session
+**YOLO Mode:** Automatically proceed after validation:
+
+1. Store mode, size, push, yoloMode in session
 2. Load `./step-02-context.md` and follow its instructions
 
 ---

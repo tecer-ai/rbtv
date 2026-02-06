@@ -1,7 +1,7 @@
 ---
 name: 'step-02-format-context'
 description: 'Build design brief / context document for BMAD create-ux-design'
-nextStepFile: './step-03-invoke-bmad.md'
+nextStepFile: './step-02b-update-config.md'
 outputFile: '{outputFolder}/design-context.md'
 ---
 
@@ -87,7 +87,7 @@ Create or overwrite `{outputFolder}/design-context.md` with the following struct
 
 When running BMAD create-ux-design:
 - Use this document as the primary context (design brief).
-- Discovery: bmad-rbtv-visual-design-extraction, bmad-rbtv-playwright-browser-automation; optionally bmad-rbtv-design-validation.
+- Discovery: visual-design-extraction, playwright-browser-automation; optionally design-validation.
 - Output: design specification and visual direction; integrate results into project-memo after workflow completion.
 ```
 
@@ -96,7 +96,7 @@ Confirm with user: "Design-context document created at `{outputFolder}/design-co
 ### 2. Present Menu Options
 
 **Select an Option:**
-- **[C] Continue** — proceed to Invoke BMAD (Step 3)
+- **[C] Continue** — proceed to Update BMAD Config (Step 2b)
 
 ALWAYS halt and wait for user selection.
 
@@ -106,7 +106,7 @@ ALWAYS halt and wait for user selection.
 
 ONLY when **[C] Continue** is selected:
 1. Ensure design-context.md exists at {outputFolder}
-2. Load `./step-03-invoke-bmad.md` and follow its instructions
+2. Load `./step-02b-update-config.md` and follow its instructions
 
 ---
 

@@ -50,7 +50,9 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 |------|------|---------|
 | 01 | Init | Load project-memo, user-flow-ia.md, M1–M3 synthesis; verify prerequisites; determine artifact type/scope |
 | 02 | Format Context | Build design brief / context document for BMAD create-ux-design |
+| 02b | Update Config | Update BMAD config to use RBTV project folder |
 | 03 | Invoke BMAD | Instruct run BMAD create-ux-design with prepared context |
+| 03b | Restore Config | Restore BMAD config to defaults |
 | 04 | Synthesis | Integrate BMAD output into project-memo; instruct return to M4 milestone menu |
 
 ---
@@ -75,9 +77,11 @@ Bridge is complete when:
 
 1. Prerequisites verified (User Flow & IA complete; M1/M3 synthesis available)
 2. design-context.md (or design-brief) created with artifact type, content hierarchy, CTA, brand refs
-3. User has run BMAD create-ux-design with that context
-4. project-memo updated with Design Direction synthesis
-5. User instructed to return to M4 milestone menu
+3. BMAD config updated to use RBTV project folder
+4. User has run BMAD create-ux-design with that context
+5. BMAD config restored to defaults
+6. project-memo updated with Design Direction synthesis
+7. User instructed to return to M4 milestone menu
 
 ---
 

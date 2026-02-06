@@ -3,6 +3,7 @@ name: 'step-03-value-solution'
 description: 'Populate Unique Value Proposition and Solution blocks'
 nextStepFile: './step-04-channels-revenue.md'
 outputFile: '{outputFolder}/lean-canvas.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Value & Solution Blocks
@@ -173,6 +174,8 @@ Update lean-canvas.md with completed UVP and Solution blocks.
 - **[A] Advanced Elicitation** — refine UVP or solution mapping
 - **[P] Party Mode** — get multi-perspective challenge on differentiation
 - **[C] Continue** — proceed to Channels & Revenue blocks
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

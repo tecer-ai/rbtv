@@ -135,7 +135,7 @@ Using the extracted content from step-03, populate the template sections:
 **For plan-development handoffs:**
 
 ```markdown
-## Judge Feedback Summary
+## Quality Review Feedback Summary
 
 **Status:** {Approved | Needs Revision | Pending Review}
 

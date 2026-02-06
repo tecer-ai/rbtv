@@ -3,6 +3,7 @@ name: 'step-03-risk-ranking'
 description: 'Score failure modes by likelihood x severity, identify top 5-8 risks'
 nextStepFile: './step-04-mitigations.md'
 outputFile: '{outputFolder}/pre-mortem.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Risk Ranking
@@ -135,6 +136,8 @@ Present:
 - **[A] Advanced Elicitation** — revisit scores for specific failure modes
 - **[P] Party Mode** — get multi-agent perspectives on risk prioritization
 - **[C] Continue** — proceed to Mitigations
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

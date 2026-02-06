@@ -3,6 +3,7 @@ name: 'step-05-synthesis'
 description: 'Cross-reference with kill criteria, update project-memo.md, trigger M2 completion check'
 nextStepFile: null
 outputFile: '{outputFolder}/pre-mortem.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 5: Synthesis
@@ -178,6 +179,8 @@ If any missing:
 - **[P] Party Mode** — get multi-agent perspectives on overall risk assessment
 - **[M2] Return to M2 Milestone** — go back to bi-m2/workflow.md
 - **[MS] Return to Milestone Selection** — go back to master workflow
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu.
 
 ALWAYS halt and wait for user selection.
 

@@ -55,8 +55,10 @@ Gather git context based on selected mode. Execute preparatory git commands.
 
 | Step | Command | Purpose |
 |------|---------|---------|
-| 1 | `git status --porcelain` | Get all changes |
+| 1 | `git status --porcelain` | Get all changes with statuses |
 | 2 | Analyze changes | Group by scope/type/relationship |
+
+**Efficiency Note:** Use the status output to write commit messages. Only run `git diff` on specific files if content details are needed for the message (rare - most messages can be written from file paths and change types alone).
 
 **SQ Mode (Squash Merge):**
 
@@ -83,7 +85,7 @@ Store gathered context for message generation:
 
 ### 3. Present Context Summary (OR Mode Only)
 
-For OR mode, present proposed groupings:
+**OR Mode (Normal or YOLO):** Present proposed groupings:
 
 ```
 **Proposed commit organization:**
@@ -107,6 +109,8 @@ Type: {type} — {brief description}
 - `reorder <N> before <M>` — change order
 ```
 
+**CRITICAL:** Group approval is REQUIRED even in YOLO mode. YOLO only skips prompts AFTER groups are approved.
+
 HALT and wait for user to refine or approve groupings.
 
 ### 4. Present Menu Options
@@ -116,6 +120,10 @@ HALT and wait for user to refine or approve groupings.
 Files changed: {count}
 Lines added: {+count}
 Lines removed: {-count}
+
+**YOLO Mode:** Skip menu, automatically proceed to step 3.
+
+**Normal Mode:**
 
 **Select an Option:**
 
@@ -149,7 +157,11 @@ Then HALT and exit workflow.
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY when **[C] Continue** is selected:
+**Normal Mode:** ONLY when **[C] Continue** is selected:
+
+**YOLO Mode (Non-OR):** Automatically proceed after context gathered.
+
+**YOLO Mode (OR):** Automatically proceed ONLY after user approves groupings.
 
 1. Ensure context is stored in session
 2. Load `./step-03-message.md` and follow its instructions

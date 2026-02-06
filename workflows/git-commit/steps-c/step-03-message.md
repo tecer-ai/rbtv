@@ -104,6 +104,10 @@ Follow this structure:
 - Character count: {X}/{limit}
 - Push: {yes/no}
 
+**YOLO Mode:** Display message and analysis, then automatically approve and proceed to step 4.
+
+**Normal Mode:**
+
 **Proceed? (yes/edit/abort)**
 
 HALT and wait for user response.
@@ -123,19 +127,31 @@ If user edits, store the modified message exactly as provided.
 
 For OR mode, process each approved group:
 
-1. Stage only files in current group
-2. Get diff for this group
-3. Generate message for this group
-4. Present for approval: "Proceed? (yes/edit/skip/abort)"
-5. On `yes`: store message, continue to next group
-6. On `skip`: leave files unstaged, continue to next group
-7. On `abort`: cancel remaining groups
+**Normal Mode:**
+
+1. Analyze files in current group (use status info, only run diff if needed)
+2. Generate message for this group
+3. Present for approval: "Proceed? (yes/edit/skip/abort)"
+4. On `yes`: store message, continue to next group
+5. On `skip`: skip this group, continue to next group
+6. On `abort`: cancel remaining groups
+
+**YOLO Mode:**
+
+1. Analyze files in current group (use status info, only run diff if needed)
+2. Generate message for this group
+3. Display message (no approval prompt)
+4. Store message, continue to next group
 
 After all groups processed, proceed to execute step.
 
 ### 6. Present Menu Options (Non-OR Modes)
 
 **Message approved.**
+
+**YOLO Mode:** Skip menu, automatically proceed to step 4.
+
+**Normal Mode:**
 
 **Select an Option:**
 
@@ -149,7 +165,9 @@ ALWAYS halt and wait for user selection.
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY when **[C] Continue** is selected or message approved:
+**Normal Mode:** ONLY when **[C] Continue** is selected or message approved:
+
+**YOLO Mode:** Automatically proceed after message generated:
 
 1. Store approved message(s) in session
 2. Load `./step-04-execute.md` and follow its instructions

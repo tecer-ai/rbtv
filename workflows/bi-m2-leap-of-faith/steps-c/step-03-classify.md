@@ -3,6 +3,7 @@ name: 'step-03-classify'
 description: 'Sort assumptions into Value vs Growth hypotheses with sub-categories'
 nextStepFile: './step-04-prioritize.md'
 outputFile: '{outputFolder}/leap-of-faith.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Classify Assumptions
@@ -169,6 +170,8 @@ stepsCompleted: ['step-01-init', 'step-02-harvest', 'step-03-classify']
 - **[A] Advanced Elicitation** — challenge classification of specific assumptions
 - **[P] Party Mode** — get multi-agent perspectives on boundary cases
 - **[C] Continue** — proceed to Prioritize Assumptions
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

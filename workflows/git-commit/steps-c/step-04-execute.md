@@ -14,6 +14,8 @@ nextStepFile: null
 
 Execute git commit (and push if requested). Report results.
 
+**YOLO Mode:** This step executes automatically without additional confirmation in both normal and YOLO modes.
+
 ---
 
 ## MANDATORY EXECUTION RULES

@@ -1,10 +1,11 @@
 ---
 name: 'git-workflow'
 description: 'Execute git operations with Conventional Commits messages'
-main_config: '{project-root}/_bmad/core/config.yaml'
+main_config: '	{project-root}/_bmad/rbtv/config.yaml'
 nextStep: ./steps-c/step-01-init.md
 defaultSize: 1000
 defaultPush: false
+yoloMode: false
 ---
 
 # Git Workflow
@@ -41,6 +42,14 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 - ⏸️ ALWAYS halt at menus and wait for user input
 - 🔒 NEVER use --force, --no-verify, or destructive options
 
+### Performance Optimization
+
+**Efficient Git Operations:**
+- Use `git status --porcelain` output to write commit messages
+- Only run `git diff` when content details are essential (rare)
+- File paths and change types (A/M/D/R) are usually sufficient for message generation
+- Reduces unnecessary git operations by ~80% in OR mode
+
 ---
 
 ## MODE OVERVIEW
@@ -71,9 +80,23 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ---
 
+## YOLO MODE
+
+- **+yolo** — Fast execution mode with minimal prompts
+  - Only confirms: mode and push preference
+  - Size is optional (defaults to 1000 if not specified)
+  - Auto-approves commit messages
+  - Skips all intermediate menus
+  - Executes commit and push without additional confirmation
+  - **OR mode with YOLO:** Group approval is REQUIRED, then auto-executes all commits
+
+**Example:** `git ST +yolo +push` or `git CO +yolo 2000` or `git OR 1000 +yolo +push`
+
+---
+
 ## INITIALIZATION SEQUENCE
 
-1. Parse command for mode, size, and push flag
-2. Prompt for missing parameters
+1. Parse command for mode, size, push flag, and yolo flag
+2. Prompt for missing parameters (minimal prompts in yolo mode)
 3. Load `steps-c/step-01-init.md`
 4. Follow step instructions exactly

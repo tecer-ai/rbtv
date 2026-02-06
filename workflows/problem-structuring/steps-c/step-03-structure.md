@@ -2,6 +2,7 @@
 stepNumber: 3
 stepId: structure
 nextStepFile: ./step-04-deliver.md
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Structure the Problem
@@ -115,6 +116,8 @@ Present these options and HALT:
 | **[RS] Revise Statement** | Refine the problem statement |
 | **[AE] Advanced Elicitation** | Explore a specific branch deeper |
 | **[PM] Party Mode** | Multi-agent review of structure |
+
+**Menu handling:** When [PM] is selected, execute {partyModeWorkflow} then redisplay this menu.
 
 ---
 

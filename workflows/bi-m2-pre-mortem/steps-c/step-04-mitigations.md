@@ -3,6 +3,7 @@ name: 'step-04-mitigations'
 description: 'Define mitigation actions, early warning signals, and contingency plans'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{outputFolder}/pre-mortem.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Mitigations
@@ -167,6 +168,8 @@ Present all mitigation cards in document format:
 - **[A] Advanced Elicitation** — refine specific mitigation cards
 - **[P] Party Mode** — get multi-agent perspectives on mitigation strategies
 - **[C] Continue** — proceed to Synthesis
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

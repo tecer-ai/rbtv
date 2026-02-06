@@ -163,7 +163,7 @@ ALWAYS halt and wait for user selection.
 | [H] | Check prerequisites → Update project-memo frontmatter → Load `../bi-m4-heuristic-evaluation/workflow.md` |
 | [F] | Display "🚧 This framework is planned for future creation. Please select an available framework." |
 | [S] | Display detailed status, then redisplay menu |
-| [B] | Load `../../bi-business-innovation/workflow.md` → step-03-milestone-select.md |
+| [B] | Load `../../bi-business-innovation/workflow.md` → step-02-milestone-select.md |
 | [X] | Exit workflow |
 
 ### Prerequisite Checking
@@ -237,7 +237,7 @@ ONLY when user selects a framework [U/D/C/H]:
 3. Load the selected framework workflow and follow its instructions
 
 When user selects [B] Back:
-1. Load `../../bi-business-innovation/workflow.md` → follow to step-03-milestone-select.md
+1. Load `../../bi-business-innovation/workflow.md` → follow to step-02-milestone-select.md
 2. That step will present the milestone menu
 
 ---

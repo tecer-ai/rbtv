@@ -96,7 +96,7 @@ Confirm document is ready for BMAD create-ux-design workflow:
 > | Content inventory | Content to style |
 > | AIDA sections | Section structure |
 >
-> When you start Design Direction [D], reference this document as context for design discovery (bmad-rbtv-visual-design-extraction, bmad-rbtv-playwright-browser-automation; optionally bmad-rbtv-design-validation)."
+> When you start Design Direction [D], reference this document as context for design discovery (visual-design-extraction, playwright-browser-automation; optionally design-validation)."
 
 ### 3. Compile Synthesis
 

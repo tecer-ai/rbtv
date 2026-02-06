@@ -3,6 +3,7 @@ name: 'step-03-severity-rating'
 description: 'Rate severity of each violation (0-4 scale), prioritize issues'
 nextStepFile: './step-04-recommendations.md'
 outputFile: '{project-root}/_bmad-output/{project-name}/founder/m4-prototypation/heuristic-evaluation.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Severity Rating
@@ -176,6 +177,8 @@ Update frontmatter: add `step-03-severity-rating.md` to `stepsCompleted`
 - **[A] Advanced Elicitation** — discuss any severity rating in detail
 - **[P] Party Mode** — get multi-agent perspectives on severity assessments
 - **[C] Continue** — proceed to recommendations
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

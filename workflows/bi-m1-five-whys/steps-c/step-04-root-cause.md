@@ -3,6 +3,7 @@ name: 'step-04-root-cause'
 description: 'Synthesize root causes and select structural levers to target'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{outputFolder}/five-whys.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Root Cause Synthesis
@@ -191,6 +192,8 @@ Update five-whys.md with:
 - **[A] Advanced Elicitation** — refine root cause statements or targeting decisions
 - **[P] Party Mode** — get multi-perspective challenge on targeting choices
 - **[C] Continue** — proceed to Final Synthesis
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

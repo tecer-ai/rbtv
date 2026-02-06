@@ -3,6 +3,7 @@ name: 'step-02-discover'
 description: 'Clarify customer and problem through structured questioning'
 nextStepFile: './step-03-press-release.md'
 outputFile: '{outputFolder}/working-backwards.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Customer & Problem Discovery
@@ -135,6 +136,8 @@ Update working-backwards.md with completed Customer & Problem Brief section.
 - **[A] Advanced Elicitation** — go deeper on customer segments or problem definition
 - **[P] Party Mode** — get multi-perspective challenge on the brief
 - **[C] Continue** — proceed to Draft Press Release
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

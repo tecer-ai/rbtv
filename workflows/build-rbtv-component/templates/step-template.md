@@ -12,6 +12,7 @@ name: 'step-{NN}-{short-name}'
 description: '{What this step accomplishes}'
 nextStepFile: './step-{NN+1}-{next-name}.md'
 outputFile: '{planning_artifacts}/{output-name}.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step {N}: {Title}
@@ -80,6 +81,8 @@ You are a {role}. Continue your existing persona and communication style.
 - **[A] Advanced Elicitation** — go deeper on any generated content
 - **[P] Party Mode** — get multi-agent perspectives on this step's output
 - **[C] Continue** — proceed to next step
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

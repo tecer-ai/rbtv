@@ -3,6 +3,7 @@ name: 'step-04-recommendations'
 description: 'Generate prioritized improvement recommendations with rationale'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{project-root}/_bmad-output/{project-name}/founder/m4-prototypation/heuristic-evaluation.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Recommendations
@@ -242,6 +243,8 @@ Update frontmatter: add `step-04-recommendations.md` to `stepsCompleted`
 - **[A] Advanced Elicitation** — discuss any recommendation in detail
 - **[P] Party Mode** — get multi-agent perspectives on prioritization
 - **[C] Continue** — proceed to synthesis
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

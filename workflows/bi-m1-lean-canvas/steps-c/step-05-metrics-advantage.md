@@ -3,6 +3,7 @@ name: 'step-05-metrics-advantage'
 description: 'Populate Key Metrics and Unfair Advantage blocks'
 nextStepFile: './step-06-synthesis.md'
 outputFile: '{outputFolder}/lean-canvas.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 5: Metrics & Advantage Blocks
@@ -192,6 +193,8 @@ Update lean-canvas.md with completed Key Metrics and Unfair Advantage blocks.
 - **[A] Advanced Elicitation** — refine metrics or advantage thesis
 - **[P] Party Mode** — get multi-perspective challenge on defensibility
 - **[C] Continue** — proceed to Synthesis
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

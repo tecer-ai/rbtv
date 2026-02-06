@@ -3,6 +3,7 @@ name: 'step-02-harvest'
 description: 'Extract explicit and implicit assumptions from all M1 artefacts'
 nextStepFile: './step-03-classify.md'
 outputFile: '{outputFolder}/leap-of-faith.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Harvest Assumptions
@@ -143,6 +144,8 @@ stepsCompleted: ['step-01-init', 'step-02-harvest']
 - **[A] Advanced Elicitation** — go deeper on specific artefacts to find more assumptions
 - **[P] Party Mode** — get multi-agent perspectives on hidden assumptions
 - **[C] Continue** — proceed to Classify Assumptions
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

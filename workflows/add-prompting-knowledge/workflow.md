@@ -78,7 +78,7 @@ Based on selection, show template structure:
 Load the RBTV Builder agent with context:
 
 ```
-Route to: {project-root}/_bmad/rbtv/agents/component-creator.md
+Route to: {project-root}/_bmad/rbtv/agents/god.md
 
 Pre-select: [CK] Create Knowledge
 

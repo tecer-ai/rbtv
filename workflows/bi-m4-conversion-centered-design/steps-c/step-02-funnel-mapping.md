@@ -3,6 +3,7 @@ name: 'step-02-funnel-mapping'
 description: 'Map conversion funnel stages and identify friction points'
 nextStepFile: './step-03-hypothesis-generation.md'
 outputFile: '{outputFolder}/conversion-optimization.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Funnel Mapping & Friction Analysis
@@ -185,6 +186,8 @@ stepsCompleted: ['step-01-init', 'step-02-funnel-mapping']
 - **[A] Advanced Elicitation** — go deeper on any friction point or stage
 - **[P] Party Mode** — get multi-agent perspectives on friction analysis
 - **[C] Continue** — proceed to Hypothesis Generation
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

@@ -76,7 +76,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 ## RECOMMENDED SEQUENCE
 
 1. **User Flow & IA** [U] — Map conversion paths and content hierarchy *(available)*
-2. **Design Direction** [D] — Create visual direction via BMAD (design discovery via bmad-rbtv-visual-design-extraction, bmad-rbtv-playwright-browser-automation; optionally bmad-rbtv-design-validation) *(available)*
+2. **Design Direction** [D] — Create visual direction via BMAD (design discovery via visual-design-extraction, playwright-browser-automation; optionally design-validation) *(available)*
 3. **Build Prototype** [B] — Implement HTML prototype *(to be created)*
 4. **Conversion Optimization** [C] — Apply conversion-centered design principles *(available)*
 5. **Heuristic Evaluation** [H] — Evaluate usability against Nielsen's heuristics *(available)*

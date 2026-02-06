@@ -3,6 +3,7 @@ name: 'step-02-problem-space'
 description: 'Map problem, triggers, emotions, behaviours, and constraints'
 nextStepFile: './step-03-solution-space.md'
 outputFile: '{outputFolder}/problem-solution-fit.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Problem Space Mapping
@@ -150,6 +151,8 @@ Update problem-solution-fit.md with:
 - **[A] Advanced Elicitation** — go deeper on problem situations or constraints
 - **[P] Party Mode** — get multi-perspective challenge on problem mapping
 - **[C] Continue** — proceed to Solution Articulation
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

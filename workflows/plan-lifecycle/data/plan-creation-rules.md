@@ -97,7 +97,7 @@ When tasks require tools, specify the mode explicitly.
 |----------|------|-----------|
 | Need prior conversation context | Skill | Preserves conversation history, same context window |
 | Context window saturated | Subagent | Fresh context window |
-| Complex validation needed | Subagent | Judge needs focused evaluation |
+| Complex validation needed | Subagent | quality-review needs focused evaluation |
 | Quick lookup or search | Skill | Minimal overhead |
 | Already running as subagent | Skill only | Subagents cannot invoke other subagents |
 
@@ -120,14 +120,18 @@ When a task requires invoking an agent:
 
 | Rule | Description |
 |------|-------------|
-| Use explicit mechanism | Write "use Task tool with `subagent_type='judge'`" not just "invoke judge" |
-| Available subagent types | `judge`, `generalPurpose`, `explore`, and tool-specific types |
+| Use explicit mechanism | Subagent: write "use Task tool with `subagent_type='<id>'`"; Skill: write "Read `{skill_path}`" |
+| Available tools | Read `_bmad/rbtv/tools-manifest.csv` — id column lists all tools; skill_path and subagent_path columns |
 | Avoid ambiguous verbs | NEVER use "invoke", "call", "run" without specifying the tool mechanism |
 | Specify mode | Always indicate whether tool runs as skill or subagent |
 
+**Invocation methods:**
+- **Skill:** Read skill_path from manifest in current context (no separate API)
+- **Subagent:** Use Task tool with `subagent_type='<id>'` (id from manifest)
+
 **Examples:**
-- ❌ Ambiguous: "invoke judge.md after completing work"
-- ✅ Explicit: "use Task tool with `subagent_type='judge'` to evaluate deliverables"
+- ❌ Ambiguous: "invoke quality-review after completing work"
+- ✅ Explicit: "use Task tool with `subagent_type='quality-review'` to evaluate deliverables"
 
 ---
 

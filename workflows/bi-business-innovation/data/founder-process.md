@@ -23,7 +23,6 @@ Master navigation for the 6-milestone business innovation lifecycle from idea to
 _bmad-output/{project-name}/founder/
 ├── project-memo.md           # Cumulative summary + state tracking (frontmatter)
 ├── m1-conception/
-│   ├── shape.md              # Milestone decision tracking
 │   ├── working-backwards.md
 │   ├── jobs-to-be-done.md
 │   ├── competitive-landscape.md
@@ -31,19 +30,14 @@ _bmad-output/{project-name}/founder/
 │   ├── lean-canvas.md
 │   └── five-whys.md
 ├── m2-validation/
-│   ├── shape.md
 │   └── ...
 ├── m3-brand/
-│   ├── shape.md
 │   └── ...
 ├── m4-prototypation/
-│   ├── shape.md
 │   └── ...
 ├── m5-market-validation/
-│   ├── shape.md
 │   └── ...
 └── m6-mvp/
-    ├── shape.md
     └── ...
 ```
 
@@ -84,13 +78,6 @@ The `project-memo.md` is the single source of truth for project state:
 - Frontmatter YAML tracks: currentMilestone, currentFramework, stepsCompleted
 - Used by agents to understand project context
 
-### Shape Documents (Decision Tracking)
-
-Each milestone has a `shape.md` document for decision tracking:
-- Location: `_bmad-output/{project-name}/founder/m{N}-{name}/shape.md`
-- Captures shaping decisions across all frameworks in that milestone
-- Updated via shape.md workflow at end of each working session
-
 ---
 
 ## Agent Handoff Protocol
@@ -101,17 +88,15 @@ When starting work on a project:
 |------|--------|------|
 | 1 | Read project-memo | `_bmad-output/{project-name}/founder/project-memo.md` |
 | 2 | Check frontmatter | currentMilestone, currentFramework, stepsCompleted |
-| 3 | Read milestone shape.md | `_bmad-output/{project-name}/founder/m{N}-{name}/shape.md` |
-| 4 | Load milestone workflow | Based on current milestone |
-| 5 | Confirm with user | Present state and next steps |
+| 3 | Load milestone workflow | Based on current milestone |
+| 4 | Confirm with user | Present state and next steps |
 
 When ending work:
 
 | Step | Action | File |
 |------|--------|------|
 | 1 | Update project-memo frontmatter | currentMilestone, currentFramework |
-| 2 | Execute shape.md workflow | Update milestone shape.md with session decisions |
-| 3 | Confirm with user | Summary of session |
+| 2 | Confirm with user | Summary of session |
 
 ---
 
@@ -119,6 +104,5 @@ When ending work:
 
 - **6 milestones**: Conception → Validation → Brand → Prototypation → Market Validation → MVP
 - **State tracking**: project-memo.md frontmatter (currentMilestone, currentFramework, stepsCompleted)
-- **Decision tracking**: shape.md per milestone (updated at session end via shape.md workflow)
 - **Output location**: `_bmad-output/{project-name}/founder/`
 - **Framework synthesis**: Every framework MUST update project-memo.md on completion

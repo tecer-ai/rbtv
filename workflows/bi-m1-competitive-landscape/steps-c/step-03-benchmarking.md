@@ -3,6 +3,7 @@ name: 'step-03-benchmarking'
 description: 'Benchmark US/China markets and identify cross-industry analogues'
 nextStepFile: './step-04-positioning.md'
 outputFile: '{outputFolder}/competitive-landscape.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Geographic & Cross-Industry Benchmarking
@@ -229,6 +230,8 @@ stepsCompleted: ['step-01-init', 'step-02-competitor-id', 'step-03-benchmarking'
 - **[A] Advanced Elicitation** — deeper research on specific markets or analogues
 - **[P] Party Mode** — get multi-agent perspectives on transferable patterns
 - **[C] Continue** — proceed to Competitor Analysis & Positioning
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

@@ -3,6 +3,7 @@ name: 'step-04-optimization-plan'
 description: 'Prioritize hypotheses and create testing roadmap'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{outputFolder}/conversion-optimization.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Optimization Plan
@@ -233,6 +234,8 @@ stepsCompleted: ['step-01-init', 'step-02-funnel-mapping', 'step-03-hypothesis-g
 - **[A] Advanced Elicitation** — adjust prioritization or add success criteria
 - **[P] Party Mode** — get multi-agent perspectives on the plan
 - **[C] Continue** — proceed to Synthesis
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

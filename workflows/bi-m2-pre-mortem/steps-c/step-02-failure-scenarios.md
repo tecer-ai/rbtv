@@ -3,6 +3,7 @@ name: 'step-02-failure-scenarios'
 description: 'Brainstorm failure modes across 7 categories using prospective hindsight'
 nextStepFile: './step-03-risk-ranking.md'
 outputFile: '{outputFolder}/pre-mortem.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Brainstorm Failure Scenarios
@@ -155,6 +156,8 @@ Present the complete numbered list:
 - **[A] Advanced Elicitation** — add more failure modes to specific categories
 - **[P] Party Mode** — get multi-agent perspectives on hidden risks
 - **[C] Continue** — proceed to Risk Ranking
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

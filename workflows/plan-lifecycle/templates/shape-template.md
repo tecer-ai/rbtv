@@ -76,7 +76,7 @@ Use this template to create the `shape.md` companion file for each plan. Shape c
 |----------|------|-----------|
 | Need prior context | Skill | Preserves conversation history |
 | Context saturated | Subagent | Fresh context window |
-| Complex validation | Subagent | Judge needs focused evaluation |
+| Complex validation | Subagent | quality-review needs focused evaluation |
 | Quick lookup | Skill | Minimal overhead |
 | Already in subagent | Skill only | Subagents cannot nest |
 

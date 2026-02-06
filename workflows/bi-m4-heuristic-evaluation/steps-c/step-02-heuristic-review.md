@@ -3,6 +3,7 @@ name: 'step-02-heuristic-review'
 description: 'Evaluate design against all 10 heuristics, document violations'
 nextStepFile: './step-03-severity-rating.md'
 outputFile: '{project-root}/_bmad-output/{project-name}/founder/m4-prototypation/heuristic-evaluation.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Heuristic Review
@@ -170,6 +171,8 @@ Update frontmatter: add `step-02-heuristic-review.md` to `stepsCompleted`
 - **[A] Advanced Elicitation** — go deeper on any heuristic or violation
 - **[P] Party Mode** — get multi-agent perspectives on the violations
 - **[C] Continue** — proceed to severity rating
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 

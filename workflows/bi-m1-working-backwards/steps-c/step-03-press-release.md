@@ -3,6 +3,7 @@ name: 'step-03-press-release'
 description: 'Draft customer-facing press release answering four core questions'
 nextStepFile: './step-04-faq.md'
 outputFile: '{outputFolder}/working-backwards.md'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Draft Press Release
@@ -165,6 +166,8 @@ Update working-backwards.md with completed Press Release section.
 - **[A] Advanced Elicitation** — refine specific sections
 - **[P] Party Mode** — get multi-perspective critique of the PR
 - **[C] Continue** — proceed to Draft FAQ
+
+**Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
 
 ALWAYS halt and wait for user selection.
 
