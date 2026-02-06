@@ -15,7 +15,7 @@ Run this script after every git pull or fetch to sync IDE configuration.
 
 Usage:
     cd _bmad/rbtv
-    python _config/install-rbtv.py
+    python _config/install-rbtv.py    # macOS: use python3 if python is not found
 """
 
 import csv

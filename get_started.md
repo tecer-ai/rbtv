@@ -75,6 +75,8 @@ cd rbtv
 python _config/install-rbtv.py
 ```
 
+> **macOS users:** use `python3` if `python` is not found.
+
 **What the script does:**
 - Deletes old RBTV files under `/.cursor/` (rules, agents, commands, skills with `bmad-rbtv-` prefix)
 - Copies `rbtv/_config/.cursor/` contents → project root `/.cursor/`
@@ -242,6 +244,8 @@ cd _bmad/rbtv
 git pull
 python _config/install-rbtv.py
 ```
+
+> **macOS users:** use `python3` if `python` is not found.
 
 The installation script must run after every update to sync IDE configuration files.
 
