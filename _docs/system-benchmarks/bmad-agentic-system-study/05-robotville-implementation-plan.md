@@ -208,8 +208,8 @@ Robotville is a business-side innovation framework for AI-assisted product devel
 
 | File | Purpose | Load Before |
 |------|---------|-------------|
-| [docs/agentic-system-study/03-component-patterns-and-templates.md](../../docs/agentic-system-study/03-component-patterns-and-templates.md) | BMAD patterns: step file template, workflow template, config template | Phase 2 |
-| [docs/agentic-system-study/02-agentic-system-architecture.md](../../docs/agentic-system-study/02-agentic-system-architecture.md) | Target architecture reference | Phase 1 |
+| [03-component-patterns-and-templates.md](./03-component-patterns-and-templates.md) | BMAD patterns: step file template, workflow template, config template | Phase 2 |
+| [02-agentic-system-architecture.md](./02-agentic-system-architecture.md) | Target architecture reference | Phase 1 |
 | [system/founder/agents/mentor.md](system/founder/agents/mentor.md) | Mentor agent to extend | Phase 2 |
 | [system/ai_pro/domcobb.md](system/ai_pro/domcobb.md) | DomCobb agent to extend | Phase 2 |
 | [system/ai_pro/onboarder.md](system/ai_pro/onboarder.md) | Onboarder agent to extend | Phase 2 |
