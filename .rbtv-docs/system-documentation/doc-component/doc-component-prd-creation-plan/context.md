@@ -82,7 +82,7 @@ _rbtv/
 
 ### Thin Loader Pattern
 
-`.cursor/commands/rbtv_doc.md` will be a thin loader that:
+`.cursor/commands/bmad-rbtv-doc.md` will be a thin loader that:
 1. Accepts optional mode argument
 2. Loads the master orchestrator agent from `_rbtv/work/doc/agent.md`
 3. Passes mode argument (or triggers menu if none)

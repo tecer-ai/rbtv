@@ -238,7 +238,7 @@ Created a Product Requirements Document for the unified `/rbtv_doc` command that
 
 ### C5: Thin Loader Uses Agent Activation Pattern
 
-**Decision:** Thin loader in `.cursor/commands/rbtv_doc.md` uses BMAD agent activation structure
+**Decision:** Thin loader in `.cursor/commands/bmad-rbtv-doc.md` uses BMAD agent activation structure
 
 **Rationale:**
 - Consistent with BMAD command patterns

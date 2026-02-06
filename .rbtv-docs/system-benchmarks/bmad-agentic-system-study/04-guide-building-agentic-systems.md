@@ -47,7 +47,7 @@ Pick a name for your system directory (`_bmad/`, `_system/`, `_agents/`, whateve
 
 ### Step 1.2: Create the Global Configuration
 
-**File: `_bmad/core/config.yaml`**
+**File: `_bmad/rbtv/config.yaml`**
 
 ```yaml
 # Core Module Configuration (core/config.yaml)

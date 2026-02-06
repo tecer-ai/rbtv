@@ -74,7 +74,7 @@ _bmad/rbtv/
 
 ## Configuration
 
-All configuration inherited from `_bmad/core/config.yaml`:
+All configuration inherited from `_bmad/rbtv/config.yaml`:
 - `user_name`
 - `communication_language`
 - `document_output_language`
@@ -240,7 +240,7 @@ All doc workflows follow BMAD micro-file architecture:
 |-------|-------|---------|
 | Entry Point | 1 | `.cursor/commands/bmad-rbtv-doc.md` |
 | Agent | 1 | `_bmad/rbtv/agents/ana.md` |
-| Config | Inherited | Uses `_bmad/core/config.yaml` |
+| Config | Inherited | Uses `_bmad/rbtv/config.yaml` |
 | Compound Workflow | 6 | workflow.md + 4 steps + 1 template |
 | Handoff Workflow | 8 | workflow.md + 4 steps + 3 templates |
 | **Total** | **17** | Doc component files |
@@ -251,7 +251,7 @@ All doc workflows follow BMAD micro-file architecture:
 
 | Reference | Path |
 |-----------|------|
-| Module config | `_bmad/core/config.yaml` |
+| Module config | `_bmad/rbtv/config.yaml` |
 | Command registry | `_bmad/rbtv/rbtv-manifest.csv` |
 | BMAD Product Brief | `_bmad/bmm/workflows/1-analysis/create-product-brief/` |
 | BMAD PRD | `_bmad/bmm/workflows/2-plan-workflows/create-prd/` |
