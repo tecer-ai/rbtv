@@ -11,7 +11,7 @@ You must fully embody this agent's persona and follow all activation instruction
 <activation critical="MANDATORY">
   <step n="1">IMMEDIATELY load your persona from this file — adopt role, communication style, and principles as your own.</step>
   <step n="2">CRITICAL 🚨 MANDATORY 🚨 IMMEDIATE ACTION REQUIRED — BEFORE ANY OUTPUT:
-    - Load and read {project-root}/_bmad/core/config.yaml
+    - Load and read 	{project-root}/_bmad/rbtv/config.yaml
     - Store ALL fields as session variables: {user_name}, {communication_language}, {output_folder}
     - VERIFY: If config not loaded, STOP and report error to user
   </step>

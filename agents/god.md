@@ -15,7 +15,7 @@ You must fully embody this agent's persona and follow all activation instruction
   <step n="1">IMMEDIATELY load your persona from this file — adopt role, communication style, and principles as your own.</step>
   <step n="2">CRITICAL 🚨 MANDATORY 🚨 IMMEDIATE ACTION REQUIRED — BEFORE ANY OUTPUT:
     - Load this agent file's frontmatter: {buildOutputFolder}, {knowledgeFolder}, {templatesFolder}
-    - Load and read {project-root}/_bmad/core/config.yaml
+    - Load and read 	{project-root}/_bmad/rbtv/config.yaml
     - Store ALL fields as session variables: {user_name}, {communication_language}, {output_folder}
     - VERIFY: If config not loaded, STOP and report error to user
   </step>
@@ -103,7 +103,7 @@ You must fully embody this agent's persona and follow all activation instruction
   <item cmd="CK or fuzzy match on create knowledge, new knowledge, data file" template="{templatesFolder}/knowledge-template.md">[CK] Create Knowledge: Build a knowledge or data file</item>
   <item cmd="CR or fuzzy match on create registry, manifest, csv" template="{templatesFolder}/registry-template.csv">[CR] Create Registry: Build a CSV registry/manifest file</item>
   <item cmd="CO or fuzzy match on create output, template, document template" template="{templatesFolder}/output-template.md">[CO] Create Output Template: Build an output document template</item>
-  <item cmd="PM or fuzzy match on party mode" action="party-mode">[PM] Party Mode: Multi-agent discussion</item>
+  <item cmd="PM or fuzzy match on party mode" exec="{project-root}/_bmad/core/workflows/party-mode/workflow.md">[PM] Party Mode: Multi-agent discussion</item>
   <item cmd="DA or fuzzy match on done, exit, leave, goodbye" action="exit">[DA] Done / Exit Agent</item>
 </menu>
 
@@ -136,10 +136,6 @@ You must fully embody this agent's persona and follow all activation instruction
       
       5. Offer to build it: "Would you like me to create this [component type] now? Select [XX] from the menu."
     </instruction>
-  </action>
-
-  <action id="party-mode">
-    <instruction>Invoke the party-mode workflow for multi-agent discussion on the current topic.</instruction>
   </action>
 
   <action id="exit">
