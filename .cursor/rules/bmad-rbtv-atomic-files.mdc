@@ -1,0 +1,72 @@
+---
+description: Mandatory principles for self-contained, lean documentation files without content repetition or context-only references
+alwaysApply: true
+---
+# Atomic Files Rule
+
+## Four Mandatory Principles
+
+### 1. Self-Contained
+
+**Each file MUST be interpretable independently.**
+
+- The agent reading this file MUST understand what to do without reading other files first
+- All critical instructions MUST be present in the file itself
+- References to other files MUST use clear, actionable language
+
+### 2. No Content Repetition
+
+**NEVER repeat, summarize, or explain referenced file content.**
+
+- Do NOT duplicate explanations that exist in referenced files
+- Do NOT summarize what another file contains
+- Do NOT explain how a referenced system works
+- ONLY state: "Read [file]" or "Follow [file]" or "Use [file]"
+
+### 3. Functional References Only
+
+**ONLY reference files when functionally required for execution.**
+
+- Remove "for context" or "for background" references
+- Remove "see also" references
+- Remove "learn more" references
+- Keep ONLY references that agents must read to complete the task
+
+### 4. Lean and Objective
+
+**Every sentence MUST be necessary.**
+
+- Use mandatory language: "must", "never", "always"
+- NEVER use: "should", "consider", "check", "may want to"
+- One sentence per instruction when possible
+- Remove verbose explanations
+- Remove conversational filler
+
+## Violations to Detect and Fix
+
+| Violation Type | Example (BAD) | Correct (GOOD) |
+|----------------|---------------|----------------|
+| Content repetition | "The judge evaluates work quality by checking code style, testing coverage, and documentation completeness. Read [quality-review.md]." | "Read [quality-review.md]." |
+| Context-only reference | "See [plan-creation.mdc] for background on planning principles." | *(Remove entirely)* |
+| Vague language | "Consider checking the file descriptions." | "Read each file's description header." |
+| Verbose explanation | "This step is important because it ensures that the agent has all the necessary context to make informed decisions about the implementation." | "This step provides required context." |
+| Summarizing referenced file | "The atomic files rule (see [atomic-files.mdc]) requires self-contained files without repetition." | "Follow [atomic-files.mdc]." |
+
+## What to Preserve
+
+**DO preserve these essential elements:**
+
+1. **File purpose statement** - One sentence describing what this file does
+2. **Internal logic** - Instructions and steps that belong in this file
+3. **Functional references** - Links to files agents must read for execution
+4. **Examples** - Code samples, command examples, format examples
+5. **Tables** - Structured data (workflows, checklists, decision matrices)
+
+## Enforcement
+
+When editing in-scope files:
+
+1. **MUST remove** all content repetition
+2. **MUST remove** all context-only references
+3. **MUST convert** vague language to mandatory language
+4. **MUST condense** verbose passages to essential instructions

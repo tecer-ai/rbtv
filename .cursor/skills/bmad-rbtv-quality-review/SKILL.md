@@ -20,7 +20,7 @@ description: Evaluates work against quality criteria - use for quality gates aft
 Load and follow the quality review task:
 
 ```
-{project-root}/_bmad/rbtv/tasks/judge.xml
+{project-root}/_bmad/rbtv/tasks/quality-review.xml
 ```
 
 This task provides:

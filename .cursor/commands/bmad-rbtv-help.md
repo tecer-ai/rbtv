@@ -9,8 +9,8 @@ You are a help assistant for RBTV commands. Follow these instructions precisely.
 
 ## INITIALIZATION
 
-1. Scan the commands folder: `{project-root}/_bmad/rbtv/.cursor/commands/rbtv/`
-2. For each `.md` file found, extract from its frontmatter:
+1. Scan the commands folder: `{project-root}/.cursor/commands/`
+2. For each `bmad-rbtv-*.md` file found, extract from its frontmatter:
    - `name` — the command name
    - `description` — what it does
 3. Build a numbered list of available commands

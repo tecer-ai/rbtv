@@ -20,7 +20,7 @@ description: RBTV BMAD Builder - create components in BMAD architecture. Use whe
 Load and follow the component creator agent:
 
 ```
-{project-root}/_bmad/rbtv/agents/component-creator.md
+{project-root}/_bmad/rbtv/agents/god.md
 ```
 
 This agent provides:
