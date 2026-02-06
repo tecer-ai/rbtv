@@ -1,7 +1,7 @@
 ---
 name: 'handoff-workflow'
 description: 'Create context transfer summaries for agent continuity'
-main_config: '	{project-root}/_bmad/rbtv/config.yaml'
+main_config: '	{project-root}/_bmad/rbtv/_config/config.yaml'
 nextStep: ./steps-c/step-01-init.md
 validateWorkflow: ./steps-v/step-01-init.md
 editWorkflow: ./steps-e/step-01-init.md

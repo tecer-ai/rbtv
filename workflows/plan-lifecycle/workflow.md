@@ -1,7 +1,7 @@
 ---
 name: 'plan-workflow'
 description: 'Create high-quality, self-executing plans with micro-step task files'
-main_config: '	{project-root}/_bmad/rbtv/config.yaml'
+main_config: '	{project-root}/_bmad/rbtv/_config/config.yaml'
 nextStep: ./steps-c/step-01-init.md
 templateFile: ./templates/plan-template.md
 microstepTemplateFile: ./templates/plan-task-microstep-template.md
@@ -100,7 +100,7 @@ Load these files as needed:
 | File | Purpose | When to Load |
 |------|---------|--------------|
 | data/plan-creation-rules.md | Task granularity, file operations, dependency ordering, complexity assessment | During plan creation |
-| {project-root}/_bmad/rbtv/tools-manifest.csv | Canonical tool list: skills (read skill_path) and subagents (Task tool + subagent_type='id') | When task requires invoking a tool |
+| {project-root}/_bmad/rbtv/_config/tools-manifest.csv | Canonical tool list: skills (read skill_path) and subagents (Task tool + subagent_type='id') | When task requires invoking a tool |
 
 ## OUTPUT ARTIFACTS
 

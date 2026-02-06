@@ -66,6 +66,6 @@ This workflow uses an index-based loading pattern for the prompting knowledge ba
 
 ## INITIALIZATION SEQUENCE
 
-1. Load module config: `	{project-root}/_bmad/rbtv/config.yaml`
+1. Load module config: `	{project-root}/_bmad/rbtv/_config/config.yaml`
 2. Load the first step file
 3. Follow step instructions exactly

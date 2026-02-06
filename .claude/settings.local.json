@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"H:\\\\repos\\\\systems\\\\BMAD\\\\_bmad\\\\rbtv\" status)",
+      "Bash(git -C \"H:\\\\repos\\\\systems\\\\BMAD\\\\_bmad\\\\rbtv\" diff)",
+      "Bash(git -C \"H:\\\\repos\\\\systems\\\\BMAD\\\\_bmad\\\\rbtv\" log --oneline -5)",
+      "Bash(git -C \"H:\\\\repos\\\\systems\\\\BMAD\\\\_bmad\\\\rbtv\" status --short)"
+    ]
+  }
+}

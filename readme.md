@@ -1,8 +1,8 @@
 # RBTV
 
-**The strategic layer AI tools don't provide.**
+**Direction before execution.**
 
-AI executors like Cursor and Claude are powerful — but execution without direction produces technically correct outputs that miss the bigger picture. Before you build, you need to know *what* you're building and *why*. That's the work AI can't do for you — but it can guide you through it.
+AI reasoning is powerful — but execution without direction drifts toward training data patterns, not your specific problem. Training data gives AI the ability to reason; structured direction tells it *what* to execute, *when*, and *how*. That direction comes from putting AI in the right context — through processes, personas, and knowledge files. RBTV provides this for business innovation. BMAD provides it for coding.
 
 RBTV is a BMAD module that bridges the gap between raw ideas and structured execution. It provides:
 
@@ -13,6 +13,8 @@ RBTV is a BMAD module that bridges the gap between raw ideas and structured exec
 The system doesn't make decisions for you. It imposes structure on chaos, challenges your assumptions, and ensures nothing falls through the cracks.
 
 See [get_started.md](./get_started.md) for complete installation instructions.
+
+**Claude Code users:** RBTV is a module that runs inside BMAD, not a standalone repo. A read-only mirror of the parent system is at [_docs/system-documentation/BMAD/](./_docs/system-documentation/BMAD/). [CLAUDE.md](./CLAUDE.md) explains how to resolve file paths against this mirror so Claude Code can review and improve RBTV files autonomously.
 
 ---
 
@@ -70,7 +72,7 @@ Commands, skills, and subagents are **the same underlying tools** — workflows 
 
 ### Manifest and Invocation
 
-**Location:** `_bmad/rbtv/tools-manifest.csv` (id, skill_path, subagent_path, description)
+**Location:** `_bmad/rbtv/_config/tools-manifest.csv` (id, skill_path, subagent_path, description)
 
 **Skill:** Read skill_path in current context — no separate invoke API.
 
@@ -210,9 +212,15 @@ RBTV follows BMAD micro-file architecture principles:
 
 ```
 rbtv/
+├── readme.md                # This document
 ├── get_started.md           # Installation and onboarding guide
-├── install-rbtv.py          # IDE config sync script
-├── rbtv-manifest.csv        # Component registry
+├── CLAUDE.md                # Claude Code path resolution and autonomous work guide
+├── _config/                 # IDE configuration and tools
+│   ├── .cursor/             # Cursor IDE config (agents, commands, skills, rules)
+│   ├── .vscode/             # VS Code settings
+│   ├── config.yaml          # Module configuration
+│   ├── install-rbtv.py      # IDE config sync script
+│   └── tools-manifest.csv   # Tool catalog (skills & subagents)
 ├── agents/                  # Agent personas
 │   ├── ana.md               # Documentation Orchestrator
 │   ├── god.md               # BMAD Component Builder

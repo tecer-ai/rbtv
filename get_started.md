@@ -66,16 +66,16 @@ RBTV includes IDE configuration files (`.cursor/`) that must be merged with BMAD
 
 ```bash
 cd rbtv
-python install-rbtv.py
+python _config/install-rbtv.py
 ```
 
 **What the script does:**
 - Deletes old RBTV files under `/.cursor/` (rules, agents, commands, skills with `bmad-rbtv-` prefix)
-- Copies `rbtv/.cursor/` contents → project root `/.cursor/`
-- Merges `rbtv/.cursor/mcp.json` → project root `/.cursor/mcp.json` (for Cursor IDE)
-- Merges `rbtv/.cursor/mcp.json` → project root `/.claude/.mcp.json` (for Claude Code)
+- Copies `rbtv/_config/.cursor/` contents → project root `/.cursor/`
+- Merges `rbtv/_config/.cursor/mcp.json` → project root `/.cursor/mcp.json` (for Cursor IDE)
+- Merges `rbtv/_config/.cursor/mcp.json` → project root `/.claude/.mcp.json` (for Claude Code)
 - Creates project root `/.claude/commands/` and replicates Cursor commands for Claude compatibility
-- Merges `rbtv/.vscode/settings.json` → project root `/.vscode/settings.json` (preserves user settings)
+- Merges `rbtv/_config/.vscode/settings.json` → project root `/.vscode/settings.json` (preserves user settings)
 - Merges RBTV patterns into project root `/.cursorignore` (adds `_bmad-output/archive/`)
 - Overwrites existing files if conflicts occur (except `.vscode/settings.json` and `.cursorignore` which merge)
 
@@ -181,7 +181,7 @@ All three share the same underlying workflows — the difference is how they're 
 
 **12 of the 15 RBTV commands are mirrored as both Skills and Subagents** — thin loading layers that allow agents to access the same tools either within the current context (skills) or in isolated contexts (subagents). The remaining 3 commands (help, mentor, domcobb) are human-only entry points with no agent counterparts.
 
-**Tool catalog:** `_bmad/rbtv/tools-manifest.csv` — id, skill_path, subagent_path, description. Skills: read skill_path in context. Subagents: use Task tool with `subagent_type='<id>'`.
+**Tool catalog:** `_bmad/rbtv/_config/tools-manifest.csv` — id, skill_path, subagent_path, description. Skills: read skill_path in context. Subagents: use Task tool with `subagent_type='<id>'`.
 
 > **Deep dive:** See the [RBTV README](./readme.md) for full architectural details and complete entry point listings.
 
@@ -234,7 +234,7 @@ When you update RBTV:
 ```bash
 cd _bmad/rbtv
 git pull
-python install-rbtv.py
+python _config/install-rbtv.py
 ```
 
 The installation script must run after every update to sync IDE configuration files.
@@ -247,7 +247,7 @@ The installation script must run after every update to sync IDE configuration fi
 |-------|----------|
 | Commands not appearing | Run `install-rbtv.py` and restart your IDE |
 | "Module not found" errors | Ensure core and cis modules are installed |
-| Workflows fail to load | Check `_bmad/rbtv/config.yaml` exists and is valid |
+| Workflows fail to load | Check `_bmad/rbtv/_config/config.yaml` exists and is valid |
 
 ---
 

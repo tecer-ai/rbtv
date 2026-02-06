@@ -133,7 +133,7 @@ human_review: {required | optional | none}
 **Content includes:**
 - Goal section — what this task achieves
 - Context Files — task-specific documents to load
-- Tools section — ONLY if task requires specialized RBTV skills/subagents (omit for basic Read/Write/Shell tasks). When including Tools: add pointer to `_bmad/rbtv/tools-manifest.csv` for available tools
+- Tools section — ONLY if task requires specialized RBTV skills/subagents (omit for basic Read/Write/Shell tasks). When including Tools: add pointer to `_bmad/rbtv/_config/tools-manifest.csv` for available tools
 - Execution Flow — phased steps (understand → execute → validate → close)
 - Discovery Handling — revolving plan rules
 - Output Requirements — what to produce and where

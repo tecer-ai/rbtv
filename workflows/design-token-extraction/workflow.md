@@ -1,7 +1,7 @@
 ---
 name: 'visual-extraction-workflow'
 description: 'Extract design tokens from website screenshots'
-main_config: '	{project-root}/_bmad/rbtv/config.yaml'
+main_config: '	{project-root}/_bmad/rbtv/_config/config.yaml'
 nextStep: ./steps-c/step-01-init.md
 templateFiles:
   design-brief: ./templates/design-brief.md

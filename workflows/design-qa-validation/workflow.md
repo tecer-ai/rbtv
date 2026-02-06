@@ -1,7 +1,7 @@
 ---
 name: 'design-validation-workflow'
 description: 'Validate HTML designs using browser automation and 4-layer framework'
-main_config: '	{project-root}/_bmad/rbtv/config.yaml'
+main_config: '	{project-root}/_bmad/rbtv/_config/config.yaml'
 nextStep: ./steps-c/step-01-init.md
 templateFiles:
   validation-report: ./templates/validation-report.md

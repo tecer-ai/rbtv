@@ -121,7 +121,7 @@ When a task requires invoking an agent:
 | Rule | Description |
 |------|-------------|
 | Use explicit mechanism | Subagent: write "use Task tool with `subagent_type='<id>'`"; Skill: write "Read `{skill_path}`" |
-| Available tools | Read `_bmad/rbtv/tools-manifest.csv` — id column lists all tools; skill_path and subagent_path columns |
+| Available tools | Read `_bmad/rbtv/_config/tools-manifest.csv` — id column lists all tools; skill_path and subagent_path columns |
 | Avoid ambiguous verbs | NEVER use "invoke", "call", "run" without specifying the tool mechanism |
 | Specify mode | Always indicate whether tool runs as skill or subagent |
 

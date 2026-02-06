@@ -65,7 +65,7 @@ When invoked via Mentor agent:
 3. Mentor loads the appropriate step file directly
 
 When invoked directly (without Mentor):
-1. Load module config: `	{project-root}/_bmad/rbtv/config.yaml`
+1. Load module config: `	{project-root}/_bmad/rbtv/_config/config.yaml`
 2. If new project: Load `{newProjectStep}`
 3. If continuing: Load `{continueProjectStep}` (requires project-memo in context)
 
