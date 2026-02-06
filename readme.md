@@ -6,7 +6,7 @@ AI executors like Cursor and Claude are powerful — but execution without direc
 
 RBTV is a BMAD module that bridges the gap between raw ideas and structured execution. It provides:
 
-- **17 innovation frameworks** that take you from napkin sketch to validated product
+- **22+ innovation frameworks** that take you from napkin sketch to validated product
 - **Structured workflows** for documentation, planning, and quality gates
 - **Opinionated agents** that ask hard questions so you make better decisions
 
@@ -31,7 +31,7 @@ See [get_started.md](./get_started.md) for complete installation instructions.
 
 RBTV provides structured workflows for:
 
-- **Business Innovation** — 17 frameworks across 6 milestones, from idea to product-market fit
+- **Business Innovation** — 22+ frameworks across 6 milestones, from idea to product-market fit
 - **Problem Structuring** — Convert vague needs into MECE-structured solutions
 - **Documentation** — Compound learnings, context handoffs, product docs
 - **Planning** — Create and execute plans with quality gates
@@ -113,7 +113,7 @@ User-invoked commands available via `/bmad-rbtv-{name}`:
 
 **Command:** `/bmad-rbtv-mentor`
 
-A YC mentor who guides you through **17 innovation frameworks** across 6 milestones, from idea to product-market fit.
+A YC mentor who guides you through **22+ innovation frameworks** across 6 milestones, from idea to product-market fit.
 
 ### Milestones Overview
 
@@ -122,7 +122,7 @@ A YC mentor who guides you through **17 innovation frameworks** across 6 milesto
 | **M1** Conception | Define problem, customer, solution hypothesis | Complete |
 | **M2** Validation | Test assumptions, size market, model economics | Complete |
 | **M3** Brand | Define identity, positioning, voice | Complete |
-| **M4** Prototypation | Build and test early versions | In Development |
+| **M4** Prototypation | Build and test early versions | Complete |
 | **M5** Market Validation | Prove demand with real sales | In Development |
 | **M6** MVP | Build minimum viable product | In Development |
 
@@ -157,6 +157,17 @@ A YC mentor who guides you through **17 innovation frameworks** across 6 milesto
 | **Brand Positioning** | Market differentiation | Positioning statement |
 | **Golden Circle** | Why/How/What articulation | Purpose statement |
 | **Tone of Voice** | Communication style | Voice guidelines |
+
+### M4: Prototypation Frameworks (4 available)
+
+| Framework | Purpose | Output |
+|-----------|---------|--------|
+| **User Flow & IA** | Entry points, screens, content hierarchy | User flow map, IA structure |
+| **Design Direction** | Visual design via BMAD bridge | Design spec, design brief |
+| **Conversion-Centered Design** | Apply CCD principles to prototype | Conversion-focused design |
+| **Heuristic Evaluation** | Usability evaluation | Critical/Major issues resolved |
+
+*Build Prototype and Testing Prep frameworks are planned.*
 
 ### How It Works
 
