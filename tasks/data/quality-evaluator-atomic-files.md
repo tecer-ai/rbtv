@@ -64,7 +64,7 @@ Atomicity evaluation applies to:
 
 | Violation Type | BAD | GOOD |
 |----------------|-----|------|
-| Content repetition | "The judge evaluates work quality by checking code style, testing coverage, and documentation completeness. Read [judge.md]." | "Read [judge.md]." |
+| Content repetition | "The judge evaluates work quality by checking code style, testing coverage, and documentation completeness. Read [quality-review.md]." | "Read [quality-review.md]." |
 | Context-only reference | "See [plan-creation.mdc] for background on planning principles." | *(Remove entirely)* |
 | Vague language | "Consider checking the file descriptions." | "Read each file's description header." |
 | Verbose explanation | "This step is important because it ensures that the agent has all the necessary context to make informed decisions about the implementation." | "This step provides required context." |

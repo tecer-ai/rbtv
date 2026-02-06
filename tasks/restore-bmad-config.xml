@@ -1,0 +1,78 @@
+<task id="_bmad/rbtv/tasks/restore-bmad-config.xml"
+      name="Restore BMAD Config"
+      standalone="true"
+      description="Restore BMAD module config to default values after RBTV workflow completion">
+
+  <objective>
+    Restore a BMAD module's config.yaml file (e.g., bmm/config.yaml) to its default output folder paths, reverting changes made by update-bmad-config task. This allows BMAD to return to its standard root _bmad-output folder after RBTV project-specific workflows complete.
+  </objective>
+
+  <llm critical="true">
+    <rule>Read the complete task before starting execution.</rule>
+    <rule>Follow steps in exact order.</rule>
+    <rule>Use standard BMAD defaults for restoration.</rule>
+    <rule>Preserve all other config values — only update output folder paths.</rule>
+  </llm>
+
+  <inputs>
+    <input name="target_module">BMAD module whose config to restore (e.g., "bmm", "cis", "core"). Defaults to "bmm".</input>
+  </inputs>
+
+  <flow>
+    <step n="1" title="Resolve Target Config">
+      <substep n="1a" title="Set Module Default">
+        <action>Set target_module to "bmm" if not provided.</action>
+      </substep>
+      <substep n="1b" title="Locate Config File">
+        <action>Resolve config path: {project-root}/_bmad/{target_module}/config.yaml</action>
+        <action>Verify the config file exists at this path.</action>
+        <check if="config file not found">
+          <action>HALT: Report that config file does not exist. Cannot restore.</action>
+        </check>
+      </substep>
+    </step>
+
+    <step n="2" title="Restore Default Values">
+      <substep n="2a" title="Set Standard BMAD Defaults">
+        <action>Define default values for BMAD module config:</action>
+        <action>- output_folder: "{project-root}/_bmad-output"</action>
+        <action>- planning_artifacts: "{project-root}/_bmad-output/{project-name}/planning-artifacts"</action>
+        <action>- implementation_artifacts: "{project-root}/_bmad-output/{project-name}/implementation-artifacts"</action>
+      </substep>
+      <substep n="2b" title="Read Current Config">
+        <action>Read the current config.yaml file.</action>
+        <action>Note current values for logging purposes.</action>
+      </substep>
+      <substep n="2c" title="Write Restored Config">
+        <action>Replace output_folder, planning_artifacts, and implementation_artifacts with default values.</action>
+        <action>Preserve all other config values and formatting.</action>
+        <action>Write updated config back to {project-root}/_bmad/{target_module}/config.yaml</action>
+      </substep>
+    </step>
+
+    <step n="3" title="Confirm Restoration">
+      <substep n="3a" title="Verify Restoration">
+        <action>Read the updated config.yaml to verify defaults were applied.</action>
+        <action>Confirm all three values now use standard BMAD paths.</action>
+      </substep>
+      <substep n="3b" title="Report Success">
+        <action>Output confirmation message:</action>
+        <action>"✅ BMAD {target_module} config restored to defaults"</action>
+        <action>"   Output folder: {project-root}/_bmad-output"</action>
+        <action>"   Planning artifacts: {project-root}/_bmad-output/{project-name}/planning-artifacts"</action>
+        <action>"   Implementation artifacts: {project-root}/_bmad-output/{project-name}/implementation-artifacts"</action>
+        <action>"   BMAD workflows will now use standard root output folder."</action>
+      </substep>
+    </step>
+  </flow>
+
+  <halt-conditions>
+    <condition>Target config file does not exist — report path and exit.</condition>
+    <condition>Write operation fails — report error and exit without completing restoration.</condition>
+  </halt-conditions>
+
+  <usage-note>
+    Run this task after completing RBTV workflows that invoked BMAD components. This ensures subsequent BMAD usage (outside RBTV context) uses the standard output folders. Can be called manually or automatically at RBTV milestone completion.
+  </usage-note>
+
+</task>

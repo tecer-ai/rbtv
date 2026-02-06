@@ -13,9 +13,18 @@
     <rule>NEVER present information without verified sources — web search is REQUIRED for factual claims.</rule>
     <rule>NEVER fabricate, estimate, or extrapolate data — state "DATA NOT FOUND IN SOURCES" if unavailable.</rule>
     <rule>Sources with TS less than 6 are FORBIDDEN — do not use them.</rule>
+    <rule>EVERY research response MUST include Step 4 output format (legend, TS per source, citation format, Sources Discarded).</rule>
   </llm>
 
   <flow>
+    <step n="0" title="Identify Research Topic">
+      <substep n="0a" title="Extract Topic from Conversation">
+        <action>If the user provided "Research Topic: X" and "Context: Y" in structured form, use those.</action>
+        <action>Otherwise, treat the user's most recent question or message as the research topic.</action>
+        <action>Context is implied by the conversation if not explicitly stated.</action>
+      </substep>
+    </step>
+
     <step n="1" title="Load Standards">
       <substep n="1a" title="Read Research Standards">
         <action>Load {project-root}/_bmad/rbtv/tasks/data/web-research-standards.md</action>
@@ -56,13 +65,16 @@
 
     <step n="4" title="Format Output">
       <substep n="4a" title="Include Legend">
-        <action>Add legend: "TS = Total Score (average of AT, TR, TM) | AT = Authority | TR = Trustability | TM = Topic Match | Scale: 1-10 | Threshold: TS ≥ 6"</action>
+        <action>MANDATORY: Add legend at the start of your response: "TS = Total Score (average of AT, TR, TM) | AT = Authority | TR = Trustability | TM = Topic Match | Scale: 1-10 | Threshold: TS ≥ 6"</action>
+        <action>This legend MUST appear in every research response.</action>
       </substep>
       <substep n="4b" title="Format Citations">
-        <action>Use format: [n] Title — URL — Research Date (YYYY-MM-DD) — Source Date — TS:x (AT:x TR:x TM:x)</action>
+        <action>MANDATORY: Use format: [n] Title — URL — Research Date (YYYY-MM-DD) — Source Date — TS:x (AT:x TR:x TM:x)</action>
+        <action>Every source MUST include its individual AT, TR, TM, and TS scores.</action>
       </substep>
       <substep n="4c" title="Document Discarded Sources">
-        <action>List sources with TS less than 6 in separate "Sources Discarded" section with reason.</action>
+        <action>MANDATORY: List sources with TS less than 6 in separate "Sources Discarded" section with reason.</action>
+        <action>If no sources were discarded, state "No sources discarded — all sources met TS ≥ 6 threshold."</action>
       </substep>
     </step>
   </flow>
