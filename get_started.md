@@ -8,13 +8,12 @@ Welcome to **RBTV** (Robotville), a BMAD module for business innovation, documen
 
 RBTV requires the following BMAD modules installed:
 
-| Module | Purpose | Required |
-|--------|---------|----------|
-| **core** | Workflow engine, config, brainstorming | Yes |
-| **cis** | Problem-solving methodologies (used by domcobb) | Yes |
-| **bmm** | Product documentation workflows (Brief, PRD, UX) | Yes |
+| Module | Provides | Purpose | Required |
+|--------|----------|---------|----------|
+| **BMAD Core** | `core/`, `bmm/` | Workflow engine, config, brainstorming; product documentation (Brief, PRD, UX) | Yes |
+| **cis** | `cis/` | Problem-solving methodologies (used by domcobb) | Yes |
 
-Install BMAD with these modules before proceeding: [BMAD GitHub Repository](https://github.com/bmadcode/BMAD-METHOD)
+Install BMAD with these modules before proceeding: [BMAD GitHub Repository](https://github.com/bmadcode/BMAD-METHOD). When you select **BMad Core** during installation, both `core/` and `bmm/` folders are created in `_bmad/`.
 
 ---
 
@@ -25,9 +24,9 @@ After installation, your directory structure will look like this:
 ```
 BMAD-METHOD/                    (installed from github.com/bmadcode/BMAD-METHOD)
 ├── _bmad/
-│   ├── core/                   (BMAD core module)
+│   ├── core/                   (from BMAD Core)
+│   ├── bmm/                    (from BMAD Core)
 │   ├── cis/                    (BMAD cis module)
-│   ├── bmm/                    (BMAD bmm module)
 │   └── rbtv/                   (this module - cloned from github.com/hlealt/rbtv)
 │
 ├── .cursor/                    (merged content from BMAD + RBTV via install script)
@@ -246,7 +245,7 @@ The installation script must run after every update to sync IDE configuration fi
 | Issue | Solution |
 |-------|----------|
 | Commands not appearing | Run `install-rbtv.py` and restart your IDE |
-| "Module not found" errors | Ensure core and cis modules are installed |
+| "Module not found" errors | Ensure BMAD Core (provides core + bmm) and cis modules are installed |
 | Workflows fail to load | Check `_bmad/rbtv/_config/config.yaml` exists and is valid |
 
 ---
