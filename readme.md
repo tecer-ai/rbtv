@@ -12,7 +12,7 @@ RBTV is a BMAD module that bridges the gap between raw ideas and structured exec
 
 The system doesn't make decisions for you. It imposes structure on chaos, challenges your assumptions, and ensures nothing falls through the cracks.
 
-See [GET_STARTED.md](./GET_STARTED.md) for complete installation instructions.
+See [get_started.md](./get_started.md) for complete installation instructions.
 
 ---
 
@@ -22,7 +22,8 @@ See [GET_STARTED.md](./GET_STARTED.md) for complete installation instructions.
 2. [Tool Delivery Model](#tool-delivery-model)
 3. [Entry Points](#entry-points)
 4. [Business Innovation (Founder Mode)](#business-innovation-founder-mode)
-5. [Architecture](#architecture)
+5. [Restrictions](#restrictions)
+6. [Architecture](#architecture)
 
 ---
 
@@ -61,42 +62,50 @@ Commands, skills, and subagents are **the same underlying tools** — workflows 
 
 ### Implications
 
-- A single tool (e.g., `web-research`) can have command, skill, AND subagent entry points
-- All three point to the same underlying workflow or task
-- The manifest (`rbtv-manifest.csv`) registers all entry points
+- Most tools (e.g., `web-research`) have command, skill, AND subagent entry points
+- All entry points for a tool point to the same underlying workflow or task
+- Some commands are human-only entry points with no skill or subagent (e.g., `help`, `mentor`, `domcobb`)
+- The manifest (`tools-manifest.csv`) registers all skills and subagents
 - Adding a new tool = create workflow/task + register entry points
+
+### Manifest and Invocation
+
+**Location:** `_bmad/rbtv/tools-manifest.csv` (id, skill_path, subagent_path, description)
+
+**Skill:** Read skill_path in current context — no separate invoke API.
+
+**Subagent:** Use Task tool with `subagent_type='<id>'` — runs in fresh context. Subagents cannot invoke other subagents; use skills only when already in subagent.
 
 ---
 
 ## Entry Points
 
-All RBTV tools are available through three delivery mechanisms: **Commands** (user-invoked), **Skills** (agent auto-detected), and **Subagents** (agent-delegated with fresh context). All three mechanisms are thin loading layers that point to the same underlying workflows and tasks.
+RBTV tools are available through up to three delivery mechanisms: **Commands** (user-invoked), **Skills** (agent auto-detected), and **Subagents** (agent-delegated with fresh context). Most tools have all three entry points; some commands are human-only.
 
 ### Commands (15)
 
 User-invoked commands available via `/bmad-rbtv-{name}`:
 
-| Command | Purpose |
-|---------|---------|
-| `/bmad-rbtv-help` | List all RBTV commands with deep-dive option |
-| `/bmad-rbtv-mentor` | Business innovation lifecycle (Founder mode) |
-| `/bmad-rbtv-doc` | Documentation workflows (compound, handoff, product) |
-| `/bmad-rbtv-domcobb` | Problem structuring and prompting assistance |
-| `/bmad-rbtv-plan` | Create or execute plans with quality gates |
-| `/bmad-rbtv-git` | Git commit with Conventional Commits format |
-| `/bmad-rbtv-create-component` | Create BMAD components |
-| `/bmad-rbtv-context-search` | Search files for relevant knowledge |
-| `/bmad-rbtv-quality-review` | Evaluate work against quality criteria |
-| `/bmad-rbtv-web-research` | Rigorous web research with citations |
-| `/bmad-rbtv-design-validation` | Validate HTML designs (4-layer framework) |
-| `/bmad-rbtv-visual-design-extraction` | Extract design tokens from screenshots |
-| `/bmad-rbtv-tone-extraction` | Extract voice signature from text |
-| `/bmad-rbtv-mermaid-conversion` | Convert Mermaid diagrams to PNG |
-| `/bmad-rbtv-playwright-browser-automation` | Browser automation with Playwright |
+| Command | Purpose | Skill/Subagent |
+|---------|---------|----------------|
+| `/bmad-rbtv-help` | List all RBTV commands with deep-dive option | Human-only |
+| `/bmad-rbtv-mentor` | Business innovation lifecycle (Founder mode) | Human-only |
+| `/bmad-rbtv-domcobb` | Problem structuring and prompting assistance | Human-only |
+| `/bmad-rbtv-doc` | Documentation workflows (compound, handoff, product) | Yes |
+| `/bmad-rbtv-plan` | Create or execute plans with quality gates | Yes |
+| `/bmad-rbtv-git` | Git commit with Conventional Commits format | Yes |
+| `/bmad-rbtv-create-component` | Create BMAD components | Yes |
+| `/bmad-rbtv-context-search` | Search files for relevant knowledge | Yes |
+| `/bmad-rbtv-quality-review` | Evaluate work against quality criteria | Yes |
+| `/bmad-rbtv-web-research` | Rigorous web research with citations | Yes |
+| `/bmad-rbtv-design-validation` | Validate HTML designs (4-layer framework) | Yes |
+| `/bmad-rbtv-visual-design-extraction` | Extract design tokens from screenshots | Yes |
+| `/bmad-rbtv-tone-extraction` | Extract voice signature from text | Yes |
+| `/bmad-rbtv-mermaid-conversion` | Convert Mermaid diagrams to PNG | Yes |
+| `/bmad-rbtv-playwright-browser-automation` | Browser automation with Playwright | Yes |
 
-
-**Skills:** Mirror all 15 commands as thin loading layers. Agents auto-detect when to apply them based on task context.
-**Subagents:** Mirror all 15 commands as thin loading layers. Agents delegate to them when tasks need isolation in fresh context windows.
+**Skills (12):** Thin loading layers for agent auto-detection. Available for all commands except the 3 human-only entry points (help, mentor, domcobb).
+**Subagents (12):** Thin loading layers for agent delegation with fresh context. Same 12 tools as skills.
 
 ---
 
@@ -158,6 +167,23 @@ A YC mentor who guides you through **17 innovation frameworks** across 6 milesto
 5. Complete milestones unlock next phase
 
 ---
+
+## Restrictions
+
+### Project-specific output paths require Mentor and project-memo
+
+**Project name** (`{project-name}`) is only set when the user runs **Mentor → New Project → Step 01: Project Setup** and provides a project name. That value is stored in **project-memo.md** frontmatter as `projectName`. Mentor and BI workflows read it from there (or from context) to build paths like `_bmad-output/{project-name}/founder/...`.
+
+**If the user does not use Mentor (or any BI flow that loads project-memo) and does not reference project-memo:**
+
+- **Business Innovation workflows** have no project name to plug into paths; project-specific output locations are undefined.
+- **BMAD** (bmm) config uses `{project-name}` in `planning_artifacts` and `implementation_artifacts`; nothing resolves it unless RBTV passes a full path via update-bmad-config when delegating.
+- **Other RBTV workflows** (plan, doc, git, etc.) use the base `output_folder` from config (`_bmad-output`), so they write to the root output folder — no project subfolder.
+
+To get project-scoped paths (e.g. `_bmad-output/MyProject/founder/`), use Mentor to create a project and maintain project-memo in context.
+
+---
+
 ## Architecture
 
 RBTV follows BMAD micro-file architecture principles:
@@ -173,12 +199,12 @@ RBTV follows BMAD micro-file architecture principles:
 
 ```
 rbtv/
-├── GET_STARTED.md           # Installation and onboarding guide
+├── get_started.md           # Installation and onboarding guide
 ├── install-rbtv.py          # IDE config sync script
 ├── rbtv-manifest.csv        # Component registry
 ├── agents/                  # Agent personas
 │   ├── ana.md               # Documentation Orchestrator
-│   ├── component-creator.md # BMAD Component Builder
+│   ├── god.md               # BMAD Component Builder
 │   ├── domcobb.md           # Problem Architect & Prompting Expert
 │   └── mentor.md            # YC Mentor for Business Innovation
 ├── tasks/                   # Standalone procedures
@@ -221,11 +247,12 @@ rbtv/
 │   ├── prompting-assistance/
 │   └── build-rbtv-component/
 ├── .cursor/                 # Cursor IDE configuration
-│   ├── commands/rbtv/       # Command files
-│   ├── agents/rbtv/         # Subagent files
-│   └── skills/rbtv/         # Skill files
+│   ├── commands/            # Command files (bmad-rbtv-*.md)
+│   ├── agents/              # Subagent files (bmad-rbtv-*.md)
+│   ├── skills/              # Skill folders (bmad-rbtv-*/SKILL.md)
+│   └── rules/               # RBTV-specific rules (bmad-rbtv-*.mdc)
 ├── .claude/                 # Claude IDE configuration
-│   └── commands/rbtv/       # Command files (mirrors .cursor)
+│   └── commands/            # Command files (mirrors .cursor)
 └── .rbtv-docs/              # Internal documentation
 ```
 

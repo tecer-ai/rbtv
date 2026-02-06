@@ -18,6 +18,37 @@ Install BMAD with these modules before proceeding: [BMAD GitHub Repository](http
 
 ---
 
+## Setup Overview
+
+After installation, your directory structure will look like this:
+
+```
+BMAD-METHOD/                    (installed from github.com/bmadcode/BMAD-METHOD)
+├── _bmad/
+│   ├── core/                   (BMAD core module)
+│   ├── cis/                    (BMAD cis module)
+│   ├── bmm/                    (BMAD bmm module)
+│   └── rbtv/                   (this module - cloned from github.com/hlealt/rbtv)
+│
+├── .cursor/                    (merged content from BMAD + RBTV via install script)
+├── .claude/                    (merged content from BMAD + RBTV via install script)
+│
+└── _bmad-output/
+    ├── project-1/              (your GitHub repos)
+    ├── project-2/              (your GitHub repos)
+    └── project-N/              (your GitHub repos)
+```
+
+**Key points:**
+- BMAD-METHOD is your main installation directory
+- `_bmad/` contains all BMAD modules including RBTV
+- `.cursor/` and `.claude/` are created/updated by the install script
+- `_bmad-output/` contains your projects and development work
+- `.vscode/settings.json` configures workspace visibility (UI only)
+- `.cursorignore` blocks AI agent access to specified folders
+
+---
+
 ## Installation
 
 ### Step 1: Clone RBTV
@@ -39,15 +70,88 @@ python install-rbtv.py
 ```
 
 **What the script does:**
-- Moves `rbtv/.cursor/` contents → BMAD root `/.cursor/`
-- Creates BMAD root `/.claude/commands/` and replicates Cursor commands for Claude compatibility
-- Overwrites existing files if conflicts occur
+- Deletes old RBTV files under `/.cursor/` (rules, agents, commands, skills with `bmad-rbtv-` prefix)
+- Copies `rbtv/.cursor/` contents → project root `/.cursor/`
+- Merges `rbtv/.cursor/mcp.json` → project root `/.cursor/mcp.json` (for Cursor IDE)
+- Merges `rbtv/.cursor/mcp.json` → project root `/.claude/.mcp.json` (for Claude Code)
+- Creates project root `/.claude/commands/` and replicates Cursor commands for Claude compatibility
+- Merges `rbtv/.vscode/settings.json` → project root `/.vscode/settings.json` (preserves user settings)
+- Merges RBTV patterns into project root `/.cursorignore` (adds `_bmad-output/archive/`)
+- Overwrites existing files if conflicts occur (except `.vscode/settings.json` and `.cursorignore` which merge)
 
-> **Important:** Run this script every time you update RBTV (`git pull` or `git fetch`). The script moves (not copies) the `.cursor/` folder, so it won't exist in `rbtv/` until the next update.
+> **Important:** Run this script every time you update RBTV (`git pull` or `git fetch`). The script copies (not moves) files, so source files remain in `rbtv/`.
 
 ### Step 3: Open Your IDE
 
 Open Cursor (or Claude) in your BMAD project root folder (the parent of `_bmad/`).
+
+---
+
+## Workspace Organization & Visibility
+
+RBTV automatically configures your workspace to manage project visibility and AI access control.
+
+### File Exclusions (UI Visibility)
+
+**Default Configuration:**
+The install script creates/updates `.vscode/settings.json` with these exclusions:
+- All `_bmad/*` folders (BMAD system files and RBTV source code)
+- `_bmad-output/archive/` folder (for inactive projects)
+
+**What This Does:**
+- Hides BMAD internals from Cursor's sidebar (you still have access to `.cursor` and `.claude` tools)
+- Removes excluded folders from search results
+- Excludes them from Quick Open (Ctrl+P)
+- Keeps your workspace focused on your active projects
+- **Does NOT block AI agent access** (agents can still read these files)
+
+**Managing Project Visibility:**
+You can add your own projects to `files.exclude` in `.vscode/settings.json`:
+
+```json
+{
+  "files.exclude": {
+    "_bmad/*": true,
+    "_bmad-output/archive": true,
+    "_bmad-output/my-inactive-project": true
+  }
+}
+```
+
+**Recommended Workflow:**
+1. When not actively working on a project, add it to `files.exclude`
+2. Or move inactive projects to `_bmad-output/archive/` (already excluded by default)
+3. This keeps your workspace clean and focused on active work
+4. You don't need to see RBTV source code or BMAD internals - just use the tools via `.cursor` and `.claude`
+
+### AI Access Control
+
+**Blocking AI Access:**
+To prevent AI agents from accessing folders or files, add them to `.cursorignore`:
+
+```
+# Block AI access to archived projects
+_bmad-output/archive/
+
+# Block AI access to specific project
+_bmad-output/old-project/
+
+# Block AI access to sensitive files
+secrets.json
+.env
+```
+
+**Default Configuration:**
+The install script adds `_bmad-output/archive/` to `.cursorignore` by default.
+
+**Key Difference:**
+- `.vscode/settings.json` (`files.exclude`) = UI visibility only
+- `.cursorignore` = Blocks AI agent access completely
+
+**Best Practice:**
+For archived or inactive projects, add them to BOTH:
+1. `.vscode/settings.json` → hides from UI
+2. `.cursorignore` → prevents AI from reading them
 
 ---
 
@@ -75,7 +179,9 @@ RBTV tools are available through three mechanisms:
 
 All three share the same underlying workflows — the difference is how they're invoked and whether they preserve context.
 
-**All 15 RBTV commands are mirrored as both Skills and Subagents** — thin loading layers that allow agents to access the same tools either within the current context (skills) or in isolated contexts (subagents).
+**12 of the 15 RBTV commands are mirrored as both Skills and Subagents** — thin loading layers that allow agents to access the same tools either within the current context (skills) or in isolated contexts (subagents). The remaining 3 commands (help, mentor, domcobb) are human-only entry points with no agent counterparts.
+
+**Tool catalog:** `_bmad/rbtv/tools-manifest.csv` — id, skill_path, subagent_path, description. Skills: read skill_path in context. Subagents: use Task tool with `subagent_type='<id>'`.
 
 > **Deep dive:** See the [RBTV README](./readme.md) for full architectural details and complete entry point listings.
 
@@ -83,7 +189,7 @@ All three share the same underlying workflows — the difference is how they're 
 
 ## Entry Points
 
-All RBTV tools are available through three delivery mechanisms: **Commands** (user-invoked), **Skills** (agent auto-detected), and **Subagents** (agent-delegated with fresh context). All three mechanisms are thin loading layers that point to the same underlying workflows and tasks.
+RBTV tools are available through up to three delivery mechanisms: **Commands** (user-invoked), **Skills** (agent auto-detected), and **Subagents** (agent-delegated with fresh context). Most tools have all three entry points; 3 commands (help, mentor, domcobb) are human-only with no skill or subagent.
 
 ### Commands (15)
 
@@ -141,7 +247,7 @@ The installation script must run after every update to sync IDE configuration fi
 |-------|----------|
 | Commands not appearing | Run `install-rbtv.py` and restart your IDE |
 | "Module not found" errors | Ensure core and cis modules are installed |
-| Workflows fail to load | Check `_bmad/core/config.yaml` exists and is valid |
+| Workflows fail to load | Check `_bmad/rbtv/config.yaml` exists and is valid |
 
 ---
 
