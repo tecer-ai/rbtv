@@ -1,0 +1,11 @@
+#Git
+#.gitignore
+
+#Admin files
+#.cursor/ 
+##.cursor/rules/admin-powershell.mdc     -> Henri's setup
+##.cursor/rules/admin-bmad-mirror.mdc    -> Navigation instructions
+#CLAUDE.md                               -> Navigation instructions
+#.claude/                                -> Claude Code configuration
+.claude/settings.local.json
+##_docs/system-documentation/BMAD/       -> BMAD Mirroring

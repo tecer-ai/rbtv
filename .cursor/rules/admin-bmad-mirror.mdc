@@ -1,0 +1,7 @@
+---
+description: "RBTV module identity, BMAD parent system mirror, and path resolution rules"
+alwaysApply: true
+---
+# BMAD Module Context
+
+Read [CLAUDE.md](mdc:CLAUDE.md)
