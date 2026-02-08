@@ -20,7 +20,7 @@ description: Evaluates work against quality criteria - use for quality gates aft
 Load and follow the quality review task:
 
 ```
-{project-root}/_bmad/rbtv/tasks/quality-review.xml
+tasks/quality-review.xml
 ```
 
 This task provides:
@@ -28,3 +28,5 @@ This task provides:
 - Pass/fail determination with rationale
 - Actionable feedback generation
 - Unbiased critical assessment
+
+> **ADMIN MODE:** Before proceeding, load and read `.cursor/rules/admin-rbtv-bmad-mirror.mdc` for path resolution and config values. Key: `.cursor/` and `tasks/` are at workspace root.

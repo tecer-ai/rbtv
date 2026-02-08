@@ -23,7 +23,7 @@ description: Navigate websites, capture screenshots, manage viewports, and inter
 Load and follow the playwright browser automation workflow:
 
 ```
-{project-root}/_bmad/rbtv/workflows/browser-web-automation/workflow.md
+workflows/browser-web-automation/workflow.md
 ```
 
 This workflow provides:
@@ -32,3 +32,5 @@ This workflow provides:
 - Standard viewport presets (desktop, tablet, mobile)
 - Screenshot capture with project file management
 - Playwright MCP tool integration
+
+> **ADMIN MODE:** Before proceeding, load and read `.cursor/rules/admin-rbtv-bmad-mirror.mdc` for path resolution and config values. Key: `.cursor/` and `tasks/` are at workspace root.

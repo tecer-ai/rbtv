@@ -131,6 +131,35 @@ An agentic system has five layers, each a directory of text files:
 
 ---
 
+## Workflow Design Decisions
+
+Before building a workflow, answer these 4 questions:
+
+| # | Decision | Options | Impact |
+|---|----------|---------|--------|
+| 1 | **Continuable or single-session?** | Continuable: user may return across sessions | If continuable: add `step-01b-continue.md` that reads existing output frontmatter and resumes |
+| 2 | **Tri-modal?** | Create only, or Create + Validate + Edit | If tri-modal: create `steps-v/` and `steps-e/` directories; add `validateWorkflow` and `editWorkflow` frontmatter |
+| 3 | **Module affiliation?** | Standalone vs part of a module | Affects config.yaml path and `parentWorkflow` field |
+| 4 | **Output type?** | Document (frontmatter + sections) vs action-only | If document: define output template; if action-only: no output frontmatter needed |
+
+### Step Type Patterns
+
+| Type | When to Use | Example |
+|------|-------------|---------|
+| **init** | First step — load context, check prerequisites, create output doc | `step-01-init.md` |
+| **continuation** | Resume existing output — offer "continue" or "start fresh" | `step-01b-continue.md` |
+| **middle** | Core work step — elicit, analyze, generate content | `step-02-discover.md` |
+| **branch** | Decision point — route to different step paths | `step-03-select-mode.md` |
+| **final/synthesis** | Last step — compile, validate, update project-memo | `step-N-synthesis.md` |
+
+### Frontmatter Standards
+
+**Required for all step files:** `name`, `description`, `nextStepFile`
+**Optional:** `outputFile`, `partyModeWorkflow`, `knowledgeFile`
+**FORBIDDEN in frontmatter:** `workflow_path`, `thisStepFile` (these create circular references)
+
+---
+
 ## Common Mistakes to Avoid
 
 | Mistake | Why It Fails | Better Approach |
@@ -140,8 +169,27 @@ An agentic system has five layers, each a directory of text files:
 | Logic in entry points | Creates IDE-specific behavior | Entry points only load files |
 | Missing STOP instructions | AI rushes through steps | Explicit halt: "WAIT for user input" |
 | Hardcoded paths | Breaks when moved | Use {project-root} variables |
+| Hardcoded catalog lists | Drift and maintenance burden | Reference manifests (tools-manifest.csv, etc.) |
 | No state tracking | Can't resume sessions | Frontmatter in output documents |
 | Skipping adversarial review | Rubber-stamped output | Build in mandatory challenge mechanisms |
+
+---
+
+## Manifest-First Checklist
+
+Before generating a file that references a catalog of commands, skills, rules, cursor sub-agents, or similar:
+
+1. **Check:** Does the file you're generating contain a catalog-style list? (e.g. "all commands", "every skill", "all rules")
+   - If NO catalog list → no manifest needed, proceed normally
+   - If YES → continue to step 2
+2. **Check:** Does a manifest already exist for this catalog?
+   - AI-available tools (skills + cursor sub-agents) → `_bmad/rbtv/_config/tools-manifest.csv`
+3. **If manifest exists:** Reference it in the generated file (path + column names), NOT an inline list
+4. **If no manifest exists:** CREATE one as a `.csv` in `_bmad/rbtv/_config/` and reference it
+
+**NEVER** hardcode catalog-style lists inline. Always point to a manifest as the single source of truth.
+
+> **Terminology:** All skills and cursor sub-agents are also commands, but not all commands are skills/cursor sub-agents. Files in `.cursor/agents/` are **cursor sub-agents** (thin loaders for the Cursor sub-agent feature), NOT RBTV agent personas.
 
 ---
 

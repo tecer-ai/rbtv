@@ -135,7 +135,7 @@ Select a framework to work on:
 
 ---
 [S] Status — Show detailed completion status
-[B] Back — Return to milestone selection
+[BK] Back — Return to milestone selection
 [X] Exit — Exit workflow
 ```
 
@@ -163,7 +163,7 @@ ALWAYS halt and wait for user selection.
 | [H] | Check prerequisites → Update project-memo frontmatter → Load `../bi-m4-heuristic-evaluation/workflow.md` |
 | [F] | Display "🚧 This framework is planned for future creation. Please select an available framework." |
 | [S] | Display detailed status, then redisplay menu |
-| [B] | Load `../../bi-business-innovation/workflow.md` → step-02-milestone-select.md |
+| [BK] | Load `../../bi-business-innovation/workflow.md` → step-02-milestone-select.md |
 | [X] | Exit workflow |
 
 ### Prerequisite Checking
@@ -236,7 +236,7 @@ ONLY when user selects a framework [U/D/C/H]:
 2. Update project-memo.md frontmatter: set currentFramework
 3. Load the selected framework workflow and follow its instructions
 
-When user selects [B] Back:
+When user selects [BK] Back:
 1. Load `../../bi-business-innovation/workflow.md` → follow to step-02-milestone-select.md
 2. That step will present the milestone menu
 

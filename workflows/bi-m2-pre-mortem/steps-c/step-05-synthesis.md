@@ -157,6 +157,11 @@ Pre-mortem is the final M2 framework. Check M2 milestone completion:
 - [ ] Pre-mortem ← just completed
 
 If all 6 frameworks complete:
+
+Update project-memo.md:
+- Set `currentMilestone: m3-brand` in frontmatter
+- Add M2 completion note in Progress section
+
 > "**M2 Validation Complete!**
 >
 > All 6 M2 frameworks have been completed:
@@ -167,7 +172,7 @@ If all 6 frameworks complete:
 > ✅ Technology Readiness Level
 > ✅ Pre-mortem
 >
-> You can now proceed to M3 Brand or return to milestone selection."
+> **Recommended next step:** M3 Brand to define your brand identity, positioning, and voice."
 
 If any missing:
 > "M2 Validation is [N/6] complete. Missing: [list missing frameworks]."

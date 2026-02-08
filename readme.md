@@ -14,7 +14,7 @@ The system doesn't make decisions for you. It imposes structure on chaos, challe
 
 See [get_started.md](./get_started.md) for complete installation instructions.
 
-**Claude Code users:** RBTV is a module that runs inside BMAD, not a standalone repo. A read-only mirror of the parent system is at [_docs/system-documentation/BMAD/](./_docs/system-documentation/BMAD/). [CLAUDE.md](./CLAUDE.md) explains how to resolve file paths against this mirror so Claude Code can review and improve RBTV files autonomously.
+**Claude Code users:** RBTV is a module that runs inside BMAD, not a standalone repo. A read-only mirror of the parent system is at [_admin/docs/BMAD-mirror/](./_admin/docs/BMAD-mirror/). [CLAUDE.md](./CLAUDE.md) explains how to resolve file paths against this mirror so Claude Code can review and improve RBTV files autonomously. **Note:** CLAUDE.md is intended for Claude to work on the RBTV repo itself (standalone development), not on BMAD instances, and should not be copied to BMAD instances.
 
 ---
 
@@ -46,53 +46,76 @@ RBTV provides structured workflows for:
 
 ## Tool Delivery Model
 
-Commands, skills, and subagents are **the same underlying tools** — workflows and tasks that perform specific functions. The difference is purely in **how they are invoked** and **whether they preserve context**.
+Every RBTV tool is a **command** — a thin loader file that humans invoke via `/command`. A subset of commands are additionally exposed as **skills** and **cursor sub-agents**, making them available to AI agents. The underlying workflow or task is the same; only the invocation mechanism differs.
+
+### Hierarchy
+
+```
+Commands (15) ← all tools, available to humans via /command
+├── Skills (12) ← subset available for AI auto-detection (in-context)
+├── Cursor Sub-agents (12) ← subset available for AI delegation (fresh context)
+└── Human-only (3) ← help, mentor, domcobb — no AI entry point
+```
 
 ### Delivery Mechanisms
 
-| Mechanism | Trigger | Context | Use Case |
+| Mechanism | Trigger | Context | Audience |
 |-----------|---------|---------|----------|
-| **Command** | User types `/command` | Maintains current window | User explicitly requests a tool |
-| **Skill** | Agent auto-detects relevance | Maintains current window | Agent recognizes task matches skill |
-| **Subagent** | Agent delegates via Task tool | Fresh context window | Complex task needing isolation |
+| **Command** | User types `/command` | Current window | Humans |
+| **Skill** | Agent auto-detects relevance | Current window | AI agents |
+| **Cursor Sub-agent** | Agent delegates via Task tool | Fresh context (zero prior context) | AI agents |
 
 ### Why Three Mechanisms?
 
 1. **Commands** give users direct control — type `/bmad-rbtv-git` to commit
-2. **Skills** enable proactive assistance — agent sees HTML and auto-applies validation
-3. **Subagents** provide isolation — research runs in fresh context to avoid pollution
+2. **Skills** enable proactive AI assistance — agent sees HTML and auto-applies validation
+3. **Cursor sub-agents** provide isolation — research runs in fresh context to avoid pollution
 
-### Implications
+### AI-Available Tools Registry
 
-- Most tools (e.g., `web-research`) have command, skill, AND subagent entry points
-- All entry points for a tool point to the same underlying workflow or task
-- Some commands are human-only entry points with no skill or subagent (e.g., `help`, `mentor`, `domcobb`)
-- The manifest (`tools-manifest.csv`) registers all skills and subagents
-- Adding a new tool = create workflow/task + register entry points
+**Location:** `_bmad/rbtv/_config/tools-manifest.csv` (id, skill_path, cursor_subagent_path, description)
 
-### Manifest and Invocation
-
-**Location:** `_bmad/rbtv/_config/tools-manifest.csv` (id, skill_path, subagent_path, description)
+The manifest lists only the 12 tools available to AI agents (skills + cursor sub-agents). Human-only commands (help, mentor, domcobb) are not registered because AI agents do not invoke them.
 
 **Skill:** Read skill_path in current context — no separate invoke API.
 
-**Subagent:** Use Task tool with `subagent_type='<id>'` — runs in fresh context. Subagents cannot invoke other subagents; use skills only when already in subagent.
+**Cursor sub-agent:** Use Task tool with `subagent_type='<id>'` — runs in fresh context. Cursor sub-agents cannot invoke other cursor sub-agents; use skills only when already in a cursor sub-agent.
+
+> **Terminology note:** Files in `.cursor/agents/` are **cursor sub-agents** — thin loaders that make the Cursor sub-agent feature load the desired RBTV workflow or agent. They are NOT RBTV agent personas (which live in `agents/`).
+
+---
+
+## Highlighted Capabilities
+
+Key capabilities from RBTV and BMAD that work together:
+
+### Research Tools
+
+- **[RBTV Web Research](./tasks/web-research.xml)** — Rigorous web research with source evaluation (AT/TR/TM scoring), citation standards, and data integrity rules. Generic, single-shot task.
+- **[BMAD Research Workflow](./_admin/docs/BMAD-mirror/_bmad/bmm/workflows/1-analysis/research/)** — Interactive, multi-step research workflow with agent guidance (Mary persona) and domain-specific research types.
+
+### Quality Review Tools
+
+- **[RBTV Quality Review](./tasks/quality-evaluator.xml)** — Binary APPROVED/REJECTED verdict for RBTV component compliance. Validates milestone transitions, step frontmatter, manifest-first compliance, and 5-criteria quality evaluation.
+- **[BMAD Editorial Prose Review](./_admin/docs/BMAD-mirror/_bmad/core/tasks/editorial-review-prose.xml)** — Copy editing with 3-column table output (issue/suggestion/location). Advisory, not pass/fail.
+- **[BMAD Structural Review](./_admin/docs/BMAD-mirror/_bmad/core/tasks/editorial-review-structure.xml)** — Document reorganization and simplification recommendations.
+- **[BMAD Adversarial Review](./_admin/docs/BMAD-mirror/_bmad/core/tasks/review-adversarial-general.xml)** — Cynical, devil's-advocate content criticism for challenging assumptions.
 
 ---
 
 ## Entry Points
 
-RBTV tools are available through up to three delivery mechanisms: **Commands** (user-invoked), **Skills** (agent auto-detected), and **Subagents** (agent-delegated with fresh context). Most tools have all three entry points; some commands are human-only.
+All 15 RBTV tools are commands. 12 of them are also available as skills and cursor sub-agents for AI use.
 
 ### Commands (15)
 
 User-invoked commands available via `/bmad-rbtv-{name}`:
 
-| Command | Purpose | Skill/Subagent |
-|---------|---------|----------------|
-| `/bmad-rbtv-help` | List all RBTV commands with deep-dive option | Human-only |
-| `/bmad-rbtv-mentor` | Business innovation lifecycle (Founder mode) | Human-only |
-| `/bmad-rbtv-domcobb` | Problem structuring and prompting assistance | Human-only |
+| Command | Purpose | AI-available |
+|---------|---------|-------------|
+| `/bmad-rbtv-help` | List all RBTV commands with deep-dive option | No (human-only) |
+| `/bmad-rbtv-mentor` | Business innovation lifecycle (Founder mode) | No (human-only) |
+| `/bmad-rbtv-domcobb` | Problem structuring and prompting assistance | No (human-only) |
 | `/bmad-rbtv-doc` | Documentation workflows (compound, handoff, product) | Yes |
 | `/bmad-rbtv-plan` | Create or execute plans with quality gates | Yes |
 | `/bmad-rbtv-git` | Git commit with Conventional Commits format | Yes |
@@ -106,8 +129,8 @@ User-invoked commands available via `/bmad-rbtv-{name}`:
 | `/bmad-rbtv-mermaid-conversion` | Convert Mermaid diagrams to PNG | Yes |
 | `/bmad-rbtv-playwright-browser-automation` | Browser automation with Playwright | Yes |
 
-**Skills (12):** Thin loading layers for agent auto-detection. Available for all commands except the 3 human-only entry points (help, mentor, domcobb).
-**Subagents (12):** Thin loading layers for agent delegation with fresh context. Same 12 tools as skills.
+**Skills (12):** In-context loading layers for AI auto-detection. Available for all commands except the 3 human-only entry points.
+**Cursor sub-agents (12):** Fresh-context delegation layers for AI task isolation. Same 12 tools as skills. Registered in `tools-manifest.csv`.
 
 ---
 
@@ -266,9 +289,9 @@ rbtv/
 │   ├── prompting-assistance/
 │   └── build-rbtv-component/
 ├── .cursor/                 # Cursor IDE configuration
-│   ├── commands/            # Command files (bmad-rbtv-*.md)
-│   ├── agents/              # Subagent files (bmad-rbtv-*.md)
-│   ├── skills/              # Skill folders (bmad-rbtv-*/SKILL.md)
+│   ├── commands/            # Command files — human entry points (bmad-rbtv-*.md)
+│   ├── agents/              # Cursor sub-agent files — AI delegation entry points (bmad-rbtv-*.md)
+│   ├── skills/              # Skill folders — AI auto-detection entry points (bmad-rbtv-*/SKILL.md)
 │   └── rules/               # RBTV-specific rules (bmad-rbtv-*.mdc)
 ├── .claude/                 # Claude IDE configuration
 │   └── commands/            # Command files (mirrors .cursor)

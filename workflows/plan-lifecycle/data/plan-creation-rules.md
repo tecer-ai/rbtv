@@ -141,11 +141,41 @@ Rules for creating task files during plan creation.
 
 ### When to Generate
 
-| Scenario | Generate Micro-step File? |
-|----------|---------------------------|
-| Standard task | Yes |
-| Checkpoint | No (checkpoints are pause points, not work items) |
-| Trivial task (complexity <7) | Optional (can skip if self-explanatory) |
+| Scenario | Generate Micro-step File? | Instead |
+|----------|---------------------------|---------|
+| **Complex task:** multi-step, needs context loading, tool declarations, phased execution | **YES** — full microstep file | — |
+| **Standard task:** clear scope, single action, no special context | **NO** — inline content is sufficient | YAML `content` field contains complete instructions |
+| **Checkpoint** | **NO** | Pause point only |
+
+### Decision Criteria
+
+Generate a micro-step file when ANY of these apply:
+- Task requires loading 2+ context files
+- Task uses specialized RBTV tools (subagents, skills)
+- Task has 3+ distinct substeps
+- Task requires a phased execution flow (understand → execute → validate)
+- Task produces output that needs quality review
+
+Use inline YAML content when ALL of these apply:
+- Task is self-explanatory from its description
+- Single action, completable in one step
+- No special context files or tools needed
+- No phased execution flow required
+
+### Inline Content Examples
+
+```yaml
+# Simple task — NO micro-step file needed
+- id: p1-2
+  content: "p1-2: UPDATE src/config.ts to add the new API endpoint URL from the design doc"
+  status: pending
+
+# Complex task — micro-step file needed
+- id: p2-1
+  content: "p2-1: Implement authentication flow with OAuth2 integration"
+  status: pending
+  # See: phase-2/p2-1.task.md
+```
 
 ### File Location
 

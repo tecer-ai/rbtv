@@ -82,39 +82,28 @@ Use this template to create the `shape.md` companion file for each plan. Shape c
 
 ---
 
-## Execution Log
+## Decisions and Discoveries
 
 > **APPEND-ONLY RULES:**
-> 1. After completing each task, append an entry below
+> 1. Only capture decisions, discoveries, and unexpected constraints — NOT routine task completions
 > 2. NEVER modify previous entries
 > 3. NEVER delete entries
-> 4. Use the exact format shown
+> 4. Ask yourself: "Will this matter in one month?" If no, don't log it
+>
+> **What belongs here:** Decisions made during execution (with rationale), discoveries that change prior decisions, unexpected constraints
+> **What does NOT belong:** Routine task completions ("created file X", "updated config Y")
 
-### Entry Format
+### Decision Entry Format
 
 \`\`\`markdown
-### Task [id]: [Title]
-**Completed:** YYYY-MM-DD
-**Outcome:** [Brief summary of what was delivered]
-**Decisions:**
-- [Decision]: [Rationale]
-**Issues:** [Any blockers or surprises encountered]
-**Files Modified:** [List of files created/updated/deleted]
+### Decision [N] (from task [id])
+**Date:** YYYY-MM-DD
+**Decision:** [What was decided]
+**Rationale:** [Why this choice was made]
+**Impact:** [What tasks or files are affected]
 \`\`\`
 
-<!-- Execution entries will be appended below this line -->
-
----
-
-## Execution Discoveries
-
-> **DISCOVERY RULES:**
-> 1. When execution reveals contradictions or unforeseen work, append entry
-> 2. If work is simple (<5 min), do it immediately and mark checkbox
-> 3. If work is complex, add new task to plan and note the task ID
-> 4. NEVER modify Original Shaping - discoveries explain divergence
-
-### Entry Format
+### Discovery Entry Format
 
 \`\`\`markdown
 ### Discovery [N] (from task [id])
@@ -124,10 +113,22 @@ Use this template to create the `shape.md` companion file for each plan. Shape c
 **Resolution:**
 - [ ] Simple fix applied immediately
 - [ ] New task added: [task-id]
+
+**Propagation Checklist:**
+| Status | Task/File | Action Taken |
+|--------|-----------|--------------|
+| Completed | [task-id or file path] | Annotated with "⛔ SUPERSEDED — See Discovery N" |
+| Pending | [task-id or file path] | Updated to reflect new decision |
+
 **Details:** [Explanation]
 \`\`\`
 
-<!-- Discovery entries will be appended below this line -->
+> **PROPAGATION IS MANDATORY:** When a discovery changes a prior decision, the agent MUST:
+> 1. Annotate all affected **completed** tasks/files with "⛔ SUPERSEDED — See Discovery N" (do not modify the original content; append annotation)
+> 2. Update all affected **pending** tasks to reflect the new decision
+> 3. Fill in the Propagation Checklist above to record what was done
+
+<!-- Decisions and discovery entries will be appended below this line -->
 
 ---
 
@@ -155,14 +156,24 @@ Use this template to create the `shape.md` companion file for each plan. Shape c
 1. Create during plan creation (step-02-context.md)
 2. Fill Original Shaping section from user discussions
 3. Fill Standards Applied from applicable BMAD/RBTV rules
-4. Leave Execution Log and Discoveries sections empty (template markers only)
+4. Leave Decisions and Discoveries section empty (template markers only)
 
 ### During Execution
 
-1. **Before each task:** Read Execution Log for prior context
-2. **After each task:** Append entry to Execution Log
-3. **On discovery:** Append entry to Execution Discoveries
-4. **NEVER:** Modify Original Shaping or previous entries
+1. **Before each task:** Read Decisions and Discoveries for prior context
+2. **On significant decision:** Append a Decision entry (only if it matters in one month)
+3. **On discovery that changes prior work:** Append a Discovery entry AND complete the Propagation Checklist
+4. **Do NOT log:** Routine task completions — these add noise without lasting value
+5. **NEVER:** Modify Original Shaping or previous entries
+
+### Discovery Propagation Protocol
+
+When a Discovery contradicts or supersedes a prior decision:
+
+1. **Document the discovery** in the Decisions and Discoveries section
+2. **Annotate completed tasks/files** affected by the change with "⛔ SUPERSEDED — See Discovery N" (append; do not modify original content)
+3. **Update pending tasks** affected by the change to reflect the new decision
+4. **Fill in the Propagation Checklist** in the discovery entry to record what was propagated
 
 ### Append-Only Enforcement
 
@@ -170,10 +181,11 @@ The append-only pattern serves critical purposes:
 
 | Purpose | Why |
 |---------|-----|
-| Audit trail | Full history of execution decisions |
+| Audit trail | Full history of significant decisions |
 | Context recovery | Any agent can understand execution state |
 | No condensation needed | Eliminates condensation tasks from plans |
 | Immutable planning record | Original decisions preserved for comparison |
+| Propagation record | Discovery checklist tracks what was updated |
 
 ---
 
@@ -183,7 +195,7 @@ The append-only pattern serves critical purposes:
 |---------|--------|-----|
 | Original Shaping | 50-100 lines | 150 lines |
 | Standards Applied | 30-50 lines | 80 lines |
-| Per execution entry | 8-12 lines | 20 lines |
-| Per discovery entry | 10-15 lines | 25 lines |
+| Per decision entry | 6-8 lines | 12 lines |
+| Per discovery entry (with propagation) | 15-25 lines | 35 lines |
 
 **Note:** Shape.md will grow during execution. This is expected and intentional.

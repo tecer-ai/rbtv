@@ -6,6 +6,15 @@ Welcome to **RBTV** (Robotville), a BMAD module for business innovation, documen
 
 ## Prerequisites
 
+### Software
+
+| Software | Purpose | Required |
+|----------|---------|----------|
+| **Python 3** | Runs the installation script | Yes |
+| **Node.js** (with `npx`) | Required by `playwright-mcp` MCP server | Yes (for browser automation tools) |
+
+### BMAD Modules
+
 RBTV requires the following BMAD modules installed:
 
 | Module | Tick in installer | Provides | Purpose | Required |
@@ -21,6 +30,14 @@ RBTV requires the following BMAD modules installed:
 When you select **BMad Core** during installation, both `core/` and `bmm/` folders are created in `_bmad/`.
 
 **MCP requirement for Business Innovation:** The **Playwright MCP** must be configured to use the Business Innovation module from milestone 3 onward (milestone 3 inclusive).
+
+### MCP Servers
+
+The install script merges the following MCP servers into `.cursor/mcp.json` and `.claude/.mcp.json`:
+
+| Server | Install Method | Used By |
+|--------|---------------|---------|
+| `playwright-mcp` | `npx -y playwright-mcp` | `/bmad-rbtv-playwright-browser-automation`, `/bmad-rbtv-design-validation` |
 
 ---
 
@@ -83,7 +100,7 @@ python _config/install-rbtv.py
 - Merges `rbtv/_config/.cursor/mcp.json` → project root `/.cursor/mcp.json` (for Cursor IDE)
 - Merges `rbtv/_config/.cursor/mcp.json` → project root `/.claude/.mcp.json` (for Claude Code)
 - Creates project root `/.claude/commands/` and replicates Cursor commands for Claude compatibility
-- Merges `rbtv/_config/.vscode/settings.json` → project root `/.vscode/settings.json` (preserves user settings)
+- Creates `/.vscode/settings.json` from `rbtv/_config/.vscode/settings.json` only if `.vscode/` does not exist (leaves existing untouched)
 - Merges RBTV patterns into project root `/.cursorignore` (adds `_bmad-output/archive/`)
 - Overwrites existing files if conflicts occur (except `.vscode/settings.json` and `.cursorignore` which merge)
 
@@ -181,15 +198,13 @@ RBTV tools are available through three mechanisms:
 
 | Mechanism | Trigger | Context |
 |-----------|---------|---------|
-| **Commands** | User types `/command` | Maintains current context window |
-| **Skills** | Agent auto-detects relevance | Maintains current context window |
-| **Subagents** | Agent delegates via Task tool | Fresh context window |
+| **Commands** | User types `/command` | Maintains current context window | Humans |
+| **Skills** | Agent auto-detects relevance | Maintains current context window | AI agents |
+| **Cursor Sub-agents** | Agent delegates via Task tool | Fresh context window (zero prior context) | AI agents |
 
-All three share the same underlying workflows — the difference is how they're invoked and whether they preserve context.
+All 15 RBTV tools are commands. 12 of them are additionally exposed as skills and cursor sub-agents for AI use. The remaining 3 (help, mentor, domcobb) are human-only commands with no AI entry point.
 
-**12 of the 15 RBTV commands are mirrored as both Skills and Subagents** — thin loading layers that allow agents to access the same tools either within the current context (skills) or in isolated contexts (subagents). The remaining 3 commands (help, mentor, domcobb) are human-only entry points with no agent counterparts.
-
-**Tool catalog:** `_bmad/rbtv/_config/tools-manifest.csv` — id, skill_path, subagent_path, description. Skills: read skill_path in context. Subagents: use Task tool with `subagent_type='<id>'`.
+**AI tool catalog:** `_bmad/rbtv/_config/tools-manifest.csv` — lists the 12 AI-available tools with skill_path and cursor_subagent_path. Skills: read skill_path in context. Cursor sub-agents: use Task tool with `subagent_type='<id>'`.
 
 > **Deep dive:** See the [RBTV README](./readme.md) for full architectural details and complete entry point listings.
 
@@ -197,7 +212,7 @@ All three share the same underlying workflows — the difference is how they're 
 
 ## Entry Points
 
-RBTV tools are available through up to three delivery mechanisms: **Commands** (user-invoked), **Skills** (agent auto-detected), and **Subagents** (agent-delegated with fresh context). Most tools have all three entry points; 3 commands (help, mentor, domcobb) are human-only with no skill or subagent.
+All 15 RBTV tools are commands (human-invoked). 12 are also available as skills (AI auto-detected) and cursor sub-agents (AI-delegated with fresh context). 3 commands (help, mentor, domcobb) are human-only.
 
 ### Commands (15)
 
@@ -248,6 +263,14 @@ python _config/install-rbtv.py
 > **macOS users:** use `python3` if `python` is not found.
 
 The installation script must run after every update to sync IDE configuration files.
+
+---
+
+## Developing RBTV (Admin Mode)
+
+If you are developing or maintaining RBTV itself (working directly from the `rbtv/` repository rather than a BMAD installation), see [`_admin/README.md`](./_admin/README.md) for admin tools that set up standalone IDE configuration.
+
+**Warning:** The admin install script (`_admin/install-admin-rbtv.py`) manages all `bmad-rbtv-*` and `admin-rbtv-*` files in `.cursor/`. These files are deleted and recreated on every sync. Do not use those prefixes for personal cursor tools — they will be lost.
 
 ---
 

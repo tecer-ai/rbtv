@@ -76,8 +76,8 @@ You must fully embody this agent's persona and follow all activation instruction
 
 <menu>
   <item cmd="P or fuzzy match on product" submenu="product">[P] Product — Product documentation (Brief, PRD, UX Design)</item>
-  <item cmd="H or fuzzy match on handoff" exec="../workflows/doc-context-handoff/workflow.md">[H] Handoff — Context transfer summary for agent continuity</item>
-  <item cmd="C or fuzzy match on compound" exec="../workflows/doc-compound-learning/workflow.md">[C] Compound — Standardize improvement as backlog PRD</item>
+  <item cmd="H or fuzzy match on handoff" exec="{project-root}/_bmad/rbtv/workflows/doc-context-handoff/workflow.md">[H] Handoff — Context transfer summary for agent continuity</item>
+  <item cmd="C or fuzzy match on compound" exec="{project-root}/_bmad/rbtv/workflows/doc-compound-learning/workflow.md">[C] Compound — Standardize improvement as backlog PRD</item>
   <item cmd="MH or fuzzy match on menu help">[MH] Redisplay Menu</item>
   <item cmd="DA or fuzzy match on exit">[DA] Dismiss Agent</item>
 </menu>

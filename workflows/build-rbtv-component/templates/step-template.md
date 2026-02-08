@@ -10,9 +10,22 @@ Use this template to create a step file for a BMAD workflow.
 ---
 name: 'step-{NN}-{short-name}'
 description: '{What this step accomplishes}'
-nextStepFile: './step-{NN+1}-{next-name}.md'
-outputFile: '{planning_artifacts}/{output-name}.md'
+
+# File References
+nextStepFile: './step-{NN+1}-{next-name}.md' # Remove for final step
+altStepFile: './step-{NN}-{alt-name}.md' # Remove if no branching
+workflowFile: './workflow.md'
+outputFile: '{project-root}/_bmad-output/{output-name}.md' # Remove if step does not write a file
+
+# Task References
+# advancedElicitationTask: '{project-root}/_bmad/core/workflows/advanced-elicitation/workflow.xml' # Not yet integrated into RBTV
 partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
+
+# Template References (if this step uses specific templates)
+templateFile: './templates/{template-name}.md'
+
+# Data References (if this step uses data files)
+dataFile: './data/{data-name}.csv'
 ---
 
 # Step {N}: {Title}
@@ -30,9 +43,10 @@ partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules
-- NEVER generate content without user input or confirmation
-- READ this complete file before taking any action
-- Follow the MANDATORY SEQUENCE below exactly — do not deviate, skip, or optimize
+- 🛑 NEVER generate content without user input
+- 📖 CRITICAL: Read the complete step file before taking any action
+- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
+- 📋 YOU ARE A FACILITATOR, not a content generator
 
 ### Role Reinforcement
 You are a {role}. Continue your existing persona and communication style.
@@ -111,8 +125,13 @@ ONLY when **[C] Continue** is selected:
 ### Frontmatter
 - **name**: Step identifier, format: `step-{NN}-{short-name}`
 - **description**: What this step accomplishes
-- **nextStepFile**: Relative path to next step
-- **outputFile**: Path to output document (use config variables)
+- **nextStepFile**: Relative path to next step (remove for final step)
+- **altStepFile**: Relative path to alternate step (for branching; remove if no branching)
+- **workflowFile**: Relative path to parent workflow.md
+- **outputFile**: (Optional) Path where step writes its result. Used by framework synthesis steps that generate documents. Use `{project-root}` path conventions. Omit if step does not produce a file.
+- **partyModeWorkflow**: Path to party mode workflow
+- **templateFile**: Path to template used by this step (if any)
+- **dataFile**: Path to data file used by this step (if any)
 
 ### Sections
 - **Progress indicator**: "Step N of Total — Next: Title"
@@ -126,13 +145,16 @@ ONLY when **[C] Continue** is selected:
 
 ## Step Types
 
-| Type | File Pattern | Purpose |
-|------|-------------|---------|
-| Init | step-01-init.md | Detect state, discover inputs, create output doc |
-| Continuation | step-01b-continue.md | Resume from stepsCompleted |
-| Middle | step-02 to step-N | Core workflow steps |
-| Branch | step-N-branch.md | Route based on user choice |
-| Final | step-N-complete.md | Review, polish, save |
+| Type | File Pattern | Template | Purpose |
+|------|-------------|----------|---------|
+| Init | step-01-init.md | This template | Detect state, discover inputs, create output doc |
+| Init (continuable) | step-01-init.md | `step-init-continuable-template.md` | Init with continuation detection for multi-session workflows |
+| Continuation | step-01b-continue.md | `step-continue-template.md` | Resume from stepsCompleted |
+| Middle | step-02 to step-N | This template | Core workflow steps |
+| Branch | step-N-branch.md | This template | Route based on user choice |
+| Final | step-N-complete.md | This template | Review, polish, save |
+
+**Multi-session workflows** MUST use the continuable init + continuation pair. Use `step-init-continuable-template.md` for the init step and `step-continue-template.md` for the continuation step.
 
 ---
 

@@ -41,6 +41,9 @@ You are a YC mentor. Challenge decorative design choices. Every element must jus
 3. Read `./data/conversion-framework.md` for framework knowledge
 4. Check if `{outputFolder}/conversion-optimization.md` exists (continuation mode)
 5. If design outputs exist (`design_brief.md`, `design.json`), note visual direction
+6. If available, read M3 messaging outputs for conversion content grounding:
+   - `{outputFolder}/messaging-architecture.md` — message hierarchy (brand promise, key messages, proof points, CTAs) so CTA analysis uses actual project messaging
+   - `{outputFolder}/jobs-to-be-done.md` — customer forces (push/pull/anxieties) so friction analysis references actual customer barriers
 
 ---
 
@@ -91,6 +94,10 @@ From user-flow-ia.md, summarize:
 - Primary conversion goal
 - Key funnel stages identified
 - Content hierarchy structure
+
+**Strategic Content Context** (if available):
+- Message hierarchy from Messaging Architecture (brand promise → key messages → proof points → CTAs)
+- Customer anxieties and barriers from JTBD forces analysis (friction points to address in conversion design)
 
 Present: "Here's what I understand about your conversion flow..."
 

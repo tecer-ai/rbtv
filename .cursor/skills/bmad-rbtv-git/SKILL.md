@@ -20,7 +20,7 @@ description: Git commit workflow with Conventional Commits messages. Use when co
 Load and follow the git commit workflow:
 
 ```
-{project-root}/_bmad/rbtv/workflows/git-commit/workflow.md
+workflows/git-commit/workflow.md
 ```
 
 This workflow provides:
@@ -28,3 +28,5 @@ This workflow provides:
 - Commit type selection guidance
 - Scope and description best practices
 - Breaking change documentation
+
+> **ADMIN MODE:** Before proceeding, load and read `.cursor/rules/admin-rbtv-bmad-mirror.mdc` for path resolution and config values. Key: `.cursor/` and `tasks/` are at workspace root.

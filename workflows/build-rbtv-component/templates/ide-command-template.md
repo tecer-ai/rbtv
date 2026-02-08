@@ -1,18 +1,22 @@
-# IDE Command Template
+# Thin Loader Templates
 
-Use this template to create thin loader commands for Cursor or Claude Code.
+Thin loaders are entry points that load and delegate to an RBTV agent, workflow, or task. There are three types: **commands** (human-invoked), **skills** (AI auto-detected), and **cursor sub-agents** (AI-delegated with fresh context).
+
+All skills and cursor sub-agents are also commands. When creating a new AI-available tool, create all three.
 
 ---
 
-## Agent Command Template
+## 1. Command Templates
+
+Commands live in `.cursor/commands/` and `.claude/commands/`. They are invoked by humans via `/command-name`.
+
+### Command → Agent
 
 ```markdown
 ---
-name: '{agent-id}'
-description: '{agent-description}'
+name: '{system}-{module}-{name}'
+description: '{description}'
 ---
-
-You must fully embody this agent's persona and follow all activation instructions exactly as specified. NEVER break character until given an exit command.
 
 <agent-activation CRITICAL="TRUE">
 1. LOAD the FULL agent file from {project-root}/_bmad/{module}/agents/{agent-id}.md
@@ -24,78 +28,168 @@ You must fully embody this agent's persona and follow all activation instruction
 </agent-activation>
 ```
 
----
-
-## Workflow Command Template
+### Command → Workflow or Task
 
 ```markdown
 ---
-name: '{workflow-name}'
-description: '{workflow-description}'
+name: '{system}-{module}-{name}'
+description: '{description}'
 ---
 
-IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/{module}/workflows/{path}/workflow.md, READ its entire contents and follow its directions exactly!
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/{module}/{type}/{path}, READ its entire contents and follow its directions exactly!
 ```
 
 ---
 
-## Field Instructions
+## 2. Skill Templates
 
-### Frontmatter
-- **name**: Command identifier. Becomes `/name` in the IDE.
-- **description**: Shown in IDE command palette/autocomplete.
+Skills live in `.cursor/skills/{system}-{module}-{name}/SKILL.md`. They are auto-detected by AI agents in the current context.
 
-### Body
-- **For agents**: Use the `<agent-activation>` block with 6 steps
-- **For workflows**: Use the single CRITICAL instruction sentence
+### Skill → Agent
+
+```markdown
+---
+name: {name}
+description: {description}. Use when {trigger conditions}.
+---
+
+# {Display Name} Skill
+
+**Purpose:** {What this skill does}.
+
+**When to use:**
+- {Trigger condition 1}
+- {Trigger condition 2}
+- {Trigger condition 3}
+
+---
+
+## Activation
+
+<agent-activation CRITICAL="TRUE">
+1. LOAD the FULL agent file from {project-root}/_bmad/{module}/agents/{agent-id}.md
+2. READ its entire contents
+3. FOLLOW every step in the <activation> section precisely
+4. After activation, process the user's request using the agent's menu handlers
+</agent-activation>
+```
+
+### Skill → Workflow or Task
+
+```markdown
+---
+name: {name}
+description: {description}. Use when {trigger conditions}.
+---
+
+# {Display Name} Skill
+
+**Purpose:** {What this skill does}.
+
+**When to use:**
+- {Trigger condition 1}
+- {Trigger condition 2}
+- {Trigger condition 3}
+
+---
+
+## Activation
+
+Load and follow: `{project-root}/_bmad/{module}/{type}/{path}`
+```
+
+---
+
+## 3. Cursor Sub-agent Templates
+
+Cursor sub-agents live in `.cursor/agents/{system}-{module}-{name}.md`. They are delegated to by AI agents via the Task tool and run with **zero prior context** — all necessary inputs must be specified in the loader.
+
+### Cursor Sub-agent → Agent
+
+```markdown
+---
+name: {name}
+description: {description}. Use when {task} needs isolated context.
+model: inherit
+readonly: false
+---
+
+You are the **{name}** cursor sub-agent — {role description} running in fresh context.
+
+<agent-activation CRITICAL="TRUE">
+1. LOAD the FULL agent file from {project-root}/_bmad/{module}/agents/{agent-id}.md
+2. READ its entire contents
+3. FOLLOW every step in the <activation> section precisely
+4. After activation, process the user's request using the agent's menu handlers
+</agent-activation>
+
+## Required Inputs (zero-context — all must be provided by invoker)
+
+1. **{Input 1 Name}**: {What this input is and why it's needed}
+2. **{Input 2 Name}**: {What this input is and why it's needed}
+
+## What You Return
+
+- {Output 1}
+- {Output 2}
+```
+
+### Cursor Sub-agent → Workflow or Task
+
+```markdown
+---
+name: {name}
+description: {description}. Use when {task} needs isolated context.
+model: inherit
+readonly: {true if read-only, false if writes files}
+---
+
+You are the **{name}** cursor sub-agent — {role description} running in fresh context.
+
+**IMMEDIATELY** load and execute: `{project-root}/_bmad/{module}/{type}/{path}`
+
+Follow the {workflow|task} exactly. {Brief scope statement}.
+
+## Required Inputs (zero-context — all must be provided by invoker)
+
+1. **{Input 1 Name}**: {What this input is and why it's needed}
+2. **{Input 2 Name}**: {What this input is and why it's needed}
+
+## What You Return
+
+- {Output 1}
+- {Output 2}
+```
 
 ---
 
 ## Naming Conventions
 
-| Command Type | Pattern | Example |
-|-------------|---------|---------|
-| Agent activation | `{system}-agent-{module}-{agent-name}.md` | `bmad-agent-bmm-analyst.md` |
-| Workflow | `{system}-{module}-{workflow-name}.md` | `bmad-bmm-create-prd.md` |
-| Task | `{system}-{task-name}.md` | `bmad-help.md` |
+| Type | Location | Pattern |
+|------|----------|---------|
+| Command | `.cursor/commands/` | `{system}-{module}-{name}.md` |
+| Skill | `.cursor/skills/{system}-{module}-{name}/` | `SKILL.md` |
+| Cursor sub-agent | `.cursor/agents/` | `{system}-{module}-{name}.md` |
 
----
-
-## Directory Locations
-
-```
-.cursor/commands/     # Cursor entry points
-.claude/commands/     # Claude Code entry points
-```
-
-**Both directories should contain identical files** — the content is the same for both IDEs.
+For RBTV: `{system}` = `bmad`, `{module}` = `rbtv`.
 
 ---
 
 ## Size Guidelines
 
-| Metric | Target | Max |
-|--------|--------|-----|
-| Total lines | 10-15 | 20 |
+| Type | Target | Max |
+|------|--------|-----|
+| Command | 10-15 lines | 20 |
+| Skill | 20-30 lines | 35 |
+| Cursor sub-agent | 20-30 lines | 40 |
 
 ---
 
 ## Critical Rules
 
-1. **ZERO LOGIC** — Command files only load files. All logic lives in agent/workflow files.
-
-2. **Use {project-root}** — Never hardcode absolute paths.
-
-3. **Identical across IDEs** — Same content in .cursor and .claude directories.
-
-4. **One command per agent/workflow** — Each agent and each workflow gets its own command file.
-
----
-
-## Common Mistakes
-
-1. **Adding logic** — Don't put conditionals or processing in command files
-
-2. **Different content per IDE** — Keep .cursor and .claude files identical
-
-3. **Missing CRITICAL emphasis** — Always include CRITICAL="TRUE" for agents or "IT IS CRITICAL" for workflows
+1. **ZERO LOGIC** — Thin loaders only load files. All logic lives in agent/workflow/task files.
+2. **Use {project-root}** — Never hardcode absolute paths. Never use `@{project-root}`.
+3. **Agent activation standard** — When loading an RBTV agent, ALWAYS use the `<agent-activation>` block. Never use the single-line "IT IS CRITICAL" pattern for agents.
+4. **Cursor sub-agent inputs** — Cursor sub-agents run with zero context. ALWAYS specify required inputs and return values.
+5. **Commands mirror across IDEs** — `.cursor/commands/` and `.claude/commands/` contain identical files.
+6. **Register AI-available tools** — If creating skill + cursor sub-agent, add entry to `tools-manifest.csv`.

@@ -20,7 +20,7 @@ description: Apply rigorous research standards for data integrity, source evalua
 Load and follow the web research task:
 
 ```
-{project-root}/_bmad/rbtv/tasks/web-research.xml
+tasks/web-research.xml
 ```
 
 This task provides:
@@ -35,3 +35,5 @@ This task provides:
 - Citation format: [n] Title — URL — Research Date (YYYY-MM-DD) — Source Date — TS:x (AT:x TR:x TM:x)
 - Sources Discarded section (sources with TS < 6)
 - Inline citations [Source n] for every factual claim
+
+> **ADMIN MODE:** Before proceeding, load and read `.cursor/rules/admin-rbtv-bmad-mirror.mdc` for path resolution and config values. Key: `.cursor/` and `tasks/` are at workspace root.

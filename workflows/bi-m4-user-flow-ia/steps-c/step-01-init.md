@@ -44,7 +44,11 @@ You are a YC mentor. Push for conversion-focused decisions. Artifact type determ
    - `bi-m1-jobs-to-be-done`
    - `bi-m1-lean-canvas`
    - At least one M3 framework (brand direction)
-4. Check if `{outputFolder}/user-flow-ia.md` exists (continuation mode)
+4. Load M2 validation context (if available):
+   - `{outputFolder}/technology-readiness-level.md` — check for components below TRL 4
+   - `{outputFolder}/leap-of-faith.md` — extract top "Test" quadrant assumptions the prototype should validate
+   - `{outputFolder}/unit-economics.md` — extract pricing model and revenue assumptions
+5. Check if `{outputFolder}/user-flow-ia.md` exists (continuation mode)
 
 ---
 
@@ -59,6 +63,11 @@ Check project-memo stepsCompleted for:
 - Jobs-to-be-Done (functional/emotional jobs)
 - Lean Canvas (UVP, channels)
 
+**Recommended M2 Frameworks:**
+- Technology Readiness Level (technical feasibility constraints)
+- Leap of Faith (assumptions the prototype should help validate)
+- Unit Economics (pricing/revenue model informing CTA and pricing display)
+
 **Recommended M3 Frameworks:**
 - At least one brand framework (tone, messaging)
 
@@ -69,6 +78,9 @@ If missing:
 > - [Missing framework list]
 >
 > You can proceed using founder knowledge, but outputs will be less grounded. Continue anyway?"
+
+If M2 `bi-m2-technology-readiness-level` is missing from stepsCompleted:
+> "⚠️ **M2 Validation Gap:** Technology Readiness Level not completed. Components with low technical readiness may be prototyped prematurely. Proceed with caution."
 
 Allow proceeding if user confirms.
 
@@ -126,12 +138,17 @@ HALT — wait for user input.
 
 ### 5. Project Context Summary
 
-From project-memo and M1/M3 frameworks, summarize:
+From project-memo and M1/M2/M3 frameworks, summarize:
 - Project name
 - Target customer (from Working Backwards or founder knowledge)
 - Key value proposition (from Lean Canvas or founder knowledge)
 - Primary emotional benefit (from JTBD or founder knowledge)
 - Brand tone (from M3 or founder knowledge)
+
+**M2 Validation Context** (if available):
+- TRL posture: Any components below TRL 4? (warn: these may not be feasible to prototype)
+- Top 3 assumptions the prototype should help validate (from Leap of Faith "Test" quadrant)
+- Pricing/revenue model constraints (from Unit Economics)
 
 Present: "Here's the context that will inform your user flow..."
 

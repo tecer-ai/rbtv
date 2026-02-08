@@ -20,7 +20,7 @@ description: Create structured plans following BMAD workflow with quality gates.
 Load and follow the plan lifecycle workflow:
 
 ```
-{project-root}/_bmad/rbtv/workflows/plan-lifecycle/workflow.md
+workflows/plan-lifecycle/workflow.md
 ```
 
 This workflow provides:
@@ -28,3 +28,5 @@ This workflow provides:
 - Phase and task decomposition
 - Micro-step task file generation
 - Shape and learnings companion files
+
+> **ADMIN MODE:** Before proceeding, load and read `.cursor/rules/admin-rbtv-bmad-mirror.mdc` for path resolution and config values. Key: `.cursor/` and `tasks/` are at workspace root.

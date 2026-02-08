@@ -20,7 +20,7 @@ description: Searches referenced files for knowledge relevant to conversation co
 Load and follow the context search task:
 
 ```
-{project-root}/_bmad/rbtv/tasks/context-search.xml
+tasks/context-search.xml
 ```
 
 This task provides:
@@ -28,3 +28,5 @@ This task provides:
 - Knowledge extraction framework
 - Source attribution for findings
 - Explicit gap identification
+
+> **ADMIN MODE:** Before proceeding, load and read `.cursor/rules/admin-rbtv-bmad-mirror.mdc` for path resolution and config values. Key: `.cursor/` and `tasks/` are at workspace root.

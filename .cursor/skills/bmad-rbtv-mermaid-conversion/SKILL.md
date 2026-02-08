@@ -21,7 +21,7 @@ description: Convert Mermaid diagrams in Markdown files to PNG images using mmdc
 Load and follow the mermaid conversion workflow:
 
 ```
-{project-root}/_bmad/rbtv/workflows/diagram-mermaid-render/workflow.md
+workflows/diagram-mermaid-render/workflow.md
 ```
 
 This workflow provides:
@@ -30,3 +30,5 @@ This workflow provides:
 - Visual clarity validation for complex diagrams (5+ nodes)
 - Layout optimization techniques for crossing arrows
 - Safe Markdown update with preview and confirmation
+
+> **ADMIN MODE:** Before proceeding, load and read `.cursor/rules/admin-rbtv-bmad-mirror.mdc` for path resolution and config values. Key: `.cursor/` and `tasks/` are at workspace root.

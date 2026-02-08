@@ -33,6 +33,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 2. **Just-In-Time Loading** — Only the current step is in memory. Load next step only when user selects Continue.
 3. **Sequential Enforcement** — Steps execute in numbered order. No skipping, no optimization.
 4. **State Tracking** — After each step, update `stepsCompleted` in the output document's frontmatter.
+5. **Append-Only Building** — Build documents by appending content as directed to the output file.
 
 ### Step Processing Rules
 1. Read the complete step file before any action.
@@ -43,11 +44,12 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ### Critical Rules
 - 🛑 NEVER load multiple step files simultaneously
-- 📖 ALWAYS read the entire step file before execution
+- 📖 ALWAYS read entire step file before execution
 - 🚫 NEVER skip steps or optimize the sequence
-- 💾 ALWAYS update frontmatter after completing each step
+- 💾 ALWAYS update frontmatter of output files when writing the final output for a specific step
+- 🎯 ALWAYS follow the exact instructions in the step file
 - ⏸️ ALWAYS halt at menus and wait for user input
-- 📋 NEVER pre-load or mentally plan future steps
+- 📋 NEVER create mental todo lists from future steps
 
 ---
 
@@ -71,20 +73,33 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ---
 
+## Design Decisions (answer before building)
+
+| # | Decision | Your Answer |
+|---|----------|-------------|
+| 1 | **Continuable or single-session?** If continuable, add `step-01b-continue.md` | {answer} |
+| 2 | **Tri-modal?** If Create only, remove `validateWorkflow`/`editWorkflow` and `steps-v/`/`steps-e/` | {answer} |
+| 3 | **Module affiliation?** If part of a module, add `parentWorkflow:` field | {answer} |
+| 4 | **Output type?** If document: define template. If action-only: skip output frontmatter | {answer} |
+
+---
+
 ## Field Instructions
 
 ### Frontmatter
 - **name**: Machine-readable identifier for cross-references
 - **description**: Human-readable purpose
 - **nextStep**: Path to first Create mode step
-- **validateWorkflow**: Path to first Validate mode step (optional)
-- **editWorkflow**: Path to first Edit mode step (optional)
+- **parentWorkflow**: Path to parent workflow (if part of a module/milestone hierarchy)
+- **outputFolder**: Runtime output path (if produces documents)
+- **validateWorkflow**: Path to first Validate mode step (optional — only if tri-modal)
+- **editWorkflow**: Path to first Edit mode step (optional — only if tri-modal)
 
 ### Sections
 - **Goal**: Single sentence describing what the workflow produces
 - **Your Role**: Who the AI is during this workflow
-- **Core Principles**: Standard 4 principles (copy as-is)
-- **Critical Rules**: Standard 6 rules with emojis (copy as-is)
+- **Core Principles**: Standard 5 principles (copy as-is)
+- **Critical Rules**: Standard 7 rules with emojis (copy as-is)
 - **Mode Overview**: Table mapping modes to entry points
 - **Initialization Sequence**: Steps to load config and first step
 
@@ -122,7 +137,7 @@ workflow-name/
 
 ## Common Mistakes
 
-1. **Missing critical rules** — Always include the 6 emoji rules. They prevent AI drift.
+1. **Missing critical rules** — Always include the 7 emoji rules. They prevent AI drift.
 
 2. **No mode routing** — If you support Validate/Edit, add frontmatter fields.
 

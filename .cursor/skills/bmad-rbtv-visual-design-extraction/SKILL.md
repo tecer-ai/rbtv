@@ -21,7 +21,7 @@ description: Extract design tokens (colors, typography, spacing, layout, visual 
 Load and follow the visual design extraction workflow:
 
 ```
-{project-root}/_bmad/rbtv/workflows/design-token-extraction/workflow.md
+workflows/design-token-extraction/workflow.md
 ```
 
 This workflow provides:
@@ -29,3 +29,5 @@ This workflow provides:
 - Screenshot capture integration
 - Five token categories (colors, typography, spacing, layout, visual identity)
 - Output formats: design brief (narrative) or design tokens (JSON)
+
+> **ADMIN MODE:** Before proceeding, load and read `.cursor/rules/admin-rbtv-bmad-mirror.mdc` for path resolution and config values. Key: `.cursor/` and `tasks/` are at workspace root.

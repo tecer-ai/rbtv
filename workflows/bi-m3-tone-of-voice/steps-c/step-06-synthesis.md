@@ -233,6 +233,7 @@ Read project-memo.md and update:
 
 **In frontmatter:**
 - Add `bi-m3-tone-of-voice` to `stepsCompleted` array
+- Set `currentMilestone: m4-prototypation` (M3 is complete, advance to M4)
 
 **In Progress > M3 Brand section:**
 

@@ -21,7 +21,7 @@ description: Extract voice signature from text across emotional tone, structural
 Load and follow the tone extraction task:
 
 ```
-{project-root}/_bmad/rbtv/tasks/tone-extraction.xml
+tasks/tone-extraction.xml
 ```
 
 This task provides:
@@ -29,3 +29,5 @@ This task provides:
 - In-voice output methodology (demonstrate, don't describe)
 - Validation checklist and success criteria
 - Critical constraints to avoid common pitfalls
+
+> **ADMIN MODE:** Before proceeding, load and read `.cursor/rules/admin-rbtv-bmad-mirror.mdc` for path resolution and config values. Key: `.cursor/` and `tasks/` are at workspace root.

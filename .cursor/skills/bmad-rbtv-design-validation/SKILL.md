@@ -21,7 +21,7 @@ description: Validate HTML designs using browser automation and 4-layer framewor
 Load and follow the design validation workflow:
 
 ```
-{project-root}/_bmad/rbtv/workflows/design-qa-validation/workflow.md
+workflows/design-qa-validation/workflow.md
 ```
 
 This workflow provides:
@@ -30,3 +30,5 @@ This workflow provides:
 - 4-layer analysis framework (Structural, Hierarchy, Brand, UX)
 - Severity-based issue classification
 - Validation report output
+
+> **ADMIN MODE:** Before proceeding, load and read `.cursor/rules/admin-rbtv-bmad-mirror.mdc` for path resolution and config values. Key: `.cursor/` and `tasks/` are at workspace root.

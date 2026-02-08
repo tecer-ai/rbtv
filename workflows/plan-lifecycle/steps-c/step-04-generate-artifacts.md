@@ -114,11 +114,25 @@ Generate learnings.md using `{learningsTemplateFile}`:
 
 ### 6. Generate Micro-Step Task Files
 
-For EACH non-checkpoint task in the plan, generate a `.task.md` file.
+For each non-checkpoint task, decide whether it needs a micro-step file or can use inline YAML content:
+
+**Generate a `.task.md` file when ANY of these apply:**
+- Task requires loading 2+ context files
+- Task uses specialized RBTV tools (subagents, skills)
+- Task has 3+ distinct substeps
+- Task requires phased execution (understand → execute → validate)
+- Task produces output that needs quality review
+
+**Skip micro-step file when ALL of these apply:**
+- Task is self-explanatory from its YAML `content` description
+- Single action, completable in one step
+- No special context files or tools needed
+
+**For tasks that need a micro-step file:**
 
 **Location pattern:** `.cursor/plans/{plan-name}/phase-{N}/{task-id}.task.md`
 
-**For each task, generate using `{microstepTemplateFile}`:**
+Generate using `{microstepTemplateFile}`:
 
 ```yaml
 ---
@@ -137,6 +151,10 @@ human_review: {required | optional | none}
 - Execution Flow — phased steps (understand → execute → validate → close)
 - Discovery Handling — revolving plan rules
 - Output Requirements — what to produce and where
+
+**For simple tasks (no micro-step file):**
+- Ensure the YAML `content` field contains a complete, actionable description
+- Add a comment in the plan YAML: `# inline — no micro-step file`
 
 **Use Write tool** for EACH task file individually.
 

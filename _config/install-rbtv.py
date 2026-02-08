@@ -9,7 +9,7 @@ Merges mcp.json configurations for Cursor IDE and Claude Code.
 Creates .claude/commands/ and replicates Cursor commands for Claude compatibility.
 Updates BMAD module configs to use project-specific output folders.
 Adds RBTV to the BMAD help catalog.
-Merges .vscode/settings.json to configure workspace file exclusions.
+Creates .vscode/settings.json if .vscode/ does not exist (leaves existing untouched).
 Merges .cursorignore to block AI access to archive folders.
 Run this script after every git pull or fetch to sync IDE configuration.
 
@@ -76,10 +76,11 @@ def delete_rbtv_files(root: Path) -> dict:
     return stats
 
 
-def copy_folder(src: Path, dst: Path) -> dict:
+def copy_folder(src: Path, dst: Path, exclude_names: set = None) -> dict:
     """
     Copy folder contents from src to dst.
     If dst exists, merge contents (overwrite on conflict).
+    Files whose names appear in exclude_names are skipped.
     Source files are left unchanged.
     Returns stats about the operation.
     """
@@ -92,6 +93,10 @@ def copy_folder(src: Path, dst: Path) -> dict:
     
     for src_file in src.rglob("*"):
         if src_file.is_file():
+            if exclude_names and src_file.name in exclude_names:
+                stats["skipped"] += 1
+                continue
+            
             rel_path = src_file.relative_to(src)
             dst_file = dst / rel_path
             dst_file.parent.mkdir(parents=True, exist_ok=True)
@@ -369,50 +374,38 @@ def add_rbtv_to_help_catalog(bmad_path: Path) -> dict:
 
 def merge_vscode_settings(rbtv_path: Path, bmad_path: Path) -> dict:
     """
-    Merge RBTV .vscode/settings.json with existing user settings at BMAD root.
-    - Preserves all user data
-    - Updates/overwrites only RBTV-managed keys in files.exclude
+    Copy RBTV .vscode/settings.json to BMAD root only if .vscode/ does not exist.
+    If .vscode/ already exists, leave it untouched.
     Returns stats about the operation.
     """
     stats = {"merged": 0, "created": 0, "errors": []}
     
     src_settings = rbtv_path / ".vscode" / "settings.json"
-    dst_settings = bmad_path / ".vscode" / "settings.json"
+    dst_vscode = bmad_path / ".vscode"
+    dst_settings = dst_vscode / "settings.json"
     
     if not src_settings.exists():
         return {"skipped": 1, "reason": "source .vscode/settings.json does not exist"}
+    
+    if dst_vscode.exists():
+        return {"skipped": 1, "reason": ".vscode/ already exists — leaving untouched"}
     
     try:
         # Load RBTV settings
         with open(src_settings, 'r', encoding='utf-8') as f:
             rbtv_settings = json.load(f)
         
-        # Load or create destination settings
-        if dst_settings.exists():
-            with open(dst_settings, 'r', encoding='utf-8') as f:
-                existing = json.load(f)
-            stats["merged"] = 1
-        else:
-            existing = {}
-            stats["created"] = 1
+        # Create .vscode/ directory
+        dst_vscode.mkdir(parents=True, exist_ok=True)
         
-        # Ensure files.exclude exists
-        if "files.exclude" not in existing:
-            existing["files.exclude"] = {}
-        
-        # Merge: preserve user patterns, update RBTV patterns
-        for pattern, value in rbtv_settings.get("files.exclude", {}).items():
-            existing["files.exclude"][pattern] = value
-        
-        # Create parent directory if needed
-        dst_settings.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Write back
+        # Write settings
         with open(dst_settings, 'w', encoding='utf-8') as f:
-            json.dump(existing, f, indent=2)
+            json.dump(rbtv_settings, f, indent=2)
+        
+        stats["created"] = 1
     
     except Exception as e:
-        stats["errors"].append(f".vscode/settings.json merge failed: {e}")
+        stats["errors"].append(f".vscode/settings.json creation failed: {e}")
     
     return stats
 
@@ -504,7 +497,7 @@ def main():
         print(f"  From: {src}")
         print(f"  To:   {dst}")
         
-        stats = copy_folder(src, dst)
+        stats = copy_folder(src, dst, exclude_names={"mcp.json"})
         
         if "reason" in stats:
             print(f"  Status: Skipped ({stats['reason']})")
@@ -623,10 +616,8 @@ def main():
     
     print()
     
-    # Merge .vscode/settings.json
-    print("Merging .vscode/settings.json")
-    print(f"  From: {paths['config'] / '.vscode' / 'settings.json'}")
-    print(f"  To:   {root / '.vscode' / 'settings.json'}")
+    # Create .vscode/settings.json (only if .vscode/ does not exist)
+    print("Checking .vscode/settings.json")
     
     vscode_stats = merge_vscode_settings(paths["config"], root)
     
@@ -638,9 +629,7 @@ def main():
             print(f"    - {err}")
     else:
         if vscode_stats["created"] > 0:
-            print(f"  Status: Created new settings file")
-        elif vscode_stats["merged"] > 0:
-            print(f"  Status: Merged with existing settings")
+            print(f"  Status: Created .vscode/settings.json")
     
     print()
     

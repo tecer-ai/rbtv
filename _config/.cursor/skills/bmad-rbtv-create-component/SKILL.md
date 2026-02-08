@@ -5,7 +5,7 @@ description: RBTV BMAD Builder - create components in BMAD architecture. Use whe
 
 # Create Component Skill
 
-**Purpose:** Load and execute the BMAD component creation workflow.
+**Purpose:** Load and execute the BMAD component builder agent.
 
 **When to use:**
 - Creating new BMAD components
@@ -17,14 +17,9 @@ description: RBTV BMAD Builder - create components in BMAD architecture. Use whe
 
 ## Activation
 
-Load and follow the component creator agent:
-
-```
-{project-root}/_bmad/rbtv/agents/god.md
-```
-
-This agent provides:
-- Component template selection
-- BMAD architecture compliance
-- Thin loader pattern implementation
-- Micro-file architecture adherence
+<agent-activation CRITICAL="TRUE">
+1. LOAD the FULL agent file from {project-root}/_bmad/rbtv/agents/god.md
+2. READ its entire contents
+3. FOLLOW every step in the <activation> section precisely
+4. After activation, process the user's request using the agent's menu handlers
+</agent-activation>

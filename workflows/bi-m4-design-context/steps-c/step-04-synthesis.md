@@ -90,7 +90,7 @@ stepsCompleted:
 >
 > **Next Step:**
 > **Return to M4 milestone menu** and select:
-> - **[B] Back** — return to milestone selection (bi-business-innovation)
+> - **[B] Back** — return to M4 Prototypation milestone menu
 > - **Next framework:** [B] Build Prototype, [C] Conversion Optimization, [H] Heuristic Evaluation, [F] Testing Prep
 >
 > Do not load another step. The bridge is complete."

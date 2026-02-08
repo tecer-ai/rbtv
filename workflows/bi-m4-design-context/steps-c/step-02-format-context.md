@@ -38,6 +38,11 @@ You are a YC mentor. The design-context document must give BMAD create-ux-design
 
 1. Read `{outputFolder}/user-flow-ia.md` (full document including Synthesis)
 2. Read `{outputFolder}/project-memo.md` (Progress > Conception, Validation, Brand; stepsCompleted)
+3. If available, read M2 validation outputs for design constraints:
+   - `{outputFolder}/technology-readiness-level.md` — feasibility posture
+   - `{outputFolder}/unit-economics.md` — pricing/revenue model
+   - `{outputFolder}/leap-of-faith.md` — top assumptions to validate via prototype
+   - `{outputFolder}/pre-mortem.md` — key risks the design should mitigate
 
 ---
 
@@ -77,9 +82,19 @@ Create or overwrite `{outputFolder}/design-context.md` with the following struct
 - **Messaging or archetype:** [if present in project-memo]
 - **Design direction guidance:** [from user-flow-ia Synthesis > Design Direction Guidance]
 
+## Validation Context (from M2)
+
+*Include if M2 outputs are available. Ensures design decisions are grounded in validated business assumptions.*
+
+- **TRL posture:** [Overall feasibility assessment. Flag components below TRL 4 — these may need visual treatment as "coming soon" or require technical spikes before full prototype commitment]
+- **Pricing / revenue model:** [From Unit Economics — pricing tier, LTV:CAC viability, so the design can reflect viable pricing and CTAs]
+- **Top assumptions to validate:** [From Leap of Faith "Test" quadrant — the 3-5 most critical assumptions the prototype should help test. The design should surface these assumptions for user feedback]
+- **Key risks to mitigate:** [From Pre-mortem — top failure modes the design should actively address or avoid reinforcing]
+
 ## Prerequisites Completed
 
 - M1: [relevant frameworks from stepsCompleted]
+- M2: [relevant frameworks from stepsCompleted, if any]
 - M3: [relevant frameworks from stepsCompleted]
 - M4 User Flow & IA: complete
 

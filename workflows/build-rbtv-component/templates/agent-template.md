@@ -35,7 +35,7 @@ When a menu item has exec="some/path.md": Read the file fully and follow it. If 
 </handler>
 
 <handler type="workflow">
-When a menu item has workflow="path/to/workflow.yaml": Load the workflow executor task, pass the YAML path. Save outputs after EACH step. Never batch multiple steps.
+When a menu item has workflow="path/to/workflow.md": Load the workflow file, read it fully, and follow its initialization sequence. Save outputs after EACH step. Never batch multiple steps.
 </handler>
 
 <handler type="action">
