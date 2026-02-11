@@ -95,6 +95,47 @@ rbtv/
 
 ---
 
+## Tool Delivery Model
+
+Every RBTV tool is a **command** — a thin loader file that humans invoke via `/command`. A subset of commands are additionally exposed as **skills** and **cursor sub-agents**, making them available to AI agents. The underlying workflow or task is the same; only the invocation mechanism differs.
+
+### Hierarchy
+
+```
+Commands (15) ← all tools, available to humans via /command
+├── Skills (12) ← subset available for AI auto-detection (in-context)
+├── Cursor Sub-agents (12) ← subset available for AI delegation (fresh context)
+└── Human-only (3) ← help, mentor, domcobb — no AI entry point
+```
+
+### Delivery Mechanisms
+
+| Mechanism | Trigger | Context | Audience |
+|-----------|---------|---------|----------|
+| **Command** | User types `/command` | Current window | Humans |
+| **Skill** | Agent auto-detects relevance | Current window | AI agents |
+| **Cursor Sub-agent** | Agent delegates via Task tool | Fresh context (zero prior context) | AI agents |
+
+### Why Three Mechanisms?
+
+1. **Commands** give users direct control — type `/bmad-rbtv-git` to commit
+2. **Skills** enable proactive AI assistance — agent sees HTML and auto-applies validation
+3. **Cursor sub-agents** provide isolation — research runs in fresh context to avoid pollution
+
+### AI-Available Tools Registry
+
+**Location:** `_config/tools-manifest.csv` (id, skill_path, cursor_subagent_path, description)
+
+The manifest lists only the 12 tools available to AI agents (skills + cursor sub-agents). Human-only commands (help, mentor, domcobb) are not registered because AI agents do not invoke them.
+
+**Skill:** Read skill_path in current context — no separate invoke API.
+
+**Cursor sub-agent:** Use Task tool with `subagent_type='<id>'` — runs in fresh context. Cursor sub-agents cannot invoke other cursor sub-agents; use skills only when already in a cursor sub-agent.
+
+> **Terminology note:** Files in `.cursor/agents/` are **cursor sub-agents** — thin loaders that make the Cursor sub-agent feature load the desired RBTV workflow or agent. They are NOT RBTV agent personas (which live in `agents/`).
+
+---
+
 ## Output Folder
 
 The admin rule sets `output_folder` to `_admin-output/`. This folder is **gitignored** — anything saved there is ephemeral and will not be committed.

@@ -21,7 +21,7 @@ See [get_started.md](./get_started.md) for complete installation instructions.
 ## Table of Contents
 
 1. [Purpose](#purpose)
-2. [Tool Delivery Model](#tool-delivery-model)
+2. [Highlighted Capabilities](#highlighted-capabilities)
 3. [Entry Points](#entry-points)
 4. [Business Innovation (Founder Mode)](#business-innovation-founder-mode)
 5. [Restrictions](#restrictions)
@@ -44,50 +44,31 @@ RBTV provides structured workflows for:
 
 ---
 
-## Tool Delivery Model
-
-Every RBTV tool is a **command** — a thin loader file that humans invoke via `/command`. A subset of commands are additionally exposed as **skills** and **cursor sub-agents**, making them available to AI agents. The underlying workflow or task is the same; only the invocation mechanism differs.
-
-### Hierarchy
-
-```
-Commands (15) ← all tools, available to humans via /command
-├── Skills (12) ← subset available for AI auto-detection (in-context)
-├── Cursor Sub-agents (12) ← subset available for AI delegation (fresh context)
-└── Human-only (3) ← help, mentor, domcobb — no AI entry point
-```
-
-### Delivery Mechanisms
-
-| Mechanism | Trigger | Context | Audience |
-|-----------|---------|---------|----------|
-| **Command** | User types `/command` | Current window | Humans |
-| **Skill** | Agent auto-detects relevance | Current window | AI agents |
-| **Cursor Sub-agent** | Agent delegates via Task tool | Fresh context (zero prior context) | AI agents |
-
-### Why Three Mechanisms?
-
-1. **Commands** give users direct control — type `/bmad-rbtv-git` to commit
-2. **Skills** enable proactive AI assistance — agent sees HTML and auto-applies validation
-3. **Cursor sub-agents** provide isolation — research runs in fresh context to avoid pollution
-
-### AI-Available Tools Registry
-
-**Location:** `_bmad/rbtv/_config/tools-manifest.csv` (id, skill_path, cursor_subagent_path, description)
-
-The manifest lists only the 12 tools available to AI agents (skills + cursor sub-agents). Human-only commands (help, mentor, domcobb) are not registered because AI agents do not invoke them.
-
-**Skill:** Read skill_path in current context — no separate invoke API.
-
-**Cursor sub-agent:** Use Task tool with `subagent_type='<id>'` — runs in fresh context. Cursor sub-agents cannot invoke other cursor sub-agents; use skills only when already in a cursor sub-agent.
-
-> **Terminology note:** Files in `.cursor/agents/` are **cursor sub-agents** — thin loaders that make the Cursor sub-agent feature load the desired RBTV workflow or agent. They are NOT RBTV agent personas (which live in `agents/`).
-
----
-
 ## Highlighted Capabilities
 
-Key capabilities from RBTV and BMAD that work together:
+### Mentor — Business Innovation Lifecycle
+
+`/bmad-rbtv-mentor`
+
+A YC-style mentor that guides founders through **6 milestones** — from raw idea to MVP. Covers **22+ innovation frameworks** across conception, validation, branding, prototypation, market validation, and MVP. Progress is tracked in a project memo, so you can resume anytime. See [Business Innovation](#business-innovation-founder-mode) below for the full framework breakdown.
+
+### DomCobb — Problem Structuring & Prompting
+
+`/bmad-rbtv-domcobb`
+
+Four modes: **Problem Structuring** (MECE, Pyramid Principle, Problem Trees), **Problem Solving** (routes to BMAD's CIS methodologies), **Prompting Assistance** (craft prompts using **57 knowledge files** covering AI models, prompting techniques, and platforms), and **Add Knowledge** (expand the knowledge base with new model guides or techniques).
+
+### Plan — Structured Planning
+
+`/bmad-rbtv-plan`
+
+Creates self-executing plans using Cursor's native `.plan.md` format with added structure: phased task breakdowns, micro-step task files, companion artifacts (`shape.md`, `learnings.md`), quality gates, and dependency validation. Plans are zero-context executable — any agent can pick one up and run it.
+
+### Doc — Documentation Workflows
+
+`/bmad-rbtv-doc`
+
+Three modes: **Compound** (backlog PRDs from system learnings), **Handoff** (context transfer summaries for agent continuity — plan shaping, execution, or project-level), and **Product** (routes to BMAD for briefs, PRDs, and UX design).
 
 ### Research Tools
 
@@ -105,32 +86,11 @@ Key capabilities from RBTV and BMAD that work together:
 
 ## Entry Points
 
-All 15 RBTV tools are commands. 12 of them are also available as skills and cursor sub-agents for AI use.
+RBTV has **15 commands** invoked via `/bmad-rbtv-{name}`. Of these, **12** are also available as **skills** (AI auto-detection in current context) and **cursor sub-agents** (AI delegation in fresh context). The 3 human-only commands — **mentor**, **domcobb**, and **help** — are invoked directly by the user.
 
-### Commands (15)
+Beyond the tools highlighted above, the remaining commands cover: git commits, component creation, context search, design validation, design token extraction, tone extraction, Mermaid diagram conversion, and browser automation.
 
-User-invoked commands available via `/bmad-rbtv-{name}`:
-
-| Command | Purpose | AI-available |
-|---------|---------|-------------|
-| `/bmad-rbtv-help` | List all RBTV commands with deep-dive option | No (human-only) |
-| `/bmad-rbtv-mentor` | Business innovation lifecycle (Founder mode) | No (human-only) |
-| `/bmad-rbtv-domcobb` | Problem structuring and prompting assistance | No (human-only) |
-| `/bmad-rbtv-doc` | Documentation workflows (compound, handoff, product) | Yes |
-| `/bmad-rbtv-plan` | Create or execute plans with quality gates | Yes |
-| `/bmad-rbtv-git` | Git commit with Conventional Commits format | Yes |
-| `/bmad-rbtv-create-component` | Create BMAD components | Yes |
-| `/bmad-rbtv-context-search` | Search files for relevant knowledge | Yes |
-| `/bmad-rbtv-quality-review` | Evaluate work against quality criteria | Yes |
-| `/bmad-rbtv-web-research` | Rigorous web research with citations | Yes |
-| `/bmad-rbtv-design-validation` | Validate HTML designs (4-layer framework) | Yes |
-| `/bmad-rbtv-visual-design-extraction` | Extract design tokens from screenshots | Yes |
-| `/bmad-rbtv-tone-extraction` | Extract voice signature from text | Yes |
-| `/bmad-rbtv-mermaid-conversion` | Convert Mermaid diagrams to PNG | Yes |
-| `/bmad-rbtv-playwright-browser-automation` | Browser automation with Playwright | Yes |
-
-**Skills (12):** In-context loading layers for AI auto-detection. Available for all commands except the 3 human-only entry points.
-**Cursor sub-agents (12):** Fresh-context delegation layers for AI task isolation. Same 12 tools as skills. Registered in `tools-manifest.csv`.
+Run `/bmad-rbtv-help` to explore all 15 commands with detailed usage guidance.
 
 ---
 
@@ -230,72 +190,3 @@ RBTV follows BMAD micro-file architecture principles:
 | Just-in-time loading | Only current step in memory |
 | Sequential enforcement | Steps execute in numbered order, no skipping |
 | State tracking | Progress saved in output document frontmatter |
-
-### Folder Structure
-
-```
-rbtv/
-├── readme.md                # This document
-├── get_started.md           # Installation and onboarding guide
-├── CLAUDE.md                # Claude Code path resolution and autonomous work guide
-├── _config/                 # IDE configuration and tools
-│   ├── .cursor/             # Cursor IDE config (agents, commands, skills, rules)
-│   ├── .vscode/             # VS Code settings
-│   ├── config.yaml          # Module configuration
-│   ├── install-rbtv.py      # IDE config sync script
-│   └── tools-manifest.csv   # Tool catalog (skills & subagents)
-├── agents/                  # Agent personas
-│   ├── ana.md               # Documentation Orchestrator
-│   ├── god.md               # BMAD Component Builder
-│   ├── domcobb.md           # Problem Architect & Prompting Expert
-│   └── mentor.md            # YC Mentor for Business Innovation
-├── tasks/                   # Standalone procedures
-│   ├── context-search.xml
-│   ├── quality-evaluator.xml
-│   ├── tone-extraction.xml
-│   ├── web-research.xml
-│   └── data/                # Task knowledge files
-├── workflows/
-│   ├── bi-business-innovation/  # Founder mode orchestrator
-│   ├── bi-m1/                   # M1: Conception milestone
-│   ├── bi-m1-lean-canvas/
-│   ├── bi-m1-five-whys/
-│   ├── bi-m1-jobs-to-be-done/
-│   ├── bi-m1-competitive-landscape/
-│   ├── bi-m1-problem-solution-fit/
-│   ├── bi-m1-working-backwards/
-│   ├── bi-m2/                   # M2: Validation milestone
-│   ├── bi-m2-assumption-mapping/
-│   ├── bi-m2-leap-of-faith/
-│   ├── bi-m2-pre-mortem/
-│   ├── bi-m2-tam-sam-som/
-│   ├── bi-m2-technology-readiness-level/
-│   ├── bi-m2-unit-economics/
-│   ├── bi-m3/                   # M3: Brand milestone
-│   ├── bi-m3-brand-archetypes/
-│   ├── bi-m3-brand-prism/
-│   ├── bi-m3-brand-positioning/
-│   ├── bi-m3-golden-circle/
-│   ├── bi-m3-tone-of-voice/
-│   ├── doc-compound-learning/
-│   ├── doc-context-handoff/
-│   ├── plan-lifecycle/
-│   ├── git-commit/
-│   ├── browser-web-automation/
-│   ├── design-qa-validation/
-│   ├── design-token-extraction/
-│   ├── diagram-mermaid-render/
-│   ├── problem-structuring/
-│   ├── prompting-assistance/
-│   └── build-rbtv-component/
-├── .cursor/                 # Cursor IDE configuration
-│   ├── commands/            # Command files — human entry points (bmad-rbtv-*.md)
-│   ├── agents/              # Cursor sub-agent files — AI delegation entry points (bmad-rbtv-*.md)
-│   ├── skills/              # Skill folders — AI auto-detection entry points (bmad-rbtv-*/SKILL.md)
-│   └── rules/               # RBTV-specific rules (bmad-rbtv-*.mdc)
-├── .claude/                 # Claude IDE configuration
-│   └── commands/            # Command files (mirrors .cursor)
-└── .rbtv-docs/              # Internal documentation
-```
-
----
