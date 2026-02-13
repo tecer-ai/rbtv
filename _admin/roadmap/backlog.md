@@ -2,7 +2,7 @@
 
 > Generated: 2026-02-13
 > Source: `_admin/roadmap/todos/prd-*.md`
-> Total PRDs: 12
+> Total PRDs: 13
 
 ---
 
@@ -22,6 +22,7 @@
 | 10 | Checkpoint HALT Enforcement | Low | Process | Minimal |
 | 11 | Workflow Continuation Compliance | Low | Workflow Enhancement | Large |
 | 12 | Advanced Elicitation Integration | Low | Integration | Low effort |
+| 13 | Agent Menu Externalization Rule | Low | Process | Minimal |
 
 ### Dependency Chain
 ```
@@ -136,3 +137,11 @@ All other PRDs are independent.
 **Goals:** Uncomment `advancedElicitationTask` in the step template, audit existing step files, validate the integration works in an installed BMAD instance.
 **Scope:** Template update + audit of step files with A/P/C menus.
 **Dependencies:** Requires installed BMAD instance for validation (path resolves only in installed context).
+
+### 13. Agent Menu Item Externalization Rule
+**File:** `prd-agent-menu-externalization-rule.md`
+**Type:** Process Improvement
+**Description:** PRDs and AI agents default to inline `<action>` blocks for new menu items, but agent files have a 100-line limit and existing patterns use `exec=`/`workflow=` for complex operations. No explicit rule codifies when to externalize.
+**Goals:** Add rule to component pattern standards: agent menu items with non-trivial logic must delegate to external files via `exec=` or `workflow=`. Inline `<action>` reserved for trivial operations (exit, simple state set).
+**Scope:** Add 1 rule to `admin-rbtv-component-patterns.mdc` Agent Files table.
+**Dependencies:** None.

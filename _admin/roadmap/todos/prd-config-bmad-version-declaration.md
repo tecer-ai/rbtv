@@ -236,6 +236,28 @@ Options 1, 4, and 5 are deferred to companion PRD (compound-bmad-compatibility-c
 
 - **Current state:** Henrique (RBTV creator) runs BMAD Beta.4, kenu runs Beta.7, Beta.8 is latest
 - **Decision:** Target Beta.8 as declared version. Mirror must be updated from Beta.4 to Beta.8.
-- **Beta.7 risk:** Workflow file splitting may break RBTV's product submenu references to BMAD workflows. Must be verified during mirror update.
-- **Beta.8 alignment:** `workflow_path` removal confirms RBTV's component pattern rule was ahead. Party Mode Return Protocol may need incorporation.
 - **Two PRDs confirmed:** This PRD creates the declarations; companion PRD creates the checking mechanism.
+
+### BMAD Changes Relevant to RBTV (Beta.5 → Beta.8)
+
+| Version | Change | RBTV Impact |
+|---------|--------|-------------|
+| Beta.5 | Fix leaked source paths → `{project-root}/_bmad/core/` | RBTV uses same path pattern — confirms alignment |
+| Beta.5 | Fix party-mode workflow file extension | RBTV references party mode via `advancedElicitationTask` |
+| Beta.6 | Cross-File Reference Validator (483 refs across 217 files) | RBTV adds to `bmad-help.csv` — could be validated |
+| Beta.6 | Centralized `BMAD_FOLDER_NAME` constant | RBTV hardcodes `_bmad` in paths |
+| Beta.7 | **Workflow file splitting** (`workflow.md` → `workflow-*.md`) | **Structural change** — RBTV's product submenu points to BMAD workflow files that may have been split |
+| Beta.7 | Installer picks up `workflow-*.md` pattern | RBTV installer may need to follow same pattern |
+| Beta.8 | **Forbidden variable removal** (`workflow_path` from 16 files) | RBTV already forbids this in component patterns — confirms RBTV was ahead |
+| Beta.8 | CSV reference validation | RBTV writes to `bmad-help.csv` — would be caught by this validator |
+| Beta.8 | Party Mode Return Protocol | RBTV workflows reference party mode — may need the return protocol |
+| Beta.8 | Non-interactive installation CLI flags | RBTV installer could leverage these for CI/CD |
+
+**Highest risk — Beta.7 workflow splitting:** RBTV's `agents/ana.md` product submenu references these BMAD paths:
+- `{project-root}/_bmad/bmm/workflows/1-analysis/create-product-brief/workflow.md`
+- `{project-root}/_bmad/bmm/workflows/2-plan-workflows/create-prd/workflow.md`
+- `{project-root}/_bmad/bmm/workflows/2-plan-workflows/create-ux-design/workflow.md`
+
+If Beta.7 split these into `workflow-create.md` / `workflow-edit.md` / `workflow-validate.md`, those references are broken. This is exactly the kind of breakage version tracking would catch.
+
+**Recommendation:** Target Beta.8. The mirror is stale at Beta.4 with 4 betas of accumulated changes including structural ones. "Working fine" on Beta.4 and Beta.7 likely means the split workflow paths aren't being exercised yet. Update mirror to Beta.8 simultaneously with implementing this PRD.
