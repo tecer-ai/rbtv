@@ -1,8 +1,8 @@
 # RBTV PRD Backlog
 
 > Generated: 2026-02-13
-> Source: `_admin/roadmap/todos/prd-*.md`
-> Total PRDs: 13
+> Source: `_admin/roadmap/todos/prd-*.md`, `todos/cp-*.md`
+> Total PRDs: 13 | Compounds: 2
 
 ---
 
@@ -23,6 +23,8 @@
 | 11 | Workflow Continuation Compliance | Low | Workflow Enhancement | Large |
 | 12 | Advanced Elicitation Integration | Low | Integration | Low effort |
 | 13 | Agent Menu Externalization Rule | Low | Process | Minimal |
+| 14 | BI Workflow Default Structures | Medium | Workflow | Moderate |
+| 15 | Cross-Framework Consistency Gate | Medium | Workflow | Minimal |
 
 ### Dependency Chain
 ```
@@ -101,6 +103,22 @@ All other PRDs are independent.
 **Goals:** (1) Standardize a lightweight BMAD delegation pattern applicable everywhere, (2) add optional BMAD analyst step at M2 start, (3) simplify M4 from 5 to 3 step files, (4) update migration plan with delegation standards for M6.
 **Scope:** Large -- M2 init step, 6 M2 framework init steps, M4 refactoring, task enhancement, architecture docs, migration plan update.
 **Dependencies:** `update-bmad-config.xml` and `restore-bmad-config.xml` tasks (already built).
+
+### 14. BI Workflow Default Structures — Canonical Assumptions + Folder Naming
+**File:** `cp-workflow-bi-default-structures.md`
+**Type:** Workflow
+**Description:** Two structural defaults need correction: (1) no canonical assumption inventory in project-memo template — frameworks keep separate assumption lists with inconsistent numbering; (2) output folder is named `founder/` but should be `business-innovation/` for function-specific naming.
+**Goals:** Add `## Canonical Assumption Inventory` to project-memo template (tiered: Existential / High / Lower, Founder Convictions); add synthesis-step instruction to merge assumptions into canonical list; rename default output folder from `founder/` to `business-innovation/` in all BI workflow references.
+**Scope:** Moderate — template addition, folder-name string replacement across step files and workflow.md, synthesis steps updated. New projects only; existing (e.g. robotville-v4.0) unchanged unless manually migrated.
+**Dependencies:** None. Related to PRD #15 (consistency gate) — same root problem, different angle.
+
+### 15. Cross-Framework Consistency Gate via Party Mode
+**File:** `cp-workflow-bi-cross-framework-consistency-gate.md`
+**Type:** Workflow
+**Description:** BI workflow runs frameworks sequentially with no backward reconciliation. Later frameworks (e.g. PSF) can contradict or refine earlier ones (WB, JTBD); completed frameworks are never re-checked. robotville-v4.0 M1 showed material drift (emotional model, segment, competitor hierarchy) with no systematic gate.
+**Goals:** After 3+ frameworks are completed in a milestone, completion step invites user to run a cross-framework consistency review via Party Mode in a fresh context. Optional, non-blocking recommendation with copy-paste prompt. Threshold = 3; display on every completion when count ≥ 3.
+**Scope:** Minimal — conditional display block in each BI framework completion/synthesis step; no new files or gate logic.
+**Dependencies:** None. Related to PRD #14 (default structures) — canonical assumption inventory reduces drift; this addresses review process.
 
 ---
 
