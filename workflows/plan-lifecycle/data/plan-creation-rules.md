@@ -17,7 +17,7 @@ The 8-step process for creating any plan:
 | 5 | Create plan file | `{plan-name}.plan.md` from template |
 | 6 | Create shape.md | Shaping decisions and execution log structure |
 | 7 | Create learnings.md | System improvement queue |
-| 8 | Generate micro-step files | `.task.md` file per task in phase folders |
+| 8 | Generate micro-step files | `.task.md` file per complex task; set `taskFile` in YAML |
 
 ---
 
@@ -168,13 +168,14 @@ Use inline YAML content when ALL of these apply:
 # Simple task — NO micro-step file needed
 - id: p1-2
   content: "p1-2: UPDATE src/config.ts to add the new API endpoint URL from the design doc"
+  # inline — no micro-step file
   status: pending
 
-# Complex task — micro-step file needed
+# Complex task — micro-step file generated, taskFile references it
 - id: p2-1
   content: "p2-1: Implement authentication flow with OAuth2 integration"
+  taskFile: "phase-2/p2-1.task.md"
   status: pending
-  # See: phase-2/p2-1.task.md
 ```
 
 ### File Location
@@ -185,12 +186,13 @@ Use inline YAML content when ALL of these apply:
 
 ### Generation Rules
 
-1. One file per non-checkpoint task
+1. One file per complex non-checkpoint task (per decision criteria above)
 2. Use `plan-task-microstep-template.md` as base
 3. Fill required sections: Goal, Context Files, Execution Flow, Output Requirements
 4. Include Tools section ONLY if task requires specialized RBTV skills/subagents (not for basic Read/Write/Shell)
 5. Include revolving plan rules section
 6. Set appropriate complexity_score in frontmatter
+7. Set `taskFile` in the corresponding YAML todo entry (path relative to plan folder)
 
 ---
 

@@ -4,10 +4,12 @@ overview: "{One-sentence summary of what this plan accomplishes}"
 todos:
   # Phase 1 tasks
   - id: p1-1
-    content: "p1-1: {Task description}"
+    content: "p1-1: {Complex task description}"
+    taskFile: "phase-1/p1-1.task.md"
     status: pending
   - id: p1-2
-    content: "p1-2: {Task description}"
+    content: "p1-2: {Simple task description}"
+    # inline — no micro-step file
     status: pending
   - id: p1-checkpoint
     content: "P1 CHECKPOINT - {Phase 1 checkpoint description}"
@@ -15,6 +17,7 @@ todos:
   # Phase 2 tasks
   - id: p2-1
     content: "p2-1: {Task description}"
+    taskFile: "phase-2/p2-1.task.md"
     status: pending
   - id: p2-checkpoint
     content: "P2 CHECKPOINT - {Phase 2 checkpoint description}"
@@ -81,13 +84,12 @@ This plan uses companion files for execution context:
 
 ```
 .cursor/plans/{plan-name}/
-├── {plan-name}.plan.md    # This plan file
+├── {plan-name}.plan.md    # This plan file (YAML taskFile fields reference files below)
 ├── shape.md               # Shaping + execution log
 ├── learnings.md           # System learnings
-├── phase-1/               # Phase 1 micro-step files
-│   ├── p1-1.task.md
-│   └── p1-2.task.md
-├── phase-2/               # Phase 2 micro-step files
+├── phase-1/               # Phase 1 micro-step files (complex tasks only)
+│   └── p1-1.task.md
+├── phase-2/               # Phase 2 micro-step files (complex tasks only)
 │   └── p2-1.task.md
 └── phase-final/           # Final phase micro-step files
     ├── pN-refs.task.md
@@ -117,13 +119,20 @@ Patterns and principles that MUST be followed during execution.
 
 ## Self-Execution Instructions
 
-Plans are self-executing. Each task's micro-step file contains complete execution instructions.
+Plans are self-executing. Complex tasks have companion micro-step files referenced via the `taskFile` field in the YAML frontmatter.
 
 ### Execution Protocol
 
-1. **Before task:** Read shape.md Execution Log for prior context
-2. **During task:** Follow micro-step file phases (understand → execute → validate → close)
+1. **Before task:** Read shape.md Decisions and Discoveries for prior context
+2. **During task:** If the task has a `taskFile` field, read that file and follow its execution phases (understand → execute → validate → close). If no `taskFile` is present, execute directly from the task's `content` description.
 3. **After task:** Append entry to shape.md, mark task completed in YAML
+4. **Learnings:** During any task, append to learnings.md when you encounter a system-level improvement opportunity:
+   - User corrects your behavior or approach
+   - You couldn't find a file or reference that should have been discoverable
+   - You loaded context that turned out to be unnecessary
+   - Instructions were ambiguous and you had to guess
+   - A rule or constraint was missing that would have prevented a mistake
+   - You discovered a reusable pattern that should be codified
 
 ### Tool Mode Selection
 

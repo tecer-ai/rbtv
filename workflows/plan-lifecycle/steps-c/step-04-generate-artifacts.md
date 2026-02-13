@@ -152,8 +152,13 @@ human_review: {required | optional | none}
 - Discovery Handling — revolving plan rules
 - Output Requirements — what to produce and where
 
+**After generating each micro-step file:**
+- Set `taskFile: "phase-{N}/{task-id}.task.md"` in the corresponding YAML todo entry
+- The `taskFile` path is relative to the plan folder
+
 **For simple tasks (no micro-step file):**
 - Ensure the YAML `content` field contains a complete, actionable description
+- Omit the `taskFile` field entirely — do NOT add an empty or null `taskFile`
 - Add a comment in the plan YAML: `# inline — no micro-step file`
 
 **Use Write tool** for EACH task file individually.
@@ -225,7 +230,9 @@ ONLY when `[C] Continue` is selected:
 - ✅ Phase folders created
 - ✅ shape.md written with planning context
 - ✅ learnings.md written with empty structure
-- ✅ ALL micro-step task files generated (one per non-checkpoint task)
+- ✅ Micro-step task files generated for complex tasks (per decision criteria)
+- ✅ `taskFile` field set in YAML for every task that has a micro-step file
+- ✅ `taskFile` field omitted for simple tasks (no micro-step file)
 - ✅ Artifact checklist displayed and verified
 - ✅ Menu presented with explicit HALT
 

@@ -43,9 +43,34 @@ Check that ALL required artifacts exist:
 | Shape file | `.cursor/plans/{plan-name}/shape.md` | ✅ |
 | Learnings file | `.cursor/plans/{plan-name}/learnings.md` | ✅ |
 | Phase folders | `.cursor/plans/{plan-name}/phase-{N}/` | ✅ (one per phase) |
-| Task files | `.cursor/plans/{plan-name}/phase-{N}/{task-id}.task.md` | ✅ (one per non-checkpoint task) |
 
-**If ANY artifact is missing:**
+### 1b. Validate taskFile References (Bidirectional)
+
+**YAML → Disk:** For every YAML todo that has a `taskFile` field, verify the referenced file exists on disk at the expected path (relative to the plan folder).
+
+**Disk → YAML:** For every `.task.md` file found on disk in phase folders, verify a matching `taskFile` entry exists in the YAML todos.
+
+| Check | Passes When | Failure Indicates |
+|-------|-------------|-------------------|
+| YAML → Disk | Every `taskFile` value resolves to an existing file | Broken reference — file was not generated or was deleted |
+| Disk → YAML | Every `.task.md` on disk has a corresponding `taskFile` entry | Orphaned file — micro-step file exists but YAML has no reference |
+
+**If ANY validation fails:**
+```
+⚠️ INCOMPLETE: taskFile validation failed
+
+Broken references (YAML → Disk):
+- {task-id}: taskFile "{path}" not found on disk
+
+Orphaned files (Disk → YAML):
+- {file-path}: no matching taskFile entry in YAML
+
+Returning to step-05 to fix missing artifacts.
+```
+
+Load `./step-05-generate-artifacts.md` and re-execute.
+
+**If core artifacts are missing:**
 ```
 ⚠️ INCOMPLETE: Missing artifacts detected
 
@@ -96,11 +121,12 @@ Gather counts for summary:
 
 **How to Execute This Plan:**
 
-1. Read the task's micro-step file (e.g., `phase-1/p1-1.task.md`)
-2. Follow the execution flow in the file
-3. Update `shape.md` with execution log entry when complete
-4. Capture any meta-learnings in `learnings.md`
-5. Mark task complete in plan YAML frontmatter
+1. Check the task's YAML entry for a `taskFile` field
+2. If `taskFile` is present: read that file and follow its execution phases
+3. If no `taskFile`: execute directly from the task's `content` description
+4. Update `shape.md` with execution log entry when complete
+5. Capture any meta-learnings in `learnings.md`
+6. Mark task complete in plan YAML frontmatter
 ```
 
 ### 4. Present Final Menu
@@ -127,7 +153,8 @@ This completes the Create workflow. The plan and all supporting files are saved 
 
 ## SUCCESS CRITERIA
 
-- ✅ All artifacts validated (plan, shape, learnings, phase folders, task files)
+- ✅ All core artifacts validated (plan, shape, learnings, phase folders)
+- ✅ Bidirectional taskFile validation passed (YAML → Disk and Disk → YAML)
 - ✅ Counts gathered accurately
 - ✅ Completion summary displayed with full structure
 - ✅ Execution instructions provided
