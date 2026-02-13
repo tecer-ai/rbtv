@@ -1,0 +1,94 @@
+<task id="_bmad/rbtv/tasks/mentor-help.xml"
+      name="Mentor Help"
+      standalone="true"
+      description="Display milestone position, framework progress, and available workflows for the founder journey">
+
+  <objective>
+    Show a concise "you are here" orientation. Two modes: general overview (no project loaded) and full progress display (project loaded). Read-only — never modify project state.
+  </objective>
+
+  <llm critical="true">
+    <rule>Read the complete task before starting execution.</rule>
+    <rule>Display output MUST NOT exceed 15 lines.</rule>
+    <rule>Framework order MUST match the milestone workflow FRAMEWORK ROUTING table order.</rule>
+    <rule>NEVER modify project state — this task is read-only.</rule>
+    <rule>All file references use {project-root} path variables.</rule>
+    <rule>After displaying output, return to the current menu context. No navigation, no follow-up prompts beyond the menu.</rule>
+  </llm>
+
+  <flow>
+    <step n="1" title="Branch on Project State">
+      <substep n="1a">
+        <action>If {project_detected}=false → go to step 2.</action>
+        <action>If {project_detected}=true → go to step 3.</action>
+      </substep>
+    </step>
+
+    <step n="2" title="General Overview (No Project)">
+      <substep n="2a" title="Load Data">
+        <action>Read {project-root}/_bmad/rbtv/workflows/bi-business-innovation/data/founder-process.md</action>
+        <action>Extract the 6 milestones from the Milestones Summary table (name and goal columns).</action>
+      </substep>
+      <substep n="2b" title="Display">
+        <action>Output this format (substitute milestone data from the file):
+
+📍 MENTOR OVERVIEW: The Founder Journey
+
+6 milestones from idea to MVP:
+  M1: {name} — {goal}
+  M2: {name} — {goal}
+  M3: {name} — {goal}
+  M4: {name} — {goal}
+  M5: {name} — {goal}
+  M6: {name} — {goal}
+
+→ Use [N] to start a new project or [C] to continue an existing one.</action>
+      </substep>
+      <substep n="2c" title="Return">
+        <action>Return to Mentor's current menu. No state change.</action>
+      </substep>
+    </step>
+
+    <step n="3" title="Project Progress (Project Loaded)">
+      <substep n="3a" title="Extract State">
+        <action>From project-memo.md frontmatter (loaded during Mentor activation), extract: projectName, currentMilestone, currentFramework, stepsCompleted.</action>
+        <action>Parse milestone number N from currentMilestone (e.g., "M1: Conception" → N=1, milestoneName="Conception").</action>
+        <action>Determine next milestone from the Milestones Summary in {project-root}/_bmad/rbtv/workflows/bi-business-innovation/data/founder-process.md. If N=6, next is "Journey complete".</action>
+      </substep>
+      <substep n="3b" title="Load Framework Data">
+        <action>Attempt to read: {project-root}/_bmad/rbtv/workflows/bi-m{N}/workflow.md</action>
+        <action>If found: Parse the FRAMEWORK ROUTING table. Extract each row's Code and Framework name, preserving table order.</action>
+        <action>If not found (M5/M6): Read {project-root}/_bmad/rbtv/workflows/bi-business-innovation/data/founder-process.md. Extract framework names for M{N} from the Key Frameworks column. No codes available.</action>
+      </substep>
+      <substep n="3c" title="Compute Framework Status">
+        <action>For each framework in order:
+          - If its Output File from FRAMEWORK ROUTING appears in stepsCompleted → mark ✅
+          - Else if it matches currentFramework → mark → (append " (current)")
+          - Else → mark ○
+        Count completed frameworks vs total.</action>
+      </substep>
+      <substep n="3d" title="Display">
+        <action>Output this format:
+
+📍 YOU ARE HERE: {projectName}
+
+Milestone: M{N} {milestoneName} ({N} of 6) — next: M{N+1} {nextMilestoneName}
+
+Frameworks in M{N} {milestoneName}:
+  {marker} [{code}] {frameworkName}
+  ... (one line per framework, in FRAMEWORK ROUTING order)
+
+Progress: {done}/{total} complete
+
+Available: [M{N}] Continue {milestoneName} | [PM] Party Mode
+
+When codes are unavailable (M5/M6 fallback), omit the [{code}] prefix:
+  {marker} {frameworkName}</action>
+      </substep>
+      <substep n="3e" title="Return">
+        <action>Return to Mentor's current menu. No state change.</action>
+      </substep>
+    </step>
+  </flow>
+
+</task>
