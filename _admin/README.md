@@ -56,6 +56,15 @@ Open Cursor in the `rbtv/` folder. All commands, agents, skills, and rules are n
 
 ---
 
+## Mobile Module
+
+To understand and work on the mobile module, read:
+
+- `_mobile/README.md` — Scope, boundaries, responsibility split, non-duplication rules
+- `_mobile/HOW-IT-WORKS.md` — Architecture, bootstrap system, inbound pipeline, agent system, VPS deployment, design decisions
+
+---
+
 ## Understanding the Agentic System Framework
 
 Before developing RBTV components, familiarize yourself with the agentic system framework. RBTV's framework is based on BMAD — both share the same architecture. RBTV has slight structural differences, but these do not affect the understanding of the documentation below.

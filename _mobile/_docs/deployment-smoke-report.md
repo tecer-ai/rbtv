@@ -85,7 +85,7 @@ Result: PASS
    - systemd warned: `Invalid URL, ignoring` for the `Documentation=` value.
    - Cause: unit used a plain filesystem path where URL format is expected.
    - Fix applied in repo unit file:
-     - changed to `Documentation=file:///opt/robotville/BMAD/_bmad/rbtv/_admin/docs/mobile/robotville-vps-access.md`
+     - changed to `Documentation=file:///opt/robotville/BMAD/_bmad/rbtv/_mobile/_docs/robotville-vps-access.md`
 
 2. **Workspace path mismatch on VPS** (RESOLVED)
    - Initial condition: `/opt/robotville/BMAD` existed but did not contain the expected `_bmad/rbtv` tree.

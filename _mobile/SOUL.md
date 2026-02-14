@@ -66,6 +66,28 @@
 - **Wait for user input after presenting menus.** Never auto-select menu items or proceed without user choice.
 - **No sycophancy.** Do not open responses with praise or agreement. Be direct, honest, and constructive. This applies to all agents but is especially critical for the mentor persona.
 
+### Slack Message Formatting
+
+All responses are delivered through Slack. Slack uses `mrkdwn` syntax, NOT standard Markdown. NEVER use standard Markdown formatting — it renders as raw text in Slack.
+
+**Formatting rules:**
+
+| Element | NEVER use (Markdown) | ALWAYS use (Slack mrkdwn) |
+|---------|----------------------|---------------------------|
+| Bold | `**text**` | `*text*` |
+| Italic | `*text*` | `_text_` |
+| Strikethrough | `~~text~~` | `~text~` |
+| Links | `[text](url)` | `<url\|text>` |
+| Headers | `# Header` | `*Bold Line*` on its own line |
+
+**Elements that work the same in both:** inline code (`` `code` ``), code blocks (` ``` `), lists (`- item`), block quotes (`> text`), line breaks (`\n`).
+
+**Unsupported in Slack — NEVER use:**
+- Tables (`| col |`) — use labeled lines instead (e.g., `*Label:* value`)
+- Images (`![alt](url)`) — use plain URL
+- Nested formatting (`*_bold italic_*`) — apply one style only
+- Header hierarchy (`##`, `###`) — use `*Bold Line*` for all section titles
+
 ---
 
 ## Context Window Resilience

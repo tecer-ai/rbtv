@@ -79,14 +79,9 @@ Skills are loaded on demand when relevant to the current task. Use `read_file` t
 
 | Skill | Skill File | When to Use |
 |-------|-----------|-------------|
-| Plan | `skills/plan/SKILL.md` | Creating structured plans, breaking down work into phases and tasks |
 | Doc | `skills/doc/SKILL.md` | Creating documentation, handoffs, product docs |
-| Git | `skills/git/SKILL.md` | Committing changes, writing commit messages |
-| Context Search | `skills/context-search/SKILL.md` | Searching files for specific knowledge, deep file analysis |
 | Quality Review | `skills/quality-review/SKILL.md` | Reviewing work quality, validating deliverables |
-| Create Component | `skills/create-component/SKILL.md` | Creating new BMAD components, agents, workflows, tasks |
 | Web Research | `skills/web-research/SKILL.md` | Conducting web research, gathering and evaluating sources |
-| Tone Extraction | `skills/tone-extraction/SKILL.md` | Analyzing writing tone, extracting voice signatures |
 
 ---
 

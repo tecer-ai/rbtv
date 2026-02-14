@@ -81,6 +81,7 @@ Check:
 
 ```bash
 ls -la /opt/robotville/BMAD/_bmad/rbtv/_admin/docs/mobile/robotville-v4.0-business-innovation-run/founder/project-memo.md
+# Note: project-memo path is project-specific — adjust to actual project output location
 ```
 
 Then open and inspect frontmatter integrity.

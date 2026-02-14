@@ -96,7 +96,7 @@ The bootstrap files (p5-1 through p5-5) were designed for behavioral correctness
 
 2. **Modify Existing Rule**: Update deploy runbook and server env template with prompt caching configuration
    - **Rationale:** Anthropic's prompt caching makes cached input tokens count against a separate, higher rate limit bucket. If the ~7k system prompt is cached, only new conversation content counts as fresh tokens — reducing fresh token usage from ~32k/min to ~10k/min. LiteLLM supports this via `cache_control` on system messages.
-   - **Location:** `_admin/docs/mobile/deploy-runbook.md` (add caching config section), `_admin/docs/mobile/server-env-template.md` (add LiteLLM/Anthropic cache settings)
+   - **Location:** `_mobile/_docs/deploy-runbook.md` (add caching config section), `_mobile/_docs/server-env-template.md` (add LiteLLM/Anthropic cache settings)
 
 3. **Update System File**: Slim `TOOLS.md` by moving per-agent workflow tables to on-demand loading
    - **Rationale:** `TOOLS.md` is the largest bootstrap file (~1,375 tokens). Lines 26–73 contain detailed workflow tables for mentor, domcobb, and doc agents. These are only useful after an agent is activated — and at that point the full agent file is loaded anyway. Moving them out saves ~800 tokens per call (~11% of total system prompt).
@@ -104,11 +104,11 @@ The bootstrap files (p5-1 through p5-5) were designed for behavioral correctness
 
 4. **Add Constraint**: Smoke test for token budget validation before deployment
    - **Rationale:** The rate limit failure was only discovered in production after deployment (p5-8 validation). A pre-deployment check that estimates total system prompt size and validates it against the target model's rate limit would catch this class of issue before it reaches users.
-   - **Location:** Add to `_admin/docs/mobile/smoke-checklist.md` as a new checklist item; optionally script it in `vps-sync-install.sh` as a character count / token estimate warning.
+   - **Location:** Add to `_mobile/_docs/smoke-checklist.md` as a new checklist item; optionally script it in `vps-sync-install.sh` as a character count / token estimate warning.
 
 5. **Alternative Approach**: Implement model routing — Sonnet for routine interactions, Opus reserved for complex reasoning
    - **Rationale:** `claude-sonnet-4-20250514` has significantly higher Tier 1 rate limits and costs ~5x less than Opus. Menu routing ("mentor", "N", "C"), state management, and framework step execution are well within Sonnet's capability. Opus could be reserved for tasks that genuinely need deep reasoning (e.g., competitive analysis, market sizing). This approach eliminates the rate limit issue entirely for normal usage while keeping Opus available when needed.
-   - **Location:** Nanobot `config.json` on VPS — change `agents.defaults.model` to Sonnet; add per-agent or per-skill model overrides if Nanobot supports them. Document in `_admin/docs/mobile/server-env-template.md`.
+   - **Location:** Nanobot `config.json` on VPS — change `agents.defaults.model` to Sonnet; add per-agent or per-skill model overrides if Nanobot supports them. Document in `_mobile/_docs/server-env-template.md`.
 
 ---
 
@@ -178,9 +178,9 @@ These tables duplicate information already present in each agent's `.md` file, w
 
 | Aspect | Details |
 |--------|---------|
-| File(s) to modify/create | VPS: `/srv/nanobot/.nanobot/config.json` (model + caching), Repo: `_mobile/TOOLS.md` (slimming), Docs: `_admin/docs/mobile/deploy-runbook.md`, `_admin/docs/mobile/server-env-template.md` |
+| File(s) to modify/create | VPS: `/srv/nanobot/.nanobot/config.json` (model + caching), Repo: `_mobile/TOOLS.md` (slimming), Docs: `_mobile/_docs/deploy-runbook.md`, `_mobile/_docs/server-env-template.md` |
 | Scope of change | Comprehensive — config change on VPS, bootstrap file edit in repo, documentation updates |
-| Related files | `_mobile/AGENTS.md` (may also benefit from slimming agent summaries), `_mobile/ops/scripts/vps-sync-install.sh` (re-deploy after TOOLS.md change), `_admin/docs/mobile/smoke-checklist.md` (add token budget validation item) |
+| Related files | `_mobile/AGENTS.md` (may also benefit from slimming agent summaries), `_mobile/ops/scripts/vps-sync-install.sh` (re-deploy after TOOLS.md change), `_mobile/_docs/smoke-checklist.md` (add token budget validation item) |
 
 ---
 
@@ -217,9 +217,9 @@ Together, these three changes transform token usage from ~32k fresh tokens/minut
 | `_mobile/SOUL.md` | Review for situational sections that could be on-demand |
 | `_mobile/USER.md` | Already compact, no changes needed |
 | VPS: `/srv/nanobot/.nanobot/config.json` | Model selection and potential caching configuration |
-| `_admin/docs/mobile/deploy-runbook.md` | Update with model + caching config guidance |
-| `_admin/docs/mobile/server-env-template.md` | Update with recommended settings |
-| `_admin/docs/mobile/smoke-checklist.md` | Add token budget validation item |
+| `_mobile/_docs/deploy-runbook.md` | Update with model + caching config guidance |
+| `_mobile/_docs/server-env-template.md` | Update with recommended settings |
+| `_mobile/_docs/smoke-checklist.md` | Add token budget validation item |
 | `_mobile/ops/scripts/vps-sync-install.sh` | Re-deploy after TOOLS.md change |
 | `agents/mentor.md` | Already contains workflow details — confirms TOOLS.md tables are redundant |
 

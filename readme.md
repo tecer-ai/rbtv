@@ -180,6 +180,14 @@ To get project-scoped paths (e.g. `_bmad-output/MyProject/founder/`), use Mentor
 
 ---
 
+## Mobile (Messaging Delivery)
+
+`_mobile/` is the RBTV adapter layer that makes business innovation workflows accessible through Slack (and planned WhatsApp) instead of the Cursor IDE. Same agents, same frameworks, same workflows — delivered through messaging.
+
+Read `_mobile/README.md` for scope and boundaries. Read `_mobile/HOW-IT-WORKS.md` for architecture and design decisions.
+
+---
+
 ## Architecture
 
 RBTV follows BMAD micro-file architecture principles:

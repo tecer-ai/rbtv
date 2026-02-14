@@ -40,10 +40,17 @@ RBTV `_mobile` harness owns:
 - read/write adapter logic for canonical project memo continuity
 - pre-routing policy checks before handing work to Nanobot
 
+## Documentation
+
+| Document | Purpose |
+|----------|---------|
+| `HOW-IT-WORKS.md` | Architecture, bootstrap system, inbound pipeline, agent system, VPS deployment, design decisions |
+| `_docs/` | Operational docs — deployment runbook, smoke checklist, server access, env template, troubleshooting, provisioning guide |
+
 ## Implementation Contract
 
 All new harness modules must live under `_bmad/rbtv/_mobile/`.
 
-All plan documentation and runbooks must live under `_bmad/rbtv/_admin/docs/mobile/`.
+Operational documentation (runbooks, checklists, server access) lives under `_mobile/_docs/`.
 
 Any change that blurs ownership between `_mobile` and Nanobot is out of scope and must be rejected.
