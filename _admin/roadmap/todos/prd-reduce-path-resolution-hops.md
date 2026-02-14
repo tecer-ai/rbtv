@@ -72,6 +72,12 @@ paths:
   bmad_output: "{project-root}/_bmad-output"
 ```
 
+## Scope Boundary
+
+- This PRD targets **path-resolution ergonomics** for agents (fewer lookup hops).
+- It does not define installer output-path canonicalization policy.
+- Canonical output-folder behavior and installer parity for `-bmad-output/{project-name}/` are tracked in `_admin/roadmap/todos/cp-install-scripts-standardize-bmad-output-folder.md`.
+
 **In admin mode**, the admin installer (or admin config overrides) would resolve these to:
 
 ```yaml

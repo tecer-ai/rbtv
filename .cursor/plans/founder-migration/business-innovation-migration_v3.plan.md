@@ -140,6 +140,9 @@ todos:
   - id: p6-8
     content: "p6-8: UPDATE mentor agent for M4 routing logic. MUST read and follow ./phase-6/p6-8.task.md"
     status: completed
+  - id: p6-eval-frameworks
+    content: "CRITICAL: Evaluate omitted founder_process frameworks across M4-M6. MUST read and follow ./phase-6/p6-eval-frameworks.task.md"
+    status: pending
   - id: p6-9
     content: "p6-9: CREATE bi-m5 milestone workflow. MUST read and follow ./phase-6/p6-9.task.md"
     status: pending
@@ -469,14 +472,18 @@ flowchart TD
 **Goal:** Evaluate each milestone for BMAD routing vs RBTV-only implementation. Mentor should route to BMAD workflows for software development tasks rather than duplicating BMAD functionality. Each framework or sub-workflow creation is its own task (following M1-M3 pattern).
 
 **Integration Strategy:**
+
 - **M4 Prototypation**: Partial BMAD integration — route design work to BMAD `create-ux-design`, keep RBTV for conversion/heuristic evaluation
 - **M5 Market Validation**: RBTV-native — customer validation is founder-specific, minimal BMAD overlap
 - **M6 MVP**: Full BMAD integration — all software development routes to BMAD workflows (PRD, architecture, epics/stories, etc.)
 
 **BMAD Config Management Convention:**
+
 - When RBTV workflows invoke BMAD workflows (M4 Design Direction, M6 all routes), they MUST:
+
   1. Run `update-bmad-config.xml` task BEFORE invoking BMAD (updates BMAD config to use RBTV project folder)
   2. Run `restore-bmad-config.xml` task AFTER BMAD completes (restores BMAD config to defaults)
+
 - Rationale: BMAD workflows read output_folder from config file; config must point to RBTV project-specific path for outputs to land correctly
 - Tasks location: `_bmad/rbtv/tasks/update-bmad-config.xml` and `restore-bmad-config.xml`
 
@@ -490,6 +497,10 @@ flowchart TD
 - `p6-6`: CREATE bi-m4-conversion-centered-design framework workflow. **MUST read and follow `./phase-6/p6-6.task.md`**
 - `p6-7`: CREATE bi-m4-heuristic-evaluation framework workflow. **MUST read and follow `./phase-6/p6-7.task.md`**
 - `p6-8`: UPDATE mentor agent for M4 routing logic. **MUST read and follow `./phase-6/p6-8.task.md`**
+
+### Framework Coverage Evaluation
+
+- `p6-eval-frameworks`: **CRITICAL**: Evaluate omitted founder_process frameworks across M4-M6. **MUST read and follow `./phase-6/p6-eval-frameworks.task.md`**
 
 ### M5 Market Validation Tasks
 

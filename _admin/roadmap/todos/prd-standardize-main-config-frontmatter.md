@@ -35,6 +35,12 @@ No established standard when workflows were initially created. Pattern evolved o
 3. Update component pattern documentation to require frontmatter approach
 4. Audit all 38 workflows and migrate to frontmatter pattern
 
+## Scope Boundary
+
+- This PRD governs **config declaration format** only (frontmatter vs body text).
+- Output destination normalization and installer parity for `-bmad-output/{project-name}/` are tracked in `_admin/roadmap/todos/cp-install-scripts-standardize-bmad-output-folder.md`.
+- Avoid introducing duplicate or conflicting requirements about output-path semantics in this PRD.
+
 ## Benefits
 
 | Benefit | Description |

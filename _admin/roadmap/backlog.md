@@ -1,8 +1,8 @@
 # RBTV PRD Backlog
 
-> Generated: 2026-02-13
+> Generated: 2026-02-14
 > Source: `_admin/roadmap/todos/prd-*.md`, `todos/cp-*.md`
-> Total PRDs: 13 | Compounds: 2
+> Total PRDs: 13 | Compounds: 5
 
 ---
 
@@ -25,6 +25,9 @@
 | 13 | Agent Menu Externalization Rule | Low | Process | Minimal |
 | 14 | BI Workflow Default Structures | Medium | Workflow | Moderate |
 | 15 | Cross-Framework Consistency Gate | Medium | Workflow | Minimal |
+| 16 | PRD and Compound Output Locations | Medium | Workflow | Moderate |
+| 17 | Quality-Review Subagent at Plan Checkpoints | High | Workflow | Minimal |
+| 18 | Nanobot Token Optimization — Prompt Caching & Model Routing | High | System File | Moderate |
 
 ### Dependency Chain
 ```
@@ -50,6 +53,22 @@ All other PRDs are independent.
 **Description:** Mentor guides founders through a 6-milestone lifecycle, but founders lose track of where they are. No orientation mechanism exists -- the only way to check progress is manually reading `project-memo.md` frontmatter.
 **Goals:** Add an [H] Help menu item to Mentor displaying current milestone, framework progress (done/current/pending), and available workflows. Concise "you are here" output (15 lines max).
 **Scope:** Modify `agents/mentor.md` -- add 1 menu item + 1 action block (~20-25 lines).
+**Dependencies:** None.
+
+### 17. Mandatory Quality-Review Subagent at Plan Checkpoints
+**File:** `cp-plan-checkpoint-quality-review-subagent-mandate.md`
+**Type:** Workflow
+**Description:** Plan checkpoints currently require a human approval halt, but checkpoint task content does not consistently require execution through the `quality-review` subagent before presenting a gate decision. This allows uneven checkpoint rigor and increases the chance of subjective pass-through without a standardized five-criteria evaluation.
+**Goals:** Require every plan checkpoint to run the `quality-review` subagent. Standardize checkpoint output as an explicit gate verdict (`APPROVED`/`REJECTED`). Block checkpoint completion when verdict is `REJECTED`. Keep existing human-approval halt behavior intact.
+**Scope:** Add mandatory rule text to `_bmad/rbtv/workflows/plan-lifecycle/data/plan-creation-rules.md`. Minimal — rule text addition only.
+**Dependencies:** None.
+
+### 18. Nanobot Token Optimization — Prompt Caching & Model Routing
+**File:** `cp-nanobot-token-optimization-prompt-caching.md`
+**Type:** System File
+**Description:** Nanobot hits Anthropic's `claude-opus-4-6` rate limit (30,000 input tokens/minute) during simple two-message interactions. The bootstrap system sends ~7,250 tokens of system prompt on every API call, and tool-calling patterns require 2+ API calls per user message, causing 4 calls within a minute that aggregate to ~32k+ input tokens.
+**Goals:** (1) Switch default model to Sonnet for routine interactions (immediate unblock), (2) enable Anthropic prompt caching via LiteLLM to cache the static system prompt (systemic fix), (3) slim `TOOLS.md` by moving per-agent workflow tables to on-demand loading (~800 token savings per call).
+**Scope:** Moderate — VPS `config.json` model change, LiteLLM caching research + config, `_mobile/TOOLS.md` content reduction, deploy docs update.
 **Dependencies:** None.
 
 ### 3. Business Innovation Migration
@@ -119,6 +138,14 @@ All other PRDs are independent.
 **Goals:** After 3+ frameworks are completed in a milestone, completion step invites user to run a cross-framework consistency review via Party Mode in a fresh context. Optional, non-blocking recommendation with copy-paste prompt. Threshold = 3; display on every completion when count ≥ 3.
 **Scope:** Minimal — conditional display block in each BI framework completion/synthesis step; no new files or gate logic.
 **Dependencies:** None. Related to PRD #14 (default structures) — canonical assumption inventory reduces drift; this addresses review process.
+
+### 16. Install Scripts Standardize BMAD Output Folder Paths
+**File:** `cp-install-scripts-standardize-bmad-output-folder.md`
+**Type:** Workflow
+**Description:** Standardize output-path behavior in implementation (not rule-only): both RBTV installers must rewrite BMAD output-related config fields to `-bmad-output/{project-name}/`, and compound output must route to roadmap/todos.
+**Goals:** Installer parity for output-path rewriting; compound workflow output in `_bmad/rbtv/_admin/roadmap/todos`; no conflicting duplicate output-location requirements across backlog docs.
+**Scope:** Moderate — installer updates in `_config/install-rbtv.py` and `_admin/install-admin-rbtv.py`, plus compound workflow output-folder config correction.
+**Dependencies:** None.
 
 ---
 
