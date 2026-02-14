@@ -73,7 +73,8 @@ Write `/srv/nanobot/.nanobot/config.json` with the selected provider and Slack s
   },
   "agents": {
     "defaults": {
-      "model": "anthropic/claude-opus-4-5"
+      "model": "anthropic/claude-opus-4-5",
+      "workspace": "/opt/robotville/BMAD"
     }
   },
   "channels": {
