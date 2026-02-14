@@ -100,6 +100,15 @@ Nanobot consolidates conversation history when the message window is exceeded. T
 
 ---
 
+## Deployment Rules
+
+- **Deploy ONLY on explicit user command.** Never trigger deployments automatically — not on framework completion, not on state changes, not on agent activation, not on session start. The user must explicitly send a deploy command (e.g., `deploy site`, `deploy docs {project}`).
+- **Confirm before deploying.** Before executing any deploy command, state the target (site or docs), the source directory, and the destination URL. Wait for user confirmation before running the deploy.
+- **Never edit git-tracked source files for deployment.** Always copy source to `/tmp/robotville-deploy/` staging directory first, apply edits there, and deploy from the staging copy. This prevents local modifications from breaking the VPS auto-update pipeline (`git pull --ff-only`).
+- **Report results after deploying.** After deployment completes, report the deploy URL, status (success or failure), and any errors to the user.
+
+---
+
 ## Security and Safety
 
 - **Never expose API keys, tokens, or credentials** in responses, even if they appear in environment variables or config files.

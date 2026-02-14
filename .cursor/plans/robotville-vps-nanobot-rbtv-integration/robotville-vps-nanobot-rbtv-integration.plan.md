@@ -102,16 +102,19 @@ todos:
     content: "p6-2: Configure deploy credentials on VPS for Nanobot service account to push to hosting via CLI"
     status: completed
   - id: p6-3
-    content: "p6-3: CREATE initial robotville.ai home page based on founder documents with navigation for /docs/ and /app/ sections"
+    content: "p6-3: CREATE robotville.ai waitlist landing page with value proposition from founder documents"
     status: completed
   - id: p6-4
     content: "p6-4: ADD waitlist email capture to robotville.ai home page using Netlify Forms (honeypot, success redirect, no backend)"
     status: completed
   - id: p6-5
     content: "p6-5: UPDATE _mobile/ bootstrap (TOOLS.md/SOUL.md) with deploy command routing and rule: deploy ONLY on explicit user command"
-    status: pending
+    status: completed
   - id: p6-6
-    content: "p6-6: VALIDATE end-to-end doc deployment via Slack command to robotville.ai/docs/{project-name}"
+    content: "p6-6: BUILD robotville.ai production home page from founder docs and PRD, with navigation, /docs/ and /app/ placeholders, using artprize-shadows design tokens"
+    status: completed
+  - id: p6-7
+    content: "p6-7: VALIDATE end-to-end doc deployment via Slack command to robotville.ai/docs/{project-name}"
     status: pending
   - id: p6-checkpoint
     content: P6 CHECKPOINT - Approve website deployment pipeline
@@ -268,7 +271,8 @@ This plan uses companion files for execution context:
 │   ├── p6-1.task.md
 │   ├── p6-2.task.md
 │   ├── p6-3.task.md
-│   └── p6-4.task.md
+│   ├── p6-4.task.md
+│   └── p6-6.task.md
 ├── phase-7/
 │   └── p7-1.task.md
 ├── phase-8/
@@ -420,13 +424,13 @@ This plan uses companion files for execution context:
 
 | 5 | UPDATE | `_bmad/rbtv/_mobile/ops/scripts/vps-sync-install.sh` or new deploy script |
 
-| 6 | CREATE | robotville.ai site (Netlify or GitHub Pages) with custom domain |
+| 6 | CREATE | robotville.ai site (Netlify) with custom domain |
 
-| 6 | CREATE | robotville.ai home page based on founder documents |
-
-| 6 | CREATE | Nanobot deploy command/workflow for `/docs/{project-name}` |
+| 6 | CREATE | robotville.ai waitlist landing page + success page |
 
 | 6 | UPDATE | `_bmad/rbtv/_mobile/TOOLS.md` and `SOUL.md` with deploy command routing |
+
+| 6 | BUILD | robotville.ai production home page + `/docs/` and `/app/` placeholders |
 
 | 8 | UPDATE | VPS `config.json` — switch default model to Sonnet |
 
@@ -493,12 +497,13 @@ flowchart TD
   subgraph P6["Phase 6: robotville.ai Website & Deployment"]
     P61[p6-1 Evaluate + provision hosting]
     P62[p6-2 Configure VPS deploy creds]
-    P63[p6-3 CREATE home page]
-    P64[p6-4 CREATE deploy command]
+    P63[p6-3 CREATE waitlist landing page]
+    P64[p6-4 ADD waitlist email capture]
     P65[p6-5 UPDATE bootstrap deploy rules]
-    P66[p6-6 VALIDATE doc deployment]
+    P66[p6-6 BUILD production home page]
+    P67[p6-7 VALIDATE doc deployment]
     C6{P6 Checkpoint}
-    P61 --> P62 --> P63 --> P64 --> P65 --> P66 --> C6
+    P61 --> P62 --> P63 --> P64 --> P65 --> P66 --> P67 --> C6
   end
 
   subgraph P7["Phase 7: System Update Safety"]
@@ -669,10 +674,11 @@ flowchart TD
 
 - `p6-1`: Evaluate hosting platform (Netlify vs GitHub Pages) — CLI deploy capability, per-path routing for `/docs/` and `/app/`, Nanobot `exec` compatibility. Decide and provision site with robotville.ai custom domain.
 - `p6-2`: Configure deploy credentials on VPS — Nanobot service account can push to hosting provider via CLI.
-- `p6-3`: CREATE initial robotville.ai home page based on founder documents (project-memo, lean-canvas, working-backwards, problem-solution-fit) with navigation placeholders for `/docs/{project}` and `/app/{project}` sections.
-- `p6-4`: CREATE deployment command/workflow for Nanobot — user-initiated command that deploys project documents to `robotville.ai/docs/{project-name}` (two modes: raw file download OR HTML-structured page, user selects).
+- `p6-3`: CREATE robotville.ai waitlist landing page with value proposition from founder documents.
+- `p6-4`: ADD waitlist email capture to robotville.ai home page using Netlify Forms (honeypot, success redirect, no backend). *(Original scope — deploy command/workflow — deferred; depends on project docs to deploy.)*
 - `p6-5`: UPDATE `_mobile/` bootstrap (`TOOLS.md`/`SOUL.md`) with deploy command routing and explicit rule: deploy ONLY on user command, never automatic.
-- `p6-6`: VALIDATE end-to-end: user commands doc deployment via Slack, docs appear at `robotville.ai/docs/{project-name}`.
+- `p6-6`: BUILD robotville.ai production home page — replace waitlist placeholder with real site sourced from founder docs (`project-memo`, `lean-canvas`, `working-backwards`, `problem-solution-fit`) and PRD. Navigation, `/docs/` and `/app/` placeholder pages, artprize-shadows design tokens for visual identity.
+- `p6-7`: VALIDATE end-to-end: user commands doc deployment via Slack, docs appear at `robotville.ai/docs/{project-name}`.
 - `p6-checkpoint`: **P6 CHECKPOINT** - Approve website deployment pipeline.
 
 ---

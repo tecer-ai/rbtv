@@ -193,6 +193,39 @@ Users switch agents by typing a different command. The harness:
 
 Single Nanobot instance on a single VPS. All users share the same server and process. Sessions are isolated by `channel:chat_id` — each Slack DM or channel gets its own conversation history and project state.
 
+### VPS Instance Layout
+
+```
+VPS (Hetzner Ubuntu)
+│
+├── /opt/robotville/BMAD/                  Nanobot workspace root (WorkingDirectory)
+│   ├── AGENTS.md  SOUL.md  TOOLS.md  USER.md
+│   │   Deployed from _mobile/ by vps-sync-install — Nanobot loads these on every call
+│   ├── skills/                            Deployed from _mobile/skills/ — Nanobot auto-discovers
+│   └── _bmad/
+│       ├── core/, bmm/, ...               BMAD modules (synced from mirror by installer)
+│       └── rbtv/                          RBTV repo (git clone, pulled via vps-pull-rbtv.sh)
+│           ├── _mobile/                   Harness source of truth (this folder)
+│           ├── agents/, workflows/, tasks/, _config/
+│           └── _admin/docs/.../project-memo.md   Project output (path is project-specific)
+│
+├── /srv/nanobot/                          Service user home (nanobot)
+│   ├── .nanobot/config.json               Nanobot config — provider, Slack, workspace, allowlist
+│   ├── .ssh/                              Deploy key + SSH config for private repo pull
+│   └── .config/netlify/                   Netlify CLI link (optional, for deploy command)
+│
+├── /etc/robotville/
+│   └── nanobot-gateway.env                Secrets — Slack tokens, LLM keys, allowlist, Netlify token
+│
+├── /etc/systemd/system/
+│   └── nanobot-gateway.service            Runs nanobot gateway as user nanobot; auto-restarts
+│
+└── /usr/local/bin/
+    └── nanobot                            Nanobot binary (installed at provision time)
+```
+
+Systemd starts `nanobot gateway` with `HOME=/srv/nanobot` (reads config) and `WorkingDirectory=/opt/robotville/BMAD` (reads bootstrap files and RBTV content). Secrets load from `/etc/robotville/nanobot-gateway.env`. Canonical paths are enforced — do not deploy from alternate layouts.
+
 ### Service Management
 
 **Module:** `ops/systemd/nanobot-gateway.service`

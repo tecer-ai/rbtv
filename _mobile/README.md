@@ -44,7 +44,7 @@ RBTV `_mobile` harness owns:
 
 | Document | Purpose |
 |----------|---------|
-| `HOW-IT-WORKS.md` | Architecture, bootstrap system, inbound pipeline, agent system, VPS deployment, design decisions |
+| `HOW-IT-WORKS.md` | Architecture, bootstrap system, inbound pipeline, agent system, VPS instance layout, VPS deployment, design decisions |
 | `_docs/` | Operational docs — deployment runbook, smoke checklist, server access, env template, troubleshooting, provisioning guide |
 
 ## Implementation Contract

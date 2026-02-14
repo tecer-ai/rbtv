@@ -2,7 +2,7 @@
 
 > Generated: 2026-02-14
 > Source: `_admin/roadmap/todos/prd-*.md`, `todos/cp-*.md`
-> Total PRDs: 13 | Compounds: 5
+> Total PRDs: 14 | Compounds: 7
 
 ---
 
@@ -28,6 +28,8 @@
 | 16 | PRD and Compound Output Locations | Medium | Workflow | Moderate |
 | 17 | Quality-Review Subagent at Plan Checkpoints | High | Workflow | Minimal |
 | 18 | Nanobot Token Optimization — Prompt Caching & Model Routing | High | System File | Moderate |
+| 19 | Plan Linking Standard (Internal Relative, External Alias) | High | Workflow | Moderate |
+| 20 | Visual Design Extraction — Live Site Navigation & Multi-Page Token Extraction | High | Workflow | Large |
 
 ### Dependency Chain
 ```
@@ -69,6 +71,22 @@ All other PRDs are independent.
 **Description:** Nanobot hits Anthropic's `claude-opus-4-6` rate limit (30,000 input tokens/minute) during simple two-message interactions. The bootstrap system sends ~7,250 tokens of system prompt on every API call, and tool-calling patterns require 2+ API calls per user message, causing 4 calls within a minute that aggregate to ~32k+ input tokens.
 **Goals:** (1) Switch default model to Sonnet for routine interactions (immediate unblock), (2) enable Anthropic prompt caching via LiteLLM to cache the static system prompt (systemic fix), (3) slim `TOOLS.md` by moving per-agent workflow tables to on-demand loading (~800 token savings per call).
 **Scope:** Moderate — VPS `config.json` model change, LiteLLM caching research + config, `_mobile/TOOLS.md` content reduction, deploy docs update.
+**Dependencies:** None.
+
+### 19. Plan Linking Standard (Internal Relative, External Alias)
+**File:** `cp-plan-linking-standard-internal-relative-external-alias.md`
+**Type:** Workflow
+**Description:** Plan artifacts use mixed link styles. Internal links inside plan folders can become brittle when they include repo-root plan paths, and external references commonly target concrete plan file paths directly, increasing break risk when plan folders move.
+**Goals:** Define a standard where intra-plan references are always file-relative (`./`, `../`), external references use a stable alias contract, and generation/edit flows enforce these patterns by default.
+**Scope:** Moderate — workflow/rule updates and alias convention adoption.
+**Dependencies:** None.
+
+### 20. Visual Design Extraction — Live Site Navigation & Multi-Page Token Extraction
+**File:** `cp-visual-design-extraction-live-site-access.md`
+**Type:** Workflow
+**Description:** The `visual-design-extraction` workflow treats token extraction as a screenshot-only exercise. No step navigates the site to discover pages, captures multiple views, or accesses the live DOM/CSS for actual computed styles, @font-face, CSS variables, media queries, or transitions. Agents produce tokens JSON full of `null` values for typography and spacing because those cannot be derived from a PNG.
+**Goals:** Restructure as a 5-step workflow: (1) Init, (2) Site Discovery (navigate, map pages/states), (3) Multi-Page Capture & DOM Extraction (screenshots + stylesheet/computed-style parsing per page), (4) Token Synthesis (merge DOM data + visual analysis), (5) Document. Tokens JSON must never contain `null` for DOM-extractable values. Extend template with @font-face, transitions, breakpoints, CSS variables, alpha scales.
+**Scope:** Large — full workflow redesign: `workflow.md` + all `steps-c/*.md` files rewritten, `templates/design-tokens.json` extended.
 **Dependencies:** None.
 
 ### 3. Business Innovation Migration

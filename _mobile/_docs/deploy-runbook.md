@@ -219,6 +219,73 @@ Pass criteria:
 
 ---
 
+## Step 8 - p6-2 Netlify Deploy Credentials (robotville.ai)
+
+Run once after Netlify site is provisioned (p6-1) and you have the personal access token (A4). Site ID is in `netlify-site-info.md`.
+
+**Prerequisites:** `NETLIFY_AUTH_TOKEN` from Netlify (User settings → Personal access tokens). Do not commit the token.
+
+### 8.1 Add token to env file
+
+```bash
+sudoedit /etc/robotville/nanobot-gateway.env
+```
+
+Append (replace with your real token):
+
+```bash
+# Netlify deploy (p6-2)
+NETLIFY_AUTH_TOKEN=nfp_YOUR_TOKEN_HERE
+NETLIFY_SITE_ID=86ed1ff3-dd59-4428-a426-219518589906
+```
+
+Keep permissions:
+
+```bash
+sudo chown root:nanobot /etc/robotville/nanobot-gateway.env
+sudo chmod 640 /etc/robotville/nanobot-gateway.env
+```
+
+### 8.2 Install Netlify CLI on VPS
+
+```bash
+sudo npm install -g netlify-cli
+netlify --version
+```
+
+### 8.3 Link CLI to site (as nanobot, one-time)
+
+Replace `nfp_YOUR_TOKEN_HERE` with the real token (or ensure it is already in env and source it):
+
+```bash
+sudo -u nanobot env HOME=/srv/nanobot bash -c '
+  source /etc/robotville/nanobot-gateway.env 2>/dev/null || true
+  export NETLIFY_AUTH_TOKEN
+  netlify link --id 86ed1ff3-dd59-4428-a426-219518589906
+'
+```
+
+When prompted for site name, press Enter to accept default.
+
+### 8.4 Test deploy as nanobot
+
+```bash
+sudo -u nanobot env HOME=/srv/nanobot bash -c '
+  source /etc/robotville/nanobot-gateway.env 2>/dev/null || true
+  export NETLIFY_AUTH_TOKEN
+  mkdir -p /tmp/netlify-test
+  echo "<h1>Test deploy</h1>" > /tmp/netlify-test/index.html
+  netlify deploy --dir=/tmp/netlify-test --prod
+'
+```
+
+Pass criteria:
+
+- Command completes without "Not logged in" or "Invalid token".
+- Production URL is printed; https://robotville.ai shows updated or test content when Netlify finishes propagating.
+
+---
+
 ## Rollback Procedure
 
 If deployment causes regression:
@@ -252,4 +319,5 @@ If deployment causes regression:
 | 2026-02-14 | Enforced canonical VPS path contract and removed SCP fallback branch | AI |
 | 2026-02-14 | Added deploy-key-based GitHub pull flow for private repo updates | AI |
 | 2026-02-14 | Added automated pull+reinstall+mirror-cleanup scripts and git-hook install step | AI |
+| 2026-02-14 | Added Step 8 — p6-2 Netlify deploy credentials (install CLI, env token, link, test deploy) | AI |
 

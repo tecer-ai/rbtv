@@ -30,14 +30,6 @@ If a user sends a different agent command while an agent is active:
 2. Load and activate the new agent file.
 3. The previous agent persona is fully dropped — no blending.
 
-### Unknown Commands
-
-If the command does not match any agent in the table above, respond with:
-
-> I don't recognize that command. Available commands: **mentor**, **domcobb**, **doc**.
-
-Do not attempt to guess or fuzzy-match at the routing level. Fuzzy matching happens inside each agent's own menu system after activation.
-
 ---
 
 ## Agent Summaries

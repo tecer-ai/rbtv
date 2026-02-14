@@ -45,6 +45,12 @@ NANOBOT_OPENROUTER_API_KEY=sk-or-REPLACE_ME
 NANOBOT_ANTHROPIC_API_KEY=sk-ant-OPTIONAL_IF_UNUSED
 NANOBOT_OPENAI_API_KEY=sk-OPTIONAL_IF_UNUSED
 NANOBOT_DEEPSEEK_API_KEY=sk-OPTIONAL_IF_UNUSED
+
+# Netlify deploy (p6-2) — for robotville.ai doc deploy via CLI
+# Required for Nanobot deploy command; add to env so deploy script can source it
+NETLIFY_AUTH_TOKEN=nfp_REPLACE_ME
+# Site ID for netlify deploy --site (see netlify-site-info.md). Omit if you ran netlify link.
+NETLIFY_SITE_ID=86ed1ff3-dd59-4428-a426-219518589906
 ```
 
 ---
@@ -125,6 +131,19 @@ Write `/srv/nanobot/.nanobot/config.json` with the selected provider and Slack s
 - `NANOBOT_ALLOW_FROM` contains real Slack user IDs (if using DM allowlist).
 - `NANOBOT_GATEWAY_CMD` is set (e.g. `nanobot gateway`).
 - Selected provider key is present for `NANOBOT_PROVIDER`.
-- No real secret exists in any file under `H:\repos\BMAD`.
+- `NETLIFY_AUTH_TOKEN` is set for deploy (starts with `nfp_`); optional `NETLIFY_SITE_ID` if multiple sites.
+- No real secret exists in any file under the repo.
 
 **If the bot does not answer on Slack**, see `slack-troubleshooting-checklist.md`.
+
+---
+
+## Netlify deploy setup (p6-2)
+
+After adding `NETLIFY_AUTH_TOKEN` and `NETLIFY_SITE_ID` to the env file on the VPS:
+
+1. Install Netlify CLI: `sudo npm install -g netlify-cli`
+2. Link site (one-time, as nanobot): source env, then `netlify link --id <NETLIFY_SITE_ID>`
+3. Test: as nanobot, source env and run `netlify deploy --dir=/tmp/some-dir --prod`
+
+Full step-by-step: **deploy-runbook.md** → Step 8.

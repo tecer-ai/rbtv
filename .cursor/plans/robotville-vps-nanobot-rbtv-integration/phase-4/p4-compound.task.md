@@ -20,8 +20,8 @@ Review `learnings.md` and compound qualifying entries into actionable BMAD/RBTV 
 
 | File | Purpose |
 |------|---------|
-| `.cursor/plans/robotville-vps-nanobot-rbtv-integration/learnings.md` | Source of meta-learnings collected during execution |
-| `.cursor/plans/robotville-vps-nanobot-rbtv-integration/shape.md` | Discoveries and decision context that influence compound outputs |
+| `../learnings.md` | Source of meta-learnings collected during execution |
+| `../shape.md` | Discoveries and decision context that influence compound outputs |
 
 ---
 
@@ -57,4 +57,4 @@ Review `learnings.md` and compound qualifying entries into actionable BMAD/RBTV 
 
 | Output | Location | Format |
 |--------|----------|--------|
-| Compounded improvement set | `.cursor/plans/robotville-vps-nanobot-rbtv-integration/learnings.md` | Grouped and traceable system improvement proposals |
+| Compounded improvement set | `../learnings.md` | Grouped and traceable system improvement proposals |

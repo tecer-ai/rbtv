@@ -18,7 +18,8 @@ These are the top-level commands that activate RBTV agent personas. Each command
 **Routing rules:**
 - Commands are case-insensitive. `/mentor`, `Mentor`, `MENTOR` all resolve to `mentor`.
 - Leading `/` is stripped before matching.
-- If the command doesn't match any row above, respond with the list of available commands.
+- `deploy` is a standalone action command — see Deploy Commands section below.
+- If the command doesn't match any agent or action command, respond with the list of available commands.
 
 ---
 
@@ -70,6 +71,31 @@ After activating the doc agent, these workflows are available through Ana's menu
 - `doc product:brief` — Skip menu, go directly to product brief
 - `doc product:prd` — Skip menu, go directly to PRD
 - `doc product:ux` — Skip menu, go directly to UX design
+
+---
+
+## Deploy Commands
+
+Deploy commands publish content to `robotville.ai` via Netlify CLI. These are standalone action commands — they do not activate an agent persona.
+
+**CRITICAL: Deploy ONLY on explicit user command. Never deploy automatically — not on framework completion, not on state changes, not on agent switching, not on session start.**
+
+| Command | Status | Action |
+|---------|--------|--------|
+| `deploy site` | Active | Deploy robotville.ai home page |
+| `deploy docs {project}` | Deferred | Deploy project documents to `robotville.ai/docs/{project-name}` |
+| `deploy app {project}` | Deferred | Deploy project app to `robotville.ai/app/{project-name}` |
+
+**`deploy site` execution:**
+1. User sends `deploy site`.
+2. Copy the source directory to a staging path outside git tracking:
+   `exec`: `rm -rf /tmp/robotville-deploy && cp -r _bmad/rbtv/_mobile/_docs/netlify-placeholder /tmp/robotville-deploy`
+3. If the user requested content changes before deploying, apply edits to files in `/tmp/robotville-deploy/` (never edit the git-tracked source directly).
+4. Deploy from the staging path:
+   `exec`: `netlify deploy --dir=/tmp/robotville-deploy --site=86ed1ff3-dd59-4428-a426-219518589906 --prod`
+5. Report deploy URL and result to user.
+
+**Deferred commands:** If the user sends `deploy docs`, `deploy app`, or any deploy subcommand not marked Active above, respond: "That deploy command is not yet available. Currently only `deploy site` is active."
 
 ---
 

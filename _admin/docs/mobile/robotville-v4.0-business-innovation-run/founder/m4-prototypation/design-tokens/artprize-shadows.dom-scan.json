@@ -1,0 +1,244 @@
+{
+  "url": "https://artprize-shadows.com/",
+  "timestamp": "2026-02-14T13:43:41.117Z",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "cssCustomProperties": {},
+  "documentElement": {
+    "fontFamily": "\"Times New Roman\"",
+    "fontSize": "16px",
+    "fontWeight": "400",
+    "lineHeight": "normal",
+    "letterSpacing": "normal",
+    "color": "rgb(0, 0, 0)",
+    "backgroundColor": "rgba(0, 0, 0, 0)"
+  },
+  "body": {
+    "fontFamily": "\"Times New Roman\"",
+    "fontSize": "16px",
+    "fontWeight": "400",
+    "lineHeight": "normal",
+    "letterSpacing": "normal",
+    "color": "rgb(0, 0, 0)",
+    "backgroundColor": "rgba(0, 0, 0, 0)",
+    "maxWidth": "none",
+    "width": "1440px",
+    "padding": "0px",
+    "margin": "0px"
+  },
+  "typographyCandidates": [
+    {
+      "fontFamily": "\"Neue Haas Grotesk Display Pro\", sans-serif",
+      "fontSize": "112px",
+      "fontWeight": "500",
+      "lineHeight": "100.8px",
+      "letterSpacing": "15.1616px",
+      "color": "rgb(255, 255, 255)"
+    },
+    {
+      "fontFamily": "\"Neue Haas Grotesk Display Pro\", sans-serif",
+      "fontSize": "24px",
+      "fontWeight": "500",
+      "lineHeight": "21.6px",
+      "letterSpacing": "15.1616px",
+      "color": "rgb(255, 255, 255)"
+    },
+    {
+      "fontFamily": "\"Times New Roman\"",
+      "fontSize": "16px",
+      "fontWeight": "400",
+      "lineHeight": "normal",
+      "letterSpacing": "normal",
+      "color": "rgb(0, 0, 0)"
+    },
+    {
+      "fontFamily": "\"Times New Roman\"",
+      "fontSize": "16px",
+      "fontWeight": "400",
+      "lineHeight": "normal",
+      "letterSpacing": "normal",
+      "color": "rgb(255, 255, 255)"
+    },
+    {
+      "fontFamily": "\"Times New Roman\"",
+      "fontSize": "16px",
+      "fontWeight": "400",
+      "lineHeight": "normal",
+      "letterSpacing": "15.1616px",
+      "color": "rgb(255, 255, 255)"
+    },
+    {
+      "fontFamily": "\"Neue Haas Grotesk Display Pro\", sans-serif",
+      "fontSize": "14px",
+      "fontWeight": "500",
+      "lineHeight": "15.4px",
+      "letterSpacing": "normal",
+      "color": "rgb(255, 255, 255)"
+    },
+    {
+      "fontFamily": "\"Neue Haas Grotesk Display Pro\", sans-serif",
+      "fontSize": "14px",
+      "fontWeight": "500",
+      "lineHeight": "15.4px",
+      "letterSpacing": "normal",
+      "color": "rgba(255, 255, 255, 0.7)"
+    },
+    {
+      "fontFamily": "Interstate, sans-serif",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "lineHeight": "16.8px",
+      "letterSpacing": "normal",
+      "color": "rgb(255, 255, 255)"
+    },
+    {
+      "fontFamily": "\"Neue Haas Grotesk Display Pro\", sans-serif",
+      "fontSize": "14px",
+      "fontWeight": "500",
+      "lineHeight": "25.76px",
+      "letterSpacing": "normal",
+      "color": "rgb(1, 27, 80)"
+    },
+    {
+      "fontFamily": "\"Times New Roman\"",
+      "fontSize": "13.3333px",
+      "fontWeight": "400",
+      "lineHeight": "normal",
+      "letterSpacing": "normal",
+      "color": "rgb(255, 255, 255)"
+    },
+    {
+      "fontFamily": "Interstate, sans-serif",
+      "fontSize": "12px",
+      "fontWeight": "400",
+      "lineHeight": "14.4px",
+      "letterSpacing": "normal",
+      "color": "rgb(255, 255, 255)"
+    }
+  ],
+  "colorCandidates": [
+    "rgb(0, 0, 0)",
+    "rgb(1, 27, 80)",
+    "rgb(255, 255, 255)",
+    "rgb(65, 39, 98)",
+    "rgba(255, 255, 255, 0.7)",
+    "rgba(255, 255, 255, 0.08)",
+    "rgba(255, 255, 255, 0.3)",
+    "rgba(255, 255, 255, 0.25)"
+  ],
+  "layoutCandidates": [
+    {
+      "selector": "body",
+      "maxWidth": "none",
+      "width": "1440px",
+      "padding": "0px",
+      "margin": "0px",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1440,
+        "height": 900,
+        "top": 0,
+        "right": 1440,
+        "bottom": 900,
+        "left": 0
+      }
+    },
+    {
+      "selector": "DIV#intro",
+      "maxWidth": "none",
+      "width": "1446px",
+      "padding": "0px",
+      "margin": "0px",
+      "rect": {
+        "x": -3,
+        "y": -3,
+        "width": 1446,
+        "height": 906,
+        "top": -3,
+        "right": 1443,
+        "bottom": 903,
+        "left": -3
+      }
+    },
+    {
+      "selector": "DIV.intro-background",
+      "maxWidth": "none",
+      "width": "1446px",
+      "padding": "0px",
+      "margin": "0px",
+      "rect": {
+        "x": -3,
+        "y": -3,
+        "width": 1446,
+        "height": 906,
+        "top": -3,
+        "right": 1443,
+        "bottom": 903,
+        "left": -3
+      }
+    },
+    {
+      "selector": "VIDEO#video1",
+      "maxWidth": "none",
+      "width": "1446px",
+      "padding": "0px",
+      "margin": "0px",
+      "rect": {
+        "x": -3,
+        "y": -3,
+        "width": 1446,
+        "height": 906,
+        "top": -3,
+        "right": 1443,
+        "bottom": 903,
+        "left": -3
+      }
+    },
+    {
+      "selector": "VIDEO#video2",
+      "maxWidth": "none",
+      "width": "1446px",
+      "padding": "0px",
+      "margin": "0px",
+      "rect": {
+        "x": -3,
+        "y": -3,
+        "width": 1446,
+        "height": 906,
+        "top": -3,
+        "right": 1443,
+        "bottom": 903,
+        "left": -3
+      }
+    },
+    {
+      "selector": "HTML",
+      "maxWidth": "none",
+      "width": "1440px",
+      "padding": "0px",
+      "margin": "0px",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1440,
+        "height": 900,
+        "top": 0,
+        "right": 1440,
+        "bottom": 900,
+        "left": 0
+      }
+    }
+  ],
+  "heroArt": {
+    "inDOMText": true,
+    "canvasCount": 1,
+    "svgCount": 25,
+    "inferredSource": "dom_text"
+  },
+  "limitations": [
+    "No CSS custom properties found on :root"
+  ]
+}
