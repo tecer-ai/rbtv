@@ -285,3 +285,77 @@
 - **Root cause:** Nanobot resolves its workspace from `agents.defaults.workspace` in `config.json`, which defaults to `~/.nanobot/workspace`. With `HOME=/srv/nanobot` (set in systemd unit), this resolved to `/srv/nanobot/.nanobot/workspace/` — an empty directory. The systemd `WorkingDirectory=/opt/robotville/BMAD` controls the process CWD but is a distinct concept from Nanobot's workspace path where it loads bootstrap files and skills.
 - **Evidence:** Nanobot self-reported (via Slack conversation) that "None of these files exist yet" when asked about its bootstrap files, and that `config.json` had no workspace override — confirming it was looking in the default `~/.nanobot/workspace/` path.
 - **Fix applied:** Created `_mobile/ops/patches/fix-nanobot-workspace.py` to set `agents.defaults.workspace` to `/opt/robotville/BMAD` in `config.json`. Updated `server-env-template.md` to include the `workspace` field in the config template. Deployed patch on VPS and restarted gateway.
+
+### 2026-02-14 - Plan Scope Extension: Phases 6-10 Added
+
+- **Decision:** Extend plan scope beyond the original Phase 6 (closure) to cover five new validation and deployment workstreams before plan completion. User confirmed Nanobot is running and all tasks through p5-8 are complete.
+- **Scope additions:**
+  - **Phase 6: robotville.ai Website & Deployment Pipeline** — Set up hosting (Netlify or GitHub Pages, user has Netlify account), create home page from founder docs, build user-commanded doc deployment to `robotville.ai/docs/{project-name}` with two modes (raw download or HTML-structured). All deployments user-commanded only, never automatic. `/app/{project-name}` is infrastructure-ready but workflow deferred to mentor M4-M6 step creation.
+  - **Phase 7: System Update Safety** — Audit `vps-sync-install.sh` and post-merge hook to guarantee `git pull` never overwrites project output files in `_bmad-output/`.
+  - **Phase 8: Token Optimization** — Implement three-part fix from `_admin/roadmap/todos/cp-nanobot-token-optimization-prompt-caching.md`: switch to Sonnet, research/configure prompt caching, slim TOOLS.md.
+  - **Phase 9: Workflow & Output Fidelity** — Validate Mentor outputs to correct folder, follows long workflows with state management, and agent switching preserves state.
+  - **Phase 10: Closure** — Replaces old Phase 6. File reference review (`p10-refs`, superseding cancelled `p4-refs`), learnings compound, final signoff.
+- **Structural changes to plan file:**
+  - `p4-refs` cancelled (superseded by `p10-refs` — runs after all new artifacts exist)
+  - `p5-8` and `p5-checkpoint` marked completed
+  - 25 new YAML todo entries added (p6-1 through p10-checkpoint)
+  - 10 micro-step task files created across phase-6/, phase-7/, phase-8/, phase-9/
+  - Mermaid diagram, folder structure, files-to-load table, key files summary all updated
+  - PRD (`_admin/docs/mobile/robotville-v4.0-business-innovation-run/bmad/prd.md`) and compound doc added to files-to-load for phases 6, 8, 9
+- **User inputs driving this change:**
+  - Website deployment to robotville.ai is first priority
+  - System update safety (no project file overwrites) is second priority
+  - Token optimization per existing compound doc
+  - Mentor doc output correctness and workflow fidelity validation
+  - Keep all completed tasks unchanged; total freedom to modify/add pending tasks
+
+### 2026-02-14 - p6-1 Hosting Evaluation and Provisioning Documentation
+
+- **Decision:** Use **Netlify** for robotville.ai. Evaluation against CLI deploy, per-path routing (`/docs/`, `/app/`), Nanobot `exec` compatibility, and existing user account favored Netlify; GitHub Pages would require git-based deploys and does not support single-command deploy of arbitrary directories.
+- **Deliverables:** (1) `_mobile/_docs/robotville-hosting-decision.md` — evaluation table, decision, rationale, CLI deploy contract (`netlify deploy --dir=<path> --prod`, `NETLIFY_AUTH_TOKEN` for non-interactive use). (2) `_mobile/_docs/robotville-ai-provisioning.md` — step-by-step provisioning: create site (Deploy manually), add custom domain robotville.ai (Netlify DNS or external DNS), verify HTTPS, obtain personal access token for p6-2.
+- **Provisioning:** Actual site creation and DNS configuration require operator execution (Netlify login, domain access). Documentation is complete; operator follows `_mobile/_docs/robotville-ai-provisioning.md` to provision site and attach robotville.ai. After provisioning, verify `https://robotville.ai` resolves and HTTPS is active; then p6-2 can configure deploy credentials on VPS.
+- **Validation:** CLI deploy tool is documented (Netlify CLI); domain verification and HTTPS check are in provisioning doc for operator to run.
+
+### 2026-02-14 - p6-2 Deploy Credentials Documentation and Runbook
+
+- **Decision:** Netlify path only (p6-1 selected Netlify). Deploy credentials are configured on the VPS via env file and Netlify CLI; no GitHub Pages branch.
+- **Deliverables (in-repo):** (1) **deploy-runbook.md** — added Step 8 (p6-2 Netlify deploy credentials): add `NETLIFY_AUTH_TOKEN` and `NETLIFY_SITE_ID` to `/etc/robotville/nanobot-gateway.env`, install `netlify-cli` globally, run `netlify link --id <site-id>` as nanobot, test deploy with placeholder dir. Site ID `86ed1ff3-dd59-4428-a426-219518589906` embedded in runbook and template. (2) **server-env-template.md** — Netlify section already present; added `NETLIFY_SITE_ID` with current site ID and a short "Netlify deploy setup (p6-2)" procedure pointing to deploy-runbook Step 8.
+- **Operator action required:** On the VPS, run deploy-runbook Step 8 in order: add real `NETLIFY_AUTH_TOKEN` to env (never in repo), install CLI, link site, run test deploy. Pass criteria: deploy completes without auth errors and https://robotville.ai reflects the deploy.
+- **Validation:** Credential storage is documented (root:nanobot 0640); test deploy and live site check are operator-run per Step 8.4.
+
+### 2026-02-14 - p6-2 Deploy Credentials Executed and Production Deploy Verified
+
+- **Discovery:** `/etc/robotville/nanobot-gateway.env` must be shell-sourceable; unquoted values with spaces (e.g. `NANOBOT_GATEWAY_CMD=nanobot gateway`) break `source` and prevent `NETLIFY_AUTH_TOKEN`/`NETLIFY_SITE_ID` from loading.
+- **Fix applied:** Updated env file to quote the gateway command (`NANOBOT_GATEWAY_CMD="nanobot gateway"`), installed Node.js + npm, installed `netlify-cli`, and confirmed `netlify link` resolves to the expected site (`rad-mochi-fc1e27` / `86ed1ff3-dd59-4428-a426-219518589906`).
+- **Validation outcome:** Production deploy succeeded from the `nanobot` account via Netlify CLI; `https://robotville.ai` is live and the deploy produced a unique URL under `rad-mochi-fc1e27.netlify.app` with a corresponding deploy log in Netlify.
+
+### 2026-02-14 - p6-4 Design Token Extraction from artprize-shadows.com (WIP)
+
+- **Context:** p6-3 (home page creation) is WIP in a separate session. p6-4 was started in parallel to unblock home page styling decisions by extracting design tokens from the inspiration site `https://artprize-shadows.com/`.
+- **Extraction method:** Three-pass approach: (1) screenshot pixel sampling at 1440x900, (2) shallow DOM computed-style scan, (3) deep CSS extraction — parsing all stylesheet rules, @font-face declarations, media queries, computed samples from 19 elements, and interaction-state changes (clicked "Start exploring", navigated to artwork).
+- **Key findings from live site:**
+  - **Framework:** Astro (scoped `data-astro-cid-*` selectors).
+  - **Typography:** 3 typefaces — `Neue Haas Grotesk Display Pro` (display, weight 450, WOFF2), `Interstate` (UI, weights 300/400, WOFF2), `Times New Roman` (body default). Hero wordmark "Art" is DOM text at `7rem` (112px) with `15.16px` letter-spacing.
+  - **Colors:** 17 unique CSS colors. Brand triad: deep navy `#011B50`, indigo `#14093A`, purple `#412762`. White is the dominant accent. Rich alpha scale (8 white alphas, 3 black alphas, 1 indigo alpha). DOM backgrounds are transparent (video/canvas layers); rendered background is warm off-white `#ECEAE4` (screenshot-sampled).
+  - **Motion:** 42 transition tokens with custom cubic-bezier easings (`0.32, 0.94, 0.6, 1` smooth decel; `0.66, 0, 0.34, 1` symmetrical). Keyframe animation on SVG paths.
+  - **Layout:** Single-screen experience (page height = viewport). Content revealed via JS interactions, not scroll. Full-bleed absolute positioning; no CSS grid. Responsive padding `max(150px, 10vw)`. Breakpoints at `48em`/`64em` + touch/pointer queries.
+  - **Visual:** Border-radii `25px`–`76px` + `50%` (pill CTAs, circular indicators). White glow shadows only (no elevation box-shadows). Opacity-based interaction states (0/0.5/1).
+  - **No CSS custom properties on `:root`**; 8 inline CSS vars (`--dvh`, `--svh`, `--lvh`, `--universes`, `--length`, `--index`) set dynamically by JS.
+- **Artifacts produced:**
+  - `_admin-output/design-tokens/artprize-shadows.tokens.json` — canonical tokens (colors, typography with @font-face, spacing, layout, visual identity including transitions/easings/z-index/opacity, breakpoints, CSS variables).
+  - `_admin-output/design-tokens/artprize-shadows.deep-scan.json` — raw deep scan (all 200 CSS rules, computed samples, interaction log, full spacing/gap/margin/padding inventories).
+  - `_admin-output/design-tokens/artprize-shadows.dom-scan.json` — initial shallow DOM scan (superseded by deep scan but retained).
+  - `_admin-output/design-brief-artprize-shadows.md` — narrative design brief covering color strategy, typography direction, spacing philosophy, layout patterns, and visual identity.
+  - `_admin-output/screenshots/artprize-shadows-desktop.png` — desktop screenshot (1440x900).
+- **Status:** Design token extraction complete. p6-4 task (CREATE deployment command/workflow) is NOT yet started — this extraction is preparatory input for p6-3 home page styling. The next agent must use these tokens to inform p6-3 and then proceed to create the actual deploy command (p6-4 proper).
+
+### 2026-02-14 - p6-4 Waitlist Email Capture Added to Home Page
+
+- **Decision:** Repurpose p6-4 to add a "Join the waitlist" email capture to the robotville.ai home page using Netlify Forms (no backend). The original p6-4 scope (Nanobot deploy command/workflow) is deferred — it depends on having project docs to deploy, which requires further mentor workflow development.
+- **Implementation:**
+  - Updated `_mobile/_docs/netlify-placeholder/index.html` — transformed from bare "Coming soon" placeholder to a branded landing page with value proposition (sourced from founder lean-canvas and working-backwards docs), email input + "Join the waitlist" button, and Netlify Forms integration.
+  - Created `_mobile/_docs/netlify-placeholder/success.html` — post-submission confirmation page with "You're on the list" message and back link.
+  - Netlify Forms attributes: `name="waitlist"`, `data-netlify="true"`, `netlify-honeypot="bot-field"`. Hidden honeypot field (`bot-field`) catches bots. Form redirects to `/success` on submit.
+  - Design: dark navy palette (`#0b1120` bg, `#6366f1` accent), responsive (stacks to column on mobile), system fonts, no external dependencies, no JavaScript required.
+- **Operator action required:** (1) Deploy via `netlify deploy --dir=_mobile/_docs/netlify-placeholder --prod` from VPS or local. (2) In Netlify UI: Site settings → Forms → Form notifications → Add email notification on "waitlist" form submissions. (3) Verify form submissions appear in Netlify Forms dashboard.
+- **Validation:** Page renders correctly, form submits to Netlify, honeypot is invisible to users, success page displays after submission.

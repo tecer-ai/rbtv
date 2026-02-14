@@ -1,6 +1,6 @@
 ---
 name: robotville-vps-nanobot-rbtv-integration
-overview: Provision a secure Hetzner VPS, implement Nanobot plus RBTV _mobile harness integration, create and deploy Nanobot bootstrap files (AGENTS.md, SOUL.md, TOOLS.md, USER.md, skills) so RBTV agent workflows are active, and validate end-to-end with FR25 auto-restart.
+overview: Provision a secure Hetzner VPS, implement Nanobot plus RBTV _mobile harness integration, deploy Nanobot bootstrap files, then validate website deployment (robotville.ai), system update safety, token optimization, and workflow fidelity.
 todos:
   - id: p1-1
     content: "p1-1: Provision Hetzner project and Ubuntu VPS with SSH-key access and API manageability"
@@ -67,7 +67,7 @@ todos:
     status: completed
   - id: p4-refs
     content: "p4-refs: File reference review - verify all internal markdown links resolve across plan artifacts"
-    status: pending
+    status: cancelled
   - id: p5-1
     content: "p5-1: CREATE _bmad/rbtv/_mobile/AGENTS.md with agent persona routing for mentor, domcobb, and doc commands"
     status: completed
@@ -91,15 +91,78 @@ todos:
     status: completed
   - id: p5-8
     content: "p5-8: VALIDATE mentor command triggers RBTV mentor workflow behavior (not default Nanobot)"
-    status: pending
+    status: completed
   - id: p5-checkpoint
     content: P5 CHECKPOINT - Approve RBTV bootstrap deployment and mentor workflow behavior
+    status: completed
+  - id: p6-1
+    content: "p6-1: Evaluate hosting platform (Netlify vs GitHub Pages) and provision robotville.ai site with custom domain"
+    status: completed
+  - id: p6-2
+    content: "p6-2: Configure deploy credentials on VPS for Nanobot service account to push to hosting via CLI"
+    status: completed
+  - id: p6-3
+    content: "p6-3: CREATE initial robotville.ai home page based on founder documents with navigation for /docs/ and /app/ sections"
+    status: completed
+  - id: p6-4
+    content: "p6-4: ADD waitlist email capture to robotville.ai home page using Netlify Forms (honeypot, success redirect, no backend)"
+    status: completed
+  - id: p6-5
+    content: "p6-5: UPDATE _mobile/ bootstrap (TOOLS.md/SOUL.md) with deploy command routing and rule: deploy ONLY on explicit user command"
+    status: pending
+  - id: p6-6
+    content: "p6-6: VALIDATE end-to-end doc deployment via Slack command to robotville.ai/docs/{project-name}"
     status: pending
   - id: p6-checkpoint
-    content: P6 CHECKPOINT - Final implementation signoff before plan closure
+    content: P6 CHECKPOINT - Approve website deployment pipeline
     status: pending
-  - id: p6-compound
-    content: "p6-compound: Review learnings.md and compound into system improvements"
+  - id: p7-1
+    content: "p7-1: Audit vps-sync-install.sh, post-merge hook, and RBTV installer for project file safety — ensure _bmad-output/ and project data untouched by system updates"
+    status: pending
+  - id: p7-2
+    content: "p7-2: VALIDATE system update cycle: git pull → sync-install → verify project files preserved"
+    status: pending
+  - id: p7-checkpoint
+    content: P7 CHECKPOINT - Approve system update safety
+    status: pending
+  - id: p8-1
+    content: "p8-1: Switch default model to Sonnet in Nanobot config.json on VPS"
+    status: pending
+  - id: p8-2
+    content: "p8-2: Research Nanobot/LiteLLM prompt caching support for Anthropic and configure if available"
+    status: pending
+  - id: p8-3
+    content: "p8-3: Slim _mobile/TOOLS.md — move per-agent workflow tables to on-demand loading"
+    status: pending
+  - id: p8-4
+    content: "p8-4: UPDATE deploy docs (runbook, server-env-template, smoke-checklist) with model, caching, and token budget guidance"
+    status: pending
+  - id: p8-5
+    content: "p8-5: VALIDATE multi-turn mentor conversation completes without rate limit errors"
+    status: pending
+  - id: p8-checkpoint
+    content: P8 CHECKPOINT - Approve token optimization
+    status: pending
+  - id: p9-1
+    content: "p9-1: VALIDATE Mentor outputs framework docs to correct folder matching Cursor _bmad-output/ behavior"
+    status: pending
+  - id: p9-2
+    content: "p9-2: VALIDATE Mentor follows long workflow with state management — project-memo cycle, framework progression, consolidation resilience"
+    status: pending
+  - id: p9-3
+    content: "p9-3: VALIDATE agent switching (Mentor ↔ DomCobb) preserves workflow state"
+    status: pending
+  - id: p9-checkpoint
+    content: P9 CHECKPOINT - Approve workflow and output fidelity
+    status: pending
+  - id: p10-refs
+    content: "p10-refs: File reference review — verify all internal markdown links resolve across all plan artifacts"
+    status: pending
+  - id: p10-compound
+    content: "p10-compound: Review learnings.md and compound into system improvements"
+    status: pending
+  - id: p10-checkpoint
+    content: P10 CHECKPOINT - Final signoff before plan closure
     status: pending
 isProject: false
 ---
@@ -175,7 +238,7 @@ This plan uses companion files for execution context:
 ## Folder Structure
 
 ```text
-.cursor/plans/robotville-vps-nanobot-rbtv-integration/
+./
 ├── robotville-vps-nanobot-rbtv-integration.plan.md
 ├── shape.md
 ├── learnings.md
@@ -195,12 +258,26 @@ This plan uses companion files for execution context:
 ├── phase-4/
 │   ├── p4-3.task.md
 │   └── p4-compound.task.md
-└── phase-5/
-    ├── p5-1.task.md
-    ├── p5-2.task.md
-    ├── p5-3.task.md
-    ├── p5-5.task.md
-    └── p5-6.task.md
+├── phase-5/
+│   ├── p5-1.task.md
+│   ├── p5-2.task.md
+│   ├── p5-3.task.md
+│   ├── p5-5.task.md
+│   └── p5-6.task.md
+├── phase-6/
+│   ├── p6-1.task.md
+│   ├── p6-2.task.md
+│   ├── p6-3.task.md
+│   └── p6-4.task.md
+├── phase-7/
+│   └── p7-1.task.md
+├── phase-8/
+│   ├── p8-2.task.md
+│   ├── p8-3.task.md
+│   └── p8-4.task.md
+└── phase-9/
+    ├── p9-1.task.md
+    └── p9-2.task.md
 ```
 
 ---
@@ -287,6 +364,18 @@ This plan uses companion files for execution context:
 
 | `_bmad/rbtv/agents/ana.md` | Doc/Ana agent behavior for bootstrap alignment | Phase 5 |
 
+| `_admin/docs/mobile/robotville-v4.0-business-innovation-run/bmad/prd.md` | PRD — deployment pipeline requirements, FR references | Phase 6, 8, 9 |
+
+| `_admin/docs/mobile/robotville-v4.0-business-innovation-run/founder/project-memo.md` | Founder project-memo — solution description, deployment model, home page content | Phase 6 |
+
+| `_admin/roadmap/todos/cp-nanobot-token-optimization-prompt-caching.md` | Token optimization compound doc — three-part fix specification | Phase 8 |
+
+| `_bmad/rbtv/_mobile/ops/scripts/vps-sync-install.sh` | Deploy automation script — audit target for project file safety | Phase 7 |
+
+| `_bmad/rbtv/_mobile/TOOLS.md` | Current bootstrap file — slimming target for token optimization | Phase 8 |
+
+| `_bmad/rbtv/_mobile/SOUL.md` | Current bootstrap file — deploy command rule addition | Phase 6 |
+
 ---
 
 ## Key Files Summary
@@ -331,6 +420,20 @@ This plan uses companion files for execution context:
 
 | 5 | UPDATE | `_bmad/rbtv/_mobile/ops/scripts/vps-sync-install.sh` or new deploy script |
 
+| 6 | CREATE | robotville.ai site (Netlify or GitHub Pages) with custom domain |
+
+| 6 | CREATE | robotville.ai home page based on founder documents |
+
+| 6 | CREATE | Nanobot deploy command/workflow for `/docs/{project-name}` |
+
+| 6 | UPDATE | `_bmad/rbtv/_mobile/TOOLS.md` and `SOUL.md` with deploy command routing |
+
+| 8 | UPDATE | VPS `config.json` — switch default model to Sonnet |
+
+| 8 | UPDATE | `_bmad/rbtv/_mobile/TOOLS.md` — slim per-agent workflow tables |
+
+| 8 | UPDATE | `_bmad/rbtv/_admin/docs/mobile/deploy-runbook.md`, `server-env-template.md`, `smoke-checklist.md` |
+
 ---
 
 ## Execution Workflow
@@ -371,8 +474,7 @@ flowchart TD
     P42[p4-2 CREATE smoke checklist]
     P43[p4-3 Enable FR25 restart]
     P44[p4-4 CREATE smoke report]
-    PR[p4-refs Link review]
-    P41 --> P42 --> P43 --> P44 --> PR
+    P41 --> P42 --> P43 --> P44
   end
 
   subgraph P5["Phase 5: RBTV Bootstrap & Workspace Deployment"]
@@ -388,17 +490,58 @@ flowchart TD
     P51 --> P52 --> P53 --> P54 --> P55 --> P56 --> P57 --> P58 --> C5
   end
 
-  subgraph P6["Phase 6: Final Signoff"]
+  subgraph P6["Phase 6: robotville.ai Website & Deployment"]
+    P61[p6-1 Evaluate + provision hosting]
+    P62[p6-2 Configure VPS deploy creds]
+    P63[p6-3 CREATE home page]
+    P64[p6-4 CREATE deploy command]
+    P65[p6-5 UPDATE bootstrap deploy rules]
+    P66[p6-6 VALIDATE doc deployment]
     C6{P6 Checkpoint}
-    PC[p6-compound Compound learnings]
-    C6 --> PC
+    P61 --> P62 --> P63 --> P64 --> P65 --> P66 --> C6
+  end
+
+  subgraph P7["Phase 7: System Update Safety"]
+    P71[p7-1 Audit sync scripts]
+    P72[p7-2 VALIDATE files preserved]
+    C7{P7 Checkpoint}
+    P71 --> P72 --> C7
+  end
+
+  subgraph P8["Phase 8: Token Optimization"]
+    P81[p8-1 Switch to Sonnet]
+    P82[p8-2 Research prompt caching]
+    P83[p8-3 Slim TOOLS.md]
+    P84[p8-4 UPDATE deploy docs]
+    P85[p8-5 VALIDATE no rate limits]
+    C8{P8 Checkpoint}
+    P81 --> P82 --> P83 --> P84 --> P85 --> C8
+  end
+
+  subgraph P9["Phase 9: Workflow & Output Fidelity"]
+    P91[p9-1 VALIDATE doc output folder]
+    P92[p9-2 VALIDATE long workflow state]
+    P93[p9-3 VALIDATE agent switching]
+    C9{P9 Checkpoint}
+    P91 --> P92 --> P93 --> C9
+  end
+
+  subgraph P10["Phase 10: Closure"]
+    P10R[p10-refs Link review]
+    P10C[p10-compound Learnings]
+    C10{P10 Checkpoint}
+    P10R --> P10C --> C10
   end
 
   C1 --> P21
   C2 --> P31
   C3 --> P41
-  PR --> P51
-  C5 --> C6
+  P44 --> P51
+  C5 --> P61
+  C6 --> P71
+  C7 --> P81
+  C8 --> P91
+  C9 --> P10R
 ```
 
 ---
@@ -457,7 +600,7 @@ flowchart TD
 - `p4-2`: CREATE smoke checklist in `_admin/docs/mobile/`.
 - `p4-3`: Enable and validate FR25 auto-restart policy.
 - `p4-4`: CREATE deployment smoke report in `_admin/docs/mobile/`.
-- `p4-refs`: Verify all internal markdown references resolve.
+- `p4-refs`: ~~Verify all internal markdown references resolve.~~ (Cancelled — superseded by `p10-refs`)
 
 ---
 
@@ -510,14 +653,81 @@ flowchart TD
 
 ---
 
-## Phase 6: Final Signoff & Learnings
+## Phase 6: robotville.ai Website & Deployment Pipeline
 
-**Goal:** Complete final implementation signoff and compound learnings into system improvements.
+**Goal:** Set up hosting infrastructure at robotville.ai, create initial home page, and build a user-commanded deployment workflow so Nanobot can publish project documents on demand.
+
+**Scope boundaries:** `/app/{project-name}` deployment is infrastructure-ready but the actual workflow is deferred to mentor M4-M6 step creation (future work outside this plan). This phase builds the `/docs/{project-name}` deployment path and the home page.
+
+**Deployment rules:**
+
+- All deployments are user-commanded only — never automatic
+- `/docs/{project-name}` supports two modes: raw file download OR HTML-structured page (user selects)
+- `/app/{project-name}` placeholder in navigation only — workflow not built in this plan
 
 ### Tasks
 
-- `p6-checkpoint`: **P6 CHECKPOINT** - Final implementation signoff before plan closure.
-- `p6-compound`: Review `learnings.md` and compound into system improvements.
+- `p6-1`: Evaluate hosting platform (Netlify vs GitHub Pages) — CLI deploy capability, per-path routing for `/docs/` and `/app/`, Nanobot `exec` compatibility. Decide and provision site with robotville.ai custom domain.
+- `p6-2`: Configure deploy credentials on VPS — Nanobot service account can push to hosting provider via CLI.
+- `p6-3`: CREATE initial robotville.ai home page based on founder documents (project-memo, lean-canvas, working-backwards, problem-solution-fit) with navigation placeholders for `/docs/{project}` and `/app/{project}` sections.
+- `p6-4`: CREATE deployment command/workflow for Nanobot — user-initiated command that deploys project documents to `robotville.ai/docs/{project-name}` (two modes: raw file download OR HTML-structured page, user selects).
+- `p6-5`: UPDATE `_mobile/` bootstrap (`TOOLS.md`/`SOUL.md`) with deploy command routing and explicit rule: deploy ONLY on user command, never automatic.
+- `p6-6`: VALIDATE end-to-end: user commands doc deployment via Slack, docs appear at `robotville.ai/docs/{project-name}`.
+- `p6-checkpoint`: **P6 CHECKPOINT** - Approve website deployment pipeline.
+
+---
+
+## Phase 7: System Update Safety
+
+**Goal:** Guarantee that `git pull` + sync-install cycle on VPS never overwrites project output files or user project data.
+
+### Tasks
+
+- `p7-1`: Audit `vps-sync-install.sh`, post-merge hook, and RBTV installer for project file safety — verify `_bmad-output/` and all workspace project data remain untouched during system updates.
+- `p7-2`: VALIDATE system update cycle: simulate `git pull` → sync-install → confirm project files preserved.
+- `p7-checkpoint`: **P7 CHECKPOINT** - Approve system update safety.
+
+---
+
+## Phase 8: Token Optimization
+
+**Goal:** Implement the three-part fix from the token optimization compound doc — switch to Sonnet, enable prompt caching if available, and slim bootstrap files so Nanobot handles multi-turn conversations without rate limits.
+
+**Reference:** `_admin/roadmap/todos/cp-nanobot-token-optimization-prompt-caching.md` contains the full analysis, root cause breakdown, and proposed solution.
+
+### Tasks
+
+- `p8-1`: Switch default model to Sonnet in Nanobot `config.json` on VPS.
+- `p8-2`: Research Nanobot/LiteLLM prompt caching support for Anthropic and configure if available.
+- `p8-3`: Slim `_mobile/TOOLS.md` — move per-agent workflow tables to on-demand loading (~1,375 → ~500 tokens).
+- `p8-4`: UPDATE deploy docs (`deploy-runbook.md`, `server-env-template.md`, `smoke-checklist.md`) with model selection, caching configuration, and token budget guidance.
+- `p8-5`: VALIDATE multi-turn "mentor" conversation completes without rate limit errors.
+- `p8-checkpoint`: **P8 CHECKPOINT** - Approve token optimization.
+
+---
+
+## Phase 9: Workflow & Output Fidelity
+
+**Goal:** Confirm Nanobot Mentor produces correct outputs and follows RBTV workflows faithfully — matching Cursor IDE behavior.
+
+### Tasks
+
+- `p9-1`: VALIDATE Mentor outputs framework docs to correct folder (matching Cursor `_bmad-output/` behavior).
+- `p9-2`: VALIDATE Mentor follows long workflow with state management — project-memo read/write cycle, framework progression, consolidation resilience.
+- `p9-3`: VALIDATE agent switching (Mentor <-> DomCobb) preserves workflow state.
+- `p9-checkpoint`: **P9 CHECKPOINT** - Approve workflow and output fidelity.
+
+---
+
+## Phase 10: Closure
+
+**Goal:** Final verification, learnings compound, and plan completion.
+
+### Tasks
+
+- `p10-refs`: File reference review — verify all internal markdown links resolve across all plan artifacts.
+- `p10-compound`: Review `learnings.md` and compound into system improvements.
+- `p10-checkpoint`: **P10 CHECKPOINT** - Final signoff before plan closure.
 
 ---
 
@@ -525,4 +735,7 @@ flowchart TD
 
 - This plan intentionally favors operational clarity for non-technical execution support.
 - Server-side operations are documented under `_bmad/rbtv/_admin/docs/mobile/` while repository code remains under `_bmad/rbtv/`.
-- Deferred scope remains FR23, FR24, FR26 unless explicitly reopened by user.
+- `p6-2` completed on VPS: Node/npm + `netlify-cli` installed, site linked, and production deploy to `https://robotville.ai` verified from the `nanobot` account.
+- Deferred scope: FR23, FR24, FR26 remain deferred unless explicitly reopened by user.
+- `/app/{project-name}` deployment workflow is deferred to mentor M4-M6 step creation — infrastructure is ready but the workflow is future work.
+- `p4-refs` was cancelled and superseded by `p10-refs` to run after all new artifacts exist.

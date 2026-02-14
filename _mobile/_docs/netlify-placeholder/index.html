@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Robotville — AI Business Mentor in Your Pocket</title>
+  <meta name="description" content="Robotville turns a chat conversation into a structured business concept — from raw idea to validated plan to deployed product. Join the waitlist.">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0b1120;
+      --surface: #151d30;
+      --border: #1e2a45;
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --accent-glow: rgba(99, 102, 241, 0.25);
+      --success: #22c55e;
+      --radius: 8px;
+    }
+
+    html { font-size: 16px; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem 1.5rem;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    main {
+      max-width: 540px;
+      width: 100%;
+      text-align: center;
+    }
+
+    /* Brand */
+    .brand {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 2rem;
+    }
+
+    /* Hero */
+    h1 {
+      font-size: clamp(1.75rem, 5vw, 2.5rem);
+      font-weight: 700;
+      line-height: 1.2;
+      margin-bottom: 1.25rem;
+      letter-spacing: -0.02em;
+    }
+
+    .subtitle {
+      font-size: 1.0625rem;
+      color: var(--text-muted);
+      max-width: 440px;
+      margin: 0 auto 2.5rem;
+      line-height: 1.65;
+    }
+
+    /* Form */
+    .waitlist-form {
+      display: flex;
+      gap: 0.625rem;
+      max-width: 420px;
+      margin: 0 auto 1rem;
+    }
+
+    .waitlist-form input[type="email"] {
+      flex: 1;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 0.9375rem;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .waitlist-form input[type="email"]::placeholder {
+      color: var(--text-muted);
+    }
+
+    .waitlist-form input[type="email"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    .waitlist-form button {
+      padding: 0.75rem 1.5rem;
+      border: none;
+      border-radius: var(--radius);
+      background: var(--accent);
+      color: #fff;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.2s, box-shadow 0.2s;
+    }
+
+    .waitlist-form button:hover,
+    .waitlist-form button:focus-visible {
+      background: var(--accent-hover);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    .waitlist-form button:active {
+      transform: scale(0.98);
+    }
+
+    /* Honeypot — hidden from humans */
+    .hp { position: absolute; left: -9999px; opacity: 0; height: 0; overflow: hidden; }
+
+    .form-note {
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+      opacity: 0.7;
+    }
+
+    /* Footer */
+    footer {
+      margin-top: 4rem;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      opacity: 0.5;
+    }
+
+    /* Responsive: stack form on narrow screens */
+    @media (max-width: 480px) {
+      .waitlist-form {
+        flex-direction: column;
+      }
+      .waitlist-form button {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="brand">Robotville</p>
+
+    <h1>Your business idea, guided from napkin to reality</h1>
+
+    <p class="subtitle">
+      An AI-powered mentor that turns a chat conversation into a structured
+      business concept — from raw idea to validated plan to deployed product.
+    </p>
+
+    <form
+      class="waitlist-form"
+      name="waitlist"
+      method="POST"
+      data-netlify="true"
+      netlify-honeypot="bot-field"
+      action="/success"
+    >
+      <!-- Netlify honeypot — invisible to real users -->
+      <p class="hp">
+        <label>Leave empty: <input name="bot-field"></label>
+      </p>
+
+      <input
+        type="email"
+        name="email"
+        placeholder="you@example.com"
+        required
+        autocomplete="email"
+        aria-label="Email address"
+      >
+      <button type="submit">Join the waitlist</button>
+    </form>
+
+    <p class="form-note">No spam. We'll reach out when early access opens.</p>
+  </main>
+
+  <footer>&copy; 2026 Robotville</footer>
+</body>
+</html>

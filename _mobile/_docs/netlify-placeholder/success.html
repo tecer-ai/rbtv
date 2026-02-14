@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>You're on the list — Robotville</title>
+  <meta name="robots" content="noindex">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0b1120;
+      --surface: #151d30;
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent: #6366f1;
+      --success: #22c55e;
+    }
+
+    html { font-size: 16px; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 2rem 1.5rem;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    main {
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+
+    .brand {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 2rem;
+    }
+
+    .checkmark {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: rgba(34, 197, 94, 0.12);
+      margin-bottom: 1.5rem;
+    }
+
+    .checkmark svg {
+      width: 32px;
+      height: 32px;
+      stroke: var(--success);
+      fill: none;
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    h1 {
+      font-size: clamp(1.5rem, 4vw, 2rem);
+      font-weight: 700;
+      line-height: 1.2;
+      margin-bottom: 1rem;
+      letter-spacing: -0.02em;
+    }
+
+    .message {
+      font-size: 1.0625rem;
+      color: var(--text-muted);
+      margin-bottom: 2.5rem;
+      line-height: 1.65;
+    }
+
+    .back-link {
+      display: inline-block;
+      font-size: 0.875rem;
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .back-link:hover {
+      text-decoration: underline;
+    }
+
+    footer {
+      margin-top: 4rem;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      opacity: 0.5;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="brand">Robotville</p>
+
+    <div class="checkmark">
+      <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+    </div>
+
+    <h1>You're on the list</h1>
+
+    <p class="message">
+      Thanks for signing up. We'll reach out when early access opens.
+    </p>
+
+    <a href="/" class="back-link">&larr; Back to robotville.ai</a>
+  </main>
+
+  <footer>&copy; 2026 Robotville</footer>
+</body>
+</html>
