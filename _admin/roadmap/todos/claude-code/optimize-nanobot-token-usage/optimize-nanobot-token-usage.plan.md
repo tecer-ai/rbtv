@@ -37,16 +37,16 @@ todos:
     status: pending
   - id: p4-1
     content: "p4-1: UPDATE _mobile/README.md to add Nanobot source patches to boundary/scope section"
-    status: pending
+    status: completed
   - id: p4-2
     content: "p4-2: UPDATE _mobile/HOW-IT-WORKS.md to add Nanobot Source Patches section"
-    status: pending
+    status: completed
   - id: p4-3
     content: "p4-3: UPDATE _mobile/_docs/deploy-runbook.md with optimization deployment steps"
-    status: pending
+    status: completed
   - id: p4-4
     content: "p4-4: UPDATE _mobile/_docs/smoke-checklist.md with token budget validation item"
-    status: pending
+    status: completed
   - id: p4-5
     content: "p4-5: VALIDATE multi-turn mentor conversation completes without rate limit errors"
     status: pending

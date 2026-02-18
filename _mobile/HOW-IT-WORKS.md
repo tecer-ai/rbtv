@@ -265,6 +265,20 @@ Small Python scripts for VPS administration:
 - `add-allowlist-user.py` — adds Slack user IDs to the Nanobot allowlist config
 - `fix-nanobot-workspace.py` — sets the Nanobot workspace path
 - `update-nanobot-model.py` — updates the configured AI model
+- `update-nanobot-memory-window.py` — sets conversation memory window size
+
+### Nanobot Source Patches
+
+**Module:** `ops/patches/` (source-modifying scripts)
+
+These scripts patch Nanobot's `litellm_provider.py` to optimize API token usage. They are fragile across Nanobot upgrades — reapply after every `pip install --upgrade nanobot`.
+
+| Patch | Target | What It Does |
+|-------|--------|--------------|
+| `add-litellm-prompt-caching.py` | `acompletion()` kwargs | Adds `cache_control_injection_points` for system messages, enabling Anthropic prompt caching (~90% cost reduction on cached system prompt) |
+| `add-litellm-retries.py` | Module-level litellm settings | Adds `litellm.num_retries = 3` for automatic retry on transient rate limit errors |
+
+Both scripts auto-discover the Nanobot installation path via `pip show nanobot`. Pass an explicit path as argument to override. Each script is idempotent (skips if already patched) and fails gracefully when the expected source pattern is absent (Nanobot version mismatch).
 
 ---
 
@@ -338,9 +352,12 @@ _mobile/
     │   ├── vps-install-git-hooks.sh # Post-merge hook installer
     │   └── vps-pull-rbtv.sh        # Pull + sync trigger
     └── patches/
-        ├── add-allowlist-user.py   # Add user to allowlist
-        ├── fix-nanobot-workspace.py # Set workspace path
-        └── update-nanobot-model.py # Update AI model config
+        ├── add-allowlist-user.py           # Add user to allowlist
+        ├── fix-nanobot-workspace.py        # Set workspace path
+        ├── update-nanobot-model.py         # Update AI model config
+        ├── update-nanobot-memory-window.py # Set memory window size
+        ├── add-litellm-prompt-caching.py   # Patch: prompt caching on system messages
+        └── add-litellm-retries.py          # Patch: retry logic for rate limits
 ```
 
 ---
