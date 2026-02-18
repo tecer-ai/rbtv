@@ -4,13 +4,13 @@ overview: Optimize Nanobot API token consumption by switching to Sonnet, enablin
 todos:
   - id: p1-1
     content: "p1-1: UPDATE _mobile/ops/patches/update-nanobot-model.py to set default model to anthropic/claude-sonnet-4-20250514"
-    status: pending
+    status: cancelled
   - id: p1-2
     content: "p1-2: CREATE _mobile/ops/patches/update-nanobot-memory-window.py to set memory_window to 20 in config.json"
-    status: pending
+    status: completed
   - id: p1-3
     content: "p1-3: UPDATE _mobile/_docs/server-env-template.md with new model and memory_window defaults"
-    status: pending
+    status: completed
   - id: p1-checkpoint
     content: P1 CHECKPOINT - Config patch scripts verified and ready for deployment
     status: pending
