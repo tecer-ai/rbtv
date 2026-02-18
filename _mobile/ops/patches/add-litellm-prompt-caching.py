@@ -14,10 +14,7 @@ import sys
 from pathlib import Path
 
 ANCHOR = "response = await acompletion(**kwargs)"
-INJECTION = (
-    '            kwargs["cache_control_injection_points"] = '
-    '[{"location": "message", "role": "system"}]\n'
-)
+INJECTION = 'kwargs["cache_control_injection_points"] = [{"location": "message", "role": "system"}]'
 
 
 def find_provider_file() -> Path | None:
@@ -59,7 +56,9 @@ def main():
         print(f"Already patched: {path} (cache_control_injection_points found)")
         return
 
-    if ANCHOR not in source:
+    lines = source.split("\n")
+    anchor_found = any(line.strip() == ANCHOR for line in lines)
+    if not anchor_found:
         print(
             f"Patch target not found in {path}.\n"
             f"Expected: {ANCHOR!r}\n"
@@ -68,7 +67,14 @@ def main():
         )
         sys.exit(1)
 
-    patched = source.replace(ANCHOR, INJECTION + "            " + ANCHOR)
+    new_lines = []
+    for line in lines:
+        if line.strip() == ANCHOR:
+            indent = line[: len(line) - len(line.lstrip())]
+            new_lines.append(f"{indent}{INJECTION}")
+        new_lines.append(line)
+
+    patched = "\n".join(new_lines)
     path.write_text(patched)
     print(f"Patched {path} -> added cache_control_injection_points for system messages")
 
