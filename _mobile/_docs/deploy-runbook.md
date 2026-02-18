@@ -232,10 +232,13 @@ sudo -u nanobot python3 _mobile/ops/patches/update-nanobot-memory-window.py /srv
 
 ### 8.2 Source patches (modify litellm_provider.py)
 
+Nanobot is installed in `/opt/robotville/.venv` (root-owned). Run as root, passing the explicit provider path:
+
 ```bash
 cd /opt/robotville/BMAD/_bmad/rbtv
-sudo -u nanobot python3 _mobile/ops/patches/add-litellm-prompt-caching.py
-sudo -u nanobot python3 _mobile/ops/patches/add-litellm-retries.py
+PROVIDER=/opt/robotville/.venv/lib/python3.12/site-packages/nanobot/providers/litellm_provider.py
+python3 _mobile/ops/patches/add-litellm-prompt-caching.py "$PROVIDER"
+python3 _mobile/ops/patches/add-litellm-retries.py "$PROVIDER"
 ```
 
 ### 8.3 Verify config values
@@ -363,4 +366,5 @@ If deployment causes regression:
 | 2026-02-14 | Added deploy-key-based GitHub pull flow for private repo updates | AI |
 | 2026-02-14 | Added automated pull+reinstall+mirror-cleanup scripts and git-hook install step | AI |
 | 2026-02-14 | Added Step 8 — p6-2 Netlify deploy credentials (install CLI, env token, link, test deploy) | AI |
+| 2026-02-18 | Step 8.2 — corrected source patches to run as root with explicit venv path (nanobot venv is root-owned at /opt/robotville/.venv) | AI |
 
