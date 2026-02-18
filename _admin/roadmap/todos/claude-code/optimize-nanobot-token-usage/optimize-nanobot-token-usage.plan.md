@@ -13,16 +13,16 @@ todos:
     status: completed
   - id: p1-checkpoint
     content: P1 CHECKPOINT - Config patch scripts verified and ready for deployment
-    status: pending
+    status: completed
   - id: p2-1
     content: "p2-1: UPDATE _mobile/TOOLS.md — remove per-agent workflow tables, keep command routing + skills + tool reference"
-    status: pending
+    status: completed
   - id: p2-2
     content: "p2-2: UPDATE _mobile/AGENTS.md — replace verbose summaries with dispatch table of one-line descriptions"
-    status: pending
+    status: completed
   - id: p2-3
     content: "p2-3: REVIEW _mobile/SOUL.md for opportunistic Slack formatting compaction"
-    status: pending
+    status: completed
   - id: p2-checkpoint
     content: P2 CHECKPOINT - Bootstrap optimization verified, token estimates confirmed
     status: pending
