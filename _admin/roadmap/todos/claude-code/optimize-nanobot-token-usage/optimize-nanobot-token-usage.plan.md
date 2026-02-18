@@ -25,7 +25,7 @@ todos:
     status: completed
   - id: p2-checkpoint
     content: P2 CHECKPOINT - Bootstrap optimization verified, token estimates confirmed
-    status: pending
+    status: completed
   - id: p3-1
     content: "p3-1: CREATE _mobile/ops/patches/add-litellm-prompt-caching.py to inject cache_control_injection_points into litellm_provider.py"
     status: completed
@@ -34,7 +34,7 @@ todos:
     status: completed
   - id: p3-checkpoint
     content: P3 CHECKPOINT - Source patches created and documented
-    status: pending
+    status: completed
   - id: p4-1
     content: "p4-1: UPDATE _mobile/README.md to add Nanobot source patches to boundary/scope section"
     status: completed
@@ -52,10 +52,10 @@ todos:
     status: pending
   - id: p4-refs
     content: "p4-refs: File reference review — verify all internal markdown links resolve"
-    status: pending
+    status: completed
   - id: p4-compound
     content: "p4-compound: Review learnings.md and compound into system improvements"
-    status: pending
+    status: completed
   - id: p4-checkpoint
     content: P4 FINAL CHECKPOINT - All documentation complete, plan ready to close
     status: pending
