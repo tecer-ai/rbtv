@@ -28,10 +28,10 @@ todos:
     status: pending
   - id: p3-1
     content: "p3-1: CREATE _mobile/ops/patches/add-litellm-prompt-caching.py to inject cache_control_injection_points into litellm_provider.py"
-    status: pending
+    status: completed
   - id: p3-2
     content: "p3-2: CREATE _mobile/ops/patches/add-litellm-retries.py to inject litellm.num_retries = 3 into litellm_provider.py"
-    status: pending
+    status: completed
   - id: p3-checkpoint
     content: P3 CHECKPOINT - Source patches created and documented
     status: pending
