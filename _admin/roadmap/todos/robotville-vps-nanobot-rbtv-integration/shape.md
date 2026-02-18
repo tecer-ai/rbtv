@@ -384,6 +384,12 @@
 - **Fix — p6-3 shape entry:** No standalone p6-3 entry was appended during execution. The missing navigation, `/docs/` index, and `/app/` index pages are now captured as the new p6-6 task. The p6-3 execution context is covered by the p6-4 design-token and waitlist entries (which did the actual home page work) plus this entry.
 - **Fix — plan restructure:** Existing p6-6 (VALIDATE end-to-end doc deployment) renumbered to p6-7. New p6-6 created: BUILD robotville.ai production home page from founder docs (project-memo, lean-canvas, working-backwards, problem-solution-fit), PRD, and artprize-shadows design tokens. Includes navigation, `/docs/` placeholder, `/app/` placeholder.
 
+### 2026-02-18 - Phase 8 Cancelled — Token Optimization Consolidated to Dedicated Plan
+
+- **Decision:** Cancel all Phase 8 tasks (p8-1 through p8-checkpoint) in this plan. A dedicated plan (`.cursor/plans/optimize-nanobot-token-usage/optimize-nanobot-token-usage.plan.md`) was created with complete token optimization coverage: model switch, memory window reduction, bootstrap slimming, LiteLLM prompt caching patch, retry patch, and full documentation updates. Duplicating these tasks in this plan would create conflicting execution paths.
+- **Scope impact:** Phase 8 section replaced with a cross-reference note. Phase 9 now follows Phase 7 directly in the execution flow. The validate multi-turn conversation task (originally p8-5) was added to the optimize plan as p4-5.
+- **Files removed:** `phase-8/p8-2.task.md`, `phase-8/p8-3.task.md`, `phase-8/p8-4.task.md`.
+
 ### 2026-02-14 - p6-6 Production Home Page Built from Founder Documents
 
 - **Decision:** Build the robotville.ai production home page as a multi-section static site sourced entirely from founder documents (project-memo, lean-canvas, working-backwards, problem-solution-fit) and PRD, with artprize-shadows design tokens adapted for a product-building AI mentor identity (not copied from the art exhibition domain).

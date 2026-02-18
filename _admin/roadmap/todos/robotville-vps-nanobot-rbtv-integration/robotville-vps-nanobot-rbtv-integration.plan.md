@@ -1,6 +1,6 @@
 ---
 name: robotville-vps-nanobot-rbtv-integration
-overview: Provision a secure Hetzner VPS, implement Nanobot plus RBTV _mobile harness integration, deploy Nanobot bootstrap files, then validate website deployment (robotville.ai), system update safety, token optimization, and workflow fidelity.
+overview: Provision a secure Hetzner VPS, implement Nanobot plus RBTV _mobile harness integration, deploy Nanobot bootstrap files, then validate website deployment (robotville.ai), system update safety, and workflow fidelity.
 todos:
   - id: p1-1
     content: "p1-1: Provision Hetzner project and Ubuntu VPS with SSH-key access and API manageability"
@@ -130,22 +130,22 @@ todos:
     status: pending
   - id: p8-1
     content: "p8-1: Switch default model to Sonnet in Nanobot config.json on VPS"
-    status: pending
+    status: cancelled
   - id: p8-2
     content: "p8-2: Research Nanobot/LiteLLM prompt caching support for Anthropic and configure if available"
-    status: pending
+    status: cancelled
   - id: p8-3
     content: "p8-3: Slim _mobile/TOOLS.md — move per-agent workflow tables to on-demand loading"
-    status: pending
+    status: cancelled
   - id: p8-4
     content: "p8-4: UPDATE deploy docs (runbook, server-env-template, smoke-checklist) with model, caching, and token budget guidance"
-    status: pending
+    status: cancelled
   - id: p8-5
     content: "p8-5: VALIDATE multi-turn mentor conversation completes without rate limit errors"
-    status: pending
+    status: cancelled
   - id: p8-checkpoint
     content: P8 CHECKPOINT - Approve token optimization
-    status: pending
+    status: cancelled
   - id: p9-1
     content: "p9-1: VALIDATE Mentor outputs framework docs to correct folder matching Cursor _bmad-output/ behavior"
     status: pending
@@ -275,10 +275,6 @@ This plan uses companion files for execution context:
 │   └── p6-6.task.md
 ├── phase-7/
 │   └── p7-1.task.md
-├── phase-8/
-│   ├── p8-2.task.md
-│   ├── p8-3.task.md
-│   └── p8-4.task.md
 └── phase-9/
     ├── p9-1.task.md
     └── p9-2.task.md
@@ -368,15 +364,11 @@ This plan uses companion files for execution context:
 
 | `_bmad/rbtv/agents/ana.md` | Doc/Ana agent behavior for bootstrap alignment | Phase 5 |
 
-| `_admin/docs/mobile/robotville-v4.0-business-innovation-run/bmad/prd.md` | PRD — deployment pipeline requirements, FR references | Phase 6, 8, 9 |
+| `_admin/docs/mobile/robotville-v4.0-business-innovation-run/bmad/prd.md` | PRD — deployment pipeline requirements, FR references | Phase 6, 9 |
 
 | `_admin/docs/mobile/robotville-v4.0-business-innovation-run/founder/project-memo.md` | Founder project-memo — solution description, deployment model, home page content | Phase 6 |
 
-| `_admin/roadmap/todos/cp-nanobot-token-optimization-prompt-caching.md` | Token optimization compound doc — three-part fix specification | Phase 8 |
-
 | `_bmad/rbtv/_mobile/ops/scripts/vps-sync-install.sh` | Deploy automation script — audit target for project file safety | Phase 7 |
-
-| `_bmad/rbtv/_mobile/TOOLS.md` | Current bootstrap file — slimming target for token optimization | Phase 8 |
 
 | `_bmad/rbtv/_mobile/SOUL.md` | Current bootstrap file — deploy command rule addition | Phase 6 |
 
@@ -431,12 +423,6 @@ This plan uses companion files for execution context:
 | 6 | UPDATE | `_bmad/rbtv/_mobile/TOOLS.md` and `SOUL.md` with deploy command routing |
 
 | 6 | BUILD | robotville.ai production home page + `/docs/` and `/app/` placeholders |
-
-| 8 | UPDATE | VPS `config.json` — switch default model to Sonnet |
-
-| 8 | UPDATE | `_bmad/rbtv/_mobile/TOOLS.md` — slim per-agent workflow tables |
-
-| 8 | UPDATE | `_bmad/rbtv/_admin/docs/mobile/deploy-runbook.md`, `server-env-template.md`, `smoke-checklist.md` |
 
 ---
 
@@ -513,16 +499,6 @@ flowchart TD
     P71 --> P72 --> C7
   end
 
-  subgraph P8["Phase 8: Token Optimization"]
-    P81[p8-1 Switch to Sonnet]
-    P82[p8-2 Research prompt caching]
-    P83[p8-3 Slim TOOLS.md]
-    P84[p8-4 UPDATE deploy docs]
-    P85[p8-5 VALIDATE no rate limits]
-    C8{P8 Checkpoint}
-    P81 --> P82 --> P83 --> P84 --> P85 --> C8
-  end
-
   subgraph P9["Phase 9: Workflow & Output Fidelity"]
     P91[p9-1 VALIDATE doc output folder]
     P92[p9-2 VALIDATE long workflow state]
@@ -544,8 +520,7 @@ flowchart TD
   P44 --> P51
   C5 --> P61
   C6 --> P71
-  C7 --> P81
-  C8 --> P91
+  C7 --> P91
   C9 --> P10R
 ```
 
@@ -697,18 +672,9 @@ flowchart TD
 
 ## Phase 8: Token Optimization
 
-**Goal:** Implement the three-part fix from the token optimization compound doc — switch to Sonnet, enable prompt caching if available, and slim bootstrap files so Nanobot handles multi-turn conversations without rate limits.
+> **CANCELLED — Handled by a dedicated plan.**
 
-**Reference:** `_admin/roadmap/todos/cp-nanobot-token-optimization-prompt-caching.md` contains the full analysis, root cause breakdown, and proposed solution.
-
-### Tasks
-
-- `p8-1`: Switch default model to Sonnet in Nanobot `config.json` on VPS.
-- `p8-2`: Research Nanobot/LiteLLM prompt caching support for Anthropic and configure if available.
-- `p8-3`: Slim `_mobile/TOOLS.md` — move per-agent workflow tables to on-demand loading (~1,375 → ~500 tokens).
-- `p8-4`: UPDATE deploy docs (`deploy-runbook.md`, `server-env-template.md`, `smoke-checklist.md`) with model selection, caching configuration, and token budget guidance.
-- `p8-5`: VALIDATE multi-turn "mentor" conversation completes without rate limit errors.
-- `p8-checkpoint`: **P8 CHECKPOINT** - Approve token optimization.
+All token optimization work is executed in `.cursor/plans/optimize-nanobot-token-usage/optimize-nanobot-token-usage.plan.md`. Tasks p8-1 through p8-checkpoint are cancelled in this plan.
 
 ---
 
