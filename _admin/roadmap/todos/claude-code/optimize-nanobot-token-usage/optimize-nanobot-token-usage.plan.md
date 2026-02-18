@@ -4,58 +4,58 @@ overview: Optimize Nanobot API token consumption by switching to Sonnet, enablin
 todos:
   - id: p1-1
     content: "p1-1: UPDATE _mobile/ops/patches/update-nanobot-model.py to set default model to anthropic/claude-sonnet-4-20250514"
-    status: pending
+    status: cancelled
   - id: p1-2
     content: "p1-2: CREATE _mobile/ops/patches/update-nanobot-memory-window.py to set memory_window to 20 in config.json"
-    status: pending
+    status: completed
   - id: p1-3
     content: "p1-3: UPDATE _mobile/_docs/server-env-template.md with new model and memory_window defaults"
-    status: pending
+    status: completed
   - id: p1-checkpoint
     content: P1 CHECKPOINT - Config patch scripts verified and ready for deployment
-    status: pending
+    status: completed
   - id: p2-1
     content: "p2-1: UPDATE _mobile/TOOLS.md — remove per-agent workflow tables, keep command routing + skills + tool reference"
-    status: pending
+    status: completed
   - id: p2-2
     content: "p2-2: UPDATE _mobile/AGENTS.md — replace verbose summaries with dispatch table of one-line descriptions"
-    status: pending
+    status: completed
   - id: p2-3
     content: "p2-3: REVIEW _mobile/SOUL.md for opportunistic Slack formatting compaction"
-    status: pending
+    status: completed
   - id: p2-checkpoint
     content: P2 CHECKPOINT - Bootstrap optimization verified, token estimates confirmed
-    status: pending
+    status: completed
   - id: p3-1
     content: "p3-1: CREATE _mobile/ops/patches/add-litellm-prompt-caching.py to inject cache_control_injection_points into litellm_provider.py"
-    status: pending
+    status: completed
   - id: p3-2
     content: "p3-2: CREATE _mobile/ops/patches/add-litellm-retries.py to inject litellm.num_retries = 3 into litellm_provider.py"
-    status: pending
+    status: completed
   - id: p3-checkpoint
     content: P3 CHECKPOINT - Source patches created and documented
-    status: pending
+    status: completed
   - id: p4-1
     content: "p4-1: UPDATE _mobile/README.md to add Nanobot source patches to boundary/scope section"
-    status: pending
+    status: completed
   - id: p4-2
     content: "p4-2: UPDATE _mobile/HOW-IT-WORKS.md to add Nanobot Source Patches section"
-    status: pending
+    status: completed
   - id: p4-3
     content: "p4-3: UPDATE _mobile/_docs/deploy-runbook.md with optimization deployment steps"
-    status: pending
+    status: completed
   - id: p4-4
     content: "p4-4: UPDATE _mobile/_docs/smoke-checklist.md with token budget validation item"
-    status: pending
+    status: completed
   - id: p4-5
     content: "p4-5: VALIDATE multi-turn mentor conversation completes without rate limit errors"
     status: pending
   - id: p4-refs
     content: "p4-refs: File reference review — verify all internal markdown links resolve"
-    status: pending
+    status: completed
   - id: p4-compound
     content: "p4-compound: Review learnings.md and compound into system improvements"
-    status: pending
+    status: completed
   - id: p4-checkpoint
     content: P4 FINAL CHECKPOINT - All documentation complete, plan ready to close
     status: pending

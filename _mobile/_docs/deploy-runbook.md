@@ -219,7 +219,50 @@ Pass criteria:
 
 ---
 
-## Step 8 - p6-2 Netlify Deploy Credentials (robotville.ai)
+## Step 8 - Apply Optimization Patches
+
+After code update (Step 2) and config (Step 3), apply Nanobot source patches and config patches. These are idempotent — safe to re-run.
+
+### 8.1 Config patches (run as nanobot)
+
+```bash
+cd /opt/robotville/BMAD/_bmad/rbtv
+sudo -u nanobot python3 _mobile/ops/patches/update-nanobot-memory-window.py /srv/nanobot/.nanobot/config.json
+```
+
+### 8.2 Source patches (modify litellm_provider.py)
+
+```bash
+cd /opt/robotville/BMAD/_bmad/rbtv
+sudo -u nanobot python3 _mobile/ops/patches/add-litellm-prompt-caching.py
+sudo -u nanobot python3 _mobile/ops/patches/add-litellm-retries.py
+```
+
+### 8.3 Verify config values
+
+```bash
+sudo -u nanobot python3 -c "
+import json; c = json.load(open('/srv/nanobot/.nanobot/config.json'))
+d = c.get('agents',{}).get('defaults',{})
+print(f\"model: {d.get('model')}\")
+print(f\"memory_window: {d.get('memory_window')}\")
+"
+```
+
+Expected: `memory_window: 20` and current model.
+
+### 8.4 Restart service after patches
+
+```bash
+sudo systemctl restart nanobot-gateway
+systemctl status nanobot-gateway --no-pager
+```
+
+> **After Nanobot upgrades:** Re-run Step 8.2 source patches. They will fail gracefully if the target pattern changed — review and update the patch scripts as needed.
+
+---
+
+## Step 9 - p6-2 Netlify Deploy Credentials (robotville.ai)
 
 Run once after Netlify site is provisioned (p6-1) and you have the personal access token (A4). Site ID is in `netlify-site-info.md`.
 

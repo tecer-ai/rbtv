@@ -134,6 +134,13 @@
 - **Position:** After p4-4 (smoke-checklist update), before p4-refs (link review). Requires human approval — live Slack validation cannot be automated.
 - **Micro-step file:** `phase-4/p4-5.task.md` created.
 
+### Decision 2 (from tasks p2-1, p2-2, p2-3) — 2026-02-18
+
+- **Date:** 2026-02-18
+- **Decision:** TOOLS.md slimmed by removing per-agent workflow tables (~48 lines removed). AGENTS.md slimmed by replacing verbose summaries + redundant columns with compact dispatch table (~35 lines removed). SOUL.md left unchanged — Slack formatting table is essential behavioral content; ~100 token savings not worth clarity risk.
+- **Rationale:** Per-agent workflow tables in TOOLS.md duplicated content from individual agent files (loaded on demand). Agent summaries in AGENTS.md repeated full descriptions already in agent files. SOUL.md formatting rules prevent broken Slack rendering — essential at every token.
+- **Impact:** Estimated ~800 tokens saved from TOOLS.md, ~375 from AGENTS.md, 0 from SOUL.md. Total bootstrap reduction: ~1,175 tokens.
+
 ---
 
 ## References

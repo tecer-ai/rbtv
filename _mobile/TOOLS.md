@@ -23,57 +23,6 @@ These are the top-level commands that activate RBTV agent personas. Each command
 
 ---
 
-## Mentor Agent Workflows
-
-After activating the mentor agent, these workflows are available through the mentor's menu:
-
-| Menu Command | Type | Workflow File | Purpose |
-|-------------|------|---------------|---------|
-| `N` (New Project) | action | `_bmad/rbtv/workflows/bi-business-innovation/steps-c/step-01-project-setup.md` | Initialize a new business innovation project |
-| `C` (Continue Project) | action | `_bmad/rbtv/workflows/bi-business-innovation/steps-c/step-02-milestone-select.md` | Resume work on existing project (requires project-memo) |
-| `PM` (Party Mode) | exec | `_bmad/core/workflows/party-mode/workflow.md` | Multi-agent discussion mode |
-| `H` (Help) | exec | `_bmad/rbtv/tasks/mentor-help.xml` | Show milestone position and framework progress |
-| `DA` (Done/Exit) | action | — | Exit mentor agent |
-
----
-
-## DomCobb Agent Workflows
-
-After activating the domcobb agent, these workflows are available through the domcobb menu:
-
-| Menu Command | Type | Workflow File | Purpose |
-|-------------|------|---------------|---------|
-| `PS` (Problem Structuring) | exec | `_bmad/rbtv/workflows/problem-structuring/workflow.md` | Full MECE/Pyramid/Problem Tree structuring |
-| `PL` (PS Lite) | exec | `_bmad/rbtv/workflows/ps-lite/workflow.md` | Quick conversational problem structuring |
-| `PV` (Problem Solving) | workflow | `_bmad/cis/workflows/problem-solving/workflow.yaml` | Systematic problem-solving (routes to CIS) |
-| `PR` (Prompting Assistance) | exec | `_bmad/rbtv/workflows/prompting-assistance/workflow.md` | Craft effective AI prompts |
-| `AK` (Add Knowledge) | exec | `_bmad/rbtv/workflows/add-prompting-knowledge/workflow.md` | Add new AI model or technique documentation |
-| `DA` (Done/Exit) | action | — | Exit domcobb agent |
-
----
-
-## Doc Agent (Ana) Workflows
-
-After activating the doc agent, these workflows are available through Ana's menu:
-
-| Menu Command | Type | Workflow File | Purpose |
-|-------------|------|---------------|---------|
-| `C` (Compound) | exec | `_bmad/rbtv/workflows/doc-compound-learning/workflow.md` | Standardize improvements as backlog PRD |
-| `H` (Handoff) | exec | `_bmad/rbtv/workflows/doc-context-handoff/workflow.md` | Context transfer summary for agent continuity |
-| `P` → `B` (Brief) | exec | `_bmad/bmm/workflows/1-analysis/create-product-brief/workflow.md` | Create product brief (vision, users, scope) |
-| `P` → `PRD` | exec | `_bmad/bmm/workflows/2-plan-workflows/create-prd/workflow.md` | Create/validate/edit PRD |
-| `P` → `UX` | exec | `_bmad/bmm/workflows/2-plan-workflows/create-ux-design/workflow.md` | Plan UX patterns and visual design |
-| `DA` (Done/Exit) | action | — | Exit doc agent |
-
-**Direct mode shortcuts:** Ana supports direct mode invocation:
-- `doc compound` — Skip menu, go directly to compound mode
-- `doc handoff` — Skip menu, go directly to handoff mode
-- `doc product:brief` — Skip menu, go directly to product brief
-- `doc product:prd` — Skip menu, go directly to PRD
-- `doc product:ux` — Skip menu, go directly to UX design
-
----
-
 ## Deploy Commands
 
 Deploy commands publish content to `robotville.ai` via Netlify CLI. These are standalone action commands — they do not activate an agent persona.

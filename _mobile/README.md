@@ -12,6 +12,7 @@ The harness exists to map RBTV workflow intents into Nanobot gateway interaction
 - canonical workflow-state access through `project-memo.md`
 - pre-routing safety gates such as allowlist enforcement
 - deployment-facing integration artifacts for this harness (for example systemd templates and small ops patches)
+- Nanobot source patches for API optimization (prompt caching, retry logic) — targeted injections documented for reapplication after Nanobot upgrades
 
 ## Non-Duplication Rules
 

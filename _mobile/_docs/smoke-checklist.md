@@ -107,7 +107,32 @@ journalctl -u nanobot-gateway -n 60 --no-pager
 
 ---
 
-## F) Final Pass/Fail Decision
+## F) Token Budget & Optimization Validation
+
+- [ ] `config.json` shows `memory_window: 20`.
+- [ ] Source patches applied: `litellm_provider.py` contains `cache_control_injection_points` and `num_retries`.
+- [ ] Multi-turn conversation (e.g., `mentor` → `N` → follow-up) completes without `litellm.RateLimitError`.
+
+Commands:
+
+```bash
+# Verify config
+sudo -u nanobot python3 -c "
+import json; c = json.load(open('/srv/nanobot/.nanobot/config.json'))
+d = c.get('agents',{}).get('defaults',{})
+print(f\"memory_window: {d.get('memory_window')}\")
+"
+
+# Verify source patches (auto-discovers nanobot install path)
+pip show nanobot | grep Location
+# Then check the file at that location:
+# grep -c 'cache_control_injection_points' <location>/nanobot/providers/litellm_provider.py
+# grep -c 'num_retries' <location>/nanobot/providers/litellm_provider.py
+```
+
+---
+
+## G) Final Pass/Fail Decision
 
 - [ ] PASS - all critical checks passed.
 - [ ] FAIL - at least one critical check failed.
