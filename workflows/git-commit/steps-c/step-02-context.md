@@ -29,6 +29,7 @@ Gather git context based on selected mode. Execute preparatory git commands.
 - Execute git commands appropriate to the selected mode
 - Store output for message generation in next step
 - For SQ mode, handle merge conflicts gracefully
+- ALL git commands MUST run with `required_permissions: ["all"]` to ensure SSH agent access for signing
 
 ---
 

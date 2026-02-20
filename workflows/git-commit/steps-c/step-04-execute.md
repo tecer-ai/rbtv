@@ -36,9 +36,16 @@ Execute git commit (and push if requested). Report results.
 
 - NEVER use `--force` or `--force-with-lease`
 - NEVER use `--no-verify`
+- NEVER use `--no-gpg-sign` — if signing fails, fix the environment, never bypass signing
 - NEVER amend without explicit request
 - NEVER rebase without explicit request
 - NEVER add AI co-author trailers unless instructed
+
+### Permission Requirements
+
+- ALL git commit and push commands MUST run with `required_permissions: ["all"]`
+- The Cursor sandbox blocks access to the SSH agent socket, which breaks commit signing
+- If a commit fails due to passphrase/signing errors, retry with `["all"]` permissions — never bypass signing
 
 ---
 
