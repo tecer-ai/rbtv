@@ -22,7 +22,7 @@ yoloMode: false
 **Priority:** Medium  
 **Tracker:**  
 **Status:** Backlog  
-**Depends on:** prd-config-bmad-version-declaration.md (must be implemented first)
+**Depends on:** PRD 4 — prd-config-bmad-version-declaration.md (must be implemented first)
 
 ---
 
@@ -43,7 +43,7 @@ When a new BMAD release is published, RBTV has no structured process to evaluate
 
 - Must not modify anything under `_admin/docs/BMAD-mirror/` content (read-only BMAD content)
 - Must not modify BMAD components directly (Admin Restriction #2)
-- Depends on PRD 1 (prd-config-bmad-version-declaration) being implemented first — needs `bmad_target_version` in config and `MIRROR-VERSION.md`
+- Depends on PRD 4 (prd-config-bmad-version-declaration) being implemented first — needs `bmad_target_version` in config and `MIRROR-VERSION.md`
 - The `bmad-compat.yaml` file must NOT be loaded by agents during normal sessions — it is consumed only by the installer and the compatibility check task
 - `{project-root}` placeholders must be preserved in all edited files
 - Installer check must warn, not hard-fail — BMAD is in beta, strict enforcement could block legitimate use
@@ -66,7 +66,7 @@ RBTV was built against BMAD Beta.4, but BMAD has released Beta.5 through Beta.8 
 | `agents/ana.md` | Product submenu references 3 BMAD workflow paths | No validation these paths exist in target BMAD version |
 | `workflows/build-rbtv-component/data/admin-restrictions.md` | Requires reading `bmad-help.csv` | No check that CSV format matches expectations |
 | `_admin/docs/BMAD-mirror/` | Development reference | No diff mechanism against newer BMAD releases |
-| `_config/config.yaml` | Will have `bmad_target_version` after PRD 1 | No list of specific BMAD touchpoints |
+| `_config/config.yaml` | Will have `bmad_target_version` after PRD 4 | No list of specific BMAD touchpoints |
 | `tasks/` | Contains RBTV task files | No compatibility check task exists |
 
 ### Improvement Options
@@ -192,8 +192,8 @@ Modify `_config/install-rbtv.py` to add a version check before installation:
 | File(s) to create | `bmad-compat.yaml` (RBTV root), `tasks/check-bmad-compat.xml`, `tasks/data/bmad-compat-report-template.md` |
 | File(s) to modify | `_config/install-rbtv.py` (add pre-flight function) |
 | Scope of change | Moderate — 3 new files, 1 modified file |
-| Related files | `_config/config.yaml` (reads `bmad_target_version` from PRD 1), `agents/ana.md` (touchpoint source), `_admin/docs/BMAD-mirror/MIRROR-VERSION.md` (from PRD 1) |
-| Prerequisite | PRD 1 (prd-config-bmad-version-declaration) must be implemented first |
+| Related files | `_config/config.yaml` (reads `bmad_target_version` from PRD 4), `agents/ana.md` (touchpoint source), `_admin/docs/BMAD-mirror/MIRROR-VERSION.md` (from PRD 4) |
+| Prerequisite | PRD 4 (prd-config-bmad-version-declaration) must be implemented first |
 
 ---
 
@@ -231,13 +231,13 @@ The separate `bmad-compat.yaml` file (instead of embedding in `config.yaml`) kee
 | File | Relationship |
 |------|--------------|
 | `prd-config-bmad-version-declaration.md` | Prerequisite PRD — creates version fields and mirror metadata this PRD consumes |
-| `_config/config.yaml` | Source of `bmad_target_version` (from PRD 1) |
+| `_config/config.yaml` | Source of `bmad_target_version` (from PRD 4) |
 | `_config/install-rbtv.py` | Modified — add pre-flight version check |
 | `agents/ana.md` | Touchpoint source — product submenu BMAD workflow references |
 | `workflows/doc-compound-learning/workflow.md` | Touchpoint source — advanced elicitation reference |
 | `workflows/build-rbtv-component/data/admin-restrictions.md` | Touchpoint source — `bmad-help.csv` dependency |
 | `_admin/docs/BMAD-mirror/_bmad/_config/manifest.yaml` | Version source for mirror comparisons |
-| `_admin/docs/BMAD-mirror/MIRROR-VERSION.md` | From PRD 1 — mirror version metadata |
+| `_admin/docs/BMAD-mirror/MIRROR-VERSION.md` | From PRD 4 — mirror version metadata |
 | `tasks/` | Location for new compatibility check task |
 
 ---
@@ -270,5 +270,5 @@ Options 1 (agent rule) and 2 (touchpoints in config.yaml) not selected.
 
 - User explicitly chose separate file over config.yaml: "config.yaml is loaded on every agent" — compatibility data should not bloat agent context
 - Installer check must warn, not hard-fail — BMAD is in beta, strict enforcement would be premature
-- This PRD depends on PRD 1 being implemented first (needs version fields and mirror metadata)
+- This PRD depends on PRD 4 being implemented first (needs version fields and mirror metadata)
 - The touchpoints list must be maintained as RBTV evolves — when new BMAD references are added, `bmad-compat.yaml` must be updated

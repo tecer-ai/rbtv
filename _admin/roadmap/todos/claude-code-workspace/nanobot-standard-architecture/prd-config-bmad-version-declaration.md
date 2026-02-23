@@ -202,10 +202,10 @@ Adding explicit version fields to config.yaml (Option 2) makes the declaration m
 | `_admin/docs/BMAD-mirror/_bmad/_config/manifest.yaml` | Source of current BMAD version (read-only) |
 | `_admin/docs/BMAD-mirror/` | Folder to receive MIRROR-VERSION.md and Beta.8 content update |
 | `_config/install-rbtv.py` | Future consumer of version fields (PRD 2: compatibility check) |
-| `_admin/install-admin-rbtv.py` | May need to read/display version info |
+| `_config/install-rbtv.py` (admin mode) | Admin mode may need to read/display version info |
 | `agents/ana.md` | References BMAD workflow paths that may change between BMAD versions |
 | `CLAUDE.md` | May reference version tracking once implemented |
-| `cp-config-bmad-compatibility-check.md` | Companion PRD — consumes the declarations created here |
+| `prd-config-bmad-compatibility-check.md` | Companion PRD — consumes the declarations created here |
 
 ---
 
@@ -224,7 +224,7 @@ Adding explicit version fields to config.yaml (Option 2) makes the declaration m
 
 Option 2 (Add `bmad_target_version` to `_config/config.yaml`) + Option 3 (Add `MIRROR-VERSION.md` to mirror folder) as the foundation, plus RBTV version tracking and changelog.
 
-Options 1, 4, and 5 are deferred to companion PRD (compound-bmad-compatibility-check).
+Options 1, 4, and 5 are deferred to companion PRD (prd-config-bmad-compatibility-check).
 
 ### Implementation Preferences
 
