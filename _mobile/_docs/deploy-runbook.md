@@ -24,8 +24,8 @@
    - `sudo -u nanobot env HOME=/srv/nanobot /usr/local/bin/nanobot --version`
 5. GitHub deploy-key access is configured for private repo pulls:
    - `sudo -u nanobot ssh -T git@github.com`
-6. VPS automation scripts are executable:
-   - `chmod +x /opt/robotville/BMAD/_bmad/rbtv/_mobile/ops/scripts/*.sh`
+6. Workspace repo bootstrap files are present at workspace root:
+   - `ls -la /opt/robotville/BMAD/AGENTS.md`
 
 If any prerequisite fails, stop and resolve before continuing.
 
@@ -71,33 +71,24 @@ journalctl -u nanobot-gateway -n 30 --no-pager || true
 
 ---
 
-## Step 2 - Update Code and Verify Harness Files
+## Step 2 - Update Code
+
+### 2.1 Update workspace bootstrap files (if changed)
 
 ```bash
-chmod +x /opt/robotville/BMAD/_bmad/rbtv/_mobile/ops/scripts/*.sh
-sudo -u nanobot bash /opt/robotville/BMAD/_bmad/rbtv/_mobile/ops/scripts/vps-install-git-hooks.sh
-sudo -u nanobot bash /opt/robotville/BMAD/_bmad/rbtv/_mobile/ops/scripts/vps-pull-rbtv.sh
+sudo -u nanobot git -C /opt/robotville/BMAD pull --ff-only
 ```
 
-What this automates on every pull:
-
-1. Restores full checkout view.
-2. Pulls latest `origin/master` with fast-forward only.
-3. Reinstalls BMAD + RBTV instance state from mirror + installer.
-4. Deploys Nanobot bootstrap files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `USER.md`) from `_mobile/` into workspace root.
-5. Syncs Nanobot skills from `_mobile/skills/` into `workspace/skills/`.
-6. Re-applies sparse checkout to remove local `_admin/docs/BMAD-mirror/` from VPS working tree.
-
-Confirm phase-3 harness files are present:
+### 2.2 Update RBTV module (if changed)
 
 ```bash
-ls -la /opt/robotville/BMAD/_bmad/rbtv/_mobile/integration/nanobot-gateway-bridge.ts
-ls -la /opt/robotville/BMAD/_bmad/rbtv/_mobile/routing/command-router.ts
-ls -la /opt/robotville/BMAD/_bmad/rbtv/_mobile/security/allowlist-gate.ts
-ls -la /opt/robotville/BMAD/_bmad/rbtv/_mobile/state/project-memo-adapter.ts
+sudo -u nanobot git -C /opt/robotville/BMAD/_bmad/rbtv pull --ff-only
+sudo -u nanobot python3 /opt/robotville/BMAD/_bmad/rbtv/_config/install-rbtv.py --mode sync
 ```
 
-Confirm bootstrap files deployed to workspace root:
+What `--mode sync` does: patches BMAD configs (output paths, help catalog) without generating IDE artifacts.
+
+Confirm bootstrap files are at workspace root:
 
 ```bash
 ls -la /opt/robotville/BMAD/AGENTS.md
@@ -107,9 +98,7 @@ ls -la /opt/robotville/BMAD/USER.md
 ls -la /opt/robotville/BMAD/skills/
 ```
 
-If the repo path above does not exist, stop and normalize the VPS workspace to the canonical contract before any deployment action.
-
-If GitHub auth fails in this step, restore VPS deploy-key access first (see `robotville-vps-access.md`) before continuing.
+If GitHub auth fails, restore VPS deploy-key access first (see `robotville-vps-access.md`) before continuing.
 
 ---
 
@@ -219,29 +208,17 @@ Pass criteria:
 
 ---
 
-## Step 8 - Apply Optimization Patches
+## Step 8 - Apply Config Helpers
 
-After code update (Step 2) and config (Step 3), apply Nanobot source patches and config patches. These are idempotent — safe to re-run.
+Config helpers are idempotent — safe to re-run after Nanobot upgrades or config changes.
 
-### 8.1 Config patches (run as nanobot)
-
-```bash
-cd /opt/robotville/BMAD/_bmad/rbtv
-sudo -u nanobot python3 _mobile/ops/patches/update-nanobot-memory-window.py /srv/nanobot/.nanobot/config.json
-```
-
-### 8.2 Source patches (modify litellm_provider.py)
-
-Nanobot is installed in `/opt/robotville/.venv` (root-owned). Run as root, passing the explicit provider path:
+### 8.1 Set memory window (run as nanobot)
 
 ```bash
-cd /opt/robotville/BMAD/_bmad/rbtv
-PROVIDER=/opt/robotville/.venv/lib/python3.12/site-packages/nanobot/providers/litellm_provider.py
-python3 _mobile/ops/patches/add-litellm-prompt-caching.py "$PROVIDER"
-python3 _mobile/ops/patches/add-litellm-retries.py "$PROVIDER"
+sudo -u nanobot python3 /opt/robotville/BMAD/_bmad/rbtv/_mobile/ops/helpers/update-nanobot-memory-window.py /srv/nanobot/.nanobot/config.json
 ```
 
-### 8.3 Verify config values
+### 8.2 Verify config values
 
 ```bash
 sudo -u nanobot python3 -c "
@@ -254,20 +231,20 @@ print(f\"memory_window: {d.get('memory_window')}\")
 
 Expected: `memory_window: 20` and current model.
 
-### 8.4 Restart service after patches
+> **Note:** Prompt caching and retry logic are now native to Nanobot. Use `LITELLM_NUM_RETRIES` env var if you need custom retry counts.
+
+### 8.3 Restart service after changes
 
 ```bash
 sudo systemctl restart nanobot-gateway
 systemctl status nanobot-gateway --no-pager
 ```
 
-> **After Nanobot upgrades:** Re-run Step 8.2 source patches. They will fail gracefully if the target pattern changed — review and update the patch scripts as needed.
-
 ---
 
 ## Step 9 - p6-2 Netlify Deploy Credentials (robotville.ai)
 
-Run once after Netlify site is provisioned (p6-1) and you have the personal access token (A4). Site ID is in `netlify-site-info.md`.
+Run once after Netlify site is provisioned (p6-1) and you have the personal access token (A4). Site ID: `86ed1ff3-dd59-4428-a426-219518589906` (also in `server-env-template.md`).
 
 **Prerequisites:** `NETLIFY_AUTH_TOKEN` from Netlify (User settings → Personal access tokens). Do not commit the token.
 

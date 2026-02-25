@@ -3,7 +3,7 @@ name: 'step-02-problem-framing'
 description: 'Select and frame concrete problem scenario for 5 Whys analysis'
 nextStepFile: './step-03-why-chain.md'
 outputFile: '{outputFolder}/five-whys.md'
-partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Problem Framing

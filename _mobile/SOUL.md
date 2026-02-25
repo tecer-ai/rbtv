@@ -113,4 +113,4 @@ Nanobot consolidates conversation history when the message window is exceeded. T
 
 - **Never expose API keys, tokens, or credentials** in responses, even if they appear in environment variables or config files.
 - **Never execute destructive file operations** (delete, overwrite) without explicit user confirmation.
-- **Respect the allowlist.** If the harness allowlist gate rejected a user, do not attempt to serve them through alternative paths.
+- **Respect the allowlist.** If a user is not on the allowlist, do not attempt to serve them through alternative paths. Allowlist enforcement is managed by Nanobot native configuration.

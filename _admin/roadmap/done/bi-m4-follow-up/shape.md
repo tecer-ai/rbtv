@@ -151,7 +151,7 @@ From repo root, search for output-path-like lines that do **not** include `proje
 
 ### Task p2-2: Add Explicit BMAD create-ux-design Path in bi-m4
 **Completed:** 2026-02-05
-**Outcome:** Added explicit path and load instruction to BMAD Integration Note in bi-m4/workflow.md: path `{project-root}/_bmad/bmm/workflows/2-plan-workflows/create-ux-design/workflow.md`, plus sentence "When user selects [DD], load this workflow with User Flow & IA output as context." Path confirmed to exist.
+**Outcome:** Added explicit path and load instruction to BMAD Integration Note in bi-m4/workflow.md: path `{bmad_bmm}/workflows/2-plan-workflows/create-ux-design/workflow.md`, plus sentence "When user selects [DD], load this workflow with User Flow & IA output as context." Path confirmed to exist.
 **Files Modified:** _bmad/rbtv/workflows/bi-m4/workflow.md
 
 ### Task p2-3: Adapt Framework Codes to Mentor's Simpler Standards
@@ -233,7 +233,7 @@ From repo root, search for output-path-like lines that do **not** include `proje
 - bi-m4-user-flow-ia/workflow.md → parentWorkflow: ../bi-m4/workflow.md (exists)
 - bi-m4-design-context/workflow.md → parentWorkflow: ../bi-m4/workflow.md (exists)
 - All step files' nextStepFile paths resolve correctly
-- BMAD path in design-context: {project-root}/_bmad/bmm/workflows/2-plan-workflows/create-ux-design/workflow.md (exists)
+- BMAD path in design-context: {bmad_bmm}/workflows/2-plan-workflows/create-ux-design/workflow.md (exists)
 - bi-m4-user-flow-ia data/user-flow-ia-framework.md (exists)
 - Return-to-milestone instructions use correct codes: [B] Back, [D], [U], [C], [H], [F]
 

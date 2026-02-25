@@ -3,7 +3,7 @@ name: 'step-04-channels-revenue'
 description: 'Populate Channels, Revenue Streams, and Cost Structure blocks'
 nextStepFile: './step-05-metrics-advantage.md'
 outputFile: '{outputFolder}/lean-canvas.md'
-partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Channels & Revenue Blocks

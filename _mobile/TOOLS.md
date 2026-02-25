@@ -38,7 +38,7 @@ Deploy commands publish content to `robotville.ai` via Netlify CLI. These are st
 **`deploy site` execution:**
 1. User sends `deploy site`.
 2. Copy the source directory to a staging path outside git tracking:
-   `exec`: `rm -rf /tmp/robotville-deploy && cp -r _bmad/rbtv/_mobile/_docs/netlify-placeholder /tmp/robotville-deploy`
+   `exec`: `rm -rf /tmp/robotville-deploy && cp -r _bmad/rbtv/_mobile/web/netlify-placeholder /tmp/robotville-deploy`
 3. If the user requested content changes before deploying, apply edits to files in `/tmp/robotville-deploy/` (never edit the git-tracked source directly).
 4. Deploy from the staging path:
    `exec`: `netlify deploy --dir=/tmp/robotville-deploy --site=86ed1ff3-dd59-4428-a426-219518589906 --prod`

@@ -20,7 +20,7 @@
 - [ ] Env file exists with restricted permissions (`root:nanobot`, `640`).
 - [ ] Canonical workspace path exists: `/opt/robotville/BMAD/_bmad/rbtv`.
 - [ ] Private repo access works from VPS (`sudo -u nanobot git fetch origin --prune` succeeds).
-- [ ] Pull automation scripts exist and are executable in `_mobile/ops/scripts/`.
+- [ ] Config helpers exist in `_mobile/ops/helpers/`.
 
 Commands:
 
@@ -31,7 +31,7 @@ sudo -u nanobot env HOME=/srv/nanobot /usr/local/bin/nanobot status
 ls -l /etc/robotville/nanobot-gateway.env
 ls -la /opt/robotville/BMAD/_bmad/rbtv
 sudo -u nanobot git -C /opt/robotville/BMAD/_bmad/rbtv fetch origin --prune
-ls -l /opt/robotville/BMAD/_bmad/rbtv/_mobile/ops/scripts/vps-*.sh
+ls /opt/robotville/BMAD/_bmad/rbtv/_mobile/ops/helpers/
 ```
 
 ---
@@ -110,7 +110,6 @@ journalctl -u nanobot-gateway -n 60 --no-pager
 ## F) Token Budget & Optimization Validation
 
 - [ ] `config.json` shows `memory_window: 20`.
-- [ ] Source patches applied: `litellm_provider.py` contains `cache_control_injection_points` and `num_retries`.
 - [ ] Multi-turn conversation (e.g., `mentor` → `N` → follow-up) completes without `litellm.RateLimitError`.
 
 Commands:
@@ -122,13 +121,9 @@ import json; c = json.load(open('/srv/nanobot/.nanobot/config.json'))
 d = c.get('agents',{}).get('defaults',{})
 print(f\"memory_window: {d.get('memory_window')}\")
 "
-
-# Verify source patches (auto-discovers nanobot install path)
-pip show nanobot | grep Location
-# Then check the file at that location:
-# grep -c 'cache_control_injection_points' <location>/nanobot/providers/litellm_provider.py
-# grep -c 'num_retries' <location>/nanobot/providers/litellm_provider.py
 ```
+
+> **Note:** Prompt caching and retry logic are native to Nanobot (no source patches needed). If rate limit errors occur, set `LITELLM_NUM_RETRIES` in the env file.
 
 ---
 

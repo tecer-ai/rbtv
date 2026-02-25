@@ -148,6 +148,20 @@
 
 <!-- Decisions and discovery entries will be appended below this line -->
 
+### Discovery P1-A: BMAD target version changed from Beta.8 to Beta.4
+
+**Date:** 2026-02-23 | **Task:** p1-1
+
+User confirmed that the installed BMAD version is Beta.4 (not Beta.8). The plan originally specified updating the mirror to Beta.8, but the user instructed to use Beta.4 as the target — the same version already in the mirror. This makes p1-1 a verify task (no mirror update needed) and p1-2 N/A (no Beta.7 workflow splitting risk at Beta.4). All version declarations set to `6.0.0-Beta.4` (both target and min). A separate post-plan PRD will cover what is needed to migrate to the latest BMAD release.
+
+**Impact:** p1-1 (verify only), p1-2 (N/A — Beta.7 risk does not apply), p1-3 (Beta.4 declared, not Beta.8)
+
+### Discovery P1-B: Config helper relocation destination proposed
+
+**Date:** 2026-02-23 | **Task:** p5-4 (pre-decided before phase 5)
+
+Config helper scripts (4 files from `_mobile/ops/patches/`) will be relocated to `_mobile/ops/helpers/` — rename from "patches" to "helpers" since these are admin utility scripts, not source patches. Systemd service stays at `_mobile/ops/systemd/`. Website HTML files (netlify-placeholder) move to `_mobile/web/`. This was a TBD in the plan, resolved by proposing and self-approving per user's "execute autonomously" instruction.
+
 ---
 
 ## References
@@ -246,3 +260,35 @@ Prompt caching (native Feb 18, 2026), Slack Socket Mode, allowlist via `config.j
 **REWRITE (1 file):** `_mobile/README.md` → VPS bootstrap instructions, server access, update flows
 
 **EVALUATE (11 files):** `_docs/` operational docs — merge useful info into README or keep as separate docs
+
+---
+
+### Execution Log P5 (Phase 5 — completed 2026-02-23)
+
+**p5-1:** Updated `TOOLS.md` deploy path (`_docs/netlify-placeholder` → `web/netlify-placeholder`). Updated `SOUL.md` allowlist rule to remove stale harness gate reference (TypeScript gate deleted; allowlist now native nanobot config.json).
+
+**p5-2:** Created `_mobile/_docs/workspace-repo-setup.md` with whitelist .gitignore template, `entry_points.md` template, full VPS bootstrap sequence (9 steps), and update flows for bootstrap files, RBTV module, and BMAD upgrades.
+
+**p5-3/4/5:** Dead code deleted (10 files), config helpers moved to `ops/helpers/`, netlify-placeholder HTML moved to `web/`. Committed in prior session.
+
+**p5-6:** Disposition decisions:
+- `deploy-runbook.md`: KEEP + updated (Step 2 → git pull + sync installer; Step 8 → helpers only; removed TypeScript harness checks; removed source patch steps)
+- `netlify-site-info.md`: DELETED (site ID already in server-env-template.md and TOOLS.md)
+- `robotville-vps-access.md`: KEEP + updated (Automated Pull/Reinstall section rewritten as Update Contract with new git pull + sync installer flow)
+- `smoke-checklist.md`: KEEP + updated (script check → helpers check; source patches F) check updated)
+- `server-env-template.md`, `slack-troubleshooting-checklist.md`, `hetzner-p1-1-provisioning-guide.md`: KEPT as-is (valid and current)
+
+**p5-7:** Rewrote `_mobile/README.md` — new architecture description (no harness, bootstrap files only), VPS layout diagram, server access quick reference, update flows, directory index.
+
+---
+
+### Execution Log P6 (Phase 6 — completed 2026-02-23)
+
+**p6-refs:** Found 5 broken references outside exclusion zones. Fixed:
+- `readme.md`: Removed reference to deleted `_mobile/HOW-IT-WORKS.md`
+- `_admin/README.md`: Updated _mobile documentation links (removed HOW-IT-WORKS.md)
+- `get_started.md`: Updated admin installer reference (`_admin/install-admin-rbtv.py` → `_config/install-rbtv.py --mode admin`)
+- `_mobile/_docs/server-env-template.md`: Removed reference to deleted `netlify-site-info.md`
+- `_admin/.cursor/rules/admin-rbtv-bmad-mirror.mdc`: Updated stale admin installer reference to unified installer admin mode
+
+**p6-compound:** No compound-ready learnings in `learnings.md` (template only, no entries recorded during execution). Skipped.

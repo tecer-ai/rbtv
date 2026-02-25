@@ -3,7 +3,7 @@ name: 'step-02-funnel-mapping'
 description: 'Map conversion funnel stages and identify friction points'
 nextStepFile: './step-03-hypothesis-generation.md'
 outputFile: '{outputFolder}/conversion-optimization.md'
-partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Funnel Mapping & Friction Analysis

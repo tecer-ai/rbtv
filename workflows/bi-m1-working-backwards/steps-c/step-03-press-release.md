@@ -3,7 +3,7 @@ name: 'step-03-press-release'
 description: 'Draft customer-facing press release answering four core questions'
 nextStepFile: './step-04-faq.md'
 outputFile: '{outputFolder}/working-backwards.md'
-partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Draft Press Release

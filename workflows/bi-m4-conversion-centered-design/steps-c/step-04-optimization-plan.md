@@ -3,7 +3,7 @@ name: 'step-04-optimization-plan'
 description: 'Prioritize hypotheses and create testing roadmap'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{outputFolder}/conversion-optimization.md'
-partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Optimization Plan

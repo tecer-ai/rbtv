@@ -6,5 +6,20 @@
 # Output Configuration
 output_folder: "{project-root}/_bmad-output"
 
+# BMAD Compatibility
+# bmad_target_version: the exact BMAD version RBTV was built and tested against
+# bmad_min_version: the oldest BMAD version expected to work (best-effort, no guarantee)
+bmad_target_version: "6.0.0-Beta.4"
+bmad_min_version: "6.0.0-Beta.4"
+
+# Path Aliases
+# Resolved per context by installer. Use these instead of {project-root}/_bmad/core/ etc.
+# to eliminate multi-hop path resolution for agents (PRD 5).
+paths:
+  bmad_core: "{project-root}/_bmad/core"
+  bmad_bmm: "{project-root}/_bmad/bmm"
+  bmad_rbtv: "{project-root}/_bmad/rbtv"
+  bmad_output: "{project-root}/_bmad-output"
+
 # Core Configuration Values (inherited from core/config.yaml)
 # user_name, communication_language, document_output_language are read from core

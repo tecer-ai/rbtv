@@ -17,8 +17,8 @@ BMAD's advanced elicitation (`_bmad/core/workflows/advanced-elicitation/workflow
 
 | Component | Path | Purpose |
 |-----------|------|---------|
-| Task file | `{project-root}/_bmad/core/workflows/advanced-elicitation/workflow.xml` | XML task: loads methods, presents menu, executes selected method on content, loops until user selects 'x' |
-| Methods CSV | `{project-root}/_bmad/core/workflows/advanced-elicitation/methods.csv` | 50 methods across 10 categories (collaboration, advanced, competitive, technical, creative, research, risk, core, learning, philosophical, retrospective) |
+| Task file | `{bmad_core}/workflows/advanced-elicitation/workflow.xml` | XML task: loads methods, presents menu, executes selected method on content, loops until user selects 'x' |
+| Methods CSV | `{bmad_core}/workflows/advanced-elicitation/methods.csv` | 50 methods across 10 categories (collaboration, advanced, competitive, technical, creative, research, risk, core, learning, philosophical, retrospective) |
 
 ### How It Works
 
@@ -43,13 +43,13 @@ When called from a workflow step:
 In `workflows/build-rbtv-component/templates/step-template.md`, change:
 
 ```yaml
-# advancedElicitationTask: '{project-root}/_bmad/core/workflows/advanced-elicitation/workflow.xml' # Not yet integrated into RBTV
+# advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml' # Not yet integrated into RBTV
 ```
 
 To:
 
 ```yaml
-advancedElicitationTask: '{project-root}/_bmad/core/workflows/advanced-elicitation/workflow.xml'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 ```
 
 ### 2. Update Step Template Menu Handling
@@ -83,7 +83,7 @@ Run a RBTV workflow end-to-end (e.g., build-rbtv-component) in an installed BMAD
 
 ## Risks
 
-- **Path resolution:** RBTV references `{project-root}/_bmad/core/...` which only resolves in an installed BMAD instance, not in standalone RBTV development
+- **Path resolution:** RBTV references `{bmad_core}/...` which only resolves in an installed BMAD instance, not in standalone RBTV development
 - **Context handoff:** The advanced elicitation task assumes conversation context contains the content to enhance — verify RBTV steps provide this naturally
 
 ## Success Criteria

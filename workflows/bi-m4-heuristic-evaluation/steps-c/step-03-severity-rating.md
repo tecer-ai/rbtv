@@ -3,7 +3,7 @@ name: 'step-03-severity-rating'
 description: 'Rate severity of each violation (0-4 scale), prioritize issues'
 nextStepFile: './step-04-recommendations.md'
 outputFile: '{project-root}/_bmad-output/{project-name}/founder/m4-prototypation/heuristic-evaluation.md'
-partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Severity Rating

@@ -3,7 +3,7 @@ name: 'step-05-metrics-advantage'
 description: 'Populate Key Metrics and Unfair Advantage blocks'
 nextStepFile: './step-06-synthesis.md'
 outputFile: '{outputFolder}/lean-canvas.md'
-partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 5: Metrics & Advantage Blocks

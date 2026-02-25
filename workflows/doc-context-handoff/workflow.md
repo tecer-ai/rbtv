@@ -10,7 +10,7 @@ templateFiles:
   execution: ./templates/handoff-execution.md
   project: ./templates/handoff-project.md
 outputFolder: '{project-root}/_bmad-output/handoffs'
-advancedElicitationTask: '{project-root}/_bmad/core/workflows/advanced-elicitation/workflow.xml'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 ---
 
 # Handoff Workflow

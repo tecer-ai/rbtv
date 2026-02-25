@@ -3,7 +3,7 @@ name: 'step-03-benchmarking'
 description: 'Benchmark US/China markets and identify cross-industry analogues'
 nextStepFile: './step-04-positioning.md'
 outputFile: '{outputFolder}/competitive-landscape.md'
-partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Geographic & Cross-Industry Benchmarking

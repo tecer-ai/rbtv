@@ -1,5 +1,6 @@
 ---
 name: 'bi-business-innovation'
+main_config: '{project-root}/_bmad/rbtv/_config/config.yaml'
 description: 'Guide users through 6-milestone business innovation lifecycle from idea to MVP'
 newProjectStep: ./steps-c/step-01-project-setup.md
 continueProjectStep: ./steps-c/step-02-milestone-select.md

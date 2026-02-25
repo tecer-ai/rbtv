@@ -3,7 +3,7 @@ name: 'step-03-value-solution'
 description: 'Populate Unique Value Proposition and Solution blocks'
 nextStepFile: './step-04-channels-revenue.md'
 outputFile: '{outputFolder}/lean-canvas.md'
-partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Value & Solution Blocks

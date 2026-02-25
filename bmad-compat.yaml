@@ -1,0 +1,103 @@
+# RBTV → BMAD Compatibility Manifest
+# Consumed by: _config/install-rbtv.py (pre-flight check), tasks/check-bmad-compat.xml
+# NOT loaded during normal agent sessions — compatibility data only
+#
+# Maintained by: RBTV team
+# Update this file when any new RBTV→BMAD reference is added.
+
+bmad_target_version: "6.0.0-Beta.4"
+bmad_min_version: "6.0.0-Beta.4"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Touchpoints — every RBTV dependency on BMAD structure, paths, or format
+# ─────────────────────────────────────────────────────────────────────────────
+
+touchpoints:
+
+  # Files the installer reads from or writes to in the BMAD project
+  installer_writes:
+    - path: "_bmad/core/config.yaml"
+      type: "modify"
+      description: "Rewrites output_folder field to {project-root}/_bmad-output"
+      field_used: "output_folder"
+      source: "_config/install-rbtv.py::update_bmad_config"
+
+    - path: "_bmad/bmm/config.yaml"
+      type: "modify"
+      description: "Rewrites output_folder, planning_artifacts, and implementation_artifacts fields"
+      fields_used: ["output_folder", "planning_artifacts", "implementation_artifacts"]
+      source: "_config/install-rbtv.py::update_bmad_config"
+
+    - path: "_bmad/_config/bmad-help.csv"
+      type: "modify"
+      description: "Appends RBTV module entry row"
+      format_assumption: "CSV with columns: module, phase, name, code, sequence, workflow-file, command, required, agent-name, agent-command, agent-display-name, agent-title, options, description, output-location, outputs"
+      source: "_config/install-rbtv.py::add_rbtv_to_help_catalog"
+
+    - path: ".cursor/mcp.json"
+      type: "merge"
+      description: "Merges RBTV MCP server config into Cursor's MCP configuration"
+      source: "_config/install-rbtv.py::merge_mcp_json"
+
+    - path: ".claude/.mcp.json"
+      type: "merge"
+      description: "Merges RBTV MCP server config into Claude Code's MCP configuration"
+      source: "_config/install-rbtv.py::merge_mcp_to_claude_code"
+
+    - path: ".cursor/"
+      type: "copy"
+      description: "Copies RBTV config files (commands, agents, skills, rules) into .cursor/"
+      source: "_config/install-rbtv.py::copy_folder"
+
+    - path: ".claude/commands/"
+      type: "copy"
+      description: "Replicates .cursor/commands/ to .claude/commands/ for Claude Code compatibility"
+      source: "_config/install-rbtv.py::replicate_commands_to_claude"
+
+    - path: ".cursorignore"
+      type: "append"
+      description: "Appends RBTV-managed patterns (_bmad-output/archive/)"
+      source: "_config/install-rbtv.py::merge_cursorignore"
+
+  # BMAD file paths directly referenced in RBTV agent files
+  agent_references:
+    - path: "_bmad/bmm/workflows/1-analysis/create-product-brief/workflow.md"
+      source: "agents/ana.md"
+      description: "Product Brief workflow — product submenu entry [B]"
+
+    - path: "_bmad/bmm/workflows/2-plan-workflows/create-prd/workflow.md"
+      source: "agents/ana.md"
+      description: "PRD workflow — product submenu entry [PRD]"
+
+    - path: "_bmad/bmm/workflows/2-plan-workflows/create-ux-design/workflow.md"
+      source: "agents/ana.md"
+      description: "UX Design workflow — product submenu entry [UX]"
+
+  # BMAD file paths referenced from RBTV workflow files
+  task_references:
+    - path: "_bmad/core/workflows/advanced-elicitation/workflow.xml"
+      source: "workflows/doc-compound-learning/workflow.md"
+      variable: "advancedElicitationTask"
+      description: "Advanced elicitation party mode — invoked for step refinement"
+
+  # BMAD structural assumptions RBTV makes (format, field names, directory existence)
+  structure_assumptions:
+    - item: "bmad-help.csv column schema"
+      path: "_bmad/_config/bmad-help.csv"
+      description: "CSV must contain: module, phase, name, code, sequence, workflow-file, command, required, agent-name, agent-command, agent-display-name, agent-title, options, description, output-location, outputs"
+
+    - item: "_bmad/_config/manifest.yaml version field"
+      path: "_bmad/_config/manifest.yaml"
+      description: "YAML must contain installation.version field — used by installer pre-flight check"
+
+    - item: "_bmad/core/config.yaml output_folder field"
+      path: "_bmad/core/config.yaml"
+      description: "YAML must contain output_folder field — rewritten by installer"
+
+    - item: "_bmad/bmm/config.yaml output path fields"
+      path: "_bmad/bmm/config.yaml"
+      description: "YAML must contain output_folder, planning_artifacts, implementation_artifacts fields"
+
+    - item: "_bmad/ root directory structure"
+      path: "_bmad/"
+      description: "Expects: _bmad/_config/, _bmad/core/, _bmad/bmm/ subdirectories"

@@ -35,7 +35,7 @@ You are a YC mentor. Clear instructions prevent re-discovery and wasted tokens.
 
 ## BMAD WORKFLOW PATH
 
-- **Path:** `{project-root}/_bmad/bmm/workflows/2-plan-workflows/create-ux-design/workflow.md`
+- **Path:** `{bmad_bmm}/workflows/2-plan-workflows/create-ux-design/workflow.md`
 - **Context document:** `{outputFolder}/design-context.md`
 
 ---
@@ -49,7 +49,7 @@ Present clear instructions:
 > "**Invoke BMAD create-ux-design**
 >
 > 1. **Load the BMAD workflow:**  
->    `{project-root}/_bmad/bmm/workflows/2-plan-workflows/create-ux-design/workflow.md`
+>    `{bmad_bmm}/workflows/2-plan-workflows/create-ux-design/workflow.md`
 >
 > 2. **Provide as input context:**  
 >    The design-context document at `{outputFolder}/design-context.md`.  

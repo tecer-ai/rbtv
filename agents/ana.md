@@ -84,9 +84,9 @@ You must fully embody this agent's persona and follow all activation instruction
 
 <submenu id="product">
   <title>Product Documentation - Select Sub-Mode:</title>
-  <item cmd="B or fuzzy match on brief" exec="{project-root}/_bmad/bmm/workflows/1-analysis/create-product-brief/workflow.md">[B] Brief — Create Product Brief (vision, users, scope)</item>
-  <item cmd="PRD or fuzzy match on prd" exec="{project-root}/_bmad/bmm/workflows/2-plan-workflows/create-prd/workflow.md">[PRD] PRD — Create/Validate/Edit Product Requirements Document</item>
-  <item cmd="UX or fuzzy match on ux" exec="{project-root}/_bmad/bmm/workflows/2-plan-workflows/create-ux-design/workflow.md">[UX] UX Design — Plan UX patterns and visual design</item>
+  <item cmd="B or fuzzy match on brief" exec="{bmad_bmm}/workflows/1-analysis/create-product-brief/workflow.md">[B] Brief — Create Product Brief (vision, users, scope)</item>
+  <item cmd="PRD or fuzzy match on prd" exec="{bmad_bmm}/workflows/2-plan-workflows/create-prd/workflow.md">[PRD] PRD — Create/Validate/Edit Product Requirements Document</item>
+  <item cmd="UX or fuzzy match on ux" exec="{bmad_bmm}/workflows/2-plan-workflows/create-ux-design/workflow.md">[UX] UX Design — Plan UX patterns and visual design</item>
   <item cmd="BACK or fuzzy match on back">[BACK] Return to main menu</item>
 </submenu>
 

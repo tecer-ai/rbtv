@@ -49,7 +49,7 @@ NANOBOT_DEEPSEEK_API_KEY=sk-OPTIONAL_IF_UNUSED
 # Netlify deploy (p6-2) — for robotville.ai doc deploy via CLI
 # Required for Nanobot deploy command; add to env so deploy script can source it
 NETLIFY_AUTH_TOKEN=nfp_REPLACE_ME
-# Site ID for netlify deploy --site (see netlify-site-info.md). Omit if you ran netlify link.
+# Site ID for netlify deploy --site. Omit if you ran netlify link.
 NETLIFY_SITE_ID=86ed1ff3-dd59-4428-a426-219518589906
 ```
 

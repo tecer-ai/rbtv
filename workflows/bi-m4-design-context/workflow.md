@@ -66,7 +66,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ## BMAD WORKFLOW PATH
 
-- **Path:** `{project-root}/_bmad/bmm/workflows/2-plan-workflows/create-ux-design/workflow.md`
+- **Path:** `{bmad_bmm}/workflows/2-plan-workflows/create-ux-design/workflow.md`
 - Step 3 instructs loading this workflow with the prepared design-context document as input.
 
 ---

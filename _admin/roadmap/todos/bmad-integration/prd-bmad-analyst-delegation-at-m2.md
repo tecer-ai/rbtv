@@ -264,8 +264,8 @@ Analyst delegation sequence (inline, following standard pattern):
    "Open a NEW conversation and load the BMAD workflow directly (do NOT load the analyst
    agent — we are delegating to the workflow, not the agent):
 
-   [R] Research: {project-root}/_bmad/bmm/workflows/1-analysis/research/workflow.md
-   [B] Brainstorm: {project-root}/_bmad/core/workflows/brainstorming/workflow.md
+   [R] Research: {bmad_bmm}/workflows/1-analysis/research/workflow.md
+   [B] Brainstorm: {bmad_core}/workflows/brainstorming/workflow.md
 
    The workflow will automatically find your M1 conception artifacts via config.yaml
    (planning_artifacts has been set to your M1 folder).

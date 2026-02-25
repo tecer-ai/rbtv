@@ -3,7 +3,7 @@ stepNumber: 2
 stepName: 'location-selection'
 nextStepFile: ./step-03-extraction.md
 outputFile: '{outputFolder}/{filename}.md'
-advancedElicitationTask: '{project-root}/_bmad/core/workflows/advanced-elicitation/workflow.xml'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 ---
 
 # Step 02: Location Selection

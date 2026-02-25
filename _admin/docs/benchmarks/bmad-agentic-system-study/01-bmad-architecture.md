@@ -219,7 +219,7 @@ description: 'analyst agent'
 ---
 
 <agent-activation CRITICAL="TRUE">
-1. LOAD the FULL agent file from {project-root}/_bmad/bmm/agents/analyst.md
+1. LOAD the FULL agent file from {bmad_bmm}/agents/analyst.md
 2. READ its entire contents
 3. FOLLOW every step in the <activation> section precisely
 </agent-activation>

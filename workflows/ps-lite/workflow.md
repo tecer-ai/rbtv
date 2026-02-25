@@ -1,5 +1,6 @@
 ---
 name: ps-lite
+main_config: '{project-root}/_bmad/rbtv/_config/config.yaml'
 description: Lightweight conversational problem structuring — Socratic questioning with escalation to full [PS]
 nextStep: ./steps-c/step-01-converse.md
 ---

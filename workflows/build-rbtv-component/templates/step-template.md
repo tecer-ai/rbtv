@@ -18,8 +18,8 @@ workflowFile: './workflow.md'
 outputFile: '{project-root}/_bmad-output/{output-name}.md' # Remove if step does not write a file
 
 # Task References
-# advancedElicitationTask: '{project-root}/_bmad/core/workflows/advanced-elicitation/workflow.xml' # Not yet integrated into RBTV
-partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
+# advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml' # Not yet integrated into RBTV
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 
 # Template References (if this step uses specific templates)
 templateFile: './templates/{template-name}.md'

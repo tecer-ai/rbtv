@@ -3,7 +3,7 @@ name: 'step-02-harvest'
 description: 'Extract explicit and implicit assumptions from all M1 artefacts'
 nextStepFile: './step-03-classify.md'
 outputFile: '{outputFolder}/leap-of-faith.md'
-partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Harvest Assumptions

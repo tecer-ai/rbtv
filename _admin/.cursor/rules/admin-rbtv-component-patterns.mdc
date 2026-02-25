@@ -23,9 +23,10 @@ alwaysApply: false
 |------|-------------|
 | Size | 60-80 lines recommended, 120 max |
 | Required frontmatter | `name`, `description`, `nextStep` |
+| Config frontmatter | **MUST** declare `main_config: '{project-root}/_bmad/rbtv/_config/config.yaml'` if the workflow uses config — frontmatter ONLY, never body text |
 | Optional frontmatter | `parentWorkflow`, `outputFolder`, `validateWorkflow`, `editWorkflow` |
 | Forbidden frontmatter | `workflow_path`, `thisStepFile` |
-| Init sequence | Must load config before first step |
+| Cross-module paths | Use `{bmad_core}`, `{bmad_bmm}`, `{bmad_rbtv}`, `{bmad_output}` variables — never `{project-root}/_bmad/core/` etc. directly |
 
 ## Step Files (`workflows/*/steps-*/step-*.md`)
 

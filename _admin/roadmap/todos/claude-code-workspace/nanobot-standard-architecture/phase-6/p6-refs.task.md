@@ -20,7 +20,7 @@ Verify all internal markdown links across the RBTV codebase resolve correctly af
 
 | File | Purpose |
 |------|---------|
-| `.cursor/plans/nanobot-standard-architecture/shape.md` | Execution context, all changes made during plan |
+| `_admin/roadmap/todos/claude-code-workspace/nanobot-standard-architecture/shape.md` | Execution context, all changes made during plan |
 
 ---
 

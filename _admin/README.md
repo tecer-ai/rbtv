@@ -60,8 +60,8 @@ Open Cursor in the `rbtv/` folder. All commands, agents, skills, and rules are n
 
 To understand and work on the mobile module, read:
 
-- `_mobile/README.md` — Scope, boundaries, responsibility split, non-duplication rules
-- `_mobile/HOW-IT-WORKS.md` — Architecture, bootstrap system, inbound pipeline, agent system, VPS deployment, design decisions
+- `_mobile/README.md` — Architecture overview, VPS layout, update flows, directory index
+- `_mobile/_docs/` — Operational docs: deployment runbook, VPS access, env template, troubleshooting
 
 ---
 

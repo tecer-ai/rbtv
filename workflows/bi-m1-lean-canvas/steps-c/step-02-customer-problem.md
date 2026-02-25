@@ -3,7 +3,7 @@ name: 'step-02-customer-problem'
 description: 'Populate Problem, Customer Segments, and Early Adopters blocks'
 nextStepFile: './step-03-value-solution.md'
 outputFile: '{outputFolder}/lean-canvas.md'
-partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Customer & Problem Blocks

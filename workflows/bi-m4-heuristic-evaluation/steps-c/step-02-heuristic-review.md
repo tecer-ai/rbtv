@@ -3,7 +3,7 @@ name: 'step-02-heuristic-review'
 description: 'Evaluate design against all 10 heuristics, document violations'
 nextStepFile: './step-03-severity-rating.md'
 outputFile: '{project-root}/_bmad-output/{project-name}/founder/m4-prototypation/heuristic-evaluation.md'
-partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Heuristic Review

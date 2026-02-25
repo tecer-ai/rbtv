@@ -1,5 +1,6 @@
 ---
 name: problem-structuring
+main_config: '{project-root}/_bmad/rbtv/_config/config.yaml'
 description: Define and structure problems using MECE, Pyramid Principle, and Problem Trees
 nextStep: ./steps-c/step-01-init.md
 ---

@@ -20,8 +20,8 @@ Process all entries in `learnings.md` that are marked compound-ready and generat
 
 | File | Purpose |
 |------|---------|
-| `.cursor/plans/nanobot-standard-architecture/learnings.md` | Source of meta-learnings to compound |
-| `.cursor/plans/nanobot-standard-architecture/shape.md` | Execution context |
+| `_admin/roadmap/todos/claude-code-workspace/nanobot-standard-architecture/learnings.md` | Source of meta-learnings to compound |
+| `_admin/roadmap/todos/claude-code-workspace/nanobot-standard-architecture/shape.md` | Execution context |
 
 ---
 

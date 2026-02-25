@@ -1,0 +1,130 @@
+<task id="_bmad/rbtv/tasks/check-bmad-compat.xml"
+      name="Check BMAD Compatibility"
+      standalone="true"
+      description="Evaluates a new BMAD release against RBTV touchpoints and produces a compatibility report">
+
+  <objective>
+    Systematically evaluate whether a new BMAD release is compatible with RBTV by checking every declared touchpoint in bmad-compat.yaml. Produce a compatibility report that tells the user whether it is safe to update, what breaks, and what needs to change in RBTV before updating.
+  </objective>
+
+  <llm critical="true">
+    <rule>Read bmad-compat.yaml completely before checking any touchpoints.</rule>
+    <rule>Check EVERY touchpoint — do not skip any category.</rule>
+    <rule>Distinguish clearly between: Compatible, Breaking, and Unknown (cannot verify).</rule>
+    <rule>Do not modify any RBTV or BMAD files during this task — evaluation only.</rule>
+    <rule>If the BMAD mirror has not been updated to the target version, use release notes and GitHub as secondary verification source.</rule>
+    <rule>Save the compatibility report to the output path before presenting the summary.</rule>
+  </llm>
+
+  <inputs>
+    <input name="target_bmad_version" required="true">
+      The BMAD version to evaluate compatibility against (e.g., "6.0.0-Beta.5"). User must provide this.
+    </input>
+    <input name="release_notes_url" required="false">
+      URL to the BMAD release notes or GitHub release page for the target version. Helps when mirror is not yet updated.
+    </input>
+  </inputs>
+
+  <flow>
+    <step n="1" title="Load Inputs and Compatibility Data">
+      <substep n="1a" title="Request Target Version">
+        <check if="target_bmad_version not provided">
+          <action>Ask the user: "Which BMAD version do you want to evaluate? (e.g., 6.0.0-Beta.5)"</action>
+          <action>Wait for response before proceeding.</action>
+        </check>
+      </substep>
+      <substep n="1b" title="Read Compatibility Manifest">
+        <action>Read {project-root}/_bmad/rbtv/bmad-compat.yaml — this is the authoritative list of touchpoints to verify.</action>
+        <action>Note current bmad_target_version and bmad_min_version from the manifest.</action>
+      </substep>
+      <substep n="1c" title="Determine Verification Method">
+        <action>Read {project-root}/_bmad/_config/manifest.yaml to find the currently installed BMAD version.</action>
+        <check if="installed BMAD version matches target_bmad_version">
+          <action>Primary method: check file existence and structure directly in the BMAD installation.</action>
+        </check>
+        <check if="installed BMAD version does not match target_bmad_version">
+          <action>Secondary method: use release notes, GitHub release content, and changelog to identify structural changes.</action>
+          <action>Note in report that direct file verification was not possible — mirror must be updated for full validation.</action>
+        </check>
+      </substep>
+    </step>
+
+    <step n="2" title="Check installer_writes Touchpoints">
+      <substep n="2a" title="Verify Config File Paths and Fields">
+        <action>For each installer_writes touchpoint in bmad-compat.yaml: verify the target path exists in the BMAD project at {project-root}/{path}.</action>
+        <action>For paths with field_used or fields_used: verify those YAML fields exist in the file.</action>
+        <action>For bmad-help.csv: verify the CSV header row matches the expected column schema in structure_assumptions.</action>
+        <action>Record result for each: Compatible | Breaking | Unknown.</action>
+      </substep>
+    </step>
+
+    <step n="3" title="Check agent_references Touchpoints">
+      <substep n="3a" title="Verify BMAD Workflow Paths">
+        <action>For each agent_references touchpoint: verify the file exists at {project-root}/{path}.</action>
+        <action>If file does not exist: check whether the workflow was renamed, split, or moved in the target BMAD version.</action>
+        <action>Record result for each: Compatible | Breaking (with new path if known) | Unknown.</action>
+      </substep>
+    </step>
+
+    <step n="4" title="Check task_references Touchpoints">
+      <substep n="4a" title="Verify BMAD Task and Workflow Files">
+        <action>For each task_references touchpoint: verify the file exists at {project-root}/{path}.</action>
+        <action>For files using {variable} references: verify the variable name and file path are still valid.</action>
+        <action>Record result for each: Compatible | Breaking | Unknown.</action>
+      </substep>
+    </step>
+
+    <step n="5" title="Check structure_assumptions">
+      <substep n="5a" title="Verify Structural Assumptions">
+        <action>For each structure_assumptions item: verify the assumption holds in the target BMAD version.</action>
+        <action>For bmad-help.csv: compare expected column schema against actual header row.</action>
+        <action>For manifest.yaml: verify installation.version field path is intact.</action>
+        <action>For config.yaml files: verify expected YAML field names still exist.</action>
+        <action>Record result for each: Compatible | Breaking | Unknown.</action>
+      </substep>
+    </step>
+
+    <step n="6" title="Produce Compatibility Report">
+      <substep n="6a" title="Determine Overall Verdict">
+        <check if="all touchpoints are Compatible">
+          <action>Overall verdict: COMPATIBLE — safe to update BMAD.</action>
+        </check>
+        <check if="any touchpoint is Breaking">
+          <action>Overall verdict: BREAKING CHANGES — RBTV must be updated before BMAD upgrade.</action>
+        </check>
+        <check if="no Breaking touchpoints but some Unknown">
+          <action>Overall verdict: PARTIALLY VERIFIED — manual review needed for Unknown items before upgrading.</action>
+        </check>
+      </substep>
+      <substep n="6b" title="Write Report File">
+        <action>Load report template from {project-root}/_bmad/rbtv/tasks/data/bmad-compat-report-template.md</action>
+        <action>Fill in: evaluation date, RBTV version, current BMAD version, target BMAD version, overall verdict, touchpoint results table, recommended actions.</action>
+        <action>Save report to: {project-root}/_admin-output/planning-artifacts/bmad-compat-report-{target_bmad_version}.md</action>
+      </substep>
+      <substep n="6c" title="Present Summary">
+        <action>Present: overall verdict, count of Compatible/Breaking/Unknown touchpoints, list of Breaking items with recommended RBTV fixes, path to saved report.</action>
+      </substep>
+    </step>
+
+    <step n="7" title="Recommend Actions">
+      <substep n="7a" title="Provide Actionable Next Steps">
+        <check if="verdict is COMPATIBLE">
+          <action>Recommend: Update BMAD via CLI, then re-run RBTV installer, then update bmad_target_version in bmad-compat.yaml and _config/config.yaml.</action>
+        </check>
+        <check if="verdict is BREAKING CHANGES">
+          <action>For each Breaking touchpoint: describe the specific RBTV change needed (file path update, field rename, new format).</action>
+          <action>Recommend: Fix RBTV touchpoints first, then update BMAD, then re-run installer.</action>
+        </check>
+        <check if="verdict is PARTIALLY VERIFIED">
+          <action>List Unknown items and suggest manual verification steps (update mirror, inspect files directly).</action>
+        </check>
+      </substep>
+    </step>
+  </flow>
+
+  <halt-conditions>
+    <condition>Target BMAD version not provided — request before proceeding.</condition>
+    <condition>bmad-compat.yaml not found — cannot proceed without touchpoints manifest.</condition>
+  </halt-conditions>
+
+</task>

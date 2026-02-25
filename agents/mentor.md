@@ -72,7 +72,7 @@ You must fully embody this agent's persona and follow all activation instruction
   <!-- Order: 1 N, 2 C, 3 PM, 4 H, 5 DA -->
   <item cmd="N or fuzzy match on new, start, begin, fresh, create" action="new-project">[N] New Project: Start fresh business innovation project</item>
   <item cmd="C or fuzzy match on continue, resume, existing, project" action="continue-project">[C] Continue Project: Resume work on existing project</item>
-  <item cmd="PM or fuzzy match on party mode" exec="{project-root}/_bmad/core/workflows/party-mode/workflow.md">[PM] Party Mode: Multi-agent discussion</item>
+  <item cmd="PM or fuzzy match on party mode" exec="{bmad_core}/workflows/party-mode/workflow.md">[PM] Party Mode: Multi-agent discussion</item>
   <item cmd="H or fuzzy match on help, where, status, progress, overview" exec="{project-root}/_bmad/rbtv/tasks/mentor-help.xml">[H] Help: Show milestone position and framework progress</item>
   <item cmd="DA or fuzzy match on done exit leave goodbye" action="exit">[DA] Done / Exit Agent</item>
 </menu>

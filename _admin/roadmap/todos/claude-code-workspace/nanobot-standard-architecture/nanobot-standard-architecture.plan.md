@@ -4,82 +4,82 @@ overview: Simplify nanobot/RBTV integration to standard workspace patterns, unif
 todos:
   - id: p1-1
     content: "p1-1: UPDATE BMAD mirror content from Beta.4 to Beta.8 (download release, replace mirror files, preserve RBTV-owned metadata slot)"
-    status: pending
+    status: completed
   - id: p1-2
     content: "p1-2: Verify Beta.7 workflow splitting impact on agents/ana.md BMAD path references; fix if broken"
-    status: pending
+    status: completed
   - id: p1-3
-    content: "p1-3: UPDATE _config/config.yaml to add bmad_target_version: '6.0.0-Beta.8' and bmad_min_version: '6.0.0-Beta.4'"
-    status: pending
+    content: "p1-3: UPDATE _config/config.yaml to add bmad_target_version: '6.0.0-Beta.4' and bmad_min_version: '6.0.0-Beta.4' (user confirmed Beta.4 as target)"
+    status: completed
   - id: p1-4
     content: "p1-4: CREATE _admin/docs/BMAD-mirror/MIRROR-VERSION.md with BMAD version, sync date, and source release URL"
-    status: pending
+    status: completed
   - id: p1-5
     content: "p1-5: CREATE CHANGELOG.md at RBTV root documenting 1.0.0 release and version declaration changes"
-    status: pending
+    status: completed
   - id: p1-checkpoint
-    content: P1 CHECKPOINT - BMAD mirror updated to Beta.8, version declaration complete
-    status: pending
+    content: P1 CHECKPOINT - BMAD mirror verified at Beta.4, version declaration complete
+    status: completed
   - id: p2-1
     content: "p2-1: CREATE bmad-compat.yaml at RBTV root with all RBTV→BMAD touchpoints (installer writes, agent references, task references, structure assumptions)"
-    status: pending
+    status: completed
   - id: p2-2
     content: "p2-2: CREATE tasks/check-bmad-compat.xml compatibility check task following RBTV task conventions"
-    status: pending
+    status: completed
   - id: p2-3
     content: "p2-3: CREATE tasks/data/bmad-compat-report-template.md"
-    status: pending
+    status: completed
   - id: p2-checkpoint
     content: P2 CHECKPOINT - Compatibility pipeline data and process layers ready for installer integration
-    status: pending
+    status: completed
   - id: p3-1
     content: "p3-1: Refactor _config/install-rbtv.py by merging install-rbtv.py and _admin/install-admin-rbtv.py into unified installer with shared functions and IDE/admin modes"
-    status: pending
+    status: completed
   - id: p3-2
     content: "p3-2: Integrate PRD 3 pre-flight version check (enforcement layer) into unified installer"
-    status: pending
+    status: completed
   - id: p3-3
     content: "p3-3: Implement output-path normalization (CP 2) as shared function — all modes rewrite BMAD output config to _bmad-output/{project-name}/"
-    status: pending
+    status: completed
   - id: p3-4
     content: "p3-4: UPDATE workflows/doc-compound-learning/workflow.md compound output routing to RBTV roadmap todos location"
-    status: pending
+    status: completed
   - id: p3-5
     content: "p3-5: Implement sync mode in unified installer for nanobot workspace BMAD config patching"
-    status: pending
+    status: completed
   - id: p3-6
     content: "p3-6: DELETE _admin/install-admin-rbtv.py (functionality absorbed into unified installer)"
-    status: pending
+    status: completed
   - id: p3-checkpoint
     content: P3 CHECKPOINT - Unified installer functional with all 3 modes, output paths standardized
-    status: pending
+    status: completed
   - id: p4-1
     content: "p4-1: UPDATE _config/config.yaml to add paths: section with bmad_core, bmad_bmm, bmad_rbtv, bmad_output variables"
-    status: pending
+    status: completed
   - id: p4-2
     content: "p4-2: UPDATE admin config overrides in .cursor/rules/admin-rbtv-bmad-mirror.mdc to include resolved path values"
-    status: pending
+    status: completed
   - id: p4-3
     content: "p4-3: UPDATE unified installer to populate paths: section for IDE and sync modes"
-    status: pending
+    status: completed
   - id: p4-4
     content: "p4-4: Migrate cross-module path references (~60 files) from {project-root}/_bmad/core/ and /_bmad/bmm/ patterns to {bmad_core} and {bmad_bmm} variables"
-    status: pending
+    status: completed
   - id: p4-5
     content: "p4-5: Simplify path resolution documentation in CLAUDE.md, admin-rbtv-bmad-mirror.mdc, and admin-restrictions.md (mirrored sections — update all 3 together)"
-    status: pending
+    status: completed
   - id: p4-6
     content: "p4-6: Audit all workflows for config loading patterns (frontmatter vs body text)"
-    status: pending
+    status: completed
   - id: p4-7
     content: "p4-7: Migrate workflows (~10) to frontmatter main_config declaration pattern"
-    status: pending
+    status: completed
   - id: p4-8
     content: "p4-8: UPDATE _config/.cursor/rules/bmad-rbtv-component-patterns.mdc to mandate frontmatter config approach"
-    status: pending
+    status: completed
   - id: p4-checkpoint
     content: P4 CHECKPOINT - Path variables deployed across ~60 files, frontmatter standardized
-    status: pending
+    status: completed
   - id: p5-1
     content: "p5-1: UPDATE bootstrap files (_mobile/SOUL.md, _mobile/TOOLS.md) with correct paths for new workspace architecture"
     status: pending
@@ -88,28 +88,28 @@ todos:
     status: pending
   - id: p5-3
     content: "p5-3: DELETE dead code from _mobile/ — TypeScript harness (4 files), obsolete patches (2), shell scripts (3), HOW-IT-WORKS.md"
-    status: pending
+    status: completed
   - id: p5-4
     content: "p5-4: MOVE config helpers (4 files) and systemd service definition to surviving RBTV paths"
-    status: pending
+    status: completed
   - id: p5-5
     content: "p5-5: MOVE website HTML files (_docs/netlify-placeholder/, 4 files) to surviving RBTV path; UPDATE path reference in _mobile/TOOLS.md"
-    status: pending
+    status: completed
   - id: p5-6
     content: "p5-6: Evaluate _mobile/_docs/ operational docs (11 files) — merge useful content into README or keep as separate docs"
-    status: pending
+    status: completed
   - id: p5-7
     content: "p5-7: Rewrite _mobile/README.md with VPS bootstrap instructions, server access info, update flows"
-    status: pending
+    status: completed
   - id: p5-checkpoint
     content: P5 CHECKPOINT - Workspace artifacts ready, _mobile/ cleaned up, ~1,797 lines of dead code eliminated
-    status: pending
+    status: completed
   - id: p6-refs
     content: "p6-refs: File reference review — verify all internal markdown links resolve across codebase"
-    status: pending
+    status: completed
   - id: p6-compound
     content: "p6-compound: Review learnings.md and compound into system improvements"
-    status: pending
+    status: completed
   - id: p6-checkpoint
     content: P6 FINAL CHECKPOINT - User approval to complete plan
     status: pending
@@ -204,7 +204,7 @@ This plan uses companion files for execution context:
 ## Folder Structure
 
 ```
-.cursor/plans/nanobot-standard-architecture/
+_admin/roadmap/todos/claude-code-workspace/nanobot-standard-architecture/
 ├── nanobot-standard-architecture.plan.md    # This plan file
 ├── shape.md                                 # Shaping + execution log
 ├── learnings.md                             # System learnings

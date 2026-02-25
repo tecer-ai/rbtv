@@ -270,7 +270,7 @@ The installation script must run after every update to sync IDE configuration fi
 
 If you are developing or maintaining RBTV itself (working directly from the `rbtv/` repository rather than a BMAD installation), see [`_admin/README.md`](./_admin/README.md) for admin tools that set up standalone IDE configuration.
 
-**Warning:** The admin install script (`_admin/install-admin-rbtv.py`) manages all `bmad-rbtv-*` and `admin-rbtv-*` files in `.cursor/`. These files are deleted and recreated on every sync. Do not use those prefixes for personal cursor tools — they will be lost.
+**Warning:** The installer (`_config/install-rbtv.py --mode admin`) manages all `bmad-rbtv-*` and `admin-rbtv-*` files in `.cursor/`. These files are deleted and recreated on every sync. Do not use those prefixes for personal cursor tools — they will be lost.
 
 ---
 

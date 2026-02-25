@@ -1,5 +1,6 @@
 ---
 name: prompting-assistance
+main_config: '{project-root}/_bmad/rbtv/_config/config.yaml'
 description: Craft effective prompts using AI model knowledge and prompting techniques
 nextStep: ./steps-c/step-01-init.md
 ---

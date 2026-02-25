@@ -102,35 +102,29 @@ sudo -u nanobot git -C /opt/robotville/BMAD/_bmad/rbtv fetch origin --prune
 
 ---
 
-## Automated Pull/Reinstall Contract
+## Update Contract
 
-RBTV updates on VPS must run through automation scripts under:
+VPS updates use direct git pull + sync installer. No automation shell scripts.
 
-- `/opt/robotville/BMAD/_bmad/rbtv/_mobile/ops/scripts/`
-
-Scripts:
-
-- `vps-install-git-hooks.sh` — installs `post-merge` hook to auto-run reinstall/cleanup after `git pull`.
-- `vps-pull-rbtv.sh` — canonical pull entrypoint (fetch/pull + reinstall + mirror cleanup).
-- `vps-sync-install.sh` — reinstall + cleanup routine (called by hook and pull script).
-
-First-time setup:
+### Bootstrap file changes (workspace repo)
 
 ```bash
-chmod +x /opt/robotville/BMAD/_bmad/rbtv/_mobile/ops/scripts/*.sh
-sudo -u nanobot bash /opt/robotville/BMAD/_bmad/rbtv/_mobile/ops/scripts/vps-install-git-hooks.sh
+sudo -u nanobot git -C /opt/robotville/BMAD pull --ff-only
+sudo systemctl restart nanobot-gateway
 ```
 
-Operational update command:
+### RBTV module changes
 
 ```bash
-sudo -u nanobot bash /opt/robotville/BMAD/_bmad/rbtv/_mobile/ops/scripts/vps-pull-rbtv.sh
+sudo -u nanobot git -C /opt/robotville/BMAD/_bmad/rbtv pull --ff-only
+sudo -u nanobot python3 /opt/robotville/BMAD/_bmad/rbtv/_config/install-rbtv.py --mode sync
+sudo systemctl restart nanobot-gateway
 ```
 
-Result expected after update:
+Result expected after RBTV update:
 
-- BMAD and RBTV instance content is reinstalled from current RBTV state.
-- Local `_admin/docs/BMAD-mirror/` is hidden from VPS working tree after reinstall.
+- BMAD configs patched with current RBTV output paths and help catalog entry.
+- Nanobot picks up any changed agents, workflows, or config on next restart.
 
 ---
 
@@ -244,7 +238,7 @@ If the VPS must be rebuilt (e.g. corrupted OS, unrecoverable config):
 | Bot not answering on Slack | See `slack-troubleshooting-checklist.md` |
 | Reboot VPS | `hcloud server reboot rbtv-nanobot-gateway` or Console |
 | Power off VPS | `hcloud server shutdown rbtv-nanobot-gateway` or Console |
-| Update RBTV code | SSH in → `sudo -u nanobot bash /opt/robotville/BMAD/_bmad/rbtv/_mobile/ops/scripts/vps-pull-rbtv.sh` |
+| Update RBTV code | SSH in → `sudo -u nanobot git -C /opt/robotville/BMAD/_bmad/rbtv pull --ff-only && python3 /opt/robotville/BMAD/_bmad/rbtv/_config/install-rbtv.py --mode sync` |
 | Check fail2ban | `fail2ban-client status sshd` |
 | Hetzner status page | [https://status.hetzner.com/](https://status.hetzner.com/) |
 

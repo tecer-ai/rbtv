@@ -61,7 +61,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 **[D] Design Direction** routes via **bi-m4-design-context** (bridge):
 
 - **Path:** `../bi-m4-design-context/workflow.md`
-- When user selects [D], load the bridge workflow. The bridge prepares M1–M3 and User Flow & IA context, then invokes BMAD create-ux-design (`{project-root}/_bmad/bmm/workflows/2-plan-workflows/create-ux-design/workflow.md`) with that context.
+- When user selects [D], load the bridge workflow. The bridge prepares M1–M3 and User Flow & IA context, then invokes BMAD create-ux-design (`{bmad_bmm}/workflows/2-plan-workflows/create-ux-design/workflow.md`) with that context.
 - Return to M4 milestone menu after the bridge completes.
 
 ### Navigation
