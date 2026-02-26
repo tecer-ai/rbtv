@@ -60,6 +60,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 | CO | Commit Staged | Commit pre-staged changes only |
 | OR | Organize | Group changes into multiple logical commits |
 | SQ | Squash Merge | Squash merge current branch to target |
+| MO | Message Only | Generate commit message(s) without executing git operations |
 
 ---
 
@@ -94,9 +95,20 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ---
 
+## MO MODE (MESSAGE ONLY)
+
+Available in all base modes (ST, CO, OR, SQ). Generates commit message(s) but stops before executing any git operations.
+
+- **MO** — Generate commit message only; no staging, no committing, no pushing
+- Can be combined with base mode to scope the context: `git MO ST`, `git MO OR`, etc.
+- Compatible with size and YOLO flags: `git MO 1000` or `git MO OR +yolo`
+- Workflow runs steps 1–3 (init, context, message), then exits after presenting the approved message
+
+---
+
 ## INITIALIZATION SEQUENCE
 
-1. Parse command for mode, size, push flag, and yolo flag
+1. Parse command for mode, size, push flag, yolo flag, and MO flag
 2. Prompt for missing parameters (minimal prompts in yolo mode)
 3. Load `steps-c/step-01-init.md`
 4. Follow step instructions exactly

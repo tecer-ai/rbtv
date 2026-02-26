@@ -149,7 +149,7 @@ If structural differences between BMAD and RBTV are discovered during work, docu
 
 ### Task Location
 
-Plans live in `_admin/roadmap/todos/claude-code-workspace/`. NEVER execute work that is not listed in a plan file there.
+Plans live in `_admin/roadmap/todos/_claude-code-workspace/`. NEVER execute work that is not listed in a plan file there.
 
 ### Supported Format
 

@@ -94,17 +94,30 @@ python _config/install-rbtv.py
 
 > **macOS users:** use `python3` if `python` is not found.
 
-**What the script does:**
-- Deletes old RBTV files under `/.cursor/` (rules, agents, commands, skills with `bmad-rbtv-` prefix)
-- Copies `rbtv/_config/.cursor/` contents → project root `/.cursor/`
-- Merges `rbtv/_config/.cursor/mcp.json` → project root `/.cursor/mcp.json` (for Cursor IDE)
-- Merges `rbtv/_config/.cursor/mcp.json` → project root `/.claude/.mcp.json` (for Claude Code)
-- Creates project root `/.claude/commands/` and replicates Cursor commands for Claude compatibility
-- Creates `/.vscode/settings.json` from `rbtv/_config/.vscode/settings.json` only if `.vscode/` does not exist (leaves existing untouched)
-- Merges RBTV patterns into project root `/.cursorignore` (adds `_bmad-output/archive/`)
-- Overwrites existing files if conflicts occur (except `.vscode/settings.json` and `.cursorignore` which merge)
+The script runs in **IDE mode** by default (the correct mode for standard installation). Two additional modes exist for special use cases — see [Developing RBTV (Admin Mode)](#developing-rbtv-admin-mode) and [Sync Mode](#sync-mode) below.
+
+**What the script does (IDE mode):**
+1. **Version check** — Reads `bmad-compat.yaml` and `_bmad/_config/manifest.yaml` to verify your BMAD installation matches the version RBTV was tested against. Warns if mismatched; use `--skip-version-check` to bypass.
+2. **Clean existing RBTV files** — Deletes all `bmad-rbtv-*` files from `/.cursor/commands`, `/.cursor/agents`, `/.cursor/skills`, `/.cursor/rules`, and `/.claude/commands`
+3. **Copy `.cursor/` config** — Copies `rbtv/_config/.cursor/` contents → project root `/.cursor/` (merges into existing)
+4. **Merge MCP for Cursor** — Merges `rbtv/_config/.cursor/mcp.json` → project root `/.cursor/mcp.json` (source entries overwrite on conflict)
+5. **Merge MCP for Claude Code** — Merges `rbtv/_config/.cursor/mcp.json` → project root `/.claude/.mcp.json`
+6. **Replicate commands to Claude** — Copies all `/.cursor/commands/` → `/.claude/commands/` for Claude Code compatibility
+7. **Normalize BMAD output paths** — Updates `_bmad/core/config.yaml` and `_bmad/bmm/config.yaml` to use the standard `_bmad-output/{project-name}` path pattern
+8. **Update help catalog** — Adds the RBTV Business Innovation workflow entry to `_bmad/_config/bmad-help.csv` (idempotent)
+9. **Create `.vscode/settings.json`** — Only if `.vscode/` does not already exist (leaves existing untouched)
+10. **Merge `.cursorignore`** — Appends `_bmad-output/archive/` pattern if not already present
 
 > **Important:** Run this script every time you update RBTV (`git pull` or `git fetch`). The script copies (not moves) files, so source files remain in `rbtv/`.
+
+**Available flags:**
+
+```bash
+python _config/install-rbtv.py                     # IDE mode (default)
+python _config/install-rbtv.py --mode ide
+python _config/install-rbtv.py --mode sync
+python _config/install-rbtv.py --skip-version-check
+```
 
 ### Step 3: Open Your IDE
 
@@ -262,15 +275,40 @@ python _config/install-rbtv.py
 
 > **macOS users:** use `python3` if `python` is not found.
 
-The installation script must run after every update to sync IDE configuration files.
+The installation script must run after every update to sync IDE configuration files. After the script completes:
+
+1. Restart Cursor to load new MCP servers and commands
+2. Restart Claude Code to load new MCP servers
+3. Run `/bmad-help` to see RBTV workflows in the catalog
+4. Run `/bmad-rbtv-help` to see RBTV-specific commands
 
 ---
 
 ## Developing RBTV (Admin Mode)
 
-If you are developing or maintaining RBTV itself (working directly from the `rbtv/` repository rather than a BMAD installation), see [`_admin/README.md`](./_admin/README.md) for admin tools that set up standalone IDE configuration.
+If you are developing or maintaining RBTV itself (working directly from the `rbtv/` repository rather than a BMAD installation), use admin mode to set up a standalone IDE configuration at the `rbtv/` root:
 
-**Warning:** The installer (`_config/install-rbtv.py --mode admin`) manages all `bmad-rbtv-*` and `admin-rbtv-*` files in `.cursor/`. These files are deleted and recreated on every sync. Do not use those prefixes for personal cursor tools — they will be lost.
+```bash
+python _config/install-rbtv.py --mode admin
+```
+
+Admin mode prompts for your name and preferred language, then copies `_config/.cursor/` with path substitutions applied (so RBTV-internal paths resolve correctly) and copies `_admin/.cursor/` admin rules on top. It also ensures `.gitignore` contains the required entries (`.cursor/`, `.claude/`, `_admin-output/`, `.gitignore`).
+
+See [Developing RBTV](./readme.md#developing-rbtv) in `readme.md` for full details.
+
+**Warning:** Admin mode manages all `bmad-rbtv-*` and `admin-rbtv-*` files in `.cursor/`. These files are deleted and recreated on every run. Do not use those prefixes for personal cursor tools — they will be lost.
+
+---
+
+## Sync Mode
+
+For nanobot or CI-only environments where no IDE config is needed, sync mode patches only the BMAD config files without copying any `.cursor/` or `.claude/` artifacts:
+
+```bash
+python _config/install-rbtv.py --mode sync
+```
+
+Sync mode runs the version check, normalizes BMAD output paths, and adds RBTV to the help catalog — then exits. Use this when RBTV is integrated into a workspace that manages IDE config separately.
 
 ---
 

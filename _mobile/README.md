@@ -24,6 +24,7 @@ There is no TypeScript harness, no shell automation scripts, and no source patch
 │   ├── SOUL.md                    # ← bootstrap: behavioral contract
 │   ├── TOOLS.md                   # ← bootstrap: command routing + tool reference
 │   ├── USER.md                    # ← bootstrap: user preferences
+│   ├── SLACK.md                   # ← on-demand: Slack mrkdwn formatting rules
 │   ├── entry_points.md            # ← manually maintained workflow index
 │   ├── skills/                    # ← bootstrap: Nanobot skills
 │   │   ├── doc/SKILL.md
@@ -65,7 +66,7 @@ Full access details, recovery procedures, and secrets inventory: `_docs/robotvil
 
 ### Bootstrap file changes (workspace repo)
 
-When `AGENTS.md`, `SOUL.md`, `TOOLS.md`, or `USER.md` change:
+When `AGENTS.md`, `SOUL.md`, `TOOLS.md`, `USER.md`, or `SLACK.md` change:
 
 ```bash
 # Push from workstation → pull on VPS
@@ -95,6 +96,7 @@ See `_docs/workspace-repo-setup.md` for the full bootstrap sequence.
 | `SOUL.md` | Behavioral contract — inviolable rules for all agents |
 | `TOOLS.md` | Command routing table, deploy commands, tool reference |
 | `USER.md` | User preferences and session behavior |
+| `SLACK.md` | Slack mrkdwn formatting rules — loaded on demand when channel is Slack |
 | `_docs/` | Operational docs — see table below |
 | `ops/helpers/` | Admin helper scripts (allowlist, memory window, model) |
 | `ops/systemd/` | Systemd service unit definition |

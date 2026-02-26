@@ -32,11 +32,11 @@
 | 17 | plan-workflow/ | Quality-Review Subagent at Plan Checkpoints | High | Workflow | Minimal |
 | 19 | plan-workflow/ | Plan Linking Standard (Internal Relative, External Alias) | High | Workflow | Moderate |
 | 21 | plan-workflow/ | Plan Template Context Optimization | Medium | Workflow + Template | Moderate |
-| 4 | claude-code-workspace/nanobot-standard-architecture/ | BMAD Version Declaration | Medium | System + Docs | Moderate |
-| 5 | claude-code-workspace/nanobot-standard-architecture/ | BMAD Compatibility Check | Medium | System + Tooling | Moderate |
-| 6 | claude-code-workspace/nanobot-standard-architecture/ | Standardize main_config | Medium | Process | Low effort |
-| 7 | claude-code-workspace/nanobot-standard-architecture/ | Reduce Path Resolution Hops | Medium | System + Config | Large |
-| 16 | claude-code-workspace/nanobot-standard-architecture/ | PRD and Compound Output Locations | Medium | Workflow | Moderate |
+| 4 | _claude-code-workspace/nanobot-standard-architecture/ | BMAD Version Declaration | Medium | System + Docs | Moderate |
+| 5 | _claude-code-workspace/nanobot-standard-architecture/ | BMAD Compatibility Check | Medium | System + Tooling | Moderate |
+| 6 | _claude-code-workspace/nanobot-standard-architecture/ | Standardize main_config | Medium | Process | Low effort |
+| 7 | _claude-code-workspace/nanobot-standard-architecture/ | Reduce Path Resolution Hops | Medium | System + Config | Large |
+| 16 | _claude-code-workspace/nanobot-standard-architecture/ | PRD and Compound Output Locations | Medium | Workflow | Moderate |
 | 8 | bmad-integration/ | BMAD Delegation Standards + M2 Analyst | Medium | Workflow + Arch | Large |
 | 12 | bmad-integration/ | Advanced Elicitation Integration | Low | Integration | Low effort |
 | 9 | rbtv-system-consistency/ | Consistency Criterion | Low | Process | Minimal |
@@ -143,10 +143,10 @@ All other PRDs are independent.
 
 ---
 
-## todos/claude-code-workspace/nanobot-standard-architecture/
+## todos/_claude-code-workspace/nanobot-standard-architecture/
 
 ### 4. BMAD Version Declaration for RBTV
-**File:** `todos/claude-code-workspace/nanobot-standard-architecture/prd-config-bmad-version-declaration.md`
+**File:** `todos/_claude-code-workspace/nanobot-standard-architecture/prd-config-bmad-version-declaration.md`
 **Type:** System File + Documentation
 **Description:** RBTV has no explicit declaration of which BMAD version it targets. The BMAD mirror is pinned to Beta.4 but RBTV never reads or exposes this. Two developers run different BMAD versions with no shared baseline.
 **Goals:** Declare target BMAD version in `_config/config.yaml` (`bmad_target_version`, `bmad_min_version`), add `MIRROR-VERSION.md` to mirror folder, create RBTV `CHANGELOG.md`.
@@ -154,7 +154,7 @@ All other PRDs are independent.
 **Dependencies:** None. Foundation for PRD #5.
 
 ### 5. BMAD Compatibility Check Pipeline
-**File:** `todos/claude-code-workspace/nanobot-standard-architecture/prd-config-bmad-compatibility-check.md`
+**File:** `todos/_claude-code-workspace/nanobot-standard-architecture/prd-config-bmad-compatibility-check.md`
 **Type:** System File + Tooling + Workflow
 **Description:** RBTV has no structured process to evaluate whether a new BMAD release is compatible. Every RBTV-to-BMAD touchpoint is a potential breakage point discovered accidentally.
 **Goals:** Create a three-layer pipeline: `bmad-compat.yaml` (data -- lists all touchpoints), `tasks/check-bmad-compat.xml` (process -- evaluates new releases), and installer pre-flight version check (enforcement).
@@ -162,7 +162,7 @@ All other PRDs are independent.
 **Dependencies:** PRD #4 (BMAD Version Declaration) must be implemented first.
 
 ### 6. Standardize main_config Declaration Pattern
-**File:** `todos/claude-code-workspace/nanobot-standard-architecture/prd-standardize-main-config-frontmatter.md`
+**File:** `todos/_claude-code-workspace/nanobot-standard-architecture/prd-standardize-main-config-frontmatter.md`
 **Type:** Process Improvement
 **Description:** 4 utility workflows declare `main_config` in frontmatter while all BI workflows load config in body text. No single pattern exists, creating inconsistency and reduced discoverability.
 **Goals:** Standardize on frontmatter declaration for all workflows. Audit all 38 workflows, migrate BI workflows, update component patterns documentation.
@@ -170,7 +170,7 @@ All other PRDs are independent.
 **Dependencies:** None.
 
 ### 7. Reduce Path Resolution Hops for AI Agents
-**File:** `todos/claude-code-workspace/nanobot-standard-architecture/prd-reduce-path-resolution-hops.md`
+**File:** `todos/_claude-code-workspace/nanobot-standard-architecture/prd-reduce-path-resolution-hops.md`
 **Type:** System File + Config
 **Description:** AI agents resolving `{project-root}` paths must perform a 5-step conditional lookup against a resolution table. This is error-prone (the table itself contained a bug) and expensive (failed resolution triggers fallback glob/grep searches).
 **Goals:** Replace the conditional table with direct path variables in `_config/config.yaml` (`{bmad_core}`, `{bmad_bmm}`, etc.) that agents load once during activation. One-step substitution instead of five.
@@ -178,7 +178,7 @@ All other PRDs are independent.
 **Dependencies:** None, but large migration scope.
 
 ### 16. Install Scripts Standardize BMAD Output Folder Paths
-**File:** `todos/claude-code-workspace/nanobot-standard-architecture/cp-install-scripts-standardize-bmad-output-folder.md`
+**File:** `todos/_claude-code-workspace/nanobot-standard-architecture/cp-install-scripts-standardize-bmad-output-folder.md`
 **Type:** Workflow
 **Description:** Standardize output-path behavior in implementation (not rule-only): both RBTV installers must rewrite BMAD output-related config fields to `-bmad-output/{project-name}/`, and compound output must route to roadmap/todos.
 **Goals:** Installer parity for output-path rewriting; compound workflow output in `_bmad/rbtv/_admin/roadmap/todos`; no conflicting duplicate output-location requirements across backlog docs.

@@ -104,9 +104,11 @@ Follow this structure:
 - Character count: {X}/{limit}
 - Push: {yes/no}
 
-**YOLO Mode:** Display message and analysis, then automatically approve and proceed to step 4.
+**MO Mode:** Display message and analysis, then exit workflow (do NOT load step 4). See MO Mode Completion below.
 
-**Normal Mode:**
+**YOLO Mode (non-MO):** Display message and analysis, then automatically approve and proceed to step 4.
+
+**Normal Mode (non-MO):**
 
 **Proceed? (yes/edit/abort)**
 
@@ -145,7 +147,7 @@ For OR mode, process each approved group:
 
 After all groups processed, proceed to execute step.
 
-### 6. Present Menu Options (Non-OR Modes)
+### 6. Present Menu Options (Non-OR, Non-MO Modes)
 
 **Message approved.**
 
@@ -163,11 +165,33 @@ ALWAYS halt and wait for user selection.
 
 ---
 
+## MO MODE COMPLETION
+
+When `messageOnly = true`, after message(s) are generated and approved (or auto-approved in YOLO):
+
+1. Display the final commit message(s) in a clearly formatted block
+2. Show this summary:
+
+```
+✓ Commit message generated (not committed)
+
+To use this message:
+  git commit -m "<paste message here>"
+
+Or copy and apply manually.
+```
+
+3. **Do NOT load step 4.** Exit workflow immediately.
+
+---
+
 ## CRITICAL STEP COMPLETION NOTE
+
+**MO Mode:** After message generated/approved → display summary and EXIT. Do not load step 4.
 
 **Normal Mode:** ONLY when **[C] Continue** is selected or message approved:
 
-**YOLO Mode:** Automatically proceed after message generated:
+**YOLO Mode (non-MO):** Automatically proceed after message generated:
 
 1. Store approved message(s) in session
 2. Load `./step-04-execute.md` and follow its instructions

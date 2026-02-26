@@ -15,6 +15,7 @@ workspace-repo/
 ├── SOUL.md               # Behavioral contract
 ├── TOOLS.md              # Command routing + tool reference
 ├── USER.md               # User preferences and context
+├── SLACK.md              # Slack mrkdwn formatting rules (loaded on demand)
 ├── entry_points.md       # Manually maintained workflow entrypoints
 └── skills/               # Nanobot skills (tracked when ready)
     ├── doc/SKILL.md
@@ -22,7 +23,7 @@ workspace-repo/
     └── web-research/SKILL.md
 ```
 
-Bootstrap files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `USER.md`) are sourced from `_bmad/rbtv/_mobile/` in the RBTV repo — copy them to the workspace repo root and update as RBTV evolves.
+Bootstrap files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `USER.md`) and the on-demand file `SLACK.md` are sourced from `_bmad/rbtv/_mobile/` in the RBTV repo — copy them to the workspace repo root and update as RBTV evolves.
 
 ---
 
@@ -41,6 +42,7 @@ Use a whitelist strategy: ignore everything by default, then explicitly un-ignor
 !SOUL.md
 !TOOLS.md
 !USER.md
+!SLACK.md
 !entry_points.md
 
 # Un-ignore skills directory
@@ -201,7 +203,7 @@ Then run the smoke checklist: `_mobile/_docs/smoke-checklist.md`.
 
 ### Bootstrap file changes (workspace repo)
 
-When `AGENTS.md`, `SOUL.md`, `TOOLS.md`, or `USER.md` change in the workspace repo:
+When `AGENTS.md`, `SOUL.md`, `TOOLS.md`, `USER.md`, or `SLACK.md` change in the workspace repo:
 
 ```bash
 # Push from workstation

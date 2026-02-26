@@ -38,9 +38,10 @@ Detect or prompt for mode, size, and push preference. Validate prerequisites.
 
 Extract from user command:
 
-- **Mode**: ST, CO, OR, SQ (case-insensitive)
+- **Mode**: ST, CO, OR, SQ (case-insensitive); also detect if `MO` flag is present
+- **MO Flag**: If `MO` is present (standalone or combined, e.g. `git MO`, `git MO ST`, `git MO OR`), set messageOnly = true. When messageOnly = true, push preference is irrelevant — skip push prompt.
 - **Size**: 280, 1000, 2000
-- **Push**: +push flag presence
+- **Push**: +push flag presence (ignored in MO mode)
 - **YOLO**: +yolo flag presence
 
 Store detected values in session.
@@ -61,11 +62,14 @@ Which mode?
 - **CO** — Commit staged changes only
 - **OR** — Organize changes into multiple commits
 - **SQ** — Squash merge branch to main
+- **MO** — Message only (generate commit message, no git execution)
 ```
 
 HALT and wait for user selection.
 
 **YOLO Mode Exception:** This prompt is REQUIRED even in YOLO mode.
+
+**MO Note:** If MO is selected standalone (without a base mode), default to ST context (stage all) for gathering diff context. User may also specify a base mode: `MO ST`, `MO CO`, `MO OR`, `MO SQ`.
 
 ### 3. Prompt for Missing Size
 
@@ -87,7 +91,9 @@ HALT and wait for user selection.
 
 ### 4. Prompt for Missing Push Preference
 
-If push not detected, present:
+**MO Mode:** Skip this prompt entirely. Push is not applicable.
+
+If push not detected (non-MO modes), present:
 
 ```
 Push after commit?
@@ -108,6 +114,7 @@ HALT and wait for user selection.
 | SQ | Not on main/master | "Cannot squash main into itself. Switch to feature branch." |
 | ST | — | No validation needed |
 | OR | Changes exist | "No changes found. Working directory is clean." |
+| MO | Changes exist (uses base mode context) | "No changes found. Working directory is clean." |
 
 If prerequisite fails → Display error and HALT.
 
@@ -115,9 +122,9 @@ If prerequisite fails → Display error and HALT.
 
 **Configuration Complete:**
 
-- Mode: `{mode}`
+- Mode: `{mode}` `{[MO] message only}` *(shown when MO is active)*
 - Size: `{size}`
-- Push: `{+push | no push}`
+- Push: `{+push | no push | N/A (MO mode)}`
 - YOLO: `{yes | no}`
 
 **YOLO Mode:** Skip menu, automatically proceed to step 2.
