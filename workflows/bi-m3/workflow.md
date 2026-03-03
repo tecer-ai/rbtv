@@ -1,6 +1,6 @@
 ---
 name: 'bi-m3-brand'
-description: 'Create preliminary brand book through 6 brand frameworks'
+description: 'Create comprehensive brand book through 7 brand frameworks'
 nextStep: ./steps-c/step-01-init.md
 parentWorkflow: ../bi-business-innovation/workflow.md
 outputFolder: '{project-root}/_bmad-output/{project-name}/founder/m3-brand'
@@ -8,7 +8,7 @@ outputFolder: '{project-root}/_bmad-output/{project-name}/founder/m3-brand'
 
 # M3 Brand Milestone Workflow
 
-**Goal:** Create a preliminary brand book that defines who this brand is (archetype, personality), why it exists (purpose, positioning), how it speaks (tone, messaging), and visual identity principles — all grounded in M1 Conception outputs and M2 Validation findings.
+**Goal:** Create a comprehensive brand book that defines who this brand is (archetype, personality), why it exists (purpose, positioning), how it speaks (tone, messaging), and what it looks like (visual identity) — all grounded in M1 Conception outputs and M2 Validation findings, culminating in a unified brandbook document.
 
 **Your Role:** YC mentor guiding the founder through brand frameworks. Challenge superficial choices, demand grounding in customer evidence, push for authentic expression. This is a partnership — you bring startup expertise, they bring domain knowledge.
 
@@ -55,6 +55,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 | [PO] | Brand Positioning | ../bi-m3-brand-positioning/workflow.md | brand-positioning.md |
 | [TV] | Tone of Voice | ../bi-m3-tone-of-voice/workflow.md | tone-of-voice.md |
 | [MA] | Messaging Architecture | ../bi-m3-messaging-architecture/workflow.md | messaging-architecture.md |
+| [BB] | Brandbook | ../bi-m3-brandbook/workflow.md | brandbook.md |
 
 ### Navigation
 
@@ -75,8 +76,9 @@ Brand milestone is complete when:
 4. Positioning statement exists as a single sentence with competitive differentiation
 5. Tone of Voice guide exists with dimensions, do/don't examples, and sample copy
 6. Messaging Architecture exists with hierarchical structure and audience variants
-7. Project-memo Progress > Brand section lists all completed frameworks
-8. Founder can articulate: Who is our brand? What do we stand for? How do we sound? How are we different?
+7. Brandbook exists with visual identity (logo, colors, typography), compiled brand identity, messaging, and quick reference
+8. Project-memo Progress > Brand section lists all completed frameworks
+9. Founder can articulate: Who is our brand? What do we stand for? How do we sound? How are we different? What do we look like?
 
 ---
 

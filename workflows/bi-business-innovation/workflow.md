@@ -78,7 +78,7 @@ When invoked directly (without Mentor):
 |-----------|----------|-------------|
 | M1 | bi-m1/workflow.md | Conception — structure idea into business concept |
 | M2 | bi-m2/workflow.md | Validation — validate feasibility through research |
-| M3 | bi-m3/workflow.md | Brand — create preliminary brand book |
+| M3 | bi-m3/workflow.md | Brand — create comprehensive brand book |
 | M4 | bi-m4/workflow.md | Prototypation — build working HTML prototype |
 | M5 | bi-m5/workflow.md | Market Validation — validate demand with low spend |
 | M6 | bi-m6/workflow.md | MVP — create minimum viable product |

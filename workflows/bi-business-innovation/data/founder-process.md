@@ -10,7 +10,7 @@ Master navigation for the 6-milestone business innovation lifecycle from idea to
 |-----------|------|----------------|----------|
 | M1: Conception | Structure idea into comprehensive business concept | Working Backwards, Jobs-to-be-Done, Competitive Landscape, Problem-Solution Fit, Lean Canvas, 5 Whys | bi-m1/workflow.md |
 | M2: Validation | Validate technical and financial feasibility | Leap of Faith, Assumption Mapping, TAM/SAM/SOM, Unit Economics, TRL, Pre-mortem | bi-m2/workflow.md |
-| M3: Brand | Create preliminary brand book | Brand Archetypes, Brand Prism, Golden Circle, Positioning, Tone of Voice, Messaging Architecture | bi-m3/workflow.md |
+| M3: Brand | Create comprehensive brand book | Brand Archetypes, Brand Prism, Golden Circle, Brand Positioning, Messaging Architecture, Tone of Voice, Brandbook | bi-m3/workflow.md |
 | M4: Prototypation | Build working HTML prototype for F&F testing | User Flow, Information Architecture, Design Brief, Atomic Design, Conversion Design, WCAG | bi-m4/workflow.md |
 | M5: Market Validation | Validate market demand with low spending | Mom Test, SPIN Selling, Smoke Test, Van Westendorp PSM, Bullseye, Sean Ellis PMF | bi-m5/workflow.md |
 | M6: MVP | Create minimum viable product for real clients | User Story Mapping, INVEST, MoSCoW, Scrum, CI/CD, OWASP Top 10 | bi-m6/workflow.md |

@@ -54,11 +54,12 @@ Look for these step IDs to determine M3 framework completion:
 - `bi-m3-brand-positioning`
 - `bi-m3-messaging-architecture`
 - `bi-m3-tone-of-voice`
+- `bi-m3-brandbook`
 
 ### 2. Analyze Progress and Dependencies
 
 **Recommended Execution Order (from brand_process.md):**
-1. Brand Archetypes → 2. Brand Prism → 3. Golden Circle → 4. Brand Positioning → 5. Messaging Architecture → 6. Tone of Voice
+1. Brand Archetypes → 2. Brand Prism → 3. Golden Circle → 4. Brand Positioning → 5. Messaging Architecture → 6. Tone of Voice → 7. Brandbook
 
 Determine suggested next framework from stepsCompleted:
 
@@ -70,6 +71,7 @@ Determine suggested next framework from stepsCompleted:
 | BA + BP + GC complete | Brand Positioning | Craft competitive position with full identity (Order: 4) |
 | BA + BP + GC + PO complete | Messaging Architecture | Translate positioning into hierarchical messages (Order: 5) |
 | First 5 complete | Tone of Voice | Operationalize personality into writing guidelines (Order: 6) |
+| First 6 complete | Brandbook | Synthesize all frameworks into comprehensive brandbook with visual identity (Order: 7) |
 | All M3 complete | Return to milestone selection | M3 Brand milestone complete |
 
 **Framework Dependencies:**
@@ -79,8 +81,9 @@ Determine suggested next framework from stepsCompleted:
 - Brand Positioning: Requires Golden Circle (recommended), Brand Prism (recommended), Brand Archetypes (recommended), M1 (WB, JTBD, LC), M2 (TAM/SAM/SOM)
 - Messaging Architecture: Requires Brand Positioning (recommended), Golden Circle (recommended), Brand Prism (recommended), M1 (WB, JTBD, LC), M2 (3+ frameworks)
 - Tone of Voice: Requires Messaging Architecture (recommended), Brand Archetypes (recommended), Brand Prism (recommended), M1 (WB, JTBD), M2 (3+ frameworks)
+- Brandbook: Requires ALL 6 preceding frameworks (mandatory, no override)
 
-**Note:** While the recommended order optimizes learning flow, user can choose any framework with met prerequisites.
+**Note:** While the recommended order optimizes learning flow, user can choose any framework with met prerequisites. Exception: Brandbook requires all 6 frameworks — no override.
 
 ### 3. Present Status Summary
 
@@ -88,7 +91,7 @@ Display current M3 state:
 ```
 === M3 BRAND STATUS ===
 
-Frameworks Completed: {count}/6
+Frameworks Completed: {count}/7
 
 Completed:
 {list completed frameworks with [x]}
@@ -131,6 +134,11 @@ Select a framework to work on:
      Prerequisites: Messaging Architecture (recommended), Brand Archetypes (recommended), Brand Prism (recommended), M1 (WB, JTBD), M2 (3+ frameworks)
      Output: tone-of-voice.md
 
+[BB] Brandbook — Compile all frameworks into comprehensive brandbook with visual identity {recommended-indicator-if-suggested}
+     Status: {completed/not started}
+     Prerequisites: ALL 6 frameworks above (mandatory)
+     Output: brandbook.md
+
 ---
 [S] Status — Show detailed completion status
 [B] Back — Return to milestone selection
@@ -159,6 +167,7 @@ ALWAYS halt and wait for user selection.
 | [PO] | Check prerequisites → Update project-memo frontmatter → Load `../bi-m3-brand-positioning/workflow.md` |
 | [MA] | Check prerequisites → Update project-memo frontmatter → Load `../bi-m3-messaging-architecture/workflow.md` |
 | [TV] | Check prerequisites → Update project-memo frontmatter → Load `../bi-m3-tone-of-voice/workflow.md` |
+| [BB] | Check prerequisites (ALL 6 required, no override) → Update project-memo frontmatter → Load `../bi-m3-brandbook/workflow.md` |
 | [S] | Display detailed status, then redisplay menu |
 | [B] | Load `../../bi-business-innovation/workflow.md` → step-02-milestone-select.md |
 | [X] | Exit workflow |
@@ -189,7 +198,7 @@ If user chooses [O], proceed with warning logged in project-memo.
 ```
 === M3 BRAND DETAILED STATUS ===
 
-M3 Frameworks (6 total):
+M3 Frameworks (7 total):
 
 [ ] Brand Archetypes
     Prerequisites: M1 (WB, JTBD, LC), M2 (3+ frameworks)
@@ -214,10 +223,14 @@ M3 Frameworks (6 total):
 [ ] Tone of Voice
     Prerequisites: Messaging Architecture (recommended), Brand Archetypes (recommended), Brand Prism (recommended), M1 (WB, JTBD), M2 (3+ frameworks)
     Output: m3-brand/tone-of-voice.md
+    
+[ ] Brandbook
+    Prerequisites: ALL 6 frameworks above (mandatory)
+    Output: m3-brand/brandbook.md
 
 (Replace [ ] with [x] for completed frameworks based on stepsCompleted)
 
-Completion: {count}/6 frameworks
+Completion: {count}/7 frameworks
 ```
 
 After displaying status, return to framework menu.
@@ -226,7 +239,7 @@ After displaying status, return to framework menu.
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY when user selects a framework [BA/BP/GC/PO/MA/TV]:
+ONLY when user selects a framework [BA/BP/GC/PO/MA/TV/BB]:
 1. Check prerequisites (if applicable)
 2. Update project-memo.md frontmatter: set currentFramework
 3. Load the selected framework workflow and follow its instructions

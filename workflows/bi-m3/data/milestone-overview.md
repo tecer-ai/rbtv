@@ -8,9 +8,9 @@
 
 ### Recommended Execution Order
 
-The recommended order follows brand_process.md Steps 2-7, optimizing for learning flow and dependency management:
+The recommended order follows brand_process.md Steps 2-7 plus brandbook synthesis, optimizing for learning flow and dependency management:
 
-1. **Brand Archetypes** → 2. **Brand Prism** → 3. **Golden Circle** → 4. **Brand Positioning** → 5. **Messaging Architecture** → 6. **Tone of Voice**
+1. **Brand Archetypes** → 2. **Brand Prism** → 3. **Golden Circle** → 4. **Brand Positioning** → 5. **Messaging Architecture** → 6. **Tone of Voice** → 7. **Brandbook**
 
 **Rationale:**
 - Brand Archetypes establishes foundational personality (informs all other frameworks)
@@ -19,6 +19,7 @@ The recommended order follows brand_process.md Steps 2-7, optimizing for learnin
 - Brand Positioning uses archetype, prism, and golden circle to craft competitive statement
 - Messaging Architecture translates positioning into hierarchical messages
 - Tone of Voice operationalizes archetype and personality into writing guidelines
+- Brandbook synthesizes all 6 frameworks into a single reference document with visual identity (logo, colors, typography, imagery, iconography)
 
 ---
 
@@ -158,9 +159,34 @@ The recommended order follows brand_process.md Steps 2-7, optimizing for learnin
 - Consistency with archetype and brand personality
 
 **Feeds Forward To:**
+- Brandbook (voice and tone guidelines for brandbook compilation)
 - M4 Prototypation (copy writing guidelines)
 - M5 Market Validation (customer communication tone)
 - M6 MVP (product copy, UI microcopy, support materials)
+
+---
+
+### [BB] Brandbook
+
+**Recommended Order:** 7th (final)  
+**Prerequisites:** ALL 6 preceding frameworks (mandatory, no override)  
+**Output:** `brandbook.md` + `brandbook-assets/` (logo files, imagery references)  
+**Workflow:** `../bi-m3-brandbook/workflow.md`
+
+**Purpose:** Synthesize all M3 framework outputs into a single, comprehensive brandbook document with visual identity specifications created through AI-assisted image generation.
+
+**Key Deliverables:**
+- Brand Identity section (mission, vision, persona, audience, values, brand story) compiled from frameworks
+- Visual Guidelines (logo variations, color palette with HEX/RGB/CMYK, typography hierarchy, imagery style, iconography)
+- Logo and imagery assets generated via AI image prompts (founder iterates and approves)
+- Messaging & Tone section (voice, tone guidelines, tagline, value proposition, key messaging)
+- One-page Quick Reference Sheet
+- All visual elements with explicit do's/don'ts
+
+**Feeds Forward To:**
+- M4 Prototypation (canonical visual and verbal reference for all design and copy)
+- M5 Market Validation (brand-consistent test materials)
+- M6 MVP (production brand standard for all assets)
 
 ---
 
@@ -174,8 +200,9 @@ M3 Brand milestone is complete when:
 4. ✅ Positioning statement exists as a single sentence with competitive differentiation
 5. ✅ Tone of Voice guide exists with dimensions, do/don't examples, and sample copy
 6. ✅ Messaging Architecture exists with hierarchical structure and audience variants
-7. ✅ Project-memo Progress > Brand section lists all completed frameworks
-8. ✅ Founder can articulate: Who is our brand? What do we stand for? How do we sound? How are we different?
+7. ✅ Brandbook exists with visual identity, compiled brand sections, and quick reference sheet
+8. ✅ Project-memo Progress > Brand section lists all completed frameworks
+9. ✅ Founder can articulate: Who is our brand? What do we stand for? How do we sound? How are we different? What do we look like?
 
 ---
 
@@ -183,7 +210,7 @@ M3 Brand milestone is complete when:
 
 ### Milestone → Framework
 - M3 milestone workflow (`bi-m3/workflow.md`) presents framework menu via `steps-c/step-01-init.md`
-- User selects a framework [BA/BP/GC/PO/MA/TV]
+- User selects a framework [BA/BP/GC/PO/MA/TV/BB]
 - Step-01 updates project-memo frontmatter `currentFramework`
 - Step-01 loads selected framework workflow
 
@@ -207,12 +234,13 @@ M3 Brand milestone is complete when:
   - `bi-m3-brand-positioning`
   - `bi-m3-messaging-architecture`
   - `bi-m3-tone-of-voice`
+  - `bi-m3-brandbook`
 
 ---
 
 ## Notes
 
 - While the recommended order optimizes learning flow, founders can select any framework with met prerequisites
-- Prerequisite checking is advisory, not enforced (override allowed with warning)
+- Prerequisite checking is advisory, not enforced (override allowed with warning) — exception: Brandbook requires all 6 frameworks, no override
 - Each framework synthesis step suggests the next recommended framework based on this order
 - All frameworks update project-memo.md before returning to milestone menu

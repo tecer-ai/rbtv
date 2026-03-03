@@ -7,7 +7,7 @@ outputFile: '{outputFolder}/tone-of-voice.md'
 
 # Step 6: Synthesis
 
-**Progress: Step 6 of 6** — Final Step (Last M3 Framework)
+**Progress: Step 6 of 6** — Final Step
 
 ---
 
@@ -25,13 +25,13 @@ Validate consistency with upstream brand frameworks, prepare integration notes f
 - Follow the MANDATORY SEQUENCE below exactly — do not deviate, skip, or optimize
 
 ### Role Reinforcement
-You are a YC mentor. Celebrate the milestone. This is the FINAL M3 framework — all brand definition work is complete. The brand now has identity (who), positioning (where), messaging (what), and voice (how).
+You are a YC mentor. Celebrate the framework completion. Tone of Voice defines how the brand sounds — the final piece before compiling the Brandbook. The brand now has identity (who), positioning (where), messaging (what), and voice (how). Next: the Brandbook will add visual identity and compile everything into one reference.
 
 ### Step-Specific Rules
 - project-memo.md MUST be updated with Tone of Voice synthesis
-- project-memo.md MUST mark M3 Brand as COMPLETE
 - All 3 consistency checks are REQUIRED
-- Integration notes for M4, M5, M6 are REQUIRED
+- Integration notes for Brandbook, M4, M5, M6 are REQUIRED
+- Do NOT mark M3 as complete — the Brandbook framework handles that
 
 ---
 
@@ -149,10 +149,18 @@ If Brand Positioning not complete: Skip with note.
 
 ### 5. Prepare Integration Notes
 
-Document how Tone of Voice feeds into downstream milestones:
+Document how Tone of Voice feeds into downstream frameworks and milestones:
 
 ```markdown
 ## Integration Notes
+
+### Brandbook (M3 Next)
+The tone dimensions, voice summary, do/don't examples, and context adjustments from this framework will be compiled into the brandbook's Messaging & Tone section. The brandbook is the final M3 framework and produces the canonical brand reference document.
+
+**Handoff:**
+- Voice dimensions and summary → Brandbook Brand Voice section
+- Do/don't examples → Brandbook Tone Guidelines
+- Context adjustments → Brandbook Tone Guidelines
 
 ### M4 Prototypation
 
@@ -227,13 +235,12 @@ status: completed
 
 ### 7. UPDATE project-memo.md
 
-**CRITICAL: This step MUST update project-memo.md AND mark M3 complete**
+**CRITICAL: This step MUST update project-memo.md with Tone of Voice synthesis. Do NOT mark M3 as complete — the Brandbook framework handles that.**
 
 Read project-memo.md and update:
 
 **In frontmatter:**
 - Add `bi-m3-tone-of-voice` to `stepsCompleted` array
-- Set `currentMilestone: m4-prototypation` (M3 is complete, advance to M4)
 
 **In Progress > M3 Brand section:**
 
@@ -259,30 +266,13 @@ Read project-memo.md and update:
 - [1-sentence on error/support approach]
 
 **Output:** [Link to tone-of-voice.md]
-
----
-
-## M3 Brand: COMPLETE ✅
-
-All M3 Brand frameworks completed:
-- [ ] Brand Archetypes — [Status]
-- [ ] Brand Prism — [Status]
-- [ ] Golden Circle — [Status]
-- [ ] Brand Positioning — [Status]
-- [ ] Messaging Architecture — [Status]
-- [ ] Tone of Voice — Completed
-
-**M3 Summary:**
-[2-3 sentences summarizing overall brand identity achieved]
-
-**Ready for:** M4 Prototypation, M5 Market Validation
 ```
 
 ### 8. Completion Summary
 
 Present to founder:
 
-> "🎉 **Tone of Voice framework complete — and M3 Brand is FINISHED!**
+> "🎉 **Tone of Voice framework complete!**
 >
 > **What we achieved in Tone of Voice:**
 > - Defined [N] tone dimensions with specific positions
@@ -294,27 +284,21 @@ Present to founder:
 > **Your Voice Summary:**
 > '[Voice summary narrative]'
 >
-> **What M3 Brand achieved overall:**
-> - **Identity:** [Archetype] character with [Prism personality traits]
-> - **Positioning:** [Brief positioning statement reference]
-> - **Messaging:** [Messaging architecture summary]
-> - **Voice:** [Tone summary]
->
-> **What feeds forward to M4/M5/M6:**
+> **What feeds forward:**
+> - Brandbook: Voice and tone guidelines will be compiled into the brandbook
 > - M4: All prototype copy follows this guide
 > - M5: All test messaging uses consistent tone
 > - M6: This is the production copy standard
 >
 > **Important:** When new channels emerge (chatbot, push notifications, video), add them to the guide using the context adjustment framework.
 >
-> **M3 Brand is now complete. Ready for M4 Prototypation or M5 Market Validation.**"
+> **Next recommended framework:** Brandbook — compile all M3 frameworks into a comprehensive brand reference with visual identity."
 
 ### 9. Present Menu Options
 
 **Select an Option:**
 - **[A] Advanced Elicitation** — refine synthesis or project-memo entry
 - **[B] Back to M3** — return to M3 Brand milestone workflow
-- **[M] Next Milestone** — proceed to M4 or M5
 - **[E] Exit** — end session
 
 ALWAYS halt and wait for user selection.
@@ -326,13 +310,7 @@ ALWAYS halt and wait for user selection.
 When **[B] Back to M3** is selected:
 1. Verify tone-of-voice.md has status: completed
 2. Verify project-memo.md has Tone of Voice entry
-3. Verify project-memo.md marks M3 as complete
-4. Load `../bi-m3/workflow.md` and present milestone complete summary
-
-When **[M] Next Milestone** is selected:
-1. Verify M3 complete in project-memo
-2. Ask user: "M4 Prototypation or M5 Market Validation?"
-3. Load appropriate milestone workflow
+3. Load `../bi-m3/workflow.md` and present framework menu
 
 When **[E] Exit** is selected:
 1. Verify all updates saved
@@ -342,6 +320,6 @@ When **[E] Exit** is selected:
 
 ## SUCCESS / FAILURE METRICS
 
-✅ **SUCCESS:** All consistency checks passed, integration notes complete, tone-of-voice.md complete, project-memo.md updated with framework AND M3 marked complete, downstream wiring explicit
+✅ **SUCCESS:** All consistency checks passed, integration notes complete, tone-of-voice.md complete, project-memo.md updated with framework entry, downstream wiring explicit
 
-❌ **FAILURE:** Consistency checks failed without resolution, project-memo.md not updated, M3 not marked complete, integration notes missing
+❌ **FAILURE:** Consistency checks failed without resolution, project-memo.md not updated, integration notes missing
