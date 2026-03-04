@@ -2,7 +2,7 @@
 stepNumber: 6
 stepName: 'structure'
 nextStepFile: ./step-07-generate.md
-referenceFile: ../data/pitch-reference.md
+referenceFile: ../../_shared/pitch-data/pitch-reference.md
 ---
 
 # Step 06: Slide Structure

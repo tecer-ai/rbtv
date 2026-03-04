@@ -2,7 +2,8 @@
 stepNumber: 7
 stepName: 'generate'
 nextStepFile: ./step-08-images.md
-htmlPatternsFile: ../data/html-patterns.md
+htmlPatternsFile: ../../_shared/pitch-data/html-patterns.md
+htmlComponentsFile: ../../_shared/pitch-data/html-components.md
 ---
 
 # Step 07: Generate HTML Pitch Deck
@@ -44,13 +45,9 @@ You are The Buyer building a presentation that could win a six-figure contract. 
 
 ### 1. Load HTML Patterns
 
-Read `{htmlPatternsFile}` completely. This provides:
-- Landscape print CSS patterns
-- Page break handling
-- Color scheme patterns
-- Typography scales
-- Icon library CDN links
-- Image reference conventions
+Read `{htmlPatternsFile}` completely — this provides layout foundations, colors, typography, grids, print CSS, icon libraries, and design constraints.
+
+Read `{htmlComponentsFile}` completely — this provides component patterns (stat blocks, comparison cards, scenario tables, callout boxes, flow connectors, zone labels).
 
 ### 2. Determine Visual Direction
 

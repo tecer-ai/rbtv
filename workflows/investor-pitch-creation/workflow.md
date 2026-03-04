@@ -4,8 +4,8 @@ description: 'Build investor pitch decks through narrative-first stress-testing,
 createStep: ./steps-c/step-01-init.md
 editStep: ./steps-e/step-e01-load.md
 outputFolder: '{project-root}/_bmad-output/{project-name}/_fundraising/pitch-deck'
-referenceFile: ./data/pitch-reference.md
-htmlPatternsFile: ./data/html-patterns.md
+referenceFile: ../_shared/pitch-data/pitch-reference.md
+htmlPatternsFile: ../_shared/pitch-data/html-patterns.md
 promptingKnowledgeIndex: '{project-root}/_bmad/rbtv/workflows/prompting-assistance/data/knowledge-index.csv'
 webResearchStandards: '{project-root}/_bmad/rbtv/tasks/data/web-research-standards.md'
 ---
@@ -87,7 +87,8 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 | File | Purpose | When to Load |
 |------|---------|--------------|
-| data/pitch-reference.md | Pitch deck best practices (YC, Sequoia, a16z, Kawasaki) | Step 06 — Structure |
-| data/html-patterns.md | HTML/CSS for landscape PDF + icon libraries | Step 07 — Generate |
+| ../_shared/pitch-data/pitch-reference.md | Pitch deck best practices (YC, Sequoia, a16z, Kawasaki) | Step 06 — Structure |
+| ../_shared/pitch-data/html-patterns.md | Layout foundations, colors, typography, print CSS, design constraints | Step 07 — Generate |
+| ../_shared/pitch-data/html-components.md | Component patterns (cards, tables, callouts, flow connectors) | Step 07 — Generate |
 | {promptingKnowledgeIndex} | AI model-specific prompting guidance | Step 05 — Research Prompt |
 | {webResearchStandards} | Research quality and citation standards | Step 05 — Research Prompt |

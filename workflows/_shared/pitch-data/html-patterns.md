@@ -2,6 +2,8 @@
 
 CSS and HTML patterns for building pitch decks that export perfectly to landscape PDF via Ctrl+P.
 
+**Also read `html-components.md` in this directory** for component-specific patterns (comparison cards, scenario tables, callouts, flow connectors, zone labels).
+
 ---
 
 ## Document Foundation
@@ -58,6 +60,7 @@ body {
   width: 100%;
   min-height: 100vh;
   padding: 60px 80px;
+  padding-bottom: calc(60px + 10vh); /* optical center — content sits slightly above geometric center */
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -86,7 +89,23 @@ body {
 }
 
 .slide--accent { background: var(--primary); color: var(--white); }
+
+.slide--cover {
+  padding-bottom: calc(60px + 14vh); /* stronger optical offset for cover slides */
+}
+
+.slide--warm {
+  background: var(--bg-warm, #F5EDE4);
+  color: var(--navy);
+}
+
+.slide--soft {
+  background: var(--bg-soft, #F7F8FA);
+  color: var(--navy);
+}
 ```
+
+Use `.slide--warm` for team, product narrative, and closing slides to create visual breaks. Max 3–4 warm slides in a 20-slide deck.
 
 ---
 
@@ -96,13 +115,17 @@ Use CSS custom properties on `:root` for easy theming:
 
 ```css
 :root {
-  /* Primary palette — adapt to brand */
-  --navy: #0a1628;
-  --navy-light: #132240;
-  --primary: #00d4aa;
-  --primary-dark: #00b894;
-  --secondary: #4a9eff;
-  --secondary-light: #74b9ff;
+  /* ⚠️ REPLACE ALL VALUES BELOW WITH BRAND TOKENS */
+  --primary: #00C896;        /* brand primary */
+  --primary-dark: #009E78;   /* primary darkened ~15% */
+  --secondary: #3A7BD5;      /* brand secondary */
+  --secondary-light: #6A9FE8;
+  /* Dark backgrounds */
+  --navy: #1B2B4B;
+  --navy-light: #243A60;
+  /* Warm/neutral backgrounds */
+  --bg-warm: #F5EDE4;        /* warm cream for alternate slides */
+  --bg-soft: #F7F8FA;        /* soft gray for content slides */
   /* Semantic */
   --danger: #ff6b6b;
   --warning: #ffd93d;
@@ -147,6 +170,10 @@ Use CSS custom properties on `:root` for easy theming:
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.1em;
+  max-width: 160px;
+  margin: 0 auto;
+  text-align: center;
+  line-height: 1.3;
 }
 
 .card-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
@@ -175,27 +202,20 @@ Use CSS custom properties on `:root` for easy theming:
 
 ```css
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
-.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
-.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
-```
 
-### Stat Block
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  /* CONSTRAINT: Max 6 cards (2 rows). Beyond 6, split to a new slide. */
+}
 
-```html
-<div class="stat-block">
-  <div class="stat-number" style="color: var(--primary)">47%</div>
-  <div class="stat-label">Reduction in operational cost</div>
-</div>
-```
-
-### Feature Card
-
-```html
-<div class="card">
-  <i class="fas fa-brain" style="font-size: 28px; color: var(--primary);"></i>
-  <div class="card-title">Feature Name</div>
-  <div class="body-text">Brief description of value.</div>
-</div>
+.grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  /* CONSTRAINT: Only when each cell ≤3 lines. For richer content, use .grid-3 or .grid-2. */
+}
 ```
 
 ---
@@ -236,11 +256,11 @@ Best for: Clean, minimal UI-style icons.
 
 ### Alternatives (add as needed)
 
-- **Phosphor Icons**: `https://unpkg.com/@phosphor-icons/web` — Flexible weights (thin to bold), modern feel
-- **Lucide Icons**: `https://unpkg.com/lucide@latest` — Fork of Feather Icons, clean and consistent
-- **Bootstrap Icons**: `https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css` — Comprehensive
+- **Phosphor Icons**: `https://unpkg.com/@phosphor-icons/web` — Flexible weights, modern feel
+- **Lucide Icons**: `https://unpkg.com/lucide@latest` — Fork of Feather Icons, clean
+- **Bootstrap Icons**: `https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css`
 
-**Recommendation:** Use Font Awesome as primary. Add Material Icons Outlined for variety. Only add a third library if specific icons are needed.
+Use Font Awesome as primary. Add Material Icons Outlined for variety. Feature card icons must be at least 24px in `var(--primary)` — smaller or muted icons should be removed.
 
 ---
 
@@ -252,18 +272,41 @@ Best for: Clean, minimal UI-style icons.
   <div class="slide-subtitle">Companies waste millions on processes that should be automated</div>
   <div class="grid-3" style="margin-top: 40px;">
     <div class="stat-block">
-      <div class="stat-number" style="color: var(--danger);">68%</div>
-      <div class="stat-label">Time lost to manual processes</div>
+      <div class="stat-number" style="color: var(--primary);">68%</div>
+      <div class="stat-label">Time lost to manual work</div>
     </div>
     <div class="stat-block">
-      <div class="stat-number" style="color: var(--warning);">3.2x</div>
-      <div class="stat-label">Cost vs automated alternative</div>
+      <div class="stat-number" style="color: var(--primary);">3.2x</div>
+      <div class="stat-label">Cost vs automated alt</div>
     </div>
     <div class="stat-block">
       <div class="stat-number" style="color: var(--primary);">$4.2M</div>
-      <div class="stat-label">Average annual waste per company</div>
+      <div class="stat-label">Average annual waste</div>
     </div>
   </div>
   <div class="slide-number">02</div>
 </section>
 ```
+
+Use a single accent color for all stats in the same semantic group. Reserve `var(--danger)` for genuinely negative stats only.
+
+---
+
+## Design Constraints
+
+These constraints MUST be enforced at generation time.
+
+| # | Constraint | Rule |
+|---|---|---|
+| 1 | **Min font sizes** | Body: 15px. Diagram nodes: 14px. Table cells: 13px. No content element below 13px. |
+| 2 | **Stat labels** | Must fit on a single line at rendered width. Shorten copy — never accept two-line stat labels. |
+| 3 | **Max cards per grid** | Max 4 cards in a column < 50% slide width. Max 6 cards total in any `.grid-3`/`.grid-4`. |
+| 4 | **Max zones per slide** | Max 3 distinct content zones per slide. 4+ zones must split into separate slides. |
+| 5 | **Currency consistency** | All cards in the same grid must use the same currency and time basis. |
+| 6 | **Cover/closing mirror** | Cover and closing slides must use identical background, typography, and layout. Closing adds contact info only. |
+| 7 | **Scatter plot sizing** | Min 500px wide × 380px tall. Axes must include scale values. Labels min 13px with background overlay. |
+| 8 | **Stat color discipline** | Single accent color for all stats in the same group. `var(--danger)` only for genuinely negative values. |
+| 9 | **Icon minimums** | Feature card icons: min 24px in `var(--primary)`. Smaller icons should be removed entirely. |
+| 10 | **Header-content gap** | Gap between slide header and primary content block must not exceed 40px. |
+| 11 | **Flow connectors** | Diagram connectors: min 2px, brand color. 1px gray connectors disappear in PDF. |
+| 12 | **Color-coded borders** | When using colored left borders as a visual system, color logic must be consistent and intentional. |
