@@ -109,7 +109,7 @@ In micro-step files, declare tools explicitly:
 | Tool | Mode | Purpose |
 |------|------|---------|
 | quality-review | subagent | Validate deliverable meets requirements |
-| context-search | skill | Find relevant documentation |
+| context-distill | subagent | Distill targeted knowledge from referenced files |
 ```
 
 ---

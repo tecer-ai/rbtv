@@ -1,4 +1,4 @@
----
+﻿---
 name: bi-migration
 overview: Migrate the founder system from local refs (exact founder module content) to BMAD architecture, creating a 3-level workflow hierarchy (master, milestone, framework) with YC mentor agent orchestration.
 todos:
@@ -312,7 +312,7 @@ _bmad-output/{project-name}/founder/
 
 | `refs/founder/founder_process.md` | Source: master process structure | P2 |
 
-| `refs/founder/agents/mentor.md` | Source: mentor agent persona | P1 |
+| `refs/founder/agents/paul.md` | Source: mentor agent persona | P1 |
 
 | `refs/founder/m1_conception/conception_process.md` | Source: M1 structure | P3 |
 

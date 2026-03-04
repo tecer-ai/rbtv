@@ -1,4 +1,4 @@
----
+﻿---
 title: RBTV System Audit & Refinement - 10 Task Sequential Workflow
 type: execution-prompt
 status: ready
@@ -141,7 +141,7 @@ docs(mentor): verify project_memo knowledge persistence mechanism
 **Objective:** Enhance `god` agent/workflow to generate components matching BMAD patterns with correct config/header
 
 **Steps:**
-1. Read `agents/god.md` and `workflows/build/`
+1. Read `agents/fernando.md` and `workflows/build/`
 2. Identify where components are generated (templates, instructions)
 3. Document BMAD component patterns (headers, frontmatter, config requirements)
 4. Update templates/instructions to:

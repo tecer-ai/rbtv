@@ -1,4 +1,4 @@
-# Shape - robotville-vps-nanobot-rbtv-integration
+﻿# Shape - robotville-vps-nanobot-rbtv-integration
 
 > **Purpose:** This document captures shaping decisions made during planning and accumulates execution context. The Original Shaping section is immutable. All other sections are append-only during execution.
 
@@ -45,7 +45,7 @@
 | 1 | Infrastructure need | "i need guidance on how to actually implement the project ... VPS ... nanobot ... slack ... llm api ... _mobile" | Four-phase execution plan covering VPS, runtime, integration, harness, and validation |
 | 2 | VPS choice | "vps will be hetzger as suggested" | Hetzner-specific provisioning and security baseline tasks |
 | 3 | File placement clarity | "I dont understand which files are for rbtv/ and which are for the VPS" | Explicit directory boundaries and server-operation vs repo-file task split |
-| 4 | Mentor reference correction | " @_bmad/rbtv/agents/mentor.md is the correct mentor" | Files-to-load table and task context references corrected |
+| 4 | Mentor reference correction | " @_bmad/rbtv/agents/paul.md is the correct mentor" | Files-to-load table and task context references corrected |
 | 5 | Docs location | "_admin/docs/mobile/ (all files related to this plan)" | All plan documentation outputs routed to `_bmad/rbtv/_admin/docs/mobile/` |
 
 ### Collaborative Decisions
@@ -226,7 +226,7 @@
 | `_bmad-output/robotville-v4.0/bmad/prd.md` | Scope, FR/NFR requirements, security and runtime expectations |
 | `_bmad-output/robotville-v4.0/bmad/architecture.md` | Boundaries, deferred scope decisions, `_mobile` structure, FR25 requirement |
 | `_bmad/rbtv/readme.md` | RBTV module context and conventions |
-| `_bmad/rbtv/agents/mentor.md` | Agent behavior reference for harness alignment |
+| `_bmad/rbtv/agents/paul.md` | Agent behavior reference for harness alignment |
 
 ### Files to Load During Execution
 
@@ -235,12 +235,12 @@
 | `_bmad-output/robotville-v4.0/bmad/prd.md` | Requirement baseline | All phases as needed |
 | `_bmad-output/robotville-v4.0/bmad/architecture.md` | Architectural source of truth | All implementation phases |
 | `_bmad/rbtv/readme.md` | RBTV conventions | Phase 3 |
-| `_bmad/rbtv/agents/mentor.md` | Mentor integration context | Phase 3 |
+| `_bmad/rbtv/agents/paul.md` | Mentor integration context | Phase 3 |
 | `_bmad-output/robotville-v4.0/**` | Project outputs potentially informing `_mobile` behavior | Phase 3 and validation |
 
 ### 2026-02-14 - p5-1 AGENTS.md Bootstrap File Created
 
-- **Decision:** Define agent routing in `_mobile/AGENTS.md` as a system-prompt-level dispatch table mapping `mentor`, `domcobb`, and `doc` commands to their respective agent files (`agents/mentor.md`, `agents/domcobb.md`, `agents/ana.md`), with activation protocol, switching rules, and unknown-command handling.
+- **Decision:** Define agent routing in `_mobile/AGENTS.md` as a system-prompt-level dispatch table mapping `mentor`, `domcobb`, and `doc` commands to their respective agent files (`agents/paul.md`, `agents/domcobb.md`, `agents/ana.md`), with activation protocol, switching rules, and unknown-command handling.
 - **Validation outcome:** AGENTS.md routing table aligns exactly with `command-router.ts` route table (same three commands, same agent IDs, same entrypoint paths). Agent summaries capture core persona traits and workflow scope from the actual agent files.
 
 ### 2026-02-14 - p5-2 SOUL.md Core Behavioral Rules Created

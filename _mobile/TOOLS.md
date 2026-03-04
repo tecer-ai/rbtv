@@ -1,10 +1,10 @@
-# RBTV Command-to-Workflow Mapping
+﻿# RBTV Command-to-Workflow Mapping
 
 > Bootstrap file — maps chat commands to RBTV workflow entrypoints and lists available skills.
 
 ## Command Routing
 
-- `mentor` → YC Mentor (`_bmad/rbtv/agents/mentor.md`) — Business lifecycle, milestones, frameworks
+- `mentor` → YC Mentor (`_bmad/rbtv/agents/paul.md`) — Business lifecycle, milestones, frameworks
 - `domcobb` → Dom Cobb (`_bmad/rbtv/agents/domcobb.md`) — Problem structuring, prompting, thinking
 - `doc` → Ana (`_bmad/rbtv/agents/ana.md`) — Documentation, handoffs, product docs
 

@@ -1,4 +1,4 @@
----
+﻿---
 title: 'Compound: Mentor Help Mode [H]'
 docType: 'compound'
 mode: 'create'
@@ -12,7 +12,7 @@ stepsCompleted:
 inputDocuments:
   - .cursor/plans/agent-general-help-modes/agent-general-help-modes.plan.md
   - .cursor/plans/agent-general-help-modes/shape.md
-  - agents/mentor.md
+  - agents/paul.md
   - workflows/bi-business-innovation/data/founder-process.md
   - workflows/bi-business-innovation/steps-c/step-02-milestone-select.md
 outputPath: '_admin-output/planning-artifacts'
@@ -63,7 +63,7 @@ Mentor is the only RBTV agent with a persistent, multi-session lifecycle. A foun
 
 | File | Role | Gap |
 |------|------|-----|
-| `agents/mentor.md` | Agent definition — menu has [N], [C], [PM], [DA] | No [H] help or orientation option |
+| `agents/paul.md` | Agent definition — menu has [N], [C], [PM], [DA] | No [H] help or orientation option |
 | `workflows/bi-business-innovation/data/founder-process.md` | Master navigation: 6 milestones, frameworks per milestone, output structure | Not surfaced to user — only read by agent for routing |
 | `workflows/bi-business-innovation/templates/project-memo.md` | State tracking template with frontmatter | Contains currentMilestone, stepsCompleted — but no user-facing display |
 | `workflows/bi-business-innovation/steps-c/step-02-milestone-select.md` | Routes to current milestone workflow | Routes silently — founder does not see a progress overview |
@@ -78,7 +78,7 @@ Mentor is the only RBTV agent with a persistent, multi-session lifecycle. A foun
 
 1. **Inline Action in Agent File**: Add `<action id="help">` that reads project-memo frontmatter + founder-process.md and displays a formatted progress summary
    - **Rationale:** Fast access from menu, follows existing action pattern, all data sources already exist
-   - **Location:** `agents/mentor.md` — new `<action>` block + new `<item>` in `<menu>`
+   - **Location:** `agents/paul.md` — new `<action>` block + new `<item>` in `<menu>`
 
 2. **Dedicated Help Task File**: Create `tasks/mentor-help.xml` that generates the progress display
    - **Rationale:** Keeps agent file lean, task file can have richer formatting logic
@@ -108,7 +108,7 @@ Add an [H] Help menu item with an inline `<action id="help">` that reads project
 
 | Aspect | Details |
 |--------|---------|
-| File(s) to modify | `agents/mentor.md` |
+| File(s) to modify | `agents/paul.md` |
 | Scope of change | Add 1 menu item + 1 action block (~20-25 lines) |
 | Data sources | `project-memo.md` frontmatter + `founder-process.md` milestone data |
 
@@ -204,7 +204,7 @@ Inline action is the correct choice because:
 
 | File | Relationship |
 |------|--------------|
-| `agents/mentor.md` | Target file for modification |
+| `agents/paul.md` | Target file for modification |
 | `workflows/bi-business-innovation/data/founder-process.md` | Data source — milestone framework lists |
 | `workflows/bi-business-innovation/templates/project-memo.md` | State source — currentMilestone, stepsCompleted, currentFramework |
 | `workflows/bi-business-innovation/steps-c/step-02-milestone-select.md` | Routing step — [H] provides the orientation this step lacks |

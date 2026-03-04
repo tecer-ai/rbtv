@@ -30,7 +30,7 @@ Verify all internal markdown links across the RBTV codebase resolve correctly af
 
 | Tool | Mode | Purpose |
 |------|------|---------|
-| context-search | skill | Scan for broken references across codebase |
+| context-distill | subagent | Scan for broken references across codebase |
 
 ---
 

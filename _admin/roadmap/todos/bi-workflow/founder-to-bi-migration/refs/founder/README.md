@@ -1,4 +1,4 @@
-# Founder Module
+﻿# Founder Module
 
 This directory contains the complete founder module system for taking ideas from concept to MVP through 6 structured milestones.
 
@@ -46,7 +46,7 @@ See the **Agent Handoff Protocol** in [founder_process.md](founder_process.md) f
 |------|---------|----------|
 | [founder_process.md](founder_process.md) | Master navigation: milestones, glossary, folder structure, framework candidates | AI agents, advanced users |
 | [get_started.md](get_started.md) | Quick-start guide for the founder module | New users |
-| [mentor.md](agents/mentor.md) | Mentor agent system prompt | AI agents |
+| [mentor.md](agents/paul.md) | Mentor agent system prompt | AI agents |
 | [lavoisier.md](agents/lavoisier.md) | Design direction agent system prompt | AI agents |
 
 ## How Users Work Through the Module

@@ -153,7 +153,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - Initial RBTV module release
 - Agents: ana, domcobb, god, mentor
 - Workflows: doc-compound-learning, doc-context-handoff, build-rbtv-component
-- Tasks: context-search, design-validation, git-commit, mermaid-conversion, plan-creation, playwright-browser-automation, quality-review, tone-extraction, update-bmad-config, visual-design-extraction, web-research
+- Tasks: context-distill, design-validation, git-commit, mermaid-conversion, plan-creation, playwright-browser-automation, quality-review, tone-extraction, update-bmad-config, visual-design-extraction, web-research
 - Installer: `_config/install-rbtv.py`
 - Admin tooling: `_admin/install-admin-rbtv.py`
 ```

@@ -1,4 +1,4 @@
----
+﻿---
 title: 'Compound: Nanobot Token Optimization — Prompt Caching and Model Routing'
 docType: 'compound'
 mode: 'create'
@@ -221,7 +221,7 @@ Together, these three changes transform token usage from ~32k fresh tokens/minut
 | `_mobile/_docs/server-env-template.md` | Update with recommended settings |
 | `_mobile/_docs/smoke-checklist.md` | Add token budget validation item |
 | `_mobile/ops/scripts/vps-sync-install.sh` | Re-deploy after TOOLS.md change |
-| `agents/mentor.md` | Already contains workflow details — confirms TOOLS.md tables are redundant |
+| `agents/paul.md` | Already contains workflow details — confirms TOOLS.md tables are redundant |
 
 ---
 

@@ -54,7 +54,7 @@ Read `{htmlPatternsFile}` completely. This provides:
 
 ### 2. Determine Visual Direction
 
-Based on the pitch brief and brand information (if available from M3 context-search):
+Based on the pitch brief and brand information (if available from M3 context-distill):
 - Select color scheme (use brand colors if available, otherwise professional defaults)
 - Select typography (Google Fonts, clean sans-serif)
 - Determine dark/light slide alternation pattern

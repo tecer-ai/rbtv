@@ -43,7 +43,7 @@ human_review: required | optional | none
 
 **Include this section when:**
 - Task requires quality validation (quality-review)
-- Task needs research capabilities (web-research, context-search)
+- Task needs research capabilities (web-research, context-distill)
 - Task needs codebase exploration (explore subagent)
 - Task uses specialized RBTV workflows (compound-learning, etc.)
 

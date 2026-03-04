@@ -65,7 +65,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 | Step | File | Purpose |
 |------|------|---------|
 | 01 | step-01-init.md | Detect project, set output path, confirm client pitch context |
-| 02 | step-02-context-gather.md | Gather content from founder docs via context-search |
+| 02 | step-02-context-gather.md | Gather content from founder docs via context-distill |
 | 03 | step-03-narrative.md | Draft slide-by-slide narrative with inline buyer stress-testing |
 | 04 | step-04-data-layer.md | Conceptual data discussion — ROI, proof points, case study needs |
 | 05 | step-05-research-prompt.md | Generate research prompt + objection research for external AI |

@@ -1,4 +1,4 @@
-# Shape - Business Innovation Migration
+﻿# Shape - Business Innovation Migration
 
 > **Purpose:** This document captures shaping decisions made during planning and accumulates execution context. The Original Shaping section is immutable. All other sections are append-only during execution.
 
@@ -134,7 +134,7 @@
 - Menu routes to workflow.md files (not yet created): bi-business-innovation, bi-m1 through bi-m6
 - Used domcobb.md as structural reference
 **Issues:** None
-**Files Modified:** `_bmad/rbtv/agents/mentor.md` (created)
+**Files Modified:** `_bmad/rbtv/agents/paul.md` (created)
 
 ### Task p1-3: Create Project Memo Template
 **Completed:** 2026-02-04
@@ -652,7 +652,7 @@ M4 Prototypation Mentor Routing:
 | Document | Key Insights Extracted |
 |----------|----------------------|
 | `refs/founder/founder_process.md` | 6-milestone lifecycle structure, agent handoff protocol |
-| `refs/founder/agents/mentor.md` | 4-act structure, personality traits, session protocol |
+| `refs/founder/agents/paul.md` | 4-act structure, personality traits, session protocol |
 | `refs/founder/m1_conception/conception_process.md` | 9-step process, 6 frameworks, success criteria |
 | `_bmad/bmb/workflows/workflow/templates/*.md` | BMAD workflow templates |
 | `_bmad/bmb/workflows/agent/templates/*.md` | BMAD agent templates |
@@ -661,7 +661,7 @@ M4 Prototypation Mentor Routing:
 
 | File | Purpose | When |
 |------|---------|------|
-| `refs/founder/agents/mentor.md` | Source for mentor agent persona | p1-2 |
+| `refs/founder/agents/paul.md` | Source for mentor agent persona | p1-2 |
 | `refs/founder/templates/project_memo.md` | Source for project-memo template | p1-3 |
 | ~~`refs/founder/templates/founder_diary.md`~~ | ~~Source for founder-diary template~~ | ~~p1-4~~ (CANCELLED — founder-diary eliminated) |
 | `refs/founder/founder_process.md` | Source for milestone overview | p2-2 |
@@ -959,7 +959,7 @@ M4 Prototypation Mentor Routing:
 - M4 menu item itself unchanged — documentation only
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/agents/mentor.md` (updated, added comment block after line 81)
+- `_bmad/rbtv/agents/paul.md` (updated, added comment block after line 81)
 
 ### Task p6-19: Create M4 Milestone Workflow Complete Files (steps-c)
 **Completed:** 2026-02-05

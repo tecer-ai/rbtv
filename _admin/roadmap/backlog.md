@@ -1,4 +1,4 @@
-# RBTV PRD Backlog
+﻿# RBTV PRD Backlog
 
 > Generated: 2026-02-22
 > Source: `_admin/roadmap/**/prd-*.md`, `_admin/roadmap/**/cp-*.md`, `_admin/roadmap/**/*.plan.md`
@@ -78,7 +78,7 @@ All other PRDs are independent.
 **Type:** Agent Enhancement
 **Description:** Mentor guides founders through a 6-milestone lifecycle, but founders lose track of where they are. No orientation mechanism exists -- the only way to check progress is manually reading `project-memo.md` frontmatter.
 **Goals:** Add an [H] Help menu item to Mentor displaying current milestone, framework progress (done/current/pending), and available workflows. Concise "you are here" output (15 lines max).
-**Scope:** Modify `agents/mentor.md` -- add 1 menu item + 1 action block (~20-25 lines).
+**Scope:** Modify `agents/paul.md` -- add 1 menu item + 1 action block (~20-25 lines).
 **Dependencies:** None.
 
 ### 3. Business Innovation Migration

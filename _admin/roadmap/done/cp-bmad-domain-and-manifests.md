@@ -1,4 +1,4 @@
----
+﻿---
 title: 'Compound: bmad-rbtv-create must use manifests instead of hardcoding lists'
 docType: 'compound'
 mode: 'create'
@@ -51,7 +51,7 @@ When the Builder agent (invoked via `bmad-rbtv-create`) generates files (agents,
 
 ### Context Source Evaluation
 
-- **Builder agent** (`_bmad/rbtv/agents/god.md`) — Produces agents, workflows, steps, tasks, commands, configs, knowledge, registries.
+- **Builder agent** (`_bmad/rbtv/agents/fernando.md`) — Produces agents, workflows, steps, tasks, commands, configs, knowledge, registries.
 - **Templates** (`_bmad/rbtv/workflows/build/templates/`) — Used by Builder; may contain or suggest hardcoded lists.
 - **tools-manifest.csv** — Canonical list of commands, skills, workflows, tasks, subagents; should be the reference for "what exists".
 - **subagents-manifest.csv** — Canonical list of subagent ids; example of manifest-based reference (e.g. in plan-creation-rules).
@@ -114,7 +114,7 @@ When the Builder agent (invoked via `bmad-rbtv-create`) generates files (agents,
 |--------|---------|
 | File(s) to modify/create | Builder agent or build rules; optionally `_bmad/rbtv/workflows/build/data/bmad-architecture.md`; templates only if adding reminders. |
 | Scope of change | Add one rule + one checklist step; no change to existing manifest formats. |
-| Related files | `BMAD/.cursor/commands/bmad-rbtv-create-component.md`, `_bmad/rbtv/agents/god.md`, `_bmad/rbtv/tools-manifest.csv`, `_bmad/rbtv/subagents-manifest.csv`. |
+| Related files | `BMAD/.cursor/commands/bmad-rbtv-create-component.md`, `_bmad/rbtv/agents/fernando.md`, `_bmad/rbtv/tools-manifest.csv`, `_bmad/rbtv/subagents-manifest.csv`. |
 
 ---
 
@@ -140,7 +140,7 @@ When the Builder agent (invoked via `bmad-rbtv-create`) generates files (agents,
 | File | Relationship |
 |------|--------------|
 | BMAD/.cursor/commands/bmad-rbtv-create-component.md | Command that loads Builder; rule applies to its output. |
-| _bmad/rbtv/agents/god.md | Builder agent; candidate location for rule or reference to rule. |
+| _bmad/rbtv/agents/fernando.md | Builder agent; candidate location for rule or reference to rule. |
 | _bmad/rbtv/tools-manifest.csv | Example manifest for commands, skills, workflows, tasks, subagents. |
 | _bmad/rbtv/subagents-manifest.csv | Example manifest for subagent ids; referenced by plan-creation-rules. |
 | _bmad/rbtv/workflows/plan-lifecycle/data/plan-creation-rules.md | Example of referencing manifest instead of hardcoding (subagents). |

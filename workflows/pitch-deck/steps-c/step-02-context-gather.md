@@ -12,7 +12,7 @@ nextStepFile: ./step-03-structure.md
 
 ## STEP GOAL
 
-Extract pitch-relevant content from founder documents by running context-search separately for each milestone that has documents. Accumulate a pitch brief that feeds slide structure and content generation.
+Extract pitch-relevant content from founder documents by running context-distill separately for each milestone that has documents. Accumulate a pitch brief that feeds slide structure and content generation.
 
 ---
 
@@ -29,7 +29,7 @@ You are a Pitch Deck Architect mining founder documents for the strongest possib
 
 ### Step-Specific Rules
 
-- Run context-search SEPARATELY for each milestone — each milestone contains different frameworks and information
+- Run context-distill SEPARATELY for each milestone — each milestone contains different frameworks and information
 - Use milestone-specific search queries tailored to {pitch_type}
 - Do NOT ask the founder questions already answered in their documents
 - Accumulate findings into a structured pitch brief
@@ -61,7 +61,7 @@ List which folders have .md files. Only search folders that contain documents.
 
 ### 2. Run Context-Search Per Milestone
 
-For EACH milestone folder that has documents, invoke the **context-search** subagent (or use the context-search skill/task directly). Provide these three inputs per call:
+For EACH milestone folder that has documents, invoke the **context-distill** subagent. Provide these three inputs per call:
 
 **M1 — Conception:**
 - Conversation Context: "Building a {pitch_type} pitch deck for {project_name}"
@@ -93,7 +93,7 @@ For EACH milestone folder that has documents, invoke the **context-search** suba
 
 ### 3. Compile Pitch Brief
 
-After ALL context-search calls complete, compile findings into a structured pitch brief:
+After ALL context-distill calls complete, compile findings into a structured pitch brief:
 
 ```
 ## Pitch Brief: {project_name}
@@ -169,7 +169,7 @@ ONLY when **[X] Exit** is selected:
 - User confirms brief accuracy
 
 ❌ **FAILURE:**
-- Running a single context-search for all documents (must be per milestone)
+- Running a single context-distill for all documents (must be per milestone)
 - Asking questions already answered in founder documents
 - Missing available milestone folders
 - Fabricating content not found in documents

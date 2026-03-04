@@ -1,4 +1,4 @@
----
+﻿---
 name: robotville-vps-nanobot-rbtv-integration
 overview: Provision a secure Hetzner VPS, implement Nanobot plus RBTV _mobile harness integration, deploy Nanobot bootstrap files, then validate website deployment (robotville.ai), system update safety, and workflow fidelity.
 todos:
@@ -352,13 +352,13 @@ This plan uses companion files for execution context:
 
 | `_bmad/rbtv/readme.md` | RBTV module conventions | Phase 3 |
 
-| `_bmad/rbtv/agents/mentor.md` | Mentor behavior reference for harness alignment | Phase 3 |
+| `_bmad/rbtv/agents/paul.md` | Mentor behavior reference for harness alignment | Phase 3 |
 
 | `_bmad-output/robotville-v4.0/**` | Relevant existing outputs for `_mobile` implementation context | Phase 3 and Phase 4 |
 
 | `_bmad-output/robotville-v4.0/founder/project-memo.md` | Preliminary `_mobile/` folder design and install.py spec | Phase 5 |
 
-| `_bmad/rbtv/agents/mentor.md` | Mentor agent behavior contract for bootstrap alignment | Phase 5 |
+| `_bmad/rbtv/agents/paul.md` | Mentor agent behavior contract for bootstrap alignment | Phase 5 |
 
 | `_bmad/rbtv/agents/domcobb.md` | DomCobb agent behavior for bootstrap alignment | Phase 5 |
 
@@ -609,7 +609,7 @@ flowchart TD
 
 | `_bmad-output/robotville-v4.0/founder/project-memo.md` | Preliminary _mobile/ folder design and install.py spec | p5-1, p5-6 |
 
-| `_bmad/rbtv/agents/mentor.md` | Mentor agent behavior contract for AGENTS.md routing | p5-1 |
+| `_bmad/rbtv/agents/paul.md` | Mentor agent behavior contract for AGENTS.md routing | p5-1 |
 
 | `_bmad/rbtv/agents/domcobb.md` | DomCobb agent behavior for AGENTS.md routing | p5-1 |
 
@@ -621,7 +621,7 @@ flowchart TD
 
 ### Tasks
 
-- `p5-1`: CREATE `_bmad/rbtv/_mobile/AGENTS.md` — Agent persona routing definitions. Maps `mentor` → RBTV mentor agent (`agents/mentor.md`, business innovation workflow), `domcobb` → DomCobb agent (`agents/domcobb.md`, problem structuring), `doc` → Doc/Ana agent (`agents/ana.md`, compound mode). Must align with command-router.ts route table.
+- `p5-1`: CREATE `_bmad/rbtv/_mobile/AGENTS.md` — Agent persona routing definitions. Maps `mentor` → RBTV mentor agent (`agents/paul.md`, business innovation workflow), `domcobb` → DomCobb agent (`agents/domcobb.md`, problem structuring), `doc` → Doc/Ana agent (`agents/ana.md`, compound mode). Must align with command-router.ts route table.
 - `p5-2`: CREATE `_bmad/rbtv/_mobile/SOUL.md` — RBTV core behavioral rules for the Nanobot runtime. Must include: (1) "Before every response, read `project-memo.md` frontmatter for current state", (2) "After every framework completion, update project-memo immediately", (3) project-memo is canonical state authority, (4) project data must NOT be duplicated into MEMORY.md. Aligns with PRD FR11-FR16 session/state requirements.
 - `p5-3`: CREATE `_bmad/rbtv/_mobile/TOOLS.md` — Command-to-workflow mapping table. Maps chat commands to RBTV workflow entrypoints and references relevant skill files. Must match command-router.ts route table.
 - `p5-4`: CREATE `_bmad/rbtv/_mobile/USER.md` — User preferences and context template for Nanobot's user-context bootstrap.

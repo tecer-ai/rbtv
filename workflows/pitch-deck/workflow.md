@@ -61,7 +61,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 | Step | File | Purpose |
 |------|------|---------|
 | 01 | step-01-init.md | Detect pitch type, project, set output path |
-| 02 | step-02-context-gather.md | Gather content from founder docs via context-search |
+| 02 | step-02-context-gather.md | Gather content from founder docs via context-distill |
 | 03 | step-03-structure.md | Plan slide structure and content mapping |
 | 04 | step-04-generate.md | Generate HTML pitch deck |
 | 05 | step-05-images.md | Generate image prompts for Google Nano Banana |

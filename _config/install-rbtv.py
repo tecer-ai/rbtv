@@ -755,6 +755,17 @@ def run_ide_mode(paths: dict, skip_version_check: bool) -> int:
     print("  4. Run /bmad-rbtv-help to see RBTV-specific commands")
     print()
     print("Remember: Run this script after every 'git pull' or 'git fetch'")
+    print()
+
+    answer = input("Run admin update as well? [y/N]: ").strip().lower()
+    if answer in ("y", "yes"):
+        print()
+        print("=" * 60)
+        print("RBTV Installation Script — ADMIN mode")
+        print("=" * 60)
+        print()
+        return run_admin_mode(paths)
+
     return 0
 
 

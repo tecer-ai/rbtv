@@ -1,4 +1,4 @@
----
+﻿---
 name: add-prompting-knowledge
 description: Create new AI model or prompting technique documentation
 nextStep: null
@@ -78,7 +78,7 @@ Based on selection, show template structure:
 Load the RBTV Builder agent with context:
 
 ```
-Route to: {project-root}/_bmad/rbtv/agents/god.md
+Route to: {project-root}/_bmad/rbtv/agents/fernando.md
 
 Pre-select: [CK] Create Knowledge
 

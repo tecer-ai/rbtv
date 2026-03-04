@@ -1,4 +1,4 @@
-# Workspace Repo Setup Guide
+﻿# Workspace Repo Setup Guide
 
 > **Purpose:** Instructions for creating and configuring the nanobot workspace GitHub repo, and bootstrapping a new VPS from scratch.
 
@@ -68,7 +68,7 @@ Manually maintained index of RBTV workflow entry points. Update after adding or 
 
 | Command | Agent File | Description |
 |---------|------------|-------------|
-| `mentor` | `_bmad/rbtv/agents/mentor.md` | YC Mentor — business innovation lifecycle |
+| `mentor` | `_bmad/rbtv/agents/paul.md` | YC Mentor — business innovation lifecycle |
 | `domcobb` | `_bmad/rbtv/agents/domcobb.md` | Problem Architect — structured thinking |
 | `doc` | `_bmad/rbtv/agents/ana.md` | Ana — documentation and handoffs |
 

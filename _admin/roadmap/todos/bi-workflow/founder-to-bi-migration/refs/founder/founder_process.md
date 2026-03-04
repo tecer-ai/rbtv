@@ -1,4 +1,4 @@
-# Founder Process
+﻿# Founder Process
 
 ## Purpose
 
@@ -22,7 +22,7 @@ Master navigation for the six-milestone founder lifecycle from idea to MVP.
 | **founder_diary template** | Template for session tracking, file map, framework status, and decision logging | [founder_diary.md](templates/founder_diary.md) |
 | **founder_diary (instance)** | User-created diary per milestone — primary document for resuming work sessions | `[project]/docs/founder/[milestone]/m[x]_founder_diary.md` |
 | **applied framework** | User-created doc applying a framework to their project | `[project]/docs/founder/[milestone]/[framework].md` |
-| **mentor** | Agent that guides users through founder process milestones via structured questioning | [mentor.md](agents/mentor.md) |
+| **mentor** | Agent that guides users through founder process milestones via structured questioning | [mentor.md](agents/paul.md) |
 | **lavoisier** | Agent that guides design direction and extracts design specifications | [lavoisier.md](agents/lavoisier.md) |
 
 ---

@@ -1,5 +1,5 @@
 id,skill_path,subagent_path,description
-context-search,{project-root}/.cursor/skills/bmad-rbtv-context-search/SKILL.md,{project-root}/.cursor/agents/bmad-rbtv-context-search.md,Search referenced files for knowledge relevant to conversation context
+context-distill,{project-root}/.cursor/agents/bmad-rbtv-context-distill.md,Distill targeted knowledge from referenced files relevant to a specific request
 create-component,{project-root}/.cursor/skills/bmad-rbtv-create-component/SKILL.md,{project-root}/.cursor/agents/bmad-rbtv-create-component.md,Create components in BMAD architecture — agents workflows or tasks
 design-validation,{project-root}/.cursor/skills/bmad-rbtv-design-validation/SKILL.md,{project-root}/.cursor/agents/bmad-rbtv-design-validation.md,Validate HTML designs using browser automation and 4-layer framework
 doc,{project-root}/.cursor/skills/bmad-rbtv-doc/SKILL.md,{project-root}/.cursor/agents/bmad-rbtv-doc.md,Unified documentation generation (compound handoff product)

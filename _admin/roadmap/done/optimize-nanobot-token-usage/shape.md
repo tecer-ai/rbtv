@@ -1,4 +1,4 @@
-# Shape - optimize-nanobot-token-usage
+﻿# Shape - optimize-nanobot-token-usage
 
 > **Purpose:** This document captures shaping decisions made during planning and accumulates execution context. The Original Shaping section is immutable. All other sections are append-only during execution.
 
@@ -24,7 +24,7 @@
 - Removing the "Reflect on results" message from Nanobot's agent loop (poor risk/benefit ratio)
 - Building a custom API proxy for caching
 - Token budget enforcement tooling (future work, documented in learnings.md)
-- Changes to RBTV agent files (`agents/mentor.md`, `agents/domcobb.md`, `agents/ana.md`) beyond what's needed for TOOLS.md deduplication
+- Changes to RBTV agent files (`agents/paul.md`, `agents/domcobb.md`, `agents/ana.md`) beyond what's needed for TOOLS.md deduplication
 
 ### Key Decisions
 

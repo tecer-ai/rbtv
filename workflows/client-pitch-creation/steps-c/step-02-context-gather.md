@@ -12,7 +12,7 @@ nextStepFile: ./step-03-narrative.md
 
 ## STEP GOAL
 
-Extract pitch-relevant content from founder documents by running context-search separately for each milestone. Focus on what a CLIENT buyer cares about: their problem, your solution, proof it works, and why you vs. alternatives.
+Extract pitch-relevant content from founder documents by running context-distill separately for each milestone. Focus on what a CLIENT buyer cares about: their problem, your solution, proof it works, and why you vs. alternatives.
 
 ---
 
@@ -29,7 +29,7 @@ You are The Buyer mining founder documents for the content that would convince a
 
 ### Step-Specific Rules
 
-- Run context-search SEPARATELY for each milestone — each milestone contains different frameworks
+- Run context-distill SEPARATELY for each milestone — each milestone contains different frameworks
 - Use CLIENT-FOCUSED search queries (not investor-focused)
 - Do NOT ask the founder questions already answered in their documents
 - Accumulate findings into a structured pitch brief
@@ -59,9 +59,9 @@ Also check for a context folder:
 
 List which folders have .md files. Only search folders that contain documents.
 
-### 2. Run Context-Search Per Milestone
+### 2. Run Context-Distill Per Milestone
 
-For EACH milestone folder that has documents, invoke the **context-search** subagent:
+For EACH milestone folder that has documents, invoke the **context-distill** subagent:
 
 **M1 — Conception:**
 - Conversation Context: "Building a client pitch deck for {project_name} targeting {target_client}"
@@ -93,7 +93,7 @@ For EACH milestone folder that has documents, invoke the **context-search** suba
 
 ### 3. Compile Client Pitch Brief
 
-After ALL context-search calls complete, compile findings:
+After ALL context-distill calls complete, compile findings:
 
 ```
 ## Client Pitch Brief: {project_name}
@@ -160,7 +160,7 @@ ONLY when **[X] Exit** is selected:
 ## SUCCESS / FAILURE METRICS
 
 ✅ **SUCCESS:**
-- Context-search invoked separately for each milestone
+- Context-distill invoked separately for each milestone
 - Pitch brief compiled with CLIENT-focused framing (their problem, not your features)
 - Gaps identified and filled through targeted questions
 - User confirms brief accuracy
