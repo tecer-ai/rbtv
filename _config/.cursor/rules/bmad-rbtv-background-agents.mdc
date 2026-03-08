@@ -1,0 +1,63 @@
+---
+description: "Use background agents (Task tool) for web research and heavy exploration to preserve main conversation context"
+alwaysApply: true
+---
+# Background Agent Usage
+
+## Mandatory: Offload Research to Background Agents
+
+When performing web searches, codebase exploration, or any research-heavy task during an interactive session (e.g., mentor workflows, discovery sessions, planning):
+
+| Action | How |
+|--------|-----|
+| Web research | Use Task tool with `subagent_type="web-research"` |
+| Codebase exploration | Use Task tool with `subagent_type="explore"` |
+| Multi-file context distillation | Use Task tool with `subagent_type="context-distill"` |
+
+## Why
+
+Interactive sessions (agent personas, workflows, multi-turn conversations) accumulate critical context in the main window. Direct tool calls for research consume context window space. Background agents return only the summarized result, preserving the main conversation's depth.
+
+## Hard Rules: Read Tool Prohibition During Interactive Sessions
+
+**NEVER** use the Read tool more than once in a single turn to load context files during an interactive session (mentor, coach, discovery, planning, or any multi-turn agent persona).
+
+If you are about to read 2 or more files to gather context — STOP. Delegate to `context-distill` instead.
+
+**Read tool is permitted for:**
+- A single known file (one read, one file, done)
+- Reading a file you are about to edit
+- Non-interactive single-step tasks with no accumulated conversation context
+
+**Read tool is prohibited for:**
+- Loading context from multiple files in one turn during an interactive session
+- Any pattern that looks like: read file A, read file B, read file C, synthesize
+
+## When to Apply Background Agents
+
+- During multi-turn interactive sessions (mentor, coach, or any agent persona)
+- When research requires multiple sequential web searches
+- When exploring unfamiliar parts of the codebase during an active workflow
+- When gathering context from 2+ files simultaneously
+
+## When NOT to Apply
+
+- Reading a single known file path — use Read tool directly
+- Quick single-keyword grep — use Grep directly
+- Simple file creation or editing — use Write/StrReplace directly
+- Non-interactive single-step tasks with no accumulated context to preserve
+
+## Context Distill Invocation Rules
+
+These rules govern how agents invoke `context-distill`. Violations waste 3x tokens for zero added value.
+
+**NEVER** use `context-distill` to read and return full file contents. If you need a file's full content, use the Read tool directly — that is 1x token cost vs. 3x for a subagent round-trip.
+
+**ONLY** use `context-distill` when you need targeted extraction or summarization from multiple files based on a specific question or decision.
+
+**ALWAYS** provide all three inputs in the prompt:
+1. **Conversation Context** — the current topic and problem being solved
+2. **Specific Request** — state explicitly: (a) what decision you are making, (b) what specific data points you need, (c) what format to return
+3. **Referenced Files** — exact file paths to read
+
+**NEVER** write prompts like "read these files and return their full contents" or "do not summarize." These defeat the purpose of the agent and cost 3x tokens for identical information.

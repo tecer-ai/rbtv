@@ -1,131 +1,144 @@
-# PRD: Split Pitch Workflow Design Steps into Dedicated Design Agent
+# PRD: Creative Design Agent — Visual Work Across RBTV Workflows
 
 ## Status: Proposed
-## Priority: Medium
-## Scope: Creation mode only — edit mode (E01/E02) is explicitly out of scope
-## Description: Extract HTML generation and image steps from both pitch workflows into a new design-focused agent, and evaluate merging both workflows into a single parameterized flow
+## Priority: High
+## Scope: All visual/design work currently handled by non-design agents
+## Description: Create a dedicated design agent that owns visual identity work across the system — pitch deck generation, brand visual guidelines, and any future visual design steps
 
 ---
 
 ## Problem
 
-Both pitch creation workflows (investor via Roelof, client via Leo) assign HTML deck generation (step 07) and image prompt creation (step 08) to agents whose core competency is narrative stress-testing — not visual design. Roelof thinks like a VC partner evaluating deal quality. Leo thinks like a procurement VP evaluating vendor credibility. Neither persona is optimized for design craftsmanship, visual hierarchy, brand consistency, or CSS/HTML pattern application.
+Multiple RBTV workflows assign visual design work to agents whose core competency is something else:
 
-This mismatch produces two failure modes:
+**Pitch decks (Roelof/Leo):** HTML deck generation (step 07) and image prompt creation (step 08) are handled by agents optimized for narrative stress-testing. Roelof thinks like a VC partner. Leo thinks like a procurement VP. Neither is optimized for design craftsmanship, visual hierarchy, or CSS/HTML pattern application. The Tecer investor deck design review surfaced 34 issues — the majority were visual design failures, not narrative failures.
 
-1. **Design quality gap**: The narrative agent treats step 07 as "translate structure to HTML" rather than "design a visually compelling presentation." Design constraints (min font sizes, optical centering, card density limits) are followed mechanically rather than with design intent. The recent design review of the Tecer investor deck surfaced 34 issues — the majority were visual design failures, not narrative failures.
+**M3 Brand (Paul):** The Brandbook framework (step-03-visual) requires color palette creation, typography selection, logo AI prompt crafting, imagery guidelines, and iconography — all guided by Paul, a YC Mentor whose persona is "Former founder with 2 exits, obsessed with customer obsession." His principles are "Talk to customers. Build. Repeat." Zero mention of creative or visual work. During the Ayutan M3 brandbook, the founder had to take color proposals to external AI agents to get better options, validating the mismatch.
 
-2. **Agent overload**: Roelof/Leo maintain narrative context across 6 steps (01–06), then switch to an entirely different skill domain (design) for steps 07–08. This context switch degrades both roles — the design steps don't benefit from the narrative persona, and the narrative context accumulated in steps 01–06 is wasted on CSS generation.
+**Root cause:** The system has no creative/design agent. All visual work is assigned to the nearest available agent by workflow proximity, not by competency.
+
+**Two failure modes:**
+
+1. **Design quality gap**: Strategy agents treat visual work as "translate decisions to output" rather than "design with visual intent." Design constraints are followed mechanically rather than with design sensitivity.
+
+2. **Agent overload**: Agents maintain deep narrative/strategic context across many steps, then switch to an entirely different skill domain (design). This context switch degrades both roles.
 
 ---
 
 ## Current Architecture
 
+### Pitch Creation Workflows
+
 Both workflows follow the same 9-step create flow:
 
-| Step | File | Purpose | Domain |
-|------|------|---------|--------|
-| 01 | step-01-init.md | Project detection, output path, pitch context | Setup |
-| 02 | step-02-context-gather.md | Extract pitch content from founder docs, build pitch brief | Narrative |
-| 03 | step-03-narrative.md | Draft slide-by-slide narrative with stress-testing | Narrative |
-| 04 | step-04-data-layer.md | Identify validating data, build thesis/counter-thesis | Narrative |
-| 05 | step-05-research-prompt.md | Generate research prompts for external AI | Narrative |
-| 06 | step-06-structure.md | Plan slide structure, layout types, focal elements | Narrative → Design bridge |
-| 07 | step-07-generate.md | Generate full HTML deck (colors, typography, layout) | **Design** |
-| 08 | step-08-images.md | Brand asset integration, image slots, image prompts | **Design** |
-| 09 | step-09-synthesis.md | Quality checks, deliverable summary, next steps | Synthesis |
+| Step | Purpose | Domain | Current Agent |
+|------|---------|--------|---------------|
+| 01 | Project detection, output path | Setup | Roelof/Leo |
+| 02 | Extract pitch content, build brief | Narrative | Roelof/Leo |
+| 03 | Draft slide-by-slide narrative | Narrative | Roelof/Leo |
+| 04 | Identify validating data, thesis/counter-thesis | Narrative | Roelof/Leo |
+| 05 | Generate research prompts | Narrative | Roelof/Leo |
+| 06 | Plan slide structure, layout types | Narrative → Design bridge | Roelof/Leo |
+| 07 | Generate full HTML deck | **Design** | Roelof/Leo |
+| 08 | Brand asset integration, image prompts | **Design** | Roelof/Leo |
+| 09 | Quality checks, deliverable summary | Synthesis | Roelof/Leo |
 
-**Agents:** Roelof runs investor workflow. Leo runs client workflow. Both handle all 9 steps.
+### M3 Brand — Brandbook Workflow
 
-**Key observation:** The two workflows use nearly identical step files. Differences are driven by agent persona lens, not by structural divergence in the steps themselves.
+| Step | Purpose | Domain | Current Agent |
+|------|---------|--------|---------------|
+| 01 | Init, verify prerequisites, AI tool selection | Setup | Paul |
+| 02 | Compile Brand Identity from frameworks | Strategy | Paul |
+| 03 | Color palette, typography, logo, imagery, icons | **Design** | Paul |
+| 04 | Messaging & Tone compilation, tagline | Strategy | Paul |
+| 05 | Synthesis, validate consistency | Synthesis | Paul |
+
+### Other M3 Brand Frameworks
+
+M3 frameworks 1-6 (Archetypes, Prism, Golden Circle, Positioning, Messaging Architecture, Tone of Voice) are brand strategy work where Paul's challenger persona adds genuine value. The mismatch is isolated to the Brandbook visual identity step.
 
 ---
 
 ## Proposed Solution
 
-### 1. New Design Agent
+### 1. New Creative Design Agent
 
-Create a new RBTV agent dedicated to pitch deck visual design. This agent:
+Create a single RBTV agent that owns all visual/design work across the system. This agent:
 
-- Has a persona optimized for design craftsmanship, visual hierarchy, and brand systems
-- Loads `html-patterns.md` and `html-components.md` as core knowledge
-- Takes the structure document (step 06 output) as input
-- Produces the HTML deck (step 07) and image prompts (step 08)
-- Is NOT Roelof, NOT Leo — a distinct agent with design-first identity
+- Has a persona optimized for design craftsmanship, visual hierarchy, brand systems, and color theory
+- Handles pitch deck HTML generation (currently Roelof/Leo steps 07-08)
+- Handles M3 Brandbook visual identity (currently Paul step 03)
+- Loads design-specific knowledge: `html-patterns.md`, `html-components.md`, prompting knowledge for AI image tools
+- Takes structure/strategy documents as input (the strategy agent's output IS the handoff)
+- Is NOT Roelof, NOT Leo, NOT Paul — a distinct agent with design-first identity
 
-**Persona direction:** Think presentation designer who has internalized Tufte's principles, understands print-to-PDF constraints, and treats every pixel as communication. Not a generic "creative" — a precision design craftsman.
+**Persona direction:** A designer who has internalized Tufte's principles for presentations AND understands brand systems (color theory, typography pairing, logo design principles, visual hierarchy). Thinks visually — considers how every element communicates. Treats the brand frameworks as constraints to design within, not content to translate. Precision design craftsman, not a generic "creative."
 
-### 2. Split Boundary: After Step 06
+**Key capability areas:**
+- Pitch deck visual design (HTML/CSS, print-to-PDF constraints, slide composition)
+- Brand visual identity (color palette, typography, logo direction, imagery guidelines)
+- AI image prompt crafting (platform-specific optimization — Nano Banana, Midjourney, DALL-E)
+- Design critique and iteration (can articulate why something works or doesn't)
 
-The narrative agent (Roelof or Leo) owns steps 01–06. The design agent owns steps 07–08.
+### 2. Split Boundaries
 
-**Why this boundary:**
+**Pitch decks:** Narrative agent (Roelof/Leo) owns steps 01-06. Design agent owns steps 07-08.
+- Step 06 (Structure) decides WHAT goes on each slide — narrative decision
+- Step 07 (Generate HTML) decides HOW it looks — design decision
+- The structure document is the handoff artifact
 
-- Step 06 (Structure) decides WHAT goes on each slide — this is a narrative decision. The agent who stress-tested the story should decide slide order, focal elements, and content mapping.
-- Step 07 (Generate HTML) decides HOW it looks — this is where design begins.
-- Step 06 produces a structure document that serves as the handoff artifact between narrative and design agents.
+**M3 Brandbook:** Paul owns steps 01-02 and 04. Design agent owns step 03.
+- Steps 01-02 (Init, Brand Identity) are strategy compilation — Paul's domain
+- Step 03 (Visual Guidelines) is design — design agent's domain
+- Step 04 (Messaging & Tone) is verbal identity compilation — Paul's domain
+- Step 05 (Synthesis) validates both — open question on ownership
 
-**Step 09 (Synthesis)** is an open question. Options:
-- Keep with narrative agent (checks narrative fidelity)
-- Move to design agent (checks visual quality)
-- Split into two sub-steps (narrative check + design check)
+**Future:** Any workflow that adds visual/design steps should route to this agent.
 
-Recommend deferring this decision until the design agent is built and tested.
+### 3. Evaluate Merging Pitch Workflows
 
-### 3. Evaluate Merging Both Workflows
+The two pitch creation workflows are structurally near-identical. All differences can be handled by:
 
-The two pitch creation workflows are structurally near-identical. Documented differences:
+1. A `pitch_type` variable (`investor` | `client`) set at init
+2. Conditional blocks within step files
+3. The invoking agent's persona providing the right lens
 
-| Step | Investor (Roelof) | Client (Leo) | Structural difference? |
-|------|-------------------|--------------|----------------------|
-| 01 | Same | Same | No |
-| 02 | Same | Same | No |
-| 03 | VC stress-test | Buyer stress-test | Agent persona only |
-| 04 | TAM/SAM/SOM, unit economics | ROI, proof points, case studies | Agent persona + data focus |
-| 05 | Counter-thesis research | Objection research | Agent persona only |
-| 06 | 12–15 slides | 10–12 slides, proof earlier | Minor parameterization |
-| 07 | Standard palette | Conservative palette, trust-focused | One-line config difference |
-| 08 | Brand integration + visual enhancement | Audit + image prompts (simpler) | Minor flow difference |
-| 09 | Same | Same | No |
-
-**Assessment:** No step file has structural differences that justify maintaining two separate workflow directories. All differences can be handled by:
-
-1. A `pitch_type` variable (`investor` | `client`) set at init and available to all steps
-2. Conditional blocks within step files (e.g., "if investor: 12–15 slides; if client: 10–12 slides")
-3. The invoking agent's persona naturally providing the right lens (Roelof thinks VC, Leo thinks buyer)
-
-**Recommendation:** Merge into a single `pitch-creation` workflow with parameterized steps. This eliminates the current duplication and ensures improvements (like the html-patterns.md update) propagate to both flows without double-editing.
+**Recommendation:** Merge into a single `pitch-creation` workflow with parameterized steps. This is independent from the agent split and can be done first.
 
 ### 4. Handoff Mechanism
 
-The split between narrative agent and design agent requires a handoff. Two options:
+**Pitch decks — same-session handoff (recommended):**
+Step 06 ends with the exact command to invoke the design agent. The design agent reads the structure document + pitch brief from disk. No explicit handoff document needed.
 
-**Option A — Same chat session (recommended):**
-Step 06 ends with a menu that includes an instruction to invoke the design agent. The user runs the design agent command in the same or new chat, and the design agent reads the structure document + pitch brief from disk. No explicit handoff document needed — the structure document IS the handoff.
+**M3 Brandbook — mid-workflow agent switch:**
+Two options:
+- **Option A (recommended):** Step 02 completion triggers an instruction to invoke the design agent for step 03. After step 03, instruction to return to Paul for step 04.
+- **Option B:** Refactor the Brandbook workflow so visual steps are a sub-workflow the design agent runs independently, with output written to the brandbook document.
 
-**Option B — Explicit handoff document:**
-Step 06 produces a design brief document with visual direction, brand tokens, slide-by-slide layout specs. The design agent loads this document at step 07 init.
-
-Option A is simpler and consistent with how BMAD workflows already operate. Option B adds overhead but is more resilient to context loss across sessions.
+Option A is simpler and consistent with the pitch deck pattern.
 
 ---
 
 ## Implementation Scope
 
-### In Scope (Creation Mode)
+### In Scope
 
-1. Create the new design agent (persona, menu, activation)
-2. Create a thin loader (command + skill + cursor sub-agent) for the design agent
-3. Refactor step 07 and step 08 to be invoked by the design agent instead of narrative agents
-4. Evaluate and implement workflow merge (single `pitch-creation` directory)
-5. Update Roelof and Leo agent menus to reflect the split (steps 01–06 only)
-6. Update workflow.md file tables and knowledge file references
+1. Create the new design agent (persona, menu, activation) in `_bmad/rbtv/agents/`
+2. Create loader (command + skill + cursor sub-agent) for the design agent
+3. Refactor pitch step 07 and step 08 to be invoked by the design agent
+4. Refactor M3 Brandbook step 03 to be invoked by the design agent
+5. Evaluate and implement pitch workflow merge (single `pitch-creation` directory)
+6. Update Roelof, Leo, and Paul agent menus to reflect the split
+7. Update workflow.md files, routing tables, and knowledge file references
+8. Add handoff instructions at split boundaries (step 06 for pitches, step 02 for brandbook)
 
 ### Out of Scope
 
-- **Edit mode (E01/E02):** Not touched. Edit steps remain with Roelof/Leo as-is. A future PRD should address splitting edit mode into content-edit vs design-edit.
-- **Step 09 (Synthesis) ownership:** Deferred until design agent is tested. Currently stays with narrative agent.
-- **Design validation skill integration:** The existing `design-validation` skill could be invoked by the design agent at step 07, but this integration is a separate enhancement.
+- **Pitch edit mode (E01/E02):** Not touched. A future PRD should address design-edit.
+- **Pitch step 09 (Synthesis) ownership:** Deferred until design agent is tested.
+- **M3 strategy frameworks (1-6):** Stay with Paul. No change.
+- **Design validation skill integration:** Could be invoked by design agent, but is a separate enhancement.
+- **M3 Brandbook step 05 (Synthesis) ownership:** Deferred.
 
 ---
 
@@ -133,28 +146,58 @@ Option A is simpler and consistent with how BMAD workflows already operate. Opti
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Context loss at handoff | Design agent doesn't understand narrative intent | Structure document from step 06 must carry sufficient context (slide purposes, focal elements, narrative beats) |
-| Workflow merge breaks edge cases | Client-specific or investor-specific logic gets lost | Audit every conditional branch before merging; maintain test coverage for both pitch types |
-| New agent persona quality | Design agent is generic rather than design-specific | Invest in persona design — use design-domain metaphors, specific beliefs about visual communication |
-| Over-splitting | Three agents for one workflow adds coordination overhead | Monitor friction in practice; merge design agent back if overhead > benefit |
+| Context loss at handoff | Design agent doesn't understand narrative/strategic intent | Structure document (pitch) and Brand Identity section (brandbook) must carry sufficient context |
+| Pitch workflow merge breaks edge cases | Client-specific or investor-specific logic gets lost | Audit every conditional branch before merging |
+| Agent persona too broad | One agent covering pitch design + brand identity may lack depth in either | Design persona around visual principles that apply to both; load domain-specific knowledge per workflow |
+| Over-splitting | Three agents for one workflow adds coordination overhead | Monitor friction in practice |
+| Mid-workflow agent switching UX | Founder must switch agents mid-brandbook | Clear handoff instructions with exact commands |
 
 ---
 
-## Open Challenges (Review During Implementation)
+## Open Challenges
 
-1. **Step 06 may need a design agent review pass.** Structure is assigned entirely to the narrative agent, but layout type selection (grid-2 vs grid-3, stat blocks vs cards) is a design decision. The design agent may want to revise layout choices from step 06 at the start of step 07. Consider adding a "design review of structure" sub-step at the beginning of step 07.
+1. **Step 06 may need a design review pass.** Layout type selection in pitch structure is partly a design decision. Consider a "design review of structure" sub-step at the beginning of step 07.
 
-2. **Workflow merge is higher-leverage than the agent split.** Every improvement to step files currently must be applied twice. The merge eliminates this maintenance burden regardless of whether the design agent split happens. Consider implementing the merge first, then the agent split — they are independent changes.
+2. **Workflow merge is higher-leverage than the agent split.** Every pitch improvement currently must be applied twice. The merge eliminates this regardless of the agent split. Consider implementing the merge first.
 
-3. **Same-session handoff creates user friction.** The "same chat session" handoff relies on the user manually switching agents. Step 06's completion should automatically output the exact command to invoke the design agent (e.g., "Run `/bmad-rbtv-pitch-design` to continue with deck generation"), reducing the handoff to a copy-paste rather than requiring the user to know which command to run.
+3. **Same-session handoff creates user friction.** Step completion should output the exact command to invoke the design agent, reducing handoff to a copy-paste.
+
+4. **M3 Brandbook has a round-trip handoff.** Unlike pitch decks (one-way narrative → design), the brandbook goes Paul → Design Agent → Paul. This is more complex and may require the design agent to write directly to the brandbook document rather than producing a separate artifact.
+
+5. **Agent persona breadth vs depth.** Pitch deck design (HTML/CSS, slide composition, data visualization) and brand identity design (color theory, typography, logo, imagery) are related but distinct skill sets. The persona must be crafted to cover both without being generic. Consider organizing the agent around visual communication principles that apply universally, with domain-specific knowledge loaded per workflow.
+
+6. **Orchestrator agent for multi-agent workflows.** With agent splits, workflows like pitch creation (Roelof → Designer) and M3 Brand (Paul → Designer → Paul) become multi-agent sequences. Currently the user must manually invoke each agent at handoff points. A lightweight orchestrator agent — with no personality, no domain expertise, purely a router — could manage these transitions automatically. The orchestrator would read workflow state, determine the next agent, output the invocation command, and track progress across agent boundaries. This is especially relevant for the M3 round-trip pattern (Paul → Designer → Paul) where the user would otherwise need to switch agents twice. Consider whether this orchestrator is a new agent, an extension of the existing command/workflow system, or a capability added to the `bi-business-innovation` workflow itself.
 
 ---
 
 ## Success Criteria
 
-1. A new design-focused agent exists in `_bmad/rbtv/agents/` with a design-specific persona
-2. Step 07 (Generate HTML) and step 08 (Images) are executed by the design agent, not by Roelof/Leo
-3. The narrative agents (Roelof, Leo) run steps 01–06 only, and their menus reflect this
-4. Design quality of generated decks improves measurably (fewer design review issues)
-5. If merged: a single `pitch-creation` workflow directory replaces both `investor-pitch-creation` and `client-pitch-creation`, parameterized by `pitch_type`
-6. Both pitch types (investor and client) produce correct output after the refactor
+1. A new design-focused agent exists in `_bmad/rbtv/agents/` with a persona covering both pitch deck and brand visual work
+2. Pitch steps 07-08 are executed by the design agent, not by Roelof/Leo
+3. M3 Brandbook step 03 is executed by the design agent, not by Paul
+4. Narrative/strategy agents run only their competency steps, and their menus reflect this
+5. Design quality improves measurably (fewer design review issues in pitch decks; founder doesn't need external validation for brand colors)
+6. Handoff mechanism works smoothly for both one-way (pitch) and round-trip (brandbook) patterns
+7. If merged: a single `pitch-creation` workflow directory replaces both pitch workflows, parameterized by `pitch_type`
+
+---
+
+## Related Files
+
+| File | Relationship |
+|------|--------------|
+| `_bmad/rbtv/agents/paul.md` | M3 Brand strategy agent — keeps frameworks 1-6, loses Brandbook visual step |
+| `_bmad/rbtv/agents/roelof.md` | Investor pitch narrative agent — keeps steps 01-06, loses 07-08 |
+| `_bmad/rbtv/agents/leo.md` | Client pitch narrative agent — keeps steps 01-06, loses 07-08 |
+| `_bmad/rbtv/workflows/bi-m3-brandbook/steps-c/step-03-visual.md` | Visual Guidelines step — moves to design agent |
+| `_bmad/rbtv/workflows/bi-m3/workflow.md` | M3 milestone workflow — needs routing update |
+| `_bmad/rbtv/workflows/_shared/pitch-data/html-patterns.md` | Design knowledge — loaded by design agent |
+| `_bmad/rbtv/workflows/prompting-assistance/data/knowledge-index.csv` | AI image model knowledge — loaded by design agent for brandbook |
+
+---
+
+## Merge History
+
+This PRD merges two previously separate documents:
+- Original pitch design agent split PRD (`prd-pitch-design-agent-split.md`)
+- M3 Brand creative agent compound (`prd-m3-brand-creative-agent.md`) — now superseded

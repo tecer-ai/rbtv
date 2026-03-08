@@ -59,23 +59,23 @@ Also check for a context folder:
 
 List which folders have .md files. Only search folders that contain documents.
 
-### 2. Run Context-Search Per Milestone
+### 2. Run Context-Distill Per Milestone
 
 For EACH milestone folder that has documents, invoke the **context-distill** subagent. Provide these three inputs per call:
 
 **M1 — Conception:**
 - Conversation Context: "Building an investor pitch deck for {project_name}"
-- Specific Request: "Extract all content relevant to an investor pitch: the core problem being solved and who experiences it (with data/numbers); the solution and what makes it different; target customer profile and their current workarounds; competitive landscape and positioning; value proposition and jobs-to-be-done; any key insights or contrarian views about the market"
+- Specific Request: "Extract: (1) the core problem statement and who experiences it, with any quantified data; (2) the solution's key differentiators (max 3); (3) target customer profile and their current workarounds; (4) competitive positioning — named competitors and differentiation claims; (5) primary value proposition; (6) any contrarian market insights"
 - Referenced Files: All .md files in `{project-root}/_bmad-output/{project_name}/founder/m1-conception/`
 
 **M2 — Validation:**
 - Conversation Context: "Building an investor pitch deck for {project_name}"
-- Specific Request: "Extract all content relevant to an investor pitch: market size (TAM, SAM, SOM with methodology and numbers); unit economics (pricing, CAC, LTV, payback period, margins); technology readiness level and technical differentiators; key assumptions tested and results; leap-of-faith assumptions and evidence; traction metrics or validation signals"
+- Specific Request: "Extract: (1) TAM, SAM, SOM numbers with methodology; (2) unit economics — pricing, CAC, LTV, payback period, margins; (3) technology readiness level; (4) key assumptions tested and their results; (5) leap-of-faith assumptions with evidence status; (6) traction metrics with dates"
 - Referenced Files: All .md files in `{project-root}/_bmad-output/{project_name}/founder/m2-validation/`
 
 **M3 — Brand:**
 - Conversation Context: "Building an investor pitch deck for {project_name}"
-- Specific Request: "Extract all content relevant to an investor pitch: brand archetype and personality; brand positioning and messaging; visual identity direction (colors, tone, style); key brand statements or taglines; communication style and voice"
+- Specific Request: "Extract: (1) brand archetype name and core personality traits; (2) primary positioning statement; (3) color palette hex values and typography choices; (4) primary tagline or brand statement; (5) communication tone descriptors"
 - Referenced Files: All .md files in `{project-root}/_bmad-output/{project_name}/founder/m3-brand/`
 
 **M4+ — Later Milestones (if they have documents):**
@@ -83,12 +83,12 @@ For EACH milestone folder that has documents, invoke the **context-distill** sub
 
 **Context folder (if exists):**
 - Conversation Context: "Building an investor pitch deck for {project_name}"
-- Specific Request: "Extract all content relevant to an investor pitch: market research findings and data points; competitive intelligence; industry trends and 'why now' evidence; customer quotes or feedback; any traction or proof points; positioning insights"
+- Specific Request: "Extract: (1) market research data points with sources; (2) named competitors and their positioning; (3) industry trends supporting 'why now' timing; (4) customer quotes or feedback verbatim; (5) traction proof points with numbers and dates"
 - Referenced Files: All .md files in `{project-root}/_bmad-output/{project_name}/context/`
 
 **Project Memo:**
 - Conversation Context: "Building an investor pitch deck for {project_name}"
-- Specific Request: "Extract the project introduction, problem statement, solution description, tenets, and progress summary"
+- Specific Request: "Extract: (1) one-line project description; (2) problem statement; (3) solution summary; (4) tenets list; (5) current milestone status"
 - Referenced Files: `{project-root}/_bmad-output/{project_name}/founder/project-memo.md`
 
 ### 3. Compile Pitch Brief
@@ -163,7 +163,7 @@ ONLY when **[X] Exit** is selected:
 ## SUCCESS / FAILURE METRICS
 
 ✅ **SUCCESS:**
-- Context-search invoked separately for each milestone with documents
+- Context-distill invoked separately for each milestone with documents
 - Pitch brief compiled with findings organized by deck section
 - Gaps identified and filled through targeted questions only
 - User confirms brief accuracy

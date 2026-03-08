@@ -65,17 +65,17 @@ For EACH milestone folder that has documents, invoke the **context-distill** sub
 
 **M1 — Conception:**
 - Conversation Context: "Building a client pitch deck for {project_name} targeting {target_client}"
-- Specific Request: "Extract all content relevant to a client/sales pitch: the specific problem the TARGET CLIENT experiences and how they cope today; the solution and its concrete benefits for THIS type of client; how the solution works (workflow, process, integration); competitive alternatives the client might consider; value proposition from the client's perspective; jobs-to-be-done that the client hires this product for"
+- Specific Request: "Extract: (1) the specific problem the TARGET CLIENT experiences and their current workarounds; (2) solution benefits stated from the client's perspective (max 5); (3) how the solution works — workflow, process, integration points; (4) named competitive alternatives the client might evaluate; (5) primary value proposition from the buyer's POV; (6) jobs-to-be-done the client hires this product for"
 - Referenced Files: All .md files in `{project-root}/_bmad-output/{project_name}/founder/m1-conception/`
 
 **M2 — Validation:**
 - Conversation Context: "Building a client pitch deck for {project_name} targeting {target_client}"
-- Specific Request: "Extract all content relevant to a client/sales pitch: pricing structure and plans; ROI metrics or calculations; implementation timeline and effort; any pilot results or validation data; unit economics that affect pricing decisions; technology readiness and reliability evidence"
+- Specific Request: "Extract: (1) pricing structure and plan tiers; (2) ROI metrics or calculation framework; (3) implementation timeline and effort estimate; (4) pilot results or validation data with numbers; (5) technology readiness and reliability evidence"
 - Referenced Files: All .md files in `{project-root}/_bmad-output/{project_name}/founder/m2-validation/`
 
 **M3 — Brand:**
 - Conversation Context: "Building a client pitch deck for {project_name} targeting {target_client}"
-- Specific Request: "Extract all content relevant to a client pitch: brand positioning relative to competitors; messaging that resonates with buyers; trust signals and credibility markers; communication tone appropriate for B2B sales; key brand statements or taglines"
+- Specific Request: "Extract: (1) brand positioning relative to named competitors; (2) key messaging statements for B2B buyers; (3) trust signals and credibility markers; (4) communication tone descriptors; (5) primary tagline or brand statement"
 - Referenced Files: All .md files in `{project-root}/_bmad-output/{project_name}/founder/m3-brand/`
 
 **M4+ — Later Milestones (if they have documents):**
@@ -83,12 +83,12 @@ For EACH milestone folder that has documents, invoke the **context-distill** sub
 
 **Context folder (if exists):**
 - Conversation Context: "Building a client pitch deck for {project_name} targeting {target_client}"
-- Specific Request: "Extract all content relevant to a client pitch: customer feedback or testimonials; case study material; competitive intelligence from the client's perspective; industry benchmarks the client would recognize; proof points, metrics, or success stories"
+- Specific Request: "Extract: (1) customer feedback or testimonials verbatim; (2) case study material — client name, problem, result; (3) named competitors and their positioning from the buyer's view; (4) industry benchmarks the client would recognize; (5) proof points with numbers and dates"
 - Referenced Files: All .md files in `{project-root}/_bmad-output/{project_name}/context/`
 
 **Project Memo:**
 - Conversation Context: "Building a client pitch deck for {project_name} targeting {target_client}"
-- Specific Request: "Extract the project introduction, problem statement, solution description, tenets, and any client-relevant progress"
+- Specific Request: "Extract: (1) one-line project description; (2) problem statement; (3) solution summary; (4) tenets list; (5) current milestone status relevant to client readiness"
 - Referenced Files: `{project-root}/_bmad-output/{project_name}/founder/project-memo.md`
 
 ### 3. Compile Client Pitch Brief
