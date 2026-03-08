@@ -20,6 +20,10 @@ RBTV files use `{project-root}` as a placeholder referencing the BMAD installati
 
 RBTV's slot in the mirror (`_admin/docs/BMAD-mirror/_bmad/rbtv/`) is intentionally empty — this repo IS that module.
 
+## Upgrade Reference Versions
+
+When upgrading RBTV to a new BMAD version, the target BMAD installation is placed at `_admin/docs/BMAD-v{version}/` (e.g., `_admin/docs/BMAD-v6.0.4/`). Compare this against `_admin/docs/BMAD-mirror/` (current baseline) to identify structural changes affecting RBTV. After the upgrade, the mirror is updated to reflect the new baseline.
+
 ## Path Resolution
 
 RBTV uses path variables from `_config/config.yaml` (`paths:` section) to avoid multi-hop resolution. Use these variables in all cross-module references:

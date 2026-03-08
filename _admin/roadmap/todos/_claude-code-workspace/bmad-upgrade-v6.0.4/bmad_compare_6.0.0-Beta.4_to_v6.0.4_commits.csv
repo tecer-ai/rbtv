@@ -1,0 +1,148 @@
+commit_hash,commit_message
+44972d6,chore(release): bump to v6.0.4
+deedf18,changelog: prepare v6.0.4 release
+17fe438,"fix brainstorming so that it will not overwrite previous brainstormings, and it will also ask if you want to continue a previous one or start a new one when older brainstormings are found."
+d036d34,fix(templates): replace @ path prefixes with {project-root} (#1769)
+bc7c7f0,fix(core): remove zero-findings halt condition from edge case hunter (#1797)
+43cfc01,feat(core): add edge case hunter review task (#1790)
+1677d54,fix: correct docs domain to docs.bmad-method.org (#1777)
+5ad35d6,docs(changelog): complete 6.0.3 release notes
+2f484f1,feat(skills): add bmad-os-root-cause-analysis skill (#1741)
+2d2f485,fix(installer): refuse install when ancestor dir has BMAD commands (#1735)
+d94757a,Update README.md (#1772)
+6bfc937,fix(installer): OpenCode integration: replace `name` frontmatter with `mode: all` and update directory names (#1764)
+72a9325,docs: rebrand BMAD acronym to Build More Architect Dreams (#1765)
+5ed436c,6.0.3
+97a533e,fix(installer): remove double-escaping of quotes in CSV manifest pipeline (#1746)
+b83ccc7,docs(changelog): add 6.0.3 release notes
+d43663e,fix(workflows): remove ambiguous with-argument from help task chaining (#1740)
+0d858cb,standardize all workflow descriptions to use proper quotes to not break command or skilll front matter
+3ad6985,6.0.2
+44eeaa8,feat(docs): add public roadmap and improve site navigation
+1d49fe1,feat(templates): remove disable-model-invocation to enable workflow skill calls
+476082f,refactor(workflows): standardize workflow descriptions for skill generation
+8cf22a4,"open source tool skills updated, will move to separate plugin at a later time"
+d48d40d,feat: migrate Codex installer from .codex/prompts to .agents/skills format (#1729)
+675e753,refactor(skills): convert review-pr and audit-file-refs to bmad-os skills (#1732)
+276fcb1,fix(workflows): correct broken step refs in create-architecture (#1734)
+99c1fa9,feat: add LLM audit prompt for file reference conventions (#1720)
+bea8989,feat: add CodeBuddy platform support (#1483)
+eb6cf96,fix: correct step file path in check-implementation-readiness workflow (#1709)
+eeb773c,fix: correct step file path in check-implementation-readiness workflow (#1716)
+35dff6b,chore: ignore .junie/ IDE integration folder (#1719)
+fb05848,fix: correct 3 broken file refs and enforce validator in CI (#1717)
+e72b82e,fix(installer): add custom Rovo Dev installer with prompts.yml generation (#1701)
+d0ecfc0,fix: standardize all relative step file refs to {project-root}/_bmad/ paths (#1722)
+a135622,fix: correct code fence imbalance in step-03-starter.md (#1724)
+811d032,fix(config): remove Windsurf from recommended/preferred IDEs (#1727)
+3dd37bc,Added language to go back and replace [Research overview and methodology will be appended here] (#1703)
+5579816,fix: change default Codex install location from global to project (#1698)
+1782e97,docs: elevate bmad-help as primary on-ramp across all documentation
+9247146,docs: update workflow names and standardize table formatting
+c8481c2,fix: clarify phase routing and catalog path in help task
+1198c8b,hotfix: add npx cache workaround to Quick Start (#1685)
+17a46a2,6.0.1
+e5ee30b,docs: update start message for V6 stable release
+aa573bd,chore: bump version to 6.0.0 stable release
+3f688d5,docs: update CHANGELOG for v6.0.0 stable release
+eb88384,docs: add BMad Builder link to index for extenders
+469a2e2,docs: update README for V6 stable release and enhance installer next steps
+454b19a,feat(prd): add missing steps 2b (vision) and 2c (executive summary) (#1675)
+8115ad8,fix(cli): use semantic versioning for update check (#1671)
+d4b4bdf,docs: improve project-context documentation and fix folder structure
+d6cc8b0,refactor: rename skill folders to bmad-os- prefix
+ccaa88b,feat: add Diataxis style fixer skill
+382ab8e,Fix: --custom-content flag and workflow config.yaml copying (#1651)
+1937552,fix: improve module config UX messaging and spacing (#1656)
+2d13431,feat(cli): add uninstall command with selective component removal (#1650)
+a5e2b1c,docs: fix changelog URL in installer start message (#1660)
+5b5cb1a,modify post install notes example
+98c1fa8,document project remove legacy workflow init and workflow- status function calls
+ae7b3a7,docs: post install notes (#1653)
+3103c3d,feat: tea automation prereq prompts (#1649)
+e66bbd0,docs: replace branching strategy doc with trunk-based development reference (#1598)
+b815410,fix(opencode): remove incorrect mode: primary and restore name field in templates (#1644)
+c8ca083,fix: remove unnecessary quotes and fix grammar in bmad-master principles (#1600)
+5b79330,fix: fix typos in tech-writer and ux-designer agent definitions (#1599)
+b4d118c,"fix: remove output_folder/story_dir aliases, flatten variables sections (#1608)"
+3e35057,fix: auto-discover PRD in validate-prd instead of always asking (#1619)
+0659aac,fix(bmm): add missing project-context references to workflows (#1597)
+0bf8e0e,fix: installer fixes and non-interactive mode improvements (#1612)
+36c21db,feat: custom GitHub Copilot installer handler (#1606)
+2754d66,6.0.0-Beta.8
+60c3477,chore: remove unused changelog-social skill
+622b627,docs: update CHANGELOG for v6.0.0-Beta.8
+c563cef,refactor: replace module installer scripts with declarative directories config
+90ea3cb,Minor installer fixes (#1590)
+a110153,fix(docs): comprehensive documentation site review fixes (#1578)
+24cf444,feat: extend Layer 1 file-ref validator to scan CSV workflow-file references (#1573)
+fc5ef57,feat: add Kiro IDE support via config-driven installer (#1589)
+b1bfce9,refactor: Complete @clack/prompts Migration & Installer Output Consolidation (#1586)
+ecf7fbc,docs: add description front matter to documentation pages (#1566)
+cb73c05,fix: use pull_request_target for CodeRabbit review trigger (#1583)
+045b1fe,chore: sync package-lock.json after archiver removal (#1580)
+4c36c94,chore: configure dual-mode AI code review (#1511)
+a8cda7c,refactor: remove downloads page and bundle generation (#1577)
+97bfe0a,chore: remove broken manual-release workflow and related artifacts (#1576)
+6c2d019,minor doc updates
+90d9204,fix: update help task path from bmad-help.md to help.md
+09316ec,fix: remove forbidden workflow_path variable from step files
+a79f581,fix(technical-research): route step-05 to step-06 and fix stepsCompleted values
+dbb754f,fix(party-mode): add return protocol to prevent lost-in-the-middle failures (#1569)
+c1a927a,refactor: replace 'invoke/run' with 'load and follow' in workflow prompts (#1570)
+33f78a3,6.0.0-Beta.7
+d027811,ci: trigger CodeRabbit review on PR un-draft (#1558)
+ae92f7b,docs: add pull request template (#1554)
+f7b5f03,"refactor: consolidate OpenCode templates and add support for tasks, tools, and workflows (#1556)"
+7c0e5d5,fix: make SPACE key toggle selections in autocomplete multiselect prompts (#1557)
+8be3713,docs: add modules reference page and site fixes (#1540)
+22601f8,feat: add non-interactive installation support (#1520)
+068a9dc,fix: remove --prefer-offline flag to prevent stale cache errors (#1531)
+420e720,fix: bmad-help reads project docs and respects communication_language (#1535)
+311b237,fix: trim activation header to avoid YAML formatting issues in kilo installer (#1537)
+2aab028,docs: rename brownfield to established projects (#1539)
+47a70cc,fix: route OpenCode agents to correct .opencode/agent/ directory (#1549)
+dcc55dd,Update CHANGELOG for v6.0.0-Beta.7
+d37ee7f,add installer warning when newer version is available
+bd620e3,trivariate workflows added
+731bee2,additional slash commands added that were missing from trivariate workflows
+5276d58,fix internal project skills and rename to prefix with bmad-os
+89d0c34,6.0.0-Beta.6
+f383b9b,"fix to draft-changelog, and changelog entry for next version bumb"
+f699a36,excorcise the deamons part 1 - remove dead uneeed artifacts and items no longer being supported beyond beta of the BMM or core - but could return later as a module
+11d2fc6,Merge pull request #1525 from bmad-code-org/fix/docs-llms-order-tea-link
+210bcc6,"fix: docs llms order, bmgd draft, tea link2"
+006a1f7,"fix: docs llms order, bmgd draft, tea link"
+df176d4,installer remove double tool questioning
+2d9ebca,feat: Update @clack/prompts to v1.0.0 and Add autocompleteMultiselect prompt (#1514)
+5b80649,fix(installer): Multiple installer fixes (#1492)
+5942355,fix: add process control and building automation domains (#1510)
+7ecae1d,test: quinn to qa (#1508)
+ba89077,feat: cross-file reference validator for BMAD source files (#1494)
+323cd75,x post premium example udpate for social post tool - do not add to changelog
+b0c35d5,social post skill helper
+0c46ef0,6.0.0-Beta.5
+79067a9,changelog: v6.0.0-Beta.5
+fa01b49,add helper skills
+0bbb544,remove skills that are now part of a plugin installer
+c3d1bf3,Fix duplicate 2-letter code - brainstorming now uses BSP
+04e3dc8,Fix leaked source paths in PRD validation report (#1481)
+ef7abb7,fix: complete sharding of market research customer analysis steps (#1486)
+981e5a4,docs: Add exact slash commands to getting-started guide (#1505)
+e17c7e8,fix: remove .claude/commands file from version control (#1506)
+1665ad6,fix agent scan and help csv files
+6af7916,fix agent scan
+bdcd8af,gh triage report creator
+d45eff1,gh-skill in progress
+0a7329f,fix: correct relative path to prd-purpose.md in step-11-polish (#1497)
+7afe018,fix: correct relative path to validation workflow in step-e-04-complete (#1498)
+8c59fb9,Enable sidecar for tech writer agent (#1487)
+7fcfd4c,fix: correct party-mode workflow file extension in workflow.xml (#1499)
+5322042,fix: add disable-model-invocation to all generated slash commands (#1501)
+9c03147,docs(bmgd): refactor documentation using Diataxis principles (#1502)
+542a742,Restore generate-project-context workflow (#1491)
+9df5720,readme instructions to installer older v4 if necessary
+1c13305,Merge pull request #1476 from jheyworth/fix/installer-peer-deps-comprehensive
+6198add,fix: resolve npm install peer dependency issues
+5fe54de,fix: issue 459 prod install fails (#1461)
+903710b,"fix: HELP_STEP placeholder not replaced in compiled agents, fix hardcoded path, fix single quote in HELP_STEP (#1437)"
