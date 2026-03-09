@@ -9,7 +9,7 @@ templateFiles:
   plan-development: '{project-root}/_bmad/rbtv/workflows/plan-lifecycle/templates/shape-template.md'
   execution: ./templates/handoff-execution.md
   project: ./templates/handoff-project.md
-outputFolder: '{project-root}/_bmad-output/handoffs'
+outputFolder: '{bmad_output}/handoffs'
 advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 ---
 

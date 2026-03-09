@@ -3,6 +3,8 @@ name: 'step-06-synthesis'
 description: 'Compile final document, wire to downstream frameworks, update project-memo.md'
 nextStepFile: null
 outputFile: '{outputFolder}/brand-positioning.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 6: Synthesis

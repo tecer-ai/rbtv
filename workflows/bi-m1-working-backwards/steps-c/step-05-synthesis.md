@@ -3,6 +3,8 @@ name: 'step-05-synthesis'
 description: 'Synthesize findings and update project-memo.md'
 nextStepFile: null
 outputFile: '{outputFolder}/working-backwards.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 5: Synthesis

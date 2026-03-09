@@ -3,6 +3,8 @@ name: 'step-05-synthesis'
 description: 'Validate authenticity, compile document, update project-memo.md'
 nextStepFile: null
 outputFile: '{outputFolder}/golden-circle.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 5: Synthesis

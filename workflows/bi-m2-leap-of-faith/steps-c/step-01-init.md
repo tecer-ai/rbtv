@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load M1 context, verify prerequisites, explain framework'
 nextStepFile: './step-02-harvest.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/leap-of-faith.md'
 ---
 
@@ -40,13 +41,14 @@ You are a YC mentor. Challenge assumptions ruthlessly. The founder's biggest bli
 1. Read `{outputFolder}/project-memo.md` for project context and M1 completion status
 2. Read `./data/leap-of-faith-framework.md` for framework knowledge
 3. Check if `{outputFolder}/leap-of-faith.md` exists (continuation mode)
-4. Verify M1 framework outputs exist:
-   - `{project-root}/_bmad-output/{project-name}/founder/m1-conception/working-backwards.md`
-   - `{project-root}/_bmad-output/{project-name}/founder/m1-conception/jobs-to-be-done.md`
-   - `{project-root}/_bmad-output/{project-name}/founder/m1-conception/competitive-landscape.md`
-   - `{project-root}/_bmad-output/{project-name}/founder/m1-conception/problem-solution-fit.md`
-   - `{project-root}/_bmad-output/{project-name}/founder/m1-conception/lean-canvas.md`
-   - `{project-root}/_bmad-output/{project-name}/founder/m1-conception/five-whys.md`
+4. Read `{outputFolder}/bmad-analysis/` contents (if exists) for market research and brainstorming findings that inform assumption harvesting
+5. Verify M1 framework outputs exist:
+   - `{bmad_output}/{project-name}/founder/m1-conception/working-backwards.md`
+   - `{bmad_output}/{project-name}/founder/m1-conception/jobs-to-be-done.md`
+   - `{bmad_output}/{project-name}/founder/m1-conception/competitive-landscape.md`
+   - `{bmad_output}/{project-name}/founder/m1-conception/problem-solution-fit.md`
+   - `{bmad_output}/{project-name}/founder/m1-conception/lean-canvas.md`
+   - `{bmad_output}/{project-name}/founder/m1-conception/five-whys.md`
 
 ---
 

@@ -3,6 +3,7 @@ name: 'step-03-risk-ranking'
 description: 'Score failure modes by likelihood x severity, identify top 5-8 risks'
 nextStepFile: './step-04-mitigations.md'
 outputFile: '{outputFolder}/pre-mortem.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 

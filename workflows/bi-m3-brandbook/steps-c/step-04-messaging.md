@@ -3,6 +3,8 @@ name: 'step-04-messaging'
 description: 'Compile Messaging & Tone section, craft tagline, build quick reference sheet'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{outputFolder}/brandbook.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Messaging & Tone

@@ -3,6 +3,8 @@ name: 'step-02-why-discovery'
 description: 'Extract purpose signals, articulate core belief'
 nextStepFile: './step-03-how-articulation.md'
 outputFile: '{outputFolder}/golden-circle.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Why Discovery

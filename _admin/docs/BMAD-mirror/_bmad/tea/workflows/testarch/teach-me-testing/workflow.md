@@ -1,6 +1,6 @@
 ---
 name: teach-me-testing
-description: 'Multi-session learning companion that teaches testing progressively through 7 structured sessions with state persistence'
+description: 'Teach testing progressively through structured sessions. Use when user says "lets learn testing" or "I want to study test practices"'
 web_bundle: true
 ---
 
@@ -55,7 +55,7 @@ This uses **step-file architecture** for disciplined execution:
 
 Load and read full config from {project-root}/\_bmad/tea/config.yaml (or module config if TEA module installed) and resolve:
 
-- `project_name`, `output_folder`, `user_name`, `communication_language`, `test_artifacts`
+- `project_name`, `user_name`, `communication_language`, `test_artifacts`
 - TEA module variables: `test_artifacts` (base output folder for test-related artifacts)
 
 ### 2. Mode Determination

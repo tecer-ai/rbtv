@@ -3,6 +3,7 @@ name: 'step-02-customer-problem'
 description: 'Populate Problem, Customer Segments, and Early Adopters blocks'
 nextStepFile: './step-03-value-solution.md'
 outputFile: '{outputFolder}/lean-canvas.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 

@@ -3,6 +3,7 @@ name: 'step-02-harvest'
 description: 'Extract explicit and implicit assumptions from all M1 artefacts'
 nextStepFile: './step-03-classify.md'
 outputFile: '{outputFolder}/leap-of-faith.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 

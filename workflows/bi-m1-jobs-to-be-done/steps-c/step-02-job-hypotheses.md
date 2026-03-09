@@ -3,6 +3,8 @@ name: 'step-02-job-hypotheses'
 description: 'Turn Working Backwards into 3-5 job hypotheses'
 nextStepFile: './step-03-interview.md'
 outputFile: '{outputFolder}/jobs-to-be-done.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Job Hypotheses

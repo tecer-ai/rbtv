@@ -4,7 +4,7 @@
       description="Restore BMAD module config to default values after RBTV workflow completion">
 
   <objective>
-    Restore a BMAD module's config.yaml file (e.g., bmm/config.yaml) to its default output folder paths, reverting changes made by update-bmad-config task. This allows BMAD to return to its standard root _bmad-output folder after RBTV project-specific workflows complete.
+    Restore a BMAD module's config.yaml file (e.g., bmm/config.yaml) to its default output folder paths, reverting changes made by update-bmad-config task. This allows BMAD to return to its standard root {bmad_output} folder after RBTV project-specific workflows complete.
   </objective>
 
   <llm critical="true">
@@ -35,9 +35,9 @@
     <step n="2" title="Restore Default Values">
       <substep n="2a" title="Set Standard BMAD Defaults">
         <action>Define default values for BMAD module config:</action>
-        <action>- output_folder: "{project-root}/_bmad-output"</action>
-        <action>- planning_artifacts: "{project-root}/_bmad-output/{project-name}/planning-artifacts"</action>
-        <action>- implementation_artifacts: "{project-root}/_bmad-output/{project-name}/implementation-artifacts"</action>
+        <action>- output_folder: "{bmad_output}"</action>
+        <action>- planning_artifacts: "{bmad_output}/{project-name}/planning-artifacts"</action>
+        <action>- implementation_artifacts: "{bmad_output}/{project-name}/implementation-artifacts"</action>
       </substep>
       <substep n="2b" title="Read Current Config">
         <action>Read the current config.yaml file.</action>
@@ -58,9 +58,9 @@
       <substep n="3b" title="Report Success">
         <action>Output confirmation message:</action>
         <action>"✅ BMAD {target_module} config restored to defaults"</action>
-        <action>"   Output folder: {project-root}/_bmad-output"</action>
-        <action>"   Planning artifacts: {project-root}/_bmad-output/{project-name}/planning-artifacts"</action>
-        <action>"   Implementation artifacts: {project-root}/_bmad-output/{project-name}/implementation-artifacts"</action>
+        <action>"   Output folder: {bmad_output}"</action>
+        <action>"   Planning artifacts: {bmad_output}/{project-name}/planning-artifacts"</action>
+        <action>"   Implementation artifacts: {bmad_output}/{project-name}/implementation-artifacts"</action>
         <action>"   BMAD workflows will now use standard root output folder."</action>
       </substep>
     </step>

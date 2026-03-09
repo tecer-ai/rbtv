@@ -3,7 +3,7 @@ name: 'bi-m3-brandbook'
 description: 'Compile all M3 brand frameworks into a comprehensive brandbook with visual identity'
 nextStep: ./steps-c/step-01-init.md
 parentWorkflow: ../bi-m3/workflow.md
-outputFolder: '{project-root}/_bmad-output/{project-name}/founder/m3-brand'
+outputFolder: '{bmad_output}/{project-name}/founder/m3-brand'
 outputFile: brandbook.md
 ---
 
@@ -11,7 +11,7 @@ outputFile: brandbook.md
 
 **Goal:** Synthesize all 6 M3 brand framework outputs into a single brandbook document — adding visual identity specifications (logo, colors, typography, imagery, iconography) through AI-assisted image generation — to produce the canonical brand reference.
 
-**Your Role:** YC mentor guiding the founder through brandbook compilation. Challenge visual choices that contradict established brand identity. Demand consistency with the 6 frameworks already completed. The brandbook is the bridge between brand strategy and brand execution.
+**Your Role:** This workflow uses multiple agents. Paul (mentor) owns steps 01-02 and 04-05. Vivian (designer) owns step 03. Agent handoff instructions are embedded in the step files at each boundary.
 
 ---
 
@@ -46,15 +46,29 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ---
 
+## MULTI-AGENT ROUTING
+
+This workflow spans two agents. Handoff instructions are embedded in the step files at each boundary.
+
+| Step Range | Agent | Command | Responsibility |
+|------------|-------|---------|----------------|
+| 01-02 | Paul (mentor) | `@bmad-rbtv-mentor` | Init, Brand Identity compilation |
+| 03 | Vivian (designer) | `@bmad-rbtv-designer` → [BV] | Visual Guidelines (color, typography, logo, imagery, iconography) |
+| 04-05 | Paul (mentor) | `@bmad-rbtv-mentor` | Messaging & Tone, Synthesis |
+
+**Handoff flow:** Paul completes step 02 → user invokes Vivian for step 03 → Vivian completes step 03 → user invokes Paul for step 04.
+
+---
+
 ## STEP SEQUENCE
 
-| Step | Name | Purpose |
-|------|------|---------|
-| 01 | Init | Load all M3 contexts, verify prerequisites, set up AI image tool preference |
-| 02 | Identity | Compile Brand Identity section from M3 frameworks |
-| 03 | Visual | Create Visual Guidelines with AI image prompts for logo/imagery |
-| 04 | Messaging | Compile Messaging & Tone section, craft tagline, build quick reference |
-| 05 | Synthesis | Validate, compile final document, mark M3 complete, update project-memo.md |
+| Step | Name | Agent | Purpose |
+|------|------|-------|---------|
+| 01 | Init | Paul | Load all M3 contexts, verify prerequisites, set up AI image tool preference |
+| 02 | Identity | Paul | Compile Brand Identity section from M3 frameworks |
+| 03 | Visual | Vivian | Create Visual Guidelines with AI image prompts for logo/imagery |
+| 04 | Messaging | Paul | Compile Messaging & Tone section, craft tagline, build quick reference |
+| 05 | Synthesis | Paul | Validate, compile final document, mark M3 complete, update project-memo.md |
 
 ---
 

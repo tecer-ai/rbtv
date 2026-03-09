@@ -218,21 +218,28 @@ Use inline YAML content when ALL of these apply:
 
 ---
 
+## Plan Body Minimalism
+
+**MANDATORY:** The plan body must not repeat content from shape.md, micro-step files, or YAML frontmatter. Reference companion files; do not duplicate them.
+
+| Principle | Enforcement |
+|-----------|-------------|
+| No content repetition | Context, decisions, constraints live in shape.md — not the plan body |
+| YAML is the task list | Phase sections state phase goal only — task details are in YAML `content` and `taskFile` |
+| Per-task context in microsteps | Files-to-load tables belong in `.task.md` files, not the plan body |
+| Folder structure is discoverable | Agents navigate the filesystem — no need to diagram it in the plan |
+
 ## Plan Structure
 
 Required sections in order:
 
-1. **YAML Frontmatter**: `name`, `overview`, `todos` array
-2. **Context Section**: Problem, Goals, Constraints, Decisions, Rejected Alternatives
-3. **Companion Files Table**: Reference to shape.md and learnings.md
-4. **Folder Structure**: Directory layout showing micro-step file locations
-5. **Architectural Constraints**: Patterns and inviolable rules
-6. **Self-Execution Instructions**: Protocol, tool mode selection, quality gates
-7. **Revolving Plan Rules**: Discovery handling, task modification
-8. **Files to Load Table**: Path, Purpose, When to load
-9. **Workflow Diagram**: Mermaid diagram showing phases and flow
-10. **Phase Sections**: Phase goal + task breakdown
-11. **Checkpoints**: 3-6 at inflection points (phase transitions, critical decisions)
+1. **YAML Frontmatter**: `name`, `overview`, `todos` array (only `id`, `content`, `status` per item — no custom fields)
+2. **Architectural Constraints**: Plan-specific patterns and inviolable rules
+3. **Revolving Plan Rules**: Discovery handling, task modification (keep brief)
+4. **Execution Workflow** *(conditional)*: Mermaid diagram — only for non-linear plans (branching or parallel phases)
+5. **Phase Sections**: Phase name + goal + checkpoint review prompt subsection; task details read from YAML `content` field
+
+> **Reference directive:** The plan body opens with: "Read `shape.md` for full context, decisions, and constraints. Read individual `.task.md` files (referenced via `taskFile`) for per-task execution instructions."
 
 ---
 
@@ -275,9 +282,9 @@ Plans executed by different agents must be self-contained:
 | Rule | Description |
 |------|-------------|
 | No references to "as discussed" | Another agent won't know what was discussed |
-| Include all context | Everything needed is IN the plan |
-| List ALL files to read | Files to Load table is complete |
-| Explain WHY | Document rationale for significant decisions |
+| Include all context | Everything needed is in the plan + shape.md + microstep files |
+| Per-task file references | Each `.task.md` lists its own Context Files table |
+| Explain WHY | Document rationale for significant decisions in shape.md |
 
 ---
 
@@ -288,6 +295,52 @@ Plans executed by different agents must be self-contained:
 - **Format:** `p[N]-checkpoint` → `P[N] CHECKPOINT - [Description]`
 - **Behavior:** Agent must STOP and wait for human approval
 - **No micro-step files:** Checkpoints are pause points, not work items
+
+### Mandatory Quality-Review at Checkpoints
+
+Every checkpoint MUST include a `quality-review` subagent evaluation before presenting the gate decision to the user.
+
+**Checkpoint YAML entry** (YAML carries only `id`, `content`, `status` — no custom fields):
+
+```yaml
+- id: p1-checkpoint
+  content: "P1 CHECKPOINT - Review phase deliverables before proceeding"
+  status: pending
+```
+
+**Checkpoint review prompt in plan body:**
+
+Each checkpoint's review prompt is embedded in the plan body as a `####` subsection under its phase, using a blockquote. This placement survives Cursor's YAML serializer, which silently strips custom fields when task status changes.
+
+```markdown
+#### P1 Checkpoint Review Prompt
+
+> **Use Task tool with `subagent_type='quality-review'` and the following prompt:**
+>
+> ## Work to Evaluate
+> {Summary of phase deliverables — files created/modified, artifacts produced, with specific paths}
+>
+> ## Quality Criteria
+> 1. {Criterion derived from phase task acceptance criteria}
+> 2. {Criterion from architectural constraints}
+> 3. {Criterion from phase tasks}
+```
+
+**Why body, not YAML:** Cursor's plan YAML serializer only preserves `id`, `content`, and `status` on todo items. Custom fields (like `reviewAgent`, `reviewPrompt`) are silently dropped when the executor updates task status. Embedding review prompts in the markdown body keeps them safe from YAML rewriting.
+
+**Generation rules for review prompts:**
+
+1. **Work to Evaluate** — summarize what the phase produced (files created/modified, artifacts delivered), referencing specific paths
+2. **Quality Criteria** — derive 3-7 criteria from the phase's task descriptions, architectural constraints, and explicit acceptance criteria
+3. The prompt must be self-contained — the quality-review agent runs in a fresh context and cannot see the plan's prior execution history
+
+**Executor behavior at checkpoints:**
+
+1. Locate the checkpoint's review prompt in the phase body section (heading format: `#### P{N} Checkpoint Review Prompt`)
+2. Use Task tool with `subagent_type='quality-review'`, passing the blockquoted prompt content
+3. Present the `APPROVED` or `REJECTED` verdict to the user
+4. If `REJECTED`, do not advance to the next phase
+5. HALT for human approval regardless of verdict
 
 ---
 

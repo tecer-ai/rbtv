@@ -3,6 +3,7 @@ name: 'step-04-positioning'
 description: 'Analyze competitor strengths/weaknesses and map competitive positioning'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{outputFolder}/competitive-landscape.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 

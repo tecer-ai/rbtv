@@ -3,6 +3,8 @@ name: 'step-04-what-definition'
 description: 'State tangible offering connected to Why and How'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{outputFolder}/golden-circle.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: What Definition

@@ -3,6 +3,8 @@ name: 'step-02-inputs'
 description: 'Consolidate positioning inputs from upstream frameworks'
 nextStepFile: './step-03-draft.md'
 outputFile: '{outputFolder}/brand-positioning.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Consolidate Positioning Inputs

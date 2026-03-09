@@ -2,7 +2,8 @@
 name: 'step-01-init'
 description: 'Load context, explain heuristics framework, detect continuation'
 nextStepFile: './step-02-heuristic-review.md'
-outputFile: '{project-root}/_bmad-output/{project-name}/founder/m4-prototypation/heuristic-evaluation.md'
+continueStepFile: './step-01b-continue.md'
+outputFile: '{bmad_output}/{project-name}/founder/m4-prototypation/heuristic-evaluation.md'
 ---
 
 # Step 1: Initialize Heuristic Evaluation

@@ -3,6 +3,8 @@ name: 'step-04-prism-synthesis'
 description: 'Define Relationship facet, test coherence across all 6 facets'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{outputFolder}/brand-prism.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Prism Synthesis

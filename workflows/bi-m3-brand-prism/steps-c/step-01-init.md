@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load context, verify prerequisites, explain Brand Prism framework'
 nextStepFile: './step-02-external-facets.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/brand-prism.md'
 ---
 

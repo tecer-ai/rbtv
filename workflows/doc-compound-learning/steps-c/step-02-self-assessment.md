@@ -44,7 +44,9 @@ Follow these instructions in exact order. Do NOT skip, reorder, or optimize.
 
 ### 3. Generate 5 Improvement Options
 
-Generate exactly 5 distinct improvement approaches, one from each category:
+Generate exactly 5 distinct improvement approaches, one from each category.
+
+**For each option, evaluate consistency with existing patterns:** Before recommending any option, check whether it follows or breaks the patterns already established in the target system. Consistency with existing conventions (file naming, structural patterns, menu patterns, frontmatter fields) is a first-class evaluation criterion alongside technical factors like performance or complexity. Flag inconsistencies explicitly — a technically optimal approach that breaks established patterns may be the wrong choice.
 
 **Option 1: New Rule**
 - Propose a new rule file or rule within an existing file
@@ -89,22 +91,27 @@ Write all analysis to the `## Self-Assessment` section of the output document:
 1. **New Rule**: [Description]
    - **Rationale:** [Why this would help]
    - **Location:** [Where to implement]
+   - **Pattern Consistency:** [Follows/breaks existing patterns — explain]
 
 2. **Modify Existing Rule**: [Description]
    - **Rationale:** [Why this would help]
    - **Location:** [Where to implement]
+   - **Pattern Consistency:** [Follows/breaks existing patterns — explain]
 
 3. **Update System File**: [Description]
    - **Rationale:** [Why this would help]
    - **Location:** [Where to implement]
+   - **Pattern Consistency:** [Follows/breaks existing patterns — explain]
 
 4. **Add Constraint**: [Description]
    - **Rationale:** [Why this would help]
    - **Location:** [Where to implement]
+   - **Pattern Consistency:** [Follows/breaks existing patterns — explain]
 
 5. **Alternative Approach**: [Description]
    - **Rationale:** [Why this would help]
    - **Location:** [Where to implement]
+   - **Pattern Consistency:** [Follows/breaks existing patterns — explain]
 ```
 
 ### 5. Update State

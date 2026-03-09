@@ -54,11 +54,14 @@ RBTV ships IDE configuration in `_config/`. The installer (`_config/install-rbtv
 1. Deletes old RBTV files (`bmad-rbtv*`) from `{project-root}/.cursor/` and `{project-root}/.claude/`
 2. Copies `_config/.cursor/` contents (commands, agents, skills, rules) → `{project-root}/.cursor/`
 3. Merges `_config/.cursor/mcp.json` → `{project-root}/.cursor/mcp.json` and `{project-root}/.claude/.mcp.json`
-4. Replicates all `{project-root}/.cursor/commands/` → `{project-root}/.claude/commands/`
-5. Updates `{bmad_core}/config.yaml` and `{bmad_bmm}/config.yaml`
-6. Adds RBTV entry to `{project-root}/_bmad/_config/bmad-help.csv`
-7. Creates `{project-root}/.vscode/settings.json` if `.vscode/` does not exist (leaves existing untouched)
-8. Appends patterns to `{project-root}/.cursorignore`
+4. Replicates `{project-root}/.cursor/commands/` → `{project-root}/.claude/commands/`
+5. Replicates `{project-root}/.cursor/rules/` → `{project-root}/.claude/rules/` (`.mdc` → `.md`, frontmatter converted)
+6. Replicates `{project-root}/.cursor/agents/` → `{project-root}/.claude/agents/` (frontmatter converted)
+7. Replicates `{project-root}/.cursor/skills/` → `{project-root}/.claude/skills/` (direct copy)
+8. Updates `{bmad_core}/config.yaml` and `{bmad_bmm}/config.yaml`
+9. Adds RBTV entry to `{project-root}/_bmad/_config/bmad-help.csv`
+10. Creates `{project-root}/.vscode/settings.json` if `.vscode/` does not exist (leaves existing untouched)
+11. Appends patterns to `{project-root}/.cursorignore`
 
 **Installed BMAD structure (RBTV touchpoints only):**
 
@@ -72,6 +75,9 @@ RBTV ships IDE configuration in `_config/`. The installer (`_config/install-rbtv
 │   └── mcp.json                             # ← merged from _config/.cursor/mcp.json
 ├── .claude/
 │   ├── commands/bmad-rbtv-*.md              # ← replicated from .cursor/commands/
+│   ├── rules/bmad-rbtv-*.md                 # ← replicated from .cursor/rules/ (.mdc→.md)
+│   ├── agents/bmad-rbtv-*.md                # ← replicated from .cursor/agents/
+│   ├── skills/bmad-rbtv-*/SKILL.md          # ← replicated from .cursor/skills/
 │   └── .mcp.json                            # ← merged from _config/.cursor/mcp.json
 ├── .vscode/settings.json                    # ← created from _config/.vscode/settings.json (only if new)
 ├── .cursorignore                            # ← patterns appended
@@ -90,11 +96,16 @@ RBTV ships IDE configuration in `_config/`. The installer (`_config/install-rbtv
 
 **What admin mode does:**
 
-1. Deletes old managed files (`bmad-rbtv*`, `admin-rbtv*`) from `.cursor/` at rbtv root
+1. Deletes old managed files (`bmad-rbtv*`, `admin-rbtv*`) from `.cursor/` and `.claude/` at rbtv root
 2. Copies `_config/.cursor/` contents → rbtv root `.cursor/`, applying path substitution (`{project-root}/_bmad/rbtv/` → ``) and appending a reinforcement reminder to commands/agents/skills
 3. Copies `_admin/.cursor/` contents (admin-specific rules) → rbtv root `.cursor/` as-is
-4. Prompts for admin config values (user name, languages) and injects them into the admin rule
-5. Ensures `.gitignore` at rbtv root contains required entries (`.cursor/`, `.claude/`, `_admin-output/`) — additive, preserves existing content
+4. Replicates `.cursor/commands/` → `.claude/commands/` for Claude Code
+5. Replicates `.cursor/rules/` → `.claude/rules/` (`.mdc` → `.md`, frontmatter converted)
+6. Replicates `.cursor/agents/` → `.claude/agents/` (frontmatter converted)
+7. Replicates `.cursor/skills/` → `.claude/skills/` (direct copy)
+8. Merges `_config/.cursor/mcp.json` → rbtv root `.claude/.mcp.json`
+9. Prompts for admin config values (user name, languages) and injects them into the admin rule
+10. Ensures `.gitignore` at rbtv root contains required entries (`.cursor/`, `.claude/`, `_admin-output/`) — additive, preserves existing content
 
 Idempotent for all modes — re-run after every `git pull`.
 

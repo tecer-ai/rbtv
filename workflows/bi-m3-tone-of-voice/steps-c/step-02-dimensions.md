@@ -3,6 +3,8 @@ name: 'step-02-dimensions'
 description: 'Define 3-5 tone dimensions with slider positions and rationale'
 nextStepFile: './step-03-examples.md'
 outputFile: '{outputFolder}/tone-of-voice.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Define Tone Dimensions

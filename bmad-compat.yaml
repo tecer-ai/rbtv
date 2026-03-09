@@ -5,8 +5,12 @@
 # Maintained by: RBTV team
 # Update this file when any new RBTV→BMAD reference is added.
 
-bmad_target_version: "6.0.0-Beta.4"
-bmad_min_version: "6.0.0-Beta.4"
+bmad_target_version: "6.0.4"
+bmad_min_version: "6.0.0"
+
+# Output folder name is user-configurable in BMAD v6.0.4+.
+# The installer reads the folder name from core/config.yaml and preserves it.
+# Do NOT hardcode any output folder name in RBTV components — use {bmad_output}.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Touchpoints — every RBTV dependency on BMAD structure, paths, or format
@@ -18,15 +22,21 @@ touchpoints:
   installer_writes:
     - path: "_bmad/core/config.yaml"
       type: "modify"
-      description: "Rewrites output_folder field to {project-root}/_bmad-output"
+      description: "Rewrites output_folder field to {project-root}/{folder}/{project-name} (folder name read from existing value)"
       field_used: "output_folder"
-      source: "_config/install-rbtv.py::update_bmad_config"
+      source: "_config/install-rbtv.py::normalize_bmad_output_paths"
 
     - path: "_bmad/bmm/config.yaml"
       type: "modify"
       description: "Rewrites output_folder, planning_artifacts, and implementation_artifacts fields"
       fields_used: ["output_folder", "planning_artifacts", "implementation_artifacts"]
-      source: "_config/install-rbtv.py::update_bmad_config"
+      source: "_config/install-rbtv.py::normalize_bmad_output_paths"
+
+    - path: "_bmad/rbtv/_config/config.yaml"
+      type: "modify"
+      description: "Updates bmad_output path variable to match BMAD's configured output folder"
+      field_used: "paths.bmad_output"
+      source: "_config/install-rbtv.py::normalize_bmad_output_paths"
 
     - path: "_bmad/_config/bmad-help.csv"
       type: "modify"
@@ -37,27 +47,27 @@ touchpoints:
     - path: ".cursor/mcp.json"
       type: "merge"
       description: "Merges RBTV MCP server config into Cursor's MCP configuration"
-      source: "_config/install-rbtv.py::merge_mcp_json"
+      source: "_config/install-rbtv.py::ide_merge_mcp_json"
 
     - path: ".claude/.mcp.json"
       type: "merge"
       description: "Merges RBTV MCP server config into Claude Code's MCP configuration"
-      source: "_config/install-rbtv.py::merge_mcp_to_claude_code"
+      source: "_config/install-rbtv.py::ide_merge_mcp_json"
 
     - path: ".cursor/"
       type: "copy"
       description: "Copies RBTV config files (commands, agents, skills, rules) into .cursor/"
-      source: "_config/install-rbtv.py::copy_folder"
+      source: "_config/install-rbtv.py::ide_copy_folder"
 
     - path: ".claude/commands/"
       type: "copy"
       description: "Replicates .cursor/commands/ to .claude/commands/ for Claude Code compatibility"
-      source: "_config/install-rbtv.py::replicate_commands_to_claude"
+      source: "_config/install-rbtv.py::ide_replicate_commands_to_claude"
 
     - path: ".cursorignore"
       type: "append"
-      description: "Appends RBTV-managed patterns (_bmad-output/archive/)"
-      source: "_config/install-rbtv.py::merge_cursorignore"
+      description: "Appends RBTV-managed patterns ({output-folder}/archive/)"
+      source: "_config/install-rbtv.py::ide_merge_cursorignore"
 
   # BMAD file paths directly referenced in RBTV agent files
   agent_references:
@@ -65,7 +75,7 @@ touchpoints:
       source: "agents/ana.md"
       description: "Product Brief workflow — product submenu entry [B]"
 
-    - path: "_bmad/bmm/workflows/2-plan-workflows/create-prd/workflow.md"
+    - path: "_bmad/bmm/workflows/2-plan-workflows/create-prd/workflow-create-prd.md"
       source: "agents/ana.md"
       description: "PRD workflow — product submenu entry [PRD]"
 
@@ -92,7 +102,7 @@ touchpoints:
 
     - item: "_bmad/core/config.yaml output_folder field"
       path: "_bmad/core/config.yaml"
-      description: "YAML must contain output_folder field — rewritten by installer"
+      description: "YAML must contain output_folder field — read by installer to determine user-chosen folder name"
 
     - item: "_bmad/bmm/config.yaml output path fields"
       path: "_bmad/bmm/config.yaml"

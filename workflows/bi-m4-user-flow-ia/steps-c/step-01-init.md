@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load context, verify prerequisites, determine artifact type'
 nextStepFile: './step-02-user-flow.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/user-flow-ia.md'
 ---
 

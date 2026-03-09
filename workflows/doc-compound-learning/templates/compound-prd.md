@@ -51,22 +51,27 @@ yoloMode: false
 1. **[Option Type]**: [Description]
    - **Rationale:** [Why this would help]
    - **Location:** [Where to implement]
+   - **Pattern Consistency:** [Follows/breaks existing patterns — explain]
 
 2. **[Option Type]**: [Description]
    - **Rationale:** [Why this would help]
    - **Location:** [Where to implement]
+   - **Pattern Consistency:** [Follows/breaks existing patterns — explain]
 
 3. **[Option Type]**: [Description]
    - **Rationale:** [Why this would help]
    - **Location:** [Where to implement]
+   - **Pattern Consistency:** [Follows/breaks existing patterns — explain]
 
 4. **[Option Type]**: [Description]
    - **Rationale:** [Why this would help]
    - **Location:** [Where to implement]
+   - **Pattern Consistency:** [Follows/breaks existing patterns — explain]
 
 5. **[Option Type]**: [Description]
    - **Rationale:** [Why this would help]
    - **Location:** [Where to implement]
+   - **Pattern Consistency:** [Follows/breaks existing patterns — explain]
 
 ---
 

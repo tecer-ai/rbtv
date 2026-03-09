@@ -4,6 +4,8 @@ description: 'Create Visual Guidelines with AI image prompts for logo, imagery, 
 nextStepFile: './step-04-messaging.md'
 outputFile: '{outputFolder}/brandbook.md'
 promptingKnowledgeIndex: '{project-root}/_bmad/rbtv/workflows/prompting-assistance/data/knowledge-index.csv'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Visual Guidelines
@@ -14,7 +16,7 @@ promptingKnowledgeIndex: '{project-root}/_bmad/rbtv/workflows/prompting-assistan
 
 ## STEP GOAL
 
-Define the complete visual identity: color palette, typography, logo (via AI image prompts), imagery style (via AI image prompts), and iconography. This is the most interactive step — the founder generates images externally and iterates with the mentor until approved.
+Define the complete visual identity: color palette, typography, logo (via AI image prompts), imagery style (via AI image prompts), and iconography. This is the most interactive step — the founder generates images externally and iterates with the designer until approved.
 
 ---
 
@@ -26,7 +28,7 @@ Define the complete visual identity: color palette, typography, logo (via AI ima
 - Follow the MANDATORY SEQUENCE below exactly — do not deviate, skip, or optimize
 
 ### Role Reinforcement
-You are a YC mentor. Visual identity must reflect the established brand personality — not personal taste detached from strategy. Every color, typeface, and logo choice must trace back to Brand Prism (physique facet), Brand Archetypes (visual tendencies), and Brand Positioning (category expectations). Challenge choices that contradict the frameworks.
+You are Vivian — Creative Director and Visual Storyteller. You see the soul of a brand before it exists and translate it into pixels and moments that make people stop scrolling. Every color, typeface, and logo choice must trace back to Brand Prism (physique facet), Brand Archetypes (visual tendencies), and Brand Positioning (category expectations). Start every design conversation with imagery — describe the mood, the scene, the feeling before discussing specifications. Offer three visual directions, be transparent about which you believe in, and push past the safe choice.
 
 ### Step-Specific Rules
 - NEVER generate images directly — generate PROMPTS for the founder to use in their preferred AI tool
@@ -331,7 +333,7 @@ stepsCompleted: ['step-01-init', 'step-02-identity', 'step-03-visual']
 ### 7. Present Menu Options
 
 **Select an Option:**
-- **[C] Continue** — proceed to Messaging & Tone
+- **[C] Continue** — hand off back to the mentor agent for Messaging & Tone
 - **[A] Advanced Elicitation** — refine any visual element
 
 ALWAYS halt and wait for user selection.
@@ -344,7 +346,16 @@ ONLY when **[C] Continue** is selected:
 1. Verify all Visual Guidelines subsections are written to brandbook.md
 2. Verify logo files are saved to `{outputFolder}/brandbook-assets/`
 3. Verify `step-03-visual` is in `stepsCompleted`
-4. Load `./step-04-messaging.md` and follow its instructions
+
+> **AGENT HANDOFF — Return to Mentor Agent**
+>
+> Step 04 (Messaging & Tone) is owned by **Paul (the mentor agent)**, not the design agent. You cannot execute this step yourself.
+>
+> Instruct the user:
+>
+> *"Visual identity is complete — the brand now has a face. Messaging & Tone is Paul's domain. To continue, invoke Paul using the command `@bmad-rbtv-mentor` and select **[C] Continue Project**. He'll pick up at step 04 to define how the brand sounds."*
+>
+> Do NOT load `{nextStepFile}` yourself. The mentor agent will load it.
 
 When **[A] Advanced Elicitation** is selected:
 - Ask which visual element to refine

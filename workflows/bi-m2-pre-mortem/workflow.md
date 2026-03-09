@@ -3,7 +3,7 @@ name: 'bi-m2-pre-mortem'
 description: 'Imagine failure 12 months out, surface risks, define mitigations and early warning signals'
 nextStep: ./steps-c/step-01-init.md
 parentWorkflow: ../bi-m2/workflow.md
-outputFolder: '{project-root}/_bmad-output/{project-name}/founder/m2-validation'
+outputFolder: '{bmad_output}/{project-name}/founder/m2-validation'
 outputFile: pre-mortem.md
 ---
 

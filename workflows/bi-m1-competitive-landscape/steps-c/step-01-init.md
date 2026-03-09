@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load context, explain Competitive Landscape framework, CHECK web access'
 nextStepFile: './step-02-competitor-id.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/competitive-landscape.md'
 ---
 

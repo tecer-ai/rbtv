@@ -3,6 +3,7 @@ projectName: '[Project Name]'
 currentMilestone: 'M1: Conception'
 currentFramework: 'Not Started'
 stepsCompleted: []
+bmadAnalystCompleted: false
 lastUpdated: 'YYYY-MM-DD'
 ---
 
@@ -66,6 +67,12 @@ lastUpdated: 'YYYY-MM-DD'
 - Five Whys — [Key insight] — [Link]
 
 ### M2 Validation
+
+#### BMAD Analysis (Optional — Pre-M2)
+**Status:** Not started | Complete | Skipped
+**Output:** {output_folder}/founder/m2-validation/bmad-analysis/
+**Workflows Run:** [Research / Brainstorm / None]
+**Key Findings:** [Summary if completed]
 
 [Narrative summary of validation work.]
 

@@ -2,6 +2,7 @@
 stepNumber: 1
 stepName: 'init'
 nextStepFile: ./step-02-location-selection.md
+continueStepFile: './step-01b-continue.md'
 templateFiles:
   plan-development: '{project-root}/_bmad/rbtv/workflows/plan-lifecycle/templates/shape-template.md'
   execution: ../templates/handoff-execution.md

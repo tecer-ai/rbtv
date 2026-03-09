@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load context, explain Working Backwards framework, detect continuation'
 nextStepFile: './step-02-discover.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/working-backwards.md'
 ---
 

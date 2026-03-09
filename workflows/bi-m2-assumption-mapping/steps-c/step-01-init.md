@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load context, verify prerequisites, explain Assumption Mapping framework'
 nextStepFile: './step-02-collect.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/assumption-mapping.md'
 ---
 
@@ -39,7 +40,8 @@ You are a YC mentor. Challenge assumptions, demand differentiation, push for con
 1. Read `{outputFolder}/project-memo.md` for project context
 2. Read `{outputFolder}/leap-of-faith.md` for assumption inventory
 3. Read `./data/assumption-mapping-framework.md` for framework knowledge
-4. Check if `{outputFolder}/assumption-mapping.md` exists (continuation mode)
+4. Read `{outputFolder}/bmad-analysis/` contents (if exists) for research-backed assumptions to include in mapping
+5. Check if `{outputFolder}/assumption-mapping.md` exists (continuation mode)
 
 ---
 

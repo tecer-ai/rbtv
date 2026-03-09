@@ -3,6 +3,7 @@ name: 'step-05-synthesis'
 description: 'Cross-reference with kill criteria, update project-memo.md, trigger M2 completion check'
 nextStepFile: null
 outputFile: '{outputFolder}/pre-mortem.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 

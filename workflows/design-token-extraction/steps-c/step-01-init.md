@@ -2,6 +2,7 @@
 stepNumber: 1
 stepName: 'init'
 nextStepFile: ./step-02-capture.md
+continueStepFile: './step-01b-continue.md'
 outputFile: '{output_folder}/design-extraction-{slug}.md'
 ---
 

@@ -3,6 +3,8 @@ name: 'step-02-brand-promise'
 description: 'Distill positioning into single customer-facing brand promise'
 nextStepFile: './step-03-key-messages.md'
 outputFile: '{outputFolder}/messaging-architecture.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Define Brand Promise

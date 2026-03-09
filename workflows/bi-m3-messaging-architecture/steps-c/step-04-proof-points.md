@@ -3,6 +3,8 @@ name: 'step-04-proof-points'
 description: 'Attach evidence to each message'
 nextStepFile: './step-05-ctas-journey.md'
 outputFile: '{outputFolder}/messaging-architecture.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Build Proof Points

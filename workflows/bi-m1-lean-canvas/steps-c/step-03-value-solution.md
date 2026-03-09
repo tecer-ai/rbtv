@@ -3,6 +3,7 @@ name: 'step-03-value-solution'
 description: 'Populate Unique Value Proposition and Solution blocks'
 nextStepFile: './step-04-channels-revenue.md'
 outputFile: '{outputFolder}/lean-canvas.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 

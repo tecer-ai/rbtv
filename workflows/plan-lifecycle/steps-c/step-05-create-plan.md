@@ -40,7 +40,7 @@ Read `{templateFile}` from frontmatter to understand plan file structure.
 
 ### 2. Compile YAML Frontmatter
 
-Generate the `todos` array from the task structure created in step-03:
+Generate the `todos` array from the task structure created in step-03. Each todo item carries ONLY `id`, `content`, and `status` (plus `taskFile` for complex tasks). Do NOT add custom fields — Cursor's YAML serializer strips unrecognized fields when task status updates.
 
 ```yaml
 ---
@@ -50,6 +50,9 @@ todos:
   - id: p1-1
     content: "p1-1: [Task description]"
     status: pending
+  - id: p1-checkpoint
+    content: "P1 CHECKPOINT - [Description]"
+    status: pending
   # ... all tasks ...
   - id: pN-compound
     content: "pN-compound: Review learnings.md and compound into system improvements"
@@ -58,17 +61,21 @@ isProject: false
 ---
 ```
 
+Checkpoint review prompts go in the plan body, not YAML. See step 3.
+
 ### 3. Compile Plan Body
 
-Generate the complete plan document:
+Generate the slim plan document per the plan-template.md structure:
 
 1. **Title** — `# {Plan Name}`
-2. **Architecture Overview** — Mermaid diagram from step-03
-3. **Phase Sections** — For each phase:
-   - Phase header with goal
-   - Task list with descriptions
-   - Checkpoint (where applicable)
-4. **Key Files Summary** — Organized by phase with Action/File columns
+2. **Reference directive** — shape.md and .task.md pointers
+3. **Architectural Constraints** — plan-specific patterns and inviolable rules (include quality-review checkpoint enforcement in Inviolable Rules)
+4. **Checkpoint Execution Protocol** — standardized 5-step protocol for checkpoint review prompts (from template)
+5. **Revolving Plan Rules** — discovery handling (keep brief)
+6. **Execution Workflow** — Mermaid diagram from step-03, ONLY if plan is non-linear (omit for sequential plans)
+7. **Phase Sections** — Phase name + goal + `#### P{N} Checkpoint Review Prompt` subsection with blockquoted review prompt (composed in step-03)
+
+Do NOT include: Context section, Folder Structure, Files to Load table, Self-Execution Instructions, or Companion Files table. These live in shape.md and microstep files.
 
 ### 4. Create Plan File
 
@@ -145,8 +152,8 @@ ONLY when `[C] Continue` is selected:
 ## SUCCESS CRITERIA
 
 - ✅ Plan template loaded
-- ✅ YAML frontmatter compiled with all tasks
-- ✅ Plan body compiled with phases, tasks, checkpoints
+- ✅ YAML frontmatter compiled with all tasks (only `id`, `content`, `status` per item — no custom fields)
+- ✅ Plan body is slim — no duplication of shape.md, microstep, or YAML content
 - ✅ CreatePlan tool used to write plan file
 - ✅ Plan file moved from Cursor default location to artifact folder
 - ✅ Hash suffix removed from plan filename

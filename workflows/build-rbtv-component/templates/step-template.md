@@ -15,10 +15,10 @@ description: '{What this step accomplishes}'
 nextStepFile: './step-{NN+1}-{next-name}.md' # Remove for final step
 altStepFile: './step-{NN}-{alt-name}.md' # Remove if no branching
 workflowFile: './workflow.md'
-outputFile: '{project-root}/_bmad-output/{output-name}.md' # Remove if step does not write a file
+outputFile: '{bmad_output}/{output-name}.md' # Remove if step does not write a file
 
 # Task References
-# advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml' # Not yet integrated into RBTV
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 
 # Template References (if this step uses specific templates)

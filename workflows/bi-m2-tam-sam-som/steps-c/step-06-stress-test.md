@@ -3,6 +3,8 @@ name: 'step-06-stress-test'
 description: 'Cross-reference methods, identify fragile assumptions, assign confidence'
 nextStepFile: './step-07-synthesis.md'
 outputFile: '{outputFolder}/tam-sam-som.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 6: Stress Test & Reconciliation

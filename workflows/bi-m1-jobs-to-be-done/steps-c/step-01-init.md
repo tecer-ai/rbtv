@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load context, explain JTBD framework, detect continuation'
 nextStepFile: './step-02-job-hypotheses.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/jobs-to-be-done.md'
 ---
 

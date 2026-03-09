@@ -55,6 +55,9 @@ IDE_RBTV_SEARCH_DIRS = [
     ".cursor/skills",
     ".cursor/rules",
     ".claude/commands",
+    ".claude/rules",
+    ".claude/agents",
+    ".claude/skills",
 ]
 
 # Admin mode: managed file prefixes and extra managed files
@@ -66,10 +69,14 @@ ADMIN_SEARCH_DIRS = [
     ".cursor/skills",
     ".cursor/rules",
     ".claude/commands",
+    ".claude/rules",
+    ".claude/agents",
+    ".claude/skills",
 ]
 
 ADMIN_EXTRA_MANAGED_FILES = [
     ".cursor/mcp.json",
+    ".claude/.mcp.json",
 ]
 
 # Admin mode: path substitution for {project-root}/_bmad/rbtv/ → ""
@@ -88,6 +95,7 @@ ADMIN_RULE_FILE = "admin-rbtv-bmad-mirror.mdc"
 ADMIN_GITIGNORE_ENTRIES = [
     "/.cursor/",
     "/.claude/",
+    "/CLAUDE.md",
     ".gitignore",
 ]
 
@@ -231,16 +239,43 @@ def print_version_check_result(result: dict) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Shared: BMAD output-path normalization (CP 2)
+# Shared: BMAD output-path normalization
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _extract_output_folder_name(root: Path) -> str:
+    """
+    Read the output folder name from BMAD's core/config.yaml.
+    Extracts the folder name from output_folder value (e.g., 'projects' from
+    '{project-root}/projects' or '{project-root}/projects/{project-name}').
+    Falls back to '_bmad-output' if the config cannot be read.
+    """
+    core_config = root / "_bmad" / "core" / "config.yaml"
+    if not core_config.exists():
+        return "_bmad-output"
+    try:
+        content = core_config.read_text(encoding="utf-8")
+        match = re.search(r'output_folder:\s*"([^"]*)"', content)
+        if not match:
+            return "_bmad-output"
+        path_value = match.group(1)
+        # Strip {project-root}/ prefix and any trailing /{project-name}
+        folder = path_value.replace("{project-root}/", "").replace("/{project-name}", "")
+        return folder if folder else "_bmad-output"
+    except Exception:
+        return "_bmad-output"
+
 
 def normalize_bmad_output_paths(root: Path) -> dict:
     """
-    Normalize BMAD module config output paths to _bmad-output/{project-name}/ pattern.
+    Normalize BMAD module config output paths to {folder}/{project-name}/ pattern.
+    Reads the existing output folder name from core/config.yaml and preserves it.
     Updates core/config.yaml and bmm/config.yaml.
     Returns stats dict.
     """
     stats = {"updated": 0, "errors": []}
+
+    # Read the user-chosen output folder name before modifying anything
+    folder_name = _extract_output_folder_name(root)
 
     # core/config.yaml — output_folder
     core_config = root / "_bmad" / "core" / "config.yaml"
@@ -249,7 +284,7 @@ def normalize_bmad_output_paths(root: Path) -> dict:
             content = core_config.read_text(encoding="utf-8")
             content = re.sub(
                 r'output_folder:\s*"[^"]*"',
-                'output_folder: "{project-root}/_bmad-output/{project-name}"',
+                f'output_folder: "{{project-root}}/{folder_name}/{{project-name}}"',
                 content
             )
             core_config.write_text(content, encoding="utf-8")
@@ -264,23 +299,38 @@ def normalize_bmad_output_paths(root: Path) -> dict:
             content = bmm_config.read_text(encoding="utf-8")
             content = re.sub(
                 r'output_folder:\s*"[^"]*"',
-                'output_folder: "{project-root}/_bmad-output/{project-name}"',
+                f'output_folder: "{{project-root}}/{folder_name}/{{project-name}}"',
                 content
             )
             content = re.sub(
                 r'planning_artifacts:\s*"[^"]*"',
-                'planning_artifacts: "{project-root}/_bmad-output/{project-name}/planning-artifacts"',
+                f'planning_artifacts: "{{project-root}}/{folder_name}/{{project-name}}/planning-artifacts"',
                 content
             )
             content = re.sub(
                 r'implementation_artifacts:\s*"[^"]*"',
-                'implementation_artifacts: "{project-root}/_bmad-output/{project-name}/implementation-artifacts"',
+                f'implementation_artifacts: "{{project-root}}/{folder_name}/{{project-name}}/implementation-artifacts"',
                 content
             )
             bmm_config.write_text(content, encoding="utf-8")
             stats["updated"] += 1
         except Exception as e:
             stats["errors"].append(f"bmm/config.yaml: {e}")
+
+    # rbtv/_config/config.yaml — update bmad_output path variable
+    rbtv_config = root / "_bmad" / "rbtv" / "_config" / "config.yaml"
+    if rbtv_config.exists():
+        try:
+            content = rbtv_config.read_text(encoding="utf-8")
+            content = re.sub(
+                r'(bmad_output:\s*)"[^"]*"',
+                f'\\1"{{project-root}}/{folder_name}"',
+                content
+            )
+            rbtv_config.write_text(content, encoding="utf-8")
+            stats["updated"] += 1
+        except Exception as e:
+            stats["errors"].append(f"rbtv/_config/config.yaml: {e}")
 
     return stats
 
@@ -439,6 +489,169 @@ def ide_replicate_commands_to_claude(root: Path) -> dict:
     return stats
 
 
+def _convert_mdc_frontmatter_to_claude(content: str) -> str:
+    """
+    Convert Cursor .mdc frontmatter to Claude .claude/rules/ frontmatter.
+
+    Mapping:
+      - globs → paths (YAML array format)
+      - alwaysApply: true → no frontmatter needed (loads automatically)
+      - alwaysApply: false with no globs → no frontmatter (loads automatically)
+      - description retained as-is (harmless, useful for humans)
+      - alwaysApply field removed (not a Claude concept)
+      - imported field removed (Cursor-specific)
+    """
+    if not content.startswith("---"):
+        return content
+
+    end = content.find("---", 3)
+    if end == -1:
+        return content
+
+    front = content[3:end].strip()
+    body = content[end + 3:]
+
+    lines_out = []
+
+    for line in front.splitlines():
+        stripped = line.strip()
+
+        if stripped.startswith("alwaysApply:"):
+            continue
+        if stripped.startswith("imported:"):
+            continue
+
+        if stripped.startswith("globs:"):
+            raw = stripped.split(":", 1)[1].strip().strip('"').strip("'")
+            patterns = [p.strip() for p in raw.split(",") if p.strip()]
+            if patterns:
+                lines_out.append("paths:")
+                for p in patterns:
+                    lines_out.append(f'  - "{p}"')
+            continue
+
+        lines_out.append(line)
+
+    if not lines_out or all(not ln.strip() for ln in lines_out):
+        return body.lstrip("\n")
+
+    return "---\n" + "\n".join(lines_out) + "\n---" + body
+
+
+def ide_replicate_rules_to_claude(root: Path) -> dict:
+    """Replicate .cursor/rules/*.mdc → .claude/rules/*.md with frontmatter conversion."""
+    stats = {"copied": 0, "replaced": 0, "errors": []}
+    src = root / ".cursor" / "rules"
+    dst = root / ".claude" / "rules"
+    if not src.exists():
+        return {"skipped": 1, "reason": ".cursor/rules/ does not exist"}
+    dst.mkdir(parents=True, exist_ok=True)
+    for src_file in src.rglob("*"):
+        if not src_file.is_file():
+            continue
+        rel_path = src_file.relative_to(src)
+        dst_name = rel_path.with_suffix(".md") if rel_path.suffix == ".mdc" else rel_path
+        dst_file = dst / dst_name
+        dst_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            existed = dst_file.exists()
+            content = src_file.read_text(encoding="utf-8")
+            if src_file.suffix == ".mdc":
+                content = _convert_mdc_frontmatter_to_claude(content)
+            dst_file.write_text(content, encoding="utf-8")
+            stats["replaced" if existed else "copied"] += 1
+        except Exception as e:
+            stats["errors"].append(f"{rel_path}: {e}")
+    return stats
+
+
+def _convert_agent_frontmatter_to_claude(content: str) -> str:
+    """
+    Convert Cursor agent frontmatter to Claude .claude/agents/ frontmatter.
+
+    Mapping:
+      - readonly: true → permissionMode: plan
+      - readonly field removed after conversion
+      - All other fields passed through (name, description, model are shared)
+    """
+    if not content.startswith("---"):
+        return content
+
+    end = content.find("---", 3)
+    if end == -1:
+        return content
+
+    front = content[3:end].strip()
+    body = content[end + 3:]
+
+    lines_out = []
+    is_readonly = False
+
+    for line in front.splitlines():
+        stripped = line.strip()
+
+        if stripped.startswith("readonly:"):
+            val = stripped.split(":", 1)[1].strip().lower()
+            if val == "true":
+                is_readonly = True
+            continue
+
+        lines_out.append(line)
+
+    if is_readonly:
+        lines_out.append("permissionMode: plan")
+
+    return "---\n" + "\n".join(lines_out) + "\n---" + body
+
+
+def ide_replicate_agents_to_claude(root: Path) -> dict:
+    """Replicate .cursor/agents/*.md → .claude/agents/*.md with frontmatter conversion."""
+    stats = {"copied": 0, "replaced": 0, "errors": []}
+    src = root / ".cursor" / "agents"
+    dst = root / ".claude" / "agents"
+    if not src.exists():
+        return {"skipped": 1, "reason": ".cursor/agents/ does not exist"}
+    dst.mkdir(parents=True, exist_ok=True)
+    for src_file in src.rglob("*"):
+        if not src_file.is_file():
+            continue
+        rel_path = src_file.relative_to(src)
+        dst_file = dst / rel_path
+        dst_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            existed = dst_file.exists()
+            content = src_file.read_text(encoding="utf-8")
+            content = _convert_agent_frontmatter_to_claude(content)
+            dst_file.write_text(content, encoding="utf-8")
+            stats["replaced" if existed else "copied"] += 1
+        except Exception as e:
+            stats["errors"].append(f"{rel_path}: {e}")
+    return stats
+
+
+def ide_replicate_skills_to_claude(root: Path) -> dict:
+    """Replicate .cursor/skills/ → .claude/skills/ (identical format, direct copy)."""
+    stats = {"copied": 0, "replaced": 0, "errors": []}
+    src = root / ".cursor" / "skills"
+    dst = root / ".claude" / "skills"
+    if not src.exists():
+        return {"skipped": 1, "reason": ".cursor/skills/ does not exist"}
+    dst.mkdir(parents=True, exist_ok=True)
+    for src_file in src.rglob("*"):
+        if not src_file.is_file():
+            continue
+        rel_path = src_file.relative_to(src)
+        dst_file = dst / rel_path
+        dst_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            existed = dst_file.exists()
+            shutil.copy2(str(src_file), str(dst_file))
+            stats["replaced" if existed else "copied"] += 1
+        except Exception as e:
+            stats["errors"].append(f"{rel_path}: {e}")
+    return stats
+
+
 def ide_merge_vscode_settings(config_dir: Path, root: Path) -> dict:
     """Copy .vscode/settings.json to BMAD root only if .vscode/ does not already exist."""
     src = config_dir / ".vscode" / "settings.json"
@@ -463,7 +676,8 @@ def ide_merge_cursorignore(root: Path) -> dict:
     """Append RBTV-managed .cursorignore patterns if not already present."""
     stats = {"added": 0, "skipped": 0, "errors": []}
     dst = root / ".cursorignore"
-    rbtv_patterns = ["_bmad-output/archive/"]
+    folder_name = _extract_output_folder_name(root)
+    rbtv_patterns = [f"{folder_name}/archive/"]
     try:
         existing = set()
         content = ""
@@ -514,14 +728,15 @@ def admin_delete_managed_files(rbtv_dir: Path) -> dict:
             except Exception as e:
                 stats["errors"].append(f"{rel}: {e}")
     # Clean empty skill directories with managed prefixes
-    skills_dir = rbtv_dir / ".cursor" / "skills"
-    if skills_dir.exists():
-        for d in sorted(skills_dir.iterdir(), reverse=True):
-            if d.is_dir() and any(d.name.startswith(p) for p in ADMIN_MANAGED_PREFIXES):
-                try:
-                    shutil.rmtree(d)
-                except Exception:
-                    pass
+    for skills_parent in (".cursor", ".claude"):
+        skills_dir = rbtv_dir / skills_parent / "skills"
+        if skills_dir.exists():
+            for d in sorted(skills_dir.iterdir(), reverse=True):
+                if d.is_dir() and any(d.name.startswith(p) for p in ADMIN_MANAGED_PREFIXES):
+                    try:
+                        shutil.rmtree(d)
+                    except Exception:
+                        pass
     return stats
 
 
@@ -717,6 +932,36 @@ def run_ide_mode(paths: dict, skip_version_check: bool) -> int:
         _print_errors(cmd_stats.get("errors", []))
     print()
 
+    # Replicate rules to .claude/
+    print("Replicating rules to .claude/")
+    rule_stats = ide_replicate_rules_to_claude(root)
+    if "reason" in rule_stats:
+        print(f"  Skipped ({rule_stats['reason']})")
+    else:
+        print(f"  Copied: {rule_stats['copied']}  |  Replaced: {rule_stats['replaced']}")
+        _print_errors(rule_stats.get("errors", []))
+    print()
+
+    # Replicate agents to .claude/
+    print("Replicating agents to .claude/")
+    agent_stats = ide_replicate_agents_to_claude(root)
+    if "reason" in agent_stats:
+        print(f"  Skipped ({agent_stats['reason']})")
+    else:
+        print(f"  Copied: {agent_stats['copied']}  |  Replaced: {agent_stats['replaced']}")
+        _print_errors(agent_stats.get("errors", []))
+    print()
+
+    # Replicate skills to .claude/
+    print("Replicating skills to .claude/")
+    skill_stats = ide_replicate_skills_to_claude(root)
+    if "reason" in skill_stats:
+        print(f"  Skipped ({skill_stats['reason']})")
+    else:
+        print(f"  Copied: {skill_stats['copied']}  |  Replaced: {skill_stats['replaced']}")
+        _print_errors(skill_stats.get("errors", []))
+    print()
+
     # Normalize BMAD output paths (CP 2)
     print("Normalizing BMAD output paths")
     norm_stats = normalize_bmad_output_paths(root)
@@ -767,18 +1012,29 @@ def run_ide_mode(paths: dict, skip_version_check: bool) -> int:
         print(f"Claude Code MCP servers: {mcp_stats_claude['added'] + mcp_stats_claude['merged']}")
     if "copied" in cmd_stats:
         print(f"Commands replicated:  {cmd_stats['copied'] + cmd_stats['replaced']}")
+    if "copied" in rule_stats:
+        print(f"Rules replicated:     {rule_stats['copied'] + rule_stats['replaced']}")
+    if "copied" in agent_stats:
+        print(f"Agents replicated:    {agent_stats['copied'] + agent_stats['replaced']}")
+    if "copied" in skill_stats:
+        print(f"Skills replicated:    {skill_stats['copied'] + skill_stats['replaced']}")
     print()
     print("Installation complete.")
     print()
     print("Next steps:")
     print("  1. Restart Cursor to load new MCP servers and commands")
-    print("  2. Restart Claude Code to load new MCP servers")
+    print("  2. Restart Claude Code to load new MCP servers, rules, and agents")
     print("  3. Run /bmad-help to see RBTV workflows in the catalog")
     print("  4. Run /bmad-rbtv-help to see RBTV-specific commands")
     print()
     print("Remember: Run this script after every 'git pull' or 'git fetch'")
     print()
 
+    print("Admin mode sets up this repo for standalone RBTV development")
+    print("(outside a BMAD project). It installs .cursor/ rules, commands,")
+    print("agents, and CLAUDE.md at the rbtv root so AI agents can work on")
+    print("RBTV files with full path resolution and BMAD context.")
+    print()
     answer = input("Run admin update as well? [y/N]: ").strip().lower()
     if answer in ("y", "yes"):
         print()
@@ -854,10 +1110,70 @@ def run_admin_mode(paths: dict) -> int:
         _print_errors(adm_claude_stats.get("errors", []))
     print()
 
+    # Replicate commands to .claude/
+    print("Replicating commands to .claude/")
+    cmd_stats = ide_replicate_commands_to_claude(rbtv_dir)
+    if "reason" in cmd_stats:
+        print(f"  Skipped ({cmd_stats['reason']})")
+    else:
+        print(f"  Copied: {cmd_stats['copied']}  |  Replaced: {cmd_stats['replaced']}")
+        _print_errors(cmd_stats.get("errors", []))
+    print()
+
+    # Replicate rules to .claude/
+    print("Replicating rules to .claude/")
+    rule_stats = ide_replicate_rules_to_claude(rbtv_dir)
+    if "reason" in rule_stats:
+        print(f"  Skipped ({rule_stats['reason']})")
+    else:
+        print(f"  Copied: {rule_stats['copied']}  |  Replaced: {rule_stats['replaced']}")
+        _print_errors(rule_stats.get("errors", []))
+    print()
+
+    # Replicate agents to .claude/
+    print("Replicating agents to .claude/")
+    agent_stats = ide_replicate_agents_to_claude(rbtv_dir)
+    if "reason" in agent_stats:
+        print(f"  Skipped ({agent_stats['reason']})")
+    else:
+        print(f"  Copied: {agent_stats['copied']}  |  Replaced: {agent_stats['replaced']}")
+        _print_errors(agent_stats.get("errors", []))
+    print()
+
+    # Replicate skills to .claude/
+    print("Replicating skills to .claude/")
+    skill_stats = ide_replicate_skills_to_claude(rbtv_dir)
+    if "reason" in skill_stats:
+        print(f"  Skipped ({skill_stats['reason']})")
+    else:
+        print(f"  Copied: {skill_stats['copied']}  |  Replaced: {skill_stats['replaced']}")
+        _print_errors(skill_stats.get("errors", []))
+    print()
+
+    # Merge MCP for Claude Code
+    print("Merging MCP configuration for Claude Code")
+    mcp_stats_claude = ide_merge_mcp_json(
+        config_cursor / "mcp.json",
+        rbtv_dir / ".claude" / ".mcp.json",
+    )
+    _print_mcp_stats(mcp_stats_claude)
+    print()
+
     # Inject admin values into rule
     print("Injecting admin values into rule...")
     admin_inject_values(rbtv_dir, values)
     print("  Done")
+    print()
+
+    # Copy CLAUDE.md from _admin/ to rbtv root
+    print("Copying CLAUDE.md to rbtv root...")
+    claude_src = rbtv_dir / "_admin" / "CLAUDE.md"
+    claude_dst = rbtv_dir / "CLAUDE.md"
+    if claude_src.exists():
+        shutil.copy2(str(claude_src), str(claude_dst))
+        print("  Done")
+    else:
+        print("  WARNING: _admin/CLAUDE.md not found — skipping")
     print()
 
     # Ensure .gitignore entries
@@ -870,22 +1186,35 @@ def run_admin_mode(paths: dict) -> int:
     total_copied = (
         cfg_stats.get("copied", 0) + cfg_claude_stats.get("copied", 0)
         + adm_stats.get("copied", 0) + adm_claude_stats.get("copied", 0)
+        + cmd_stats.get("copied", 0)
     )
     total_replaced = (
         cfg_stats.get("replaced", 0) + cfg_claude_stats.get("replaced", 0)
         + adm_stats.get("replaced", 0) + adm_claude_stats.get("replaced", 0)
+        + cmd_stats.get("replaced", 0)
     )
     print("-" * 60)
     print("Summary")
     print("-" * 60)
     print(f"  Files copied:   {total_copied}")
     print(f"  Files replaced: {total_replaced}")
+    if "copied" in cmd_stats:
+        print(f"  Commands replicated: {cmd_stats['copied'] + cmd_stats['replaced']}")
+    if "copied" in rule_stats:
+        print(f"  Rules replicated:    {rule_stats['copied'] + rule_stats['replaced']}")
+    if "copied" in agent_stats:
+        print(f"  Agents replicated:   {agent_stats['copied'] + agent_stats['replaced']}")
+    if "copied" in skill_stats:
+        print(f"  Skills replicated:   {skill_stats['copied'] + skill_stats['replaced']}")
+    if "added" in mcp_stats_claude:
+        print(f"  Claude Code MCP servers: {mcp_stats_claude['added'] + mcp_stats_claude['merged']}")
     print(f"  Admin user:     {values.get('user_name', 'N/A')}")
     print(f"  Language:       {values.get('communication_language', 'N/A')}")
     print()
     print("Next steps:")
     print("  1. Restart Cursor to load new commands and rules")
-    print("  2. Run /bmad-rbtv-help to verify tools work")
+    print("  2. Restart Claude Code to load new MCP servers, rules, and agents")
+    print("  3. Run /bmad-rbtv-help to verify tools work")
     print()
     print("Remember: re-run this script after every 'git pull'")
     return 0

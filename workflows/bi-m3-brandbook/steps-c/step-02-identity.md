@@ -3,6 +3,8 @@ name: 'step-02-identity'
 description: 'Compile Brand Identity section from all M3 framework outputs'
 nextStepFile: './step-03-visual.md'
 outputFile: '{outputFolder}/brandbook.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Brand Identity
@@ -189,7 +191,7 @@ stepsCompleted: ['step-01-init', 'step-02-identity']
 ### 8. Present Menu Options
 
 **Select an Option:**
-- **[C] Continue** — proceed to Visual Guidelines
+- **[C] Continue** — hand off to the design agent for Visual Guidelines
 - **[A] Advanced Elicitation** — refine any subsection
 
 ALWAYS halt and wait for user selection.
@@ -201,7 +203,16 @@ ALWAYS halt and wait for user selection.
 ONLY when **[C] Continue** is selected:
 1. Verify Brand Identity section is written to brandbook.md
 2. Verify `step-02-identity` is in `stepsCompleted`
-3. Load `./step-03-visual.md` and follow its instructions
+
+> **AGENT HANDOFF — Design Agent Required**
+>
+> Step 03 (Visual Guidelines) is owned by the **design agent (Vivian)**, not the current mentor agent. You cannot execute this step yourself.
+>
+> Instruct the user:
+>
+> *"Brand Identity is locked. Visual Guidelines — color palette, typography, logo, imagery, and iconography — require the design agent. To continue, invoke Vivian using the command `@bmad-rbtv-designer` and select **[BV] Brand Visual Identity**. She'll build the visual identity grounded in the brand frameworks we just compiled."*
+>
+> Do NOT load `{nextStepFile}` yourself. The design agent will load it.
 
 When **[A] Advanced Elicitation** is selected:
 - Ask which subsection to refine

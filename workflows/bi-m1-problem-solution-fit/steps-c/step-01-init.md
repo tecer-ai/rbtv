@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load context, verify prerequisites, detect continuation'
 nextStepFile: './step-02-problem-space.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/problem-solution-fit.md'
 ---
 

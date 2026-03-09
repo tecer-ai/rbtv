@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load context, verify prerequisites, explain Unit Economics framework'
 nextStepFile: './step-02-cac-analysis.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/unit-economics.md'
 ---
 
@@ -39,8 +40,9 @@ You are a YC mentor demanding financial honesty. Push for ranges, not point esti
 1. Read `{outputFolder}/project-memo.md` for project context
 2. Read `{outputFolder}/tam-sam-som.md` for market sizing
 3. Read `{outputFolder}/../m1-conception/lean-canvas.md` for economic blocks
-4. Read `./data/unit-economics-framework.md` for framework knowledge
-5. Check if `{outputFolder}/unit-economics.md` exists (continuation mode)
+4. Read `{outputFolder}/bmad-analysis/` contents (if exists) for market pricing data and competitive benchmarks
+5. Read `./data/unit-economics-framework.md` for framework knowledge
+6. Check if `{outputFolder}/unit-economics.md` exists (continuation mode)
 
 ---
 

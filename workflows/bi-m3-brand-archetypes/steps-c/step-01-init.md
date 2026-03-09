@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load context, verify prerequisites, explain Brand Archetypes framework'
 nextStepFile: './step-02-exploration.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/brand-archetypes.md'
 ---
 

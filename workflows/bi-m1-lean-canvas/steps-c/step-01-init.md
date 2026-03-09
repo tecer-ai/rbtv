@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load context, explain Lean Canvas 9 blocks, check prerequisites'
 nextStepFile: './step-02-customer-problem.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/lean-canvas.md'
 ---
 

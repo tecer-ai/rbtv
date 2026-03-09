@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load context, verify prerequisites, explain Golden Circle framework'
 nextStepFile: './step-02-why-discovery.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/golden-circle.md'
 ---
 

@@ -37,220 +37,90 @@ isProject: false
 
 # {Plan Name}
 
-## Context
-
-### Problem Statement
-
-{What problem does this solve? Describe the current state and desired state.}
-
-### User Goals
-
-1. {Goal 1}
-2. {Goal 2}
-3. {Goal 3}
-
-### Constraints
-
-- {Constraint 1}
-- {Constraint 2}
-
-### Decisions Made
-
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| {What was decided} | {Choice made} | {Why} |
-
-### Rejected Alternatives
-
-- {Alternative 1}: {Why rejected}
-- {Alternative 2}: {Why rejected}
-
----
-
-## Companion Files
-
-This plan uses companion files for execution context:
-
-| File | Purpose |
-|------|---------|
-| `shape.md` | Shaping decisions + append-only execution log |
-| `learnings.md` | BMAD/RBTV system improvement learnings |
-
-**Location:** Same folder as this plan file.
-
----
-
-## Folder Structure
-
-```
-.cursor/plans/{plan-name}/
-├── {plan-name}.plan.md    # This plan file (YAML taskFile fields reference files below)
-├── shape.md               # Shaping + execution log
-├── learnings.md           # System learnings
-├── phase-1/               # Phase 1 micro-step files (complex tasks only)
-│   └── p1-1.task.md
-├── phase-2/               # Phase 2 micro-step files (complex tasks only)
-│   └── p2-1.task.md
-└── phase-final/           # Final phase micro-step files
-    ├── pN-refs.task.md
-    └── pN-compound.task.md
-```
-
----
+> Read `shape.md` for full context, decisions, and constraints.
+> Read individual `.task.md` files (referenced via `taskFile`) for per-task execution instructions.
 
 ## Architectural Constraints
 
 Patterns and principles that MUST be followed during execution.
 
-| Principle | Implementation | Enforcement |
-|-----------|----------------|-------------|
-| {Pattern name} | {How to apply in this plan} | {How violations are detected} |
-| {Coding standard} | {Specific application} | {Review criteria} |
-| {Design pattern} | {Where/how to use} | {What breaks if ignored} |
+| Principle | Enforcement |
+|-----------|-------------|
+| {Plan-specific pattern} | {How violations are detected} |
 
 **Inviolable Rules:**
 1. Read shape.md execution log before starting any task
 2. Only one task `in_progress` at a time
 3. Dependencies are sacred — never skip prerequisite tasks
-4. Checkpoints require human approval — never auto-continue
-5. Append to shape.md after each task — never modify previous entries
+4. Checkpoints require quality-review subagent execution before user-facing gate decision — never skip the review
+5. Checkpoints require human approval — never auto-continue, even after `APPROVED` verdict
+6. `REJECTED` checkpoints cannot advance — address feedback before re-evaluation
+7. Append to shape.md after each task — never modify previous entries
 
----
+## Checkpoint Execution Protocol
 
-## Self-Execution Instructions
+Every checkpoint has a **"Checkpoint Review Prompt"** subsection in its phase body (marked with `####` heading and a blockquote containing the full prompt). At each checkpoint:
 
-Plans are self-executing. Complex tasks have companion micro-step files referenced via the `taskFile` field in the YAML frontmatter.
+1. Locate the checkpoint's review prompt in the phase body section (e.g. "P1 Checkpoint Review Prompt")
+2. Fire Task tool with `subagent_type='quality-review'`, passing the blockquoted prompt content
+3. Present the `APPROVED` / `REJECTED` verdict to user
+4. **HALT for human approval regardless of verdict**
+5. If `REJECTED`, do not advance to the next phase — address feedback first
 
-### Execution Protocol
-
-1. **Before task:** Read shape.md Decisions and Discoveries for prior context
-2. **During task:** If the task has a `taskFile` field, read that file and follow its execution phases (understand → execute → validate → close). If no `taskFile` is present, execute directly from the task's `content` description.
-3. **After task:** Append entry to shape.md, mark task completed in YAML
-4. **Learnings:** During any task, append to learnings.md when you encounter a system-level improvement opportunity:
-   - User corrects your behavior or approach
-   - You couldn't find a file or reference that should have been discoverable
-   - You loaded context that turned out to be unnecessary
-   - Instructions were ambiguous and you had to guess
-   - A rule or constraint was missing that would have prevented a mistake
-   - You discovered a reusable pattern that should be codified
-
-### Tool Mode Selection
-
-| Scenario | Mode |
-|----------|------|
-| Need prior conversation context | Skill (same context window) |
-| Context window saturated | Subagent (fresh context) |
-| Complex validation needed | Subagent (quality-review) |
-| Quick lookup | Skill |
-| Already running as subagent | Skill only (no nesting) |
-
-### Quality Gates
-
-- Use `quality-review` tool after significant deliverables
-- Mode selection based on context saturation and validation complexity
-- If rejected, address feedback and retry (max 10 attempts before escalation)
-
----
+**Why body, not YAML:** Cursor's plan YAML serializer only preserves `id`, `content`, and `status` on todo items. Custom fields are silently stripped when the executor updates task status.
 
 ## Revolving Plan Rules
 
-Plans adapt during execution based on discoveries.
-
-### Discovery Handling
-
-1. **Simple discovery** (<5 min): Resolve immediately, document in shape.md
-2. **Complex discovery**: Add new task to plan, document in shape.md
-
-### Task Modification
-
-When adding or removing tasks:
-
-1. Update YAML frontmatter todos array
-2. Create/remove corresponding micro-step file
-3. Append discovery entry to shape.md
-4. **MANDATORY:** Notify user with clear summary
-
-### Task Change Notification Format
-
-```
-PLAN MODIFIED:
-- Added: {task-id} - {brief description}
-- Removed: {task-id} - {reason for removal}
-```
-
----
-
-## Files to Load
-
-| File | Purpose | When to Load |
-|------|---------|--------------|
-| {path} | {Why this file matters} | {Phase/task that needs it} |
-
----
+- Simple discovery (<5 min): resolve immediately, document in shape.md
+- Complex discovery: add new task to plan, document in shape.md, notify user
 
 ## Execution Workflow
 
-```mermaid
-flowchart TD
-    subgraph P1[Phase 1: Name]
-        p1-1[p1-1: Task]
-        p1-2[p1-2: Task]
-        p1-chk{P1 Checkpoint}
-    end
-    
-    subgraph P2[Phase 2: Name]
-        p2-1[p2-1: Task]
-        p2-chk{P2 Checkpoint}
-    end
-    
-    subgraph Final[Final Phase]
-        pn-refs[Reference Review]
-        pn-compound[Compound Learnings]
-        pn-chk{Final Checkpoint}
-    end
-    
-    p1-1 --> p1-2 --> p1-chk
-    p1-chk --> p2-1 --> p2-chk
-    p2-chk --> pn-refs --> pn-compound --> pn-chk
-```
-
----
+{Mermaid diagram — ONLY if plan has branching or parallel phases. Omit for linear sequential plans.}
 
 ## Phase 1: {Phase Name}
 
 **Goal:** {What this phase accomplishes}
 
-### Tasks
+#### P1 Checkpoint Review Prompt
 
-- `p1-1`: {Task description}
-- `p1-2`: {Task description}
-- `p1-checkpoint`: **P1 CHECKPOINT** - {Checkpoint description}
-
----
+> **Use Task tool with `subagent_type='quality-review'` and the following prompt:**
+>
+> ## Work to Evaluate
+> {Summary of phase 1 deliverables — files created/modified, artifacts produced, with specific paths}
+>
+> ## Quality Criteria
+> 1. {Criterion derived from phase 1 task acceptance criteria}
+> 2. {Criterion derived from phase 1 task acceptance criteria}
+> 3. {Criterion derived from architectural constraints}
 
 ## Phase 2: {Phase Name}
 
 **Goal:** {What this phase accomplishes}
 
-### Tasks
+#### P2 Checkpoint Review Prompt
 
-- `p2-1`: {Task description}
-- `p2-checkpoint`: **P2 CHECKPOINT** - {Checkpoint description}
-
----
+> **Use Task tool with `subagent_type='quality-review'` and the following prompt:**
+>
+> ## Work to Evaluate
+> {Summary of phase 2 deliverables}
+>
+> ## Quality Criteria
+> 1. {Criterion from phase 2 tasks}
+> 2. {Criterion from phase 2 tasks}
 
 ## Final Phase: Validation and Completion
 
 **Goal:** Verify references, compound learnings, complete plan.
 
-### Tasks
+#### PN Checkpoint Review Prompt
 
-- `pN-refs`: File reference review - verify all internal markdown links resolve
-- `pN-compound`: Compound learnings - process learnings.md entries into actionable changes
-- `pN-checkpoint`: **FINAL CHECKPOINT** - User approval to complete plan
-
----
-
-## Notes
-
-{Any additional notes or context for executing agents}
+> **Use Task tool with `subagent_type='quality-review'` and the following prompt:**
+>
+> ## Work to Evaluate
+> {Summary of all plan deliverables across all phases}
+>
+> ## Quality Criteria
+> 1. All internal markdown links resolve correctly
+> 2. Learnings have been compounded into actionable system improvements
+> 3. {Plan-wide quality criterion}

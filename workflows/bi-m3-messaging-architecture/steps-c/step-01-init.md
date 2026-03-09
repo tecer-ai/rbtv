@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load context, verify prerequisites, explain Messaging Architecture framework'
 nextStepFile: './step-02-brand-promise.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/messaging-architecture.md'
 ---
 

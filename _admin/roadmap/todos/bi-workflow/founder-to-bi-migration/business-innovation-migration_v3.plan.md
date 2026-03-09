@@ -477,15 +477,22 @@ flowchart TD
 - **M5 Market Validation**: RBTV-native — customer validation is founder-specific, minimal BMAD overlap
 - **M6 MVP**: Full BMAD integration — all software development routes to BMAD workflows (PRD, architecture, epics/stories, etc.)
 
-**BMAD Config Management Convention:**
+**BMAD Delegation Convention (Lightweight Bridge):**
 
-- When RBTV workflows invoke BMAD workflows (M4 Design Direction, M6 all routes), they MUST:
-
-  1. Run `update-bmad-config.xml` task BEFORE invoking BMAD (updates BMAD config to use RBTV project folder)
-  2. Run `restore-bmad-config.xml` task AFTER BMAD completes (restores BMAD config to defaults)
-
-- Rationale: BMAD workflows read output_folder from config file; config must point to RBTV project-specific path for outputs to land correctly
+- When RBTV workflows invoke BMAD workflows (M2 optional analyst, M4 Design Direction, M6 all routes), they MUST follow the standard lightweight bridge pattern:
+  1. Prepare context (collect RBTV artifacts for BMAD)
+  2. Run `update-bmad-config.xml` task BEFORE invoking BMAD
+  3. Instruct user to load/run BMAD workflow in a NEW conversation
+  4. Wait for user to return and select [C] Continue
+  5. Mentor-assisted file placement (verify/move BMAD output to expected subfolder)
+  6. Run `restore-bmad-config.xml` task AFTER BMAD completes
+  7. Synthesis: read BMAD output, update project-memo, instruct return to milestone menu
+- Bypass BMAD agents; delegate directly to their workflows (avoids persona conflict)
+- Project-memo updates and return routing are always RBTV's responsibility
+- Standard pattern documented in `workflows/build-rbtv-component/data/bmad-architecture.md`
 - Tasks location: `_bmad/rbtv/tasks/update-bmad-config.xml` and `restore-bmad-config.xml`
+
+**Note:** M4 Design Context bridge has been simplified from 6 steps (5 files) to 3 steps (3 files) using this standard pattern. See `bi-m4-design-context/steps-c/step-03-delegate-and-synthesize.md`.
 
 ### M4 Prototypation Tasks
 

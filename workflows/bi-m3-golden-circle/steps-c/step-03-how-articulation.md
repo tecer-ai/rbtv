@@ -3,6 +3,8 @@ name: 'step-03-how-articulation'
 description: 'Define differentiated approach and values'
 nextStepFile: './step-04-what-definition.md'
 outputFile: '{outputFolder}/golden-circle.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: How Articulation

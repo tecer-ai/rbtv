@@ -2,6 +2,7 @@
 stepNumber: 1
 stepName: 'init'
 nextStepFile: ./step-02-context.md
+continueStepFile: './step-01b-continue.md'
 templateFile: ../templates/plan-template.md
 outputFile: '{outputFolder}/{plan-name}/{plan-name}.plan.md'
 dataFile: ../data/plan-creation-rules.md

@@ -18,7 +18,8 @@
   <inputs>
     <input name="target_module">BMAD module whose config to update (e.g., "bmm", "cis", "core"). Defaults to "bmm".</input>
     <input name="project_name">RBTV project name (e.g., "robotville-app").</input>
-    <input name="rbtv_output_folder">Full RBTV output folder path for this project/milestone (e.g., "{project-root}/_bmad-output/{project-name}/founder/m4-prototypation").</input>
+    <input name="rbtv_output_folder">Full RBTV output folder path for this project/milestone (e.g., "{bmad_output}/{project-name}/founder/m4-prototypation").</input>
+    <input name="rbtv_planning_artifacts" optional="true">Optional. When provided, sets planning_artifacts independently from output_folder. Use when BMAD should READ from one location (e.g., M1 conception folder) and WRITE to another (e.g., bmad-analysis subfolder). When omitted, planning_artifacts is set to rbtv_output_folder (current default behavior).</input>
   </inputs>
 
   <flow>
@@ -52,10 +53,12 @@
 
     <step n="3" title="Update Config Values">
       <substep n="3a" title="Prepare New Values">
-        <action>Set all three config values to rbtv_output_folder:</action>
+        <action>Set output_folder and implementation_artifacts to rbtv_output_folder:</action>
         <action>- output_folder: {rbtv_output_folder}</action>
-        <action>- planning_artifacts: {rbtv_output_folder}</action>
         <action>- implementation_artifacts: {rbtv_output_folder}</action>
+        <action>Set planning_artifacts based on whether rbtv_planning_artifacts was provided:</action>
+        <action>- If rbtv_planning_artifacts is provided: planning_artifacts: {rbtv_planning_artifacts}</action>
+        <action>- If rbtv_planning_artifacts is NOT provided: planning_artifacts: {rbtv_output_folder} (default behavior)</action>
       </substep>
       <substep n="3b" title="Ensure Target Directory Exists">
         <action>Check if the directory at rbtv_output_folder exists.</action>

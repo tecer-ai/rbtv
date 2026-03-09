@@ -3,6 +3,8 @@ name: 'step-02-exploration'
 description: 'Extract emotional territory and evaluate all 12 archetypes'
 nextStepFile: './step-03-selection.md'
 outputFile: '{outputFolder}/brand-archetypes.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Archetype Exploration

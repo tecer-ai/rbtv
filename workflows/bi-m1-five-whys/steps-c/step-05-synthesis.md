@@ -3,6 +3,8 @@ name: 'step-05-synthesis'
 description: 'Wire findings to Lean Canvas and validation backlog, update project-memo.md'
 nextStepFile: null
 outputFile: '{outputFolder}/five-whys.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 5: Synthesis

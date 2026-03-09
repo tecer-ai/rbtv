@@ -3,6 +3,8 @@ name: 'step-03-internal-facets'
 description: 'Define receiver facets: Reflection, Self-Image'
 nextStepFile: './step-04-prism-synthesis.md'
 outputFile: '{outputFolder}/brand-prism.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Internal Facets

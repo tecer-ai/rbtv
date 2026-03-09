@@ -3,7 +3,7 @@ name: 'bi-m2-unit-economics'
 description: 'Model LTV, CAC, payback, and break-even to assess financial viability'
 nextStep: ./steps-c/step-01-init.md
 parentWorkflow: ../bi-m2/workflow.md
-outputFolder: '{project-root}/_bmad-output/{project-name}/founder/m2-validation'
+outputFolder: '{bmad_output}/{project-name}/founder/m2-validation'
 outputFile: unit-economics.md
 ---
 

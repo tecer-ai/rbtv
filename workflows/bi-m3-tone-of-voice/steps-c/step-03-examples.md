@@ -3,6 +3,8 @@ name: 'step-03-examples'
 description: 'Write do/don''t example pairs for each dimension'
 nextStepFile: './step-04-adjustments.md'
 outputFile: '{outputFolder}/tone-of-voice.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Do/Don't Examples

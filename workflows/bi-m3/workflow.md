@@ -3,7 +3,7 @@ name: 'bi-m3-brand'
 description: 'Create comprehensive brand book through 7 brand frameworks'
 nextStep: ./steps-c/step-01-init.md
 parentWorkflow: ../bi-business-innovation/workflow.md
-outputFolder: '{project-root}/_bmad-output/{project-name}/founder/m3-brand'
+outputFolder: '{bmad_output}/{project-name}/founder/m3-brand'
 ---
 
 # M3 Brand Milestone Workflow

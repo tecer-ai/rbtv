@@ -4,7 +4,7 @@ main_config: '{project-root}/_bmad/rbtv/_config/config.yaml'
 description: 'Guide users through 6-milestone business innovation lifecycle from idea to MVP'
 newProjectStep: ./steps-c/step-01-project-setup.md
 continueProjectStep: ./steps-c/step-02-milestone-select.md
-outputFolder: '{project-root}/_bmad-output/{project-name}/founder'
+outputFolder: '{bmad_output}/{project-name}/founder'
 projectMemoTemplate: ./templates/project-memo.md
 knowledgeFile: ./data/founder-process.md
 ---

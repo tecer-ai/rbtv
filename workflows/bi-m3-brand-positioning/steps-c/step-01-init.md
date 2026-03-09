@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load context, verify prerequisites, explain Brand Positioning framework'
 nextStepFile: './step-02-inputs.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/brand-positioning.md'
 ---
 

@@ -3,6 +3,7 @@ name: 'step-04-root-cause'
 description: 'Synthesize root causes and select structural levers to target'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{outputFolder}/five-whys.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 

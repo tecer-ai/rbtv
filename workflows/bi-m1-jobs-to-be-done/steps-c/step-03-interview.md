@@ -3,6 +3,8 @@ name: 'step-03-interview'
 description: 'Design and run JTBD interviews'
 nextStepFile: './step-04-job-stories.md'
 outputFile: '{outputFolder}/jobs-to-be-done.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Interview Design

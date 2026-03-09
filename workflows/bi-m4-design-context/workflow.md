@@ -3,7 +3,7 @@ name: 'bi-m4-design-context'
 description: 'Bridge workflow: collect M1–M3 and User Flow & IA context, format for BMAD create-ux-design, invoke BMAD, integrate design output into project-memo'
 nextStep: ./steps-c/step-01-init.md
 parentWorkflow: ../bi-m4/workflow.md
-outputFolder: '{project-root}/_bmad-output/{project-name}/founder/m4-prototypation'
+outputFolder: '{bmad_output}/{project-name}/founder/m4-prototypation'
 ---
 
 # M4 Design Context Bridge Workflow
@@ -30,7 +30,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 - 🛑 NEVER load multiple step files simultaneously
 - 📖 ALWAYS read the entire step file before execution
 - 🚫 NEVER skip steps or optimize the sequence
-- 💾 ALWAYS update project-memo after synthesis (Step 4)
+- 💾 ALWAYS update project-memo after synthesis (Step 3)
 - ⏸️ ALWAYS halt at menus and wait for user input
 - 📋 NEVER pre-load or mentally plan future steps
 
@@ -50,10 +50,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 |------|------|---------|
 | 01 | Init | Load project-memo, user-flow-ia.md, M1–M3 synthesis; verify prerequisites; determine artifact type/scope |
 | 02 | Format Context | Build design brief / context document for BMAD create-ux-design |
-| 02b | Update Config | Update BMAD config to use RBTV project folder |
-| 03 | Invoke BMAD | Instruct run BMAD create-ux-design with prepared context |
-| 03b | Restore Config | Restore BMAD config to defaults |
-| 04 | Synthesis | Integrate BMAD output into project-memo; instruct return to M4 milestone menu |
+| 03 | Delegate & Synthesize | Standard lightweight BMAD delegation: update config, instruct user, wait, file placement, restore config, synthesis, return to M4 menu |
 
 ---
 

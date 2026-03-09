@@ -2,7 +2,7 @@
 name: 'step-05-synthesis'
 description: 'Synthesize findings, update project-memo.md, return to M4 menu'
 nextStepFile: '../bi-m4/workflow.md'
-outputFile: '{project-root}/_bmad-output/{project-name}/founder/m4-prototypation/heuristic-evaluation.md'
+outputFile: '{bmad_output}/{project-name}/founder/m4-prototypation/heuristic-evaluation.md'
 ---
 
 # Step 5: Synthesis
@@ -186,7 +186,7 @@ Example:
 
 ### 4. Update project-memo.md
 
-**CRITICAL:** Load `{project-root}/_bmad-output/{project-name}/founder/project-memo.md`
+**CRITICAL:** Load `{bmad_output}/{project-name}/founder/project-memo.md`
 
 Add synthesis to the M4 Prototypation section:
 

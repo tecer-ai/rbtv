@@ -3,6 +3,7 @@ name: 'step-03-why-chain'
 description: 'Run 5 Whys chains, capture causal narrative, separate facts from hypotheses'
 nextStepFile: './step-04-root-cause.md'
 outputFile: '{outputFolder}/five-whys.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 

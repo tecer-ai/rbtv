@@ -3,7 +3,7 @@ name: 'bi-m3-messaging-architecture'
 description: 'Build hierarchical messaging structure from brand promise to CTAs'
 nextStep: ./steps-c/step-01-init.md
 parentWorkflow: ../bi-m3/workflow.md
-outputFolder: '{project-root}/_bmad-output/{project-name}/founder/m3-brand'
+outputFolder: '{bmad_output}/{project-name}/founder/m3-brand'
 outputFile: messaging-architecture.md
 ---
 

@@ -3,6 +3,8 @@ name: 'step-03-selection'
 description: 'Select primary and optional secondary archetype with justification'
 nextStepFile: './step-04-application.md'
 outputFile: '{outputFolder}/brand-archetypes.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Archetype Selection

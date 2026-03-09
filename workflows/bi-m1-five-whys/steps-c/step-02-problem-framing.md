@@ -3,6 +3,7 @@ name: 'step-02-problem-framing'
 description: 'Select and frame concrete problem scenario for 5 Whys analysis'
 nextStepFile: './step-03-why-chain.md'
 outputFile: '{outputFolder}/five-whys.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 

@@ -2,7 +2,8 @@
 name: 'step-04-recommendations'
 description: 'Generate prioritized improvement recommendations with rationale'
 nextStepFile: './step-05-synthesis.md'
-outputFile: '{project-root}/_bmad-output/{project-name}/founder/m4-prototypation/heuristic-evaluation.md'
+outputFile: '{bmad_output}/{project-name}/founder/m4-prototypation/heuristic-evaluation.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 

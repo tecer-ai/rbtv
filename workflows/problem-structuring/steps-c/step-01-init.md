@@ -2,6 +2,7 @@
 stepNumber: 1
 stepId: init
 nextStepFile: ./step-02-discover.md
+continueStepFile: './step-01b-continue.md'
 outputFile: "{output_folder}/structured-problem-{date}.md"
 ---
 

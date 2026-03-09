@@ -13,3 +13,4 @@ visual-design-extraction,{project-root}/.cursor/skills/bmad-rbtv-visual-design-e
 web-research,{project-root}/.cursor/skills/bmad-rbtv-web-research/SKILL.md,{project-root}/.cursor/agents/bmad-rbtv-web-research.md,Rigorous web research with source evaluation and citation standards
 create-investor-pitch,{project-root}/.cursor/skills/bmad-rbtv-create-investor-pitch/SKILL.md,{project-root}/.cursor/agents/bmad-rbtv-create-investor-pitch.md,Stress-test and build investor pitch decks from the other side of the table
 create-client-pitch,{project-root}/.cursor/skills/bmad-rbtv-create-client-pitch/SKILL.md,{project-root}/.cursor/agents/bmad-rbtv-create-client-pitch.md,Stress-test and build client/sales pitch decks from the buyer perspective
+designer,{project-root}/.cursor/skills/bmad-rbtv-designer/SKILL.md,{project-root}/.cursor/agents/bmad-rbtv-designer.md,Visual design for pitch decks and brand identity

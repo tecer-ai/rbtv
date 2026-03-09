@@ -4,6 +4,8 @@ stepName: 'structure'
 nextStepFile: ./step-04-generate-artifacts.md
 outputFile: '{outputFolder}/{plan-name}/{plan-name}.plan.md'
 dataFile: ../data/plan-creation-rules.md
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 03: Create Plan Structure
@@ -83,6 +85,38 @@ Add 3-6 checkpoints at inflection points:
 - Content format: `P[N] CHECKPOINT - [Description]`
 - Place at: Phase transitions, critical decisions, major deliverables
 
+**Mandatory checkpoint review prompt:** Each checkpoint MUST have a corresponding review prompt in the plan body (not in YAML — Cursor strips custom YAML fields on status updates).
+
+**YAML entry** (only standard fields):
+
+```yaml
+- id: p1-checkpoint
+  content: "P1 CHECKPOINT - {description}"
+  status: pending
+```
+
+**Plan body section** (under the phase, after the task list):
+
+For each checkpoint, compose a review prompt subsection in the phase body:
+
+```markdown
+#### P1 Checkpoint Review Prompt
+
+> **Use Task tool with `subagent_type='quality-review'` and the following prompt:**
+>
+> ## Work to Evaluate
+> {Phase deliverables summary with file paths}
+>
+> ## Quality Criteria
+> 1. {Criterion from phase tasks}
+> 2. {Criterion from phase tasks}
+```
+
+Compose the review prompt by:
+1. **Work to Evaluate** — summarize what the preceding phase produced (files created/modified, artifacts delivered), referencing specific paths
+2. **Quality Criteria** — derive 3-7 criteria from the phase's task descriptions, architectural constraints, and acceptance criteria
+3. The prompt must be self-contained — the quality-review agent runs in a fresh context
+
 ### 8. Format Task IDs
 
 Apply ID format rules:
@@ -117,9 +151,16 @@ Apply ID format rules:
 - Propose reordering
 - Ask user to confirm fix or override
 
-### 10. Create Mermaid Workflow Diagram
+### 10. Create Mermaid Workflow Diagram (Conditional)
 
-Generate a Mermaid diagram showing:
+**Complexity check — only generate a diagram when the plan has non-linear flow:**
+
+| Plan Shape | Generate Diagram? | Rationale |
+|------------|-------------------|-----------|
+| All phases sequential, no branching | **No** | Linear A→B→C is self-evident from phase ordering |
+| Parallel phases, branching dependencies, or complex inter-task dependencies | **Yes** | Visual aid for non-obvious flow |
+
+**If generating a diagram**, show:
 - Phases as subgraphs
 - Key tasks as nodes
 - Checkpoints as decision diamonds
@@ -188,6 +229,7 @@ On Continue selection:
 - ✅ 3-6 checkpoints at inflection points
 - ✅ Task IDs follow format rules and sync with headers
 - ✅ Dependency ordering validated (no violations or user-approved overrides)
-- ✅ Mermaid workflow diagram generated
+- ✅ Mermaid workflow diagram generated (only for non-linear plans)
+- ✅ Each checkpoint has a review prompt subsection in the plan body (`#### P{N} Checkpoint Review Prompt`)
 - ✅ User confirmed structure is correct
 - ✅ Menu presented with explicit HALT

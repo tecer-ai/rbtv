@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load context, verify prerequisites, explain Tone of Voice framework'
 nextStepFile: './step-02-dimensions.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/tone-of-voice.md'
 ---
 

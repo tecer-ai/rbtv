@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load context, explain Conversion-Centered Design framework, verify prerequisites'
 nextStepFile: './step-02-funnel-mapping.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/conversion-optimization.md'
 ---
 

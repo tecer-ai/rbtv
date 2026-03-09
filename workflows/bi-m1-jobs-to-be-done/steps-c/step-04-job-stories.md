@@ -3,6 +3,8 @@ name: 'step-04-job-stories'
 description: 'Synthesize job stories, forces analysis, and job map'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{outputFolder}/jobs-to-be-done.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Job Stories & Forces

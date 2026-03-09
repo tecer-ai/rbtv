@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load context, explain Five Whys framework, detect continuation'
 nextStepFile: './step-02-problem-framing.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/five-whys.md'
 ---
 

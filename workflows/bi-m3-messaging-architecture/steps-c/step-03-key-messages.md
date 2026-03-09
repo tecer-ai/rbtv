@@ -3,6 +3,8 @@ name: 'step-03-key-messages'
 description: 'Build audience-specific messages with traceability'
 nextStepFile: './step-04-proof-points.md'
 outputFile: '{outputFolder}/messaging-architecture.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Create Key Messages

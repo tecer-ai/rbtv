@@ -16,9 +16,9 @@ Use these templates to create BMAD configuration files.
 # document_output_language: {inherited}
 
 # Output paths (override if module needs different locations)
-# output_folder: "{project-root}/_bmad-output"  # inherited from core/config.yaml
-# planning_artifacts: "{project-root}/_bmad-output/planning-artifacts"  # optional override
-# implementation_artifacts: "{project-root}/_bmad-output/implementation-artifacts"  # optional override
+# output_folder: "{bmad_output}"  # inherited from core/config.yaml
+# planning_artifacts: "{bmad_output}/planning-artifacts"  # optional override
+# implementation_artifacts: "{bmad_output}/implementation-artifacts"  # optional override
 
 # Module-specific settings
 # {key}: {value}

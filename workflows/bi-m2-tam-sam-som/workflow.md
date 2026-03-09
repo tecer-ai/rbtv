@@ -3,7 +3,7 @@ name: 'bi-m2-tam-sam-som'
 description: 'Size market opportunity using top-down and bottom-up methods'
 nextStep: ./steps-c/step-01-init.md
 parentWorkflow: ../bi-m2/workflow.md
-outputFolder: '{project-root}/_bmad-output/{project-name}/founder/m2-validation'
+outputFolder: '{bmad_output}/{project-name}/founder/m2-validation'
 outputFile: tam-sam-som.md
 ---
 

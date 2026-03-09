@@ -3,6 +3,7 @@ name: 'step-04-mitigations'
 description: 'Define mitigation actions, early warning signals, and contingency plans'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{outputFolder}/pre-mortem.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 

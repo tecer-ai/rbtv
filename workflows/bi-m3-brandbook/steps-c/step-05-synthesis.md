@@ -3,6 +3,8 @@ name: 'step-05-synthesis'
 description: 'Validate consistency, compile final brandbook, mark M3 complete, update project-memo.md'
 nextStepFile: null
 outputFile: '{outputFolder}/brandbook.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 5: Synthesis

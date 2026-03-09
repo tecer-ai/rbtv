@@ -3,6 +3,8 @@ name: 'step-03-draft'
 description: 'Draft positioning statement using template with annotations'
 nextStepFile: './step-04-map.md'
 outputFile: '{outputFolder}/brand-positioning.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Draft Positioning Statement

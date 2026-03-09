@@ -3,6 +3,8 @@ name: 'step-06-synthesis'
 description: 'Validate consistency, wire to M4/M5/M6, update project-memo.md'
 nextStepFile: null
 outputFile: '{outputFolder}/tone-of-voice.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 6: Synthesis

@@ -3,6 +3,8 @@ name: 'step-05-synthesis'
 description: 'Extract threats/opportunities and UPDATE project-memo.md'
 nextStepFile: null
 outputFile: '{outputFolder}/competitive-landscape.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 5: Synthesis

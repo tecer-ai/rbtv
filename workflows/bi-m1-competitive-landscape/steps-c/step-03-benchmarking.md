@@ -3,6 +3,7 @@ name: 'step-03-benchmarking'
 description: 'Benchmark US/China markets and identify cross-industry analogues'
 nextStepFile: './step-04-positioning.md'
 outputFile: '{outputFolder}/competitive-landscape.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 

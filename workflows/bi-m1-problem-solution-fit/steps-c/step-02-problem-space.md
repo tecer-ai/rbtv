@@ -3,6 +3,7 @@ name: 'step-02-problem-space'
 description: 'Map problem, triggers, emotions, behaviours, and constraints'
 nextStepFile: './step-03-solution-space.md'
 outputFile: '{outputFolder}/problem-solution-fit.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 

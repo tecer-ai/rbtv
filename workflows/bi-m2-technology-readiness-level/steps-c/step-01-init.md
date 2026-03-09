@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load context, verify prerequisites, explain TRL framework'
 nextStepFile: './step-02-current-trl-assessment.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/technology-readiness-level.md'
 ---
 
@@ -40,8 +41,9 @@ You are a YC mentor enforcing brutal technical honesty. "We could build that" is
 2. Read `{outputFolder}/../m1-conception/problem-solution-fit.md` for solution concept
 3. Read `{outputFolder}/../m1-conception/lean-canvas.md` for Solution block
 4. Read `{outputFolder}/../m1-conception/working-backwards.md` for Internal FAQ technical questions
-5. Read `./data/trl-framework.md` for framework knowledge
-6. Check if `{outputFolder}/technology-readiness-level.md` exists (continuation mode)
+5. Read `{outputFolder}/bmad-analysis/` contents (if exists) for technical research findings
+6. Read `./data/trl-framework.md` for framework knowledge
+7. Check if `{outputFolder}/technology-readiness-level.md` exists (continuation mode)
 
 ---
 

@@ -1,13 +1,13 @@
 ---
 name: 'step-02-format-context'
 description: 'Build design brief / context document for BMAD create-ux-design'
-nextStepFile: './step-02b-update-config.md'
+nextStepFile: './step-03-delegate-and-synthesize.md'
 outputFile: '{outputFolder}/design-context.md'
 ---
 
 # Step 2: Format Design Context
 
-**Progress: Step 2 of 4** — Next: Invoke BMAD
+**Progress: Step 2 of 3** — Next: Delegate to BMAD & Synthesize
 
 ---
 

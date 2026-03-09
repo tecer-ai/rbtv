@@ -3,6 +3,8 @@ name: 'step-06-synthesis'
 description: 'Validate, compile final document, and update project-memo.md'
 nextStepFile: null
 outputFile: '{outputFolder}/messaging-architecture.md'
+advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 6: Synthesis

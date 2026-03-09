@@ -2,6 +2,7 @@
 name: 'step-01-init'
 description: 'Load all M3 contexts, verify prerequisites, set up AI image tool preference'
 nextStepFile: './step-02-identity.md'
+continueStepFile: './step-01b-continue.md'
 outputFile: '{outputFolder}/brandbook.md'
 ---
 

@@ -3,7 +3,7 @@ name: 'bi-m1-lean-canvas'
 description: 'Map business model hypothesis through Lean Canvas 9-block methodology'
 nextStep: ./steps-c/step-01-init.md
 parentWorkflow: ../bi-m1/workflow.md
-outputFolder: '{project-root}/_bmad-output/{project-name}/founder/m1-conception'
+outputFolder: '{bmad_output}/{project-name}/founder/m1-conception'
 outputFile: lean-canvas.md
 ---
 

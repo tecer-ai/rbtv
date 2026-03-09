@@ -23,7 +23,7 @@ An agentic system has five layers, each a directory of text files:
 |-------|---------|----------|
 | **Entry Points** | Bridge between IDE and system | Command files (thin loaders) |
 | **Agents** | Personas with menus | Agent definition files |
-| **Workflows** | Multi-step document builders | workflow.md + step files |
+| **Workflows** | Multi-step document builders | workflow.md (or workflow-{action}.md) + step files |
 | **Knowledge** | Reference data | CSV, Markdown, YAML data files |
 | **Infrastructure** | Configuration and discovery | config.yaml, manifests |
 
@@ -125,7 +125,7 @@ An agentic system has five layers, each a directory of text files:
 | 3 | Sequential enforcement | AI tries to skip/optimize; prevent explicitly |
 | 4 | User control at every step | Every step ends with menu, AI halts and waits |
 | 5 | Persona-driven interaction | Specific personas produce specific output |
-| 6 | Configuration over hardcoding | Use {project-root} variables, never absolute paths |
+| 6 | Configuration over hardcoding | Use path variables ({project-root}, {bmad_output}, etc.), never absolute paths or hardcoded folder names |
 | 7 | Thin loaders | Entry points contain zero logic |
 | 8 | State in frontmatter | Output documents track stepsCompleted |
 
@@ -168,7 +168,7 @@ Before building a workflow, answer these 4 questions:
 | Long files | AI loses context, drifts from instructions | Split files, keep each under 200 lines |
 | Logic in entry points | Creates IDE-specific behavior | Entry points only load files |
 | Missing STOP instructions | AI rushes through steps | Explicit halt: "WAIT for user input" |
-| Hardcoded paths | Breaks when moved | Use {project-root} variables |
+| Hardcoded paths | Breaks when moved or reconfigured | Use path variables ({project-root}, {bmad_output}) |
 | Hardcoded catalog lists | Drift and maintenance burden | Reference manifests (tools-manifest.csv, etc.) |
 | No state tracking | Can't resume sessions | Frontmatter in output documents |
 | Skipping adversarial review | Rubber-stamped output | Build in mandatory challenge mechanisms |
@@ -190,6 +190,54 @@ Before generating a file that references a catalog of commands, skills, rules, c
 **NEVER** hardcode catalog-style lists inline. Always point to a manifest as the single source of truth.
 
 > **Terminology:** All skills and cursor sub-agents are also commands, but not all commands are skills/cursor sub-agents. Files in `.cursor/agents/` are **cursor sub-agents** (thin loaders for the Cursor sub-agent feature), NOT RBTV agent personas.
+
+---
+
+## Standard BMAD Delegation Pattern (Lightweight Bridge)
+
+When RBTV workflows invoke BMAD workflows (M2 optional analyst, M4 Design Direction, M6 all routes), they MUST follow this standard sequence inline within a single step file:
+
+```
+1. PREPARE CONTEXT
+   Collect relevant RBTV artifacts as files on disk. Explain to user what BMAD will
+   receive as input and what output to expect.
+
+2. UPDATE CONFIG
+   Run task: {project-root}/_bmad/rbtv/tasks/update-bmad-config.xml
+   Inputs: target_module, project_name, rbtv_output_folder
+   Optionally set rbtv_planning_artifacts separately when input != output location.
+
+3. INSTRUCT USER
+   Provide exact BMAD workflow path. Instruct user to open a NEW conversation
+   and load the BMAD workflow directly (bypass BMAD agents to avoid persona conflict).
+   Instruct: "After the BMAD workflow completes, return to THIS conversation
+   and select [C] Continue."
+
+4. WAIT FOR COMPLETION
+   HALT — wait for user to return and select [C] Continue.
+
+5. MENTOR-ASSISTED FILE PLACEMENT
+   Ask user what files BMAD produced and where they are. Verify files are in
+   expected RBTV output subfolder. If not, help user move/copy them.
+
+6. RESTORE CONFIG
+   Run task: {project-root}/_bmad/rbtv/tasks/restore-bmad-config.xml
+
+7. SYNTHESIS
+   Read BMAD output, update project-memo (add completion entry, set flags,
+   summarize findings), instruct return to milestone menu.
+```
+
+**Key principles:**
+- Bypass BMAD agents; delegate directly to their workflows (avoids persona conflict)
+- Project-memo updates are ALWAYS RBTV's responsibility (BMAD workflows never update it)
+- Return routing is ALWAYS the mentor's instruction (BMAD is unaware of RBTV structure)
+- Mentor-assisted file placement closes the gap of BMAD writing to unexpected locations
+- Config update/restore brackets the BMAD invocation to redirect outputs
+
+**Reference implementations:**
+- M2 analyst delegation: `bi-m2/steps-c/step-01-init.md` (inline in Section 1b)
+- M4 design context: `bi-m4-design-context/steps-c/step-03-delegate-and-synthesize.md`
 
 ---
 

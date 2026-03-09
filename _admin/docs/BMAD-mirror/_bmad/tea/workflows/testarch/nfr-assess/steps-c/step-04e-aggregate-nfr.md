@@ -2,13 +2,14 @@
 name: 'step-04e-aggregate-nfr'
 description: 'Aggregate NFR domain assessments into executive summary'
 nextStepFile: './step-05-generate-report.md'
+outputFile: '{test_artifacts}/nfr-assessment.md'
 ---
 
 # Step 4E: Aggregate NFR Assessment Results
 
 ## STEP GOAL
 
-Read outputs from 4 parallel NFR subprocesses, calculate overall risk level, aggregate compliance status, and identify cross-domain risks.
+Read outputs from 4 parallel NFR subagents, calculate overall risk level, aggregate compliance status, and identify cross-domain risks.
 
 ---
 
@@ -16,15 +17,15 @@ Read outputs from 4 parallel NFR subprocesses, calculate overall risk level, agg
 
 - 📖 Read the entire step file before acting
 - ✅ Speak in `{communication_language}`
-- ✅ Read all 4 subprocess outputs
+- ✅ Read all 4 subagent outputs
 - ✅ Calculate overall risk level
-- ❌ Do NOT re-assess NFRs (use subprocess outputs)
+- ❌ Do NOT re-assess NFRs (use subagent outputs)
 
 ---
 
 ## MANDATORY SEQUENCE
 
-### 1. Read All Subprocess Outputs
+### 1. Read All Subagent Outputs
 
 ```javascript
 const domains = ['security', 'performance', 'reliability', 'scalability'];
@@ -136,6 +137,23 @@ const prioritizedActions = allPriorityActions.sort((a, b) => (a.urgency === 'URG
 ### 6. Generate Executive Summary
 
 ```javascript
+const resolvedMode = subagentContext?.execution?.resolvedMode ?? 'unknown';
+const subagentExecutionLabel =
+  resolvedMode === 'sequential'
+    ? 'SEQUENTIAL (4 NFR domains)'
+    : resolvedMode === 'agent-team'
+      ? 'AGENT-TEAM (4 NFR domains)'
+      : resolvedMode === 'subagent'
+        ? 'SUBAGENT (4 NFR domains)'
+        : 'MODE-DEPENDENT (4 NFR domains)';
+
+const performanceGainLabel =
+  resolvedMode === 'sequential'
+    ? 'baseline (no parallel speedup)'
+    : resolvedMode === 'agent-team' || resolvedMode === 'subagent'
+      ? '~67% faster than sequential'
+      : 'mode-dependent';
+
 const executiveSummary = {
   overall_risk: overallRisk,
   assessment_date: new Date().toISOString(),
@@ -155,8 +173,8 @@ const executiveSummary = {
     scalability: assessments.scalability.risk_level,
   },
 
-  subprocess_execution: 'PARALLEL (4 NFR domains)',
-  performance_gain: '~67% faster than sequential',
+  subagent_execution: subagentExecutionLabel,
+  performance_gain: performanceGainLabel,
 };
 
 // Save for Step 5 (report generation)
@@ -168,7 +186,7 @@ fs.writeFileSync('/tmp/tea-nfr-summary-{{timestamp}}.json', JSON.stringify(execu
 ### 7. Display Summary to User
 
 ```
-✅ NFR Assessment Complete (Parallel Execution)
+✅ NFR Assessment Complete ({subagentExecutionLabel})
 
 🎯 Overall Risk Level: {overallRisk}
 
@@ -185,10 +203,36 @@ fs.writeFileSync('/tmp/tea-nfr-summary-{{timestamp}}.json', JSON.stringify(execu
 
 🎯 Priority Actions: {priority_action_count}
 
-🚀 Performance: Parallel execution ~67% faster
+🚀 Performance: {performanceGainLabel}
 
 ✅ Ready for report generation (Step 5)
 ```
+
+---
+
+---
+
+### 8. Save Progress
+
+**Save this step's accumulated work to `{outputFile}`.**
+
+- **If `{outputFile}` does not exist** (first save), create it using the workflow template (if available) with YAML frontmatter:
+
+  ```yaml
+  ---
+  stepsCompleted: ['step-04e-aggregate-nfr']
+  lastStep: 'step-04e-aggregate-nfr'
+  lastSaved: '{date}'
+  ---
+  ```
+
+  Then write this step's output below the frontmatter.
+
+- **If `{outputFile}` already exists**, update:
+  - Add `'step-04e-aggregate-nfr'` to `stepsCompleted` array (only if not already present)
+  - Set `lastStep: 'step-04e-aggregate-nfr'`
+  - Set `lastSaved: '{date}'`
+  - Append this step's output to the appropriate section of the document.
 
 ---
 
@@ -196,10 +240,11 @@ fs.writeFileSync('/tmp/tea-nfr-summary-{{timestamp}}.json', JSON.stringify(execu
 
 Proceed to Step 5 when:
 
-- ✅ All subprocess outputs read
+- ✅ All subagent outputs read
 - ✅ Overall risk calculated
 - ✅ Compliance aggregated
 - ✅ Summary saved
+- ✅ Progress saved to output document
 
 Load next step: `{nextStepFile}`
 
@@ -215,5 +260,5 @@ Load next step: `{nextStepFile}`
 
 ### ❌ FAILURE:
 
-- Failed to read subprocess outputs
+- Failed to read subagent outputs
 - Risk calculation incorrect
