@@ -134,6 +134,8 @@ Use this template to create the `shape.md` companion file for each plan. Shape c
 
 ## References
 
+> **Path format:** External files (outside this plan folder) use project-root-relative paths. Internal files (within this plan folder) use file-relative paths (`./`, `../`).
+
 ### Source Documents Analyzed
 
 | Document | Key Insights Extracted |

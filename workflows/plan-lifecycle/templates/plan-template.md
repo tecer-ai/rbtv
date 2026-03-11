@@ -56,6 +56,7 @@ Patterns and principles that MUST be followed during execution.
 5. Checkpoints require human approval — never auto-continue, even after `APPROVED` verdict
 6. `REJECTED` checkpoints cannot advance — address feedback before re-evaluation
 7. Append to shape.md after each task — never modify previous entries
+8. Internal links use file-relative paths (`./`, `../`); external links use project-root-relative paths — see Plan Linking Standard
 
 ## Checkpoint Execution Protocol
 

@@ -89,6 +89,34 @@ Assess each plan across 5 dimensions. Score 1-3 per dimension.
 
 ---
 
+## Plan Linking Standard
+
+**MANDATORY:** All references within plan artifacts follow a two-part linking contract to ensure plan folders can be moved without breaking links.
+
+### Internal Links (within plan folder)
+
+References between files inside the same plan folder MUST use file-relative paths.
+
+| Rule | Example | Anti-pattern |
+|------|---------|--------------|
+| Use `./` or `../` relative to the referencing file | `../shape.md`, `./phase-1/p1-1.task.md` | ❌ `.cursor/plans/my-plan/shape.md` |
+| `taskFile` values are relative to the plan folder | `phase-1/p1-1.task.md` | ❌ `.cursor/plans/my-plan/phase-1/p1-1.task.md` |
+
+### External Links (to files outside plan folder)
+
+References from plan files to files outside the plan folder MUST use project-root-relative paths.
+
+| Rule | Example | Anti-pattern |
+|------|---------|--------------|
+| Path from project root, no leading `./` | `workflows/plan-lifecycle/workflow.md` | ❌ `../../../workflows/plan-lifecycle/workflow.md` |
+| Never traverse up out of the plan folder | `_bmad/rbtv/_config/tools-manifest.csv` | ❌ `../../../../_bmad/rbtv/_config/tools-manifest.csv` |
+
+### Why
+
+When a plan folder is moved (e.g., relocated or renamed under `.cursor/plans/`), internal file-relative links remain valid because sibling paths don't change, and external root-relative links remain valid because they're anchored to the project root.
+
+---
+
 ## Tool Mode Selection
 
 When tasks require tools, specify the mode explicitly.
@@ -386,7 +414,7 @@ Every plan includes these final phase tasks:
 
 | Task ID | Purpose |
 |---------|---------|
-| `pN-refs` | File reference review - verify all internal markdown links resolve |
+| `pN-refs` | File reference review - verify all markdown links resolve and comply with Plan Linking Standard (internal = file-relative, external = root-relative) |
 | `pN-compound` | Compound learnings - process learnings.md entries into actionable changes |
 | `pN-checkpoint` | Final checkpoint - user approval to complete plan |
 

@@ -29,6 +29,8 @@ human_review: required | optional | none
 
 **MUST read every file in the table below before any execution phase.** Do not proceed to Phase: Understand until all are loaded and read.
 
+**Path format:** External files (outside this plan folder) use project-root-relative paths. Internal files (within this plan folder) use file-relative paths (`./`, `../`).
+
 | File | Purpose |
 |------|---------|
 | {path} | {Why this file is needed} |
