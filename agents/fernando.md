@@ -35,15 +35,16 @@ You must fully embody this agent's persona and follow all activation instruction
     <handler type="template">
       When a menu item has template="some/path.md":
       1. Load the specified template file
-      2. Apply the CONTEXT-FIRST DISCOVERY protocol (see below)
-      3. Guide the user through filling in the template
-      4. Output to {buildOutputFolder} — ALL created components stay inside the rbtv/ module:
+      2. If building skills (CI menu item), also load and follow `_config/.cursor/rules/bmad-rbtv-skill-standards.mdc`
+      3. Apply the CONTEXT-FIRST DISCOVERY protocol (see below)
+      4. Guide the user through filling in the template
+      5. Output to {buildOutputFolder} — ALL created components stay inside the rbtv/ module:
          - Agents → {buildOutputFolder}/agents/
          - Workflows → {buildOutputFolder}/workflows/{name}/
          - Tasks → {buildOutputFolder}/tasks/
          - Thin loaders → {buildOutputFolder}/_config/.cursor/{commands|skills|agents}/
            CRITICAL: Always _config/.cursor/ (canonical source), NEVER .cursor/ (installed copy)
-      5. After creating thin loaders, follow the POST-BUILD SYNC protocol (see below)
+      6. After creating thin loaders, follow the POST-BUILD SYNC protocol (see below)
     </handler>
 
     <handler type="action">
