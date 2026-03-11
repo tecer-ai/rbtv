@@ -1,6 +1,6 @@
 ---
 description: BMAD component pattern compliance rules for RBTV agents, workflows, steps, commands, and tasks
-globs: "agents/**/*.md,workflows/**/*.md,tasks/**/*.xml,_config/.cursor/commands/**/*.md"
+globs: "agents/**/*.md,workflows/**/*.md,tasks/**/*.xml,_config/.claude/commands/**/*.md"
 alwaysApply: false
 ---
 # RBTV Component Pattern Compliance
@@ -39,7 +39,7 @@ alwaysApply: false
 | Terminal steps | `nextStepFile: null` for final steps |
 | HALT | Every step must end with menu + "HALT and WAIT" |
 
-## IDE Command Files (`_config/.cursor/commands/bmad-rbtv-*.md`)
+## IDE Command Files (`_config/.claude/commands/bmad-rbtv-*.md`)
 
 | Rule | Requirement |
 |------|-------------|

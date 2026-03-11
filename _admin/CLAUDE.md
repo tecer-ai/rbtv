@@ -4,7 +4,7 @@
 
 > **EXECUTION:** Agents must read `CLAUDE.md` only. NEVER read mirrored copies.
 
-> **EDITING:** When editing any mirrored content in `CLAUDE.md`, update `_admin/.cursor/rules/admin-rbtv-bmad-mirror.mdc` and `workflows/build-rbtv-component/data/admin-restrictions.md` to match.
+> **EDITING:** When editing any mirrored content in `CLAUDE.md`, update `_admin/.claude/rules/admin-rbtv-bmad-mirror.md` and `workflows/build-rbtv-component/data/admin-restrictions.md` to match.
 
 ## Repository Identity
 
@@ -35,7 +35,7 @@ RBTV uses path variables from `_config/config.yaml` (`paths:` section). Use thes
 | `{bmad_rbtv}` | `{project-root}/_bmad/rbtv` | `.` (rbtv root) |
 | `{bmad_output}` | `{project-root}/{output-folder}` (read from BMAD `core/config.yaml`) | `_admin-output` |
 
-**Admin mode overrides** are declared in `_admin/.cursor/rules/admin-rbtv-bmad-mirror.mdc`.
+**Admin mode overrides** are declared in `_admin/.claude/rules/admin-rbtv-bmad-mirror.md`.
 
 For `{project-root}` direct references in admin mode:
 
@@ -48,8 +48,8 @@ For `{project-root}` direct references in admin mode:
 
 RBTV ships IDE configuration in `_config/`. The unified installer (`_config/install-rbtv.py`) handles three modes:
 
-- **`ide`** (default) — full IDE setup at BMAD project root: copies commands/agents/skills/rules to `.cursor/`, replicates commands/rules/agents to `.claude/` (with format conversion), merges MCP config, normalizes output paths, adds RBTV to help catalog
-- **`admin`** — standalone dev setup at rbtv root: same as ide but with path substitution and admin-specific rules
+- **`ide`** (default) — full IDE setup at BMAD project root: copies commands/agents/skills/rules from `_config/.claude/` to `.claude/`, derives `.cursor/` equivalents (with format conversion), merges MCP config, normalizes output paths, adds RBTV to help catalog
+- **`admin`** — standalone dev setup at rbtv root: copies from `_config/.claude/` and `_admin/.claude/` to `.claude/`, derives `.cursor/`, with path substitution and admin-specific rules
 - **`sync`** — BMAD config patching only (for nanobot): normalizes output paths and help catalog, no IDE artifacts
 
 ```

@@ -1,7 +1,7 @@
 ---
 description: Structure and naming standards for Claude Skills (SKILL.md files)
 paths:
-  - "_config/.cursor/skills/**"
+  - "_config/.claude/skills/**"
   - "workflows/build-rbtv-component/templates/ide-command-template.md"
 ---
 # Skill Standards
