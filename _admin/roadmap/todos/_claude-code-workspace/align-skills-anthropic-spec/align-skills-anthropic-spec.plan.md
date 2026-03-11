@@ -6,40 +6,40 @@ todos:
   - id: p1-1
     content: "p1-1: UPDATE ide-command-template.md skill section with Anthropic-aligned fields, naming rules, and optional subdirectories"
     taskFile: "phase-1/p1-1.task.md"
-    status: pending
+    status: completed
   - id: p1-2
     content: "p1-2: UPDATE name field in all 7 existing SKILL.md files in _config/.cursor/skills/ to match folder names"
     taskFile: "phase-1/p1-2.task.md"
-    status: pending
+    status: completed
   - id: p1-3
     content: "p1-3: CREATE bmad-rbtv-skill-standards.mdc rule in _config/.cursor/rules/"
     taskFile: "phase-1/p1-3.task.md"
-    status: pending
+    status: completed
   - id: p1-checkpoint
     content: "P1 CHECKPOINT - Review template, name fixes, and rule before proceeding to knowledge archival"
-    status: pending
+    status: completed
   # Phase 2: Knowledge & Integration
   - id: p2-1
     content: "p2-1: CREATE platform knowledge document for Anthropic Skills guide and UPDATE knowledge-index.csv"
     taskFile: "phase-2/p2-1.task.md"
-    status: pending
+    status: completed
   - id: p2-2
     content: "p2-2: UPDATE agents/fernando.md to reference skill-standards rule in [CI] handler"
-    status: pending
+    status: completed
   - id: p2-checkpoint
     content: "P2 CHECKPOINT - Review knowledge archive and builder integration"
-    status: pending
+    status: completed
   # Phase 3: Validation & Completion
   - id: p3-refs
     content: "p3-refs: File reference review - verify all internal links resolve"
     taskFile: "phase-3/p3-refs.task.md"
-    status: pending
+    status: completed
   - id: p3-compound
     content: "p3-compound: Compound learnings - process learnings.md entries into actionable changes"
-    status: pending
+    status: completed
   - id: p3-checkpoint
     content: "P3 FINAL CHECKPOINT - User approval to complete plan"
-    status: pending
+    status: completed
 isProject: false
 ---
 
