@@ -17,7 +17,7 @@ paths:
   bmad_core: "{project-root}/_bmad/core"
   bmad_bmm: "{project-root}/_bmad/bmm"
   bmad_rbtv: "{project-root}/_bmad/rbtv"
-  bmad_output: "{project-root}/_bmad-output"
+  bmad_output: "{project-root}/projects"
 
 # Core Configuration Values (inherited from core/config.yaml)
 # user_name, communication_language, document_output_language are read from core
