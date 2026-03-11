@@ -4,6 +4,9 @@ description: 'Restructure _config/ and _admin/ to use .claude/ files as the sour
 docType: 'prd'
 priority: 'Medium'
 source: 'conversation/claude-code-native-rules-agents-discovery'
+references:
+  - 'https://huryn.medium.com/claude-cowork-the-complete-guide-for-pms-e45e7cf0f52d'
+  - 'https://www.morphllm.com/context-rot'
 date: '2026-03-09'
 ---
 
@@ -133,6 +136,41 @@ This meta-rule documents the `.cursor/rules/` format. It should remain as-is (it
 - **CLAUDE.md restructuring:** The recent cleanup (removing manual rule-loading instructions) is sufficient. No further CLAUDE.md changes needed.
 - **Behavioral changes:** This is a pure infrastructure change. No agent, rule, or command behavior should change.
 - **Claude-only skill features in v1:** Skills like `context: fork`, `agent:`, `hooks:`, `disable-model-invocation:`, `user-invocable:` are available in Claude Code but not Cursor. Initial migration moves skills to `.claude/` as-is. Leveraging Claude-only skill features is a follow-up enhancement.
+
+---
+
+## Context Rot Mitigation
+
+Reference: [What Is Context Rot? Why LLMs Degrade as Context Grows](https://www.morphllm.com/context-rot)
+
+When migrating agents to Claude-native format, apply context rot countermeasures — particularly where Claude Code features (`context: fork`, `tools`, subagent delegation) make them practical.
+
+### Key findings to design around
+
+1. **Lost-in-the-middle effect:** LLM accuracy drops 30%+ when relevant information sits in the middle of context rather than at the start or end. Agents that read many files before acting are especially vulnerable.
+2. **Attention dilution:** At 100k tokens the model tracks ~10 billion pairwise relationships. Every irrelevant file added during search degrades reasoning on the relevant ones.
+3. **Distractor interference:** Semantically similar but irrelevant content (deprecated implementations, test fixtures, similarly-named functions) causes hallucinated edits more than unrelated content does.
+
+### Techniques to apply
+
+| Technique | How to apply in RBTV agents |
+|-----------|----------------------------|
+| **Context isolation** | Use Claude Code `context: fork` on search-heavy skills so exploration happens in a subagent's context window, not the parent's. The parent receives only the distilled result. |
+| **Precise returns** | Skills and subagents should return file paths + line ranges, not full file contents, when the parent agent only needs to know *where* to act. |
+| **Discard exploration traces** | Agents that delegate to subagents (via `tools:` or `skills:` with `context: fork`) should not re-read the files the subagent already explored. The subagent's summary is the context. |
+| **Compress early** | For multi-step workflows, agent instructions should direct intermediate results to be summarized before passing to the next step — avoid carrying raw search output across steps. |
+| **Front-load relevant context** | Rules and agent `roleDefinition` should place the most decision-critical information at the top (primacy bias) and at the end (recency bias), not buried in the middle. |
+
+### Where this matters most
+
+- **Explore-type agents** (codebase search, file discovery) — prime candidates for `context: fork`
+- **Quality-review agents** — often read many files; should receive pre-distilled summaries
+- **Multi-step workflows** — each step should compress its output before the next step consumes it
+- **Agent `roleDefinition` and rule ordering** — structure for primacy/recency, avoid burying critical instructions mid-document
+
+### Not in scope for this PRD
+
+Full implementation of context isolation patterns is a follow-up. This PRD ensures the format migration **does not block** these patterns (by adopting Claude-native fields that support them) and that implementers review the context rot research before authoring or converting agents.
 
 ---
 
