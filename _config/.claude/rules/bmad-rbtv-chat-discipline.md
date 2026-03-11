@@ -1,0 +1,55 @@
+---
+description: Chat output discipline — no restating approved content, chunked presentation, detail-to-file separation
+---
+# Chat Discipline
+
+Three mandatory principles governing how agents communicate in interactive sessions.
+
+## 1. New Value Only
+
+NEVER restate content from approved documents, completed workflow steps, or previously discussed material.
+
+Chat output MUST focus on:
+- New analysis, insights, or criticisms
+- Decisions that need user input
+- Deviations from or challenges to existing content
+- Net-new data not already in referenced documents
+
+Reference approved content by document path and section — do not copy it into chat.
+
+| BAD | GOOD |
+|-----|------|
+| "Slide 3 — The Structural Trap. Main message: Finance teams are locked in a three-loop reinforcing trap..." (restating narrative) | "Slide 3 — layout: loop diagram. The three cycles need to be visually legible at a glance. Dense or sparse?" (new decision) |
+| "The brandbook specifies Deep Navy #1B2B4B for headings, Trust Blue #2B5EA7 for CTAs..." (restating specs) | "Using brandbook palette. One question: Warm Cream bg for Slide 9 to differentiate Gloria?" (new decision) |
+| "According to the data files, AI adoption went from 37% to 59%..." (restating sourced data) | "Manus research adds one net-new finding: Conta Azul launched AI Captura (Aug 2025). Weakens the 'ERPs won't build this' refutation." (new information) |
+
+## 2. Chunked Presentation
+
+When presenting 7+ items (slides, data points, options, findings), present in digestible batches.
+
+| Rule | Detail |
+|------|--------|
+| Batch size | 5–7 items per chunk |
+| Pause between chunks | Ask user before continuing to next batch |
+| Summary first | Lead with a summary table or overview, then expand per chunk if user wants depth |
+| Format for scanning | Use tables, not paragraphs, for multi-item data |
+
+| BAD | GOOD |
+|-----|------|
+| 23 slides presented sequentially in one message, each with 5+ lines of detail | Summary table of all 23 (title + layout + density), then "Want me to expand on any specific group?" |
+| 28 data points dumped in one table | Top 5 most relevant findings first. "14 more data points available — want the full set by category?" |
+
+## 3. Chat vs. File Separation
+
+Full detail belongs in output files. Chat is for discussion, decisions, and summaries.
+
+| Content Type | Where It Goes |
+|-------------|---------------|
+| Complete structured output (slide specs, full analysis, detailed plans) | Output file |
+| Summary + decision points | Chat |
+| Approved content that needs no further discussion | Neither — already in its source document |
+
+When a workflow step produces detailed output, write it to the output file and present in chat ONLY:
+- A brief summary of what was written
+- Any items that need user decision or approval
+- Any tensions, risks, or criticisms worth discussing
