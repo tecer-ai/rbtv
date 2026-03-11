@@ -1,0 +1,52 @@
+---
+description: Structure and naming standards for Claude Skills (SKILL.md files)
+globs: _config/.cursor/skills/**,workflows/build-rbtv-component/templates/ide-command-template.md
+alwaysApply: false
+---
+# Skill Standards
+
+## File and Folder Naming
+
+- Skill entry file MUST be named `SKILL.md` (case-sensitive, exact spelling)
+- Folder name MUST be kebab-case, no spaces, no capitals
+- Follow pattern: `{system}-{module}-{name}` (e.g., `bmad-rbtv-doc`)
+
+## YAML Frontmatter
+
+### Required Fields
+
+- `name` — MUST match parent folder name exactly (e.g., folder `bmad-rbtv-doc` → `name: bmad-rbtv-doc`)
+- `description` — MUST include what the skill does AND when to use it (trigger conditions)
+
+### Optional Fields
+
+Add only when relevant:
+
+- `license` — License identifier (e.g., `MIT`)
+- `compatibility` — Runtime version constraint (e.g., `claude-code >= 1.0`)
+- `metadata` — Object with `author`, `version`
+- `allowed-tools` — Array of permitted tool names
+
+### Restrictions
+
+- MUST NOT contain XML angle brackets (`< >`) in YAML frontmatter values
+- MUST NOT include a `README.md` inside skill folders
+
+## Size Limits
+
+- RBTV thin loaders: under 35 lines
+- General skills (non-RBTV): under 5,000 words
+
+## Optional Subdirectories
+
+Skills MAY include subdirectories for supplementary content:
+
+- `scripts/` — Executable scripts
+- `references/` — Reference documentation
+- `assets/` — Static assets
+
+RBTV thin loaders do not require these — they delegate to agents/workflows/tasks.
+
+## Progressive Disclosure
+
+Keep SKILL.md lean. Link to `references/` for heavy documentation rather than embedding it inline.

@@ -1,5 +1,5 @@
 ---
-name: visual-design-extraction
+name: bmad-rbtv-visual-design-extraction
 description: Extract design tokens (colors, typography, spacing, layout, visual identity) from website screenshots. Use when analyzing design systems, extracting design tokens, identifying color palettes, or when user mentions design extraction.
 ---
 

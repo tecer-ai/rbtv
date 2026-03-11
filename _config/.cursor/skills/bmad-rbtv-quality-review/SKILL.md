@@ -1,5 +1,5 @@
 ---
-name: quality-review
+name: bmad-rbtv-quality-review
 description: Evaluates work against quality criteria - use for quality gates after complex tasks. Use when reviewing work quality, validating deliverables, or judging outputs.
 ---
 

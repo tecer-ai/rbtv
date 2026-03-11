@@ -1,5 +1,5 @@
 ﻿---
-name: create-component
+name: bmad-rbtv-create-component
 description: RBTV BMAD Builder - create components in BMAD architecture. Use when creating new BMAD components, building agents, workflows, or tasks.
 ---
 

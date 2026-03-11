@@ -1,5 +1,5 @@
 ---
-name: designer
+name: bmad-rbtv-designer
 description: Creative Design Agent - visual design for pitch decks and brand identity. Use when designing pitch deck visuals, creating brand visual identity, or generating AI image prompts.
 ---
 

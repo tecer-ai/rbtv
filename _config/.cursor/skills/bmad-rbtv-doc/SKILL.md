@@ -1,5 +1,5 @@
 ---
-name: doc
+name: bmad-rbtv-doc
 description: RBTV unified documentation generation (compound, handoff, product). Use when creating documentation, writing handoffs, or generating product docs.
 ---
 

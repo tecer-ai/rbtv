@@ -45,12 +45,21 @@ IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/
 
 Skills live in `.cursor/skills/{system}-{module}-{name}/SKILL.md`. They are auto-detected by AI agents in the current context.
 
+The `name` field MUST match the parent folder name exactly (e.g., folder `bmad-rbtv-doc` → `name: bmad-rbtv-doc`).
+
 ### Skill → Agent
 
 ```markdown
 ---
-name: {name}
-description: {description}. Use when {trigger conditions}.
+name: '{system}-{module}-{name}'
+description: '{description}. Use when {trigger conditions}.'
+# Optional fields (per Anthropic Claude Skills spec):
+# license: MIT
+# compatibility: 'claude-code >= 1.0'
+# metadata:
+#   author: '{author}'
+#   version: '{version}'
+# allowed-tools: ['Read', 'Write', 'Edit', 'Bash']
 ---
 
 # {Display Name} Skill
@@ -78,8 +87,15 @@ description: {description}. Use when {trigger conditions}.
 
 ```markdown
 ---
-name: {name}
-description: {description}. Use when {trigger conditions}.
+name: '{system}-{module}-{name}'
+description: '{description}. Use when {trigger conditions}.'
+# Optional fields (per Anthropic Claude Skills spec):
+# license: MIT
+# compatibility: 'claude-code >= 1.0'
+# metadata:
+#   author: '{author}'
+#   version: '{version}'
+# allowed-tools: ['Read', 'Write', 'Edit', 'Bash']
 ---
 
 # {Display Name} Skill
@@ -97,6 +113,8 @@ description: {description}. Use when {trigger conditions}.
 
 Load and follow: `{project-root}/_bmad/{module}/{type}/{path}`
 ```
+
+**Optional subdirectories:** RBTV skills are thin loaders by default. However, skills MAY include optional subdirectories (`scripts/`, `references/`, `assets/`) for supplementary content when needed.
 
 ---
 
@@ -168,7 +186,7 @@ Follow the {workflow|task} exactly. {Brief scope statement}.
 | Type | Location | Pattern |
 |------|----------|---------|
 | Command | `.cursor/commands/` | `{system}-{module}-{name}.md` |
-| Skill | `.cursor/skills/{system}-{module}-{name}/` | `SKILL.md` |
+| Skill | `.cursor/skills/{system}-{module}-{name}/` | `SKILL.md` (name field = folder name) |
 | Cursor sub-agent | `.cursor/agents/` | `{system}-{module}-{name}.md` |
 
 For RBTV: `{system}` = `bmad`, `{module}` = `rbtv`.
@@ -193,3 +211,6 @@ For RBTV: `{system}` = `bmad`, `{module}` = `rbtv`.
 4. **Cursor sub-agent inputs** — Cursor sub-agents run with zero context. ALWAYS specify required inputs and return values.
 5. **Commands mirror across IDEs** — `.cursor/commands/` and `.claude/commands/` contain identical files.
 6. **Register AI-available tools** — If creating skill + cursor sub-agent, add entry to `tools-manifest.csv`.
+7. **Name matches folder** — The `name` field in SKILL.md MUST match the parent folder name exactly.
+8. **No README.md in skill folders** — Skill folders MUST NOT contain a `README.md` file.
+9. **No XML angle brackets in frontmatter** — YAML frontmatter MUST NOT contain XML angle brackets (`< >`) (security restriction).

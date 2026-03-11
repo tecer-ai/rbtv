@@ -1,5 +1,5 @@
 ---
-name: web-research
+name: bmad-rbtv-web-research
 description: Apply rigorous research standards for data integrity, source evaluation, and citation. Use when conducting web research, gathering sources, writing research documents, or when user mentions research.
 ---
 

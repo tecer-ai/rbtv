@@ -1,5 +1,5 @@
 ---
-name: tone-extraction
+name: bmad-rbtv-tone-extraction
 description: Extract voice signature from text across emotional tone, structural patterns, and vocabulary dimensions. Use when analyzing writing tone, extracting voice signatures, matching writing styles, or when user mentions tone analysis or voice extraction.
 ---
 
