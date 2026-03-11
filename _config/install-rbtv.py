@@ -86,11 +86,11 @@ ADMIN_PATH_REPLACE = ""
 # Reinforcement appended to commands/agents/skills in admin mode
 ADMIN_REINFORCEMENT = (
     "\n\n> **ADMIN MODE:** Before proceeding, load and read "
-    "`.cursor/rules/admin-rbtv-bmad-mirror.mdc` for path resolution "
-    "and config values. Key: `.cursor/` and `tasks/` are at workspace root.\n"
+    "`.claude/rules/admin-rbtv-bmad-mirror.md` for path resolution "
+    "and config values. Key: `.claude/` and `tasks/` are at workspace root.\n"
 )
 
-ADMIN_RULE_FILE = "admin-rbtv-bmad-mirror.mdc"
+ADMIN_RULE_FILE = "admin-rbtv-bmad-mirror.md"
 
 ADMIN_GITIGNORE_ENTRIES = [
     "/.cursor/",
@@ -466,13 +466,13 @@ def ide_merge_mcp_json(src_mcp: Path, dst_mcp: Path) -> dict:
     return stats
 
 
-def ide_replicate_commands_to_claude(root: Path) -> dict:
-    """Replicate .cursor/commands/ → .claude/commands/ for Claude Code."""
+def ide_replicate_commands_to_cursor(root: Path) -> dict:
+    """Replicate .claude/commands/ → .cursor/commands/ for Cursor (direct copy)."""
     stats = {"copied": 0, "replaced": 0, "errors": []}
-    src = root / ".cursor" / "commands"
-    dst = root / ".claude" / "commands"
+    src = root / ".claude" / "commands"
+    dst = root / ".cursor" / "commands"
     if not src.exists():
-        return {"skipped": 1, "reason": ".cursor/commands/ does not exist"}
+        return {"skipped": 1, "reason": ".claude/commands/ does not exist"}
     dst.mkdir(parents=True, exist_ok=True)
     for src_file in src.rglob("*"):
         if not src_file.is_file():
@@ -489,17 +489,14 @@ def ide_replicate_commands_to_claude(root: Path) -> dict:
     return stats
 
 
-def _convert_mdc_frontmatter_to_claude(content: str) -> str:
+def _convert_claude_rule_to_mdc(content: str) -> str:
     """
-    Convert Cursor .mdc frontmatter to Claude .claude/rules/ frontmatter.
+    Convert Claude .claude/rules/ .md frontmatter to Cursor .mdc frontmatter.
 
     Mapping:
-      - globs → paths (YAML array format)
-      - alwaysApply: true → no frontmatter needed (loads automatically)
-      - alwaysApply: false with no globs → no frontmatter (loads automatically)
-      - description retained as-is (harmless, useful for humans)
-      - alwaysApply field removed (not a Claude concept)
-      - imported field removed (Cursor-specific)
+      - paths (YAML array) → globs (comma-separated string)
+      - adds alwaysApply: true (if no paths) or alwaysApply: false (if paths)
+      - description retained as-is
     """
     if not content.startswith("---"):
         return content
@@ -512,52 +509,56 @@ def _convert_mdc_frontmatter_to_claude(content: str) -> str:
     body = content[end + 3:]
 
     lines_out = []
+    patterns = []
+    in_paths_block = False
 
     for line in front.splitlines():
         stripped = line.strip()
 
-        if stripped.startswith("alwaysApply:"):
-            continue
-        if stripped.startswith("imported:"):
+        if stripped == "paths:":
+            in_paths_block = True
             continue
 
-        if stripped.startswith("globs:"):
-            raw = stripped.split(":", 1)[1].strip().strip('"').strip("'")
-            patterns = [p.strip() for p in raw.split(",") if p.strip()]
-            if patterns:
-                lines_out.append("paths:")
-                for p in patterns:
-                    lines_out.append(f'  - "{p}"')
-            continue
+        if in_paths_block:
+            if stripped.startswith("- "):
+                val = stripped[2:].strip().strip('"').strip("'")
+                patterns.append(val)
+                continue
+            else:
+                in_paths_block = False
 
         lines_out.append(line)
 
-    if not lines_out or all(not ln.strip() for ln in lines_out):
-        return body.lstrip("\n")
+    if patterns:
+        globs_str = ", ".join(patterns)
+        lines_out.append(f'globs: "{globs_str}"')
+        lines_out.append("alwaysApply: false")
+    else:
+        lines_out.append("alwaysApply: true")
 
     return "---\n" + "\n".join(lines_out) + "\n---" + body
 
 
-def ide_replicate_rules_to_claude(root: Path) -> dict:
-    """Replicate .cursor/rules/*.mdc → .claude/rules/*.md with frontmatter conversion."""
+def ide_replicate_rules_to_cursor(root: Path) -> dict:
+    """Replicate .claude/rules/*.md → .cursor/rules/*.mdc with frontmatter conversion."""
     stats = {"copied": 0, "replaced": 0, "errors": []}
-    src = root / ".cursor" / "rules"
-    dst = root / ".claude" / "rules"
+    src = root / ".claude" / "rules"
+    dst = root / ".cursor" / "rules"
     if not src.exists():
-        return {"skipped": 1, "reason": ".cursor/rules/ does not exist"}
+        return {"skipped": 1, "reason": ".claude/rules/ does not exist"}
     dst.mkdir(parents=True, exist_ok=True)
     for src_file in src.rglob("*"):
         if not src_file.is_file():
             continue
         rel_path = src_file.relative_to(src)
-        dst_name = rel_path.with_suffix(".md") if rel_path.suffix == ".mdc" else rel_path
+        dst_name = rel_path.with_suffix(".mdc") if rel_path.suffix == ".md" else rel_path
         dst_file = dst / dst_name
         dst_file.parent.mkdir(parents=True, exist_ok=True)
         try:
             existed = dst_file.exists()
             content = src_file.read_text(encoding="utf-8")
-            if src_file.suffix == ".mdc":
-                content = _convert_mdc_frontmatter_to_claude(content)
+            if src_file.suffix == ".md":
+                content = _convert_claude_rule_to_mdc(content)
             dst_file.write_text(content, encoding="utf-8")
             stats["replaced" if existed else "copied"] += 1
         except Exception as e:
@@ -565,15 +566,19 @@ def ide_replicate_rules_to_claude(root: Path) -> dict:
     return stats
 
 
-def _convert_agent_frontmatter_to_claude(content: str) -> str:
+def _convert_claude_agent_to_cursor(content: str) -> str:
     """
-    Convert Cursor agent frontmatter to Claude .claude/agents/ frontmatter.
+    Convert Claude .claude/agents/ frontmatter to Cursor agent frontmatter.
 
     Mapping:
-      - readonly: true → permissionMode: plan
-      - readonly field removed after conversion
+      - permissionMode: plan → readonly: true
+      - strips Claude-only fields: tools, hooks, memory, maxTurns, mcpServers, skills, bypassPermissions
       - All other fields passed through (name, description, model are shared)
     """
+    CLAUDE_ONLY_FIELDS = {
+        "permissionMode", "tools", "hooks", "memory",
+        "maxTurns", "mcpServers", "skills", "bypassPermissions",
+    }
     if not content.startswith("---"):
         return content
 
@@ -585,32 +590,36 @@ def _convert_agent_frontmatter_to_claude(content: str) -> str:
     body = content[end + 3:]
 
     lines_out = []
-    is_readonly = False
+    has_plan_mode = False
 
     for line in front.splitlines():
         stripped = line.strip()
+        field_name = stripped.split(":")[0].strip() if ":" in stripped else ""
 
-        if stripped.startswith("readonly:"):
+        if field_name == "permissionMode":
             val = stripped.split(":", 1)[1].strip().lower()
-            if val == "true":
-                is_readonly = True
+            if val == "plan":
+                has_plan_mode = True
+            continue
+
+        if field_name in CLAUDE_ONLY_FIELDS:
             continue
 
         lines_out.append(line)
 
-    if is_readonly:
-        lines_out.append("permissionMode: plan")
+    if has_plan_mode:
+        lines_out.append("readonly: true")
 
     return "---\n" + "\n".join(lines_out) + "\n---" + body
 
 
-def ide_replicate_agents_to_claude(root: Path) -> dict:
-    """Replicate .cursor/agents/*.md → .claude/agents/*.md with frontmatter conversion."""
+def ide_replicate_agents_to_cursor(root: Path) -> dict:
+    """Replicate .claude/agents/*.md → .cursor/agents/*.md with frontmatter conversion."""
     stats = {"copied": 0, "replaced": 0, "errors": []}
-    src = root / ".cursor" / "agents"
-    dst = root / ".claude" / "agents"
+    src = root / ".claude" / "agents"
+    dst = root / ".cursor" / "agents"
     if not src.exists():
-        return {"skipped": 1, "reason": ".cursor/agents/ does not exist"}
+        return {"skipped": 1, "reason": ".claude/agents/ does not exist"}
     dst.mkdir(parents=True, exist_ok=True)
     for src_file in src.rglob("*"):
         if not src_file.is_file():
@@ -621,7 +630,7 @@ def ide_replicate_agents_to_claude(root: Path) -> dict:
         try:
             existed = dst_file.exists()
             content = src_file.read_text(encoding="utf-8")
-            content = _convert_agent_frontmatter_to_claude(content)
+            content = _convert_claude_agent_to_cursor(content)
             dst_file.write_text(content, encoding="utf-8")
             stats["replaced" if existed else "copied"] += 1
         except Exception as e:
@@ -629,13 +638,13 @@ def ide_replicate_agents_to_claude(root: Path) -> dict:
     return stats
 
 
-def ide_replicate_skills_to_claude(root: Path) -> dict:
-    """Replicate .cursor/skills/ → .claude/skills/ (identical format, direct copy)."""
+def ide_replicate_skills_to_cursor(root: Path) -> dict:
+    """Replicate .claude/skills/ → .cursor/skills/ (identical format, direct copy)."""
     stats = {"copied": 0, "replaced": 0, "errors": []}
-    src = root / ".cursor" / "skills"
-    dst = root / ".claude" / "skills"
+    src = root / ".claude" / "skills"
+    dst = root / ".cursor" / "skills"
     if not src.exists():
-        return {"skipped": 1, "reason": ".cursor/skills/ does not exist"}
+        return {"skipped": 1, "reason": ".claude/skills/ does not exist"}
     dst.mkdir(parents=True, exist_ok=True)
     for src_file in src.rglob("*"):
         if not src_file.is_file():
@@ -782,7 +791,7 @@ def admin_copy_folder(src: Path, dst: Path, transform: bool = False) -> dict:
 def admin_read_existing_values(rbtv_dir: Path) -> dict:
     """Read existing admin config values from the installed admin rule (if present)."""
     values = dict(ADMIN_CONFIG_DEFAULTS)
-    rule_file = rbtv_dir / ".cursor" / "rules" / ADMIN_RULE_FILE
+    rule_file = rbtv_dir / ".claude" / "rules" / ADMIN_RULE_FILE
     if not rule_file.exists():
         return values
     content = rule_file.read_text(encoding="utf-8")
@@ -815,7 +824,7 @@ def admin_prompt_user_values(defaults: dict) -> dict:
 
 def admin_inject_values(rbtv_dir: Path, values: dict) -> None:
     """Replace {admin_*} placeholders in the admin rule with user values."""
-    rule_file = rbtv_dir / ".cursor" / "rules" / ADMIN_RULE_FILE
+    rule_file = rbtv_dir / ".claude" / "rules" / ADMIN_RULE_FILE
     if not rule_file.exists():
         return
     content = rule_file.read_text(encoding="utf-8")
@@ -889,11 +898,11 @@ def run_ide_mode(paths: dict, skip_version_check: bool) -> int:
     _print_errors(del_stats.get("errors", []))
     print()
 
-    # Copy .cursor/ config
+    # Copy .claude/ config (canonical source)
     total_copied = total_replaced = 0
-    src = config_dir / ".cursor"
-    dst = root / ".cursor"
-    print(f"Processing .cursor/")
+    src = config_dir / ".claude"
+    dst = root / ".claude"
+    print(f"Processing .claude/ (canonical source)")
     stats = ide_copy_folder(src, dst, exclude_names={"mcp.json"})
     if "reason" in stats:
         print(f"  Skipped ({stats['reason']})")
@@ -922,9 +931,9 @@ def run_ide_mode(paths: dict, skip_version_check: bool) -> int:
     _print_mcp_stats(mcp_stats_claude)
     print()
 
-    # Replicate commands to .claude/
-    print("Replicating commands to .claude/")
-    cmd_stats = ide_replicate_commands_to_claude(root)
+    # Replicate commands to .cursor/
+    print("Replicating commands to .cursor/")
+    cmd_stats = ide_replicate_commands_to_cursor(root)
     if "reason" in cmd_stats:
         print(f"  Skipped ({cmd_stats['reason']})")
     else:
@@ -932,9 +941,9 @@ def run_ide_mode(paths: dict, skip_version_check: bool) -> int:
         _print_errors(cmd_stats.get("errors", []))
     print()
 
-    # Replicate rules to .claude/
-    print("Replicating rules to .claude/")
-    rule_stats = ide_replicate_rules_to_claude(root)
+    # Replicate rules to .cursor/
+    print("Replicating rules to .cursor/")
+    rule_stats = ide_replicate_rules_to_cursor(root)
     if "reason" in rule_stats:
         print(f"  Skipped ({rule_stats['reason']})")
     else:
@@ -942,9 +951,9 @@ def run_ide_mode(paths: dict, skip_version_check: bool) -> int:
         _print_errors(rule_stats.get("errors", []))
     print()
 
-    # Replicate agents to .claude/
-    print("Replicating agents to .claude/")
-    agent_stats = ide_replicate_agents_to_claude(root)
+    # Replicate agents to .cursor/
+    print("Replicating agents to .cursor/")
+    agent_stats = ide_replicate_agents_to_cursor(root)
     if "reason" in agent_stats:
         print(f"  Skipped ({agent_stats['reason']})")
     else:
@@ -952,9 +961,9 @@ def run_ide_mode(paths: dict, skip_version_check: bool) -> int:
         _print_errors(agent_stats.get("errors", []))
     print()
 
-    # Replicate skills to .claude/
-    print("Replicating skills to .claude/")
-    skill_stats = ide_replicate_skills_to_claude(root)
+    # Replicate skills to .cursor/
+    print("Replicating skills to .cursor/")
+    skill_stats = ide_replicate_skills_to_cursor(root)
     if "reason" in skill_stats:
         print(f"  Skipped ({skill_stats['reason']})")
     else:
@@ -1011,13 +1020,13 @@ def run_ide_mode(paths: dict, skip_version_check: bool) -> int:
     if "added" in mcp_stats_claude:
         print(f"Claude Code MCP servers: {mcp_stats_claude['added'] + mcp_stats_claude['merged']}")
     if "copied" in cmd_stats:
-        print(f"Commands replicated:  {cmd_stats['copied'] + cmd_stats['replaced']}")
+        print(f"Commands replicated (→.cursor):  {cmd_stats['copied'] + cmd_stats['replaced']}")
     if "copied" in rule_stats:
-        print(f"Rules replicated:     {rule_stats['copied'] + rule_stats['replaced']}")
+        print(f"Rules replicated (→.cursor):     {rule_stats['copied'] + rule_stats['replaced']}")
     if "copied" in agent_stats:
-        print(f"Agents replicated:    {agent_stats['copied'] + agent_stats['replaced']}")
+        print(f"Agents replicated (→.cursor):    {agent_stats['copied'] + agent_stats['replaced']}")
     if "copied" in skill_stats:
-        print(f"Skills replicated:    {skill_stats['copied'] + skill_stats['replaced']}")
+        print(f"Skills replicated (→.cursor):    {skill_stats['copied'] + skill_stats['replaced']}")
     print()
     print("Installation complete.")
     print()
@@ -1070,9 +1079,9 @@ def run_admin_mode(paths: dict) -> int:
     _print_errors(del_stats.get("errors", []))
     print()
 
-    # Copy _config/.cursor/ with path substitution + reinforcement
-    print("Copying _config/.cursor/ (path substitution + reinforcement)...")
-    cfg_stats = admin_copy_folder(config_cursor, rbtv_dir / ".cursor", transform=True)
+    # Copy _config/.claude/ with path substitution + reinforcement (canonical source)
+    print("Copying _config/.claude/ (path substitution + reinforcement)...")
+    cfg_stats = admin_copy_folder(config_claude, rbtv_dir / ".claude", transform=True)
     if "reason" in cfg_stats:
         print(f"  Skipped ({cfg_stats['reason']})")
     else:
@@ -1080,9 +1089,9 @@ def run_admin_mode(paths: dict) -> int:
         _print_errors(cfg_stats.get("errors", []))
     print()
 
-    # Copy _config/.claude/ with path substitution + reinforcement
-    print("Copying _config/.claude/ (path substitution + reinforcement)...")
-    cfg_claude_stats = admin_copy_folder(config_claude, rbtv_dir / ".claude", transform=True)
+    # Replicate .claude/ to .cursor/ (derived)
+    print("Replicating .claude/ to .cursor/ (commands)...")
+    cfg_claude_stats = {"copied": 0, "replaced": 0, "errors": []}
     if "reason" in cfg_claude_stats:
         print(f"  Skipped ({cfg_claude_stats['reason']})")
     else:
@@ -1090,9 +1099,9 @@ def run_admin_mode(paths: dict) -> int:
         _print_errors(cfg_claude_stats.get("errors", []))
     print()
 
-    # Copy _admin/.cursor/ as-is
-    print("Copying _admin/.cursor/ (admin rules)...")
-    adm_stats = admin_copy_folder(admin_cursor, rbtv_dir / ".cursor", transform=False)
+    # Copy _admin/.claude/ as-is (admin rules)
+    print("Copying _admin/.claude/ (admin rules)...")
+    adm_stats = admin_copy_folder(admin_claude, rbtv_dir / ".claude", transform=False)
     if "reason" in adm_stats:
         print(f"  Skipped ({adm_stats['reason']})")
     else:
@@ -1100,9 +1109,9 @@ def run_admin_mode(paths: dict) -> int:
         _print_errors(adm_stats.get("errors", []))
     print()
 
-    # Copy _admin/.claude/ as-is
-    print("Copying _admin/.claude/ (admin rules)...")
-    adm_claude_stats = admin_copy_folder(admin_claude, rbtv_dir / ".claude", transform=False)
+    # Derive .cursor/ from .claude/ (admin rules)
+    print("Deriving .cursor/ admin rules from .claude/...")
+    adm_claude_stats = {"copied": 0, "replaced": 0, "errors": []}
     if "reason" in adm_claude_stats:
         print(f"  Skipped ({adm_claude_stats['reason']})")
     else:
@@ -1110,9 +1119,9 @@ def run_admin_mode(paths: dict) -> int:
         _print_errors(adm_claude_stats.get("errors", []))
     print()
 
-    # Replicate commands to .claude/
-    print("Replicating commands to .claude/")
-    cmd_stats = ide_replicate_commands_to_claude(rbtv_dir)
+    # Replicate commands to .cursor/
+    print("Replicating commands to .cursor/")
+    cmd_stats = ide_replicate_commands_to_cursor(rbtv_dir)
     if "reason" in cmd_stats:
         print(f"  Skipped ({cmd_stats['reason']})")
     else:
@@ -1120,9 +1129,9 @@ def run_admin_mode(paths: dict) -> int:
         _print_errors(cmd_stats.get("errors", []))
     print()
 
-    # Replicate rules to .claude/
-    print("Replicating rules to .claude/")
-    rule_stats = ide_replicate_rules_to_claude(rbtv_dir)
+    # Replicate rules to .cursor/
+    print("Replicating rules to .cursor/")
+    rule_stats = ide_replicate_rules_to_cursor(rbtv_dir)
     if "reason" in rule_stats:
         print(f"  Skipped ({rule_stats['reason']})")
     else:
@@ -1130,9 +1139,9 @@ def run_admin_mode(paths: dict) -> int:
         _print_errors(rule_stats.get("errors", []))
     print()
 
-    # Replicate agents to .claude/
-    print("Replicating agents to .claude/")
-    agent_stats = ide_replicate_agents_to_claude(rbtv_dir)
+    # Replicate agents to .cursor/
+    print("Replicating agents to .cursor/")
+    agent_stats = ide_replicate_agents_to_cursor(rbtv_dir)
     if "reason" in agent_stats:
         print(f"  Skipped ({agent_stats['reason']})")
     else:
@@ -1140,9 +1149,9 @@ def run_admin_mode(paths: dict) -> int:
         _print_errors(agent_stats.get("errors", []))
     print()
 
-    # Replicate skills to .claude/
-    print("Replicating skills to .claude/")
-    skill_stats = ide_replicate_skills_to_claude(rbtv_dir)
+    # Replicate skills to .cursor/
+    print("Replicating skills to .cursor/")
+    skill_stats = ide_replicate_skills_to_cursor(rbtv_dir)
     if "reason" in skill_stats:
         print(f"  Skipped ({skill_stats['reason']})")
     else:
