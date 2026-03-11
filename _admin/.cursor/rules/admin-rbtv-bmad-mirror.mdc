@@ -8,21 +8,6 @@ alwaysApply: true
 
 > **EDITING:** When editing any content below "Admin Config Overrides", update `CLAUDE.md` to match.
 
-## Admin Config Overrides
-
-These values take precedence over `_config/config.yaml`:
-
-| Key | Value |
-|-----|-------|
-| user_name | "{admin_user_name}" |
-| communication_language | "{admin_communication_language}" |
-| document_output_language | "{admin_document_output_language}" |
-| output_folder | "_admin-output" |
-| paths.bmad_core | "_admin/docs/BMAD-mirror/_bmad/core" |
-| paths.bmad_bmm | "_admin/docs/BMAD-mirror/_bmad/bmm" |
-| paths.bmad_rbtv | "." |
-| paths.bmad_output | "_admin-output" |
-
 ## Repository Identity
 
 This repo is the **RBTV module**. It is designed to run installed inside a parent system called **BMAD**, at the path `{project-root}/_bmad/rbtv/`.
@@ -48,20 +33,6 @@ When RBTV files reference `{project-root}` paths, resolve them as follows:
 ## Installation
 
 RBTV ships IDE configuration in `_config/`. The installer (`_config/install-rbtv.py`) copies these files to the BMAD project root. Source files live in this repo; installed copies are generated outputs.
-
-**What the installer does:**
-
-1. Deletes old RBTV files (`bmad-rbtv*`) from `{project-root}/.cursor/` and `{project-root}/.claude/`
-2. Copies `_config/.cursor/` contents (commands, agents, skills, rules) → `{project-root}/.cursor/`
-3. Merges `_config/.cursor/mcp.json` → `{project-root}/.cursor/mcp.json` and `{project-root}/.claude/.mcp.json`
-4. Replicates `{project-root}/.cursor/commands/` → `{project-root}/.claude/commands/`
-5. Replicates `{project-root}/.cursor/rules/` → `{project-root}/.claude/rules/` (`.mdc` → `.md`, frontmatter converted)
-6. Replicates `{project-root}/.cursor/agents/` → `{project-root}/.claude/agents/` (frontmatter converted)
-7. Replicates `{project-root}/.cursor/skills/` → `{project-root}/.claude/skills/` (direct copy)
-8. Updates `{bmad_core}/config.yaml` and `{bmad_bmm}/config.yaml`
-9. Adds RBTV entry to `{project-root}/_bmad/_config/bmad-help.csv`
-10. Creates `{project-root}/.vscode/settings.json` if `.vscode/` does not exist (leaves existing untouched)
-11. Appends patterns to `{project-root}/.cursorignore`
 
 **Installed BMAD structure (RBTV touchpoints only):**
 
@@ -93,21 +64,6 @@ RBTV ships IDE configuration in `_config/`. The installer (`_config/install-rbtv
 ## Admin / Standalone Development
 
 `_admin/` contains tooling for developing RBTV as a standalone repo (outside a parent BMAD project). Run `_config/install-rbtv.py --mode admin` to set up `.cursor/` at the rbtv root so Cursor commands, agents, skills, and rules work without a parent BMAD installation.
-
-**What admin mode does:**
-
-1. Deletes old managed files (`bmad-rbtv*`, `admin-rbtv*`) from `.cursor/` and `.claude/` at rbtv root
-2. Copies `_config/.cursor/` contents → rbtv root `.cursor/`, applying path substitution (`{project-root}/_bmad/rbtv/` → ``) and appending a reinforcement reminder to commands/agents/skills
-3. Copies `_admin/.cursor/` contents (admin-specific rules) → rbtv root `.cursor/` as-is
-4. Replicates `.cursor/commands/` → `.claude/commands/` for Claude Code
-5. Replicates `.cursor/rules/` → `.claude/rules/` (`.mdc` → `.md`, frontmatter converted)
-6. Replicates `.cursor/agents/` → `.claude/agents/` (frontmatter converted)
-7. Replicates `.cursor/skills/` → `.claude/skills/` (direct copy)
-8. Merges `_config/.cursor/mcp.json` → rbtv root `.claude/.mcp.json`
-9. Prompts for admin config values (user name, languages) and injects them into the admin rule
-10. Ensures `.gitignore` at rbtv root contains required entries (`.cursor/`, `.claude/`, `_admin-output/`) — additive, preserves existing content
-
-Idempotent for all modes — re-run after every `git pull`.
 
 ## Boundaries
 
