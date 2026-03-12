@@ -1,0 +1,85 @@
+---
+description: Guidelines for continuously improving Cursor rules based on emerging code patterns and best practices.
+---
+## Rule Improvement Triggers
+
+- New code patterns not covered by existing rules
+- Repeated similar implementations across files
+- Common error patterns that could be prevented
+- New libraries or tools being used consistently
+- Emerging best practices in the codebase
+
+# Analysis Process
+
+MUST analyze new code by:
+- Comparing with existing rules
+- Identifying patterns for standardization
+- Checking for references to external documentation
+- Verifying consistent error handling
+- Monitoring test patterns and coverage
+
+# Rule Updates
+
+- **Add New Rules When:**
+  - A new technology/pattern is used in 3+ files
+  - Common bugs could be prevented by a rule
+  - Code reviews repeatedly mention the same feedback
+  - New security or performance patterns emerge
+
+- **Modify Existing Rules When:**
+  - Better examples exist in the codebase
+  - Additional edge cases are discovered
+  - Related rules have been updated
+  - Implementation details have changed
+
+- **Example Pattern Recognition:**
+
+  ```typescript
+  // If you see repeated patterns like:
+  const data = await prisma.user.findMany({
+    select: { id: true, email: true },
+    where: { status: 'ACTIVE' }
+  });
+
+  // Consider adding to [prisma.mdc](mdc:shipixen/.cursor/rules/prisma.mdc):
+  // - Standard select fields
+  // - Common where conditions
+  // - Performance optimization patterns
+  ```
+
+- **Rule Quality Checks:**
+- Rules MUST be actionable and specific
+- Examples MUST come from actual code
+- References MUST be up to date
+- Patterns MUST be consistently enforced
+
+## Continuous Improvement
+
+- MUST monitor code review comments
+- MUST track common development questions
+- MUST update rules after major refactors
+- MUST add links to relevant documentation
+- MUST cross-reference related rules
+
+## Rule Deprecation
+
+- MUST mark outdated patterns as deprecated
+- MUST remove rules that no longer apply
+- MUST update references to deprecated rules
+- MUST document migration paths for old patterns
+
+## Documentation Updates
+
+- MUST keep examples synchronized with code
+- MUST update references to external docs
+- MUST maintain links between related rules
+- MUST document breaking changes
+
+For Cursor rules format, read `workflows/prompting-assistance/data/platform_knowledge/cursor_rules.md`.
+For Claude rules format, read `workflows/prompting-assistance/data/platform_knowledge/claude_rules.md`.
+
+
+
+
+
+

@@ -35,15 +35,16 @@ You must fully embody this agent's persona and follow all activation instruction
     <handler type="template">
       When a menu item has template="some/path.md":
       1. Load the specified template file
-      2. Apply the CONTEXT-FIRST DISCOVERY protocol (see below)
-      3. Guide the user through filling in the template
-      4. Output to {buildOutputFolder} — ALL created components stay inside the rbtv/ module:
+      2. If building skills (CI menu item), also load and follow `workflows/prompting-assistance/data/platform_knowledge/claude_skills.md`
+      3. Apply the CONTEXT-FIRST DISCOVERY protocol (see below)
+      4. Guide the user through filling in the template
+      5. Output to {buildOutputFolder} — ALL created components stay inside the rbtv/ module:
          - Agents → {buildOutputFolder}/agents/
          - Workflows → {buildOutputFolder}/workflows/{name}/
          - Tasks → {buildOutputFolder}/tasks/
-         - Thin loaders → {buildOutputFolder}/_config/.cursor/{commands|skills|agents}/
-           CRITICAL: Always _config/.cursor/ (canonical source), NEVER .cursor/ (installed copy)
-      5. After creating thin loaders, follow the POST-BUILD SYNC protocol (see below)
+         - Thin loaders → {buildOutputFolder}/_config/.claude/{commands|skills|agents}/
+           CRITICAL: Always _config/.claude/ (canonical source), NEVER .claude/ (installed copy)
+      6. After creating thin loaders, follow the POST-BUILD SYNC protocol (see below)
     </handler>
 
     <handler type="action">
@@ -79,7 +80,7 @@ You must fully embody this agent's persona and follow all activation instruction
       </step>
       <step n="2">INSTRUCT USER:
         - BMAD instance: "Run `python {project-root}/_bmad/rbtv/_config/install-rbtv.py` to sync the new thin loaders to your IDE configuration (`.cursor/` and `.claude/`)."
-        - rbtv admin: "Manually copy the new files from `_config/.cursor/` to `.cursor/` to update your local IDE. If you also maintain a BMAD instance, run `install-rbtv.py` from there."
+        - rbtv admin: "Manually copy the new files from `_config/.claude/` to `.claude/` to update your local IDE. If you also maintain a BMAD instance, run `install-rbtv.py` from there."
       </step>
     </sequence>
   </protocol>
@@ -94,7 +95,7 @@ You must fully embody this agent's persona and follow all activation instruction
   <r>ALWAYS apply the context-first-discovery protocol before asking discovery questions.</r>
   <r>When creating components, explain WHY you recommend a particular component type — reference the architecture knowledge.</r>
   <r>When a generated file would contain a catalog-style list (e.g. "all commands", "every skill", "all rules"), NEVER hardcode the list inline. Instead, reference an existing manifest as the single source of truth (e.g. tools-manifest.csv). If no manifest exists for that catalog, CREATE one as a .csv in {buildOutputFolder}/_config/ and reference it.</r>
-  <r>You ALWAYS work on the rbtv module at {buildOutputFolder}, regardless of whether the IDE is running from the BMAD project root or from rbtv/ directly. NEVER write components to BMAD core or other modules. Thin loaders go to {buildOutputFolder}/_config/.cursor/ (canonical source), NEVER to .cursor/ (installed copy).</r>
+  <r>You ALWAYS work on the rbtv module at {buildOutputFolder}, regardless of whether the IDE is running from the BMAD project root or from rbtv/ directly. NEVER write components to BMAD core or other modules. Thin loaders go to {buildOutputFolder}/_config/.claude/ (canonical source), NEVER to .claude/ (installed copy).</r>
   <r>BMAD-FIRST: Before creating ANY component, check admin-restrictions.md. Read bmad-help.csv to verify no existing BMAD component fulfills the requirement. If one exists, use it or integrate with it instead of creating a new RBTV component.</r>
 </rules>
 

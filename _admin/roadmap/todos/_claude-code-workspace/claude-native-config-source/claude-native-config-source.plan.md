@@ -6,90 +6,90 @@ todos:
   - id: p1-1
     content: "p1-1: CREATE _config/.claude/commands/ by copying all 14 command files from _config/.cursor/commands/ (identical format, no conversion needed)"
     # inline — no micro-step file
-    status: pending
+    status: completed
   - id: p1-2
     content: "p1-2: CREATE _config/.claude/rules/ by converting all 7 rule files from _config/.cursor/rules/*.mdc to Claude .md format"
     taskFile: "phase-1/p1-2.task.md"
-    status: pending
+    status: completed
   - id: p1-3
     content: "p1-3: CREATE _config/.claude/agents/ by converting all agent files from _config/.cursor/agents/ to Claude-native frontmatter"
     taskFile: "phase-1/p1-3.task.md"
-    status: pending
+    status: completed
   - id: p1-4
     content: "p1-4: CREATE _config/.claude/skills/ by copying all 8 skill directories from _config/.cursor/skills/ (identical format)"
     # inline — no micro-step file
-    status: pending
+    status: completed
   - id: p1-5
     content: "p1-5: CREATE _admin/.claude/rules/ by converting 2 admin rule files from _admin/.cursor/rules/*.mdc to Claude .md format"
     # inline — no micro-step file (same conversion as p1-2, only 2 files)
-    status: pending
+    status: completed
   - id: p1-checkpoint
     content: "P1 CHECKPOINT - Verify all source files migrated with correct format conversions"
-    status: pending
+    status: completed
   # Phase 2: Rewrite Installer
   - id: p2-1
     content: "p2-1: UPDATE _config/install-rbtv.py — replace old conversion helpers with new _convert_claude_rule_to_mdc and _convert_claude_agent_to_cursor functions"
     taskFile: "phase-2/p2-1.task.md"
-    status: pending
+    status: completed
   - id: p2-2
     content: "p2-2: UPDATE _config/install-rbtv.py — reverse all ide_replicate_*_to_claude functions to ide_replicate_*_to_cursor equivalents"
     taskFile: "phase-2/p2-2.task.md"
-    status: pending
+    status: completed
   - id: p2-3
     content: "p2-3: UPDATE _config/install-rbtv.py — rewrite IDE mode flow to copy from _config/.claude/ and derive .cursor/"
     taskFile: "phase-2/p2-3.task.md"
-    status: pending
+    status: completed
   - id: p2-4
     content: "p2-4: UPDATE _config/install-rbtv.py — rewrite admin mode flow to use _admin/.claude/ and _config/.claude/ as source"
     taskFile: "phase-2/p2-4.task.md"
-    status: pending
+    status: completed
   - id: p2-5
     content: "p2-5: UPDATE _config/install-rbtv.py — update source directory constants, cleanup constants, and path references throughout"
     # inline — no micro-step file
-    status: pending
+    status: completed
   - id: p2-checkpoint
     content: "P2 CHECKPOINT - Verify installer conversion functions and flow are correct"
-    status: pending
+    status: completed
   # Phase 3: Update Documentation
   - id: p3-1
     content: "p3-1: UPDATE CLAUDE.md — reflect new source-of-truth direction in Installation section"
     # inline — no micro-step file
-    status: pending
+    status: completed
   - id: p3-2
     content: "p3-2: UPDATE _admin/.cursor/rules/admin-rbtv-bmad-mirror.mdc — reflect new source-of-truth direction in installer documentation"
     # inline — no micro-step file
-    status: pending
+    status: completed
   - id: p3-3
     content: "p3-3: UPDATE other files referencing _config/.cursor/ as canonical source (agents/fernando.md, component patterns rule, etc.)"
     # inline — no micro-step file
-    status: pending
+    status: completed
   - id: p3-checkpoint
     content: "P3 CHECKPOINT - Verify documentation consistency across all files"
-    status: pending
+    status: completed
   # Phase 4: Validate & Finalize
   - id: p4-1
     content: "p4-1: Run installer in admin mode and verify installed output at rbtv root matches expected structure"
     # inline — no micro-step file
-    status: pending
+    status: completed
   - id: p4-2
     content: "p4-2: DELETE emptied source directories (_config/.cursor/commands/, _config/.cursor/rules/, _config/.cursor/agents/, _config/.cursor/skills/) — retain only _config/.cursor/mcp.json"
     # inline — no micro-step file
-    status: pending
+    status: completed
   - id: p4-3
     content: "p4-3: DELETE _admin/.cursor/ directory (fully migrated to _admin/.claude/)"
     # inline — no micro-step file
-    status: pending
+    status: completed
   - id: p4-refs
     content: "p4-refs: File reference review - verify all internal markdown links resolve correctly"
     # inline — no micro-step file
-    status: pending
+    status: completed
   - id: p4-compound
     content: "p4-compound: Review learnings.md and compound into system improvements"
     # inline — no micro-step file
-    status: pending
+    status: completed
   - id: p4-checkpoint
     content: "P4 FINAL CHECKPOINT - User approval to complete plan"
-    status: pending
+    status: completed
 isProject: false
 ---
 
