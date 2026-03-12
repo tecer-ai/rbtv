@@ -53,7 +53,7 @@ RBTV ships IDE configuration in `_config/`. The unified installer (`_config/inst
 - **`sync`** — BMAD config patching only (for nanobot): normalizes output paths and help catalog, no IDE artifacts
 
 ```
-python _config/install-rbtv.py              # IDE mode (default)
+python _config/install-rbtv.py              # workspace mode (default)
 python _config/install-rbtv.py --mode admin
 python _config/install-rbtv.py --mode sync
 python _config/install-rbtv.py --skip-version-check

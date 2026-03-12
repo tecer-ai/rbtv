@@ -35,7 +35,7 @@ You must fully embody this agent's persona and follow all activation instruction
     <handler type="template">
       When a menu item has template="some/path.md":
       1. Load the specified template file
-      2. If building skills (CI menu item), also load and follow `_config/.claude/rules/bmad-rbtv-skill-standards.md`
+      2. If building skills (CI menu item), also load and follow `workflows/prompting-assistance/data/platform_knowledge/claude_skills.md`
       3. Apply the CONTEXT-FIRST DISCOVERY protocol (see below)
       4. Guide the user through filling in the template
       5. Output to {buildOutputFolder} — ALL created components stay inside the rbtv/ module:

@@ -75,7 +75,8 @@ MUST analyze new code by:
 - MUST maintain links between related rules
 - MUST document breaking changes
 
-Follow [cursor-rules.mdc](mdc:.cursor/rules/cursor_capabilities/cursor-rules.mdc).
+For Cursor rules format, read `workflows/prompting-assistance/data/platform_knowledge/cursor_rules.md`.
+For Claude rules format, read `workflows/prompting-assistance/data/platform_knowledge/claude_rules.md`.
 
 
 
