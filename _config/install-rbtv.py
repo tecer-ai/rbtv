@@ -38,7 +38,7 @@ def get_paths():
         "rbtv": rbtv_dir,
         "root": root,                              # BMAD project root
         "config_claude": script_dir / "claude",
-        "admin_claude": rbtv_dir / "_admin" / ".claude",
+        "admin_claude": rbtv_dir / "_admin" / "claude",
     }
 
 
