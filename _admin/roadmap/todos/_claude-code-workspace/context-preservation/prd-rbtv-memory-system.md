@@ -196,7 +196,16 @@ When the user says **"reorganize memory"**:
 - **IDE mode (BMAD):** Memory lives at `{project-root}/.claude/memory/`
 - **Admin mode (RBTV standalone):** Memory lives at `{rbtv-root}/.claude/memory/`
 
-The installer does **not** create or populate memory — it is user/agent-generated content. Ensure `.claude/memory/` is in `.gitignore` or similarly excluded from version control if memory is considered local/sensitive.
+### Non-Committed, User-Specific Storage
+
+Memory files MUST NOT be committed to any git repository. This is critical because:
+
+1. **RBTV is shared.** Multiple users run RBTV. Learnings are specific to each user's environment (OS, shell, tool versions, IDE) and must not pollute the shared codebase.
+2. **Self-corrections are machine-specific.** A PowerShell workaround is irrelevant to a macOS/zsh user. Committing these would create noise for other users.
+3. **In BMAD IDE mode, this is already solved.** Memory lives at `{project-root}/.claude/memory/`, which is inside the BMAD workspace — outside any RBTV git tree. Each user's BMAD workspace has its own memory.
+4. **In RBTV admin/standalone mode,** memory lives at `{rbtv-root}/.claude/memory/`. The `.claude/memory/` path MUST be in RBTV's `.gitignore` to prevent accidental commits.
+
+The installer MUST NOT create or populate memory files — they are user/agent-generated content that accumulates over time per user.
 
 ---
 
@@ -213,6 +222,8 @@ The installer does **not** create or populate memory — it is user/agent-genera
 - [ ] Self-correction capture: agent writes to `tools/{tool}.md` immediately when a command fails and a retry succeeds — without user prompting
 - [ ] Self-correction entries use the extended format: `date | SELF-CORRECTION: failed → working | reason`
 - [ ] Agent reads relevant `tools/*.md` before executing commands to avoid repeating known failures
+- [ ] `.claude/memory/` is in RBTV's `.gitignore` (admin/standalone mode) — memory is never committed
+- [ ] In BMAD IDE mode, memory path resolves outside the RBTV git tree (no gitignore needed)
 
 ---
 
