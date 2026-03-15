@@ -16,7 +16,7 @@ RBTV files use `{project-root}` as a placeholder referencing the BMAD installati
 
 `_admin/docs/BMAD-mirror/` is a **read-only, complete snapshot** of a BMAD project root — the parent system RBTV installs into. When this repo is opened standalone in Cursor or Claude Code, the workspace root is `rbtv/` — agents cannot see any parent folders and have zero visibility into BMAD's structure. The mirror brings a copy of the parent system into RBTV's tree so agents can resolve cross-module references, inspect BMAD components (workflows, configs, manifests), and check existing capabilities before creating new ones.
 
-The mirror reproduces the BMAD project root layout: `.claude/`, `.cursor/`, `_bmad/` (with all modules: core, bmm, bmb, cis, tea), `docs/`, and `projects/`. RBTV's slot (`_admin/docs/BMAD-mirror/_bmad/rbtv/`) is intentionally empty — this repo IS that module.
+The mirror reproduces the BMAD project root layout: `claude/`, `cursor/`, `_bmad/` (with all modules: core, bmm, bmb, cis, tea), `docs/`, and `projects/`. The `claude/` and `cursor/` directories correspond to `.claude/` and `.cursor/` in the real workspace — the dot prefix is removed to prevent IDEs from scanning them as live command sources (which causes duplicate entries in the command picker). RBTV's slot (`_admin/docs/BMAD-mirror/_bmad/rbtv/`) is intentionally empty — this repo IS that module.
 
 **The mirror must always match the BMAD version RBTV targets** (currently v6.0.4, per `_config/config.yaml`).
 
@@ -48,8 +48,8 @@ For `{project-root}` direct references in admin mode:
 
 RBTV ships IDE configuration in `_config/`. The unified installer (`_config/install-rbtv.py`) handles three modes:
 
-- **`ide`** (default) — full IDE setup at BMAD project root: copies commands/agents/skills/rules from `_config/.claude/` to `.claude/`, derives `.cursor/` equivalents (with format conversion), merges MCP config, normalizes output paths, adds RBTV to help catalog
-- **`admin`** — standalone dev setup at rbtv root: copies from `_config/.claude/` and `_admin/.claude/` to `.claude/`, derives `.cursor/`, with path substitution and admin-specific rules
+- **`workspace`** (default) — full IDE setup at BMAD project root: copies commands/agents/skills/rules from `_config/claude/` to `.claude/`, derives `.cursor/` equivalents (with format conversion), merges MCP config, normalizes output paths, adds RBTV to help catalog
+- **`admin`** — standalone dev setup at rbtv root: copies from `_config/claude/` and `_admin/claude/` to `.claude/`, derives `.cursor/`, with path substitution and admin-specific rules
 - **`sync`** — BMAD config patching only (for nanobot): normalizes output paths and help catalog, no IDE artifacts
 
 ```

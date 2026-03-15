@@ -20,6 +20,12 @@ This folder contains a read-only copy of BMAD for RBTV development reference.
 | cis | 0.1.8 |
 | tea | 1.5.2 |
 
+## Directory Name Convention
+
+The mirror's `claude/` and `cursor/` directories correspond to `.claude/` and `.cursor/` in a real BMAD workspace. The dot prefix is intentionally removed in this mirror to prevent Claude Code and Cursor from scanning these directories as live command/rule sources, which causes every command to appear multiple times in the IDE command picker.
+
+When updating the mirror from a BMAD release, rename `.claude/` → `claude/` and `.cursor/` → `cursor/` in the new snapshot.
+
 ## Notes
 
 - Mirror reflects the BMAD installation synced on 2026-03-08
