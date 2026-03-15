@@ -1,5 +1,5 @@
 ---
-name: 'pitch-creation'
+name: 'pitch'
 description: 'Build pitch decks through narrative-first stress-testing, data validation, and research prompting'
 pitch_type: '{pitch_type}'
 createStep: ./steps-c/step-01-init.md

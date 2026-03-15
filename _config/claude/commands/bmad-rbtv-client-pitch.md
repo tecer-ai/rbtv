@@ -1,5 +1,5 @@
 ---
-name: 'rbtv-create-client-pitch'
+name: 'bmad-rbtv-client-pitch'
 description: 'Client Pitch - stress-tests client pitch narratives from the buyer perspective (steps 01-06), hands off to design agent for HTML generation'
 ---
 

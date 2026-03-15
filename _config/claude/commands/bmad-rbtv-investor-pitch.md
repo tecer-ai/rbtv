@@ -1,5 +1,5 @@
 ---
-name: 'rbtv-create-investor-pitch'
+name: 'bmad-rbtv-investor-pitch'
 description: 'Investor Pitch - stress-tests investor pitch narratives (steps 01-06), hands off to design agent for HTML generation'
 ---
 

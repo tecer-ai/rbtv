@@ -87,7 +87,7 @@ Creates self-executing plans using Cursor's native `.plan.md` format with added 
 
 ### Pitch Creation — Investor & Client Decks
 
-`/bmad-rbtv-create-investor-pitch` · `/bmad-rbtv-create-client-pitch`
+`/bmad-rbtv-investor-pitch` · `/bmad-rbtv-client-pitch`
 
 Builds pitch decks through narrative-first stress-testing. The agent sits on the *other side of the table* — as the investor or the buyer — and challenges every claim before building the deck. The workflow covers narrative development, data validation, research prompting, slide structure, HTML generation, and image prompt creation across 9 steps.
 
