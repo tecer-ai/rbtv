@@ -21,7 +21,7 @@ yoloMode: false
 **Type:** Change Point
 **Priority:** High
 **Tracker:**
-**Status:** Done (2026-03-15)
+**Status:** Partially Done — Phase 1–2 complete, Phase 3 pending
 
 ---
 
@@ -76,6 +76,65 @@ Directories in the RBTV repo that mirror IDE config structure but are NOT the de
 - `_admin/docs/BMAD-mirror/claude/` — renamed from `_admin/docs/BMAD-mirror/.claude/`
 - `_admin/docs/BMAD-mirror/cursor/` — renamed from `_admin/docs/BMAD-mirror/.cursor/`
 - `_config/install-rbtv.py` — updated `config_claude` and `admin_claude` paths
+
+---
+
+## Phase 3 — Command + Skill Name Collision (pending)
+
+### Root Cause
+
+Claude Code registers both `commands/*.md` and `skills/*/SKILL.md` in the same slash-command picker. When a name exists in both locations, it appears twice. This is independent of the directory-scanning issue fixed in Phases 1–2.
+
+### Affected Names
+
+All 7 duplicates originate in `_config/claude/` (RBTV source config) and are faithfully copied to the installed `.claude/` by the installer:
+
+| Name | `commands/` | `skills/` |
+|------|-------------|-----------|
+| `bmad-rbtv-create-component` | exists | exists |
+| `bmad-rbtv-designer` | exists | exists |
+| `bmad-rbtv-doc` | exists | exists |
+| `bmad-rbtv-plan` | exists | exists |
+| `bmad-rbtv-quality-review` | exists | exists |
+| `bmad-rbtv-tone-extraction` | exists | exists |
+| `bmad-rbtv-visual-design-extraction` | exists | exists |
+
+### Behavioral Difference: Commands vs. Skills
+
+Commands and skills are NOT functionally identical — removing one changes behavior:
+
+| Aspect | Command (`commands/*.md`) | Skill (`skills/*/SKILL.md`) |
+|--------|--------------------------|----------------------------|
+| User invocation | `/name` in picker — user explicitly triggers | `/name` in picker — user explicitly triggers |
+| AI auto-trigger | Never — commands are user-invoked only | Yes — AI can invoke autonomously based on `description` and "when to use" metadata matching conversation context |
+| Metadata | Bare activation wrapper (name + description) | Rich trigger descriptions, "when to use" conditions, purpose statement |
+| Format | Single `.md` file | `SKILL.md` inside a named directory |
+
+### Cross-Platform Concern: Cursor
+
+The installer replicates skills to `.cursor/skills/` as a direct 1:1 copy (`workspace_replicate_skills_to_cursor()`). However, Cursor adopted `.cursor/commands/` early as its primary slash-command mechanism. Whether Cursor fully supports `.cursor/skills/` with the same discovery and auto-trigger behavior as Claude Code is unverified. If Cursor does not recognize skills, deleting the command files would make these 7 capabilities invisible in Cursor's picker.
+
+### Fix Decision (not yet resolved)
+
+Three options:
+
+| Option | Action | Trade-off |
+|--------|--------|-----------|
+| **A: Delete commands** | Remove 7 command files from `_config/claude/commands/` | Eliminates duplicates. Gains AI auto-trigger. Risk: Cursor may lose visibility if it does not support skills. |
+| **B: Delete skills** | Remove 7 skill directories from `_config/claude/skills/` | Eliminates duplicates. Preserves explicit-only invocation. Loses AI auto-trigger and rich metadata. |
+| **C: Deduplicate per platform** | Keep commands for Cursor, skills for Claude Code. Installer conditionally deploys based on target. | No duplication, no feature loss. Requires installer changes. Most complex. |
+
+### Recommended Test
+
+Before bulk-fixing, test with a single duplicate:
+
+1. Pick one name (e.g. `bmad-rbtv-doc`)
+2. Delete `_config/claude/commands/bmad-rbtv-doc.md` from source
+3. Re-run installer for both modes (`--mode admin` and default)
+4. Test in **Claude Code (terminal):** type `/bmad-rbtv-doc` — verify it appears once and activates correctly
+5. Test in **Cursor IDE:** type `/bmad-rbtv-doc` — verify it appears in the picker and activates correctly
+6. If both work: proceed with Option A for all 7 duplicates
+7. If Cursor fails to discover the skill: restore the command and pursue Option C
 
 ---
 
