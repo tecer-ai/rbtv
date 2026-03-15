@@ -41,7 +41,11 @@ Follow these instructions in exact order. Do NOT skip, reorder, or optimize.
 
 ### 4. Create Output Document
 
-- Generate filename suggestion based on conversation context
+- Generate filename using the `cp-{component}-{description}.md` naming convention:
+  - `cp-` prefix identifies this as a compound PRD
+  - `{component}` is the most affected system component (e.g., rule, workflow, agent, config)
+  - `{description}` is a short kebab-case description
+  - Examples: `cp-rule-shape-capture.md`, `cp-workflow-context-handoff-gap.md`, `cp-agent-ana-persona-clarity.md`
 - Ask user for confirmation or override
 - Create new document using template structure
 - Populate frontmatter:

@@ -67,32 +67,19 @@ Fill in all remaining template sections:
 - Include conversation context if applicable
 - Reference related PRDs or issues
 
-### 2. Determine Output Filename
-
-- Suggest filename based on improvement title
-- Format: `cp-{component}-{description}.md` (lowercase, hyphens, component-first)
-- The `cp-` prefix identifies this as a compound PRD for easy tracking
-- Component should be the most affected system component (e.g., rule, workflow, agent, config)
-- Examples:
-  - `cp-rule-file-operations-ambiguity.md`
-  - `cp-workflow-context-handoff-gap.md`
-  - `cp-agent-ana-persona-clarity.md`
-  - `cp-config-output-paths-inheritance.md`
-- Ask user for confirmation or override
-
-### 3. Save Document
+### 2. Save Document
 
 - Write complete PRD to `{outputFolder}/{filename}.md`
 - Preserve all frontmatter including `stepsCompleted` history
 - Ensure all sections are populated (no empty sections)
 
-### 4. Update State
+### 3. Update State
 
 - Add `step-04-document.md` to `stepsCompleted` array
 - Mark workflow as complete (all 4 steps in `stepsCompleted`)
 - Update frontmatter with final state
 
-### 5. Present Completion Summary
+### 4. Present Completion Summary
 
 - Display success message with file location
 - Summarize what was documented
