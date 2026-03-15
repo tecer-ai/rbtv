@@ -238,3 +238,65 @@ The PDF validation loop closes the last-mile quality gap. The HTML self-check ca
 - Primary failure mode to detect: layout breaks at page boundaries
 - Single-step loop approach preferred over two-step split
 - Loop: print PDF → screenshot → review for layout breaks → fix HTML if needed → repeat until clean
+
+---
+
+## PDF Export Tool Validation (2026-03-14)
+
+### Tool Selected: Decktape
+
+**What:** CLI tool purpose-built for converting HTML slide presentations to multi-page PDFs (one slide per page).
+
+| Attribute | Detail |
+|---|---|
+| Package | `decktape` (npm) |
+| Version tested | 3.15.0 |
+| Install | `npm install -g decktape` or zero-install via `npx decktape` |
+| Engine | Headless Chromium (via Puppeteer) — renders all modern CSS identically to Chrome |
+| License | MIT (open source, free) |
+| Maintenance | Active — v3.15.0 released April 2025, Chromium 135 |
+| GitHub | 2.3k stars, 180 forks |
+
+### How It Works
+
+Decktape's `generic` mode simulates right-arrow key presses and watches for DOM mutations to detect slide transitions. This means it works with any custom HTML that has keyboard navigation — no framework dependency.
+
+### Validated Command
+
+```bash
+npx decktape generic file:///H:/BMAD/projects/ai-101/presentation/pitch-deck.html pitch-deck.pdf --size 1920x1080
+```
+
+### Test Result
+
+| Metric | Result |
+|---|---|
+| Slides detected | 17 / 17 |
+| PDF size | ~392 KB |
+| Runtime | ~60 seconds (includes npm download on first run) |
+| CSS rendering | Full fidelity — gradients, custom properties, flexbox, grid all rendered correctly |
+| Slide detection | Generic mode detected all slides via keyboard navigation + DOM change detection |
+
+### Requirement for HTML Slides
+
+Decktape's generic mode requires slides to respond to keyboard navigation (arrow keys). The pitch-deck.html template already includes this. Any future HTML generation step MUST include keyboard navigation JS for Decktape compatibility.
+
+### Tools Evaluated and Rejected
+
+| Tool | Reason for rejection |
+|---|---|
+| Puppeteer CLI | General-purpose — requires manual CSS `break-before: page` rules per slide. CLI wrappers stale (~2021) |
+| Playwright | No dedicated CLI — requires writing custom Node.js/Python script for PDF generation |
+| WeasyPrint | Own rendering engine — no CSS custom properties (`var()`) support, partial flexbox, Windows setup complex |
+| wkhtmltopdf | Archived January 2023. Qt WebKit engine (deprecated 2015). No modern CSS support |
+| Prince XML | Commercial ($495–$3,800). Own rendering engine — may not match browser rendering |
+| Slidev | Only exports its own Markdown-based format — cannot take arbitrary HTML input |
+
+### Impact on Step-10 Implementation
+
+The constraint "MCP tool for PDF export is not yet determined" is now partially resolved. Decktape is the recommended tool for PDF export. The step-10-pdf-validation implementation MUST:
+
+1. Use `npx decktape generic` for PDF export (no global install needed)
+2. Use Playwright MCP (already configured) for screenshot + visual QA
+3. Require `--size 1920x1080` flag for consistent slide dimensions
+4. Ensure HTML generation step (step-07) always includes keyboard navigation JS

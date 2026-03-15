@@ -162,3 +162,20 @@ The installer does **not** create or populate memory — it is user/agent-genera
 ## Rationale
 
 A file-based memory system is simple, transparent, and version-control friendly (if desired). It aligns with the "immediate capture" principle — write when you learn, not when you remember to. The structured layout (`general`, `domain/`, `tools/`) keeps content discoverable without requiring search. The maintenance command prevents entropy over time.
+
+---
+
+## Related: Shape Capture System
+
+**PRD:** `_bmad/rbtv/_admin/roadmap/todos/compound-context-preservation-rule.md`
+
+The Memory System and the Shape Capture system are complementary:
+
+| Dimension | Memory System (this PRD) | Shape Capture |
+|-----------|--------------------------|---------------|
+| **Purpose** | Agent self-improvement — reusable knowledge across sessions | Project continuity — specific project context between agents |
+| **Scope** | Cross-session, cross-project | Project-specific, session-specific |
+| **Content** | Short entries: "date, what, why" | Rich narrative: user inputs, decisions, reasoning, nuances |
+| **Location** | `.claude/memory/` | Alongside workflow output: `{output-name}-shape.md` |
+
+Both follow the "write immediately" principle. Both are file-based. They do not compete — an agent uses BOTH: reusable learnings go to memory, project context goes to shape.
