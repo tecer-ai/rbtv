@@ -21,21 +21,22 @@
 8. [Quality Checklist](#quality-checklist)
 9. [Technical Reference](#technical-reference)
 10. [Sources](#sources)
-11. [Discarded Sources](#discarded-sources)
 
 ---
 
 ## Problem Solved
 
-LLM outputs vary unpredictably; without systematic evaluation, teams cannot measure improvements, detect regressions, or ensure production quality.
+LLM outputs vary across models, versions, and context conditions. Without systematic evaluation, you cannot measure improvements, detect regressions after model updates, or ensure consistent quality in production systems.
 
 ---
 
 ## Technique Overview
 
-Prompt evaluation combines code-based metrics, LLM-as-a-Judge, and human review to quantify output quality. Creates feedback loops for evidence-based prompt iteration.
+Prompt evaluation measures output quality through three complementary methods: automated metrics, LLM-as-a-Judge, and human review. The goal is evidence-based prompt iteration — knowing WHAT improved and WHY, not guessing.
 
-**Core Mechanism:** Define success criteria upfront, test against golden datasets, use automated metrics for consistency, and validate with human judgment for nuance.
+**Core principle:** Define what "good" looks like BEFORE prompting. Test against that definition. Iterate based on measured gaps.
+
+**2026 landscape shift:** Modern frontier models (Claude 4.x, GPT-5.x, Gemini 2.x) are significantly better at self-evaluation than their predecessors. LLM-as-a-Judge is now the dominant evaluation method for most use cases, with human review reserved for subjective quality and safety-critical applications.
 
 ---
 
@@ -43,11 +44,12 @@ Prompt evaluation combines code-based metrics, LLM-as-a-Judge, and human review 
 
 | Ideal For | Avoid For |
 |-----------|-----------|
-| Production prompts requiring quality assurance | One-off exploratory prompts |
-| A/B testing prompt versions | Simple, deterministic tasks |
-| Detecting regressions after model updates | Tasks with no measurable success criteria |
+| Production prompts (customer-facing, financial, high-stakes) | One-off exploratory prompts |
+| Agent workflows where output feeds into next step | Simple single-turn queries |
+| Detecting regressions after model version upgrades | Prototyping phase before requirements are clear |
 | RAG systems needing faithfulness verification | Low-stakes internal tools |
-| High-stakes applications (customer-facing, financial) | Prototyping phase before requirements are clear |
+| Comparing prompt strategies across models | Tasks with no measurable success criteria |
+| Workflow steps where quality gates block progression | Casual conversational use |
 
 ---
 
@@ -55,111 +57,108 @@ Prompt evaluation combines code-based metrics, LLM-as-a-Judge, and human review 
 
 | Step | Action | Details |
 |------|--------|---------|
-| 1 | Define SMART success criteria | Specific, Measurable, Achievable, Relevant, Time-bound metrics before prompting |
-| 2 | Create golden test set | Include typical cases, edge cases, and adversarial inputs with expected outputs |
-| 3 | Select evaluation metrics | Choose code-based (exact match, ROUGE), LLM-as-a-Judge (relevance, coherence), or human review |
-| 4 | Implement automated tests | Use frameworks like DeepEval to create assertions; integrate with CI/CD |
-| 5 | Configure LLM-as-a-Judge | Provide detailed rubrics, scoring scales, and examples; validate with human reviewers |
-| 6 | Run A/B tests in production | Split traffic between prompt versions; measure business metrics (conversion, CSAT) |
-| 7 | Monitor and iterate | Track production metrics, collect user feedback, expand golden set with failure cases |
+| 1 | Define success criteria | What does a good output look like? Be specific: format, accuracy, tone, completeness, constraints. Not SMART-framework overhead — just clear pass/fail conditions. |
+| 2 | Create test cases | Include typical inputs, edge cases, and adversarial inputs. 10-20 well-chosen cases beat 100 generic ones. Include expected outputs or evaluation rubrics. |
+| 3 | Select evaluation method | **Automated metrics** (exact match, format validation) for structured outputs. **LLM-as-a-Judge** for open-ended quality. **Human review** for subjective dimensions or safety. |
+| 4 | Run evaluation | Test prompt versions against the same test cases. Record scores, failures, and patterns. |
+| 5 | Analyze failure modes | Don't just look at scores — understand WHY failures happen. Is it context? Instruction clarity? Model limitation? |
+| 6 | Iterate on the prompt | Fix identified failure modes. Re-evaluate. Repeat until quality meets criteria. |
+| 7 | Monitor in production | Track output quality over time. Model updates, data drift, and edge cases in real traffic will surface new failures. |
 
-**Key Considerations:**
-- LLM-as-a-Judge requires calibration: invert response order (A/B and B/A) to mitigate position bias
-- Golden sets should cover 80% typical cases, 20% edge cases and adversarial inputs
-- Definition of Done should include both technical metrics and peer review
+**Key considerations:**
+- LLM-as-a-Judge requires calibration: test the judge itself against known-good/known-bad examples
+- Position bias exists in pairwise comparison — invert order (A/B and B/A) to mitigate
+- Golden test sets should grow from production failures — every bug becomes a test case
 
 ---
 
 ## Variations
 
-| Variation | When to Use | Difference from Core |
-|-----------|-------------|----------------------|
-| Offline evaluation only | Pre-production validation, CI/CD gates | No live traffic; uses static golden datasets exclusively |
-| LLM-as-a-Judge cascade | High-volume evaluation with cost constraints | Uses cheaper model for initial scoring, expensive model for borderline cases |
-| Human-in-the-loop evaluation | Subjective quality dimensions, safety-critical | Human reviewers score subset; calibrates automated metrics |
-| Real-time production monitoring | Post-deployment quality tracking | Continuous metrics (latency, cost, user feedback) rather than batch evaluation |
+| Variation | When to Use | Approach |
+|-----------|-------------|----------|
+| Quick A/B comparison | Choosing between 2-3 prompt versions | Run both against same inputs, compare outputs side-by-side or via LLM-as-a-Judge |
+| Regression testing | After model version upgrade | Run existing golden set against new model, compare scores to baseline |
+| Continuous monitoring | Production systems | Sample outputs periodically, evaluate via automated pipeline, alert on quality drops |
+| Agent workflow gates | Multi-step agent systems | Evaluate output at each step before passing to the next — prevents error propagation |
+| Self-evaluation | Single-turn quality check | Ask the model to evaluate its own output against criteria. Works surprisingly well with frontier models, but don't rely on it exclusively. |
 
 ---
 
 ## Pitfalls
 
-| Pitfall | Why It Fails | Solution |
-|---------|--------------|----------|
-| Vague success criteria | Cannot measure progress; decisions become subjective | Define SMART criteria: "reduce hallucination rate by 15%" not "improve quality" |
-| Offline-only evaluation | Prompt may fail with real user traffic patterns | Validate with A/B tests on production traffic |
-| Blind trust in LLM-as-a-Judge | Judge has biases (position, agreement, style) | Calibrate with human reviewers; invert comparison order |
-| Ignoring edge cases | System vulnerable to unexpected inputs, prompt injection | Include adversarial cases in golden set (10-20% of test cases) |
-| One-time evaluation | Performance drifts with model updates and user behavior | Implement continuous monitoring and periodic re-evaluation |
-| Metrics disconnected from business | Technical improvements don't translate to user value | Link evaluation metrics to business KPIs (CSAT, conversion, resolution time) |
+| Pitfall | Why It Fails | Fix |
+|---------|--------------|-----|
+| No success criteria defined | Cannot measure progress — every output feels "okay" or "not quite right" | Write down what good looks like before prompting. Even rough criteria beat none. |
+| Over-engineering evaluation | Spending more time evaluating than improving | Match evaluation effort to stakes. High-stakes production? Invest heavily. Internal tool? Quick A/B is enough. |
+| Blind trust in LLM-as-a-Judge | Judge models have biases (verbosity preference, position bias, style bias) | Calibrate with human review on a subset. Verify the judge agrees with your judgment. |
+| Ignoring failure analysis | Scores improve but you don't know why — fragile optimization | Analyze individual failures. Understand root causes. Fix the cause, not the symptom. |
+| One-time evaluation | Prompt quality drifts with model updates and changing inputs | Implement periodic re-evaluation, especially after model upgrades. |
+| Evaluating the wrong thing | Technical metrics improve but user satisfaction doesn't | Link evaluation to what actually matters — user value, task completion, downstream effects. |
 
 ---
 
 ## Examples
 
-### Example 1: Email Generation A/B Test
+### Example 1: Agent Workflow Quality Gate
 
-| Before (Without Technique) | After (With Technique) |
-|----------------------------|------------------------|
-| **Prompt:**<br>Write a short email for a customer who hasn't purchased in 90 days. | **Prompt:**<br>You are a retention specialist. Write a persuasive, friendly email (max 150 words) for {{customer_name}} who hasn't visited in 90 days. Include 15% discount code VOLTA15, valid 7 days. |
-| **Output:**<br>Generic email, no personalization | **Output:**<br>Personalized, actionable email with clear CTA |
-| **Issue:** No way to know if prompt works | **Result:** Open rate 12%→18%, CTR 1.5%→4.2% |
+| Without Evaluation | With Evaluation |
+|--------------------|-----------------|
+| Agent step 1 produces mediocre research summary | Research summary evaluated against criteria: completeness, source coverage, factual grounding |
+| Step 2 (analysis) builds on flawed summary | Gate blocks progression until summary meets quality threshold |
+| Final output has compounded errors | Each step verified before handoff — errors caught at source |
 
-**Metric:** 50% improvement in open rate, 180% improvement in click-through rate via A/B test
+**Key insight:** In multi-step agent workflows, evaluation at each step prevents error propagation. A bad input to step N+1 cannot be fixed by a better prompt at step N+1.
 
----
+### Example 2: Prompt Version Comparison
 
-### Example 2: RAG Faithfulness Evaluation
+| Prompt A (baseline) | Prompt B (candidate) |
+|---------------------|---------------------|
+| "Summarize this document." | "Summarize this document in 3-5 bullet points. Each bullet must cite a specific section. Flag any claims that lack supporting evidence." |
+| Generic paragraph summary, no structure | Structured bullets with citations, explicit uncertainty flagging |
+| LLM-as-a-Judge scores: Completeness 6/10, Actionability 4/10 | Completeness 8/10, Actionability 9/10 |
 
-| Before (Without Technique) | After (With Technique) |
-|----------------------------|------------------------|
-| **Prompt:**<br>Answer the question based on the context. | **Prompt:**<br>Answer based ONLY on the provided context. If information is not in context, say "I don't know." |
-| **Output:**<br>"To reset your password, click 'Reset Password'" (hallucinated) | **Output:**<br>"Password reset requires admin. For password change, go to Settings > Security." |
-| **Issue:** Undetected hallucination in production | **Result:** Faithfulness score 50%→95% via LLM-as-a-Judge |
+**Result:** Prompt B wins on both dimensions. The improvement came from specificity (format, citations, uncertainty) — not from prompt "tricks."
 
-**Metric:** 45 percentage point improvement in faithfulness using FaithfulnessMetric with statement decomposition
+### Example 3: Regression Detection After Model Update
 
----
+| Before Model Update | After Model Update |
+|--------------------|--------------------|
+| Golden set: 50 test cases, baseline scores recorded | Same 50 test cases, same prompts, new model version |
+| Average faithfulness: 92% | Average faithfulness: 87% — regression detected |
+| Investigation: new model is more concise, omitting qualifying statements | Fix: add explicit instruction to preserve caveats and qualifications |
 
-### Example 3: Production Quality Gate
-
-| Before (Without Technique) | After (With Technique) |
-|----------------------------|------------------------|
-| **Process:**<br>Manual review before deployment | **Process:**<br>Automated CI/CD with DeepEval assertions |
-| **Output:**<br>Inconsistent quality, delayed releases | **Output:**<br>Every PR evaluated against golden set |
-| **Issue:** Human bottleneck, missed regressions | **Result:** 100% regression test coverage, 3x faster releases |
-
-**Metric:** Zero production regressions in 6 months, deployment time reduced from 2 weeks to 2 days
+**Key insight:** Model updates can silently degrade prompt performance. Automated regression testing catches what manual review misses.
 
 ---
 
 ## Quality Checklist
 
-- [ ] Success criteria defined as SMART metrics before prompt development
-- [ ] Golden test set includes typical cases, edge cases, and adversarial inputs
-- [ ] Evaluation uses hybrid approach (code metrics + LLM-as-a-Judge + human review)
-- [ ] LLM-as-a-Judge rubric includes explicit criteria, scoring scale, and examples
-- [ ] Position bias mitigation implemented (A/B and B/A comparison)
-- [ ] Evaluation integrated into CI/CD pipeline
-- [ ] A/B tests measure business metrics, not just model metrics
-- [ ] Production monitoring tracks latency, cost, and user feedback
-- [ ] Failure cases from production added to golden test set
-- [ ] Definition of Done documented and enforced
+- [ ] Success criteria defined before prompt development
+- [ ] Test cases cover typical inputs, edge cases, and adversarial inputs
+- [ ] Evaluation method matches the stakes (automated for structured, LLM-as-a-Judge for open-ended, human for safety-critical)
+- [ ] LLM-as-a-Judge calibrated against human judgment on a subset
+- [ ] Failure analysis performed — root causes identified, not just scores tracked
+- [ ] Evaluation integrated into development workflow (not an afterthought)
+- [ ] Production monitoring in place for high-stakes applications
+- [ ] Golden test set updated with real-world failure cases
 
 ---
 
 ## Technical Reference
 
-| Topic | Official Documentation |
-|-------|------------------------|
+| Topic | Resource |
+|-------|----------|
 | DeepEval Framework | [deepeval.confident-ai.com](https://deepeval.confident-ai.com/) |
 | Langfuse Observability | [langfuse.com/docs](https://langfuse.com/docs) |
+| Braintrust Evals | [braintrust.dev](https://www.braintrust.dev/) |
 | MT-Bench and Chatbot Arena | [arxiv.org/abs/2306.05685](https://arxiv.org/abs/2306.05685) |
+| Anthropic Eval Guide | [docs.anthropic.com/en/docs/build-with-claude/develop-tests](https://docs.anthropic.com/en/docs/build-with-claude/develop-tests) |
 
 ---
 
 ## Sources
 
-> **Legend:** TS = Total Score (average of AT, TR, TM) | AT = Authority | TR = Trustability (after marketing penalty) | TM = Topic Match | Scale: 1-10 | Threshold: TS ≥ 6
+> **Legend:** TS = Total Score (average of AT, TR, TM) | AT = Authority | TR = Trustability (after marketing penalty) | TM = Topic Match | Scale: 1-10 | Threshold: TS >= 6
 
 | # | Title | URL | Research Date | Source Date | TS | AT | TR | TM |
 |---|-------|-----|---------------|-------------|----|----|----|----|
@@ -167,19 +166,7 @@ Prompt evaluation combines code-based metrics, LLM-as-a-Judge, and human review 
 | 2 | Confident AI — LLM Evaluation Metrics | [confident-ai.com/blog/llm-evaluation-metrics](https://www.confident-ai.com/blog/llm-evaluation-metrics-everything-you-need-for-llm-evaluation) | 2025-11-21 | 2025 | 7.7 | 7 | 7 | 9 |
 | 3 | Datadog — Building an LLM Evaluation Framework | [datadoghq.com/blog/llm-evaluation-framework](https://www.datadoghq.com/blog/llm-evaluation-framework-best-practices/) | 2025-11-21 | 2025 | 7.3 | 8 | 6 | 8 |
 | 4 | Braintrust — A Practical Guide to A/B Testing LLM Prompts | [braintrust.dev/articles/ab-testing](https://www.braintrust.dev/articles/ab-testing-llm-prompts) | 2025-11-21 | 2025 | 7.0 | 7 | 6 | 8 |
-| 5 | PromptHub — Success criteria, test cases, evals | [prompthub.us/blog/everything-you-need](https://www.prompthub.us/blog/everything-you-need-to-do-before-prompting-success-criteria-test-cases-evals) | 2025-11-21 | 2025 | 6.7 | 6 | 6 | 8 |
-| 6 | Comet — LLM Evaluation Frameworks Comparison | [comet.com/site/blog/llm-evaluation-frameworks](https://www.comet.com/site/blog/llm-evaluation-frameworks/) | 2025-11-21 | 2025 | 6.3 | 7 | 5 | 7 |
 
 ---
 
-## Discarded Sources
-
-| Source | TS | Reason |
-|--------|-----|--------|
-| Traceloop — A/B Testing LLM Models | 5.7 | Marketing language penalty (TR: 7→5), lower authority (AT: 6) |
-| Evidently AI — LLM-as-a-Judge guide | 5.3 | Marketing language penalty (TR: 7→4), commercial focus |
-
----
-
-*Last updated: 2026-01-20*
-
+*Last updated: 2026-03-16*
