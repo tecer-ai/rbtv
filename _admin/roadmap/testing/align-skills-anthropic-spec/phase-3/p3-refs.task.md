@@ -37,7 +37,7 @@ Verify all internal markdown links in plan deliverables resolve correctly.
    - `_config/.cursor/rules/bmad-rbtv-skill-standards.mdc`
    - `workflows/prompting-assistance/data/platform_knowledge/claude_skills.md`
    - `workflows/prompting-assistance/data/knowledge-index.csv` (contains claude_skills entry)
-   - `workflows/build-rbtv-component/templates/ide-command-template.md` (updated)
+   - `workflows/build-rbtv-component/templates/ide-loader-template.md` (updated)
    - All 7 `_config/.cursor/skills/bmad-rbtv-*/SKILL.md` files (name field updated)
    - `agents/fernando.md` (updated with rule reference)
 2. Verify internal links in the new rule file and platform knowledge document resolve

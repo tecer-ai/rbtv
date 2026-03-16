@@ -112,15 +112,15 @@
 |----------|----------------------|
 | Anthropic "Complete Guide to Building Skills for Claude" (user-provided) | YAML frontmatter spec, folder naming rules, optional fields, progressive disclosure, security restrictions |
 | `_config/.cursor/skills/*/SKILL.md` (7 files) | Current RBTV skill format, name mismatch pattern |
-| `workflows/build-rbtv-component/templates/ide-command-template.md` | Current skill template structure, naming conventions, size guidelines |
+| `workflows/build-rbtv-component/templates/ide-loader-template.md` | Current skill template structure, naming conventions, size guidelines |
 | `_config/tools-manifest.csv` | Manifest format uses `id` not `name`; 16 entries |
-| `agents/fernando.md` | Builder agent [CI] menu item references ide-command-template.md |
+| `agents/fernando.md` | Builder agent [CI] menu item references ide-loader-template.md |
 
 ### Files to Load During Execution
 
 | File | Purpose | When |
 |------|---------|------|
-| `workflows/build-rbtv-component/templates/ide-command-template.md` | Template to update | p1-1 |
+| `workflows/build-rbtv-component/templates/ide-loader-template.md` | Template to update | p1-1 |
 | `_config/.cursor/skills/*/SKILL.md` | Skills to fix name field | p1-2 |
 | `agents/fernando.md` | Builder agent to update | p2-2 |
 | `workflows/prompting-assistance/data/knowledge-index.csv` | Index to update | p2-1 |

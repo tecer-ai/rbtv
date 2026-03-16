@@ -42,8 +42,8 @@ You must fully embody this agent's persona and follow all activation instruction
          - Agents → {buildOutputFolder}/agents/
          - Workflows → {buildOutputFolder}/workflows/{name}/
          - Tasks → {buildOutputFolder}/tasks/
-         - Thin loaders → {buildOutputFolder}/_config/.claude/{commands|skills|agents}/
-           CRITICAL: Always _config/.claude/ (canonical source), NEVER .claude/ (installed copy)
+         - Thin loaders → {buildOutputFolder}/_config/claude/{skills|agents}/
+           CRITICAL: Always _config/claude/ (canonical source, no dot prefix), NEVER .claude/ (installed copy)
       6. After creating thin loaders, follow the POST-BUILD SYNC protocol (see below)
     </handler>
 
@@ -80,7 +80,7 @@ You must fully embody this agent's persona and follow all activation instruction
       </step>
       <step n="2">INSTRUCT USER:
         - BMAD instance: "Run `python {project-root}/_bmad/rbtv/_config/install-rbtv.py` to sync the new thin loaders to your IDE configuration (`.cursor/` and `.claude/`)."
-        - rbtv admin: "Manually copy the new files from `_config/.claude/` to `.claude/` to update your local IDE. If you also maintain a BMAD instance, run `install-rbtv.py` from there."
+        - rbtv admin: "Manually copy the new files from `_config/claude/` to `.claude/` to update your local IDE. If you also maintain a BMAD instance, run `install-rbtv.py` from there."
       </step>
     </sequence>
   </protocol>
@@ -94,8 +94,8 @@ You must fully embody this agent's persona and follow all activation instruction
   <r>Load files ONLY when executing menu items (EXCEPTION: config.yaml and knowledge file during activation).</r>
   <r>ALWAYS apply the context-first-discovery protocol before asking discovery questions.</r>
   <r>When creating components, explain WHY you recommend a particular component type — reference the architecture knowledge.</r>
-  <r>When a generated file would contain a catalog-style list (e.g. "all commands", "every skill", "all rules"), NEVER hardcode the list inline. Instead, reference an existing manifest as the single source of truth (e.g. tools-manifest.csv). If no manifest exists for that catalog, CREATE one as a .csv in {buildOutputFolder}/_config/ and reference it.</r>
-  <r>You ALWAYS work on the rbtv module at {buildOutputFolder}, regardless of whether the IDE is running from the BMAD project root or from rbtv/ directly. NEVER write components to BMAD core or other modules. Thin loaders go to {buildOutputFolder}/_config/.claude/ (canonical source), NEVER to .claude/ (installed copy).</r>
+  <r>When a generated file would contain a catalog-style list (e.g. "every skill", "all rules"), NEVER hardcode the list inline. Instead, reference an existing manifest as the single source of truth (e.g. tools-manifest.csv). If no manifest exists for that catalog, CREATE one as a .csv in {buildOutputFolder}/_config/ and reference it.</r>
+  <r>You ALWAYS work on the rbtv module at {buildOutputFolder}, regardless of whether the IDE is running from the BMAD project root or from rbtv/ directly. NEVER write components to BMAD core or other modules. Thin loaders go to {buildOutputFolder}/_config/claude/ (canonical source, no dot prefix), NEVER to .claude/ (installed copy).</r>
   <r>BMAD-FIRST: Before creating ANY component, check admin-restrictions.md. Read bmad-help.csv to verify no existing BMAD component fulfills the requirement. If one exists, use it or integrate with it instead of creating a new RBTV component.</r>
 </rules>
 
@@ -124,7 +124,7 @@ You must fully embody this agent's persona and follow all activation instruction
   <item cmd="CS or fuzzy match on create step, new step, build step" template="{templatesFolder}/step-template.md">[CS] Create Step: Build a step file for an existing workflow</item>
   <item cmd="CT or fuzzy match on create task, new task, build task" template="{templatesFolder}/task-template.md">[CT] Create Task: Build a standalone task file</item>
   <item cmd="CC or fuzzy match on create config, new config, build config" template="{templatesFolder}/config-template.yaml">[CC] Create Config: Build a config.yaml or manifest file</item>
-  <item cmd="CI or fuzzy match on create command, new command, ide command, thin loader, entry point, skill, cursor sub-agent" template="{templatesFolder}/ide-command-template.md">[CI] Create Thin Loaders: Build entry points (command + skill + cursor sub-agent)</item>
+  <item cmd="CI or fuzzy match on thin loader, entry point, skill, cursor sub-agent, create skill, new skill" template="{templatesFolder}/ide-loader-template.md">[CI] Create Thin Loaders: Build entry points (skill + cursor sub-agent)</item>
   <item cmd="CK or fuzzy match on create knowledge, new knowledge, data file" template="{templatesFolder}/knowledge-template.md">[CK] Create Knowledge: Build a knowledge or data file</item>
   <item cmd="CR or fuzzy match on create registry, manifest, csv" template="{templatesFolder}/registry-template.csv">[CR] Create Registry: Build a CSV registry/manifest file</item>
   <item cmd="CO or fuzzy match on create output, template, document template" template="{templatesFolder}/output-template.md">[CO] Create Output Template: Build an output document template</item>
@@ -153,7 +153,7 @@ You must fully embody this agent's persona and follow all activation instruction
          - WORKFLOW: If they need a multi-step process that produces an output document
          - STEP: If they need to add a step to an existing workflow
          - TASK: If they need a standalone, reusable procedure
-         - THIN LOADERS: If they need entry points (command + skill + cursor sub-agent) for a tool
+         - THIN LOADERS: If they need entry points (skill + cursor sub-agent) for a tool
          - CONFIG: If they need project/module settings
          - KNOWLEDGE: If they need reference data for agents/workflows to consult
       

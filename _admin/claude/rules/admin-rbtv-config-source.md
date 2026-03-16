@@ -1,5 +1,5 @@
 ---
-description: "Canonical source for RBTV platform configuration — always edit _config/.claude/, never installed copies"
+description: "Canonical source for RBTV platform configuration — always edit _config/claude/, never installed copies"
 ---
 # RBTV Config Source Rule
 
@@ -9,16 +9,16 @@ description: "Canonical source for RBTV platform configuration — always edit _
 
 | What | Create/Edit in | Never in |
 |------|---------------|----------|
-| Rules (`bmad-rbtv-*.md`) | `_config/.claude/rules/` | `.claude/rules/` or `.cursor/rules/` |
-| Skills (`bmad-rbtv-*/SKILL.md`) | `_config/.claude/skills/` | `.claude/skills/` or `.cursor/skills/` |
-| Commands (`bmad-rbtv-*.md`) | `_config/.claude/commands/` | `.claude/commands/` or `.cursor/commands/` |
-| Agents (`bmad-rbtv-*.md`) | `_config/.claude/agents/` | `.claude/agents/` or `.cursor/agents/` |
-| MCP config (`.mcp.json`) | `_config/.claude/.mcp.json` | `.claude/.mcp.json` or `.cursor/mcp.json` |
-| Admin-only rules (`admin-rbtv-*.md`) | `_admin/.claude/rules/` | `.claude/rules/` or `.cursor/rules/` |
+| Rules (`bmad-rbtv-*.md`) | `_config/claude/rules/` | `.claude/rules/` or `.cursor/rules/` |
+| Skills (`bmad-rbtv-*/SKILL.md`) | `_config/claude/skills/` | `.claude/skills/` or `.cursor/skills/` |
+| Commands (`bmad-rbtv-*.md`) | `_config/claude/commands/` | `.claude/commands/` or `.cursor/commands/` |
+| Agents (`bmad-rbtv-*.md`) | `_config/claude/agents/` | `.claude/agents/` or `.cursor/agents/` |
+| MCP config (`.mcp.json`) | `_config/claude/.mcp.json` | `.claude/.mcp.json` or `.cursor/mcp.json` |
+| Admin-only rules (`admin-rbtv-*.md`) | `_admin/claude/rules/` | `.claude/rules/` or `.cursor/rules/` |
 
 ## Why
 
-The installer copies `_config/.claude/` → `{project-root}/.claude/` and derives `.cursor/` equivalents during installation. Edits made directly in installed copies are overwritten on next install and are not tracked by git (`.cursor/` and `.claude/` are in `.gitignore`).
+The installer copies `_config/claude/` → `{project-root}/.claude/` and derives `.cursor/` equivalents during installation. Edits made directly in installed copies are overwritten on next install and are not tracked by git (`.cursor/` and `.claude/` are in `.gitignore`).
 
 ## After Editing
 

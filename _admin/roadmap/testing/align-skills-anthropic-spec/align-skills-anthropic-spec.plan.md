@@ -4,7 +4,7 @@ overview: "Align RBTV skill-building infrastructure with Anthropic's official Cl
 todos:
   # Phase 1: Standards & Compliance
   - id: p1-1
-    content: "p1-1: UPDATE ide-command-template.md skill section with Anthropic-aligned fields, naming rules, and optional subdirectories"
+    content: "p1-1: UPDATE ide-loader-template.md skill section with Anthropic-aligned fields, naming rules, and optional subdirectories"
     taskFile: "phase-1/p1-1.task.md"
     status: completed
   - id: p1-2
@@ -94,7 +94,7 @@ Every checkpoint has a **"Checkpoint Review Prompt"** subsection in its phase bo
 >
 > ## Work to Evaluate
 > Three deliverables from Phase 1 of the align-skills-anthropic-spec plan:
-> 1. Updated skill template at `workflows/build-rbtv-component/templates/ide-command-template.md` — added optional Anthropic fields (license, compatibility, metadata, allowed-tools), name==folder rule, optional subdirectories note, three new critical rules
+> 1. Updated skill template at `workflows/build-rbtv-component/templates/ide-loader-template.md` — added optional Anthropic fields (license, compatibility, metadata, allowed-tools), name==folder rule, optional subdirectories note, three new critical rules
 > 2. Updated `name` field in 7 SKILL.md files under `_config/.cursor/skills/bmad-rbtv-*/` to match folder names
 > 3. New rule file at `_config/.cursor/rules/bmad-rbtv-skill-standards.mdc`
 >
@@ -136,7 +136,7 @@ Every checkpoint has a **"Checkpoint Review Prompt"** subsection in its phase bo
 >
 > ## Work to Evaluate
 > Full plan deliverables across all phases of align-skills-anthropic-spec:
-> - Updated template: `workflows/build-rbtv-component/templates/ide-command-template.md`
+> - Updated template: `workflows/build-rbtv-component/templates/ide-loader-template.md`
 > - 7 updated skills: `_config/.cursor/skills/bmad-rbtv-*/SKILL.md`
 > - New rule: `_config/.cursor/rules/bmad-rbtv-skill-standards.mdc`
 > - Platform knowledge: `workflows/prompting-assistance/data/platform_knowledge/claude_skills.md`

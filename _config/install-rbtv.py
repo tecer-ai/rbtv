@@ -896,11 +896,11 @@ def run_workspace_mode(paths: dict, skip_version_check: bool) -> int:
     _print_errors(del_stats.get("errors", []))
     print()
 
-    # Copy .claude/ config (canonical source)
+    # Copy _config/claude/ → .claude/ (canonical source, no dot prefix in source)
     total_copied = total_replaced = 0
-    src = config_dir / ".claude"
+    src = paths["config_claude"]
     dst = root / ".claude"
-    print(f"Processing .claude/ (canonical source)")
+    print(f"Processing _config/claude/ -> .claude/ (canonical source)")
     stats = workspace_copy_folder(src, dst, exclude_names={".mcp.json"})
     if "reason" in stats:
         print(f"  Skipped ({stats['reason']})")
@@ -1018,13 +1018,13 @@ def run_workspace_mode(paths: dict, skip_version_check: bool) -> int:
     if "added" in mcp_stats_claude:
         print(f"Claude Code MCP servers: {mcp_stats_claude['added'] + mcp_stats_claude['merged']}")
     if "copied" in cmd_stats:
-        print(f"Commands replicated (→.cursor):  {cmd_stats['copied'] + cmd_stats['replaced']}")
+        print(f"Commands replicated (->.cursor):  {cmd_stats['copied'] + cmd_stats['replaced']}")
     if "copied" in rule_stats:
-        print(f"Rules replicated (→.cursor):     {rule_stats['copied'] + rule_stats['replaced']}")
+        print(f"Rules replicated (->.cursor):     {rule_stats['copied'] + rule_stats['replaced']}")
     if "copied" in agent_stats:
-        print(f"Agents replicated (→.cursor):    {agent_stats['copied'] + agent_stats['replaced']}")
+        print(f"Agents replicated (->.cursor):    {agent_stats['copied'] + agent_stats['replaced']}")
     if "copied" in skill_stats:
-        print(f"Skills replicated (→.cursor):    {skill_stats['copied'] + skill_stats['replaced']}")
+        print(f"Skills replicated (->.cursor):    {skill_stats['copied'] + skill_stats['replaced']}")
     print()
     print("Installation complete.")
     print()
@@ -1075,8 +1075,8 @@ def run_admin_mode(paths: dict) -> int:
     _print_errors(del_stats.get("errors", []))
     print()
 
-    # Copy _config/.claude/ with path substitution + reinforcement (canonical source)
-    print("Copying _config/.claude/ (path substitution + reinforcement)...")
+    # Copy _config/claude/ with path substitution + reinforcement (canonical source)
+    print("Copying _config/claude/ (path substitution + reinforcement)...")
     cfg_stats = admin_copy_folder(config_claude, rbtv_dir / ".claude", transform=True)
     if "reason" in cfg_stats:
         print(f"  Skipped ({cfg_stats['reason']})")

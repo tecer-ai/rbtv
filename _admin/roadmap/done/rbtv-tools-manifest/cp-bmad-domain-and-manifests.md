@@ -1,4 +1,4 @@
-﻿---
+---
 title: 'Compound: bmad-rbtv-create must use manifests instead of hardcoding lists'
 docType: 'compound'
 mode: 'create'
@@ -64,7 +64,7 @@ When the Builder agent (invoked via `bmad-rbtv-create`) generates files (agents,
    - **Location:** Builder agent rules, or a dedicated rule file loaded by Builder.
 
 2. **Template Guardrails**  
-   - Update Builder templates (e.g. ide-command-template, agent-template, workflow-template) to include a reminder or placeholder: "Reference manifest at [path]; do not list items inline."  
+   - Update Builder templates (e.g. ide-loader-template, agent-template, workflow-template) to include a reminder or placeholder: "Reference manifest at [path]; do not list items inline."  
    - **Rationale:** Reduces chance of hardcoding at the point of generation.  
    - **Location:** `_bmad/rbtv/workflows/build/templates/*.md`.
 

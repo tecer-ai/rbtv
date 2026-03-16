@@ -1,47 +1,48 @@
 <task id="_bmad/rbtv/tasks/help.xml"
       name="RBTV Help"
       standalone="true"
-      description="Display RBTV commands and deep-dive into any command to understand its workflows">
+      description="Display RBTV skills and deep-dive into any skill to understand its workflows">
 
   <objective>
-    Help users discover and understand RBTV commands by dynamically scanning available commands and explaining their underlying workflows.
+    Help users discover and understand RBTV skills by dynamically scanning available skills and explaining their underlying agents, workflows, or tasks.
   </objective>
 
   <llm critical="true">
     <rule>Read the complete task before starting execution.</rule>
-    <rule>No hardcoded information — all command descriptions come from reading files.</rule>
-    <rule>Dynamic discovery — if new commands are added, they appear automatically.</rule>
-    <rule>Read before explaining — always load the actual workflow file before explaining.</rule>
-    <rule>Handle agent files — if the command loads an agent, read the agent file to find its menu items and workflows.</rule>
+    <rule>No hardcoded information — all skill descriptions come from reading files.</rule>
+    <rule>Dynamic discovery — if new skills are added, they appear automatically.</rule>
+    <rule>Read before explaining — always load the actual agent/workflow/task file before explaining.</rule>
+    <rule>Handle agent files — if the skill loads an agent, read the agent file to find its menu items and workflows.</rule>
   </llm>
 
   <flow>
-    <step n="1" title="Scan Commands">
-      <substep n="1a" title="Discover Available Commands">
-        <action>Scan the commands folder: {project-root}/.cursor/commands/</action>
-        <action>For each bmad-rbtv-*.md file found, extract from its frontmatter: name (the command name) and description (what it does).</action>
-        <action>Build a numbered list of available commands.</action>
+    <step n="1" title="Scan Skills">
+      <substep n="1a" title="Discover Available Skills">
+        <action>Scan the skills folder: {project-root}/.cursor/skills/</action>
+        <action>For each bmad-rbtv-* directory found, read its SKILL.md and extract from the frontmatter: name (the skill name) and description (what it does).</action>
+        <action>Build a numbered list of available skills.</action>
       </substep>
     </step>
 
-    <step n="2" title="Display Command Menu">
-      <substep n="2a" title="Present Commands">
-        <action>Present the commands as a numbered menu with format: [N] /bmad-rbtv-{name} — {description}</action>
+    <step n="2" title="Display Skill Menu">
+      <substep n="2a" title="Present Skills">
+        <action>Present the skills as a numbered menu with format: [N] /bmad-rbtv-{name} — {description}</action>
         <action>Include options: Enter a number to deep-dive, Enter 'X' to exit help.</action>
         <action>HALT and WAIT for user selection.</action>
       </substep>
     </step>
 
     <step n="3" title="Deep-Dive on Selection">
-      <substep n="3a" title="Read Command File">
-        <action>Load the full .md file for the selected command.</action>
+      <substep n="3a" title="Read Skill File">
+        <action>Load the full SKILL.md for the selected skill.</action>
       </substep>
-      <substep n="3b" title="Identify Workflow">
-        <action>Look for: workflow= attributes, exec= attributes, or references to workflows/ paths.</action>
+      <substep n="3b" title="Identify Target">
+        <action>From the Activation section, identify what the skill loads: an agent file (via agent-activation block) or a workflow/task file (via "Load and follow" path).</action>
       </substep>
-      <substep n="3c" title="Read and Explain Workflow">
-        <action>Load the workflow.md from the referenced path.</action>
-        <action>Extract and explain: Purpose (from description/goal), Modes (Create/Edit/Validate), Steps (from steps-c/), Outputs (what artifacts it produces), How to use (synthesized usage guide).</action>
+      <substep n="3c" title="Read and Explain Target">
+        <action>Load the referenced agent, workflow, or task file.</action>
+        <action>For agents: extract and explain persona, menu items, and available capabilities.</action>
+        <action>For workflows/tasks: extract and explain purpose, steps, outputs, and how to use.</action>
       </substep>
       <substep n="3d" title="Present and Return">
         <action>Present the explanation. Offer: Enter another number, 'B' to go back to list, 'X' to exit.</action>
@@ -51,8 +52,8 @@
   </flow>
 
   <halt-conditions>
-    <condition>Commands folder is empty — display: "No RBTV commands found. Run install-rbtv.py to sync commands."</condition>
-    <condition>Workflow file missing — display: "This command's workflow is not yet available. It may be in development."</condition>
+    <condition>Skills folder is empty — display: "No RBTV skills found. Run install-rbtv.py to sync skills."</condition>
+    <condition>Target file missing — display: "This skill's target is not yet available. It may be in development."</condition>
     <condition>Unable to parse — show what was found and ask user if they want to see the raw file.</condition>
   </halt-conditions>
 

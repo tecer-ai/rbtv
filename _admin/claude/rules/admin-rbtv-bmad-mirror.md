@@ -46,24 +46,24 @@ When RBTV files reference `{project-root}` paths, resolve them as follows:
 
 ## Installation
 
-RBTV ships platform configuration in `_config/.claude/` (canonical source). The installer (`_config/install-rbtv.py`) copies these files to the workspace root and derives `.cursor/` equivalents. Source files live in this repo; installed copies are generated outputs.
+RBTV ships platform configuration in `_config/claude/` (canonical source, no dot prefix). The installer (`_config/install-rbtv.py`) copies these files to the workspace root and derives `.cursor/` equivalents. Source files live in this repo; installed copies are generated outputs.
 
 **Installed BMAD structure (RBTV touchpoints only):**
 
 ```
 {project-root}/                              # BMAD project root
 ├── .claude/
-│   ├── commands/bmad-rbtv-*.md              # ← from _config/.claude/commands/
-│   ├── rules/bmad-rbtv-*.md                 # ← from _config/.claude/rules/
-│   ├── agents/bmad-rbtv-*.md                # ← from _config/.claude/agents/
-│   ├── skills/bmad-rbtv-*/SKILL.md          # ← from _config/.claude/skills/
-│   └── .mcp.json                            # ← merged from _config/.claude/.mcp.json
+│   ├── commands/bmad-rbtv-*.md              # ← from _config/claude/commands/
+│   ├── rules/bmad-rbtv-*.md                 # ← from _config/claude/rules/
+│   ├── agents/bmad-rbtv-*.md                # ← from _config/claude/agents/
+│   ├── skills/bmad-rbtv-*/SKILL.md          # ← from _config/claude/skills/
+│   └── .mcp.json                            # ← merged from _config/claude/.mcp.json
 ├── .cursor/
 │   ├── commands/bmad-rbtv-*.md              # ← derived from .claude/commands/
 │   ├── agents/bmad-rbtv-*.md                # ← derived from .claude/agents/
 │   ├── skills/bmad-rbtv-*/SKILL.md          # ← derived from .claude/skills/
 │   ├── rules/bmad-rbtv-*.mdc               # ← derived from .claude/rules/ (.md→.mdc)
-│   └── mcp.json                             # ← derived from _config/.claude/.mcp.json
+│   └── mcp.json                             # ← derived from _config/claude/.mcp.json
 ├── .vscode/settings.json                    # ← created from _config/.vscode/settings.json (only if new)
 ├── .cursorignore                            # ← patterns appended
 ├── _bmad/

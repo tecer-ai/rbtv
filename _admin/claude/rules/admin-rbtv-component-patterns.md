@@ -4,7 +4,7 @@ paths:
   - "agents/**/*.md"
   - "workflows/**/*.md"
   - "tasks/**/*.xml"
-  - "_config/.claude/commands/**/*.md"
+  - "_config/claude/commands/**/*.md"
 ---
 # RBTV Component Pattern Compliance
 
@@ -42,7 +42,7 @@ paths:
 | Terminal steps | `nextStepFile: null` for final steps |
 | HALT | Every step must end with menu + "HALT and WAIT" |
 
-## IDE Command Files (`_config/.claude/commands/bmad-rbtv-*.md`)
+## IDE Command Files (`_config/claude/commands/bmad-rbtv-*.md`)
 
 | Rule | Requirement |
 |------|-------------|
