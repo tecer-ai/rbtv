@@ -18,14 +18,4 @@ description: Extract voice signature from text across emotional tone, structural
 
 ## Activation
 
-Load and follow the tone extraction task:
-
-```
-{project-root}/_bmad/rbtv/tasks/tone-extraction.xml
-```
-
-This task provides:
-- Three-dimension analysis framework (emotional, structural, vocabulary)
-- In-voice output methodology (demonstrate, don't describe)
-- Validation checklist and success criteria
-- Critical constraints to avoid common pitfalls
+Load and follow: `{project-root}/_bmad/rbtv/tasks/tone-extraction.xml`

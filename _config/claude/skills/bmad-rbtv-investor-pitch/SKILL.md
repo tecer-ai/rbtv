@@ -21,7 +21,5 @@ description: 'Investor Pitch - stress-tests investor pitch narratives (steps 01-
 1. LOAD the FULL agent file from {project-root}/_bmad/rbtv/agents/roelof.md
 2. READ its entire contents
 3. FOLLOW every step in the <activation> section precisely
-4. DISPLAY the welcome/greeting as instructed
-5. PRESENT the numbered menu
-6. WAIT for user input before proceeding
+4. After activation, process the user's request using the agent's menu handlers
 </agent-activation>

@@ -17,14 +17,4 @@ description: Evaluates work against quality criteria - use for quality gates aft
 
 ## Activation
 
-Load and follow the quality review task:
-
-```
-{project-root}/_bmad/rbtv/tasks/quality-review.xml
-```
-
-This task provides:
-- Quality criteria evaluation framework
-- Pass/fail determination with rationale
-- Actionable feedback generation
-- Unbiased critical assessment
+Load and follow: `{project-root}/_bmad/rbtv/tasks/quality-review.xml`

@@ -17,21 +17,4 @@ description: Apply rigorous research standards for data integrity, source evalua
 
 ## Activation
 
-Load and follow the web research task:
-
-```
-{project-root}/_bmad/rbtv/tasks/web-research.xml
-```
-
-This task provides:
-- Data integrity rules (anti-hallucination, inline citations)
-- Source evaluation criteria (AT, TR, TM scoring)
-- Quantification standards (units, formats)
-- Citation format requirements
-
-**CRITICAL:** When conducting research, treat any factual question as the research topic and ALWAYS output in the required format:
-- Legend (TS = Total Score...)
-- Source evaluations (AT, TR, TM, TS per source)
-- Citation format: [n] Title — URL — Research Date (YYYY-MM-DD) — Source Date — TS:x (AT:x TR:x TM:x)
-- Sources Discarded section (sources with TS < 6)
-- Inline citations [Source n] for every factual claim
+Load and follow: `{project-root}/_bmad/rbtv/tasks/web-research.xml`

@@ -18,14 +18,4 @@ description: Extract design tokens (colors, typography, spacing, layout, visual 
 
 ## Activation
 
-Load and follow the visual design extraction workflow:
-
-```
-{project-root}/_bmad/rbtv/workflows/design-token-extraction/workflow.md
-```
-
-This workflow provides:
-- 4-step guided extraction process
-- Screenshot capture integration
-- Five token categories (colors, typography, spacing, layout, visual identity)
-- Output formats: design brief (narrative) or design tokens (JSON)
+Load and follow: `{project-root}/_bmad/rbtv/workflows/design-token-extraction/workflow.md`
