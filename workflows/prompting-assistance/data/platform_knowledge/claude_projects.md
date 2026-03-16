@@ -1,8 +1,8 @@
 # Claude Projects - Platform Interface Knowledge
 
-**Platform:** Claude (claude.ai)  
-**Feature:** Projects  
-**Purpose:** Enable AI agents to guide users through Claude Projects interface
+**Platform:** Claude (claude.ai)
+**Feature:** Projects
+**Purpose:** Enable AI agents to guide users through creating and configuring Claude Projects with effective system prompts and knowledge bases.
 
 ---
 
@@ -10,336 +10,198 @@
 
 ### Main Components
 
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| Projects list | Left navigation sidebar | Access and manage all projects |
-| Project workspace | Main area | Chat interface with project context |
-| Instructions panel | Right sidebar | Configure system prompt for project |
-| Files panel | Right sidebar | Manage knowledge base documents |
-| Chat input | Bottom of workspace | Send messages to Claude |
-| Model selector | Chat input area | Choose Claude model (e.g., Opus 4.5) |
-
-### Navigation Structure
-
-1. **All projects view** — Lists all user projects, accessible via "All projects" link
-2. **Project workspace** — Individual project with chat and configuration panels
-3. **New project dialog** — Modal for creating projects with name and description fields
+| Component | Purpose |
+|-----------|---------|
+| **Project Instructions** | Custom instructions (role, tone, guidelines) that shape all chats in the project |
+| **Project Knowledge** | Uploaded files and connected sources that Claude uses as context |
+| **Chat History** | Conversations grouped within the project |
+| **Model Selector** | Choose which Claude model to use |
+| **Artifacts** | Standalone content windows for code, HTML, React, SVG, diagrams |
 
 ---
 
-## 2. Core Capabilities
+## 2. Available Models
 
-### What Claude Projects Can Do
+| Model | Context Window | Plan Access |
+|-------|---------------|-------------|
+| **Opus 4.6** | 1M tokens | Pro, Max |
+| **Sonnet 4.6** | 1M tokens | Free, Pro, Max |
+| **Haiku 4.5** | 200K tokens | Free, Pro, Max |
 
-| Capability | Description |
-|------------|-------------|
-| Persistent instructions | System prompt applied to every chat in the project |
-| Knowledge base | Uploaded files available as context for all chats |
-| Organized conversations | Multiple chats grouped under single project |
-| Model selection | Choose which Claude model processes requests |
-| External integrations | Connect GitHub repos and Google Drive files |
-
-### Primary Use Cases
-
-- Automating repetitive tasks with standard prompts
-- Maintaining consistent AI behavior across conversations
-- Providing domain-specific knowledge without re-uploading
-- Team collaboration with shared context (Team/Enterprise plans)
+- 1M context became GA on March 13, 2026 — standard pricing, no long-context premium
+- 1M context supports up to 600 images or PDF pages per request
+- 200K tokens ≈ 500 pages of text
+- Enterprise plans can access 500K tokens on some models
 
 ---
 
-## 3. Integrated Tools
+## 3. File Uploads
 
-### File Sources
+### Limits
 
-| Source | How to Access | Capabilities |
-|--------|---------------|--------------|
-| Local upload | Files panel → "+" → "Upload from device" | Upload PDFs, documents, text files |
-| GitHub | Files panel → "+" → "GitHub" | Select repository, browse files, add to project |
-| Google Drive | Files panel → "+" → "Google Drive" | Browse recent files or paste URL |
-| Text content | Files panel → "+" → "Add text content" | Manually paste text as knowledge |
+| Context | Per-file limit | Count limit | Notes |
+|---------|---------------|-------------|-------|
+| **Chat** | 30 MB | 20 files per conversation | Shares context window |
+| **Projects** | 30 MB | Unlimited files | RAG activates when over context limit |
 
-### Linked Files (GitHub and Google Drive)
+### Supported File Types
 
-Files added from GitHub or Google Drive are **linked to the source**:
-- When source files are updated, project files update automatically
-- No manual re-upload required
-- Project always has latest version from connected sources
+PDF, DOCX, TXT, RTF, ODT, EPUB, HTML, Markdown, CSV, TSV, JSON, PPTX (added Aug 2025), JPEG, PNG, GIF, WebP
 
-| Source | Sync Behavior |
-|--------|---------------|
-| Local upload | Static — must re-upload to update |
-| GitHub | Linked — auto-syncs with repository |
-| Google Drive | Linked — auto-syncs with Drive |
-| Text content | Static — must edit manually to update |
+### RAG Behavior
 
-### GitHub Integration
-
-1. Click "+" in Files panel
-2. Select "GitHub"
-3. Dialog appears: "Add content from GitHub"
-4. Use dropdown "Select a repository" or paste URL
-5. Browse and select files from repository
-6. Selected files added to project knowledge base
-
-### Google Drive Integration
-
-1. Click "+" in Files panel
-2. Select "Google Drive"
-3. Submenu shows recent documents
-4. Alternatively, search or paste URL
-5. Selected files added to project knowledge base
+- RAG activates automatically when project knowledge nears the context limit
+- Expands effective capacity by ~10×
+- Available on ALL plans, including Free
 
 ---
 
-## 4. User Actions
+## 4. Integrations
 
-### Creating a Project
+### GitHub
 
-| Step | Action | UI Element |
-|------|--------|------------|
-| 1 | Navigate to projects | Click project icon in left sidebar |
-| 2 | Start creation | Click "New Project" or "+" button |
-| 3 | Enter name | "What are you working on?" field — project name |
-| 4 | Enter description | "What do you want to accomplish?" field — project goals |
-| 5 | Confirm | Click "Create project" button |
+Available on all plans, including Free.
 
-### Adding Instructions
+| Retrieved | NOT Retrieved |
+|-----------|---------------|
+| File names and contents | Commit history |
+| Branch content | Pull requests |
+| | Issues and metadata |
 
-| Step | Action | UI Element |
-|------|--------|------------|
-| 1 | Open instructions | Click "+" next to "Instructions" in right sidebar |
-| 2 | Write instructions | Text area: "Give Claude instructions and relevant information..." |
-| 3 | Save | Click "Save instructions" button |
-| 4 | Cancel | Click "Cancel" to discard changes |
+Configure which files Claude analyzes. Sync fetches latest changes.
 
-**Instructions become the system prompt for all chats in this project.**
+### Google Drive
 
-### Adding Files
+Available on Pro, Max, Team, Enterprise. Private projects only.
 
-| Step | Action | UI Element |
-|------|--------|------------|
-| 1 | Open file menu | Click "+" next to "Files" in right sidebar |
-| 2 | Choose source | Select: Upload, Text content, GitHub, or Google Drive |
-| 3 | Select files | Browse and select files from chosen source |
-| 4 | Confirm | Files appear in Files panel list |
+| Supported | NOT Supported |
+|-----------|---------------|
+| Google Docs (up to 10 MB, text only) | Google Sheets |
+| Live sync with Drive | Google Slides |
+| | Images within docs |
 
-### Starting a Chat
+### Google Workspace Connectors
 
-| Step | Action | UI Element |
-|------|--------|------------|
-| 1 | Open project | Click project name in left sidebar |
-| 2 | Type message | Enter text in "Reply..." input field |
-| 3 | Select model | Use model dropdown (e.g., "Opus 4.5") |
-| 4 | Send | Click send button or press Enter |
-
-**Each new chat inherits project instructions as system prompt and uploaded files as available context.**
+Gmail, Calendar, and Drive connectors available on all plans. Enterprise gets Google Docs Cataloging with RAG-powered indexed search.
 
 ---
 
-## 5. AI Agent Guidance
+## 5. Artifacts
 
-### How to Guide Users
-
-| Task | Guidance Pattern |
-|------|------------------|
-| Create project | "Navigate to Projects in the left sidebar, then click New Project. Enter a descriptive name and your goals." |
-| Add instructions | "In your project, click the + next to Instructions in the right panel. Write the behavior you want Claude to follow in every chat." |
-| Add knowledge | "Click + next to Files, then choose your source: upload directly, connect GitHub, or link Google Drive." |
-| Start conversation | "Open your project and type in the message field. Your instructions and files are automatically applied." |
-
-### When to Recommend Projects
-
-| Situation | Recommendation |
-|-----------|----------------|
-| User repeats same setup across chats | "Create a Project to save your instructions and files permanently" |
-| User needs consistent behavior | "Project instructions act as a system prompt for every conversation" |
-| User has reference documents | "Upload files to your project so Claude can access them without re-uploading" |
-| User manages multiple contexts | "Create separate projects for different workflows" |
-
-### Platform-Specific Instructions Format
-
-Instructions field accepts plain text. Effective patterns:
-- Role definition ("You are a...")
-- Behavioral constraints ("Always...", "Never...")
-- Output format preferences ("Use markdown tables")
-- Domain-specific knowledge references ("Refer to the uploaded API docs")
+| Capability | Details |
+|-----------|---------|
+| **Types** | Markdown docs, code snippets, single-page HTML, SVG, diagrams, flowcharts, interactive React components |
+| **AI-powered artifacts** | Embed Claude via text-based API; run on Anthropic infrastructure; usage counts against subscription |
+| **Persistent storage** | Pro, Max, Team, Enterprise — 20 MB per artifact, text-only input |
+| **MCP integration** | Pro+ — connect to Asana, Google Calendar, Slack, custom MCP servers |
+| **Availability** | All plans (AI-powered + storage require Pro+) |
 
 ---
 
-## 6. Limitations and Constraints
+## 6. Memory and Context
 
-### Platform Limitations
-
-| Limitation | Description | Workaround |
-|------------|-------------|------------|
-| Free tier: 5 projects max | Limited project slots | Prioritize highest-value use cases |
-| Project name not visible to Claude | Title/description not in context | Put critical info in instructions |
-| Chat history not shared | Each chat is isolated | Add reusable info to knowledge base |
-| No cross-project linking | Projects are independent | Manually copy relevant context |
-| File size limits | Large files may be rejected | Split into smaller documents |
-
-### What Projects Cannot Do
-
-- Share context between different projects
-- Automatically update when external files change
-- Execute code or access external APIs
-- Remember information from one chat in another (unless added to knowledge base)
-
----
-
-## 7. Context Management
-
-### How Context Works
-
-| Component | Behavior |
+| Mechanism | Behavior |
 |-----------|----------|
-| Instructions | Loaded as system prompt at chat start |
-| Knowledge base files | Available for retrieval during conversation |
-| Chat history | Maintained within single chat only |
-| Previous chats | NOT accessible to new chats |
-
-### Context Persistence
-
-| Persists | Does Not Persist |
-|----------|------------------|
-| Project instructions | Individual chat messages |
-| Uploaded files | Chat-specific clarifications |
-| Project name/description | Temporary context from conversation |
-
-### Optimization Strategies
-
-| Strategy | Implementation |
-|----------|----------------|
-| Curate knowledge base | Remove outdated/irrelevant files |
-| Prioritize critical files | Most important docs likely retrieved first |
-| Explicit instructions | Tell Claude which files to reference |
-| Periodic review | Update knowledge base when source docs change |
+| **Project isolation** | Each project keeps its own context; no cross-project sharing |
+| **Auto memory** | Claude periodically extracts patterns and preferences from conversations; stored separately from chat history; editable in Settings |
+| **Project instructions** | Loaded for every chat in the project |
+| **Context overflow** | With code execution enabled, Claude can summarize earlier messages when approaching the limit; full history remains referenceable |
 
 ---
 
-## Visual Reference
+## 7. Pricing
 
-### Project Creation Dialog
-
-```
-┌─────────────────────────────────────────────┐
-│  Create a personal project                  │
-│                                             │
-│  What are you working on?                   │
-│  ┌─────────────────────────────────────┐    │
-│  │ [Project name input]                │    │
-│  └─────────────────────────────────────┘    │
-│                                             │
-│  What do you want to accomplish?            │
-│  ┌─────────────────────────────────────┐    │
-│  │ [Description textarea]              │    │
-│  │                                     │    │
-│  └─────────────────────────────────────┘    │
-│                                             │
-│              [Cancel]  [Create project]     │
-└─────────────────────────────────────────────┘
-```
-
-### Project Workspace Layout
-
-```
-┌──────────┬──────────────────────┬──────────────┐
-│ Projects │                      │ Instructions │
-│ ────────│    Chat Area          │ ────────────│
-│ Project1 │                      │ [+]          │
-│ Project2 │                      │              │
-│ Project3 │                      │ Files        │
-│          │                      │ ────────────│
-│          │                      │ [+]          │
-│          │ ┌──────────────────┐ │              │
-│          │ │ Reply...         │ │ • file1.pdf │
-│          │ │      Opus 4.5 [↑]│ │ • file2.md  │
-│          │ └──────────────────┘ │              │
-└──────────┴──────────────────────┴──────────────┘
-```
+| Plan | Price | Projects | Notes |
+|------|-------|----------|-------|
+| **Free** | $0 | 5 max | RAG available; Haiku + Sonnet |
+| **Pro** | $17/mo (annual) / $20/mo | Unlimited | Includes Claude Code, Cowork; all models |
+| **Max** | $100/mo (5×) / $200/mo (20×) | Unlimited | Priority access, higher output limits |
+| **Team Standard** | $20/seat (annual) / $25 (monthly) | Unlimited | 5-user min; project sharing |
+| **Team Premium** | $100/seat (annual) / $125 (monthly) | Unlimited | 5× usage vs standard |
+| **Enterprise** | Custom ($20/seat + usage) | Unlimited | HIPAA, SSO, SCIM, audit logs, Google Docs cataloging |
 
 ---
 
-## 8. When to Use Projects
+## 8. AI Agent Guidance
 
-### Ideal For
+### Instructions Format
 
-| Use Case | Why Projects Help |
+No documented character limit for project instructions (token-based). Effective patterns:
+
+- Use for role, tone, and persistent guidelines — NOT for task-specific instructions (put those in the chat)
+- XML tags work well for section boundaries (Claude respects XML structure)
+- State constraints explicitly with NEVER/ALWAYS
+- Use 1–3 examples for nuanced behavior
+- Force output structure (JSON, bullets, rubrics) when needed
+- System/safety constraints override user requests — design with this hierarchy in mind
+
+### Knowledge Base Best Practices
+
+- Use clear, descriptive filenames — Claude uses filenames to identify context
+- Structure documents with headers and sections for better retrieval
+- RAG helps with large knowledge bases but retrieval is relevance-based — critical rules must be in project instructions, not files
+- GitHub integration is best for code-heavy projects with ongoing changes
+
+### When to Recommend Claude Projects
+
+| Use Case | Why Claude |
+|----------|-----------|
+| Large document analysis (500+ pages) | 200K–1M token context; RAG for overflow |
+| Code-heavy work with GitHub repos | Direct GitHub integration with file sync |
+| Professional/technical persistent assistants | Artifacts for versioned, editable output |
+| Client/consulting isolation | One project per client; clean separation |
+| Structured, complex system prompts | No character limit; XML tag support |
+
+### When NOT to Recommend Claude Projects
+
+| Use Case | Better Alternative |
 |----------|-------------------|
-| Recurring workflows with consistent requirements | Customer support, code review, content creation — same setup every time |
-| Role-specific tasks requiring persona consistency | Technical writer, QA analyst, architect personas maintained across chats |
-| Projects with stable knowledge bases | API documentation, style guides, design systems always available |
-| Team collaboration (Team/Enterprise) | Shared context eliminates repeated uploads |
-| Multi-conversation tasks building on previous work | Iterative development, research projects |
-
-### Avoid For
-
-| Use Case | Why Projects Don't Help |
-|----------|-------------------------|
-| One-off questions with no repeated context | Overhead not worth it |
-| Tasks where context varies significantly | Different setup needed each time |
-| Exploratory conversations without defined scope | No stable instructions to define |
-| Simple queries answerable without context loading | Unnecessary complexity |
+| Image generation | ChatGPT (DALL-E) |
+| Live web search / real-time data | Gemini (Google Search grounding) |
+| Google ecosystem integration | Gemini (Drive, Docs, Gmail native) |
+| Daily casual assistant with memory | ChatGPT (better memory UX) |
+| Autonomous task execution | Manus (agent runtime) |
 
 ---
 
-## 9. Common Pitfalls
+## 9. Limitations
 
-| Pitfall | Why It Fails | Solution |
-|---------|--------------|----------|
-| Assuming chat history is shared | Only knowledge base content is shared; each chat is isolated | Explicitly add reusable information to project knowledge base |
-| Uploading irrelevant documents | Semantically similar but off-topic content confuses model | Curate knowledge base rigorously; remove outdated files |
-| Vague project instructions | Generic instructions ("be helpful") provide no guidance | Specify role, tone, format, constraints with concrete examples |
-| Forgetting to update stale knowledge | Outdated documentation causes incorrect responses | Set review cadence; update when source docs change |
-| Generic project names | Hard to find correct project | Use descriptive names: "React Component Library Docs" not "Frontend Project" |
-| Overloading single project | Unrelated contexts dilute effectiveness | Create separate projects for distinct domains |
-
----
-
-## 10. Quality Checklist
-
-Before deploying a Claude Project:
-
-- [ ] Project name is descriptive — clearly indicates purpose and scope
-- [ ] Instructions define role — specifies persona ("You are a...")
-- [ ] Instructions specify tone — defines communication style
-- [ ] Output format is explicit — states preferred structure (markdown, JSON, bullets)
-- [ ] Constraints are listed — defines what to avoid or limit
-- [ ] Knowledge base is curated — only relevant, high-quality documents
-- [ ] Test query validates behavior — representative prompt confirms instructions work
-- [ ] Sources are citable — uploaded files have clear names
-- [ ] Update plan exists — process defined for keeping knowledge base current
+| Limitation | Impact | Workaround |
+|-----------|--------|------------|
+| Cross-project isolation | No shared context between projects | Duplicate instructions or use organization-wide settings (Team/Enterprise) |
+| Google Drive: no Sheets/Slides | Can't analyze spreadsheets or presentations from Drive | Upload files directly |
+| Rate limits on Pro | ~45 messages per 5 hours (varies) | Batch questions; use Haiku for simple queries |
+| No image generation | Can't produce images | Use ChatGPT for visual output |
+| No live web search | Can't access current information | Use Gemini or pair with external search |
+| Instruction enforcement inconsistency | Project instructions not always followed precisely | Repeat critical rules; use explicit NEVER/ALWAYS |
 
 ---
 
-## 11. Examples
+## 10. Recent Changes (Late 2025 – March 2026)
 
-### Example: API Documentation Assistant
-
-| Without Projects | With Projects |
-|------------------|---------------|
-| **Every chat:** Paste API reference, explain role, specify format, remind about style guide | **Setup once:** Instructions define role and format; upload api_reference.json and style_guide.md |
-| **Result:** Inconsistent style, repeated setup, no source citations | **Result:** Consistent format, automatic citations, 80% less prompt setup |
-
-### Example: Code Review Assistant
-
-| Without Projects | With Projects |
-|------------------|---------------|
-| **Every chat:** List review criteria, paste coding standards, explain security checklist | **Setup once:** Instructions define review process; upload coding_standards.md and security_checklist.md |
-| **Result:** Inconsistent depth, forgotten criteria, manual tracking | **Result:** 100% checklist coverage, consistent reviews |
+| Date | Change |
+|------|--------|
+| March 13, 2026 | 1M context GA for Opus 4.6 and Sonnet 4.6; 600 media items per request |
+| March 12, 2026 | Interactive charts, diagrams, visualizations in artifacts |
+| March 11, 2026 | Claude for Excel and PowerPoint — shared context across files; Skills |
+| Feb 2026 | Opus 4.6 released |
+| Jan 2026 | Cowork launched (macOS); Windows followed in Feb |
+| Late 2025 | Projects and Artifacts made available on Free plan; RAG for all plans |
 
 ---
 
-## Technical Reference
+## 11. Quality Checklist
 
-| Topic | Official Documentation |
-|-------|------------------------|
-| Projects overview | https://support.claude.com/en/articles/9517075-what-are-projects |
-| Creating and managing projects | https://support.claude.com/en/articles/9519177-how-can-i-create-and-manage-projects |
-| RAG enhancement (paid plans) | https://support.anthropic.com/en/articles/11473015-retrieval-augmented-generation-rag-for-projects |
-| Project visibility and sharing | https://support.claude.com/en/articles/9519189-project-visibility-and-sharing |
+- [ ] Project instructions define role, tone, and guardrails clearly
+- [ ] Critical rules in instructions, not in knowledge files
+- [ ] XML tags used for section boundaries in complex prompts
+- [ ] NEVER/ALWAYS constraints explicitly stated
+- [ ] Output format specified
+- [ ] 1–3 examples included for nuanced behavior
+- [ ] File naming is descriptive and structured
+- [ ] Model selected appropriately (Opus for complex, Haiku for speed)
+- [ ] Tested with sample conversations
 
 ---
 
-*Last updated: 2026-02-03*
+*Last updated: 2026-03-16*
