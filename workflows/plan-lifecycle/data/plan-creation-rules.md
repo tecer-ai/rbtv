@@ -91,7 +91,7 @@ Assess each plan across 5 dimensions. Score 1-3 per dimension.
 
 ## Plan Linking Standard
 
-**MANDATORY:** All references within plan artifacts follow a two-part linking contract to ensure plan folders can be moved without breaking links.
+**MANDATORY:** All references within plan artifacts follow a three-part linking contract to ensure plan folders can be moved without breaking links.
 
 ### Internal Links (within plan folder)
 
@@ -101,19 +101,32 @@ References between files inside the same plan folder MUST use file-relative path
 |------|---------|--------------|
 | Use `./` or `../` relative to the referencing file | `../shape.md`, `./phase-1/p1-1.task.md` | ❌ `.cursor/plans/my-plan/shape.md` |
 | `taskFile` values are relative to the plan folder | `phase-1/p1-1.task.md` | ❌ `.cursor/plans/my-plan/phase-1/p1-1.task.md` |
+| NEVER embed the plan folder's absolute or root-relative path | `../learnings.md` | ❌ `{project-root}/.cursor/plans/my-plan/learnings.md` |
 
-### External Links (to files outside plan folder)
+### External Links (from plan files to outside)
 
 References from plan files to files outside the plan folder MUST use project-root-relative paths.
 
 | Rule | Example | Anti-pattern |
 |------|---------|--------------|
 | Path from project root, no leading `./` | `workflows/plan-lifecycle/workflow.md` | ❌ `../../../workflows/plan-lifecycle/workflow.md` |
-| Never traverse up out of the plan folder | `_bmad/rbtv/_config/tools-manifest.csv` | ❌ `../../../../_bmad/rbtv/_config/tools-manifest.csv` |
+| NEVER traverse up out of the plan folder | `_bmad/rbtv/_config/tools-manifest.csv` | ❌ `../../../../_bmad/rbtv/_config/tools-manifest.csv` |
 
-### Why
+### Inbound Links (from outside referencing a plan)
 
-When a plan folder is moved (e.g., relocated or renamed under `.cursor/plans/`), internal file-relative links remain valid because sibling paths don't change, and external root-relative links remain valid because they're anchored to the project root.
+Documents outside a plan folder that reference plan files MUST use root-relative paths to the plan's current location. When a plan folder moves, update these references via search-and-replace on the old path.
+
+| Rule | Example |
+|------|---------|
+| Use root-relative path to plan file | `_bmad/rbtv/_admin/roadmap/testing/my-plan/my-plan.plan.md` |
+| Reference companion files the same way | `_bmad/rbtv/_admin/roadmap/testing/my-plan/shape.md` |
+
+### Validation (pN-refs task)
+
+The `pN-refs` task in every plan's final phase MUST verify:
+1. No file inside the plan folder contains a self-reference using an absolute or root-relative path to the plan folder
+2. All internal links use `./` or `../` relative paths
+3. All external links from plan files use project-root-relative paths
 
 ---
 

@@ -20,7 +20,7 @@ Verify all internal markdown links in plan deliverables resolve correctly.
 
 | File | Purpose |
 |------|---------|
-| `.cursor/plans/align-skills-anthropic-spec/shape.md` | Plan context |
+| `../shape.md` | Plan context |
 
 ---
 

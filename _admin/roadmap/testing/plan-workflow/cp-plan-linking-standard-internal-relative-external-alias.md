@@ -21,7 +21,7 @@ yoloMode: false
 **Type:** Workflow  
 **Priority:** High  
 **Tracker:**  
-**Status:** Backlog
+**Status:** Done
 
 ---
 
@@ -125,11 +125,11 @@ The root cause is not a one-off bad replacement; it is absence of a formal link 
 
 ## Acceptance Criteria
 
-- [ ] A documented rule explicitly requires file-relative links for references between files within the same plan folder.
-- [ ] Plan generation/edit workflows emit internal links using only `./` and `../` patterns.
-- [ ] A stable external alias convention is documented and adopted for plan references outside plan folders.
-- [ ] Validation detects and flags `.cursor/plans/{plan-name}/` style self-references inside plan folders.
-- [ ] At least one migrated plan demonstrates compliance with both internal and external contracts.
+- [x] A documented rule explicitly requires file-relative links for references between files within the same plan folder. → Plan Linking Standard section in `plan-creation-rules.md` (loaded as knowledge file during plan creation)
+- [x] Plan generation/edit workflows emit internal links using only `./` and `../` patterns. → `plan-creation-rules.md`, `step-04-generate-artifacts.md`, `plan-task-microstep-template.md` (pre-existing + strengthened)
+- [x] A stable external reference convention is documented and adopted for plan references outside plan folders. → Root-relative inbound links convention (replaces alias approach — alias files add indirection without value given plans are organized by lifecycle stage, not `.cursor/plans/`)
+- [x] Validation detects and flags `.cursor/plans/{plan-name}/` style self-references inside plan folders. → `step-06-complete.md` section 1c
+- [x] At least one migrated plan demonstrates compliance with both internal and external contracts. → `align-skills-anthropic-spec` (5 task files migrated from `.cursor/plans/align-skills-anthropic-spec/shape.md` → `../shape.md`)
 
 ---
 

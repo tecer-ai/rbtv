@@ -70,6 +70,31 @@ Returning to step-05 to fix missing artifacts.
 
 Load `./step-05-generate-artifacts.md` and re-execute.
 
+### 1c. Validate Plan Linking Standard
+
+Search all files inside the plan folder for violations of the Plan Linking Standard (see `plan-creation-rules.md`).
+
+**Check 1 — No brittle self-references:** Search all `.md` files in the plan folder for patterns that embed the plan folder's own path as a root-relative or absolute reference. Use grep pattern: the plan folder name followed by `/` in a path context (e.g., `.cursor/plans/{plan-name}/` or `{project-root}/.../{plan-name}/`).
+
+**Check 2 — Internal links are relative:** Verify that references to sibling files (`shape.md`, `learnings.md`, task files) use `../` or `./` patterns, not root-relative paths.
+
+| Check | Passes When | Failure Indicates |
+|-------|-------------|-------------------|
+| No brittle self-refs | Zero matches for plan-folder-name-based absolute paths inside plan files | Files contain move-fragile self-references |
+| Internal links relative | All intra-plan references use `./` or `../` | Links will break on folder relocation |
+
+**If ANY linking violation is found:**
+```
+⚠️ Plan Linking Standard violation detected
+
+Brittle self-references found in:
+- {file-path}: line {N} — {matched text}
+
+Fix these references to use file-relative paths (e.g., ../shape.md instead of .cursor/plans/{plan-name}/shape.md).
+```
+
+Fix violations before proceeding — do NOT skip this check.
+
 **If core artifacts are missing:**
 ```
 ⚠️ INCOMPLETE: Missing artifacts detected
@@ -155,6 +180,7 @@ This completes the Create workflow. The plan and all supporting files are saved 
 
 - ✅ All core artifacts validated (plan, shape, learnings, phase folders)
 - ✅ Bidirectional taskFile validation passed (YAML → Disk and Disk → YAML)
+- ✅ Plan Linking Standard validation passed (no brittle self-references, internal links relative)
 - ✅ Counts gathered accurately
 - ✅ Completion summary displayed with full structure
 - ✅ Execution instructions provided
