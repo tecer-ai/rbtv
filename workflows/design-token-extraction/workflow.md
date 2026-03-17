@@ -1,7 +1,7 @@
 ---
 name: 'visual-extraction-workflow'
-description: 'Extract design tokens from website screenshots'
-main_config: '	{project-root}/_bmad/rbtv/_config/config.yaml'
+description: 'Extract design tokens from a live website via multi-page navigation, DOM/CSS extraction, and visual analysis'
+main_config: '{project-root}/_bmad/rbtv/_config/config.yaml'
 nextStep: ./steps-c/step-01-init.md
 templateFiles:
   design-brief: ./templates/design-brief.md
@@ -10,9 +10,9 @@ templateFiles:
 
 # Visual Design Extraction Workflow
 
-**Goal:** Extract design tokens (colors, typography, spacing, layout, visual identity) from website screenshots and produce structured documentation.
+**Goal:** Navigate a live website, capture multiple pages, extract design tokens from the DOM/CSS and visual analysis, and produce structured documentation.
 
-**Your Role:** Design system analyst collaborating with the user as a peer. You bring visual analysis expertise; they bring domain knowledge and design intent.
+**Your Role:** Design system analyst collaborating with the user as a peer. You bring visual analysis expertise and programmatic extraction capability; they bring domain knowledge and design intent.
 
 ---
 
@@ -36,12 +36,12 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ### Critical Rules
 
-- 🛑 NEVER load multiple step files simultaneously
-- 📖 ALWAYS read the entire step file before execution
-- 🚫 NEVER skip steps or optimize the sequence
-- 💾 ALWAYS update frontmatter after completing each step
-- ⏸️ ALWAYS halt at menus and wait for user input
-- 📋 NEVER pre-load or mentally plan future steps
+- NEVER load multiple step files simultaneously
+- ALWAYS read the entire step file before execution
+- NEVER skip steps or optimize the sequence
+- ALWAYS update frontmatter after completing each step
+- ALWAYS halt at menus and wait for user input
+- NEVER pre-load or mentally plan future steps
 
 ---
 
@@ -49,21 +49,42 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 | Mode | Purpose | Entry Point | Output |
 |------|---------|-------------|--------|
-| Create | Extract tokens from new website | steps-c/step-01-init.md | Design brief or tokens file |
+| Create | Extract tokens from new website | steps-c/step-01-init.md | Design brief and/or tokens JSON |
+
+---
+
+## STEP OVERVIEW
+
+| Step | Name | Purpose |
+|------|------|---------|
+| 01 | Init | URL confirmation, output format, create output document |
+| 02 | Site Discovery | Navigate site, map pages/sections/interactive states, user confirms capture list |
+| 03 | Capture & DOM Extraction | Per-page: full-page screenshot + comprehensive DOM/CSS extraction |
+| 04 | Token Synthesis | Merge DOM data with visual analysis, consolidate tokens across all pages |
+| 05 | Document | Generate design brief and/or tokens JSON, save to output folder |
 
 ---
 
 ## DESIGN TOKEN CATEGORIES
 
-This workflow extracts five categories of design tokens:
-
 | Category | Elements Captured |
 |----------|-------------------|
-| **Colors** | Primary, secondary, neutral, accent, background (hex values) |
-| **Typography** | Font families, sizes, weights, line heights, letter spacing |
-| **Spacing** | Base unit, scale (xs-2xl), section gaps, component padding |
-| **Layout** | Grid systems, column counts, max-widths, breakpoints |
+| **Colors** | Primary, secondary, neutral, accent, background (hex values from DOM + visual) |
+| **Typography** | @font-face declarations, font families, sizes, weights, line heights, letter spacing |
+| **Spacing** | Base unit, scale, section gaps, component padding, margins, gaps |
+| **Layout** | Grid systems, column counts, max-widths, breakpoints, media queries |
 | **Visual Identity** | Brand tone, aesthetic style, border radius, shadows, density |
+| **Transitions** | Durations, easings, animation keyframes |
+| **CSS Variables** | :root custom properties and inline variable declarations |
+
+---
+
+## OUTPUT QUALITY CONSTRAINTS
+
+1. The tokens JSON output must NEVER contain `null` for any field extractable from the site's DOM/CSS.
+2. `null` is only acceptable when the site genuinely does not define that token.
+3. Every token must document its source: `"dom"` (from stylesheets/computed styles) or `"screenshot-sampled"` (from visual analysis).
+4. DOM-extracted values always take precedence over screenshot-sampled values.
 
 ---
 

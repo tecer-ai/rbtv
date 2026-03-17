@@ -1,20 +1,20 @@
 ---
 stepNumber: 1
 stepName: 'init'
-nextStepFile: ./step-02-capture.md
+nextStepFile: ./step-02-discover.md
 continueStepFile: './step-01b-continue.md'
 outputFile: '{output_folder}/design-extraction-{slug}.md'
 ---
 
 # Step 01: Init
 
-**Progress: Step 1 of 4** — Next: Screenshot Capture
+**Progress: Step 1 of 5** — Next: Site Discovery
 
 ---
 
 ## STEP GOAL
 
-Initialize the workflow, identify the target website, and check for existing screenshots.
+Initialize the workflow, identify the target website, and determine output format preferences.
 
 ---
 
@@ -28,13 +28,13 @@ Initialize the workflow, identify the target website, and check for existing scr
 
 ### Role Reinforcement
 
-You are a Design System Analyst. Professional, methodical, focused on extracting actionable design tokens.
+You are a Design System Analyst. Professional, methodical, focused on extracting actionable design tokens from live websites.
 
 ### Step-Specific Rules
 
 - Confirm the target website URL
-- Check if screenshots already exist in context
 - Determine output format preference (brief vs. tokens)
+- The workflow will navigate the live site in step-02 — no screenshots needed yet
 
 ---
 
@@ -45,7 +45,10 @@ You are a Design System Analyst. Professional, methodical, focused on extracting
 Present brief introduction:
 
 ```
-I'll help you extract design tokens from a website. I need:
+I'll help you extract design tokens from a live website. I'll navigate the site,
+capture multiple pages, and extract tokens from both the DOM/CSS and visual analysis.
+
+I need:
 1. The target website URL
 2. Your preferred output format
 ```
@@ -60,18 +63,7 @@ If no URL, ask:
 
 HALT and wait for confirmation or URL.
 
-### 3. Check for Existing Screenshots
-
-Scan conversation context for:
-- Screenshot files already loaded
-- Image attachments of websites
-- References to previously captured screenshots
-
-Report findings:
-- If screenshots found: "I found [N] screenshot(s) in context. Ready to proceed."
-- If no screenshots: "No screenshots detected. We'll capture them in the next step."
-
-### 4. Determine Output Format
+### 3. Determine Output Format
 
 Present format options:
 
@@ -85,7 +77,7 @@ Which output format do you need?
 
 HALT and wait for selection.
 
-### 5. Create Output Document
+### 4. Create Output Document
 
 Initialize output document with frontmatter:
 
@@ -101,11 +93,11 @@ date: '{current-date}'
 ---
 ```
 
-### 6. Present Menu Options
+### 5. Present Menu Options
 
 **Select an Option:**
 
-- **[C] Continue** — Proceed to screenshot capture (step-02)
+- **[C] Continue** — Proceed to site discovery (step-02)
 - **[X] Exit Workflow** — Save current state, exit
 
 ALWAYS halt and wait for user selection.
@@ -117,7 +109,7 @@ ALWAYS halt and wait for user selection.
 ONLY when **[C] Continue** is selected:
 
 1. Ensure frontmatter is updated with `step-01-init.md` in `stepsCompleted`
-2. Load `./step-02-capture.md` and follow its instructions
+2. Load `./step-02-discover.md` and follow its instructions
 
 ---
 
@@ -131,5 +123,4 @@ ONLY when **[C] Continue** is selected:
 
 ❌ **FAILURE:**
 - Proceeding without URL confirmation
-- Generating tokens without screenshots
 - Proceeding to next step without user selecting Continue

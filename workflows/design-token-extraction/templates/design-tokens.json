@@ -3,7 +3,9 @@
   "metadata": {
     "title": "Design Tokens: {website-name}",
     "source": "{url}",
-    "date": "{current-date}"
+    "date": "{current-date}",
+    "pagesAnalyzed": [],
+    "extractionMethod": "dom+screenshot"
   },
   "colors": {
     "primary": "#000000",
@@ -31,6 +33,15 @@
       "secondary": "Font Name",
       "monospace": "Font Name"
     },
+    "fontFace": [
+      {
+        "family": "Font Name",
+        "src": "url()",
+        "weight": "400",
+        "style": "normal",
+        "display": "swap"
+      }
+    ],
     "fontSize": {
       "h1": "48px",
       "h2": "36px",
@@ -52,6 +63,12 @@
       "tight": "1.2",
       "normal": "1.5",
       "relaxed": "1.75"
+    },
+    "letterSpacing": {
+      "tight": "-0.02em",
+      "normal": "0",
+      "wide": "0.05em",
+      "wider": "0.1em"
     }
   },
   "spacing": {
@@ -67,7 +84,14 @@
     "maxWidth": "1200px",
     "columns": 12,
     "gap": "16px",
-    "containerPadding": "24px"
+    "containerPadding": "24px",
+    "breakpoints": {
+      "sm": "640px",
+      "md": "768px",
+      "lg": "1024px",
+      "xl": "1280px",
+      "2xl": "1536px"
+    }
   },
   "visual": {
     "borderRadius": {
@@ -81,6 +105,46 @@
       "sm": "0px 1px 2px rgba(0,0,0,0.05)",
       "md": "0px 2px 8px rgba(0,0,0,0.08)",
       "lg": "0px 4px 16px rgba(0,0,0,0.12)"
+    },
+    "opacity": {
+      "muted": "0.6",
+      "disabled": "0.4",
+      "overlay": "0.5"
+    },
+    "zIndex": {
+      "base": "0",
+      "dropdown": "10",
+      "sticky": "20",
+      "modal": "50",
+      "tooltip": "100"
     }
+  },
+  "transition": {
+    "duration": {
+      "fast": "150ms",
+      "normal": "300ms",
+      "slow": "500ms"
+    },
+    "easing": {
+      "default": "ease",
+      "in": "ease-in",
+      "out": "ease-out",
+      "inOut": "ease-in-out"
+    },
+    "animation": {}
+  },
+  "cssVariables": {},
+  "alphaScale": {
+    "white": {
+      "10": "rgba(255,255,255,0.1)",
+      "20": "rgba(255,255,255,0.2)",
+      "50": "rgba(255,255,255,0.5)"
+    },
+    "black": {
+      "10": "rgba(0,0,0,0.1)",
+      "20": "rgba(0,0,0,0.2)",
+      "50": "rgba(0,0,0,0.5)"
+    },
+    "brand": {}
   }
 }
