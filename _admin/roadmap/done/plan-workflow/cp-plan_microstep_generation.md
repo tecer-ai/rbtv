@@ -14,7 +14,7 @@ inputDocuments:
   - _bmad/rbtv/workflows/plan-lifecycle/data/plan-creation-rules.md
   - _bmad/rbtv/workflows/plan-lifecycle/templates/plan-template.md
   - _bmad/rbtv/workflows/plan-lifecycle/templates/plan-task-microstep-template.md
-outputPath: '{project-root}/_bmad-output/planning-artifacts'
+outputPath: '{project-root}/projects/planning-artifacts'
 date: '2026-02-04'
 yoloMode: false
 ---

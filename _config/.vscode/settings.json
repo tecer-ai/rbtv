@@ -1,7 +1,7 @@
 {
   "files.exclude": {
     "_bmad": true,
-    "_bmad-output/archive": true,
+    "projects/archive": true,
     ".cursorignore": true,
     ".gitignore": true
   }

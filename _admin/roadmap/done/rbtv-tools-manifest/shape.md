@@ -203,10 +203,10 @@
 
 ### Task p3-3: Verify no remaining references to rbtv-manifest.csv
 **Completed:** 2026-02-05
-**Outcome:** Grep confirmed zero references to rbtv-manifest.csv outside plan artifacts (.cursor/plans/rbtv-tools-manifest/) and the file itself. Updated _bmad-output/rbtv-development/todo/cp-bmad-domain-and-manifests.md to reference tools-manifest.csv instead of rbtv-manifest.csv so no broken references remain after deletion.
+**Outcome:** Grep confirmed zero references to rbtv-manifest.csv outside plan artifacts (.cursor/plans/rbtv-tools-manifest/) and the file itself. Updated projects/rbtv-development/todo/cp-bmad-domain-and-manifests.md to reference tools-manifest.csv instead of rbtv-manifest.csv so no broken references remain after deletion.
 **Decisions:** Excluded plan artifacts and the file itself per p3-3 task; updated compound todo doc to tools-manifest.csv for consistency
 **Issues:** None
-**Files Modified:** _bmad-output/rbtv-development/todo/cp-bmad-domain-and-manifests.md (rbtv-manifest.csv → tools-manifest.csv)
+**Files Modified:** projects/rbtv-development/todo/cp-bmad-domain-and-manifests.md (rbtv-manifest.csv → tools-manifest.csv)
 
 ### Task p3-4: DELETE rbtv-manifest.csv
 **Completed:** 2026-02-05

@@ -6,11 +6,11 @@ priority: 'Medium'
 tracker: ''
 stepsCompleted: ['step-01-init.md', 'step-02-self-assessment.md', 'step-03-discussion.md', 'step-04-document.md']
 inputDocuments:
-  - '_bmad-output/robotville-v4.0/founder/m1-conception/working-backwards.md'
-  - '_bmad-output/robotville-v4.0/founder/m1-conception/jobs-to-be-done.md'
-  - '_bmad-output/robotville-v4.0/founder/m1-conception/problem-solution-fit.md'
-  - '_bmad-output/robotville-v4.0/founder/project-memo.md'
-outputPath: '_bmad-output/planning-artifacts'
+  - 'projects/robotville-v4.0/founder/m1-conception/working-backwards.md'
+  - 'projects/robotville-v4.0/founder/m1-conception/jobs-to-be-done.md'
+  - 'projects/robotville-v4.0/founder/m1-conception/problem-solution-fit.md'
+  - 'projects/robotville-v4.0/founder/project-memo.md'
+outputPath: 'projects/planning-artifacts'
 date: '2026-02-13'
 yoloMode: false
 ---
@@ -59,10 +59,10 @@ No single framework was executed incorrectly. The issue is structural: later fra
 | File | Issue |
 |------|-------|
 | `_bmad/rbtv/workflows/bi-business-innovation/` | **Gap:** No backward reconciliation step. Workflow moves forward only. No mechanism to flag when a later framework contradicts an earlier one. |
-| `_bmad-output/.../working-backwards.md` | Contains pre-PSF emotional model, broad segment definition, "do nothing" as one-of-six. Not updated after PSF corrections. |
-| `_bmad-output/.../jobs-to-be-done.md` | Partially updated — Forces Analysis includes PSF corrections. Hypothesis validation table and assumption numbering not reconciled. |
-| `_bmad-output/.../problem-solution-fit.md` | Most current. Cross-references WB assumptions fully. Does NOT cross-reference JTBD assumptions. Treats end-to-end as validated despite JTBD flagging it as unvalidated (H3). |
-| `_bmad-output/.../project-memo.md` | Carries WB-era summaries. Doesn't reflect PSF corrections to emotional model or segment narrowing. |
+| `projects/.../working-backwards.md` | Contains pre-PSF emotional model, broad segment definition, "do nothing" as one-of-six. Not updated after PSF corrections. |
+| `projects/.../jobs-to-be-done.md` | Partially updated — Forces Analysis includes PSF corrections. Hypothesis validation table and assumption numbering not reconciled. |
+| `projects/.../problem-solution-fit.md` | Most current. Cross-references WB assumptions fully. Does NOT cross-reference JTBD assumptions. Treats end-to-end as validated despite JTBD flagging it as unvalidated (H3). |
+| `projects/.../project-memo.md` | Carries WB-era summaries. Doesn't reflect PSF corrections to emotional model or segment narrowing. |
 
 ### Improvement Options
 
@@ -169,7 +169,7 @@ The five heavier alternatives (new gate steps, modified synthesis templates, can
 | `_bmad/rbtv/workflows/bi-business-innovation/workflow.md` | Parent workflow — documents milestone/framework structure |
 | `_bmad/rbtv/workflows/bi-business-innovation/steps-c/step-05-synthesis.md` (per framework) | Target modification — completion steps where the invitation is added |
 | `_bmad/core/workflows/party-mode/workflow.md` | Leveraged infrastructure — Party Mode is the review mechanism |
-| `_bmad-output/{project}/founder/project-memo.md` | Data source — `stepsCompleted` per milestone provides the framework count |
+| `projects/{project}/founder/project-memo.md` | Data source — `stepsCompleted` per milestone provides the framework count |
 
 ---
 

@@ -6,7 +6,7 @@ priority: 'High'
 tracker: ''
 stepsCompleted: ['step-01-init', 'step-02-self-assessment', 'step-03-discussion', 'step-04-document']
 inputDocuments: ['_bmad/rbtv/tasks/context-search.xml', '.cursor/agents/bmad-rbtv-context-search.md', '.cursor/skills/bmad-rbtv-context-search/SKILL.md']
-outputPath: '_bmad-output/planning-artifacts'
+outputPath: 'projects/planning-artifacts'
 date: '2026-03-01'
 yoloMode: false
 ---

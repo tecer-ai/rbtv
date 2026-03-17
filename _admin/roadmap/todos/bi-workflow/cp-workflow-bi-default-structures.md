@@ -6,10 +6,10 @@ priority: 'Medium'
 tracker: ''
 stepsCompleted: ['step-01-init.md', 'step-02-self-assessment.md', 'step-03-discussion.md', 'step-04-document.md']
 inputDocuments:
-  - '_bmad-output/robotville-v4.0/founder/project-memo.md'
+  - 'projects/robotville-v4.0/founder/project-memo.md'
   - '_bmad/rbtv/workflows/bi-business-innovation/templates/project-memo.md'
   - '_bmad/rbtv/workflows/bi-business-innovation/steps-c/step-01-project-setup.md'
-outputPath: '_bmad-output/planning-artifacts'
+outputPath: 'projects/planning-artifacts'
 date: '2026-02-13'
 yoloMode: true
 ---
@@ -31,7 +31,7 @@ Two structural defaults in the Business Innovation (BI) workflow need correction
 
 **1. No Canonical Assumption Inventory in project-memo template.** Each framework maintains its own assumption list with its own numbering. The Party Mode cross-framework review for robotville-v4.0 identified this as a coherence risk — three overlapping, inconsistently numbered lists across WB, JTBD, and PSF. The fix was manually created during that session: a `## Canonical Assumption Inventory` section in project-memo.md with PSF IDs as canonical, tiered by priority (Existential / High / Lower), with a Founder Convictions sub-section. This structure should be standard for all BI projects, not a one-off manual addition.
 
-**2. Output folder is named `founder/` — should be `business-innovation/`.** The BI workflow creates a project output folder at `_bmad-output/{project-name}/founder/`. The name "founder" is persona-specific (it's the mentor agent's framing), not function-specific. The folder contains business innovation artefacts — frameworks, project-memo, milestone outputs. `business-innovation/` is accurate regardless of which agent or persona runs the workflow.
+**2. Output folder is named `founder/` — should be `business-innovation/`.** The BI workflow creates a project output folder at `projects/{project-name}/founder/`. The name "founder" is persona-specific (it's the mentor agent's framing), not function-specific. The folder contains business innovation artefacts — frameworks, project-memo, milestone outputs. `business-innovation/` is accurate regardless of which agent or persona runs the workflow.
 
 ### Goals
 
@@ -134,7 +134,7 @@ Update all references in the BI workflow from `founder/` to `business-innovation
 
 The output structure becomes:
 ```
-_bmad-output/{project-name}/business-innovation/
+projects/{project-name}/business-innovation/
 ├── project-memo.md
 ├── m1-conception/
 │   ├── working-backwards.md
@@ -171,7 +171,7 @@ _bmad-output/{project-name}/business-innovation/
 - [ ] project-memo template includes `## Canonical Assumption Inventory` section with Existential / High / Lower tiers, empty tables, M2 guidance text, and Founder Convictions sub-section
 - [ ] Each framework's synthesis step includes instruction to merge assumptions into the canonical list in project-memo
 - [ ] All BI workflow references to `founder/` are updated to `business-innovation/`
-- [ ] New BI projects create output at `_bmad-output/{project-name}/business-innovation/`
+- [ ] New BI projects create output at `projects/{project-name}/business-innovation/`
 - [ ] Existing projects (robotville-v4.0) are not broken by the change — `founder/` folder remains as-is unless manually migrated
 
 ---
@@ -183,7 +183,7 @@ _bmad-output/{project-name}/business-innovation/
 | `_bmad/rbtv/workflows/bi-business-innovation/templates/project-memo.md` | Primary target — template to modify |
 | `_bmad/rbtv/workflows/bi-business-innovation/steps-c/step-01-project-setup.md` | Target — folder creation logic |
 | `_bmad/rbtv/workflows/bi-business-innovation/workflow.md` | Target — output path documentation |
-| `_bmad-output/robotville-v4.0/founder/project-memo.md` | Reference — contains the manually created canonical assumption inventory that serves as the model |
+| `projects/robotville-v4.0/founder/project-memo.md` | Reference — contains the manually created canonical assumption inventory that serves as the model |
 | `cp-workflow-bi-cross-framework-consistency-gate.md` | Related compound — the consistency gate PRD addresses the same root problem (cross-framework drift) from a different angle (review process vs. structural defaults) |
 
 ---

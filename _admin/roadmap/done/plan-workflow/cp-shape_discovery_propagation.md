@@ -12,7 +12,7 @@ stepsCompleted:
 inputDocuments:
   - _bmad/rbtv/workflows/plan-lifecycle/templates/shape-template.md
   - .cursor/plans/business innovation migration/business-innovation-migration_v3/shape.md
-outputPath: '{project-root}/_bmad-output/planning-artifacts'
+outputPath: '{project-root}/projects/planning-artifacts'
 date: '2026-02-05'
 yoloMode: false
 ---
@@ -153,7 +153,7 @@ The template itself becomes the enforcement mechanism. Agents are required to fo
 |------|--------------|
 | `_bmad/rbtv/workflows/plan-lifecycle/templates/shape-template.md` | Primary file to modify |
 | `.cursor/plans/business innovation migration/business-innovation-migration_v3/shape.md` | Example of current format; may optionally migrate |
-| `_bmad-output/planning-artifacts/compound-audit_trail_invalidation_protocol.md` | Related compound about decision documentation |
+| `projects/planning-artifacts/compound-audit_trail_invalidation_protocol.md` | Related compound about decision documentation |
 
 ---
 

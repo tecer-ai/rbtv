@@ -203,7 +203,7 @@ isProject: false
 
 ### Problem Statement
 
-Migrate the founder system from `refs/founder/` (exact content at `BMAD/_bmad-output/rbtv-development/wip/founder-migration/refs`) to BMAD architecture in `_bmad/rbtv/`. The founder system guides users through a 6-milestone startup lifecycle (conception to MVP) using structured frameworks and documentation.
+Migrate the founder system from `refs/founder/` (exact content at `BMAD/projects/rbtv-development/wip/founder-migration/refs`) to BMAD architecture in `_bmad/rbtv/`. The founder system guides users through a 6-milestone startup lifecycle (conception to MVP) using structured frameworks and documentation.
 
 ### User Goals
 
@@ -218,7 +218,7 @@ Migrate the founder system from `refs/founder/` (exact content at `BMAD/_bmad-ou
 
 - Must follow BMAD architecture patterns (workflow.md + steps-c/ structure)
 - Founder diary/memo creation are steps within milestone workflows, not standalone modes
-- All outputs to `{project-root}/_bmad-output/{project-name}/founder/`
+- All outputs to `{project-root}/projects/{project-name}/founder/`
 - Final step of each framework workflow must summarize findings into project_memo
 
 ### Decisions Made
@@ -241,7 +241,7 @@ Migrate the founder system from `refs/founder/` (exact content at `BMAD/_bmad-ou
 
 | Agent persona | YC mentor | Domain expertise |
 
-| Output folder | `_bmad-output/{project-name}/founder/` | Project isolation |
+| Output folder | `projects/{project-name}/founder/` | Project isolation |
 
 ### Rejected Alternatives
 
@@ -264,7 +264,7 @@ Migrate the founder system from `refs/founder/` (exact content at `BMAD/_bmad-ou
 ## Output Folder Structure
 
 ```
-_bmad-output/{project-name}/founder/
+projects/{project-name}/founder/
 ├── project-memo.md           # Cumulative summary (all frameworks) + state tracking in frontmatter
 ├── m1-conception/
 │   ├── working-backwards.md
@@ -324,7 +324,7 @@ _bmad-output/{project-name}/founder/
 
 | `_bmad/bmb/workflows/agent/templates/*.md` | Reference: BMAD agent templates | All |
 
-**Note:** `refs/` is at `BMAD/_bmad-output/rbtv-development/wip/founder-migration/refs` and contains the exact founder module content (no dependency on robotville).
+**Note:** `refs/` is at `BMAD/projects/rbtv-development/wip/founder-migration/refs` and contains the exact founder module content (no dependency on robotville).
 
 ---
 

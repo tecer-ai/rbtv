@@ -24,12 +24,12 @@ yoloMode: false
 
 ### Problem
 
-RBTV currently allows output-path behavior to drift across installation paths and workflow defaults. The requested behavior is that both RBTV installers (admin and normal) update BMAD core config so outputs resolve to `_bmad-output/{project-name}/`, while compound outputs continue to use RBTV roadmap/todos location conventions. Existing defaults still point to legacy planning-artifacts routing in some paths, creating inconsistent destinations.
+RBTV currently allows output-path behavior to drift across installation paths and workflow defaults. The requested behavior is that both RBTV installers (admin and normal) update BMAD core config so outputs resolve to `projects/{project-name}/`, while compound outputs continue to use RBTV roadmap/todos location conventions. Existing defaults still point to legacy planning-artifacts routing in some paths, creating inconsistent destinations.
 
 ### Goals
 
 - Ensure both install scripts apply the same output-path normalization to BMAD config.
-- Standardize BMAD output base to `_bmad-output/{project-name}/` for project-scoped artifacts.
+- Standardize BMAD output base to `projects/{project-name}/` for project-scoped artifacts.
 - Keep compound PRD location behavior aligned with roadmap/todos expectations.
 - Remove ambiguity so users do not need manual path fixes after installation.
 
@@ -48,7 +48,7 @@ RBTV currently allows output-path behavior to drift across installation paths an
 
 **Error Type:** Execution failure.
 
-The requested behavior was specific: when both RBTV install scripts run (admin and normal), they should update BMAD core config output paths to `_bmad-output/{project-name}/`, and the prior backlog item should be partially superseded (PRD-location part absorbed, compound-output part still required). The current behavior still depends on legacy output conventions and does not enforce the requested normalized destination across both installer paths.
+The requested behavior was specific: when both RBTV install scripts run (admin and normal), they should update BMAD core config output paths to `projects/{project-name}/`, and the prior backlog item should be partially superseded (PRD-location part absorbed, compound-output part still required). The current behavior still depends on legacy output conventions and does not enforce the requested normalized destination across both installer paths.
 
 **Expectation vs actual:**
 - **Expected:** Both installers consistently rewrite output path fields in BMAD config to the new canonical pattern.
@@ -64,11 +64,11 @@ The requested behavior was specific: when both RBTV install scripts run (admin a
 Files that influenced behavior and observed gaps:
 
 - `.cursor/rules/admin-rbtv-bmad-mirror.mdc`
-  - Clear on path mirroring and installer responsibilities, but does not explicitly enforce the new `_bmad-output/{project-name}/` convention across both installers.
+  - Clear on path mirroring and installer responsibilities, but does not explicitly enforce the new `projects/{project-name}/` convention across both installers.
 - `agents/ana.md`
   - Correctly routes to doc workflows; no direct defect, but it inherits output behavior from downstream workflows and config.
 - `workflows/doc-compound-learning/workflow.md`
-  - Declares `outputFolder: '{project-root}/_bmad-output/planning-artifacts'`, which conflicts with RBTV backlog convention (`_admin/roadmap/todos`).
+  - Declares `outputFolder: '{project-root}/projects/planning-artifacts'`, which conflicts with RBTV backlog convention (`_admin/roadmap/todos`).
 - `_admin/roadmap/todos/prd-standardize-main-config-frontmatter.md`
   - Highlights config declaration consistency concerns; useful supporting signal for centralizing path behavior.
 - `_config/install-rbtv.py` (unified installer, all 3 modes — target implementation file)
@@ -80,7 +80,7 @@ Missing/ambiguous context:
 
 ### Improvement Options
 
-1. **New Rule**: Add an RBTV rule that mandates installer parity for output-path rewriting and defines canonical target pattern `_bmad-output/{project-name}/`.
+1. **New Rule**: Add an RBTV rule that mandates installer parity for output-path rewriting and defines canonical target pattern `projects/{project-name}/`.
    - **Rationale:** Makes future regressions detectable and prevents one installer drifting from the other.
    - **Location:** `.cursor/rules/bmad-rbtv-output-path-governance.mdc` (new file) or existing RBTV rules file.
 
@@ -109,7 +109,7 @@ Implement a system-level fix (implementation-first approach) by updating all mod
 ### Specification
 
 1. **Installer parity update**
-   - Update the unified installer (`_config/install-rbtv.py`) so all modes (IDE, admin, sync) mutate BMAD core config output fields to the same canonical base pattern: `_bmad-output/{project-name}/`.
+   - Update the unified installer (`_config/install-rbtv.py`) so all modes (IDE, admin, sync) mutate BMAD core config output fields to the same canonical base pattern: `projects/{project-name}/`.
    - Ensure any relevant `planning_artifacts`/`implementation_artifacts`-style paths derive from this normalized base.
 
 2. **Compound workflow output correction**
@@ -137,7 +137,7 @@ This directly addresses the execution-failure root cause from Self-Assessment: b
 
 ## Acceptance Criteria
 
-- [ ] Running the unified installer (`_config/install-rbtv.py`) in any mode (IDE, admin, sync) rewrites BMAD output-related config values to use `_bmad-output/{project-name}/` base pattern.
+- [ ] Running the unified installer (`_config/install-rbtv.py`) in any mode (IDE, admin, sync) rewrites BMAD output-related config values to use `projects/{project-name}/` base pattern.
 - [ ] All three installer modes apply identical output-path rewrite logic (no divergence between modes).
 - [ ] Compound workflow config routes output to RBTV roadmap todos location rather than generic planning-artifacts path.
 - [ ] Existing PRD-location logic referenced in prior backlog work is reused where applicable; no duplicate conflicting behavior introduced.
@@ -180,6 +180,6 @@ Change actual implementation (system-file updates), without adding extra rule-on
 
 ### Additional Context
 - Apply installer behavior consistently across all three modes (IDE, admin, sync) of the unified installer.
-- Ensure output paths are rewritten to `_bmad-output/{project-name}/` in BMAD core config updates.
+- Ensure output paths are rewritten to `projects/{project-name}/` in BMAD core config updates.
 - Reuse prior PRD-location work context where applicable; no separate PRD-location-only scope needed.
 - Keep compound output-location correction in scope (compound outputs remain a valid part of this PR).

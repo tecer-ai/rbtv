@@ -120,7 +120,7 @@ todos:
     content: P6 CHECKPOINT - Approve website deployment pipeline
     status: pending
   - id: p7-1
-    content: "p7-1: Audit vps-sync-install.sh, post-merge hook, and RBTV installer for project file safety — ensure _bmad-output/ and project data untouched by system updates"
+    content: "p7-1: Audit vps-sync-install.sh, post-merge hook, and RBTV installer for project file safety — ensure projects/ and project data untouched by system updates"
     status: pending
   - id: p7-2
     content: "p7-2: VALIDATE system update cycle: git pull → sync-install → verify project files preserved"
@@ -147,7 +147,7 @@ todos:
     content: P8 CHECKPOINT - Approve token optimization
     status: cancelled
   - id: p9-1
-    content: "p9-1: VALIDATE Mentor outputs framework docs to correct folder matching Cursor _bmad-output/ behavior"
+    content: "p9-1: VALIDATE Mentor outputs framework docs to correct folder matching Cursor projects/ behavior"
     status: pending
   - id: p9-2
     content: "p9-2: VALIDATE Mentor follows long workflow with state management — project-memo cycle, framework progression, consolidation resilience"
@@ -346,17 +346,17 @@ This plan uses companion files for execution context:
 
 |------|---------|--------------|
 
-| `_bmad-output/robotville-v4.0/bmad/prd.md` | Product requirements and scope baseline | All phases as needed |
+| `projects/robotville-v4.0/bmad/prd.md` | Product requirements and scope baseline | All phases as needed |
 
-| `_bmad-output/robotville-v4.0/bmad/architecture.md` | Architecture constraints and boundaries | All implementation phases |
+| `projects/robotville-v4.0/bmad/architecture.md` | Architecture constraints and boundaries | All implementation phases |
 
 | `_bmad/rbtv/readme.md` | RBTV module conventions | Phase 3 |
 
 | `_bmad/rbtv/agents/paul.md` | Mentor behavior reference for harness alignment | Phase 3 |
 
-| `_bmad-output/robotville-v4.0/**` | Relevant existing outputs for `_mobile` implementation context | Phase 3 and Phase 4 |
+| `projects/robotville-v4.0/**` | Relevant existing outputs for `_mobile` implementation context | Phase 3 and Phase 4 |
 
-| `_bmad-output/robotville-v4.0/founder/project-memo.md` | Preliminary `_mobile/` folder design and install.py spec | Phase 5 |
+| `projects/robotville-v4.0/founder/project-memo.md` | Preliminary `_mobile/` folder design and install.py spec | Phase 5 |
 
 | `_bmad/rbtv/agents/paul.md` | Mentor agent behavior contract for bootstrap alignment | Phase 5 |
 
@@ -603,11 +603,11 @@ flowchart TD
 
 |------|---------|------|
 
-| `_bmad-output/robotville-v4.0/bmad/prd.md` | PRD Must-Have table for bootstrap file requirements | p5-1 through p5-4 |
+| `projects/robotville-v4.0/bmad/prd.md` | PRD Must-Have table for bootstrap file requirements | p5-1 through p5-4 |
 
-| `_bmad-output/robotville-v4.0/bmad/architecture.md` | Architecture boundaries and pattern rules | p5-1 through p5-5 |
+| `projects/robotville-v4.0/bmad/architecture.md` | Architecture boundaries and pattern rules | p5-1 through p5-5 |
 
-| `_bmad-output/robotville-v4.0/founder/project-memo.md` | Preliminary _mobile/ folder design and install.py spec | p5-1, p5-6 |
+| `projects/robotville-v4.0/founder/project-memo.md` | Preliminary _mobile/ folder design and install.py spec | p5-1, p5-6 |
 
 | `_bmad/rbtv/agents/paul.md` | Mentor agent behavior contract for AGENTS.md routing | p5-1 |
 
@@ -664,7 +664,7 @@ flowchart TD
 
 ### Tasks
 
-- `p7-1`: Audit `vps-sync-install.sh`, post-merge hook, and RBTV installer for project file safety — verify `_bmad-output/` and all workspace project data remain untouched during system updates.
+- `p7-1`: Audit `vps-sync-install.sh`, post-merge hook, and RBTV installer for project file safety — verify `projects/` and all workspace project data remain untouched during system updates.
 - `p7-2`: VALIDATE system update cycle: simulate `git pull` → sync-install → confirm project files preserved.
 - `p7-checkpoint`: **P7 CHECKPOINT** - Approve system update safety.
 
@@ -684,7 +684,7 @@ All token optimization work is executed in `.cursor/plans/optimize-nanobot-token
 
 ### Tasks
 
-- `p9-1`: VALIDATE Mentor outputs framework docs to correct folder (matching Cursor `_bmad-output/` behavior).
+- `p9-1`: VALIDATE Mentor outputs framework docs to correct folder (matching Cursor `projects/` behavior).
 - `p9-2`: VALIDATE Mentor follows long workflow with state management — project-memo read/write cycle, framework progression, consolidation resilience.
 - `p9-3`: VALIDATE agent switching (Mentor <-> DomCobb) preserves workflow state.
 - `p9-checkpoint`: **P9 CHECKPOINT** - Approve workflow and output fidelity.

@@ -72,7 +72,7 @@ RBTV ships platform configuration in `_config/claude/` (canonical source, no dot
 │   ├── bmm/config.yaml                      # ← output paths updated
 │   └── rbtv/                                # ← THIS REPO
 │       └── _config/install-rbtv.py          #    the installer script
-└── _bmad-output/                            # runtime output folder
+└── projects/                            # runtime output folder
 ```
 
 ## Admin / Standalone Development

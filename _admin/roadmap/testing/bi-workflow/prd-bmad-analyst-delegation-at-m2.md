@@ -245,7 +245,7 @@ Analyst delegation sequence (inline, following standard pattern):
 ```
 1. PREPARE CONTEXT
    M1 conception artifacts already exist on disk at:
-   {project-root}/_bmad-output/{project-name}/founder/m1-conception/
+   {project-root}/projects/{project-name}/founder/m1-conception/
    No files to copy — config update (next step) will point BMAD to this location.
 
 2. UPDATE CONFIG
@@ -254,7 +254,7 @@ Analyst delegation sequence (inline, following standard pattern):
      target_module="bmm"
      project_name={project-name}
      rbtv_output_folder="{outputFolder}/bmad-analysis"
-     rbtv_planning_artifacts="{project-root}/_bmad-output/{project-name}/founder/m1-conception"
+     rbtv_planning_artifacts="{project-root}/projects/{project-name}/founder/m1-conception"
 
    This sets:
    - output_folder -> bmad-analysis/ (where BMAD writes new files)

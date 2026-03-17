@@ -34,7 +34,7 @@ This PRD is the comprehensive inventory of ALL changes needed for full RBTV comp
 
 | # | Change | Description | Reason | Cmplx | Crit |
 |---|--------|-------------|--------|:-----:|:----:|
-| 1 | Output folder name preservation | Installer hardcodes `_bmad-output` in regex replacements. Must read existing `output_folder` value and preserve the user-chosen folder name (e.g. `projects`) while still injecting `/{project-name}`. Affects `normalize_bmad_output_paths()`, `_config/config.yaml` path vars, and `.cursorignore` pattern | v6.0.4 instance uses `projects` not `_bmad-output`; installer would overwrite the user's choice on every run | 4 | 10 |
+| 1 | Output folder name preservation | Installer hardcodes `projects` in regex replacements. Must read existing `output_folder` value and preserve the user-chosen folder name (e.g. `projects`) while still injecting `/{project-name}`. Affects `normalize_bmad_output_paths()`, `_config/config.yaml` path vars, and `.cursorignore` pattern | v6.0.4 instance uses `projects` not `projects`; installer would overwrite the user's choice on every run | 4 | 10 |
 | 2 | BMM workflow path refs in ana.md | Verify three BMM workflow paths in `agents/ana.md` against v6.0.4. Beta.7 split monolithic `workflow.md` into `workflow-*.md`; if any of the three referenced paths no longer exist, the agent fails to load | Beta.7 workflow splitting likely renamed files RBTV references directly | 3 | 9 |
 | 3 | Advanced elicitation path | `workflows/doc-compound-learning/workflow.md` references `workflow.xml`. Beta.7 converted `.xml` → `.md` and split files. Verify path in v6.0.4 and update reference | Format and path almost certainly changed; compound learning workflow would break | 3 | 8 |
 | 4 | bmad-help.csv schema | Installer's `add_rbtv_to_help_catalog()` writes a 16-column row. Beta.8 enhanced bmad-help. Compare v6.0.4 header against expected columns; update if schema changed | Malformed CSV row would break bmad-help command display | 3 | 7 |
@@ -44,10 +44,10 @@ This PRD is the comprehensive inventory of ALL changes needed for full RBTV comp
 | 8 | TEA references check | Search RBTV for `_bmad/tea/` refs. TEA jumped 0.1.1 → 1.5.2; internal structure likely changed. Only actionable if RBTV actually references TEA | Only breaks if RBTV has TEA path refs (unlikely but must verify) | 2 | 5 |
 | 9 | manifest.yaml format | Verify `installation.version` field exists in v6.0.4 manifest. Update `check_bmad_version()` if format changed | Version pre-flight check would fail | 1 | 4 |
 | 10 | bmad-compat.yaml update | Update all documented touchpoints, paths, and version refs in `bmad-compat.yaml` to reflect v6.0.4 reality | Compatibility check task relies on accurate compat metadata | 2 | 6 |
-| 11 | Output folder in workflow/task files | 54 workflow files + 2 task files use literal `_bmad-output` (80+ occurrences, zero use of `{bmad_output}` variable). Must be updated to match the configured output folder or use a path variable | Workflows reference wrong output directory when BMAD is configured with a different folder name (e.g. `projects`) | 5 | 3 |
+| 11 | Output folder in workflow/task files | 54 workflow files + 2 task files use literal `projects` (80+ occurrences, zero use of `{bmad_output}` variable). Must be updated to match the configured output folder or use a path variable | Workflows reference wrong output directory when BMAD is configured with a different folder name (e.g. `projects`) | 5 | 3 |
 | 12 | build-rbtv-component architecture doc | `workflows/build-rbtv-component/data/bmad-architecture.md` documents BMAD architecture based on Beta.4 patterns. Must be updated to reflect v6.0.4 structure (e.g., updated frontmatter standards, new module versions) | Stale architecture doc causes new RBTV components to be built with outdated BMAD patterns | 4 | 3 |
-| 13 | RBTV readme.md | `readme.md` references `_bmad-output`. Verify and update all path references to match v6.0.4 conventions | Documentation accuracy for developers reading the repo | 1 | 2 |
-| 14 | CLAUDE.md path variables | `CLAUDE.md` path resolution table shows `{bmad_output}` → `{project-root}/_bmad-output`. Must match actual configured output folder | Claude Code uses wrong path variable values in admin mode | 2 | 5 |
+| 13 | RBTV readme.md | `readme.md` references `projects`. Verify and update all path references to match v6.0.4 conventions | Documentation accuracy for developers reading the repo | 1 | 2 |
+| 14 | CLAUDE.md path variables | `CLAUDE.md` path resolution table shows `{bmad_output}` → `{project-root}/projects`. Must match actual configured output folder | Claude Code uses wrong path variable values in admin mode | 2 | 5 |
 
 ---
 
@@ -220,25 +220,25 @@ options, description, output-location, outputs
 
 ### 8. Output Folder Name Preservation — CRITICAL
 
-**What RBTV does:** The installer's `normalize_bmad_output_paths()` function rewrites `output_folder`, `planning_artifacts`, and `implementation_artifacts` in `core/config.yaml` and `bmm/config.yaml` to inject `/{project-name}` for multi-project support. It hardcodes `_bmad-output` as the folder name in the replacement strings:
+**What RBTV does:** The installer's `normalize_bmad_output_paths()` function rewrites `output_folder`, `planning_artifacts`, and `implementation_artifacts` in `core/config.yaml` and `bmm/config.yaml` to inject `/{project-name}` for multi-project support. It hardcodes `projects` as the folder name in the replacement strings:
 
 ```python
-'output_folder: "{project-root}/_bmad-output/{project-name}"'
-'planning_artifacts: "{project-root}/_bmad-output/{project-name}/planning-artifacts"'
-'implementation_artifacts: "{project-root}/_bmad-output/{project-name}/implementation-artifacts"'
+'output_folder: "{project-root}/projects/{project-name}"'
+'planning_artifacts: "{project-root}/projects/{project-name}/planning-artifacts"'
+'implementation_artifacts: "{project-root}/projects/{project-name}/implementation-artifacts"'
 ```
 
-Additionally, `_config/config.yaml` hardcodes `_bmad-output` in its own path variables:
+Additionally, `_config/config.yaml` hardcodes `projects` in its own path variables:
 
 ```yaml
-output_folder: "{project-root}/_bmad-output"
+output_folder: "{project-root}/projects"
 paths:
-  bmad_output: "{project-root}/_bmad-output"
+  bmad_output: "{project-root}/projects"
 ```
 
-And the installer's `.cursorignore` pattern hardcodes `_bmad-output/archive/`.
+And the installer's `.cursorignore` pattern hardcodes `projects/archive/`.
 
-**What changed:** BMAD lets users choose the output folder name during installation. The v6.0.4 instance uses `projects` instead of `_bmad-output`:
+**What changed:** BMAD lets users choose the output folder name during installation. The v6.0.4 instance uses `projects` instead of `projects`:
 
 ```yaml
 # v6.0.4 core/config.yaml
@@ -250,11 +250,11 @@ planning_artifacts: "{project-root}/projects/planning-artifacts"
 implementation_artifacts: "{project-root}/projects/implementation-artifacts"
 ```
 
-**Risk:** The installer overwrites the user-chosen folder name (`projects`) with the hardcoded `_bmad-output` on every run. Outputs would go to the wrong directory. This is the highest-criticality change.
+**Risk:** The installer overwrites the user-chosen folder name (`projects`) with the hardcoded `projects` on every run. Outputs would go to the wrong directory. This is the highest-criticality change.
 
 **Required action:**
 1. Refactor `normalize_bmad_output_paths()` to read the existing `output_folder` value, extract the folder name from it, and preserve it while injecting `/{project-name}`. The function must not hardcode any folder name.
-2. Update `_config/config.yaml` — change `output_folder` and `paths.bmad_output` to not hardcode `_bmad-output`. Either read from BMAD config at install time, or use a variable.
+2. Update `_config/config.yaml` — change `output_folder` and `paths.bmad_output` to not hardcode `projects`. Either read from BMAD config at install time, or use a variable.
 3. Update the `.cursorignore` pattern in the installer to use the correct folder name.
 4. Update `bmad-compat.yaml` to document that the output folder name is user-configurable.
 
@@ -303,7 +303,7 @@ Based on inspection findings, update RBTV files:
 
 | If found | Then update |
 |----------|-------------|
-| Output folder name differs from `_bmad-output` | `_config/install-rbtv.py::normalize_bmad_output_paths` (refactor regex), `_config/config.yaml` (path vars), `.cursorignore` pattern, `bmad-compat.yaml` |
+| Output folder name differs from `projects` | `_config/install-rbtv.py::normalize_bmad_output_paths` (refactor regex), `_config/config.yaml` (path vars), `.cursorignore` pattern, `bmad-compat.yaml` |
 | BMM workflow paths changed | `agents/ana.md`, `bmad-compat.yaml` |
 | `advanced-elicitation/workflow.xml` path changed | `workflows/doc-compound-learning/workflow.md`, `bmad-compat.yaml` |
 | `bmad-help.csv` columns changed | `_config/install-rbtv.py::add_rbtv_to_help_catalog`, `bmad-compat.yaml` |
@@ -405,7 +405,7 @@ These BMAD changes do not affect RBTV:
 
 | Risk | Severity | Likelihood | Mitigation |
 |------|----------|------------|------------|
-| Output folder name overwritten | Critical | Certain | Installer hardcodes `_bmad-output`; v6.0.4 uses `projects`. Must refactor regex. |
+| Output folder name overwritten | Critical | Certain | Installer hardcodes `projects`; v6.0.4 uses `projects`. Must refactor regex. |
 | BMM workflow paths broken | High | Medium | Verify paths before upgrade (Step 1) |
 | advanced-elicitation path broken | High | High | Beta.7 changed .xml → .md format and split files |
 | bmad-help.csv schema mismatch | Medium | Low | Verify header before upgrade |
@@ -414,7 +414,7 @@ These BMAD changes do not affect RBTV:
 | manifest.yaml format change | Low | Low | Verify field before upgrade |
 
 **Most likely breaking changes:**
-1. Output folder name — installer will overwrite `projects` with `_bmad-output` on every run. Certain to break.
+1. Output folder name — installer will overwrite `projects` with `projects` on every run. Certain to break.
 2. `advanced-elicitation/workflow.xml` path — BMAD converted from XML to Markdown format in Beta.7, this almost certainly changed
 3. BMM workflow paths — Beta.7 split monolithic files; referenced paths may no longer exist
 
@@ -423,7 +423,7 @@ These BMAD changes do not affect RBTV:
 ## Success Criteria
 
 - [ ] All 8 RBTV→BMAD touchpoint categories verified against v6.0.4 structure
-- [ ] Installer preserves user-chosen output folder name (does not hardcode `_bmad-output`)
+- [ ] Installer preserves user-chosen output folder name (does not hardcode `projects`)
 - [ ] No broken path references in `agents/ana.md`
 - [ ] Installer successfully patches `core/config.yaml`, `bmm/config.yaml`, and `bmad-help.csv`
 - [ ] `bmad-target-version` updated to `6.0.4` in config.yaml and bmad-compat.yaml
@@ -437,14 +437,14 @@ These BMAD changes do not affect RBTV:
 | File | Change | Conditional On |
 |------|--------|----------------|
 | `_config/install-rbtv.py` | Refactor `normalize_bmad_output_paths()` to preserve user-chosen folder name; update `.cursorignore` pattern; update CSV schema if changed | Always (output folder fix) + conditional (schema) |
-| `_config/config.yaml` | Update `bmad_target_version`, `output_folder`, and `paths.bmad_output` to not hardcode `_bmad-output` | Always |
+| `_config/config.yaml` | Update `bmad_target_version`, `output_folder`, and `paths.bmad_output` to not hardcode `projects` | Always |
 | `agents/ana.md` | Update BMM workflow paths | BMM workflow paths changed in v6.0.4 |
 | `workflows/doc-compound-learning/workflow.md` | Update advanced-elicitation path | Path changed (likely) |
 | `bmad-compat.yaml` | Update version, paths, and document output folder is user-configurable | Always |
 | `CLAUDE.md` | Update `{bmad_output}` path variable value in resolution table | Always |
 | `_admin/docs/BMAD-mirror/` | Replace with v6.0.4 content (from `_admin/docs/BMAD-v6.0.4/`) | Always |
 | `_admin/docs/BMAD-mirror/MIRROR-VERSION.md` | Update version/date | Always |
-| 54 workflow files | Replace literal `_bmad-output` with configured output folder or variable | Always |
-| 2 task files (`update-bmad-config.xml`, `restore-bmad-config.xml`) | Replace literal `_bmad-output` references | Always |
+| 54 workflow files | Replace literal `projects` with configured output folder or variable | Always |
+| 2 task files (`update-bmad-config.xml`, `restore-bmad-config.xml`) | Replace literal `projects` references | Always |
 | `workflows/build-rbtv-component/data/bmad-architecture.md` | Update BMAD architecture reference to v6.0.4 patterns | Always |
-| `readme.md` | Update `_bmad-output` path references | Always |
+| `readme.md` | Update `projects` path references | Always |

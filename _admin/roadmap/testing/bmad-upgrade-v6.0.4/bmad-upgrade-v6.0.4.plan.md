@@ -24,7 +24,7 @@ todos:
     taskFile: "phase-2/p2-1.task.md"
     status: completed
   - id: p2-2
-    content: "p2-2: UPDATE install-rbtv.py .cursorignore pattern to use configured folder name instead of hardcoded _bmad-output"
+    content: "p2-2: UPDATE install-rbtv.py .cursorignore pattern to use configured folder name instead of hardcoded projects"
     # inline — no micro-step file
     status: completed
   - id: p2-3
@@ -48,7 +48,7 @@ todos:
     # inline — no micro-step file
     status: cancelled
   - id: p3-3
-    content: "p3-3: UPDATE _config/config.yaml — set bmad_target_version to 6.0.4, bmad_min_version to 6.0.0, remove hardcoded _bmad-output"
+    content: "p3-3: UPDATE _config/config.yaml — set bmad_target_version to 6.0.4, bmad_min_version to 6.0.0, remove hardcoded projects"
     # inline — no micro-step file
     status: completed
   - id: p3-4
@@ -56,7 +56,7 @@ todos:
     # inline — no micro-step file
     status: completed
   - id: p3-5
-    content: "p3-5: Bulk UPDATE 54 workflow files + 2 task files to replace literal _bmad-output with {bmad_output} path variable"
+    content: "p3-5: Bulk UPDATE 54 workflow files + 2 task files to replace literal projects with {bmad_output} path variable"
     taskFile: "phase-3/p3-5.task.md"
     status: completed
   - id: p3-checkpoint
@@ -72,7 +72,7 @@ todos:
     taskFile: "phase-4/p4-2.task.md"
     status: completed
   - id: p4-3
-    content: "p4-3: UPDATE readme.md _bmad-output path references"
+    content: "p4-3: UPDATE readme.md projects path references"
     # inline — no micro-step file
     status: completed
   - id: p4-4
@@ -107,16 +107,16 @@ isProject: false
 
 ### Problem Statement
 
-RBTV was built against BMAD v6.0.0-Beta.4. BMAD has since reached stable v6.0.4 with breaking changes across 8 releases (Beta.5 through v6.0.4). RBTV's installer, agent references, workflow paths, and config files must be updated to work with v6.0.4. The highest-risk change is the installer hardcoding `_bmad-output` as the output folder name — v6.0.4 allows user-chosen names (e.g. `projects`).
+RBTV was built against BMAD v6.0.0-Beta.4. BMAD has since reached stable v6.0.4 with breaking changes across 8 releases (Beta.5 through v6.0.4). RBTV's installer, agent references, workflow paths, and config files must be updated to work with v6.0.4. The highest-risk change is the installer hardcoding `projects` as the output folder name — v6.0.4 allows user-chosen names (e.g. `projects`).
 
 ### User Goals
 
 1. All 14 RBTV-to-BMAD touchpoints verified against v6.0.4 structure
-2. Installer preserves user-chosen output folder name (no hardcoded `_bmad-output`)
+2. Installer preserves user-chosen output folder name (no hardcoded `projects`)
 3. No broken path references in agents or workflows
 4. Version declarations updated to 6.0.4
 5. Compatibility check report shows COMPATIBLE verdict
-6. 54 workflow files + 2 task files with literal `_bmad-output` updated to path variable
+6. 54 workflow files + 2 task files with literal `projects` updated to path variable
 7. Documentation (architecture doc, readme, CLAUDE.md) reflects v6.0.4
 
 ### Constraints
@@ -132,8 +132,8 @@ RBTV was built against BMAD v6.0.0-Beta.4. BMAD has since reached stable v6.0.4 
 |----------|--------|-----------|
 | Mirror update scope | MIRROR-VERSION.md only + verify hardcoded reads | Mirror is a Claude Code reference snapshot; bulk copy is unnecessary |
 | RBTV workflow conversion | Excluded | All workflows already use micro-step split pattern |
-| Output folder fix | Refactor installer to read and preserve existing name | Root cause fix: eliminate hardcoded `_bmad-output` |
-| Literal _bmad-output replacement | Use `{bmad_output}` path variable | Path variable is the root cause fix across 56 files |
+| Output folder fix | Refactor installer to read and preserve existing name | Root cause fix: eliminate hardcoded `projects` |
+| Literal projects replacement | Use `{bmad_output}` path variable | Path variable is the root cause fix across 56 files |
 
 ### Rejected Alternatives
 
@@ -169,7 +169,7 @@ _bmad/rbtv/_admin/roadmap/todos/_claude-code-workspace/bmad-upgrade-v6.0.4/
 ├── phase-2/
 │   └── p2-1.task.md                                 # Refactor normalize_bmad_output_paths()
 ├── phase-3/
-│   └── p3-5.task.md                                 # Bulk replace _bmad-output
+│   └── p3-5.task.md                                 # Bulk replace projects
 └── phase-4/
     ├── p4-1.task.md                                 # Update bmad-compat.yaml
     └── p4-2.task.md                                 # Update bmad-architecture.md
@@ -181,10 +181,10 @@ _bmad/rbtv/_admin/roadmap/todos/_claude-code-workspace/bmad-upgrade-v6.0.4/
 
 | Principle | Implementation | Enforcement |
 |-----------|----------------|-------------|
-| No hardcoded output folder names | Use `{bmad_output}` path variable everywhere | Grep for literal `_bmad-output` after bulk replace |
+| No hardcoded output folder names | Use `{bmad_output}` path variable everywhere | Grep for literal `projects` after bulk replace |
 | Investigation before implementation | Phase 1 completes before Phase 2/3 | Sequential phase execution |
 | Conditional task execution | p2-3, p2-4, p3-1, p3-2 depend on Phase 1 findings | Skip if investigation shows no change needed |
-| Preserve user configuration | Installer reads existing values, never overwrites with defaults | Test with both `_bmad-output` and `projects` folder names |
+| Preserve user configuration | Installer reads existing values, never overwrites with defaults | Test with both `projects` and `projects` folder names |
 
 **Inviolable Rules:**
 1. Read shape.md execution log before starting any task
@@ -306,7 +306,7 @@ graph TD
         p3_2[p3-2: Fix elicitation path]
         p3_3[p3-3: Update config.yaml]
         p3_4[p3-4: Fix CLAUDE.md]
-        p3_5[p3-5: Bulk replace<br/>_bmad-output in 56 files]
+        p3_5[p3-5: Bulk replace<br/>projects in 56 files]
         p3_cp{P3 CHECKPOINT<br/>Verify fixes}
         p3_1 --> p3_2 --> p3_3 --> p3_4 --> p3_5 --> p3_cp
     end
@@ -351,7 +351,7 @@ graph TD
 ### Tasks
 
 - `p2-1`: Refactor `normalize_bmad_output_paths()` in install-rbtv.py to read and preserve user-chosen output folder name *(micro-step: phase-2/p2-1.task.md)*
-- `p2-2`: UPDATE install-rbtv.py `.cursorignore` pattern to use configured folder name instead of hardcoded `_bmad-output`
+- `p2-2`: UPDATE install-rbtv.py `.cursorignore` pattern to use configured folder name instead of hardcoded `projects`
 - `p2-3`: UPDATE `add_rbtv_to_help_catalog()` in install-rbtv.py if bmad-help.csv schema changed *(conditional on p1-2 findings)*
 - `p2-4`: UPDATE `check_bmad_version()` in install-rbtv.py if manifest.yaml format changed *(conditional on p1-2 findings)*
 - `p2-checkpoint`: **P2 CHECKPOINT** — Verify installer changes before continuing
@@ -366,9 +366,9 @@ graph TD
 
 - `p3-1`: UPDATE `agents/ana.md` BMM workflow paths per Phase 1 findings *(conditional on p1-1 findings)*
 - `p3-2`: UPDATE `workflows/doc-compound-learning/workflow.md` advanced elicitation path per Phase 1 findings *(conditional on p1-1 findings)*
-- `p3-3`: UPDATE `_config/config.yaml` — set `bmad_target_version` to `6.0.4`, `bmad_min_version` to `6.0.0`, remove hardcoded `_bmad-output` from `output_folder` and `paths.bmad_output`
+- `p3-3`: UPDATE `_config/config.yaml` — set `bmad_target_version` to `6.0.4`, `bmad_min_version` to `6.0.0`, remove hardcoded `projects` from `output_folder` and `paths.bmad_output`
 - `p3-4`: UPDATE `CLAUDE.md` path variable resolution table to match configured output folder
-- `p3-5`: Bulk UPDATE 54 workflow files + 2 task files to replace literal `_bmad-output` with `{bmad_output}` path variable *(micro-step: phase-3/p3-5.task.md)*
+- `p3-5`: Bulk UPDATE 54 workflow files + 2 task files to replace literal `projects` with `{bmad_output}` path variable *(micro-step: phase-3/p3-5.task.md)*
 - `p3-checkpoint`: **P3 CHECKPOINT** — Verify all path and config fixes
 
 ---
@@ -381,7 +381,7 @@ graph TD
 
 - `p4-1`: UPDATE `bmad-compat.yaml` — version, paths, touchpoint entries, output folder configurability *(micro-step: phase-4/p4-1.task.md)*
 - `p4-2`: UPDATE `bmad-architecture.md` to reflect v6.0.4 patterns *(micro-step: phase-4/p4-2.task.md)*
-- `p4-3`: UPDATE `readme.md` `_bmad-output` path references
+- `p4-3`: UPDATE `readme.md` `projects` path references
 - `p4-4`: UPDATE `MIRROR-VERSION.md` with v6.0.4 version and module versions (core 6.0.4, bmm 6.0.4, bmb 0.1.6, cis 0.1.8, tea 1.5.2)
 - `p4-5`: Verify no RBTV tooling hardcodes reads against `_admin/docs/BMAD-mirror/` path; fix if found
 - `p4-6`: Run bmad-compat check task to validate all touchpoints produce COMPATIBLE verdict
