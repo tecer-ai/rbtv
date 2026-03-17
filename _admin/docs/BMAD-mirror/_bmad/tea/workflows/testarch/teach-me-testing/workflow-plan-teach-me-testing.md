@@ -501,7 +501,7 @@ teach-me-testing/
 └── checklist.md                          ✓ Created
 ```
 
-**Location:** {external-project-root}/\_bmad-output/bmb-creations/workflows/teach-me-testing/
+**Location:** {external-project-root}/\projects/bmb-creations/workflows/teach-me-testing/
 
 **Configuration:**
 
@@ -924,7 +924,7 @@ teach-me-testing/
 **DEPLOYMENT:** Move workflow from staging to TEA module
 
 **Source (Staging):**
-`{external-project-root}/_bmad-output/bmb-creations/workflows/teach-me-testing/`
+`{external-project-root}/projects/bmb-creations/workflows/teach-me-testing/`
 
 **Target (Production):**
 `{project-root}/src/workflows/testarch/teach-me-testing/`
@@ -932,7 +932,7 @@ teach-me-testing/
 **Command:**
 
 ```bash
-cp -r {external-project-root}/_bmad-output/bmb-creations/workflows/teach-me-testing \
+cp -r {external-project-root}/projects/bmb-creations/workflows/teach-me-testing \
       {project-root}/src/workflows/testarch/
 ```
 

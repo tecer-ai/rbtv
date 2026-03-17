@@ -43,7 +43,7 @@
 | Bootstrap files | Move to workspace GitHub repo | Already standard nanobot files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `USER.md`) |
 | Allowlist | Native nanobot `config.json` (`channels.slack.dm.allow_from`) | Replaces dead TypeScript `allowlist-gate.ts` |
 | Project-memo contract | `SOUL.md` behavioral instruction | Simple enough for prompt-based enforcement; no code needed |
-| Output paths | `_bmad-output/{project-name}/` via SOUL.md instruction + BMAD config patching by sync | Dual enforcement: nanobot sees it in system prompt, config has it as default |
+| Output paths | `projects/{project-name}/` via SOUL.md instruction + BMAD config patching by sync | Dual enforcement: nanobot sees it in system prompt, config has it as default |
 | PRD execution scope | All 5 independently valuable for RBTV, batched because they share installer/config touchpoints | Not nanobot-specific — they impact Cursor IDE and all RBTV contexts equally |
 | PRD 4 → PRD 3 dependency | Version declaration must be implemented before compatibility check | Compatibility check consumes version fields from PRD 4 |
 | `robotville.ai` deployment | Preserved — relocate static HTML files, update source path in `TOOLS.md` | Netlify CLI + site ID unchanged; only the file location within RBTV changes |
@@ -173,7 +173,7 @@ Config helper scripts (4 files from `_mobile/ops/patches/`) will be relocated to
 | `structured-problem-2026-02-22.md` | Complete problem tree, MECE validation, all architectural decisions, file disposition map, dependency graph, nanobot technical reference |
 | `prd-config-bmad-version-declaration.md` | PRD 4: Add `bmad_target_version`/`bmad_min_version` to config.yaml, create `MIRROR-VERSION.md`, create `CHANGELOG.md`; prerequisite action: update mirror Beta.4→Beta.8; risk: Beta.7 workflow splitting |
 | `prd-config-bmad-compatibility-check.md` | PRD 3: Create `bmad-compat.yaml`, `tasks/check-bmad-compat.xml`, installer pre-flight check; depends on PRD 4; warn-only enforcement |
-| `cp-install-scripts-standardize-bmad-output-folder.md` | CP 2: Both installers apply same output-path normalization to `_bmad-output/{project-name}/`; compound workflow output routing correction |
+| `cp-install-scripts-standardize-bmad-output-folder.md` | CP 2: Both installers apply same output-path normalization to `projects/{project-name}/`; compound workflow output routing correction |
 | `prd-reduce-path-resolution-hops.md` | PRD 5: Add `paths:` section to config.yaml; migrate ~60 cross-module references; simplify resolution table in CLAUDE.md |
 | `prd-standardize-main-config-frontmatter.md` | PRD 6: Mandate frontmatter config declaration; audit 38 workflows, migrate ~10; update component patterns documentation |
 | `_mobile/README.md` | Original harness boundary definition; scope and responsibility split with nanobot |

@@ -144,7 +144,7 @@ Every decision made during problem structuring, captured for plan creation witho
 |----------|--------|-----------|
 | Allowlist | Native nanobot `config.json` (`channels.slack.dm.allow_from`) | Replaces dead TypeScript `allowlist-gate.ts` |
 | Project-memo contract | `SOUL.md` behavioral instruction | Simple enough for prompt-based enforcement; no code needed |
-| Output paths | `_bmad-output/{project-name}/` via SOUL.md + BMAD config | Enforced by SOUL.md instruction and config patching by sync |
+| Output paths | `projects/{project-name}/` via SOUL.md + BMAD config | Enforced by SOUL.md instruction and config patching by sync |
 
 ### PRD Interactions
 
@@ -231,7 +231,7 @@ workspace/ (= private GitHub repo = BMAD project root)
 │       │   └── install-rbtv.py  ← Unified installer (3 modes)
 │       ├── _mobile/             ← Simplified: README + relocated files
 │       └── _admin/
-└── _bmad-output/            ← Project outputs
+└── projects/            ← Project outputs
     └── {project-name}/
 ```
 
@@ -345,7 +345,7 @@ Key details from each PRD needed during plan creation.
 
 - **Priority:** High | **Dependency:** None
 - **Modifies:** Both installer scripts (now unified), compound workflow output config
-- **Target:** `_bmad-output/{project-name}/` as canonical base pattern
+- **Target:** `projects/{project-name}/` as canonical base pattern
 - **Key file:** `workflows/doc-compound-learning/workflow.md` (output folder correction)
 
 ### PRD 5: Reduce Path Resolution Hops (`prd-reduce-path-resolution-hops.md`)

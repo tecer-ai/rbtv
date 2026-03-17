@@ -39,7 +39,7 @@
 |------------|--------|--------|
 | Referral logic | User/plan discussion | Bridge and framework synthesis steps must not break return-to-milestone flow |
 | Only bi-m4-user-flow-ia exists | Current repo state | Do not assume other M4 sub-workflows exist |
-| {project-root} required in output paths | User: multiple projects in _bmad-output/founder/ | All milestone files must reference project-root; user will verify via search |
+| {project-root} required in output paths | User: multiple projects in projects/founder/ | All milestone files must reference project-root; user will verify via search |
 
 ### User Inputs (Maintained and Developed)
 
@@ -74,7 +74,7 @@
 
 ## Verification: Output Paths
 
-**Purpose:** Ensure all milestone and framework workflows use `{project-root}` (or equivalent) in output paths so multiple projects in `_bmad-output/founder/` are supported. Run this check yourself using file content search — no AI sweep needed.
+**Purpose:** Ensure all milestone and framework workflows use `{project-root}` (or equivalent) in output paths so multiple projects in `projects/founder/` are supported. Run this check yourself using file content search — no AI sweep needed.
 
 ### Paths to check
 
@@ -83,7 +83,7 @@
 - `_bmad/rbtv/workflows/bi-business-innovation/workflow.md` — frontmatter `outputFolder`, any `{project-root}` references
 - `_bmad/rbtv/workflows/bi-business-innovation/steps-c/step-02-project-setup.md` — `outputFolder`, `outputFolder/`
 - `_bmad/rbtv/workflows/bi-business-innovation/steps-c/step-03-milestone-select.md` — `projectMemo`
-- `_bmad/rbtv/workflows/bi-business-innovation/data/founder-process.md` — `_bmad-output/`, `project-memo`, output folder structure
+- `_bmad/rbtv/workflows/bi-business-innovation/data/founder-process.md` — `projects/`, `project-memo`, output folder structure
 - `_bmad/rbtv/workflows/bi-m1/workflow.md` — frontmatter `outputFolder`
 - `_bmad/rbtv/workflows/bi-m2/workflow.md` — frontmatter `outputFolder`
 - `_bmad/rbtv/workflows/bi-m3/workflow.md` — frontmatter `outputFolder`
@@ -101,9 +101,9 @@ Step files use `{outputFolder}` (inherited from workflow); the critical check is
 ### Search instruction
 
 1. **In IDE:** File content search (e.g. Cursor Search, grep) in folder `_bmad/rbtv/workflows/`.
-2. **Search for:** `_bmad-output` or `outputFolder:` or `projectMemo:`.
-3. **Confirm:** Every occurrence that defines an output path uses `{project-root}` (or `{project-root}/`) before `_bmad-output`. Example: `outputFolder: '{project-root}/_bmad-output/{project-name}/founder/...'`.
-4. **Fail if:** Any path is hardcoded without `{project-root}` (e.g. `_bmad-output/` alone or a fixed absolute path).
+2. **Search for:** `projects` or `outputFolder:` or `projectMemo:`.
+3. **Confirm:** Every occurrence that defines an output path uses `{project-root}` (or `{project-root}/`) before `projects`. Example: `outputFolder: '{project-root}/projects/{project-name}/founder/...'`.
+4. **Fail if:** Any path is hardcoded without `{project-root}` (e.g. `projects/` alone or a fixed absolute path).
 
 ### Optional: grep pattern for “missing project-root”
 
@@ -115,7 +115,7 @@ From repo root, search for output-path-like lines that do **not** include `proje
 ### Success criteria
 
 - Every `workflow.md` under `bi-business-innovation`, `bi-m1`, `bi-m2`, `bi-m3`, `bi-m4` (and their framework subfolders) that sets `outputFolder` or `projectMemo` uses `{project-root}` in the path.
-- `founder-process.md` and master steps that reference `_bmad-output` or project paths use `{project-name}` (and, where applicable, `{project-root}`) so multiple projects are supported.
+- `founder-process.md` and master steps that reference `projects` or project paths use `{project-name}` (and, where applicable, `{project-root}`) so multiple projects are supported.
 
 ---
 

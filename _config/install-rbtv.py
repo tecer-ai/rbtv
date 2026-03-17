@@ -245,22 +245,22 @@ def _extract_output_folder_name(root: Path) -> str:
     Read the output folder name from BMAD's core/config.yaml.
     Extracts the folder name from output_folder value (e.g., 'projects' from
     '{project-root}/projects' or '{project-root}/projects/{project-name}').
-    Falls back to '_bmad-output' if the config cannot be read.
+    Falls back to 'projects' if the config cannot be read.
     """
     core_config = root / "_bmad" / "core" / "config.yaml"
     if not core_config.exists():
-        return "_bmad-output"
+        return "projects"
     try:
         content = core_config.read_text(encoding="utf-8")
         match = re.search(r'output_folder:\s*"([^"]*)"', content)
         if not match:
-            return "_bmad-output"
+            return "projects"
         path_value = match.group(1)
         # Strip {project-root}/ prefix and any trailing /{project-name}
         folder = path_value.replace("{project-root}/", "").replace("/{project-name}", "")
-        return folder if folder else "_bmad-output"
+        return folder if folder else "projects"
     except Exception:
-        return "_bmad-output"
+        return "projects"
 
 
 def normalize_bmad_output_paths(root: Path) -> dict:

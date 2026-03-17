@@ -41,7 +41,7 @@ That's 3 wasted tool calls and reasoning cycles.
 | `{project-root}/_bmad/core/...` | ~55 files |
 | `{project-root}/_bmad/bmm/...` | ~6 files |
 | `{project-root}/_bmad/rbtv/...` (self-resolves) | Most files |
-| `{project-root}/_bmad-output/...` | Config + workflows |
+| `{project-root}/projects/...` | Config + workflows |
 
 Every cross-module reference (core, bmm) requires the 5-step resolution process. Self-references (`_bmad/rbtv/`) are simpler but still require checking against the table to confirm the rule.
 
@@ -69,7 +69,7 @@ paths:
   bmad_core: "{project-root}/_bmad/core"
   bmad_bmm: "{project-root}/_bmad/bmm"
   bmad_rbtv: "{project-root}/_bmad/rbtv"
-  bmad_output: "{project-root}/_bmad-output"
+  bmad_output: "{project-root}/projects"
 ```
 
 ## Scope Boundary
@@ -95,7 +95,7 @@ paths:
   bmad_core: "{project-root}/_bmad/core"
   bmad_bmm: "{project-root}/_bmad/bmm"
   bmad_rbtv: "{project-root}/_bmad/rbtv"
-  bmad_output: "{project-root}/_bmad-output"
+  bmad_output: "{project-root}/projects"
 ```
 
 ### How agents use them

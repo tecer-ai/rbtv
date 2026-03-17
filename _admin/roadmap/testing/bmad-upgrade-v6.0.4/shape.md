@@ -25,8 +25,8 @@
 |----------|--------|-----------|
 | Mirror update scope | Update MIRROR-VERSION.md only; fix hardcoded mirror reads | Mirror is a Claude Code reference snapshot, not a functional dependency; bulk copy is unnecessary overhead |
 | RBTV workflow conversion | Excluded from this upgrade | All RBTV workflows already use micro-step split pattern; confirmed via prompting-assistance and git-commit checks |
-| Output folder fix approach | Refactor installer to read and preserve existing folder name | Root cause fix: eliminate hardcoded `_bmad-output` rather than changing to a different hardcoded name |
-| Literal _bmad-output replacement | Replace with `{bmad_output}` path variable | Path variable is the root cause fix; hardcoded strings break when users configure different folder names |
+| Output folder fix approach | Refactor installer to read and preserve existing folder name | Root cause fix: eliminate hardcoded `projects` rather than changing to a different hardcoded name |
+| Literal projects replacement | Replace with `{bmad_output}` path variable | Path variable is the root cause fix; hardcoded strings break when users configure different folder names |
 
 ### Constraints
 
@@ -118,13 +118,13 @@
 **bmad-help.csv Schema:** Identical 16-column header in both versions. No schema change.
 → **p2-3 is a NO-OP** (cancel task)
 
-**bmm/config.yaml Fields:** `output_folder`, `planning_artifacts`, `implementation_artifacts` — same field names. Only values changed (`_bmad-output` → `projects`).
+**bmm/config.yaml Fields:** `output_folder`, `planning_artifacts`, `implementation_artifacts` — same field names. Only values changed (`projects` → `projects`).
 → No field rename handling needed in installer
 
 **manifest.yaml Format:** `installation.version` field exists in v6.0.4 (value: `6.0.4`). Same YAML structure with `modules` array. Added `ides` array (not read by RBTV).
 → **p2-4 is a NO-OP** (cancel task)
 
-**Output Folder Confirmed:** `_bmad-output` (Beta.4) → `projects` (v6.0.4) in both `core/config.yaml` and `bmm/config.yaml`.
+**Output Folder Confirmed:** `projects` (Beta.4) → `projects` (v6.0.4) in both `core/config.yaml` and `bmm/config.yaml`.
 
 ### p1-3 Findings (2026-03-08)
 
@@ -143,18 +143,18 @@
 
 ### p2-1/p2-2 Installer Refactoring (2026-03-08)
 
-**Decision:** Added `_extract_output_folder_name()` helper that reads `output_folder` from `core/config.yaml` and extracts the folder name (strips `{project-root}/` prefix and `/{project-name}` suffix). Falls back to `_bmad-output` if config is unreadable.
+**Decision:** Added `_extract_output_folder_name()` helper that reads `output_folder` from `core/config.yaml` and extracts the folder name (strips `{project-root}/` prefix and `/{project-name}` suffix). Falls back to `projects` if config is unreadable.
 
 **Changes:**
 - `normalize_bmad_output_paths()` now calls `_extract_output_folder_name()` before modifying any files, then uses the extracted name in all replacement strings
 - `ide_merge_cursorignore()` now calls `_extract_output_folder_name()` to build the archive pattern dynamically
-- No hardcoded `_bmad-output` remains in active replacement logic (only in fallback defaults)
+- No hardcoded `projects` remains in active replacement logic (only in fallback defaults)
 
 ### p3-5 Bulk Replace (2026-03-08)
 
-**Result:** 56 files modified, 104 `_bmad-output` occurrences replaced with `{bmad_output}` path variable. Zero remaining `_bmad-output` references in `workflows/` and `tasks/` directories.
+**Result:** 56 files modified, 104 `projects` occurrences replaced with `{bmad_output}` path variable. Zero remaining `projects` references in `workflows/` and `tasks/` directories.
 
-**Discovery:** `_config/config.yaml` `paths.bmad_output` needed a real default value (not a circular `{bmad_output}` self-reference). Set to `{project-root}/_bmad-output` as default; added installer logic to update it from BMAD's `core/config.yaml` during `normalize_bmad_output_paths()`.
+**Discovery:** `_config/config.yaml` `paths.bmad_output` needed a real default value (not a circular `{bmad_output}` self-reference). Set to `{project-root}/projects` as default; added installer logic to update it from BMAD's `core/config.yaml` during `normalize_bmad_output_paths()`.
 
 ### p4-6 Compatibility Check (2026-03-08)
 

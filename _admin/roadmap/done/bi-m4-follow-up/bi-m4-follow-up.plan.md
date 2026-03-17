@@ -76,7 +76,7 @@ The BI-M4 workflow and its sub-workflows (created in founder-migration p6-3) wer
 
 - Only bi-m4-user-flow-ia exists; other M4 sub-workflows (build-prototype, conversion-centered-design, heuristic-evaluation, testing-prep) are not yet created — do not assume they exist
 - Referral logic is inviolable: milestone = entry points; framework/bridge last step = update project_memo + instruct return to milestone menu
-- Output paths must support {project-root} for multiple projects in _bmad-output/founder/; verification is documented for user (file content search), not AI sweep
+- Output paths must support {project-root} for multiple projects in projects/founder/; verification is documented for user (file content search), not AI sweep
 
 ### Decisions Made
 

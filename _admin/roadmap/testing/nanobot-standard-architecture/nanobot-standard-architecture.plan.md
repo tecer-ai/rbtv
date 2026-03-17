@@ -39,7 +39,7 @@ todos:
     content: "p3-2: Integrate PRD 3 pre-flight version check (enforcement layer) into unified installer"
     status: completed
   - id: p3-3
-    content: "p3-3: Implement output-path normalization (CP 2) as shared function — all modes rewrite BMAD output config to _bmad-output/{project-name}/"
+    content: "p3-3: Implement output-path normalization (CP 2) as shared function — all modes rewrite BMAD output config to projects/{project-name}/"
     status: completed
   - id: p3-4
     content: "p3-4: UPDATE workflows/doc-compound-learning/workflow.md compound output routing to RBTV roadmap todos location"
@@ -172,7 +172,7 @@ RBTV's nanobot integration uses a custom adapter architecture (TypeScript harnes
 
 | Allowlist | Native nanobot `config.json` | Replaces dead TypeScript gate |
 
-| Output paths | `_bmad-output/{project-name}/` via SOUL.md + BMAD config | Dual enforcement |
+| Output paths | `projects/{project-name}/` via SOUL.md + BMAD config | Dual enforcement |
 
 | PRD 4 → PRD 3 dependency | Version declaration before compatibility check | Compat check consumes version fields |
 
@@ -489,7 +489,7 @@ flowchart TD
 
 - `p3-1`: Refactor `_config/install-rbtv.py` by merging `install-rbtv.py` and `_admin/install-admin-rbtv.py` into unified installer with shared functions and IDE/admin modes *(taskFile: phase-3/p3-1.task.md)*
 - `p3-2`: Integrate PRD 3 pre-flight version check into unified installer *(taskFile: phase-3/p3-2.task.md)*
-- `p3-3`: Implement output-path normalization (CP 2) as shared function — all modes rewrite BMAD output config to `_bmad-output/{project-name}/`
+- `p3-3`: Implement output-path normalization (CP 2) as shared function — all modes rewrite BMAD output config to `projects/{project-name}/`
 - `p3-4`: UPDATE `workflows/doc-compound-learning/workflow.md` compound output routing to RBTV roadmap todos location
 - `p3-5`: Implement sync mode in unified installer for nanobot workspace BMAD config patching *(taskFile: phase-3/p3-5.task.md)*
 - `p3-6`: DELETE `_admin/install-admin-rbtv.py` (functionality absorbed into unified installer)

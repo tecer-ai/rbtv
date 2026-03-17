@@ -678,9 +678,9 @@ Configuration files serve two purposes: providing runtime variables and declarin
 # document_output_language: {inherited}
 
 # Output paths (override if module needs different locations)
-# output_folder: "{project-root}/_bmad-output"  # inherited from core/config.yaml
-# planning_artifacts: "{project-root}/_bmad-output/planning-artifacts"  # optional override
-# implementation_artifacts: "{project-root}/_bmad-output/implementation-artifacts"  # optional override
+# output_folder: "{project-root}/projects"  # inherited from core/config.yaml
+# planning_artifacts: "{project-root}/projects/planning-artifacts"  # optional override
+# implementation_artifacts: "{project-root}/projects/implementation-artifacts"  # optional override
 
 # Module-specific settings
 # {key}: {value}

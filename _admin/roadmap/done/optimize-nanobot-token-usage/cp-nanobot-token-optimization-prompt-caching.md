@@ -79,7 +79,7 @@ The bootstrap files (p5-1 through p5-5) were designed for behavioral correctness
 | Nanobot `config.json` | Model selection, workspace path | Sets `claude-opus-4-6` as default model. No prompt caching configuration. No model routing per agent. |
 | `_mobile/ops/scripts/vps-sync-install.sh` | Deployment | Deploys bootstrap files but has no optimization or validation step for token budget. |
 | Plan tasks p5-1 through p5-5 | Bootstrap file creation | Task descriptions focused on behavioral correctness. No acceptance criteria related to token efficiency or rate limit viability. |
-| PRD (`_bmad-output/robotville-v4.0/bmad/prd.md`) | Requirements | Specifies "Nanobot bootstrap files" as must-have but does not specify token budget constraints. |
+| PRD (`projects/robotville-v4.0/bmad/prd.md`) | Requirements | Specifies "Nanobot bootstrap files" as must-have but does not specify token budget constraints. |
 
 **Gaps identified:**
 1. No token budget guideline for bootstrap files exists in any RBTV rule or constraint.

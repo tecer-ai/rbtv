@@ -191,11 +191,11 @@ Files use placeholder variables that resolve at runtime:
 | `{project-root}` | System | `/home/user/BMAD` |
 | `{user_name}` | config.yaml | `Henri` |
 | `{communication_language}` | config.yaml | `English` |
-| `{output_folder}` | config.yaml | `{project-root}/_bmad-output` |
-| `{planning_artifacts}` | bmm/config.yaml | `{project-root}/_bmad-output/planning-artifacts` |
-| `{implementation_artifacts}` | bmm/config.yaml | `{project-root}/_bmad-output/implementation-artifacts` |
-| `{test_artifacts}` | tea/config.yaml | `{project-root}/_bmad-output/test-artifacts` |
-| `{bmb_creations_output_folder}` | bmb/config.yaml | `{project-root}/_bmad-output/bmb-creations` |
+| `{output_folder}` | config.yaml | `{project-root}/projects` |
+| `{planning_artifacts}` | bmm/config.yaml | `{project-root}/projects/planning-artifacts` |
+| `{implementation_artifacts}` | bmm/config.yaml | `{project-root}/projects/implementation-artifacts` |
+| `{test_artifacts}` | tea/config.yaml | `{project-root}/projects/test-artifacts` |
+| `{bmb_creations_output_folder}` | bmb/config.yaml | `{project-root}/projects/bmb-creations` |
 
 ---
 

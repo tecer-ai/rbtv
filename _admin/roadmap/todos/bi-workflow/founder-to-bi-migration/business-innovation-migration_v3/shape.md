@@ -31,7 +31,7 @@
 | Entry point | IDE command with new/continue modes | User control over project state |
 | State document | project_memo as cumulative summary | Single source of truth |
 | Agent persona | YC mentor | Domain expertise for startup guidance |
-| Output folder | `_bmad-output/founder/` (no project subfolder) | Simplicity |
+| Output folder | `projects/founder/` (no project subfolder) | Simplicity |
 | Framework synthesis | Last step of each framework updates project_memo | Cumulative learning capture |
 
 ### Constraints
@@ -41,7 +41,7 @@
 | BMAD architecture patterns | BMAD standards | Must use workflow.md + steps-c/ structure |
 | Micro-file architecture | BMAD principles | Files under 200 lines, one responsibility |
 | Sequential enforcement | BMAD principles | Steps execute in order, no skipping |
-| Output folder location | User decision | All outputs to `_bmad-output/founder/` |
+| Output folder location | User decision | All outputs to `projects/founder/` |
 
 ### User Inputs (Maintained and Developed)
 
@@ -51,7 +51,7 @@
 | 2 | Agent persona | "a mentor from Y combinator" | YC mentor agent with startup expertise persona |
 | 3 | Folder naming | "all start with bi-; use abbreviations for milestones" | `bi-business-innovation/`, `bi-m1/`, `bi-m1-[framework]/` pattern |
 | 4 | Framework names | "no need to abbreviate framework names" | Full framework names like `bi-m1-working-backwards/` |
-| 5 | Output structure | "no project-name folder necessary" | Flat structure under `_bmad-output/founder/` |
+| 5 | Output structure | "no project-name folder necessary" | Flat structure under `projects/founder/` |
 | 6 | Framework completion | "last step of each framework must summarize into project_memo" | Architectural constraint for all framework workflows |
 
 ### Collaborative Decisions
@@ -166,7 +166,7 @@
 - Included all 6 critical rules with emojis per BMAD template
 - Mode Overview supports Create (new project) and Continue (resume) modes
 - Milestone routing table references bi-m1 through bi-m6 workflows
-- Output folder set to `{project-root}/_bmad-output/founder`
+- Output folder set to `{project-root}/projects/founder`
 **Issues:** None
 **Files Modified:** `_bmad/rbtv/workflows/bi-business-innovation/workflow.md` (created)
 
@@ -231,7 +231,7 @@
 | founder-process.md size | ✅ 118 lines (max 300) |
 | Mode routing (new/continue) | ✅ Implemented in step-01 |
 | Milestone routing (M1-M6) | ✅ Implemented in step-03 |
-| Output folder path | ✅ `_bmad-output/founder` |
+| Output folder path | ✅ `projects/founder` |
 | Template references | ✅ Correct paths |
 | Knowledge file reference | ✅ Correct path |
 
@@ -276,13 +276,13 @@
 
 ### Discovery 2 (from user request during p3-6/p3-7)
 **Date:** 2026-02-05
-**Finding:** Output folder should include project name for isolation: `_bmad-output/{project-name}/founder/`
-**Contradicts:** Original Shaping decision to use `_bmad-output/founder/` (no project subfolder)
+**Finding:** Output folder should include project name for isolation: `projects/{project-name}/founder/`
+**Contradicts:** Original Shaping decision to use `projects/founder/` (no project subfolder)
 **Resolution:**
 - [x] Simple fix applied immediately
 **Details:**
 - Project name captured in step-02-project-setup when creating new project
-- Output folder structure changed to `_bmad-output/{project-name}/founder/`
+- Output folder structure changed to `projects/{project-name}/founder/`
 - Enables multiple business innovation projects without collision
 - All workflow files updated to use new path pattern
 - Plan file updated to reflect new output structure
@@ -670,7 +670,7 @@ M4 Prototypation Mentor Routing:
 | `_bmad/bmb/workflows/agent/templates/*.md` | BMAD agent template | p1-2 |
 | `_bmad/bmb/workflows/workflow/templates/*.md` | BMAD workflow template | All workflow tasks |
 
-> **Note:** `refs/` is at `BMAD/_bmad-output/rbtv-development/wip/founder-migration/refs` and contains the exact founder module content.
+> **Note:** `refs/` is at `BMAD/projects/rbtv-development/wip/founder-migration/refs` and contains the exact founder module content.
 
 ---
 
@@ -998,9 +998,9 @@ M4 Prototypation Mentor Routing:
 **Context:** M4 Design Direction bridge invokes BMAD create-ux-design; M6 routes entirely to BMAD workflows. BMAD reads output_folder from config file, but RBTV uses project-specific paths.
 
 **Problem:**
-- RBTV workflows use project-specific output folders: `_bmad-output/{project-name}/founder/m4-prototypation/`
-- BMAD workflows read config from disk: `_bmad/bmm/config.yaml` with `output_folder: {project-root}/_bmad-output`
-- When RBTV invokes BMAD, BMAD outputs land in wrong location (root `_bmad-output/` instead of project folder)
+- RBTV workflows use project-specific output folders: `projects/{project-name}/founder/m4-prototypation/`
+- BMAD workflows read config from disk: `_bmad/bmm/config.yaml` with `output_folder: {project-root}/projects`
+- When RBTV invokes BMAD, BMAD outputs land in wrong location (root `projects/` instead of project folder)
 - BMAD does not accept invocation-time overrides; only reads from config file
 
 **Decision:**

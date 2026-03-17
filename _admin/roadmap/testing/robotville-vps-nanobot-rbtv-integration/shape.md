@@ -223,8 +223,8 @@
 
 | Document | Key Insights Extracted |
 |----------|----------------------|
-| `_bmad-output/robotville-v4.0/bmad/prd.md` | Scope, FR/NFR requirements, security and runtime expectations |
-| `_bmad-output/robotville-v4.0/bmad/architecture.md` | Boundaries, deferred scope decisions, `_mobile` structure, FR25 requirement |
+| `projects/robotville-v4.0/bmad/prd.md` | Scope, FR/NFR requirements, security and runtime expectations |
+| `projects/robotville-v4.0/bmad/architecture.md` | Boundaries, deferred scope decisions, `_mobile` structure, FR25 requirement |
 | `_bmad/rbtv/readme.md` | RBTV module context and conventions |
 | `_bmad/rbtv/agents/paul.md` | Agent behavior reference for harness alignment |
 
@@ -232,11 +232,11 @@
 
 | File | Purpose | When |
 |------|---------|------|
-| `_bmad-output/robotville-v4.0/bmad/prd.md` | Requirement baseline | All phases as needed |
-| `_bmad-output/robotville-v4.0/bmad/architecture.md` | Architectural source of truth | All implementation phases |
+| `projects/robotville-v4.0/bmad/prd.md` | Requirement baseline | All phases as needed |
+| `projects/robotville-v4.0/bmad/architecture.md` | Architectural source of truth | All implementation phases |
 | `_bmad/rbtv/readme.md` | RBTV conventions | Phase 3 |
 | `_bmad/rbtv/agents/paul.md` | Mentor integration context | Phase 3 |
-| `_bmad-output/robotville-v4.0/**` | Project outputs potentially informing `_mobile` behavior | Phase 3 and validation |
+| `projects/robotville-v4.0/**` | Project outputs potentially informing `_mobile` behavior | Phase 3 and validation |
 
 ### 2026-02-14 - p5-1 AGENTS.md Bootstrap File Created
 
@@ -291,7 +291,7 @@
 - **Decision:** Extend plan scope beyond the original Phase 6 (closure) to cover five new validation and deployment workstreams before plan completion. User confirmed Nanobot is running and all tasks through p5-8 are complete.
 - **Scope additions:**
   - **Phase 6: robotville.ai Website & Deployment Pipeline** — Set up hosting (Netlify or GitHub Pages, user has Netlify account), create home page from founder docs, build user-commanded doc deployment to `robotville.ai/docs/{project-name}` with two modes (raw download or HTML-structured). All deployments user-commanded only, never automatic. `/app/{project-name}` is infrastructure-ready but workflow deferred to mentor M4-M6 step creation.
-  - **Phase 7: System Update Safety** — Audit `vps-sync-install.sh` and post-merge hook to guarantee `git pull` never overwrites project output files in `_bmad-output/`.
+  - **Phase 7: System Update Safety** — Audit `vps-sync-install.sh` and post-merge hook to guarantee `git pull` never overwrites project output files in `projects/`.
   - **Phase 8: Token Optimization** — Implement three-part fix from `_admin/roadmap/todos/cp-nanobot-token-optimization-prompt-caching.md`: switch to Sonnet, research/configure prompt caching, slim TOOLS.md.
   - **Phase 9: Workflow & Output Fidelity** — Validate Mentor outputs to correct folder, follows long workflows with state management, and agent switching preserves state.
   - **Phase 10: Closure** — Replaces old Phase 6. File reference review (`p10-refs`, superseding cancelled `p4-refs`), learnings compound, final signoff.

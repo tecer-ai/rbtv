@@ -1,4 +1,4 @@
-﻿# Workspace Repo Setup Guide
+# Workspace Repo Setup Guide
 
 > **Purpose:** Instructions for creating and configuring the nanobot workspace GitHub repo, and bootstrapping a new VPS from scratch.
 
@@ -82,7 +82,7 @@ Manually maintained index of RBTV workflow entry points. Update after adding or 
 
 | Path | Contents |
 |------|---------|
-| `_bmad-output/{project-name}/` | Project outputs (framework docs, project-memo) |
+| `projects/{project-name}/` | Project outputs (framework docs, project-memo) |
 ```
 
 ---
