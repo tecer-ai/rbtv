@@ -15,3 +15,4 @@ investor-pitch,{project-root}/.cursor/skills/bmad-rbtv-investor-pitch/SKILL.md,{
 client-pitch,{project-root}/.cursor/skills/bmad-rbtv-client-pitch/SKILL.md,{project-root}/.cursor/agents/bmad-rbtv-client-pitch.md,Stress-test and build client/sales pitch decks from the buyer perspective
 designer,{project-root}/.cursor/skills/bmad-rbtv-designer/SKILL.md,{project-root}/.cursor/agents/bmad-rbtv-designer.md,Visual design for pitch decks and brand identity
 essay,{project-root}/.cursor/skills/bmad-rbtv-essay/SKILL.md,,Critical essay writing review and evidence-based argumentation
+reorganize-memory,{project-root}/.cursor/skills/bmad-rbtv-reorganize-memory/SKILL.md,,Reorganize and maintain the .claude/memory/ knowledge base
