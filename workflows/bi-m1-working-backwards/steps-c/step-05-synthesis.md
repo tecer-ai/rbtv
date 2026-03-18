@@ -80,7 +80,11 @@ Create a concise synthesis (250 words max) covering:
 - Customer & Problem Brief seeds job statements
 - Internal FAQ assumptions seed Leap of Faith mapping
 
-### 3. Update working-backwards.md
+### 3. Deduplication Verification
+
+As the first framework in M1, this framework defines foundational concepts. Later frameworks will reference these definitions. No deduplication check is required — this framework is the concept originator for this milestone.
+
+### 4. Update working-backwards.md
 
 Add Synthesis section to the output document:
 
@@ -115,7 +119,7 @@ stepsCompleted: ['step-01-init', 'step-02-discover', 'step-03-press-release', 's
 status: completed
 ```
 
-### 4. UPDATE project-memo.md
+### 5. UPDATE project-memo.md
 
 **CRITICAL: This step MUST update project-memo.md**
 
@@ -141,7 +145,14 @@ Read project-memo.md and update:
 **Output:** [Link to working-backwards.md]
 ```
 
-### 5. Completion Summary
+### 6. Assumption Inventory Update
+
+Review all assumptions identified during this framework. For each assumption:
+1. Check if it already exists in the project-memo Canonical Assumption Inventory.
+2. If new: add it with appropriate tier (Existential / High / Lower / Founder Conviction), this framework as source.
+3. If existing: update status or evidence if this framework produced new validation data.
+
+### 7. Completion Summary
 
 Present to founder:
 > "Working Backwards framework complete!
@@ -156,7 +167,19 @@ Present to founder:
 >
 > **Return path:** To continue other M1 frameworks, return to bi-m1 milestone workflow."
 
-### 6. Present Menu Options
+### 8. Cross-Framework Consistency Gate
+
+**Condition:** Display this section only when ≥3 frameworks are marked completed in the project-memo `stepsCompleted` array for M1.
+
+> **Recommended:** You have completed 3+ frameworks in this milestone. Consider running a cross-framework consistency review in a fresh context to detect drift between framework outputs.
+>
+> **How:** Open a new conversation and paste the following prompt:
+>
+> "Review the following framework outputs for [project-name] milestone M1 and identify contradictions, unstated assumption changes, or concept drift between frameworks: [list completed framework output files]"
+>
+> This is non-blocking — you may continue without running the review.
+
+### 9. Present Menu Options
 
 **Select an Option:**
 - **[A] Advanced Elicitation** — refine synthesis or project-memo entry

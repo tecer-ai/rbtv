@@ -89,7 +89,15 @@ Compare JTBD findings to Working Backwards:
 - Which PR/FAQ claims are supported by JTBD evidence?
 - Which claims need revision based on JTBD insights?
 
-### 4. Update jobs-to-be-done.md
+### 4. Deduplication Verification
+
+Before writing the synthesis output, verify:
+1. Read the content ownership mapping in `{bmad_rbtv}/workflows/bi-business-innovation/data/founder-process.md` for M1.
+2. For each concept this framework does NOT own: confirm the synthesis output references the owning framework's definition rather than restating it.
+3. New insights and deltas are permitted — full restatements are not.
+4. If duplication is found, rewrite the affected section to use the `## Prior Context` reference format.
+
+### 5. Update jobs-to-be-done.md
 
 Add Synthesis section to the output document:
 
@@ -129,7 +137,7 @@ stepsCompleted: ['step-01-init', 'step-02-job-hypotheses', 'step-03-interview', 
 status: completed
 ```
 
-### 5. UPDATE project-memo.md
+### 6. UPDATE project-memo.md
 
 **CRITICAL: This step MUST update project-memo.md**
 
@@ -156,7 +164,14 @@ Read project-memo.md and update:
 **Output:** [Link to jobs-to-be-done.md]
 ```
 
-### 6. Completion Summary
+### 7. Assumption Inventory Update
+
+Review all assumptions identified during this framework. For each assumption:
+1. Check if it already exists in the project-memo Canonical Assumption Inventory.
+2. If new: add it with appropriate tier (Existential / High / Lower / Founder Conviction), this framework as source.
+3. If existing: update status or evidence if this framework produced new validation data.
+
+### 8. Completion Summary
 
 Present to founder:
 > "Jobs-to-be-Done framework complete!
@@ -175,7 +190,19 @@ Present to founder:
 >
 > **Return path:** To continue other M1 frameworks, return to bi-m1 milestone workflow."
 
-### 7. Present Menu Options
+### 9. Cross-Framework Consistency Gate
+
+**Condition:** Display this section only when ≥3 frameworks are marked completed in the project-memo `stepsCompleted` array for M1.
+
+> **Recommended:** You have completed 3+ frameworks in this milestone. Consider running a cross-framework consistency review in a fresh context to detect drift between framework outputs.
+>
+> **How:** Open a new conversation and paste the following prompt:
+>
+> "Review the following framework outputs for [project-name] milestone M1 and identify contradictions, unstated assumption changes, or concept drift between frameworks: [list completed framework output files]"
+>
+> This is non-blocking — you may continue without running the review.
+
+### 10. Present Menu Options
 
 **Select an Option:**
 - **[A] Advanced Elicitation** — refine synthesis or project-memo entry

@@ -102,7 +102,15 @@ Create a concise synthesis (300 words max) covering:
 - Testing Prep [F]: Success criteria feed into F&F test protocol
 - M5 Market Validation: Optimized prototype ready for real customer testing
 
-### 3. Update conversion-optimization.md
+### 3. Deduplication Verification
+
+Before writing the synthesis output, verify:
+1. Read the content ownership mapping in `{bmad_rbtv}/workflows/bi-business-innovation/data/founder-process.md` for M4.
+2. For each concept this framework does NOT own: confirm the synthesis output references the owning framework's definition rather than restating it.
+3. New insights and deltas are permitted — full restatements are not.
+4. If duplication is found, rewrite the affected section to use the `## Prior Context` reference format.
+
+### 4. Update conversion-optimization.md
 
 Add Synthesis section to the output document:
 
@@ -141,7 +149,7 @@ stepsCompleted: ['step-01-init', 'step-02-funnel-mapping', 'step-03-hypothesis-g
 status: completed
 ```
 
-### 4. UPDATE project-memo.md
+### 5. UPDATE project-memo.md
 
 **CRITICAL: This step MUST update project-memo.md**
 
@@ -172,7 +180,14 @@ Read project-memo.md and update:
 **Output:** [Link to conversion-optimization.md]
 ```
 
-### 5. Completion Summary
+### 6. Assumption Inventory Update
+
+Review all assumptions identified during this framework. For each assumption:
+1. Check if it already exists in the project-memo Canonical Assumption Inventory.
+2. If new: add it with appropriate tier (Existential / High / Lower / Founder Conviction), this framework as source.
+3. If existing: update status or evidence if this framework produced new validation data.
+
+### 7. Completion Summary
 
 Present to founder:
 
@@ -194,7 +209,19 @@ Present to founder:
 > 
 > **Return path:** To continue M4 frameworks, return to bi-m4 milestone workflow."
 
-### 6. Present Menu Options
+### 8. Cross-Framework Consistency Gate
+
+**Condition:** Display this section only when ≥3 frameworks are marked completed in the project-memo `stepsCompleted` array for M4.
+
+> **Recommended:** You have completed 3+ frameworks in this milestone. Consider running a cross-framework consistency review in a fresh context to detect drift between framework outputs.
+>
+> **How:** Open a new conversation and paste the following prompt:
+>
+> "Review the following framework outputs for [project-name] milestone M4 and identify contradictions, unstated assumption changes, or concept drift between frameworks: [list completed framework output files]"
+>
+> This is non-blocking — you may continue without running the review.
+
+### 9. Present Menu Options
 
 **Select an Option:**
 - **[A] Advanced Elicitation** — refine synthesis or project-memo entry

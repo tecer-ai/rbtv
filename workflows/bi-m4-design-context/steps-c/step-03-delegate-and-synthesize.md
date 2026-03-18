@@ -97,7 +97,15 @@ Run task: `{project-root}/_bmad/rbtv/tasks/restore-bmad-config.xml`
 
 Verify task completion.
 
-### 6. Synthesis — Update Project Memo
+### 6. Deduplication Verification
+
+Before writing the synthesis output, verify:
+1. Read the content ownership mapping in `{bmad_rbtv}/workflows/bi-business-innovation/data/founder-process.md` for M4.
+2. For each concept this framework does NOT own: confirm the synthesis output references the owning framework's definition rather than restating it.
+3. New insights and deltas are permitted — full restatements are not.
+4. If duplication is found, rewrite the affected section to use the `## Prior Context` reference format.
+
+### 7. Synthesis — Update Project Memo
 
 Read BMAD output from `{outputFolder}/`.
 
@@ -127,7 +135,26 @@ stepsCompleted:
 - [List key files: ux-design-specification.md, design_brief.md, design.json if applicable]
 ```
 
-### 7. Present Completion Summary
+### 8. Assumption Inventory Update
+
+Review all assumptions identified during this framework. For each assumption:
+1. Check if it already exists in the project-memo Canonical Assumption Inventory.
+2. If new: add it with appropriate tier (Existential / High / Lower / Founder Conviction), this framework as source.
+3. If existing: update status or evidence if this framework produced new validation data.
+
+### 9. Cross-Framework Consistency Gate
+
+**Condition:** Display this section only when ≥3 frameworks are marked completed in the project-memo `stepsCompleted` array for M4.
+
+> **Recommended:** You have completed 3+ frameworks in this milestone. Consider running a cross-framework consistency review in a fresh context to detect drift between framework outputs.
+>
+> **How:** Open a new conversation and paste the following prompt:
+>
+> "Review the following framework outputs for [project-name] milestone M4 and identify contradictions, unstated assumption changes, or concept drift between frameworks: [list completed framework output files]"
+>
+> This is non-blocking — you may continue without running the review.
+
+### 10. Present Completion Summary
 
 > "**Design Context Bridge Complete** ✅
 >
@@ -143,7 +170,7 @@ stepsCompleted:
 >
 > Do not load another step. The bridge is complete."
 
-### 8. Present Menu Options
+### 11. Present Menu Options
 
 **Select an Option:**
 - **[B] Back** — return to M4 Prototypation milestone menu (user action; no further step to load)

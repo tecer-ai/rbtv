@@ -98,7 +98,11 @@ Confirm document is ready for BMAD create-ux-design workflow:
 >
 > When you start Design Direction [D], reference this document as context for design discovery (visual-design-extraction, playwright-browser-automation; optionally design-validation)."
 
-### 3. Compile Synthesis
+### 3. Deduplication Verification
+
+As the first framework in M4, this framework defines foundational concepts. Later frameworks will reference these definitions. No deduplication check is required — this framework is the concept originator for this milestone.
+
+### 4. Compile Synthesis
 
 Generate synthesis section:
 
@@ -138,7 +142,7 @@ When executing BMAD create-ux-design:
 - ✅ Ready for Design Direction (BMAD create-ux-design)
 ```
 
-### 4. Update Output Document
+### 5. Update Output Document
 
 Finalize user-flow-ia.md:
 
@@ -149,7 +153,7 @@ stepsCompleted: ['step-01-init', 'step-02-user-flow', 'step-03-information-archi
 status: complete
 ```
 
-### 5. Update Project Memo
+### 6. Update Project Memo
 
 Update `{outputFolder}/project-memo.md`:
 
@@ -180,7 +184,14 @@ stepsCompleted:
 **Next:** Design Direction via BMAD create-ux-design workflow
 ```
 
-### 6. Present Completion Summary
+### 7. Assumption Inventory Update
+
+Review all assumptions identified during this framework. For each assumption:
+1. Check if it already exists in the project-memo Canonical Assumption Inventory.
+2. If new: add it with appropriate tier (Existential / High / Lower / Founder Conviction), this framework as source.
+3. If existing: update status or evidence if this framework produced new validation data.
+
+### 8. Present Completion Summary
 
 > "**User Flow & IA Complete** ✅
 >
@@ -199,7 +210,19 @@ stepsCompleted:
 >
 > Reference this document when starting Design Direction."
 
-### 7. Present Menu Options
+### 9. Cross-Framework Consistency Gate
+
+**Condition:** Display this section only when ≥3 frameworks are marked completed in the project-memo `stepsCompleted` array for M4.
+
+> **Recommended:** You have completed 3+ frameworks in this milestone. Consider running a cross-framework consistency review in a fresh context to detect drift between framework outputs.
+>
+> **How:** Open a new conversation and paste the following prompt:
+>
+> "Review the following framework outputs for [project-name] milestone M4 and identify contradictions, unstated assumption changes, or concept drift between frameworks: [list completed framework output files]"
+>
+> This is non-blocking — you may continue without running the review.
+
+### 10. Present Menu Options
 
 **Select an Option:**
 - **[B] Back** — return to M4 Prototypation milestone menu

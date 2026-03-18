@@ -127,7 +127,11 @@ Map each top assumption to downstream validation:
 **Handoff notes:** For each mapping, write one-sentence directive:
 > "TAM/SAM/SOM must validate LOF-012 (addressable market > EUR 100M for segment X); return estimate with confidence range."
 
-### 4. Update leap-of-faith.md
+### 4. Deduplication Verification
+
+As the first framework in M2, this framework defines foundational concepts. Later frameworks will reference these definitions. No deduplication check is required — this framework is the concept originator for this milestone.
+
+### 5. Update leap-of-faith.md
 
 Add final sections:
 
@@ -193,7 +197,7 @@ stepsCompleted: ['step-01-init', 'step-02-harvest', 'step-03-classify', 'step-04
 status: completed
 ```
 
-### 5. UPDATE project-memo.md
+### 6. UPDATE project-memo.md
 
 **CRITICAL: This step MUST update project-memo.md**
 
@@ -224,7 +228,14 @@ Read project-memo.md and update:
 **Output:** [Link to leap-of-faith.md]
 ```
 
-### 6. Completion Summary
+### 7. Assumption Inventory Update
+
+Review all assumptions identified during this framework. For each assumption:
+1. Check if it already exists in the project-memo Canonical Assumption Inventory.
+2. If new: add it with appropriate tier (Existential / High / Lower / Founder Conviction), this framework as source.
+3. If existing: update status or evidence if this framework produced new validation data.
+
+### 8. Completion Summary
 
 Present to founder:
 
@@ -246,7 +257,19 @@ Present to founder:
 >
 > **Return path:** To continue other M2 frameworks, return to bi-m2 milestone workflow."
 
-### 7. Present Menu Options
+### 9. Cross-Framework Consistency Gate
+
+**Condition:** Display this section only when ≥3 frameworks are marked completed in the project-memo `stepsCompleted` array for M2.
+
+> **Recommended:** You have completed 3+ frameworks in this milestone. Consider running a cross-framework consistency review in a fresh context to detect drift between framework outputs.
+>
+> **How:** Open a new conversation and paste the following prompt:
+>
+> "Review the following framework outputs for [project-name] milestone M2 and identify contradictions, unstated assumption changes, or concept drift between frameworks: [list completed framework output files]"
+>
+> This is non-blocking — you may continue without running the review.
+
+### 10. Present Menu Options
 
 **Select an Option:**
 - **[A] Advanced Elicitation** — refine kill criteria or validation signals

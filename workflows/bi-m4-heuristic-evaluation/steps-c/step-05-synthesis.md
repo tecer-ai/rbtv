@@ -2,7 +2,7 @@
 name: 'step-05-synthesis'
 description: 'Synthesize findings, update project-memo.md, return to M4 menu'
 nextStepFile: '../bi-m4/workflow.md'
-outputFile: '{bmad_output}/{project-name}/founder/m4-prototypation/heuristic-evaluation.md'
+outputFile: '{bmad_output}/{project-name}/business-innovation/m4-prototypation/heuristic-evaluation.md'
 ---
 
 # Step 5: Synthesis
@@ -106,7 +106,15 @@ Present findings to the founder:
 
 ---
 
-### 3. Synthesize Key Findings
+### 3. Deduplication Verification
+
+Before writing the synthesis output, verify:
+1. Read the content ownership mapping in `{bmad_rbtv}/workflows/bi-business-innovation/data/founder-process.md` for M4.
+2. For each concept this framework does NOT own: confirm the synthesis output references the owning framework's definition rather than restating it.
+3. New insights and deltas are permitted — full restatements are not.
+4. If duplication is found, rewrite the affected section to use the `## Prior Context` reference format.
+
+### 4. Synthesize Key Findings
 
 Create a synthesis section in the output document:
 
@@ -184,9 +192,9 @@ Example:
 - {How findings inform design refinements}
 ```
 
-### 4. Update project-memo.md
+### 5. Update project-memo.md
 
-**CRITICAL:** Load `{bmad_output}/{project-name}/founder/project-memo.md`
+**CRITICAL:** Load `{bmad_output}/{project-name}/business-innovation/project-memo.md`
 
 Add synthesis to the M4 Prototypation section:
 
@@ -216,14 +224,33 @@ Update frontmatter in project-memo.md:
 - Add `bi-m4-heuristic-evaluation/workflow.md` to `stepsCompleted`
 - Update `lastUpdated` to current date
 
-### 5. Mark Framework Complete
+### 6. Mark Framework Complete
 
 Update frontmatter in `{outputFile}`:
 - Add `step-05-synthesis.md` to `stepsCompleted`
 - Add `frameworkComplete: true`
 - Add `completionDate: {current date}`
 
-### 6. Present Completion Summary
+### 7. Assumption Inventory Update
+
+Review all assumptions identified during this framework. For each assumption:
+1. Check if it already exists in the project-memo Canonical Assumption Inventory.
+2. If new: add it with appropriate tier (Existential / High / Lower / Founder Conviction), this framework as source.
+3. If existing: update status or evidence if this framework produced new validation data.
+
+### 8. Cross-Framework Consistency Gate
+
+**Condition:** Display this section only when ≥3 frameworks are marked completed in the project-memo `stepsCompleted` array for M4.
+
+> **Recommended:** You have completed 3+ frameworks in this milestone. Consider running a cross-framework consistency review in a fresh context to detect drift between framework outputs.
+>
+> **How:** Open a new conversation and paste the following prompt:
+>
+> "Review the following framework outputs for [project-name] milestone M4 and identify contradictions, unstated assumption changes, or concept drift between frameworks: [list completed framework output files]"
+>
+> This is non-blocking — you may continue without running the review.
+
+### 9. Present Completion Summary
 
 Present this summary to the founder:
 
@@ -253,7 +280,7 @@ Present this summary to the founder:
 
 ---
 
-### 7. Instruct Return to M4 Menu
+### 10. Instruct Return to M4 Menu
 
 **CRITICAL:** After presenting the summary, instruct:
 

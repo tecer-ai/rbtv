@@ -167,7 +167,15 @@ Write a clear viability statement:
 >
 > **Recommendation:** [Proceed / Validate assumptions first / Revisit pricing/costs]"
 
-### 7. Update Output Document
+### 7. Deduplication Verification
+
+Before writing the synthesis output, verify:
+1. Read the content ownership mapping in `{bmad_rbtv}/workflows/bi-business-innovation/data/founder-process.md` for M2.
+2. For each concept this framework does NOT own: confirm the synthesis output references the owning framework's definition rather than restating it.
+3. New insights and deltas are permitted — full restatements are not.
+4. If duplication is found, rewrite the affected section to use the `## Prior Context` reference format.
+
+### 8. Update Output Document
 
 Finalize unit-economics.md with:
 - Break-even analysis
@@ -180,7 +188,7 @@ Update frontmatter:
 - Add `step-05-synthesis` to `stepsCompleted`
 - Set `status: completed`
 
-### 8. Update project-memo.md
+### 9. Update project-memo.md
 
 Add Unit Economics synthesis to project-memo.md:
 
@@ -203,7 +211,26 @@ Add Unit Economics synthesis to project-memo.md:
 
 Update project-memo.md frontmatter: add `bi-m2-unit-economics` to `stepsCompleted`
 
-### 9. Present Completion Summary
+### 10. Assumption Inventory Update
+
+Review all assumptions identified during this framework. For each assumption:
+1. Check if it already exists in the project-memo Canonical Assumption Inventory.
+2. If new: add it with appropriate tier (Existential / High / Lower / Founder Conviction), this framework as source.
+3. If existing: update status or evidence if this framework produced new validation data.
+
+### 11. Cross-Framework Consistency Gate
+
+**Condition:** Display this section only when ≥3 frameworks are marked completed in the project-memo `stepsCompleted` array for M2.
+
+> **Recommended:** You have completed 3+ frameworks in this milestone. Consider running a cross-framework consistency review in a fresh context to detect drift between framework outputs.
+>
+> **How:** Open a new conversation and paste the following prompt:
+>
+> "Review the following framework outputs for [project-name] milestone M2 and identify contradictions, unstated assumption changes, or concept drift between frameworks: [list completed framework output files]"
+>
+> This is non-blocking — you may continue without running the review.
+
+### 12. Present Completion Summary
 
 > "## Unit Economics Complete
 >
