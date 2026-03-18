@@ -26,9 +26,11 @@ No trigger matched → no memory files read. Zero reads is the correct default.
 
 ### Self-Correction Capture
 
-When a command or action fails and you retry with a different approach that succeeds, the recovery is NOT complete until you write the self-correction to `tools/{tool}.md`. Treat the memory write as the final step of the fix — not a separate task to remember later.
+When an approach fails OR the user corrects your method (even if your original action produced output), the recovery is NOT complete until you write the self-correction to `tools/{tool}.md`.
 
-Sequence: attempt → fail → retry → succeed → **write to memory** (this step is mandatory, not optional).
+Sequence: attempt → fail or user correction → retry with correct approach → succeed → **write to memory in the same turn** (mandatory, not optional).
+
+Example: User says "why write again, not copy?" → you use Copy-Item instead → you MUST write to `tools/powershell.md` before the turn ends.
 
 ## Entry Format
 
