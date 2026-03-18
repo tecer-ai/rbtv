@@ -2,7 +2,7 @@
 name: 'bi-m4-design-context'
 description: 'Bridge workflow: collect M1–M3 and User Flow & IA context, format for BMAD create-ux-design, invoke BMAD, integrate design output into project-memo'
 nextStep: ./steps-c/step-01-init.md
-parentWorkflow: ../bi-m4/workflow.md
+parentWorkflow: ../workflow.md
 outputFolder: '{bmad_output}/{project-name}/business-innovation/m4-prototypation'
 ---
 
@@ -86,5 +86,5 @@ Bridge is complete when:
 
 | File | Purpose | When to Load |
 |------|---------|--------------|
-| ../bi-m4/workflow.md | Parent workflow; [D] routing | Step 01 |
+| ../workflow.md | Parent workflow; [D] routing | Step 01 |
 | ../bi-m4-user-flow-ia/workflow.md | Source of user-flow-ia.md | Step 01 |

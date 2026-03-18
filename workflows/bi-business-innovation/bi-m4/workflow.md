@@ -2,7 +2,7 @@
 name: 'bi-m4-prototypation'
 description: 'Transform validated concepts into working HTML prototypes through user flow mapping, design creation, and usability testing'
 nextStep: ./steps-c/step-01-init.md
-parentWorkflow: ../bi-business-innovation/workflow.md
+parentWorkflow: ../workflow.md
 outputFolder: '{bmad_output}/{project-name}/business-innovation/m4-prototypation'
 ---
 
@@ -49,18 +49,18 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 | Code | Framework | Workflow | Output | Status |
 |------|-----------|----------|--------|--------|
-| [U] | User Flow & IA | ../bi-m4-user-flow-ia/workflow.md | user-flow-ia.md | ✅ Available |
-| [D] | Design Direction | ../bi-m4-design-context/workflow.md | design_brief.md + design.json (via bridge) | ✅ Available |
+| [U] | User Flow & IA | ./bi-m4-user-flow-ia/workflow.md | user-flow-ia.md | ✅ Available |
+| [D] | Design Direction | ./bi-m4-design-context/workflow.md | design_brief.md + design.json (via bridge) | ✅ Available |
 | [B] | Build Prototype | *(to be created)* | HTML/CSS prototype | 🚧 Planned |
-| [C] | Conversion Optimization | ../bi-m4-conversion-centered-design/workflow.md | conversion-optimization.md | ✅ Available |
-| [H] | Heuristic Evaluation | ../bi-m4-heuristic-evaluation/workflow.md | heuristic-evaluation.md | ✅ Available |
+| [C] | Conversion Optimization | ./bi-m4-conversion-centered-design/workflow.md | conversion-optimization.md | ✅ Available |
+| [H] | Heuristic Evaluation | ./bi-m4-heuristic-evaluation/workflow.md | heuristic-evaluation.md | ✅ Available |
 | [F] | Testing Prep | *(to be created)* | testing-protocol.md | 🚧 Planned |
 
 ### BMAD Integration Note
 
 **[D] Design Direction** routes via **bi-m4-design-context** (bridge):
 
-- **Path:** `../bi-m4-design-context/workflow.md`
+- **Path:** `./bi-m4-design-context/workflow.md`
 - When user selects [D], load the bridge workflow. The bridge prepares M1–M3 and User Flow & IA context, then invokes BMAD create-ux-design (`{bmad_bmm}/workflows/2-plan-workflows/create-ux-design/workflow.md`) with that context.
 - Return to M4 milestone menu after the bridge completes.
 

@@ -305,7 +305,7 @@ When **[B] Back to M3** is selected:
 1. Verify brandbook.md has status: completed
 2. Verify project-memo.md has Brandbook entry
 3. Verify project-memo.md marks M3 as complete
-4. Load `../bi-m3/workflow.md` and present milestone complete summary
+4. Load `../../workflow.md` and present milestone complete summary
 
 When **[M] Next Milestone** is selected:
 1. Verify M3 complete in project-memo

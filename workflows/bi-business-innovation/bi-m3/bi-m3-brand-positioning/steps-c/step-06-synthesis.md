@@ -224,7 +224,7 @@ ALWAYS halt and wait for user selection.
 When **[B] Back to M3** is selected:
 1. Verify brand-positioning.md has status: completed
 2. Verify project-memo.md has Brand Positioning entry
-3. Load `../bi-m3/workflow.md` and present framework menu
+3. Load `../../workflow.md` and present framework menu
 
 When **[E] Exit** is selected:
 1. Verify all updates saved

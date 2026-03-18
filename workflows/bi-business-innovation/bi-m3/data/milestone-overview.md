@@ -219,7 +219,7 @@ M3 Brand milestone is complete when:
   - Adds framework ID to `stepsCompleted` array
   - Writes synthesis to Progress > Brand subsection
 - Synthesis step presents menu: [B] Back to M3 or [E] Exit
-- [B] loads `../bi-m3/workflow.md` which routes to `steps-c/step-01-init.md`
+- [B] loads `../../workflow.md` which routes to `steps-c/step-01-init.md`
 - Step-01 reads updated stepsCompleted and presents framework menu with updated status
 
 ### State Tracking

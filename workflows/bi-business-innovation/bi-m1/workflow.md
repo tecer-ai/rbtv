@@ -2,7 +2,7 @@
 name: 'bi-m1-conception'
 description: 'Structure idea into comprehensive business concept through 6 frameworks'
 nextStep: ./steps-c/step-01-init.md
-parentWorkflow: ../bi-business-innovation/workflow.md
+parentWorkflow: ../workflow.md
 outputFolder: '{bmad_output}/{project-name}/business-innovation/m1-conception'
 ---
 
@@ -49,12 +49,12 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 | Code | Framework | Workflow | Output File |
 |------|-----------|----------|-------------|
-| [WB] | Working Backwards | ../bi-m1-working-backwards/workflow.md | working-backwards.md |
-| [JT] | Jobs-to-be-Done | ../bi-m1-jobs-to-be-done/workflow.md | jobs-to-be-done.md |
-| [CL] | Competitive Landscape | ../bi-m1-competitive-landscape/workflow.md | competitive-landscape.md |
-| [PS] | Problem-Solution Fit | ../bi-m1-problem-solution-fit/workflow.md | problem-solution-fit.md |
-| [LC] | Lean Canvas | ../bi-m1-lean-canvas/workflow.md | lean-canvas.md |
-| [5W] | Five Whys | ../bi-m1-five-whys/workflow.md | five-whys.md |
+| [WB] | Working Backwards | ./bi-m1-working-backwards/workflow.md | working-backwards.md |
+| [JT] | Jobs-to-be-Done | ./bi-m1-jobs-to-be-done/workflow.md | jobs-to-be-done.md |
+| [CL] | Competitive Landscape | ./bi-m1-competitive-landscape/workflow.md | competitive-landscape.md |
+| [PS] | Problem-Solution Fit | ./bi-m1-problem-solution-fit/workflow.md | problem-solution-fit.md |
+| [LC] | Lean Canvas | ./bi-m1-lean-canvas/workflow.md | lean-canvas.md |
+| [5W] | Five Whys | ./bi-m1-five-whys/workflow.md | five-whys.md |
 
 ### Navigation
 

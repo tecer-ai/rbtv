@@ -2,7 +2,7 @@
 name: 'bi-m4-user-flow-ia'
 description: 'Map user flows and define information architecture for conversion-optimized prototypes'
 nextStep: ./steps-c/step-01-init.md
-parentWorkflow: ../bi-m4/workflow.md
+parentWorkflow: ../workflow.md
 outputFolder: '{bmad_output}/{project-name}/business-innovation/m4-prototypation'
 outputFile: user-flow-ia.md
 ---

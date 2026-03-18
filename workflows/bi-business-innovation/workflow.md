@@ -76,12 +76,12 @@ When invoked directly (without Mentor):
 
 | Milestone | Workflow | Description |
 |-----------|----------|-------------|
-| M1 | bi-m1/workflow.md | Conception — structure idea into business concept |
-| M2 | bi-m2/workflow.md | Validation — validate feasibility through research |
-| M3 | bi-m3/workflow.md | Brand — create comprehensive brand book |
-| M4 | bi-m4/workflow.md | Prototypation — build working HTML prototype |
-| M5 | bi-m5/workflow.md | Market Validation — validate demand with low spend |
-| M6 | bi-m6/workflow.md | MVP — create minimum viable product |
+| M1 | bi-business-innovation/bi-m1/workflow.md | Conception — structure idea into business concept |
+| M2 | bi-business-innovation/bi-m2/workflow.md | Validation — validate feasibility through research |
+| M3 | bi-business-innovation/bi-m3/workflow.md | Brand — create comprehensive brand book |
+| M4 | bi-business-innovation/bi-m4/workflow.md | Prototypation — build working HTML prototype |
+| M5 | bi-business-innovation/bi-m5/workflow.md | Market Validation — validate demand with low spend |
+| M6 | bi-business-innovation/bi-m6/workflow.md | MVP — create minimum viable product |
 
 ---
 

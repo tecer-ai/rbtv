@@ -169,7 +169,7 @@ ALWAYS halt and wait for user selection.
 | [TV] | Check prerequisites → Update project-memo frontmatter → Load `../bi-m3-tone-of-voice/workflow.md` |
 | [BB] | Check prerequisites (ALL 6 required, no override) → Update project-memo frontmatter → Load `../bi-m3-brandbook/workflow.md` |
 | [S] | Display detailed status, then redisplay menu |
-| [B] | Load `../../bi-business-innovation/workflow.md` → step-02-milestone-select.md |
+| [B] | Load `../../workflow.md` → step-02-milestone-select.md |
 | [X] | Exit workflow |
 
 ### Prerequisite Checking
@@ -245,7 +245,7 @@ ONLY when user selects a framework [BA/BP/GC/PO/MA/TV/BB]:
 3. Load the selected framework workflow and follow its instructions
 
 When user selects [B] Back:
-1. Load `../../bi-business-innovation/workflow.md` → follow to step-02-milestone-select.md
+1. Load `../../workflow.md` → follow to step-02-milestone-select.md
 2. That step will present the milestone menu
 
 ---

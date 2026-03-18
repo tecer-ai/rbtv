@@ -229,7 +229,7 @@ ALWAYS halt and wait for user selection.
 When **[B] Back to M1** is selected:
 1. Verify competitive-landscape.md has status: completed
 2. Verify project-memo.md has Competitive Landscape entry
-3. Load `../bi-m1/workflow.md` and present framework menu
+3. Load `../../workflow.md` and present framework menu
 
 When **[E] Exit** is selected:
 1. Verify all updates saved

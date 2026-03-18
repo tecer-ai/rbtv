@@ -210,7 +210,7 @@ If any missing:
 **Select an Option:**
 - **[A] Advanced Elicitation** — refine synthesis or risk posture
 - **[P] Party Mode** — get multi-agent perspectives on overall risk assessment
-- **[M2] Return to M2 Milestone** — go back to bi-m2/workflow.md
+- **[M2] Return to M2 Milestone** — go back to ../../workflow.md
 - **[MS] Return to Milestone Selection** — go back to master workflow
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu.

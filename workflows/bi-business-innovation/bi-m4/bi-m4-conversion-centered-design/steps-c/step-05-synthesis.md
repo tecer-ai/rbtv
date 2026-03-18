@@ -237,7 +237,7 @@ ALWAYS halt and wait for user selection.
 When **[B] Back to M4** is selected:
 1. Verify conversion-optimization.md has status: completed
 2. Verify project-memo.md has Conversion Optimization entry
-3. Load `../bi-m4/workflow.md` and present framework menu
+3. Load `../../workflow.md` and present framework menu
 
 When **[E] Exit** is selected:
 1. Verify all updates saved

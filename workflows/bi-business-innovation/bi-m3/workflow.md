@@ -2,7 +2,7 @@
 name: 'bi-m3-brand'
 description: 'Create comprehensive brand book through 7 brand frameworks'
 nextStep: ./steps-c/step-01-init.md
-parentWorkflow: ../bi-business-innovation/workflow.md
+parentWorkflow: ../workflow.md
 outputFolder: '{bmad_output}/{project-name}/business-innovation/m3-brand'
 ---
 
@@ -49,13 +49,13 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 | Code | Framework | Workflow | Output File |
 |------|-----------|----------|-------------|
-| [BA] | Brand Archetypes | ../bi-m3-brand-archetypes/workflow.md | brand-archetypes.md |
-| [BP] | Brand Prism | ../bi-m3-brand-prism/workflow.md | brand-prism.md |
-| [GC] | Golden Circle | ../bi-m3-golden-circle/workflow.md | golden-circle.md |
-| [PO] | Brand Positioning | ../bi-m3-brand-positioning/workflow.md | brand-positioning.md |
-| [TV] | Tone of Voice | ../bi-m3-tone-of-voice/workflow.md | tone-of-voice.md |
-| [MA] | Messaging Architecture | ../bi-m3-messaging-architecture/workflow.md | messaging-architecture.md |
-| [BB] | Brandbook | ../bi-m3-brandbook/workflow.md | brandbook.md |
+| [BA] | Brand Archetypes | ./bi-m3-brand-archetypes/workflow.md | brand-archetypes.md |
+| [BP] | Brand Prism | ./bi-m3-brand-prism/workflow.md | brand-prism.md |
+| [GC] | Golden Circle | ./bi-m3-golden-circle/workflow.md | golden-circle.md |
+| [PO] | Brand Positioning | ./bi-m3-brand-positioning/workflow.md | brand-positioning.md |
+| [TV] | Tone of Voice | ./bi-m3-tone-of-voice/workflow.md | tone-of-voice.md |
+| [MA] | Messaging Architecture | ./bi-m3-messaging-architecture/workflow.md | messaging-architecture.md |
+| [BB] | Brandbook | ./bi-m3-brandbook/workflow.md | brandbook.md |
 
 ### Navigation
 

@@ -2,7 +2,7 @@
 name: 'bi-m2-validation'
 description: 'Validate technical and financial feasibility through research'
 nextStep: ./steps-c/step-01-init.md
-parentWorkflow: ../bi-business-innovation/workflow.md
+parentWorkflow: ../workflow.md
 outputFolder: '{bmad_output}/{project-name}/business-innovation/m2-validation'
 ---
 
@@ -49,12 +49,12 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 | Code | Framework | Workflow | Output File |
 |------|-----------|----------|-------------|
-| [LF] | Leap of Faith | ../bi-m2-leap-of-faith/workflow.md | leap-of-faith.md |
-| [AM] | Assumption Mapping | ../bi-m2-assumption-mapping/workflow.md | assumption-mapping.md |
-| [TS] | TAM/SAM/SOM | ../bi-m2-tam-sam-som/workflow.md | tam-sam-som.md |
-| [UE] | Unit Economics | ../bi-m2-unit-economics/workflow.md | unit-economics.md |
-| [TR] | Technology Readiness Level | ../bi-m2-technology-readiness-level/workflow.md | technology-readiness.md |
-| [PM] | Pre-mortem | ../bi-m2-pre-mortem/workflow.md | pre-mortem.md |
+| [LF] | Leap of Faith | ./bi-m2-leap-of-faith/workflow.md | leap-of-faith.md |
+| [AM] | Assumption Mapping | ./bi-m2-assumption-mapping/workflow.md | assumption-mapping.md |
+| [TS] | TAM/SAM/SOM | ./bi-m2-tam-sam-som/workflow.md | tam-sam-som.md |
+| [UE] | Unit Economics | ./bi-m2-unit-economics/workflow.md | unit-economics.md |
+| [TR] | Technology Readiness Level | ./bi-m2-technology-readiness-level/workflow.md | technology-readiness.md |
+| [PM] | Pre-mortem | ./bi-m2-pre-mortem/workflow.md | pre-mortem.md |
 
 ### Navigation
 

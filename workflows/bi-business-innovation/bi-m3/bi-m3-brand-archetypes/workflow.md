@@ -2,7 +2,7 @@
 name: 'bi-m3-brand-archetypes'
 description: 'Define brand character using Carl Jung 12 universal archetypes'
 nextStep: ./steps-c/step-01-init.md
-parentWorkflow: ../bi-m3/workflow.md
+parentWorkflow: ../workflow.md
 outputFolder: '{bmad_output}/{project-name}/business-innovation/m3-brand'
 outputFile: brand-archetypes.md
 ---

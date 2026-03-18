@@ -1,7 +1,7 @@
 ---
 name: 'step-05-synthesis'
 description: 'Synthesize findings, update project-memo.md, return to M4 menu'
-nextStepFile: '../bi-m4/workflow.md'
+nextStepFile: '../../workflow.md'
 outputFile: '{bmad_output}/{project-name}/business-innovation/m4-prototypation/heuristic-evaluation.md'
 ---
 
@@ -284,7 +284,7 @@ Present this summary to the founder:
 
 **CRITICAL:** After presenting the summary, instruct:
 
-> "Heuristic Evaluation framework is complete. To continue with M4 Prototypation, load `../bi-m4/workflow.md` to return to the milestone menu and select your next framework."
+> "Heuristic Evaluation framework is complete. To continue with M4 Prototypation, load `../../workflow.md` to return to the milestone menu and select your next framework."
 
 HALT and wait for user to load the M4 workflow.
 

@@ -49,23 +49,23 @@ Read `{projectMemo}` frontmatter to understand:
 
 | State | Target | Workflow path |
 |-------|--------|---------------|
-| New project (stepsCompleted empty) | M1: Conception | `../../bi-m1/workflow.md` |
+| New project (stepsCompleted empty) | M1: Conception | `../bi-m1/workflow.md` |
 | Existing project | Use currentMilestone from frontmatter | See mapping below |
 
 **currentMilestone → workflow path (relative to this file):**
 
 | currentMilestone | Load |
 |------------------|------|
-| M1: Conception | `../../bi-m1/workflow.md` |
-| M2: Validation | `../../bi-m2/workflow.md` |
-| M3: Brand | `../../bi-m3/workflow.md` |
-| M4: Prototypation | `../../bi-m4/workflow.md` |
-| M5: Market Validation | `../../bi-m5/workflow.md` |
-| M6: MVP | `../../bi-m6/workflow.md` |
+| M1: Conception | `../bi-m1/workflow.md` |
+| M2: Validation | `../bi-m2/workflow.md` |
+| M3: Brand | `../bi-m3/workflow.md` |
+| M4: Prototypation | `../bi-m4/workflow.md` |
+| M5: Market Validation | `../bi-m5/workflow.md` |
+| M6: MVP | `../bi-m6/workflow.md` |
 
 ### 3. Route Immediately
 
-1. Resolve the workflow path for the target milestone (replace `../../` with the actual path from `{project-root}/_bmad/rbtv/workflows/` so that bi-m1 → `{project-root}/_bmad/rbtv/workflows/bi-m1/workflow.md`).
+1. Resolve the workflow path for the target milestone (replace `../` with the actual path from `{project-root}/_bmad/rbtv/workflows/bi-business-innovation/` so that bi-m1 → `{project-root}/_bmad/rbtv/workflows/bi-business-innovation/bi-m1/workflow.md`).
 2. Load that workflow file and follow its instructions.
 3. Do not present a milestone menu. Do not HALT for milestone selection.
 

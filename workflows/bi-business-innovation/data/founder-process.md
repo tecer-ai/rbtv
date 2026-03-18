@@ -8,12 +8,12 @@ Master navigation for the 6-milestone business innovation lifecycle from idea to
 
 | Milestone | Goal | Key Frameworks | Workflow |
 |-----------|------|----------------|----------|
-| M1: Conception | Structure idea into comprehensive business concept | Working Backwards, Jobs-to-be-Done, Competitive Landscape, Problem-Solution Fit, Lean Canvas, 5 Whys | bi-m1/workflow.md |
-| M2: Validation | Validate technical and financial feasibility | Leap of Faith, Assumption Mapping, TAM/SAM/SOM, Unit Economics, TRL, Pre-mortem | bi-m2/workflow.md |
-| M3: Brand | Create comprehensive brand book | Brand Archetypes, Brand Prism, Golden Circle, Brand Positioning, Messaging Architecture, Tone of Voice, Brandbook | bi-m3/workflow.md |
-| M4: Prototypation | Build working HTML prototype for F&F testing | User Flow, Information Architecture, Design Brief, Atomic Design, Conversion Design, WCAG | bi-m4/workflow.md |
-| M5: Market Validation | Validate market demand with low spending | Mom Test, SPIN Selling, Smoke Test, Van Westendorp PSM, Bullseye, Sean Ellis PMF | bi-m5/workflow.md |
-| M6: MVP | Create minimum viable product for real clients | User Story Mapping, INVEST, MoSCoW, Scrum, CI/CD, OWASP Top 10 | bi-m6/workflow.md |
+| M1: Conception | Structure idea into comprehensive business concept | Working Backwards, Jobs-to-be-Done, Competitive Landscape, Problem-Solution Fit, Lean Canvas, 5 Whys | bi-business-innovation/bi-m1/workflow.md |
+| M2: Validation | Validate technical and financial feasibility | Leap of Faith, Assumption Mapping, TAM/SAM/SOM, Unit Economics, TRL, Pre-mortem | bi-business-innovation/bi-m2/workflow.md |
+| M3: Brand | Create comprehensive brand book | Brand Archetypes, Brand Prism, Golden Circle, Brand Positioning, Messaging Architecture, Tone of Voice, Brandbook | bi-business-innovation/bi-m3/workflow.md |
+| M4: Prototypation | Build working HTML prototype for F&F testing | User Flow, Information Architecture, Design Brief, Atomic Design, Conversion Design, WCAG | bi-business-innovation/bi-m4/workflow.md |
+| M5: Market Validation | Validate market demand with low spending | Mom Test, SPIN Selling, Smoke Test, Van Westendorp PSM, Bullseye, Sean Ellis PMF | bi-business-innovation/bi-m5/workflow.md |
+| M6: MVP | Create minimum viable product for real clients | User Story Mapping, INVEST, MoSCoW, Scrum, CI/CD, OWASP Top 10 | bi-business-innovation/bi-m6/workflow.md |
 
 ---
 
@@ -47,12 +47,12 @@ Master navigation for the 6-milestone business innovation lifecycle from idea to
 
 | User Selection | Target Workflow | First Step |
 |----------------|-----------------|------------|
-| [M1] Conception | bi-m1/workflow.md | bi-m1/steps-c/step-01-init.md |
-| [M2] Validation | bi-m2/workflow.md | bi-m2/steps-c/step-01-init.md |
-| [M3] Brand | bi-m3/workflow.md | bi-m3/steps-c/step-01-init.md |
-| [M4] Prototypation | bi-m4/workflow.md | bi-m4/steps-c/step-01-init.md |
-| [M5] Market Validation | bi-m5/workflow.md | bi-m5/steps-c/step-01-init.md |
-| [M6] MVP | bi-m6/workflow.md | bi-m6/steps-c/step-01-init.md |
+| [M1] Conception | bi-business-innovation/bi-m1/workflow.md | bi-business-innovation/bi-m1/steps-c/step-01-init.md |
+| [M2] Validation | bi-business-innovation/bi-m2/workflow.md | bi-business-innovation/bi-m2/steps-c/step-01-init.md |
+| [M3] Brand | bi-business-innovation/bi-m3/workflow.md | bi-business-innovation/bi-m3/steps-c/step-01-init.md |
+| [M4] Prototypation | bi-business-innovation/bi-m4/workflow.md | bi-business-innovation/bi-m4/steps-c/step-01-init.md |
+| [M5] Market Validation | bi-business-innovation/bi-m5/workflow.md | bi-business-innovation/bi-m5/steps-c/step-01-init.md |
+| [M6] MVP | bi-business-innovation/bi-m6/workflow.md | bi-business-innovation/bi-m6/steps-c/step-01-init.md |
 
 ---
 
@@ -64,7 +64,7 @@ All framework workflows follow the pattern: `bi-m{N}-{framework-name}/`
 |---------|---------|
 | Milestone prefix | `bi-m1-`, `bi-m2-`, etc. |
 | Framework name | Full name, kebab-case |
-| Complete path | `bi-m1-working-backwards/workflow.md` |
+| Complete path | `bi-business-innovation/bi-m1/bi-m1-working-backwards/workflow.md` |
 
 ---
 

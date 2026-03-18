@@ -2,7 +2,7 @@
 name: 'bi-m1-five-whys'
 description: 'Trace problems to structural root causes using 5 Whys methodology'
 nextStep: ./steps-c/step-01-init.md
-parentWorkflow: ../bi-m1/workflow.md
+parentWorkflow: ../workflow.md
 outputFolder: '{bmad_output}/{project-name}/business-innovation/m1-conception'
 outputFile: five-whys.md
 ---

@@ -258,7 +258,7 @@ ALWAYS halt and wait for user selection.
 When **[B] Back to M2** is selected:
 1. Verify tam-sam-som.md has status: completed
 2. Verify project-memo.md has TAM/SAM/SOM entry
-3. Load `../bi-m2/workflow.md` and present framework menu
+3. Load `../../workflow.md` and present framework menu
 
 When **[E] Exit** is selected:
 1. Verify all updates saved
