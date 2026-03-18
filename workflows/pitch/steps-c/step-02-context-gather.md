@@ -6,7 +6,7 @@ nextStepFile: ./step-03-narrative.md
 
 # Step 02: Context Gathering from Founder Documents
 
-**Progress: Step 2 of 9** — Next: Narrative Draft
+**Progress: Step 2 of 10** — Next: Narrative Draft
 
 ---
 

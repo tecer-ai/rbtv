@@ -7,7 +7,7 @@ referenceFile: ../../_shared/pitch-data/pitch-reference.md
 
 # Step 06: Slide Structure
 
-**Progress: Step 6 of 9** — Next: Generate HTML
+**Progress: Step 6 of 10** — Next: Generate HTML
 
 ---
 

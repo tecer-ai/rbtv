@@ -4,8 +4,8 @@ description: 'Build pitch decks through narrative-first stress-testing, data val
 pitch_type: '{pitch_type}'
 createStep: ./steps-c/step-01-init.md
 editStep: ./steps-e/step-e01-load.md
-outputFolder_investor: '{bmad_output}/{project-name}/_fundraising/pitch-deck'
-outputFolder_client: '{bmad_output}/{project-name}/_clients/pitch-deck'
+outputFolder_investor: '{bmad_output}/{project-name}/_fundraising/{round}/YYYY-MM-DD-{fund}/'
+outputFolder_client: '{bmad_output}/{project-name}/_clients/{client}/presentations/YYYY-MM-DD-{objective}/'
 referenceFile: ../_shared/pitch-data/pitch-reference.md
 htmlPatternsFile: ../_shared/pitch-data/html-patterns.md
 promptingKnowledgeIndex: '{project-root}/_bmad/rbtv/workflows/prompting-assistance/data/knowledge-index.csv'
@@ -30,10 +30,10 @@ webResearchStandards: '{project-root}/_bmad/rbtv/tasks/data/web-research-standar
 
 This workflow supports two pitch types via the `{pitch_type}` variable:
 
-| pitch_type | Audience | Output Folder | Stress-Test Perspective |
+| pitch_type | Audience | Output Folder Pattern | Stress-Test Perspective |
 |------------|----------|---------------|------------------------|
-| `investor` | VCs, angels, accelerators | `{bmad_output}/{project-name}/_fundraising/pitch-deck` | The Investor — would I write a check? |
-| `client` | Customers, partners, procurement | `{bmad_output}/{project-name}/_clients/pitch-deck` | The Buyer — would I sign a contract? |
+| `investor` | VCs, angels, accelerators | `_fundraising/{round}/YYYY-MM-DD-{fund}/` | The Investor — would I write a check? |
+| `client` | Customers, partners, procurement | `_clients/{client}/presentations/YYYY-MM-DD-{objective}/` | The Buyer — would I sign a contract? |
 
 The `{pitch_type}` is set during workflow invocation by the agent command. Each step file contains conditional blocks that adapt content, framing, and deliverables based on this parameter.
 
@@ -94,6 +94,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 | 07 | step-07-generate.md | Generate HTML pitch deck |
 | 08 | step-08-images.md | Visual identity integration & image prompt generation |
 | 09 | step-09-synthesis.md | Final review and output summary |
+| 10 | step-10-pdf-validation.md | PDF export via Decktape and visual QA loop |
 
 ## EDIT MODE STEPS
 

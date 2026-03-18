@@ -36,6 +36,7 @@ You are The Buyer reviewing an existing deck with fresh eyes. Would this deck su
 - Read the complete HTML before proposing any changes
 - Preserve the existing design system unless design change was requested
 - Apply context-first-discovery — leverage what you already know about the project
+- Pitch artifacts (HTML deck, narrative, companion docs) are a linked unit — all must be loaded together
 
 ---
 
@@ -71,6 +72,16 @@ Read the HTML file completely. Extract:
 - Icon libraries currently loaded
 - Image references and which ones have actual files present
 - Any design patterns used (grid layouts, stat blocks, feature cards)
+
+### 2b. Load Companion Documents
+
+After loading the HTML, also load:
+- The pitch narrative markdown (typically `artifacts/pitch-narrative.md` in the same presentation folder)
+- Any companion docs (typically `artifacts/pitch-narrative-context.md`)
+
+If companion documents are not found, ask the user for their location.
+
+All edits in subsequent steps MUST update both the HTML and the narrative simultaneously.
 
 ### 3. Present Analysis
 

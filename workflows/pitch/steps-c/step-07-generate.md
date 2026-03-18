@@ -8,7 +8,7 @@ htmlComponentsFile: ../../_shared/pitch-data/html-components.md
 
 # Step 07: Generate HTML Pitch Deck
 
-**Progress: Step 7 of 9** — Next: Image Prompts
+**Progress: Step 7 of 10** — Next: Image Prompts
 
 ---
 
@@ -159,9 +159,20 @@ Self-check the generated HTML:
 | Whitespace | No cramped slides |
 | Contrast | Text readable on all backgrounds |
 | Narrative | Slide titles match the agreed narrative points |
+| Content fit | Every slide's content fits within one landscape page — dense slides use top-aligned layout |
+| Logo rendering | Logos visible on their backgrounds (dark bg → white filter applied) |
 
 **If pitch_type = client:** Additionally:
 | Tone | Professional/conservative — appropriate for B2B |
+
+### 6b. Post-Generation Sync Check
+
+After generating the HTML deck:
+1. Compare key content (slide titles, main messages, supporting elements, data points) against the narrative produced in step-03
+2. If any user-directed changes during HTML generation altered narrative content, update the narrative to match
+3. Report any narrative updates made to the user
+
+CSS/styling-only decisions (colors, fonts, layout) do NOT require narrative updates.
 
 ### 7. Present Menu
 

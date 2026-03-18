@@ -7,7 +7,7 @@ standaloneFallback: ./step-03-narrative.md
 
 # Step 01: Initialize Pitch
 
-**Progress: Step 1 of 9** — Next: Context Gathering
+**Progress: Step 1 of 10** — Next: Context Gathering
 
 ---
 
@@ -40,7 +40,8 @@ You are The Buyer. From this point forward, every question you ask is the questi
 ### Step-Specific Rules
 
 - Detect founder documents before asking questions
-- Set output path based on project context
+- Propose structured output path and HALT for user approval before creating any directories
+- NEVER create folders before user explicitly approves the path
 
 **If pitch_type = investor:**
 - This workflow is exclusively for investor pitches (fundraising: VCs, angels, accelerators)
@@ -61,14 +62,7 @@ Check the conversation context:
 - Read project-memo frontmatter: extract projectName
 - Set {mode}=founder
 - Set {project_name} from projectName
-
-**If pitch_type = investor:**
-- Set {output_folder}=`{bmad_output}/{project_name}/_fundraising/pitch-deck`
-- Confirm: "I see you're working on **{project_name}**. I'll pull content from your founder documents and then stress-test your pitch narrative before we build anything."
-
-**If pitch_type = client:**
-- Set {output_folder}=`{bmad_output}/{project_name}/_clients/pitch-deck`
-- Confirm: "I see you're working on **{project_name}**. I'll pull content from your founder documents and stress-test your pitch from the buyer's side of the table."
+- Confirm: project detected message (see below)
 
 **If no project-memo (standalone mode):**
 - Set {mode}=standalone
@@ -76,12 +70,48 @@ Check the conversation context:
 - Set {project_name} from response
 
 **If pitch_type = investor:**
-- Ask: "Where should I save the pitch deck? Default: `{bmad_output}/{project_name}/_fundraising/pitch-deck`"
+- Confirm: "I see you're working on **{project_name}**. I'll pull content from your founder documents and then stress-test your pitch narrative before we build anything."
 
 **If pitch_type = client:**
-- Ask: "Where should I save the pitch deck? Default: `{bmad_output}/{project_name}/_clients/pitch-deck`"
+- Confirm: "I see you're working on **{project_name}**. I'll pull content from your founder documents and stress-test your pitch from the buyer's side of the table."
 
-- Set {output_folder} from response or default
+### 1b. Set Output Path
+
+Propose a structured output folder path and HALT for user approval before creating any directories.
+
+**Folder conventions:**
+
+| pitch_type | Structure | Example |
+|------------|-----------|---------|
+| investor | `{bmad_output}/{project_name}/_fundraising/{round}/YYYY-MM-DD-{fund}/` | `_fundraising/seed/2026-03-17-sequoia/` |
+| client | `{bmad_output}/{project_name}/_clients/{client}/presentations/YYYY-MM-DD-{objective}/` | `_clients/acme-corp/presentations/2026-03-17-initial-demo/` |
+
+Subfolders created inside the output folder:
+
+| Subfolder | Contents |
+|-----------|----------|
+| `artifacts/` | Workflow markdown outputs (narrative, research prompt, image prompts) |
+| `assets/` | Images used in the pitch (replaces flat `images/` folder) |
+| `research/` | Research outputs generated during or for the pitch workflow |
+| `meeting-transcript/` | Meeting transcript and notes (**client pitches only** — not created for investor pitches) |
+
+HTML and PDF files (`pitch-deck.html`, `pitch-deck.pdf`) are saved at the output folder root, not inside subfolders.
+
+**If pitch_type = investor:**
+- Ask for round context (e.g., "seed", "series-a", "pre-seed") and target fund name
+- Propose: `{bmad_output}/{project_name}/_fundraising/{round}/YYYY-MM-DD-{fund}/`
+- Use today's date for YYYY-MM-DD
+
+**If pitch_type = client:**
+- Use {target_client} from Section 2 (gathered below) — defer path proposal until after Section 2
+- Ask for meeting objective (e.g., "initial-demo", "technical-deep-dive", "proposal")
+- Propose: `{bmad_output}/{project_name}/_clients/{client}/presentations/YYYY-MM-DD-{objective}/`
+- Use today's date for YYYY-MM-DD
+
+Present the proposed full path and HALT:
+- "Proposed output path: `{proposed_path}` — Approve, or provide an alternative path."
+- Set {output_folder} from approved path
+- Create the folder and all subfolders only AFTER user approval
 
 ### 2. Understand the Target Client (client pitch only)
 
@@ -94,8 +124,11 @@ Ask (only what's missing from conversation context):
 - **What's the deal size?** (ballpark — this affects formality and detail level)
 - **What do they use today?** (competitor, in-house solution, manual process, nothing)
 - **What triggered this pitch?** (inbound interest, outbound prospecting, RFP, referral)
+- **What language does the client operate in?** (pitch artifacts — narrative, deck, research prompt — must be written in the client's language, not the vendor's working language. Default: English.)
 
-Set {target_client} and {deal_context} from responses.
+Set {target_client}, {deal_context}, and {artifact_language} from responses.
+
+**After gathering client context:** Return to Section 1b to propose the output path using {target_client} and meeting objective. HALT for user approval before continuing.
 
 ### 3. Gather High-Level Context (Standalone Only)
 
@@ -116,7 +149,7 @@ Set {target_client} and {deal_context} from responses.
 
 ### 4. Check for Existing Deck
 
-Check if `{output_folder}/pitch-deck.html` exists:
+Check if `{output_folder}/pitch-deck.html` exists (at the output folder root):
 - If YES: "I found an existing pitch deck. Would you like to **[R] Replace** it with a fresh build, or **[E] Exit** and use Edit mode instead?"
 - If NO: Continue normally.
 
@@ -129,12 +162,16 @@ Investor Pitch Setup:
 - Project: {project_name}
 - Mode: {mode} (founder docs / standalone)
 - Output: {output_folder}/
+  ├── pitch-deck.html / .pdf
+  ├── artifacts/    (narrative, research prompt, image prompts)
+  ├── assets/       (images)
+  └── research/     (research outputs)
 
 Deliverables:
-  1. pitch-narrative.md   — The story, stress-tested slide by slide
-  2. pitch-research-prompt.md — Research prompt for external AI data gathering
-  3. pitch-deck.html      — The final HTML deck
-  4. pitch-image-prompts.md — Image generation prompts
+  1. artifacts/pitch-narrative.md        — The story, stress-tested slide by slide
+  2. artifacts/pitch-research-prompt.md  — Research prompt for external AI data gathering
+  3. pitch-deck.html                     — The final HTML deck
+  4. artifacts/pitch-image-prompts.md    — Image generation prompts
 
 Ready to proceed?
 ```
@@ -146,14 +183,20 @@ Client Pitch Setup:
 - Project: {project_name}
 - Target: {target_client}
 - Deal context: {deal_context}
+- Artifact language: {artifact_language}
 - Mode: {mode} (founder docs / standalone)
 - Output: {output_folder}/
+  ├── pitch-deck.html / .pdf
+  ├── artifacts/          (narrative, research prompt, image prompts)
+  ├── assets/             (images)
+  ├── research/           (research outputs)
+  └── meeting-transcript/ (meeting notes)
 
 Deliverables:
-  1. pitch-narrative.md        — The story, stress-tested slide by slide from buyer's perspective
-  2. pitch-research-prompt.md  — Research prompt for external AI (proof points + buyer objections)
-  3. pitch-deck.html           — The final HTML deck
-  4. pitch-image-prompts.md    — Image generation prompts
+  1. artifacts/pitch-narrative.md        — The story, stress-tested slide by slide from buyer's perspective
+  2. artifacts/pitch-research-prompt.md  — Research prompt for external AI (proof points + buyer objections)
+  3. pitch-deck.html                     — The final HTML deck
+  4. artifacts/pitch-image-prompts.md    — Image generation prompts
 
 Ready to proceed?
 ```
@@ -185,16 +228,19 @@ ONLY when **[X] Exit** is selected:
 
 ✅ **SUCCESS:**
 - Mode detected (founder or standalone)
-- Output path confirmed
+- Structured output path proposed and explicitly approved by user
+- Output folder and subfolders created only after approval
 - User understands the deliverables and sequence
 - User proceeds to next step
 
 **If pitch_type = client:** Additionally:
 - Target client and deal context understood
+- Artifact language confirmed (defaults to English if client language unknown)
 
 ❌ **FAILURE:**
 - Generating content before setup complete
-- Wrong output path
+- Creating folders before user approves the path
+- Using flat output path instead of structured conventions
 - Proceeding without user confirmation
 
 **If pitch_type = client:** Additionally:

@@ -9,7 +9,7 @@ webResearchStandards: '{project-root}/_bmad/rbtv/tasks/data/web-research-standar
 
 # Step 05: Research Prompt Generation
 
-**Progress: Step 5 of 9** — Next: Slide Structure
+**Progress: Step 5 of 10** — Next: Slide Structure
 
 ---
 

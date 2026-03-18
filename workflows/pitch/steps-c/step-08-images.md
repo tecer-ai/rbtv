@@ -6,7 +6,7 @@ nextStepFile: ./step-09-synthesis.md
 
 # Step 08: Visual Identity & Image Prompts
 
-**Progress: Step 8 of 9** — Next: Synthesis
+**Progress: Step 8 of 10** — Next: Synthesis
 
 ---
 

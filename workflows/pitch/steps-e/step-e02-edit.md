@@ -42,6 +42,14 @@ You are The Buyer refining an existing deck. Every edit should make the deck mor
 **If pitch_type = client:**
 - Keep slide count in the 10-12 range unless user explicitly overrides
 
+### Sync Enforcement
+
+After applying each edit to the HTML:
+1. Identify whether the edit changes content (text, data, claims, structure) vs. only styling (CSS, layout, colors)
+2. If content changed → update the corresponding section in the pitch narrative immediately
+3. If narrative was the edit target → update the corresponding HTML section immediately
+4. After all edits are complete, verify no drift remains between HTML and narrative
+
 ---
 
 ## MANDATORY SEQUENCE

@@ -264,6 +264,63 @@ Use Font Awesome as primary. Add Material Icons Outlined for variety. Feature ca
 
 ---
 
+## Logo Pattern
+
+### Single Logo (Cover/Closing)
+
+```css
+.cover-wordmark {
+  height: clamp(40px, 6vh, 80px);
+  filter: brightness(0) invert(1); /* renders white on dark backgrounds */
+}
+```
+
+- Cover/closing logo height: 5–8% of viewport height (`clamp(40px, 6vh, 80px)`)
+- Dark backgrounds: ALWAYS apply `filter: brightness(0) invert(1)` to non-white logos
+- Light backgrounds: use logo as-is (no filter)
+- `onerror="this.style.display='none'"` on all logo `<img>` tags
+
+### Multi-Logo Composition
+
+```css
+.cover-logos {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(20px, 3vw, 40px);
+}
+```
+
+- Logos with more visual mass (icon + text) must be sized 10–20% smaller in height than simpler wordmarks to achieve visual balance
+- Separator between logos: `×` character, font-weight 300, opacity 0.5–0.6
+- ALWAYS test multi-logo compositions at the actual slide size — aspect ratio differences cause surprises
+
+### Asset Manifest Color Handling
+
+When creating or reading asset manifests (`manifest.md`), document whether each logo/asset is dark-on-transparent or light-on-transparent. Include the CSS filter instruction for dark background usage.
+
+---
+
+## Background Image Pattern
+
+```css
+.slide--textured {
+  background-color: var(--fallback-color);
+  background-image: url('images/texture.png');
+  background-size: cover;
+  background-position: center;
+}
+```
+
+| Constraint | Rule |
+|---|---|
+| Max textured slides | Max 3 textured backgrounds per deck (cover, closing, and 1 accent). Remaining slides use flat colors. |
+| Fallback color | ALWAYS set `background-color` as fallback before `background-image` |
+| Subtlety test | If the texture competes with text readability, mute it with a semi-transparent overlay: `background-image: linear-gradient(rgba(R,G,B,0.7), rgba(R,G,B,0.7)), url(...)` |
+| Print rendering | Background images require `print-color-adjust: exact` — already set globally but verify |
+
+---
+
 ## Full Slide Example
 
 ```html
@@ -310,3 +367,7 @@ These constraints MUST be enforced at generation time.
 | 10 | **Header-content gap** | Gap between slide header and primary content block must not exceed 40px. |
 | 11 | **Flow connectors** | Diagram connectors: min 2px, brand color. 1px gray connectors disappear in PDF. |
 | 12 | **Color-coded borders** | When using colored left borders as a visual system, color logic must be consistent and intentional. |
+| 13 | **Content overflow** | Slides with >3 content zones, process diagrams, or >4 bullet items must use `justify-content: flex-start` with `padding-top: 50px; padding-bottom: 40px;` instead of centered layout. Centered layout is only safe for sparse slides. |
+| 14 | **Logo sizing** | Cover logo height: `clamp(40px, 6vh, 80px)`. Multi-logo: size by visual mass, not pixel height. Dark bg logos must use `filter: brightness(0) invert(1)`. |
+| 15 | **Background texture limit** | Max 3 textured slides per deck. Never apply the same texture to more than 2 slides. |
+| 16 | **Content-fit validation** | Before finalizing, estimate each slide's total content height. If title + subtitle + content block exceeds ~70vh, switch to top-aligned layout with reduced padding. |

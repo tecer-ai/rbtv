@@ -7,7 +7,7 @@ outputFile: pitch-narrative.md
 
 # Step 04: Conceptual Data Layer
 
-**Progress: Step 4 of 9** — Next: Research Prompt
+**Progress: Step 4 of 10** — Next: Research Prompt
 
 ---
 
