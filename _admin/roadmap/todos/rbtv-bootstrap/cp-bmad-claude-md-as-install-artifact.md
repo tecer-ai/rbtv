@@ -6,7 +6,7 @@ priority: 'Medium'
 tracker: ''
 stepsCompleted: []
 inputDocuments:
-  - _config/install-rbtv.py
+  - _config/bootstrap.py
   - _config/claude/
 outputPath: '{project-root}/_bmad/rbtv/_admin/roadmap/todos'
 date: '2026-03-13'
@@ -30,7 +30,7 @@ yoloMode: false
 
 ## Desired Outcome
 
-The installer (`install-rbtv.py`, workspace mode) generates a correct `CLAUDE.md` at the BMAD project root (`{root}/CLAUDE.md`) during installation.
+The installer (`bootstrap.py`, workspace mode) generates a correct `CLAUDE.md` at the BMAD project root (`{root}/CLAUDE.md`) during installation.
 
 ---
 
@@ -75,7 +75,7 @@ The detected repos populate the "Git Repositories" table in the generated CLAUDE
 
 ### Installer integration
 
-Add `workspace_generate_claude_md(root, rbtv_dir)` function to `install-rbtv.py` and call it in `run_workspace_mode()`.
+Add `workspace_generate_claude_md(root, rbtv_dir)` function to `bootstrap.py` and call it in `run_workspace_mode()`.
 
 The function:
 1. Reads the template from `_config/CLAUDE.md`
@@ -91,7 +91,7 @@ Always overwrite — CLAUDE.md at the BMAD root is a generated file, not user-ed
 
 ## Acceptance Criteria
 
-- Running `python _config/install-rbtv.py` generates `CLAUDE.md` at BMAD root
+- Running `python _config/bootstrap.py` generates `CLAUDE.md` at BMAD root
 - Generated file includes correct git repo table with detected repos
 - Re-running installer overwrites and re-generates correctly
 - Installer prints status line: `Generating CLAUDE.md` / `Done`

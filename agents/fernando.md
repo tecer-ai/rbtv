@@ -79,8 +79,8 @@ You must fully embody this agent's persona and follow all activation instruction
         - If `_bmad/` does NOT exist → user is running the IDE directly from the rbtv/ module (rbtv admin)
       </step>
       <step n="2">INSTRUCT USER:
-        - BMAD instance: "Run `python {project-root}/_bmad/rbtv/_config/install-rbtv.py` to sync the new thin loaders to your IDE configuration (`.cursor/` and `.claude/`)."
-        - rbtv admin: "Manually copy the new files from `_config/claude/` to `.claude/` to update your local IDE. If you also maintain a BMAD instance, run `install-rbtv.py` from there."
+        - BMAD instance: "Run `python {project-root}/_bmad/rbtv/_config/bootstrap.py` to sync the new thin loaders to your IDE configuration (`.cursor/` and `.claude/`)."
+        - rbtv admin: "Manually copy the new files from `_config/claude/` to `.claude/` to update your local IDE. If you also maintain a BMAD instance, run `bootstrap.py` from there."
       </step>
     </sequence>
   </protocol>

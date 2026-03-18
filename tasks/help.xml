@@ -52,7 +52,7 @@
   </flow>
 
   <halt-conditions>
-    <condition>Skills folder is empty — display: "No RBTV skills found. Run install-rbtv.py to sync skills."</condition>
+    <condition>Skills folder is empty — display: "No RBTV skills found. Run bootstrap.py to sync skills."</condition>
     <condition>Target file missing — display: "This skill's target is not yet available. It may be in development."</condition>
     <condition>Unable to parse — show what was found and ask user if they want to see the raw file.</condition>
   </halt-conditions>

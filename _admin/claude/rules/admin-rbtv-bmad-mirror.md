@@ -46,7 +46,7 @@ When RBTV files reference `{project-root}` paths, resolve them as follows:
 
 ## Installation
 
-RBTV ships platform configuration in `_config/claude/` (canonical source, no dot prefix). The installer (`_config/install-rbtv.py`) copies these files to the workspace root and derives `.cursor/` equivalents. Source files live in this repo; installed copies are generated outputs.
+RBTV ships platform configuration in `_config/claude/` (canonical source, no dot prefix). The installer (`_config/bootstrap.py`) copies these files to the workspace root and derives `.cursor/` equivalents. Source files live in this repo; installed copies are generated outputs.
 
 **Installed BMAD structure (RBTV touchpoints only):**
 
@@ -71,13 +71,13 @@ RBTV ships platform configuration in `_config/claude/` (canonical source, no dot
 │   ├── core/config.yaml                     # ← output_folder updated
 │   ├── bmm/config.yaml                      # ← output paths updated
 │   └── rbtv/                                # ← THIS REPO
-│       └── _config/install-rbtv.py          #    the installer script
+│       └── _config/bootstrap.py              #    the installer script
 └── projects/                            # runtime output folder
 ```
 
 ## Admin / Standalone Development
 
-`_admin/` contains tooling for developing RBTV as a standalone repo (outside a parent BMAD project). Run `_config/install-rbtv.py --mode admin` to set up `.claude/` and `.cursor/` at the rbtv root so commands, agents, skills, and rules work without a parent BMAD installation.
+`_admin/` contains tooling for developing RBTV as a standalone repo (outside a parent BMAD project). Run `_config/bootstrap.py --mode admin` to set up `.claude/` and `.cursor/` at the rbtv root so commands, agents, skills, and rules work without a parent BMAD installation.
 
 ## Boundaries
 

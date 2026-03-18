@@ -83,7 +83,7 @@ sudo -u nanobot git -C /opt/robotville/BMAD pull --ff-only
 
 ```bash
 sudo -u nanobot git -C /opt/robotville/BMAD/_bmad/rbtv pull --ff-only
-sudo -u nanobot python3 /opt/robotville/BMAD/_bmad/rbtv/_config/install-rbtv.py --mode sync
+sudo -u nanobot python3 /opt/robotville/BMAD/_bmad/rbtv/_config/bootstrap.py --mode sync
 ```
 
 What `--mode sync` does: patches BMAD configs (output paths, help catalog) without generating IDE artifacts.

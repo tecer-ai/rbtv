@@ -108,7 +108,7 @@ verdict: "{COMPATIBLE | BREAKING CHANGES | PARTIALLY VERIFIED}"
 
 1. {Action 1}
 2. {Action 2}
-3. Re-run RBTV installer: `python _config/install-rbtv.py`
+3. Re-run RBTV installer: `python _config/bootstrap.py`
 4. Update `bmad_target_version` to `{target_bmad_version}` in:
    - `_config/config.yaml`
    - `bmad-compat.yaml`

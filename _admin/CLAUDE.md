@@ -46,20 +46,20 @@ For `{project-root}` direct references in admin mode:
 
 ## Installation
 
-RBTV ships IDE configuration in `_config/`. The unified installer (`_config/install-rbtv.py`) handles three modes:
+RBTV ships IDE configuration in `_config/`. The unified installer (`_config/bootstrap.py`) handles three modes:
 
 - **`workspace`** (default) — full IDE setup at BMAD project root: copies commands/agents/skills/rules from `_config/claude/` to `.claude/`, derives `.cursor/` equivalents (with format conversion), merges MCP config, normalizes output paths, adds RBTV to help catalog
 - **`admin`** — standalone dev setup at rbtv root: copies from `_config/claude/` and `_admin/claude/` to `.claude/`, derives `.cursor/`, with path substitution and admin-specific rules
 - **`sync`** — BMAD config patching only (for nanobot): normalizes output paths and help catalog, no IDE artifacts
 
 ```
-python _config/install-rbtv.py              # workspace mode (default)
-python _config/install-rbtv.py --mode admin
-python _config/install-rbtv.py --mode sync
-python _config/install-rbtv.py --skip-version-check
+python _config/bootstrap.py              # workspace mode (default)
+python _config/bootstrap.py --mode admin
+python _config/bootstrap.py --mode sync
+python _config/bootstrap.py --skip-version-check
 ```
 
-Idempotent for all modes — re-run after every `git pull`. See `_config/install-rbtv.py` for full details.
+Idempotent for all modes — re-run after every `git pull`. See `_config/bootstrap.py` for full details.
 
 ## Boundaries
 

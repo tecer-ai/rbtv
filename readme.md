@@ -46,7 +46,7 @@ Clone or copy the RBTV module into your BMAD project:
 ### 3. Run the installer
 
 ```bash
-python _bmad/rbtv/_config/install-rbtv.py
+python _bmad/rbtv/_config/bootstrap.py
 ```
 
 The installer copies commands, agents, skills, and rules to your project's `.cursor/` and `.claude/` directories, merges MCP config, and registers RBTV in the BMAD help catalog.

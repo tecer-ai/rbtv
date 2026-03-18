@@ -159,7 +159,7 @@ sudo -u nanobot git clone git@github.com:hlealt/rbtv.git \
 
 ```bash
 cd /opt/robotville/BMAD/_bmad/rbtv
-sudo -u nanobot python3 _config/install-rbtv.py --mode sync
+sudo -u nanobot python3 _config/bootstrap.py --mode sync
 ```
 
 This patches BMAD configs (output paths, help catalog) without generating IDE artifacts.
@@ -225,7 +225,7 @@ When agents, workflows, tasks, or config change in the RBTV repo:
 sudo -u nanobot git -C /opt/robotville/BMAD/_bmad/rbtv pull --ff-only
 
 # Re-run sync to update BMAD configs
-sudo -u nanobot python3 /opt/robotville/BMAD/_bmad/rbtv/_config/install-rbtv.py --mode sync
+sudo -u nanobot python3 /opt/robotville/BMAD/_bmad/rbtv/_config/bootstrap.py --mode sync
 
 # Restart nanobot
 sudo systemctl restart nanobot-gateway
@@ -238,7 +238,7 @@ When upgrading the BMAD CLI or installation:
 ```bash
 # Reinstall BMAD (follow BMAD upgrade docs)
 # Then re-run RBTV sync installer
-sudo -u nanobot python3 /opt/robotville/BMAD/_bmad/rbtv/_config/install-rbtv.py --mode sync
+sudo -u nanobot python3 /opt/robotville/BMAD/_bmad/rbtv/_config/bootstrap.py --mode sync
 sudo systemctl restart nanobot-gateway
 ```
 

@@ -117,7 +117,7 @@ sudo systemctl restart nanobot-gateway
 
 ```bash
 sudo -u nanobot git -C /opt/robotville/BMAD/_bmad/rbtv pull --ff-only
-sudo -u nanobot python3 /opt/robotville/BMAD/_bmad/rbtv/_config/install-rbtv.py --mode sync
+sudo -u nanobot python3 /opt/robotville/BMAD/_bmad/rbtv/_config/bootstrap.py --mode sync
 sudo systemctl restart nanobot-gateway
 ```
 
@@ -238,7 +238,7 @@ If the VPS must be rebuilt (e.g. corrupted OS, unrecoverable config):
 | Bot not answering on Slack | See `slack-troubleshooting-checklist.md` |
 | Reboot VPS | `hcloud server reboot rbtv-nanobot-gateway` or Console |
 | Power off VPS | `hcloud server shutdown rbtv-nanobot-gateway` or Console |
-| Update RBTV code | SSH in → `sudo -u nanobot git -C /opt/robotville/BMAD/_bmad/rbtv pull --ff-only && python3 /opt/robotville/BMAD/_bmad/rbtv/_config/install-rbtv.py --mode sync` |
+| Update RBTV code | SSH in → `sudo -u nanobot git -C /opt/robotville/BMAD/_bmad/rbtv pull --ff-only && python3 /opt/robotville/BMAD/_bmad/rbtv/_config/bootstrap.py --mode sync` |
 | Check fail2ban | `fail2ban-client status sshd` |
 | Hetzner status page | [https://status.hetzner.com/](https://status.hetzner.com/) |
 

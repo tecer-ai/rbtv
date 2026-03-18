@@ -9,7 +9,7 @@ This folder contains the RBTV integration layer for Nanobot: bootstrap files, op
 Nanobot is a Slack bot runtime. RBTV integrates with it through two mechanisms:
 
 1. **Bootstrap files** — Markdown files loaded into Nanobot's system prompt on every call. They define agent routing, behavioral rules, tool reference, and user preferences. These live in the workspace GitHub repo (not deployed by RBTV — the workspace IS the repo).
-2. **Config** — `_config/install-rbtv.py --mode sync` patches BMAD configs to integrate RBTV output paths and help catalog entries.
+2. **Config** — `_config/bootstrap.py --mode sync` patches BMAD configs to integrate RBTV output paths and help catalog entries.
 
 There is no TypeScript harness, no shell automation scripts, and no source patches. The integration is pure markdown.
 
@@ -78,7 +78,7 @@ sudo systemctl restart nanobot-gateway
 
 ```bash
 sudo -u nanobot git -C /opt/robotville/BMAD/_bmad/rbtv pull --ff-only
-sudo -u nanobot python3 /opt/robotville/BMAD/_bmad/rbtv/_config/install-rbtv.py --mode sync
+sudo -u nanobot python3 /opt/robotville/BMAD/_bmad/rbtv/_config/bootstrap.py --mode sync
 sudo systemctl restart nanobot-gateway
 ```
 

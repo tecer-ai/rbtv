@@ -1,5 +1,5 @@
 # RBTV → BMAD Compatibility Manifest
-# Consumed by: _config/install-rbtv.py (pre-flight check), tasks/check-bmad-compat.xml
+# Consumed by: _config/bootstrap.py (pre-flight check), tasks/check-bmad-compat.xml
 # NOT loaded during normal agent sessions — compatibility data only
 #
 # Maintained by: RBTV team
@@ -24,50 +24,65 @@ touchpoints:
       type: "modify"
       description: "Rewrites output_folder field to {project-root}/{folder}/{project-name} (folder name read from existing value)"
       field_used: "output_folder"
-      source: "_config/install-rbtv.py::normalize_bmad_output_paths"
+      source: "_config/bootstrap.py::normalize_bmad_output_paths"
 
     - path: "_bmad/bmm/config.yaml"
       type: "modify"
       description: "Rewrites output_folder, planning_artifacts, and implementation_artifacts fields"
       fields_used: ["output_folder", "planning_artifacts", "implementation_artifacts"]
-      source: "_config/install-rbtv.py::normalize_bmad_output_paths"
+      source: "_config/bootstrap.py::normalize_bmad_output_paths"
 
     - path: "_bmad/rbtv/_config/config.yaml"
       type: "modify"
       description: "Updates bmad_output path variable to match BMAD's configured output folder"
       field_used: "paths.bmad_output"
-      source: "_config/install-rbtv.py::normalize_bmad_output_paths"
+      source: "_config/bootstrap.py::normalize_bmad_output_paths"
 
     - path: "_bmad/_config/bmad-help.csv"
       type: "modify"
       description: "Appends RBTV module entry row"
       format_assumption: "CSV with columns: module, phase, name, code, sequence, workflow-file, command, required, agent-name, agent-command, agent-display-name, agent-title, options, description, output-location, outputs"
-      source: "_config/install-rbtv.py::add_rbtv_to_help_catalog"
+      source: "_config/bootstrap.py::add_rbtv_to_help_catalog"
 
-    - path: ".cursor/mcp.json"
-      type: "merge"
-      description: "Merges RBTV MCP server config into Cursor's MCP configuration"
-      source: "_config/install-rbtv.py::ide_merge_mcp_json"
+    - path: ".claude/"
+      type: "copy"
+      description: "Copies RBTV config files (commands, agents, skills, rules) from _config/claude/ into .claude/"
+      source: "_config/bootstrap.py::copy_folder"
 
     - path: ".claude/.mcp.json"
       type: "merge"
       description: "Merges RBTV MCP server config into Claude Code's MCP configuration"
-      source: "_config/install-rbtv.py::ide_merge_mcp_json"
+      source: "_config/bootstrap.py::merge_mcp_json"
 
-    - path: ".cursor/"
-      type: "copy"
-      description: "Copies RBTV config files (commands, agents, skills, rules) into .cursor/"
-      source: "_config/install-rbtv.py::ide_copy_folder"
+    - path: ".cursor/mcp.json"
+      type: "merge"
+      description: "Merges RBTV MCP server config into Cursor's MCP configuration"
+      source: "_config/bootstrap.py::merge_mcp_json"
 
-    - path: ".claude/commands/"
-      type: "copy"
-      description: "Replicates .cursor/commands/ to .claude/commands/ for Claude Code compatibility"
-      source: "_config/install-rbtv.py::ide_replicate_commands_to_claude"
+    - path: ".cursor/commands/"
+      type: "replicate"
+      description: "Replicates managed commands from .claude/commands/ to .cursor/commands/"
+      source: "_config/bootstrap.py::replicate_commands_to_cursor"
+
+    - path: ".cursor/rules/"
+      type: "replicate"
+      description: "Replicates managed rules from .claude/rules/ to .cursor/rules/ (.md→.mdc conversion)"
+      source: "_config/bootstrap.py::replicate_rules_to_cursor"
+
+    - path: ".cursor/agents/"
+      type: "replicate"
+      description: "Replicates managed agents from .claude/agents/ to .cursor/agents/"
+      source: "_config/bootstrap.py::replicate_agents_to_cursor"
+
+    - path: ".cursor/skills/"
+      type: "replicate"
+      description: "Replicates managed skills from .claude/skills/ to .cursor/skills/"
+      source: "_config/bootstrap.py::replicate_skills_to_cursor"
 
     - path: ".cursorignore"
       type: "append"
       description: "Appends RBTV-managed patterns ({output-folder}/archive/)"
-      source: "_config/install-rbtv.py::ide_merge_cursorignore"
+      source: "_config/bootstrap.py::merge_cursorignore"
 
   # BMAD file paths directly referenced in RBTV agent files
   agent_references:
