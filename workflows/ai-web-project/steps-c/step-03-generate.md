@@ -41,10 +41,13 @@ Craft the system prompt following these principles:
 4. **Knowledge context** — What it knows, what it references, what it must NOT assume
 5. **Interaction pattern** — How it handles conversation flow (greetings, follow-ups, edge cases)
 
-**Platform-specific adaptations:**
-- **ChatGPT**: Respect 8K char limit for Custom GPTs; use concise, direct language; leverage memory references
-- **Claude**: Can be longer and more structured; use XML tags for section boundaries; reference project files explicitly
-- **Gemini**: Keep instructions focused; note Google Search grounding availability; reference uploaded files
+**Universal rule — instructions.md as companion file:**
+The full, unabridged system prompt ALWAYS goes in `instructions.md`. This file is uploaded as a companion/knowledge file on the platform. The platform's native Instructions field contains only a short bootstrap prompt: "Follow instructions.md for all behavior, rules, and workflow logic." This eliminates character/token limits as a constraint on prompt quality — every platform supports file uploads that exceed their native instruction field limits.
+
+**Platform-specific adaptations (prompt style, not length):**
+- **ChatGPT**: Use concise, direct language; leverage memory references
+- **Claude**: Use XML tags for section boundaries; reference project files explicitly
+- **Gemini**: Note Google Search grounding availability; reference uploaded files
 - **Manus**: Frame instructions as task goals and expected deliverables; specify autonomous behavior; define what "done" looks like; include quality criteria for self-verification
 
 **Quality criteria:**

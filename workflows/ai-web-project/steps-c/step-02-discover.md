@@ -44,7 +44,6 @@ Ask these questions conversationally (not as a rigid checklist — adapt based o
 **Constraint questions:**
 - Are there things it must NEVER do? (hallucinate facts, give medical advice, etc.)
 - Are there specific output formats required? (tables, JSON, bullet points, etc.)
-- Any character/token limits you're aware of on the target platform?
 
 ### 3. Platform Recommendation
 

@@ -54,7 +54,7 @@ Before matching signals, understand the two categories of AI web platform:
 
 | Platform | Strongest At | Weakest At |
 |----------|-------------|------------|
-| **ChatGPT** | Multimodal (images, voice, canvas), daily use, integrations | Smaller context window, 8K char instruction limit for Custom GPTs |
+| **ChatGPT** | Multimodal (images, voice, canvas), daily use, integrations | Smaller context window |
 | **Claude** | Large doc analysis, code, artifacts, structured professional work | No image generation, no live web search, rate limits on Pro |
 | **Gemini** | Google ecosystem, live search, massive context, quick tasks | No full workspace/project history like ChatGPT/Claude Projects, weaker PDF handling |
 | **Manus** | Agent runtime (sandbox, scripts, sub-agents, deliverables) — the only web app with Cursor/Claude Code-like capabilities | Less conversational depth, credit-based cost, stability issues under load, not for regulated industries |
