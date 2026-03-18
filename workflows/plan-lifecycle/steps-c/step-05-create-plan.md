@@ -40,7 +40,7 @@ Read `{templateFile}` from frontmatter to understand plan file structure.
 
 ### 2. Compile YAML Frontmatter
 
-Generate the `todos` array from the task structure created in step-03. Each todo item carries ONLY `id`, `content`, and `status` (plus `taskFile` for complex tasks). Do NOT add custom fields — Cursor's YAML serializer strips unrecognized fields when task status updates.
+Generate the `todos` array from the task structure created in step-03. Each todo item carries ONLY `id`, `content`, and `status`. Do NOT add custom fields — Cursor's YAML serializer strips unrecognized fields when task status updates. Task file paths are embedded in the `content` field using `[brackets]` suffix (e.g., `"p1-1: Description [phase-1/p1-1.task.md]"`).
 
 ```yaml
 ---
@@ -152,7 +152,7 @@ ONLY when `[C] Continue` is selected:
 ## SUCCESS CRITERIA
 
 - ✅ Plan template loaded
-- ✅ YAML frontmatter compiled with all tasks (only `id`, `content`, `status` per item — no custom fields)
+- ✅ YAML frontmatter compiled with all tasks (only `id`, `content`, `status` per item — task file paths in `[brackets]` inside `content`)
 - ✅ Plan body is slim — no duplication of shape.md, microstep, or YAML content
 - ✅ CreatePlan tool used to write plan file
 - ✅ Plan file moved from Cursor default location to artifact folder

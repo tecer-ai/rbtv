@@ -21,9 +21,14 @@ No trigger matched → no memory files read. Zero reads is the correct default.
 | Trigger | Action |
 |---------|--------|
 | Learned something worth remembering | Write to the correct file immediately — never defer to session end |
-| Command failed → retried differently → succeeded | Write self-correction to `tools/{tool}.md` autonomously — no user prompting |
 | Created or modified any memory file | Update `memory.md` index with one-line description |
 | Target file or subdirectory does not exist | Create it on demand |
+
+### Self-Correction Capture
+
+When a command or action fails and you retry with a different approach that succeeds, the recovery is NOT complete until you write the self-correction to `tools/{tool}.md`. Treat the memory write as the final step of the fix — not a separate task to remember later.
+
+Sequence: attempt → fail → retry → succeed → **write to memory** (this step is mandatory, not optional).
 
 ## Entry Format
 

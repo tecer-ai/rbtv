@@ -4,20 +4,17 @@ overview: "{One-sentence summary of what this plan accomplishes}"
 todos:
   # Phase 1 tasks
   - id: p1-1
-    content: "p1-1: {Complex task description}"
-    taskFile: "phase-1/p1-1.task.md"
+    content: "p1-1: {Complex task description} [phase-1/p1-1.task.md]"
     status: pending
   - id: p1-2
     content: "p1-2: {Simple task description}"
-    # inline — no micro-step file
     status: pending
   - id: p1-checkpoint
     content: "P1 CHECKPOINT - {Phase 1 checkpoint description}"
     status: pending
   # Phase 2 tasks
   - id: p2-1
-    content: "p2-1: {Task description}"
-    taskFile: "phase-2/p2-1.task.md"
+    content: "p2-1: {Task description} [phase-2/p2-1.task.md]"
     status: pending
   - id: p2-checkpoint
     content: "P2 CHECKPOINT - {Phase 2 checkpoint description}"
@@ -38,7 +35,7 @@ isProject: false
 # {Plan Name}
 
 > Read `shape.md` for full context, decisions, and constraints.
-> Read individual `.task.md` files (referenced via `taskFile`) for per-task execution instructions.
+> Read individual `.task.md` files (path in `[brackets]` at end of todo content) for per-task execution instructions.
 
 ## Architectural Constraints
 

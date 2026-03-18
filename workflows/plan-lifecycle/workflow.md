@@ -5,7 +5,7 @@ main_config: '	{project-root}/_bmad/rbtv/_config/config.yaml'
 nextStep: ./steps-c/step-01-init.md
 templateFile: ./templates/plan-template.md
 microstepTemplateFile: ./templates/plan-task-microstep-template.md
-shapeTemplateFile: ./templates/shape-template.md
+shapeTemplateFile: '{project-root}/_bmad/rbtv/workflows/_shared/templates/shape-template.md'
 learningsTemplateFile: ./templates/learnings-template.md
 outputFolder: '{project-root}/.cursor/plans'
 ---

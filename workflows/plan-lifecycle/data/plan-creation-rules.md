@@ -15,9 +15,9 @@ The 8-step process for creating any plan:
 | 3 | Draft plan structure | Phase breakdown with task IDs |
 | 4 | Apply dependency ordering | Tasks ordered by prerequisites |
 | 5 | Create plan file | `{plan-name}.plan.md` from template |
-| 6 | Create shape.md | Shaping decisions and execution log structure |
+| 6 | Create or merge shape.md | Check for existing shape.md (from context preservation rule); merge planning context if exists, create from universal template if not |
 | 7 | Create learnings.md | System improvement queue |
-| 8 | Generate micro-step files | `.task.md` file per complex task; set `taskFile` in YAML |
+| 8 | Generate micro-step files | `.task.md` file per complex task; append `[path]` to todo `content` |
 
 ---
 
@@ -62,6 +62,7 @@ Assess each plan across 5 dimensions. Score 1-3 per dimension.
 | No compound tasks | Never combine actions with "and" | ✅ Two tasks ❌ "Create file and update imports" |
 | Room for judgment | Leave implementation decisions to executing agent unless user specified | ✅ "Implement caching" ❌ "Implement Redis caching with 5-minute TTL" (unless user specified) |
 | Explicit file operations | Use CREATE/UPDATE/DELETE/MOVE verbs for file tasks | ✅ "CREATE src/auth.ts with login logic" ❌ "Add authentication" |
+| Canonical source only | Tasks must write to canonical source of truth only — replication to workspace locations (`.cursor/`, `.claude/`) is an installer responsibility | ✅ "CREATE `_config/claude/rules/rule.md`" ❌ "CREATE rule in both `_config/` and `.cursor/rules/`" |
 
 ---
 
@@ -100,7 +101,7 @@ References between files inside the same plan folder MUST use file-relative path
 | Rule | Example | Anti-pattern |
 |------|---------|--------------|
 | Use `./` or `../` relative to the referencing file | `../shape.md`, `./phase-1/p1-1.task.md` | ❌ `.cursor/plans/my-plan/shape.md` |
-| `taskFile` values are relative to the plan folder | `phase-1/p1-1.task.md` | ❌ `.cursor/plans/my-plan/phase-1/p1-1.task.md` |
+| `[path]` values in todo content are relative to the plan folder | `[phase-1/p1-1.task.md]` | ❌ `[.cursor/plans/my-plan/phase-1/p1-1.task.md]` |
 | NEVER embed the plan folder's absolute or root-relative path | `../learnings.md` | ❌ `{project-root}/.cursor/plans/my-plan/learnings.md` |
 
 ### External Links (from plan files to outside)
@@ -206,16 +207,14 @@ Use inline YAML content when ALL of these apply:
 ### Inline Content Examples
 
 ```yaml
-# Simple task — NO micro-step file needed
+# Simple task — NO micro-step file needed (no [path] suffix)
 - id: p1-2
   content: "p1-2: UPDATE src/config.ts to add the new API endpoint URL from the design doc"
-  # inline — no micro-step file
   status: pending
 
-# Complex task — micro-step file generated, taskFile references it
+# Complex task — micro-step file generated, path embedded in content
 - id: p2-1
-  content: "p2-1: Implement authentication flow with OAuth2 integration"
-  taskFile: "phase-2/p2-1.task.md"
+  content: "p2-1: Implement authentication flow with OAuth2 integration [phase-2/p2-1.task.md]"
   status: pending
 ```
 
@@ -233,7 +232,7 @@ Use inline YAML content when ALL of these apply:
 4. Include Tools section ONLY if task requires specialized RBTV skills/subagents (not for basic Read/Write/Shell)
 5. Include revolving plan rules section
 6. Set appropriate complexity_score in frontmatter
-7. Set `taskFile` in the corresponding YAML todo entry (path relative to plan folder)
+7. Append task file path in `[brackets]` to the corresponding YAML todo's `content` field (path relative to plan folder)
 
 ---
 
@@ -266,7 +265,7 @@ Use inline YAML content when ALL of these apply:
 | Principle | Enforcement |
 |-----------|-------------|
 | No content repetition | Context, decisions, constraints live in shape.md — not the plan body |
-| YAML is the task list | Phase sections state phase goal only — task details are in YAML `content` and `taskFile` |
+| YAML is the task list | Phase sections state phase goal only — task details are in YAML `content` (with `[path]` suffix for micro-step files) |
 | Per-task context in microsteps | Files-to-load tables belong in `.task.md` files, not the plan body |
 | Folder structure is discoverable | Agents navigate the filesystem — no need to diagram it in the plan |
 
@@ -274,13 +273,13 @@ Use inline YAML content when ALL of these apply:
 
 Required sections in order:
 
-1. **YAML Frontmatter**: `name`, `overview`, `todos` array (only `id`, `content`, `status` per item — no custom fields)
+1. **YAML Frontmatter**: `name`, `overview`, `todos` array (only `id`, `content`, `status` per item — task file paths embedded in `content` as `[path]` suffix)
 2. **Architectural Constraints**: Plan-specific patterns and inviolable rules
 3. **Revolving Plan Rules**: Discovery handling, task modification (keep brief)
 4. **Execution Workflow** *(conditional)*: Mermaid diagram — only for non-linear plans (branching or parallel phases)
 5. **Phase Sections**: Phase name + goal + checkpoint review prompt subsection; task details read from YAML `content` field
 
-> **Reference directive:** The plan body opens with: "Read `shape.md` for full context, decisions, and constraints. Read individual `.task.md` files (referenced via `taskFile`) for per-task execution instructions."
+> **Reference directive:** The plan body opens with: "Read `shape.md` for full context, decisions, and constraints. Read individual `.task.md` files (path in `[brackets]` at end of todo content) for per-task execution instructions."
 
 ---
 

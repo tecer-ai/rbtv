@@ -4,7 +4,7 @@ stepName: 'generate-artifacts'
 nextStepFile: ./step-05-create-plan.md
 outputFile: '{outputFolder}/{plan-name}/{plan-name}.plan.md'
 microstepTemplateFile: ../templates/plan-task-microstep-template.md
-shapeTemplateFile: ../templates/shape-template.md
+shapeTemplateFile: '{project-root}/_bmad/rbtv/workflows/_shared/templates/shape-template.md'
 learningsTemplateFile: ../templates/learnings-template.md
 ---
 
@@ -84,6 +84,26 @@ Command pattern: `mkdir -p ".cursor/plans/{plan-name}/phase-{N}"`
 
 **Location:** `.cursor/plans/{plan-name}/shape.md`
 
+**Check for existing shape.md first.** The context preservation rule may have already created a shape.md during planning conversations.
+
+**If shape.md already exists:**
+
+1. Read the existing shape.md
+2. Merge planning context into it — preserve all existing content (Decisions and Discoveries entries written by the context preservation rule)
+3. Fill or update these sections from step-02 context:
+
+| Section | Action |
+|---------|--------|
+| Original Shaping | Fill if empty; if already populated, preserve existing and append any missing scope/decisions/constraints from step-02 |
+| User Inputs | Fill if empty; append any missing entries |
+| Collaborative Decisions | Fill if empty; append any missing entries |
+| Standards Applied | Fill (plan-specific section — unlikely to exist from freeform CP writes) |
+| Tool Mode Selection | Fill (plan-specific section) |
+
+4. **Use StrReplace tool** to update existing sections — never overwrite the file
+
+**If shape.md does NOT exist:**
+
 Generate shape.md using `{shapeTemplateFile}` with content from step-02:
 
 | Section | Content Source |
@@ -92,8 +112,7 @@ Generate shape.md using `{shapeTemplateFile}` with content from step-02:
 | User Inputs | User requirements captured during planning |
 | Collaborative Decisions | AI-user decisions made during planning |
 | Standards Applied | BMAD/RBTV rules governing this plan |
-| Execution Log | Empty — ready for append-only entries |
-| Execution Discoveries | Empty — ready for discovery entries |
+| Decisions and Discoveries | Empty — ready for append-only entries |
 
 **Use Write tool** to create the file.
 
@@ -153,13 +172,13 @@ human_review: {required | optional | none}
 - Output Requirements — what to produce and where
 
 **After generating each micro-step file:**
-- Set `taskFile: "phase-{N}/{task-id}.task.md"` in the corresponding YAML todo entry
-- The `taskFile` path is relative to the plan folder
+- Append the task file path in brackets to the YAML todo's `content` field: `"p1-1: Task description [phase-1/p1-1.task.md]"`
+- The path inside brackets is relative to the plan folder
+- This embeds the reference in `content` because Cursor's YAML serializer strips custom fields (like `taskFile`) on status updates — `content` is preserved
 
 **For simple tasks (no micro-step file):**
 - Ensure the YAML `content` field contains a complete, actionable description
-- Omit the `taskFile` field entirely — do NOT add an empty or null `taskFile`
-- Add a comment in the plan YAML: `# inline — no micro-step file`
+- Do NOT add brackets — absence of `[path]` suffix means inline task
 
 **Use Write tool** for EACH task file individually.
 
@@ -228,11 +247,11 @@ ONLY when `[C] Continue` is selected:
 - ✅ Mode gate passed (Agent mode confirmed)
 - ✅ All templates loaded
 - ✅ Phase folders created
-- ✅ shape.md written with planning context
+- ✅ shape.md written with planning context (merged if pre-existing, created if not)
 - ✅ learnings.md written with empty structure
 - ✅ Micro-step task files generated for complex tasks (per decision criteria)
-- ✅ `taskFile` field set in YAML for every task that has a micro-step file
-- ✅ `taskFile` field omitted for simple tasks (no micro-step file)
+- ✅ Task file path appended in `[brackets]` to `content` for every task that has a micro-step file
+- ✅ No `[brackets]` suffix for simple tasks (no micro-step file)
 - ✅ Artifact checklist displayed and verified
 - ✅ Menu presented with explicit HALT
 

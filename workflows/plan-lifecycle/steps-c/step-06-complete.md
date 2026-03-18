@@ -44,26 +44,28 @@ Check that ALL required artifacts exist:
 | Learnings file | `.cursor/plans/{plan-name}/learnings.md` | ✅ |
 | Phase folders | `.cursor/plans/{plan-name}/phase-{N}/` | ✅ (one per phase) |
 
-### 1b. Validate taskFile References (Bidirectional)
+### 1b. Validate Task File References (Bidirectional)
 
-**YAML → Disk:** For every YAML todo that has a `taskFile` field, verify the referenced file exists on disk at the expected path (relative to the plan folder).
+Task file paths are embedded in the `content` field using `[brackets]` suffix (e.g., `"p1-1: Description [phase-1/p1-1.task.md]"`). Parse the path from the last `[...]` in each todo's `content`.
 
-**Disk → YAML:** For every `.task.md` file found on disk in phase folders, verify a matching `taskFile` entry exists in the YAML todos.
+**YAML → Disk:** For every YAML todo whose `content` contains a `[path]` suffix, verify the referenced file exists on disk at the expected path (relative to the plan folder).
+
+**Disk → YAML:** For every `.task.md` file found on disk in phase folders, verify a matching `[path]` reference exists in a YAML todo's `content`.
 
 | Check | Passes When | Failure Indicates |
 |-------|-------------|-------------------|
-| YAML → Disk | Every `taskFile` value resolves to an existing file | Broken reference — file was not generated or was deleted |
-| Disk → YAML | Every `.task.md` on disk has a corresponding `taskFile` entry | Orphaned file — micro-step file exists but YAML has no reference |
+| YAML → Disk | Every `[path]` value resolves to an existing file | Broken reference — file was not generated or was deleted |
+| Disk → YAML | Every `.task.md` on disk has a corresponding `[path]` in a todo's content | Orphaned file — micro-step file exists but no todo references it |
 
 **If ANY validation fails:**
 ```
-⚠️ INCOMPLETE: taskFile validation failed
+⚠️ INCOMPLETE: task file reference validation failed
 
 Broken references (YAML → Disk):
-- {task-id}: taskFile "{path}" not found on disk
+- {task-id}: [path] "{path}" not found on disk
 
 Orphaned files (Disk → YAML):
-- {file-path}: no matching taskFile entry in YAML
+- {file-path}: no matching [path] reference in any todo content
 
 Returning to step-05 to fix missing artifacts.
 ```
@@ -146,9 +148,9 @@ Gather counts for summary:
 
 **How to Execute This Plan:**
 
-1. Check the task's YAML entry for a `taskFile` field
-2. If `taskFile` is present: read that file and follow its execution phases
-3. If no `taskFile`: execute directly from the task's `content` description
+1. Check the task's `content` for a `[path]` suffix (e.g., `[phase-1/p1-1.task.md]`)
+2. If `[path]` is present: read that file and follow its execution phases
+3. If no `[path]`: execute directly from the task's `content` description
 4. Update `shape.md` with execution log entry when complete
 5. Capture any meta-learnings in `learnings.md`
 6. Mark task complete in plan YAML frontmatter
@@ -179,7 +181,7 @@ This completes the Create workflow. The plan and all supporting files are saved 
 ## SUCCESS CRITERIA
 
 - ✅ All core artifacts validated (plan, shape, learnings, phase folders)
-- ✅ Bidirectional taskFile validation passed (YAML → Disk and Disk → YAML)
+- ✅ Bidirectional task file reference validation passed (YAML `[path]` → Disk and Disk → YAML `[path]`)
 - ✅ Plan Linking Standard validation passed (no brittle self-references, internal links relative)
 - ✅ Counts gathered accurately
 - ✅ Completion summary displayed with full structure
