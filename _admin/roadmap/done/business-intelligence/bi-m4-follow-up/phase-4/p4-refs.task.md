@@ -1,4 +1,4 @@
----
+﻿---
 task_id: p4-refs
 status: pending
 phase: validate
@@ -18,11 +18,11 @@ Verify all internal links and references in bi-m4, bi-m4-user-flow-ia, and bi-m4
 
 | File | Purpose |
 |------|---------|
-| _bmad/rbtv/workflows/bi-m4/workflow.md | Routing table, nextStep, paths |
-| _bmad/rbtv/workflows/bi-m4-user-flow-ia/workflow.md | parentWorkflow, steps |
-| _bmad/rbtv/workflows/bi-m4-design-context/workflow.md | parentWorkflow, steps, BMAD path |
-| _bmad/rbtv/workflows/bi-m4-user-flow-ia/steps-c/*.md | nextStepFile, return-to-milestone text |
-| _bmad/rbtv/workflows/bi-m4-design-context/steps-c/*.md | nextStepFile, BMAD path, return-to-milestone text |
+| _bmad/rbtv/workflows/bi-business-innovation/bi-m4/workflow.md | Routing table, nextStep, paths |
+| _bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-user-flow-ia/workflow.md | parentWorkflow, steps |
+| _bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-design-context/workflow.md | parentWorkflow, steps, BMAD path |
+| _bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-user-flow-ia/steps-c/*.md | nextStepFile, return-to-milestone text |
+| _bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-design-context/steps-c/*.md | nextStepFile, BMAD path, return-to-milestone text |
 
 ---
 

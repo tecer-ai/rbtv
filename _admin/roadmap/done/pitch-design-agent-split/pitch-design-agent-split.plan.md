@@ -1,4 +1,4 @@
----
+﻿---
 name: pitch-design-agent-split
 overview: Create a dedicated design agent, merge pitch workflows, and split visual design steps out of narrative/strategy agents
 todos:
@@ -42,13 +42,13 @@ todos:
     content: P3 CHECKPOINT - Review pitch deck handoff flow end-to-end
     status: in_progress
   - id: p4-1
-    content: "p4-1: UPDATE workflows/bi-m3-brandbook/steps-c/step-02-identity.md to add handoff instruction to design agent"
+    content: "p4-1: UPDATE workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/steps-c/step-02-identity.md to add handoff instruction to design agent"
     status: completed
   - id: p4-2
-    content: "p4-2: UPDATE workflows/bi-m3-brandbook/steps-c/step-03-visual.md for design agent invocation with round-trip handoff back to Paul"
+    content: "p4-2: UPDATE workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/steps-c/step-03-visual.md for design agent invocation with round-trip handoff back to Paul"
     status: completed
   - id: p4-3
-    content: "p4-3: UPDATE workflows/bi-m3-brandbook/workflow.md to document multi-agent routing (Paul → Designer → Paul)"
+    content: "p4-3: UPDATE workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/workflow.md to document multi-agent routing (Paul → Designer → Paul)"
     status: completed
   - id: p4-checkpoint
     content: P4 CHECKPOINT - Review brandbook round-trip handoff flow
@@ -280,9 +280,9 @@ PLAN MODIFIED:
 | `agents/roelof.md`                                            | Update menu, reference for split  | p5-1         |
 | `agents/leo.md`                                               | Update menu, reference for split  | p5-2         |
 | `agents/paul.md`                                              | Update for brandbook handoff      | p5-3         |
-| `workflows/bi-m3-brandbook/steps-c/step-02-identity.md`       | Handoff boundary for brandbook    | p4-1         |
-| `workflows/bi-m3-brandbook/steps-c/step-03-visual.md`         | Visual step to refactor           | p4-2         |
-| `workflows/bi-m3-brandbook/workflow.md`                       | Brandbook routing update          | p4-3         |
+| `workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/steps-c/step-02-identity.md`       | Handoff boundary for brandbook    | p4-1         |
+| `workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/steps-c/step-03-visual.md`         | Visual step to refactor           | p4-2         |
+| `workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/workflow.md`                       | Brandbook routing update          | p4-3         |
 | `_config/tools-manifest.csv`                                  | Add design agent entries          | p2-3         |
 | `_config/.cursor/commands/bmad-rbtv-create-investor-pitch.md` | Loader pattern reference          | p2-2, p5-4   |
 | `workflows/prompting-assistance/data/knowledge-index.csv`     | AI image model knowledge          | p4-2         |
@@ -466,9 +466,9 @@ flowchart TD
 
 ### Tasks
 
-- `p4-1`: UPDATE `workflows/bi-m3-brandbook/steps-c/step-02-identity.md` to add handoff instruction at step completion — provide exact command to invoke design agent for step 03
-- `p4-2`: UPDATE `workflows/bi-m3-brandbook/steps-c/step-03-visual.md` — replace YC mentor reinforcement with design persona, preserve all visual identity work, add return handoff instruction to Paul for step 04 *(micro-step file)*
-- `p4-3`: UPDATE `workflows/bi-m3-brandbook/workflow.md` to document multi-agent routing pattern (Paul → Designer → Paul)
+- `p4-1`: UPDATE `workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/steps-c/step-02-identity.md` to add handoff instruction at step completion — provide exact command to invoke design agent for step 03
+- `p4-2`: UPDATE `workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/steps-c/step-03-visual.md` — replace YC mentor reinforcement with design persona, preserve all visual identity work, add return handoff instruction to Paul for step 04 *(micro-step file)*
+- `p4-3`: UPDATE `workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/workflow.md` to document multi-agent routing pattern (Paul → Designer → Paul)
 - `p4-checkpoint`: **P4 CHECKPOINT** — Execute quality-review subagent using the review prompt below. Present verdict. Halt for human approval.
 
 #### P4 Checkpoint Review Prompt
@@ -481,9 +481,9 @@ flowchart TD
 >
 > Deliverables:
 >
-> - `workflows/bi-m3-brandbook/steps-c/step-02-identity.md` — updated with handoff instruction to design agent
-> - `workflows/bi-m3-brandbook/steps-c/step-03-visual.md` — updated for design agent invocation with return handoff to Paul
-> - `workflows/bi-m3-brandbook/workflow.md` — updated to document multi-agent routing (Paul → Designer → Paul)
+> - `workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/steps-c/step-02-identity.md` — updated with handoff instruction to design agent
+> - `workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/steps-c/step-03-visual.md` — updated for design agent invocation with return handoff to Paul
+> - `workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/workflow.md` — updated to document multi-agent routing (Paul → Designer → Paul)
 >
 > ## Quality Criteria
 >

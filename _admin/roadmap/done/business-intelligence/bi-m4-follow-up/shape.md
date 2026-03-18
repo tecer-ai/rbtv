@@ -84,17 +84,17 @@
 - `_bmad/rbtv/workflows/bi-business-innovation/steps-c/step-02-project-setup.md` — `outputFolder`, `outputFolder/`
 - `_bmad/rbtv/workflows/bi-business-innovation/steps-c/step-03-milestone-select.md` — `projectMemo`
 - `_bmad/rbtv/workflows/bi-business-innovation/data/founder-process.md` — `projects/`, `project-memo`, output folder structure
-- `_bmad/rbtv/workflows/bi-m1/workflow.md` — frontmatter `outputFolder`
-- `_bmad/rbtv/workflows/bi-m2/workflow.md` — frontmatter `outputFolder`
-- `_bmad/rbtv/workflows/bi-m3/workflow.md` — frontmatter `outputFolder`
-- `_bmad/rbtv/workflows/bi-m4/workflow.md` — frontmatter `outputFolder`
+- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/workflow.md` — frontmatter `outputFolder`
+- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/workflow.md` — frontmatter `outputFolder`
+- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/workflow.md` — frontmatter `outputFolder`
+- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/workflow.md` — frontmatter `outputFolder`
 
 **Framework workflows (every `workflow.md` under bi-m1-*, bi-m2-*, bi-m3-*, bi-m4-*):**
 
-- `_bmad/rbtv/workflows/bi-m1-*/workflow.md`
-- `_bmad/rbtv/workflows/bi-m2-*/workflow.md`
-- `_bmad/rbtv/workflows/bi-m3-*/workflow.md`
-- `_bmad/rbtv/workflows/bi-m4-*/workflow.md`
+- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-*/workflow.md`
+- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-*/workflow.md`
+- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/bi-m3-*/workflow.md`
+- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-*/workflow.md`
 
 Step files use `{outputFolder}` (inherited from workflow); the critical check is that each **workflow.md** sets `outputFolder` (or equivalent) with `{project-root}` in the path.
 
@@ -147,17 +147,17 @@ From repo root, search for output-path-like lines that do **not** include `proje
 ### Task p2-1: Replace Lavoisier References with Current Mechanism
 **Completed:** 2026-02-05
 **Outcome:** Replaced all Lavoisier references in bi-m4/workflow.md and bi-m4-user-flow-ia/steps-c/step-04-synthesis.md with current mechanism wording (RBTV skills: visual-design-extraction, playwright-browser-automation; optionally design-validation). Grep confirms no remaining "Lavoisier" in bi-m4 or bi-m4-user-flow-ia.
-**Files Modified:** _bmad/rbtv/workflows/bi-m4/workflow.md, _bmad/rbtv/workflows/bi-m4-user-flow-ia/steps-c/step-04-synthesis.md
+**Files Modified:** _bmad/rbtv/workflows/bi-business-innovation/bi-m4/workflow.md, _bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-user-flow-ia/steps-c/step-04-synthesis.md
 
 ### Task p2-2: Add Explicit BMAD create-ux-design Path in bi-m4
 **Completed:** 2026-02-05
 **Outcome:** Added explicit path and load instruction to BMAD Integration Note in bi-m4/workflow.md: path `{bmad_bmm}/workflows/2-plan-workflows/create-ux-design/workflow.md`, plus sentence "When user selects [DD], load this workflow with User Flow & IA output as context." Path confirmed to exist.
-**Files Modified:** _bmad/rbtv/workflows/bi-m4/workflow.md
+**Files Modified:** _bmad/rbtv/workflows/bi-business-innovation/bi-m4/workflow.md
 
 ### Task p2-3: Adapt Framework Codes to Mentor's Simpler Standards
 **Completed:** 2026-02-05
 **Outcome:** Updated bi-m4/workflow.md and bi-m4-user-flow-ia/steps-c/step-04-synthesis.md: framework codes [UF],[DD],[BP],[CC],[HE],[TP] → [U],[D],[B],[C],[H],[F] per founder-migration p6-1. Table, BMAD Integration Note, Recommended Sequence, and step-04-synthesis Design Direction references updated. Navigation [S],[B] unchanged. Grep confirms no remaining old codes.
-**Files Modified:** _bmad/rbtv/workflows/bi-m4/workflow.md, _bmad/rbtv/workflows/bi-m4-user-flow-ia/steps-c/step-04-synthesis.md
+**Files Modified:** _bmad/rbtv/workflows/bi-business-innovation/bi-m4/workflow.md, _bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-user-flow-ia/steps-c/step-04-synthesis.md
 
 ### Task p2-4: Update p6-3.task.md — Replace Lavoisier and Discovery Mechanism
 **Completed:** 2026-02-05
@@ -166,13 +166,13 @@ From repo root, search for output-path-like lines that do **not** include `proje
 
 ### Task p3-1: Create bi-m4-design-context Bridge Workflow
 **Completed:** 2026-02-05
-**Outcome:** Created bridge workflow _bmad/rbtv/workflows/bi-m4-design-context/ with workflow.md and steps-c/ (step-01-init, step-02-format-context, step-03-invoke-bmad, step-04-synthesis). Bridge loads project-memo and user-flow-ia, formats design-context.md for BMAD create-ux-design, instructs run of BMAD workflow with explicit path, then synthesis step updates project-memo and instructs return to M4 milestone menu. No Lavoisier reference; uses current discovery mechanism wording. Referral logic preserved.
-**Files Modified:** _bmad/rbtv/workflows/bi-m4-design-context/workflow.md (CREATE), _bmad/rbtv/workflows/bi-m4-design-context/steps-c/step-01-init.md (CREATE), _bmad/rbtv/workflows/bi-m4-design-context/steps-c/step-02-format-context.md (CREATE), _bmad/rbtv/workflows/bi-m4-design-context/steps-c/step-03-invoke-bmad.md (CREATE), _bmad/rbtv/workflows/bi-m4-design-context/steps-c/step-04-synthesis.md (CREATE)
+**Outcome:** Created bridge workflow _bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-design-context/ with workflow.md and steps-c/ (step-01-init, step-02-format-context, step-03-invoke-bmad, step-04-synthesis). Bridge loads project-memo and user-flow-ia, formats design-context.md for BMAD create-ux-design, instructs run of BMAD workflow with explicit path, then synthesis step updates project-memo and instructs return to M4 milestone menu. No Lavoisier reference; uses current discovery mechanism wording. Referral logic preserved.
+**Files Modified:** _bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-design-context/workflow.md (CREATE), _bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-design-context/steps-c/step-01-init.md (CREATE), _bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-design-context/steps-c/step-02-format-context.md (CREATE), _bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-design-context/steps-c/step-03-invoke-bmad.md (CREATE), _bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-design-context/steps-c/step-04-synthesis.md (CREATE)
 
 ### Task p3-2: Route [D] Design Direction to Bridge in bi-m4
 **Completed:** 2026-02-05
 **Outcome:** Updated bi-m4/workflow.md: FRAMEWORK ROUTING [D] row now points to ../bi-m4-design-context/workflow.md (output: design_brief.md + design.json via bridge). BMAD Integration Note updated to state [D] routes via bi-m4-design-context bridge, which prepares context and invokes BMAD create-ux-design; return to M4 after bridge completes.
-**Files Modified:** _bmad/rbtv/workflows/bi-m4/workflow.md
+**Files Modified:** _bmad/rbtv/workflows/bi-business-innovation/bi-m4/workflow.md
 
 ### Task p4-open-migration-plan: Open M4, M5, M6 in Founder-Migration Plan
 **Completed:** 2026-02-05
@@ -246,7 +246,7 @@ From repo root, search for output-path-like lines that do **not** include `proje
 **🛑 Removed References:**
 - bi-m4/workflow.md frontmatter: nextStep set to null (milestone steps-c/ deferred to business-innovation-migration_v3 p6-19)
 
-**Files Modified:** _bmad/rbtv/workflows/bi-m4/workflow.md
+**Files Modified:** _bmad/rbtv/workflows/bi-business-innovation/bi-m4/workflow.md
 
 ### Task p4-compound: Review learnings.md and Compound into System Improvements
 **Completed:** 2026-02-05
@@ -277,9 +277,9 @@ From repo root, search for output-path-like lines that do **not** include `proje
 **Files Modified (Total):**
 - .cursor/plans/bi-m4-follow-up/shape.md
 - .cursor/plans/bi-m4-follow-up/learnings.md
-- _bmad/rbtv/workflows/bi-m4/workflow.md
-- _bmad/rbtv/workflows/bi-m4-user-flow-ia/steps-c/step-04-synthesis.md
-- _bmad/rbtv/workflows/bi-m4-design-context/ (5 files created)
+- _bmad/rbtv/workflows/bi-business-innovation/bi-m4/workflow.md
+- _bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-user-flow-ia/steps-c/step-04-synthesis.md
+- _bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-design-context/ (5 files created)
 - .cursor/plans/founder-migration/business-innovation-migration_v3.plan.md
 - .cursor/plans/founder-migration/business-innovation-migration_v3/phase-6/ (15 task files created/updated)
 - .cursor/plans/founder-migration/business-innovation-migration_v3/phase-6/p6-3.task.md

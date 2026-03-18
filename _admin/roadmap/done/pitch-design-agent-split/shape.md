@@ -1,4 +1,4 @@
-# Shape - Pitch Design Agent Split
+﻿# Shape - Pitch Design Agent Split
 
 > **Purpose:** This document captures shaping decisions made during planning and accumulates execution context. The Original Shaping section is immutable. All other sections are append-only during execution.
 
@@ -232,7 +232,7 @@ Quality-review subagent evaluated all Phase 5 deliverables against 7 criteria. I
 | `agents/fernando.md` | Reference agent structure pattern for new agent creation |
 | `workflows/investor-pitch-creation/workflow.md` | Pitch workflow metadata, step routing, output paths |
 | `workflows/client-pitch-creation/workflow.md` | Client pitch workflow — structurally identical to investor |
-| `workflows/bi-m3-brandbook/workflow.md` | Brandbook workflow metadata, step routing |
+| `workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/workflow.md` | Brandbook workflow metadata, step routing |
 
 ### Files to Load During Execution
 
@@ -244,8 +244,8 @@ Quality-review subagent evaluated all Phase 5 deliverables against 7 criteria. I
 | `agents/fernando.md` | Reference activation pattern for new agent | p2-1 |
 | `workflows/investor-pitch-creation/` | Source for merge audit and step merging | p1-1, p1-3 |
 | `workflows/client-pitch-creation/` | Source for merge audit and step merging | p1-1, p1-3 |
-| `workflows/bi-m3-brandbook/steps-c/step-02-identity.md` | Add handoff to design agent | p4-1 |
-| `workflows/bi-m3-brandbook/steps-c/step-03-visual.md` | Refactor for design agent | p4-2 |
+| `workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/steps-c/step-02-identity.md` | Add handoff to design agent | p4-1 |
+| `workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/steps-c/step-03-visual.md` | Refactor for design agent | p4-2 |
 | `workflows/_shared/pitch-data/html-patterns.md` | Design knowledge loaded by design agent | p2-1 |
 | `workflows/_shared/pitch-data/html-components.md` | Design knowledge loaded by design agent | p2-1 |
 | `_config/tools-manifest.csv` | Add design agent entries | p2-3 |

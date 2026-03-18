@@ -1,4 +1,4 @@
----
+﻿---
 task_id: p6-eval-frameworks
 status: pending
 phase: understand
@@ -24,7 +24,7 @@ For M6 frameworks that were "routed to BMAD," verify that actual BMAD workflows 
 | `refs/founder/m4_prototypation/prototypation_process.md` | Source: M4 process detail |
 | `refs/founder/m5_market_validation/market_validation_process.md` | Source: M5 process detail |
 | `refs/founder/m6_mvp/mvp_process.md` | Source: M6 process detail |
-| `_bmad/rbtv/workflows/bi-m4/workflow.md` | Current: M4 milestone workflow |
+| `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/workflow.md` | Current: M4 milestone workflow |
 | `_bmad/rbtv/readme.md` | Current: RBTV readme (M4 note needs update) |
 | shape.md | Prior decisions from p6-1 and p6-2 |
 

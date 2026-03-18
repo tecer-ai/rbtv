@@ -110,8 +110,8 @@ The fix is structural (template changes + synthesis step instructions), not proc
 |------|--------------|
 | `workflows/bi-business-innovation/data/founder-process.md` | Master milestone/framework navigation — defines framework sequence per milestone |
 | `workflows/bi-business-innovation/templates/project-memo.md` | Synthesis layer — cumulative project state |
-| `workflows/bi-m1-*/templates/*.md` | M1 framework templates — first targets for template changes |
-| `workflows/bi-m2-*/templates/*.md` | M2 framework templates — second wave |
+| `workflows/bi-business-innovation/bi-m1/bi-m1-*/templates/*.md` | M1 framework templates — first targets for template changes |
+| `workflows/bi-business-innovation/bi-m2/bi-m2-*/templates/*.md` | M2 framework templates — second wave |
 | Each milestone's step files | Synthesis steps that need deduplication instruction |
 | `cp-workflow-bi-cross-framework-consistency-gate.md` | Related — the consistency gate addresses drift detection; this PRD prevents drift at the source |
 | `cp-workflow-bi-default-structures.md` | Related — canonical assumption inventory is one instance of this rule applied to assumptions specifically |

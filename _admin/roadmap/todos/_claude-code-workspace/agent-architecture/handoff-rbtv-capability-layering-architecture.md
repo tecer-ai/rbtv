@@ -1,4 +1,4 @@
----
+﻿---
 title: 'Handoff: RBTV Capability Layering Architecture'
 docType: 'handoff'
 mode: 'create'
@@ -177,7 +177,7 @@ Examples: `quality-review.xml` (evaluates work output), `doc-compound-learning` 
 | Component | Agents | Handoff Pattern |
 |-----------|--------|----------------|
 | `workflows/bi-business-innovation/` | Paul (mentor) | Master lifecycle router across M1–M6; orchestrates milestones that contain multi-agent workflows |
-| `workflows/bi-m3-brandbook/` | Paul (01–02, 04–05) → Vivian (03) → Paul | Round-trip: mentor compiles identity, designer creates visuals, mentor synthesizes |
+| `workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/` | Paul (01–02, 04–05) → Vivian (03) → Paul | Round-trip: mentor compiles identity, designer creates visuals, mentor synthesizes |
 | `workflows/pitch-creation/` | Leo or Roelof (01–06) → Vivian (07–08) | One-way: stress-tester builds narrative, designer generates deck |
 
 ### Layer 5 — Meta-Intelligence

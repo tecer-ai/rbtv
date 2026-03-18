@@ -1,4 +1,4 @@
----
+﻿---
 name: bi-m4-follow-up
 overview: Address the 7 "keep that in mind" items from the BI-M4 quality review — Lavoisier replacement, bridge workflow, path/code fixes, and verification instructions.
 todos:
@@ -250,9 +250,9 @@ flowchart TD
 
 | shape.md | Scope, execution log | Before every task |
 
-| _bmad/rbtv/workflows/bi-m4/workflow.md | M4 milestone workflow | p2-1, p2-2, p2-3, p3-2, p4-refs |
+| _bmad/rbtv/workflows/bi-business-innovation/bi-m4/workflow.md | M4 milestone workflow | p2-1, p2-2, p2-3, p3-2, p4-refs |
 
-| _bmad/rbtv/workflows/bi-m4-user-flow-ia/steps-c/step-04-synthesis.md | Lavoisier refs, codes | p2-1, p2-3 |
+| _bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-user-flow-ia/steps-c/step-04-synthesis.md | Lavoisier refs, codes | p2-1, p2-3 |
 
 | _bmad/bmm/workflows/2-plan-workflows/create-ux-design/workflow.md | BMAD path, inputs | p2-2, p3-1 |
 
