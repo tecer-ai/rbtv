@@ -65,7 +65,7 @@
         <action>Evaluate: Completeness, Accuracy, Clarity, Consistency, Quality. Each must PASS for approval.</action>
       </substep>
       <substep n="4b" title="Evaluate Atomicity (For In-Scope Files)">
-        <check if="work involves instruction/process files (.cursor/, system/ai_pro/, system/founder/)">
+        <check if="work involves instruction/process files (.cursor/, system/ai_pro/, system/business-innovation/)">
           <action>Load atomicity criteria from {project-root}/_bmad/rbtv/tasks/data/quality-evaluator-atomic-files.md</action>
           <action>Evaluate four atomicity principles: Self-Contained, No Content Repetition, Functional References Only, Lean and Objective.</action>
           <action>Atomicity failures count as Consistency criterion failures.</action>

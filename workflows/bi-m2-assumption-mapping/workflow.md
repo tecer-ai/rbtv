@@ -3,7 +3,7 @@ name: 'bi-m2-assumption-mapping'
 description: 'Plot assumptions on Importance x Uncertainty matrix and design validation tests'
 nextStep: ./steps-c/step-01-init.md
 parentWorkflow: ../bi-m2/workflow.md
-outputFolder: '{bmad_output}/{project-name}/founder/m2-validation'
+outputFolder: '{bmad_output}/{project-name}/business-innovation/m2-validation'
 outputFile: assumption-mapping.md
 ---
 

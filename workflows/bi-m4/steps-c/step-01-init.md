@@ -2,7 +2,7 @@
 stepNumber: 1
 stepName: 'init'
 knowledgeFile: ../data/milestone-overview.md
-projectMemo: '{bmad_output}/{project-name}/founder/project-memo.md'
+projectMemo: '{bmad_output}/{project-name}/business-innovation/project-memo.md'
 ---
 
 # Step 01: M4 Prototypation Framework Menu

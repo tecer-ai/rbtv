@@ -18,7 +18,7 @@
   <inputs>
     <input name="target_module">BMAD module whose config to update (e.g., "bmm", "cis", "core"). Defaults to "bmm".</input>
     <input name="project_name">RBTV project name (e.g., "robotville-app").</input>
-    <input name="rbtv_output_folder">Full RBTV output folder path for this project/milestone (e.g., "{bmad_output}/{project-name}/founder/m4-prototypation").</input>
+    <input name="rbtv_output_folder">Full RBTV output folder path for this project/milestone (e.g., "{bmad_output}/{project-name}/business-innovation/m4-prototypation").</input>
     <input name="rbtv_planning_artifacts" optional="true">Optional. When provided, sets planning_artifacts independently from output_folder. Use when BMAD should READ from one location (e.g., M1 conception folder) and WRITE to another (e.g., bmad-analysis subfolder). When omitted, planning_artifacts is set to rbtv_output_folder (current default behavior).</input>
   </inputs>
 

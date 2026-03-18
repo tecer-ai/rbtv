@@ -3,7 +3,7 @@ name: 'bi-m2-leap-of-faith'
 description: 'Harvest, classify, and prioritize assumptions from M1 into validation agenda'
 nextStep: ./steps-c/step-01-init.md
 parentWorkflow: ../bi-m2/workflow.md
-outputFolder: '{bmad_output}/{project-name}/founder/m2-validation'
+outputFolder: '{bmad_output}/{project-name}/business-innovation/m2-validation'
 outputFile: leap-of-faith.md
 ---
 

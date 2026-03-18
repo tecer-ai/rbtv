@@ -3,7 +3,7 @@ name: 'bi-m1-problem-solution-fit'
 description: 'Validate problem-solution alignment using Problem-Solution Fit Canvas'
 nextStep: ./steps-c/step-01-init.md
 parentWorkflow: ../bi-m1/workflow.md
-outputFolder: '{bmad_output}/{project-name}/founder/m1-conception'
+outputFolder: '{bmad_output}/{project-name}/business-innovation/m1-conception'
 outputFile: problem-solution-fit.md
 ---
 

@@ -2,7 +2,7 @@
 stepNumber: 1
 stepName: 'init'
 knowledgeFile: ../data/milestone-overview.md
-projectMemo: '{bmad_output}/{project-name}/founder/project-memo.md'
+projectMemo: '{bmad_output}/{project-name}/business-innovation/project-memo.md'
 ---
 
 # Step 01: M2 Validation Framework Menu
@@ -84,7 +84,7 @@ If NOT set, present:
 
 **1. PREPARE CONTEXT**
 M1 conception artifacts already exist on disk at:
-`{bmad_output}/{project-name}/founder/m1-conception/`
+`{bmad_output}/{project-name}/business-innovation/m1-conception/`
 No files to copy — config update (next step) will point BMAD to this location.
 
 **2. UPDATE CONFIG**
@@ -92,8 +92,8 @@ Run task: `{project-root}/_bmad/rbtv/tasks/update-bmad-config.xml`
 Inputs:
 - `target_module`: "bmm"
 - `project_name`: `{project-name}`
-- `rbtv_output_folder`: `{bmad_output}/{project-name}/founder/m2-validation/bmad-analysis`
-- `rbtv_planning_artifacts`: `{bmad_output}/{project-name}/founder/m1-conception`
+- `rbtv_output_folder`: `{bmad_output}/{project-name}/business-innovation/m2-validation/bmad-analysis`
+- `rbtv_planning_artifacts`: `{bmad_output}/{project-name}/business-innovation/m1-conception`
 
 This sets:
 - `output_folder` → bmad-analysis/ (where BMAD writes new files)
@@ -115,7 +115,7 @@ This sets:
 HALT — wait for user confirmation.
 
 **5. MENTOR-ASSISTED FILE PLACEMENT**
-Ask user what files BMAD produced. Verify they are at `{bmad_output}/{project-name}/founder/m2-validation/bmad-analysis/`.
+Ask user what files BMAD produced. Verify they are at `{bmad_output}/{project-name}/business-innovation/m2-validation/bmad-analysis/`.
 If files landed elsewhere, help user move/copy them to `bmad-analysis/`.
 
 **6. RESTORE CONFIG**
@@ -123,7 +123,7 @@ Run task: `{project-root}/_bmad/rbtv/tasks/restore-bmad-config.xml`
 Inputs: `target_module`: "bmm"
 
 **7. SYNTHESIS**
-- Read BMAD output at `{bmad_output}/{project-name}/founder/m2-validation/bmad-analysis/`
+- Read BMAD output at `{bmad_output}/{project-name}/business-innovation/m2-validation/bmad-analysis/`
 - Update project-memo:
   - Set `bmadAnalystCompleted: true` in frontmatter
   - Add to Progress > M2 Validation section:

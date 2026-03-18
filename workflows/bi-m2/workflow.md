@@ -3,7 +3,7 @@ name: 'bi-m2-validation'
 description: 'Validate technical and financial feasibility through research'
 nextStep: ./steps-c/step-01-init.md
 parentWorkflow: ../bi-business-innovation/workflow.md
-outputFolder: '{bmad_output}/{project-name}/founder/m2-validation'
+outputFolder: '{bmad_output}/{project-name}/business-innovation/m2-validation'
 ---
 
 # M2 Validation Milestone Workflow

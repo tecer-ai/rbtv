@@ -17,7 +17,7 @@ lastUpdated: 'YYYY-MM-DD'
 
 **Workflow reference:** Read the bi-business-innovation workflow for milestone structure and framework sequence.
 
-**Output location:** All outputs saved to `{output_folder}/founder/`.
+**Output location:** All outputs saved to `{output_folder}/business-innovation/`.
 
 ---
 
@@ -52,6 +52,40 @@ lastUpdated: 'YYYY-MM-DD'
 
 ---
 
+## Canonical Assumption Inventory
+
+**Consolidated from:** [Updated automatically as frameworks are completed.]
+
+**M2 guidance:** Use the framework with the most rigorous falsification tests as the starting point for Leap of Faith and Assumption Mapping. Prefer concrete thresholds and measurable pass/fail criteria over qualitative framing.
+
+### Existential Assumptions
+
+| ID | Assumption | Source Framework | Status | Evidence |
+|-----|-----------|------------------|--------|----------|
+| | | | | |
+
+### High-Risk Assumptions
+
+| ID | Assumption | Source Framework | Status | Evidence |
+|-----|-----------|------------------|--------|----------|
+| | | | | |
+
+### Lower-Risk Assumptions
+
+| ID | Assumption | Source Framework | Status | Evidence |
+|-----|-----------|------------------|--------|----------|
+| | | | | |
+
+### Founder Convictions
+
+[Optional. For assumptions where founder conviction is high but formal validation is pending. Document the reasoning — this is intellectual honesty, not bypassing validation.]
+
+| ID | Assumption | Source Framework | Status | Evidence |
+|-----|-----------|------------------|--------|----------|
+| | | | | |
+
+---
+
 ## Progress
 
 ### M1 Conception
@@ -70,7 +104,7 @@ lastUpdated: 'YYYY-MM-DD'
 
 #### BMAD Analysis (Optional — Pre-M2)
 **Status:** Not started | Complete | Skipped
-**Output:** {output_folder}/founder/m2-validation/bmad-analysis/
+**Output:** {output_folder}/business-innovation/m2-validation/bmad-analysis/
 **Workflows Run:** [Research / Brainstorm / None]
 **Key Findings:** [Summary if completed]
 

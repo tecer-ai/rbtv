@@ -57,12 +57,12 @@ Read the project-memo.md `stepsCompleted` array to identify which milestones hav
 
 Check which milestone folders contain documents:
 ```
-{bmad_output}/{project_name}/founder/m1-conception/
-{bmad_output}/{project_name}/founder/m2-validation/
-{bmad_output}/{project_name}/founder/m3-brand/
-{bmad_output}/{project_name}/founder/m4-prototypation/
-{bmad_output}/{project_name}/founder/m5-market-validation/
-{bmad_output}/{project_name}/founder/m6-mvp/
+{bmad_output}/{project_name}/business-innovation/m1-conception/
+{bmad_output}/{project_name}/business-innovation/m2-validation/
+{bmad_output}/{project_name}/business-innovation/m3-brand/
+{bmad_output}/{project_name}/business-innovation/m4-prototypation/
+{bmad_output}/{project_name}/business-innovation/m5-market-validation/
+{bmad_output}/{project_name}/business-innovation/m6-mvp/
 ```
 
 Also check for a context folder:
@@ -81,17 +81,17 @@ For EACH milestone folder that has documents, invoke the **context-distill** sub
 **M1 — Conception:**
 - Conversation Context: "Building an investor pitch deck for {project_name}"
 - Specific Request: "Extract: (1) the core problem statement and who experiences it, with any quantified data; (2) the solution's key differentiators (max 3); (3) target customer profile and their current workarounds; (4) competitive positioning — named competitors and differentiation claims; (5) primary value proposition; (6) any contrarian market insights"
-- Referenced Files: All .md files in `{bmad_output}/{project_name}/founder/m1-conception/`
+- Referenced Files: All .md files in `{bmad_output}/{project_name}/business-innovation/m1-conception/`
 
 **M2 — Validation:**
 - Conversation Context: "Building an investor pitch deck for {project_name}"
 - Specific Request: "Extract: (1) TAM, SAM, SOM numbers with methodology; (2) unit economics — pricing, CAC, LTV, payback period, margins; (3) technology readiness level; (4) key assumptions tested and their results; (5) leap-of-faith assumptions with evidence status; (6) traction metrics with dates"
-- Referenced Files: All .md files in `{bmad_output}/{project_name}/founder/m2-validation/`
+- Referenced Files: All .md files in `{bmad_output}/{project_name}/business-innovation/m2-validation/`
 
 **M3 — Brand:**
 - Conversation Context: "Building an investor pitch deck for {project_name}"
 - Specific Request: "Extract: (1) brand archetype name and core personality traits; (2) primary positioning statement; (3) color palette hex values and typography choices; (4) primary tagline or brand statement; (5) communication tone descriptors"
-- Referenced Files: All .md files in `{bmad_output}/{project_name}/founder/m3-brand/`
+- Referenced Files: All .md files in `{bmad_output}/{project_name}/business-innovation/m3-brand/`
 
 **M4+ — Later Milestones (if they have documents):**
 - Adapt the specific request to the milestone's focus (prototypation → product screenshots/demo; market validation → traction data; MVP → product metrics)
@@ -104,24 +104,24 @@ For EACH milestone folder that has documents, invoke the **context-distill** sub
 **Project Memo:**
 - Conversation Context: "Building an investor pitch deck for {project_name}"
 - Specific Request: "Extract: (1) one-line project description; (2) problem statement; (3) solution summary; (4) tenets list; (5) current milestone status"
-- Referenced Files: `{bmad_output}/{project_name}/founder/project-memo.md`
+- Referenced Files: `{bmad_output}/{project_name}/business-innovation/project-memo.md`
 
 **If pitch_type = client:**
 
 **M1 — Conception:**
 - Conversation Context: "Building a client pitch deck for {project_name} targeting {target_client}"
 - Specific Request: "Extract: (1) the specific problem the TARGET CLIENT experiences and their current workarounds; (2) solution benefits stated from the client's perspective (max 5); (3) how the solution works — workflow, process, integration points; (4) named competitive alternatives the client might evaluate; (5) primary value proposition from the buyer's POV; (6) jobs-to-be-done the client hires this product for"
-- Referenced Files: All .md files in `{bmad_output}/{project_name}/founder/m1-conception/`
+- Referenced Files: All .md files in `{bmad_output}/{project_name}/business-innovation/m1-conception/`
 
 **M2 — Validation:**
 - Conversation Context: "Building a client pitch deck for {project_name} targeting {target_client}"
 - Specific Request: "Extract: (1) pricing structure and plan tiers; (2) ROI metrics or calculation framework; (3) implementation timeline and effort estimate; (4) pilot results or validation data with numbers; (5) technology readiness and reliability evidence"
-- Referenced Files: All .md files in `{bmad_output}/{project_name}/founder/m2-validation/`
+- Referenced Files: All .md files in `{bmad_output}/{project_name}/business-innovation/m2-validation/`
 
 **M3 — Brand:**
 - Conversation Context: "Building a client pitch deck for {project_name} targeting {target_client}"
 - Specific Request: "Extract: (1) brand positioning relative to named competitors; (2) key messaging statements for B2B buyers; (3) trust signals and credibility markers; (4) communication tone descriptors; (5) primary tagline or brand statement"
-- Referenced Files: All .md files in `{bmad_output}/{project_name}/founder/m3-brand/`
+- Referenced Files: All .md files in `{bmad_output}/{project_name}/business-innovation/m3-brand/`
 
 **M4+ — Later Milestones (if they have documents):**
 - Adapt the specific request (prototypation → product demo/screenshots; market validation → client testimonials/case studies; MVP → product metrics/uptime)
@@ -134,7 +134,7 @@ For EACH milestone folder that has documents, invoke the **context-distill** sub
 **Project Memo:**
 - Conversation Context: "Building a client pitch deck for {project_name} targeting {target_client}"
 - Specific Request: "Extract: (1) one-line project description; (2) problem statement; (3) solution summary; (4) tenets list; (5) current milestone status relevant to client readiness"
-- Referenced Files: `{bmad_output}/{project_name}/founder/project-memo.md`
+- Referenced Files: `{bmad_output}/{project_name}/business-innovation/project-memo.md`
 
 ### 3. Compile Pitch Brief
 

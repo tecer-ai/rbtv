@@ -3,7 +3,7 @@ name: 'bi-m4-prototypation'
 description: 'Transform validated concepts into working HTML prototypes through user flow mapping, design creation, and usability testing'
 nextStep: ./steps-c/step-01-init.md
 parentWorkflow: ../bi-business-innovation/workflow.md
-outputFolder: '{bmad_output}/{project-name}/founder/m4-prototypation'
+outputFolder: '{bmad_output}/{project-name}/business-innovation/m4-prototypation'
 ---
 
 # M4 Prototypation Milestone Workflow

@@ -3,7 +3,7 @@ name: 'bi-m3-golden-circle'
 description: 'Define brand purpose using Sinek Why/How/What model'
 nextStep: ./steps-c/step-01-init.md
 parentWorkflow: ../bi-m3/workflow.md
-outputFolder: '{bmad_output}/{project-name}/founder/m3-brand'
+outputFolder: '{bmad_output}/{project-name}/business-innovation/m3-brand'
 outputFile: golden-circle.md
 ---
 

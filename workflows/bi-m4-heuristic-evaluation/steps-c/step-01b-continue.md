@@ -4,7 +4,7 @@ description: 'Resume workflow from previous session'
 
 # File References
 workflowFile: '../workflow.md'
-outputFile: '{bmad_output}/{project-name}/founder/m4-prototypation/heuristic-evaluation.md'
+outputFile: '{bmad_output}/{project-name}/business-innovation/m4-prototypation/heuristic-evaluation.md'
 ---
 
 # Step 1B: Workflow Continuation

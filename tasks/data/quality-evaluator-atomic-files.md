@@ -12,7 +12,7 @@ Atomicity evaluation applies to:
 |----------|----------|
 | `.cursor/` rules, commands, skills, agents, plans | `system/map/` navigation files |
 | `system/ai_pro/` agent definitions, templates | All `README.md` files |
-| `system/founder/` process files, frameworks | `how_it_works.md`, `glossary.md`, `vision.md` |
+| `system/business-innovation/` process files, frameworks | `how_it_works.md`, `glossary.md`, `vision.md` |
 
 ---
 
