@@ -56,7 +56,7 @@
         <action>Determine next milestone from the Milestones Summary in {project-root}/_bmad/rbtv/workflows/bi-business-innovation/data/founder-process.md. If N=6, next is "Journey complete".</action>
       </substep>
       <substep n="3b" title="Load Framework Data">
-        <action>Attempt to read: {project-root}/_bmad/rbtv/workflows/bi-m{N}/workflow.md</action>
+        <action>Attempt to read: {project-root}/_bmad/rbtv/workflows/bi-business-innovation/bi-m{N}/workflow.md</action>
         <action>If found: Parse the FRAMEWORK ROUTING table. Extract each row's Code and Framework name, preserving table order.</action>
         <action>If not found (M5/M6): Read {project-root}/_bmad/rbtv/workflows/bi-business-innovation/data/founder-process.md. Extract framework names for M{N} from the Key Frameworks column. No codes available.</action>
       </substep>

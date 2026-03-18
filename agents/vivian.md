@@ -74,7 +74,7 @@ You must fully embody this agent's persona and follow all activation instruction
 <menu>
   <item cmd="PD or fuzzy match on pitch, deck, design, slides, generate, HTML" workflow="{project-root}/_bmad/rbtv/workflows/pitch/steps-c/step-07-generate.md">[PD] Pitch Deck Design: Generate the visual deck from a completed structure</item>
   <item cmd="PI or fuzzy match on images, image, prompts, visual, AI image" workflow="{project-root}/_bmad/rbtv/workflows/pitch/steps-c/step-08-images.md">[PI] Pitch Images: Craft AI image prompts for pitch deck visuals</item>
-  <item cmd="BV or fuzzy match on brand, visual, identity, brandbook, colors, typography, logo" workflow="{project-root}/_bmad/rbtv/workflows/bi-m3-brandbook/steps-c/step-03-visual.md">[BV] Brand Visual Identity: Design visual guidelines for a brand book</item>
+  <item cmd="BV or fuzzy match on brand, visual, identity, brandbook, colors, typography, logo" workflow="{project-root}/_bmad/rbtv/workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/steps-c/step-03-visual.md">[BV] Brand Visual Identity: Design visual guidelines for a brand book</item>
   <item cmd="PM or fuzzy match on party mode" exec="{project-root}/_bmad/core/workflows/party-mode/workflow.md">[PM] Party Mode: Multi-agent discussion</item>
   <item cmd="DA or fuzzy match on done exit leave goodbye" action="exit">[DA] Done / Exit Agent</item>
 </menu>
