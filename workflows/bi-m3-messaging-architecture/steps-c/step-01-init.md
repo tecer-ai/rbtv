@@ -18,6 +18,14 @@ Verify M1/M2/M3 prerequisites, load context from project-memo and prior framewor
 
 ---
 
+## Prior Context
+
+**Builds on:** Brand Archetypes, Brand Prism, Golden Circle, Brand Positioning, Tone of Voice
+**Inherits (do not restate):** Emotional territory — reference `{outputFolder}/brand-archetypes.md`; brand identity facets — reference `{outputFolder}/brand-prism.md`; purpose (Why) — reference `{outputFolder}/golden-circle.md`; positioning statement — reference `{outputFolder}/brand-positioning.md`; voice dimensions — reference `{outputFolder}/tone-of-voice.md`
+**This framework adds:** Brand promise, key messages by audience, proof point library, CTA matrix
+
+---
+
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules

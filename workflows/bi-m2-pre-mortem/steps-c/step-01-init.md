@@ -18,6 +18,14 @@ Verify all prior M2 frameworks are complete, load project context, explain the p
 
 ---
 
+## Prior Context
+
+**Builds on:** Leap of Faith, Assumption Mapping, TAM/SAM/SOM, Unit Economics, Technology Readiness Level
+**Inherits (do not restate):** Assumption inventory and priorities — reference `{outputFolder}/leap-of-faith.md` and `{outputFolder}/assumption-mapping.md`; market sizing — reference `{outputFolder}/tam-sam-som.md`; unit economics — reference `{outputFolder}/unit-economics.md`; technical risks — reference `{outputFolder}/technology-readiness-level.md`
+**This framework adds:** Failure modes (prospective hindsight), ranked failure table, mitigation cards, kill criteria alignment
+
+---
+
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules

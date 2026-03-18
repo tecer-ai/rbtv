@@ -18,6 +18,14 @@ Load context from project-memo and upstream frameworks, verify TAM/SAM/SOM is co
 
 ---
 
+## Prior Context
+
+**Builds on:** TAM/SAM/SOM, Leap of Faith
+**Inherits (do not restate):** Market sizing (SAM for revenue projections) — reference `{outputFolder}/tam-sam-som.md`; market-related assumptions — reference `{outputFolder}/leap-of-faith.md`
+**This framework adds:** Unit economics (CAC, LTV, LTV:CAC ratio, payback period), break-even analysis, financial sensitivity modeling
+
+---
+
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules

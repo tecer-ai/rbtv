@@ -18,6 +18,14 @@ Load context from prior M4 work (user-flow-ia, design outputs), explain the Conv
 
 ---
 
+## Prior Context
+
+**Builds on:** User Flow & IA, Design Context
+**Inherits (do not restate):** Conversion paths, information architecture — reference `{outputFolder}/user-flow-ia.md`; content hierarchy, CTA priorities — reference design context outputs
+**This framework adds:** Funnel optimization, friction analysis, conversion hypotheses, prioritization matrix
+
+---
+
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules

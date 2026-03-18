@@ -16,6 +16,14 @@ Load project-memo, user-flow-ia.md (from M4 User Flow & IA), and M1–M3 synthes
 
 ---
 
+## Prior Context
+
+**Builds on:** User Flow & IA
+**Inherits (do not restate):** Conversion paths, information architecture, artifact type — reference `{outputFolder}/user-flow-ia.md`
+**This framework adds:** Content hierarchy, CTA priorities, design brief for BMAD UX handoff
+
+---
+
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules

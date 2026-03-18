@@ -18,6 +18,14 @@ Verify Golden Circle and prior M3 framework prerequisites, load context from pro
 
 ---
 
+## Prior Context
+
+**Builds on:** Brand Archetypes, Brand Prism, Golden Circle
+**Inherits (do not restate):** Emotional territory — reference `{outputFolder}/brand-archetypes.md`; brand identity facets — reference `{outputFolder}/brand-prism.md`; purpose (Why) — reference `{outputFolder}/golden-circle.md`
+**This framework adds:** Positioning statement, perceptual map, competitive brand differentiation
+
+---
+
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules

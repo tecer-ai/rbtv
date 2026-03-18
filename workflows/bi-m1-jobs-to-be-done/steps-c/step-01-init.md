@@ -18,6 +18,14 @@ Load context from project-memo and Working Backwards output, explain the JTBD fr
 
 ---
 
+## Prior Context
+
+**Builds on:** Working Backwards
+**Inherits (do not restate):** Customer definition, problem statement, value proposition — reference `{outputFolder}/working-backwards.md`
+**This framework adds:** Customer jobs (functional, emotional, social), hiring/firing criteria, job-based segmentation
+
+---
+
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules

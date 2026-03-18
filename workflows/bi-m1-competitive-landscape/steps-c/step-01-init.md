@@ -18,6 +18,14 @@ Load context from project-memo and Working Backwards/JTBD outputs, explain the f
 
 ---
 
+## Prior Context
+
+**Builds on:** Working Backwards, Jobs-to-be-Done
+**Inherits (do not restate):** Customer definition, problem statement — reference `{outputFolder}/working-backwards.md`; customer jobs — reference `{outputFolder}/jobs-to-be-done.md`
+**This framework adds:** Competitive positioning, market alternatives (direct/indirect/non-consumption), geographic benchmarks, competitive assumptions
+
+---
+
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules

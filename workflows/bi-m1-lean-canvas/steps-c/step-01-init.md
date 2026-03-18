@@ -18,6 +18,14 @@ Load context from prior frameworks, explain the 9-block Lean Canvas methodology,
 
 ---
 
+## Prior Context
+
+**Builds on:** Working Backwards, Jobs-to-be-Done, Competitive Landscape, Problem-Solution Fit
+**Inherits (do not restate):** Customer definition, problem statement, value proposition — reference `{outputFolder}/working-backwards.md`; customer jobs — reference `{outputFolder}/jobs-to-be-done.md`; competitive positioning — reference `{outputFolder}/competitive-landscape.md`; solution description — reference `{outputFolder}/problem-solution-fit.md`
+**This framework adds:** Customer segments (structured), business model (channels, revenue, costs, metrics), unfair advantage, UVP distillation
+
+---
+
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules

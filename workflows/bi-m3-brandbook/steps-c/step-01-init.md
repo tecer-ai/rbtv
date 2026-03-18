@@ -18,6 +18,14 @@ Verify ALL 6 M3 frameworks are completed, load context from every framework outp
 
 ---
 
+## Prior Context
+
+**Builds on:** Brand Archetypes, Brand Prism, Golden Circle, Brand Positioning, Tone of Voice, Messaging Architecture
+**Inherits (do not restate):** All M3 framework outputs — reference each framework's output file in `{outputFolder}/`
+**This framework adds:** Consolidated brand identity (visual guidelines, compiled messaging, quick reference sheet)
+
+---
+
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules

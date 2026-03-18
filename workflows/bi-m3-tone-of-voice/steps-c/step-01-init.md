@@ -18,6 +18,14 @@ Verify Brand Archetypes and prior M3 framework prerequisites, load context from 
 
 ---
 
+## Prior Context
+
+**Builds on:** Brand Archetypes, Brand Prism, Golden Circle, Brand Positioning
+**Inherits (do not restate):** Emotional territory — reference `{outputFolder}/brand-archetypes.md`; personality facet — reference `{outputFolder}/brand-prism.md`; purpose (Why) emotional register — reference `{outputFolder}/golden-circle.md`; positioning statement — reference `{outputFolder}/brand-positioning.md`
+**This framework adds:** Voice dimensions (measurable slider positions), do/don't examples, context-specific tone adjustments
+
+---
+
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules

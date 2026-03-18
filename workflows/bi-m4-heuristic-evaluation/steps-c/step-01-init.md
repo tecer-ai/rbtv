@@ -3,7 +3,7 @@ name: 'step-01-init'
 description: 'Load context, explain heuristics framework, detect continuation'
 nextStepFile: './step-02-heuristic-review.md'
 continueStepFile: './step-01b-continue.md'
-outputFile: '{bmad_output}/{project-name}/founder/m4-prototypation/heuristic-evaluation.md'
+outputFile: '{bmad_output}/{project-name}/business-innovation/m4-prototypation/heuristic-evaluation.md'
 ---
 
 # Step 1: Initialize Heuristic Evaluation
@@ -15,6 +15,14 @@ outputFile: '{bmad_output}/{project-name}/founder/m4-prototypation/heuristic-eva
 ## STEP GOAL
 
 Load design/prototype context, explain Nielsen's 10 usability heuristics framework, and prepare for systematic evaluation.
+
+---
+
+## Prior Context
+
+**Builds on:** User Flow & IA, Design Context, Conversion-Centered Design
+**Inherits (do not restate):** Conversion paths — reference `{outputFolder}/user-flow-ia.md`; design brief — reference design context outputs; conversion hypotheses — reference `{outputFolder}/conversion-optimization.md`
+**This framework adds:** Usability validation (Nielsen's 10 heuristics), violation assessment, severity ranking, remediation recommendations
 
 ---
 

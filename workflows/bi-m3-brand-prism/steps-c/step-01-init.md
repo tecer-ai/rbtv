@@ -18,6 +18,14 @@ Verify Brand Archetypes prerequisite, load context from project-memo and prior f
 
 ---
 
+## Prior Context
+
+**Builds on:** Brand Archetypes
+**Inherits (do not restate):** Emotional territory, archetype selection — reference `{outputFolder}/brand-archetypes.md`
+**This framework adds:** Brand identity facets (physique, personality, culture, reflection, self-image, relationship)
+
+---
+
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules

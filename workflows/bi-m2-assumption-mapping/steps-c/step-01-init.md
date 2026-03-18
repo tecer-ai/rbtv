@@ -18,6 +18,14 @@ Load context from project-memo and Leap of Faith, verify prerequisites are compl
 
 ---
 
+## Prior Context
+
+**Builds on:** Leap of Faith
+**Inherits (do not restate):** Assumption inventory, classification — reference `{outputFolder}/leap-of-faith.md`
+**This framework adds:** Assumption scoring (impact × uncertainty), prioritized test cards, validation experiment design
+
+---
+
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules

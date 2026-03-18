@@ -18,6 +18,14 @@ Load context from project-memo and prior M1 artefacts, explain the Five Whys fra
 
 ---
 
+## Prior Context
+
+**Builds on:** Working Backwards, Jobs-to-be-Done, Problem-Solution Fit, Lean Canvas
+**Inherits (do not restate):** Customer definition, problem statement — reference `{outputFolder}/working-backwards.md`; solution description — reference `{outputFolder}/problem-solution-fit.md`; business model structure — reference `{outputFolder}/lean-canvas.md`
+**This framework adds:** Root cause structure, causal chains, structural problem analysis
+
+---
+
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules

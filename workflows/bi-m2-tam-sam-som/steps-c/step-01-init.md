@@ -18,6 +18,14 @@ Load context from project-memo and M1 frameworks, verify prerequisites, explain 
 
 ---
 
+## Prior Context
+
+**Builds on:** Leap of Faith, Assumption Mapping
+**Inherits (do not restate):** Assumption inventory — reference `{outputFolder}/leap-of-faith.md`; market-related assumptions — reference `{outputFolder}/assumption-mapping.md`
+**This framework adds:** Market sizing (TAM, SAM, SOM), market boundary definitions, serviceable market segmentation
+
+---
+
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules

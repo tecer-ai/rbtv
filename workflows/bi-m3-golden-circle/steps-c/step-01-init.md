@@ -18,6 +18,14 @@ Verify Brand Prism prerequisite, load context from project-memo and prior framew
 
 ---
 
+## Prior Context
+
+**Builds on:** Brand Archetypes, Brand Prism
+**Inherits (do not restate):** Emotional territory — reference `{outputFolder}/brand-archetypes.md`; brand identity facets (culture, personality) — reference `{outputFolder}/brand-prism.md`
+**This framework adds:** Purpose (Why / How / What), authentic motivation narrative
+
+---
+
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules

@@ -18,6 +18,14 @@ Load context from project-memo, verify Working Backwards and JTBD prerequisites 
 
 ---
 
+## Prior Context
+
+**Builds on:** Working Backwards, Jobs-to-be-Done, Competitive Landscape
+**Inherits (do not restate):** Customer definition, problem statement, value proposition — reference `{outputFolder}/working-backwards.md`; customer jobs — reference `{outputFolder}/jobs-to-be-done.md`; competitive positioning — reference `{outputFolder}/competitive-landscape.md`
+**This framework adds:** Solution description, fit validation, triggers/emotions mapping, critical assumptions for solution viability
+
+---
+
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules

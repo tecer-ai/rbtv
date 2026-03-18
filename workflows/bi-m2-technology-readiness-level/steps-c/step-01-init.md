@@ -18,6 +18,14 @@ Load context from project-memo and M1 frameworks, explain the TRL framework, and
 
 ---
 
+## Prior Context
+
+**Builds on:** Leap of Faith, Assumption Mapping
+**Inherits (do not restate):** Technical assumptions from assumption inventory — reference `{outputFolder}/leap-of-faith.md`; test priorities — reference `{outputFolder}/assumption-mapping.md`
+**This framework adds:** Technical feasibility assessment, component TRL scores, technical risk register, spike cards
+
+---
+
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules
