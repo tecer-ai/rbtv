@@ -17,6 +17,31 @@ Detects when a session contains context worth preserving and guides the agent th
 
 **Trigger threshold:** 2+ signals across one or more turns.
 
+## Enforcement Mechanisms
+
+Two mechanisms ensure detection happens even when the agent is deep in a workflow.
+
+### Tripwires (immediate)
+
+These patterns MUST trigger an immediate context preservation evaluation — stop current work, assess signals, and if threshold is met, execute Detect → Discover → Confirm → Capture before continuing.
+
+| Tripwire | Example |
+|----------|---------|
+| User explains *why* they made a choice | "I'd exclude M&A because me and my partner come from that world" |
+| User corrects a default with rationale | "No, CEOs should be quente because they're the ultimate decision-maker" |
+| User provides structured data not in any file | A taxonomy, classification matrix, or entity mapping built in conversation |
+| User references a past event that informs current work | "Kenu already tried this with a Python script" |
+
+### Periodic checkpoint (every 5 turns)
+
+In any interactive session (agent persona, multi-turn workflow, discovery), count turns. Every 5th user message, STOP and evaluate:
+
+1. Have any detection signals occurred since the last check?
+2. If 2+ signals are present and context preservation has NOT been triggered, trigger it NOW.
+3. If already active, check if new context has been written per the Living Document Principle.
+
+This checkpoint is mandatory even if the conversation feels productive and uninterrupted. Momentum is the primary reason agents skip context preservation.
+
 ## Non-Triggers
 
 This rule does NOT activate for:
