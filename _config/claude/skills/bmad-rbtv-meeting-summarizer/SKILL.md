@@ -1,5 +1,5 @@
 ---
-name: meeting-summarizer
+name: bmad-rbtv-meeting-summarizer
 description: 'Summarize meeting transcripts for any project - detects project and meeting type, routes to the appropriate prompt, fixes filenames, and saves output. Use when processing any meeting transcript.'
 ---
 
