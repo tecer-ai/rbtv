@@ -114,6 +114,7 @@ After applying edits:
 - Check that page breaks are correct (every slide except last)
 - Verify no orphaned image references or broken patterns
 - Ensure design consistency across modified and unmodified slides
+- Verify cross-element alignment: grid row heights match, timeline baselines consistent, parallel columns align row-by-row
 
 ### 5. Present Summary
 

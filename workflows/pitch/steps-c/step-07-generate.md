@@ -137,6 +137,9 @@ Create the complete HTML file following these requirements:
 - Minimum 4.5:1 contrast ratio for all text
 - No paragraphs of text — bullets, numbers, visuals only
 - Slide numbers on each slide (except title/cover)
+- Grid alignment: cards in the same row MUST have equal height. Use CSS grid with implicit row stretching — never wrap columns in independent containers that break row alignment
+- Timeline/process alignment: all labels, descriptions, and visual elements at the same hierarchy level MUST share a consistent baseline. Use min-height or grid to prevent text-wrap from pushing siblings out of alignment
+- Multi-column parity: when two columns display parallel content (e.g., "Phase 1" vs "Phase 2"), corresponding items MUST align horizontally row-by-row — never stack independently per column
 
 ### 5. Save HTML File
 
@@ -158,6 +161,7 @@ Self-check the generated HTML:
 | Typography | Single font family, clear hierarchy |
 | Whitespace | No cramped slides |
 | Contrast | Text readable on all backgrounds |
+| Alignment | Cards in same grid row have equal height; timeline labels share consistent baseline; parallel columns align row-by-row |
 | Narrative | Slide titles match the agreed narrative points |
 | Content fit | Every slide's content fits within one landscape page — dense slides use top-aligned layout |
 | Logo rendering | Logos visible on their backgrounds (dark bg → white filter applied) |
