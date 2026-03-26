@@ -1,9 +1,9 @@
 ---
-name: bmad-rbtv-pre-product-discovery
-description: 'Pre-product discovery — structures benchmarks into taxonomy + profiles, builds product map, defines V1 scope. Pre-BMM workflow for founders with market research but no product definition. Use when structuring benchmarks, building product landscape, or scoping V1.'
+name: bmad-rbtv-product-discovery
+description: 'Product discovery — structures benchmarks into taxonomy + profiles, builds product map, defines V1 scope. Pre-BMM workflow for founders with market research but no product definition. Use when structuring benchmarks, building product landscape, or scoping V1.'
 ---
 
-# Pre-Product Discovery
+# Product Discovery
 
 **Purpose:** Transform unstructured benchmark research into structured product artifacts that feed into BMM's `create-product-brief` workflow.
 
