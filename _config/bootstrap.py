@@ -10,6 +10,7 @@ Centralizes all installation flows into a single entry point:
 
 Modes:
   workspace -- Full setup: RBTV install + project bootstrap (default)
+               Offers admin install/uninstall at the end.
   admin     -- Standalone RBTV dev setup at rbtv root (no project bootstrap)
   sync      -- BMAD config patching only (no project bootstrap)
 
@@ -97,6 +98,7 @@ ADMIN_GITIGNORE_ENTRIES = [
     "/.cursor/",
     "/.claude/",
     "/CLAUDE.md",
+    "/workflows/build-rbtv-component/data/CLAUDE.md",
     ".gitignore",
     ".claude/memory/",
 ]
@@ -1234,6 +1236,69 @@ def run_project_bootstrap(root: Path) -> tuple:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Admin detection and uninstall
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _admin_is_installed(rbtv_dir: Path) -> bool:
+    """Detect whether admin artifacts exist in the RBTV folder."""
+    # Check for admin-specific files: CLAUDE.md, .claude/, .cursor/
+    if (rbtv_dir / "CLAUDE.md").exists():
+        return True
+    if (rbtv_dir / ".claude").exists():
+        return True
+    if (rbtv_dir / ".cursor").exists():
+        return True
+    return False
+
+
+def run_admin_uninstall(paths: dict) -> int:
+    """Remove all admin-installed artifacts from the RBTV folder."""
+    rbtv_dir = paths["rbtv"]
+
+    # 1. Delete managed files (same cleanup as admin install's pre-clean step)
+    print("Deleting managed files (bmad-rbtv*, admin-rbtv*)...")
+    del_stats = admin_delete_managed_files(rbtv_dir)
+    print(f"  Deleted: {del_stats['deleted']} files")
+    _print_errors(del_stats.get("errors", []))
+    print()
+
+    # 2. Remove CLAUDE.md
+    claude_md = rbtv_dir / "CLAUDE.md"
+    if claude_md.exists():
+        print("Removing CLAUDE.md...")
+        claude_md.unlink()
+        print("  Done")
+    else:
+        print("CLAUDE.md: not present (already clean)")
+    print()
+
+    # 3. Remove .claude/ and .cursor/ directories if they exist
+    removed_dirs = 0
+    for dirname in (".claude", ".cursor"):
+        dirpath = rbtv_dir / dirname
+        if dirpath.exists():
+            print(f"Removing {dirname}/...")
+            shutil.rmtree(dirpath)
+            removed_dirs += 1
+            print("  Done")
+    if removed_dirs == 0:
+        print(".claude/ and .cursor/: not present (already clean)")
+    print()
+
+    print("-" * 60)
+    print("Admin uninstall complete.")
+    print("-" * 60)
+    print(f"  Files deleted:       {del_stats['deleted']}")
+    print(f"  CLAUDE.md removed:   {'yes' if claude_md.exists() is False else 'no'}")
+    print(f"  Directories removed: {removed_dirs}")
+    print()
+    print("RBTV admin artifacts have been cleaned from the rbtv folder.")
+    print("Skills invoked from the BMAD workspace will no longer load")
+    print("admin context (CLAUDE.md, rules, etc.).")
+    return 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Mode entry points
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1335,6 +1400,18 @@ def run_workspace_mode(paths: dict, skip_version_check: bool, skip_projects: boo
     else:
         print(f"  Skipped: {ci_stats.get('skipped', 0)} patterns (already present)")
     _print_errors(ci_stats.get("errors", []))
+    print()
+
+    # Copy RBTV CLAUDE.md to Fernando's workflow data folder
+    # Fernando (build-rbtv-component agent) needs RBTV context regardless of admin install state
+    print("Installing RBTV context for Fernando (build-rbtv-component)...")
+    fernando_claude_src = rbtv_dir / "_admin" / "CLAUDE.md"
+    fernando_claude_dst = rbtv_dir / "workflows" / "build-rbtv-component" / "data" / "CLAUDE.md"
+    if fernando_claude_src.exists():
+        shutil.copy2(str(fernando_claude_src), str(fernando_claude_dst))
+        print("  Copied _admin/CLAUDE.md → workflows/build-rbtv-component/data/CLAUDE.md")
+    else:
+        print("  WARNING: _admin/CLAUDE.md not found — skipping")
     print()
 
     print("-" * 60)
@@ -1454,6 +1531,20 @@ def run_workspace_mode(paths: dict, skip_version_check: bool, skip_projects: boo
         print()
         return run_admin_mode(paths)
 
+    # Offer to uninstall admin if artifacts are detected
+    if _admin_is_installed(paths["rbtv"]):
+        print()
+        print("Admin artifacts detected in RBTV folder (.claude/, .cursor/, CLAUDE.md).")
+        print("These consume context window when RBTV skills are invoked from the workspace.")
+        answer = input("Uninstall admin artifacts? [y/N]: ").strip().lower()
+        if answer in ("y", "yes"):
+            print()
+            print("=" * 60)
+            print("Uninstalling admin artifacts")
+            print("=" * 60)
+            print()
+            return run_admin_uninstall(paths)
+
     return 0
 
 
@@ -1559,6 +1650,16 @@ def run_admin_mode(paths: dict) -> int:
     if claude_src.exists():
         shutil.copy2(str(claude_src), str(claude_dst))
         print("  Done")
+    else:
+        print("  WARNING: _admin/CLAUDE.md not found — skipping")
+    print()
+
+    # Also copy to Fernando's workflow data folder
+    print("Installing RBTV context for Fernando (build-rbtv-component)...")
+    fernando_dst = rbtv_dir / "workflows" / "build-rbtv-component" / "data" / "CLAUDE.md"
+    if claude_src.exists():
+        shutil.copy2(str(claude_src), str(fernando_dst))
+        print("  Copied _admin/CLAUDE.md → workflows/build-rbtv-component/data/CLAUDE.md")
     else:
         print("  WARNING: _admin/CLAUDE.md not found — skipping")
     print()
