@@ -42,6 +42,18 @@ In any interactive session (agent persona, multi-turn workflow, discovery), coun
 
 This checkpoint is mandatory even if the conversation feels productive and uninterrupted. Momentum is the primary reason agents skip context preservation.
 
+### Pre-Write Gate (forcing function)
+
+Before the FIRST write or edit to any output file in an interactive session, STOP and evaluate:
+
+1. Have 2+ detection signals occurred?
+2. If yes: has context preservation been triggered?
+3. If not triggered: execute Detect → Discover → Confirm → Capture NOW, before making any file edits.
+
+This gate fires ONCE per session — on the first write attempt. It cannot be skipped. The write waits until the gate clears.
+
+**Why this exists:** Tripwires and periodic checkpoints rely on the agent pausing voluntarily. In practice, momentum carries the agent from research/discussion into file edits without pausing. This gate creates a hard stop at the transition from reading/discussing to writing — the exact moment context preservation is most likely to be skipped.
+
 ## Non-Triggers
 
 This rule does NOT activate for:
