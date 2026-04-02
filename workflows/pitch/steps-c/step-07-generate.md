@@ -4,6 +4,7 @@ stepName: 'generate'
 nextStepFile: ./step-08-images.md
 htmlPatternsFile: ../../_shared/pitch-data/html-patterns.md
 htmlComponentsFile: ../../_shared/pitch-data/html-components.md
+pitchDeckRulesFile: ../../_shared/pitch-data/pitch-deck-rules.md
 ---
 
 # Step 07: Generate HTML Pitch Deck
@@ -14,7 +15,7 @@ htmlComponentsFile: ../../_shared/pitch-data/html-components.md
 
 ## STEP GOAL
 
-Generate a complete, professional HTML pitch deck optimized for landscape PDF export via Ctrl+P, based on the validated narrative and agreed structure.
+Generate a complete, professional HTML pitch deck optimized for landscape PDF export via Decktape (step-10), based on the validated narrative and agreed structure.
 
 ---
 
@@ -40,7 +41,7 @@ This is a client deck that must feel trustworthy and professional. Visual craft 
 - Load the finalized slide structure from step 06 before generating
 - Load HTML/CSS patterns knowledge before generating
 - Generate ALL slides in a single HTML file
-- Landscape orientation optimized for Ctrl+P PDF export
+- Landscape orientation optimized for PDF export via Decktape (step-10)
 - Professional icon libraries loaded via CDN
 - Image references point to ./images/ relative folder
 - Output must be self-contained (CDN links for fonts/icons only)
@@ -63,6 +64,8 @@ If the user has already shared the finalized slide structure from step 06 in thi
 Read `{htmlPatternsFile}` completely — this provides layout foundations, colors, typography, grids, print CSS, icon libraries, and design constraints.
 
 Read `{htmlComponentsFile}` completely — this provides component patterns (stat blocks, comparison cards, scenario tables, callout boxes, flow connectors, zone labels).
+
+Read `{pitchDeckRulesFile}` completely — this is a living corrections document with design, content, data integrity, and print/PDF rules. Every rule in this file is mandatory.
 
 ### 3. Determine Visual Direction
 
@@ -116,7 +119,7 @@ Create the complete HTML file following these requirements:
 - `@media print` block hiding non-essential elements
 - `-webkit-print-color-adjust: exact; print-color-adjust: exact;`
 - `min-height: 100vh` for each slide
-- Ctrl+P must produce perfect landscape pages with no content clipping
+- Decktape export (step-10) must produce perfect landscape pages with no content clipping
 
 **Icon Libraries (load via CDN):**
 - Font Awesome 6: `<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">`
@@ -219,7 +222,7 @@ ONLY when **[X] Exit** is selected:
 ✅ **SUCCESS:**
 - Complete HTML file with all slides
 - Slide content matches the agreed narrative
-- Landscape PDF export works via Ctrl+P
+- Landscape PDF export works via Decktape (step-10)
 - Icons render from CDN
 - Image paths use ./images/ convention
 - One idea per slide, glance test passes

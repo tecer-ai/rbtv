@@ -1,6 +1,6 @@
 # HTML Pitch Deck Patterns
 
-CSS and HTML patterns for building pitch decks that export perfectly to landscape PDF via Ctrl+P.
+CSS and HTML patterns for building pitch decks that export perfectly to landscape PDF via Decktape.
 
 **Also read `html-components.md` in this directory** for component-specific patterns (comparison cards, scenario tables, callouts, flow connectors, zone labels).
 
@@ -63,11 +63,18 @@ body {
   padding-bottom: calc(60px + 10vh); /* optical center — content sits slightly above geometric center */
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start; /* FIXED TITLE POSITION — titles must anchor to the same spot across all slides */
   position: relative;
   overflow: hidden;
   page-break-after: always;
   break-after: page;
+}
+
+.slide .slide-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center; /* content area centers within remaining space below the title */
 }
 
 .slide:last-child {
@@ -327,18 +334,20 @@ When creating or reading asset manifests (`manifest.md`), document whether each 
 <section class="slide slide--dark">
   <div class="slide-title">The Problem</div>
   <div class="slide-subtitle">Companies waste millions on processes that should be automated</div>
-  <div class="grid-3" style="margin-top: 40px;">
-    <div class="stat-block">
-      <div class="stat-number" style="color: var(--primary);">68%</div>
-      <div class="stat-label">Time lost to manual work</div>
-    </div>
-    <div class="stat-block">
-      <div class="stat-number" style="color: var(--primary);">3.2x</div>
-      <div class="stat-label">Cost vs automated alt</div>
-    </div>
-    <div class="stat-block">
-      <div class="stat-number" style="color: var(--primary);">$4.2M</div>
-      <div class="stat-label">Average annual waste</div>
+  <div class="slide-content">
+    <div class="grid-3">
+      <div class="stat-block">
+        <div class="stat-number" style="color: var(--primary);">68%</div>
+        <div class="stat-label">Time lost to manual work</div>
+      </div>
+      <div class="stat-block">
+        <div class="stat-number" style="color: var(--primary);">3.2x</div>
+        <div class="stat-label">Cost vs automated alt</div>
+      </div>
+      <div class="stat-block">
+        <div class="stat-number" style="color: var(--primary);">$4.2M</div>
+        <div class="stat-label">Average annual waste</div>
+      </div>
     </div>
   </div>
   <div class="slide-number">02</div>
@@ -371,3 +380,6 @@ These constraints MUST be enforced at generation time.
 | 14 | **Logo sizing** | Cover logo height: `clamp(40px, 6vh, 80px)`. Multi-logo: size by visual mass, not pixel height. Dark bg logos must use `filter: brightness(0) invert(1)`. |
 | 15 | **Background texture limit** | Max 3 textured slides per deck. Never apply the same texture to more than 2 slides. |
 | 16 | **Content-fit validation** | Before finalizing, estimate each slide's total content height. If title + subtitle + content block exceeds ~70vh, switch to top-aligned layout with reduced padding. |
+| 17 | **Fixed title position** | All content slides (non-cover, non-closing) MUST use `justify-content: flex-start`. Titles anchor to the same position across all slides. Content below the title wraps in a `.slide-content` div that centers itself in the remaining space. Cover/closing slides may use centered layout. |
+| 18 | **Print-unsafe CSS** | NEVER use `aspect-ratio`, complex CSS transforms on positioned elements, pseudo-elements for structural content (midlines, dividers), or complex `clip-path` in slide content. These break in PDF export. Use explicit width/height, `writing-mode: vertical-rl`, real DOM elements, and simple shapes instead. |
+| 19 | **Team card parity** | All team/founder cards MUST have identical visual treatment — same borders, shadows, background, padding, sizing. NEVER highlight one card differently. Narrative emphasis goes in text, not styling. |

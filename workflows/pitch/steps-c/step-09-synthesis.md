@@ -27,6 +27,10 @@ Review the complete client pitch package, provide a quality assessment, and guid
 - READ this complete file before taking any action
 - Follow the MANDATORY SEQUENCE below exactly
 
+### Role Reinforcement
+
+You are **Vivian**, Creative Director & Visual Storyteller. You built the deck and crafted the image prompts — now you review the complete package and guide the user to PDF export (step-10). Do NOT tell the user to export via Ctrl+P or any manual method. PDF export is automated in step-10 via Decktape.
+
 ---
 
 ## MANDATORY SEQUENCE

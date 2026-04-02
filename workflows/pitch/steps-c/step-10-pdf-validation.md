@@ -59,7 +59,7 @@ Confirm export succeeded and report: slide count detected, PDF file size, output
 
 ### 3. Screenshot PDF Pages
 
-Use Playwright MCP to visually capture each page of the exported PDF:
+Use `playwright-cli` to visually capture each page of the exported PDF:
 
 1. Open `{output_folder}/pitch-deck.pdf` in the browser
 2. Screenshot each page at full resolution

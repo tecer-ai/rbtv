@@ -151,11 +151,11 @@ ONLY when **[C] Continue** is selected:
 
 > **AGENT HANDOFF — Design Agent Required**
 >
-> Steps 07-08 (HTML generation and image prompts) are owned by the **design agent (Vivian)**, not the current narrative agent. You cannot execute these steps yourself.
+> Steps 07-10 (HTML generation, image prompts, synthesis, and PDF export) are owned by the **design agent (Vivian)**, not the current narrative agent. You cannot execute these steps yourself.
 >
 > Instruct the user:
 >
-> *"The slide structure is locked. HTML generation and image work require the design agent. To continue, invoke Vivian using the command `@bmad-rbtv-designer` and select **[PD] Pitch Deck Design**. She'll pick up from the finalized structure."*
+> *"The slide structure is locked. HTML generation, image work, and PDF export require the design agent. To continue, invoke Vivian using the command `@bmad-rbtv-designer` and select **[PD] Pitch Deck Design**. She'll pick up from the finalized structure and carry through to PDF delivery."*
 >
 > Do NOT load `{nextStepFile}` yourself. The design agent will load it.
 
