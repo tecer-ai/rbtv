@@ -2,7 +2,7 @@
 name: 'step-02-audience'
 description: 'Define audience, objective, and inventory existing materials'
 
-nextStepFile: './step-03-tone.md'
+nextStepFile: './step-02b-interview.md'
 workflowFile: '../workflow.md'
 
 advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
@@ -11,7 +11,7 @@ partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 
 # Step 2: Audience & Objective
 
-**Progress: Step 2 of 11** — Next: Tone Discovery
+**Progress: Step 2 of 11** — Next: Interview
 
 ---
 
@@ -88,7 +88,7 @@ Update frontmatter: `audience`, `objective`, `inputDocuments`.
 **Select an Option:**
 - **[A] Advanced Elicitation** — go deeper on audience or objective
 - **[P] Party Mode** — get multi-agent perspectives
-- **[C] Continue** — proceed to Tone Discovery
+- **[C] Continue** — proceed to Interview
 
 ALWAYS halt and wait for user selection.
 

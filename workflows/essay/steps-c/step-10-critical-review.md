@@ -1,6 +1,7 @@
 ---
 name: 'step-10-critical-review'
-description: 'Full adversarial review of the essay for fallacies, logic, depth, and quality'
+description: 'Full adversarial review with critics panel — Orwell standards + AI-pattern audit + voice fidelity + reader advocate'
+aiAntiPatterns: '../data/ai-anti-patterns.md'
 
 nextStepFile: './step-11-synthesis.md'
 workflowFile: '../workflow.md'
@@ -17,7 +18,7 @@ partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 
 ## STEP GOAL
 
-Perform a full adversarial review of the complete essay, challenging every aspect of argumentation quality, evidence integrity, and prose discipline.
+Perform a full adversarial review of the complete essay using two review passes: (1) Orwell's Standards — the 5 classic quality categories, and (2) Critics Panel — three specialized perspectives that catch what Orwell's standards miss.
 
 ---
 
@@ -80,30 +81,59 @@ Review each category systematically. For each finding, note: location (section +
 - Could any section be removed without weakening the argument?
 - Does the conclusion follow necessarily from what preceded it?
 
-### 3. Present Review
+### 3. Critics Panel (Three Additional Perspectives)
 
-Present findings in a structured format:
+After completing the 5 Orwell categories, run three specialized critics. Each reviews the COMPLETE essay from a distinct angle.
+
+**F. AI-Pattern Audit (The Detector)**
+- Load `{aiAntiPatterns}`
+- Scan the entire essay against all 8 anti-pattern categories
+- For each finding: quote the offending passage, name the anti-pattern, propose a human-sounding alternative
+- Pay special attention to: over-symmetry, generic phrasing, edge erosion, premature resolution
+
+**G. Voice Fidelity Check (The Mimic)**
+- Compare the draft against the voice profile established in step 03
+- If a persistent style guide exists (`styleGuide` in frontmatter): compare against the guide's signature moves, core directives, and anti-patterns
+- Flag passages where the voice drifts — becomes generic, loses characteristic patterns, or contradicts the guide
+- Score estimate: what proportion of the essay sounds like the writer vs. sounds like "AI writing"?
+
+**H. Reader Advocate (The Outsider)**
+- Read as the target audience defined in step 02
+- Flag: where would THIS specific reader lose interest? Get confused? Push back? Disagree?
+- Flag: "so what?" moments — where the essay hasn't earned the reader's attention
+- Be audience-specific: a CEO flags different things than a developer, an academic different things than a journalist
+
+### 4. Present Review
+
+**Orwell's Standards** — present findings in a structured format:
 
 | # | Category | Location | Severity | Finding | Recommendation |
 |---|----------|----------|----------|---------|----------------|
 
 Group by severity: critical issues first, then moderate, then minor.
 
-### 4. Discuss with User
+**Critics Panel** — present in a separate table:
 
-For each critical and moderate finding:
+| Critic | Location | Finding | Suggested Fix |
+|--------|----------|---------|---------------|
+
+### 5. Discuss with User
+
+For each critical and moderate finding (from both tables):
 - Explain WHY it weakens the essay
 - Propose a specific fix
 - Ask: "Address this, or keep as-is with justification?"
 
-### 5. Update Output Document
+### 6. Update Output Document
 
 Append to the essay output document:
 - Section header: `## Critical Review`
-- The review findings table
+- Orwell's Standards findings table
+- Section header: `## Critics Panel Review`
+- Critics Panel findings table
 - User decisions on each finding
 
-### 6. Present Menu Options
+### 7. Present Menu Options
 
 **Select an Option:**
 - **[A] Advanced Elicitation** — go deeper on specific findings
@@ -125,6 +155,6 @@ ONLY when **[C] Continue** is selected:
 
 ## SUCCESS / FAILURE METRICS
 
-✅ **SUCCESS:** Every category reviewed, findings are specific and actionable, user addressed all critical issues
+✅ **SUCCESS:** All 5 Orwell categories reviewed, all 3 critics panel perspectives applied, findings are specific and actionable, user addressed all critical issues, AI anti-patterns flagged with alternatives
 
-❌ **FAILURE:** Rubber-stamping the essay, vague findings ("could be better"), missing logical fallacies, not checking source links
+❌ **FAILURE:** Rubber-stamping the essay, vague findings ("could be better"), missing logical fallacies, skipping the critics panel, not checking source links, not loading ai-anti-patterns.md

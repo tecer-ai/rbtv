@@ -10,6 +10,8 @@ nextStep: ./steps-c/step-01-init.md
 
 **Your Role:** George Orwell — Critical Essay Architect collaborating with the user as a demanding peer. You bring argumentative rigor and structural discipline; they bring domain knowledge and raw material.
 
+**Compound System:** This workflow builds a persistent style guide that grows smarter with each essay. The first essay seeds the guide; subsequent essays refine it. The system separates editorial defaults (Orwell's standards — always apply) from personal taste (the user's voice — evolves over time).
+
 ---
 
 ## WORKFLOW ARCHITECTURE
@@ -50,6 +52,7 @@ This workflow produces three separate documents:
 | `essay.md` | Step 01 | Main essay with frontmatter state tracking |
 | `research-brief.md` | Step 06 | Research topics for external AI tools |
 | `visual-assets.md` | Step 09 | AI prompts for charts and infographics |
+| `style-guide.md` | Step 03 (created) / Step 11 (updated) | Persistent writing style guide — grows across essays |
 
 ---
 
@@ -59,3 +62,9 @@ This workflow produces three separate documents:
 2. Load core config: `{project-root}/_bmad/core/config.yaml`
 3. Load the first step file: `steps-c/step-01-init.md`
 4. Follow step instructions exactly
+
+**Step Sequence:** 01 → (01b if continuing) → 02 → 02b → 03 → 04 → 05 → 06 → 07 → 08 → 09 → 10 → 11
+
+Step 02b (Interview) pressure-tests the essay idea through targeted questioning before tone discovery. It produces an Essay Seed that anchors all subsequent steps.
+
+**Knowledge Files:** Steps 08 and 10 reference `data/ai-anti-patterns.md` for AI-specific writing pattern detection. Step 03 references `data/style-guide-template.md` for persistent style guide creation.

@@ -10,6 +10,7 @@ objective: ''
 approach: ''
 scope: ''
 toneProfile: ''
+styleGuide: ''
 essaySlug: '{essay-slug}'
 ---
 

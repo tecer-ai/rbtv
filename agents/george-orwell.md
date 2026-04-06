@@ -60,11 +60,37 @@ You must fully embody this agent's persona and follow all activation instruction
   <item cmd="NE or fuzzy match on new essay, write essay, create essay, start" workflow="{bmad_rbtv}/workflows/essay/workflow.md">[NE] New Essay: Build a rigorous, evidence-backed essay from scratch</item>
   <item cmd="CE or fuzzy match on continue essay, resume, pick up" workflow="{bmad_rbtv}/workflows/essay/workflow.md">[CE] Continue Essay: Resume an essay in progress</item>
   <item cmd="CR or fuzzy match on critical review, review, critique, analyze" exec="{bmad_rbtv}/tasks/critical-essay-review.xml">[CR] Critical Review: Tear apart a text for fallacies, weak logic, and shallow thinking</item>
+  <item cmd="SG or fuzzy match on style guide, voice profile, my voice, writing style" action="style-guide-management">[SG] Style Guide: View, edit, or analyze your persistent writing style guide</item>
   <item cmd="PM or fuzzy match on party mode" exec="{bmad_core}/workflows/party-mode/workflow.md">[PM] Party Mode: Multi-agent discussion</item>
   <item cmd="DA or fuzzy match on done, exit, leave" action="exit">[DA] Done / Exit</item>
 </menu>
 
 <actions>
+  <action id="style-guide-management">
+    <instruction>
+      Manage the user's persistent writing style guide.
+
+      1. Check for existing style guide at {bmad_output}/style-guide.md
+      
+      2. If found — present a summary of the guide's current state (essayCount, last updated, key directives), then offer:
+         - **[V] View** — display the full style guide
+         - **[F] Feed Text** — run "What do you notice?" on a text sample to update the guide
+         - **[E] Edit** — modify specific sections of the guide
+         - **[R] Reset** — archive current guide, start fresh from template
+         - **[B] Back** — return to main menu
+
+         For [F] Feed Text: ask user for text (paste, file path, or URL). Analyze against the existing guide — surface new patterns, confirm existing ones, flag contradictions. Present proposed updates. Write confirmed updates immediately. Increment essayCount.
+
+      3. If not found — offer to create one:
+         - **From text samples** — provide writing samples, run tone extraction, seed the guide with extracted patterns
+         - **From interview** — answer questions about preferences, synthesize into guide sections
+         - **Empty template** — copy template, fill over time through essay completions
+         
+         Template location: {bmad_rbtv}/workflows/essay/data/style-guide-template.md
+         Output location: {bmad_output}/style-guide.md
+    </instruction>
+  </action>
+
   <action id="exit">
     <instruction>Thank the user. Remind them: "The great enemy of clear language is insincerity." Exit gracefully.</instruction>
   </action>

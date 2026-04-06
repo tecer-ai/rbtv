@@ -1,6 +1,7 @@
 ---
 name: 'step-11-synthesis'
-description: 'Apply critical review fixes, final polish, and produce the finished essay'
+description: 'Apply critical review fixes, final polish, produce finished essay, and run style guide ritual'
+styleGuideTemplate: '../data/style-guide-template.md'
 
 workflowFile: '../workflow.md'
 
@@ -90,7 +91,51 @@ status: 'complete'
 completedDate: '{current date}'
 ```
 
-### 7. Present Final Menu
+### 7. "What Do You Notice?" — Style Guide Ritual
+
+**This step feeds the completed essay back into the persistent style guide.** It is the mechanism that makes the system compound — each essay teaches the next.
+
+**7a. Check for Style Guide**
+
+Check if `styleGuide` is set in frontmatter OR if `{bmad_output}/style-guide.md` exists.
+
+- If style guide exists: proceed to 7b.
+- If no style guide AND user skipped creation in step 03: ask "Now that the essay is complete — want to create a persistent style guide from this work? It will grow with each essay." If yes, copy `{styleGuideTemplate}` to `{bmad_output}/style-guide.md` and proceed to 7b. If no, skip to step 8.
+
+**7b. Analyze the Completed Essay**
+
+Read the finished essay end-to-end. Compare against the current style guide. Identify:
+
+1. **New structural patterns** — Did this essay follow the style guide's structural arc, or did a new pattern emerge? Name it if new.
+2. **New signature moves** — Any recurring techniques worth naming and preserving?
+3. **New anti-patterns discovered** — Any passages that were revised heavily? What went wrong? Worth adding to the blacklist?
+4. **Voice confirmation or drift** — Did the essay reinforce the core directives, or reveal tensions worth documenting?
+5. **Positive examples** — Identify 1-2 paragraphs that best exemplify the writer's voice. Explain why they work.
+6. **Negative examples** — Identify passages that felt "off" or were heavily revised. Explain what went wrong.
+
+**7c. Present Proposed Updates**
+
+Present findings as proposed style guide updates. For each:
+- What section of the guide it updates
+- What specifically would be added or refined
+- Why this matters for future essays
+
+Ask: "Which updates should I apply to your style guide?"
+
+**7d. Write Updates**
+
+For each confirmed update:
+- Append to the relevant section of `{bmad_output}/style-guide.md`
+- NEVER overwrite existing entries — append only
+- Add a changelog entry:
+  ```
+  ### {current date} — "{essay title}" (Essay #{essayCount + 1})
+  - [list of changes made]
+  ```
+- Increment `essayCount` in style guide frontmatter
+- Update `lastUpdated` to current date
+
+### 8. Present Final Menu
 
 **Essay complete. Select an Option:**
 - **[A] Advanced Elicitation** — refine any section further
@@ -103,6 +148,6 @@ ALWAYS halt and wait for user selection.
 
 ## SUCCESS / FAILURE METRICS
 
-✅ **SUCCESS:** All approved fixes applied, all sources verified with links, essay is clean markdown ready for export, user satisfied
+✅ **SUCCESS:** All approved fixes applied, all sources verified with links, essay is clean markdown ready for export, style guide ritual completed (if guide exists), user satisfied
 
-❌ **FAILURE:** Unapproved changes made, broken source links remain, workflow metadata left in essay body, voice profile lost during edits
+❌ **FAILURE:** Unapproved changes made, broken source links remain, workflow metadata left in essay body, voice profile lost during edits, skipping the style guide ritual when a guide exists

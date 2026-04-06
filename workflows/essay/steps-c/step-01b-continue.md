@@ -50,6 +50,10 @@ From the last entry in `stepsCompleted`:
 2. Validate the next step file exists
 3. Confirm the workflow is incomplete
 
+**Step chain reference:** 01 → 02 → 02b → 03 → 04 → 05 → 06 → 07 → 08 → 09 → 10 → 11
+
+Note: `step-02-audience.md` routes to `step-02b-interview.md`, which routes to `step-03-tone.md`.
+
 ### 3. Review Previous Output
 
 Read the complete essay output document. Summarize:

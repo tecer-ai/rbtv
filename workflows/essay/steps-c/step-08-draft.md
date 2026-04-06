@@ -84,6 +84,9 @@ Run each paragraph through this checklist:
 - [ ] Any logical fallacies (straw man, false dichotomy, appeal to authority, etc.)? → fix
 - [ ] Any vague or weasel words ("some experts say", "it is widely believed")? → specify or cut
 - [ ] Does this paragraph advance the argument or is it padding? → cut if padding
+- [ ] AI anti-patterns? → Check against `../data/ai-anti-patterns.md`: over-symmetry, generic phrasing, edge erosion, emotional flattening, false sophistication, list-ification, recap syndrome
+- [ ] Does this sound like a HUMAN wrote it, or like an AI trying to sound human? → If uncertain, roughen it up
+- [ ] Conviction check: compare against Essay Seed — has the draft softened the user's original position? → Restore original strength or flag for user decision
 
 **C. Present to user:**
 Show the drafted section. Ask: "Review this section. Want to adjust, expand, or tighten anything?"
