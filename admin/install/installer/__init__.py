@@ -1,1 +1,5 @@
-from bootstrap.cli import main
+"""RBTV installer package."""
+
+from .cli import main
+
+__all__ = ["main"]
