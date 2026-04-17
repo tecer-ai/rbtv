@@ -20,9 +20,11 @@ Action: `grep -rn "{output_path}" "3. Resources/rbtv"` and, per match, either de
 
 Also verify BMM/CIS plugin invocations inserted in `agents/paul/workflows/business-innovation/bi-m2/`, `bi-m4/`, and `agents/domcobb/workflows/problem-structuring/steps-c/step-04-deliver.md` — confirm they match actual `bmad-method-lifecycle:*` and `bmad-pro-skills:*` skill names.
 
-### 2. `defaults.yaml` rewrite wasted Phase 4 work
+### 3. Agent activation no-op stubs may leave placeholders unsubstituted
 
-Phase 4 rewrote `admin/install/defaults.yaml` (stripped bmad_core/bmm/rbtv/output keys), then Task 23 overwrote it entirely with a new schema. Noted for audit — no current risk, just surprising in `git log`.
+Phase 4 cleanup replaced each agent's "load config" activation step with a stub: `"No runtime config load. Path variables resolved at install time."` This changes agent startup behavior — if any agent menu handler or workflow step still references `{user_name}`, `{user_language}`, `{output_folder}`, or similar config-sourced variables, they will now appear unsubstituted at runtime.
+
+Action: `grep -rn "{user_name}\|{user_language}\|{user_skill_level}\|{communication_language}" "3. Resources/rbtv"` — for each match, either delete the reference or replace with literal/generic language. Verify during the smoke test that agent responses don't contain raw `{...}` placeholders.
 
 ### 4. Admin docs out of sync with standalone reality
 
