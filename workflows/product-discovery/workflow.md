@@ -1,5 +1,5 @@
 ---
-name: pre-product-discovery
+name: product-discovery
 description: 'Benchmark structuring → product map → V1 scope. Pre-BMM discovery for founders with market research but no product definition.'
 main_config: '{project-root}/_bmad/rbtv/_config/config.yaml'
 nextStep: ./steps-c/step-01-init.md

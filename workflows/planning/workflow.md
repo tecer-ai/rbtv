@@ -1,5 +1,5 @@
 ---
-name: 'plan-workflow'
+name: planning
 description: 'Create high-quality, self-executing plans with micro-step task files'
 main_config: '	{project-root}/_bmad/rbtv/_config/config.yaml'
 nextStep: ./steps-c/step-01-init.md
