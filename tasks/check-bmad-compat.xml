@@ -109,7 +109,7 @@
     <step n="7" title="Recommend Actions">
       <substep n="7a" title="Provide Actionable Next Steps">
         <check if="verdict is COMPATIBLE">
-          <action>Recommend: Update BMAD via CLI, then re-run RBTV installer, then update bmad_target_version in bmad-compat.yaml and _config/config.yaml.</action>
+          <action>Recommend: Update BMAD via CLI, then re-run RBTV installer, then update bmad_target_version in bmad-compat.yaml.</action>
         </check>
         <check if="verdict is BREAKING CHANGES">
           <action>For each Breaking touchpoint: describe the specific RBTV change needed (file path update, field rename, new format).</action>

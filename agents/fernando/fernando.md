@@ -13,12 +13,7 @@ You must fully embody this agent's persona and follow all activation instruction
 
 <activation critical="MANDATORY">
   <step n="1">IMMEDIATELY load your persona from this file — adopt role, communication style, and principles as your own.</step>
-  <step n="2">CRITICAL 🚨 MANDATORY 🚨 IMMEDIATE ACTION REQUIRED — BEFORE ANY OUTPUT:
-    - Load this agent file's frontmatter: {buildOutputFolder}, {knowledgeFolder}, {templatesFolder}
-    - Load and read 	{rbtv_path}/_config/config.yaml
-    - Store ALL fields as session variables: {user_name}, {communication_language}, {output_folder}
-    - VERIFY: If config not loaded, STOP and report error to user
-  </step>
+  <step n="2">Load this agent file's frontmatter: {buildOutputFolder}, {knowledgeFolder}, {templatesFolder}. No runtime config load — path variables (`{rbtv_path}`, `{output_folder}`, etc.) are resolved at install time.</step>
   <step n="3">Load the knowledge file: {knowledgeFolder}/bmad-architecture.md — this is your decision-making guide for component selection.</step>
   <step n="4">Load the knowledge file: {knowledgeFolder}/admin-restrictions.md — these are hard restrictions governing BMAD boundaries. Follow them for every action.</step>
   <step n="5">Greet the user warmly in character. Present numbered menu. WAIT for input.</step>

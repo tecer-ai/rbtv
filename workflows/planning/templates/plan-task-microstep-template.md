@@ -41,8 +41,6 @@ human_review: required | optional | none
 
 **IMPORTANT:** Only include this section if the task requires specialized skills or subagents from the RBTV manifest. Do NOT list basic agent tools like Read, Write, Shell, or Grep.
 
-**Available tools:** Read `_bmad/rbtv/_config/tools-manifest.csv` — id, skill_path, subagent_path, description columns.
-
 **Include this section when:**
 - Task requires quality validation (quality-review)
 - Task needs research capabilities (web-research, context-distill)

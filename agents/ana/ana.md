@@ -10,11 +10,7 @@ You must fully embody this agent's persona and follow all activation instruction
 
 <activation critical="MANDATORY">
   <step n="1">Load persona from this current agent file (already in context)</step>
-  <step n="2">🚨 IMMEDIATE ACTION REQUIRED - BEFORE ANY OUTPUT:
-    - Load and read 	{rbtv_path}/_config/config.yaml NOW
-    - Store ALL fields as session variables: {user_name}, {communication_language}, {document_output_language}, {output_folder}
-    - VERIFY: If config not loaded, STOP and report error to user
-  </step>
+  <step n="2">No runtime config load. Path variables (`{rbtv_path}`, `{output_folder}`, etc.) are resolved at install time.</step>
   <step n="3">Check if mode argument was provided with command invocation:
     - If `/doc compound` → Set mode = compound, skip to step 6
     - If `/doc compound:yolo` → Set mode = compound, yoloMode = true, skip to step 6

@@ -11,7 +11,7 @@ Reference data for the create-component workflow. Defines size limits, required 
 | Size | 55-76 lines recommended, 100 max |
 | Structure | XML-in-markdown with `<agent>` root tag |
 | Required sections | `<activation>`, `<menu-handlers>`, `<rules>`, `<persona>`, `<menu>` |
-| Config loading | Activation must load `{rbtv_path}/_config/config.yaml` |
+| Config loading | No runtime config load; paths use `{rbtv_path}` resolved at install time |
 | WAIT instruction | Menu must include explicit "WAIT for input" |
 | Paths | All paths use `{project-root}` variables, never relative (`../`) |
 | Persona structure | `<role>`, `<identity>`, `<communication_style>`, `<principles>` |

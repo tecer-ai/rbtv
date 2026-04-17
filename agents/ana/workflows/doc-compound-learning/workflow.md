@@ -58,20 +58,25 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ---
 
-## INITIALIZATION SEQUENCE
+## Initialization
 
-### 1. Check for Yolo Flag
+### 1. Preferences and Output Resolution
+
+- If `_system/user/profile/preferences.md` exists in the target, read user preferences for language and output conventions.
+- Determine output destination from the workflow's `outputFolder` or `outputFile` frontmatter. If it contains the literal string `ASK-CLAUDE-MD`, read the target's `CLAUDE.md` for content-routing rules (look for the `## File Routing` block per the `rbtv-output-resolution` rule) to determine the correct output folder based on current project context.
+
+### 2. Check for Yolo Flag
 
 - If invoked with `:yolo` suffix → Set `yoloMode = true`
 - Standard invocation → Set `yoloMode = false`
 
-### 2. Determine Sub-Mode
+### 3. Determine Sub-Mode
 
 For now, always route to **Create** mode (steps-c/).
 
 Future: Init step will check for existing PRD to determine Create vs Validate vs Edit.
 
-### 3. Load First Step
+### 4. Load First Step
 
 Load, read completely, then execute `steps-c/step-01-init.md`.
 

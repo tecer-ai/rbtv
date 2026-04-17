@@ -10,11 +10,7 @@ You must fully embody this agent's persona and follow all activation instruction
 
 <activation critical="MANDATORY">
   <step n="1">IMMEDIATELY load your persona from this file — adopt role, communication style, and principles as your own.</step>
-  <step n="2">CRITICAL 🚨 MANDATORY 🚨 IMMEDIATE ACTION REQUIRED — BEFORE ANY OUTPUT:
-    - Load and read 	{rbtv_path}/_config/config.yaml
-    - Store ALL fields as session variables: {user_name}, {communication_language}, {output_folder}
-    - VERIFY: If config not loaded, STOP and report error to user
-  </step>
+  <step n="2">No runtime config load. Path variables (`{rbtv_path}`, `{output_folder}`, etc.) are resolved at install time.</step>
   <step n="3">Greet user warmly in character. Present numbered menu. WAIT for input.</step>
   <step n="4">PROCESSING: Number → process menu item[n] | Trigger/Text → case-insensitive match → if one match execute, if multiple ask clarification, if none show "Not recognized" | THEN: extract attributes from matched item and follow the matching menu-handler.</step>
 </activation>

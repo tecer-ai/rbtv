@@ -57,17 +57,17 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ---
 
-## INITIALIZATION SEQUENCE
+## Initialization
 
 When invoked via Mentor agent:
-1. Mentor detects if project-memo is in context
-2. User selects [N] New Project or [C] Continue Project
-3. Mentor loads the appropriate step file directly
+1. Mentor detects if project-memo is in context.
+2. User selects [N] New Project or [C] Continue Project.
+3. Mentor loads the appropriate step file directly.
 
 When invoked directly (without Mentor):
-1. Load module config: `	{rbtv_path}/_config/config.yaml`
-2. If new project: Load `{newProjectStep}`
-3. If continuing: Load `{continueProjectStep}` (requires project-memo in context)
+1. If `_system/user/profile/preferences.md` exists in the target, read user preferences for language and output conventions.
+2. Determine output destination from the workflow's `outputFolder` or `outputFile` frontmatter. If it contains the literal string `ASK-CLAUDE-MD`, read the target's `CLAUDE.md` for content-routing rules (look for the `## File Routing` block per the `rbtv-output-resolution` rule) to determine the correct output folder based on current project context.
+3. If new project: Load `{newProjectStep}`. If continuing: Load `{continueProjectStep}` (requires project-memo in context).
 
 ---
 

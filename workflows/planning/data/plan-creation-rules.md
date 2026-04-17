@@ -111,7 +111,7 @@ References from plan files to files outside the plan folder MUST use project-roo
 | Rule | Example | Anti-pattern |
 |------|---------|--------------|
 | Path from project root, no leading `./` | `workflows/planning/workflow.md` | ❌ `../../../workflows/planning/workflow.md` |
-| NEVER traverse up out of the plan folder | `_bmad/rbtv/_config/tools-manifest.csv` | ❌ `../../../../_bmad/rbtv/_config/tools-manifest.csv` |
+| NEVER traverse up out of the plan folder | `_bmad/rbtv/workflows/planning/workflow.md` | ❌ `../../../../_bmad/rbtv/workflows/planning/workflow.md` |
 
 ### Inbound Links (from outside referencing a plan)
 
@@ -163,7 +163,7 @@ When a task requires invoking an agent:
 | Rule | Description |
 |------|-------------|
 | Use explicit mechanism | Subagent: write "use Task tool with `subagent_type='<id>'`"; Skill: write "Read `{skill_path}`" |
-| Available tools | Read `_bmad/rbtv/_config/tools-manifest.csv` — id column lists all tools; skill_path and subagent_path columns |
+| Available tools | Reference skills under `_bmad/rbtv/skills/` and subagents under `_bmad/rbtv/subagents/` directly by path |
 | Avoid ambiguous verbs | NEVER use "invoke", "call", "run" without specifying the tool mechanism |
 | Specify mode | Always indicate whether tool runs as skill or subagent |
 
