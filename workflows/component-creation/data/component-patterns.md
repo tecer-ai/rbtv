@@ -1,6 +1,35 @@
 # Component Patterns
 
-Reference data for the create-component workflow. Defines size limits, required sections, and structural requirements for each component type (agent, skill, workflow, step, task, rule).
+Reference data for the create-component workflow. Defines naming standards, size limits, required sections, and structural requirements for each component type.
+
+## Naming Standard
+
+| Component | Convention | Pattern | Examples |
+|-----------|-----------|---------|----------|
+| **Workflow folder** | Domain noun — what the area is about | `{domain-noun}/` | `documentation/`, `ai-consulting/`, `summarization/`, `business-innovation/` |
+| **Skill** | Capability noun — what auto-discovery matches on | `{capability}/` | `planning/`, `commit/`, `design-extraction/`, `tone-extraction/` |
+| **Command** | Role or domain noun — what the user invokes | `{role-or-domain}.md` | `mentor.md`, `designer.md`, `writing.md` |
+| **Persona** | Character name | `{name}.md` | `vivian.md`, `paul.md`, `domcobb.md` |
+| **Rule** | Behavior it enforces | `{behavior}.md` | `atomic-files.md`, `chat-discipline.md`, `reasoning.md` |
+
+**Key rules:**
+- Skills and commands that invoke the same workflow share the same base name.
+- Never name a command or skill after a persona — the persona is loaded *by* the workflow.
+- Workflow folders are named by what they produce or do, not who runs them.
+- Related workflows group under a domain-named parent folder (e.g., `documentation/doc-compound-learning/`, `documentation/doc-context-handoff/`).
+- Exception: `domcobb` command name is legacy, kept by design.
+
+## Structural Layout
+
+| Directory | Contains | Naming |
+|-----------|----------|--------|
+| `personas/` | Flat persona files — character sheets only | `{name}.md` |
+| `workflows/` | All workflow logic — standalone or domain-grouped | `{domain}/` or `{domain}/{sub-workflow}/` |
+| `skills/` | Thin loaders pointing to workflows | `{capability}/SKILL.md` |
+| `commands/` | Thin loaders — one per skill (except skill-only components) | `{name}.md` |
+| `tasks/` | Shared XML task specifications | `{name}.xml` |
+| `rules/` | Behavior rules (copied to target on install) | `{behavior}.md` |
+| `subagents/` | Claude Code dispatchable subagents | `{name}.md` |
 
 ## RBTV Component Pattern Compliance
 
@@ -37,14 +66,14 @@ Reference data for the create-component workflow. Defines size limits, required 
 | Terminal steps | `nextStepFile: null` for final steps |
 | HALT | Every step must end with menu + "HALT and WAIT" |
 
-## IDE Command Files (`_config/claude/commands/*.md`)
+## Command Files (`commands/*.md`)
 
 | Rule | Requirement |
 |------|-------------|
 | Size | 10-15 lines ideal, 20 max |
 | Pattern | Thin loader — zero logic |
 | Required frontmatter | `name`, `description` |
-| Content | Single LOAD instruction pointing to agent/workflow/task file |
+| Content | Single LOAD instruction pointing to persona/workflow/task file |
 | Paths | Use `{project-root}` (not `@{project-root}`) |
 
 ## Task Files (`tasks/*.xml`)
