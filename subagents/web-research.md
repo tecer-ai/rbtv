@@ -1,5 +1,5 @@
 ---
-name: web-research
+name: rbtv-web-research
 description: Conducts rigorous web research with source evaluation and citation standards. Use proactively when gathering factual information from the web. Returns verified findings with proper citations.
 model: inherit
 permissionMode: plan
