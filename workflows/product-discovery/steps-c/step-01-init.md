@@ -8,8 +8,6 @@ stateFile: 'discovery-state.md'
 stateTemplate: '../templates/discovery-state-template.md'
 taxonomyTemplate: '../templates/taxonomy-template.md'
 subAgentPrompts: '../data/sub-agent-prompts.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 1: Init + Taxonomy Discovery

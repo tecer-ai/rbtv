@@ -69,7 +69,7 @@ This framework generates images (logos, imagery examples) through AI image gener
 
 1. **Ask** the founder which AI image generation tool they prefer
 2. **Record** the preference in project-memo.md
-3. **Load** model/platform knowledge from DomCobb's prompting knowledge index at `{project-root}/_bmad/rbtv/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/knowledge-index.csv`
+3. **Load** model/platform knowledge from DomCobb's prompting knowledge index at `{rbtv_path}/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/knowledge-index.csv`
 4. **Generate prompts** optimized for the selected model/platform, incorporating brand context (archetype, colors, personality, positioning)
 5. **Present prompts** to the founder for generation in their preferred tool
 6. **Instruct** the founder where to save generated images

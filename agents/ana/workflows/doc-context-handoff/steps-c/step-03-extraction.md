@@ -3,7 +3,6 @@ stepNumber: 3
 stepName: 'extraction'
 nextStepFile: ./step-04-document.md
 outputFile: '{outputFolder}/{filename}.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 ---
 
 # Step 03: Context Extraction

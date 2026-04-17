@@ -83,8 +83,8 @@ Propose a structured output folder path and HALT for user approval before creati
 
 | pitch_type | Structure | Example |
 |------------|-----------|---------|
-| investor | `{bmad_output}/{project_name}/_fundraising/{round}/YYYY-MM-DD-{fund}/` | `_fundraising/seed/2026-03-17-sequoia/` |
-| client | `{bmad_output}/{project_name}/_clients/{client}/presentations/YYYY-MM-DD-{objective}/` | `_clients/acme-corp/presentations/2026-03-17-initial-demo/` |
+| investor | `{output_path}/{project_name}/_fundraising/{round}/YYYY-MM-DD-{fund}/` | `_fundraising/seed/2026-03-17-sequoia/` |
+| client | `{output_path}/{project_name}/_clients/{client}/presentations/YYYY-MM-DD-{objective}/` | `_clients/acme-corp/presentations/2026-03-17-initial-demo/` |
 
 Subfolders created inside the output folder:
 
@@ -99,13 +99,13 @@ HTML and PDF files (`pitch-deck.html`, `pitch-deck.pdf`) are saved at the output
 
 **If pitch_type = investor:**
 - Ask for round context (e.g., "seed", "series-a", "pre-seed") and target fund name
-- Propose: `{bmad_output}/{project_name}/_fundraising/{round}/YYYY-MM-DD-{fund}/`
+- Propose: `{output_path}/{project_name}/_fundraising/{round}/YYYY-MM-DD-{fund}/`
 - Use today's date for YYYY-MM-DD
 
 **If pitch_type = client:**
 - Use {target_client} from Section 2 (gathered below) — defer path proposal until after Section 2
 - Ask for meeting objective (e.g., "initial-demo", "technical-deep-dive", "proposal")
-- Propose: `{bmad_output}/{project_name}/_clients/{client}/presentations/YYYY-MM-DD-{objective}/`
+- Propose: `{output_path}/{project_name}/_clients/{client}/presentations/YYYY-MM-DD-{objective}/`
 - Use today's date for YYYY-MM-DD
 
 Present the proposed full path and HALT:

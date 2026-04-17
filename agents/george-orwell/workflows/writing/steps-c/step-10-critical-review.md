@@ -6,8 +6,6 @@ aiAntiPatterns: '../data/ai-anti-patterns.md'
 nextStepFile: './step-11-synthesis.md'
 workflowFile: '../workflow.md'
 
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 10: Critical Review

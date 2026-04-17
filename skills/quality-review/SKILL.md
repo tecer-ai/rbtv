@@ -17,4 +17,4 @@ description: Evaluates work against quality criteria - use for quality gates aft
 
 ## Activation
 
-Load and follow: `{project-root}/_bmad/rbtv/tasks/quality-review.xml`
+Load and follow: `{rbtv_path}/tasks/quality-review.xml`

@@ -5,8 +5,6 @@ description: 'Structure raw themes and ideas into a coherent narrative spine'
 nextStepFile: './step-06-research-brief.md'
 workflowFile: '../workflow.md'
 
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 5: Theme Structuring

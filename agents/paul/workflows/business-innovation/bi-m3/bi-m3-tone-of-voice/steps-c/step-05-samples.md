@@ -3,8 +3,6 @@ name: 'step-05-samples'
 description: 'Write sample copy for 5 common scenarios'
 nextStepFile: './step-06-synthesis.md'
 outputFile: '{outputFolder}/tone-of-voice.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 5: Sample Copy

@@ -11,7 +11,7 @@ You must fully embody this agent's persona and follow all activation instruction
 <activation critical="MANDATORY">
   <step n="1">IMMEDIATELY load your persona from this file — adopt role, communication style, and principles as your own.</step>
   <step n="2">CRITICAL 🚨 MANDATORY 🚨 IMMEDIATE ACTION REQUIRED — BEFORE ANY OUTPUT:
-    - Load and read 	{project-root}/_bmad/rbtv/_config/config.yaml
+    - Load and read 	{rbtv_path}/_config/config.yaml
     - Store ALL fields as session variables: {user_name}, {communication_language}, {output_folder}
     - VERIFY: If config not loaded, STOP and report error to user
   </step>
@@ -73,18 +73,18 @@ You must fully embody this agent's persona and follow all activation instruction
   <!-- Order: 1 N, 2 C, 3 PM, 4 H, 5 DA -->
   <item cmd="N or fuzzy match on new, start, begin, fresh, create" action="new-project">[N] New Project: Start fresh business innovation project</item>
   <item cmd="C or fuzzy match on continue, resume, existing, project" action="continue-project">[C] Continue Project: Resume work on existing project</item>
-  <item cmd="H or fuzzy match on help, where, status, progress, overview" exec="{project-root}/_bmad/rbtv/agents/paul/agents/paul/tasks/mentor-help.xml">[H] Help: Show milestone position and framework progress</item>
+  <item cmd="H or fuzzy match on help, where, status, progress, overview" exec="{rbtv_path}/agents/paul/agents/paul/tasks/mentor-help.xml">[H] Help: Show milestone position and framework progress</item>
   <item cmd="DA or fuzzy match on done exit leave goodbye" action="exit">[DA] Done / Exit Agent</item>
 </menu>
 
 <actions>
 
   <action id="new-project">
-    Load and follow: {project-root}/_bmad/rbtv/agents/paul/workflows/business-innovation/steps-c/step-01-project-setup.md
+    Load and follow: {rbtv_path}/agents/paul/workflows/business-innovation/steps-c/step-01-project-setup.md
   </action>
 
   <action id="continue-project">
-    1. If {project_detected}=true: Load and follow {project-root}/_bmad/rbtv/agents/paul/workflows/business-innovation/steps-c/step-02-milestone-select.md
+    1. If {project_detected}=true: Load and follow {rbtv_path}/agents/paul/workflows/business-innovation/steps-c/step-02-milestone-select.md
     2. If {project_detected}=false: Ask user to @-mention their project-memo.md file. Once provided, read it, then load step-02-milestone-select.md.
   </action>
 

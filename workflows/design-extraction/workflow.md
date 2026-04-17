@@ -1,7 +1,6 @@
 ---
 name: design-extraction
 description: 'Extract design tokens from a live website via multi-page navigation, DOM/CSS extraction, and visual analysis'
-main_config: '{project-root}/_bmad/rbtv/_config/config.yaml'
 nextStep: ./steps-c/step-01-init.md
 templateFiles:
   design-brief: ./templates/design-brief.md

@@ -5,8 +5,6 @@ description: 'Pressure-test the essay idea through targeted questioning'
 nextStepFile: './step-03-tone.md'
 workflowFile: '../workflow.md'
 
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 2B: Interview — Pressure-Test the Idea

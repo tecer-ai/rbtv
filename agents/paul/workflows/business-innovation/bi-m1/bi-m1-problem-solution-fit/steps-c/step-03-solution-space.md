@@ -3,8 +3,6 @@ name: 'step-03-solution-space'
 description: 'Articulate solution in context of observed behaviours and constraints'
 nextStepFile: './step-04-assumptions.md'
 outputFile: '{outputFolder}/problem-solution-fit.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Solution Articulation

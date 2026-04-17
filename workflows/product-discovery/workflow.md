@@ -1,7 +1,6 @@
 ---
 name: product-discovery
 description: 'Benchmark structuring → product map → V1 scope. Pre-BMM discovery for founders with market research but no product definition.'
-main_config: '{project-root}/_bmad/rbtv/_config/config.yaml'
 nextStep: ./steps-c/step-01-init.md
 ---
 
@@ -64,5 +63,5 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ## INITIALIZATION SEQUENCE
 
-1. Load module config: `{project-root}/_bmad/rbtv/_config/config.yaml`
+1. Load module config: `{rbtv_path}/_config/config.yaml`
 2. Load `{nextStep}` and follow its instructions exactly

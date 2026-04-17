@@ -3,8 +3,6 @@ name: 'step-02-identity'
 description: 'Compile Brand Identity section from all M3 framework outputs'
 nextStepFile: './step-03-visual.md'
 outputFile: '{outputFolder}/brandbook.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Brand Identity

@@ -3,8 +3,6 @@ name: 'step-04-application'
 description: 'Define archetype expression across voice, visuals, relationship, and content'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{outputFolder}/brand-archetypes.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Archetype Application

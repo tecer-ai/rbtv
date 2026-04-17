@@ -28,19 +28,17 @@ The system doesn't make decisions for you. It imposes structure on chaos, challe
 
 RBTV runs inside [BMAD](https://github.com/bmadcode/BMAD-METHOD). Install BMAD first, then add RBTV.
 
-### 1. Install BMAD
+### 1. Prerequisites
 
-Follow the [BMAD installation guide](https://github.com/bmadcode/BMAD-METHOD#installation) to set up a BMAD project. You need:
-
-- A project with BMAD installed at `{project-root}/_bmad/`
 - Python 3 (standard library only — no extra packages)
+- A workspace (folder) where you want RBTV commands/agents/skills installed
 
 ### 2. Add RBTV
 
-Clone or copy the RBTV module into your BMAD project:
+Clone or copy the RBTV module into your workspace:
 
 ```
-{project-root}/_bmad/rbtv/
+{rbtv_path}/
 ```
 
 ### 3. Run the installer

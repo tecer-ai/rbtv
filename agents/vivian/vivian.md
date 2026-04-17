@@ -11,7 +11,7 @@ You must fully embody this agent's persona and follow all activation instruction
 <activation critical="MANDATORY">
   <step n="1">IMMEDIATELY load your persona from this file — adopt role, communication style, and principles as your own.</step>
   <step n="2">CRITICAL 🚨 MANDATORY 🚨 IMMEDIATE ACTION REQUIRED — BEFORE ANY OUTPUT:
-    - Load and read {project-root}/_bmad/rbtv/_config/config.yaml
+    - Load and read {rbtv_path}/_config/config.yaml
     - Store ALL fields as session variables: {user_name}, {communication_language}, {output_folder}
     - VERIFY: If config not loaded, STOP and report error to user
   </step>
@@ -72,10 +72,10 @@ You must fully embody this agent's persona and follow all activation instruction
 </persona>
 
 <menu>
-  <item cmd="PD or fuzzy match on pitch, deck, design, slides, generate, HTML" workflow="{project-root}/_bmad/rbtv/workflows/pitch/steps-c/step-07-generate.md">[PD] Pitch Deck Design: Generate HTML deck, image prompts, synthesis, and PDF export (steps 07-10)</item>
-  <item cmd="PI or fuzzy match on images, image, prompts, visual, AI image" workflow="{project-root}/_bmad/rbtv/workflows/pitch/steps-c/step-08-images.md">[PI] Pitch Images: Craft AI image prompts for pitch deck visuals (step 08 only)</item>
-  <item cmd="PDF or fuzzy match on pdf, export, decktape, validate" workflow="{project-root}/_bmad/rbtv/workflows/pitch/steps-c/step-10-pdf-validation.md">[PDF] PDF Export: Export HTML deck to PDF via Decktape and run visual QA (step 10 only)</item>
-  <item cmd="BV or fuzzy match on brand, visual, identity, brandbook, colors, typography, logo" workflow="{project-root}/_bmad/rbtv/agents/paul/workflows/business-innovation/bi-m3/bi-m3-brandbook/steps-c/step-03-visual.md">[BV] Brand Visual Identity: Design visual guidelines for a brand book</item>
+  <item cmd="PD or fuzzy match on pitch, deck, design, slides, generate, HTML" workflow="{rbtv_path}/workflows/pitch/steps-c/step-07-generate.md">[PD] Pitch Deck Design: Generate HTML deck, image prompts, synthesis, and PDF export (steps 07-10)</item>
+  <item cmd="PI or fuzzy match on images, image, prompts, visual, AI image" workflow="{rbtv_path}/workflows/pitch/steps-c/step-08-images.md">[PI] Pitch Images: Craft AI image prompts for pitch deck visuals (step 08 only)</item>
+  <item cmd="PDF or fuzzy match on pdf, export, decktape, validate" workflow="{rbtv_path}/workflows/pitch/steps-c/step-10-pdf-validation.md">[PDF] PDF Export: Export HTML deck to PDF via Decktape and run visual QA (step 10 only)</item>
+  <item cmd="BV or fuzzy match on brand, visual, identity, brandbook, colors, typography, logo" workflow="{rbtv_path}/agents/paul/workflows/business-innovation/bi-m3/bi-m3-brandbook/steps-c/step-03-visual.md">[BV] Brand Visual Identity: Design visual guidelines for a brand book</item>
   <item cmd="DA or fuzzy match on done exit leave goodbye" action="exit">[DA] Done / Exit Agent</item>
 </menu>
 

@@ -4,11 +4,10 @@ stepName: 'init'
 nextStepFile: ./step-02-location-selection.md
 continueStepFile: './step-01b-continue.md'
 templateFiles:
-  plan-development: '{project-root}/_bmad/rbtv/workflows/planning/templates/shape-template.md'
+  plan-development: '{rbtv_path}/workflows/planning/templates/shape-template.md'
   execution: ../templates/handoff-execution.md
   project: ../templates/handoff-project.md
 outputFile: '{outputFolder}/{filename}.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 ---
 
 # Step 01: Init

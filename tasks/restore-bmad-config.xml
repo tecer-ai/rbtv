@@ -4,7 +4,7 @@
       description="Restore BMAD module config to default values after RBTV workflow completion">
 
   <objective>
-    Restore a BMAD module's config.yaml file (e.g., bmm/config.yaml) to its default output folder paths, reverting changes made by update-bmad-config task. This allows BMAD to return to its standard root {bmad_output} folder after RBTV project-specific workflows complete.
+    Restore a BMAD module's config.yaml file (e.g., bmm/config.yaml) to its default output folder paths, reverting changes made by update-bmad-config task. This allows BMAD to return to its standard root {output_path} folder after RBTV project-specific workflows complete.
   </objective>
 
   <llm critical="true">
@@ -24,7 +24,7 @@
         <action>Set target_module to "bmm" if not provided.</action>
       </substep>
       <substep n="1b" title="Locate Config File">
-        <action>Resolve config path: {project-root}/_bmad/{target_module}/config.yaml</action>
+        <action>Resolve config path: {bmad_install_path}/{target_module}/config.yaml</action>
         <action>Verify the config file exists at this path.</action>
         <check if="config file not found">
           <action>HALT: Report that config file does not exist. Cannot restore.</action>
@@ -35,9 +35,9 @@
     <step n="2" title="Restore Default Values">
       <substep n="2a" title="Set Standard BMAD Defaults">
         <action>Define default values for BMAD module config:</action>
-        <action>- output_folder: "{bmad_output}"</action>
-        <action>- planning_artifacts: "{bmad_output}/{project-name}/planning-artifacts"</action>
-        <action>- implementation_artifacts: "{bmad_output}/{project-name}/implementation-artifacts"</action>
+        <action>- output_folder: "{output_path}"</action>
+        <action>- planning_artifacts: "{output_path}/{project-name}/planning-artifacts"</action>
+        <action>- implementation_artifacts: "{output_path}/{project-name}/implementation-artifacts"</action>
       </substep>
       <substep n="2b" title="Read Current Config">
         <action>Read the current config.yaml file.</action>
@@ -46,7 +46,7 @@
       <substep n="2c" title="Write Restored Config">
         <action>Replace output_folder, planning_artifacts, and implementation_artifacts with default values.</action>
         <action>Preserve all other config values and formatting.</action>
-        <action>Write updated config back to {project-root}/_bmad/{target_module}/config.yaml</action>
+        <action>Write updated config back to {bmad_install_path}/{target_module}/config.yaml</action>
       </substep>
     </step>
 
@@ -58,9 +58,9 @@
       <substep n="3b" title="Report Success">
         <action>Output confirmation message:</action>
         <action>"✅ BMAD {target_module} config restored to defaults"</action>
-        <action>"   Output folder: {bmad_output}"</action>
-        <action>"   Planning artifacts: {bmad_output}/{project-name}/planning-artifacts"</action>
-        <action>"   Implementation artifacts: {bmad_output}/{project-name}/implementation-artifacts"</action>
+        <action>"   Output folder: {output_path}"</action>
+        <action>"   Planning artifacts: {output_path}/{project-name}/planning-artifacts"</action>
+        <action>"   Implementation artifacts: {output_path}/{project-name}/implementation-artifacts"</action>
         <action>"   BMAD workflows will now use standard root output folder."</action>
       </substep>
     </step>

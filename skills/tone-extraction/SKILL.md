@@ -18,4 +18,4 @@ description: Extract voice signature from text across emotional tone, structural
 
 ## Activation
 
-Load and follow: `{project-root}/_bmad/rbtv/tasks/tone-extraction.xml`
+Load and follow: `{rbtv_path}/tasks/tone-extraction.xml`

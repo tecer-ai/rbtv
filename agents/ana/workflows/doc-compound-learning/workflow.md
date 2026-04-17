@@ -1,13 +1,10 @@
 ---
 name: 'compound-workflow'
 description: 'Create backlog PRDs documenting system improvements'
-main_config: '	{project-root}/_bmad/rbtv/_config/config.yaml'
 nextStep: ./steps-c/step-01-init.md
-validateWorkflow: ./steps-v/step-01-init.md
 editWorkflow: ./steps-e/step-01-init.md
 templateFile: ./templates/compound-prd.md
-outputFolder: '{project-root}/_bmad/rbtv/_admin/roadmap/todos'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+outputFolder: '{rbtv_path}/_admin/roadmap/todos'
 ---
 
 # Compound Workflow

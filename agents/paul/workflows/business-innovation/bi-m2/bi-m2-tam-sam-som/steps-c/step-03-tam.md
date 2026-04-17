@@ -3,8 +3,6 @@ name: 'step-03-tam'
 description: 'Calculate Total Addressable Market using top-down and bottom-up methods'
 nextStepFile: './step-04-sam.md'
 outputFile: '{outputFolder}/tam-sam-som.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Calculate TAM

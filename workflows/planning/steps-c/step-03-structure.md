@@ -4,8 +4,6 @@ stepName: 'structure'
 nextStepFile: ./step-04-generate-artifacts.md
 outputFile: '{outputFolder}/{plan-name}/{plan-name}.plan.md'
 dataFile: ../data/plan-creation-rules.md
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 03: Create Plan Structure

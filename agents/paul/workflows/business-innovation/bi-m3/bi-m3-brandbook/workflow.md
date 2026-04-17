@@ -2,8 +2,7 @@
 name: 'bi-m3-brandbook'
 description: 'Compile all M3 brand frameworks into a comprehensive brandbook with visual identity'
 nextStep: ./steps-c/step-01-init.md
-parentWorkflow: ../workflow.md
-outputFolder: '{bmad_output}/{project-name}/business-innovation/m3-brand'
+outputFolder: '{output_path}/{project-name}/business-innovation/m3-brand'
 outputFile: brandbook.md
 ---
 
@@ -97,4 +96,4 @@ Framework is complete when:
 
 | File | Purpose | When to Load |
 |------|---------|--------------|
-| {project-root}/_bmad/rbtv/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/knowledge-index.csv | AI model/platform knowledge for image prompts | Step 03 |
+| {rbtv_path}/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/knowledge-index.csv | AI model/platform knowledge for image prompts | Step 03 |

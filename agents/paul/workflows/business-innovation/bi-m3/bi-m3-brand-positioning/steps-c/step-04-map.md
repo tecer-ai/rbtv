@@ -3,8 +3,6 @@ name: 'step-04-map'
 description: 'Create perceptual map with competitor positions and white space analysis'
 nextStepFile: './step-05-test.md'
 outputFile: '{outputFolder}/brand-positioning.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Create Perceptual Map

@@ -3,9 +3,7 @@ name: 'step-03-visual'
 description: 'Create Visual Guidelines with AI image prompts for logo, imagery, and iconography'
 nextStepFile: './step-04-messaging.md'
 outputFile: '{outputFolder}/brandbook.md'
-promptingKnowledgeIndex: '{project-root}/_bmad/rbtv/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/knowledge-index.csv'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
+promptingKnowledgeIndex: '{rbtv_path}/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/knowledge-index.csv'
 ---
 
 # Step 3: Visual Guidelines

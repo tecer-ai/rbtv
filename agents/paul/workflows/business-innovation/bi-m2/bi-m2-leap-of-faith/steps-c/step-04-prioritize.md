@@ -3,8 +3,6 @@ name: 'step-04-prioritize'
 description: 'Score assumptions by impact x uncertainty, identify top 5-10 leap-of-faith bets'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{outputFolder}/leap-of-faith.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Prioritize Assumptions

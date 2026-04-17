@@ -41,7 +41,7 @@ description: '{description}. Use when {trigger conditions}.'
 ## Activation
 
 <agent-activation CRITICAL="TRUE">
-1. LOAD the FULL agent file from {project-root}/_bmad/{module}/agents/{agent-id}.md
+1. LOAD the FULL agent file from {rbtv_path}/agents/{agent-id}.md
 2. READ its entire contents
 3. FOLLOW every step in the <activation> section precisely
 4. After activation, process the user's request using the agent's menu handlers
@@ -76,7 +76,7 @@ description: '{description}. Use when {trigger conditions}.'
 
 ## Activation
 
-Load and follow: `{project-root}/_bmad/{module}/{type}/{path}`
+Load and follow: `{rbtv_path}/{type}/{path}`
 ```
 
 ### Thin Loader Design Decisions
@@ -112,7 +112,7 @@ readonly: false
 You are the **{name}** cursor sub-agent — {role description} running in fresh context.
 
 <agent-activation CRITICAL="TRUE">
-1. LOAD the FULL agent file from {project-root}/_bmad/{module}/agents/{agent-id}.md
+1. LOAD the FULL agent file from {rbtv_path}/agents/{agent-id}.md
 2. READ its entire contents
 3. FOLLOW every step in the <activation> section precisely
 4. After activation, process the user's request using the agent's menu handlers
@@ -141,7 +141,7 @@ readonly: {true if read-only, false if writes files}
 
 You are the **{name}** cursor sub-agent — {role description} running in fresh context.
 
-**IMMEDIATELY** load and execute: `{project-root}/_bmad/{module}/{type}/{path}`
+**IMMEDIATELY** load and execute: `{rbtv_path}/{type}/{path}`
 
 Follow the {workflow|task} exactly. {Brief scope statement}.
 

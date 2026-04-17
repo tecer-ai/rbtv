@@ -34,11 +34,11 @@
         </check>
       </substep>
       <substep n="1b" title="Read Compatibility Manifest">
-        <action>Read {project-root}/_bmad/rbtv/bmad-compat.yaml — this is the authoritative list of touchpoints to verify.</action>
+        <action>Read {rbtv_path}/bmad-compat.yaml — this is the authoritative list of touchpoints to verify.</action>
         <action>Note current bmad_target_version and bmad_min_version from the manifest.</action>
       </substep>
       <substep n="1c" title="Determine Verification Method">
-        <action>Read {project-root}/_bmad/_config/manifest.yaml to find the currently installed BMAD version.</action>
+        <action>Read {bmad_install_path}/_config/manifest.yaml to find the currently installed BMAD version.</action>
         <check if="installed BMAD version matches target_bmad_version">
           <action>Primary method: check file existence and structure directly in the BMAD installation.</action>
         </check>
@@ -97,7 +97,7 @@
         </check>
       </substep>
       <substep n="6b" title="Write Report File">
-        <action>Load report template from {project-root}/_bmad/rbtv/tasks/data/bmad-compat-report-template.md</action>
+        <action>Load report template from {rbtv_path}/tasks/data/bmad-compat-report-template.md</action>
         <action>Fill in: evaluation date, RBTV version, current BMAD version, target BMAD version, overall verdict, touchpoint results table, recommended actions.</action>
         <action>Save report to: {project-root}/_admin-output/planning-artifacts/bmad-compat-report-{target_bmad_version}.md</action>
       </substep>

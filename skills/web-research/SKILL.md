@@ -17,4 +17,4 @@ description: Apply rigorous research standards for data integrity, source evalua
 
 ## Activation
 
-Load and follow: `{project-root}/_bmad/rbtv/tasks/web-research.xml`
+Load and follow: `{rbtv_path}/tasks/web-research.xml`

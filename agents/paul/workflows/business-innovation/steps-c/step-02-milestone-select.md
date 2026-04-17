@@ -2,7 +2,7 @@
 stepNumber: 2
 stepName: 'milestone-route'
 knowledgeFile: ../data/founder-process.md
-projectMemo: '{bmad_output}/{project-name}/business-innovation/project-memo.md'
+projectMemo: '{output_path}/{project-name}/business-innovation/project-memo.md'
 ---
 
 # Step 02: Milestone Route
@@ -65,7 +65,7 @@ Read `{projectMemo}` frontmatter to understand:
 
 ### 3. Route Immediately
 
-1. Resolve the workflow path for the target milestone (replace `../` with the actual path from `{project-root}/_bmad/rbtv/agents/paul/workflows/business-innovation/` so that bi-m1 → `{project-root}/_bmad/rbtv/agents/paul/workflows/business-innovation/bi-m1/workflow.md`).
+1. Resolve the workflow path for the target milestone (replace `../` with the actual path from `{rbtv_path}/agents/paul/workflows/business-innovation/` so that bi-m1 → `{rbtv_path}/agents/paul/workflows/business-innovation/bi-m1/workflow.md`).
 2. Load that workflow file and follow its instructions.
 3. Do not present a milestone menu. Do not HALT for milestone selection.
 

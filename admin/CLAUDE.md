@@ -8,7 +8,7 @@
 
 ## Repository Identity
 
-This repo is the **RBTV module**. It is designed to run installed inside a parent system called **BMAD**, at the path `{project-root}/_bmad/rbtv/`.
+This repo is the **RBTV module**. It is designed to run installed inside a parent system called **BMAD**, at the path `{rbtv_path}/`.
 
 RBTV files use `{project-root}` as a placeholder referencing the BMAD installation root. Always preserve these placeholders as-is when editing.
 
@@ -28,12 +28,10 @@ When upgrading RBTV to a new BMAD version, the target BMAD installation is place
 
 RBTV uses path variables from `_config/config.yaml` (`paths:` section). Use these in all cross-module references:
 
-| Variable | Installed BMAD value | Admin (standalone) value |
+| Variable | Installed value | Admin (standalone) value |
 |---|---|---|
-| `{bmad_core}` | `{project-root}/_bmad/core` | `_admin/docs/BMAD-mirror/_bmad/core` |
-| `{bmad_bmm}` | `{project-root}/_bmad/bmm` | `_admin/docs/BMAD-mirror/_bmad/bmm` |
-| `{bmad_rbtv}` | `{project-root}/_bmad/rbtv` | `.` (rbtv root) |
-| `{bmad_output}` | `{project-root}/{output-folder}` (read from BMAD `core/config.yaml`) | `_admin-output` |
+| `{rbtv_path}` | target-resolved (RBTV install root) | `.` (rbtv root) |
+| `{output_path}` | target-resolved output folder | `_admin-output` |
 
 **Admin mode overrides** are declared in `_admin/.claude/rules/admin-rbtv-bmad-mirror.md`.
 
@@ -41,7 +39,7 @@ For `{project-root}` direct references in admin mode:
 
 | Reference | Resolves to |
 |---|---|
-| `{project-root}/_bmad/rbtv/...` | `./...` (this repo's root) |
+| `{rbtv_path}/...` | `./...` (this repo's root) |
 | `{project-root}/.cursor/...` | `./.cursor/...` (admin-installed IDE config) |
 
 ## Installation

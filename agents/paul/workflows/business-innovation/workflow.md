@@ -1,10 +1,9 @@
 ---
 name: 'bi-business-innovation'
-main_config: '{project-root}/_bmad/rbtv/_config/config.yaml'
 description: 'Guide users through 6-milestone business innovation lifecycle from idea to MVP'
 newProjectStep: ./steps-c/step-01-project-setup.md
 continueProjectStep: ./steps-c/step-02-milestone-select.md
-outputFolder: '{bmad_output}/{project-name}/business-innovation'
+outputFolder: '{output_path}/{project-name}/business-innovation'
 projectMemoTemplate: ./templates/project-memo.md
 knowledgeFile: ./data/founder-process.md
 ---
@@ -66,7 +65,7 @@ When invoked via Mentor agent:
 3. Mentor loads the appropriate step file directly
 
 When invoked directly (without Mentor):
-1. Load module config: `	{project-root}/_bmad/rbtv/_config/config.yaml`
+1. Load module config: `	{rbtv_path}/_config/config.yaml`
 2. If new project: Load `{newProjectStep}`
 3. If continuing: Load `{continueProjectStep}` (requires project-memo in context)
 

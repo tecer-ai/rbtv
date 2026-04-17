@@ -12,7 +12,6 @@ name: {workflow-name}
 description: {one-line description}
 web_bundle: true
 nextStep: ./steps-c/step-01-init.md
-validateWorkflow: ./steps-v/step-01-init.md
 editWorkflow: ./steps-e/step-01-init.md
 ---
 
@@ -62,12 +61,13 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ---
 
-## INITIALIZATION SEQUENCE
+## Initialization
 
-1. Load module config: `{project-root}/_bmad/{module}/config.yaml`
-2. Determine mode from user intent or frontmatter
-3. Load the first step file for the selected mode
-4. Follow step instructions exactly
+1. If `_system/user/profile/preferences.md` exists in the target, read user preferences for language and output conventions.
+2. Determine output destination from the workflow's `outputFile` / `outputFolder` frontmatter. If it contains the literal string `ASK-CLAUDE-MD`, read the target's `CLAUDE.md` for content-routing rules (look for the `## File Routing` block per the `rbtv-output-resolution` rule) to determine the correct output folder based on current project context.
+3. Determine mode from user intent or frontmatter
+4. Load the first step file for the selected mode
+5. Follow step instructions exactly
 ```
 
 ---

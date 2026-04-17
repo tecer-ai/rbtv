@@ -49,7 +49,7 @@ Derive a URL-friendly slug from the title (lowercase, hyphens, no special charac
 
 ### 2. Check for Existing Output
 
-Construct path: `{bmad_output}/{essay-slug}/essay.md`
+Construct path: `{output_path}/{essay-slug}/essay.md`
 
 - If file exists and has frontmatter with `stepsCompleted`: **STOP** — load and execute `{continueStepFile}` immediately
 - If file exists AND all steps complete: ask user to create new (with timestamp suffix) or modify existing
@@ -58,10 +58,10 @@ Construct path: `{bmad_output}/{essay-slug}/essay.md`
 ### 3. Fresh Workflow Setup
 
 #### A. Create Output Directory
-Create directory at `{bmad_output}/{essay-slug}/`
+Create directory at `{output_path}/{essay-slug}/`
 
 #### B. Create Output Document
-Copy template from `{templateFile}` to `{bmad_output}/{essay-slug}/essay.md`.
+Copy template from `{templateFile}` to `{output_path}/{essay-slug}/essay.md`.
 Replace placeholders: `{essay-title}`, `{essay-slug}`, `{date}`, `{user_name}`.
 Initialize frontmatter:
 ```yaml

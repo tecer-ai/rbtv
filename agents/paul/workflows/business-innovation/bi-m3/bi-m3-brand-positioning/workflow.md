@@ -2,8 +2,7 @@
 name: 'bi-m3-brand-positioning'
 description: 'Craft positioning statement and perceptual map defining unique market position'
 nextStep: ./steps-c/step-01-init.md
-parentWorkflow: ../workflow.md
-outputFolder: '{bmad_output}/{project-name}/business-innovation/m3-brand'
+outputFolder: '{output_path}/{project-name}/business-innovation/m3-brand'
 outputFile: brand-positioning.md
 ---
 

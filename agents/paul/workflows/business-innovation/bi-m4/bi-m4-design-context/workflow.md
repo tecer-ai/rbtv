@@ -2,8 +2,7 @@
 name: 'bi-m4-design-context'
 description: 'Bridge workflow: collect M1–M3 and User Flow & IA context, format for BMAD create-ux-design, invoke BMAD, integrate design output into project-memo'
 nextStep: ./steps-c/step-01-init.md
-parentWorkflow: ../workflow.md
-outputFolder: '{bmad_output}/{project-name}/business-innovation/m4-prototypation'
+outputFolder: '{output_path}/{project-name}/business-innovation/m4-prototypation'
 ---
 
 # M4 Design Context Bridge Workflow
@@ -61,10 +60,10 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ---
 
-## BMAD WORKFLOW PATH
+## Delegated Skill
 
-- **Path:** `{bmad_bmm}/workflows/2-plan-workflows/create-ux-design/workflow.md`
-- Step 3 instructs loading this workflow with the prepared design-context document as input.
+- **Skill:** `bmad-method-lifecycle:bmad-create-ux-design`
+- Step 3 instructs invoking this skill with the prepared design-context document as input.
 
 ---
 

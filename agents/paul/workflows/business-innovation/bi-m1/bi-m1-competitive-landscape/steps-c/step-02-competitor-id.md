@@ -3,8 +3,6 @@ name: 'step-02-competitor-id'
 description: 'Identify direct and indirect competitors via web research'
 nextStepFile: './step-03-benchmarking.md'
 outputFile: '{outputFolder}/competitive-landscape.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Competitor Identification

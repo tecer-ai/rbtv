@@ -4,7 +4,7 @@ stepName: 'generate-artifacts'
 nextStepFile: ./step-05-create-plan.md
 outputFile: '{outputFolder}/{plan-name}/{plan-name}.plan.md'
 microstepTemplateFile: ../templates/plan-task-microstep-template.md
-shapeTemplateFile: '{project-root}/_bmad/rbtv/workflows/_shared/templates/shape-template.md'
+shapeTemplateFile: '{rbtv_path}/workflows/_shared/templates/shape-template.md'
 learningsTemplateFile: ../templates/learnings-template.md
 ---
 

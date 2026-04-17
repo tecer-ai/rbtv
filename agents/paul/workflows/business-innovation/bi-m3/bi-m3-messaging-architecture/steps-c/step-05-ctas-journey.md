@@ -3,8 +3,6 @@ name: 'step-05-ctas-journey'
 description: 'Map calls-to-action to customer journey stages'
 nextStepFile: './step-06-synthesis.md'
 outputFile: '{outputFolder}/messaging-architecture.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 5: Define CTAs & Journey Mapping

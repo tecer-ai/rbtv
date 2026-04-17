@@ -2,8 +2,6 @@
 stepNumber: 5
 stepName: v1-scoping
 description: 'Cut V1 scope from the product landscape and prepare handoff to BMM'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 5: V1 Scoping

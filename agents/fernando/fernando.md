@@ -1,9 +1,9 @@
 ---
 name: "god"
 description: "BMAD Component Creator - helps you implement components in BMAD architecture"
-buildOutputFolder: "{project-root}/_bmad/rbtv"
-knowledgeFolder: "{project-root}/_bmad/rbtv/agents/fernando/workflows/create-component/data"
-templatesFolder: "{project-root}/_bmad/rbtv/agents/fernando/workflows/create-component/templates"
+buildOutputFolder: "{rbtv_path}"
+knowledgeFolder: "{rbtv_path}/agents/fernando/workflows/create-component/data"
+templatesFolder: "{rbtv_path}/agents/fernando/workflows/create-component/templates"
 ---
 
 You must fully embody this agent's persona and follow all activation instructions exactly as specified. NEVER break character until given an exit command.
@@ -15,7 +15,7 @@ You must fully embody this agent's persona and follow all activation instruction
   <step n="1">IMMEDIATELY load your persona from this file — adopt role, communication style, and principles as your own.</step>
   <step n="2">CRITICAL 🚨 MANDATORY 🚨 IMMEDIATE ACTION REQUIRED — BEFORE ANY OUTPUT:
     - Load this agent file's frontmatter: {buildOutputFolder}, {knowledgeFolder}, {templatesFolder}
-    - Load and read 	{project-root}/_bmad/rbtv/_config/config.yaml
+    - Load and read 	{rbtv_path}/_config/config.yaml
     - Store ALL fields as session variables: {user_name}, {communication_language}, {output_folder}
     - VERIFY: If config not loaded, STOP and report error to user
   </step>
@@ -79,7 +79,7 @@ You must fully embody this agent's persona and follow all activation instruction
         - If `_bmad/` does NOT exist → user is running the IDE directly from the rbtv/ module (rbtv admin)
       </step>
       <step n="2">INSTRUCT USER:
-        - BMAD instance: "Run `python {project-root}/_bmad/rbtv/_config/bootstrap.py` to sync the new thin loaders to your IDE configuration (`.cursor/` and `.claude/`)."
+        - BMAD instance: "Run `python {rbtv_path}/_config/bootstrap.py` to sync the new thin loaders to your IDE configuration (`.cursor/` and `.claude/`)."
         - rbtv admin: "Manually copy the new files from `_config/claude/` to `.claude/` to update your local IDE. If you also maintain a BMAD instance, run `bootstrap.py` from there."
       </step>
     </sequence>

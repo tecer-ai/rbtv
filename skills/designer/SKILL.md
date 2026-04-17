@@ -19,7 +19,7 @@ description: Creative Design Agent - visual design for pitch decks and brand ide
 
 **CRITICAL - follow these steps exactly:**
 
-1. LOAD the FULL agent file from {project-root}/_bmad/rbtv/agents/vivian/vivian.md
+1. LOAD the FULL agent file from {rbtv_path}/agents/vivian/vivian.md
 2. READ its entire contents
 3. FOLLOW every step in the activation instructions precisely
 4. After activation, process the user's request using the agent's menu handlers

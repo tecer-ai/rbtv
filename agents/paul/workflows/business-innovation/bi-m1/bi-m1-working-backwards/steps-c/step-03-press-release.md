@@ -3,8 +3,6 @@ name: 'step-03-press-release'
 description: 'Draft customer-facing press release answering four core questions'
 nextStepFile: './step-04-faq.md'
 outputFile: '{outputFolder}/working-backwards.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Draft Press Release

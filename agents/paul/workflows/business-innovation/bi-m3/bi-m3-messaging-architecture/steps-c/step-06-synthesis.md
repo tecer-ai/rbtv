@@ -3,8 +3,6 @@ name: 'step-06-synthesis'
 description: 'Validate, compile final document, and update project-memo.md'
 nextStepFile: null
 outputFile: '{outputFolder}/messaging-architecture.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 6: Synthesis
@@ -212,7 +210,7 @@ Record responses in a "Key Decisions and Learnings" section:
 ### 5. Deduplication Verification
 
 Before writing the synthesis output, verify:
-1. Read the content ownership mapping in `{bmad_rbtv}/agents/paul/workflows/business-innovation/data/founder-process.md` for M3.
+1. Read the content ownership mapping in `{rbtv_path}/agents/paul/workflows/business-innovation/data/founder-process.md` for M3.
 2. For each concept this framework does NOT own: confirm the synthesis output references the owning framework's definition rather than restating it.
 3. New insights and deltas are permitted — full restatements are not.
 4. If duplication is found, rewrite the affected section to use the `## Prior Context` reference format.

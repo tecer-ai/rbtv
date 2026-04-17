@@ -3,8 +3,6 @@ name: 'step-03-classify'
 description: 'Sort assumptions into Value vs Growth hypotheses with sub-categories'
 nextStepFile: './step-04-prioritize.md'
 outputFile: '{outputFolder}/leap-of-faith.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Classify Assumptions

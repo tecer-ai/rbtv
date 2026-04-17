@@ -5,8 +5,6 @@ description: 'Write the essay with critical layer active — fallacies, clichés
 nextStepFile: './step-09-visual-planning.md'
 workflowFile: '../workflow.md'
 
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 8: Drafting

@@ -1,16 +1,13 @@
 ---
 name: 'handoff-workflow'
 description: 'Create context transfer summaries for agent continuity'
-main_config: '	{project-root}/_bmad/rbtv/_config/config.yaml'
 nextStep: ./steps-c/step-01-init.md
-validateWorkflow: ./steps-v/step-01-init.md
 editWorkflow: ./steps-e/step-01-init.md
 templateFiles:
-  plan-development: '{project-root}/_bmad/rbtv/workflows/planning/templates/shape-template.md'
+  plan-development: '{rbtv_path}/workflows/planning/templates/shape-template.md'
   execution: ./templates/handoff-execution.md
   project: ./templates/handoff-project.md
-outputFolder: '{bmad_output}/handoffs'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
+outputFolder: '{output_path}/handoffs'
 ---
 
 # Handoff Workflow

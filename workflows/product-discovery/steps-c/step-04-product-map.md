@@ -3,8 +3,6 @@ stepNumber: 4
 stepName: product-map
 description: 'Build the founder''s product vision through provocative elicitation, not benchmark copying'
 nextStepFile: './step-05-v1-scoping.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Product Map

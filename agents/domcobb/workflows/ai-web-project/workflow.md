@@ -1,6 +1,5 @@
 ---
 name: ai-web-project
-main_config: '{project-root}/_bmad/rbtv/_config/config.yaml'
 description: Create a complete AI assistant project for ChatGPT, Claude, Gemini, or Manus
 nextStep: ./steps-c/step-01-init.md
 ---
@@ -54,7 +53,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 | File | Contains |
 |------|----------|
 | `data/platform-decision-framework.md` | Platform strengths, tradeoffs, and recommendation signals |
-| Prompting knowledge (shared) | `{project-root}/_bmad/rbtv/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/` — model docs, techniques, platform knowledge |
+| Prompting knowledge (shared) | `{rbtv_path}/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/` — model docs, techniques, platform knowledge |
 
 **Loading Pattern:**
 1. Load `data/platform-decision-framework.md` during Step 2 (platform selection)
@@ -64,6 +63,6 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ## INITIALIZATION SEQUENCE
 
-1. Load module config: `{project-root}/_bmad/rbtv/_config/config.yaml`
+1. Load module config: `{rbtv_path}/_config/config.yaml`
 2. Load the first step file
 3. Follow step instructions exactly

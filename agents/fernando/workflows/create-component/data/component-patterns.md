@@ -11,7 +11,7 @@ Reference data for the create-component workflow. Defines size limits, required 
 | Size | 55-76 lines recommended, 100 max |
 | Structure | XML-in-markdown with `<agent>` root tag |
 | Required sections | `<activation>`, `<menu-handlers>`, `<rules>`, `<persona>`, `<menu>` |
-| Config loading | Activation must load `{project-root}/_bmad/rbtv/_config/config.yaml` |
+| Config loading | Activation must load `{rbtv_path}/_config/config.yaml` |
 | WAIT instruction | Menu must include explicit "WAIT for input" |
 | Paths | All paths use `{project-root}` variables, never relative (`../`) |
 | Persona structure | `<role>`, `<identity>`, `<communication_style>`, `<principles>` |
@@ -22,10 +22,9 @@ Reference data for the create-component workflow. Defines size limits, required 
 |------|-------------|
 | Size | 60-80 lines recommended, 120 max |
 | Required frontmatter | `name`, `description`, `nextStep` |
-| Config frontmatter | **MUST** declare `main_config: '{project-root}/_bmad/rbtv/_config/config.yaml'` if the workflow uses config — frontmatter ONLY, never body text |
-| Optional frontmatter | `parentWorkflow`, `outputFolder`, `validateWorkflow`, `editWorkflow` |
-| Forbidden frontmatter | `workflow_path`, `thisStepFile` |
-| Cross-module paths | Use `{bmad_core}`, `{bmad_bmm}`, `{bmad_rbtv}`, `{bmad_output}` variables — never `{project-root}/_bmad/core/` etc. directly |
+| Optional frontmatter | `outputFolder`, `editWorkflow` |
+| Forbidden frontmatter | `workflow_path`, `thisStepFile`, `main_config`, `parentWorkflow`, `validateWorkflow` |
+| Paths | Use `{rbtv_path}` and `{output_path}` placeholders — never absolute paths or hardcoded folders |
 
 ## Step Files (`workflows/*/steps-*/step-*.md`)
 
@@ -61,7 +60,7 @@ Reference data for the create-component workflow. Defines size limits, required 
 
 | Violation | Fix |
 |-----------|-----|
-| Relative paths in agents (`../workflows/`) | Use `{project-root}/_bmad/rbtv/workflows/` |
+| Relative paths in agents (`../workflows/`) | Use `{rbtv_path}/workflows/` |
 | `@{project-root}` prefix in commands | Remove `@` prefix |
 | Logic in command files | Extract to task/agent file, make command a thin loader |
 | Agent exceeds 100 lines | Externalize protocols/actions to data files |

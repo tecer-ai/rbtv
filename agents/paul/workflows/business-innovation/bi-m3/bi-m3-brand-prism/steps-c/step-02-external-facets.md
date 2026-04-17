@@ -3,8 +3,6 @@ name: 'step-02-external-facets'
 description: 'Define sender facets: Physique, Personality, Culture'
 nextStepFile: './step-03-internal-facets.md'
 outputFile: '{outputFolder}/brand-prism.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: External Facets

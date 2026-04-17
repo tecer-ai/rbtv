@@ -2,8 +2,7 @@
 name: 'bi-m1-working-backwards'
 description: 'Define customer and problem through Working Backwards (PR/FAQ) methodology'
 nextStep: ./steps-c/step-01-init.md
-parentWorkflow: ../workflow.md
-outputFolder: '{bmad_output}/{project-name}/business-innovation/m1-conception'
+outputFolder: '{output_path}/{project-name}/business-innovation/m1-conception'
 outputFile: working-backwards.md
 ---
 

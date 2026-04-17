@@ -3,8 +3,6 @@ name: 'step-04-adjustments'
 description: 'Create context-specific tone adjustment matrix'
 nextStepFile: './step-05-samples.md'
 outputFile: '{outputFolder}/tone-of-voice.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Context Adjustments

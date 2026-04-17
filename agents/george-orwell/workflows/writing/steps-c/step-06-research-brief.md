@@ -5,10 +5,8 @@ description: 'Generate research document with specific questions for external AI
 nextStepFile: './step-07-research-integration.md'
 workflowFile: '../workflow.md'
 researchBriefTemplate: '../templates/research-brief.md'
-webResearchTask: '{bmad_rbtv}/tasks/web-research.xml'
+webResearchTask: '{rbtv_path}/tasks/web-research.xml'
 
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 6: Research Brief
@@ -80,7 +78,7 @@ This affects how the research brief is formatted — some tools work better with
 
 ### 4. Generate Research Brief
 
-Create the research brief document from `{researchBriefTemplate}` at `{bmad_output}/{essaySlug}/research-brief.md`.
+Create the research brief document from `{researchBriefTemplate}` at `{output_path}/{essaySlug}/research-brief.md`.
 
 For each research topic, include:
 - **Topic title and priority** (must-have / should-have / counter-argument / exploratory)

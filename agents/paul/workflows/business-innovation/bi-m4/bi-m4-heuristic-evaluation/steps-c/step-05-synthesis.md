@@ -2,7 +2,7 @@
 name: 'step-05-synthesis'
 description: 'Synthesize findings, update project-memo.md, return to M4 menu'
 nextStepFile: '../../workflow.md'
-outputFile: '{bmad_output}/{project-name}/business-innovation/m4-prototypation/heuristic-evaluation.md'
+outputFile: '{output_path}/{project-name}/business-innovation/m4-prototypation/heuristic-evaluation.md'
 ---
 
 # Step 5: Synthesis
@@ -109,7 +109,7 @@ Present findings to the founder:
 ### 3. Deduplication Verification
 
 Before writing the synthesis output, verify:
-1. Read the content ownership mapping in `{bmad_rbtv}/agents/paul/workflows/business-innovation/data/founder-process.md` for M4.
+1. Read the content ownership mapping in `{rbtv_path}/agents/paul/workflows/business-innovation/data/founder-process.md` for M4.
 2. For each concept this framework does NOT own: confirm the synthesis output references the owning framework's definition rather than restating it.
 3. New insights and deltas are permitted — full restatements are not.
 4. If duplication is found, rewrite the affected section to use the `## Prior Context` reference format.
@@ -194,7 +194,7 @@ Example:
 
 ### 5. Update project-memo.md
 
-**CRITICAL:** Load `{bmad_output}/{project-name}/business-innovation/project-memo.md`
+**CRITICAL:** Load `{output_path}/{project-name}/business-innovation/project-memo.md`
 
 Add synthesis to the M4 Prototypation section:
 

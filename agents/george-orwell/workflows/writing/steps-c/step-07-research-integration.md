@@ -5,8 +5,6 @@ description: 'Process research results and map evidence to essay claims with sou
 nextStepFile: './step-08-draft.md'
 workflowFile: '../workflow.md'
 
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 7: Research Integration

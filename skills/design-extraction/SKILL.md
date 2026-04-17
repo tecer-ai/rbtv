@@ -18,4 +18,4 @@ description: Extract design tokens (colors, typography, spacing, layout, visual 
 
 ## Activation
 
-Load and follow: `{project-root}/_bmad/rbtv/workflows/design-extraction/workflow.md`
+Load and follow: `{rbtv_path}/workflows/design-extraction/workflow.md`

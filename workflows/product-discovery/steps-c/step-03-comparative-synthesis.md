@@ -3,8 +3,6 @@ stepNumber: 3
 stepName: comparative-synthesis
 description: 'Cross-reference all profiles into a concise comparative synthesis document'
 nextStepFile: './step-04-product-map.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Comparative Synthesis

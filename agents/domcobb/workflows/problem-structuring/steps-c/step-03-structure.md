@@ -2,7 +2,6 @@
 stepNumber: 3
 stepId: structure
 nextStepFile: ./step-04-deliver.md
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Structure the Problem

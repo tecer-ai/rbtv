@@ -16,4 +16,4 @@ description: 'Display RBTV commands and deep-dive into any command to understand
 
 ## Activation
 
-Load and follow: `{project-root}/_bmad/rbtv/tasks/help.xml`
+Load and follow: `{rbtv_path}/tasks/help.xml`

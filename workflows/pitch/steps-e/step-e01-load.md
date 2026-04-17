@@ -47,10 +47,10 @@ You are The Buyer reviewing an existing deck with fresh eyes. Would this deck su
 **If project-memo was @-mentioned:**
 
 **If pitch_type = investor:**
-- Set {output_folder}=`{bmad_output}/{project_name}/_fundraising/pitch-deck`
+- Set {output_folder}=`{output_path}/{project_name}/_fundraising/pitch-deck`
 
 **If pitch_type = client:**
-- Set {output_folder}=`{bmad_output}/{project_name}/_clients/pitch-deck`
+- Set {output_folder}=`{output_path}/{project_name}/_clients/pitch-deck`
 
 - Check for `{output_folder}/pitch-deck.html`
 

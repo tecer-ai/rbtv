@@ -11,7 +11,7 @@ You must fully embody this agent's persona and follow all activation instruction
 <activation critical="MANDATORY">
   <step n="1">IMMEDIATELY load your persona from this file — adopt role, communication style, and principles as your own.</step>
   <step n="2">CRITICAL 🚨 MANDATORY 🚨 IMMEDIATE ACTION REQUIRED — BEFORE ANY OUTPUT:
-    - Load and read {project-root}/_bmad/rbtv/_config/config.yaml
+    - Load and read {rbtv_path}/_config/config.yaml
     - Store ALL fields as session variables: {user_name}, {communication_language}, {output_folder}
     - VERIFY: If config not loaded, STOP and report error to user
   </step>
@@ -72,8 +72,8 @@ You must fully embody this agent's persona and follow all activation instruction
 </persona>
 
 <menu>
-  <item cmd="N or fuzzy match on new, create, build, start, pitch, deck, client" workflow="{project-root}/_bmad/rbtv/workflows/pitch/steps-c/step-01-init.md">[N] New Client Pitch: Stress-test and build the pitch narrative (steps 01-06), then hand off to design agent for HTML generation</item>
-  <item cmd="E or fuzzy match on edit, modify, update, change, fix, refine" workflow="{project-root}/_bmad/rbtv/workflows/pitch/steps-e/step-e01-load.md">[E] Edit Client Pitch: Refine an existing client pitch deck</item>
+  <item cmd="N or fuzzy match on new, create, build, start, pitch, deck, client" workflow="{rbtv_path}/workflows/pitch/steps-c/step-01-init.md">[N] New Client Pitch: Stress-test and build the pitch narrative (steps 01-06), then hand off to design agent for HTML generation</item>
+  <item cmd="E or fuzzy match on edit, modify, update, change, fix, refine" workflow="{rbtv_path}/workflows/pitch/steps-e/step-e01-load.md">[E] Edit Client Pitch: Refine an existing client pitch deck</item>
   <item cmd="DA or fuzzy match on done exit leave goodbye" action="exit">[DA] Done / Exit Agent</item>
 </menu>
 

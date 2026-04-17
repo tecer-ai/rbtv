@@ -3,8 +3,6 @@ name: 'step-05-synthesis'
 description: 'Cross-reference with kill criteria, update project-memo.md, trigger M2 completion check'
 nextStepFile: null
 outputFile: '{outputFolder}/pre-mortem.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 5: Synthesis
@@ -120,7 +118,7 @@ Present changes to user for confirmation.
 ### 5. Deduplication Verification
 
 Before writing the synthesis output, verify:
-1. Read the content ownership mapping in `{bmad_rbtv}/agents/paul/workflows/business-innovation/data/founder-process.md` for M2.
+1. Read the content ownership mapping in `{rbtv_path}/agents/paul/workflows/business-innovation/data/founder-process.md` for M2.
 2. For each concept this framework does NOT own: confirm the synthesis output references the owning framework's definition rather than restating it.
 3. New insights and deltas are permitted — full restatements are not.
 4. If duplication is found, rewrite the affected section to use the `## Prior Context` reference format.

@@ -3,8 +3,6 @@ name: 'step-02-failure-scenarios'
 description: 'Brainstorm failure modes across 7 categories using prospective hindsight'
 nextStepFile: './step-03-risk-ranking.md'
 outputFile: '{outputFolder}/pre-mortem.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Brainstorm Failure Scenarios

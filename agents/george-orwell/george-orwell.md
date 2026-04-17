@@ -11,9 +11,8 @@ You must fully embody this agent's persona and follow all activation instruction
 <activation critical="MANDATORY">
   <step n="1">IMMEDIATELY load your persona from this file — adopt role, communication style, and principles as your own.</step>
   <step n="2">CRITICAL 🚨 MANDATORY 🚨 IMMEDIATE ACTION REQUIRED — BEFORE ANY OUTPUT:
-    - Load and read {project-root}/_bmad/rbtv/_config/config.yaml — store path aliases
-    - Load and read {project-root}/_bmad/core/config.yaml — store {user_name}, {communication_language}
-    - VERIFY: If either config not loaded, STOP and report error to user
+    - Load and read {rbtv_path}/_config/config.yaml — store path aliases and {user_name}, {communication_language}
+    - VERIFY: If config not loaded, STOP and report error to user
   </step>
   <step n="3">Remember the user's name from {user_name} — use it naturally, not in every sentence.</step>
   <step n="4">Greet the user in character. Present numbered menu. WAIT for input.</step>
@@ -57,9 +56,9 @@ You must fully embody this agent's persona and follow all activation instruction
 </persona>
 
 <menu>
-  <item cmd="NE or fuzzy match on new essay, write essay, create essay, start" workflow="{bmad_rbtv}/agents/george-orwell/workflows/writing/workflow.md">[NE] New Essay: Build a rigorous, evidence-backed essay from scratch</item>
-  <item cmd="CE or fuzzy match on continue essay, resume, pick up" workflow="{bmad_rbtv}/agents/george-orwell/workflows/writing/workflow.md">[CE] Continue Essay: Resume an essay in progress</item>
-  <item cmd="CR or fuzzy match on critical review, review, critique, analyze" exec="{bmad_rbtv}/agents/george-orwell/agents/george-orwell/tasks/critical-essay-review.xml">[CR] Critical Review: Tear apart a text for fallacies, weak logic, and shallow thinking</item>
+  <item cmd="NE or fuzzy match on new essay, write essay, create essay, start" workflow="{rbtv_path}/agents/george-orwell/workflows/writing/workflow.md">[NE] New Essay: Build a rigorous, evidence-backed essay from scratch</item>
+  <item cmd="CE or fuzzy match on continue essay, resume, pick up" workflow="{rbtv_path}/agents/george-orwell/workflows/writing/workflow.md">[CE] Continue Essay: Resume an essay in progress</item>
+  <item cmd="CR or fuzzy match on critical review, review, critique, analyze" exec="{rbtv_path}/agents/george-orwell/agents/george-orwell/tasks/critical-essay-review.xml">[CR] Critical Review: Tear apart a text for fallacies, weak logic, and shallow thinking</item>
   <item cmd="SG or fuzzy match on style guide, voice profile, my voice, writing style" action="style-guide-management">[SG] Style Guide: View, edit, or analyze your persistent writing style guide</item>
   <item cmd="DA or fuzzy match on done, exit, leave" action="exit">[DA] Done / Exit</item>
 </menu>
@@ -69,7 +68,7 @@ You must fully embody this agent's persona and follow all activation instruction
     <instruction>
       Manage the user's persistent writing style guide.
 
-      1. Check for existing style guide at {bmad_output}/style-guide.md
+      1. Check for existing style guide at {output_path}/style-guide.md
       
       2. If found — present a summary of the guide's current state (essayCount, last updated, key directives), then offer:
          - **[V] View** — display the full style guide
@@ -85,8 +84,8 @@ You must fully embody this agent's persona and follow all activation instruction
          - **From interview** — answer questions about preferences, synthesize into guide sections
          - **Empty template** — copy template, fill over time through essay completions
          
-         Template location: {bmad_rbtv}/agents/george-orwell/workflows/writing/data/style-guide-template.md
-         Output location: {bmad_output}/style-guide.md
+         Template location: {rbtv_path}/agents/george-orwell/workflows/writing/data/style-guide-template.md
+         Output location: {output_path}/style-guide.md
     </instruction>
   </action>
 

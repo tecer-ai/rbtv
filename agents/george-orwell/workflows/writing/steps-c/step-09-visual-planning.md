@@ -6,8 +6,6 @@ nextStepFile: './step-10-critical-review.md'
 workflowFile: '../workflow.md'
 visualAssetsTemplate: '../templates/visual-assets.md'
 
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 9: Visual Planning
@@ -75,7 +73,7 @@ This affects prompt structure — each tool has different optimal prompt pattern
 
 ### 5. Generate Visual Asset Prompts
 
-Create the visual assets document from `{visualAssetsTemplate}` at `{bmad_output}/{essaySlug}/visual-assets.md`.
+Create the visual assets document from `{visualAssetsTemplate}` at `{output_path}/{essaySlug}/visual-assets.md`.
 
 For each approved visual element, write a prompt containing:
 - **Visual ID and essay location** (e.g., "Figure 1 — Section 3, after paragraph 2")

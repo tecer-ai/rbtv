@@ -1,6 +1,5 @@
 ---
 name: problem-structuring
-main_config: '{project-root}/_bmad/rbtv/_config/config.yaml'
 description: Define and structure problems using MECE, Pyramid Principle, and Problem Trees
 nextStep: ./steps-c/step-01-init.md
 ---
@@ -61,7 +60,7 @@ Load these files during Step 2 (Framework Selection):
 
 ## INITIALIZATION SEQUENCE
 
-1. Load module config: `	{project-root}/_bmad/rbtv/_config/config.yaml`
+1. Load module config: `	{rbtv_path}/_config/config.yaml`
 2. Determine mode from user intent or frontmatter
 3. Load the first step file for the selected mode
 4. Follow step instructions exactly

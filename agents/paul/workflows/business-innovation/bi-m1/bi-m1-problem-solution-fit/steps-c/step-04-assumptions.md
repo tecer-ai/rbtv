@@ -3,8 +3,6 @@ name: 'step-04-assumptions'
 description: 'Extract and tag critical assumptions for validation'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{outputFolder}/problem-solution-fit.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Critical Assumptions

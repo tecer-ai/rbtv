@@ -42,11 +42,11 @@ You are a YC mentor. Clear delegation instructions prevent wasted tokens and re-
 >
 > Before invoking BMAD create-ux-design, we need to update BMAD's config to use this project's output folder.
 >
-> BMAD workflows read output_folder from their config file. By default, BMAD uses `{bmad_output}/` (root). We need BMAD to write to `{outputFolder}/` so outputs stay organized with your project.
+> BMAD workflows read output_folder from their config file. By default, BMAD uses `{output_path}/` (root). We need BMAD to write to `{outputFolder}/` so outputs stay organized with your project.
 >
 > Running config update now..."
 
-Run task: `{project-root}/_bmad/rbtv/tasks/update-bmad-config.xml`
+Run task: `{rbtv_path}/tasks/update-bmad-config.xml`
 
 **Inputs:**
 - `target_module`: "bmm"
@@ -61,7 +61,7 @@ Verify task completion before proceeding.
 >
 > Open a NEW conversation (or agent session) and load the following BMAD workflow:
 >
-> `{bmad_bmm}/workflows/2-plan-workflows/create-ux-design/workflow.md`
+> Invoke the `bmad-method-lifecycle:bmad-create-ux-design` skill.
 >
 > **Input context:** The design-context document at `{outputFolder}/design-context.md`.
 > BMAD create-ux-design discovers input from planning_artifacts, output_folder, and product_knowledge. The config has been updated to point to your project folder.
@@ -90,7 +90,7 @@ When user returns:
 
 > "Restoring BMAD config to defaults so other BMAD workflows use standard paths..."
 
-Run task: `{project-root}/_bmad/rbtv/tasks/restore-bmad-config.xml`
+Run task: `{rbtv_path}/tasks/restore-bmad-config.xml`
 
 **Inputs:**
 - `target_module`: "bmm"
@@ -100,7 +100,7 @@ Verify task completion.
 ### 6. Deduplication Verification
 
 Before writing the synthesis output, verify:
-1. Read the content ownership mapping in `{bmad_rbtv}/agents/paul/workflows/business-innovation/data/founder-process.md` for M4.
+1. Read the content ownership mapping in `{rbtv_path}/agents/paul/workflows/business-innovation/data/founder-process.md` for M4.
 2. For each concept this framework does NOT own: confirm the synthesis output references the owning framework's definition rather than restating it.
 3. New insights and deltas are permitted — full restatements are not.
 4. If duplication is found, rewrite the affected section to use the `## Prior Context` reference format.

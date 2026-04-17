@@ -2,8 +2,7 @@
 name: 'bi-m3-tone-of-voice'
 description: 'Define how the brand speaks using tone dimensions, examples, and context adjustments'
 nextStep: ./steps-c/step-01-init.md
-parentWorkflow: ../workflow.md
-outputFolder: '{bmad_output}/{project-name}/business-innovation/m3-brand'
+outputFolder: '{output_path}/{project-name}/business-innovation/m3-brand'
 outputFile: tone-of-voice.md
 ---
 

@@ -5,7 +5,6 @@ nextStepFile: ./step-02-self-assessment.md
 continueStepFile: './step-01b-continue.md'
 templateFile: ../templates/compound-prd.md
 outputFile: '{outputFolder}/{filename}.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 ---
 
 # Step 01: Initialize Workflow

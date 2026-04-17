@@ -3,8 +3,6 @@ name: 'step-03-hypothesis-generation'
 description: 'Generate optimization hypotheses based on friction analysis'
 nextStepFile: './step-04-optimization-plan.md'
 outputFile: '{outputFolder}/conversion-optimization.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 3: Hypothesis Generation

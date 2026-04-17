@@ -5,8 +5,6 @@ description: 'Decide research-vs-narrative sequencing and chapter-vs-whole scope
 nextStepFile: './step-05-theme-structure.md'
 workflowFile: '../workflow.md'
 
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Strategy Decision

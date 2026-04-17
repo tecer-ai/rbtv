@@ -3,8 +3,6 @@ name: 'step-05-synthesis'
 description: 'Validate, compile final document, and update project-memo.md'
 nextStepFile: null
 outputFile: '{outputFolder}/brand-archetypes.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 5: Synthesis

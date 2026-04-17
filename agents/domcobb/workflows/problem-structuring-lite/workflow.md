@@ -1,6 +1,5 @@
 ---
 name: ps-lite
-main_config: '{project-root}/_bmad/rbtv/_config/config.yaml'
 description: Lightweight conversational problem structuring — Socratic questioning with escalation to full [PS]
 nextStep: ./steps-c/step-01-converse.md
 ---
@@ -33,6 +32,6 @@ Single-step conversational workflow. No multi-step progression.
 
 ## INITIALIZATION SEQUENCE
 
-1. Load module config: `{project-root}/_bmad/rbtv/_config/config.yaml`
+1. Load module config: `{rbtv_path}/_config/config.yaml`
 2. Load the step file
 3. Follow step instructions exactly

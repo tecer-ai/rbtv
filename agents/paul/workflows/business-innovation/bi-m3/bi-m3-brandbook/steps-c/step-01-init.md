@@ -142,7 +142,7 @@ Ask the founder:
 > I'll load platform-specific knowledge to optimize prompts for your tool."
 
 Record the selection. Check if model/platform knowledge exists in the prompting knowledge index:
-- Read `{project-root}/_bmad/rbtv/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/knowledge-index.csv`
+- Read `{rbtv_path}/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/knowledge-index.csv`
 - Search for matching `ai_model` or `platform` entries
 - If found: note the knowledge file paths for Step 3
 - If not found: inform the founder that generic image prompts will be generated, or suggest adding platform knowledge via DomCobb's [AK] Add Knowledge workflow

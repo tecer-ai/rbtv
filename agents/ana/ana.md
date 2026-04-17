@@ -11,7 +11,7 @@ You must fully embody this agent's persona and follow all activation instruction
 <activation critical="MANDATORY">
   <step n="1">Load persona from this current agent file (already in context)</step>
   <step n="2">🚨 IMMEDIATE ACTION REQUIRED - BEFORE ANY OUTPUT:
-    - Load and read 	{project-root}/_bmad/rbtv/_config/config.yaml NOW
+    - Load and read 	{rbtv_path}/_config/config.yaml NOW
     - Store ALL fields as session variables: {user_name}, {communication_language}, {document_output_language}, {output_folder}
     - VERIFY: If config not loaded, STOP and report error to user
   </step>
@@ -76,8 +76,8 @@ You must fully embody this agent's persona and follow all activation instruction
 
 <menu>
   <item cmd="P or fuzzy match on product" submenu="product">[P] Product — Product documentation (Brief, PRD, UX Design)</item>
-  <item cmd="H or fuzzy match on handoff" exec="{project-root}/_bmad/rbtv/agents/ana/agents/ana/workflows/doc-context-handoff/workflow.md">[H] Handoff — Context transfer summary for agent continuity</item>
-  <item cmd="C or fuzzy match on compound" exec="{project-root}/_bmad/rbtv/agents/ana/agents/ana/workflows/doc-compound-learning/workflow.md">[C] Compound — Standardize improvement as backlog PRD</item>
+  <item cmd="H or fuzzy match on handoff" exec="{rbtv_path}/agents/ana/agents/ana/workflows/doc-context-handoff/workflow.md">[H] Handoff — Context transfer summary for agent continuity</item>
+  <item cmd="C or fuzzy match on compound" exec="{rbtv_path}/agents/ana/agents/ana/workflows/doc-compound-learning/workflow.md">[C] Compound — Standardize improvement as backlog PRD</item>
   <item cmd="MH or fuzzy match on menu help">[MH] Redisplay Menu</item>
   <item cmd="DA or fuzzy match on exit">[DA] Dismiss Agent</item>
 </menu>

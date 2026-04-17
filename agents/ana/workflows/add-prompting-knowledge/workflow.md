@@ -78,27 +78,27 @@ Based on selection, show template structure:
 Load the RBTV Builder agent with context:
 
 ```
-Route to: {project-root}/_bmad/rbtv/agents/fernando/fernando.md
+Route to: {rbtv_path}/agents/fernando/fernando.md
 
 Pre-select: [CK] Create Knowledge
 
 Context to pass:
 - Knowledge type: {ai_model | prompting_technique | platform_knowledge}
 - Template source: {robotville template path}
-- Output location: {project-root}/_bmad/rbtv/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/{ai_models|prompting_techniques|platform_knowledge}/
+- Output location: {rbtv_path}/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/{ai_models|prompting_techniques|platform_knowledge}/
 ```
 
 **Template Sources:**
-- AI Model: `{project-root}/_bmad/rbtv/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/ai_model.md`
-- Prompting Technique: `{project-root}/_bmad/rbtv/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/prompting_technique.md`
-- Platform Knowledge: `{project-root}/_bmad/rbtv/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/platform_knowledge.md`
+- AI Model: `{rbtv_path}/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/ai_model.md`
+- Prompting Technique: `{rbtv_path}/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/prompting_technique.md`
+- Platform Knowledge: `{rbtv_path}/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/platform_knowledge.md`
 
 ### 4. Update Knowledge Index
 
 After Builder creates the document, remind user:
 
 > "Don't forget to update the knowledge index! Add a row to:
-> `{project-root}/_bmad/rbtv/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/knowledge-index.csv`
+> `{rbtv_path}/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/knowledge-index.csv`
 >
 > Format:
 > `{id},{type},{name},{path},{tags},{description}`"

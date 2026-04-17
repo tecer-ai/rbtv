@@ -79,7 +79,7 @@ HALT. Wait for user confirmation.
 
 1. Look for a type-specific prompt: `{project-root}/projects/{project}/meetings/{type}/_summary-prompt.md`
    - If the type has nested subfolders (e.g., `internal/founders/`), check the deepest matching folder first.
-2. If no type-specific prompt exists, use the universal fallback: `{project-root}/_bmad/rbtv/workflows/meeting-summarizer/universal-prompt.md`
+2. If no type-specific prompt exists, use the universal fallback: `{rbtv_path}/workflows/meeting-summarizer/universal-prompt.md`
 3. Process the transcript following every instruction in the prompt - all three layers, the anti-bias protocol, and every section defined.
 4. Save the output as `{correct_folder}/YYYY-MM-DD-{slug}-summary.md`
 

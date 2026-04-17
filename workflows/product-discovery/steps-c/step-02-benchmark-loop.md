@@ -5,8 +5,6 @@ description: 'Process each benchmark through sub-agent extraction with founder r
 nextStepFile: './step-03-comparative-synthesis.md'
 subAgentPrompts: '../data/sub-agent-prompts.md'
 profileTemplate: '../templates/profile-template.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 2: Benchmark Loop

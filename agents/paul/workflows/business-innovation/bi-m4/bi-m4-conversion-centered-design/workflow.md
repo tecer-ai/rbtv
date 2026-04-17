@@ -2,8 +2,7 @@
 name: 'bi-m4-conversion-centered-design'
 description: 'Optimize conversion funnel using Conversion-Centered Design principles'
 nextStep: ./steps-c/step-01-init.md
-parentWorkflow: ../workflow.md
-outputFolder: '{bmad_output}/{project-name}/business-innovation/m4-prototypation'
+outputFolder: '{output_path}/{project-name}/business-innovation/m4-prototypation'
 outputFile: conversion-optimization.md
 ---
 

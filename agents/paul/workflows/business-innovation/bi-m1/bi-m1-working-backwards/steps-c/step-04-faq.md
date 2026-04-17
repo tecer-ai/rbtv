@@ -3,8 +3,6 @@ name: 'step-04-faq'
 description: 'Draft external and internal FAQ, answer Is it worth doing?'
 nextStepFile: './step-05-synthesis.md'
 outputFile: '{outputFolder}/working-backwards.md'
-advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
 
 # Step 4: Draft FAQ

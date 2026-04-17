@@ -125,7 +125,7 @@ An agentic system has five layers, each a directory of text files:
 | 3 | Sequential enforcement | AI tries to skip/optimize; prevent explicitly |
 | 4 | User control at every step | Every step ends with menu, AI halts and waits |
 | 5 | Persona-driven interaction | Specific personas produce specific output |
-| 6 | Configuration over hardcoding | Use path variables ({project-root}, {bmad_output}, etc.), never absolute paths or hardcoded folder names |
+| 6 | Configuration over hardcoding | Use path variables ({project-root}, {output_path}, etc.), never absolute paths or hardcoded folder names |
 | 7 | Thin loaders | Entry points contain zero logic |
 | 8 | State in frontmatter | Output documents track stepsCompleted |
 
@@ -168,7 +168,7 @@ Before building a workflow, answer these 4 questions:
 | Long files | AI loses context, drifts from instructions | Split files, keep each under 200 lines |
 | Logic in entry points | Creates IDE-specific behavior | Entry points only load files |
 | Missing STOP instructions | AI rushes through steps | Explicit halt: "WAIT for user input" |
-| Hardcoded paths | Breaks when moved or reconfigured | Use path variables ({project-root}, {bmad_output}) |
+| Hardcoded paths | Breaks when moved or reconfigured | Use path variables ({project-root}, {output_path}) |
 | Hardcoded catalog lists | Drift and maintenance burden | Reference manifests (tools-manifest.csv, etc.) |
 | No state tracking | Can't resume sessions | Frontmatter in output documents |
 | Skipping adversarial review | Rubber-stamped output | Build in mandatory challenge mechanisms |
@@ -203,7 +203,7 @@ When RBTV workflows invoke BMAD workflows (M2 optional analyst, M4 Design Direct
    receive as input and what output to expect.
 
 2. UPDATE CONFIG
-   Run task: {project-root}/_bmad/rbtv/tasks/update-bmad-config.xml
+   Run task: {rbtv_path}/tasks/update-bmad-config.xml
    Inputs: target_module, project_name, rbtv_output_folder
    Optionally set rbtv_planning_artifacts separately when input != output location.
 
@@ -221,7 +221,7 @@ When RBTV workflows invoke BMAD workflows (M2 optional analyst, M4 Design Direct
    expected RBTV output subfolder. If not, help user move/copy them.
 
 6. RESTORE CONFIG
-   Run task: {project-root}/_bmad/rbtv/tasks/restore-bmad-config.xml
+   Run task: {rbtv_path}/tasks/restore-bmad-config.xml
 
 7. SYNTHESIS
    Read BMAD output, update project-memo (add completion entry, set flags,

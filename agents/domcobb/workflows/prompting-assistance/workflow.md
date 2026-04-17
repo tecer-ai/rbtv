@@ -1,6 +1,5 @@
 ---
 name: prompting-assistance
-main_config: '{project-root}/_bmad/rbtv/_config/config.yaml'
 description: Craft effective prompts using AI model knowledge and prompting techniques
 nextStep: ./steps-c/step-01-init.md
 ---
@@ -67,6 +66,6 @@ This workflow uses an index-based loading pattern for the prompting knowledge ba
 
 ## INITIALIZATION SEQUENCE
 
-1. Load module config: `	{project-root}/_bmad/rbtv/_config/config.yaml`
+1. Load module config: `	{rbtv_path}/_config/config.yaml`
 2. Load the first step file
 3. Follow step instructions exactly

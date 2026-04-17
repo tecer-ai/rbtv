@@ -20,7 +20,7 @@ Master navigation for the 6-milestone business innovation lifecycle from idea to
 ## Output Folder Structure
 
 ```
-{bmad_output}/{project-name}/business-innovation/
+{output_path}/{project-name}/business-innovation/
 ├── project-memo.md           # Cumulative summary + state tracking (frontmatter)
 ├── m1-conception/
 │   ├── working-backwards.md
@@ -86,7 +86,7 @@ When starting work on a project:
 
 | Step | Action | File |
 |------|--------|------|
-| 1 | Read project-memo | `{bmad_output}/{project-name}/business-innovation/project-memo.md` |
+| 1 | Read project-memo | `{output_path}/{project-name}/business-innovation/project-memo.md` |
 | 2 | Check frontmatter | currentMilestone, currentFramework, stepsCompleted |
 | 3 | Load milestone workflow | Based on current milestone |
 | 4 | Confirm with user | Present state and next steps |
@@ -165,5 +165,5 @@ When a framework needs to reference a concept it does not own, it MUST use the `
 
 - **6 milestones**: Conception → Validation → Brand → Prototypation → Market Validation → MVP
 - **State tracking**: project-memo.md frontmatter (currentMilestone, currentFramework, stepsCompleted)
-- **Output location**: `{bmad_output}/{project-name}/business-innovation/`
+- **Output location**: `{output_path}/{project-name}/business-innovation/`
 - **Framework synthesis**: Every framework MUST update project-memo.md on completion
