@@ -1,200 +1,98 @@
 # RBTV
 
-**Direction before execution.**
+A standalone Claude Code toolkit for business innovation, pitch generation, documentation, and structured thinking.
 
-AI reasoning is powerful — but execution without direction drifts toward training data patterns, not your specific problem. Training data gives AI the ability to reason; structured direction tells it *what* to execute, *when*, and *how*. That direction comes from putting AI in the right context — through processes, personas, and knowledge files. RBTV provides this for business innovation. BMAD provides it for coding.
+## What is RBTV?
 
-RBTV is a BMAD module that bridges the gap between raw ideas and structured execution. It provides:
+RBTV is a self-contained set of agents, workflows, skills, and rules designed to be bootstrapped into any Claude Code workspace. After install, RBTV appears as `/rbtv-<command>` slash commands (e.g., `/rbtv-client-pitch`, `/rbtv-doc`, `/rbtv-planning`) and auto-triggered skills in your workspace.
 
-- **22+ innovation frameworks** that take you from napkin sketch to validated product
-- **Structured workflows** for documentation, planning, and quality gates
-- **Opinionated agents** that ask hard questions so you make better decisions
+## Requirements
 
-The system doesn't make decisions for you. It imposes structure on chaos, challenges your assumptions, and ensures nothing falls through the cracks.
+- Claude Code (CLI, desktop, or IDE extension)
+- Python 3.11+ (for `install.py`)
+- `pyyaml` Python package
+- BMAD plugins for full functionality:
+  - `bmad-method-lifecycle` (Ana references this for PRD, Brief, UX)
+  - `bmad-pro-skills` (DomCobb references this for Problem Solving)
 
----
+## Install
 
-## Table of Contents
+1. Clone RBTV as a subfolder of your workspace:
 
-1. [Installation](#installation)
-2. [Main Commands](#main-commands)
-3. [Auxiliary Commands](#auxiliary-commands)
-4. [Business Innovation Milestones](#business-innovation-milestones)
-5. [IDE Notes](#ide-notes)
+   ```bash
+   cd /path/to/your/workspace
+   git clone <rbtv-repo-url> rbtv
+   ```
 
----
+   RBTV must live INSIDE the workspace that will use it.
 
-## Installation
+2. Run the installer:
 
-RBTV runs inside [BMAD](https://github.com/bmadcode/BMAD-METHOD). Install BMAD first, then add RBTV.
+   ```bash
+   python rbtv/install.py --target /path/to/your/workspace
+   ```
 
-### 1. Install BMAD
+   The installer prompts for:
+   - Modules to install (core is always included)
 
-Follow the [BMAD installation guide](https://github.com/bmadcode/BMAD-METHOD#installation) to set up a BMAD project. You need:
+   Output paths are NOT configured at install time. They are resolved at runtime from `## File Routing` blocks in your workspace's CLAUDE.md files (governed by the `rbtv-output-resolution` rule). See step 4 below to populate these blocks after install.
 
-- A project with BMAD installed at `{project-root}/_bmad/`
-- Python 3 (standard library only — no extra packages)
+3. After install, your workspace has:
+   - `.claude/skills/rbtv-*/` — thin loaders for skills (including `rbtv-output-routing` for the post-install setup in step 4)
+   - `.claude/commands/rbtv-*.md` — slash commands (including `/rbtv-output-routing`)
+   - `.claude/rules/rbtv-*.md` — rule content (copied — includes `rbtv-output-resolution` which governs how components resolve output paths at runtime)
+   - `.claude/agents/rbtv-*.md` — dispatchable subagents (designer, web-research)
+   - `rbtv.yaml` — your install config
 
-### 2. Add RBTV
+4. Configure output routing (one-time post-install):
 
-Clone or copy the RBTV module into your BMAD project:
+   Open Claude Code in the workspace and run:
 
-```
-{project-root}/_bmad/rbtv/
-```
+   ```
+   /rbtv-output-routing
+   ```
 
-### 3. Run the installer
+   The workflow scans your CLAUDE.md files and interactively writes `## File Routing` blocks so RBTV components know where to place outputs. Routing is human-readable in CLAUDE.md and can be edited by hand or re-run via the same command whenever structure changes.
+
+## Modules
+
+| Module | What it does |
+|---|---|
+| **core** (always installed) | Generic productivity skills — planning, documentation, domcobb (problem structuring), meeting summarization, web research, component creation |
+| **innovation** | Business innovation frameworks (lean canvas, JTBD, TAM/SAM/SOM, brandbook) via Paul, plus product discovery |
+| **work-productivity** | Pitch generation (client, investor), design extraction, visual design via Vivian |
+| **writing** | Long-form writing via George Orwell, tone extraction |
+
+## Updating RBTV
+
+RBTV content (agents, workflows, tasks) stays in this repo — thin loaders in your workspace reference it by path. To get new content:
 
 ```bash
-python _bmad/rbtv/_config/bootstrap.py
+cd /path/to/your/workspace/rbtv
+git pull
 ```
 
-The installer copies commands, agents, skills, and rules to your project's `.cursor/` and `.claude/` directories, merges MCP config, and registers RBTV in the BMAD help catalog.
+Content changes appear live. You only need to re-run `install.py` when:
+- Adding or removing modules
+- RBTV's own module manifest or loader templates change
 
-Re-run after every `git pull` to pick up new commands and configuration changes. The script is idempotent.
+To change output routing, edit the `## File Routing` blocks in your workspace CLAUDE.md files directly, or re-run `/rbtv-output-routing`. No install re-run needed.
 
----
+## Source of truth
 
-## Main Commands
+Installed files in `.claude/skills/rbtv-*`, `.claude/commands/rbtv-*.md`, `.claude/rules/rbtv-*.md`, `.claude/agents/rbtv-*.md` are regenerated on every `install.py` run. **Do not edit them in your workspace** — edit the source in this repo and re-install. See `.claude/rules/rbtv-source-of-truth.md` in your workspace for more.
 
-These are the primary entry points you'll use directly. All commands are invoked via `/bmad-rbtv-{name}` in Cursor.
+## Architecture notes
 
-### Mentor — Business Innovation Lifecycle
+- **Thin loaders:** installed loaders are short files that point back to this repo via a vault-relative path (e.g., `rbtv/`). No content is duplicated into your workspace.
+- **Rule exception:** rule files are copied as content (not loaders), because rules load passively into Claude's context and indirection is unreliable.
+- **Subagent exception:** subagent files (`.claude/agents/rbtv-*.md`) are copied as content too — they're dispatched in fresh context via the Task tool, so they must be self-contained.
+- **Overwrite scope:** re-install tracks the previous install's file list in `rbtv.yaml` (`installed_files:`) and removes only those paths. Your workspace content (notes, projects, other skills, Fernando-authored local components) is never touched.
 
-`/bmad-rbtv-mentor`
+## Extending RBTV
 
-A YC-style mentor that guides founders through **6 milestones** — from raw idea to MVP. Covers **22+ innovation frameworks** across conception, validation, branding, prototypation, market validation, and MVP. Progress is tracked in a project memo, so you can resume anytime. See [Business Innovation Milestones](#business-innovation-milestones) below for the full framework breakdown.
+Use `/rbtv-create-component` with Fernando. When you create a new component, Fernando asks whether to publish it to the RBTV source (requires re-install to propagate) or write it locally to your workspace only.
 
-**How it works:**
+## License and contact
 
-1. Run `/bmad-rbtv-mentor` and select `[BI] Business Innovation`
-2. The mentor guides you through frameworks sequentially
-3. Each framework saves artifacts to your output folder
-4. Progress tracked in project memo — resume anytime
-5. Complete milestones unlock next phase
-
-### DomCobb — Problem Structuring & Prompting
-
-`/bmad-rbtv-domcobb`
-
-Four modes: **Problem Structuring** (MECE, Pyramid Principle, Problem Trees), **Problem Solving** (routes to BMAD's CIS methodologies), **Prompting Assistance** (craft prompts using **57 knowledge files** covering AI models, prompting techniques, and platforms), and **Add Knowledge** (expand the knowledge base with new model guides or techniques).
-
-### Plan — Structured Planning
-
-`/bmad-rbtv-plan`
-
-Creates self-executing plans using Cursor's native `.plan.md` format with added structure: phased task breakdowns, micro-step task files, companion artifacts (`shape.md`, `learnings.md`), quality gates, and dependency validation. Plans are zero-context executable — any agent can pick one up and run it.
-
-### Pitch Creation — Investor & Client Decks
-
-`/bmad-rbtv-investor-pitch` · `/bmad-rbtv-client-pitch`
-
-Builds pitch decks through narrative-first stress-testing. The agent sits on the *other side of the table* — as the investor or the buyer — and challenges every claim before building the deck. The workflow covers narrative development, data validation, research prompting, slide structure, HTML generation, and image prompt creation across 9 steps.
-
----
-
-## Auxiliary Commands
-
-### Doc — Documentation Workflows
-
-`/bmad-rbtv-doc`
-
-Three modes: **Compound** (backlog PRDs from system learnings), **Handoff** (context transfer summaries for agent continuity — plan shaping, execution, or project-level), and **Product** (routes to BMAD for briefs, PRDs, and UX design).
-
-### Help — Command Explorer
-
-`/bmad-rbtv-help`
-
-Lists all RBTV commands with descriptions and lets you deep-dive into any command to understand its workflows, agents, and outputs.
-
-### Other Tools
-
-| Command | What it does |
-|---------|-------------|
-| `/bmad-rbtv-quality-review` | Binary APPROVED/REJECTED verdict for deliverable quality |
-| `/bmad-rbtv-designer` | Visual design for pitch decks and brand identity |
-| `/bmad-rbtv-create-component` | Create new BMAD components (agents, workflows, tasks) |
-| `/bmad-rbtv-visual-design-extraction` | Extract design tokens from website screenshots |
-| `/bmad-rbtv-tone-extraction` | Extract voice signatures from text samples |
-
-Most commands are also available as **skills** (AI auto-detects when relevant) and **Cursor sub-agents** (AI delegates in fresh context).
-
----
-
-## Business Innovation Milestones
-
-**Command:** `/bmad-rbtv-mentor`
-
-A YC mentor who guides you through **22+ innovation frameworks** across 6 milestones, from idea to product-market fit.
-
-### Milestones Overview
-
-| Milestone | Focus | Status |
-|-----------|-------|--------|
-| **M1** Conception | Define problem, customer, solution hypothesis | Available |
-| **M2** Validation | Test assumptions, size market, model economics | Available |
-| **M3** Brand | Define identity, positioning, voice | Available |
-| **M4** Prototypation | Build and test early versions | WIP |
-| **M5** Market Validation | Prove demand with real sales | WIP |
-| **M6** MVP | Build minimum viable product | WIP |
-
-### M1: Conception Frameworks (6)
-
-| Framework | Purpose | Output |
-|-----------|---------|--------|
-| **Lean Canvas** | One-page business model | 9-block canvas |
-| **Five Whys** | Root cause analysis | Problem tree |
-| **Jobs to Be Done** | Customer motivation discovery | Job stories |
-| **Competitive Landscape** | Market positioning analysis | Competitor matrix |
-| **Problem-Solution Fit** | Validate solution direction | Fit assessment |
-| **Working Backwards** | Amazon-style press release | PR/FAQ document |
-
-### M2: Validation Frameworks (6)
-
-| Framework | Purpose | Output |
-|-----------|---------|--------|
-| **Assumption Mapping** | Identify and prioritize assumptions | Risk matrix |
-| **Leap of Faith** | Critical assumption testing | Test plan |
-| **Pre-mortem** | Failure scenario planning | Mitigation strategies |
-| **TAM-SAM-SOM** | Market sizing | Market size estimates |
-| **Technology Readiness Level** | Technical maturity assessment | TRL score + gaps |
-| **Unit Economics** | Revenue model validation | CAC, LTV, payback |
-
-### M3: Brand Frameworks (5)
-
-| Framework | Purpose | Output |
-|-----------|---------|--------|
-| **Brand Archetypes** | Personality definition | Archetype profile |
-| **Brand Prism** | Identity structure | 6-facet prism |
-| **Brand Positioning** | Market differentiation | Positioning statement |
-| **Golden Circle** | Why/How/What articulation | Purpose statement |
-| **Tone of Voice** | Communication style | Voice guidelines |
-
-### M4: Prototypation Frameworks (4 available)
-
-| Framework | Purpose | Output |
-|-----------|---------|--------|
-| **User Flow & IA** | Entry points, screens, content hierarchy | User flow map, IA structure |
-| **Design Direction** | Visual design via BMAD bridge | Design spec, design brief |
-| **Conversion-Centered Design** | Apply CCD principles to prototype | Conversion-focused design |
-| **Heuristic Evaluation** | Usability evaluation | Critical/Major issues resolved |
-
-*Build Prototype and Testing Prep frameworks are planned.*
-
-### M5: Market Validation — WIP
-
-Frameworks for validating market demand, pricing, and sales channels. In development.
-
-### M6: MVP — WIP
-
-Frameworks for building and shipping a minimum viable product. In development.
-
----
-
-## IDE Notes
-
-**Cursor** is the primary IDE. All commands, agents, skills, and rules are installed to `.cursor/` by the installer.
-
-**Claude Code** is also supported. The installer replicates commands and rules to `.claude/` with format conversion. See [CLAUDE.md](./CLAUDE.md) for path resolution details. Note: `CLAUDE.md` is intended for working on the RBTV repo itself (standalone development), not for BMAD instances.
-
-Run `/bmad-rbtv-help` to explore all commands with detailed usage guidance.
+TBD.

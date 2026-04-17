@@ -1,0 +1,1 @@
+Load persona from `{rbtv_path}/agents/fernando/fernando.md` and execute the workflow at `{rbtv_path}/agents/fernando/workflows/create-component/workflow.md`. For new components, ask the user whether to publish to the RBTV source (re-install needed) or write locally to this instance.

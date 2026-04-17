@@ -27,7 +27,7 @@
 
     <step n="1" title="Load Standards">
       <substep n="1a" title="Read Research Standards">
-        <action>Load {project-root}/_bmad/rbtv/tasks/data/web-research-standards.md</action>
+        <action>Load {rbtv_path}/tasks/data/web-research-standards.md</action>
         <action>Internalize all rules: data integrity, quantification, source evaluation, citation format.</action>
       </substep>
     </step>

@@ -19,7 +19,7 @@
   <flow>
     <step n="1" title="Load Framework">
       <substep n="1a" title="Read Analysis Framework">
-        <action>Load {project-root}/_bmad/rbtv/tasks/data/tone-extraction-framework.md</action>
+        <action>Load {rbtv_path}/tasks/data/tone-extraction-framework.md</action>
         <action>Internalize all three dimensions: emotional tone, structural patterns, vocabulary/register.</action>
       </substep>
     </step>
