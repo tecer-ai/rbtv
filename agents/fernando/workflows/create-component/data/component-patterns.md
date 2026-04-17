@@ -1,12 +1,8 @@
----
-description: BMAD component pattern compliance rules for RBTV agents, workflows, steps, commands, and tasks
-paths:
-  - "agents/**/*.md"
-  - "workflows/**/*.md"
-  - "tasks/**/*.xml"
-  - "_config/claude/commands/**/*.md"
----
-# RBTV Component Pattern Compliance
+# Component Patterns
+
+Reference data for the create-component workflow. Defines size limits, required sections, and structural requirements for each component type (agent, skill, workflow, step, task, rule).
+
+## RBTV Component Pattern Compliance
 
 ## Agent Files (`agents/*.md`)
 
