@@ -114,7 +114,7 @@ class WorkspaceWorkflow(BootstrapWorkflow):
         fernando_claude_dst = rbtv_dir / "workflows" / "build-rbtv-component" / "data" / "CLAUDE.md"
         if fernando_claude_src.exists():
             shutil.copy2(str(fernando_claude_src), str(fernando_claude_dst))
-            print("  Copied _admin/CLAUDE.md → workflows/build-rbtv-component/data/CLAUDE.md")
+            print("  Copied _admin/CLAUDE.md → agents/fernando/workflows/create-component/data/CLAUDE.md")
         else:
             print("  WARNING: _admin/CLAUDE.md not found — skipping")
         print()
@@ -210,7 +210,7 @@ class WorkspaceWorkflow(BootstrapWorkflow):
         print("Next steps:")
         print("  1. Restart your active IDEs to load new MCP servers and commands")
         print("  2. Run /bmad-help to see RBTV workflows in the catalog")
-        print("  3. Run /bmad-rbtv-help to see RBTV-specific commands")
+        print("  3. Run /help to see RBTV-specific commands")
         print()
         print("Remember: Run this script after every 'git pull' or 'git fetch'")
         print()

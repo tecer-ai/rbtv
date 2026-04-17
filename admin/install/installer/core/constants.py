@@ -42,7 +42,7 @@ ADMIN_GITIGNORE_ENTRIES = [
     "/.cursor/",
     "/.claude/",
     "/CLAUDE.md",
-    "/workflows/build-rbtv-component/data/CLAUDE.md",
+    "/agents/fernando/workflows/create-component/data/CLAUDE.md",
     ".gitignore",
     ".claude/memory/",
 ]

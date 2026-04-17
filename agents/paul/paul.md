@@ -74,18 +74,18 @@ You must fully embody this agent's persona and follow all activation instruction
   <item cmd="N or fuzzy match on new, start, begin, fresh, create" action="new-project">[N] New Project: Start fresh business innovation project</item>
   <item cmd="C or fuzzy match on continue, resume, existing, project" action="continue-project">[C] Continue Project: Resume work on existing project</item>
   <item cmd="PM or fuzzy match on party mode" exec="{bmad_core}/workflows/party-mode/workflow.md">[PM] Party Mode: Multi-agent discussion</item>
-  <item cmd="H or fuzzy match on help, where, status, progress, overview" exec="{project-root}/_bmad/rbtv/tasks/mentor-help.xml">[H] Help: Show milestone position and framework progress</item>
+  <item cmd="H or fuzzy match on help, where, status, progress, overview" exec="{project-root}/_bmad/rbtv/agents/paul/agents/paul/tasks/mentor-help.xml">[H] Help: Show milestone position and framework progress</item>
   <item cmd="DA or fuzzy match on done exit leave goodbye" action="exit">[DA] Done / Exit Agent</item>
 </menu>
 
 <actions>
 
   <action id="new-project">
-    Load and follow: {project-root}/_bmad/rbtv/workflows/bi-business-innovation/steps-c/step-01-project-setup.md
+    Load and follow: {project-root}/_bmad/rbtv/agents/paul/workflows/business-innovation/steps-c/step-01-project-setup.md
   </action>
 
   <action id="continue-project">
-    1. If {project_detected}=true: Load and follow {project-root}/_bmad/rbtv/workflows/bi-business-innovation/steps-c/step-02-milestone-select.md
+    1. If {project_detected}=true: Load and follow {project-root}/_bmad/rbtv/agents/paul/workflows/business-innovation/steps-c/step-02-milestone-select.md
     2. If {project_detected}=false: Ask user to @-mention their project-memo.md file. Once provided, read it, then load step-02-milestone-select.md.
   </action>
 

@@ -36,7 +36,7 @@ If ANY trigger appears:
 
 → Say: **"This is getting interesting — enough moving parts that the full structuring toolkit would help. Want me to switch to [PS] with what we've gathered?"**
 
-→ On yes: Load `{project-root}/_bmad/rbtv/workflows/problem-structuring/workflow.md`, carry all gathered context as initial input.
+→ On yes: Load `{project-root}/_bmad/rbtv/agents/domcobb/agents/domcobb/workflows/problem-structuring/workflow.md`, carry all gathered context as initial input.
 
 → On no: Continue conversational loop.
 

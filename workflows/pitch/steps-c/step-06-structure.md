@@ -155,7 +155,7 @@ ONLY when **[C] Continue** is selected:
 >
 > Instruct the user:
 >
-> *"The slide structure is locked. HTML generation, image work, and PDF export require the design agent. To continue, invoke Vivian using the command `@bmad-rbtv-designer` and select **[PD] Pitch Deck Design**. She'll pick up from the finalized structure and carry through to PDF delivery."*
+> *"The slide structure is locked. HTML generation, image work, and PDF export require the design agent. To continue, invoke Vivian using the command `@designer` and select **[PD] Pitch Deck Design**. She'll pick up from the finalized structure and carry through to PDF delivery."*
 >
 > Do NOT load `{nextStepFile}` yourself. The design agent will load it.
 

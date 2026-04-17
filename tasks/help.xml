@@ -19,14 +19,14 @@
     <step n="1" title="Scan Skills">
       <substep n="1a" title="Discover Available Skills">
         <action>Scan the skills folder: {project-root}/.cursor/skills/</action>
-        <action>For each bmad-rbtv-* directory found, read its SKILL.md and extract from the frontmatter: name (the skill name) and description (what it does).</action>
+        <action>For each skill directory found, read its SKILL.md and extract from the frontmatter: name (the skill name) and description (what it does).</action>
         <action>Build a numbered list of available skills.</action>
       </substep>
     </step>
 
     <step n="2" title="Display Skill Menu">
       <substep n="2a" title="Present Skills">
-        <action>Present the skills as a numbered menu with format: [N] /bmad-rbtv-{name} — {description}</action>
+        <action>Present the skills as a numbered menu with format: [N] /{name} — {description}</action>
         <action>Include options: Enter a number to deep-dive, Enter 'X' to exit help.</action>
         <action>HALT and WAIT for user selection.</action>
       </substep>

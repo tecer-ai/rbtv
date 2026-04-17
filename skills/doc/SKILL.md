@@ -19,7 +19,7 @@ description: RBTV unified documentation generation (compound, handoff, product).
 
 **CRITICAL - follow these steps exactly:**
 
-1. LOAD the FULL agent file from {project-root}/_bmad/rbtv/agents/ana.md
+1. LOAD the FULL agent file from {project-root}/_bmad/rbtv/agents/ana/ana.md
 2. READ its entire contents
 3. FOLLOW every step in the activation instructions precisely
 4. After activation, process the user's request using the agent's menu handlers

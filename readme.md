@@ -57,17 +57,17 @@ Re-run after every `git pull` to pick up new commands and configuration changes.
 
 ## Main Commands
 
-These are the primary entry points you'll use directly. All commands are invoked via `/bmad-rbtv-{name}` in Cursor.
+These are the primary entry points you'll use directly. All commands are invoked via `/{name}` in Cursor.
 
 ### Mentor — Business Innovation Lifecycle
 
-`/bmad-rbtv-mentor`
+`/mentor`
 
 A YC-style mentor that guides founders through **6 milestones** — from raw idea to MVP. Covers **22+ innovation frameworks** across conception, validation, branding, prototypation, market validation, and MVP. Progress is tracked in a project memo, so you can resume anytime. See [Business Innovation Milestones](#business-innovation-milestones) below for the full framework breakdown.
 
 **How it works:**
 
-1. Run `/bmad-rbtv-mentor` and select `[BI] Business Innovation`
+1. Run `/mentor` and select `[BI] Business Innovation`
 2. The mentor guides you through frameworks sequentially
 3. Each framework saves artifacts to your output folder
 4. Progress tracked in project memo — resume anytime
@@ -75,19 +75,19 @@ A YC-style mentor that guides founders through **6 milestones** — from raw ide
 
 ### DomCobb — Problem Structuring & Prompting
 
-`/bmad-rbtv-domcobb`
+`/domcobb`
 
 Four modes: **Problem Structuring** (MECE, Pyramid Principle, Problem Trees), **Problem Solving** (routes to BMAD's CIS methodologies), **Prompting Assistance** (craft prompts using **57 knowledge files** covering AI models, prompting techniques, and platforms), and **Add Knowledge** (expand the knowledge base with new model guides or techniques).
 
 ### Plan — Structured Planning
 
-`/bmad-rbtv-plan`
+`/planning`
 
 Creates self-executing plans using Cursor's native `.plan.md` format with added structure: phased task breakdowns, micro-step task files, companion artifacts (`shape.md`, `learnings.md`), quality gates, and dependency validation. Plans are zero-context executable — any agent can pick one up and run it.
 
 ### Pitch Creation — Investor & Client Decks
 
-`/bmad-rbtv-investor-pitch` · `/bmad-rbtv-client-pitch`
+`/investor-pitch` · `/client-pitch`
 
 Builds pitch decks through narrative-first stress-testing. The agent sits on the *other side of the table* — as the investor or the buyer — and challenges every claim before building the deck. The workflow covers narrative development, data validation, research prompting, slide structure, HTML generation, and image prompt creation across 9 steps.
 
@@ -97,13 +97,13 @@ Builds pitch decks through narrative-first stress-testing. The agent sits on the
 
 ### Doc — Documentation Workflows
 
-`/bmad-rbtv-doc`
+`/doc`
 
 Three modes: **Compound** (backlog PRDs from system learnings), **Handoff** (context transfer summaries for agent continuity — plan shaping, execution, or project-level), and **Product** (routes to BMAD for briefs, PRDs, and UX design).
 
 ### Help — Command Explorer
 
-`/bmad-rbtv-help`
+`/help`
 
 Lists all RBTV commands with descriptions and lets you deep-dive into any command to understand its workflows, agents, and outputs.
 
@@ -111,11 +111,11 @@ Lists all RBTV commands with descriptions and lets you deep-dive into any comman
 
 | Command | What it does |
 |---------|-------------|
-| `/bmad-rbtv-quality-review` | Binary APPROVED/REJECTED verdict for deliverable quality |
-| `/bmad-rbtv-designer` | Visual design for pitch decks and brand identity |
-| `/bmad-rbtv-create-component` | Create new BMAD components (agents, workflows, tasks) |
-| `/bmad-rbtv-visual-design-extraction` | Extract design tokens from website screenshots |
-| `/bmad-rbtv-tone-extraction` | Extract voice signatures from text samples |
+| `/quality-review` | Binary APPROVED/REJECTED verdict for deliverable quality |
+| `/designer` | Visual design for pitch decks and brand identity |
+| `/create-component` | Create new BMAD components (agents, workflows, tasks) |
+| `/design-extraction` | Extract design tokens from website screenshots |
+| `/tone-extraction` | Extract voice signatures from text samples |
 
 Most commands are also available as **skills** (AI auto-detects when relevant) and **Cursor sub-agents** (AI delegates in fresh context).
 
@@ -123,7 +123,7 @@ Most commands are also available as **skills** (AI auto-detects when relevant) a
 
 ## Business Innovation Milestones
 
-**Command:** `/bmad-rbtv-mentor`
+**Command:** `/mentor`
 
 A YC mentor who guides you through **22+ innovation frameworks** across 6 milestones, from idea to product-market fit.
 
@@ -197,4 +197,4 @@ Frameworks for building and shipping a minimum viable product. In development.
 
 **Claude Code** is also supported. The installer replicates commands and rules to `.claude/` with format conversion. See [CLAUDE.md](./CLAUDE.md) for path resolution details. Note: `CLAUDE.md` is intended for working on the RBTV repo itself (standalone development), not for BMAD instances.
 
-Run `/bmad-rbtv-help` to explore all commands with detailed usage guidance.
+Run `/help` to explore all commands with detailed usage guidance.

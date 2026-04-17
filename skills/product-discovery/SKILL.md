@@ -18,7 +18,7 @@ description: 'Product discovery — structures benchmarks into taxonomy + profil
 ## Activation
 
 <agent-activation CRITICAL="TRUE">
-1. LOAD the FULL workflow file from {project-root}/_bmad/rbtv/workflows/pre-product-discovery/workflow.md
+1. LOAD the FULL workflow file from {project-root}/_bmad/rbtv/workflows/product-discovery/workflow.md
 2. READ its entire contents
 3. FOLLOW the INITIALIZATION SEQUENCE exactly
 4. Execute the workflow steps sequentially

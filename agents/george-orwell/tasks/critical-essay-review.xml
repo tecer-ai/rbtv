@@ -1,4 +1,4 @@
-<task id="_bmad/rbtv/tasks/critical-essay-review.xml"
+<task id="_bmad/rbtv/agents/george-orwell/agents/george-orwell/tasks/critical-essay-review.xml"
       name="Critical Essay Review"
       standalone="true"
       description="Adversarial review of any text for fallacies, weak logic, clichés, and shallow argumentation">

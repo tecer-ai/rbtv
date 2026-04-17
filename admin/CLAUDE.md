@@ -4,7 +4,7 @@
 
 > **EXECUTION:** Agents must read `CLAUDE.md` only. NEVER read mirrored copies.
 
-> **EDITING:** When editing any mirrored content in `CLAUDE.md`, update `_admin/.claude/rules/admin-rbtv-bmad-mirror.md` and `workflows/build-rbtv-component/data/admin-restrictions.md` to match.
+> **EDITING:** When editing any mirrored content in `CLAUDE.md`, update `_admin/.claude/rules/admin-rbtv-bmad-mirror.md` and `agents/fernando/workflows/create-component/data/admin-restrictions.md` to match.
 
 ## Repository Identity
 
@@ -66,9 +66,9 @@ Idempotent for all modes — re-run after every `git pull`. See `_config/bootstr
 - NEVER modify anything under `_admin/docs/BMAD-mirror/` — it is read-only reference material.
 - Only modify or create files within the RBTV repo itself (everything outside `_admin/docs/BMAD-mirror/`).
 
-> **EXECUTION:** Agents must read this section in `CLAUDE.md` only. NEVER read `workflows/build-rbtv-component/data/admin-restrictions.md` to execute these restrictions.
+> **EXECUTION:** Agents must read this section in `CLAUDE.md` only. NEVER read `agents/fernando/workflows/create-component/data/admin-restrictions.md` to execute these restrictions.
 
-> **EDITING:** When editing this section in `CLAUDE.md`, update `workflows/build-rbtv-component/data/admin-restrictions.md` to match.
+> **EDITING:** When editing this section in `CLAUDE.md`, update `agents/fernando/workflows/create-component/data/admin-restrictions.md` to match.
 
 ## [MIRRORED → admin-restrictions] Admin Restrictions
 

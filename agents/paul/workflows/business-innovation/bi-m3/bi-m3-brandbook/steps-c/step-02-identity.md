@@ -210,7 +210,7 @@ ONLY when **[C] Continue** is selected:
 >
 > Instruct the user:
 >
-> *"Brand Identity is locked. Visual Guidelines — color palette, typography, logo, imagery, and iconography — require the design agent. To continue, invoke Vivian using the command `@bmad-rbtv-designer` and select **[BV] Brand Visual Identity**. She'll build the visual identity grounded in the brand frameworks we just compiled."*
+> *"Brand Identity is locked. Visual Guidelines — color palette, typography, logo, imagery, and iconography — require the design agent. To continue, invoke Vivian using the command `@designer` and select **[BV] Brand Visual Identity**. She'll build the visual identity grounded in the brand frameworks we just compiled."*
 >
 > Do NOT load `{nextStepFile}` yourself. The design agent will load it.
 

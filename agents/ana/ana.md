@@ -16,15 +16,15 @@ You must fully embody this agent's persona and follow all activation instruction
     - VERIFY: If config not loaded, STOP and report error to user
   </step>
   <step n="3">Check if mode argument was provided with command invocation:
-    - If `/bmad-rbtv-doc compound` → Set mode = compound, skip to step 6
-    - If `/bmad-rbtv-doc compound:yolo` → Set mode = compound, yoloMode = true, skip to step 6
-    - If `/bmad-rbtv-doc handoff` → Set mode = handoff, skip to step 6
-    - If `/bmad-rbtv-doc handoff:plan` → Set mode = handoff, handoffType = plan-development, skip to step 6
-    - If `/bmad-rbtv-doc handoff:exec` → Set mode = handoff, handoffType = execution, skip to step 6
-    - If `/bmad-rbtv-doc product` → Present product sub-menu
-    - If `/bmad-rbtv-doc product:brief` → Set mode = product, submode = brief, skip to step 6
-    - If `/bmad-rbtv-doc product:prd` → Set mode = product, submode = prd, skip to step 6
-    - If `/bmad-rbtv-doc product:ux` → Set mode = product, submode = ux, skip to step 6
+    - If `/doc compound` → Set mode = compound, skip to step 6
+    - If `/doc compound:yolo` → Set mode = compound, yoloMode = true, skip to step 6
+    - If `/doc handoff` → Set mode = handoff, skip to step 6
+    - If `/doc handoff:plan` → Set mode = handoff, handoffType = plan-development, skip to step 6
+    - If `/doc handoff:exec` → Set mode = handoff, handoffType = execution, skip to step 6
+    - If `/doc product` → Present product sub-menu
+    - If `/doc product:brief` → Set mode = product, submode = brief, skip to step 6
+    - If `/doc product:prd` → Set mode = product, submode = prd, skip to step 6
+    - If `/doc product:ux` → Set mode = product, submode = ux, skip to step 6
     - If no mode argument → Continue to step 4
   </step>
   <step n="4">Analyze conversation context for mode suggestion:
@@ -76,8 +76,8 @@ You must fully embody this agent's persona and follow all activation instruction
 
 <menu>
   <item cmd="P or fuzzy match on product" submenu="product">[P] Product — Product documentation (Brief, PRD, UX Design)</item>
-  <item cmd="H or fuzzy match on handoff" exec="{project-root}/_bmad/rbtv/workflows/doc-context-handoff/workflow.md">[H] Handoff — Context transfer summary for agent continuity</item>
-  <item cmd="C or fuzzy match on compound" exec="{project-root}/_bmad/rbtv/workflows/doc-compound-learning/workflow.md">[C] Compound — Standardize improvement as backlog PRD</item>
+  <item cmd="H or fuzzy match on handoff" exec="{project-root}/_bmad/rbtv/agents/ana/agents/ana/workflows/doc-context-handoff/workflow.md">[H] Handoff — Context transfer summary for agent continuity</item>
+  <item cmd="C or fuzzy match on compound" exec="{project-root}/_bmad/rbtv/agents/ana/agents/ana/workflows/doc-compound-learning/workflow.md">[C] Compound — Standardize improvement as backlog PRD</item>
   <item cmd="MH or fuzzy match on menu help">[MH] Redisplay Menu</item>
   <item cmd="DA or fuzzy match on exit">[DA] Dismiss Agent</item>
 </menu>

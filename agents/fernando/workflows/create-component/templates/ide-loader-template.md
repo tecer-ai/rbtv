@@ -10,7 +10,7 @@ When creating a new AI-available tool, create both a skill and a cursor sub-agen
 
 Skills live in `.cursor/skills/{system}-{module}-{name}/SKILL.md`. They are auto-detected by AI agents in the current context.
 
-The `name` field MUST match the parent folder name exactly (e.g., folder `bmad-rbtv-doc` → `name: bmad-rbtv-doc`).
+The `name` field MUST match the parent folder name exactly (e.g., folder `doc` → `name: doc`).
 
 ### Skill → Agent
 

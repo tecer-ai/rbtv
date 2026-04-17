@@ -54,7 +54,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 | File | Contains |
 |------|----------|
 | `data/platform-decision-framework.md` | Platform strengths, tradeoffs, and recommendation signals |
-| Prompting knowledge (shared) | `{project-root}/_bmad/rbtv/workflows/prompting-assistance/data/` — model docs, techniques, platform knowledge |
+| Prompting knowledge (shared) | `{project-root}/_bmad/rbtv/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/` — model docs, techniques, platform knowledge |
 
 **Loading Pattern:**
 1. Load `data/platform-decision-framework.md` during Step 2 (platform selection)

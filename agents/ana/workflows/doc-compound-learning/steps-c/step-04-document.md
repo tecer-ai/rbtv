@@ -104,7 +104,7 @@ This PRD documents the proposed improvement and is ready for review and prioriti
 
 What would you like to do next?
 [N] New Compound — Document another improvement
-[DA] Dismiss Agent — Exit bmad-rbtv-doc
+[DA] Dismiss Agent — Exit doc
 ```
 
 ---
@@ -115,7 +115,7 @@ Present the following menu and HALT. Wait for user selection.
 
 **Options:**
 - `[N] New Compound` → Reset workflow, start new compound PRD (load `step-01-init.md` with fresh context)
-- `[DA] Dismiss Agent` → Exit bmad-rbtv-doc agent, return to normal chat
+- `[DA] Dismiss Agent` → Exit doc agent, return to normal chat
 
 ---
 

@@ -252,7 +252,7 @@ This handoff is ready for the receiving agent.
 
 What would you like to do next?
 [N] New Handoff — Create another handoff summary
-[DA] Dismiss Agent — Exit bmad-rbtv-doc
+[DA] Dismiss Agent — Exit doc
 ```
 
 HALT and wait for user selection.
@@ -262,7 +262,7 @@ HALT and wait for user selection.
 ## MENU OPTIONS
 
 - `[N] New Handoff` → Reset workflow, start new handoff (load `step-01-init.md` with fresh context)
-- `[DA] Dismiss Agent` → Exit bmad-rbtv-doc agent, return to normal chat
+- `[DA] Dismiss Agent` → Exit doc agent, return to normal chat
 
 ---
 

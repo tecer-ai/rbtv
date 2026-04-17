@@ -13,7 +13,7 @@ lastUpdated: 'YYYY-MM-DD'
 
 ## For AI Agents
 
-**Template reference:** This document was created from `_bmad/rbtv/workflows/bi-business-innovation/templates/project-memo.md`.
+**Template reference:** This document was created from `_bmad/rbtv/agents/paul/workflows/business-innovation/templates/project-memo.md`.
 
 **Workflow reference:** Read the bi-business-innovation workflow for milestone structure and framework sequence.
 

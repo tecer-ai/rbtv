@@ -230,7 +230,7 @@ class AdminWorkflow(BootstrapWorkflow):
         fernando_dst = rbtv_dir / "workflows" / "build-rbtv-component" / "data" / "CLAUDE.md"
         if claude_src.exists():
             shutil.copy2(str(claude_src), str(fernando_dst))
-            print("  Copied _admin/CLAUDE.md → workflows/build-rbtv-component/data/CLAUDE.md")
+            print("  Copied _admin/CLAUDE.md → agents/fernando/workflows/create-component/data/CLAUDE.md")
         else:
             print("  WARNING: _admin/CLAUDE.md not found — skipping")
         print()
@@ -258,7 +258,7 @@ class AdminWorkflow(BootstrapWorkflow):
         print()
         print("Next steps:")
         print("  1. Restart active IDEs to load new commands and rules")
-        print("  2. Run /bmad-rbtv-help to verify tools work")
+        print("  2. Run /help to verify tools work")
         print()
         print("Remember: re-run this script after every 'git pull'")
         return 0

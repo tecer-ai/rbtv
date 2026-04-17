@@ -38,7 +38,7 @@ Reference data for the create-component workflow. Defines size limits, required 
 | Terminal steps | `nextStepFile: null` for final steps |
 | HALT | Every step must end with menu + "HALT and WAIT" |
 
-## IDE Command Files (`_config/claude/commands/bmad-rbtv-*.md`)
+## IDE Command Files (`_config/claude/commands/*.md`)
 
 | Rule | Requirement |
 |------|-------------|

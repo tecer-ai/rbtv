@@ -17,4 +17,4 @@ description: Create structured plans following BMAD workflow with quality gates.
 
 ## Activation
 
-Load and follow: `{project-root}/_bmad/rbtv/workflows/plan-lifecycle/workflow.md`
+Load and follow: `{project-root}/_bmad/rbtv/workflows/planning/workflow.md`

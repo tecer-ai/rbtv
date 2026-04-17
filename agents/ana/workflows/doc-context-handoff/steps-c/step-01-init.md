@@ -4,7 +4,7 @@ stepName: 'init'
 nextStepFile: ./step-02-location-selection.md
 continueStepFile: './step-01b-continue.md'
 templateFiles:
-  plan-development: '{project-root}/_bmad/rbtv/workflows/plan-lifecycle/templates/shape-template.md'
+  plan-development: '{project-root}/_bmad/rbtv/workflows/planning/templates/shape-template.md'
   execution: ../templates/handoff-execution.md
   project: ../templates/handoff-project.md
 outputFile: '{outputFolder}/{filename}.md'
@@ -49,8 +49,8 @@ You are a Context Curator. Continue your existing persona as Ana and communicati
 
 Inspect the command invocation context:
 
-- If invoked with `:plan` suffix (e.g., `/bmad-rbtv-doc handoff:plan`) → Set `handoffType = plan-development`
-- If invoked with `:exec` suffix (e.g., `/bmad-rbtv-doc handoff:exec`) → Set `handoffType = execution`
+- If invoked with `:plan` suffix (e.g., `/doc handoff:plan`) → Set `handoffType = plan-development`
+- If invoked with `:exec` suffix (e.g., `/doc handoff:exec`) → Set `handoffType = execution`
 - If no type flag → Continue to type detection
 
 ### 2. Detect Handoff Type from Context

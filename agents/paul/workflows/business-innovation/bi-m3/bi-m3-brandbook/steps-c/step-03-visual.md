@@ -3,7 +3,7 @@ name: 'step-03-visual'
 description: 'Create Visual Guidelines with AI image prompts for logo, imagery, and iconography'
 nextStepFile: './step-04-messaging.md'
 outputFile: '{outputFolder}/brandbook.md'
-promptingKnowledgeIndex: '{project-root}/_bmad/rbtv/workflows/prompting-assistance/data/knowledge-index.csv'
+promptingKnowledgeIndex: '{project-root}/_bmad/rbtv/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/knowledge-index.csv'
 advancedElicitationTask: '{bmad_core}/workflows/advanced-elicitation/workflow.xml'
 partyModeWorkflow: '{bmad_core}/workflows/party-mode/workflow.md'
 ---
@@ -353,7 +353,7 @@ ONLY when **[C] Continue** is selected:
 >
 > Instruct the user:
 >
-> *"Visual identity is complete — the brand now has a face. Messaging & Tone is Paul's domain. To continue, invoke Paul using the command `@bmad-rbtv-mentor` and select **[C] Continue Project**. He'll pick up at step 04 to define how the brand sounds."*
+> *"Visual identity is complete — the brand now has a face. Messaging & Tone is Paul's domain. To continue, invoke Paul using the command `@mentor` and select **[C] Continue Project**. He'll pick up at step 04 to define how the brand sounds."*
 >
 > Do NOT load `{nextStepFile}` yourself. The mentor agent will load it.
 

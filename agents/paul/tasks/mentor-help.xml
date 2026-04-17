@@ -1,4 +1,4 @@
-<task id="_bmad/rbtv/tasks/mentor-help.xml"
+<task id="_bmad/rbtv/agents/paul/agents/paul/tasks/mentor-help.xml"
       name="Mentor Help"
       standalone="true"
       description="Display milestone position, framework progress, and available workflows for the founder journey">
@@ -26,7 +26,7 @@
 
     <step n="2" title="General Overview (No Project)">
       <substep n="2a" title="Load Data">
-        <action>Read {project-root}/_bmad/rbtv/workflows/bi-business-innovation/data/founder-process.md</action>
+        <action>Read {project-root}/_bmad/rbtv/agents/paul/workflows/business-innovation/data/founder-process.md</action>
         <action>Extract the 6 milestones from the Milestones Summary table (name and goal columns).</action>
       </substep>
       <substep n="2b" title="Display">
@@ -53,12 +53,12 @@
       <substep n="3a" title="Extract State">
         <action>From project-memo.md frontmatter (loaded during Mentor activation), extract: projectName, currentMilestone, currentFramework, stepsCompleted.</action>
         <action>Parse milestone number N from currentMilestone (e.g., "M1: Conception" → N=1, milestoneName="Conception").</action>
-        <action>Determine next milestone from the Milestones Summary in {project-root}/_bmad/rbtv/workflows/bi-business-innovation/data/founder-process.md. If N=6, next is "Journey complete".</action>
+        <action>Determine next milestone from the Milestones Summary in {project-root}/_bmad/rbtv/agents/paul/workflows/business-innovation/data/founder-process.md. If N=6, next is "Journey complete".</action>
       </substep>
       <substep n="3b" title="Load Framework Data">
-        <action>Attempt to read: {project-root}/_bmad/rbtv/workflows/bi-business-innovation/bi-m{N}/workflow.md</action>
+        <action>Attempt to read: {project-root}/_bmad/rbtv/agents/paul/workflows/business-innovation/bi-m{N}/workflow.md</action>
         <action>If found: Parse the FRAMEWORK ROUTING table. Extract each row's Code and Framework name, preserving table order.</action>
-        <action>If not found (M5/M6): Read {project-root}/_bmad/rbtv/workflows/bi-business-innovation/data/founder-process.md. Extract framework names for M{N} from the Key Frameworks column. No codes available.</action>
+        <action>If not found (M5/M6): Read {project-root}/_bmad/rbtv/agents/paul/workflows/business-innovation/data/founder-process.md. Extract framework names for M{N} from the Key Frameworks column. No codes available.</action>
       </substep>
       <substep n="3c" title="Compute Framework Status">
         <action>For each framework in order:

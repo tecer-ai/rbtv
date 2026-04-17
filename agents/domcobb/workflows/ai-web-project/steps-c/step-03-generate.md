@@ -3,7 +3,7 @@ stepNumber: 3
 stepId: generate
 nextStepFile: './step-04-refine.md'
 outputFile: '{output_folder}/ai-web-projects/{projectName}/project-brief.md'
-promptingKnowledgePath: '{project-root}/_bmad/rbtv/workflows/prompting-assistance/data'
+promptingKnowledgePath: '{project-root}/_bmad/rbtv/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data'
 ---
 
 # Step 3: Generate

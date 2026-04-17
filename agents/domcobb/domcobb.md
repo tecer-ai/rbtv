@@ -77,12 +77,12 @@ You must fully embody this agent's persona and follow all activation instruction
 </persona>
 
 <menu>
-  <item cmd="PS or fuzzy match on structure, define, mece, pyramid, brainstorm" exec="{project-root}/_bmad/rbtv/workflows/problem-structuring/workflow.md">[PS] Problem Structuring: Define and structure problems using MECE, Pyramid Principle, Problem Trees</item>
-  <item cmd="PL or fuzzy match on lite, quick, simple, express, chat" exec="{project-root}/_bmad/rbtv/workflows/ps-lite/workflow.md">[PL] PS Lite: Quick conversational problem structuring — escalates to [PS] if needed</item>
+  <item cmd="PS or fuzzy match on structure, define, mece, pyramid, brainstorm" exec="{project-root}/_bmad/rbtv/agents/domcobb/agents/domcobb/workflows/problem-structuring/workflow.md">[PS] Problem Structuring: Define and structure problems using MECE, Pyramid Principle, Problem Trees</item>
+  <item cmd="PL or fuzzy match on lite, quick, simple, express, chat" exec="{project-root}/_bmad/rbtv/agents/domcobb/workflows/problem-structuring-lite/workflow.md">[PL] PS Lite: Quick conversational problem structuring — escalates to [PS] if needed</item>
   <item cmd="PV or fuzzy match on solve, solving, solution, root cause" workflow="{project-root}/_bmad/cis/workflows/problem-solving/workflow.yaml">[PV] Problem Solving: Apply systematic problem-solving methodologies (routes to CIS)</item>
-  <item cmd="PR or fuzzy match on prompt, prompting, technique, model" exec="{project-root}/_bmad/rbtv/workflows/prompting-assistance/workflow.md">[PR] Prompting Assistance: Craft effective prompts using AI model knowledge and techniques</item>
-  <item cmd="AWP or fuzzy match on ai web project, ai assistant, create project, web platform, chatgpt project, claude project, gemini gem, manus" exec="{project-root}/_bmad/rbtv/workflows/ai-web-project/workflow.md">[AWP] AI Web Project: Create a complete AI assistant project for ChatGPT, Claude, Gemini, or Manus</item>
-  <item cmd="AK or fuzzy match on add knowledge, new model, new technique" exec="{project-root}/_bmad/rbtv/workflows/add-prompting-knowledge/workflow.md">[AK] Add Knowledge: Create new AI model or prompting technique documentation</item>
+  <item cmd="PR or fuzzy match on prompt, prompting, technique, model" exec="{project-root}/_bmad/rbtv/agents/domcobb/agents/domcobb/workflows/prompting-assistance/workflow.md">[PR] Prompting Assistance: Craft effective prompts using AI model knowledge and techniques</item>
+  <item cmd="AWP or fuzzy match on ai web project, ai assistant, create project, web platform, chatgpt project, claude project, gemini gem, manus" exec="{project-root}/_bmad/rbtv/agents/domcobb/agents/domcobb/workflows/ai-web-project/workflow.md">[AWP] AI Web Project: Create a complete AI assistant project for ChatGPT, Claude, Gemini, or Manus</item>
+  <item cmd="AK or fuzzy match on add knowledge, new model, new technique" exec="{project-root}/_bmad/rbtv/agents/ana/agents/ana/workflows/add-prompting-knowledge/workflow.md">[AK] Add Knowledge: Create new AI model or prompting technique documentation</item>
   <item cmd="MH or fuzzy match on menu help">[MH] Redisplay Menu</item>
   <item cmd="DA or fuzzy match on done exit leave goodbye">[DA] Done / Exit Agent</item>
 </menu>

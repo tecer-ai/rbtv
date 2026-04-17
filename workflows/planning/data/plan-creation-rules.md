@@ -110,7 +110,7 @@ References from plan files to files outside the plan folder MUST use project-roo
 
 | Rule | Example | Anti-pattern |
 |------|---------|--------------|
-| Path from project root, no leading `./` | `workflows/plan-lifecycle/workflow.md` | ❌ `../../../workflows/plan-lifecycle/workflow.md` |
+| Path from project root, no leading `./` | `workflows/planning/workflow.md` | ❌ `../../../workflows/planning/workflow.md` |
 | NEVER traverse up out of the plan folder | `_bmad/rbtv/_config/tools-manifest.csv` | ❌ `../../../../_bmad/rbtv/_config/tools-manifest.csv` |
 
 ### Inbound Links (from outside referencing a plan)
