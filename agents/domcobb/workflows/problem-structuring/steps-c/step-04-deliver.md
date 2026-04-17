@@ -128,7 +128,7 @@ Present these options and HALT:
 If user selects [PS]:
 > "Great choice! Let's now work on solving this structured problem. I'll hand this off to the Problem Solving workflow."
 
-Route to: `{project-root}/_bmad/cis/workflows/problem-solving/workflow.yaml`
+Route to: invoke the `bmad-pro-skills:bmad-problem-solving` skill.
 Pass the output document as context.
 
 ---
