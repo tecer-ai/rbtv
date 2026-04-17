@@ -27,7 +27,7 @@ Skills, commands, rules, and subagents are thin loaders or copies in `.claude/` 
 
 For content changes (workflows, personas, tasks, SKILL.md bodies referenced by loaders), just `git pull` in the RBTV source — changes are live immediately.
 
-For changes to what gets installed (new skill/command/rule files, module assignment), re-run the installer:
+When a skill, command, rule, or subagent is created, deleted, or renamed, update `admin/install/module-manifest.yaml` to reflect the change, then re-run the installer:
 
 ```bash
 python install.py
