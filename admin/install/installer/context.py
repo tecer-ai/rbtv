@@ -34,20 +34,19 @@ def resolve_from_cli(
 ) -> InstallContext:
     target_abs = target.resolve()
     rbtv_abs = rbtv_path.resolve()
-    # O1: normalize case on Windows before relative_to to avoid opaque errors
+    # O1: normalize case on Windows for the CONTAINMENT CHECK only.
+    # The returned rbtv_relative preserves original case (filesystems are
+    # case-insensitive on Windows but display case matters for human reading).
     target_norm = _normcase_path(target_abs)
     rbtv_norm = _normcase_path(rbtv_abs)
-    try:
-        rbtv_rel = Path(os.path.relpath(rbtv_norm, target_norm))
-        # Fail fast if rbtv is not actually inside target
-        if rbtv_rel.parts and rbtv_rel.parts[0] == "..":
-            raise ValueError
-    except ValueError as exc:
+    if not str(rbtv_norm).startswith(str(target_norm) + os.sep) and rbtv_norm != target_norm:
         raise ValueError(
             f"RBTV repo must live inside the target workspace.\n"
-            f"  rbtv (normalized): {rbtv_norm}\n"
-            f"  target (normalized): {target_norm}"
-        ) from exc
+            f"  rbtv: {rbtv_abs}\n"
+            f"  target: {target_abs}"
+        )
+    # Compute relative path from original (case-preserving) absolute paths.
+    rbtv_rel = Path(os.path.relpath(rbtv_abs, target_abs))
     return InstallContext(
         rbtv_root=rbtv_abs,
         target_root=target_abs,
