@@ -1,0 +1,1 @@
+Read and execute the output-routing setup workflow at `{rbtv_path}/workflows/output-routing/workflow.md`. This command is the post-install setup for RBTV output path configuration — it scans the workspace, reads existing CLAUDE.md files, and interactively proposes `## File Routing` blocks for user confirmation.
