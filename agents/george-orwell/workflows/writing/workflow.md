@@ -1,5 +1,5 @@
 ---
-name: essay
+name: writing
 description: Build rigorous, evidence-backed essays with critical argumentation review
 nextStep: ./steps-c/step-01-init.md
 ---
