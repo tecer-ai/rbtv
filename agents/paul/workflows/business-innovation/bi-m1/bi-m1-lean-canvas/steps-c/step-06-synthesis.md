@@ -212,7 +212,6 @@ Present to founder:
 ### 10. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine synthesis or assumption prioritization
 - **[B] Back to M1** — return to M1 Conception milestone workflow
 - **[E] Exit** — end session
 

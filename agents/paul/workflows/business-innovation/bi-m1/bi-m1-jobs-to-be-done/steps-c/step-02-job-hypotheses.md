@@ -133,7 +133,6 @@ stepsCompleted: ['step-01-init', 'step-02-job-hypotheses']
 ### 7. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine job hypotheses further
 - **[C] Continue** — proceed to Interview Design
 
 ALWAYS halt and wait for user selection.
@@ -148,7 +147,6 @@ ONLY when **[C] Continue** is selected:
 3. Verify `step-02-job-hypotheses` is in `stepsCompleted`
 4. Load `./step-03-interview.md` and follow its instructions
 
-When **[A] Advanced Elicitation** is selected:
 - Dig deeper into specific hypotheses
 - Challenge assumptions, explore edge cases
 - Return to this menu after exploration

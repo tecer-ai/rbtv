@@ -190,7 +190,6 @@ If user provides corrections or additions:
 **Select an Option:**
 
 - **[C] Continue** — Proceed to document generation (step-04)
-- **[AE] Advanced Elicitation** — Load and execute `{advancedElicitationTask}`, then return and redisplay this step's menu
 - **[X] Exit Workflow** — Save current state, exit agent
 
 ALWAYS halt and wait for user selection.

@@ -192,7 +192,6 @@ stepsCompleted: ['step-01-init', 'step-02-identity']
 
 **Select an Option:**
 - **[C] Continue** — hand off to the design agent for Visual Guidelines
-- **[A] Advanced Elicitation** — refine any subsection
 
 ALWAYS halt and wait for user selection.
 
@@ -214,7 +213,6 @@ ONLY when **[C] Continue** is selected:
 >
 > Do NOT load `{nextStepFile}` yourself. The design agent will load it.
 
-When **[A] Advanced Elicitation** is selected:
 - Ask which subsection to refine
 - After refinement, redisplay menu
 

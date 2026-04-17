@@ -164,8 +164,6 @@ Update working-backwards.md with:
 ### 12. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on specific FAQ areas
-- **[P] Party Mode** — stress-test "Is it worth doing?" from multiple perspectives
 - **[C] Continue** — proceed to Synthesis
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

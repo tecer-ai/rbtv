@@ -164,8 +164,6 @@ Update working-backwards.md with completed Press Release section.
 ### 13. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine specific sections
-- **[P] Party Mode** — get multi-perspective critique of the PR
 - **[C] Continue** — proceed to Draft FAQ
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

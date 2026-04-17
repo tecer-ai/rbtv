@@ -179,7 +179,6 @@ stepsCompleted: ['step-01-init', 'step-02-job-hypotheses', 'step-03-interview', 
 ### 7. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine job stories, forces, or job map
 - **[C] Continue** — proceed to Synthesis
 
 ALWAYS halt and wait for user selection.

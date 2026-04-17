@@ -199,7 +199,6 @@ stepsCompleted: ['step-01-init', 'step-02-dimensions', 'step-03-examples']
 ### 10. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — add more examples or refine existing ones
 - **[C] Continue** — proceed to Context Adjustments
 
 ALWAYS halt and wait for user selection.

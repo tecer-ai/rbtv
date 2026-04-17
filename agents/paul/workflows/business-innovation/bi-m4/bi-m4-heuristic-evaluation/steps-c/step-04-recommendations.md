@@ -241,8 +241,6 @@ Update frontmatter: add `step-04-recommendations.md` to `stepsCompleted`
 ### 8. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — discuss any recommendation in detail
-- **[P] Party Mode** — get multi-agent perspectives on prioritization
 - **[C] Continue** — proceed to synthesis
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

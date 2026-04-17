@@ -83,8 +83,6 @@ Verify the document is under 200 lines. If over, compress further.
 ### 6. Present Menu
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on any pattern or competitor
-- **[P] Party Mode** — multi-agent perspectives on competitive landscape
 - **[C] Continue** — proceed to Product Map
 
 ALWAYS halt and wait for user selection.

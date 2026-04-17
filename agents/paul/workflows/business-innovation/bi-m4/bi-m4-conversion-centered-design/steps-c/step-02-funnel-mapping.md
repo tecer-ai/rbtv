@@ -184,8 +184,6 @@ stepsCompleted: ['step-01-init', 'step-02-funnel-mapping']
 ### 6. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on any friction point or stage
-- **[P] Party Mode** — get multi-agent perspectives on friction analysis
 - **[C] Continue** — proceed to Hypothesis Generation
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

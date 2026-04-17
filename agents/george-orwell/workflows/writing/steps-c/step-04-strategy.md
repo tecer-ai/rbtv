@@ -86,8 +86,6 @@ Update frontmatter: `approach`, `scope`.
 ### 6. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — explore strategy trade-offs deeper
-- **[P] Party Mode** — get multi-agent perspectives on approach
 - **[C] Continue** — proceed to Theme Structuring
 
 ALWAYS halt and wait for user selection.

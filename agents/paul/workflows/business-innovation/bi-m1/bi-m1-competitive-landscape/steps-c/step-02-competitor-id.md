@@ -144,8 +144,6 @@ stepsCompleted: ['step-01-init', 'step-02-competitor-id']
 ### 6. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — deeper research on specific competitors
-- **[P] Party Mode** — get multi-agent perspectives on competitive gaps
 - **[C] Continue** — proceed to Geographic & Cross-Industry Benchmarking
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

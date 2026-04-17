@@ -238,7 +238,6 @@ stepsCompleted: ['step-01-init', 'step-02-brand-promise', 'step-03-key-messages'
 **Select an Option:**
 - **[C] Continue** — proceed to Synthesis
 - **[R] Refine** — revise CTAs for specific journey stage
-- **[A] Advanced Elicitation** — deeper exploration of CTA options
 
 ALWAYS halt and wait for user selection.
 
@@ -257,7 +256,6 @@ When **[R] Refine** is selected:
 - Return to that stage's CTA section and re-elicit CTAs
 - Redisplay menu
 
-When **[A] Advanced Elicitation** is selected:
 - Ask deeper questions about channel strategy, CTA friction points, or journey stage gaps
 - After elicitation, redisplay menu
 

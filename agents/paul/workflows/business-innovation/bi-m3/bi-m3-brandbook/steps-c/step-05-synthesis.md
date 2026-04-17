@@ -290,7 +290,6 @@ Present to founder:
 ### 11. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine synthesis or project-memo entry
 - **[B] Back to M3** — return to M3 Brand milestone workflow
 - **[M] Next Milestone** — proceed to M4 or M5
 - **[E] Exit** — end session

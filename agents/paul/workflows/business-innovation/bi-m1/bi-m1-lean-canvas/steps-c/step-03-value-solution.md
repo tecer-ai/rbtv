@@ -172,8 +172,6 @@ Update lean-canvas.md with completed UVP and Solution blocks.
 ### 10. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine UVP or solution mapping
-- **[P] Party Mode** — get multi-perspective challenge on differentiation
 - **[C] Continue** — proceed to Channels & Revenue blocks
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

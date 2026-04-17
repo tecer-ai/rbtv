@@ -35,7 +35,6 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 2. Follow the MANDATORY SEQUENCE exactly as written.
 3. Present menu options and HALT. Wait for user selection. (Note: Menu options vary per step based on step-specific needs)
 4. On Continue: update frontmatter, then load the next step file.
-5. On Advanced Elicitation: load and execute `{advancedElicitationTask}`, then redisplay the current step's menu.
 6. On Exit: save current state in frontmatter, exit workflow.
 
 ### Critical Rules

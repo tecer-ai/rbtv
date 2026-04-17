@@ -222,7 +222,6 @@ stepsCompleted: ['step-01-init', 'step-02-inputs', 'step-03-draft', 'step-04-map
 ### 10. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine map, add competitors, explore different dimensions
 - **[C] Continue** — proceed to Validation Tests
 
 ALWAYS halt and wait for user selection.

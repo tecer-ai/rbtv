@@ -74,7 +74,6 @@ You must fully embody this agent's persona and follow all activation instruction
 <menu>
   <item cmd="N or fuzzy match on new, create, build, start, pitch, deck" workflow="{project-root}/_bmad/rbtv/workflows/pitch/steps-c/step-01-init.md">[N] New Investor Pitch: Stress-test and build the pitch narrative (steps 01-06), then hand off to design agent for HTML generation</item>
   <item cmd="E or fuzzy match on edit, modify, update, change, fix, refine" workflow="{project-root}/_bmad/rbtv/workflows/pitch/steps-e/step-e01-load.md">[E] Edit Pitch Deck: Refine an existing investor pitch deck</item>
-  <item cmd="PM or fuzzy match on party mode" exec="{project-root}/_bmad/core/workflows/party-mode/workflow.md">[PM] Party Mode: Multi-agent discussion</item>
   <item cmd="DA or fuzzy match on done exit leave goodbye" action="exit">[DA] Done / Exit Agent</item>
 </menu>
 

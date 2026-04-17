@@ -134,8 +134,6 @@ Present:
 ### 7. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — revisit scores for specific failure modes
-- **[P] Party Mode** — get multi-agent perspectives on risk prioritization
 - **[C] Continue** — proceed to Mitigations
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

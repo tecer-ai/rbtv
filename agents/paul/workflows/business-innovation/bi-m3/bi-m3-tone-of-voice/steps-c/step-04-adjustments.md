@@ -233,7 +233,6 @@ stepsCompleted: ['step-01-init', 'step-02-dimensions', 'step-03-examples', 'step
 ### 12. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine adjustments or add custom contexts
 - **[C] Continue** — proceed to Sample Copy
 
 ALWAYS halt and wait for user selection.

@@ -95,8 +95,6 @@ Write `v1-scope.md` in the product output folder with:
 ### 7. Present Menu
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on scope decisions
-- **[P] Party Mode** — multi-agent stress-test the V1 scope
 - **[D] Done** — workflow complete
 
 ALWAYS halt and wait for user selection.

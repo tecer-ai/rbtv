@@ -97,8 +97,6 @@ Update frontmatter: add `step-02b-interview.md` to `stepsCompleted`.
 ### 8. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on any question
-- **[P] Party Mode** — get multi-agent perspectives on the idea
 - **[C] Continue** — proceed to Tone Discovery
 
 ALWAYS halt and wait for user selection.

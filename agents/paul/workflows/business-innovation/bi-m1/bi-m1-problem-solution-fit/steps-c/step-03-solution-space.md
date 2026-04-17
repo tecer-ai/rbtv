@@ -142,8 +142,6 @@ Update problem-solution-fit.md with "Our Solution" section.
 ### 9. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine solution articulation or traceability
-- **[P] Party Mode** — get multi-perspective challenge on solution fit
 - **[C] Continue** — proceed to Critical Assumptions
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

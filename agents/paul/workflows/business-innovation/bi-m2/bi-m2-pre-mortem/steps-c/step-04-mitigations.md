@@ -166,8 +166,6 @@ Present all mitigation cards in document format:
 ### 7. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine specific mitigation cards
-- **[P] Party Mode** — get multi-agent perspectives on mitigation strategies
 - **[C] Continue** — proceed to Synthesis
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

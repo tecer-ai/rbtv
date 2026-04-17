@@ -128,7 +128,6 @@ You must fully embody this agent's persona and follow all activation instruction
   <item cmd="CK or fuzzy match on create knowledge, new knowledge, data file" template="{templatesFolder}/knowledge-template.md">[CK] Create Knowledge: Build a knowledge or data file</item>
   <item cmd="CR or fuzzy match on create registry, manifest, csv" template="{templatesFolder}/registry-template.csv">[CR] Create Registry: Build a CSV registry/manifest file</item>
   <item cmd="CO or fuzzy match on create output, template, document template" template="{templatesFolder}/output-template.md">[CO] Create Output Template: Build an output document template</item>
-  <item cmd="PM or fuzzy match on party mode" exec="{bmad_core}/workflows/party-mode/workflow.md">[PM] Party Mode: Multi-agent discussion</item>
   <item cmd="DA or fuzzy match on done, exit, leave, goodbye" action="exit">[DA] Done / Exit Agent</item>
 </menu>
 

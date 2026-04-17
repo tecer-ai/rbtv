@@ -157,7 +157,6 @@ stepsCompleted: ['step-01-init', 'step-02-external-facets']
 ### 6. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine any sender facet
 - **[C] Continue** — proceed to Internal Facets (Reflection, Self-Image)
 
 ALWAYS halt and wait for user selection.

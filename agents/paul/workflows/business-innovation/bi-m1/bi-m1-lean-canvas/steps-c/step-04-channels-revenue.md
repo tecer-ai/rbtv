@@ -210,8 +210,6 @@ Update lean-canvas.md with completed Channels, Revenue Streams, and Cost Structu
 ### 10. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine economic model or channel strategy
-- **[P] Party Mode** — get multi-perspective challenge on business model
 - **[C] Continue** — proceed to Metrics & Advantage blocks
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

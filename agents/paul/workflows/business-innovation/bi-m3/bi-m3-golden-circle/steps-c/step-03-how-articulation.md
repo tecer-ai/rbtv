@@ -157,7 +157,6 @@ stepsCompleted: ['step-01-init', 'step-02-why-discovery', 'step-03-how-articulat
 ### 10. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine How principles
 - **[C] Continue** — proceed to What Definition
 
 ALWAYS halt and wait for user selection.

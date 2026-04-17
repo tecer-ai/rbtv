@@ -149,8 +149,6 @@ Update problem-solution-fit.md with:
 ### 6. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on problem situations or constraints
-- **[P] Party Mode** — get multi-perspective challenge on problem mapping
 - **[C] Continue** — proceed to Solution Articulation
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

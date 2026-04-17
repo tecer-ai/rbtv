@@ -86,8 +86,6 @@ Update frontmatter: `audience`, `objective`, `inputDocuments`.
 ### 6. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on audience or objective
-- **[P] Party Mode** — get multi-agent perspectives
 - **[C] Continue** — proceed to Interview
 
 ALWAYS halt and wait for user selection.

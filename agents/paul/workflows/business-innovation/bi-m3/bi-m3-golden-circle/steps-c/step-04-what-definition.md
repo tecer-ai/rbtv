@@ -139,7 +139,6 @@ stepsCompleted: ['step-01-init', 'step-02-why-discovery', 'step-03-how-articulat
 ### 9. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine What or chain narrative
 - **[C] Continue** — proceed to Synthesis (validation and project-memo update)
 
 ALWAYS halt and wait for user selection.

@@ -101,8 +101,6 @@ Append to the essay output document:
 ### 7. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on any section of the spine
-- **[P] Party Mode** — get multi-agent perspectives on the structure
 - **[C] Continue** — proceed to Research Brief
 
 ALWAYS halt and wait for user selection.

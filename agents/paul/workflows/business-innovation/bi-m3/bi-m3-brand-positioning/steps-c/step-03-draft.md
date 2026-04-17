@@ -153,7 +153,6 @@ stepsCompleted: ['step-01-init', 'step-02-inputs', 'step-03-draft']
 ### 9. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — explore more variations or refine annotations
 - **[C] Continue** — proceed to Create Perceptual Map
 
 ALWAYS halt and wait for user selection.

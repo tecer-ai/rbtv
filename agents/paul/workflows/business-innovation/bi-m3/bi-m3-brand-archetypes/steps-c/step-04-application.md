@@ -219,7 +219,6 @@ stepsCompleted: ['step-01-init', 'step-02-exploration', 'step-03-selection', 'st
 ### 7. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine any expression dimension
 - **[C] Continue** — proceed to Synthesis
 
 ALWAYS halt and wait for user selection.

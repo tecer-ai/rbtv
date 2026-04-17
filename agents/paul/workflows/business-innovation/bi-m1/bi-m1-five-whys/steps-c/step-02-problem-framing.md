@@ -162,8 +162,6 @@ Update five-whys.md with:
 ### 8. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine problem statement or scenario brief
-- **[P] Party Mode** — get multi-perspective challenge on problem framing
 - **[C] Continue** — proceed to Run 5 Whys Chains
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

@@ -154,7 +154,6 @@ stepsCompleted: ['step-01-init', 'step-02-why-discovery']
 ### 8. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — explore alternative Why candidates
 - **[C] Continue** — proceed to How Articulation
 
 ALWAYS halt and wait for user selection.

@@ -98,7 +98,6 @@ Present these options and HALT:
 |--------|--------|
 | **[C] Continue** | Proceed to Step 2: Framework Selection & Deep Discovery |
 | **[R] Revise** | Adjust the initial assessment based on user feedback |
-| **[AE] Advanced Elicitation** | Use Socratic questioning to surface hidden aspects |
 | **[Q] Questions** | User has questions about the process |
 
 ---

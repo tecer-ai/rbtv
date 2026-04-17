@@ -155,7 +155,6 @@ stepsCompleted: ['step-01-init', 'step-02-external-facets', 'step-03-internal-fa
 ### 6. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine Reflection or Self-Image
 - **[C] Continue** — proceed to Prism Synthesis (Relationship + Coherence)
 
 ALWAYS halt and wait for user selection.

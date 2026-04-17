@@ -234,7 +234,6 @@ stepsCompleted: ['step-01-init', 'step-02-brand-promise', 'step-03-key-messages'
 **Select an Option:**
 - **[C] Continue** — proceed to Proof Points
 - **[R] Refine** — revise messages for specific audience
-- **[A] Advanced Elicitation** — deeper exploration of message options
 
 ALWAYS halt and wait for user selection.
 
@@ -252,7 +251,6 @@ When **[R] Refine** is selected:
 - Return to that audience's section and re-elicit messages
 - Redisplay menu
 
-When **[A] Advanced Elicitation** is selected:
 - Ask deeper questions about audience concerns, customer language, or message differentiation
 - After elicitation, redisplay menu
 

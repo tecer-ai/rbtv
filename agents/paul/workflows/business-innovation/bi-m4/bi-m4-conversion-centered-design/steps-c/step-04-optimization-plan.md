@@ -232,8 +232,6 @@ stepsCompleted: ['step-01-init', 'step-02-funnel-mapping', 'step-03-hypothesis-g
 ### 7. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — adjust prioritization or add success criteria
-- **[P] Party Mode** — get multi-agent perspectives on the plan
 - **[C] Continue** — proceed to Synthesis
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

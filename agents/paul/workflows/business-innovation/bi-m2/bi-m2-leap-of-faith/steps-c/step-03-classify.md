@@ -168,8 +168,6 @@ stepsCompleted: ['step-01-init', 'step-02-harvest', 'step-03-classify']
 ### 8. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — challenge classification of specific assumptions
-- **[P] Party Mode** — get multi-agent perspectives on boundary cases
 - **[C] Continue** — proceed to Prioritize Assumptions
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

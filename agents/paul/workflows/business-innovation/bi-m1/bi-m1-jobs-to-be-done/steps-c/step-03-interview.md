@@ -178,7 +178,6 @@ stepsCompleted: ['step-01-init', 'step-02-job-hypotheses', 'step-03-interview']
 ### 7. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine interview guide or add interview notes
 - **[C] Continue** — proceed to Job Stories & Forces
 
 ALWAYS halt and wait for user selection.

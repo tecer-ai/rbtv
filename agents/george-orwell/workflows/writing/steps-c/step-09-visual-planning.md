@@ -103,8 +103,6 @@ Insert visual placeholders in the essay draft at the appropriate locations:
 ### 7. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine visual prompts or style
-- **[P] Party Mode** — get multi-agent perspectives on visual strategy
 - **[C] Continue** — proceed to Critical Review
 
 ALWAYS halt and wait for user selection.

@@ -103,8 +103,6 @@ Append to the essay output document:
 ### 7. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on evidence gaps or conflicts
-- **[P] Party Mode** — get multi-agent perspectives on evidence quality
 - **[C] Continue** — proceed to Drafting
 
 ALWAYS halt and wait for user selection.

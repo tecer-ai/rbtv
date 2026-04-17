@@ -134,8 +134,6 @@ Update frontmatter: `toneProfile` with a one-line summary.
 ### 5. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine the voice profile further
-- **[P] Party Mode** — get multi-agent perspectives on tone
 - **[C] Continue** — proceed to Strategy Decision
 
 ALWAYS halt and wait for user selection.

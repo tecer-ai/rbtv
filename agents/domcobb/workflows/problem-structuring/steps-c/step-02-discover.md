@@ -100,7 +100,6 @@ Present these options and HALT:
 |--------|--------|
 | **[C] Continue** | Proceed to Step 3: Structure the Problem |
 | **[MQ] More Questions** | Additional questioning round |
-| **[AE] Advanced Elicitation** | Deep-dive into a specific area |
 | **[R] Revise** | Correct any misunderstandings |
 
 ---

@@ -158,8 +158,6 @@ Update problem-solution-fit.md with "Critical Assumptions" section.
 ### 10. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on specific assumptions
-- **[P] Party Mode** — get multi-perspective challenge on assumptions
 - **[C] Continue** — proceed to Synthesis
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

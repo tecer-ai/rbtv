@@ -191,8 +191,6 @@ Update lean-canvas.md with completed Key Metrics and Unfair Advantage blocks.
 ### 9. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine metrics or advantage thesis
-- **[P] Party Mode** — get multi-perspective challenge on defensibility
 - **[C] Continue** — proceed to Synthesis
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

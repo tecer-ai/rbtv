@@ -208,8 +208,6 @@ If any missing:
 ### 10. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine synthesis or risk posture
-- **[P] Party Mode** — get multi-agent perspectives on overall risk assessment
 - **[M2] Return to M2 Milestone** — go back to ../../workflow.md
 - **[MS] Return to Milestone Selection** — go back to master workflow
 

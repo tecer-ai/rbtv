@@ -93,8 +93,6 @@ Create `taxonomy.md` from `{taxonomyTemplate}` in the output folder. Record seed
 ### 8. Present Menu
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on taxonomy categories
-- **[P] Party Mode** — multi-agent perspectives on the taxonomy
 - **[C] Continue** — proceed to Benchmark Loop
 
 ALWAYS halt and wait for user selection.

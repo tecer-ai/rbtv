@@ -169,8 +169,6 @@ Update frontmatter: add `step-02-heuristic-review.md` to `stepsCompleted`
 ### 6. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on any heuristic or violation
-- **[P] Party Mode** — get multi-agent perspectives on the violations
 - **[C] Continue** — proceed to severity rating
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

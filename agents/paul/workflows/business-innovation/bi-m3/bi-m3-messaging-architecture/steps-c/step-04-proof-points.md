@@ -194,7 +194,6 @@ stepsCompleted: ['step-01-init', 'step-02-brand-promise', 'step-03-key-messages'
 **Select an Option:**
 - **[C] Continue** — proceed to CTAs & Journey mapping
 - **[R] Refine** — revise proof points for specific message
-- **[A] Advanced Elicitation** — deeper exploration of available evidence
 
 ALWAYS halt and wait for user selection.
 
@@ -213,7 +212,6 @@ When **[R] Refine** is selected:
 - Return to that message's proof point section and re-elicit evidence
 - Redisplay menu
 
-When **[A] Advanced Elicitation** is selected:
 - Ask deeper questions about available evidence sources, M2 validation data, or JTBD customer quotes
 - After elicitation, redisplay menu
 

@@ -334,7 +334,6 @@ stepsCompleted: ['step-01-init', 'step-02-identity', 'step-03-visual']
 
 **Select an Option:**
 - **[C] Continue** — hand off back to the mentor agent for Messaging & Tone
-- **[A] Advanced Elicitation** — refine any visual element
 
 ALWAYS halt and wait for user selection.
 
@@ -357,7 +356,6 @@ ONLY when **[C] Continue** is selected:
 >
 > Do NOT load `{nextStepFile}` yourself. The mentor agent will load it.
 
-When **[A] Advanced Elicitation** is selected:
 - Ask which visual element to refine
 - If logo/imagery: generate new prompts, iterate
 - After refinement, redisplay menu

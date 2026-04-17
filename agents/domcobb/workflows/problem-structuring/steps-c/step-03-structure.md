@@ -114,8 +114,6 @@ Present these options and HALT:
 | **[C] Continue** | Proceed to Step 4: Deliver Summary |
 | **[RT] Revise Tree** | Modify the problem tree structure |
 | **[RS] Revise Statement** | Refine the problem statement |
-| **[AE] Advanced Elicitation** | Explore a specific branch deeper |
-| **[PM] Party Mode** | Multi-agent review of structure |
 
 **Menu handling:** When [PM] is selected, execute {partyModeWorkflow} then redisplay this menu.
 

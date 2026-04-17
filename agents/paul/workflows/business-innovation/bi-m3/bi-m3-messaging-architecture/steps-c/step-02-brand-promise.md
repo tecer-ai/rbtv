@@ -172,7 +172,6 @@ stepsCompleted: ['step-01-init', 'step-02-brand-promise']
 **Select an Option:**
 - **[C] Continue** — proceed to Key Messages definition
 - **[R] Refine** — revise brand promise with additional elicitation
-- **[A] Advanced Elicitation** — deeper exploration of promise options
 
 ALWAYS halt and wait for user selection.
 
@@ -190,7 +189,6 @@ When **[R] Refine** is selected:
 - Re-apply filters and cross-checks
 - Redisplay menu
 
-When **[A] Advanced Elicitation** is selected:
 - Ask deeper questions about emotional territory, customer language, or competitive distinction
 - After elicitation, redisplay menu
 

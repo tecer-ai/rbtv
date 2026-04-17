@@ -98,8 +98,6 @@ For each residual item, the founder decides:
 
 **Select an Option:**
 - **[N] Next Benchmark** — process the next one (return to step 2)
-- **[A] Advanced Elicitation** — go deeper on this profile
-- **[P] Party Mode** — multi-agent perspectives on this benchmark's findings
 - **[X] Pause** — save state and stop (resume later via step-01b-continue)
 - **[C] Continue to Synthesis** — proceed to comparative synthesis (only available if 5+ benchmarks processed)
 

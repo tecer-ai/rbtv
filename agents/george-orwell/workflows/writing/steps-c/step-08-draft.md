@@ -97,7 +97,6 @@ If `scope: chapter-by-chapter`:
 - After completing each chapter, present:
   - **[N] Next Chapter** — proceed to next chapter
   - **[R] Revise** — rework this chapter
-  - **[A] Advanced Elicitation** — go deeper
   - **[C] Continue** — all chapters done, proceed to Visual Planning
 
 ### 4. Compile Draft
@@ -114,8 +113,6 @@ Replace the working sections in the essay output document with the complete draf
 ### 6. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on any section
-- **[P] Party Mode** — get multi-agent perspectives on the draft
 - **[C] Continue** — proceed to Visual Planning
 
 ALWAYS halt and wait for user selection.

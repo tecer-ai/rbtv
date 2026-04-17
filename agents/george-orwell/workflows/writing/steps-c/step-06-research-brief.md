@@ -105,8 +105,6 @@ Append to the essay output document:
 ### 7. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine research questions
-- **[P] Party Mode** — get multi-agent perspectives on research needs
 - **[R] Run Research Now** — execute web research using the built-in RBTV research task ({webResearchTask}) instead of external AI
 - **[C] Continue** — proceed to Research Integration (do this AFTER completing external research)
 

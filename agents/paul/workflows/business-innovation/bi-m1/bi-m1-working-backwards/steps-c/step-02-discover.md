@@ -134,8 +134,6 @@ Update working-backwards.md with completed Customer & Problem Brief section.
 ### 8. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on customer segments or problem definition
-- **[P] Party Mode** — get multi-perspective challenge on the brief
 - **[C] Continue** — proceed to Draft Press Release
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

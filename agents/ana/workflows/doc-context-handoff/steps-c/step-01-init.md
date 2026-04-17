@@ -136,7 +136,6 @@ date: '{current-date}'
 **Select an Option:**
 
 - **[C] Continue** — Proceed to location selection (step-02)
-- **[AE] Advanced Elicitation** — Load and execute `{advancedElicitationTask}`, then return and redisplay this step's menu
 - **[X] Exit Workflow** — Save current state, exit agent
 
 ALWAYS halt and wait for user selection.

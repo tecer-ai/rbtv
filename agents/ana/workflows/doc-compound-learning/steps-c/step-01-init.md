@@ -81,7 +81,6 @@ Present the following menu and HALT. Wait for user selection.
 
 **Options:**
 - `[C] Continue` → Load and execute `step-02-self-assessment.md`
-- `[AE] Advanced Elicitation` → Load and execute `{advancedElicitationTask}`, then return and redisplay this step's menu
 - `[X] Exit Workflow` → Save current state in frontmatter, exit agent
 
 ---

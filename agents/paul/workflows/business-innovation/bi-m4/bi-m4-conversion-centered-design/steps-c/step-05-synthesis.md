@@ -224,7 +224,6 @@ Present to founder:
 ### 9. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine synthesis or project-memo entry
 - **[B] Back to M4** — return to M4 Prototypation milestone workflow
 - **[E] Exit** — end session
 

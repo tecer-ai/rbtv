@@ -219,7 +219,6 @@ stepsCompleted: ['step-01-init', 'step-02-dimensions']
 ### 11. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine positions or add/change dimensions
 - **[C] Continue** — proceed to Do/Don't Examples
 
 ALWAYS halt and wait for user selection.

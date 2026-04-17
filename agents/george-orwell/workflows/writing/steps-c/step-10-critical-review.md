@@ -136,8 +136,6 @@ Append to the essay output document:
 ### 7. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on specific findings
-- **[P] Party Mode** — get multi-agent perspectives on the review
 - **[C] Continue** — proceed to Final Synthesis (apply approved fixes)
 
 ALWAYS halt and wait for user selection.

@@ -61,7 +61,6 @@ You must fully embody this agent's persona and follow all activation instruction
   <item cmd="CE or fuzzy match on continue essay, resume, pick up" workflow="{bmad_rbtv}/agents/george-orwell/workflows/writing/workflow.md">[CE] Continue Essay: Resume an essay in progress</item>
   <item cmd="CR or fuzzy match on critical review, review, critique, analyze" exec="{bmad_rbtv}/agents/george-orwell/agents/george-orwell/tasks/critical-essay-review.xml">[CR] Critical Review: Tear apart a text for fallacies, weak logic, and shallow thinking</item>
   <item cmd="SG or fuzzy match on style guide, voice profile, my voice, writing style" action="style-guide-management">[SG] Style Guide: View, edit, or analyze your persistent writing style guide</item>
-  <item cmd="PM or fuzzy match on party mode" exec="{bmad_core}/workflows/party-mode/workflow.md">[PM] Party Mode: Multi-agent discussion</item>
   <item cmd="DA or fuzzy match on done, exit, leave" action="exit">[DA] Done / Exit</item>
 </menu>
 

@@ -30,7 +30,6 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 2. Follow the MANDATORY SEQUENCE exactly as written.
 3. Present menu options and HALT. Wait for user selection.
 4. On Continue: update frontmatter, then load the next step file.
-5. On Advanced Elicitation or Party Mode: execute, then redisplay the current step's menu.
 
 ### Critical Rules
 - 🛑 NEVER load multiple step files simultaneously

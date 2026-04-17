@@ -181,8 +181,6 @@ If any fail, iterate before continuing.
 ### 9. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — add another chain or go deeper on existing chain
-- **[P] Party Mode** — get multi-perspective challenge on chain logic
 - **[C] Continue** — proceed to Root Cause Synthesis
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

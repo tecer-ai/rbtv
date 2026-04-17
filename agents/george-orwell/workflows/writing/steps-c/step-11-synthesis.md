@@ -138,8 +138,6 @@ For each confirmed update:
 ### 8. Present Final Menu
 
 **Essay complete. Select an Option:**
-- **[A] Advanced Elicitation** — refine any section further
-- **[P] Party Mode** — get multi-agent perspectives on the final essay
 - **[D] Done** — return to George Orwell's main menu
 
 ALWAYS halt and wait for user selection.

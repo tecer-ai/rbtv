@@ -132,7 +132,6 @@ Present the following menu and HALT. Wait for user selection.
 
 **Options:**
 - `[C] Continue` → Load and execute `step-03-discussion.md` (step-03 will self-skip if yoloMode is true)
-- `[AE] Advanced Elicitation` → Load and execute `{advancedElicitationTask}`, then return and redisplay this step's menu
 - `[X] Exit Workflow` → Save current state, exit agent
 
 ---

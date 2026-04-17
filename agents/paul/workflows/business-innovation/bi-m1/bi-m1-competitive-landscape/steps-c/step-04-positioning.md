@@ -223,8 +223,6 @@ stepsCompleted: ['step-01-init', 'step-02-competitor-id', 'step-03-benchmarking'
 ### 9. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — deeper analysis on specific competitors or positioning
-- **[P] Party Mode** — get multi-agent perspectives on positioning strategy
 - **[C] Continue** — proceed to Synthesis & Project Memo Update
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

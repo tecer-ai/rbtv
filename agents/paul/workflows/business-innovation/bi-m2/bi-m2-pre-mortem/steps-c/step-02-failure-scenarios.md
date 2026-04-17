@@ -154,8 +154,6 @@ Present the complete numbered list:
 ### 7. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — add more failure modes to specific categories
-- **[P] Party Mode** — get multi-agent perspectives on hidden risks
 - **[C] Continue** — proceed to Risk Ranking
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

@@ -171,7 +171,6 @@ stepsCompleted: ['step-01-init', 'step-02-exploration']
 ### 7. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine scores or add competitor analysis
 - **[C] Continue** — proceed to Archetype Selection
 
 ALWAYS halt and wait for user selection.

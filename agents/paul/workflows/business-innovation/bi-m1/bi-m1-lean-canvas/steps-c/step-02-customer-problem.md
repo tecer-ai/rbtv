@@ -180,8 +180,6 @@ Update lean-canvas.md with completed Problem and Customer Segments blocks.
 ### 10. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on problem definition or segment refinement
-- **[P] Party Mode** — get multi-perspective challenge on blocks
 - **[C] Continue** — proceed to Value & Solution blocks
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

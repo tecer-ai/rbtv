@@ -190,8 +190,6 @@ Update five-whys.md with:
 ### 11. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine root cause statements or targeting decisions
-- **[P] Party Mode** — get multi-perspective challenge on targeting choices
 - **[C] Continue** — proceed to Final Synthesis
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

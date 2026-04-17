@@ -226,7 +226,6 @@ stepsCompleted: ['step-01-init', 'step-02-identity', 'step-03-visual', 'step-04-
 
 **Select an Option:**
 - **[C] Continue** — proceed to Synthesis
-- **[A] Advanced Elicitation** — refine tagline, messaging, or quick reference
 
 ALWAYS halt and wait for user selection.
 
@@ -240,7 +239,6 @@ ONLY when **[C] Continue** is selected:
 3. Verify `step-04-messaging` is in `stepsCompleted`
 4. Load `./step-05-synthesis.md` and follow its instructions
 
-When **[A] Advanced Elicitation** is selected:
 - Ask which element to refine
 - After refinement, redisplay menu
 

@@ -92,8 +92,6 @@ You are a {role}. Continue your existing persona and communication style.
 ### 4. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on any generated content
-- **[P] Party Mode** — get multi-agent perspectives on this step's output
 - **[C] Continue** — proceed to next step
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
@@ -162,8 +160,6 @@ ONLY when **[C] Continue** is selected:
 
 **Standard (most steps):**
 ```
-[A] Advanced Elicitation — go deeper on generated content
-[P] Party Mode — get multi-agent perspectives
 [C] Continue — proceed to next step
 ```
 

@@ -175,8 +175,6 @@ Update frontmatter: add `step-03-severity-rating.md` to `stepsCompleted`
 ### 7. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — discuss any severity rating in detail
-- **[P] Party Mode** — get multi-agent perspectives on severity assessments
 - **[C] Continue** — proceed to recommendations
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

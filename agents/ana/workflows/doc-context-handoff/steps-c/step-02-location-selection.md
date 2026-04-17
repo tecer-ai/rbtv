@@ -108,7 +108,6 @@ Accept user confirmation or alternative filename.
 **Select an Option:**
 
 - **[C] Continue** — Proceed to context extraction (step-03)
-- **[AE] Advanced Elicitation** — Load and execute `{advancedElicitationTask}`, then return and redisplay this step's menu
 - **[X] Exit Workflow** — Save current state, exit agent
 
 ALWAYS halt and wait for user selection.

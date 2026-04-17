@@ -142,8 +142,6 @@ stepsCompleted: ['step-01-init', 'step-02-harvest']
 ### 7. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on specific artefacts to find more assumptions
-- **[P] Party Mode** — get multi-agent perspectives on hidden assumptions
 - **[C] Continue** — proceed to Classify Assumptions
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.

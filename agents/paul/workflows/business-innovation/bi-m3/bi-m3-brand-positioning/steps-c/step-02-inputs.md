@@ -176,7 +176,6 @@ stepsCompleted: ['step-01-init', 'step-02-inputs']
 ### 9. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine inputs or add more evidence
 - **[C] Continue** — proceed to Draft Positioning Statement
 
 ALWAYS halt and wait for user selection.

@@ -171,7 +171,6 @@ stepsCompleted: ['step-01-init', 'step-02-exploration', 'step-03-selection']
 ### 8. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — reconsider selection or refine justification
 - **[C] Continue** — proceed to Archetype Application
 
 ALWAYS halt and wait for user selection.

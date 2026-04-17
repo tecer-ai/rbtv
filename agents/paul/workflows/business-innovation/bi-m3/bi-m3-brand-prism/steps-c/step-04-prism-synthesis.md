@@ -165,7 +165,6 @@ stepsCompleted: ['step-01-init', 'step-02-external-facets', 'step-03-internal-fa
 ### 6. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — refine Relationship or resolve contradictions
 - **[C] Continue** — proceed to Final Synthesis (integration notes, project-memo update)
 
 ALWAYS halt and wait for user selection.

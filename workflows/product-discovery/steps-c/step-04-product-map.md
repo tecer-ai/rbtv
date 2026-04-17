@@ -94,8 +94,6 @@ Write `product-landscape.md` in the product output folder with:
 ### 7. Present Menu
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — go deeper on any module or feature decision
-- **[P] Party Mode** — multi-agent stress-test the product vision
 - **[C] Continue** — proceed to V1 Scoping
 
 ALWAYS halt and wait for user selection.

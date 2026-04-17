@@ -193,8 +193,6 @@ stepsCompleted: ['step-01-init', 'step-02-harvest', 'step-03-classify', 'step-04
 ### 8. Present Menu Options
 
 **Select an Option:**
-- **[A] Advanced Elicitation** — challenge or refine specific scores
-- **[P] Party Mode** — get multi-agent perspectives on prioritization
 - **[C] Continue** — proceed to Synthesis & Kill Criteria
 
 **Menu handling:** When [P] is selected, execute {partyModeWorkflow} then redisplay this menu. When [C] is selected, proceed per CRITICAL STEP COMPLETION NOTE below.
