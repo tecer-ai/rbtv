@@ -36,6 +36,29 @@ These files still contain BMAD-mirror references, `{bmad_rbtv}`, `{bmad_core}`, 
 
 Not executable, so not risky. But actively misleading for anyone reading them. Schedule a docs pass to rewrite against the standalone architecture (or delete if superseded by `README.md` + `rules/source-of-truth.md`).
 
+### 6. Workflow location is inconsistent — review architecture
+
+The plan split workflows between two locations based on ownership:
+
+- **Agent-nested** (`agents/<agent>/workflows/<name>/`): doc-compound-learning, doc-context-handoff, add-prompting-knowledge (Ana); problem-structuring, problem-structuring-lite, prompting-assistance, ai-web-project (DomCobb); create-component (Fernando); writing (George Orwell); business-innovation (Paul)
+- **Root-level** (`workflows/<name>/`): planning, meeting-summarizer, pitch, product-discovery, design-extraction, output-routing, _shared
+
+The rule (per plan D8) was "agent-exclusive workflows nest under their agent; shared workflows stay at top". But in practice:
+
+- `pitch/` is shared between Leo and Roelof — fine at root
+- `product-discovery/` is only invoked via `/rbtv-product-discovery` (skill-triggered, no persona) — why is it at root?
+- `design-extraction/` and `meeting-summarizer/` — same pattern
+- Paul's `business-innovation/` is nested, but is also the ONLY workflow Paul has — arguably no different from `product-discovery` having no persona
+
+Result: two conventions coexist, and it's not obvious why a new workflow would go to one vs. the other. Creates cognitive load for Fernando (component creator) and for anyone editing the tree.
+
+Action: review and decide one of:
+- **(a) Flatten**: move all agent-nested workflows back to root `workflows/`, accept that agents "own" workflows only by reference in their menus
+- **(b) Nest more**: move skill-triggered root workflows under a synthetic agent dir (e.g., `agents/_shared/workflows/`), or under the primary persona that invokes them
+- **(c) Document the current split clearly**: add a rule in `rules/source-of-truth.md` or `agents/fernando/workflows/create-component/data/component-patterns.md` that states the criterion (e.g., "nest if the workflow is only invoked through one agent's persona; root if skill-triggered or cross-agent")
+
+Keep in mind any choice affects `/rbtv-create-component`'s default location logic.
+
 ### 5. Smoke test skipped (plan Task 38)
 
 Loaders compile and install cleanly, but end-to-end behavior was NOT verified in a fresh Claude Code session. Run the smoke test before relying on RBTV for real work:
