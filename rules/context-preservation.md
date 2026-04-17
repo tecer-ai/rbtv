@@ -40,8 +40,6 @@ In any interactive session (agent persona, multi-turn workflow, discovery), coun
 2. If 2+ signals are present and context preservation has NOT been triggered, trigger it NOW.
 3. If already active, check if new context has been written per the Living Document Principle.
 
-This checkpoint is mandatory even if the conversation feels productive and uninterrupted. Momentum is the primary reason agents skip context preservation.
-
 ### Pre-Write Gate (forcing function)
 
 Before the FIRST write or edit to any output file in an interactive session, STOP and evaluate:
@@ -51,8 +49,6 @@ Before the FIRST write or edit to any output file in an interactive session, STO
 3. If not triggered: execute Detect → Discover → Confirm → Capture NOW, before making any file edits.
 
 This gate fires ONCE per session — on the first write attempt. It cannot be skipped. The write waits until the gate clears.
-
-**Why this exists:** Tripwires and periodic checkpoints rely on the agent pausing voluntarily. In practice, momentum carries the agent from research/discussion into file edits without pausing. This gate creates a hard stop at the transition from reading/discussing to writing — the exact moment context preservation is most likely to be skipped.
 
 ## Non-Triggers
 
@@ -117,7 +113,7 @@ Context preservation is continuous, not a one-time action.
 | Defer writes to session end | NEVER |
 | Write once and stop monitoring | NEVER |
 
-After the initial capture, continue monitoring for new signals. Every turn that adds context triggers an immediate write to the confirmed destination — no re-confirmation needed unless the destination changes.
+No re-confirmation needed for subsequent writes unless the destination changes.
 
 ## Freeform Session Fallback
 

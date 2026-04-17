@@ -65,34 +65,36 @@ def install_subagent(entry: SubagentEntry, module: Module, ctx: InstallContext) 
     return target
 
 
-def clear_previous_install(target_root: Path, installed_files: list[str]) -> list[Path]:
-    """O3: delete only the files from the previous install, not by prefix.
+def clear_previous_install(target_root: Path) -> list[Path]:
+    """Delete all rbtv-prefixed files from .claude/ before a fresh install.
 
-    `installed_files` is a list of target-relative paths stored in rbtv.yaml
-    from the previous install. For skills (directories), we also remove the
-    parent directory if it becomes empty.
+    Scans skills, commands, rules, and agents directories for any entry
+    whose name starts with 'rbtv-' and removes it. This ensures a clean
+    slate regardless of whether rbtv.yaml tracked the previous install.
 
     Returns list of paths removed for logging.
     """
     removed: list[Path] = []
-    skill_dirs_seen: set[Path] = set()
-    for rel in installed_files:
-        abs_path = target_root / rel
-        if abs_path.is_file():
-            abs_path.unlink()
-            removed.append(abs_path)
-            # Track parent dir — if it's a skill SKILL.md, the dir is
-            # meaningful and should be removed if empty
-            parent = abs_path.parent
-            if (
-                parent.is_dir()
-                and parent.name.startswith("rbtv-")
-                and parent.parent.name == "skills"
-            ):
-                skill_dirs_seen.add(parent)
-    # Remove now-empty skill dirs
-    for d in skill_dirs_seen:
-        if d.is_dir() and not any(d.iterdir()):
-            d.rmdir()
-            removed.append(d)
+    claude_dir = target_root / ".claude"
+
+    scan_targets = [
+        (claude_dir / "rules", "file"),
+        (claude_dir / "commands", "file"),
+        (claude_dir / "agents", "file"),
+        (claude_dir / "skills", "dir"),
+    ]
+
+    for parent, kind in scan_targets:
+        if not parent.is_dir():
+            continue
+        for entry in sorted(parent.iterdir()):
+            if not entry.name.startswith("rbtv-"):
+                continue
+            if kind == "dir" and entry.is_dir():
+                shutil.rmtree(entry)
+                removed.append(entry)
+            elif kind == "file" and entry.is_file():
+                entry.unlink()
+                removed.append(entry)
+
     return removed

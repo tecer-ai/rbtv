@@ -1,55 +1,33 @@
----
-description: Chat output discipline — no restating approved content, chunked presentation, detail-to-file separation
----
 # Chat Discipline
 
-Three mandatory principles governing how agents communicate in interactive sessions.
+## New Value Only
 
-## 1. New Value Only
+NEVER restate content from approved documents, completed steps, or previously discussed material. Chat output MUST focus on:
 
-NEVER restate content from approved documents, completed workflow steps, or previously discussed material.
-
-Chat output MUST focus on:
 - New analysis, insights, or criticisms
 - Decisions that need user input
 - Deviations from or challenges to existing content
 - Net-new data not already in referenced documents
 
-Reference approved content by document path and section — do not copy it into chat.
+Reference approved content by path and section — never copy it into chat.
 
-| BAD | GOOD |
-|-----|------|
-| "Slide 3 — The Structural Trap. Main message: Finance teams are locked in a three-loop reinforcing trap..." (restating narrative) | "Slide 3 — layout: loop diagram. The three cycles need to be visually legible at a glance. Dense or sparse?" (new decision) |
-| "The brandbook specifies Deep Navy #1B2B4B for headings, Trust Blue #2B5EA7 for CTAs..." (restating specs) | "Using brandbook palette. One question: Warm Cream bg for Slide 9 to differentiate Gloria?" (new decision) |
-| "According to the data files, AI adoption went from 37% to 59%..." (restating sourced data) | "Manus research adds one net-new finding: Conta Azul launched AI Captura (Aug 2025). Weakens the 'ERPs won't build this' refutation." (new information) |
+## Chunked Presentation
 
-## 2. Chunked Presentation
+When presenting 7+ items, batch in groups of 5-7. Lead with a summary table, then expand per chunk if user wants depth. Use tables for multi-item data, not paragraphs.
 
-When presenting 7+ items (slides, data points, options, findings), present in digestible batches.
+## Conclusion First
 
-| Rule | Detail |
-|------|--------|
-| Batch size | 5–7 items per chunk |
-| Pause between chunks | Ask user before continuing to next batch |
-| Summary first | Lead with a summary table or overview, then expand per chunk if user wants depth |
-| Format for scanning | Use tables, not paragraphs, for multi-item data |
+Lead with the conclusion or recommendation, not the analysis that produced it. The user needs to know **what you propose** and **what decisions they need to make** — not every step of your reasoning.
 
-| BAD | GOOD |
-|-----|------|
-| 23 slides presented sequentially in one message, each with 5+ lines of detail | Summary table of all 23 (title + layout + density), then "Want me to expand on any specific group?" |
-| 28 data points dumped in one table | Top 5 most relevant findings first. "14 more data points available — want the full set by category?" |
+| Wrong | Right |
+|-------|-------|
+| Three tables analyzing every permission, then a recommendation | "Vault version is mostly correct. 9 permissions in the machine copy are destructive and should be removed. Here's the list — agree?" |
+| Detailed diff walkthrough before stating what to do | "Files differ in 3 ways. I recommend X. Here's why, if you want depth." |
 
-## 3. Chat vs. File Separation
+Offer depth as opt-in ("want me to break this down?"), not as default output.
+
+## Chat vs File Separation
 
 Full detail belongs in output files. Chat is for discussion, decisions, and summaries.
 
-| Content Type | Where It Goes |
-|-------------|---------------|
-| Complete structured output (slide specs, full analysis, detailed plans) | Output file |
-| Summary + decision points | Chat |
-| Approved content that needs no further discussion | Neither — already in its source document |
-
-When a workflow step produces detailed output, write it to the output file and present in chat ONLY:
-- A brief summary of what was written
-- Any items that need user decision or approval
-- Any tensions, risks, or criticisms worth discussing
+When a workflow step produces detailed output, write to the output file and present in chat ONLY: brief summary, items needing decision, and tensions/risks worth discussing.

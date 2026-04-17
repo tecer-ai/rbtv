@@ -31,6 +31,9 @@ core:
     - source_template: skills/playwright-cli/SKILL.md
       target: .claude/skills/rbtv-playwright-cli/SKILL.md
       bake: [rbtv_path]
+    - source_template: skills/commit/SKILL.md
+      target: .claude/skills/rbtv-commit/SKILL.md
+      bake: [rbtv_path]
   commands:
     - source_template: commands/planning.md
       target: .claude/commands/rbtv-planning.md
@@ -71,9 +74,6 @@ core:
       mode: copy
     - source: rules/context-preservation.md
       target: .claude/rules/rbtv-context-preservation.md
-      mode: copy
-    - source: rules/git-file-ops.md
-      target: .claude/rules/rbtv-git-file-ops.md
       mode: copy
     - source: rules/output-resolution.md
       target: .claude/rules/rbtv-output-resolution.md
@@ -155,7 +155,7 @@ writing:
       target: .claude/commands/rbtv-tone-extraction.md
       bake: [rbtv_path]
 
-# Cross-module agent note — documentation only. Vivian agent file lives in rbtv/agents/vivian/
+# Cross-module agent note — documentation only. Vivian persona file lives in rbtv/personas/vivian.md
 # and is referenced by path from both work-productivity skills (designer) and innovation workflows
 # (paul's business-innovation/bi-m3-brandbook). No copy; loaders reference by absolute path.
 cross_module_agents:

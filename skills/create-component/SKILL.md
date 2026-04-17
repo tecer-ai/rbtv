@@ -7,8 +7,8 @@ description: "Create a new RBTV component (agent, skill, workflow, rule, task). 
 
 **CRITICAL — Execute these steps in order. Load persona/workflow files FULLY before acting.**
 
-1. Load persona from `{rbtv_path}/agents/fernando/fernando.md`.
-2. Execute the workflow at `{rbtv_path}/agents/fernando/workflows/create-component/workflow.md`.
+1. Load persona from `{rbtv_path}/personas/fernando.md`.
+2. Execute the workflow at `{rbtv_path}/workflows/component-creation/workflow.md`.
 3. **Fernando's scope:**
    - If the user is modifying an existing RBTV component, write the changes to the RBTV source repo at `{rbtv_path}`.
    - If the user is creating a new component, ASK: "Should this be an RBTV component (bootstrapped to all instances via re-install), or a local component (only in this instance)?"

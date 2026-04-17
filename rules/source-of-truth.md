@@ -15,9 +15,9 @@ The canonical source is the RBTV repo. Its path in the target workspace is recor
 | Skills (`rbtv-*/SKILL.md`) | `{rbtv_path}/skills/<name>/SKILL.md` | `.claude/skills/rbtv-*/SKILL.md` |
 | Commands (`rbtv-*.md`) | `{rbtv_path}/commands/<name>.md` | `.claude/commands/rbtv-*.md` |
 | Subagents (`rbtv-*.md`) | `{rbtv_path}/subagents/<name>.md` | `.claude/agents/rbtv-*.md` |
-| Agents (personas) | `{rbtv_path}/agents/<name>/<name>.md` | *(not installed — referenced via loaders)* |
-| Workflows | `{rbtv_path}/workflows/` or `{rbtv_path}/agents/<agent>/workflows/` | *(not installed — referenced via loaders)* |
-| Tasks | `{rbtv_path}/tasks/` or `{rbtv_path}/agents/<agent>/tasks/` | *(not installed — referenced via loaders)* |
+| Personas | `{rbtv_path}/personas/<name>.md` | *(not installed — referenced via loaders)* |
+| Workflows | `{rbtv_path}/workflows/` | *(not installed — referenced via loaders)* |
+| Tasks | `{rbtv_path}/tasks/` | *(not installed — referenced via loaders)* |
 
 ## Why
 
@@ -25,7 +25,7 @@ Skills, commands, rules, and subagents are thin loaders or copies in `.claude/` 
 
 ## After Editing
 
-For content changes (workflows, agents, tasks, SKILL.md bodies referenced by loaders), just `git pull` in the RBTV source — changes are live immediately.
+For content changes (workflows, personas, tasks, SKILL.md bodies referenced by loaders), just `git pull` in the RBTV source — changes are live immediately.
 
 For changes to what gets installed (new skill/command/rule files, module assignment), re-run the installer:
 

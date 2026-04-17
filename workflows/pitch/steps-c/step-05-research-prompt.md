@@ -3,7 +3,7 @@ stepNumber: 5
 stepName: 'research-prompt'
 nextStepFile: ./step-06-structure.md
 outputFile: pitch-research-prompt.md
-promptingKnowledgeIndex: '{rbtv_path}/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/knowledge-index.csv'
+promptingKnowledgeIndex: '{rbtv_path}/workflows/ai-consulting/prompting-assistance/data/knowledge-index.csv'
 webResearchStandards: '{rbtv_path}/tasks/data/web-research-standards.md'
 ---
 

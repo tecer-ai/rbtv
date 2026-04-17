@@ -8,7 +8,7 @@ outputFolder_investor: '{output_path}/{project-name}/_fundraising/{round}/YYYY-M
 outputFolder_client: '{output_path}/{project-name}/_clients/{client}/presentations/YYYY-MM-DD-{objective}/'
 referenceFile: ../_shared/pitch-data/pitch-reference.md
 htmlPatternsFile: ../_shared/pitch-data/html-patterns.md
-promptingKnowledgeIndex: '{rbtv_path}/agents/domcobb/agents/domcobb/workflows/prompting-assistance/data/knowledge-index.csv'
+promptingKnowledgeIndex: '{rbtv_path}/workflows/ai-consulting/prompting-assistance/data/knowledge-index.csv'
 webResearchStandards: '{rbtv_path}/tasks/data/web-research-standards.md'
 ---
 

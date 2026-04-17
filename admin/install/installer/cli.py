@@ -174,12 +174,8 @@ def main(argv: list[str] | None = None) -> int:
         modules=chosen_modules,
     )
 
-    # O3: clear only files from previous install (tracked list), not by prefix
-    prev_installed = (
-        list(existing_state.get("installed_files", [])) if existing_state else []
-    )
-    removed = clear_previous_install(ctx.target_root, prev_installed)
-    print(f"\nRemoved {len(removed)} previously-installed files.")
+    removed = clear_previous_install(ctx.target_root)
+    print(f"\nRemoved {len(removed)} previously-installed rbtv-* files.")
 
     installed_paths: list[str] = []
 

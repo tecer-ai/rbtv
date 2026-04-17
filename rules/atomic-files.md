@@ -5,41 +5,10 @@ description: Mandatory principles for self-contained, lean documentation files w
 
 ## Four Mandatory Principles
 
-### 1. Self-Contained
-
-**Each file MUST be interpretable independently.**
-
-- The agent reading this file MUST understand what to do without reading other files first
-- All critical instructions MUST be present in the file itself
-- References to other files MUST use clear, actionable language
-
-### 2. No Content Repetition
-
-**NEVER repeat, summarize, or explain referenced file content.**
-
-- Do NOT duplicate explanations that exist in referenced files
-- Do NOT summarize what another file contains
-- Do NOT explain how a referenced system works
-- ONLY state: "Read [file]" or "Follow [file]" or "Use [file]"
-
-### 3. Functional References Only
-
-**ONLY reference files when functionally required for execution.**
-
-- Remove "for context" or "for background" references
-- Remove "see also" references
-- Remove "learn more" references
-- Keep ONLY references that agents must read to complete the task
-
-### 4. Lean and Objective
-
-**Every sentence MUST be necessary.**
-
-- Use mandatory language: "must", "never", "always"
-- NEVER use: "should", "consider", "check", "may want to"
-- One sentence per instruction when possible
-- Remove verbose explanations
-- Remove conversational filler
+1. **Self-Contained** — Each file MUST be interpretable independently. All instructions the agent needs MUST live in the file itself.
+2. **No Content Repetition** — NEVER duplicate, summarize, or explain referenced file content. ONLY state "Read [file]", "Follow [file]", or "Use [file]".
+3. **Functional References Only** — Reference a file ONLY when agents must read it to execute. Remove "for context", "for background", "see also", and "learn more" references.
+4. **Lean and Objective** — Every sentence MUST be necessary. Use mandatory language ("must", "never", "always"). NEVER use "should", "consider", "check", "may want to".
 
 ## Violations to Detect and Fix
 
@@ -51,21 +20,14 @@ description: Mandatory principles for self-contained, lean documentation files w
 | Verbose explanation | "This step is important because it ensures that the agent has all the necessary context to make informed decisions about the implementation." | "This step provides required context." |
 | Summarizing referenced file | "The atomic files rule (see [atomic-files.mdc]) requires self-contained files without repetition." | "Follow [atomic-files.mdc]." |
 
-## What to Preserve
+## Preserve
 
-**DO preserve these essential elements:**
-
-1. **File purpose statement** - One sentence describing what this file does
-2. **Internal logic** - Instructions and steps that belong in this file
-3. **Functional references** - Links to files agents must read for execution
-4. **Examples** - Code samples, command examples, format examples
-5. **Tables** - Structured data (workflows, checklists, decision matrices)
+- File purpose — one sentence describing what this file does
+- Internal logic — instructions and steps that belong in this file
+- Functional references — links to files agents must read for execution
+- Examples — code, command, or format samples
+- Tables — structured data (workflows, checklists, decision matrices)
 
 ## Enforcement
 
-When editing in-scope files:
-
-1. **MUST remove** all content repetition
-2. **MUST remove** all context-only references
-3. **MUST convert** vague language to mandatory language
-4. **MUST condense** verbose passages to essential instructions
+When editing in-scope files: remove content repetition, remove context-only references, convert vague language to mandatory language, and condense verbose passages.

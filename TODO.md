@@ -6,9 +6,9 @@ Post-standalone items carried over from the intermediary plan execution (2026-04
 
 Agents under `agents/<name>/<name>.md` are NOT admin agents. They are the personas loaded by many skills and commands (Ana, DomCobb, Fernando, Paul, Leo, Roelof, Vivian, George Orwell). When `/rbtv-create-component` runs, it loads Fernando's persona, which then tries to load the create-component workflow.
 
-Problem: `agents/fernando/workflows/create-component/workflow.md` does NOT exist. The directory has `templates/` and `data/` but no workflow.md. Task 7 of the plan assumed it existed. First invocation of `/rbtv-create-component` will 404.
+Problem: `workflows/component-creation/workflow.md` does NOT exist. The directory has `templates/` and `data/` but no workflow.md. Task 7 of the plan assumed it existed. First invocation of `/rbtv-create-component` will 404.
 
-Action: write `agents/fernando/workflows/create-component/workflow.md` from scratch. It must orchestrate Fernando's component-creation flow (ask publish-vs-local, walk the user through agent/skill/workflow/task templates in `templates/`, consume `data/component-patterns.md` and `data/bmad-architecture.md`).
+Action: write `workflows/component-creation/workflow.md` from scratch. It must orchestrate Fernando's component-creation flow (ask publish-vs-local, walk the user through agent/skill/workflow/task templates in `templates/`, consume `data/component-patterns.md` and `data/bmad-architecture.md`).
 
 ## Review items from execution
 
@@ -18,7 +18,7 @@ The Phase 4 subagent replaced all `{bmad_output}` occurrences (~120) with `{outp
 
 Action: `grep -rn "{output_path}" "3. Resources/rbtv"` and, per match, either delete the surrounding sentence or rewrite to reference the resolution rule (e.g., "Output location resolved per the `rbtv-output-resolution` rule").
 
-Also verify BMM/CIS plugin invocations inserted in `agents/paul/workflows/business-innovation/bi-m2/`, `bi-m4/`, and `agents/domcobb/workflows/problem-structuring/steps-c/step-04-deliver.md` — confirm they match actual `bmad-method-lifecycle:*` and `bmad-pro-skills:*` skill names.
+Also verify BMM/CIS plugin invocations inserted in `workflows/business-innovation/bi-m2/`, `bi-m4/`, and `workflows/problem-structuring/steps-c/step-04-deliver.md` — confirm they match actual `bmad-method-lifecycle:*` and `bmad-pro-skills:*` skill names.
 
 ### 3. Agent activation no-op stubs may leave placeholders unsubstituted
 
@@ -31,8 +31,8 @@ Action: `grep -rn "{user_name}\|{user_language}\|{user_skill_level}\|{communicat
 These files still contain BMAD-mirror references, `{bmad_rbtv}`, `{bmad_core}`, `_bmad/` paths — excluded from Phase 4 cleanup under the "will be rewritten" exception:
 
 - `admin/CLAUDE.md`
-- `agents/fernando/workflows/create-component/data/CLAUDE.md`
-- `agents/fernando/workflows/create-component/data/bmad-architecture.md`
+- `workflows/component-creation/data/CLAUDE.md`
+- `workflows/component-creation/data/bmad-architecture.md`
 
 Not executable, so not risky. But actively misleading for anyone reading them. Schedule a docs pass to rewrite against the standalone architecture (or delete if superseded by `README.md` + `rules/source-of-truth.md`).
 
@@ -55,7 +55,7 @@ Result: two conventions coexist, and it's not obvious why a new workflow would g
 Action: review and decide one of:
 - **(a) Flatten**: move all agent-nested workflows back to root `workflows/`, accept that agents "own" workflows only by reference in their menus
 - **(b) Nest more**: move skill-triggered root workflows under a synthetic agent dir (e.g., `agents/_shared/workflows/`), or under the primary persona that invokes them
-- **(c) Document the current split clearly**: add a rule in `rules/source-of-truth.md` or `agents/fernando/workflows/create-component/data/component-patterns.md` that states the criterion (e.g., "nest if the workflow is only invoked through one agent's persona; root if skill-triggered or cross-agent")
+- **(c) Document the current split clearly**: add a rule in `rules/source-of-truth.md` or `workflows/component-creation/data/component-patterns.md` that states the criterion (e.g., "nest if the workflow is only invoked through one agent's persona; root if skill-triggered or cross-agent")
 
 Keep in mind any choice affects `/rbtv-create-component`'s default location logic.
 
