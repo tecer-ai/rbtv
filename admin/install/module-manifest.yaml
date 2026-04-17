@@ -1,0 +1,164 @@
+# Module Manifest — source of truth for what install.py creates in the target.
+# Install generates thin loaders under .claude/skills/, .claude/commands/, and
+# copies rule content under .claude/rules/. Agents, workflows, and tasks stay
+# in the RBTV repo source and are referenced by path from loaders.
+
+core:
+  always_installed: true
+  description: "Core productivity utilities, always installed."
+  skills:
+    - source_template: skills/planning/SKILL.md
+      target: .claude/skills/rbtv-planning/SKILL.md
+      bake: [rbtv_path]
+    - source_template: skills/web-research/SKILL.md
+      target: .claude/skills/rbtv-web-research/SKILL.md
+      bake: [rbtv_path]
+    - source_template: skills/create-component/SKILL.md
+      target: .claude/skills/rbtv-create-component/SKILL.md
+      bake: [rbtv_path]
+    - source_template: skills/doc/SKILL.md
+      target: .claude/skills/rbtv-doc/SKILL.md
+      bake: [rbtv_path]
+    - source_template: skills/domcobb/SKILL.md
+      target: .claude/skills/rbtv-domcobb/SKILL.md
+      bake: [rbtv_path]
+    - source_template: skills/meeting-summarizer/SKILL.md
+      target: .claude/skills/rbtv-meeting-summarizer/SKILL.md
+      bake: [rbtv_path]
+    - source_template: skills/output-routing/SKILL.md
+      target: .claude/skills/rbtv-output-routing/SKILL.md
+      bake: [rbtv_path]
+    - source_template: skills/playwright-cli/SKILL.md
+      target: .claude/skills/rbtv-playwright-cli/SKILL.md
+      bake: [rbtv_path]
+  commands:
+    - source_template: commands/planning.md
+      target: .claude/commands/rbtv-planning.md
+      bake: [rbtv_path]
+    - source_template: commands/web-research.md
+      target: .claude/commands/rbtv-web-research.md
+      bake: [rbtv_path]
+    - source_template: commands/create-component.md
+      target: .claude/commands/rbtv-create-component.md
+      bake: [rbtv_path]
+    - source_template: commands/doc.md
+      target: .claude/commands/rbtv-doc.md
+      bake: [rbtv_path]
+    - source_template: commands/domcobb.md
+      target: .claude/commands/rbtv-domcobb.md
+      bake: [rbtv_path]
+    - source_template: commands/meeting-summarizer.md
+      target: .claude/commands/rbtv-meeting-summarizer.md
+      bake: [rbtv_path]
+    - source_template: commands/output-routing.md
+      target: .claude/commands/rbtv-output-routing.md
+      bake: [rbtv_path]
+  rules:
+    - source: rules/atomic-files.md
+      target: .claude/rules/rbtv-atomic-files.md
+      mode: copy
+    - source: rules/audio-aware.md
+      target: .claude/rules/rbtv-audio-aware.md
+      mode: copy
+    - source: rules/background-agents.md
+      target: .claude/rules/rbtv-background-agents.md
+      mode: copy
+    - source: rules/bash-patterns.md
+      target: .claude/rules/rbtv-bash-patterns.md
+      mode: copy
+    - source: rules/chat-discipline.md
+      target: .claude/rules/rbtv-chat-discipline.md
+      mode: copy
+    - source: rules/context-preservation.md
+      target: .claude/rules/rbtv-context-preservation.md
+      mode: copy
+    - source: rules/git-file-ops.md
+      target: .claude/rules/rbtv-git-file-ops.md
+      mode: copy
+    - source: rules/output-resolution.md
+      target: .claude/rules/rbtv-output-resolution.md
+      mode: copy
+    - source: rules/reasoning.md
+      target: .claude/rules/rbtv-reasoning.md
+      mode: copy
+    - source: rules/source-of-truth.md
+      target: .claude/rules/rbtv-source-of-truth.md
+      mode: copy
+  subagents:
+    - source: subagents/designer.md
+      target: .claude/agents/rbtv-designer.md
+      mode: copy
+    - source: subagents/web-research.md
+      target: .claude/agents/rbtv-web-research.md
+      mode: copy
+
+innovation:
+  description: "Business innovation frameworks, mentorship, and product discovery."
+  skills:
+    - source_template: skills/mentor/SKILL.md
+      target: .claude/skills/rbtv-mentor/SKILL.md
+      bake: [rbtv_path]
+    - source_template: skills/product-discovery/SKILL.md
+      target: .claude/skills/rbtv-product-discovery/SKILL.md
+      bake: [rbtv_path]
+  commands:
+    - source_template: commands/mentor.md
+      target: .claude/commands/rbtv-mentor.md
+      bake: [rbtv_path]
+    - source_template: commands/product-discovery.md
+      target: .claude/commands/rbtv-product-discovery.md
+      bake: [rbtv_path]
+
+work-productivity:
+  description: "Pitch generation, design extraction, client engagement."
+  skills:
+    - source_template: skills/client-pitch/SKILL.md
+      target: .claude/skills/rbtv-client-pitch/SKILL.md
+      bake: [rbtv_path]
+    - source_template: skills/investor-pitch/SKILL.md
+      target: .claude/skills/rbtv-investor-pitch/SKILL.md
+      bake: [rbtv_path]
+    - source_template: skills/designer/SKILL.md
+      target: .claude/skills/rbtv-designer/SKILL.md
+      bake: [rbtv_path]
+    - source_template: skills/design-extraction/SKILL.md
+      target: .claude/skills/rbtv-design-extraction/SKILL.md
+      bake: [rbtv_path]
+  commands:
+    - source_template: commands/client-pitch.md
+      target: .claude/commands/rbtv-client-pitch.md
+      bake: [rbtv_path]
+    - source_template: commands/investor-pitch.md
+      target: .claude/commands/rbtv-investor-pitch.md
+      bake: [rbtv_path]
+    - source_template: commands/designer.md
+      target: .claude/commands/rbtv-designer.md
+      bake: [rbtv_path]
+    - source_template: commands/design-extraction.md
+      target: .claude/commands/rbtv-design-extraction.md
+      bake: [rbtv_path]
+
+writing:
+  description: "Long-form writing and tone analysis."
+  skills:
+    - source_template: skills/writing/SKILL.md
+      target: .claude/skills/rbtv-writing/SKILL.md
+      bake: [rbtv_path]
+    - source_template: skills/tone-extraction/SKILL.md
+      target: .claude/skills/rbtv-tone-extraction/SKILL.md
+      bake: [rbtv_path]
+  commands:
+    - source_template: commands/writing.md
+      target: .claude/commands/rbtv-writing.md
+      bake: [rbtv_path]
+    - source_template: commands/tone-extraction.md
+      target: .claude/commands/rbtv-tone-extraction.md
+      bake: [rbtv_path]
+
+# Cross-module agent note — documentation only. Vivian agent file lives in rbtv/agents/vivian/
+# and is referenced by path from both work-productivity skills (designer) and innovation workflows
+# (paul's business-innovation/bi-m3-brandbook). No copy; loaders reference by absolute path.
+cross_module_agents:
+  vivian:
+    primary_module: work-productivity
+    also_used_by: [innovation]
