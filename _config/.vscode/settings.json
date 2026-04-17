@@ -1,8 +1,0 @@
-{
-  "files.exclude": {
-    "_bmad": true,
-    "projects/archive": true,
-    ".cursorignore": true,
-    ".gitignore": true
-  }
-}
