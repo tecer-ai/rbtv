@@ -92,12 +92,12 @@ Read the reference file when needed — do NOT pre-load:
 | Capability | Reference |
 |------------|-----------|
 | Full command catalog | `playwright-cli --help` |
-| Playwright tests | [references/playwright-tests.md](references/playwright-tests.md) |
-| Request mocking | [references/request-mocking.md](references/request-mocking.md) |
-| Running Playwright code | [references/running-code.md](references/running-code.md) |
-| Browser sessions | [references/session-management.md](references/session-management.md) |
-| Storage (cookies, localStorage) | [references/storage-state.md](references/storage-state.md) |
-| Test generation | [references/test-generation.md](references/test-generation.md) |
-| Tracing | [references/tracing.md](references/tracing.md) |
-| Video recording | [references/video-recording.md](references/video-recording.md) |
-| Element attributes | [references/element-attributes.md](references/element-attributes.md) |
+| Playwright tests | [playwright-tests.md]({rbtv_path}/skills/playwright-cli/references/playwright-tests.md) |
+| Request mocking | [request-mocking.md]({rbtv_path}/skills/playwright-cli/references/request-mocking.md) |
+| Running Playwright code | [running-code.md]({rbtv_path}/skills/playwright-cli/references/running-code.md) |
+| Browser sessions | [session-management.md]({rbtv_path}/skills/playwright-cli/references/session-management.md) |
+| Storage (cookies, localStorage) | [storage-state.md]({rbtv_path}/skills/playwright-cli/references/storage-state.md) |
+| Test generation | [test-generation.md]({rbtv_path}/skills/playwright-cli/references/test-generation.md) |
+| Tracing | [tracing.md]({rbtv_path}/skills/playwright-cli/references/tracing.md) |
+| Video recording | [video-recording.md]({rbtv_path}/skills/playwright-cli/references/video-recording.md) |
+| Element attributes | [element-attributes.md]({rbtv_path}/skills/playwright-cli/references/element-attributes.md) |

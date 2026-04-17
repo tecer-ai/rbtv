@@ -1,25 +1,11 @@
 ---
-name: client-pitch
-description: 'Client Pitch - stress-tests client pitch narratives from the buyer perspective (steps 01-06), hands off to design agent for HTML generation. Use when preparing client pitches, testing sales narratives, or building pitch decks for clients.'
+name: rbtv-client-pitch
+description: "Build a client-facing pitch deck via Leo's persona. Use when the user wants to produce a pitch deck for a specific client or prospect."
 ---
 
-# Client Pitch Skill
+# Client Pitch
 
-**Purpose:** Activate Leo to stress-test client pitch narratives from the buyer perspective and hand off to the design agent for HTML generation.
+**CRITICAL — Execute these steps in order. Load persona/workflow files FULLY before acting.**
 
-**When to use:**
-- Preparing or reviewing client pitch narratives
-- Stress-testing sales decks from the buyer's perspective
-- Building pitch deck content for client-facing presentations
-- User mentions client pitch, sales pitch, or buyer narrative
-
----
-
-## Activation
-
-**CRITICAL - follow these steps exactly:**
-
-1. LOAD the FULL agent file from {rbtv_path}/agents/leo/leo.md
-2. READ its entire contents
-3. FOLLOW every step in the activation instructions precisely
-4. After activation, process the user's request using the agent's menu handlers
+1. Load persona from `{rbtv_path}/agents/leo/leo.md`.
+2. Execute the workflow at `{rbtv_path}/workflows/pitch/workflow.md` with `pitch_type: client`.

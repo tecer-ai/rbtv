@@ -1,25 +1,11 @@
 ---
-name: domcobb
-description: 'Problem Architect & Prompting Expert - structure problems and craft prompts. Use when structuring complex problems, designing AI prompts, or when user mentions problem architecture or prompt engineering.'
+name: rbtv-domcobb
+description: "Problem structuring, prompting assistance, and AI project mentorship. Use when the user needs to decompose a problem or plan an AI project."
 ---
 
-# Dom Cobb Skill
+# DomCobb
 
-**Purpose:** Activate Dom Cobb to structure problems and craft prompts.
+**CRITICAL — Execute these steps in order. Load persona/workflow files FULLY before acting.**
 
-**When to use:**
-- Structuring complex, multi-layered problems
-- Designing or refining AI prompts
-- Breaking down ambiguous challenges into actionable frames
-- User mentions problem architecture, prompt crafting, or prompt engineering
-
----
-
-## Activation
-
-**CRITICAL - follow these steps exactly:**
-
-1. LOAD the FULL agent file from {rbtv_path}/agents/domcobb/domcobb.md
-2. READ its entire contents
-3. FOLLOW every step in the activation instructions precisely
-4. After activation, process the user's request using the agent's menu handlers
+1. Load persona from `{rbtv_path}/agents/domcobb/domcobb.md`.
+2. Follow DomCobb's menu handlers — options include problem structuring (full or lite), prompting assistance, and AI web project mentorship.

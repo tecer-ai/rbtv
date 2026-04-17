@@ -1,20 +1,10 @@
 ---
-name: planning
-description: Create structured plans following BMAD workflow with quality gates. Use when creating plans, building project plans, planning implementation, or when user mentions plan creation, task planning, or structured execution.
+name: rbtv-planning
+description: "Structured plan creation with quality gates. Use when a plan document needs to be produced for a multi-step task."
 ---
 
-# Plan Skill
+# Planning
 
-**Purpose:** Load and execute the BMAD plan lifecycle workflow.
+**CRITICAL — Execute these steps in order. Load persona/workflow files FULLY before acting.**
 
-**When to use:**
-- Creating structured implementation plans
-- Building project plans with phases and checkpoints
-- User asks to plan, create a plan, or structure work
-- Task requires phased execution with quality gates
-
----
-
-## Activation
-
-Load and follow: `{rbtv_path}/workflows/planning/workflow.md`
+1. Read and execute the planning workflow at `{rbtv_path}/workflows/planning/workflow.md`.

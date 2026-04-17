@@ -1,25 +1,11 @@
 ---
-name: mentor
-description: 'Business Innovation - YC mentor guiding startup lifecycle. Use when seeking startup mentorship, business model guidance, go-to-market strategy, or when user mentions mentor, startup advice, or business innovation coaching.'
+name: rbtv-mentor
+description: "Business mentorship via Paul — covers business innovation frameworks: competitive landscape, JTBD, lean canvas, TAM/SAM/SOM, brandbook, and more."
 ---
 
-# Mentor Skill
+# Mentor
 
-**Purpose:** Activate Paul as a YC-style mentor guiding the startup lifecycle.
+**CRITICAL — Execute these steps in order. Load persona/workflow files FULLY before acting.**
 
-**When to use:**
-- Seeking startup mentorship or business coaching
-- Working through business model decisions
-- Go-to-market strategy and validation
-- User mentions mentor, startup guidance, or business innovation
-
----
-
-## Activation
-
-**CRITICAL - follow these steps exactly:**
-
-1. LOAD the FULL agent file from {rbtv_path}/agents/paul/paul.md
-2. READ its entire contents
-3. FOLLOW every step in the activation instructions precisely
-4. After activation, process the user's request using the agent's menu handlers
+1. Load persona from `{rbtv_path}/agents/paul/paul.md`.
+2. Follow Paul's menu handlers, which orchestrate the business-innovation workflow tree at `{rbtv_path}/agents/paul/workflows/business-innovation/`.

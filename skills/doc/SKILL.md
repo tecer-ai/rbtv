@@ -1,25 +1,11 @@
 ---
-name: doc
-description: RBTV unified documentation generation (compound, handoff, product). Use when creating documentation, writing handoffs, or generating product docs.
+name: rbtv-doc
+description: "Documentation generation — compound learning or context handoff. Use when the user asks for documentation output or knowledge capture."
 ---
 
-# Doc Skill
+# Documentation
 
-**Purpose:** Load and execute the BMAD documentation agent.
+**CRITICAL — Execute these steps in order. Load persona/workflow files FULLY before acting.**
 
-**When to use:**
-- Creating compound documentation
-- Writing handoff documents
-- Generating product documentation
-- User asks for documentation or docs
-
----
-
-## Activation
-
-**CRITICAL - follow these steps exactly:**
-
-1. LOAD the FULL agent file from {rbtv_path}/agents/ana/ana.md
-2. READ its entire contents
-3. FOLLOW every step in the activation instructions precisely
-4. After activation, process the user's request using the agent's menu handlers
+1. Load persona from `{rbtv_path}/agents/ana/ana.md`.
+2. Follow Ana's menu handlers — options include compound learning, context handoff, and prompting knowledge curation.

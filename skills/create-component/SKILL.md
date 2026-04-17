@@ -1,25 +1,16 @@
-﻿---
-name: create-component
-description: RBTV BMAD Builder - create components in BMAD architecture. Use when creating new BMAD components, building agents, workflows, or tasks.
+---
+name: rbtv-create-component
+description: "Create a new RBTV component (agent, skill, workflow, rule, task). Use when adding to or extending the RBTV system."
 ---
 
-# Create Component Skill
+# Create Component
 
-**Purpose:** Load and execute the BMAD component builder agent.
+**CRITICAL — Execute these steps in order. Load persona/workflow files FULLY before acting.**
 
-**When to use:**
-- Creating new BMAD components
-- Building agents, workflows, or tasks
-- Extending BMAD architecture
-- User asks to create or build a component
-
----
-
-## Activation
-
-**CRITICAL - follow these steps exactly:**
-
-1. LOAD the FULL agent file from {rbtv_path}/agents/fernando/fernando.md
-2. READ its entire contents
-3. FOLLOW every step in the activation instructions precisely
-4. After activation, process the user's request using the agent's menu handlers
+1. Load persona from `{rbtv_path}/agents/fernando/fernando.md`.
+2. Execute the workflow at `{rbtv_path}/agents/fernando/workflows/create-component/workflow.md`.
+3. **Fernando's scope:**
+   - If the user is modifying an existing RBTV component, write the changes to the RBTV source repo at `{rbtv_path}`.
+   - If the user is creating a new component, ASK: "Should this be an RBTV component (bootstrapped to all instances via re-install), or a local component (only in this instance)?"
+     - RBTV: write to `{rbtv_path}/<type>/<name>/`. User must re-run `install.py` to generate the loader.
+     - Local: write directly to `.claude/<type>/<name>/` in the instance (no `rbtv-` prefix). Not touched by re-install.

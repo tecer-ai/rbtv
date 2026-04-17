@@ -1,21 +1,8 @@
 ---
-name: design-extraction
-description: Extract design tokens (colors, typography, spacing, layout, visual identity) from website screenshots. Use when analyzing design systems, extracting design tokens, identifying color palettes, or when user mentions design extraction.
+name: rbtv-design-extraction
+description: "Extract design tokens from website screenshots or URLs. Use when the user provides a reference site and asks for color/typography/spacing tokens."
 ---
 
-# Visual Design Extraction Skill
+# Design Extraction
 
-**Purpose:** Load and execute the BMAD visual design extraction workflow.
-
-**When to use:**
-- Analyzing a website's design system
-- Extracting design tokens from visual examples
-- Identifying color palettes and typography
-- Design system documentation
-- Analyzing inspiration sources for design direction
-
----
-
-## Activation
-
-Load and follow: `{rbtv_path}/workflows/design-extraction/workflow.md`
+1. Read and execute the workflow at `{rbtv_path}/workflows/design-extraction/workflow.md`.

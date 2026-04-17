@@ -1,20 +1,9 @@
 ---
-name: web-research
-description: Apply rigorous research standards for data integrity, source evaluation, and citation. Use when conducting web research, gathering sources, writing research documents, or when user mentions research.
+name: rbtv-web-research
+description: "Conduct structured web research with source evaluation. Use when the user asks to research a topic or gather web sources."
 ---
 
-# Web Research Skill
+# Web Research
 
-**Purpose:** Load and apply BMAD web research standards.
-
-**When to use:**
-- Conducting web research or market research
-- Gathering and evaluating sources
-- Writing research documents or reports
-- User mentions research, sources, or data gathering
-
----
-
-## Activation
-
-Load and follow: `{rbtv_path}/tasks/web-research.xml`
+1. Load the task specification from `{rbtv_path}/tasks/web-research.xml`.
+2. Execute the task's flow.

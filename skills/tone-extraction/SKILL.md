@@ -1,21 +1,9 @@
 ---
-name: tone-extraction
-description: Extract voice signature from text across emotional tone, structural patterns, and vocabulary dimensions. Use when analyzing writing tone, extracting voice signatures, matching writing styles, or when user mentions tone analysis or voice extraction.
+name: rbtv-tone-extraction
+description: "Extract a tone-of-voice profile from sample writing. Use when the user provides writing samples and wants a tone-extraction summary."
 ---
 
-# Tone Extraction Skill
+# Tone Extraction
 
-**Purpose:** Load and apply BMAD tone extraction task.
-
-**When to use:**
-- Analyzing writing tone or voice
-- Extracting voice signature from text
-- Matching or replicating a writing style
-- User mentions tone analysis, voice extraction, or style matching
-- Creating content in a specific voice
-
----
-
-## Activation
-
-Load and follow: `{rbtv_path}/tasks/tone-extraction.xml`
+1. Load the task specification from `{rbtv_path}/tasks/tone-extraction.xml`.
+2. Execute the task's flow.

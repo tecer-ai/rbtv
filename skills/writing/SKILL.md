@@ -1,25 +1,11 @@
 ---
-name: 'writing'
-description: 'Critical essay writing, review, and evidence-based argumentation. Use when writing essays, reviewing text for fallacies, structuring arguments, or when user mentions essay, critical writing, or argumentation quality.'
+name: rbtv-writing
+description: "Long-form writing (essays, articles) via George Orwell's persona. Use when the user asks for an essay or structured long-form piece."
 ---
 
-# Essay Skill
+# Writing
 
-**Purpose:** Build rigorous, evidence-backed essays with critical review of argumentation quality, source citations, and visual asset planning.
+**CRITICAL — Execute these steps in order. Load persona/workflow files FULLY before acting.**
 
-**When to use:**
-- Writing essays, articles, or long-form argumentative pieces
-- Critical review of writing for fallacies, clichés, or weak reasoning
-- Structuring messy themes into a coherent narrative
-- Generating research briefs for external AI tools
-
----
-
-## Activation
-
-**CRITICAL - follow these steps exactly:**
-
-1. LOAD the FULL agent file from {rbtv_path}/agents/george-orwell/george-orwell.md
-2. READ its entire contents
-3. FOLLOW every step in the activation instructions precisely
-4. After activation, process the user's request using the agent's menu handlers
+1. Load persona from `{rbtv_path}/agents/george-orwell/george-orwell.md`.
+2. Execute the workflow at `{rbtv_path}/agents/george-orwell/workflows/writing/workflow.md`.

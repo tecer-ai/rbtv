@@ -1,25 +1,16 @@
 ---
-name: designer
-description: Creative Design Agent - visual design for pitch decks and brand identity. Use when designing pitch deck visuals, creating brand visual identity, or generating AI image prompts.
+name: rbtv-designer
+description: "Visual design for pitch decks and brand identity via Vivian. Use when designing pitch deck visuals, brand visual identity, or AI image prompts."
 ---
 
-# Designer Skill
+# Designer
 
-**Purpose:** Load and execute the creative design agent.
+**CRITICAL — Execute these steps in order. Load persona/workflow files FULLY before acting.**
 
-**When to use:**
-- Designing pitch deck visuals (HTML/CSS generation)
-- Creating brand visual identity (color, typography, logo, imagery)
-- Generating AI image prompts for pitch or brand assets
-- Any visual design work across RBTV workflows
-
----
-
-## Activation
-
-**CRITICAL - follow these steps exactly:**
-
-1. LOAD the FULL agent file from {rbtv_path}/agents/vivian/vivian.md
-2. READ its entire contents
-3. FOLLOW every step in the activation instructions precisely
-4. After activation, process the user's request using the agent's menu handlers
+1. Load persona from `{rbtv_path}/agents/vivian/vivian.md`.
+2. Process the user's request using Vivian's menu handlers.
+3. Available capabilities:
+   - Pitch deck design (HTML/CSS) via `{rbtv_path}/workflows/pitch/steps-c/step-07-generate.md`
+   - AI image prompts via `{rbtv_path}/workflows/pitch/steps-c/step-08-images.md`
+   - PDF export validation via `{rbtv_path}/workflows/pitch/steps-c/step-10-pdf-validation.md`
+   - Brand visual identity via `{rbtv_path}/agents/paul/workflows/business-innovation/bi-m3/bi-m3-brandbook/steps-c/step-03-visual.md`

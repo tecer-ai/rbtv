@@ -1,25 +1,8 @@
 ---
-name: product-discovery
-description: 'Product discovery — structures benchmarks into taxonomy + profiles, builds product map, defines V1 scope. Pre-BMM workflow for founders with market research but no product definition. Use when structuring benchmarks, building product landscape, or scoping V1.'
+name: rbtv-product-discovery
+description: "Product discovery — structure benchmarks into a taxonomy and define V1 scope. Use when planning a new product's initial scope."
 ---
 
 # Product Discovery
 
-**Purpose:** Transform unstructured benchmark research into structured product artifacts that feed into BMM's `create-product-brief` workflow.
-
-**When to use:**
-- Structuring unstructured benchmark research into product analysis
-- Building a product landscape/map from competitor analysis
-- Defining V1 scope before running BMM product brief
-- User has benchmarks but needs product definition clarity
-
----
-
-## Activation
-
-<agent-activation CRITICAL="TRUE">
-1. LOAD the FULL workflow file from {rbtv_path}/workflows/product-discovery/workflow.md
-2. READ its entire contents
-3. FOLLOW the Initialization section exactly
-4. Execute the workflow steps sequentially
-</agent-activation>
+1. Read and execute the workflow at `{rbtv_path}/workflows/product-discovery/workflow.md`.
