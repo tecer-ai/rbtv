@@ -35,7 +35,7 @@ From company context, determine jurisdiction:
 | EIN present | `us` |
 | Ambiguous | Ask the user |
 
-The references folder for this workflow is `./references/{jurisdiction-code}/`.
+The knowledge base folder for this workflow is `./kb/{jurisdiction-code}/`.
 
 ### 3. Reference Loading
 

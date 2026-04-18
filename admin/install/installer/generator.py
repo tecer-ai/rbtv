@@ -80,7 +80,7 @@ def clear_previous_install(target_root: Path) -> list[Path]:
 
     Scans skills, commands, rules, and agents directories for any entry
     whose name starts with 'rbtv-' and removes it. This ensures a clean
-    slate regardless of whether rbtv.yaml tracked the previous install.
+    slate regardless of whether rbtv.json tracked the previous install.
 
     Returns list of paths removed for logging.
     """

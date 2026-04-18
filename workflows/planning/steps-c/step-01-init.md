@@ -4,13 +4,12 @@ stepName: 'init'
 nextStepFile: ./step-02-context.md
 continueStepFile: './step-01b-continue.md'
 templateFile: ../templates/plan-template.md
-outputFile: '{outputFolder}/{plan-name}/{plan-name}.plan.md'
 dataFile: ../data/plan-creation-rules.md
 ---
 
 # Step 01: Initialize Plan Creation
 
-**Purpose:** Detect context, determine plan scope, and create output structure.
+**Purpose:** Detect context, determine plan scope, resolve output path, and create output structure.
 
 ---
 
@@ -51,12 +50,19 @@ Wait for user confirmation before proceeding.
 - Ask user: "I suggest the plan name `{suggested-name}`. Use this or provide a different name?"
 - Wait for confirmation or alternative
 
-### 5. Create Plan Folder Structure
+### 5. Resolve Output Path
 
-- Create folder: `{outputFolder}/{plan-name}/`
-- Note: The plan file will be created at `{outputFolder}/{plan-name}/{plan-name}.plan.md`
+Follow the `rbtv-output-resolution` rule:
+1. Use conversation context to determine the destination (project, area, workspace)
+2. Read the relevant CLAUDE.md files for content-routing rules if needed
+3. Propose the full resolved path: `{resolved-path}/{plan-name}/`
+4. Wait for user confirmation or redirect
 
-### 6. Present Menu
+### 6. Create Plan Folder Structure
+
+- Create folder: `{output-path}/{plan-name}/`
+
+### 7. Present Menu
 
 Present the following menu and HALT. Wait for user selection.
 
@@ -73,7 +79,7 @@ Present the following menu and HALT. Wait for user selection.
 ## NEXT STEP
 
 On Continue selection:
-1. Store plan name in session memory
+1. Store plan name and output path in session memory
 2. Load and execute: `./step-02-context.md`
 
 ---
@@ -82,5 +88,6 @@ On Continue selection:
 
 - ✅ User confirmed understanding of problem/goals
 - ✅ Plan name agreed upon (kebab-case format)
-- ✅ Plan folder path determined
+- ✅ Output path resolved and confirmed
+- ✅ Plan folder created
 - ✅ Menu presented with explicit HALT

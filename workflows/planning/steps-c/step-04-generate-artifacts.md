@@ -1,22 +1,22 @@
 ---
 stepNumber: 4
 stepName: 'generate-artifacts'
-nextStepFile: ./step-05-create-plan.md
-outputFile: '{outputFolder}/{plan-name}/{plan-name}.plan.md'
+nextStepFile: null
 microstepTemplateFile: ../templates/plan-task-microstep-template.md
 shapeTemplateFile: '{rbtv_path}/workflows/_shared/templates/shape-template.md'
 learningsTemplateFile: ../templates/learnings-template.md
+templateFile: ../templates/plan-template.md
 ---
 
-# Step 04: Generate Companion Artifacts
+# Step 04: Generate All Artifacts
 
-**Progress: Step 4 of 6** — Next: Create Plan
+**Progress: Step 4 of 4** — Final Step
 
 ---
 
 ## STEP GOAL
 
-Create all companion artifacts using Write tool operations. This step REQUIRES Agent mode.
+Create all plan artifacts: companion files (shape.md, learnings.md), micro-step task files, and the main plan file. Validate and present summary.
 
 ---
 
@@ -27,62 +27,38 @@ Create all companion artifacts using Write tool operations. This step REQUIRES A
 - READ this complete file before taking any action
 - Follow the MANDATORY SEQUENCE below exactly — do not deviate, skip, or optimize
 
-### Mode Requirement
-- **AGENT MODE REQUIRED** — This step uses Write tool to create files
-- If in Ask mode, STOP immediately and display: "This step requires Agent mode. Please switch modes."
-
 ### Step-Specific Rules
 - Load each template before generating its corresponding file
 - Create ALL artifacts before presenting menu — partial completion is not acceptable
-- Use explicit Write tool calls for each file — no shortcuts
+- Use explicit Write tool calls for each file
 
 ---
 
 ## MANDATORY SEQUENCE
 
-### 1. Mode Gate Check
-
-**FIRST ACTION:** Verify Agent mode is active.
-
-If NOT in Agent mode:
-```
-🛑 STOP — Agent Mode Required
-
-This step creates files using the Write tool:
-- shape.md
-- learnings.md
-- Phase folders
-- Micro-step task files
-
-Please switch to Agent mode and say "Continue".
-```
-
-HALT until Agent mode is confirmed.
-
-### 2. Load Templates
+### 1. Load Templates
 
 Read the following templates from frontmatter paths:
 - `{shapeTemplateFile}` — for shape.md structure
 - `{learningsTemplateFile}` — for learnings.md structure
 - `{microstepTemplateFile}` — for task file structure
+- `{templateFile}` — for plan file structure
 
-### 3. Create Plan Folder Structure
+### 2. Create Phase Folders
 
-Use Shell tool to create phase folders:
+Create phase folders inside the plan folder:
 
 ```
-.cursor/plans/{plan-name}/
+{output-path}/{plan-name}/
 ├── phase-1/
 ├── phase-2/
 ├── ...
 └── phase-N/
 ```
 
-Command pattern: `mkdir -p ".cursor/plans/{plan-name}/phase-{N}"`
+### 3. Write shape.md
 
-### 4. Write shape.md
-
-**Location:** `.cursor/plans/{plan-name}/shape.md`
+**Location:** `{output-path}/{plan-name}/shape.md`
 
 **Check for existing shape.md first.** The context preservation rule may have already created a shape.md during planning conversations.
 
@@ -97,10 +73,9 @@ Command pattern: `mkdir -p ".cursor/plans/{plan-name}/phase-{N}"`
 | Original Shaping | Fill if empty; if already populated, preserve existing and append any missing scope/decisions/constraints from step-02 |
 | User Inputs | Fill if empty; append any missing entries |
 | Collaborative Decisions | Fill if empty; append any missing entries |
-| Standards Applied | Fill (plan-specific section — unlikely to exist from freeform CP writes) |
-| Tool Mode Selection | Fill (plan-specific section) |
+| Standards Applied | Fill (plan-specific section) |
 
-4. **Use StrReplace tool** to update existing sections — never overwrite the file
+4. Use Edit tool to update existing sections — never overwrite the file
 
 **If shape.md does NOT exist:**
 
@@ -114,11 +89,11 @@ Generate shape.md using `{shapeTemplateFile}` with content from step-02:
 | Standards Applied | BMAD/RBTV rules governing this plan |
 | Decisions and Discoveries | Empty — ready for append-only entries |
 
-**Use Write tool** to create the file.
+Use Write tool to create the file.
 
-### 5. Write learnings.md
+### 4. Write learnings.md
 
-**Location:** `.cursor/plans/{plan-name}/learnings.md`
+**Location:** `{output-path}/{plan-name}/learnings.md`
 
 Generate learnings.md using `{learningsTemplateFile}`:
 
@@ -129,29 +104,29 @@ Generate learnings.md using `{learningsTemplateFile}`:
 | Learning Entries | Empty — ready for append-only entries |
 | Compound Generation | Instructions (from template) |
 
-**Use Write tool** to create the file.
+Use Write tool to create the file.
 
-### 6. Generate Micro-Step Task Files
+### 5. Generate Micro-Step Task Files
 
-For each non-checkpoint task, decide whether it needs a micro-step file or can use inline YAML content:
+For each task, decide whether it needs a micro-step file:
 
 **Generate a `.task.md` file when ANY of these apply:**
 - Task requires loading 2+ context files
-- Task uses specialized RBTV tools (subagents, skills)
+- Task uses specialized RBTV tools (skills, sub-agents)
 - Task has 3+ distinct substeps
 - Task requires phased execution (understand → execute → validate)
-- Task produces output that needs quality review
+- Task is a checkpoint
 
 **Skip micro-step file when ALL of these apply:**
-- Task is self-explanatory from its YAML `content` description
+- Task is self-explanatory from its description
 - Single action, completable in one step
 - No special context files or tools needed
 
 **For tasks that need a micro-step file:**
 
-**Location pattern:** `.cursor/plans/{plan-name}/phase-{N}/{task-id}.task.md`
+**Location pattern:** `{output-path}/{plan-name}/phase-{N}/{task-id}.task.md`
 
-Generate using `{microstepTemplateFile}`:
+Generate using `{microstepTemplateFile}` with:
 
 ```yaml
 ---
@@ -165,42 +140,88 @@ human_review: {required | optional | none}
 
 **Content includes:**
 - Goal section — what this task achieves
-- Context Files — task-specific documents to load. **Path format:** files outside the plan folder use project-root-relative paths (e.g., `workflows/planning/workflow.md`); files inside the plan folder use file-relative paths (e.g., `../shape.md`). See Plan Linking Standard in `plan-creation-rules.md`.
-- Tools section — ONLY if task requires specialized RBTV skills/subagents (omit for basic Read/Write/Shell tasks). When including Tools: reference skills under `skills/` and subagents under `subagents/` by path
+- Context Files — task-specific documents to load. **Path format:** files outside the plan folder use project-root-relative paths; files inside the plan folder use file-relative paths (e.g., `../shape.md`). See Plan Linking Standard in `plan-creation-rules.md`.
+- Tools section — ONLY if task requires specialized RBTV skills/sub-agents (omit for basic Read/Write/Bash tasks)
 - Execution Flow — phased steps (understand → execute → validate → close)
 - Discovery Handling — revolving plan rules
 - Output Requirements — what to produce and where
 
-**After generating each micro-step file:**
-- Append the task file path in brackets to the YAML todo's `content` field: `"p1-1: Task description [phase-1/p1-1.task.md]"`
-- The path inside brackets is relative to the plan folder
-- This embeds the reference in `content` because Cursor's YAML serializer strips custom fields (like `taskFile`) on status updates — `content` is preserved
+**For checkpoint task files:**
 
-**For simple tasks (no micro-step file):**
-- Ensure the YAML `content` field contains a complete, actionable description
-- Do NOT add brackets — absence of `[path]` suffix means inline task
+Generate a task file that contains:
+- **Goal** — evaluate phase deliverables against review criteria
+- **Work to Evaluate** — summary of what the phase produced (files, artifacts, with paths)
+- **Review Criteria** — 3-7 specific criteria from the phase's tasks, architectural constraints, and acceptance criteria
+- **Execution Flow** — evaluate each criterion, present findings summary, HALT for human approval, do not advance if rejected
 
-**Use Write tool** for EACH task file individually.
+**Use Write tool for EACH task file individually.**
 
-### 7. Artifact Checklist
+### 6. Write Plan File
 
-After creating all files, verify by listing the plan folder:
+**Location:** `{output-path}/{plan-name}/{plan-name}-plan.md`
+
+Generate the plan document per `{templateFile}`:
+
+1. **YAML Frontmatter** — `name` and `overview` only
+2. **Title** — `# {Plan Name}`
+3. **Reference directive** — shape.md and task file pointers
+4. **Architectural Constraints** — plan-specific patterns and execution rules
+5. **Revolving Plan Rules** — discovery handling (keep brief)
+6. **Execution Workflow** — Mermaid diagram from step-03, ONLY if plan is non-linear
+7. **Tasks** — Markdown checkbox list grouped by phase with `→ path` suffix for tasks with micro-step files
+
+Use Write tool to create the file.
+
+### 7. Validate Artifacts
+
+**7a. Core artifacts exist:**
+
+| Artifact | Path | Required |
+|----------|------|----------|
+| Plan file | `{output-path}/{plan-name}/{plan-name}-plan.md` | ✅ |
+| Shape file | `{output-path}/{plan-name}/shape.md` | ✅ |
+| Learnings file | `{output-path}/{plan-name}/learnings.md` | ✅ |
+| Phase folders | `{output-path}/{plan-name}/phase-{N}/` | ✅ (one per phase) |
+
+**7b. Task file references resolve:**
+
+For every task in the plan's task list that has a `→ path` suffix, verify the referenced file exists on disk.
+
+For every `.task.md` file on disk in phase folders, verify a matching `→ path` reference exists in the plan's task list.
+
+**7c. Plan Linking Standard:**
+
+Search all files inside the plan folder for path violations:
+- No file contains an absolute or root-relative path referencing the plan folder itself
+- All intra-plan references use `./` or `../` relative paths
+
+**If ANY validation fails**, fix the issue before proceeding.
+
+### 8. Present Completion Summary
 
 ```
-Artifacts Created:
-✅ shape.md
-✅ learnings.md
-✅ phase-1/ ({N} task files)
-✅ phase-2/ ({N} task files)
-...
-✅ phase-N/ ({N} task files)
+✅ Plan Created Successfully
 
-Total: {count} micro-step files created
+**Plan:** {plan-name}
+**Location:** {output-path}/{plan-name}/
+
+**Summary:**
+- {N} phases
+- {N} tasks
+- {N} checkpoints
+- {N} micro-step files
+
+**First task:** {first-task-id} — {first-task-description}
+
+**How to Execute:**
+1. Check if the task has a file reference (`→ path`)
+2. If yes: read that file and follow its execution phases
+3. If no: execute directly from the task description
+4. Append to shape.md after each task
+5. Mark task complete in plan task list (`[x]`)
 ```
 
-If ANY artifact is missing, create it before proceeding.
-
-### 8. Present Menu
+### 9. Present Final Menu
 
 Present the following menu and HALT. Wait for user selection.
 
@@ -209,59 +230,27 @@ Present the following menu and HALT. Wait for user selection.
 ## MENU
 
 **Options:**
-- `[C] Continue` → Proceed to plan file creation (step-05)
-- `[L] List Files` → Show all created files with paths
-- `[R] Regenerate` → Recreate a specific artifact
+- `[S] Start First Task` → Open first task's micro-step file and begin execution
+- `[V] View Plan` → Display the plan file
+- `[D] Done` → Exit workflow (plan is saved and ready)
 
 ---
 
-## MODE GATE FOR NEXT STEP
+## WORKFLOW COMPLETE
 
-**CRITICAL:** Before loading step-05, the agent should be in a mode that can use CreatePlan tool.
-
-If user selects `[C] Continue`:
-
-1. Display:
-   ```
-   ✅ All companion artifacts created.
-   
-   Next: Create the main plan file using CreatePlan tool.
-   
-   If you're in Agent mode, you can proceed directly.
-   If CreatePlan requires Plan mode, please switch now.
-   ```
-2. Load `{nextStepFile}` and follow its instructions
-
----
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY when `[C] Continue` is selected:
-1. Update frontmatter: add `step-04-generate-artifacts.md` to `stepsCompleted`
-2. Load `{nextStepFile}` and follow its instructions
+This completes the Create workflow. The plan and all supporting files are saved and ready for execution.
 
 ---
 
 ## SUCCESS CRITERIA
 
-- ✅ Mode gate passed (Agent mode confirmed)
 - ✅ All templates loaded
 - ✅ Phase folders created
 - ✅ shape.md written with planning context (merged if pre-existing, created if not)
 - ✅ learnings.md written with empty structure
-- ✅ Micro-step task files generated for complex tasks (per decision criteria)
-- ✅ Task file path appended in `[brackets]` to `content` for every task that has a micro-step file
-- ✅ No `[brackets]` suffix for simple tasks (no micro-step file)
-- ✅ Artifact checklist displayed and verified
+- ✅ Micro-step task files generated for complex tasks and checkpoints
+- ✅ Plan file written with Markdown task list
+- ✅ Task file references link correctly (`→ path` ↔ file on disk)
+- ✅ Plan Linking Standard validated (no brittle self-references)
+- ✅ Completion summary displayed
 - ✅ Menu presented with explicit HALT
-
----
-
-## FAILURE CONDITIONS
-
-❌ **FAILURE if any of these occur:**
-- Proceeding without Agent mode
-- Skipping any artifact
-- Using shortcuts instead of explicit Write calls
-- Presenting completion menu before all artifacts exist
-- Loading next step before [C] is selected

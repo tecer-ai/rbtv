@@ -2,7 +2,6 @@
 stepNumber: 3
 stepName: 'structure'
 nextStepFile: ./step-04-generate-artifacts.md
-outputFile: '{outputFolder}/{plan-name}/{plan-name}.plan.md'
 dataFile: ../data/plan-creation-rules.md
 ---
 
@@ -66,61 +65,32 @@ For each task, assess complexity across 5 dimensions:
 
 ### 6. Add Final Compound Task
 
-**MANDATORY:** The last task of the final phase MUST be:
+**MANDATORY:** The last task of the final phase MUST be a compound learnings task:
 
-```yaml
-- id: pN-compound
-  content: "pN-compound: Review learnings.md and compound into system improvements"
-  status: pending
 ```
-
-This reviews meta-learnings captured during execution and proposes BMAD/RBTV improvements.
+- [ ] `pN-compound` Review learnings.md and compound into system improvements
+```
 
 ### 7. Generate Checkpoints
 
 Add 3-6 checkpoints at inflection points:
 - Use ID format: `p[N]-checkpoint`
-- Content format: `P[N] CHECKPOINT - [Description]`
+- Content format: `CHECKPOINT — [Description]`
 - Place at: Phase transitions, critical decisions, major deliverables
 
-**Mandatory checkpoint review prompt:** Each checkpoint MUST have a corresponding review prompt in the plan body (not in YAML — Cursor strips custom YAML fields on status updates).
+**Compose review criteria for each checkpoint:**
 
-**YAML entry** (only standard fields):
+For each checkpoint, prepare the content that will go into its `.task.md` file:
 
-```yaml
-- id: p1-checkpoint
-  content: "P1 CHECKPOINT - {description}"
-  status: pending
-```
-
-**Plan body section** (under the phase, after the task list):
-
-For each checkpoint, compose a review prompt subsection in the phase body:
-
-```markdown
-#### P1 Checkpoint Review Prompt
-
-> **Use Task tool with `subagent_type='quality-review'` and the following prompt:**
->
-> ## Work to Evaluate
-> {Phase deliverables summary with file paths}
->
-> ## Quality Criteria
-> 1. {Criterion from phase tasks}
-> 2. {Criterion from phase tasks}
-```
-
-Compose the review prompt by:
 1. **Work to Evaluate** — summarize what the preceding phase produced (files created/modified, artifacts delivered), referencing specific paths
-2. **Quality Criteria** — derive 3-7 criteria from the phase's task descriptions, architectural constraints, and acceptance criteria
-3. The prompt must be self-contained — the quality-review agent runs in a fresh context
+2. **Review Criteria** — derive 3-7 specific criteria from the phase's task descriptions, architectural constraints, and acceptance criteria
+3. **Gate behavior** — evaluate against criteria, present findings, HALT for human approval
 
 ### 8. Format Task IDs
 
 Apply ID format rules:
 - Format: `p[phase]-[number]` or `p[phase]-[name]`
 - Examples: `p1-1`, `p1-2`, `p2-auth`, `p2-checkpoint`
-- IDs in YAML must match section headers in plan body
 
 ### 9. Validate Dependency Ordering
 
@@ -166,29 +136,21 @@ Apply ID format rules:
 
 ### 11. Present Structure
 
-Display the proposed structure:
+Display the proposed structure as a Markdown task list:
 
-```
+```markdown
 ## Proposed Plan Structure
 
-### Phases
-- Phase 1: [Name] — [Goal]
-- Phase 2: [Name] — [Goal]
+### Phase 1: {Name} — {Goal}
+
+- [ ] `p1-1` {Task description} → task file
+- [ ] `p1-2` {Simple task description}
+- [ ] `p1-checkpoint` **CHECKPOINT** — {Description} → task file
+
+### Phase 2: {Name} — {Goal}
+
+- [ ] `p2-1` {Task description} → task file
 ...
-
-### Tasks by Phase
-
-**Phase 1: [Name]**
-- p1-1: Create plan folder and initial execution decisions file
-- p1-2: [Task description]
-- p1-checkpoint: P1 CHECKPOINT - [Description]
-
-**Phase 2: [Name]**
-- p2-1: [Task description]
-...
-
-### Workflow Diagram
-[Mermaid diagram]
 
 Does this structure look correct? Any tasks to add, remove, or reorder?
 ```
@@ -202,7 +164,7 @@ Present the following menu and HALT. Wait for user selection.
 ## MENU
 
 **Options:**
-- `[C] Continue` → Proceed to artifact generation (step-04-generate-artifacts); Switch to plan mode before selecting this option
+- `[C] Continue` → Proceed to artifact generation (step-04)
 - `[A] Add Tasks` → Add more tasks to the structure
 - `[M] Modify` → Change existing tasks or phases
 - `[X] Exit Workflow` → Cancel plan creation
@@ -224,10 +186,9 @@ On Continue selection:
 - ✅ Tasks use explicit file operations (CREATE/UPDATE/DELETE/MOVE)
 - ✅ Task complexity assessed (5-dimension scoring)
 - ✅ Final compound task included (pN-compound)
-- ✅ 3-6 checkpoints at inflection points
-- ✅ Task IDs follow format rules and sync with headers
+- ✅ 3-6 checkpoints at inflection points with review criteria composed
+- ✅ Task IDs follow format rules
 - ✅ Dependency ordering validated (no violations or user-approved overrides)
 - ✅ Mermaid workflow diagram generated (only for non-linear plans)
-- ✅ Each checkpoint has a review prompt subsection in the plan body (`#### P{N} Checkpoint Review Prompt`)
 - ✅ User confirmed structure is correct
 - ✅ Menu presented with explicit HALT

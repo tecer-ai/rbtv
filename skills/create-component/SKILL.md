@@ -1,6 +1,6 @@
 ---
 name: rbtv-create-component
-description: "Create a new AI system component (skill, workflow, rule, task, persona, command). Works for RBTV, vault, and any workspace with a CLAUDE.md."
+description: "Create or understand AI system components (skills, workflows, rules, tasks, personas, commands). Use when creating new components, modifying component structure, or needing to understand how components work in any directory. Replaces manual exploration of component directories — invoke this skill instead of researching component structure yourself. Works for RBTV, vault, and any workspace with a CLAUDE.md."
 ---
 
 # Create Component

@@ -1,5 +1,5 @@
 ---
-description: "RBTV source files are overwritten on re-install. Edit in RBTV source repo (location in rbtv.yaml), then re-run install.py to propagate."
+description: "RBTV source files are overwritten on re-install. Edit in RBTV source repo (location in rbtv.json), then re-run install.py to propagate."
 ---
 # RBTV Source of Truth
 
@@ -7,7 +7,7 @@ RBTV components installed into `.claude/` (skills, commands, rules, subagents) a
 
 ## Canonical Locations
 
-The canonical source is the RBTV repo. Its path in the target workspace is recorded in `rbtv.yaml` (`rbtv_path:` field) at the workspace root.
+The canonical source is the RBTV repo. Its path in the target workspace is recorded in `rbtv.json` (`rbtv_path:` field) at the workspace root.
 
 | What | Edit in RBTV source | Never in target |
 |------|--------------------|------------------|
@@ -27,7 +27,7 @@ Skills, commands, rules, and subagents are thin loaders or copies in `.claude/` 
 
 For content changes (workflows, personas, tasks, SKILL.md bodies referenced by loaders), just `git pull` in the RBTV source — changes are live immediately.
 
-When a skill, command, rule, or subagent is created, deleted, or renamed, update `admin/install/module-manifest.yaml` to reflect the change, then re-run the installer:
+When a skill, command, rule, or subagent is created, deleted, or renamed, update `admin/install/module-manifest.json` to reflect the change, then re-run the installer:
 
 ```bash
 python install.py

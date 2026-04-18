@@ -18,3 +18,9 @@ When a skill exists whose description matches the task you are about to perform,
 A matching skill is always step zero — never step two. No pre-work before invoking it, because the skill's own workflow defines what pre-work is needed.
 
 Skills encode decisions, constraints, and workflows that you will miss by improvising. Your confidence in the task is irrelevant — the skill exists for a reason.
+
+## Project-Native Skill Priority
+
+Project skills (listed under "Project" in your skill context) are custom workflows built specifically for this workspace. They take priority over plugin skills when scanning. Plugin skills are generic — project skills encode this vault's exact decisions, constraints, and conventions.
+
+When scanning, check project skills FIRST and with extra attention. A project skill that partially matches the task MUST be invoked — it exists because the user built it for exactly this kind of work. Do not let project skills get buried under the volume of plugin skills.

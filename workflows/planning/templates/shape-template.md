@@ -70,16 +70,6 @@ Use this template to create the `shape.md` companion file for each plan. Shape c
 |------|-------------|
 | {Rule name} | {How violations are detected} |
 
-### Tool Mode Selection
-
-| Scenario | Mode | Rationale |
-|----------|------|-----------|
-| Need prior context | Skill | Preserves conversation history |
-| Context saturated | Subagent | Fresh context window |
-| Complex validation | Subagent | quality-review needs focused evaluation |
-| Quick lookup | Skill | Minimal overhead |
-| Already in subagent | Skill only | Subagents cannot nest |
-
 ---
 
 ## Decisions and Discoveries
@@ -155,7 +145,7 @@ Use this template to create the `shape.md` companion file for each plan. Shape c
 
 ### Creating shape.md
 
-1. Create during plan creation (step-02-context.md)
+1. Create during plan creation (step-04)
 2. Fill Original Shaping section from user discussions
 3. Fill Standards Applied from applicable BMAD/RBTV rules
 4. Leave Decisions and Discoveries section empty (template markers only)
@@ -185,7 +175,6 @@ The append-only pattern serves critical purposes:
 |---------|-----|
 | Audit trail | Full history of significant decisions |
 | Context recovery | Any agent can understand execution state |
-| No condensation needed | Eliminates condensation tasks from plans |
 | Immutable planning record | Original decisions preserved for comparison |
 | Propagation record | Discovery checklist tracks what was updated |
 

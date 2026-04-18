@@ -4,8 +4,7 @@
 Installs thin loaders (skills, commands) and copies (rules, subagents) into a
 target workspace's .claude/ directory, pointing back to this RBTV source repo.
 
-Prerequisite:
-    pip install pyyaml          # only external dependency
+No external dependencies — Python 3.11+ only.
 
 Interactive mode (recommended for first install):
     python install.py
@@ -21,12 +20,12 @@ Scripted / CI mode:
     python install.py --target /path/to/workspace --non-interactive
 
 Re-running is safe — previous rbtv-* files are cleared before each install.
-Choices are persisted in rbtv.yaml at the target root so re-installs remember
+Choices are persisted in rbtv.json at the target root so re-installs remember
 selected modules and excluded components.
 
 Configuration:
-    admin/install/defaults.yaml          Version and module availability
-    admin/install/module-manifest.yaml   What each module installs
+    admin/install/defaults.json          Version and module availability
+    admin/install/module-manifest.json   What each module installs
 
 """
 from __future__ import annotations

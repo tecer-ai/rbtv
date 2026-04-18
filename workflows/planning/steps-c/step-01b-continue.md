@@ -1,10 +1,7 @@
 ---
 stepNumber: 1
 stepId: continue
-
-# File References
 workflowFile: '../workflow.md'
-outputFile: '{outputFolder}/{plan-name}/{plan-name}.plan.md'
 ---
 
 # Step 1B: Workflow Continuation
@@ -29,54 +26,51 @@ Resume the workflow from where it was left off, ensuring smooth continuation wit
 - Focus ONLY on analyzing and resuming workflow state
 - FORBIDDEN to modify content completed in previous steps
 - Maintain continuity with previous sessions
-- DETECT exact continuation point from `stepsCompleted` in `{outputFile}`
 
 ---
 
 ## MANDATORY SEQUENCE
 
-### 1. Analyze Current State
+### 1. Locate Plan Artifacts
 
-Read `{outputFile}` frontmatter to determine:
-- `stepsCompleted`: Which steps are done (last entry = last completed step)
-- `lastStep`: Name of last completed step
-- `date`: Original workflow start date
-- `inputDocuments`: Documents loaded during initialization
+Search the output path for the plan folder. Look for:
+- `{plan-name}-plan.md` — the main plan file
+- `shape.md` — companion file with execution context
+- Phase folders with task files
 
-### 2. Read Completed Step Files
+### 2. Analyze Current State
 
-For each step in `stepsCompleted` (excluding step-01-init):
-1. Read the step file to understand what it accomplished
-2. Find the `nextStepFile` reference — the last file's `nextStepFile` is where to resume
+Read the plan file and shape.md to determine:
+- Which tasks are completed (checked `[x]` in task list)
+- Which task was last worked on
+- Any decisions or discoveries logged in shape.md
 
-### 3. Review Previous Output
+### 3. Review Completed Work
 
-Read the complete `{outputFile}`:
-- Content generated so far
-- Sections completed vs pending
-- User decisions and preferences
+Read shape.md Decisions and Discoveries section to understand:
+- What was done in prior sessions
+- Any direction changes or discoveries
+- Current execution context
 
-### 4. Determine Next Step
+### 4. Determine Next Task
 
-From the last completed step file:
-1. Find its `nextStepFile` reference
-2. Validate the file exists
+From the plan's task list:
+1. Find the first unchecked (`[ ]`) task
+2. If it has a task file (`→ path`), note the path
 3. Confirm the workflow is incomplete
 
 ### 5. Welcome Back Dialog
 
 Present context-aware welcome:
-- What steps are complete
+- What tasks are complete
 - What was last worked on
-- What the next step is
+- What the next task is
 - Ask: "Has anything changed since our last session?"
 
 ### 6. Present Menu Options
 
 **Resuming workflow — Select an Option:**
-- **[C] Continue** — proceed to next step
-
-**Menu handling:** When [C] is selected, add `lastContinued: {current date}` to `{outputFile}` frontmatter, then load the next step file determined in section 4.
+- **[C] Continue** — proceed to next task
 
 ALWAYS halt and wait for user selection.
 
@@ -85,14 +79,5 @@ ALWAYS halt and wait for user selection.
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY when **[C] Continue** is selected:
-1. Update `{outputFile}` frontmatter with `lastContinued` timestamp
-2. Load the next step file determined from the analysis
-3. Do NOT modify any content in the output document during this step
-
----
-
-## SUCCESS / FAILURE METRICS
-
-SUCCESS: Correctly identified last step from `stepsCompleted`, user confirmed readiness, frontmatter updated with continuation timestamp, resumed at correct next step
-
-FAILURE: Skipping state analysis, modifying previous step content, loading wrong next step, proceeding without user confirmation
+1. Load the next task's micro-step file (if it has one) or present the inline task description
+2. Do NOT modify any content during this step

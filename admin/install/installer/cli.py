@@ -3,26 +3,24 @@
 Orchestrates the full install flow:
 
   1. Resolve target workspace path (--target flag or interactive prompt)
-  2. Load module manifest from admin/install/module-manifest.yaml
+  2. Load module manifest from admin/install/module-manifest.json
   3. Select modules (--modules flag, --non-interactive, or interactive checkbox)
   4. Optionally customize individual components within selected modules
   5. Clear previous rbtv-* files from .claude/ in the target
   6. Install selected components (baked skills/commands, copied rules/subagents)
-  7. Write rbtv.yaml state file (persists choices for future re-installs)
+  7. Write rbtv.json state file (persists choices for future re-installs)
   8. Check for required Claude Code plugins and warn if missing
 
-The interactive flow uses installer.tui for arrow-key navigation and checkbox
-selection. No external dependencies beyond PyYAML — the TUI is pure stdlib.
+No external dependencies — the TUI is pure stdlib.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
-
-import yaml
 
 from .context import resolve_from_cli
 from .generator import (
@@ -37,22 +35,22 @@ from .state import find_state_upward, read_state, write_state
 
 
 def _find_rbtv_root() -> Path:
-    """Walk up from this file until a parent contains install.py AND admin/install/defaults.yaml."""
+    """Walk up from this file until a parent contains install.py AND admin/install/defaults.json."""
     current = Path(__file__).resolve()
     for parent in [current] + list(current.parents):
         if (parent / "install.py").is_file() and (
-            parent / "admin" / "install" / "defaults.yaml"
+            parent / "admin" / "install" / "defaults.json"
         ).is_file():
             return parent
     raise SystemExit(
         f"Cannot locate RBTV root — no ancestor of {current} contains "
-        f"install.py AND admin/install/defaults.yaml."
+        f"install.py AND admin/install/defaults.json."
     )
 
 
 def _load_defaults(rbtv_root: Path) -> dict[str, Any]:
-    defaults_path = rbtv_root / "admin" / "install" / "defaults.yaml"
-    return yaml.safe_load(defaults_path.read_text(encoding="utf-8"))
+    defaults_path = rbtv_root / "admin" / "install" / "defaults.json"
+    return json.loads(defaults_path.read_text(encoding="utf-8"))
 
 
 def _component_name(target_relative: Path) -> str:
@@ -293,7 +291,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--non-interactive",
         action="store_true",
-        help="Skip all prompts; use existing rbtv.yaml + --modules only.",
+        help="Skip all prompts; use existing rbtv.json + --modules only.",
     )
     args = parser.parse_args(argv)
 
@@ -313,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
         if found:
             from .tui import confirm
             found_dir, existing_state = found
-            print(f"  Found existing rbtv.yaml at: {found_dir}")
+            print(f"  Found existing install at: {found_dir}")
             if confirm("Install to this path?", default=True):
                 target_root = found_dir
             else:
@@ -326,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # --- Load manifest -------------------------------------------------------
 
-    manifest = load_manifest(rbtv_root / "admin" / "install" / "module-manifest.yaml")
+    manifest = load_manifest(rbtv_root / "admin" / "install" / "module-manifest.json")
     always = [name for name, mod in manifest.items() if mod.always_installed]
     available = list(manifest.keys())
 

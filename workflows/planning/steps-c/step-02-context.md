@@ -2,7 +2,6 @@
 stepNumber: 2
 stepName: 'context'
 nextStepFile: ./step-03-structure.md
-outputFile: '{outputFolder}/{plan-name}/{plan-name}.plan.md'
 ---
 
 # Step 02: Gather Context
@@ -54,39 +53,7 @@ Ask questions one at a time. Wait for response before next question.
 
 ### 3. Document Context
 
-Compile all gathered information into the plan's Context section:
-
-```markdown
-## Context
-
-### Problem Statement
-[User's description of the problem]
-
-### User Goals
-1. [Goal 1]
-2. [Goal 2]
-
-### Constraints
-- [Constraint 1]
-- [Constraint 2]
-
-### Decisions Made
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| [What was decided] | [Choice made] | [Why] |
-
-### Rejected Alternatives
-- [Alternative 1]: [Why rejected]
-- [Alternative 2]: [Why rejected]
-
----
-
-## Files to Load
-
-| File | Purpose | When to Load |
-|------|---------|--------------|
-| [path] | [Why this file matters] | [Phase/task that needs it] |
-```
+Compile all gathered information — this will be written to shape.md during step-04.
 
 ### 4. Prepare Companion Files Content
 

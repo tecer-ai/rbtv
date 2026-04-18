@@ -1,6 +1,6 @@
 # Plan Task Microstep Template
 
-Use this template to generate micro-step task files during plan creation. Each task in a plan gets its own `.task.md` file with complete execution instructions.
+Use this template to generate micro-step task files during plan creation. Each complex task and checkpoint in a plan gets its own `.task.md` file with complete execution instructions.
 
 ---
 
@@ -39,28 +39,22 @@ human_review: required | optional | none
 
 ## Tools
 
-**IMPORTANT:** Only include this section if the task requires specialized skills or subagents from the RBTV manifest. Do NOT list basic agent tools like Read, Write, Shell, or Grep.
+**IMPORTANT:** Only include this section if the task requires specialized skills or sub-agents from the RBTV manifest. Do NOT list basic agent tools like Read, Write, Bash, or Grep.
 
 **Include this section when:**
-- Task requires quality validation (quality-review)
-- Task needs research capabilities (web-research, context-distill)
-- Task needs codebase exploration (explore subagent)
+- Task needs research capabilities (web-search, context-distill)
+- Task needs codebase exploration (Explore sub-agent)
 - Task uses specialized RBTV workflows (compound-learning, etc.)
 
 **Omit this section when:**
-- Task only uses standard agent tools (Read, Write, Shell, Grep, etc.)
+- Task only uses standard agent tools (Read, Write, Bash, Grep, etc.)
 - Task is straightforward file operations without specialized tooling
 
 **If specialized tools are required, list them below:**
 
-| Tool | Mode | Purpose |
-|------|------|---------|
-| {tool-id} | skill \| subagent | {What it does in this task} |
-
-**Mode Selection Rules:**
-- **skill**: Use when prior context needed, quick lookup, or already in subagent
-- **subagent**: Use when context is saturated, complex validation needed, or fresh evaluation required
-- **CRITICAL**: Subagents cannot invoke other subagents; only skills
+| Tool | Purpose |
+|------|---------|
+| {tool-id} | {What it does in this task} |
 
 ---
 
@@ -69,8 +63,8 @@ human_review: required | optional | none
 ### Phase: Understand
 
 1. **MUST** read every file in the Context Files table above. Do not continue until all are read.
-2. In the plan file (the `.plan.md` in this plan's directory), set this task's todo to `status: in_progress`. Match the todo `id` to this task's `task_id`.
-3. Review shape.md execution log for prior task context.
+2. In the plan file, mark this task as in progress: change `[ ]` to `[~]` for this task's checkbox.
+3. Review shape.md Decisions and Discoveries for prior task context.
 4. Confirm task requirements are clear.
 5. {Task-specific understanding steps}
 
@@ -88,13 +82,12 @@ human_review: required | optional | none
 
 1. Verify deliverable meets goal statement
 2. {Task-specific validation criteria}
-3. If using quality-review tool: Invoke with mode specified in Tools section
 
 ### Phase: Close
 
 1. Append execution entry to shape.md (never modify existing entries).
 2. **MUST** present a brief summary to the user (max 2000 characters) of what was done. Do not mark complete until the user approves.
-3. After user approval, set this task's todo to `status: completed` in the plan file.
+3. After user approval, mark this task as complete: change `[~]` to `[x]` in the plan file.
 4. Notify user of completion and any plan changes.
 
 ---
@@ -110,7 +103,7 @@ human_review: required | optional | none
 ## Revolving Plan Rules
 
 **When discoveries occur:**
-- Append discovery to shape.md Execution Discoveries section
+- Append discovery to shape.md Decisions and Discoveries section
 - If work is complex (>5 min), add new task to plan with next available ID
 - If work is simple, perform immediately and document
 - **MANDATORY**: In output message, clearly state any tasks added or removed
@@ -125,13 +118,67 @@ PLAN MODIFIED:
 
 ---
 
+## Checkpoint Task File Variant
+
+For checkpoint tasks, use this adapted structure instead of the standard template:
+
+```markdown
+# Checkpoint {task-id}: {Phase Name} Review
+
+## Goal
+
+Evaluate phase deliverables against review criteria and present findings for human approval.
+
+---
+
+## Context Files
+
+| File | Purpose |
+|------|---------|
+| ../shape.md | Prior decisions and execution context |
+| {paths to phase deliverables} | {Work to evaluate} |
+
+---
+
+## Work to Evaluate
+
+{Summary of what the phase produced — files created/modified, artifacts delivered, with specific paths}
+
+## Review Criteria
+
+Evaluate each criterion. Note whether it passes, fails, or needs attention.
+
+1. {Criterion derived from phase task acceptance criteria}
+2. {Criterion derived from phase task acceptance criteria}
+3. {Criterion from architectural constraints}
+4. {Additional criteria as needed, 3-7 total}
+
+## Execution Flow
+
+### Phase: Evaluate
+
+1. Read all files listed in Context Files
+2. Review shape.md for decisions and discoveries from this phase
+3. Evaluate deliverables against each review criterion
+4. Prepare findings summary with per-criterion assessment
+
+### Phase: Gate
+
+1. Present findings summary to user with clear PASS/FAIL per criterion
+2. **HALT for human approval** — do not advance regardless of findings
+3. If user rejects: document feedback in shape.md, do not advance to next phase
+4. If user approves: mark checkpoint complete in plan task list
+```
+
+---
+
 ## Field Instructions
 
 ### YAML Frontmatter
 
 | Field | Description | Values |
 |-------|-------------|--------|
-| task_id | Matches plan YAML ID | `p[phase]-[number]` |
+| task_id | Matches plan task list ID | `p[phase]-[number]` |
 | status | Current state | `pending`, `in_progress`, `completed`, `cancelled` |
 | phase | Current execution phase | `understand`, `execute`, `validate`, `close` |
 | complexity_score | Assessed complexity | 1-15 (see complexity assessment) |
@@ -143,7 +190,7 @@ PLAN MODIFIED:
 |---------|---------|
 | Goal | Single deliverable statement |
 | Context Files | Documents agent MUST read before any phase; include mandatory read instruction above table |
-| Tools | (Optional) Only include if task requires specialized RBTV skills/subagents |
+| Tools | (Optional) Only include if task requires specialized RBTV skills/sub-agents |
 | Execution Flow | Phased steps (understand → execute → validate → close) |
 | Output Requirements | What to produce and where |
 | Revolving Plan Rules | Discovery handling instructions |
@@ -164,9 +211,10 @@ PLAN MODIFIED:
 
 **File naming:** `{task-id}.task.md`
 
-**Location:** `.cursor/plans/{plan-name}/phase-{N}/`
+**Location:** `{output-path}/{plan-name}/phase-{N}/`
 
 **Examples:**
 - `phase-1/p1-1.task.md`
+- `phase-1/p1-checkpoint.task.md`
 - `phase-2/p2-3.task.md`
 - `phase-final/pN-compound.task.md`
