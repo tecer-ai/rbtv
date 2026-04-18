@@ -2,7 +2,7 @@
 name: 'step-04-recommendations'
 description: 'Generate prioritized improvement recommendations with rationale'
 nextStepFile: './step-05-synthesis.md'
-outputFile: '{output_path}/{project-name}/business-innovation/m4-prototypation/heuristic-evaluation.md'
+outputFile: '{project-name}/business-innovation/m4-prototypation/heuristic-evaluation.md'
 ---
 
 # Step 4: Recommendations

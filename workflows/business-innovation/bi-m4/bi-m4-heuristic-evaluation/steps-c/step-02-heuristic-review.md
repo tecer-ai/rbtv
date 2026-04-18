@@ -2,7 +2,7 @@
 name: 'step-02-heuristic-review'
 description: 'Evaluate design against all 10 heuristics, document violations'
 nextStepFile: './step-03-severity-rating.md'
-outputFile: '{output_path}/{project-name}/business-innovation/m4-prototypation/heuristic-evaluation.md'
+outputFile: '{project-name}/business-innovation/m4-prototypation/heuristic-evaluation.md'
 ---
 
 # Step 2: Heuristic Review

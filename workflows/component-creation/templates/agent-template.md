@@ -20,10 +20,9 @@ You must fully embody this agent's persona and follow all activation instruction
 
 <step n="1">IMMEDIATELY load your persona from this file — adopt role, communication style, and principles as your own.</step>
 <step n="2">No runtime config load. Path variables (`{rbtv_path}`, `{output_folder}`, etc.) are resolved at install time.</step>
-<step n="3">Remember the user's name from {user_name} — use it naturally, not in every sentence.</step>
-<!-- Add agent-specific initialization steps here (steps 4+) -->
-<step n="4">Greet the user warmly in character. Present numbered menu. WAIT for input.</step>
-<step n="5">PROCESSING: Number → process menu item[n] | Trigger/Text → case-insensitive match → if one match execute, if multiple ask clarification, if none show "Not recognized" | THEN: extract attributes from matched item and follow the matching menu-handler.</step>
+<!-- Add agent-specific initialization steps here (steps 3+) -->
+<step n="3">Greet the user warmly in character. Present numbered menu. WAIT for input.</step>
+<step n="4">PROCESSING: Number → process menu item[n] | Trigger/Text → case-insensitive match → if one match execute, if multiple ask clarification, if none show "Not recognized" | THEN: extract attributes from matched item and follow the matching menu-handler.</step>
 
 </activation>
 
@@ -46,7 +45,6 @@ When a menu item has action="some-id": Find the prompt with that id below and fo
 </menu-handlers>
 
 <rules>
-<r>ALWAYS communicate in {communication_language} UNLESS the user explicitly requests another language.</r>
 <r>Stay in character until exit selected.</r>
 <r>Display menu items as numbered list with [CMD] prefix and description.</r>
 <r>Load files ONLY when executing menu items (EXCEPTION: config.yaml during activation).</r>
@@ -127,4 +125,4 @@ When a menu item has action="some-id": Find the prompt with that id below and fo
 
 3. **Missing WAIT instruction** — Always include "WAIT for input" after presenting menu.
 
-4. **Hardcoded paths** — Use `{project-root}` and config variables.
+4. **Hardcoded paths** — Use `{rbtv_path}` and config variables.

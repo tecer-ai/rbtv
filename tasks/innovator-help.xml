@@ -1,0 +1,102 @@
+<task id="tasks/innovator-help.xml"
+      name="Innovator Help"
+      standalone="true"
+      description="Display milestone position, framework progress, and available workflows for the founder journey">
+
+  <objective>
+    Show a concise "you are here" orientation. Two modes: general overview (no project loaded) and full progress display (project loaded). Read-only — never modify project state.
+  </objective>
+
+  <llm critical="true">
+    <rule>Read the complete task before starting execution.</rule>
+    <rule>Display output MUST NOT exceed 18 lines (includes brief status paragraph).</rule>
+    <rule>Framework order MUST match the milestone workflow FRAMEWORK ROUTING table order.</rule>
+    <rule>NEVER modify project state — this task is read-only.</rule>
+    <rule>All file references use paths relative to the RBTV root.</rule>
+    <rule>After displaying output, do NOT output a menu or list of menu items. Output only a short prompt such as "What next?" and STOP. The Innovator agent will re-display the menu in its standard format (numbered list with [CMD] prefix and description).</rule>
+  </llm>
+
+  <flow>
+    <step n="1" title="Branch on Project State">
+      <substep n="1a">
+        <action>If {project_detected}=false → go to step 2.</action>
+        <action>If {project_detected}=true → go to step 3.</action>
+      </substep>
+    </step>
+
+    <step n="2" title="General Overview (No Project)">
+      <substep n="2a" title="Load Data">
+        <action>Read {rbtv_path}/workflows/business-innovation/data/founder-process.md</action>
+        <action>Extract the 6 milestones from the Milestones Summary table (name and goal columns).</action>
+      </substep>
+      <substep n="2b" title="Display">
+        <action>Output this format (substitute milestone data from the file):
+
+🎯 INNOVATOR OVERVIEW: The Founder Journey
+
+6 milestones from idea to MVP:
+  M1: {name} — {goal}
+  M2: {name} — {goal}
+  M3: {name} — {goal}
+  M4: {name} — {goal}
+  M5: {name} — {goal}
+  M6: {name} — {goal}
+
+→ Use [N] to start a new project or [C] to continue an existing one.</action>
+      </substep>
+      <substep n="2c" title="Return">
+        <action>Do not output a menu. Output only "What next?" (or similar). Innovator will re-display the menu.</action>
+      </substep>
+    </step>
+
+    <step n="3" title="Project Progress (Project Loaded)">
+      <substep n="3a" title="Extract State">
+        <action>From project-memo.md frontmatter (loaded during Mentor activation), extract: projectName, currentMilestone, currentFramework, stepsCompleted.</action>
+        <action>Parse milestone number N from currentMilestone (e.g., "M1: Conception" → N=1, milestoneName="Conception").</action>
+        <action>Determine next milestone from the Milestones Summary in {rbtv_path}/workflows/business-innovation/data/founder-process.md. If N=6, next is "Journey complete".</action>
+      </substep>
+      <substep n="3b" title="Load Framework Data">
+        <action>Attempt to read: {rbtv_path}/workflows/business-innovation/bi-m{N}/workflow.md</action>
+        <action>If found: Parse the FRAMEWORK ROUTING table. Extract each row's Code and Framework name, preserving table order.</action>
+        <action>If not found (M5/M6): Read {rbtv_path}/workflows/business-innovation/data/founder-process.md. Extract framework names for M{N} from the Key Frameworks column. No codes available.</action>
+      </substep>
+      <substep n="3c" title="Compute Framework Status">
+        <action>For each framework in order:
+          - If its Output File from FRAMEWORK ROUTING appears in stepsCompleted → mark ✅
+          - Else if it matches currentFramework → mark 🎯 (append " (current)")
+          - Else: mark 🔜 for the first pending framework (next up), mark ⏳ for all other pending frameworks
+        Count completed frameworks vs total.</action>
+      </substep>
+      <substep n="3c2" title="Build All-Milestones Line with Names">
+        <action>From founder-process.md Milestones Summary, get the short name for each of M1–M6 (e.g. Conception, Validation, Brand, Prototypation, Market Validation, MVP). Build one line: M1 {name} {✓|🎯|🔜|⏳} · M2 {name} {✓|🎯|🔜|⏳} · … · M6 {name} {✓|🎯|🔜|⏳}. Use ✓ for milestones before N (completed), 🎯 for M{N} (current), 🔜 for M{N+1} (next), ⏳ for M{N+2} through M6. If N=6, use 🎯 for M6 and no 🔜. Abbreviate long names if needed to keep the line readable (e.g. "Market Val." for Market Validation).</action>
+      </substep>
+      <substep n="3c3" title="Compose Status Paragraph">
+        <action>Write a brief plain-English paragraph (2–4 sentences) covering: (1) where they are — current milestone and current framework, with a one-phrase explanation of what each does (use founder-process.md Milestones Summary "Goal" column for milestone; for frameworks use workflow description or a concise plain-English phrase for what the framework is for, e.g. "Working Backwards — start from the customer and work back to the product"); (2) what was last completed — the most recently completed framework and briefly what it does; (3) what's next — the next framework or milestone and briefly what it does. Do not only name workflows/milestones; include a brief "what it does" for each. Keep it conversational and scannable.</action>
+      </substep>
+      <substep n="3d" title="Display">
+        <action>Output this format (display MUST NOT exceed 18 lines to allow for the paragraph):
+
+🎯 YOU ARE HERE: {projectName}
+
+{all-milestones line from 3c2, with milestone names}
+
+{status paragraph from 3c3}
+
+Milestone: M{N} {milestoneName} ({done}/{total} in this milestone)
+  {marker} [{code}] {frameworkName}
+  ... (one line per framework, indented under milestone, FRAMEWORK ROUTING order)
+
+Progress: {done}/{total} complete
+
+Available: [M{N}] Continue {milestoneName} | [PM] Party Mode
+
+When codes are unavailable (M5/M6 fallback), omit the [{code}] prefix:
+  {marker} {frameworkName}</action>
+      </substep>
+      <substep n="3e" title="Return">
+        <action>Do not output a menu or list menu items. Output only "What next?" (or similar). Innovator will re-display the menu in its standard numbered [CMD] format.</action>
+      </substep>
+    </step>
+  </flow>
+
+</task>

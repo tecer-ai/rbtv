@@ -250,17 +250,17 @@ flowchart TD
 
 | shape.md | Scope, execution log | Before every task |
 
-| _bmad/rbtv/workflows/bi-business-innovation/bi-m4/workflow.md | M4 milestone workflow | p2-1, p2-2, p2-3, p3-2, p4-refs |
+| workflows/bi-business-innovation/bi-m4/workflow.md | M4 milestone workflow | p2-1, p2-2, p2-3, p3-2, p4-refs |
 
-| _bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-user-flow-ia/steps-c/step-04-synthesis.md | Lavoisier refs, codes | p2-1, p2-3 |
+| workflows/bi-business-innovation/bi-m4/bi-m4-user-flow-ia/steps-c/step-04-synthesis.md | Lavoisier refs, codes | p2-1, p2-3 |
 
-| _bmad/bmm/workflows/2-plan-workflows/create-ux-design/workflow.md | BMAD path, inputs | p2-2, p3-1 |
+| bmm/workflows/2-plan-workflows/create-ux-design/workflow.md | BMAD path, inputs | p2-2, p3-1 |
 
 | .cursor/plans/founder-migration/business-innovation-migration_v3/phase-6/p6-3.task.md | p6-3 task doc | p2-4 |
 
 | .cursor/plans/founder-migration/business-innovation-migration_v3/shape.md | p6-1 codes | p2-3 |
 
-| _bmad/rbtv/workflows/build-rbtv-component/templates/workflow-template.md | Bridge template | p3-1 |
+| workflows/build-rbtv-component/templates/workflow-template.md | Bridge template | p3-1 |
 
 | .cursor/plans/founder-migration/business-innovation-migration_v3/phase-6/p6-3.task.md | **MUST read before p4-open-migration-plan** — current M4 state (WIP) | p4-open-migration-plan |
 

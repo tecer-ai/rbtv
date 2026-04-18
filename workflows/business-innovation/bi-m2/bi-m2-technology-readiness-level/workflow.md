@@ -2,7 +2,7 @@
 name: 'bi-m2-technology-readiness-level'
 description: 'Assess technical readiness using NASA TRL 1-9 scale and design de-risking spikes'
 nextStep: ./steps-c/step-01-init.md
-outputFolder: '{output_path}/{project-name}/business-innovation/m2-validation'
+outputFolder: '{project-name}/business-innovation/m2-validation'
 outputFile: technology-readiness-level.md
 ---
 

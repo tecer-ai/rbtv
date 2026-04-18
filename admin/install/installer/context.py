@@ -1,4 +1,12 @@
-"""Path context for RBTV install."""
+"""Path context for RBTV install.
+
+InstallContext is the central data object for a single install run. It holds
+the resolved absolute paths for the RBTV source and target workspace, plus the
+relative path between them (used for baking into thin loaders).
+
+The RBTV source must live inside the target workspace — this is validated at
+construction time with a Windows-safe case-insensitive containment check.
+"""
 from __future__ import annotations
 
 import os

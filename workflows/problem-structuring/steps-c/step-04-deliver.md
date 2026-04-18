@@ -115,7 +115,7 @@ Present these options and HALT:
 
 | Option | Action |
 |--------|--------|
-| **[PS] Problem Solving** | Route to CIS Problem Solving workflow to work on solution |
+| **[PS] Problem Solving** | Offer two approaches and let user choose (see ON PROBLEM SOLVING) |
 | **[R] Revise** | Go back and modify any section |
 | **[E] Export** | Copy final document content to clipboard |
 | **[N] New Problem** | Start fresh with a different problem |
@@ -126,10 +126,15 @@ Present these options and HALT:
 ## ON PROBLEM SOLVING
 
 If user selects [PS]:
-> "Great choice! Let's now work on solving this structured problem. I'll hand this off to the Problem Solving workflow."
 
-Route to: invoke the `bmad-pro-skills:bmad-problem-solving` skill.
-Pass the output document as context.
+Present two approaches and let the user choose:
+
+| Option | Skill | Best for |
+|--------|-------|----------|
+| **[AE] Advanced Elicitation** | `bmad-pro-skills:bmad-advanced-elicitation` | Deep critique, first-principles analysis, pre-mortem, red-teaming |
+| **[BR] Brainstorming** | `bmad-pro-skills:bmad-brainstorming` | Creative ideation, divergent thinking, generating solution options |
+
+Invoke the selected skill. Pass the output document as context.
 
 ---
 

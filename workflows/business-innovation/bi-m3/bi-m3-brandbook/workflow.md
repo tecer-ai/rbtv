@@ -2,7 +2,7 @@
 name: 'bi-m3-brandbook'
 description: 'Compile all M3 brand frameworks into a comprehensive brandbook with visual identity'
 nextStep: ./steps-c/step-01-init.md
-outputFolder: '{output_path}/{project-name}/business-innovation/m3-brand'
+outputFolder: '{project-name}/business-innovation/m3-brand'
 outputFile: brandbook.md
 ---
 

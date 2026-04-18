@@ -156,7 +156,7 @@ Option A is simpler and consistent with the pitch deck pattern.
 
 ### In Scope
 
-1. Create the new design agent (persona, menu, activation) in `_bmad/rbtv/agents/`
+1. Create the new design agent (persona, menu, activation) in `agents/`
 2. Create loader (command + skill + cursor sub-agent) for the design agent
 3. Refactor pitch step 07 and step 08 to be invoked by the design agent
 4. Refactor M3 Brandbook step 03 to be invoked by the design agent
@@ -205,7 +205,7 @@ Option A is simpler and consistent with the pitch deck pattern.
 
 ## Success Criteria
 
-1. A new design-focused agent exists in `_bmad/rbtv/agents/` with a persona covering both pitch deck and brand visual work
+1. A new design-focused agent exists in `agents/` with a persona covering both pitch deck and brand visual work
 2. Pitch steps 07-08 are executed by the design agent, not by Roelof/Leo
 3. M3 Brandbook step 03 is executed by the design agent, not by Paul
 4. Narrative/strategy agents run only their competency steps, and their menus reflect this
@@ -219,13 +219,13 @@ Option A is simpler and consistent with the pitch deck pattern.
 
 | File | Relationship |
 |------|--------------|
-| `_bmad/rbtv/agents/paul.md` | M3 Brand strategy agent — keeps frameworks 1-6, loses Brandbook visual step |
-| `_bmad/rbtv/agents/roelof.md` | Investor pitch narrative agent — keeps steps 01-06, loses 07-08 |
-| `_bmad/rbtv/agents/leo.md` | Client pitch narrative agent — keeps steps 01-06, loses 07-08 |
-| `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/steps-c/step-03-visual.md` | Visual Guidelines step — moves to design agent |
-| `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/workflow.md` | M3 milestone workflow — needs routing update |
-| `_bmad/rbtv/workflows/_shared/pitch-data/html-patterns.md` | Design knowledge — loaded by design agent |
-| `_bmad/rbtv/workflows/prompting-assistance/data/knowledge-index.csv` | AI image model knowledge — loaded by design agent for brandbook |
+| `agents/paul.md` | M3 Brand strategy agent — keeps frameworks 1-6, loses Brandbook visual step |
+| `agents/roelof.md` | Investor pitch narrative agent — keeps steps 01-06, loses 07-08 |
+| `agents/leo.md` | Client pitch narrative agent — keeps steps 01-06, loses 07-08 |
+| `workflows/bi-business-innovation/bi-m3/bi-m3-brandbook/steps-c/step-03-visual.md` | Visual Guidelines step — moves to design agent |
+| `workflows/bi-business-innovation/bi-m3/workflow.md` | M3 milestone workflow — needs routing update |
+| `workflows/_shared/pitch-data/html-patterns.md` | Design knowledge — loaded by design agent |
+| `workflows/prompting-assistance/data/knowledge-index.csv` | AI image model knowledge — loaded by design agent for brandbook |
 
 ---
 

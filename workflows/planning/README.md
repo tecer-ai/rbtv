@@ -68,7 +68,7 @@ Based on plan-ecosystem-v2 research:
 ## Entry Points
 
 - Command: `.cursor/commands/planning.md`
-- Manifest: `_bmad/rbtv/rbtv-manifest.csv` (lines 18-19)
+- Manifest: `rbtv-manifest.csv` (lines 18-19)
 
 ## Recovered
 

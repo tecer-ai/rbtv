@@ -2,7 +2,7 @@
 name: 'bi-m2-unit-economics'
 description: 'Model LTV, CAC, payback, and break-even to assess financial viability'
 nextStep: ./steps-c/step-01-init.md
-outputFolder: '{output_path}/{project-name}/business-innovation/m2-validation'
+outputFolder: '{project-name}/business-innovation/m2-validation'
 outputFile: unit-economics.md
 ---
 

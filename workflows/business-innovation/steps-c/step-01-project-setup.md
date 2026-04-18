@@ -3,7 +3,7 @@ stepNumber: 1
 stepName: 'project-setup'
 nextStepFile: ./step-02-milestone-select.md
 projectMemoTemplate: ../templates/project-memo.md
-outputFolder: '{output_path}/{project-name}/business-innovation'
+outputFolder: '{project-name}/business-innovation'
 ---
 
 # Step 01: Project Setup
@@ -57,7 +57,7 @@ Present the setup summary:
 ```
 I'll create the following structure for "{project-name}":
 
-{output_path}/{project-name}/business-innovation/
+{project-name}/business-innovation/
 ├── project-memo.md        # Your cumulative project summary + state tracking
 ├── m1-conception/         # M1 framework outputs
 ├── m2-validation/         # M2 framework outputs

@@ -5,11 +5,6 @@ rbtv:
   version: "7.0.0"  # Bumped for standalone release
   name: "rbtv"
 
-# NOTE (D7, 2026-04-17): output paths are NOT configured here or in rbtv.yaml.
-# They are resolved at runtime by components following the `rbtv-output-resolution` rule,
-# which reads `## File Routing` blocks from workspace CLAUDE.md files.
-# Users configure routing post-install via `/rbtv-output-routing`.
-
 # Modules available. Core is always installed.
 modules:
   available:

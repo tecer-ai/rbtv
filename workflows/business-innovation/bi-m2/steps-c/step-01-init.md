@@ -2,7 +2,7 @@
 stepNumber: 1
 stepName: 'init'
 knowledgeFile: ../data/milestone-overview.md
-projectMemo: '{output_path}/{project-name}/business-innovation/project-memo.md'
+projectMemo: '{project-name}/business-innovation/project-memo.md'
 ---
 
 # Step 01: M2 Validation Framework Menu
@@ -84,7 +84,7 @@ If NOT set, present:
 
 **1. PREPARE CONTEXT**
 M1 conception artifacts already exist on disk at:
-`{output_path}/{project-name}/business-innovation/m1-conception/`
+`{project-name}/business-innovation/m1-conception/`
 No files to copy — config update (next step) will point BMAD to this location.
 
 **2. UPDATE CONFIG**
@@ -92,8 +92,8 @@ Run task: `{rbtv_path}/tasks/update-bmad-config.xml`
 Inputs:
 - `target_module`: "bmm"
 - `project_name`: `{project-name}`
-- `rbtv_output_folder`: `{output_path}/{project-name}/business-innovation/m2-validation/bmad-analysis`
-- `rbtv_planning_artifacts`: `{output_path}/{project-name}/business-innovation/m1-conception`
+- `rbtv_output_folder`: `{project-name}/business-innovation/m2-validation/bmad-analysis`
+- `rbtv_planning_artifacts`: `{project-name}/business-innovation/m1-conception`
 
 This sets:
 - `output_folder` → bmad-analysis/ (where BMAD writes new files)
@@ -115,7 +115,7 @@ This sets:
 HALT — wait for user confirmation.
 
 **5. MENTOR-ASSISTED FILE PLACEMENT**
-Ask user what files BMAD produced. Verify they are at `{output_path}/{project-name}/business-innovation/m2-validation/bmad-analysis/`.
+Ask user what files BMAD produced. Verify they are at `{project-name}/business-innovation/m2-validation/bmad-analysis/`.
 If files landed elsewhere, help user move/copy them to `bmad-analysis/`.
 
 **6. RESTORE CONFIG**
@@ -123,7 +123,7 @@ Run task: `{rbtv_path}/tasks/restore-bmad-config.xml`
 Inputs: `target_module`: "bmm"
 
 **7. SYNTHESIS**
-- Read BMAD output at `{output_path}/{project-name}/business-innovation/m2-validation/bmad-analysis/`
+- Read BMAD output at `{project-name}/business-innovation/m2-validation/bmad-analysis/`
 - Update project-memo:
   - Set `bmadAnalystCompleted: true` in frontmatter
   - Add to Progress > M2 Validation section:

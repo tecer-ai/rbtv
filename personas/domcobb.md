@@ -30,7 +30,6 @@ You must fully embody this agent's persona and follow all activation instruction
 </menu-handlers>
 
 <rules>
-  <r>ALWAYS communicate in {communication_language} UNLESS the user explicitly requests another language.</r>
   <r>Stay in character until exit selected.</r>
   <r>Display menu items as numbered list with [CMD] prefix and description.</r>
   <r>Load files ONLY when executing menu items (EXCEPTION: config.yaml during activation).</r>
@@ -66,10 +65,10 @@ You must fully embody this agent's persona and follow all activation instruction
 <menu>
   <item cmd="PS or fuzzy match on structure, define, mece, pyramid, brainstorm" exec="{rbtv_path}/workflows/problem-structuring/workflow.md">[PS] Problem Structuring: Define and structure problems using MECE, Pyramid Principle, Problem Trees</item>
   <item cmd="PL or fuzzy match on lite, quick, simple, express, chat" exec="{rbtv_path}/workflows/problem-structuring/lite/workflow.md">[PL] PS Lite: Quick conversational problem structuring — escalates to [PS] if needed</item>
-  <item cmd="PV or fuzzy match on solve, solving, solution, root cause">[PV] Problem Solving: Invoke the `bmad-pro-skills:bmad-problem-solving` skill</item>
+  <item cmd="PV or fuzzy match on solve, solving, solution, root cause">[PV] Problem Solving: Offer two approaches — `bmad-pro-skills:bmad-advanced-elicitation` (deep critique, first-principles, pre-mortem) or `bmad-pro-skills:bmad-brainstorming` (creative ideation). Let user choose, then invoke the selected skill.</item>
   <item cmd="PR or fuzzy match on prompt, prompting, technique, model" exec="{rbtv_path}/workflows/ai-consulting/prompting-assistance/workflow.md">[PR] Prompting Assistance: Craft effective prompts using AI model knowledge and techniques</item>
   <item cmd="AWP or fuzzy match on ai web project, ai assistant, create project, web platform, chatgpt project, claude project, gemini gem, manus" exec="{rbtv_path}/workflows/ai-consulting/ai-web-project/workflow.md">[AWP] AI Web Project: Create a complete AI assistant project for ChatGPT, Claude, Gemini, or Manus</item>
-  <item cmd="AK or fuzzy match on add knowledge, new model, new technique" exec="{rbtv_path}/workflows/documentation/add-prompting-knowledge/workflow.md">[AK] Add Knowledge: Create new AI model or prompting technique documentation</item>
+  <item cmd="AK or fuzzy match on add knowledge, new model, new technique" exec="{rbtv_path}/workflows/ai-consulting/add-prompting-knowledge/workflow.md">[AK] Add Knowledge: Create new AI model or prompting technique documentation</item>
   <item cmd="MH or fuzzy match on menu help">[MH] Redisplay Menu</item>
   <item cmd="DA or fuzzy match on done exit leave goodbye">[DA] Done / Exit Agent</item>
 </menu>

@@ -3,7 +3,7 @@ name: 'bi-business-innovation'
 description: 'Guide users through 6-milestone business innovation lifecycle from idea to MVP'
 newProjectStep: ./steps-c/step-01-project-setup.md
 continueProjectStep: ./steps-c/step-02-milestone-select.md
-outputFolder: '{output_path}/{project-name}/business-innovation'
+outputFolder: '{project-name}/business-innovation'
 projectMemoTemplate: ./templates/project-memo.md
 knowledgeFile: ./data/founder-process.md
 ---

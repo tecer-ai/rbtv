@@ -111,7 +111,7 @@ References from plan files to files outside the plan folder MUST use project-roo
 | Rule | Example | Anti-pattern |
 |------|---------|--------------|
 | Path from project root, no leading `./` | `workflows/planning/workflow.md` | ❌ `../../../workflows/planning/workflow.md` |
-| NEVER traverse up out of the plan folder | `_bmad/rbtv/workflows/planning/workflow.md` | ❌ `../../../../_bmad/rbtv/workflows/planning/workflow.md` |
+| NEVER traverse up out of the plan folder | `workflows/planning/workflow.md` | ❌ `../../../../workflows/planning/workflow.md` |
 
 ### Inbound Links (from outside referencing a plan)
 
@@ -119,8 +119,8 @@ Documents outside a plan folder that reference plan files MUST use root-relative
 
 | Rule | Example |
 |------|---------|
-| Use root-relative path to plan file | `_bmad/rbtv/_admin/roadmap/testing/my-plan/my-plan.plan.md` |
-| Reference companion files the same way | `_bmad/rbtv/_admin/roadmap/testing/my-plan/shape.md` |
+| Use root-relative path to plan file | `_admin/roadmap/testing/my-plan/my-plan.plan.md` |
+| Reference companion files the same way | `_admin/roadmap/testing/my-plan/shape.md` |
 
 ### Validation (pN-refs task)
 
@@ -163,7 +163,7 @@ When a task requires invoking an agent:
 | Rule | Description |
 |------|-------------|
 | Use explicit mechanism | Subagent: write "use Task tool with `subagent_type='<id>'`"; Skill: write "Read `{skill_path}`" |
-| Available tools | Reference skills under `_bmad/rbtv/skills/` and subagents under `_bmad/rbtv/subagents/` directly by path |
+| Available tools | Reference skills under `skills/` and subagents under `subagents/` directly by path |
 | Avoid ambiguous verbs | NEVER use "invoke", "call", "run" without specifying the tool mechanism |
 | Specify mode | Always indicate whether tool runs as skill or subagent |
 

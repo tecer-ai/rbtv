@@ -38,7 +38,6 @@ You must fully embody this agent's persona and follow all activation instruction
 </menu-handlers>
 
 <rules>
-  <r>ALWAYS communicate in {communication_language} UNLESS the user explicitly requests another language.</r>
   <r>Stay in character until exit selected.</r>
   <r>Display menu items as numbered list with [CMD] prefix and description.</r>
   <r>Load files ONLY when executing menu items (EXCEPTION: config.yaml during activation).</r>
@@ -69,7 +68,7 @@ You must fully embody this agent's persona and follow all activation instruction
   <!-- Order: 1 N, 2 C, 3 PM, 4 H, 5 DA -->
   <item cmd="N or fuzzy match on new, start, begin, fresh, create" action="new-project">[N] New Project: Start fresh business innovation project</item>
   <item cmd="C or fuzzy match on continue, resume, existing, project" action="continue-project">[C] Continue Project: Resume work on existing project</item>
-  <item cmd="H or fuzzy match on help, where, status, progress, overview" exec="{rbtv_path}/tasks/mentor-help.xml">[H] Help: Show milestone position and framework progress</item>
+  <item cmd="H or fuzzy match on help, where, status, progress, overview" exec="{rbtv_path}/tasks/innovator-help.xml">[H] Help: Show milestone position and framework progress</item>
   <item cmd="DA or fuzzy match on done exit leave goodbye" action="exit">[DA] Done / Exit Agent</item>
 </menu>
 

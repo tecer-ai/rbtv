@@ -10,7 +10,7 @@ stepsCompleted:
   - step-03-discussion.md
   - step-04-document.md
 inputDocuments:
-  - _bmad/rbtv/workflows/plan-lifecycle/templates/shape-template.md
+  - workflows/plan-lifecycle/templates/shape-template.md
   - .cursor/plans/business innovation migration/business-innovation-migration_v3/shape.md
 outputPath: '{project-root}/projects/planning-artifacts'
 date: '2026-02-05'
@@ -81,7 +81,7 @@ When Discovery 1 (founder-diary elimination) was documented in shape.md:
 
 ## Proposed Solution
 
-Update `_bmad/rbtv/workflows/plan-lifecycle/templates/shape-template.md`:
+Update `workflows/plan-lifecycle/templates/shape-template.md`:
 
 ### Change 1: Rename Section
 
@@ -120,7 +120,7 @@ Remove routine task completion logging. Only capture:
 
 | Aspect | Details |
 |--------|---------|
-| File(s) to modify | `_bmad/rbtv/workflows/plan-lifecycle/templates/shape-template.md` |
+| File(s) to modify | `workflows/plan-lifecycle/templates/shape-template.md` |
 | Scope of change | Moderate — rename section, update entry format, add propagation checklist |
 | Related files | Existing shape.md files in active plans may optionally be updated to new format |
 
@@ -151,7 +151,7 @@ The template itself becomes the enforcement mechanism. Agents are required to fo
 
 | File | Relationship |
 |------|--------------|
-| `_bmad/rbtv/workflows/plan-lifecycle/templates/shape-template.md` | Primary file to modify |
+| `workflows/plan-lifecycle/templates/shape-template.md` | Primary file to modify |
 | `.cursor/plans/business innovation migration/business-innovation-migration_v3/shape.md` | Example of current format; may optionally migrate |
 | `projects/planning-artifacts/compound-audit_trail_invalidation_protocol.md` | Related compound about decision documentation |
 
@@ -171,7 +171,7 @@ The template itself becomes the enforcement mechanism. Agents are required to fo
 Update shape-template.md only (no cursor rules)
 
 ### Implementation Preferences
-- **File Location:** `_bmad/rbtv/workflows/plan-lifecycle/templates/shape-template.md`
+- **File Location:** `workflows/plan-lifecycle/templates/shape-template.md`
 - **Scope:** Moderate
 - **Priority:** Medium
 

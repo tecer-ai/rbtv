@@ -2,7 +2,7 @@
 stepNumber: 2
 stepName: 'milestone-route'
 knowledgeFile: ../data/founder-process.md
-projectMemo: '{output_path}/{project-name}/business-innovation/project-memo.md'
+projectMemo: '{project-name}/business-innovation/project-memo.md'
 ---
 
 # Step 02: Milestone Route

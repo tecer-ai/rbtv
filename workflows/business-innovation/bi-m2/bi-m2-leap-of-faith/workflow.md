@@ -2,7 +2,7 @@
 name: 'bi-m2-leap-of-faith'
 description: 'Harvest, classify, and prioritize assumptions from M1 into validation agenda'
 nextStep: ./steps-c/step-01-init.md
-outputFolder: '{output_path}/{project-name}/business-innovation/m2-validation'
+outputFolder: '{project-name}/business-innovation/m2-validation'
 outputFile: leap-of-faith.md
 ---
 

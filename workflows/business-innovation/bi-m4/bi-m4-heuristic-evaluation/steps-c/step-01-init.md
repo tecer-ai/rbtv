@@ -3,7 +3,7 @@ name: 'step-01-init'
 description: 'Load context, explain heuristics framework, detect continuation'
 nextStepFile: './step-02-heuristic-review.md'
 continueStepFile: './step-01b-continue.md'
-outputFile: '{output_path}/{project-name}/business-innovation/m4-prototypation/heuristic-evaluation.md'
+outputFile: '{project-name}/business-innovation/m4-prototypation/heuristic-evaluation.md'
 ---
 
 # Step 1: Initialize Heuristic Evaluation

@@ -2,7 +2,7 @@
 stepNumber: 3
 stepName: 'capture-extract'
 nextStepFile: ./step-04-synthesize.md
-playwrightSkill: '{project-root}/.claude/skills/playwright-cli/SKILL.md'
+playwrightSkill: 'rbtv-playwright-cli'
 ---
 
 # Step 03: Multi-Page Capture & DOM Extraction

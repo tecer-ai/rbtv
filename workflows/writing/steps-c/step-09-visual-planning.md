@@ -73,7 +73,7 @@ This affects prompt structure — each tool has different optimal prompt pattern
 
 ### 5. Generate Visual Asset Prompts
 
-Create the visual assets document from `{visualAssetsTemplate}` at `{output_path}/{essaySlug}/visual-assets.md`.
+Create the visual assets document from `{visualAssetsTemplate}` at `{essaySlug}/visual-assets.md`.
 
 For each approved visual element, write a prompt containing:
 - **Visual ID and essay location** (e.g., "Figure 1 — Section 3, after paragraph 2")

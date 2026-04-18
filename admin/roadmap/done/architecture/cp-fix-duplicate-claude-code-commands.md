@@ -16,7 +16,7 @@ stepsCompleted:
   - 'Phase 3: deleted all 13 command source files from _config/claude/commands/ (2026-03-16)'
   - 'Phase 3: deleted deployed command copies from .claude/commands/ and .cursor/commands/ (2026-03-16)'
   - 'Phase 3: deployed 5 new skills to .claude/skills/ and .cursor/skills/ (2026-03-16)'
-outputPath: '{project-root}/_bmad/rbtv/_admin/roadmap/todos'
+outputPath: '{project-root}/_admin/roadmap/todos'
 date: '2026-03-13'
 yoloMode: false
 ---

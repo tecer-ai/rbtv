@@ -32,7 +32,7 @@
 
 | Constraint | Source | Impact |
 |------------|--------|--------|
-| Execute from RBTV repo root | PRD execution context | All paths relative to `_bmad/rbtv/` |
+| Execute from RBTV repo root | PRD execution context | All paths relative to `` |
 | Compare against two reference directories | PRD | Mirror (Beta.4 baseline) vs BMAD-v6.0.4 (target) |
 | Conditional tasks based on investigation | PRD changes #2-5, #8-9 | Some tasks may be no-ops if v6.0.4 didn't change referenced items |
 
@@ -128,7 +128,7 @@
 
 ### p1-3 Findings (2026-03-08)
 
-**TEA Path References:** No RBTV agents, workflows, or tasks reference `_bmad/tea/`. Only matches are in BMAD-v6.0.4 docs (expected) and plan/PRD files (self-references). → No action needed.
+**TEA Path References:** No RBTV agents, workflows, or tasks reference `tea/`. Only matches are in BMAD-v6.0.4 docs (expected) and plan/PRD files (self-references). → No action needed.
 
 **Hardcoded Mirror Reads:** 18 files reference `_admin/docs/BMAD-mirror/` — all are documentation/instruction references (CLAUDE.md path resolution, admin-restrictions, compat report template). These correctly tell agents where to find the mirror. None are code-level hardcoded reads that would break. → No action needed.
 

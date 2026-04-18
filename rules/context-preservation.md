@@ -97,7 +97,7 @@ Write to the confirmed destination(s). Follow destination-specific conventions:
 | Plan shape.md | Append to Decisions and Discoveries section; follow append-only rules |
 | Memory system | Follow memory system entry format (`date \| what \| why`) |
 | Project docs | Follow project documentation conventions |
-| New shape.md (fallback) | Use universal template at `_bmad/rbtv/workflows/_shared/templates/shape-template.md` |
+| New shape.md (fallback) | Use universal template at `workflows/_shared/templates/shape-template.md` |
 
 ## Living Document Principle
 
@@ -123,7 +123,7 @@ When no plan or target-system conventions exist, create a shape.md using the uni
 |---------|-----------|
 | Filename | `{YYYY-MM-DD}-{topic}-shape.md` |
 | Location | Output folder for the session context, or project root if no output folder applies |
-| Template | `_bmad/rbtv/workflows/_shared/templates/shape-template.md` |
+| Template | `workflows/_shared/templates/shape-template.md` |
 | Plan-specific sections | Omit (Standards Applied, Tool Mode Selection) |
 
 ## Relationship to Memory System

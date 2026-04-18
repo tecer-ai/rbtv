@@ -4,7 +4,7 @@ stepName: 'context-gather'
 nextStepFile: ./step-03-narrative.md
 ---
 
-# Step 02: Context Gathering from Founder Documents
+# Step 02: Context Gathering
 
 **Progress: Step 2 of 10** — Next: Narrative Draft
 
@@ -12,11 +12,11 @@ nextStepFile: ./step-03-narrative.md
 
 ## STEP GOAL
 
-**If pitch_type = investor:**
-Extract pitch-relevant content from founder documents by running context-distill separately for each milestone. Accumulate a pitch brief that feeds the narrative drafting step.
+Gather pitch-relevant context from two sources derived from the resolved output path:
+1. **Entity directory** — the client or investor entity folder (root-level `.md` files only)
+2. **Brand directory** — the project's brand folder for visual identity and messaging guidelines
 
-**If pitch_type = client:**
-Extract pitch-relevant content from founder documents by running context-distill separately for each milestone. Focus on what a CLIENT buyer cares about: their problem, your solution, proof it works, and why you vs. alternatives.
+If no documents are found, gather context conversationally.
 
 ---
 
@@ -30,115 +30,43 @@ Extract pitch-relevant content from founder documents by running context-distill
 ### Role Reinforcement
 
 **If pitch_type = investor:**
-You are The Investor mining founder documents for the strongest possible pitch material. Think like a partner reviewing a deal memo — what would make you champion this in the Monday meeting?
+You are The Investor mining documents for the strongest possible pitch material. Think like a partner reviewing a deal memo — what would make you champion this in the Monday meeting?
 
 **If pitch_type = client:**
-You are The Buyer mining founder documents for the content that would convince a procurement committee. Think like a VP evaluating a vendor — what would make you put this on the shortlist?
+You are The Buyer mining documents for the content that would convince a procurement committee. Think like a VP evaluating a vendor — what would make you put this on the shortlist?
 
 ### Step-Specific Rules
 
-- Run context-distill SEPARATELY for each milestone — each milestone contains different frameworks
-- Do NOT ask the founder questions already answered in their documents
+- Read `.md` files at the ROOT level of each directory only — never descend into subdirectories
+- Do NOT ask the user questions already answered in the documents
 - Accumulate findings into a structured pitch brief
-
-**If pitch_type = investor:**
-- Use investor-focused search queries
-
-**If pitch_type = client:**
-- Use CLIENT-FOCUSED search queries (not investor-focused)
 
 ---
 
 ## MANDATORY SEQUENCE
 
-### 1. Identify Available Milestones
+### 1. Identify the Entity Directory
 
-Read the project-memo.md `stepsCompleted` array to identify which milestones have completed frameworks.
+From the resolved output path (`{output_folder}`), navigate up to the **entity directory** — the nearest ancestor that represents the entity this pitch targets.
 
-Check which milestone folders contain documents:
-```
-{output_path}/{project_name}/business-innovation/m1-conception/
-{output_path}/{project_name}/business-innovation/m2-validation/
-{output_path}/{project_name}/business-innovation/m3-brand/
-{output_path}/{project_name}/business-innovation/m4-prototypation/
-{output_path}/{project_name}/business-innovation/m5-market-validation/
-{output_path}/{project_name}/business-innovation/m6-mvp/
-```
+The entity directory is the folder that represents the client, fund, or target entity — not a date-stamped or objective-specific subfolder. Identify it by finding the ancestor whose name matches the entity variable resolved during Step 01 ({target_client}, fund name, etc.).
 
-Also check for a context folder:
-```
-{output_path}/{project_name}/context/
-```
+List all `.md` files at the root of the entity directory (non-recursive). If none are found, note this — context will be gathered conversationally in Section 4.
 
-List which folders have .md files. Only search folders that contain documents.
+### 2. Resolve and Read Brand Context
 
-### 2. Run Context-Distill Per Milestone
+Read the workspace CLAUDE.md for a `brand` route in the `## File Routing` block.
 
-For EACH milestone folder that has documents, invoke the **context-distill** subagent. Provide these three inputs per call:
+If a brand route exists:
+- Navigate to the resolved brand directory
+- List all `.md` files at the root level (non-recursive)
+- Read each file to extract: visual identity, color palette, typography, tone of voice, brand assets, messaging guidelines
 
-**If pitch_type = investor:**
-
-**M1 — Conception:**
-- Conversation Context: "Building an investor pitch deck for {project_name}"
-- Specific Request: "Extract: (1) the core problem statement and who experiences it, with any quantified data; (2) the solution's key differentiators (max 3); (3) target customer profile and their current workarounds; (4) competitive positioning — named competitors and differentiation claims; (5) primary value proposition; (6) any contrarian market insights"
-- Referenced Files: All .md files in `{output_path}/{project_name}/business-innovation/m1-conception/`
-
-**M2 — Validation:**
-- Conversation Context: "Building an investor pitch deck for {project_name}"
-- Specific Request: "Extract: (1) TAM, SAM, SOM numbers with methodology; (2) unit economics — pricing, CAC, LTV, payback period, margins; (3) technology readiness level; (4) key assumptions tested and their results; (5) leap-of-faith assumptions with evidence status; (6) traction metrics with dates"
-- Referenced Files: All .md files in `{output_path}/{project_name}/business-innovation/m2-validation/`
-
-**M3 — Brand:**
-- Conversation Context: "Building an investor pitch deck for {project_name}"
-- Specific Request: "Extract: (1) brand archetype name and core personality traits; (2) primary positioning statement; (3) color palette hex values and typography choices; (4) primary tagline or brand statement; (5) communication tone descriptors"
-- Referenced Files: All .md files in `{output_path}/{project_name}/business-innovation/m3-brand/`
-
-**M4+ — Later Milestones (if they have documents):**
-- Adapt the specific request to the milestone's focus (prototypation → product screenshots/demo; market validation → traction data; MVP → product metrics)
-
-**Context folder (if exists):**
-- Conversation Context: "Building an investor pitch deck for {project_name}"
-- Specific Request: "Extract: (1) market research data points with sources; (2) named competitors and their positioning; (3) industry trends supporting 'why now' timing; (4) customer quotes or feedback verbatim; (5) traction proof points with numbers and dates"
-- Referenced Files: All .md files in `{output_path}/{project_name}/context/`
-
-**Project Memo:**
-- Conversation Context: "Building an investor pitch deck for {project_name}"
-- Specific Request: "Extract: (1) one-line project description; (2) problem statement; (3) solution summary; (4) tenets list; (5) current milestone status"
-- Referenced Files: `{output_path}/{project_name}/business-innovation/project-memo.md`
-
-**If pitch_type = client:**
-
-**M1 — Conception:**
-- Conversation Context: "Building a client pitch deck for {project_name} targeting {target_client}"
-- Specific Request: "Extract: (1) the specific problem the TARGET CLIENT experiences and their current workarounds; (2) solution benefits stated from the client's perspective (max 5); (3) how the solution works — workflow, process, integration points; (4) named competitive alternatives the client might evaluate; (5) primary value proposition from the buyer's POV; (6) jobs-to-be-done the client hires this product for"
-- Referenced Files: All .md files in `{output_path}/{project_name}/business-innovation/m1-conception/`
-
-**M2 — Validation:**
-- Conversation Context: "Building a client pitch deck for {project_name} targeting {target_client}"
-- Specific Request: "Extract: (1) pricing structure and plan tiers; (2) ROI metrics or calculation framework; (3) implementation timeline and effort estimate; (4) pilot results or validation data with numbers; (5) technology readiness and reliability evidence"
-- Referenced Files: All .md files in `{output_path}/{project_name}/business-innovation/m2-validation/`
-
-**M3 — Brand:**
-- Conversation Context: "Building a client pitch deck for {project_name} targeting {target_client}"
-- Specific Request: "Extract: (1) brand positioning relative to named competitors; (2) key messaging statements for B2B buyers; (3) trust signals and credibility markers; (4) communication tone descriptors; (5) primary tagline or brand statement"
-- Referenced Files: All .md files in `{output_path}/{project_name}/business-innovation/m3-brand/`
-
-**M4+ — Later Milestones (if they have documents):**
-- Adapt the specific request (prototypation → product demo/screenshots; market validation → client testimonials/case studies; MVP → product metrics/uptime)
-
-**Context folder (if exists):**
-- Conversation Context: "Building a client pitch deck for {project_name} targeting {target_client}"
-- Specific Request: "Extract: (1) customer feedback or testimonials verbatim; (2) case study material — client name, problem, result; (3) named competitors and their positioning from the buyer's view; (4) industry benchmarks the client would recognize; (5) proof points with numbers and dates"
-- Referenced Files: All .md files in `{output_path}/{project_name}/context/`
-
-**Project Memo:**
-- Conversation Context: "Building a client pitch deck for {project_name} targeting {target_client}"
-- Specific Request: "Extract: (1) one-line project description; (2) problem statement; (3) solution summary; (4) tenets list; (5) current milestone status relevant to client readiness"
-- Referenced Files: `{output_path}/{project_name}/business-innovation/project-memo.md`
+If no brand route exists: skip silently. Brand context is valuable but not blocking.
 
 ### 3. Compile Pitch Brief
 
-After ALL context-distill calls complete, compile findings into a structured pitch brief:
+Read all discovered `.md` files and compile findings into a pitch brief.
 
 **If pitch_type = investor:**
 ```
@@ -146,31 +74,31 @@ After ALL context-distill calls complete, compile findings into a structured pit
 ### Type: Investor
 
 #### Problem
-[Compiled problem data, customer pain, numbers — from M1 + Context]
+[Pain points, who experiences them, quantified impact]
 
 #### Solution
-[Solution description, key differentiators — from M1]
+[Key differentiators, how it works — max 3 differentiators]
 
 #### Market Size
-[TAM/SAM/SOM, market data — from M2]
+[TAM/SAM/SOM if available, market data]
 
 #### Traction
-[Any validation, metrics, proof points — from M2 + Project Memo]
+[Validation, metrics, proof points with dates]
 
 #### Unit Economics
-[Pricing, CAC, LTV, margins — from M2]
+[Pricing, margins, CAC, LTV if available]
 
 #### Competitive Position
-[Competitors, positioning, differentiation — from M1 + Context]
+[Named competitors, differentiation]
 
 #### Brand & Messaging
-[Brand identity, key messages, visual direction — from M3]
+[Brand identity, visual direction, key messages — from brand docs]
 
 #### Why Now
-[Market trends, timing evidence — from Context + M1]
+[Market trends, timing evidence]
 
 #### Team
-[Founder info if available — from Project Memo]
+[Founder/team info if available]
 
 #### Gaps
 [What's missing that we need to ask the founder about]
@@ -182,50 +110,63 @@ After ALL context-distill calls complete, compile findings into a structured pit
 ### Target: {target_client}
 
 #### Their Problem
-[The client's specific pain — in THEIR language, not yours — from M1 + Context]
+[The client's specific pain — in THEIR language, not yours]
 
 #### Current Solution / Status Quo
-[What they use today and why it's insufficient — from M1]
+[What they use today and why it's insufficient]
 
 #### Your Solution
-[What you do for them, concrete benefits — from M1]
+[What you do for them, concrete benefits]
 
 #### How It Works
-[Workflow, process, integration points — from M1 + M4]
+[Workflow, process, integration points]
 
 #### Proof Points
-[Testimonials, case studies, metrics, pilot results — from M2 + M5 + Context]
+[Testimonials, case studies, metrics, pilot results]
 
 #### Competitive Alternatives
-[What else they could buy and why you're different — from M1 + Context]
+[What else they could buy and why you're different]
 
 #### Pricing & ROI
-[Plans, pricing, ROI calculation framework — from M2]
+[Plans, pricing, ROI framework if available]
 
 #### Brand & Messaging
-[Trust signals, positioning, tone — from M3]
+[Trust signals, positioning, tone — from brand docs]
 
 #### Gaps
-[What's missing that we need to ask the founder about]
+[What's missing that we need to ask about]
 ```
+
+Populate each section from what the documents contain. Leave sections empty (with a note) when no relevant content was found — these become gaps.
+
+If NO documents were found at all (no entity directory files, no brand files), skip the brief and proceed directly to Section 4.
 
 ### 4. Present Findings and Fill Gaps
 
-**If pitch_type = investor:**
-Present the pitch brief to the user:
-- "Here's what I extracted from your founder documents:"
-- Show the compiled brief
-- Highlight the **Gaps** section: "I still need the following to build a strong narrative:"
+**If documents were found:**
+- Present the compiled pitch brief
+- Highlight the **Gaps** section
 - Ask ONLY for the missing information
+- Wait for user response. Update the pitch brief with their answers.
 
-**If pitch_type = client:**
-Present the pitch brief to the user:
-- "Here's what I extracted from your founder documents, viewed through a buyer's lens:"
-- Show the compiled brief
-- Highlight the **Gaps** section: "I still need the following to build a pitch a buyer would take seriously:"
-- Ask ONLY for the missing information
+**If NO documents were found:**
+Gather context conversationally:
 
-Wait for user response. Update the pitch brief with their answers.
+**If pitch_type = investor:** Ask (only what's missing from conversation context):
+- One-line description of what the company does
+- Stage (pre-seed, seed, Series A, etc.)
+- How much you're raising and what for
+- Key differentiator or "why now"
+- Target market and size estimate
+- Any traction or validation data
+
+**If pitch_type = client:** Ask (only what's missing):
+- One-line description of what the company does
+- Key differentiator vs. what the client uses today
+- Price range or pricing model
+- Any proof points or case studies
+
+Wait for user response. Compile into a pitch brief using the template from Section 3.
 
 ### 5. Present Menu
 
@@ -250,22 +191,15 @@ ONLY when **[X] Exit** is selected:
 ## SUCCESS / FAILURE METRICS
 
 ✅ **SUCCESS:**
-- Context-distill invoked separately for each milestone with documents
-- Pitch brief compiled with findings organized appropriately
-- Gaps identified and filled through targeted questions only
+- Entity directory identified from output path and root-level `.md` files read
+- Brand context loaded (if route exists in File Routing)
+- Pitch brief compiled from discovered documents
+- Gaps identified and filled through targeted questions
 - User confirms brief accuracy
 
-**If pitch_type = investor:**
-- Findings organized by deck section
-
-**If pitch_type = client:**
-- CLIENT-focused framing (their problem, not your features)
-
 ❌ **FAILURE:**
-- Running a single context-distill for all documents (must be per milestone)
-- Asking questions already answered in founder documents
-- Missing available milestone folders
+- Hardcoding paths to specific directories or documents
+- Reading files recursively into subdirectories
+- Asking questions already answered in discovered documents
 - Fabricating content not found in documents
-
-**If pitch_type = client:** Additionally:
-- Framing content from the vendor's perspective instead of the buyer's
+- Skipping brand context when a route exists

@@ -1,13 +1,33 @@
 #!/usr/bin/env python3
 """install.py — RBTV standalone installer.
 
-Installs thin loaders into a target workspace that point back to this RBTV source.
-Modules are declared in admin/install/module-manifest.yaml.
+Installs thin loaders (skills, commands) and copies (rules, subagents) into a
+target workspace's .claude/ directory, pointing back to this RBTV source repo.
 
-Usage:
+Prerequisite:
+    pip install pyyaml          # only external dependency
+
+Interactive mode (recommended for first install):
+    python install.py
+
+    Prompts for:
+      1. Target workspace path
+      2. Module selection (arrow keys + space to toggle, 'i' to view contents)
+      3. Optional per-component customization
+
+Scripted / CI mode:
     python install.py --target /path/to/workspace
     python install.py --target /path/to/workspace --modules core,innovation
     python install.py --target /path/to/workspace --non-interactive
+
+Re-running is safe — previous rbtv-* files are cleared before each install.
+Choices are persisted in rbtv.yaml at the target root so re-installs remember
+selected modules and excluded components.
+
+Configuration:
+    admin/install/defaults.yaml          Version and module availability
+    admin/install/module-manifest.yaml   What each module installs
+
 """
 from __future__ import annotations
 

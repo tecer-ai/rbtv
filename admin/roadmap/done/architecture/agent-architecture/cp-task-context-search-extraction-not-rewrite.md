@@ -5,7 +5,7 @@ mode: 'create'
 priority: 'High'
 tracker: ''
 stepsCompleted: ['step-01-init', 'step-02-self-assessment', 'step-03-discussion', 'step-04-document']
-inputDocuments: ['_bmad/rbtv/tasks/context-search.xml', '.cursor/agents/bmad-rbtv-context-search.md', '.cursor/skills/bmad-rbtv-context-search/SKILL.md']
+inputDocuments: ['tasks/context-search.xml', '.cursor/agents/bmad-rbtv-context-search.md', '.cursor/skills/bmad-rbtv-context-search/SKILL.md']
 outputPath: 'projects/planning-artifacts'
 date: '2026-03-01'
 yoloMode: false
@@ -24,7 +24,7 @@ yoloMode: false
 
 ### Problem
 
-The context-search agent (`_bmad/rbtv/tasks/context-search.xml`) reproduces entire file contents verbatim instead of extracting only the meaningful context relevant to the invoking agent's request. When invoked via Task tool with `subagent_type="context-search"`, the agent acts as a file copying service — returning hundreds of lines of raw content — instead of distilling targeted, actionable knowledge. This wastes context window space in the invoking agent's session and partially negates the benefit of using background agents (which exist to preserve main conversation context).
+The context-search agent (`tasks/context-search.xml`) reproduces entire file contents verbatim instead of extracting only the meaningful context relevant to the invoking agent's request. When invoked via Task tool with `subagent_type="context-search"`, the agent acts as a file copying service — returning hundreds of lines of raw content — instead of distilling targeted, actionable knowledge. This wastes context window space in the invoking agent's session and partially negates the benefit of using background agents (which exist to preserve main conversation context).
 
 ### Goals
 
@@ -37,7 +37,7 @@ The context-search agent (`_bmad/rbtv/tasks/context-search.xml`) reproduces enti
 
 - Context-search must still return enough detail for the invoking agent to act without reading the source files
 - Critical definitions, positioning statements, and data points may need verbatim inclusion — the fix is about filtering, not about aggressive summarization
-- The agent file (`.cursor/agents/`), skill file (`.cursor/skills/`), and task file (`_bmad/rbtv/tasks/`) all need aligned language
+- The agent file (`.cursor/agents/`), skill file (`.cursor/skills/`), and task file (`tasks/`) all need aligned language
 
 ---
 
@@ -61,7 +61,7 @@ The context-search agent (`_bmad/rbtv/tasks/context-search.xml`) reproduces enti
 
 | File | Role | Issue |
 |------|------|-------|
-| `_bmad/rbtv/tasks/context-search.xml` | Primary task definition | **Root cause.** Multiple instructions push verbatim reproduction: "Extract COMPLETE relevant content," "Capture complete code blocks, templates, procedures — not just summaries," "Include complete content — do not summarize." Zero filtering or distillation guidance. |
+| `tasks/context-search.xml` | Primary task definition | **Root cause.** Multiple instructions push verbatim reproduction: "Extract COMPLETE relevant content," "Capture complete code blocks, templates, procedures — not just summaries," "Include complete content — do not summarize." Zero filtering or distillation guidance. |
 | `.cursor/agents/bmad-rbtv-context-search.md` | Agent definition | Reinforces problem: "Returns complete, deep findings so you don't need to read the files." Word "complete" sets copy-everything expectation. |
 | `.cursor/skills/bmad-rbtv-context-search/SKILL.md` | Skill file | Neutral — references task file only. |
 | `CLAUDE.md` + `bmad-rbtv-background-agents.mdc` | Workspace rules | Correctly prescribe background agents for research to preserve context. But context-search fills return with full file contents, partially negating benefit. |
@@ -86,15 +86,15 @@ The context-search agent (`_bmad/rbtv/tasks/context-search.xml`) reproduces enti
 
 3. **Update System File**: Rewrite `context-search.xml` — replace all 6 "complete" instances with "relevant"/"targeted." Change "not just summaries" → "summarize where appropriate, include verbatim only for critical definitions, statements, or data." Add substep 2d "Relevance Filter" requiring evaluation of each extraction against specific request.
    - **Rationale:** Root cause file. Language directly instructs behavior. Change language → change behavior.
-   - **Location:** `_bmad/rbtv/tasks/context-search.xml`
+   - **Location:** `tasks/context-search.xml`
 
 4. **Add Constraint**: Explicit output size limit — "Output MUST NOT exceed 30% of total input file size." Add relevance threshold: "Only include content that directly answers specific request or is required to understand the direct answer."
    - **Rationale:** Hard size constraint mechanically prevents file copying. Agent must filter when it can't return everything.
-   - **Location:** `_bmad/rbtv/tasks/context-search.xml` — new LLM rules
+   - **Location:** `tasks/context-search.xml` — new LLM rules
 
 5. **Alternative Approach**: Two-pass architecture (scan → extract) — Pass 1: Read all files, output relevance manifest (table: file, section, why relevant). Pass 2: Extract only manifest-identified sections. Forces relevance judgment before extraction.
    - **Rationale:** Single-pass reads and extracts simultaneously, defaulting to "include everything just in case." Two-pass forces relevance judgment first.
-   - **Location:** `_bmad/rbtv/tasks/context-search.xml` — restructure flow steps
+   - **Location:** `tasks/context-search.xml` — restructure flow steps
 
 ---
 
@@ -106,7 +106,7 @@ The context-search agent (`_bmad/rbtv/tasks/context-search.xml`) reproduces enti
 
 | Aspect | Details |
 |--------|---------|
-| File(s) to modify/create | `_bmad/rbtv/tasks/context-search.xml`, `.cursor/agents/bmad-rbtv-context-search.md`, `.cursor/skills/bmad-rbtv-context-search/SKILL.md` |
+| File(s) to modify/create | `tasks/context-search.xml`, `.cursor/agents/bmad-rbtv-context-search.md`, `.cursor/skills/bmad-rbtv-context-search/SKILL.md` |
 | Scope of change | Moderate — language rewrites across 3 files + add filtering step to task flow |
 | Related files | `.cursor/rules/bmad-rbtv-background-agents.mdc` (if Option 1 included), `CLAUDE.md` (background agent section) |
 
@@ -132,7 +132,7 @@ The task definition is the root cause. Every instruction in `context-search.xml`
 
 | File | Relationship |
 |------|--------------|
-| `_bmad/rbtv/tasks/context-search.xml` | Root cause — primary task definition with copy-encouraging language |
+| `tasks/context-search.xml` | Root cause — primary task definition with copy-encouraging language |
 | `.cursor/agents/bmad-rbtv-context-search.md` | Reinforces problem — agent self-concept uses "complete" framing |
 | `.cursor/skills/bmad-rbtv-context-search/SKILL.md` | References task file — neutral but needs alignment |
 | `.cursor/rules/bmad-rbtv-background-agents.mdc` | Prescribes background agent usage — may need invoker prompt guidance |
@@ -205,5 +205,5 @@ Rationale: "Distill" captures exactly what the agent should do — take raw cont
 - Subagent type: `context-search` → `context-distill`
 - Agent file: `.cursor/agents/bmad-rbtv-context-search.md` → `.cursor/agents/bmad-rbtv-context-distill.md`
 - Skill file: `.cursor/skills/bmad-rbtv-context-search/SKILL.md` → `.cursor/skills/bmad-rbtv-context-distill/SKILL.md`
-- Task file: `_bmad/rbtv/tasks/context-search.xml` → `_bmad/rbtv/tasks/context-distill.xml`
+- Task file: `tasks/context-search.xml` → `tasks/context-distill.xml`
 - References in rules, CLAUDE.md, and any workflow files that mention context-search

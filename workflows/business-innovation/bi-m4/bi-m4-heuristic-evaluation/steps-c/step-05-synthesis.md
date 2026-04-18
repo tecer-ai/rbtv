@@ -2,7 +2,7 @@
 name: 'step-05-synthesis'
 description: 'Synthesize findings, update project-memo.md, return to M4 menu'
 nextStepFile: '../../workflow.md'
-outputFile: '{output_path}/{project-name}/business-innovation/m4-prototypation/heuristic-evaluation.md'
+outputFile: '{project-name}/business-innovation/m4-prototypation/heuristic-evaluation.md'
 ---
 
 # Step 5: Synthesis
@@ -194,7 +194,7 @@ Example:
 
 ### 5. Update project-memo.md
 
-**CRITICAL:** Load `{output_path}/{project-name}/business-innovation/project-memo.md`
+**CRITICAL:** Load `{project-name}/business-innovation/project-memo.md`
 
 Add synthesis to the M4 Prototypation section:
 

@@ -78,7 +78,7 @@ This affects how the research brief is formatted — some tools work better with
 
 ### 4. Generate Research Brief
 
-Create the research brief document from `{researchBriefTemplate}` at `{output_path}/{essaySlug}/research-brief.md`.
+Create the research brief document from `{researchBriefTemplate}` at `{essaySlug}/research-brief.md`.
 
 For each research topic, include:
 - **Topic title and priority** (must-have / should-have / counter-argument / exploratory)

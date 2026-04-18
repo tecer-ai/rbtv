@@ -2,7 +2,7 @@
 name: 'step-03-severity-rating'
 description: 'Rate severity of each violation (0-4 scale), prioritize issues'
 nextStepFile: './step-04-recommendations.md'
-outputFile: '{output_path}/{project-name}/business-innovation/m4-prototypation/heuristic-evaluation.md'
+outputFile: '{project-name}/business-innovation/m4-prototypation/heuristic-evaluation.md'
 ---
 
 # Step 3: Severity Rating

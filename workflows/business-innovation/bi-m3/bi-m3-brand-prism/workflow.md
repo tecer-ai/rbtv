@@ -2,7 +2,7 @@
 name: 'bi-m3-brand-prism'
 description: 'Define brand identity using Kapferer 6-facet prism model'
 nextStep: ./steps-c/step-01-init.md
-outputFolder: '{output_path}/{project-name}/business-innovation/m3-brand'
+outputFolder: '{project-name}/business-innovation/m3-brand'
 outputFile: brand-prism.md
 ---
 

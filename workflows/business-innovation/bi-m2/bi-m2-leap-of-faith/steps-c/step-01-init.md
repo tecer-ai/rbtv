@@ -43,12 +43,12 @@ You are a YC mentor. Challenge assumptions ruthlessly. The founder's biggest bli
 3. Check if `{outputFolder}/leap-of-faith.md` exists (continuation mode)
 4. Read `{outputFolder}/bmad-analysis/` contents (if exists) for market research and brainstorming findings that inform assumption harvesting
 5. Verify M1 framework outputs exist:
-   - `{output_path}/{project-name}/business-innovation/m1-conception/working-backwards.md`
-   - `{output_path}/{project-name}/business-innovation/m1-conception/jobs-to-be-done.md`
-   - `{output_path}/{project-name}/business-innovation/m1-conception/competitive-landscape.md`
-   - `{output_path}/{project-name}/business-innovation/m1-conception/problem-solution-fit.md`
-   - `{output_path}/{project-name}/business-innovation/m1-conception/lean-canvas.md`
-   - `{output_path}/{project-name}/business-innovation/m1-conception/five-whys.md`
+   - `{project-name}/business-innovation/m1-conception/working-backwards.md`
+   - `{project-name}/business-innovation/m1-conception/jobs-to-be-done.md`
+   - `{project-name}/business-innovation/m1-conception/competitive-landscape.md`
+   - `{project-name}/business-innovation/m1-conception/problem-solution-fit.md`
+   - `{project-name}/business-innovation/m1-conception/lean-canvas.md`
+   - `{project-name}/business-innovation/m1-conception/five-whys.md`
 
 ---
 

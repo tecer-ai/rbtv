@@ -123,7 +123,7 @@ Characteristics:
 - Not domain-specific (applies across all agents and workflows)
 - Clear direction of dependency: L5 examines and modifies L1–L4, but L1–L4 never invoke L5 during their own execution (except quality gates, which are opt-in)
 
-Examples: `quality-review.xml` (evaluates work output), `doc-compound-learning` (creates improvement specs), `bmad-rbtv-create-component` (creates new L1–L4 components), `bmad-rbtv-code-self-improve` (standing instruction to modify layer artifacts).
+Examples: `quality-review.xml` (evaluates work output), `session-close/compound-learning` (creates improvement specs), `bmad-rbtv-create-component` (creates new L1–L4 components), `bmad-rbtv-code-self-improve` (standing instruction to modify layer artifacts).
 
 ---
 
@@ -136,8 +136,8 @@ Examples: `quality-review.xml` (evaluates work output), `doc-compound-learning` 
 | `tasks/update-bmad-config.xml` | Task | Mechanically update config.yaml paths for RBTV project folder redirection |
 | `tasks/restore-bmad-config.xml` | Task | Mechanically restore config.yaml to default BMAD paths |
 | `tasks/help.xml` | Task | Scan commands directory, display available commands — pure discovery |
-| `tasks/mentor-help.xml` | Task | Read project-memo, display milestone position and progress — read-only |
-| `workflows/add-prompting-knowledge/` | Workflow (thin router) | Ask what type → redirect to RBTV Builder with template pre-selected |
+| `tasks/innovator-help.xml` | Task | Read project-memo, display milestone position and progress — read-only |
+| `workflows/ai-consulting/add-prompting-knowledge/` | Workflow (thin router) | Ask what type → redirect to RBTV Builder with template pre-selected |
 
 ### Layer 2 — Analysis & Synthesis
 
@@ -157,7 +157,7 @@ Examples: `quality-review.xml` (evaluates work output), `doc-compound-learning` 
 |-----------|-------------|
 | `workflows/problem-structuring/` | Structure problems using MECE, Pyramid Principle, Problem Trees |
 | `workflows/design-token-extraction/` | Extract design tokens from website (current: screenshot-only) |
-| `workflows/doc-context-handoff/` | Create context transfer summaries for agent continuity |
+| `workflows/session-close/context-handoff/` | Create context transfer summaries for agent continuity |
 | `workflows/plan-lifecycle/` | Create self-executing plans with micro-step task files |
 | `workflows/prompting-assistance/` | Craft effective prompts using AI model knowledge and techniques |
 
@@ -185,7 +185,7 @@ Examples: `quality-review.xml` (evaluates work output), `doc-compound-learning` 
 | Component | Type | What It Does |
 |-----------|------|-------------|
 | `tasks/quality-review.xml` | Task | Evaluates work output against quality criteria — APPROVED/REJECTED verdict |
-| `workflows/doc-compound-learning/` | Workflow | Create backlog PRDs documenting system improvements — self-reflective analysis |
+| `workflows/session-close/compound-learning/` | Workflow | Create backlog PRDs documenting system improvements — self-reflective analysis |
 | Skill: `bmad-rbtv-create-component` | Skill → Workflow | Creates new RBTV components (agents, workflows, tasks, skills) |
 | Rule: `bmad-rbtv-code-self-improve` | Rule | Guidelines for continuously improving rules based on emerging patterns |
 
@@ -274,7 +274,7 @@ The workflow becomes lightweight orchestration. The heavy lifting is in independ
 | Agent persona is not a layer | The persona changes how a capability is applied, not what capability exists; it is a lens applied at L2+ | Making persona its own layer (would create confusion about what "invoking a layer" means) |
 | L1 and L2 must be available through skills | Skills are the discovery mechanism for agents; if L1/L2 capabilities are not skill-accessible, agents cannot discover them | Only exposing L1/L2 through workflow step instructions (limits ad-hoc use) |
 | The visual-design-extraction PRD must reference the broader architecture PRD before execution | The current PRD bundles L1+L2+L3 into a single monolithic workflow redesign; the layered architecture should be established first to guide the decomposition | Executing the current PRD as-is (would perpetuate the monolithic pattern) |
-| quality-review and doc-compound-learning are L5 | They operate on RBTV's own artifacts — examining and improving the system itself | Placing them at L2 (they are not single-domain analysis; they are meta-operations on the system) |
+| quality-review and compound-learning are L5 | They operate on RBTV's own artifacts — examining and improving the system itself | Placing them at L2 (they are not single-domain analysis; they are meta-operations on the system) |
 
 ---
 

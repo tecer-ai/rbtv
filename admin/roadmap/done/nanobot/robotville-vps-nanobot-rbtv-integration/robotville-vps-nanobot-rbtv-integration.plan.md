@@ -6,13 +6,13 @@ todos:
     content: "p1-1: Provision Hetzner project and Ubuntu VPS with SSH-key access and API manageability"
     status: completed
   - id: p1-2
-    content: "p1-2: CREATE _bmad/rbtv/_admin/docs/mobile/robotville-vps-access.md with server inventory, SSH endpoint, access policy, and recovery notes"
+    content: "p1-2: CREATE _admin/docs/mobile/robotville-vps-access.md with server inventory, SSH endpoint, access policy, and recovery notes"
     status: completed
   - id: p1-3
     content: "p1-3: Apply VPS security configuration baseline (SSH hardening, firewall policy, fail2ban baseline)"
     status: completed
   - id: p1-4
-    content: "p1-4: CREATE _bmad/rbtv/_mobile/ops/systemd/nanobot-gateway.service draft aligned to FR25"
+    content: "p1-4: CREATE _mobile/ops/systemd/nanobot-gateway.service draft aligned to FR25"
     status: completed
   - id: p1-checkpoint
     content: P1 CHECKPOINT - Approve VPS baseline and security posture before integration work
@@ -21,7 +21,7 @@ todos:
     content: "p2-1: Install Nanobot runtime and create dedicated service user/workspace on VPS"
     status: completed
   - id: p2-2
-    content: "p2-2: CREATE _bmad/rbtv/_admin/docs/mobile/server-env-template.md for Slack and LLM credential handling"
+    content: "p2-2: CREATE _admin/docs/mobile/server-env-template.md for Slack and LLM credential handling"
     status: completed
   - id: p2-3
     content: "p2-3: Configure Nanobot Slack Socket Mode, allowlist, and selected LLM provider settings"
@@ -33,55 +33,55 @@ todos:
     content: P2 CHECKPOINT - Approve Nanobot + Slack + LLM connectivity
     status: completed
   - id: p3-1
-    content: "p3-1: CREATE _bmad/rbtv/_mobile/README.md describing harness boundaries and non-duplication rules"
+    content: "p3-1: CREATE _mobile/README.md describing harness boundaries and non-duplication rules"
     status: completed
   - id: p3-2
-    content: "p3-2: CREATE _bmad/rbtv/_mobile/integration/nanobot-gateway-bridge.ts for inbound normalization contract"
+    content: "p3-2: CREATE _mobile/integration/nanobot-gateway-bridge.ts for inbound normalization contract"
     status: completed
   - id: p3-3
-    content: "p3-3: CREATE _bmad/rbtv/_mobile/routing/command-router.ts for canonical command routing"
+    content: "p3-3: CREATE _mobile/routing/command-router.ts for canonical command routing"
     status: completed
   - id: p3-4
-    content: "p3-4: CREATE _bmad/rbtv/_mobile/state/project-memo-adapter.ts with canonical memo read/write boundary"
+    content: "p3-4: CREATE _mobile/state/project-memo-adapter.ts with canonical memo read/write boundary"
     status: completed
   - id: p3-5
-    content: "p3-5: CREATE _bmad/rbtv/_mobile/security/allowlist-gate.ts for pre-routing access enforcement"
+    content: "p3-5: CREATE _mobile/security/allowlist-gate.ts for pre-routing access enforcement"
     status: completed
   - id: p3-6
-    content: "p3-6: UPDATE runtime bootstrap under _bmad/rbtv/ to load _mobile harness in gateway path"
+    content: "p3-6: UPDATE runtime bootstrap under  to load _mobile harness in gateway path"
     status: completed
   - id: p3-checkpoint
     content: P3 CHECKPOINT - Approve harness behavior and state continuity
     status: completed
   - id: p4-1
-    content: "p4-1: CREATE _bmad/rbtv/_admin/docs/mobile/deploy-runbook.md with end-to-end setup and recovery commands"
+    content: "p4-1: CREATE _admin/docs/mobile/deploy-runbook.md with end-to-end setup and recovery commands"
     status: completed
   - id: p4-2
-    content: "p4-2: CREATE _bmad/rbtv/_admin/docs/mobile/smoke-checklist.md for routing, allowlist, continuity, and restart tests"
+    content: "p4-2: CREATE _admin/docs/mobile/smoke-checklist.md for routing, allowlist, continuity, and restart tests"
     status: completed
   - id: p4-3
     content: "p4-3: Enable and validate FR25 auto-restart policy on VPS service manager"
     status: completed
   - id: p4-4
-    content: "p4-4: CREATE _bmad/rbtv/_admin/docs/mobile/deployment-smoke-report.md with validation evidence and outcomes"
+    content: "p4-4: CREATE _admin/docs/mobile/deployment-smoke-report.md with validation evidence and outcomes"
     status: completed
   - id: p4-refs
     content: "p4-refs: File reference review - verify all internal markdown links resolve across plan artifacts"
     status: cancelled
   - id: p5-1
-    content: "p5-1: CREATE _bmad/rbtv/_mobile/AGENTS.md with agent persona routing for mentor, domcobb, and doc commands"
+    content: "p5-1: CREATE _mobile/AGENTS.md with agent persona routing for mentor, domcobb, and doc commands"
     status: completed
   - id: p5-2
-    content: "p5-2: CREATE _bmad/rbtv/_mobile/SOUL.md with RBTV core behavioral rules and project-memo read-before-respond contract"
+    content: "p5-2: CREATE _mobile/SOUL.md with RBTV core behavioral rules and project-memo read-before-respond contract"
     status: completed
   - id: p5-3
-    content: "p5-3: CREATE _bmad/rbtv/_mobile/TOOLS.md with command-to-workflow mapping table for Nanobot tool dispatch"
+    content: "p5-3: CREATE _mobile/TOOLS.md with command-to-workflow mapping table for Nanobot tool dispatch"
     status: completed
   - id: p5-4
-    content: "p5-4: CREATE _bmad/rbtv/_mobile/USER.md with user preferences and context template"
+    content: "p5-4: CREATE _mobile/USER.md with user preferences and context template"
     status: completed
   - id: p5-5
-    content: "p5-5: CREATE _bmad/rbtv/_mobile/skills/ with RBTV skill references that Nanobot loads into system prompt"
+    content: "p5-5: CREATE _mobile/skills/ with RBTV skill references that Nanobot loads into system prompt"
     status: completed
   - id: p5-6
     content: "p5-6: UPDATE deploy mechanism to copy bootstrap files and skills from _mobile/ into Nanobot workspace root on VPS"
@@ -191,9 +191,9 @@ Implement Robotville v4.0 operationally on a secure, remotely controllable Hetzn
 
 - Hetzner is the selected VPS provider.
 - Remote control must be available through API and terminal (SSH), MCP optional.
-- All RBTV-related files must remain under `_bmad/rbtv/`.
-- All Nanobot mapping/harness code must be under `_bmad/rbtv/_mobile/`.
-- All documentation for this plan must be under `_bmad/rbtv/_admin/docs/mobile/`.
+- All RBTV-related files must remain under ``.
+- All Nanobot mapping/harness code must be under `_mobile/`.
+- All documentation for this plan must be under `_admin/docs/mobile/`.
 - Do not duplicate Nanobot transport/runtime responsibilities.
 - Nanobot runtime source is pinned to `https://github.com/HKUDS/nanobot` and must track latest stable release unless explicitly overridden by user.
 - FR25 is in scope; FR23, FR24, and FR26 are deferred.
@@ -210,9 +210,9 @@ Implement Robotville v4.0 operationally on a secure, remotely controllable Hetzn
 
 | State authority | `project-memo.md` | Preserve established founder workflow contract |
 
-| Docs path | `_bmad/rbtv/_admin/docs/mobile/` | Keep all plan docs in one clear location |
+| Docs path | `_admin/docs/mobile/` | Keep all plan docs in one clear location |
 
-| Mapping path | `_bmad/rbtv/_mobile/` | Keep adapter boundary explicit and isolated |
+| Mapping path | `_mobile/` | Keep adapter boundary explicit and isolated |
 
 | Nanobot distribution | `HKUDS/nanobot` latest stable release | Matches required CLI surface (`nanobot gateway`) and channel features used by this plan |
 
@@ -292,7 +292,7 @@ This plan uses companion files for execution context:
 
 | Canonical workflow state | Use `project-memo.md` as single workflow-state authority | Review state code for duplicate state sources |
 
-| Path governance | Code in `_bmad/rbtv/`, mapping in `_mobile`, docs in `_admin/docs/mobile` | Reject file operations outside designated paths |
+| Path governance | Code in ``, mapping in `_mobile`, docs in `_admin/docs/mobile` | Reject file operations outside designated paths |
 
 | Security-first operations | SSH hardening, firewall baseline, allowlist gate, secret hygiene | Smoke checklist and runbook verification |
 
@@ -350,27 +350,27 @@ This plan uses companion files for execution context:
 
 | `projects/robotville-v4.0/bmad/architecture.md` | Architecture constraints and boundaries | All implementation phases |
 
-| `_bmad/rbtv/readme.md` | RBTV module conventions | Phase 3 |
+| `readme.md` | RBTV module conventions | Phase 3 |
 
-| `_bmad/rbtv/agents/paul.md` | Mentor behavior reference for harness alignment | Phase 3 |
+| `agents/paul.md` | Mentor behavior reference for harness alignment | Phase 3 |
 
 | `projects/robotville-v4.0/**` | Relevant existing outputs for `_mobile` implementation context | Phase 3 and Phase 4 |
 
 | `projects/robotville-v4.0/founder/project-memo.md` | Preliminary `_mobile/` folder design and install.py spec | Phase 5 |
 
-| `_bmad/rbtv/agents/paul.md` | Mentor agent behavior contract for bootstrap alignment | Phase 5 |
+| `agents/paul.md` | Mentor agent behavior contract for bootstrap alignment | Phase 5 |
 
-| `_bmad/rbtv/agents/domcobb.md` | DomCobb agent behavior for bootstrap alignment | Phase 5 |
+| `agents/domcobb.md` | DomCobb agent behavior for bootstrap alignment | Phase 5 |
 
-| `_bmad/rbtv/agents/ana.md` | Doc/Ana agent behavior for bootstrap alignment | Phase 5 |
+| `agents/ana.md` | Doc/Ana agent behavior for bootstrap alignment | Phase 5 |
 
 | `_admin/docs/mobile/robotville-v4.0-business-innovation-run/bmad/prd.md` | PRD — deployment pipeline requirements, FR references | Phase 6, 9 |
 
 | `_admin/docs/mobile/robotville-v4.0-business-innovation-run/founder/project-memo.md` | Founder project-memo — solution description, deployment model, home page content | Phase 6 |
 
-| `_bmad/rbtv/_mobile/ops/scripts/vps-sync-install.sh` | Deploy automation script — audit target for project file safety | Phase 7 |
+| `_mobile/ops/scripts/vps-sync-install.sh` | Deploy automation script — audit target for project file safety | Phase 7 |
 
-| `_bmad/rbtv/_mobile/SOUL.md` | Current bootstrap file — deploy command rule addition | Phase 6 |
+| `_mobile/SOUL.md` | Current bootstrap file — deploy command rule addition | Phase 6 |
 
 ---
 
@@ -380,47 +380,47 @@ This plan uses companion files for execution context:
 
 |------|--------|------|
 
-| 1 | CREATE | `_bmad/rbtv/_admin/docs/mobile/robotville-vps-access.md` |
+| 1 | CREATE | `_admin/docs/mobile/robotville-vps-access.md` |
 
-| 1 | CREATE | `_bmad/rbtv/_mobile/ops/systemd/nanobot-gateway.service` |
+| 1 | CREATE | `_mobile/ops/systemd/nanobot-gateway.service` |
 
-| 2 | CREATE | `_bmad/rbtv/_admin/docs/mobile/server-env-template.md` |
+| 2 | CREATE | `_admin/docs/mobile/server-env-template.md` |
 
-| 3 | CREATE | `_bmad/rbtv/_mobile/README.md` |
+| 3 | CREATE | `_mobile/README.md` |
 
-| 3 | CREATE | `_bmad/rbtv/_mobile/integration/nanobot-gateway-bridge.ts` |
+| 3 | CREATE | `_mobile/integration/nanobot-gateway-bridge.ts` |
 
-| 3 | CREATE | `_bmad/rbtv/_mobile/routing/command-router.ts` |
+| 3 | CREATE | `_mobile/routing/command-router.ts` |
 
-| 3 | CREATE | `_bmad/rbtv/_mobile/state/project-memo-adapter.ts` |
+| 3 | CREATE | `_mobile/state/project-memo-adapter.ts` |
 
-| 3 | CREATE | `_bmad/rbtv/_mobile/security/allowlist-gate.ts` |
+| 3 | CREATE | `_mobile/security/allowlist-gate.ts` |
 
-| 3 | UPDATE | `_bmad/rbtv/` runtime bootstrap entrypoint (exact file resolved during execution) |
+| 3 | UPDATE | `` runtime bootstrap entrypoint (exact file resolved during execution) |
 
-| 4 | CREATE | `_bmad/rbtv/_admin/docs/mobile/deploy-runbook.md` |
+| 4 | CREATE | `_admin/docs/mobile/deploy-runbook.md` |
 
-| 4 | CREATE | `_bmad/rbtv/_admin/docs/mobile/smoke-checklist.md` |
+| 4 | CREATE | `_admin/docs/mobile/smoke-checklist.md` |
 
-| 4 | CREATE | `_bmad/rbtv/_admin/docs/mobile/deployment-smoke-report.md` |
+| 4 | CREATE | `_admin/docs/mobile/deployment-smoke-report.md` |
 
-| 5 | CREATE | `_bmad/rbtv/_mobile/AGENTS.md` |
+| 5 | CREATE | `_mobile/AGENTS.md` |
 
-| 5 | CREATE | `_bmad/rbtv/_mobile/SOUL.md` |
+| 5 | CREATE | `_mobile/SOUL.md` |
 
-| 5 | CREATE | `_bmad/rbtv/_mobile/TOOLS.md` |
+| 5 | CREATE | `_mobile/TOOLS.md` |
 
-| 5 | CREATE | `_bmad/rbtv/_mobile/USER.md` |
+| 5 | CREATE | `_mobile/USER.md` |
 
-| 5 | CREATE | `_bmad/rbtv/_mobile/skills/` (RBTV skill references for Nanobot) |
+| 5 | CREATE | `_mobile/skills/` (RBTV skill references for Nanobot) |
 
-| 5 | UPDATE | `_bmad/rbtv/_mobile/ops/scripts/vps-sync-install.sh` or new deploy script |
+| 5 | UPDATE | `_mobile/ops/scripts/vps-sync-install.sh` or new deploy script |
 
 | 6 | CREATE | robotville.ai site (Netlify) with custom domain |
 
 | 6 | CREATE | robotville.ai waitlist landing page + success page |
 
-| 6 | UPDATE | `_bmad/rbtv/_mobile/TOOLS.md` and `SOUL.md` with deploy command routing |
+| 6 | UPDATE | `_mobile/TOOLS.md` and `SOUL.md` with deploy command routing |
 
 | 6 | BUILD | robotville.ai production home page + `/docs/` and `/app/` placeholders |
 
@@ -533,7 +533,7 @@ flowchart TD
 ### Tasks
 
 - `p1-1`: Provision Hetzner project and VPS with SSH-key + API manageability.
-- `p1-2`: CREATE access documentation in `_bmad/rbtv/_admin/docs/mobile/`.
+- `p1-2`: CREATE access documentation in `_admin/docs/mobile/`.
 - `p1-3`: Apply SSH/firewall/fail2ban baseline.
 - `p1-4`: CREATE FR25 service draft under `_mobile/ops/systemd/`.
 - `p1-checkpoint`: **P1 CHECKPOINT** - Approve baseline and security posture.
@@ -609,23 +609,23 @@ flowchart TD
 
 | `projects/robotville-v4.0/founder/project-memo.md` | Preliminary _mobile/ folder design and install.py spec | p5-1, p5-6 |
 
-| `_bmad/rbtv/agents/paul.md` | Mentor agent behavior contract for AGENTS.md routing | p5-1 |
+| `agents/paul.md` | Mentor agent behavior contract for AGENTS.md routing | p5-1 |
 
-| `_bmad/rbtv/agents/domcobb.md` | DomCobb agent behavior for AGENTS.md routing | p5-1 |
+| `agents/domcobb.md` | DomCobb agent behavior for AGENTS.md routing | p5-1 |
 
-| `_bmad/rbtv/agents/ana.md` | Doc/Ana agent behavior for AGENTS.md routing | p5-1 |
+| `agents/ana.md` | Doc/Ana agent behavior for AGENTS.md routing | p5-1 |
 
-| `_bmad/rbtv/_mobile/routing/command-router.ts` | Existing command→entrypoint mapping for TOOLS.md alignment | p5-3 |
+| `_mobile/routing/command-router.ts` | Existing command→entrypoint mapping for TOOLS.md alignment | p5-3 |
 
-| `_bmad/rbtv/_mobile/ops/scripts/vps-sync-install.sh` | Existing deploy automation for p5-6 extension | p5-6 |
+| `_mobile/ops/scripts/vps-sync-install.sh` | Existing deploy automation for p5-6 extension | p5-6 |
 
 ### Tasks
 
-- `p5-1`: CREATE `_bmad/rbtv/_mobile/AGENTS.md` — Agent persona routing definitions. Maps `mentor` → RBTV mentor agent (`agents/paul.md`, business innovation workflow), `domcobb` → DomCobb agent (`agents/domcobb.md`, problem structuring), `doc` → Doc/Ana agent (`agents/ana.md`, compound mode). Must align with command-router.ts route table.
-- `p5-2`: CREATE `_bmad/rbtv/_mobile/SOUL.md` — RBTV core behavioral rules for the Nanobot runtime. Must include: (1) "Before every response, read `project-memo.md` frontmatter for current state", (2) "After every framework completion, update project-memo immediately", (3) project-memo is canonical state authority, (4) project data must NOT be duplicated into MEMORY.md. Aligns with PRD FR11-FR16 session/state requirements.
-- `p5-3`: CREATE `_bmad/rbtv/_mobile/TOOLS.md` — Command-to-workflow mapping table. Maps chat commands to RBTV workflow entrypoints and references relevant skill files. Must match command-router.ts route table.
-- `p5-4`: CREATE `_bmad/rbtv/_mobile/USER.md` — User preferences and context template for Nanobot's user-context bootstrap.
-- `p5-5`: CREATE `_bmad/rbtv/_mobile/skills/` — Skill file references for RBTV skills that Nanobot should load. Each skill gets `skills/{name}/SKILL.md`. Map from existing `.cursor/skills/` RBTV skills to Nanobot-compatible skill format.
+- `p5-1`: CREATE `_mobile/AGENTS.md` — Agent persona routing definitions. Maps `mentor` → RBTV mentor agent (`agents/paul.md`, business innovation workflow), `domcobb` → DomCobb agent (`agents/domcobb.md`, problem structuring), `doc` → Doc/Ana agent (`agents/ana.md`, compound mode). Must align with command-router.ts route table.
+- `p5-2`: CREATE `_mobile/SOUL.md` — RBTV core behavioral rules for the Nanobot runtime. Must include: (1) "Before every response, read `project-memo.md` frontmatter for current state", (2) "After every framework completion, update project-memo immediately", (3) project-memo is canonical state authority, (4) project data must NOT be duplicated into MEMORY.md. Aligns with PRD FR11-FR16 session/state requirements.
+- `p5-3`: CREATE `_mobile/TOOLS.md` — Command-to-workflow mapping table. Maps chat commands to RBTV workflow entrypoints and references relevant skill files. Must match command-router.ts route table.
+- `p5-4`: CREATE `_mobile/USER.md` — User preferences and context template for Nanobot's user-context bootstrap.
+- `p5-5`: CREATE `_mobile/skills/` — Skill file references for RBTV skills that Nanobot should load. Each skill gets `skills/{name}/SKILL.md`. Map from existing `.cursor/skills/` RBTV skills to Nanobot-compatible skill format.
 - `p5-6`: UPDATE deploy mechanism — Extend `vps-sync-install.sh` (or create a new install script) to: (1) copy bootstrap files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `USER.md`) from `_mobile/` into the Nanobot workspace root, (2) copy/symlink skills from `_mobile/skills/` into `workspace/skills/`, (3) be idempotent so re-running after `git pull` updates bootstrap state.
 - `p5-7`: EXECUTE bootstrap deployment on VPS — Run the updated deploy script on the VPS, restart the Nanobot gateway, and confirm bootstrap files are present in workspace root.
 - `p5-8`: VALIDATE "mentor" command triggers RBTV mentor workflow — Send "mentor" in Slack and verify the response includes RBTV mentor behavior (business innovation context, project-memo awareness, framework progression) rather than Nanobot default behavior.
@@ -706,7 +706,7 @@ All token optimization work is executed in `.cursor/plans/optimize-nanobot-token
 ## Notes
 
 - This plan intentionally favors operational clarity for non-technical execution support.
-- Server-side operations are documented under `_bmad/rbtv/_admin/docs/mobile/` while repository code remains under `_bmad/rbtv/`.
+- Server-side operations are documented under `_admin/docs/mobile/` while repository code remains under ``.
 - `p6-2` completed on VPS: Node/npm + `netlify-cli` installed, site linked, and production deploy to `https://robotville.ai` verified from the `nanobot` account.
 - Deferred scope: FR23, FR24, FR26 remain deferred unless explicitly reopened by user.
 - `/app/{project-name}` deployment workflow is deferred to mentor M4-M6 step creation — infrastructure is ready but the workflow is future work.

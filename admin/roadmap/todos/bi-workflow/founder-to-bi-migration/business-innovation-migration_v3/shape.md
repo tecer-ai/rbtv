@@ -9,7 +9,7 @@
 ### Scope Definition
 
 **What this plan accomplishes:**
-- Migrate the founder system from `robotville/system/founder/` to BMAD architecture in `_bmad/rbtv/`
+- Migrate the founder system from `robotville/system/founder/` to BMAD architecture in ``
 - Create a 3-level workflow hierarchy: master workflow → milestone workflows → framework workflows
 - Build YC mentor agent as master orchestrator
 - Create IDE command entry point with new/continue project modes
@@ -80,7 +80,7 @@
 | Rule | Enforcement |
 |------|-------------|
 | Framework synthesis | Every framework workflow's final step must UPDATE project_memo.md |
-| BMAD template compliance | All components use BMAD templates from `_bmad/bmb/workflows/` (workflow, agent, module builders) |
+| BMAD template compliance | All components use BMAD templates from `bmb/workflows/` (workflow, agent, module builders) |
 | Naming consistency | All BI workflows start with `bi-` prefix |
 
 ### Tool Mode Selection
@@ -124,7 +124,7 @@
 - Used agent command template pattern (not workflow pattern): Agent needs to be loaded with persona activation
 - Named `rbtv-bi` for consistency with other RBTV commands
 **Issues:** None
-**Files Modified:** `_bmad/rbtv/.cursor/commands/rbtv/bmad-rbtv-bi.md` (created)
+**Files Modified:** `.cursor/commands/rbtv/bmad-rbtv-bi.md` (created)
 
 ### Task p1-2: Create YC Mentor Agent
 **Completed:** 2026-02-04
@@ -134,7 +134,7 @@
 - Menu routes to workflow.md files (not yet created): bi-business-innovation, bi-m1 through bi-m6
 - Used domcobb.md as structural reference
 **Issues:** None
-**Files Modified:** `_bmad/rbtv/agents/paul.md` (created)
+**Files Modified:** `agents/paul.md` (created)
 
 ### Task p1-3: Create Project Memo Template
 **Completed:** 2026-02-04
@@ -145,8 +145,8 @@
 - Adapted 6-pager format for BMAD workflow integration
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/templates/` (created folder)
-- `_bmad/rbtv/workflows/bi-business-innovation/templates/project-memo.md` (created)
+- `workflows/bi-business-innovation/templates/` (created folder)
+- `workflows/bi-business-innovation/templates/project-memo.md` (created)
 
 ### Task p1-4: Create Founder Diary Template
 **Completed:** 2026-02-04
@@ -157,7 +157,7 @@
 - ~~Framework Status table covers all 18 frameworks across M1-M3~~
 - ~~Working Memory Log + Decision Log for append-only tracking~~
 **Issues:** None
-**Files Modified:** `_bmad/rbtv/workflows/bi-business-innovation/templates/founder-diary.md` (created, then DELETED)
+**Files Modified:** `workflows/bi-business-innovation/templates/founder-diary.md` (created, then DELETED)
 
 ### Task p2-1: Create Master Workflow Entry
 **Completed:** 2026-02-04
@@ -168,7 +168,7 @@
 - Milestone routing table references bi-m1 through bi-m6 workflows
 - Output folder set to `{project-root}/projects/founder`
 **Issues:** None
-**Files Modified:** `_bmad/rbtv/workflows/bi-business-innovation/workflow.md` (created)
+**Files Modified:** `workflows/bi-business-innovation/workflow.md` (created)
 
 ### Task p2-2: Create Founder Process Knowledge File
 **Completed:** 2026-02-04
@@ -180,8 +180,8 @@
 - Agent handoff protocol simplified for BMAD workflow integration
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/data/` (created folder)
-- `_bmad/rbtv/workflows/bi-business-innovation/data/founder-process.md` (created)
+- `workflows/bi-business-innovation/data/` (created folder)
+- `workflows/bi-business-innovation/data/founder-process.md` (created)
 
 ### Task p2-3: Create Init Step (Mode Selection)
 **Completed:** 2026-02-04
@@ -192,8 +192,8 @@
 - Routes to step-02 for new projects, step-03 for continuing projects
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/steps-c/` (created folder)
-- `_bmad/rbtv/workflows/bi-business-innovation/steps-c/step-01-init.md` (created)
+- `workflows/bi-business-innovation/steps-c/` (created folder)
+- `workflows/bi-business-innovation/steps-c/step-01-init.md` (created)
 
 ### Task p2-4: Create Project Setup Step
 **Completed:** 2026-02-04
@@ -203,7 +203,7 @@
 - Initializes both project-memo.md and founder-diary.md from templates
 - Gathers project name before creating any files
 **Issues:** None
-**Files Modified:** `_bmad/rbtv/workflows/bi-business-innovation/steps-c/step-02-project-setup.md` (created)
+**Files Modified:** `workflows/bi-business-innovation/steps-c/step-02-project-setup.md` (created)
 
 ### Task p2-5: Create Milestone Selection Step
 **Completed:** 2026-02-04
@@ -214,7 +214,7 @@
 - Routes to bi-m1 through bi-m6 workflows
 - [S] option shows detailed framework-level status
 **Issues:** None
-**Files Modified:** `_bmad/rbtv/workflows/bi-business-innovation/steps-c/step-03-milestone-select.md` (created)
+**Files Modified:** `workflows/bi-business-innovation/steps-c/step-03-milestone-select.md` (created)
 
 ### Task p2-checkpoint: Phase 2 Checkpoint
 **Completed:** 2026-02-04
@@ -296,7 +296,7 @@
 - Navigation codes [S] for status and [B] for back to milestone selection
 - Success criteria adapted from conception_process.md (removed founder-diary reference per Discovery 1)
 **Issues:** None
-**Files Modified:** `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/workflow.md` (created, 62 lines)
+**Files Modified:** `workflows/bi-business-innovation/bi-m1/workflow.md` (created, 62 lines)
 
 ### Task p3-2: Create Working Backwards Framework Workflow
 **Completed:** 2026-02-04
@@ -309,13 +309,13 @@
 - "Is it worth doing?" answer is mandatory in step-04 (cannot skip)
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-working-backwards/workflow.md` (created, 55 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-working-backwards/data/working-backwards-framework.md` (created, 88 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-working-backwards/steps-c/step-01-init.md` (created, 88 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-working-backwards/steps-c/step-02-discover.md` (created, 106 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-working-backwards/steps-c/step-03-press-release.md` (created, 121 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-working-backwards/steps-c/step-04-faq.md` (created, 127 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-working-backwards/steps-c/step-05-synthesis.md` (created, 125 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-working-backwards/workflow.md` (created, 55 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-working-backwards/data/working-backwards-framework.md` (created, 88 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-working-backwards/steps-c/step-01-init.md` (created, 88 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-working-backwards/steps-c/step-02-discover.md` (created, 106 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-working-backwards/steps-c/step-03-press-release.md` (created, 121 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-working-backwards/steps-c/step-04-faq.md` (created, 127 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-working-backwards/steps-c/step-05-synthesis.md` (created, 125 lines)
 
 ### Task p3-3: Create Jobs-to-be-Done Framework Workflow
 **Completed:** 2026-02-04
@@ -330,13 +330,13 @@
 - Interview step supports both conducted interviews and founder-knowledge fallback with explicit limitation notes
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-jobs-to-be-done/workflow.md` (created, 77 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-jobs-to-be-done/data/jtbd-framework.md` (created, 113 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-jobs-to-be-done/steps-c/step-01-init.md` (created, 146 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-jobs-to-be-done/steps-c/step-02-job-hypotheses.md` (created, 160 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-jobs-to-be-done/steps-c/step-03-interview.md` (created, 200 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-jobs-to-be-done/steps-c/step-04-job-stories.md` (created, 202 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-jobs-to-be-done/steps-c/step-05-synthesis.md` (created, 204 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-jobs-to-be-done/workflow.md` (created, 77 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-jobs-to-be-done/data/jtbd-framework.md` (created, 113 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-jobs-to-be-done/steps-c/step-01-init.md` (created, 146 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-jobs-to-be-done/steps-c/step-02-job-hypotheses.md` (created, 160 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-jobs-to-be-done/steps-c/step-03-interview.md` (created, 200 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-jobs-to-be-done/steps-c/step-04-job-stories.md` (created, 202 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-jobs-to-be-done/steps-c/step-05-synthesis.md` (created, 204 lines)
 
 ### Task p3-5: Create Problem-Solution Fit Framework Workflow
 **Completed:** 2026-02-05
@@ -350,13 +350,13 @@
 - Traceability check in step-03 forces every solution element to trace to behaviour or constraint
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-problem-solution-fit/workflow.md` (created, 60 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-problem-solution-fit/data/psf-framework.md` (created, 67 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-problem-solution-fit/steps-c/step-01-init.md` (created, 106 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-problem-solution-fit/steps-c/step-02-problem-space.md` (created, 122 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-problem-solution-fit/steps-c/step-03-solution-space.md` (created, 112 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-problem-solution-fit/steps-c/step-04-assumptions.md` (created, 123 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-problem-solution-fit/steps-c/step-05-synthesis.md` (created, 164 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-problem-solution-fit/workflow.md` (created, 60 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-problem-solution-fit/data/psf-framework.md` (created, 67 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-problem-solution-fit/steps-c/step-01-init.md` (created, 106 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-problem-solution-fit/steps-c/step-02-problem-space.md` (created, 122 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-problem-solution-fit/steps-c/step-03-solution-space.md` (created, 112 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-problem-solution-fit/steps-c/step-04-assumptions.md` (created, 123 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-problem-solution-fit/steps-c/step-05-synthesis.md` (created, 164 lines)
 
 ### Task p3-4: Create Competitive Landscape Framework Workflow
 **Completed:** 2026-02-05
@@ -372,13 +372,13 @@
 - All competitor claims must include source URLs — training data alone is insufficient
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-competitive-landscape/workflow.md` (created, 86 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-competitive-landscape/data/competitive-landscape-framework.md` (created, 114 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-competitive-landscape/steps-c/step-01-init.md` (created, 175 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-competitive-landscape/steps-c/step-02-competitor-id.md` (created, 166 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-competitive-landscape/steps-c/step-03-benchmarking.md` (created, 250 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-competitive-landscape/steps-c/step-04-positioning.md` (created, 245 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-competitive-landscape/steps-c/step-05-synthesis.md` (created, 215 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-competitive-landscape/workflow.md` (created, 86 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-competitive-landscape/data/competitive-landscape-framework.md` (created, 114 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-competitive-landscape/steps-c/step-01-init.md` (created, 175 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-competitive-landscape/steps-c/step-02-competitor-id.md` (created, 166 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-competitive-landscape/steps-c/step-03-benchmarking.md` (created, 250 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-competitive-landscape/steps-c/step-04-positioning.md` (created, 245 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-competitive-landscape/steps-c/step-05-synthesis.md` (created, 215 lines)
 
 ### Task p3-6: Create Lean Canvas Framework Workflow
 **Completed:** 2026-02-05
@@ -393,14 +393,14 @@
 - Unit economics sanity check included in step-04 (LTV:CAC ratio validation)
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-lean-canvas/workflow.md` (created, 61 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-lean-canvas/data/lean-canvas-framework.md` (created, 104 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-lean-canvas/steps-c/step-01-init.md` (created, 131 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-lean-canvas/steps-c/step-02-customer-problem.md` (created, 140 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-lean-canvas/steps-c/step-03-value-solution.md` (created, 135 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-lean-canvas/steps-c/step-04-channels-revenue.md` (created, 169 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-lean-canvas/steps-c/step-05-metrics-advantage.md` (created, 154 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-lean-canvas/steps-c/step-06-synthesis.md` (created, 148 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-lean-canvas/workflow.md` (created, 61 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-lean-canvas/data/lean-canvas-framework.md` (created, 104 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-lean-canvas/steps-c/step-01-init.md` (created, 131 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-lean-canvas/steps-c/step-02-customer-problem.md` (created, 140 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-lean-canvas/steps-c/step-03-value-solution.md` (created, 135 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-lean-canvas/steps-c/step-04-channels-revenue.md` (created, 169 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-lean-canvas/steps-c/step-05-metrics-advantage.md` (created, 154 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-lean-canvas/steps-c/step-06-synthesis.md` (created, 148 lines)
 
 ### Task p3-7: Create Five Whys Framework Workflow
 **Completed:** 2026-02-05
@@ -417,13 +417,13 @@
 - Lean Canvas Problem block update required with structural causes
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-five-whys/workflow.md` (created, 55 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-five-whys/data/five-whys-framework.md` (created, 87 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-five-whys/steps-c/step-01-init.md` (created, 102 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-five-whys/steps-c/step-02-problem-framing.md` (created, 126 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-five-whys/steps-c/step-03-why-chain.md` (created, 142 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-five-whys/steps-c/step-04-root-cause.md` (created, 143 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/bi-m1-five-whys/steps-c/step-05-synthesis.md` (created, 173 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-five-whys/workflow.md` (created, 55 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-five-whys/data/five-whys-framework.md` (created, 87 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-five-whys/steps-c/step-01-init.md` (created, 102 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-five-whys/steps-c/step-02-problem-framing.md` (created, 126 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-five-whys/steps-c/step-03-why-chain.md` (created, 142 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-five-whys/steps-c/step-04-root-cause.md` (created, 143 lines)
+- `workflows/bi-business-innovation/bi-m1/bi-m1-five-whys/steps-c/step-05-synthesis.md` (created, 173 lines)
 
 ### Task p4-1: Create M2 Milestone Workflow
 **Completed:** 2026-02-05
@@ -434,7 +434,7 @@
 - Navigation codes match task file spec ([LF], [AM], [TS], [UE], [TR], [PM])
 - Success criteria adapted from validation_process.md
 **Issues:** None
-**Files Modified:** `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/workflow.md` (created, 88 lines)
+**Files Modified:** `workflows/bi-business-innovation/bi-m2/workflow.md` (created, 88 lines)
 
 ### Task p4-2: Create Leap of Faith Framework Workflow
 **Completed:** 2026-02-05
@@ -448,13 +448,13 @@
 - Kill criteria definition is emphasized as "most important part of entire framework"
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-leap-of-faith/workflow.md` (created, 85 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-leap-of-faith/data/leap-of-faith-framework.md` (created, 117 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-leap-of-faith/steps-c/step-01-init.md` (created, 136 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-leap-of-faith/steps-c/step-02-harvest.md` (created, 176 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-leap-of-faith/steps-c/step-03-classify.md` (created, 176 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-leap-of-faith/steps-c/step-04-prioritize.md` (created, 202 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-leap-of-faith/steps-c/step-05-synthesis.md` (created, 239 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-leap-of-faith/workflow.md` (created, 85 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-leap-of-faith/data/leap-of-faith-framework.md` (created, 117 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-leap-of-faith/steps-c/step-01-init.md` (created, 136 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-leap-of-faith/steps-c/step-02-harvest.md` (created, 176 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-leap-of-faith/steps-c/step-03-classify.md` (created, 176 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-leap-of-faith/steps-c/step-04-prioritize.md` (created, 202 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-leap-of-faith/steps-c/step-05-synthesis.md` (created, 239 lines)
 
 ### Task p4-5: Create Unit Economics Framework Workflow
 **Completed:** 2026-02-05
@@ -472,13 +472,13 @@
 - Framework knowledge extracted into data/unit-economics-framework.md (104 lines)
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-unit-economics/workflow.md` (created, 75 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-unit-economics/data/unit-economics-framework.md` (created, 104 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-unit-economics/steps-c/step-01-init.md` (created, 138 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-unit-economics/steps-c/step-02-cac-analysis.md` (created, 168 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-unit-economics/steps-c/step-03-ltv-calculation.md` (created, 159 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-unit-economics/steps-c/step-04-payback-period.md` (created, 163 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-unit-economics/steps-c/step-05-synthesis.md` (created, 220 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-unit-economics/workflow.md` (created, 75 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-unit-economics/data/unit-economics-framework.md` (created, 104 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-unit-economics/steps-c/step-01-init.md` (created, 138 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-unit-economics/steps-c/step-02-cac-analysis.md` (created, 168 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-unit-economics/steps-c/step-03-ltv-calculation.md` (created, 159 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-unit-economics/steps-c/step-04-payback-period.md` (created, 163 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-unit-economics/steps-c/step-05-synthesis.md` (created, 220 lines)
 
 ### Task p4-6: Create Technology Readiness Level Framework Workflow
 **Completed:** 2026-02-05
@@ -497,13 +497,13 @@
 - Framework knowledge extracted into data/trl-framework.md (96 lines)
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-technology-readiness-level/workflow.md` (created, 73 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-technology-readiness-level/data/trl-framework.md` (created, 96 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-technology-readiness-level/steps-c/step-01-init.md` (created, 134 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-technology-readiness-level/steps-c/step-02-current-trl-assessment.md` (created, 175 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-technology-readiness-level/steps-c/step-03-target-trl.md` (created, 176 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-technology-readiness-level/steps-c/step-04-gap-analysis.md` (created, 192 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-technology-readiness-level/steps-c/step-05-synthesis.md` (created, 194 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-technology-readiness-level/workflow.md` (created, 73 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-technology-readiness-level/data/trl-framework.md` (created, 96 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-technology-readiness-level/steps-c/step-01-init.md` (created, 134 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-technology-readiness-level/steps-c/step-02-current-trl-assessment.md` (created, 175 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-technology-readiness-level/steps-c/step-03-target-trl.md` (created, 176 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-technology-readiness-level/steps-c/step-04-gap-analysis.md` (created, 192 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-technology-readiness-level/steps-c/step-05-synthesis.md` (created, 194 lines)
 
 ### Task p4-7: Create Pre-mortem Framework Workflow
 **Completed:** 2026-02-05
@@ -521,13 +521,13 @@
 - Kill criteria cross-referencing is mandatory (align with Leap of Faith or propose new criteria)
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-pre-mortem/workflow.md` (created, 95 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-pre-mortem/data/pre-mortem-framework.md` (created, 109 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-pre-mortem/steps-c/step-01-init.md` (created, 170 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-pre-mortem/steps-c/step-02-failure-scenarios.md` (created, 176 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-pre-mortem/steps-c/step-03-risk-ranking.md` (created, 156 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-pre-mortem/steps-c/step-04-mitigations.md` (created, 188 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/bi-m2-pre-mortem/steps-c/step-05-synthesis.md` (created, 200 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-pre-mortem/workflow.md` (created, 95 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-pre-mortem/data/pre-mortem-framework.md` (created, 109 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-pre-mortem/steps-c/step-01-init.md` (created, 170 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-pre-mortem/steps-c/step-02-failure-scenarios.md` (created, 176 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-pre-mortem/steps-c/step-03-risk-ranking.md` (created, 156 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-pre-mortem/steps-c/step-04-mitigations.md` (created, 188 lines)
+- `workflows/bi-business-innovation/bi-m2/bi-m2-pre-mortem/steps-c/step-05-synthesis.md` (created, 200 lines)
 
 ### Task p5-1: Create M3 Milestone Workflow
 **Completed:** 2026-02-05
@@ -538,7 +538,7 @@
 - Navigation codes: [BA], [BP], [GC], [PO], [TV], [MA], [S], [B]
 - Success criteria adapted from brand_process.md
 **Issues:** None
-**Files Modified:** `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/workflow.md` (created, 62 lines)
+**Files Modified:** `workflows/bi-business-innovation/bi-m3/workflow.md` (created, 62 lines)
 
 ### Task p5-2: Create Brand Archetypes Framework Workflow
 **Completed:** 2026-02-05
@@ -554,13 +554,13 @@
 - Incoherent archetype combinations documented (Outlaw+Ruler, Innocent+Outlaw, etc.)
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/bi-m3-brand-archetypes/workflow.md` (created, 57 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/bi-m3-brand-archetypes/data/brand-archetypes-framework.md` (created, 74 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/bi-m3-brand-archetypes/steps-c/step-01-init.md` (created, 116 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/bi-m3-brand-archetypes/steps-c/step-02-exploration.md` (created, 134 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/bi-m3-brand-archetypes/steps-c/step-03-selection.md` (created, 124 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/bi-m3-brand-archetypes/steps-c/step-04-application.md` (created, 164 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/bi-m3-brand-archetypes/steps-c/step-05-synthesis.md` (created, 152 lines)
+- `workflows/bi-business-innovation/bi-m3/bi-m3-brand-archetypes/workflow.md` (created, 57 lines)
+- `workflows/bi-business-innovation/bi-m3/bi-m3-brand-archetypes/data/brand-archetypes-framework.md` (created, 74 lines)
+- `workflows/bi-business-innovation/bi-m3/bi-m3-brand-archetypes/steps-c/step-01-init.md` (created, 116 lines)
+- `workflows/bi-business-innovation/bi-m3/bi-m3-brand-archetypes/steps-c/step-02-exploration.md` (created, 134 lines)
+- `workflows/bi-business-innovation/bi-m3/bi-m3-brand-archetypes/steps-c/step-03-selection.md` (created, 124 lines)
+- `workflows/bi-business-innovation/bi-m3/bi-m3-brand-archetypes/steps-c/step-04-application.md` (created, 164 lines)
+- `workflows/bi-business-innovation/bi-m3/bi-m3-brand-archetypes/steps-c/step-05-synthesis.md` (created, 152 lines)
 
 ### Task p6-1: Evaluate M4 Prototypation Against BMAD Workflows
 **Completed:** 2026-02-05
@@ -654,8 +654,8 @@ M4 Prototypation Mentor Routing:
 | `refs/founder/founder_process.md` | 6-milestone lifecycle structure, agent handoff protocol |
 | `refs/founder/agents/paul.md` | 4-act structure, personality traits, session protocol |
 | `refs/founder/m1_conception/conception_process.md` | 9-step process, 6 frameworks, success criteria |
-| `_bmad/bmb/workflows/workflow/templates/*.md` | BMAD workflow templates |
-| `_bmad/bmb/workflows/agent/templates/*.md` | BMAD agent templates |
+| `bmb/workflows/workflow/templates/*.md` | BMAD workflow templates |
+| `bmb/workflows/agent/templates/*.md` | BMAD agent templates |
 
 ### Files to Load During Execution
 
@@ -667,8 +667,8 @@ M4 Prototypation Mentor Routing:
 | `refs/founder/founder_process.md` | Source for milestone overview | p2-2 |
 | `refs/founder/m1_conception/conception_process.md` | Source for M1 structure | p3-1 |
 | `refs/founder/m1_conception/conception_frameworks/*.md` | Source for M1 framework knowledge | p3-2 to p3-7 |
-| `_bmad/bmb/workflows/agent/templates/*.md` | BMAD agent template | p1-2 |
-| `_bmad/bmb/workflows/workflow/templates/*.md` | BMAD workflow template | All workflow tasks |
+| `bmb/workflows/agent/templates/*.md` | BMAD agent template | p1-2 |
+| `bmb/workflows/workflow/templates/*.md` | BMAD workflow template | All workflow tasks |
 
 > **Note:** `refs/` is at `BMAD/projects/rbtv-development/wip/founder-migration/refs` and contains the exact founder module content.
 
@@ -763,8 +763,8 @@ M4 Prototypation Mentor Routing:
 - Created data/milestone-overview.md with framework dependencies, success criteria, and referral logic documentation
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/steps-c/step-01-init.md` (created, 246 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m1/data/milestone-overview.md` (created, 136 lines)
+- `workflows/bi-business-innovation/bi-m1/steps-c/step-01-init.md` (created, 246 lines)
+- `workflows/bi-business-innovation/bi-m1/data/milestone-overview.md` (created, 136 lines)
 
 **Referral Logic Validation:**
 - ✅ Milestone workflow (bi-m1) provides framework menu via step-01-init.md
@@ -830,8 +830,8 @@ M4 Prototypation Mentor Routing:
 - Applied same 3-part pattern from M1: knowledge file (recommended order) + logic (Section 2) + display (Section 4 with `← Recommended next` indicator)
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/steps-c/step-01-init.md` (created, 282 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m2/data/milestone-overview.md` (created, 151 lines)
+- `workflows/bi-business-innovation/bi-m2/steps-c/step-01-init.md` (created, 282 lines)
+- `workflows/bi-business-innovation/bi-m2/data/milestone-overview.md` (created, 151 lines)
 
 **Referral Logic Validation:**
 - ✅ Milestone workflow (bi-m2) provides framework menu via step-01-init.md
@@ -857,14 +857,14 @@ M4 Prototypation Mentor Routing:
 - Framework knowledge extracted into data/conversion-framework.md (135 lines)
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-conversion-centered-design/workflow.md` (created, 57 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-conversion-centered-design/data/conversion-framework.md` (created, 135 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-conversion-centered-design/steps-c/step-01-init.md` (created, 109 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-conversion-centered-design/steps-c/step-02-funnel-mapping.md` (created, 147 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-conversion-centered-design/steps-c/step-03-hypothesis-generation.md` (created, 142 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-conversion-centered-design/steps-c/step-04-optimization-plan.md` (created, 189 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-conversion-centered-design/steps-c/step-05-synthesis.md` (created, 159 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/workflow.md` (updated framework routing table to mark [C] as Available)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-conversion-centered-design/workflow.md` (created, 57 lines)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-conversion-centered-design/data/conversion-framework.md` (created, 135 lines)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-conversion-centered-design/steps-c/step-01-init.md` (created, 109 lines)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-conversion-centered-design/steps-c/step-02-funnel-mapping.md` (created, 147 lines)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-conversion-centered-design/steps-c/step-03-hypothesis-generation.md` (created, 142 lines)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-conversion-centered-design/steps-c/step-04-optimization-plan.md` (created, 189 lines)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-conversion-centered-design/steps-c/step-05-synthesis.md` (created, 159 lines)
+- `workflows/bi-business-innovation/bi-m4/workflow.md` (updated framework routing table to mark [C] as Available)
 
 ### Task p5-7: Create bi-m3-messaging-architecture Framework Workflow
 **Completed:** 2026-02-05
@@ -885,14 +885,14 @@ M4 Prototypation Mentor Routing:
 - Framework knowledge extracted into data/messaging-architecture-framework.md (249 lines)
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/bi-m3-messaging-architecture/workflow.md` (created, 82 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/bi-m3-messaging-architecture/data/messaging-architecture-framework.md` (created, 249 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/bi-m3-messaging-architecture/steps-c/step-01-init.md` (created, 170 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/bi-m3-messaging-architecture/steps-c/step-02-brand-promise.md` (created, 182 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/bi-m3-messaging-architecture/steps-c/step-03-key-messages.md` (created, 246 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/bi-m3-messaging-architecture/steps-c/step-04-proof-points.md` (created, 228 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/bi-m3-messaging-architecture/steps-c/step-05-ctas-journey.md` (created, 249 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/bi-m3-messaging-architecture/steps-c/step-06-synthesis.md` (created, 285 lines)
+- `workflows/bi-business-innovation/bi-m3/bi-m3-messaging-architecture/workflow.md` (created, 82 lines)
+- `workflows/bi-business-innovation/bi-m3/bi-m3-messaging-architecture/data/messaging-architecture-framework.md` (created, 249 lines)
+- `workflows/bi-business-innovation/bi-m3/bi-m3-messaging-architecture/steps-c/step-01-init.md` (created, 170 lines)
+- `workflows/bi-business-innovation/bi-m3/bi-m3-messaging-architecture/steps-c/step-02-brand-promise.md` (created, 182 lines)
+- `workflows/bi-business-innovation/bi-m3/bi-m3-messaging-architecture/steps-c/step-03-key-messages.md` (created, 246 lines)
+- `workflows/bi-business-innovation/bi-m3/bi-m3-messaging-architecture/steps-c/step-04-proof-points.md` (created, 228 lines)
+- `workflows/bi-business-innovation/bi-m3/bi-m3-messaging-architecture/steps-c/step-05-ctas-journey.md` (created, 249 lines)
+- `workflows/bi-business-innovation/bi-m3/bi-m3-messaging-architecture/steps-c/step-06-synthesis.md` (created, 285 lines)
 
 **Referral Logic Validation:**
 - ✅ M3 milestone workflow (bi-m3) already includes Messaging Architecture [MA] in framework routing table
@@ -916,8 +916,8 @@ M4 Prototypation Mentor Routing:
 - Recommended execution order: Brand Archetypes → Brand Prism → Golden Circle → Brand Positioning → Messaging Architecture → Tone of Voice
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/steps-c/step-01-init.md` (created, 290 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m3/data/milestone-overview.md` (created, 213 lines)
+- `workflows/bi-business-innovation/bi-m3/steps-c/step-01-init.md` (created, 290 lines)
+- `workflows/bi-business-innovation/bi-m3/data/milestone-overview.md` (created, 213 lines)
 
 **Referral Logic Validation:**
 - ✅ Milestone workflow (bi-m3) provides framework menu via step-01-init.md
@@ -941,13 +941,13 @@ M4 Prototypation Mentor Routing:
 - Framework knowledge extracted into data/heuristic-framework.md (193 lines)
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-heuristic-evaluation/workflow.md` (created, 55 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-heuristic-evaluation/data/heuristic-framework.md` (created, 193 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-heuristic-evaluation/steps-c/step-01-init.md` (created, 138 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-heuristic-evaluation/steps-c/step-02-heuristic-review.md` (created, 128 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-heuristic-evaluation/steps-c/step-03-severity-rating.md` (created, 140 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-heuristic-evaluation/steps-c/step-04-recommendations.md` (created, 189 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-heuristic-evaluation/steps-c/step-05-synthesis.md` (created, 201 lines)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-heuristic-evaluation/workflow.md` (created, 55 lines)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-heuristic-evaluation/data/heuristic-framework.md` (created, 193 lines)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-heuristic-evaluation/steps-c/step-01-init.md` (created, 138 lines)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-heuristic-evaluation/steps-c/step-02-heuristic-review.md` (created, 128 lines)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-heuristic-evaluation/steps-c/step-03-severity-rating.md` (created, 140 lines)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-heuristic-evaluation/steps-c/step-04-recommendations.md` (created, 189 lines)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-heuristic-evaluation/steps-c/step-05-synthesis.md` (created, 201 lines)
 
 ### Task p6-8: Update Mentor Agent for M4 Routing Logic
 **Completed:** 2026-02-05
@@ -959,7 +959,7 @@ M4 Prototypation Mentor Routing:
 - M4 menu item itself unchanged — documentation only
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/agents/paul.md` (updated, added comment block after line 81)
+- `agents/paul.md` (updated, added comment block after line 81)
 
 ### Task p6-19: Create M4 Milestone Workflow Complete Files (steps-c)
 **Completed:** 2026-02-05
@@ -978,9 +978,9 @@ M4 Prototypation Mentor Routing:
 - Updated bi-m4/workflow.md to set nextStep to ./steps-c/step-01-init.md and update knowledge files section
 **Issues:** None
 **Files Modified:**
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/steps-c/step-01-init.md` (created, 263 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/data/milestone-overview.md` (created, 140 lines)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/workflow.md` (updated, 112 lines)
+- `workflows/bi-business-innovation/bi-m4/steps-c/step-01-init.md` (created, 263 lines)
+- `workflows/bi-business-innovation/bi-m4/data/milestone-overview.md` (created, 140 lines)
+- `workflows/bi-business-innovation/bi-m4/workflow.md` (updated, 112 lines)
 
 **Referral Logic Validation:**
 - ✅ Milestone workflow (bi-m4) provides framework menu via step-01-init.md
@@ -999,7 +999,7 @@ M4 Prototypation Mentor Routing:
 
 **Problem:**
 - RBTV workflows use project-specific output folders: `projects/{project-name}/founder/m4-prototypation/`
-- BMAD workflows read config from disk: `_bmad/bmm/config.yaml` with `output_folder: {project-root}/projects`
+- BMAD workflows read config from disk: `bmm/config.yaml` with `output_folder: {project-root}/projects`
 - When RBTV invokes BMAD, BMAD outputs land in wrong location (root `projects/` instead of project folder)
 - BMAD does not accept invocation-time overrides; only reads from config file
 
@@ -1018,20 +1018,20 @@ All RBTV workflows that invoke BMAD MUST:
 - M6 all routes (bi-m6) → invokes create-prd, create-architecture, create-epics-and-stories, dev-story, qa-automate
 
 **Implementation:**
-- Tasks created: `_bmad/rbtv/tasks/update-bmad-config.xml`, `_bmad/rbtv/tasks/restore-bmad-config.xml`
+- Tasks created: `tasks/update-bmad-config.xml`, `tasks/restore-bmad-config.xml`
 - Plan updated: Added "BMAD Config Management Convention" section to Phase 6 integration strategy
 - Task files updated: p6-17 (M6 milestone), p6-18 (M6 mentor) with config management instructions
 - M5 not affected: RBTV-native, no BMAD invocations
 
 **Files Modified:**
-- `_bmad/rbtv/tasks/update-bmad-config.xml` (created)
-- `_bmad/rbtv/tasks/restore-bmad-config.xml` (created)
+- `tasks/update-bmad-config.xml` (created)
+- `tasks/restore-bmad-config.xml` (created)
 - `.cursor/plans/founder-migration/business-innovation-migration_v3.plan.md` (updated)
 - `.cursor/plans/founder-migration/business-innovation-migration_v3/phase-6/p6-17.task.md` (updated)
 - `.cursor/plans/founder-migration/business-innovation-migration_v3/phase-6/p6-18.task.md` (updated)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-design-context/workflow.md` (updated: step sequence + success criteria)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-design-context/steps-c/step-02-format-context.md` (updated: nextStepFile)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-design-context/steps-c/step-02b-update-config.md` (created)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-design-context/steps-c/step-03-invoke-bmad.md` (updated: nextStepFile)
-- `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/bi-m4-design-context/steps-c/step-03b-restore-config.md` (created)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-design-context/workflow.md` (updated: step sequence + success criteria)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-design-context/steps-c/step-02-format-context.md` (updated: nextStepFile)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-design-context/steps-c/step-02b-update-config.md` (created)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-design-context/steps-c/step-03-invoke-bmad.md` (updated: nextStepFile)
+- `workflows/bi-business-innovation/bi-m4/bi-m4-design-context/steps-c/step-03b-restore-config.md` (created)
 - `.cursor/plans/founder-migration/business-innovation-migration_v3/shape.md` (this entry)

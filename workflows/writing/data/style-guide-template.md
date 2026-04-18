@@ -2,10 +2,9 @@
 lastUpdated: '{date}'
 essayCount: 0
 version: 1
-user_name: '{user_name}'
 ---
 
-# Writing Style Guide — {user_name}
+# Writing Style Guide
 
 _A living document that grows with each essay. Captures voice patterns, preferences, and anti-patterns discovered through writing. Updated after every completed essay via the "What do you notice?" ritual._
 

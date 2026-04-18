@@ -15,7 +15,7 @@ description: '{What this step accomplishes}'
 nextStepFile: './step-{NN+1}-{next-name}.md' # Remove for final step
 altStepFile: './step-{NN}-{alt-name}.md' # Remove if no branching
 workflowFile: './workflow.md'
-outputFile: '{output_path}/{output-name}.md' # Remove if step does not write a file
+outputFile: '{output-name}.md' # Remove if step does not write a file
 
 # Task References
 
@@ -124,7 +124,7 @@ ONLY when **[C] Continue** is selected:
 - **nextStepFile**: Relative path to next step (remove for final step)
 - **altStepFile**: Relative path to alternate step (for branching; remove if no branching)
 - **workflowFile**: Relative path to parent workflow.md
-- **outputFile**: (Optional) Path where step writes its result. Used by framework synthesis steps that generate documents. Use `{project-root}` path conventions. Omit if step does not produce a file.
+- **outputFile**: (Optional) Path where step writes its result. Used by framework synthesis steps that generate documents. Use `{rbtv_path}` path conventions. Omit if step does not produce a file.
 - **partyModeWorkflow**: Path to party mode workflow
 - **templateFile**: Path to template used by this step (if any)
 - **dataFile**: Path to data file used by this step (if any)

@@ -4,7 +4,7 @@ docType: 'compound'
 mode: 'create'
 stepsCompleted: ['step-01-init', 'step-02-self-assessment', 'step-03-discussion', 'step-04-document']
 inputDocuments: []
-outputPath: '_bmad/rbtv/.docs/compound/'
+outputPath: '.docs/compound/'
 date: '2026-02-04'
 yoloMode: false
 ---
@@ -51,8 +51,8 @@ When the Builder agent (invoked via `bmad-rbtv-create`) generates files (agents,
 
 ### Context Source Evaluation
 
-- **Builder agent** (`_bmad/rbtv/agents/fernando.md`) — Produces agents, workflows, steps, tasks, commands, configs, knowledge, registries.
-- **Templates** (`_bmad/rbtv/workflows/build/templates/`) — Used by Builder; may contain or suggest hardcoded lists.
+- **Builder agent** (`agents/fernando.md`) — Produces agents, workflows, steps, tasks, commands, configs, knowledge, registries.
+- **Templates** (`workflows/build/templates/`) — Used by Builder; may contain or suggest hardcoded lists.
 - **tools-manifest.csv** — Canonical list of commands, skills, workflows, tasks, subagents; should be the reference for "what exists".
 - **subagents-manifest.csv** — Canonical list of subagent ids; example of manifest-based reference (e.g. in plan-creation-rules).
 
@@ -66,17 +66,17 @@ When the Builder agent (invoked via `bmad-rbtv-create`) generates files (agents,
 2. **Template Guardrails**  
    - Update Builder templates (e.g. ide-loader-template, agent-template, workflow-template) to include a reminder or placeholder: "Reference manifest at [path]; do not list items inline."  
    - **Rationale:** Reduces chance of hardcoding at the point of generation.  
-   - **Location:** `_bmad/rbtv/workflows/build/templates/*.md`.
+   - **Location:** `workflows/build/templates/*.md`.
 
 3. **Manifest-First Checklist**  
    - Add a step in the Builder flow or in the build knowledge file: before generating any file that needs a catalog, check "Does a manifest exist for this? If not, create or specify manifest first."  
    - **Rationale:** Ensures manifests are created when missing.  
-   - **Location:** `_bmad/rbtv/workflows/build/data/bmad-architecture.md` or Builder activation steps.
+   - **Location:** `workflows/build/data/bmad-architecture.md` or Builder activation steps.
 
 4. **Documentation-Only (this compound)**  
    - Document the rule in a compound PRD (this document) for backlog implementation. No code or template changes.  
    - **Rationale:** Captures the requirement; implementation can follow in a separate task.  
-   - **Location:** `_bmad/rbtv/.docs/compound/compound-bmad-create-use-manifests.md`.
+   - **Location:** `.docs/compound/compound-bmad-create-use-manifests.md`.
 
 5. **Validation Task**  
    - Add a post-generation check (or separate task) that scans Builder output for phrases like "all commands", "all skills", "all rules" and flags them.  
@@ -112,9 +112,9 @@ When the Builder agent (invoked via `bmad-rbtv-create`) generates files (agents,
 
 | Aspect | Details |
 |--------|---------|
-| File(s) to modify/create | Builder agent or build rules; optionally `_bmad/rbtv/workflows/build/data/bmad-architecture.md`; templates only if adding reminders. |
+| File(s) to modify/create | Builder agent or build rules; optionally `workflows/build/data/bmad-architecture.md`; templates only if adding reminders. |
 | Scope of change | Add one rule + one checklist step; no change to existing manifest formats. |
-| Related files | `BMAD/.cursor/commands/bmad-rbtv-create-component.md`, `_bmad/rbtv/agents/fernando.md`, `_bmad/rbtv/tools-manifest.csv`, `_bmad/rbtv/subagents-manifest.csv`. |
+| Related files | `BMAD/.cursor/commands/bmad-rbtv-create-component.md`, `agents/fernando.md`, `tools-manifest.csv`, `subagents-manifest.csv`. |
 
 ---
 
@@ -140,18 +140,18 @@ When the Builder agent (invoked via `bmad-rbtv-create`) generates files (agents,
 | File | Relationship |
 |------|--------------|
 | BMAD/.cursor/commands/bmad-rbtv-create-component.md | Command that loads Builder; rule applies to its output. |
-| _bmad/rbtv/agents/fernando.md | Builder agent; candidate location for rule or reference to rule. |
-| _bmad/rbtv/tools-manifest.csv | Example manifest for commands, skills, workflows, tasks, subagents. |
-| _bmad/rbtv/subagents-manifest.csv | Example manifest for subagent ids; referenced by plan-creation-rules. |
-| _bmad/rbtv/workflows/plan-lifecycle/data/plan-creation-rules.md | Example of referencing manifest instead of hardcoding (subagents). |
+| agents/fernando.md | Builder agent; candidate location for rule or reference to rule. |
+| tools-manifest.csv | Example manifest for commands, skills, workflows, tasks, subagents. |
+| subagents-manifest.csv | Example manifest for subagent ids; referenced by plan-creation-rules. |
+| workflows/plan-lifecycle/data/plan-creation-rules.md | Example of referencing manifest instead of hardcoding (subagents). |
 
 ---
 
 ## References
 
 - User request: compound that bmad-rbtv-create must never hardcode references to "all commands, skills, or rules" or similar; when that happens, a manifest should be created (if not available) so maintenance is easier. Only document; do not execute development.
-- Compound workflow: `_bmad/rbtv/workflows/doc-compound-learning/workflow.md`.
-- Ana agent: `_bmad/rbtv/agents/ana.md`.
+- Compound workflow: `workflows/doc-compound-learning/workflow.md`.
+- Ana agent: `agents/ana.md`.
 
 ---
 

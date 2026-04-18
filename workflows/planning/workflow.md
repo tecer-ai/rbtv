@@ -6,7 +6,7 @@ templateFile: ./templates/plan-template.md
 microstepTemplateFile: ./templates/plan-task-microstep-template.md
 shapeTemplateFile: '{rbtv_path}/workflows/_shared/templates/shape-template.md'
 learningsTemplateFile: ./templates/learnings-template.md
-outputFolder: '{project-root}/.cursor/plans'
+outputFolder: ''
 ---
 
 # Plan Workflow

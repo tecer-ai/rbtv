@@ -10,10 +10,10 @@ stepsCompleted:
   - step-03-discussion.md
   - step-04-implementation.md
 inputDocuments:
-  - _bmad/rbtv/workflows/plan-lifecycle/workflow.md
-  - _bmad/rbtv/workflows/plan-lifecycle/data/plan-creation-rules.md
-  - _bmad/rbtv/workflows/plan-lifecycle/templates/plan-template.md
-  - _bmad/rbtv/workflows/plan-lifecycle/templates/plan-task-microstep-template.md
+  - workflows/plan-lifecycle/workflow.md
+  - workflows/plan-lifecycle/data/plan-creation-rules.md
+  - workflows/plan-lifecycle/templates/plan-template.md
+  - workflows/plan-lifecycle/templates/plan-task-microstep-template.md
 outputPath: '{project-root}/projects/planning-artifacts'
 date: '2026-02-04'
 yoloMode: false
@@ -66,11 +66,11 @@ Ensure that plan creation always produces the complete artifact set: main plan f
 
 | File | Loaded? | Evaluation |
 |------|---------|------------|
-| `_bmad/rbtv/workflows/plan-lifecycle/workflow.md` | Yes | Lines 77-80 clearly list "Micro-step files" as required output. Read but not executed. |
-| `_bmad/rbtv/workflows/plan-lifecycle/data/plan-creation-rules.md` | Yes | Lines 133-159 detail micro-step file generation rules. Read but stopped after main plan. |
-| `_bmad/rbtv/workflows/plan-lifecycle/templates/plan-template.md` | Yes | Lines 83-95 show folder structure with phase folders. Structure documented but folders not created. |
-| `_bmad/rbtv/workflows/plan-lifecycle/templates/plan-task-microstep-template.md` | No | **GAP**: Never loaded this template. Would have shown detailed structure required for each task file. |
-| `_bmad/rbtv/workflows/plan-lifecycle/steps-c/*.md` | No | **GAP**: Did not follow the step files. Jumped directly to creating a plan using own understanding rather than following micro-file architecture. |
+| `workflows/plan-lifecycle/workflow.md` | Yes | Lines 77-80 clearly list "Micro-step files" as required output. Read but not executed. |
+| `workflows/plan-lifecycle/data/plan-creation-rules.md` | Yes | Lines 133-159 detail micro-step file generation rules. Read but stopped after main plan. |
+| `workflows/plan-lifecycle/templates/plan-template.md` | Yes | Lines 83-95 show folder structure with phase folders. Structure documented but folders not created. |
+| `workflows/plan-lifecycle/templates/plan-task-microstep-template.md` | No | **GAP**: Never loaded this template. Would have shown detailed structure required for each task file. |
+| `workflows/plan-lifecycle/steps-c/*.md` | No | **GAP**: Did not follow the step files. Jumped directly to creating a plan using own understanding rather than following micro-file architecture. |
 
 **Root Cause:** Bypassed the workflow's step files entirely. The workflow.md says to load `steps-c/step-01-init.md` and follow sequentially, but jumped directly to creating a plan rather than following the micro-file architecture.
 
@@ -86,7 +86,7 @@ Ensure that plan creation always produces the complete artifact set: main plan f
 
 3. **Update System File**: Add validation step to plan-lifecycle workflow
    - **Rationale:** Workflow-level enforcement catches the error before the user does
-   - **Location:** UPDATE `_bmad/rbtv/workflows/plan-lifecycle/workflow.md` and CREATE `steps-c/step-05-validate-artifacts.md`
+   - **Location:** UPDATE `workflows/plan-lifecycle/workflow.md` and CREATE `steps-c/step-05-validate-artifacts.md`
 
 4. **Add Constraint**: CreatePlan tool post-condition
    - **Rationale:** The tool's output should trigger mandatory follow-up actions
@@ -94,7 +94,7 @@ Ensure that plan creation always produces the complete artifact set: main plan f
 
 5. **Alternative Approach**: Unified plan creation with artifact generation
    - **Rationale:** Atomic creation prevents partial completion; either all artifacts exist or none do
-   - **Location:** CREATE `_bmad/rbtv/workflows/plan-lifecycle/steps-c/step-04-generate-artifacts.md` with explicit file creation for all components
+   - **Location:** CREATE `workflows/plan-lifecycle/steps-c/step-04-generate-artifacts.md` with explicit file creation for all components
 
 ---
 
@@ -149,21 +149,21 @@ The CreatePlan tool is a Cursor-internal tool that ONLY creates `.plan.md` files
 
 | File | Relationship |
 |------|--------------|
-| `_bmad/rbtv/workflows/plan-lifecycle/workflow.md` | Parent workflow definition, updated with 6-step table |
-| `_bmad/rbtv/workflows/plan-lifecycle/steps-c/step-03-structure.md` | Updated nextStepFile reference |
-| `_bmad/rbtv/workflows/plan-lifecycle/steps-c/step-04-generate-artifacts.md` | NEW — Agent mode artifact generation |
-| `_bmad/rbtv/workflows/plan-lifecycle/steps-c/step-05-create-plan.md` | NEW — CreatePlan step |
-| `_bmad/rbtv/workflows/plan-lifecycle/steps-c/step-06-complete.md` | NEW — Validation and completion |
-| `_bmad/rbtv/workflows/plan-lifecycle/templates/shape-template.md` | Used by step-05 for shape.md generation |
-| `_bmad/rbtv/workflows/plan-lifecycle/templates/learnings-template.md` | Used by step-05 for learnings.md generation |
-| `_bmad/rbtv/workflows/plan-lifecycle/templates/plan-task-microstep-template.md` | Used by step-05 for .task.md generation |
+| `workflows/plan-lifecycle/workflow.md` | Parent workflow definition, updated with 6-step table |
+| `workflows/plan-lifecycle/steps-c/step-03-structure.md` | Updated nextStepFile reference |
+| `workflows/plan-lifecycle/steps-c/step-04-generate-artifacts.md` | NEW — Agent mode artifact generation |
+| `workflows/plan-lifecycle/steps-c/step-05-create-plan.md` | NEW — CreatePlan step |
+| `workflows/plan-lifecycle/steps-c/step-06-complete.md` | NEW — Validation and completion |
+| `workflows/plan-lifecycle/templates/shape-template.md` | Used by step-05 for shape.md generation |
+| `workflows/plan-lifecycle/templates/learnings-template.md` | Used by step-05 for learnings.md generation |
+| `workflows/plan-lifecycle/templates/plan-task-microstep-template.md` | Used by step-05 for .task.md generation |
 
 ---
 
 ## References
 
-- BMAD Architecture Decision Guide: `_bmad/rbtv/workflows/build-rbtv-component/data/bmad-architecture.md`
-- Step Template: `_bmad/rbtv/workflows/build-rbtv-component/templates/step-template.md`
+- BMAD Architecture Decision Guide: `workflows/build-rbtv-component/data/bmad-architecture.md`
+- Step Template: `workflows/build-rbtv-component/templates/step-template.md`
 
 ---
 

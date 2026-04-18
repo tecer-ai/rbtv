@@ -1,4 +1,14 @@
-"""Generate thin loaders and copy rules/subagents into the target."""
+"""Generate thin loaders and copy rules/subagents into the target.
+
+Two installation modes per component type:
+
+  - Bake (skills, commands): Read a source template, replace {rbtv_path}
+    placeholders with the resolved relative path, write the result.
+    The installed file is a thin loader that points back to the RBTV source.
+
+  - Copy (rules, subagents): Straight file copy from RBTV source to target.
+    No placeholder substitution — these files are self-contained.
+"""
 from __future__ import annotations
 
 import shutil

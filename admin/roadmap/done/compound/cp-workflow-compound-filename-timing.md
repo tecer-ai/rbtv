@@ -10,8 +10,8 @@ stepsCompleted:
   - step-03-discussion.md
   - step-04-document.md
 inputDocuments:
-  - _bmad/rbtv/_admin/roadmap/todos/cp-rule-shape-capture.md
-outputPath: '_bmad/rbtv/_admin/roadmap/todos'
+  - _admin/roadmap/todos/cp-rule-shape-capture.md
+outputPath: '_admin/roadmap/todos'
 date: '2026-03-14'
 yoloMode: true
 ---
@@ -103,8 +103,8 @@ Files should be named correctly at creation. Renaming at the end is a symptom of
 
 | File | Relationship |
 |------|--------------|
-| `_bmad/rbtv/workflows/doc-compound-learning/steps-c/step-01-init.md` | Filename generation — needs naming convention added |
-| `_bmad/rbtv/workflows/doc-compound-learning/steps-c/step-04-document.md` | Filename determination — needs removal |
+| `workflows/doc-compound-learning/steps-c/step-01-init.md` | Filename generation — needs naming convention added |
+| `workflows/doc-compound-learning/steps-c/step-04-document.md` | Filename determination — needs removal |
 
 ---
 

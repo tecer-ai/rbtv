@@ -32,7 +32,7 @@ eeb773c,fix: correct step file path in check-implementation-readiness workflow (
 35dff6b,chore: ignore .junie/ IDE integration folder (#1719)
 fb05848,fix: correct 3 broken file refs and enforce validator in CI (#1717)
 e72b82e,fix(installer): add custom Rovo Dev installer with prompts.yml generation (#1701)
-d0ecfc0,fix: standardize all relative step file refs to {project-root}/_bmad/ paths (#1722)
+d0ecfc0,fix: standardize all relative step file refs to {project-root}/ paths (#1722)
 a135622,fix: correct code fence imbalance in step-03-starter.md (#1724)
 811d032,fix(config): remove Windsurf from recommended/preferred IDEs (#1727)
 3dd37bc,Added language to go back and replace [Research overview and methodology will be appended here] (#1703)

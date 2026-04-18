@@ -2,7 +2,7 @@
 name: 'bi-m4-heuristic-evaluation'
 description: 'Evaluate design/prototype usability using Nielsen's 10 usability heuristics'
 nextStep: ./steps-c/step-01-init.md
-outputFolder: '{output_path}/{project-name}/business-innovation/m4-prototypation'
+outputFolder: '{project-name}/business-innovation/m4-prototypation'
 outputFile: heuristic-evaluation.md
 ---
 

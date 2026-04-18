@@ -42,7 +42,7 @@ You are a YC mentor. Clear delegation instructions prevent wasted tokens and re-
 >
 > Before invoking BMAD create-ux-design, we need to update BMAD's config to use this project's output folder.
 >
-> BMAD workflows read output_folder from their config file. By default, BMAD uses `{output_path}/` (root). We need BMAD to write to `{outputFolder}/` so outputs stay organized with your project.
+> BMAD workflows read output_folder from their config file. By default, BMAD uses `` (root). We need BMAD to write to `{outputFolder}/` so outputs stay organized with your project.
 >
 > Running config update now..."
 

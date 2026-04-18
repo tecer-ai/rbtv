@@ -121,7 +121,7 @@ RBTV was built against BMAD v6.0.0-Beta.4. BMAD has since reached stable v6.0.4 
 
 ### Constraints
 
-- Execute from RBTV repo root (`_bmad/rbtv/`), comparing `_admin/docs/BMAD-mirror/` (Beta.4) against `_admin/docs/BMAD-v6.0.4/` (target)
+- Execute from RBTV repo root (``), comparing `_admin/docs/BMAD-mirror/` (Beta.4) against `_admin/docs/BMAD-v6.0.4/` (target)
 - `_mobile/` files excluded — Henri updates manually
 - RBTV workflow structural conversion excluded — all already use split pattern; deferred to BMB
 - Bulk mirror directory replacement excluded — only update MIRROR-VERSION.md
@@ -158,7 +158,7 @@ This plan uses companion files for execution context:
 ## Folder Structure
 
 ```
-_bmad/rbtv/_admin/roadmap/todos/_claude-code-workspace/bmad-upgrade-v6.0.4/
+_admin/roadmap/todos/_claude-code-workspace/bmad-upgrade-v6.0.4/
 ├── bmad-upgrade-v6.0.4.plan.md                     # This plan file
 ├── prd-bmad-upgrade-v6.0.4.md                      # Source PRD
 ├── bmad_compare_6.0.0-Beta.4_to_v6.0.4_commits.csv # 147 commits reference
@@ -276,7 +276,7 @@ PLAN MODIFIED:
 | `_admin/docs/BMAD-mirror/MIRROR-VERSION.md` | Version tracking | p4-4 |
 | `_admin/roadmap/todos/_claude-code-workspace/bmad-upgrade-v6.0.4/bmad_compare_6.0.0-Beta.4_to_v6.0.4_commits.csv` | 147 commits between versions — keyword search resource | p1-1 (as needed) |
 
-All file paths are relative to `_bmad/rbtv/` (RBTV repo root).
+All file paths are relative to `` (RBTV repo root).
 
 ---
 
@@ -339,7 +339,7 @@ graph TD
 
 - `p1-1`: Inspect v6.0.4 BMM workflow paths, advanced elicitation path, and core directory structure vs mirror *(micro-step: phase-1/p1-1.task.md)*
 - `p1-2`: Compare bmad-help.csv schema, bmm/config.yaml fields, and manifest.yaml format between v6.0.4 and mirror
-- `p1-3`: Search RBTV codebase for TEA path references (`_bmad/tea/`) and hardcoded mirror reads (`_admin/docs/BMAD-mirror/`)
+- `p1-3`: Search RBTV codebase for TEA path references (`tea/`) and hardcoded mirror reads (`_admin/docs/BMAD-mirror/`)
 - `p1-checkpoint`: **P1 CHECKPOINT** — Review investigation findings. Determine which conditional tasks (p2-3, p2-4, p3-1, p3-2) are needed vs. no-ops.
 
 ---

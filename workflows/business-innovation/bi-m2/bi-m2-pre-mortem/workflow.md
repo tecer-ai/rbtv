@@ -2,7 +2,7 @@
 name: 'bi-m2-pre-mortem'
 description: 'Imagine failure 12 months out, surface risks, define mitigations and early warning signals'
 nextStep: ./steps-c/step-01-init.md
-outputFolder: '{output_path}/{project-name}/business-innovation/m2-validation'
+outputFolder: '{project-name}/business-innovation/m2-validation'
 outputFile: pre-mortem.md
 ---
 

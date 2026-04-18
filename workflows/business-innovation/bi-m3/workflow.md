@@ -2,7 +2,7 @@
 name: 'bi-m3-brand'
 description: 'Create comprehensive brand book through 7 brand frameworks'
 nextStep: ./steps-c/step-01-init.md
-outputFolder: '{output_path}/{project-name}/business-innovation/m3-brand'
+outputFolder: '{project-name}/business-innovation/m3-brand'
 ---
 
 # M3 Brand Milestone Workflow

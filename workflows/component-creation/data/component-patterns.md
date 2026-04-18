@@ -16,7 +16,7 @@ Reference data for the create-component workflow. Defines naming standards, size
 - Skills and commands that invoke the same workflow share the same base name.
 - Never name a command or skill after a persona — the persona is loaded *by* the workflow.
 - Workflow folders are named by what they produce or do, not who runs them.
-- Related workflows group under a domain-named parent folder (e.g., `documentation/doc-compound-learning/`, `documentation/doc-context-handoff/`).
+- Related workflows group under a domain-named parent folder (e.g., `session-close/compound-learning/`, `session-close/context-handoff/`).
 - Exception: `domcobb` command name is legacy, kept by design.
 
 ## Structural Layout
@@ -25,11 +25,23 @@ Reference data for the create-component workflow. Defines naming standards, size
 |-----------|----------|--------|
 | `personas/` | Flat persona files — character sheets only | `{name}.md` |
 | `workflows/` | All workflow logic — standalone or domain-grouped | `{domain}/` or `{domain}/{sub-workflow}/` |
-| `skills/` | Thin loaders pointing to workflows | `{capability}/SKILL.md` |
+| `skills/` | Thin loaders ONLY — zero logic, always delegates to a workflow or task | `{capability}/SKILL.md` |
 | `commands/` | Thin loaders — one per skill (except skill-only components) | `{name}.md` |
 | `tasks/` | Shared XML task specifications | `{name}.xml` |
 | `rules/` | Behavior rules (copied to target on install) | `{behavior}.md` |
 | `subagents/` | Claude Code dispatchable subagents | `{name}.md` |
+
+## Thin Loader Invariant
+
+Skills and commands are ALWAYS thin loaders. No exceptions.
+
+| Rule | Detail |
+|------|--------|
+| Skills | SKILL.md loads and delegates to a workflow, task, or agent. All logic lives in the target file. |
+| Commands | Single LOAD instruction pointing to a workflow or agent. Zero logic. |
+| Standalone capability | If a capability has no existing workflow/task to point to, create one first. The skill still delegates. |
+| Co-located data | Data files may live alongside SKILL.md, but SKILL.md itself remains a thin loader. |
+| MCP tools | Tool config files may live in the skill folder, but SKILL.md itself remains a thin loader. |
 
 ## RBTV Component Pattern Compliance
 
@@ -42,7 +54,7 @@ Reference data for the create-component workflow. Defines naming standards, size
 | Required sections | `<activation>`, `<menu-handlers>`, `<rules>`, `<persona>`, `<menu>` |
 | Config loading | No runtime config load; paths use `{rbtv_path}` resolved at install time |
 | WAIT instruction | Menu must include explicit "WAIT for input" |
-| Paths | All paths use `{project-root}` variables, never relative (`../`) |
+| Paths | All paths use `{rbtv_path}` variables, never relative (`../`) |
 | Persona structure | `<role>`, `<identity>`, `<communication_style>`, `<principles>` |
 
 ## Workflow Files (`workflows/*/workflow.md`)
@@ -53,7 +65,7 @@ Reference data for the create-component workflow. Defines naming standards, size
 | Required frontmatter | `name`, `description`, `nextStep` |
 | Optional frontmatter | `outputFolder`, `editWorkflow` |
 | Forbidden frontmatter | `workflow_path`, `thisStepFile`, `main_config`, `parentWorkflow`, `validateWorkflow` |
-| Paths | Use `{rbtv_path}` and `{output_path}` placeholders — never absolute paths or hardcoded folders |
+| Paths | Use `{rbtv_path}` and `runtime output resolution` placeholders — never absolute paths or hardcoded folders |
 
 ## Step Files (`workflows/*/steps-*/step-*.md`)
 
@@ -74,7 +86,7 @@ Reference data for the create-component workflow. Defines naming standards, size
 | Pattern | Thin loader — zero logic |
 | Required frontmatter | `name`, `description` |
 | Content | Single LOAD instruction pointing to persona/workflow/task file |
-| Paths | Use `{project-root}` (not `@{project-root}`) |
+| Paths | Use `{rbtv_path}` (not `@{rbtv_path}`) |
 
 ## Task Files (`tasks/*.xml`)
 
@@ -90,7 +102,8 @@ Reference data for the create-component workflow. Defines naming standards, size
 | Violation | Fix |
 |-----------|-----|
 | Relative paths in agents (`../workflows/`) | Use `{rbtv_path}/workflows/` |
-| `@{project-root}` prefix in commands | Remove `@` prefix |
+| `@{rbtv_path}` prefix in commands | Remove `@` prefix |
 | Logic in command files | Extract to task/agent file, make command a thin loader |
+| Fat skill with inline logic | Create a backing task or workflow file, make skill a thin loader |
 | Agent exceeds 100 lines | Externalize protocols/actions to data files |
 | Hardcoded catalog lists | Reference manifests (`tools-manifest.csv`) |

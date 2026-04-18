@@ -11,7 +11,7 @@
 **What this plan accomplishes:**
 - Provision and harden a remotely manageable Hetzner VPS for Robotville.
 - Install and configure Nanobot with Slack Socket Mode and LLM provider credentials.
-- Create and wire RBTV `_mobile` harness files under `_bmad/rbtv/` without duplicating Nanobot internals.
+- Create and wire RBTV `_mobile` harness files under `` without duplicating Nanobot internals.
 - Validate end-to-end behavior with FR25 auto-restart in scope.
 
 **What this plan does NOT include:**
@@ -25,8 +25,8 @@
 | VPS provider | Hetzner | API + SSH remote control requirement and practical operations fit |
 | Integration style | Brownfield extension | Reuse existing RBTV + Nanobot capabilities and avoid duplication |
 | State authority | `project-memo.md` | Preserve established founder workflow continuity contract |
-| Documentation location | `_bmad/rbtv/_admin/docs/mobile/` | User requested all plan docs in one clear location |
-| Mapping location | `_bmad/rbtv/_mobile/` | User requested all Nanobot mapping/harness code under `_mobile` |
+| Documentation location | `_admin/docs/mobile/` | User requested all plan docs in one clear location |
+| Mapping location | `_mobile/` | User requested all Nanobot mapping/harness code under `_mobile` |
 
 ### Constraints
 
@@ -45,8 +45,8 @@
 | 1 | Infrastructure need | "i need guidance on how to actually implement the project ... VPS ... nanobot ... slack ... llm api ... _mobile" | Four-phase execution plan covering VPS, runtime, integration, harness, and validation |
 | 2 | VPS choice | "vps will be hetzger as suggested" | Hetzner-specific provisioning and security baseline tasks |
 | 3 | File placement clarity | "I dont understand which files are for rbtv/ and which are for the VPS" | Explicit directory boundaries and server-operation vs repo-file task split |
-| 4 | Mentor reference correction | " @_bmad/rbtv/agents/paul.md is the correct mentor" | Files-to-load table and task context references corrected |
-| 5 | Docs location | "_admin/docs/mobile/ (all files related to this plan)" | All plan documentation outputs routed to `_bmad/rbtv/_admin/docs/mobile/` |
+| 4 | Mentor reference correction | " @agents/paul.md is the correct mentor" | Files-to-load table and task context references corrected |
+| 5 | Docs location | "_admin/docs/mobile/ (all files related to this plan)" | All plan documentation outputs routed to `_admin/docs/mobile/` |
 
 ### Collaborative Decisions
 
@@ -54,7 +54,7 @@
 |---|----------|-----------------|-----------------|------------------|
 | 1 | Planning depth | Needs practical implementation guidance now | Proposed plan-lifecycle workflow and phased tasking | Use RBTV plan workflow to produce executable plan artifacts |
 | 2 | Scope handling | Skip heavy overhead where possible | Suggested focused MVP execution with constraints from architecture | Keep FR25, defer FR23/24/26, no unnecessary duplication |
-| 3 | Structure policy | Wants clear file ownership by location | Converted tasks to explicit CREATE/UPDATE paths by boundary | RBTV code in `_bmad/rbtv/`, mapping in `_mobile`, docs in `_admin/docs/mobile` |
+| 3 | Structure policy | Wants clear file ownership by location | Converted tasks to explicit CREATE/UPDATE paths by boundary | RBTV code in ``, mapping in `_mobile`, docs in `_admin/docs/mobile` |
 
 ---
 
@@ -74,9 +74,9 @@
 
 | Rule | Enforcement |
 |------|-------------|
-| RBTV files only under `_bmad/rbtv/` | Reject any task creating project files outside RBTV path |
-| Nanobot mapping only under `_mobile` | Reject mapping tasks outside `_bmad/rbtv/_mobile/` |
-| Plan docs only under `_admin/docs/mobile/` | Route all generated docs and reports to `_bmad/rbtv/_admin/docs/mobile/` |
+| RBTV files only under `` | Reject any task creating project files outside RBTV path |
+| Nanobot mapping only under `_mobile` | Reject mapping tasks outside `_mobile/` |
+| Plan docs only under `_admin/docs/mobile/` | Route all generated docs and reports to `_admin/docs/mobile/` |
 | Preserve canonical state source | Any state task must reference `project-memo.md` as authority |
 
 ### Tool Mode Selection
@@ -122,7 +122,7 @@
 
 ### 2026-02-14 - p2-2 Server Environment Template Added
 
-- **Decision:** Standardize VPS credential handling in `_bmad/rbtv/_admin/docs/mobile/server-env-template.md` with explicit paths, ownership, and placeholder-only templates.
+- **Decision:** Standardize VPS credential handling in `_admin/docs/mobile/server-env-template.md` with explicit paths, ownership, and placeholder-only templates.
 - **Validation outcome:** Template now defines `/etc/robotville/nanobot-gateway.env` and `/srv/nanobot/.nanobot/config.json` contracts with strict permission requirements and no repository secrets.
 
 ### 2026-02-14 - p2-3 Runtime Config Scaffolded, Credentials Pending
@@ -141,11 +141,11 @@
 
 - **Decision:** Switch Nanobot agent model from `claude-3-5-sonnet-20241022` to `claude-opus-4-6` after Anthropic returned `not_found_error` for the former.
 - **Discovery:** `effort=high` is the default for Claude (equivalent to omitting the parameter); Nanobot's AgentDefaults schema does not expose `output_config` or `effort`, but high-effort behavior is already the default.
-- **Fix applied:** Created `_bmad/rbtv/_mobile/ops/patches/update-nanobot-model.py` to update `/srv/nanobot/.nanobot/config.json`; executed on VPS, gateway restarted.
+- **Fix applied:** Created `_mobile/ops/patches/update-nanobot-model.py` to update `/srv/nanobot/.nanobot/config.json`; executed on VPS, gateway restarted.
 
 ### 2026-02-14 - p3-1 `_mobile` Harness Boundary Baseline
 
-- **Decision:** Define `_bmad/rbtv/_mobile/README.md` as the explicit ownership contract between RBTV harness logic and Nanobot runtime responsibilities.
+- **Decision:** Define `_mobile/README.md` as the explicit ownership contract between RBTV harness logic and Nanobot runtime responsibilities.
 - **Validation outcome:** README now codifies non-duplication rules, canonical `project-memo.md` state authority, and the allowed `_mobile` adapter/routing/security scope for upcoming phase-3 modules.
 
 ### 2026-02-14 - p3-2 Gateway Normalization Bridge Introduced
@@ -186,7 +186,7 @@
 
 ### 2026-02-14 - p4-3 FR25 Auto-Restart Validated on Live VPS
 
-- **Discovery:** Live VPS runtime path was not aligned with expected `/opt/robotville/BMAD/_bmad/rbtv` repository layout, so service unit deployment required SCP fallback from operator workstation.
+- **Discovery:** Live VPS runtime path was not aligned with expected `/opt/robotville/BMAD/rbtv` repository layout, so service unit deployment required SCP fallback from operator workstation.
 - **Validation outcome:** FR25 behavior was validated with two checks: (1) controlled `SIGKILL` of gateway main PID triggered automatic restart (`restart counter is at 1` and service returned `active`), and (2) full VPS reboot restored service to `active` automatically at boot.
 - **Fix applied:** Updated systemd unit `Documentation=` to a valid file URL format (`file://...`) to eliminate invalid URL warnings during service reload/start.
 
@@ -197,7 +197,7 @@
 
 ### 2026-02-14 - Canonical VPS Workspace Normalization Executed
 
-- **Decision:** Enforce canonical deployment path contract on VPS: `/opt/robotville/BMAD/_bmad/rbtv` (no symlink shortcut and no SCP fallback branch in runbook flow).
+- **Decision:** Enforce canonical deployment path contract on VPS: `/opt/robotville/BMAD/rbtv` (no symlink shortcut and no SCP fallback branch in runbook flow).
 - **Discovery:** Direct `git clone` on VPS failed because remote GitHub authentication for the private repository was unavailable in server context; bootstrap required operator-mediated transfer from local workspace.
 - **Execution detail:** Created `/opt/robotville/BMAD/_bmad`, transferred repo contents, restored `.git` metadata, corrected permissions, redeployed `nanobot-gateway.service` from canonical repo path, and reloaded systemd.
 - **Validation outcome:** `nanobot-gateway` returned `active (running)` with `Documentation=file://...` URL format, canonical harness files resolved under `_mobile`, and FR25 controlled kill/restart re-validated (`Scheduled restart job, restart counter is at 1`).
@@ -205,7 +205,7 @@
 ### 2026-02-14 - Private Repo Deploy-Key Access Enabled and Origin-Sourced Sync Finalized
 
 - **Decision:** Standardize VPS repository updates through GitHub SSH deploy-key auth under `nanobot` service account, eliminating operator-local bootstrap as a normal update path.
-- **Execution detail:** Generated `/srv/nanobot/.ssh/rbtv_deploy_key`, registered read-only deploy key in GitHub, configured `/srv/nanobot/.ssh/config` + `known_hosts`, switched repo `origin` to `git@github.com:hlealt/rbtv.git`, then cloned a clean origin working tree and swapped it into `/opt/robotville/BMAD/_bmad/rbtv` (previous local-seeded tree retained as backup directory).
+- **Execution detail:** Generated `/srv/nanobot/.ssh/rbtv_deploy_key`, registered read-only deploy key in GitHub, configured `/srv/nanobot/.ssh/config` + `known_hosts`, switched repo `origin` to `git@github.com:hlealt/rbtv.git`, then cloned a clean origin working tree and swapped it into `/opt/robotville/BMAD/rbtv` (previous local-seeded tree retained as backup directory).
 - **Validation outcome:** `sudo -u nanobot ssh -T git@github.com` authenticated successfully, `git fetch origin --prune` succeeded from canonical path, and active service state remained healthy after repo swap.
 
 ### 2026-02-14 - VPS Pull/Reinstall/Mirror-Cleanup Automation Added
@@ -225,8 +225,8 @@
 |----------|----------------------|
 | `projects/robotville-v4.0/bmad/prd.md` | Scope, FR/NFR requirements, security and runtime expectations |
 | `projects/robotville-v4.0/bmad/architecture.md` | Boundaries, deferred scope decisions, `_mobile` structure, FR25 requirement |
-| `_bmad/rbtv/readme.md` | RBTV module context and conventions |
-| `_bmad/rbtv/agents/paul.md` | Agent behavior reference for harness alignment |
+| `readme.md` | RBTV module context and conventions |
+| `agents/paul.md` | Agent behavior reference for harness alignment |
 
 ### Files to Load During Execution
 
@@ -234,8 +234,8 @@
 |------|---------|------|
 | `projects/robotville-v4.0/bmad/prd.md` | Requirement baseline | All phases as needed |
 | `projects/robotville-v4.0/bmad/architecture.md` | Architectural source of truth | All implementation phases |
-| `_bmad/rbtv/readme.md` | RBTV conventions | Phase 3 |
-| `_bmad/rbtv/agents/paul.md` | Mentor integration context | Phase 3 |
+| `readme.md` | RBTV conventions | Phase 3 |
+| `agents/paul.md` | Mentor integration context | Phase 3 |
 | `projects/robotville-v4.0/**` | Project outputs potentially informing `_mobile` behavior | Phase 3 and validation |
 
 ### 2026-02-14 - p5-1 AGENTS.md Bootstrap File Created
@@ -373,7 +373,7 @@
 - **Discovery:** Pre-push review of all local changes identified five issues that would affect Nanobot behavior or VPS stability after auto-update.
 - **Issue 1 — `.netlify/` not gitignored:** Local `netlify link` created `.netlify/netlify.toml` with Windows-specific `publish` path (`H:\repos\...`). Not in `.gitignore`, so it would be committed and pushed to VPS. **Fix:** Added `.netlify/` to `.gitignore`.
 - **Issue 2 — AGENTS.md routing conflict blocks deploy commands:** AGENTS.md "Unknown Commands" catch-all says "If the command does not match any agent, respond with: I don't recognize that command." This intercepts `deploy site` before TOOLS.md's deploy routing is evaluated, since `deploy` is not an agent command. Both files are in the system prompt simultaneously, making behavior nondeterministic. **Fix:** Removed the "Unknown Commands" section from AGENTS.md entirely. TOOLS.md already has its own catch-all (line 22: "If the command doesn't match any agent or action command, respond with the list of available commands").
-- **Issue 3 — `deploy site` uses git-tracked directory directly:** The original `deploy site` command runs `netlify deploy --dir=_bmad/rbtv/_mobile/_docs/netlify-placeholder --prod`. If Nanobot edits `index.html` in that directory on the VPS (e.g., user requests content changes before deploying), the modification is to a tracked file. The next `git pull --ff-only` fails with "Your local changes would be overwritten by merge", breaking the entire auto-update pipeline. **Fix:** Changed to a staging pattern: copy source to `/tmp/robotville-deploy/`, apply edits there, deploy from the staging copy. Added matching rule to SOUL.md: "Never edit git-tracked source files for deployment."
+- **Issue 3 — `deploy site` uses git-tracked directory directly:** The original `deploy site` command runs `netlify deploy --dir=_mobile/_docs/netlify-placeholder --prod`. If Nanobot edits `index.html` in that directory on the VPS (e.g., user requests content changes before deploying), the modification is to a tracked file. The next `git pull --ff-only` fails with "Your local changes would be overwritten by merge", breaking the entire auto-update pipeline. **Fix:** Changed to a staging pattern: copy source to `/tmp/robotville-deploy/`, apply edits there, deploy from the staging copy. Added matching rule to SOUL.md: "Never edit git-tracked source files for deployment."
 - **Issue 4 — No error message for deferred deploy commands:** `deploy docs` was marked "Deferred" and "Not yet implemented" but TOOLS.md gave no instruction for what Nanobot should say when a user tries it. The LLM could improvise. **Fix:** Added explicit "Deferred commands" instruction: respond that the command is not yet available, only `deploy site` is active. Also added `deploy app {project}` to the command table as Deferred.
 - **Issue 5 — `deploy site` missing `--site` flag:** Original command relied on `NETLIFY_SITE_ID` env var (set in systemd env file) for site targeting. If the env var is lost or the Netlify link breaks, deploy fails with no site context. **Fix:** Added explicit `--site=86ed1ff3-dd59-4428-a426-219518589906` to the deploy command for robustness.
 

@@ -76,9 +76,9 @@ Write the finished essay to the output document:
 Present to the user:
 - The complete essay (or a summary if very long, with the full version in the file)
 - Confirmation of output file locations:
-  - Essay: `{output_path}/{essaySlug}/essay.md`
-  - Research brief: `{output_path}/{essaySlug}/research-brief.md`
-  - Visual assets: `{output_path}/{essaySlug}/visual-assets.md`
+  - Essay: `{essaySlug}/essay.md`
+  - Research brief: `{essaySlug}/research-brief.md`
+  - Visual assets: `{essaySlug}/visual-assets.md`
 
 ### 6. Update Output Document
 
@@ -95,10 +95,10 @@ completedDate: '{current date}'
 
 **7a. Check for Style Guide**
 
-Check if `styleGuide` is set in frontmatter OR if `{output_path}/style-guide.md` exists.
+Check if `styleGuide` is set in frontmatter OR if `style-guide.md` exists.
 
 - If style guide exists: proceed to 7b.
-- If no style guide AND user skipped creation in step 03: ask "Now that the essay is complete — want to create a persistent style guide from this work? It will grow with each essay." If yes, copy `{styleGuideTemplate}` to `{output_path}/style-guide.md` and proceed to 7b. If no, skip to step 8.
+- If no style guide AND user skipped creation in step 03: ask "Now that the essay is complete — want to create a persistent style guide from this work? It will grow with each essay." If yes, copy `{styleGuideTemplate}` to `style-guide.md` and proceed to 7b. If no, skip to step 8.
 
 **7b. Analyze the Completed Essay**
 
@@ -123,7 +123,7 @@ Ask: "Which updates should I apply to your style guide?"
 **7d. Write Updates**
 
 For each confirmed update:
-- Append to the relevant section of `{output_path}/style-guide.md`
+- Append to the relevant section of `style-guide.md`
 - NEVER overwrite existing entries — append only
 - Add a changelog entry:
   ```

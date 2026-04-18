@@ -1,0 +1,114 @@
+---
+stepNumber: 1
+stepName: 'init'
+nextStepFile: ./step-02-self-assessment.md
+continueStepFile: './step-01b-continue.md'
+templateFile: ../templates/compound-prd.md
+---
+
+# Step 01: Initialize Workflow
+
+**Purpose:** Detect workflow context, determine sub-mode (Create/Validate/Edit), create output document from template. Output path is NOT resolved here — it is resolved after step-02 identifies the affected files.
+
+---
+
+## MANDATORY SEQUENCE
+
+Follow these instructions in exact order. Do NOT skip, reorder, or optimize.
+
+### 1. Check for Yolo Flag
+
+- Inspect the command invocation context
+- If invoked with `:yolo` suffix → Set `yoloMode = true`
+- Otherwise → Set `yoloMode = false`
+
+### 2. Determine Sub-Mode
+
+- **Note:** For initial implementation, always route to Create mode. Validate/Edit modes are future additions.
+
+### 3. Load Template
+
+- Read `{templateFile}` from frontmatter
+- If template not found → Display error, present Retry/Exit menu
+- Store template content in memory
+
+### 4. Create Output Document (in memory)
+
+- Generate filename using the `cp-{component}-{description}.md` naming convention:
+  - `cp-` prefix identifies this as a compound PRD
+  - `{component}` is the most affected system component (e.g., rule, workflow, agent, config)
+  - `{description}` is a short kebab-case description
+  - Examples: `cp-rule-shape-capture.md`, `cp-workflow-context-handoff-gap.md`, `cp-agent-ana-persona-clarity.md`
+- Ask user for confirmation or override
+- Create new document using template structure
+- Populate frontmatter:
+
+```yaml
+---
+title: 'Compound: {improvement-title}'
+docType: 'compound'
+mode: 'create'
+stepsCompleted: []
+inputDocuments: []
+outputPath: 'PENDING'
+date: '{current-date}'
+yoloMode: {true|false}
+---
+```
+
+`outputPath` is set to `PENDING` — resolved after step-02 identifies the primary affected file.
+
+### 5. Update State
+
+- Add `step-01-init.md` to `stepsCompleted` array
+- Save output document to memory (not yet to disk)
+
+### 6. Present Menu
+
+- Present the following menu and HALT
+- Wait for user selection
+
+---
+
+## MENU
+
+Present the following menu and HALT. Wait for user selection.
+
+**Options:**
+- `[C] Continue` → Load and execute `step-02-self-assessment.md`
+- `[X] Exit Workflow` → Save current state in frontmatter, exit agent
+
+---
+
+## NEXT STEP
+
+On Continue selection:
+1. Update output document frontmatter: add `step-01-init.md` to `stepsCompleted` array
+2. Load and execute: `./step-02-self-assessment.md`
+
+---
+
+## ERROR HANDLING
+
+**Missing Template File:**
+```
+Template Error
+
+Cannot load template: {templateFile}
+
+This template is required to create the output document.
+
+Options:
+[R] Retry — Attempt to load template again
+[X] Exit — Exit workflow
+```
+
+---
+
+## SUCCESS CRITERIA
+
+- Output document created with valid frontmatter (all required fields present)
+- `outputPath` is `PENDING` (resolved in step-02)
+- `yoloMode` flag correctly set based on invocation (true if `:yolo` suffix, false otherwise)
+- `stepsCompleted` array contains exactly one entry: `step-01-init.md`
+- Menu presented with explicit HALT and execution stopped

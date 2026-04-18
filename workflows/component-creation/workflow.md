@@ -1,22 +1,20 @@
 ---
 name: Component Creation
-description: Create new RBTV components — skills, workflows, personas, rules, tasks.
+description: Unified component builder for RBTV and vault/non-RBTV systems. Acts as critical design partner — challenges assumptions and forces design decisions before building.
+nextStep: workflows/component-creation/step-01-analyze.md
 ---
 
 # Component Creation
 
-## Scope
+## Purpose
 
-- **Modifying an existing RBTV component:** write changes to the RBTV source repo at `{rbtv_path}`.
-- **Creating a new component:** ask the user: "Should this be an RBTV component (bootstrapped to all instances via re-install), or a local component (only in this instance)?"
-  - **RBTV:** write to `{rbtv_path}/<type>/<name>/`. User must re-run `install.py` to generate the loader.
-  - **Local:** write directly to `.claude/<type>/<name>/` in the instance (no `rbtv-` prefix). Not touched by re-install.
+Unified builder replacing both the RBTV create-component workflow and any vault-specific component builder. Handles two targets:
 
-## Procedure
+- **RBTV components** — standard placement in the RBTV source repo, bootstrapped to all instances via re-install
+- **Non-RBTV / vault components** — placement governed by workspace conventions read from the target CLAUDE.md
 
-1. Read `{rbtv_path}/workflows/component-creation/data/component-patterns.md` — internalize naming standards, size limits, and structural requirements.
-2. Identify the component type the user wants to create.
-3. Load the appropriate template from `{rbtv_path}/workflows/component-creation/templates/`.
-4. Walk the user through the template, filling in their requirements.
-5. Write the component to the resolved destination (per Scope above).
-6. If RBTV-published: remind the user to re-run `python install.py` to generate the loader.
+## Activation Sequence
+
+1. Load `{rbtv_path}/workflows/component-creation/data/component-patterns.md` — internalize naming standards, size limits, and compliance rules
+2. Load `{rbtv_path}/workflows/component-creation/data/rbtv-architecture.md` — component decision guide and design principles
+3. Proceed to Step 01

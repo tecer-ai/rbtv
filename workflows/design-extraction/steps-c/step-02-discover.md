@@ -2,7 +2,7 @@
 stepNumber: 2
 stepName: 'discover'
 nextStepFile: ./step-03-capture-extract.md
-playwrightSkill: '{project-root}/.claude/skills/playwright-cli/SKILL.md'
+playwrightSkill: 'rbtv-playwright-cli'
 ---
 
 # Step 02: Site Discovery

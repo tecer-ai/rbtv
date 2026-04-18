@@ -63,14 +63,14 @@ The RBTV module references a `tools-manifest.csv` that doesn't exist. The existi
 
 ### User Goals
 
-1. CREATE `_bmad/rbtv/tools-manifest.csv` — unified manifest with `id`, `skill_path`, `subagent_path`, `description` columns
+1. CREATE `tools-manifest.csv` — unified manifest with `id`, `skill_path`, `subagent_path`, `description` columns
 2. UPDATE 6 documentation files — reference manifest instead of hardcoded lists; clarify skill vs subagent invocation
 3. MOVE `judge.xml` to `quality-review.xml` — align task file with skill/subagent naming; update handoff workflow references
 4. DELETE `rbtv-manifest.csv` — remove obsolete manifest after verifying no remaining references
 
 ### Constraints
 
-- Manifest must derive from `_bmad/rbtv/.cursor/` folder (source of truth, <20 tools)
+- Manifest must derive from `.cursor/` folder (source of truth, <20 tools)
 - Skills and subagents share the same `id` (one manifest row per tool, both paths)
 - Subagents cannot invoke other subagents (documentation must clarify: subagents use skills only)
 
@@ -235,27 +235,27 @@ PLAN MODIFIED:
 
 |------|---------|--------------|
 
-| `_bmad/rbtv/.cursor/skills/bmad-rbtv/*/SKILL.md` | Source: skill paths for manifest | p1-1 |
+| `.cursor/skills/bmad-rbtv/*/SKILL.md` | Source: skill paths for manifest | p1-1 |
 
-| `_bmad/rbtv/.cursor/agents/bmad-rbtv/*.md` | Source: subagent paths for manifest | p1-1 |
+| `.cursor/agents/bmad-rbtv/*.md` | Source: subagent paths for manifest | p1-1 |
 
-| `_bmad/rbtv/rbtv-manifest.csv` | Cross-reference for completeness; verify before deletion | p1-1, p3-3 |
+| `rbtv-manifest.csv` | Cross-reference for completeness; verify before deletion | p1-1, p3-3 |
 
-| `_bmad/rbtv/workflows/plan-lifecycle/data/plan-creation-rules.md` | Update agent invocation section | p2-1 |
+| `workflows/plan-lifecycle/data/plan-creation-rules.md` | Update agent invocation section | p2-1 |
 
-| `_bmad/rbtv/workflows/plan-lifecycle/workflow.md` | Update knowledge files table | p2-2 |
+| `workflows/plan-lifecycle/workflow.md` | Update knowledge files table | p2-2 |
 
-| `_bmad/rbtv/workflows/plan-lifecycle/templates/plan-task-microstep-template.md` | Add manifest pointer to Tools section | p2-3 |
+| `workflows/plan-lifecycle/templates/plan-task-microstep-template.md` | Add manifest pointer to Tools section | p2-3 |
 
-| `_bmad/rbtv/workflows/plan-lifecycle/steps-c/step-04-generate-artifacts.md` | Add manifest pointer to generation instructions | p2-4 |
+| `workflows/plan-lifecycle/steps-c/step-04-generate-artifacts.md` | Add manifest pointer to generation instructions | p2-4 |
 
-| `_bmad/rbtv/readme.md` | Add manifest location after Tool Delivery Model | p2-5 |
+| `readme.md` | Add manifest location after Tool Delivery Model | p2-5 |
 
-| `_bmad/rbtv/get_started.md` | Add manifest location where mechanisms explained | p2-6 |
+| `get_started.md` | Add manifest location where mechanisms explained | p2-6 |
 
-| `_bmad/rbtv/tasks/judge.xml` | Rename to quality-review.xml | p3-1 |
+| `tasks/judge.xml` | Rename to quality-review.xml | p3-1 |
 
-| `_bmad/rbtv/workflows/doc-context-handoff/steps-c/step-03-extraction.md` | Update judge references | p3-2 |
+| `workflows/doc-context-handoff/steps-c/step-03-extraction.md` | Update judge references | p3-2 |
 
 ---
 
@@ -307,7 +307,7 @@ flowchart TD
 
 ### Tasks
 
-- `p1-1`: CREATE `_bmad/rbtv/tools-manifest.csv` by scanning `_bmad/rbtv/.cursor/skills/bmad-rbtv/` and `_bmad/rbtv/.cursor/agents/bmad-rbtv/` folders — derive id, skill_path, subagent_path, description for each tool
+- `p1-1`: CREATE `tools-manifest.csv` by scanning `.cursor/skills/bmad-rbtv/` and `.cursor/agents/bmad-rbtv/` folders — derive id, skill_path, subagent_path, description for each tool
 - `p1-checkpoint`: **P1 CHECKPOINT** — Verify manifest completeness against existing rbtv-manifest.csv; confirm all tools captured with correct paths
 
 ---
@@ -318,12 +318,12 @@ flowchart TD
 
 ### Tasks
 
-- `p2-1`: UPDATE `_bmad/rbtv/workflows/plan-lifecycle/data/plan-creation-rules.md` — replace hardcoded subagent types list with manifest reference
-- `p2-2`: UPDATE `_bmad/rbtv/workflows/plan-lifecycle/workflow.md` — fix knowledge files table to clarify manifest lists both skills and subagents
-- `p2-3`: UPDATE `_bmad/rbtv/workflows/plan-lifecycle/templates/plan-task-microstep-template.md` — add manifest pointer to Tools section instructions
-- `p2-4`: UPDATE `_bmad/rbtv/workflows/plan-lifecycle/steps-c/step-04-generate-artifacts.md` — add manifest pointer to Tools section generation instructions
-- `p2-5`: UPDATE `_bmad/rbtv/readme.md` — add manifest location after Tool Delivery Model section
-- `p2-6`: UPDATE `_bmad/rbtv/get_started.md` — add manifest location where delivery mechanisms are explained
+- `p2-1`: UPDATE `workflows/plan-lifecycle/data/plan-creation-rules.md` — replace hardcoded subagent types list with manifest reference
+- `p2-2`: UPDATE `workflows/plan-lifecycle/workflow.md` — fix knowledge files table to clarify manifest lists both skills and subagents
+- `p2-3`: UPDATE `workflows/plan-lifecycle/templates/plan-task-microstep-template.md` — add manifest pointer to Tools section instructions
+- `p2-4`: UPDATE `workflows/plan-lifecycle/steps-c/step-04-generate-artifacts.md` — add manifest pointer to Tools section generation instructions
+- `p2-5`: UPDATE `readme.md` — add manifest location after Tool Delivery Model section
+- `p2-6`: UPDATE `get_started.md` — add manifest location where delivery mechanisms are explained
 - `p2-checkpoint`: **P2 CHECKPOINT** — Review documentation updates for consistency and atomic files compliance
 
 ---
@@ -334,10 +334,10 @@ flowchart TD
 
 ### Tasks
 
-- `p3-1`: MOVE `_bmad/rbtv/tasks/judge.xml` to `_bmad/rbtv/tasks/quality-review.xml` for naming consistency
-- `p3-2`: UPDATE `_bmad/rbtv/workflows/doc-context-handoff/steps-c/step-03-extraction.md` — replace judge references with quality-review and add invocation clarification
+- `p3-1`: MOVE `tasks/judge.xml` to `tasks/quality-review.xml` for naming consistency
+- `p3-2`: UPDATE `workflows/doc-context-handoff/steps-c/step-03-extraction.md` — replace judge references with quality-review and add invocation clarification
 - `p3-3`: Verify no remaining references to `rbtv-manifest.csv` across codebase (grep search)
-- `p3-4`: DELETE `_bmad/rbtv/rbtv-manifest.csv` (blocked until p3-3 confirms safe)
+- `p3-4`: DELETE `rbtv-manifest.csv` (blocked until p3-3 confirms safe)
 
 ---
 

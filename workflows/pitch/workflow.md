@@ -4,8 +4,6 @@ description: 'Build pitch decks through narrative-first stress-testing, data val
 pitch_type: '{pitch_type}'
 createStep: ./steps-c/step-01-init.md
 editStep: ./steps-e/step-e01-load.md
-outputFolder_investor: '{output_path}/{project-name}/_fundraising/{round}/YYYY-MM-DD-{fund}/'
-outputFolder_client: '{output_path}/{project-name}/_clients/{client}/presentations/YYYY-MM-DD-{objective}/'
 referenceFile: ../_shared/pitch-data/pitch-reference.md
 htmlPatternsFile: ../_shared/pitch-data/html-patterns.md
 promptingKnowledgeIndex: '{rbtv_path}/workflows/ai-consulting/prompting-assistance/data/knowledge-index.csv'
@@ -30,12 +28,14 @@ webResearchStandards: '{rbtv_path}/tasks/data/web-research-standards.md'
 
 This workflow supports two pitch types via the `{pitch_type}` variable:
 
-| pitch_type | Audience | Output Folder Pattern | Stress-Test Perspective |
-|------------|----------|---------------|------------------------|
-| `investor` | VCs, angels, accelerators | `_fundraising/{round}/YYYY-MM-DD-{fund}/` | The Investor — would I write a check? |
-| `client` | Customers, partners, procurement | `_clients/{client}/presentations/YYYY-MM-DD-{objective}/` | The Buyer — would I sign a contract? |
+| pitch_type | Audience | Stress-Test Perspective |
+|------------|----------|------------------------|
+| `investor` | VCs, angels, accelerators | The Investor — would I write a check? |
+| `client` | Customers, partners, procurement | The Buyer — would I sign a contract? |
 
 The `{pitch_type}` is set during workflow invocation by the agent command. Each step file contains conditional blocks that adapt content, framing, and deliverables based on this parameter.
+
+**Output path** is resolved via the `rbtv-output-resolution` rule (File Routing in workspace CLAUDE.md). The workflow never hardcodes folder conventions — the workspace owns its own directory structure.
 
 ---
 
@@ -50,7 +50,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 3. **Micro-file Design** — Each step is self-contained. Read it completely before acting.
 4. **Just-In-Time Loading** — Only the current step is in memory. Load next step only when user selects Continue.
 5. **Sequential Enforcement** — Steps execute in numbered order. No skipping, no optimization.
-6. **Context-First Discovery** — Always leverage existing documents before asking questions.
+6. **Context-First Discovery** — Once the output path is resolved, derive the entity directory and brand location from File Routing. Read existing documents before asking questions.
 
 ### Step Processing Rules
 
@@ -86,7 +86,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 | Step | File | Purpose |
 |------|------|---------|
 | 01 | step-01-init.md | Detect project, set output path, confirm pitch context |
-| 02 | step-02-context-gather.md | Gather content from founder docs via context-distill |
+| 02 | step-02-context-gather.md | Gather context from entity directory and brand folder |
 | 03 | step-03-narrative.md | Draft slide-by-slide narrative with inline stress-testing |
 | 04 | step-04-data-layer.md | Conceptual data/proof discussion — what evidence would validate each slide |
 | 05 | step-05-research-prompt.md | Generate research prompt + adversarial prompt for external AI |

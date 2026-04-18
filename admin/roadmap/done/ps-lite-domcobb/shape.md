@@ -123,7 +123,7 @@
 
 **Type:** Decision (user-directed)
 **Context:** User reviewed the inline `<action>` implementation and requested PS Lite follow the same format as other menu items — meaning a proper workflow file loaded via `exec=`, not an inline action.
-**Decision:** Replaced inline `<action id="ps-lite">` with `workflows/ps-lite/workflow.md` + `steps-c/step-01-converse.md`. Menu item changed from `action="ps-lite"` to `exec="{project-root}/_bmad/rbtv/workflows/ps-lite/workflow.md"`. Agent file dropped from 110 to 91 lines (back under 100-line limit — no exception needed).
+**Decision:** Replaced inline `<action id="ps-lite">` with `workflows/ps-lite/workflow.md` + `steps-c/step-01-converse.md`. Menu item changed from `action="ps-lite"` to `exec="{project-root}/workflows/ps-lite/workflow.md"`. Agent file dropped from 110 to 91 lines (back under 100-line limit — no exception needed).
 **Impact:** Overrides compound PRD decision "inline action" and plan shape decision "fastest to reach, no file loading overhead." User values structural consistency over latency optimization. All 7 acceptance criteria re-verified — still pass.
 
 ---

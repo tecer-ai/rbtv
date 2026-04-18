@@ -49,7 +49,7 @@ Derive a URL-friendly slug from the title (lowercase, hyphens, no special charac
 
 ### 2. Check for Existing Output
 
-Construct path: `{output_path}/{essay-slug}/essay.md`
+Construct path: `{essay-slug}/essay.md`
 
 - If file exists and has frontmatter with `stepsCompleted`: **STOP** — load and execute `{continueStepFile}` immediately
 - If file exists AND all steps complete: ask user to create new (with timestamp suffix) or modify existing
@@ -58,11 +58,11 @@ Construct path: `{output_path}/{essay-slug}/essay.md`
 ### 3. Fresh Workflow Setup
 
 #### A. Create Output Directory
-Create directory at `{output_path}/{essay-slug}/`
+Create directory at `{essay-slug}/`
 
 #### B. Create Output Document
-Copy template from `{templateFile}` to `{output_path}/{essay-slug}/essay.md`.
-Replace placeholders: `{essay-title}`, `{essay-slug}`, `{date}`, `{user_name}`.
+Copy template from `{templateFile}` to `{essay-slug}/essay.md`.
+Replace placeholders: `{essay-title}`, `{essay-slug}`, `{date}`.
 Initialize frontmatter:
 ```yaml
 stepsCompleted: ["step-01-init.md"]

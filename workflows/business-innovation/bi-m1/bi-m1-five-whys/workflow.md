@@ -2,7 +2,7 @@
 name: 'bi-m1-five-whys'
 description: 'Trace problems to structural root causes using 5 Whys methodology'
 nextStep: ./steps-c/step-01-init.md
-outputFolder: '{output_path}/{project-name}/business-innovation/m1-conception'
+outputFolder: '{project-name}/business-innovation/m1-conception'
 outputFile: five-whys.md
 ---
 

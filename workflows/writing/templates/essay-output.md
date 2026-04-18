@@ -4,7 +4,6 @@ stepsCompleted: []
 inputDocuments: []
 workflowType: 'essay'
 date: '{date}'
-user_name: '{user_name}'
 audience: ''
 objective: ''
 approach: ''

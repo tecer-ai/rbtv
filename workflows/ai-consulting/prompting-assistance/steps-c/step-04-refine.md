@@ -102,7 +102,7 @@ If the user discovered a useful pattern worth documenting:
 
 > "If you've discovered a reusable prompting pattern, we can document it. I'll route you to the Add Knowledge workflow."
 
-Route to: `{rbtv_path}/workflows/documentation/add-prompting-knowledge/workflow.md`
+Route to: `{rbtv_path}/workflows/ai-consulting/add-prompting-knowledge/workflow.md`
 
 ---
 

@@ -58,12 +58,12 @@ These layers are complementary, not competing. Defaults are the floor. Taste is 
 
 ### 0. Check for Existing Style Guide
 
-Check for a persistent style guide at `{output_path}/style-guide.md`.
+Check for a persistent style guide at `style-guide.md`.
 
 **If found:**
 - Read the style guide. Present a brief summary: essayCount, core directives, structural arc, key anti-patterns.
 - Ask: **"Your style guide is loaded ({essayCount} essays deep). Use it as voice baseline for this essay? Or start fresh?"**
-- If using existing: apply the style guide as the voice profile. Skip to step 3 (Confirm Voice Profile). Update frontmatter: `styleGuide: '{output_path}/style-guide.md'`.
+- If using existing: apply the style guide as the voice profile. Skip to step 3 (Confirm Voice Profile). Update frontmatter: `styleGuide: 'style-guide.md'`.
 - If starting fresh: proceed to step 1 below.
 
 **If not found:** proceed to step 1 below.
@@ -106,17 +106,17 @@ Present the voice profile to the user. Ask: "Does this capture the voice you wan
 
 ### 3b. Seed Persistent Style Guide (First-Time Only)
 
-If no persistent style guide exists at `{output_path}/style-guide.md` AND the user extracted or defined a voice profile (not skipped):
+If no persistent style guide exists at `style-guide.md` AND the user extracted or defined a voice profile (not skipped):
 
 Ask: **"Save this voice profile as the seed for your persistent style guide? It will grow smarter with each essay you complete."**
 
 If yes:
-- Copy `{styleGuideTemplate}` to `{output_path}/style-guide.md`
+- Copy `{styleGuideTemplate}` to `style-guide.md`
 - Populate Overview & Mission from the essay's objective
 - Populate Core Directives from the voice profile's key tensions
 - Populate initial Sentence-Level Preferences from the voice profile
 - Set `essayCount: 0`, `lastUpdated: {current date}`
-- Update essay frontmatter: `styleGuide: '{output_path}/style-guide.md'`
+- Update essay frontmatter: `styleGuide: 'style-guide.md'`
 
 If no: proceed without creating a style guide.
 

@@ -1,4 +1,11 @@
-"""Module manifest parser for RBTV install."""
+"""Module manifest parser for RBTV install.
+
+Parses admin/install/module-manifest.yaml into typed dataclasses. Each module
+declares skills, commands, rules, and subagents with source paths (relative to
+the RBTV root) and target paths (relative to the target workspace root).
+
+The manifest is the single source of truth for what gets installed per module.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,6 +20,7 @@ class SkillEntry:
     source_template: Path
     target_relative: Path
     bake_keys: tuple[str, ...]
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -20,6 +28,7 @@ class CommandEntry:
     source_template: Path
     target_relative: Path
     bake_keys: tuple[str, ...]
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -27,6 +36,7 @@ class RuleEntry:
     source: Path
     target_relative: Path
     mode: str  # "copy"
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -34,6 +44,7 @@ class SubagentEntry:
     source: Path
     target_relative: Path
     mode: str  # "copy"
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -59,6 +70,7 @@ def load_manifest(manifest_path: Path) -> dict[str, Module]:
                 source_template=Path(s["source_template"]),
                 target_relative=Path(s["target"]),
                 bake_keys=tuple(s.get("bake", [])),
+                description=s.get("description", ""),
             )
             for s in data.get("skills", [])
         )
@@ -67,6 +79,7 @@ def load_manifest(manifest_path: Path) -> dict[str, Module]:
                 source_template=Path(c["source_template"]),
                 target_relative=Path(c["target"]),
                 bake_keys=tuple(c.get("bake", [])),
+                description=c.get("description", ""),
             )
             for c in data.get("commands", [])
         )
@@ -75,6 +88,7 @@ def load_manifest(manifest_path: Path) -> dict[str, Module]:
                 source=Path(r["source"]),
                 target_relative=Path(r["target"]),
                 mode=r.get("mode", "copy"),
+                description=r.get("description", ""),
             )
             for r in data.get("rules", [])
         )
@@ -83,6 +97,7 @@ def load_manifest(manifest_path: Path) -> dict[str, Module]:
                 source=Path(s["source"]),
                 target_relative=Path(s["target"]),
                 mode=s.get("mode", "copy"),
+                description=s.get("description", ""),
             )
             for s in data.get("subagents", [])
         )

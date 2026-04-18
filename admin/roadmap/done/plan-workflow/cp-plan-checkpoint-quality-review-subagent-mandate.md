@@ -7,9 +7,9 @@ tracker: ''
 stepsCompleted: ['step-01-init.md', 'step-02-self-assessment.md', 'step-03-discussion.md', 'step-04-document.md']
 inputDocuments:
   - '.cursor/plans/robotville-vps-nanobot-rbtv-integration/robotville-vps-nanobot-rbtv-integration.plan.md'
-  - '_bmad/rbtv/tasks/quality-review.xml'
-  - '_bmad/rbtv/workflows/plan-lifecycle/data/plan-creation-rules.md'
-outputPath: '_bmad/rbtv/_admin/roadmap/todos'
+  - 'tasks/quality-review.xml'
+  - 'workflows/plan-lifecycle/data/plan-creation-rules.md'
+outputPath: '_admin/roadmap/todos'
 date: '2026-02-13'
 yoloMode: false
 ---
@@ -59,15 +59,15 @@ Current rules include general checkpoint halt behavior and explicit agent invoca
 
 | File | Issue |
 |------|-------|
-| `_bmad/rbtv/workflows/plan-lifecycle/data/plan-creation-rules.md` | Has checkpoint halt requirement, but no universal rule requiring quality-review subagent execution at checkpoints. |
-| `_bmad/rbtv/tasks/quality-review.xml` | Defines a strict gate evaluator and verdict format, but not yet mandated as checkpoint execution default. |
+| `workflows/plan-lifecycle/data/plan-creation-rules.md` | Has checkpoint halt requirement, but no universal rule requiring quality-review subagent execution at checkpoints. |
+| `tasks/quality-review.xml` | Defines a strict gate evaluator and verdict format, but not yet mandated as checkpoint execution default. |
 | `.cursor/plans/robotville-vps-nanobot-rbtv-integration/robotville-vps-nanobot-rbtv-integration.plan.md` | Includes checkpoint entries but does not encode standardized quality-review invocation in checkpoint content. |
 
 ### Improvement Options
 
 1. **Rule Update (SELECTED)**: Add a mandatory checkpoint rule requiring `quality-review` subagent execution before user-facing gate decision.
    - **Rationale:** Smallest high-impact change; updates source-of-truth behavior for all future plans.
-   - **Location:** `_bmad/rbtv/workflows/plan-lifecycle/data/plan-creation-rules.md`
+   - **Location:** `workflows/plan-lifecycle/data/plan-creation-rules.md`
 
 2. **Template Hardening**: Add fixed checkpoint content snippet in plan templates with explicit quality-review invocation.
    - **Rationale:** Improves default generation quality.
@@ -148,9 +148,9 @@ The plan generator must compose the review prompt at plan creation time and embe
 
 | Aspect | Details |
 |--------|---------|
-| File(s) to modify/create | `_bmad/rbtv/workflows/plan-lifecycle/data/plan-creation-rules.md` (checkpoint rules + YAML schema), plan template (checkpoint content guidance), plan-lifecycle step that generates checkpoint tasks |
+| File(s) to modify/create | `workflows/plan-lifecycle/data/plan-creation-rules.md` (checkpoint rules + YAML schema), plan template (checkpoint content guidance), plan-lifecycle step that generates checkpoint tasks |
 | Scope of change | Add checkpoint YAML schema extension (`reviewAgent`, `reviewPrompt`), add generation rules for reviewPrompt composition, update executor instructions for structured checkpoint handling |
-| Related files | `_bmad/rbtv/tasks/quality-review.xml`, any plan template or generation workflow file that emits checkpoint task text |
+| Related files | `tasks/quality-review.xml`, any plan template or generation workflow file that emits checkpoint task text |
 
 ---
 
@@ -184,8 +184,8 @@ Pre-composing the review prompt at plan creation time closes a second gap: the p
 
 | File | Relationship |
 |------|--------------|
-| `_bmad/rbtv/workflows/plan-lifecycle/data/plan-creation-rules.md` | Primary enforcement file |
-| `_bmad/rbtv/tasks/quality-review.xml` | Required evaluator protocol and verdict logic |
+| `workflows/plan-lifecycle/data/plan-creation-rules.md` | Primary enforcement file |
+| `tasks/quality-review.xml` | Required evaluator protocol and verdict logic |
 | `.cursor/plans/robotville-vps-nanobot-rbtv-integration/robotville-vps-nanobot-rbtv-integration.plan.md` | Example plan where checkpoint rigor requirement surfaced |
 
 ---
@@ -194,13 +194,13 @@ Pre-composing the review prompt at plan creation time closes a second gap: the p
 
 - Checkpoint behavior baseline in plan-lifecycle rules (`Checkpoint Rules` section)
 - Explicit subagent invocation conventions in `Agent Invocation in Tasks`
-- Quality gate protocol in `_bmad/rbtv/tasks/quality-review.xml`
+- Quality gate protocol in `tasks/quality-review.xml`
 
 ---
 
 ## Discussion Notes
 
 - User intent: "all plan checkpoints must include quality review as sub agent to execute the task."
-- Storage constraint: save compound output under `_bmad/rbtv/_admin/roadmap/todos/`.
+- Storage constraint: save compound output under `_admin/roadmap/todos/`.
 - Follow-up (2026-03-09): User identified that checkpoint tasks should carry the full review prompt pre-composed, not just a mandate to run quality-review. The plan generator has the phase context at creation time; the executor should not have to reconstruct it. Initially added `reviewAgent`/`reviewPrompt` YAML schema extension.
 - Follow-up (2026-03-09): YAML approach failed in practice — Cursor's plan YAML serializer silently stripped custom fields when executor updated checkpoint status to `in_progress`. Executor then couldn't find the review prompt and started improvising. Fix: moved review prompts from YAML to plan body markdown as `#### P{N} Checkpoint Review Prompt` subsections with blockquoted prompts. Updated all plan-lifecycle files (rules, template, step-03, step-05) to reflect body-embedded standard.

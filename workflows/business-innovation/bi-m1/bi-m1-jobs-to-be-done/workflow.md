@@ -2,7 +2,7 @@
 name: 'bi-m1-jobs-to-be-done'
 description: 'Understand customer progress goals through Jobs-to-be-Done methodology'
 nextStep: ./steps-c/step-01-init.md
-outputFolder: '{output_path}/{project-name}/business-innovation/m1-conception'
+outputFolder: '{project-name}/business-innovation/m1-conception'
 outputFile: jobs-to-be-done.md
 ---
 

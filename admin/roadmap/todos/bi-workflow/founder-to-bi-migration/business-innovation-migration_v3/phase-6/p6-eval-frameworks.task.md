@@ -24,8 +24,8 @@ For M6 frameworks that were "routed to BMAD," verify that actual BMAD workflows 
 | `refs/founder/m4_prototypation/prototypation_process.md` | Source: M4 process detail |
 | `refs/founder/m5_market_validation/market_validation_process.md` | Source: M5 process detail |
 | `refs/founder/m6_mvp/mvp_process.md` | Source: M6 process detail |
-| `_bmad/rbtv/workflows/bi-business-innovation/bi-m4/workflow.md` | Current: M4 milestone workflow |
-| `_bmad/rbtv/readme.md` | Current: RBTV readme (M4 note needs update) |
+| `workflows/bi-business-innovation/bi-m4/workflow.md` | Current: M4 milestone workflow |
+| `readme.md` | Current: RBTV readme (M4 note needs update) |
 | shape.md | Prior decisions from p6-1 and p6-2 |
 
 > **Note:** `refs/` is relative to this plan folder and contains the original founder module content.
@@ -152,7 +152,7 @@ The plan claims "Full BMAD integration — all software development routes to BM
 | Decision matrix (21 frameworks) | shape.md | Markdown table |
 | BMAD routing verification map (M6) | shape.md | Framework → BMAD path table |
 | Plan updates (if any new tasks) | plan YAML + markdown | New todo entries |
-| Readme M4 note update | `_bmad/rbtv/readme.md` | Remove or reword line 170 |
+| Readme M4 note update | `readme.md` | Remove or reword line 170 |
 
 ---
 

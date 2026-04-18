@@ -11,9 +11,74 @@ RBTV is a self-contained set of agents, workflows, skills, and rules designed to
 - Claude Code (CLI, desktop, or IDE extension)
 - Python 3.11+ (for `install.py`)
 - `pyyaml` Python package
-- BMAD plugins for full functionality:
-  - `bmad-method-lifecycle` (Ana references this for PRD, Brief, UX)
-  - `bmad-pro-skills` (DomCobb references this for Problem Solving)
+- Claude Code plugins (see [Plugins](#plugins) for install instructions)
+
+### Optional dependencies (per module)
+
+**npm:**
+
+| Dependency | Install | Required by |
+|---|---|---|
+| `playwright-cli` | `npx playwright install` | browser-automation, design-extraction, playwright-cli skill |
+| `serve` | `npx -y serve` (auto) | browser-automation (local server for file:// bypass) |
+| `md-to-pdf` | `npm install -g md-to-pdf` | doc-export (PDF output) |
+| `defuddle` | `npm install -g defuddle` | web-search, web-searching skill |
+| `decktape` | `npx decktape` (auto) | pitch (HTML→PDF export) |
+
+**Python:**
+
+| Dependency | Install | Required by |
+|---|---|---|
+| `python-docx` | `pip install python-docx` | doc-export (DOCX output) |
+| `pyyaml` | `pip install pyyaml` | doc-export (DOCX output), install.py |
+
+**System:**
+
+| Dependency | Required by |
+|---|---|
+| `git` | commit workflow |
+
+**Runtime CDN (no install — loaded at render time):**
+
+| Resource | Required by |
+|---|---|
+| Google Fonts (Inter), Font Awesome 6, Material Icons | pitch (HTML slides) |
+| Twitter/YouTube/noembed oEmbed APIs | web-search (embed previews) |
+
+## Plugins
+
+RBTV uses Claude Code plugins for extended functionality. Install them from inside a Claude Code session using `/plugin` commands.
+
+**Required** — some RBTV agents depend on these:
+
+| Plugin | What it provides |
+|---|---|
+| `bmad-method-lifecycle` | PRD, Brief, UX workflows (used by Ana) |
+| `bmad-pro-skills` | Problem solving, brainstorming (used by DomCobb) |
+
+```
+/plugin marketplace add https://github.com/bmad-code-org/BMAD-METHOD.git
+/plugin install bmad-pro-skills@bmad-method
+/plugin install bmad-method-lifecycle@bmad-method
+```
+
+**Recommended** — not required, but complement RBTV well:
+
+| Plugin | What it provides |
+|---|---|
+| `frontend-design` | Production-grade UI generation with high design quality |
+| `superpowers` | Skill-driven workflows, TDD, brainstorming, plan execution, code review |
+| `compound-engineering` | Frontend design, git workflows, debugging, ideation, browser automation |
+
+```
+/plugin install frontend-design@claude-plugins-official
+/plugin install superpowers@claude-plugins-official
+```
+
+```
+/plugin marketplace add EveryInc/compound-engineering-plugin
+/plugin install compound-engineering@compound-engineering-plugin
+```
 
 ## Install
 
@@ -35,24 +100,13 @@ RBTV is a self-contained set of agents, workflows, skills, and rules designed to
    The installer prompts for:
    - Modules to install (core is always included)
 
-   Output paths are NOT configured at install time. They are resolved at runtime from `## File Routing` blocks in your workspace's CLAUDE.md files (governed by the `rbtv-output-resolution` rule). See step 4 below to populate these blocks after install.
+   Output paths are resolved at runtime by the `rbtv-output-resolution` rule, which uses conversation context and workspace CLAUDE.md conventions to propose paths.
 
 3. After install, your workspace has:
-   - `.claude/skills/rbtv-*/` — thin loaders for skills (including `rbtv-output-routing` for the post-install setup in step 4)
-   - `.claude/commands/rbtv-*.md` — slash commands (including `/rbtv-output-routing`)
+   - `.claude/skills/rbtv-*/` — thin loaders for skills
+   - `.claude/commands/rbtv-*.md` — slash commands
    - `.claude/rules/rbtv-*.md` — rule content (copied — includes `rbtv-output-resolution` which governs how components resolve output paths at runtime)
-   - `.claude/agents/rbtv-*.md` — dispatchable subagents (designer, web-research)
    - `rbtv.yaml` — your install config
-
-4. Configure output routing (one-time post-install):
-
-   Open Claude Code in the workspace and run:
-
-   ```
-   /rbtv-output-routing
-   ```
-
-   The workflow scans your CLAUDE.md files and interactively writes `## File Routing` blocks so RBTV components know where to place outputs. Routing is human-readable in CLAUDE.md and can be edited by hand or re-run via the same command whenever structure changes.
 
 ## Modules
 
@@ -60,7 +114,7 @@ RBTV is a self-contained set of agents, workflows, skills, and rules designed to
 |---|---|
 | **core** (always installed) | Generic productivity skills — planning, documentation, domcobb (problem structuring), meeting summarization, web research, component creation |
 | **innovation** | Business innovation frameworks (lean canvas, JTBD, TAM/SAM/SOM, brandbook) via Paul, plus product discovery |
-| **work-productivity** | Pitch generation (client, investor), design extraction, visual design via Vivian |
+| **work-productivity** | Pitch generation (client, investor), design extraction, visual design via Vivian, document export (PDF/DOCX with brand discovery), legal advisory |
 | **writing** | Long-form writing via George Orwell, tone extraction |
 
 ## Updating RBTV
@@ -76,8 +130,6 @@ Content changes appear live. You only need to re-run `install.py` when:
 - Adding or removing modules
 - RBTV's own module manifest or loader templates change
 
-To change output routing, edit the `## File Routing` blocks in your workspace CLAUDE.md files directly, or re-run `/rbtv-output-routing`. No install re-run needed.
-
 ## Source of truth
 
 Installed files in `.claude/skills/rbtv-*`, `.claude/commands/rbtv-*.md`, `.claude/rules/rbtv-*.md`, `.claude/agents/rbtv-*.md` are regenerated on every `install.py` run. **Do not edit them in your workspace** — edit the source in this repo and re-install. See `.claude/rules/rbtv-source-of-truth.md` in your workspace for more.
@@ -91,8 +143,4 @@ Installed files in `.claude/skills/rbtv-*`, `.claude/commands/rbtv-*.md`, `.clau
 
 ## Extending RBTV
 
-Use `/rbtv-create-component` with Fernando. When you create a new component, Fernando asks whether to publish it to the RBTV source (requires re-install to propagate) or write it locally to your workspace only.
-
-## License and contact
-
-TBD.
+Use `/rbtv-create-component`. When you create a new component, the agent will ask whether to publish it to the RBTV source (requires re-install to propagate) or write it locally to your workspace only.

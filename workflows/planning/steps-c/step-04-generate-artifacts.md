@@ -166,7 +166,7 @@ human_review: {required | optional | none}
 **Content includes:**
 - Goal section — what this task achieves
 - Context Files — task-specific documents to load. **Path format:** files outside the plan folder use project-root-relative paths (e.g., `workflows/planning/workflow.md`); files inside the plan folder use file-relative paths (e.g., `../shape.md`). See Plan Linking Standard in `plan-creation-rules.md`.
-- Tools section — ONLY if task requires specialized RBTV skills/subagents (omit for basic Read/Write/Shell tasks). When including Tools: reference skills under `_bmad/rbtv/skills/` and subagents under `_bmad/rbtv/subagents/` by path
+- Tools section — ONLY if task requires specialized RBTV skills/subagents (omit for basic Read/Write/Shell tasks). When including Tools: reference skills under `skills/` and subagents under `subagents/` by path
 - Execution Flow — phased steps (understand → execute → validate → close)
 - Discovery Handling — revolving plan rules
 - Output Requirements — what to produce and where

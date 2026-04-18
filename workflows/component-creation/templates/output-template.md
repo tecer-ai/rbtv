@@ -13,7 +13,6 @@ stepsCompleted: []
 inputDocuments: []
 workflowType: '{workflow-type}'
 date: '{{date}}'
-user_name: '{{user_name}}'
 project_name: '{{project_name}}'
 ---
 

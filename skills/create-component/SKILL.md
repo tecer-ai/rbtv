@@ -1,10 +1,8 @@
 ---
 name: rbtv-create-component
-description: "Create a new RBTV component (agent, skill, workflow, rule, task). Use when adding to or extending the RBTV system."
+description: "Create a new AI system component (skill, workflow, rule, task, persona, command). Works for RBTV, vault, and any workspace with a CLAUDE.md."
 ---
 
 # Create Component
 
-**CRITICAL — Load persona file FULLY before acting.**
-
-1. Load persona from `{rbtv_path}/personas/fernando.md`.
+Read and execute `{rbtv_path}/workflows/component-creation/workflow.md`.

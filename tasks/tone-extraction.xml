@@ -1,4 +1,4 @@
-<task id="_bmad/rbtv/tasks/tone-extraction.xml"
+<task id="tasks/tone-extraction.xml"
       name="Tone Extraction"
       standalone="true"
       description="Extract voice signature from text across emotional tone, structural patterns, and vocabulary dimensions">

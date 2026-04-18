@@ -11,7 +11,7 @@ inputDocuments:
   - '.cursor/plans/robotville-vps-nanobot-rbtv-integration/phase-4/p4-compound.task.md'
   - 'workflows/doc-compound-learning/workflow.md'
   - 'workflows/doc-compound-learning/steps-c/step-02-self-assessment.md'
-outputPath: '_bmad/rbtv/_admin/roadmap/todos'
+outputPath: '_admin/roadmap/todos'
 date: '2026-02-14'
 yoloMode: false
 ---

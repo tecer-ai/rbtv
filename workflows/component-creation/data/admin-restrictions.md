@@ -6,17 +6,13 @@
 
 ## Hard Restrictions
 
-### 1. BMAD Component Map Check
+### 1. Check Existing Capabilities
 
-Before any component creation or structural modification, read `_admin/docs/BMAD-mirror/_bmad/_config/bmad-help.csv`. This manifest lists every BMAD capability with module, name, and description. Evaluate whether the request can be delegated totally or partially to an existing BMAD component.
+Before any component creation or structural modification, check existing RBTV skills, commands, rules and workflows. Evaluate whether the request can be delegated totally or partially to an existing component.
 
-### 2. Never Touch BMAD
+### 2. Leverage BMAD Plugins
 
-BMAD is maintained by a separate group unaware of RBTV. NEVER modify BMAD components directly. In a BMAD instance, touch BMAD files only when absolutely unavoidable — and when done, automate the change (via installer or script) so it survives BMAD updates without manual intervention.
-
-### 3. Leverage BMAD
-
-Use all BMAD components (not just entry points) to make RBTV and business innovation modules more powerful. RBTV integrates TO BMAD; integrating BMAD to RBTV is out of scope.
+Use BMAD plugins (installed via Claude Code) for product lifecycle workflows (PRDs, architecture, stories) and advanced elicitation. RBTV integrates TO BMAD plugins; internalizing BMAD logic is out of scope.
 
 ### 4. Prefer Native BMAD
 

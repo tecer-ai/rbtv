@@ -79,19 +79,13 @@ description: '{description}. Use when {trigger conditions}.'
 Load and follow: `{rbtv_path}/{type}/{path}`
 ```
 
-### Thin Loader Design Decisions
+### Thin Loader Rule
 
-RBTV skills are thin loaders by default — `SKILL.md` only loads and delegates to an agent, workflow, or task. All logic lives in the BMAD architecture (`personas/`, `workflows/`, `tasks/`).
+Skills are ALWAYS thin loaders. No exceptions. `SKILL.md` loads and delegates — all logic lives in the workflow, task, or agent it points to.
 
-A skill MUST go beyond thin loader when any of these apply:
+If the capability does not yet have a backing workflow or task, create one first. The skill entry point always delegates.
 
-| Condition | What to add to the skill folder |
-|---|---|
-| Skill needs custom tool definitions (MCP tools, API integrations) | Tool config files in skill directory |
-| Skill needs co-located data not part of BMAD architecture (schemas, prompt templates specific to this skill only) | Data files in skill directory |
-| Skill is standalone — does not wrap an existing BMAD agent/task/workflow | Full logic in `SKILL.md` or co-located files |
-
-If none apply, use the thin loader pattern. The `description` and `When to use` fields are what the AI reads for auto-trigger matching — these MUST be rich enough for accurate detection regardless of whether the skill is thin or fat.
+Co-located data files (schemas, prompt templates) and tool config files may live in the skill folder alongside `SKILL.md`, but `SKILL.md` itself contains only the load instruction.
 
 ---
 
@@ -181,7 +175,7 @@ For RBTV: `{system}` = `bmad`, `{module}` = `rbtv`.
 ## Critical Rules
 
 1. **ZERO LOGIC in thin loaders** — Thin loaders only load files. All logic lives in agent/workflow/task files.
-2. **Use {project-root}** — Never hardcode absolute paths. Never use `@{project-root}`.
+2. **Use {rbtv_path}** — Never hardcode absolute paths. Never use `@{rbtv_path}`.
 3. **Agent activation standard** — When loading an RBTV agent, ALWAYS use the 4-step `<agent-activation>` block. Never use the single-line "IT IS CRITICAL" pattern for agents.
 4. **Cursor sub-agent inputs** — Cursor sub-agents run with zero context. ALWAYS specify required inputs and return values.
 5. **Skills are the only entry point** — RBTV does not use commands. Skills serve both human invocation and AI auto-detection. The installer deploys skills to `.claude/skills/` and `.cursor/skills/`.

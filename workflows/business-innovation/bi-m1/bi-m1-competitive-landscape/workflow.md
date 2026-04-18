@@ -2,7 +2,7 @@
 name: 'bi-m1-competitive-landscape'
 description: 'Map competitive landscape with verified current data via web research'
 nextStep: ./steps-c/step-01-init.md
-outputFolder: '{output_path}/{project-name}/business-innovation/m1-conception'
+outputFolder: '{project-name}/business-innovation/m1-conception'
 outputFile: competitive-landscape.md
 ---
 

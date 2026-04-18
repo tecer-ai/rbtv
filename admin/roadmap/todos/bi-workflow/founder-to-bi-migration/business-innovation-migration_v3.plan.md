@@ -203,7 +203,7 @@ isProject: false
 
 ### Problem Statement
 
-Migrate the founder system from `refs/founder/` (exact content at `BMAD/projects/rbtv-development/wip/founder-migration/refs`) to BMAD architecture in `_bmad/rbtv/`. The founder system guides users through a 6-milestone startup lifecycle (conception to MVP) using structured frameworks and documentation.
+Migrate the founder system from `refs/founder/` (exact content at `BMAD/projects/rbtv-development/wip/founder-migration/refs`) to BMAD architecture in ``. The founder system guides users through a 6-milestone startup lifecycle (conception to MVP) using structured frameworks and documentation.
 
 ### User Goals
 
@@ -320,9 +320,9 @@ projects/{project-name}/founder/
 
 | `refs/founder/templates/*.md` | Source: output templates | P1 |
 
-| `_bmad/bmb/workflows/workflow/templates/*.md` | Reference: BMAD workflow templates | All |
+| `bmb/workflows/workflow/templates/*.md` | Reference: BMAD workflow templates | All |
 
-| `_bmad/bmb/workflows/agent/templates/*.md` | Reference: BMAD agent templates | All |
+| `bmb/workflows/agent/templates/*.md` | Reference: BMAD agent templates | All |
 
 **Note:** `refs/` is at `BMAD/projects/rbtv-development/wip/founder-migration/refs` and contains the exact founder module content (no dependency on robotville).
 
@@ -490,7 +490,7 @@ flowchart TD
 - Bypass BMAD agents; delegate directly to their workflows (avoids persona conflict)
 - Project-memo updates and return routing are always RBTV's responsibility
 - Standard pattern documented in `workflows/build-rbtv-component/data/bmad-architecture.md`
-- Tasks location: `_bmad/rbtv/tasks/update-bmad-config.xml` and `restore-bmad-config.xml`
+- Tasks location: `tasks/update-bmad-config.xml` and `restore-bmad-config.xml`
 
 **Note:** M4 Design Context bridge has been simplified from 6 steps (5 files) to 3 steps (3 files) using this standard pattern. See `bi-m4-design-context/steps-c/step-03-delegate-and-synthesize.md`.
 

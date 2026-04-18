@@ -2,7 +2,7 @@
 name: 'bi-m1-conception'
 description: 'Structure idea into comprehensive business concept through 6 frameworks'
 nextStep: ./steps-c/step-01-init.md
-outputFolder: '{output_path}/{project-name}/business-innovation/m1-conception'
+outputFolder: '{project-name}/business-innovation/m1-conception'
 ---
 
 # M1 Conception Milestone Workflow
