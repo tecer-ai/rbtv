@@ -27,20 +27,17 @@
     <step n="2" title="General Overview (No Project)">
       <substep n="2a" title="Load Data">
         <action>Read {rbtv_path}/workflows/business-innovation/data/founder-process.md</action>
-        <action>Extract the 6 milestones from the Milestones Summary table (name and goal columns).</action>
+        <action>Extract the milestones from the Milestones Summary table (name and goal columns).</action>
       </substep>
       <substep n="2b" title="Display">
         <action>Output this format (substitute milestone data from the file):
 
 🎯 INNOVATOR OVERVIEW: The Founder Journey
 
-6 milestones from idea to MVP:
+3 milestones from idea to brand:
   M1: {name} — {goal}
   M2: {name} — {goal}
   M3: {name} — {goal}
-  M4: {name} — {goal}
-  M5: {name} — {goal}
-  M6: {name} — {goal}
 
 → Use [N] to start a new project or [C] to continue an existing one.</action>
       </substep>

@@ -55,87 +55,22 @@ Look for these step IDs to determine M2 framework completion:
 - `bi-m2-technology-readiness-level`
 - `bi-m2-pre-mortem`
 
-### 1b. Optional BMAD Analyst Workflows
+### 1b. Market Research Recommendation
 
-Check project-memo frontmatter for `bmadAnalystCompleted: true`. If set, skip this section entirely.
+Check project-memo frontmatter for `externalResearchCompleted: true`. If set, skip this section.
 
 If NOT set, present:
 
-> "Before diving into M2 validation frameworks, you can optionally run BMAD market research or brainstorming to gather additional data.
+> "💡 **Market data improves M2 quality.** TAM/SAM/SOM and Unit Economics both require external data — industry sizing, competitive benchmarks, pricing references. If you haven't gathered this yet, consider running market research before starting M2 frameworks.
 >
-> This is recommended if:
-> - You haven't done market/competitive research yet
-> - You want structured brainstorming before assumption testing
-> - Your M1 conception feels incomplete
+> If you have the `bmad-method-lifecycle` plugin installed, `bmad-method-lifecycle:bmad-market-research` (or `bmad-domain-research` / `bmad-technical-research`) can generate structured research from your M1 artifacts. Run it in a separate session, save outputs to `{project-name}/business-innovation/m2-validation/external-research/`.
 >
-> BMAD outputs will feed into your M2 frameworks as source material.
->
-> [R] Run BMAD Research — market, competitive, or domain analysis
-> [B] Run BMAD Brainstorm — expert-guided brainstorming session
-> [S] Skip — proceed directly to M2 frameworks
-> [X] Skip permanently — never show this option again"
+> [P] Proceed to M2 frameworks
+> [X] Proceed and don't show this again"
 
 **On selection:**
-- **[S]**: Continue to Section 2 (framework menu)
-- **[X]**: Set `bmadAnalystCompleted: true` in project-memo frontmatter, continue to Section 2
-- **[R] or [B]**: Execute the BMAD delegation sequence below, then return here
-
-#### BMAD Analyst Delegation Sequence
-
-**1. PREPARE CONTEXT**
-M1 conception artifacts already exist on disk at:
-`{project-name}/business-innovation/m1-conception/`
-No files to copy — config update (next step) will point BMAD to this location.
-
-**2. UPDATE CONFIG**
-Run task: `{rbtv_path}/tasks/update-bmad-config.xml`
-Inputs:
-- `target_module`: "bmm"
-- `project_name`: `{project-name}`
-- `rbtv_output_folder`: `{project-name}/business-innovation/m2-validation/bmad-analysis`
-- `rbtv_planning_artifacts`: `{project-name}/business-innovation/m1-conception`
-
-This sets:
-- `output_folder` → bmad-analysis/ (where BMAD writes new files)
-- `planning_artifacts` → m1-conception/ (where BMAD reads M1 context)
-
-**3. INSTRUCT USER**
-> "Open a NEW conversation (or agent session) and load the BMAD workflow directly (do NOT load the analyst agent — we are delegating to the workflow, not the agent):
->
-> [R] Research: invoke the `bmad-method-lifecycle:bmad-market-research` (or `bmad-domain-research`/`bmad-technical-research`) skill.
-> [B] Brainstorm: invoke the `bmad-pro-skills:bmad-brainstorming` skill.
->
-> The workflow will automatically find your M1 conception artifacts via config.yaml (planning_artifacts has been set to your M1 folder).
->
-> After the BMAD workflow completes, return to THIS conversation and select [C] Continue."
-
-**4. WAIT FOR COMPLETION**
-> "[C] Continue — BMAD workflow complete"
-
-HALT — wait for user confirmation.
-
-**5. MENTOR-ASSISTED FILE PLACEMENT**
-Ask user what files BMAD produced. Verify they are at `{project-name}/business-innovation/m2-validation/bmad-analysis/`.
-If files landed elsewhere, help user move/copy them to `bmad-analysis/`.
-
-**6. RESTORE CONFIG**
-Run task: `{rbtv_path}/tasks/restore-bmad-config.xml`
-Inputs: `target_module`: "bmm"
-
-**7. SYNTHESIS**
-- Read BMAD output at `{project-name}/business-innovation/m2-validation/bmad-analysis/`
-- Update project-memo:
-  - Set `bmadAnalystCompleted: true` in frontmatter
-  - Add to Progress > M2 Validation section:
-    ```
-    ### BMAD Analysis (Optional — Pre-M2)
-    **Status:** Complete
-    **Output:** {outputFolder}/bmad-analysis/
-    **Summary:** [brief summary of research/brainstorm output]
-    ```
-
-**8. RETURN TO FRAMEWORK MENU**
-Continue to Section 2. User may run the delegation sequence again for a different workflow (e.g., Research then Brainstorm) — re-present the [R]/[B]/[S]/[X] menu if `bmadAnalystCompleted` is still false.
+- **[P]**: Continue to Section 2 (framework menu)
+- **[X]**: Set `externalResearchCompleted: true` in project-memo frontmatter, continue to Section 2
 
 ---
 

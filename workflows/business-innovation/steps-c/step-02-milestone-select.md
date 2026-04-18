@@ -59,9 +59,6 @@ Read `{projectMemo}` frontmatter to understand:
 | M1: Conception | `../bi-m1/workflow.md` |
 | M2: Validation | `../bi-m2/workflow.md` |
 | M3: Brand | `../bi-m3/workflow.md` |
-| M4: Prototypation | `../bi-m4/workflow.md` |
-| M5: Market Validation | `../bi-m5/workflow.md` |
-| M6: MVP | `../bi-m6/workflow.md` |
 
 ### 3. Route Immediately
 

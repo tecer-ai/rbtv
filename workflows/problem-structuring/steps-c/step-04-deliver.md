@@ -115,7 +115,6 @@ Present these options and HALT:
 
 | Option | Action |
 |--------|--------|
-| **[PS] Problem Solving** | Offer two approaches and let user choose (see ON PROBLEM SOLVING) |
 | **[R] Revise** | Go back and modify any section |
 | **[E] Export** | Copy final document content to clipboard |
 | **[N] New Problem** | Start fresh with a different problem |
@@ -123,18 +122,11 @@ Present these options and HALT:
 
 ---
 
-## ON PROBLEM SOLVING
+## POST-DELIVERY RECOMMENDATION
 
-If user selects [PS]:
+After presenting the final deliverable, add:
 
-Present two approaches and let the user choose:
-
-| Option | Skill | Best for |
-|--------|-------|----------|
-| **[AE] Advanced Elicitation** | `bmad-pro-skills:bmad-advanced-elicitation` | Deep critique, first-principles analysis, pre-mortem, red-teaming |
-| **[BR] Brainstorming** | `bmad-pro-skills:bmad-brainstorming` | Creative ideation, divergent thinking, generating solution options |
-
-Invoke the selected skill. Pass the output document as context.
+> "💡 **Ready to solve this?** If you have the `bmad-pro-skills` plugin installed, try `bmad-pro-skills:bmad-advanced-elicitation` (deep critique, first-principles, pre-mortem) or `bmad-pro-skills:bmad-brainstorming` (creative ideation) using your structured problem as input."
 
 ---
 

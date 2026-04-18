@@ -61,10 +61,7 @@ I'll create the following structure for "{project-name}":
 ├── project-memo.md        # Your cumulative project summary + state tracking
 ├── m1-conception/         # M1 framework outputs
 ├── m2-validation/         # M2 framework outputs
-├── m3-brand/              # M3 framework outputs
-├── m4-prototypation/      # M4 framework outputs
-├── m5-market-validation/  # M5 framework outputs
-└── m6-mvp/                # M6 framework outputs
+└── m3-brand/              # M3 framework outputs
 
 Proceed with setup? [Y/N]
 ```
@@ -79,9 +76,6 @@ mkdir -p {outputFolder}
 mkdir -p {outputFolder}/m1-conception
 mkdir -p {outputFolder}/m2-validation
 mkdir -p {outputFolder}/m3-brand
-mkdir -p {outputFolder}/m4-prototypation
-mkdir -p {outputFolder}/m5-market-validation
-mkdir -p {outputFolder}/m6-mvp
 ```
 
 ### 4. Initialize Project Memo
@@ -101,7 +95,7 @@ Present completion summary:
 
 Created:
 - project-memo.md (your cumulative project summary + state tracking)
-- 6 milestone folders (m1-conception through m6-mvp)
+- 3 milestone folders (m1-conception through m3-brand)
 
 You're ready to begin with M1: Conception.
 ```

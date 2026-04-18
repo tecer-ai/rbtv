@@ -1,6 +1,6 @@
 # Founder Process Knowledge
 
-Master navigation for the 6-milestone business innovation lifecycle from idea to MVP.
+Master navigation for the 3-milestone business innovation lifecycle from idea to brand.
 
 ---
 
@@ -11,9 +11,6 @@ Master navigation for the 6-milestone business innovation lifecycle from idea to
 | M1: Conception | Structure idea into comprehensive business concept | Working Backwards, Jobs-to-be-Done, Competitive Landscape, Problem-Solution Fit, Lean Canvas, 5 Whys | bi-business-innovation/bi-m1/workflow.md |
 | M2: Validation | Validate technical and financial feasibility | Leap of Faith, Assumption Mapping, TAM/SAM/SOM, Unit Economics, TRL, Pre-mortem | bi-business-innovation/bi-m2/workflow.md |
 | M3: Brand | Create comprehensive brand book | Brand Archetypes, Brand Prism, Golden Circle, Brand Positioning, Messaging Architecture, Tone of Voice, Brandbook | bi-business-innovation/bi-m3/workflow.md |
-| M4: Prototypation | Build working HTML prototype for F&F testing | User Flow, Information Architecture, Design Brief, Atomic Design, Conversion Design, WCAG | bi-business-innovation/bi-m4/workflow.md |
-| M5: Market Validation | Validate market demand with low spending | Mom Test, SPIN Selling, Smoke Test, Van Westendorp PSM, Bullseye, Sean Ellis PMF | bi-business-innovation/bi-m5/workflow.md |
-| M6: MVP | Create minimum viable product for real clients | User Story Mapping, INVEST, MoSCoW, Scrum, CI/CD, OWASP Top 10 | bi-business-innovation/bi-m6/workflow.md |
 
 ---
 
@@ -31,13 +28,7 @@ Master navigation for the 6-milestone business innovation lifecycle from idea to
 │   └── five-whys.md
 ├── m2-validation/
 │   └── ...
-├── m3-brand/
-│   └── ...
-├── m4-prototypation/
-│   └── ...
-├── m5-market-validation/
-│   └── ...
-└── m6-mvp/
+└── m3-brand/
     └── ...
 ```
 
@@ -50,9 +41,6 @@ Master navigation for the 6-milestone business innovation lifecycle from idea to
 | [M1] Conception | bi-business-innovation/bi-m1/workflow.md | bi-business-innovation/bi-m1/steps-c/step-01-init.md |
 | [M2] Validation | bi-business-innovation/bi-m2/workflow.md | bi-business-innovation/bi-m2/steps-c/step-01-init.md |
 | [M3] Brand | bi-business-innovation/bi-m3/workflow.md | bi-business-innovation/bi-m3/steps-c/step-01-init.md |
-| [M4] Prototypation | bi-business-innovation/bi-m4/workflow.md | bi-business-innovation/bi-m4/steps-c/step-01-init.md |
-| [M5] Market Validation | bi-business-innovation/bi-m5/workflow.md | bi-business-innovation/bi-m5/steps-c/step-01-init.md |
-| [M6] MVP | bi-business-innovation/bi-m6/workflow.md | bi-business-innovation/bi-m6/steps-c/step-01-init.md |
 
 ---
 
@@ -148,22 +136,11 @@ When a framework needs to reference a concept it does not own, it MUST use the `
 
 **First framework (concept originator):** Brand Archetypes
 
-### M4: Prototypation
-
-| Concept | Owning Framework | Later Frameworks Reference + Add |
-|---------|-----------------|----------------------------------|
-| Conversion paths / information architecture | User Flow & IA | Design Context references for content hierarchy; CCD references for funnel analysis |
-| Content hierarchy / CTA priorities / design brief | Design Context | CCD references for optimization targets |
-| Funnel optimization / friction analysis | Conversion-Centered Design | Heuristic Evaluation references for usability context |
-| Usability validation / violation assessment | Heuristic Evaluation | — (terminal framework for quality validation) |
-
-**First framework (concept originator):** User Flow & IA
-
 ---
 
 ## Quick Reference
 
-- **6 milestones**: Conception → Validation → Brand → Prototypation → Market Validation → MVP
+- **3 milestones**: Conception → Validation → Brand
 - **State tracking**: project-memo.md frontmatter (currentMilestone, currentFramework, stepsCompleted)
 - **Output location**: `{project-name}/business-innovation/`
 - **Framework synthesis**: Every framework MUST update project-memo.md on completion

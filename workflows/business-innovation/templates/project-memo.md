@@ -3,7 +3,7 @@ projectName: '[Project Name]'
 currentMilestone: 'M1: Conception'
 currentFramework: 'Not Started'
 stepsCompleted: []
-bmadAnalystCompleted: false
+externalResearchCompleted: false
 lastUpdated: 'YYYY-MM-DD'
 ---
 
@@ -102,10 +102,9 @@ lastUpdated: 'YYYY-MM-DD'
 
 ### M2 Validation
 
-#### BMAD Analysis (Optional — Pre-M2)
+#### External Research (Optional — Pre-M2)
 **Status:** Not started | Complete | Skipped
-**Output:** {output_folder}/business-innovation/m2-validation/bmad-analysis/
-**Workflows Run:** [Research / Brainstorm / None]
+**Output:** {output_folder}/business-innovation/m2-validation/external-research/
 **Key Findings:** [Summary if completed]
 
 [Narrative summary of validation work.]
@@ -130,17 +129,6 @@ lastUpdated: 'YYYY-MM-DD'
 - Tone of Voice — [Key insight] — [Link]
 - Messaging Architecture — [Key insight] — [Link]
 
-### M4 Prototypation
-
-[Narrative summary of prototypation work.]
-
-### M5 Market Validation
-
-[Narrative summary of market validation work.]
-
-### M6 MVP
-
-[Narrative summary of MVP work.]
 
 ---
 

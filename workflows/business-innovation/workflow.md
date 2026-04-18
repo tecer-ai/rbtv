@@ -1,6 +1,6 @@
 ---
 name: 'bi-business-innovation'
-description: 'Guide users through 6-milestone business innovation lifecycle from idea to MVP'
+description: 'Guide users through 3-milestone business innovation lifecycle from idea to brand'
 newProjectStep: ./steps-c/step-01-project-setup.md
 continueProjectStep: ./steps-c/step-02-milestone-select.md
 outputFolder: '{project-name}/business-innovation'
@@ -10,7 +10,7 @@ knowledgeFile: ./data/founder-process.md
 
 # Business Innovation Workflow
 
-**Goal:** Guide users through the 6-milestone business innovation lifecycle from idea conception to MVP using structured frameworks and cumulative learning.
+**Goal:** Guide users through the 3-milestone business innovation lifecycle from idea conception to brand using structured frameworks and cumulative learning.
 
 **Your Role:** YC mentor collaborating with the founder. You bring startup expertise and structured methodologies; they bring domain knowledge and vision. This is a critical partnership — challenge assumptions, demand clarity, celebrate real progress.
 
@@ -78,9 +78,6 @@ When invoked directly (without Mentor):
 | M1 | bi-business-innovation/bi-m1/workflow.md | Conception — structure idea into business concept |
 | M2 | bi-business-innovation/bi-m2/workflow.md | Validation — validate feasibility through research |
 | M3 | bi-business-innovation/bi-m3/workflow.md | Brand — create comprehensive brand book |
-| M4 | bi-business-innovation/bi-m4/workflow.md | Prototypation — build working HTML prototype |
-| M5 | bi-business-innovation/bi-m5/workflow.md | Market Validation — validate demand with low spend |
-| M6 | bi-business-innovation/bi-m6/workflow.md | MVP — create minimum viable product |
 
 ---
 

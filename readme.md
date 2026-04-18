@@ -49,12 +49,12 @@ RBTV is a self-contained set of agents, workflows, skills, and rules designed to
 
 RBTV uses Claude Code plugins for extended functionality. Install them from inside a Claude Code session using `/plugin` commands.
 
-**Required** — some RBTV agents depend on these:
+**Recommended** — enhance specific workflows but RBTV works without them:
 
-| Plugin | What it provides |
+| Plugin | What it enhances |
 |---|---|
-| `bmad-method-lifecycle` | PRD, Brief, UX workflows (used by Ana) |
-| `bmad-pro-skills` | Problem solving, brainstorming (used by DomCobb) |
+| `bmad-method-lifecycle` | Market/domain/technical research for M2 Validation |
+| `bmad-pro-skills` | Advanced elicitation and brainstorming after problem structuring |
 
 ```
 /plugin marketplace add https://github.com/bmad-code-org/BMAD-METHOD.git
@@ -62,7 +62,7 @@ RBTV uses Claude Code plugins for extended functionality. Install them from insi
 /plugin install bmad-method-lifecycle@bmad-method
 ```
 
-**Recommended** — not required, but complement RBTV well:
+**Also recommended** — complement RBTV well:
 
 | Plugin | What it provides |
 |---|---|
