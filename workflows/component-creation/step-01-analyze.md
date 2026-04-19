@@ -70,13 +70,7 @@ For each component type, these details are mandatory before continuing:
 
 For skills: the backing workflow or task must already exist OR be designed in this step. A skill without a backing file is not buildable — create the backing file design first.
 
-For rules: a rule that only describes desired behavior is a suggestion. A rule that gates a specific action at a specific moment is enforceable. Every rule MUST have:
-
-| Element | Question to resolve |
-|---------|-------------------|
-| Enforcement mechanism | How does the agent know it violated the rule? Options: sequencing gate (action X must happen before action Y), pre-flight check (verify condition before proceeding), tripwire (pattern that triggers immediate evaluation) |
-| Anti-pattern table | What rationalizations will agents use to skip this rule? List them explicitly with the correct action |
-| Scope boundary | When does this rule NOT apply? Unbounded rules get ignored because the agent can't tell when they're relevant |
+For rules: read `{rbtv_path}/workflows/component-creation/data/rule-design-guide.md`. Resolve every element in the "Required Design Elements" table before proceeding. A rule that only describes desired behavior is a suggestion — the guide explains how to make rules enforceable.
 
 ### 5. Confirm with User
 

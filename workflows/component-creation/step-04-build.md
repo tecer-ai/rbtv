@@ -40,6 +40,11 @@ Verify each created file against `{rbtv_path}/workflows/component-creation/data/
 | Thin loader contains zero logic | Skills, commands |
 | Paths use `{rbtv_path}` placeholder | All files |
 | Every step ends with Step Menu + HALT | Step files |
+| Has Trigger/Scope, Enforcement, Required output, and Anti-Patterns sections | Rule files |
+| Enforcement uses a mechanism from the design guide (not aspirational language) | Rule files |
+| Anti-pattern table covers both skip AND game failure modes | Rule files |
+
+Verify rule files against `{rbtv_path}/workflows/component-creation/data/rule-design-guide.md` in addition to component-patterns.md.
 
 If any check fails: fix the violation before presenting the summary.
 

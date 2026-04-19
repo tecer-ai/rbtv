@@ -31,6 +31,10 @@ Reference data for the create-component workflow. Defines naming standards, size
 | `rules/` | Behavior rules (copied to target on install) | `{behavior}.md` |
 | `subagents/` | Claude Code dispatchable subagents | `{name}.md` |
 
+## Rule Design Compliance
+
+Rule files have additional design requirements beyond naming and sizing. Read `{rbtv_path}/workflows/component-creation/data/rule-design-guide.md` for enforcement types, required design elements, anti-gaming design, and the rule template.
+
 ## Thin Loader Invariant
 
 Skills and commands are ALWAYS thin loaders. No exceptions.

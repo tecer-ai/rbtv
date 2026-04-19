@@ -21,7 +21,7 @@ Load the appropriate template from `{rbtv_path}/workflows/component-creation/tem
 | Workflow entry | `workflow-template.md` |
 | Step file | `step-template.md` or `step-continue-template.md` |
 | Agent/Persona | `agent-template.md` |
-| Rule | *(no template — use rule compliance rules from component-patterns.md)* |
+| Rule | `rule-template.md` |
 | Task | `task-template.md` |
 | Skill / Command (thin loader) | `ide-loader-template.md` |
 | Knowledge/Data | `knowledge-template.md` |
@@ -61,7 +61,24 @@ Also identify:
 - Data files needed (names, purpose)
 - Output document structure (if the workflow produces a document)
 
-### 4. Skill/Command Scaffold (skills and commands only)
+### 4. Rule Scaffold (rules only)
+
+Present the rule's design for approval before building:
+
+| Element | Content |
+|---------|---------|
+| Behavior enforced | {one sentence} |
+| Trigger | {when the rule activates} |
+| Scope boundary | {when the rule does NOT apply} |
+| Enforcement mechanism | {type: structured output gate / sequencing gate / tripwire / pre-flight check} |
+| Required output | {what visible artifact proves compliance} |
+| Gaming resistance | {how token compliance is prevented} |
+
+Also present the anti-pattern table draft (both skip and game entries).
+
+Wait for explicit approval of the design before proceeding to build.
+
+### 5. Skill/Command Scaffold (skills and commands only)
 
 Prepare BOTH files:
 
@@ -80,7 +97,7 @@ Data files (reference docs, examples, config) MAY live alongside SKILL.md, but S
 
 Present both file contents for approval before proceeding.
 
-### 5. Present Complete Scaffold
+### 6. Present Complete Scaffold
 
 Present for user approval:
 

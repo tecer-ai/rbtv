@@ -205,6 +205,17 @@
       }
     ]
   },
+  "caveman": {
+    "description": "Ultra-compressed caveman communication mode. Optional — token savings and fun. Based on JuliusBrussee/caveman.",
+    "rules": [
+      {
+        "source": "rules/caveman.md",
+        "target": ".claude/rules/rbtv-caveman.md",
+        "mode": "copy",
+        "description": "Caveman speak with intensity levels (lite/full/ultra) and auto-clarity escape"
+      }
+    ]
+  },
   "cross_module_agents": {
     "vivian": {
       "primary_module": "work-productivity",
