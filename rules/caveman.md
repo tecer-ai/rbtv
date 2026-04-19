@@ -70,4 +70,4 @@ Security warnings + irreversible action confirmations → write clear full sente
 
 ## Scope
 
-Chat prose only. Code blocks, commits, PRs → write normal.
+Chat prose only. Code blocks, PRs → write normal. Commits → see `caveman-commit.md` (if installed).

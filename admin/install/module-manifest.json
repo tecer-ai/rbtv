@@ -213,6 +213,12 @@
         "target": ".claude/rules/rbtv-caveman.md",
         "mode": "copy",
         "description": "Caveman speak with intensity levels (lite/full/ultra) and auto-clarity escape"
+      },
+      {
+        "source": "rules/caveman-commit.md",
+        "target": ".claude/rules/rbtv-caveman-commit.md",
+        "mode": "copy",
+        "description": "Fun-mode parody commit messages in caveman voice — made for laughs, not serious repos"
       }
     ]
   },
