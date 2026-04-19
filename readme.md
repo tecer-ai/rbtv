@@ -76,35 +76,34 @@ RBTV is a self-contained set of agents, workflows, skills, and rules designed to
 
 RBTV uses Claude Code plugins for extended functionality. Install them from inside a Claude Code session using `/plugin` commands.
 
-**Recommended** — enhance specific workflows but RBTV works without them:
-
-| Plugin | What it enhances |
-|---|---|
-| `bmad-method-lifecycle` | Market/domain/technical research for M2 Validation |
-| `bmad-pro-skills` | Advanced elicitation and brainstorming after problem structuring |
-
-```
-/plugin marketplace add https://github.com/bmad-code-org/BMAD-METHOD.git
-/plugin install bmad-pro-skills@bmad-method
-/plugin install bmad-method-lifecycle@bmad-method
-```
-
-**Also recommended** — complement RBTV well:
+**Always on** — complement RBTV well:
 
 | Plugin | What it provides |
 |---|---|
-| `frontend-design` | Production-grade UI generation with high design quality |
 | `superpowers` | Skill-driven workflows, TDD, brainstorming, plan execution, code review |
 | `compound-engineering` | Frontend design, git workflows, debugging, ideation, browser automation |
 
 ```
-/plugin install frontend-design@claude-plugins-official
 /plugin install superpowers@claude-plugins-official
 ```
 
 ```
 /plugin marketplace add EveryInc/compound-engineering-plugin
 /plugin install compound-engineering@compound-engineering-plugin
+```
+
+**Activate on demand** — useful but add skill noise when always enabled:
+
+| Plugin | What it enhances |
+|---|---|
+| `bmad-pro-skills` | Advanced elicitation, brainstorming, adversarial review |
+| `bmad-method-lifecycle` | Full product lifecycle: PRDs, sprints, architecture, research |
+| `codex` | Codex CLI integration for second-opinion investigation and review |
+
+```
+/plugin marketplace add https://github.com/bmad-code-org/BMAD-METHOD.git
+/plugin install bmad-pro-skills@bmad-method
+/plugin install bmad-method-lifecycle@bmad-method
 ```
 
 ## Modules

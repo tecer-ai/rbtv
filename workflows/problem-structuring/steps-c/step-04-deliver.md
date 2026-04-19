@@ -4,9 +4,9 @@ stepId: deliver
 nextStepFile: null
 ---
 
-# Step 4: Deliver Summary
+# Step 4: Build Pyramid & Finalize Document
 
-**Goal:** Create pyramid-structured summary and finalize the deliverable.
+**Goal:** Build the pyramid-structured communication layer, identify next steps, and write all remaining sections to the output document.
 
 ---
 

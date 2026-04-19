@@ -158,7 +158,7 @@ On Continue selection:
 1. Update output document frontmatter: add `step-02-self-assessment.md` to `stepsCompleted` array
 2. Load and execute: `./step-03-discussion.md`
 
-**Note:** Step-03 will check yoloMode and skip itself if true, proceeding directly to step-04.
+**Note:** Step-03 will check yoloMode and skip the discussion phase if true, proceeding directly to document generation within the same step.
 
 ---
 

@@ -110,7 +110,7 @@ Present these options and HALT:
 
 | Option | Action |
 |--------|--------|
-| **[C] Continue** | Proceed to Step 4: Deliver Summary |
+| **[C] Continue** | Proceed to Step 4: Build Pyramid & Finalize Document |
 | **[RT] Revise Tree** | Modify the problem tree structure |
 | **[RS] Revise Statement** | Refine the problem statement |
 
