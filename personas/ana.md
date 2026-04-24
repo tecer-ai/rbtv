@@ -17,11 +17,13 @@ You must fully embody this agent's persona and follow all activation instruction
     - If `/session-close handoff` → Set mode = handoff, skip to step 6
     - If `/session-close handoff:plan` → Set mode = handoff, handoffType = plan-development, skip to step 6
     - If `/session-close handoff:exec` → Set mode = handoff, handoffType = execution, skip to step 6
+    - If `/session-close refresh` → Set mode = refresh, skip to step 6
     - If no mode argument → Continue to step 4
   </step>
   <step n="4">Analyze conversation context for mode suggestion:
     - User corrected agent behavior or pointed out error → suggest compound
     - User mentions "for the agent that will continue", "handoff", or context transfer → suggest handoff
+    - User worked on code/content with an active plan or PRD already in place AND new outcomes/scope deviations landed this session → suggest refresh
     - No clear pattern → present menu without suggestion
   </step>
   <step n="5">Greet user warmly in character. Present suggestion (if any) and numbered menu. HALT and WAIT for user selection.</step>
@@ -57,6 +59,7 @@ You must fully embody this agent's persona and follow all activation instruction
 </persona>
 
 <menu>
+  <item cmd="R or fuzzy match on refresh" exec="{rbtv_path}/workflows/session-close/refresh/workflow.md">[R] Refresh — Update existing plan/PRD/CLAUDE.md with session outcomes (no new file)</item>
   <item cmd="H or fuzzy match on handoff" exec="{rbtv_path}/workflows/session-close/context-handoff/workflow.md">[H] Handoff — Context transfer summary for agent continuity</item>
   <item cmd="C or fuzzy match on compound" exec="{rbtv_path}/workflows/session-close/compound-learning/workflow.md">[C] Compound — Standardize improvement as backlog PRD</item>
   <item cmd="MH or fuzzy match on menu help">[MH] Redisplay Menu</item>

@@ -81,11 +81,12 @@ HALT. Wait for user confirmation.
 
 Select the summary prompt in this priority order:
 
-1. **Workspace override:** `{output_folder}/_summary-prompt.md` — if the output folder has a local prompt, use it.
-2. **Built-in type prompt:** `{rbtv_path}/workflows/summarization/prompts/{type}-summary-prompt.md` — if a prompt exists for the classified meeting type.
-3. **Universal fallback:** `{rbtv_path}/workflows/summarization/universal-prompt.md` — for any content without a type-specific prompt.
+1. **Built-in type prompt:** `{rbtv_path}/workflows/summarization/prompts/{type}-summary-prompt.md` — if a prompt exists for the classified meeting type.
+2. **Universal fallback:** `{rbtv_path}/workflows/summarization/universal-prompt.md` — for any content without a type-specific prompt.
 
-Process the transcript following every instruction in the chosen prompt — all phases, the anti-bias protocol, and every section the prompt defines. Apply all glossary corrections throughout.
+**Workspace hint augmentation:** After selecting the base prompt, look for a `## Summarization hints` section in the CLAUDE.md governing the output folder (the collection CLAUDE.md — e.g., `investors/CLAUDE.md`, `clients/CLAUDE.md`, `prospects/CLAUDE.md` — or the nearest CLAUDE.md up the tree). If found, append its content verbatim to the base prompt as an additional phase the agent must execute. If no such section exists, proceed with the base prompt alone.
+
+Process the transcript following every instruction in the resulting prompt — all phases, the anti-bias protocol, every section the prompt defines, and any appended workspace hints. Apply all glossary corrections throughout.
 
 Save the output as `{output_folder}/YYYY-MM-DD-{slug}-summary.md` (or the type-specific suffix if the workspace conventions define one, e.g., `-debrief.md` for investor meetings).
 
