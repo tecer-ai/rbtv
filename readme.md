@@ -4,7 +4,7 @@ A standalone Claude Code toolkit for business innovation, pitch generation, docu
 
 ## What is RBTV?
 
-RBTV is a self-contained set of agents, workflows, skills, and rules designed to be bootstrapped into any Claude Code workspace. After install, RBTV appears as `/rbtv-<command>` slash commands (e.g., `/rbtv-client-pitch`, `/rbtv-doc`, `/rbtv-planning`) and auto-triggered skills in your workspace.
+RBTV is a self-contained set of agents, workflows, skills, and rules designed to be bootstrapped into any Claude Code workspace. After install, RBTV appears as `/rbtv-<command>` slash commands (e.g., `/rbtv-client-pitcher`, `/rbtv-doc-export`, `/rbtv-planning`) and auto-triggered skills in your workspace.
 
 ## Requirements
 
@@ -110,10 +110,12 @@ RBTV uses Claude Code plugins for extended functionality. Install them from insi
 
 | Module | What it does |
 |---|---|
-| **core** (always installed) | Generic productivity skills — planning, documentation, domcobb (problem structuring), meeting summarization, web research, component creation |
+| **core** (always installed) | Generic productivity skills — planning, web research, component creation, browser automation, commit workflow, designing, plus the domcobb problem-structuring persona and session-close summary |
 | **innovation** | Business innovation frameworks (lean canvas, JTBD, TAM/SAM/SOM, brandbook) via Paul, plus product discovery |
-| **work-productivity** | Pitch generation (client, investor), design extraction, visual design via Vivian, document export (PDF/DOCX with brand discovery), legal advisory |
+| **work-productivity** | Pitch generation (client, investor), design extraction, document export (PDF/DOCX with brand discovery), legal advisory, meeting prep, meeting summarization |
+| **coding** | Coding discipline and quality guidelines for AI-assisted development |
 | **writing** | Long-form writing via George Orwell, tone extraction |
+| **caveman** | Optional ultra-compressed caveman communication mode and parody commit voice — token savings and fun, based on JuliusBrussee/caveman |
 
 ## Updating RBTV
 

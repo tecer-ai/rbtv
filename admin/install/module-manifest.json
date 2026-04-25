@@ -52,12 +52,6 @@
         "target": ".claude/commands/rbtv-session-close.md",
         "bake": ["rbtv_path"],
         "description": "End-of-session summary with context preservation"
-      },
-      {
-        "source_template": "commands/summarizer.md",
-        "target": ".claude/commands/rbtv-summarizer.md",
-        "bake": ["rbtv_path"],
-        "description": "Meeting and content summarizer with structured output"
       }
     ],
     "rules": [
@@ -141,13 +135,25 @@
     ]
   },
   "work-productivity": {
-    "description": "Pitch generation, design extraction, client engagement, document export, legal advisory.",
+    "description": "Pitch generation, design extraction, client engagement, document export, legal advisory, meeting prep and summarization.",
     "skills": [
       {
         "source_template": "skills/doc-export/SKILL.md",
         "target": ".claude/skills/rbtv-doc-export/SKILL.md",
         "bake": ["rbtv_path"],
         "description": "Export markdown documents to styled PDF"
+      },
+      {
+        "source_template": "skills/meeting-prep/SKILL.md",
+        "target": ".claude/skills/rbtv-meeting-prep/SKILL.md",
+        "bake": ["rbtv_path"],
+        "description": "Guided meeting preparation — produces a strategic cheat sheet through classification, discovery, and generation"
+      },
+      {
+        "source_template": "skills/meeting-summarizer/SKILL.md",
+        "target": ".claude/skills/rbtv-meeting-summarizer/SKILL.md",
+        "bake": ["rbtv_path"],
+        "description": "Process meeting transcripts into structured summaries with type-specific prompts and glossary integration"
       }
     ],
     "commands": [
