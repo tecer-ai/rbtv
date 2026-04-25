@@ -14,17 +14,6 @@ Commit local changes with correct file-op hygiene, remote sync, and conflict han
 | User requests a commit | "commit", "commita", "salva no git" |
 | Task completed and user asks to persist | "done, commit this" |
 
-## File Operations
-
-Use git commands for moves, renames, and deletes on tracked files. `git mv` preserves `git log --follow` history; filesystem operations break it.
-
-| Operation | Use | Never Use |
-|-----------|-----|-----------|
-| Move/Rename | `git mv <source> <target>` | `mv`, filesystem rename, Delete+Write |
-| Delete | `git rm <path>` | `rm`, `del`, Delete tool alone |
-
-**Scope:** Tracked files only. `.gitignore`d, temp, and build artifacts use normal tools. New files use normal tools — `git add` at commit time.
-
 ## Procedure
 
 Execute in order. Never skip steps.
@@ -34,7 +23,6 @@ Execute in order. Never skip steps.
 1. `git -C "{repo}" status` — identify staged, unstaged, untracked
 2. `git -C "{repo}" diff` — review unstaged
 3. `git -C "{repo}" diff --cached` — review staged
-4. `git -C "{repo}" log --oneline -5` — read recent commit style
 
 Summarize changes and draft a commit message. Wait for user confirmation before proceeding.
 
@@ -88,7 +76,6 @@ If the commit touched any file in `_system/` or `.claude/`, append an entry to `
 
 ## Commit Message Style
 
-- Follow the repo's existing style (observed in Step 1.4)
+- Follow conventional commits
 - Summarize the "why", not the "what" — the diff shows the what
 - Keep first line under 72 characters
-- Add `Co-Authored-By: Claude <noreply@anthropic.com>` when the agent authored or co-authored the changes
