@@ -5,6 +5,18 @@ description: Automate browser interactions, take screenshots, test web pages wit
 
 # Browser Automation with playwright-cli
 
+## Screenshot Hygiene — MANDATORY
+
+All screenshots MUST be written to `.claude/skills/rbtv-playwright-cli/screenshots/` (vault-relative). NEVER let screenshots land in the vault root, the working directory, or any PARA folder.
+
+| Step | Requirement |
+|------|-------------|
+| 1. Create folder | Before the first screenshot in a session, ensure the folder exists. |
+| 2. Use `--filename` | Always pass `--filename=".claude/skills/rbtv-playwright-cli/screenshots/<name>.png"`. NEVER call `screenshot` without `--filename`. |
+| 3. Delete after use | When you finish using a screenshot (analysis complete, task done), delete the file. Before ending the turn, delete every screenshot you created this session. |
+
+Rationale: the default screenshot location pollutes the vault. The screenshots folder is gitignored and ephemeral.
+
 ## Gotchas
 
 | Trap | Solution |
@@ -35,11 +47,11 @@ playwright-cli press Enter
 playwright-cli hover e4
 playwright-cli select e9 "option-value"
 
-# 5. Screenshots
-playwright-cli screenshot                          # viewport only
-playwright-cli screenshot --full-page              # entire page
-playwright-cli screenshot e5                       # specific element
-playwright-cli screenshot --filename=result.png    # custom filename
+# 5. Screenshots — ALWAYS pass --filename targeting the screenshots folder
+playwright-cli screenshot --filename=".claude/skills/rbtv-playwright-cli/screenshots/view.png"
+playwright-cli screenshot --full-page --filename=".claude/skills/rbtv-playwright-cli/screenshots/full.png"
+playwright-cli screenshot e5 --filename=".claude/skills/rbtv-playwright-cli/screenshots/element.png"
+# Delete each screenshot after analysis. Sweep the folder before turn end.
 
 # 6. Scroll and inspect
 playwright-cli eval "() => window.scrollTo(0, 1200)"

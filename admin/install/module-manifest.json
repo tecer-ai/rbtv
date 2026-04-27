@@ -135,7 +135,7 @@
     ]
   },
   "work-productivity": {
-    "description": "Pitch generation, design extraction, client engagement, document export, legal advisory, meeting prep and summarization.",
+    "description": "Pitch generation, design extraction, client engagement, document export, legal advisory, meeting prep and summarization, thinking-partner operator.",
     "skills": [
       {
         "source_template": "skills/doc-export/SKILL.md",
@@ -180,6 +180,12 @@
         "target": ".claude/commands/rbtv-lawyer.md",
         "bake": ["rbtv_path"],
         "description": "Legal advisory persona for contract and compliance review"
+      },
+      {
+        "source_template": "commands/operator.md",
+        "target": ".claude/commands/rbtv-operator.md",
+        "bake": ["rbtv_path"],
+        "description": "Thinking partner for complex tasks — discovery drill plus flexible move set"
       }
     ]
   },
