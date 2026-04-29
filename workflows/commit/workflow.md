@@ -41,8 +41,6 @@ Summarize changes and draft a commit message. Wait for user confirmation before 
 2. Commit with confirmed message
 3. Push only if user requested it
 
-Go to Step 5.
-
 ### 4. Commit (Remote Changes Exist)
 
 1. `git -C "{repo}" status --porcelain`
@@ -67,12 +65,6 @@ Go to Step 5.
 6. If project has a test command, run tests. Fail → stop, notify user.
 7. Stage and commit
 8. Push only if user requested it
-
-Go to Step 5.
-
-### 5. Changelog Entry
-
-If the commit touched any file in `_system/` or `.claude/`, append an entry to `_system/user/changelog.md` following `.claude/rules/changelog.md` format. Skip if those paths do not exist in this workspace.
 
 ## Commit Message Style
 
