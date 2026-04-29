@@ -11,7 +11,7 @@ description: Summarize a meeting or document transcript — classify, route, fix
 
 1. Read the referenced transcript file completely. If no transcript was provided, STOP and ask the user for the transcript path.
 2. Load the glossary declared in the operating scope's CLAUDE.md (under `## Name Glossary` heading). If no glossary is declared, skip silently.
-3. Apply glossary corrections silently while reading the transcript.
+3. Track glossary corrections (matched name → canonical form) for write-back in Step 5.5. Do not modify the file yet.
 
 ## Step 2 — Determine Context
 
@@ -90,6 +90,23 @@ Process the transcript following every instruction in the resulting prompt — a
 
 Save the output as `{output_folder}/YYYY-MM-DD-{slug}-summary.md` (or the type-specific suffix if the workspace conventions define one, e.g., `-debrief.md` for investor meetings).
 
+## Step 5.5 — Write Corrections Back to Transcript
+
+Applies to ALL meeting types. Skip in autonomous/sub-agent invocations.
+
+After the prompt's Phase 1 validation completes and the user has confirmed corrections, overwrite the original transcript file in place with:
+
+- Confirmed transcription doubt fixes (garbled words, mistranscribed terms)
+- Name normalizations from the glossary (Step 1) and any new names confirmed during validation
+- Domain-specific term corrections confirmed in Phase 1
+
+Do NOT edit:
+- Self-corrections by the speaker ("no, I mean...") — preserve natural speech
+- Frontmatter, structure, headings, or any unflagged content
+- Any passage the user did not confirm
+
+The transcript path is the post-rename path from Step 4. Use the Edit tool with targeted replacements — never rewrite the whole file.
+
 ## Step 6 — Update Glossary
 
 If a glossary was loaded in Step 1 and the prompt included Phase 1 validation:
@@ -104,6 +121,7 @@ Skip this step in autonomous mode.
 
 Report to user:
 - Transcript final location (after any rename/move)
+- Whether transcript was edited in place with confirmed corrections (and how many)
 - Summary location
 - Glossary entries added or updated (if any)
 - Any ambiguity flags from the summary that need human review
