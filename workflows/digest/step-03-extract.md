@@ -125,6 +125,8 @@ Print one-line per chunk: count of findings by topic/theme.
 
 ### 5. Step Menu
 
+**YOLO bypass:** if `manifest["yolo"] == true`, skip this menu and auto-continue to Step 04. Otherwise:
+
 | Option | Action |
 |--------|--------|
 | **[C] Continue** | Proceed to Step 04 — group |

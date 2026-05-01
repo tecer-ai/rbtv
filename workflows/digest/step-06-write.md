@@ -94,6 +94,8 @@ If parent `.rbtv-runtime/digest/` is now empty, delete it. If `.rbtv-runtime/` i
 
 ### 5. Step Menu
 
+**YOLO bypass:** if `manifest["yolo"] == true`, skip this menu and exit cleanly with a one-line "Workflow complete" report. Otherwise:
+
 | Option | Action |
 |--------|--------|
 | **[D] Done** | Workflow complete |

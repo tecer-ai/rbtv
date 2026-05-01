@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """Slice a source file into line-numbered chunks for the digest workflow.
 
-Two modes:
+Three modes:
+- inspect: --inspect      (print density histogram, do not slice)
 - naive: --size N         (slice every N lines)
 - explicit: --breaks list (use given line numbers as boundaries)
 
-Output:
+Output (slice modes):
 - <out>/chunk-NN.txt    each line prefixed with "<source-line>: "
 - <out>/manifest.json   {"source", "total_lines", "chunks": {chunk_id: [start, end]}}
+
+Output (inspect mode):
+- stdout markdown table with one row per bucket of --bucket lines
 """
 
 import argparse
@@ -18,21 +22,41 @@ from pathlib import Path
 def parse_args():
     p = argparse.ArgumentParser(description="Slice a source file into chunks.")
     p.add_argument("--source", required=True, help="Path to source file")
-    p.add_argument("--out", required=True, help="Output directory for chunks")
+    p.add_argument("--out", help="Output directory for chunks (required unless --inspect)")
     p.add_argument("--encoding", default="utf-8", help="Source file encoding (default utf-8)")
+    p.add_argument("--bucket", type=int, default=100, help="Inspect mode: histogram bucket size in lines (default 100)")
     g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--inspect", action="store_true", help="Print density histogram and exit; no slicing")
     g.add_argument("--size", type=int, help="Naive slicing — chunk size in lines")
     g.add_argument("--breaks", help="Explicit line boundaries (comma-separated source line numbers)")
-    return p.parse_args()
+    args = p.parse_args()
+    if not args.inspect and not args.out:
+        p.error("--out is required unless --inspect is set")
+    if args.bucket < 1:
+        p.error("--bucket must be >= 1")
+    return args
+
+
+def inspect(src, lines, bucket):
+    total_lines = len(lines)
+    total_chars = sum(len(ln) for ln in lines)
+    print(f"source: {src.name}  total_lines: {total_lines}  total_chars: {total_chars}")
+    print("| bucket (lines) | chars | avg chars/line |")
+    print("|----------------|-------|----------------|")
+    for start in range(0, total_lines, bucket):
+        end = min(start + bucket, total_lines)
+        seg = lines[start:end]
+        seg_chars = sum(len(ln) for ln in seg)
+        seg_lines = end - start
+        avg = seg_chars / seg_lines if seg_lines else 0
+        print(f"| {start}-{end} | {seg_chars} | {avg:.0f} |")
 
 
 def main():
     args = parse_args()
     src = Path(args.source)
-    out = Path(args.out)
     if not src.is_file():
         raise SystemExit(f"ERROR: source file not found: {src}")
-    out.mkdir(parents=True, exist_ok=True)
 
     try:
         with open(src, encoding=args.encoding) as f:
@@ -43,6 +67,13 @@ def main():
     total = len(lines)
     if total == 0:
         raise SystemExit(f"ERROR: source file is empty: {src}")
+
+    if args.inspect:
+        inspect(src, lines, args.bucket)
+        return
+
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
 
     if args.size is not None:
         if args.size < 1:

@@ -71,17 +71,41 @@ Triggers (any of these):
 | Context divergence not justified by extraction | "Target says X; context says Y — keep, switch, or revise both?" |
 | Extraction adds new concept the user has not opined on | "Add this? <text>" |
 
+##### Recommendation policy
+
+For each question, decide whether to recommend an option. Apply this evidence priority — higher rows override lower:
+
+| Priority | Signal | Action |
+|----------|--------|--------|
+| 1 | User comment states an explicit preference (verbatim phrasing) | Recommend the matching option; rationale cites comment line |
+| 2 | User comment states a partial preference or directional hint | Recommend the option ALIGNED with the user's direction — even if another option is better-engineered; rationale cites comment line |
+| 3 | Prior decision in `grouping.yaml` constrains the answer | Recommend the option consistent with prior decision; rationale cites extraction line |
+| 4 | No user signal AND no prior-decision signal | Do NOT recommend — write `Recommendation: no user signal — your call`; list one-line tradeoffs per option |
+
+Anti-patterns — STOP and re-evaluate if you catch yourself:
+
+| Anti-pattern | Fix |
+|--------------|-----|
+| Recommending based on general best practice when user comment was ambiguous | Demote to "no user signal — your call" |
+| Recommending the more-structured / more-engineered option without user signal | User leans simpler; when in doubt, lean simpler OR abstain |
+| Recommending a different SHAPE than the user's comment (e.g., comment says "keep it simple", rec says "drop the section entirely") | Match the comment's shape — "keep simple" ≠ "delete" |
+| Treating a user question as a request for the "right answer" | Questions surface design space; recommend only when one option matches user-comment direction |
+
 Write to `<runtime_root>/synthesis/open-questions.md`:
 
 ```
 ### Q{N}: <one-line summary>
-- Source: <user-comment / contradiction / divergence>
+- Source: <user-comment line N / contradiction / divergence>
 - Context: <relevant lines or quotes>
 - Options:
   - A) <option text>
   - B) <option text>
   - C) <option text>
-- Recommendation: <if any, one sentence rationale>
+- Recommendation: <A | B | C | "no user signal — your call">
+- Rationale: <one of>
+    - user-comment line N: "<verbatim phrase anchoring the choice>"
+    - prior decision at extraction line N: "<verbatim phrase>"
+    - no user signal — tradeoffs: A=<one line>, B=<one line>, C=<one line>
 ```
 
 #### 2A.5 Present and HALT
@@ -132,6 +156,8 @@ Write to `<runtime_root>/synthesis/reflection-prompts.md` in the same Q-block fo
 Same chunked presentation pattern as 2A.5. Append user responses to `reflection-prompts.md` as `Answer: ...` blocks.
 
 ### 3. Step Menu
+
+**YOLO bypass:** if `manifest["yolo"] == true`, skip this menu and auto-continue to Step 06 once every open question / reflection prompt has a recorded answer. The question / reflection HALTs in 2A.5 and 2B.3 are NEVER bypassed by yolo. Otherwise:
 
 | Option | Action |
 |--------|--------|

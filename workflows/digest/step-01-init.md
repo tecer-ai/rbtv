@@ -100,12 +100,13 @@ If no `.gitignore` exists, create one with the above content.
 
 ### 7. Write manifest.json
 
-Write `<runtime_root>/manifest.json`:
+Write `<runtime_root>/manifest.json`. Set `yolo` from the value passed by the command (`true` if invoked as `/digest yolo`, else `false`):
 
 ```json
 {
   "run_id": "<run_id>",
   "mode": "reconcile" | "study",
+  "yolo": true | false,
   "started_at": "<ISO timestamp>",
   "current_step": "step-01-init",
   "completed_steps": [],
@@ -131,6 +132,7 @@ Present:
 ```
 Run created: <runtime_root>
 Mode: <mode>
+YOLO: <true | false>
 Sources: <list with line counts>
 Contexts: <list>
 Targets (reconcile) | Study destination (study): <path(s)>
@@ -139,6 +141,8 @@ Taxonomy: <list or "free-form">
 ```
 
 ### 9. Step Menu
+
+**YOLO bypass:** if `manifest["yolo"] == true`, skip this menu and proceed directly to Step 02 with `[C] Continue`. Otherwise:
 
 | Option | Action |
 |--------|--------|

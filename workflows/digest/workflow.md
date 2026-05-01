@@ -53,6 +53,22 @@ User picks mode in step-01.
 
 ---
 
+## YOLO MODE
+
+`yolo_mode` is a flag captured in step-01 and persisted to `manifest.json`. Invocation: `/digest yolo`.
+
+| Behavior | Normal mode | YOLO mode |
+|----------|-------------|-----------|
+| Step menus ([C] Continue) | HALT + wait for user | Auto-continue |
+| Step-02 chunk-size approval | HALT + wait | Auto-approve suggested sizes |
+| Step-02 boundary approval | HALT + wait | Auto-approve adjusted boundaries |
+| Step-05 open questions / reflection prompts | HALT + wait | HALT + wait (ALWAYS — yolo never bypasses user-decision points) |
+| Step-06 final report | HALT [D] Done | Auto-finish |
+
+Each step's HALT block specifies its yolo bypass behavior inline. The user-decision halts in step-05 are NEVER bypassed.
+
+---
+
 ## STEP OVERVIEW
 
 | # | Step | Purpose | HALT for |

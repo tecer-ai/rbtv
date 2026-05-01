@@ -138,6 +138,8 @@ Print: topics/themes count, total findings, contradictions count (reconcile) or 
 
 ### 5. Step Menu
 
+**YOLO bypass:** if `manifest["yolo"] == true`, skip this menu and auto-continue to Step 05. Otherwise:
+
 | Option | Action |
 |--------|--------|
 | **[C] Continue** | Proceed to Step 05 — synthesize |
