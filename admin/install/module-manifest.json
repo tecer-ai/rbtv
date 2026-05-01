@@ -154,6 +154,12 @@
         "target": ".claude/skills/rbtv-meeting-summarizer/SKILL.md",
         "bake": ["rbtv_path"],
         "description": "Process meeting transcripts into structured summaries with type-specific prompts and glossary integration"
+      },
+      {
+        "source_template": "skills/client-email/SKILL.md",
+        "target": ".claude/skills/rbtv-client-email/SKILL.md",
+        "bake": ["rbtv_path"],
+        "description": "Voice principles for emails to clients, prospects, and partners — compaction-first, co-constructive stance, plain-text-friendly, with conditional pt-BR tonal realization"
       }
     ],
     "commands": [
