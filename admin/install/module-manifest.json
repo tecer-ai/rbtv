@@ -26,32 +26,20 @@
         "target": ".claude/skills/rbtv-playwright-cli/SKILL.md",
         "bake": ["rbtv_path"],
         "description": "Browser automation via Playwright for testing and scraping"
-      },
-      {
-        "source_template": "skills/commit/SKILL.md",
-        "target": ".claude/skills/rbtv-commit/SKILL.md",
-        "bake": ["rbtv_path"],
-        "description": "Guided git commit with repo detection and message conventions"
-      },
-      {
-        "source_template": "skills/designing/SKILL.md",
-        "target": ".claude/skills/rbtv-designing/SKILL.md",
-        "bake": ["rbtv_path"],
-        "description": "UI/UX design workflow with iterative screenshot refinement"
       }
     ],
     "commands": [
-      {
-        "source_template": "commands/domcobb.md",
-        "target": ".claude/commands/rbtv-domcobb.md",
-        "bake": ["rbtv_path"],
-        "description": "Problem-solving persona that reframes challenges"
-      },
       {
         "source_template": "commands/session-close.md",
         "target": ".claude/commands/rbtv-session-close.md",
         "bake": ["rbtv_path"],
         "description": "End-of-session summary with context preservation"
+      },
+      {
+        "source_template": "commands/digest.md",
+        "target": ".claude/commands/rbtv-digest.md",
+        "bake": ["rbtv_path"],
+        "description": "Mine a long source via sub-agents to reconcile a target doc with user fixups (reconcile mode) or produce study notes (study mode) — orchestrator never reads the source directly"
       }
     ],
     "rules": [
@@ -134,9 +122,15 @@
       }
     ]
   },
-  "work-productivity": {
-    "description": "Pitch generation, design extraction, client engagement, document export, legal advisory, meeting prep and summarization, thinking-partner operator.",
+  "productivity": {
+    "description": "Pitch generation, design extraction, client engagement, document export, legal advisory, meeting prep and summarization, thinking-partner operator, problem-reframing persona, and visual design.",
     "skills": [
+      {
+        "source_template": "skills/designing/SKILL.md",
+        "target": ".claude/skills/rbtv-designing/SKILL.md",
+        "bake": ["rbtv_path"],
+        "description": "UI/UX design workflow with iterative screenshot refinement"
+      },
       {
         "source_template": "skills/doc-export/SKILL.md",
         "target": ".claude/skills/rbtv-doc-export/SKILL.md",
@@ -192,17 +186,29 @@
         "target": ".claude/commands/rbtv-operator.md",
         "bake": ["rbtv_path"],
         "description": "Thinking partner for complex tasks — discovery drill plus flexible move set"
+      },
+      {
+        "source_template": "commands/domcobb.md",
+        "target": ".claude/commands/rbtv-domcobb.md",
+        "bake": ["rbtv_path"],
+        "description": "Problem-solving persona that reframes challenges"
       }
     ]
   },
   "coding": {
-    "description": "Code quality guidelines and coding discipline for AI-assisted development.",
+    "description": "Code quality guidelines, coding discipline, and guided git commits for AI-assisted development.",
     "skills": [
       {
         "source_template": "skills/coding-discipline/SKILL.md",
         "target": ".claude/skills/rbtv-coding-discipline/SKILL.md",
         "bake": ["rbtv_path"],
         "description": "Enforce coding standards and discipline in AI-assisted development"
+      },
+      {
+        "source_template": "skills/commit/SKILL.md",
+        "target": ".claude/skills/rbtv-commit/SKILL.md",
+        "bake": ["rbtv_path"],
+        "description": "Guided git commit with repo detection and message conventions"
       }
     ]
   },
@@ -242,7 +248,7 @@
   },
   "cross_module_agents": {
     "vivian": {
-      "primary_module": "work-productivity",
+      "primary_module": "productivity",
       "also_used_by": ["innovation"]
     }
   }

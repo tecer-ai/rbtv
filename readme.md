@@ -1,10 +1,23 @@
 # RBTV
 
-A standalone Claude Code toolkit for business innovation, pitch generation, documentation, and structured thinking.
+Short for Robotville, RBTV is a standalone Claude Code toolkit for business innovation, pitch generation, documentation, and structured thinking.
 
 ## What is RBTV?
 
 RBTV is a self-contained set of agents, workflows, skills, and rules designed to be bootstrapped into any Claude Code workspace. After install, RBTV appears as `/rbtv-<command>` slash commands (e.g., `/rbtv-client-pitcher`, `/rbtv-doc-export`, `/rbtv-planning`) and auto-triggered skills in your workspace.
+
+## Modules
+
+Each module is documented in detail in [`modules/`](./modules/). The doc covers the module's purpose, every component it ships, and how to use them.
+
+| Module | What it does | Doc |
+|---|---|---|
+| **core** (always installed) | Generic productivity utilities — planning, web research, component creation, browser automation, plus the digest and session-close personas, and the always-on behavioral rules | [modules/core.md](./modules/core.md) |
+| **innovation** | Business innovation frameworks (lean canvas, JTBD, TAM/SAM/SOM, brandbook) via the innovator mentor, plus product discovery | [modules/innovation.md](./modules/innovation.md) |
+| **productivity** | Pitch generation (client, investor), design extraction, document export (PDF/DOCX with brand discovery), legal advisory, meeting prep, meeting summarization, client emails, thinking-partner operator, problem-reframing persona, and visual design | [modules/productivity.md](./modules/productivity.md) |
+| **coding** | Coding discipline and quality guidelines for AI-assisted development, plus guided git commits | [modules/coding.md](./modules/coding.md) |
+| **writing** | Long-form writing via the writer persona, tone extraction | [modules/writing.md](./modules/writing.md) |
+| **caveman** | Optional ultra-compressed caveman communication mode and parody commit voice — token savings and fun, based on JuliusBrussee/caveman | [modules/caveman.md](./modules/caveman.md) |
 
 ## Requirements
 
@@ -105,17 +118,6 @@ RBTV uses Claude Code plugins for extended functionality. Install them from insi
 /plugin install bmad-pro-skills@bmad-method
 /plugin install bmad-method-lifecycle@bmad-method
 ```
-
-## Modules
-
-| Module | What it does |
-|---|---|
-| **core** (always installed) | Generic productivity skills — planning, web research, component creation, browser automation, commit workflow, designing, plus the domcobb problem-structuring persona and session-close summary |
-| **innovation** | Business innovation frameworks (lean canvas, JTBD, TAM/SAM/SOM, brandbook) via Paul, plus product discovery |
-| **work-productivity** | Pitch generation (client, investor), design extraction, document export (PDF/DOCX with brand discovery), legal advisory, meeting prep, meeting summarization |
-| **coding** | Coding discipline and quality guidelines for AI-assisted development |
-| **writing** | Long-form writing via George Orwell, tone extraction |
-| **caveman** | Optional ultra-compressed caveman communication mode and parody commit voice — token savings and fun, based on JuliusBrussee/caveman |
 
 ## Updating RBTV
 
