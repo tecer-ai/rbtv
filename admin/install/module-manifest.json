@@ -26,6 +26,12 @@
         "target": ".claude/skills/rbtv-playwright-cli/SKILL.md",
         "bake": ["rbtv_path"],
         "description": "Browser automation via Playwright for testing and scraping"
+      },
+      {
+        "source_template": "skills/plan-orchestration/SKILL.md",
+        "target": ".claude/skills/rbtv-plan-orchestration/SKILL.md",
+        "bake": ["rbtv_path"],
+        "description": "Orchestrate multi-step non-code plans by delegating phases to opus sub-agents with per-phase review and sonnet doubt-escalation"
       }
     ],
     "commands": [
@@ -102,6 +108,12 @@
         "target": ".claude/rules/rbtv-skill-first.md",
         "mode": "copy",
         "description": "Always invoke matching skills before acting"
+      },
+      {
+        "source": "rules/sub-agents.md",
+        "target": ".claude/rules/rbtv-sub-agents.md",
+        "mode": "copy",
+        "description": "Pre-dispatch gate for Agent tool calls — name matching skills explicitly in sub-agent prompts"
       }
     ]
   },

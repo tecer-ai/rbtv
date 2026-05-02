@@ -24,6 +24,18 @@ Tools for creating structured plans and extending the RBTV system itself.
 
 ---
 
+#### `rbtv-plan-orchestration`
+
+- **What**: Orchestrates execution of a multi-step **non-code** plan by delegating phases to opus sub-agents, dispatching an opus reviewer per phase that fixes issues in place, and routing sub-agent doubts through a chain (re-read shape → sonnet doc-reader on referenced docs → halt to user). The orchestrator never executes plan tasks itself — it only reads the plan, batches tasks (avoiding both micro- and macro-delegation), dispatches agents, and surfaces escalations.
+- **When to use**: A written multi-step plan exists for non-code work — vault refactors, content migrations, doc workflows, structural reorganizations. **Not for code work** — use `superpowers:subagent-driven-development` for code plans (it provides per-task spec/quality review, TDD, and git worktree integration this skill does not). Not for single-step tasks.
+- **How to invoke**: "Orchestrate this plan", "execute this plan with sub-agents", or `rbtv-plan-orchestration` directly. Pre-flight asks two questions: (a) confirm orchestration vs direct execution, (b) checkpoint mode — halt between phases or run end-to-end.
+- **Inputs / outputs**:
+  - Input: path to a multi-step plan, optional shape.md, checkpoint preference
+  - Output: in-place execution of the plan via sub-agents, plus a final summary of phases completed, reviewer findings, and any items the user halted or doubts surfaced
+- **Example**: "Orchestrate `1. Projects/second-brain-evolution/sb-os-cleanup/`" → pre-flight gate confirms scope and checkpoint mode → orchestrator batches each phase's tasks → opus executors run batches sequentially → opus reviewer audits and fixes each phase → final summary on completion.
+
+---
+
 #### `rbtv-create-component`
 
 - **What**: Guided builder for any RBTV or vault AI component — skills, workflows, rules, commands, personas, tasks. Acts as a design partner: it challenges assumptions and forces key decisions before writing any file. Handles both RBTV-standard components (placed in the RBTV source repo) and workspace-native components (placed per that workspace's CLAUDE.md conventions).
@@ -108,3 +120,4 @@ These rules are copied into every workspace's `.claude/rules/` on install and sh
 | [reasoning](../rules/reasoning.md) | Mandates a `<counter>` block before any agreement or endorsement; enforces position stability under pressure; prevents sycophancy |
 | [skill-first](../rules/skill-first.md) | The first tool call on any new task must be a skill scan — Claude cannot proceed to Read/Grep/Bash before checking whether a skill covers the task |
 | [source-of-truth](../rules/source-of-truth.md) | Installed `.claude/` files are generated copies — all edits go to the RBTV source repo; re-run `install.py` to propagate |
+| [sub-agents](../rules/sub-agents.md) | Pre-dispatch gate for every Agent tool call — sub-agent prompts must explicitly name each matching installed skill using imperative phrasing |
