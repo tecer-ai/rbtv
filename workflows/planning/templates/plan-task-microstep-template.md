@@ -63,7 +63,9 @@ human_review: required | optional | none
 ### Phase: Understand
 
 1. **MUST** read every file in the Context Files table above. Do not continue until all are read.
-2. In the plan file, mark this task as in progress: change `[ ]` to `[~]` for this task's checkbox.
+2. Mark this task as in progress in BOTH locations (same turn):
+   - In the plan file, change `[ ]` to `[~]` for this task's checkbox.
+   - In this task file's YAML frontmatter, change `status: pending` to `status: in_progress`.
 3. Review shape.md Decisions and Discoveries for prior task context.
 4. Confirm task requirements are clear.
 5. {Task-specific understanding steps}
@@ -87,7 +89,9 @@ human_review: required | optional | none
 
 1. Append execution entry to shape.md (never modify existing entries).
 2. **MUST** present a brief summary to the user (max 2000 characters) of what was done. Do not mark complete until the user approves.
-3. After user approval, mark this task as complete: change `[~]` to `[x]` in the plan file.
+3. After user approval, mark this task as complete in BOTH locations (same turn):
+   - In the plan file, change `[~]` to `[x]` for this task's checkbox.
+   - In this task file's YAML frontmatter, change `status: in_progress` to `status: completed`.
 4. Notify user of completion and any plan changes.
 
 ---

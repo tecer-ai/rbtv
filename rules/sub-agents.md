@@ -11,7 +11,7 @@ When launching sub-agents via the Agent tool, use `sonnet` as the default model.
 Before EVERY Agent tool call, you MUST:
 
 1. **Scan the planned prompt** for trigger keywords (see Mandatory Skill Triggers below).
-2. **Identify every matching skill** from the available skill list — both currently installed and any added via the SB-OS-MANAGED block.
+2. **Identify every matching skill** from the available skill list — RBTV skills below, plus any non-RBTV skills (sb-os, user-defined, third-party) that match the planned task.
 3. **Name each matching skill explicitly** in the sub-agent prompt using the Required Phrasing format.
 4. **Include the mandate** — do not just mention the skill; instruct the sub-agent to invoke and follow it.
 
@@ -19,25 +19,20 @@ You MUST NOT dispatch until the prompt contains every required skill directive. 
 
 ## Mandatory Skill Triggers
 
-If the planned sub-agent task or prompt contains ANY trigger in a row below, you MUST name the matching installed skill in the prompt. Multiple matching trigger families = multiple skills named.
+If the planned sub-agent task or prompt contains ANY trigger in a row below, you MUST name the matching installed RBTV skill in the prompt. Multiple matching trigger families = multiple skills named.
 
-The trigger families are universal — the matching skill names are workspace-specific. Resolve each family to the matching skill from the available skill list at dispatch time. The EXAMPLE column shows representative skill names for context only — substitute whatever matching skill is installed.
-
-| Trigger family — keywords or task type | EXAMPLE skill names (substitute installed equivalent) |
-|----------------------------------------|--------------------------------------------------------|
-| research, web search, URL, fetch, extract page content, multi-source, citations, look up online, find on the web | `rbtv-web-searching` (RBTV) |
-| Vault content edits, moves, renames, new files in vault folders, `_system/`, or `.claude/` | `sb-vault-ops` (second-brain OS) |
-| Creating, moving, renaming, or deleting any vault file (post-op structural sweep) | `sb-vault-integrity` (second-brain OS) |
-| Commit, stage, push changes | `rbtv-commit` (RBTV) |
+| Trigger family — keywords or task type | Matching RBTV skill |
+|----------------------------------------|---------------------|
+| research, web search, URL, fetch, extract page content, multi-source, citations, look up online, find on the web | `rbtv-web-searching` |
+| Commit, stage, push changes | `rbtv-commit` |
 
 If multiple installed skills match a trigger family, name every match. If no installed skill matches a trigger family for the current dispatch, the family is inactive — do not invent skill names.
 
 **Web research is the hardest-enforced case.** Any dispatch whose prompt mentions research, web searching, URL fetching, page extraction, or source gathering — in ANY phrasing — MUST name the matching installed web-research skill. No exceptions. No "this is just a quick lookup." No "the sub-agent will figure it out."
 
-<!-- SB-OS-MANAGED START -->
-<!-- The second-brain OS injects its own skill triggers here at install time. -->
-<!-- DO NOT EDIT MANUALLY. Edits are overwritten on each sb-os install. -->
-<!-- SB-OS-MANAGED END -->
+## Non-RBTV Skills
+
+This rule covers RBTV skills only. Other skills installed in the workspace (sb-os, user-defined, plugins, third-party) have their own scope and triggers. When a non-RBTV skill matches the planned sub-agent task — based on its description in the available skill list — you MUST also name it in the sub-agent prompt using the Required Phrasing below. The Pre-Dispatch Gate fires for ALL applicable skills, regardless of source.
 
 ## Required Phrasing
 

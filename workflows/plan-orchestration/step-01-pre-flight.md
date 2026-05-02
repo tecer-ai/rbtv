@@ -38,24 +38,35 @@ Present:
 
 If the user declines: STOP the workflow.
 
-### 4. Ask User: Checkpoint Halts?
+### 4. Ask User: Run Mode?
 
 Present:
 
-> Two checkpoint modes:
-> - **Halt at checkpoints** — I stop after each phase's reviewer completes and wait for your go-ahead before starting the next phase.
-> - **Run end-to-end** — I run all phases continuously, only stopping if a sub-agent escalates a doubt.
->
-> Doubts always halt regardless of mode.
+> Three run modes:
+> - **Halt** — I stop after each phase's reviewer and wait for your go-ahead. Doubts halt. USER-EXECUTED-ONLY tasks halt for you to do them.
+> - **End-to-end** — I run phases continuously without stopping at checkpoints. Doubts still halt. USER-EXECUTED-ONLY tasks still halt.
+> - **Autonomous** — I run continuously and decide unilaterally on doubts and USER-EXECUTED-ONLY tasks too. Every unilateral decision is appended to `autonomous-run-log.md` in the plan folder for your post-hoc review. Plan-marked HARD halts (irreversibility gates, e.g., pre-cutover) are NEVER overridden. I will not destroy user content.
 >
 > Which?
 
-Record the user's choice as `checkpoint_mode: halt | end-to-end`.
+Record the user's choice as `run_mode: halt | end-to-end | autonomous`.
+
+If `run_mode: autonomous`, copy the template at `{rbtv_path}/workflows/plan-orchestration/templates/autonomous-run-log-template.md` to `{plan_dir}/autonomous-run-log.md` (filling `{plan-name}` in the frontmatter and H1). If the file already exists, leave it intact and append new entries at the bottom — never overwrite.
+
+Halt-type behavior summary:
+
+| Halt type | halt | end-to-end | autonomous |
+|-----------|------|------------|------------|
+| Checkpoint between phases | HALT | skip | skip |
+| Doubt escalation from sub-agent | HALT | HALT | skip + log decision |
+| USER-EXECUTED-ONLY task | HALT | HALT | skip + log defaults accepted |
+| Plan-marked HARD halt (irreversibility gate) | HALT | HALT | HALT (never overridden) |
+| Audit log discipline | none | none | mandatory (`autonomous-run-log.md`) |
 
 ### 5. Confirm and Proceed
 
 Echo back:
 
-> Confirmed: orchestrating [plan path] in [halt | end-to-end] mode. Doubts always halt. Proceeding to ingest the plan.
+> Confirmed: orchestrating [plan path] in [halt | end-to-end | autonomous] mode. {If autonomous: autonomous-run-log.md initialized at [path].} Proceeding to ingest the plan.
 
 Load `./step-02-ingest-batch.md`.

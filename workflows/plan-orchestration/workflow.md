@@ -37,8 +37,8 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 - 📖 ALWAYS read entire step file before execution
 - 🚫 NEVER execute a plan task yourself — always delegate
 - 🧠 NEVER skip the per-phase reviewer dispatch
-- ⏸️ ALWAYS halt for the user when a sub-agent escalates a doubt
-- 🛡️ NEVER override the user's checkpoint preference except for doubt escalations (which always halt)
+- ⏸️ ALWAYS halt for the user when a sub-agent escalates a doubt — UNLESS `run_mode: autonomous`, in which case decide unilaterally and log the decision per step-03 §4
+- 🛡️ NEVER override the user's run-mode preference. In `autonomous` mode, plan-marked HARD halts (irreversibility gates) are still NEVER overridden
 
 ---
 

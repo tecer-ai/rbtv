@@ -71,16 +71,19 @@ After ALL batches in the phase complete:
 7. If the reviewer escalates a doubt: STOP and surface to user.
 8. After the reviewer returns CLEAN or FIXED, update `{plan_dir}/orchestration-state.md`: set the Reviewer Status cell to CLEAN or FIXED for every batch in this phase, advance Resume Point to the next phase's first batch (or "FINAL — orchestration complete" if this was the last phase), refresh the timestamp.
 
-### 3. Honor Checkpoint Mode
+### 3. Honor Run Mode (per-phase checkpoint)
 
 After the reviewer returns clean:
 
-- **`checkpoint_mode: halt`** — Present a brief summary of the phase and the reviewer's findings. Ask: "Phase [N] complete. Continue to Phase [N+1]?" Wait for user.
-- **`checkpoint_mode: end-to-end`** — Proceed immediately to the next phase. No prompt.
+- **`run_mode: halt`** — Present a brief summary of the phase and the reviewer's findings. Ask: "Phase [N] complete. Continue to Phase [N+1]?" Wait for user.
+- **`run_mode: end-to-end`** — Proceed immediately to the next phase. No prompt.
+- **`run_mode: autonomous`** — Proceed immediately to the next phase. No prompt. (No log entry needed for routine phase advancement; only unilateral decisions per the always-log categories trigger an entry.)
 
 ### 4. Doubt Escalation Handling
 
 When a sub-agent returns `DOUBT_ESCALATED`:
+
+**If `run_mode: halt` or `run_mode: end-to-end`:**
 
 1. Present the doubt to the user verbatim, with context:
    > Sub-agent halted with a doubt during [phase/batch].
@@ -89,6 +92,22 @@ When a sub-agent returns `DOUBT_ESCALATED`:
    > **Awaiting your input.**
 2. Wait for user response.
 3. Pass the user's answer back into a fresh executor (or reviewer) dispatch with the doubt resolved.
+
+**If `run_mode: autonomous`:**
+
+1. Decide the doubt unilaterally using available context (plan, shape, architecture spec, prior decisions). Apply conservative bias — pick the option with smallest blast radius and clearest reversibility.
+2. Append an entry to `{plan_dir}/autonomous-run-log.md` per the template's entry schema. Required fields: confidence (use the rubric in the template), decision, why decided unilaterally, user might have decided differently, risk accepted, reversibility.
+3. Re-dispatch the sub-agent with the resolved doubt as part of the prompt. Do NOT mark the original return as a failure.
+
+**Plan-marked HARD halts (irreversibility gates) are NEVER overridden, even in autonomous mode.** Examples: pre-cutover checkpoints, "user must approve before proceeding" gates, anything labeled HARD HALT in the plan's Architectural Constraints. If such a halt fires under autonomous mode, halt anyway and surface to the user.
+
+### 4b. USER-EXECUTED-ONLY Task Handling
+
+When the plan flags a task as USER-EXECUTED-ONLY (e.g., manual git operations, judgment-heavy review, decisions reserved for the user):
+
+**If `run_mode: halt` or `run_mode: end-to-end`:** Halt and present the task. Wait for the user to execute it before advancing.
+
+**If `run_mode: autonomous`:** Accept the documented default state (the most conservative option preserving user content and reversibility). Append an entry to `autonomous-run-log.md` with confidence rated honestly per the rubric — most USER-EXECUTED-ONLY overrides are `medium` or `low` confidence by definition (the user reserved them precisely because they require judgment). The entry MUST list the per-item revert paths so the user can selectively undo.
 
 ### 5. Loop or Advance
 
