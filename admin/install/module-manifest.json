@@ -31,7 +31,7 @@
         "source_template": "skills/plan-orchestration/SKILL.md",
         "target": ".claude/skills/rbtv-plan-orchestration/SKILL.md",
         "bake": ["rbtv_path"],
-        "description": "Orchestrate multi-step non-code plans by delegating phases to opus sub-agents with per-phase review and sonnet doubt-escalation"
+        "description": "Orchestrate multi-step non-code plans by delegating phases to tiered sub-agents (haiku/sonnet/opus per decision tree) with per-phase review one tier above the executor (floor sonnet) and sonnet doubt-escalation"
       }
     ],
     "commands": [

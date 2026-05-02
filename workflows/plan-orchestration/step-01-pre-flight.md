@@ -31,7 +31,7 @@ If the plan is code work: STOP and redirect the user to `superpowers:subagent-dr
 Present:
 
 > This plan has [N] phases / [M] tasks. I can either:
-> - **Orchestrate** — I delegate each phase to opus sub-agents, dispatch a reviewer after each phase, and only surface doubts to you. I never execute plan work myself.
+> - **Orchestrate** — I delegate each phase to sub-agents (model tier per task: haiku for mechanical work, sonnet for enumerated cases, opus by default), dispatch a reviewer after each phase (one tier above the executor, floor sonnet), and only surface doubts to you. I never execute plan work myself.
 > - **Skip orchestration** — you handle execution another way.
 >
 > Want me to orchestrate?

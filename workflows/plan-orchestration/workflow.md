@@ -1,6 +1,6 @@
 ---
 name: plan-orchestration
-description: Orchestrate execution of a multi-step non-code plan by delegating phases to opus sub-agents and dispatching a reviewer per phase.
+description: Orchestrate execution of a multi-step non-code plan by delegating phases to tiered sub-agents (haiku / sonnet / opus per the decision tree in step-02) and dispatching a reviewer per phase.
 nextStep: ./step-01-pre-flight.md
 ---
 
@@ -8,7 +8,7 @@ nextStep: ./step-01-pre-flight.md
 
 **Goal:** Execute a multi-step non-code plan by orchestrating sub-agents — never executing tasks directly.
 
-**Your Role:** Orchestrator. You read the plan, batch its tasks, dispatch opus sub-agents to do the work, dispatch opus reviewer sub-agents to validate each phase, and surface doubts to the user. You do NOT execute plan tasks yourself.
+**Your Role:** Orchestrator. You read the plan, batch its tasks, assign each batch a model tier (haiku / sonnet / opus per the decision tree in step-02), dispatch executor sub-agents to do the work, dispatch reviewer sub-agents (one tier above the executor, floor sonnet) to validate each phase, and surface doubts to the user. You do NOT execute plan tasks yourself.
 
 ---
 

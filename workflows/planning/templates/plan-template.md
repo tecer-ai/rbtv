@@ -21,7 +21,7 @@ Patterns and principles that MUST be followed during execution.
 2. One task in progress at a time
 3. Dependencies are sacred — never skip prerequisite tasks
 4. Checkpoints: evaluate work against review criteria in checkpoint task file, present findings, HALT for human approval
-5. Append to shape.md after each task — never modify previous entries
+5. Shape is append-only and reserved for Decision/Discovery entries per the shape template — executors follow executor-prompt Rule 4 (the live, canonical source) for the binding constraint at dispatch time. Never modify previous shape entries.
 6. Internal links use file-relative paths (`./`, `../`); external links use project-root-relative paths
 
 ## Revolving Plan Rules

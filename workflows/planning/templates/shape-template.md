@@ -78,10 +78,10 @@ Use this template to create the `shape.md` companion file for each plan. Shape c
 > 1. Only capture decisions, discoveries, and unexpected constraints — NOT routine task completions
 > 2. NEVER modify previous entries
 > 3. NEVER delete entries
-> 4. Ask yourself: "Will this matter in one month?" If no, don't log it
+> 4. Ask yourself: "Will this matter to a future agent executing this plan?" If no, don't log it. Shape's audience is in-flight executors — not post-mortem readers. (`learnings.md` is for META-learnings about the BMAD/RBTV system itself, not project post-mortems.)
 >
-> **What belongs here:** Decisions made during execution (with rationale), discoveries that change prior decisions, unexpected constraints
-> **What does NOT belong:** Routine task completions ("created file X", "updated config Y")
+> **What belongs here:** Decisions made during execution that change the plan or its direction, discoveries that contradict prior decisions, unexpected constraints future executors must know
+> **What does NOT belong:** Routine task completions ("created file X", "updated config Y"), per-task outcome tables, file lists, commit hashes, "Phase N batch complete" summaries — orchestration state lives in `orchestration-state.md` (created and overwritten by the orchestrator), not here
 
 ### Decision Entry Format
 
@@ -153,10 +153,9 @@ Use this template to create the `shape.md` companion file for each plan. Shape c
 ### During Execution
 
 1. **Before each task:** Read Decisions and Discoveries for prior context
-2. **On significant decision:** Append a Decision entry (only if it matters in one month)
+2. **On significant decision:** Append a Decision entry — only if it passes the audience criterion in the APPEND-ONLY RULES (template body above)
 3. **On discovery that changes prior work:** Append a Discovery entry AND complete the Propagation Checklist
-4. **Do NOT log:** Routine task completions — these add noise without lasting value
-5. **NEVER:** Modify Original Shaping or previous entries
+4. **NEVER:** Modify Original Shaping or previous entries
 
 ### Discovery Propagation Protocol
 
@@ -189,4 +188,4 @@ The append-only pattern serves critical purposes:
 | Per decision entry | 6-8 lines | 12 lines |
 | Per discovery entry (with propagation) | 15-25 lines | 35 lines |
 
-**Note:** Shape.md will grow during execution. This is expected and intentional.
+**Note:** Shape.md grows during execution ONLY through Decision and Discovery entries that pass the APPEND-ONLY RULES audience criterion. Growth from per-task outcomes, file lists, commit hashes, or batch-completion summaries indicates misuse — orchestration state belongs in `orchestration-state.md`, not here.
