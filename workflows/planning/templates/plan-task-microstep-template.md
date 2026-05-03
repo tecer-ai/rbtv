@@ -87,6 +87,15 @@ human_review: required | optional | none
 
 ### Phase: Close
 
+**If executing under plan-orchestration** (the dispatching executor prompt declares orchestration mode):
+
+1. Mark this task complete in BOTH locations (same turn):
+   - In the plan file, change `[~]` to `[x]` for this task's checkbox.
+   - In this task file's YAML frontmatter, change `status: in_progress` to `status: completed`.
+2. Reviewer dispatch (orchestration step-04) handles verification and user summary. Do NOT append to shape.md and do NOT wait for user approval — both are handled at the orchestrator layer.
+
+**If executing standalone** (no orchestrator):
+
 1. Append execution entry to shape.md (never modify existing entries).
 2. **MUST** present a brief summary to the user (max 2000 characters) of what was done. Do not mark complete until the user approves.
 3. After user approval, mark this task as complete in BOTH locations (same turn):

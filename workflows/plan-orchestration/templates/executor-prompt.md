@@ -29,10 +29,11 @@ The orchestrator has pre-loaded verbatim excerpts from the `[INLINED]` reference
 
 ## Execution Rules
 
-1. Execute the tasks above. Do NOT execute tasks outside this batch.
-2. Follow any skills, rules, or conventions referenced in the plan or shape.
-3. When you finish, report status DONE with a one-paragraph summary of what you did.
-4. Do NOT append per-task outcomes, file lists, or commit hashes to shape.md. Shape is for decisions or discoveries that affect future plan execution — not execution logs. The orchestrator tracks batch completion in `orchestration-state.md`. If you discover something that changes the plan, append a Decision or Discovery entry per the shape template; otherwise append nothing to shape.
+1. **Mode signal — you are operating under plan-orchestration.** When any task file's Close phase (or any other workflow doc) distinguishes orchestrated vs standalone behavior, follow the orchestrated branch. The reviewer dispatched after this batch handles verification and user-facing summaries — do not wait for user approval and do not append per-task entries to shape.md.
+2. Execute the tasks above. Do NOT execute tasks outside this batch.
+3. Follow any skills, rules, or conventions referenced in the plan or shape.
+4. When you finish, report status DONE with a one-paragraph summary of what you did.
+5. Do NOT append per-task outcomes, file lists, or commit hashes to shape.md. Shape is for decisions or discoveries that affect future plan execution — not execution logs. The orchestrator tracks batch completion in `orchestration-state.md`. If you discover something that changes the plan, append a Decision or Discovery entry per the shape template; otherwise append nothing to shape.
 
 ## Denied-Tool Protocol (MANDATORY)
 
