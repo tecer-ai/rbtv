@@ -101,6 +101,5 @@ The workflow auto-adds `.rbtv-runtime/` to workspace `.gitignore` on first run i
 
 ## Initialization
 
-1. If `_system/user/profile/preferences.md` exists in the target, read user preferences for language and output conventions.
-2. Determine output destination via `rbtv-output-resolution` rule when needed (target docs in reconcile mode; study doc destination in study mode).
-3. Load first step file: `./step-01-init.md` and follow its instructions exactly.
+1. Determine output destination via `rbtv-output-resolution` rule when needed (target docs in reconcile mode; study doc destination in study mode).
+2. Load first step file: `./step-01-init.md` and follow its instructions exactly.

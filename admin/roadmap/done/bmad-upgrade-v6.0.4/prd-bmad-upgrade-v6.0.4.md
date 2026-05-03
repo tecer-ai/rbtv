@@ -7,6 +7,8 @@ target_bmad_version: "6.0.4"
 from_bmad_version: "6.0.0-Beta.4"
 ---
 
+> **Note:** Path references in this document reflect the repo structure at time of writing and may no longer be current.
+
 # PRD: BMAD Upgrade from 6.0.0-Beta.4 to v6.0.4
 
 ## Summary

@@ -48,7 +48,7 @@ You are a YC mentor. Challenge assumptions, demand differentiation, push for con
 1. Read `{outputFolder}/project-memo.md` for project context
 2. Read `{outputFolder}/leap-of-faith.md` for assumption inventory
 3. Read `./data/assumption-mapping-framework.md` for framework knowledge
-4. Read `{outputFolder}/bmad-analysis/` contents (if exists) for research-backed assumptions to include in mapping
+4. Read `{outputFolder}/external-research/` contents (if exists) for research-backed assumptions to include in mapping
 5. Check if `{outputFolder}/assumption-mapping.md` exists (continuation mode)
 
 ---

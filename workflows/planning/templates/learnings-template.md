@@ -9,7 +9,7 @@ Use this template to create the `learnings.md` companion file for each plan. Lea
 ```markdown
 # Learnings - {Plan Name}
 
-> **Purpose:** Actionable items captured during plan execution to be solved or compounded after the plan ends. Each entry is a post-plan TODO with enough context for a fresh agent to act on it without reading the full plan. Includes META-learnings about how BMAD/RBTV/sb-os could be improved AND code/installer/rule bugs discovered while executing the plan — both classes of finding are actionable post-plan items.
+> **Purpose:** Actionable items captured during plan execution to be solved or compounded after the plan ends. Each entry is a post-plan TODO with enough context for a fresh agent to act on it without reading the full plan. Includes META-learnings about how RBTV/sb-os could be improved AND code/installer/rule bugs discovered while executing the plan — both classes of finding are actionable post-plan items.
 
 ---
 
@@ -48,7 +48,7 @@ Use this template to create the `learnings.md` companion file for each plan. Lea
 - [ ] Pattern discovery
 
 **Category:**
-- [ ] Missing rule in BMAD/RBTV
+- [ ] Missing rule in RBTV
 - [ ] Unclear instruction that caused confusion
 - [ ] Workflow gap or missing step
 - [ ] Tool capability gap
@@ -61,7 +61,7 @@ Use this template to create the `learnings.md` companion file for each plan. Lea
 
 | Aspect | Value |
 |--------|-------|
-| Target | {Which BMAD/RBTV file or component} |
+| Target | {Which RBTV file or component} |
 | Type | {Add rule \| Clarify instruction \| New template \| Tool enhancement} |
 | Proposed Change | {Specific change to make} |
 
@@ -145,7 +145,7 @@ For each group of related learnings:
 ### Examples
 
 **Good learning (system improvement):**
-> "User corrected agent behavior: 'Don't create files unless explicitly asked.' This indicates a missing rule in BMAD about file creation restraint."
+> "User corrected agent behavior: 'Don't create files unless explicitly asked.' This indicates a missing rule in RBTV about file creation restraint."
 
 **Good learning (code bug discovered during execution):**
 > "`upgrade.py` copies rule files via `shutil.copyfile` without substituting `{sb_os_path}` placeholders. Affects every rule containing the placeholder. Fix: route rule installs through a `substitute_rule_placeholders` helper. Logged here so the discovery and fix path are preserved as precedent for future installer work."

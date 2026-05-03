@@ -13,7 +13,7 @@ projectMemo: '{project-name}/business-innovation/project-memo.md'
 
 ## STEP GOAL
 
-Present M4 Prototypation framework menu, identify completed frameworks, suggest next framework based on dependencies, and route user to the selected framework workflow or BMAD bridge.
+Present M4 Prototypation framework menu, identify completed frameworks, suggest next framework based on dependencies, and route user to the selected framework workflow or plugin bridge.
 
 ---
 
@@ -35,7 +35,7 @@ You are a YC mentor. Guide the founder through prototypation frameworks with str
 - Suggest the logical next framework based on stepsCompleted and dependencies
 - Allow user to override suggestion and select any framework
 - Framework workflows will update project-memo on completion — do not duplicate this logic
-- [D] Design Direction routes via bi-m4-design-context bridge to BMAD create-ux-design
+- [D] Design Direction routes via bi-m4-design-context bridge to the `bmad-method-lifecycle:bmad-create-ux-design` plugin skill
 
 ---
 
@@ -66,7 +66,7 @@ Determine suggested next framework from stepsCompleted:
 | State | Recommended Next | Rationale |
 |-------|------------------|-----------|
 | No M4 frameworks completed | User Flow & IA | Foundation for all design work (Order: 1) |
-| Only [U] complete | Design Direction | Visual design via BMAD bridge (Order: 2) |
+| Only [U] complete | Design Direction | Visual design via plugin bridge (Order: 2) |
 | [U] + [D] complete | Build Prototype | Implement HTML prototype (Order: 3, planned) |
 | [U] + [D] + [B] complete | Conversion Optimization | Apply CCD principles (Order: 4) |
 | [U] + [D] + [B] + [C] complete | Heuristic Evaluation | Usability evaluation (Order: 5) |
@@ -107,10 +107,10 @@ Select a framework to work on:
      Prerequisites: None
      Output: user-flow-ia.md
 
-[D] Design Direction — Visual design via BMAD create-ux-design {recommended-indicator-if-suggested}
+[D] Design Direction — Visual design via plugin bridge {recommended-indicator-if-suggested}
      Status: {completed/not started}
      Prerequisites: User Flow & IA (recommended)
-     Output: design_brief.md + design.json (via BMAD)
+     Output: design_brief.md + design.json (via plugin)
      Note: Routes via bi-m4-design-context bridge
 
 [B] Build Prototype — HTML/CSS implementation {recommended-indicator-if-suggested}
@@ -141,7 +141,7 @@ Select a framework to work on:
 
 **Instructions for displaying recommended indicator:**
 - Add ` ← Recommended next` after the framework name ONLY if it matches the recommended next framework from Section 2
-- Example: `[D] Design Direction — Visual design via BMAD create-ux-design ← Recommended next`
+- Example: `[D] Design Direction — Visual design via plugin bridge ← Recommended next`
 - Prerequisites shown below should indicate ✓ for completed or ✗ for not completed
 - Example: `Prerequisites: User Flow & IA ✓`
 - For planned frameworks [B] and [F], show status as "🚧 Planned (to be created)" and note they cannot be selected yet
@@ -157,7 +157,7 @@ ALWAYS halt and wait for user selection.
 | Selection | Action |
 |-----------|--------|
 | [U] | Update project-memo frontmatter currentFramework → Load `../bi-m4-user-flow-ia/workflow.md` |
-| [D] | Check prerequisites → Update project-memo frontmatter → Load `../bi-m4-design-context/workflow.md` (bridge to BMAD) |
+| [D] | Check prerequisites → Update project-memo frontmatter → Load `../bi-m4-design-context/workflow.md` (plugin bridge) |
 | [B] | Display "🚧 This framework is planned for future creation. Please select an available framework." |
 | [C] | Check prerequisites → Update project-memo frontmatter → Load `../bi-m4-conversion-centered-design/workflow.md` |
 | [H] | Check prerequisites → Update project-memo frontmatter → Load `../bi-m4-heuristic-evaluation/workflow.md` |
@@ -198,7 +198,7 @@ M4 Frameworks (6 total):
     Prerequisites: None
     Output: m4-prototypation/user-flow-ia.md
     
-[ ] Design Direction (via BMAD bridge)
+[ ] Design Direction (via plugin bridge)
     Prerequisites: User Flow & IA (recommended)
     Output: m4-prototypation/design_brief.md + design.json
     

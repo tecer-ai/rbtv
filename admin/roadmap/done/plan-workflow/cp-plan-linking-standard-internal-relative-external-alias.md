@@ -16,6 +16,8 @@ date: '2026-02-14'
 yoloMode: false
 ---
 
+> **Note:** Path references in this document reflect the repo structure at time of writing and may no longer be current.
+
 # Plan Linking Standard (Internal Relative, External Alias)
 
 **Type:** Workflow  

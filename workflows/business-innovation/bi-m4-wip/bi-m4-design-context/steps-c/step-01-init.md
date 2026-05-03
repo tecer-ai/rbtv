@@ -20,7 +20,7 @@ Load project-memo, user-flow-ia.md (from M4 User Flow & IA), and M1–M3 synthes
 
 **Builds on:** User Flow & IA
 **Inherits (do not restate):** Conversion paths, information architecture, artifact type — reference `{outputFolder}/user-flow-ia.md`
-**This framework adds:** Content hierarchy, CTA priorities, design brief for BMAD UX handoff
+**This framework adds:** Content hierarchy, CTA priorities, design brief for plugin UX handoff
 
 ---
 
@@ -32,7 +32,7 @@ Load project-memo, user-flow-ia.md (from M4 User Flow & IA), and M1–M3 synthes
 - Follow the MANDATORY SEQUENCE below exactly — do not deviate, skip, or optimize
 
 ### Role Reinforcement
-You are a YC mentor facilitating the handoff to BMAD create-ux-design. Ensure context is complete so the UX workflow can start without re-discovery.
+You are a YC mentor facilitating the handoff to `bmad-method-lifecycle:bmad-create-ux-design`. Ensure context is complete so the UX workflow can start without re-discovery.
 
 ### Step-Specific Rules
 - User Flow & IA (bi-m4-user-flow-ia) MUST be complete before this bridge
@@ -79,7 +79,7 @@ From user-flow-ia.md and project-memo, summarize:
 - **CTA placement** and layout priorities
 - **Brand references** from M3 (tone, messaging) if present in project-memo
 
-Present: "Here's the context that will be formatted for BMAD create-ux-design in the next step..."
+Present: "Here's the context that will be formatted for `bmad-method-lifecycle:bmad-create-ux-design` in the next step..."
 
 ### 3. Confirm Scope
 
@@ -91,7 +91,7 @@ Present: "Here's the context that will be formatted for BMAD create-ux-design in
 > - CTA and layout priorities
 > - Brand references from M3
 >
-> This document will be used as input when you run BMAD create-ux-design. Continue to build the design-context document?"
+> This document will be used as input when you run `bmad-method-lifecycle:bmad-create-ux-design`. Continue to build the design-context document?"
 
 HALT — wait for user confirmation.
 

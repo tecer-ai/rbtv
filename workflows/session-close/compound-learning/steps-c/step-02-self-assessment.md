@@ -32,8 +32,7 @@ Follow these instructions in exact order. Do NOT skip, reorder, or optimize.
   - Persona files (`{rbtv_path}/personas/*.md`)
   - Command files (`.claude/commands/*.md`)
   - Skill files (`.claude/skills/*/SKILL.md`)
-  - Workflow files (`{rbtv_path}/workflows/`, `_system/workflows/`)
-  - System files (`_system/`)
+  - Workflow files (`{rbtv_path}/workflows/`)
 - For each file, evaluate:
   - Was the guidance ambiguous or conflicting?
   - Was the file missing when it should have been loaded?
@@ -49,10 +48,8 @@ Use the primary affected file's path to determine where the compound PRD belongs
 
 | Primary affected file lives under... | Output folder |
 |---|---|
-| `{rbtv_path}/` | `{rbtv_path}/_admin/roadmap/todos/` |
-| `_system/` or `.claude/` (non-rbtv) | `_system/roadmap/todos/` |
-| `5. Workbench/{project}/` | Defer to that project's CLAUDE.md conventions |
-| Ambiguous / no specific file | Ask user: "Is this about RBTV behavior or vault/system behavior?" |
+| `{rbtv_path}/` | `{rbtv_path}/admin/roadmap/todos/` |
+| Anything else | Invoke `rbtv-output-resolution` rule; if still unclear, ask user |
 
 Update the output document's `outputPath` frontmatter field with the resolved path. Create the folder if it does not exist.
 

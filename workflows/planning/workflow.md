@@ -63,8 +63,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ## Initialization
 
-1. If `_system/user/profile/preferences.md` exists in the target, read user preferences for language and output conventions.
-2. Load the first step file: `{nextStep}`.
+1. Load the first step file: `{nextStep}`.
 
 ---
 
@@ -99,6 +98,6 @@ Created during finalization in `{output-path}/{plan-name}/`:
 |----------|---------|
 | {plan-name}-plan.md | Main plan file with phases, tasks, and architectural constraints |
 | shape.md | Scope boundaries, constraints, shaping decisions, append-only execution log |
-| learnings.md | System improvement queue for BMAD/RBTV meta-learnings |
+| learnings.md | System improvement queue for RBTV meta-learnings |
 | phase-N/ | Folders containing micro-step task files |
 | pN-X.task.md | Micro-step files with complete execution instructions per task |

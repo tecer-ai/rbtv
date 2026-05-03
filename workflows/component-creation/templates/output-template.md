@@ -1,6 +1,6 @@
 # Output Document Template
 
-Use this template to create output document templates for BMAD workflows.
+Use this template to create output document templates for RBTV workflows.
 
 ---
 

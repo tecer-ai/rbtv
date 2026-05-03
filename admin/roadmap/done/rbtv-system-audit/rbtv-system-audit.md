@@ -5,6 +5,8 @@ status: ready
 created: 2026-02-06
 ---
 
+> **Note:** Path references in this document reflect the repo structure at time of writing and may no longer be current.
+
 # CLAUDE CODE EXECUTION PROMPT: RBTV SYSTEM AUDIT & REFINEMENT
 
 ## ROLE & CONTEXT

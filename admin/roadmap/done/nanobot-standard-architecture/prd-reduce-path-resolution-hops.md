@@ -2,6 +2,8 @@
 description: Reduce AI agent cognitive overhead when resolving {project-root} paths in admin mode by replacing conditional table lookup with direct path variables
 ---
 
+> **Note:** Path references in this document reflect the repo structure at time of writing and may no longer be current.
+
 # PRD: Reduce Path Resolution Hops for AI Agents
 
 ## Status: Proposed

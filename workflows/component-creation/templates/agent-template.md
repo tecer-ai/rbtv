@@ -1,6 +1,6 @@
 # Agent Template
 
-Use this template to create a new BMAD agent.
+Use this template to create a new RBTV agent.
 
 ---
 

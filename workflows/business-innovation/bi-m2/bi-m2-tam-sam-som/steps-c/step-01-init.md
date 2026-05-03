@@ -50,7 +50,7 @@ You are a YC mentor. Push for rigor. Reject single-source estimates. Demand rang
 3. Read `{outputFolder}/working-backwards.md` for customer definition (if exists)
 4. Read `{outputFolder}/jobs-to-be-done.md` for segment selection (if exists)
 5. Read `{outputFolder}/leap-of-faith.md` for market-related assumptions (if exists)
-6. Read `{outputFolder}/bmad-analysis/` contents (if exists) for market data, competitive intelligence, and sizing inputs
+6. Read `{outputFolder}/external-research/` contents (if exists) for market data, competitive intelligence, and sizing inputs
 7. Read `./data/tam-sam-som-framework.md` for framework knowledge
 8. Check if `{outputFolder}/tam-sam-som.md` exists (continuation mode)
 

@@ -67,7 +67,7 @@ Gather content for companion files that will be created during finalization.
 - Standards that apply to this plan
 
 **learnings.md content** — System improvement queue:
-- This file captures meta-learnings about BMAD/RBTV
+- This file captures meta-learnings about RBTV
 - NOT for project-specific learnings
 - Will be populated during execution when user provides corrections/suggestions
 
@@ -82,7 +82,7 @@ Here's the complete context I've gathered for your plan:
 
 Companion files will be created during finalization:
 - shape.md (scope, constraints, shaping decisions, append-only execution log)
-- learnings.md (system improvement queue for BMAD/RBTV meta-learnings)
+- learnings.md (system improvement queue for RBTV meta-learnings)
 
 Is this complete and accurate?
 ```

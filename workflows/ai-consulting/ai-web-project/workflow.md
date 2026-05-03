@@ -63,6 +63,5 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 ## Initialization
 
-1. If `_system/user/profile/preferences.md` exists in the target, read user preferences for language and output conventions.
-2. Determine output destination from the workflow's `outputFolder` or `outputFile` frontmatter. If it contains the literal string `ASK-CLAUDE-MD`, read the target's `CLAUDE.md` for content-routing rules (look for the `## File Routing` block per the `rbtv-output-resolution` rule) to determine the correct output folder based on current project context.
-3. Load the first step file and follow its instructions exactly.
+1. Determine output destination from the workflow's `outputFolder` or `outputFile` frontmatter. If it contains the literal string `ASK-CLAUDE-MD`, read the target's `CLAUDE.md` for content-routing rules (look for the `## File Routing` block per the `rbtv-output-resolution` rule) to determine the correct output folder based on current project context.
+2. Load the first step file and follow its instructions exactly.

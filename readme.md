@@ -95,6 +95,7 @@ RBTV uses Claude Code plugins for extended functionality. Install them from insi
 |---|---|
 | `superpowers` | Skill-driven workflows, TDD, brainstorming, plan execution, code review |
 | `compound-engineering` | Frontend design, git workflows, debugging, ideation, browser automation |
+| `chrome-devtools-mcp` | Live browser control via Chrome DevTools Protocol — screenshots, clicks, network inspection, performance profiling, memory analysis |
 
 ```
 /plugin install superpowers@claude-plugins-official
@@ -103,6 +104,11 @@ RBTV uses Claude Code plugins for extended functionality. Install them from insi
 ```
 /plugin marketplace add EveryInc/compound-engineering-plugin
 /plugin install compound-engineering@compound-engineering-plugin
+```
+
+```
+/plugin marketplace add ChromeDevTools/chrome-devtools-mcp
+/plugin install chrome-devtools@chrome-devtools-mcp
 ```
 
 **Activate on demand** — useful but add skill noise when always enabled:

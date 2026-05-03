@@ -55,7 +55,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 | [H] | Heuristic Evaluation | ./bi-m4-heuristic-evaluation/workflow.md | heuristic-evaluation.md | ✅ Available |
 | [F] | Testing Prep | *(to be created)* | testing-protocol.md | 🚧 Planned |
 
-### BMAD Integration Note
+### Plugin Integration Note
 
 **[D] Design Direction** routes via **bi-m4-design-context** (bridge):
 
@@ -75,7 +75,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 ## RECOMMENDED SEQUENCE
 
 1. **User Flow & IA** [U] — Map conversion paths and content hierarchy *(available)*
-2. **Design Direction** [D] — Create visual direction via BMAD (design discovery via visual-design-extraction, playwright-browser-automation; optionally design-validation) *(available)*
+2. **Design Direction** [D] — Create visual direction via plugin bridge (design discovery via visual-design-extraction, playwright-browser-automation; optionally design-validation) *(available)*
 3. **Build Prototype** [B] — Implement HTML prototype *(to be created)*
 4. **Conversion Optimization** [C] — Apply conversion-centered design principles *(available)*
 5. **Heuristic Evaluation** [H] — Evaluate usability against Nielsen's heuristics *(available)*
@@ -89,7 +89,7 @@ Prototypation milestone is complete when:
 
 1. User flow map exists with entry points, screens, decisions, and conversion goal *(framework available: [U])*
 2. Information architecture defines content hierarchy and section structure *(framework available: [U])*
-3. Design brief and design specs exist (via BMAD create-ux-design) *(bridge available: [D])*
+3. Design brief and design specs exist (via `bmad-method-lifecycle:bmad-create-ux-design`) *(bridge available: [D])*
 4. HTML prototype is functional with all sections implemented *(framework to be created: [B])*
 5. Prototype passes WCAG AA accessibility (contrast, keyboard nav, alt text, headings) *(framework to be created: [B])*
 6. Prototype is responsive at 375px, 768px, and 1200px+ *(framework to be created: [B])*

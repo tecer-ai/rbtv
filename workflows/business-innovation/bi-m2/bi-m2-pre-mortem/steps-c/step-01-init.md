@@ -48,7 +48,7 @@ You are a YC mentor. Create psychological safety for honest risk surfacing. The 
 
 1. Read `{outputFolder}/project-memo.md` for project context and M2 completion status
 2. Read `./data/pre-mortem-framework.md` for framework knowledge
-3. Read `{outputFolder}/bmad-analysis/` contents (if exists) for risk signals from market/competitive research
+3. Read `{outputFolder}/external-research/` contents (if exists) for risk signals from market/competitive research
 4. Check if `{outputFolder}/pre-mortem.md` exists (continuation mode)
 5. Verify M2 framework outputs exist:
    - `{outputFolder}/leap-of-faith.md`

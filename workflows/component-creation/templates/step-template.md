@@ -1,6 +1,6 @@
 # Step File Template
 
-Use this template to create a step file for a BMAD workflow.
+Use this template to create a step file for an RBTV workflow.
 
 ---
 

@@ -1,19 +1,19 @@
 ---
 name: 'step-02-format-context'
-description: 'Build design brief / context document for BMAD create-ux-design'
+description: 'Build design brief / context document for bmad-method-lifecycle:bmad-create-ux-design'
 nextStepFile: './step-03-delegate-and-synthesize.md'
 outputFile: '{outputFolder}/design-context.md'
 ---
 
 # Step 2: Format Design Context
 
-**Progress: Step 2 of 3** — Next: Delegate to BMAD & Synthesize
+**Progress: Step 2 of 3** — Next: Delegate to Plugin & Synthesize
 
 ---
 
 ## STEP GOAL
 
-Build a design-context document (design brief) for BMAD create-ux-design from user-flow-ia.md and project-memo. Include artifact type, content hierarchy, CTA strategy, and brand references from M3.
+Build a design-context document (design brief) for `bmad-method-lifecycle:bmad-create-ux-design` from user-flow-ia.md and project-memo. Include artifact type, content hierarchy, CTA strategy, and brand references from M3.
 
 ---
 
@@ -25,12 +25,12 @@ Build a design-context document (design brief) for BMAD create-ux-design from us
 - Follow the MANDATORY SEQUENCE below exactly — do not deviate, skip, or optimize
 
 ### Role Reinforcement
-You are a YC mentor. The design-context document must give BMAD create-ux-design everything it needs to scope UX work without re-discovery.
+You are a YC mentor. The design-context document must give `bmad-method-lifecycle:bmad-create-ux-design` everything it needs to scope UX work without re-discovery.
 
 ### Step-Specific Rules
 - Use content from user-flow-ia.md (artifact type, conversion goal, IA, synthesis) and project-memo (M1/M3 summary, brand)
 - Write to `{outputFolder}/design-context.md`
-- Do NOT invoke BMAD in this step — that is Step 3
+- Do NOT invoke the plugin in this step — that is Step 3
 
 ---
 
@@ -55,7 +55,7 @@ Create or overwrite `{outputFolder}/design-context.md` with the following struct
 ```markdown
 # Design Context: {Project Name}
 
-> Prepared by bi-m4-design-context bridge for BMAD create-ux-design workflow.
+> Prepared by bi-m4-design-context bridge for `bmad-method-lifecycle:bmad-create-ux-design` plugin workflow.
 
 ## Artifact Type & Conversion Goal
 
@@ -98,20 +98,20 @@ Create or overwrite `{outputFolder}/design-context.md` with the following struct
 - M3: [relevant frameworks from stepsCompleted]
 - M4 User Flow & IA: complete
 
-## BMAD create-ux-design Input Summary
+## Plugin Input Summary
 
-When running BMAD create-ux-design:
+When running `bmad-method-lifecycle:bmad-create-ux-design`:
 - Use this document as the primary context (design brief).
 - Discovery: visual-design-extraction, playwright-browser-automation; optionally design-validation.
 - Output: design specification and visual direction; integrate results into project-memo after workflow completion.
 ```
 
-Confirm with user: "Design-context document created at `{outputFolder}/design-context.md`. Review if needed, then continue to invoke BMAD create-ux-design."
+Confirm with user: "Design-context document created at `{outputFolder}/design-context.md`. Review if needed, then continue to invoke `bmad-method-lifecycle:bmad-create-ux-design`."
 
 ### 2. Present Menu Options
 
 **Select an Option:**
-- **[C] Continue** — proceed to Update BMAD Config (Step 2b)
+- **[C] Continue** — proceed to Delegate & Synthesize (Step 3)
 
 ALWAYS halt and wait for user selection.
 
@@ -121,12 +121,12 @@ ALWAYS halt and wait for user selection.
 
 ONLY when **[C] Continue** is selected:
 1. Ensure design-context.md exists at {outputFolder}
-2. Load `./step-02b-update-config.md` and follow its instructions
+2. Load `./step-03-delegate-and-synthesize.md` and follow its instructions
 
 ---
 
 ## SUCCESS / FAILURE METRICS
 
-✅ **SUCCESS:** design-context.md created with artifact type, content hierarchy, CTA, brand refs; user can proceed to BMAD
+✅ **SUCCESS:** design-context.md created with artifact type, content hierarchy, CTA, brand refs; user can proceed to plugin invocation
 
-❌ **FAILURE:** Document missing required sections, or BMAD invoked in this step
+❌ **FAILURE:** Document missing required sections, or plugin invoked in this step

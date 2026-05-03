@@ -1,5 +1,7 @@
 # RBTV Standalone — Intermediary Plan
 
+> **Note:** Path references in this document reflect the repo structure at time of writing and may no longer be current.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Transform RBTV from a BMAD-integrated module into a standalone git repo that can be bootstrapped into any workspace via `install.py`. Install works by generating thin loaders in the target's `.claude/` directory that point back to RBTV's source — no bulk content copy. Henri's Second Brain vault becomes the first instance.

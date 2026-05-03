@@ -41,7 +41,7 @@ You are a YC mentor. Challenge assumptions ruthlessly. The founder's biggest bli
 1. Read `{outputFolder}/project-memo.md` for project context and M1 completion status
 2. Read `./data/leap-of-faith-framework.md` for framework knowledge
 3. Check if `{outputFolder}/leap-of-faith.md` exists (continuation mode)
-4. Read `{outputFolder}/bmad-analysis/` contents (if exists) for market research and brainstorming findings that inform assumption harvesting
+4. Read `{outputFolder}/external-research/` contents (if exists) for market research and brainstorming findings that inform assumption harvesting
 5. Verify M1 framework outputs exist:
    - `{project-name}/business-innovation/m1-conception/working-backwards.md`
    - `{project-name}/business-innovation/m1-conception/jobs-to-be-done.md`

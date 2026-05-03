@@ -1,10 +1,10 @@
 ---
 name: 'step-03-delegate-and-synthesize'
-description: 'Standard lightweight BMAD delegation: update config, instruct user, wait, file placement, restore config, synthesis'
+description: 'Invoke bmad-method-lifecycle:bmad-create-ux-design plugin skill, instruct user, wait for completion, verify file placement, synthesis'
 nextStepFile: null
 ---
 
-# Step 3: Delegate to BMAD & Synthesize
+# Step 3: Delegate to Plugin & Synthesize
 
 **Progress: Step 3 of 3** — Final Step
 
@@ -12,7 +12,7 @@ nextStepFile: null
 
 ## STEP GOAL
 
-Execute the standard BMAD lightweight delegation sequence: update config, instruct user to run BMAD create-ux-design, wait for completion, verify file placement, restore config, integrate output into project-memo, and instruct return to M4 menu.
+Invoke `bmad-method-lifecycle:bmad-create-ux-design`, instruct user to run the plugin workflow with the prepared design-context, wait for completion, verify file placement, integrate output into project-memo, and instruct return to M4 menu.
 
 ---
 
@@ -24,11 +24,10 @@ Execute the standard BMAD lightweight delegation sequence: update config, instru
 - Follow the MANDATORY SEQUENCE below exactly — do not deviate, skip, or optimize
 
 ### Role Reinforcement
-You are a YC mentor. Clear delegation instructions prevent wasted tokens and re-discovery. Config management is critical infrastructure.
+You are a YC mentor. Clear delegation instructions prevent wasted tokens and re-discovery.
 
 ### Step-Specific Rules
-- Do NOT run BMAD workflow in place of the user — instruct the user to load and run it
-- ALWAYS update config before and restore after BMAD invocation
+- Do NOT run the plugin workflow in place of the user — instruct the user to invoke and run it
 - project-memo.md MUST be updated with Design Direction synthesis
 - Return instruction MUST be explicit
 
@@ -36,68 +35,35 @@ You are a YC mentor. Clear delegation instructions prevent wasted tokens and re-
 
 ## MANDATORY SEQUENCE
 
-### 1. Update BMAD Config
+### 1. Instruct User to Invoke the Plugin
 
-> "**BMAD Config Update Required**
+> "**Invoke `bmad-method-lifecycle:bmad-create-ux-design`**
 >
-> Before invoking BMAD create-ux-design, we need to update BMAD's config to use this project's output folder.
+> Open a NEW conversation (or agent session) and invoke the `bmad-method-lifecycle:bmad-create-ux-design` skill.
 >
-> BMAD workflows read output_folder from their config file. By default, BMAD uses `` (root). We need BMAD to write to `{outputFolder}/` so outputs stay organized with your project.
+> **Input context:** The design-context document at `{outputFolder}/design-context.md`. Provide this document as the primary context (design brief) when prompted.
 >
-> Running config update now..."
-
-Run task: `{rbtv_path}/tasks/update-bmad-config.xml`
-
-**Inputs:**
-- `target_module`: "bmm"
-- `project_name`: `{project-name}`
-- `rbtv_output_folder`: `{outputFolder}`
-
-Verify task completion before proceeding.
-
-### 2. Instruct User to Run BMAD
-
-> "**Invoke BMAD create-ux-design**
->
-> Open a NEW conversation (or agent session) and load the following BMAD workflow:
->
-> Invoke the `bmad-method-lifecycle:bmad-create-ux-design` skill.
->
-> **Input context:** The design-context document at `{outputFolder}/design-context.md`.
-> BMAD create-ux-design discovers input from planning_artifacts, output_folder, and product_knowledge. The config has been updated to point to your project folder.
->
-> **What BMAD will do:**
+> **What the plugin will do:**
 > Create UX design specifications: design brief, visual foundation, design directions, user journeys, component strategy, UX patterns, responsive and accessibility specs. Discovery uses visual-design-extraction, playwright-browser-automation; optionally design-validation.
 >
-> **After BMAD completes:**
+> **After the plugin completes:**
 > Return to THIS conversation and select **[C] Continue**."
 
-### 3. Wait for Completion
+### 2. Wait for Completion
 
-> "[C] Continue — BMAD workflow complete"
+> "[C] Continue — plugin workflow complete"
 
 HALT — wait for user confirmation.
 
-### 4. Mentor-Assisted File Placement
+### 3. Mentor-Assisted File Placement
 
 When user returns:
-- Ask what files BMAD produced and where they are
+- Ask what files the plugin produced and where they are
 - Verify expected output files are at `{outputFolder}/` (e.g., ux-design-specification.md, design_brief.md, design.json)
 - If files are not in `{outputFolder}/`, help user move/copy them there
 - Confirm all expected files are in place
 
-### 5. Restore BMAD Config
-
-> "Restoring BMAD config to defaults so other BMAD workflows use standard paths..."
-
-Run task: `{rbtv_path}/tasks/restore-bmad-config.xml`
-
-**Inputs:**
-- `target_module`: "bmm"
-
-Verify task completion.
-
-### 6. Deduplication Verification
+### 4. Deduplication Verification
 
 Before writing the synthesis output, verify:
 1. Read the content ownership mapping in `{rbtv_path}/workflows/business-innovation/data/founder-process.md` for M4.
@@ -105,9 +71,9 @@ Before writing the synthesis output, verify:
 3. New insights and deltas are permitted — full restatements are not.
 4. If duplication is found, rewrite the affected section to use the `## Prior Context` reference format.
 
-### 7. Synthesis — Update Project Memo
+### 5. Synthesis — Update Project Memo
 
-Read BMAD output from `{outputFolder}/`.
+Read plugin output from `{outputFolder}/`.
 
 Update `{outputFolder}/project-memo.md`:
 
@@ -121,13 +87,13 @@ stepsCompleted:
 **Add to Progress > Prototypation section:**
 
 ```markdown
-### Design Direction (BMAD create-ux-design)
+### Design Direction (`bmad-method-lifecycle:bmad-create-ux-design`)
 **Status:** Complete
 **Bridge:** bi-m4-design-context
-**BMAD output:** [path to ux-design-specification.md or design_brief.md / design.json]
+**Plugin output:** [path to ux-design-specification.md or design_brief.md / design.json]
 
 **Summary:**
-- Design specification / design brief created via BMAD create-ux-design
+- Design specification / design brief created via `bmad-method-lifecycle:bmad-create-ux-design`
 - Context was prepared by bi-m4-design-context bridge (user-flow-ia + M1/M3)
 - [Brief summary of design direction: visual foundation, design system, UX patterns, etc.]
 
@@ -135,14 +101,14 @@ stepsCompleted:
 - [List key files: ux-design-specification.md, design_brief.md, design.json if applicable]
 ```
 
-### 8. Assumption Inventory Update
+### 6. Assumption Inventory Update
 
 Review all assumptions identified during this framework. For each assumption:
 1. Check if it already exists in the project-memo Canonical Assumption Inventory.
 2. If new: add it with appropriate tier (Existential / High / Lower / Founder Conviction), this framework as source.
 3. If existing: update status or evidence if this framework produced new validation data.
 
-### 9. Cross-Framework Consistency Gate
+### 7. Cross-Framework Consistency Gate
 
 **Condition:** Display this section only when ≥3 frameworks are marked completed in the project-memo `stepsCompleted` array for M4.
 
@@ -154,13 +120,13 @@ Review all assumptions identified during this framework. For each assumption:
 >
 > This is non-blocking — you may continue without running the review.
 
-### 10. Present Completion Summary
+### 8. Present Completion Summary
 
 > "**Design Context Bridge Complete** ✅
 >
 > **What was done:**
 > - Design context prepared from User Flow & IA and M1/M3
-> - BMAD create-ux-design run with that context
+> - `bmad-method-lifecycle:bmad-create-ux-design` run with that context
 > - project-memo updated with Design Direction synthesis
 >
 > **Next Step:**
@@ -170,7 +136,7 @@ Review all assumptions identified during this framework. For each assumption:
 >
 > Do not load another step. The bridge is complete."
 
-### 11. Present Menu Options
+### 9. Present Menu Options
 
 **Select an Option:**
 - **[B] Back** — return to M4 Prototypation milestone menu (user action; no further step to load)
@@ -188,6 +154,6 @@ Bridge is COMPLETE. There is no next step file. User must return to M4 milestone
 
 ## SUCCESS / FAILURE METRICS
 
-✅ **SUCCESS:** Config updated before BMAD, files verified after BMAD, config restored, project-memo updated with Design Direction synthesis, explicit return instruction given
+✅ **SUCCESS:** Plugin invoked with design-context, files verified after plugin run, project-memo updated with Design Direction synthesis, explicit return instruction given
 
-❌ **FAILURE:** Config not updated/restored, files not verified, project-memo not updated, return instruction missing
+❌ **FAILURE:** Plugin not invoked, files not verified, project-memo not updated, return instruction missing

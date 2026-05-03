@@ -13,7 +13,7 @@ M4 Prototypation transforms validated concepts (M1-M3) into working HTML prototy
 The frameworks should be completed in this order for optimal learning flow:
 
 1. **User Flow & IA** [U] — Foundation framework (conversion paths + content hierarchy)
-2. **Design Direction** [D] — Visual design via BMAD create-ux-design bridge
+2. **Design Direction** [D] — Visual design via plugin bridge
 3. **Build Prototype** [B] — HTML implementation (planned for future creation)
 4. **Conversion Optimization** [C] — Apply conversion-centered design principles
 5. **Heuristic Evaluation** [H] — Usability evaluation against Nielsen's heuristics
@@ -27,13 +27,13 @@ The frameworks should be completed in this order for optimal learning flow:
 - Output: user-flow-ia.md
 - Feeds into: Design Direction, Build Prototype, Conversion Optimization
 
-### BMAD Integration Framework
+### Plugin Integration Framework
 
-**Design Direction** [D] — Visual design discovery via BMAD
+**Design Direction** [D] — Visual design discovery via `bmad-method-lifecycle:bmad-create-ux-design`
 - Prerequisites: User Flow & IA recommended
 - Recommended Order: 2nd
-- Path: Routes via bi-m4-design-context bridge to BMAD create-ux-design
-- Output: design_brief.md + design.json (via BMAD)
+- Path: Routes via bi-m4-design-context bridge to the `bmad-method-lifecycle:bmad-create-ux-design` plugin skill
+- Output: design_brief.md + design.json (via plugin)
 - Feeds into: Build Prototype
 - Note: Uses visual-design-extraction and playwright-browser-automation skills for design discovery
 
@@ -73,7 +73,7 @@ The frameworks should be completed in this order for optimal learning flow:
 ## Execution Pattern
 
 1. **Start with User Flow & IA** [U] — Foundation for all design work
-2. **Run Design Direction** [D] — Visual design via BMAD bridge (uses M1-M3 context)
+2. **Run Design Direction** [D] — Visual design via plugin bridge (uses M1-M3 context)
 3. **Build Prototype** [B] — Implement HTML prototype (planned)
 4. **Run Conversion Optimization and Heuristic Evaluation in parallel** — Can be done independently
 5. **Complete Testing Prep** [F] — Final synthesis for F&F testing (planned)
@@ -87,7 +87,7 @@ M4 Prototypation is complete when:
 
 1. ✅ User flow map exists with entry points, screens, decisions, and conversion goal
 2. ✅ Information architecture defines content hierarchy and section structure
-3. ✅ Design brief and design specs exist (via BMAD create-ux-design)
+3. ✅ Design brief and design specs exist (via `bmad-method-lifecycle:bmad-create-ux-design`)
 4. ✅ HTML prototype is functional with all sections implemented (planned)
 5. ✅ Prototype passes WCAG AA accessibility (contrast, keyboard nav, alt text, headings) (planned)
 6. ✅ Prototype is responsive at 375px, 768px, and 1200px+ (planned)
@@ -106,7 +106,7 @@ M4 Prototypation is complete when:
 | Code | Framework | Workflow Path | Status |
 |------|-----------|---------------|--------|
 | [U] | User Flow & IA | ../bi-m4-user-flow-ia/workflow.md | ✅ Available |
-| [D] | Design Direction | ../bi-m4-design-context/workflow.md (bridge to BMAD) | ✅ Available |
+| [D] | Design Direction | ../bi-m4-design-context/workflow.md (plugin bridge) | ✅ Available |
 | [B] | Build Prototype | *(to be created)* | 🚧 Planned |
 | [C] | Conversion Optimization | ../bi-m4-conversion-centered-design/workflow.md | ✅ Available |
 | [H] | Heuristic Evaluation | ../bi-m4-heuristic-evaluation/workflow.md | ✅ Available |
@@ -137,4 +137,4 @@ Each framework workflow's final synthesis step adds its entry to stepsCompleted.
 - **Milestone workflow (bi-m4):** Entry points to framework workflows (menu). User selects a framework → load that framework's workflow.
 - **Framework workflow (last step):** Update project_memo (stepsCompleted, synthesis); instruct user to return to milestone menu to pick next framework or [B] Back.
 - **project_memo:** Single source of truth for state (stepsCompleted, current milestone, synthesis from each framework).
-- **BMAD Bridge:** Design Direction [D] routes via bi-m4-design-context bridge which prepares founder context then invokes BMAD create-ux-design. After BMAD completes, bridge updates project-memo and returns to M4 menu.
+- **Plugin Bridge:** Design Direction [D] routes via bi-m4-design-context bridge which prepares founder context then invokes `bmad-method-lifecycle:bmad-create-ux-design`. After the plugin completes, the bridge updates project-memo and returns to M4 menu.

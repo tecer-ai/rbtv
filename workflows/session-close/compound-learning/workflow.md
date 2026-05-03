@@ -54,10 +54,8 @@ During step-02 (self-assessment), the agent identifies which files need changing
 
 | Component lives under... | Output folder |
 |---|---|
-| `{rbtv_path}/` (RBTV source) | `{rbtv_path}/_admin/roadmap/todos/` |
-| `_system/` or `.claude/` (non-rbtv vault components) | `_system/roadmap/todos/` |
-| `5. Workbench/{project}/` (project repo) | Defer to that project's conventions — check its CLAUDE.md |
-| Ambiguous / no specific file identified | Ask user: "Is this about RBTV behavior or vault/system behavior?" |
+| `{rbtv_path}/` (RBTV source) | `{rbtv_path}/admin/roadmap/todos/` |
+| Anything else | Invoke `rbtv-output-resolution` rule; if still unclear, ask user |
 
 Create the output folder if it does not exist.
 
@@ -79,22 +77,18 @@ The resolved path MUST be confirmed with the user before writing the PRD to disk
 
 ## Initialization
 
-### 1. Preferences
-
-- If `_system/user/profile/preferences.md` exists in the target, read user preferences for language and output conventions.
-
-### 2. Check for Yolo Flag
+### 1. Check for Yolo Flag
 
 - If invoked with `:yolo` suffix → Set `yoloMode = true`
 - Standard invocation → Set `yoloMode = false`
 
-### 3. Determine Sub-Mode
+### 2. Determine Sub-Mode
 
 For now, always route to **Create** mode (steps-c/).
 
 Future: Init step will check for existing PRD to determine Create vs Validate vs Edit.
 
-### 4. Load First Step
+### 3. Load First Step
 
 Load, read completely, then execute `steps-c/step-01-init.md`.
 

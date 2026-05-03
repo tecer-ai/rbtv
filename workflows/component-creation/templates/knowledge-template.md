@@ -1,6 +1,6 @@
 # Knowledge File Templates
 
-Use these templates to create knowledge and data files for BMAD.
+Use these templates to create knowledge and data files for RBTV.
 
 ---
 

@@ -86,7 +86,7 @@ Generate shape.md using `{shapeTemplateFile}` with content from step-02:
 | Original Shaping | Scope, key decisions, constraints from step-02 |
 | User Inputs | User requirements captured during planning |
 | Collaborative Decisions | AI-user decisions made during planning |
-| Standards Applied | BMAD/RBTV rules governing this plan |
+| Standards Applied | RBTV rules governing this plan |
 | Decisions and Discoveries | Empty — ready for append-only entries |
 
 Use Write tool to create the file.
@@ -99,7 +99,7 @@ Generate learnings.md using `{learningsTemplateFile}`:
 
 | Section | Content |
 |---------|---------|
-| Purpose | System improvement queue for BMAD/RBTV meta-learnings |
+| Purpose | System improvement queue for RBTV meta-learnings |
 | What Belongs Here | Guidelines table (from template) |
 | Learning Entries | Empty — ready for append-only entries |
 | Compound Generation | Instructions (from template) |

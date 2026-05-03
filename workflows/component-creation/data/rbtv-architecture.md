@@ -1,6 +1,6 @@
-# BMAD Architecture Decision Guide
+# RBTV Architecture Decision Guide
 
-A reference for understanding BMAD components and deciding which one to build.
+A reference for understanding RBTV components and deciding which one to build.
 
 ---
 

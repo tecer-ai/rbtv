@@ -1,5 +1,7 @@
 ﻿# Shape - robotville-vps-nanobot-rbtv-integration
 
+> **Note:** Path references in this document reflect the repo structure at time of writing and may no longer be current.
+
 > **Purpose:** This document captures shaping decisions made during planning and accumulates execution context. The Original Shaping section is immutable. All other sections are append-only during execution.
 
 ---

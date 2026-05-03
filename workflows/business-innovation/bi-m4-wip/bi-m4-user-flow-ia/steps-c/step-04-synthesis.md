@@ -30,7 +30,7 @@ You are a YC mentor. The User Flow & IA document is the foundation for prototype
 ### Step-Specific Rules
 - All validation checks MUST pass before completion
 - project-memo.md MUST be updated with synthesis
-- Next step guidance MUST be clear (Design Direction via BMAD)
+- Next step guidance MUST be clear (Design Direction via plugin bridge)
 
 ---
 
@@ -82,14 +82,14 @@ HALT until issues resolved.
 
 ### 2. Design Direction Readiness
 
-Confirm document is ready for BMAD create-ux-design workflow:
+Confirm document is ready for the `bmad-method-lifecycle:bmad-create-ux-design` plugin workflow:
 
 > "**Design Direction Readiness:**
 >
-> The user-flow-ia.md document will inform the BMAD create-ux-design workflow:
+> The user-flow-ia.md document will inform the `bmad-method-lifecycle:bmad-create-ux-design` plugin workflow:
 >
-> | IA Output | BMAD Input |
-> |-----------|------------|
+> | IA Output | Plugin Input |
+> |-----------|--------------|
 > | Artifact type | Design scope (landing page, website, etc.) |
 > | Content hierarchy | Visual hierarchy requirements |
 > | CTA placement | Layout priorities |
@@ -126,7 +126,7 @@ Generate synthesis section:
 - **CTA Strategy:** [placement and messaging]
 
 ### Design Direction Guidance
-When executing BMAD create-ux-design:
+When executing `bmad-method-lifecycle:bmad-create-ux-design`:
 - Visual hierarchy must support [primary content]
 - Layout must ensure CTA visibility at [breakpoints]
 - Content density: [low/medium/high] for [artifact type]
@@ -139,7 +139,7 @@ When executing BMAD create-ux-design:
 ### Validation Status
 - ✅ User flow complete and validated
 - ✅ Information architecture complete and validated
-- ✅ Ready for Design Direction (BMAD create-ux-design)
+- ✅ Ready for Design Direction (`bmad-method-lifecycle:bmad-create-ux-design`)
 ```
 
 ### 5. Update Output Document
@@ -181,7 +181,7 @@ stepsCompleted:
 - [Insight 1 from flow mapping]
 - [Insight 2 from IA work]
 
-**Next:** Design Direction via BMAD create-ux-design workflow
+**Next:** Design Direction via `bmad-method-lifecycle:bmad-create-ux-design` plugin workflow
 ```
 
 ### 7. Assumption Inventory Update
@@ -200,7 +200,7 @@ Review all assumptions identified during this framework. For each assumption:
 > - Project-memo updated with M4 User Flow & IA synthesis
 >
 > **Next Step:**
-> Return to M4 milestone menu and select **[D] Design Direction** to create visual design via BMAD's create-ux-design workflow.
+> Return to M4 milestone menu and select **[D] Design Direction** to create visual design via the `bmad-method-lifecycle:bmad-create-ux-design` plugin workflow.
 >
 > The user-flow-ia.md document provides:
 > - Artifact type and conversion goal

@@ -1,15 +1,15 @@
 ---
 name: 'bi-m4-design-context'
-description: 'Bridge workflow: collect M1–M3 and User Flow & IA context, format for BMAD create-ux-design, invoke BMAD, integrate design output into project-memo'
+description: 'Bridge workflow: collect M1–M3 and User Flow & IA context, format for bmad-method-lifecycle:bmad-create-ux-design, invoke the plugin, integrate design output into project-memo'
 nextStep: ./steps-c/step-01-init.md
 outputFolder: '{project-name}/business-innovation/m4-prototypation'
 ---
 
 # M4 Design Context Bridge Workflow
 
-**Goal:** Collect founder context from M1–M3 and User Flow & IA, format it for BMAD create-ux-design, run the BMAD workflow with prepared context, and integrate design output into project-memo. This bridge ensures Design Direction [D] has a single entry point with consistent inputs.
+**Goal:** Collect founder context from M1–M3 and User Flow & IA, format it for `bmad-method-lifecycle:bmad-create-ux-design`, run the plugin workflow with prepared context, and integrate design output into project-memo. This bridge ensures Design Direction [D] has a single entry point with consistent inputs.
 
-**Your Role:** YC mentor facilitating the handoff from RBTV M4 frameworks to BMAD UX design. Ensure context is complete and structured so the UX workflow can start without re-discovery.
+**Your Role:** YC mentor facilitating the handoff from RBTV M4 frameworks to the UX design plugin. Ensure context is complete and structured so the UX workflow can start without re-discovery.
 
 ---
 
@@ -39,7 +39,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 | Mode | Purpose | Entry Point | Output |
 |------|---------|-------------|--------|
-| Create | Run bridge from M4 Design Direction [D] | steps-c/step-01-init.md | design-context.md → BMAD output → project-memo update |
+| Create | Run bridge from M4 Design Direction [D] | steps-c/step-01-init.md | design-context.md → plugin output → project-memo update |
 
 ---
 
@@ -48,8 +48,8 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 | Step | Name | Purpose |
 |------|------|---------|
 | 01 | Init | Load project-memo, user-flow-ia.md, M1–M3 synthesis; verify prerequisites; determine artifact type/scope |
-| 02 | Format Context | Build design brief / context document for BMAD create-ux-design |
-| 03 | Delegate & Synthesize | Standard lightweight BMAD delegation: update config, instruct user, wait, file placement, restore config, synthesis, return to M4 menu |
+| 02 | Format Context | Build design brief / context document for `bmad-method-lifecycle:bmad-create-ux-design` |
+| 03 | Delegate & Synthesize | Invoke plugin skill, instruct user, wait for completion, verify file placement, synthesis, return to M4 menu |
 
 ---
 
@@ -73,9 +73,7 @@ Bridge is complete when:
 
 1. Prerequisites verified (User Flow & IA complete; M1/M3 synthesis available)
 2. design-context.md (or design-brief) created with artifact type, content hierarchy, CTA, brand refs
-3. BMAD config updated to use RBTV project folder
-4. User has run BMAD create-ux-design with that context
-5. BMAD config restored to defaults
+3. User has run `bmad-method-lifecycle:bmad-create-ux-design` with that context
 6. project-memo updated with Design Direction synthesis
 7. User instructed to return to M4 milestone menu
 

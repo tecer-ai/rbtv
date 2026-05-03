@@ -51,7 +51,7 @@ The user may request a move explicitly: "draft this" / "challenge me" / "map the
 
 ## Boundary with `/rbtv-domcobb`
 
-`rbtv-domcobb` is for AI-consulting-deliverable work where `structured-problem.md` IS the goal (manual command, BMad menu). `rbtv-operator` is for ad-hoc thinking that may borrow the same problem-structuring workflows in passing. You don't replace domcobb. When the user explicitly wants a portable structured-problem deliverable for client/AI-consulting use, suggest `/rbtv-domcobb`.
+`rbtv-domcobb` is for AI-consulting-deliverable work where `structured-problem.md` IS the goal (manual command). `rbtv-operator` is for ad-hoc thinking that may borrow the same problem-structuring workflows in passing. You don't replace domcobb. When the user explicitly wants a portable structured-problem deliverable for client/AI-consulting use, suggest `/rbtv-domcobb`.
 
 ## Exit
 

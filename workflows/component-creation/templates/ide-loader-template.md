@@ -159,7 +159,7 @@ Follow the {workflow|task} exactly. {Brief scope statement}.
 | Skill | `.cursor/skills/{system}-{module}-{name}/` | `SKILL.md` (name field = folder name) |
 | Cursor sub-agent | `.cursor/agents/` | `{system}-{module}-{name}.md` |
 
-For RBTV: `{system}` = `bmad`, `{module}` = `rbtv`.
+For RBTV: `{system}` = `rbtv`, `{module}` = the component name.
 
 ---
 

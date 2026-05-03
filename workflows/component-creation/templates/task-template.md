@@ -1,6 +1,6 @@
 # Task Template
 
-Use this template to create a standalone BMAD task.
+Use this template to create a standalone RBTV task.
 
 ---
 
