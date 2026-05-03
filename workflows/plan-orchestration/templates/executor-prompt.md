@@ -34,6 +34,10 @@ The orchestrator has pre-loaded verbatim excerpts from the `[INLINED]` reference
 3. When you finish, report status DONE with a one-paragraph summary of what you did.
 4. Do NOT append per-task outcomes, file lists, or commit hashes to shape.md. Shape is for decisions or discoveries that affect future plan execution — not execution logs. The orchestrator tracks batch completion in `orchestration-state.md`. If you discover something that changes the plan, append a Decision or Discovery entry per the shape template; otherwise append nothing to shape.
 
+## Denied-Tool Protocol (MANDATORY)
+
+**Denied-tool protocol.** If ANY tool call (Bash, script invocation, Write, Edit, etc.) is denied by the harness or its classifiers, you MUST return `BLOCKED — [verbatim denied command] | Reason: [denial message] | What would unblock: [user permission rule, manual run, etc.]` IMMEDIATELY. NEVER manually replicate the denied operation via other tools (e.g., do NOT replace a denied installer script with hand-crafted Read/Write/Edit calls that produce the same end-state). The denial is a user-policy signal, not a technical obstacle to route around. Partial replication produces partial state and bypasses the user's approval contract.
+
 ## Doubt-Escalation Protocol (MANDATORY)
 
 If at ANY point you are uncertain about how to proceed, follow this chain in order. Do NOT guess.
@@ -62,6 +66,17 @@ STOP all work. Do NOT proceed. Return to the orchestrator with status `DOUBT_ESC
 
 Never invent an answer. Never proceed past a doubt.
 
+## Autonomous-Mode User-Interaction Overrides (OPTIONAL)
+
+Consult this section ONLY if the dispatch is autonomous. If interactive, ignore.
+
+**Autonomous-mode defaults (per task user-interaction directive).** Each user-interaction directive in the task file MAY specify:
+- **Default response:** the value the executor uses when running autonomous (e.g., `accept-all`, `n`, `s`, `ratify-FIXED`).
+- **Safety class:** `reversible` / `destructive` / `structural`.
+- **Escalation conditions:** circumstances under which the executor MUST return `DOUBT_ESCALATED` instead of applying the default (e.g., "if Stage 1 file count exceeds N", "if reviewer flags any ARCHITECTURAL-CONSTRAINT violation").
+
+If the dispatch is autonomous and the task file specifies these defaults, the executor follows them. If autonomous and no defaults are specified, the executor falls back to the most-conservative-reversible default and documents the choice in the executor return. If interactive, ignore this section.
+
 ## Return Format
 
 Return ONE of these statuses:
@@ -70,4 +85,6 @@ Return ONE of these statuses:
 - `DONE_WITH_NOTES — [summary] | Notes: [observations worth surfacing]`
 - `DOUBT_ESCALATED — Question: [the doubt] | Tried: [shape result, sonnet result] | Unresolved because: [why]`
 - `BLOCKED — [what blocked you, what would unblock]`
+
+**The executor MUST author the return paragraph itself.** NEVER delegate the return to a skill output. Skill outputs (e.g., `sb-vault-integrity` summary, `rbtv-commit` summary, `sb-wiki-lint` LINT REPORT) are evidence the executor cites — they are not the return itself. Before returning, verify your return paragraph addresses ALL tasks in the dispatch, not just the most recent skill invocation. If a skill produced a long output, summarize it in 1-2 sentences and reference it by file path; do NOT paste the skill output as your return.
 ```
