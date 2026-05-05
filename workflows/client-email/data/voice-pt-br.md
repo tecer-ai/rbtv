@@ -17,9 +17,19 @@ Carregar quando o email for em português (Brasil). Os princípios universais fi
 
 - **Termos em inglês integrados ao biz brasileiro mantêm-se.** "POC" (não "prova de conceito" — embora aceitável), "fallback", "ponto focal", "(cced)", "lock-in", "follow-up", "kick-off", "matching", "dashboard". Traduzir essas palavras estrangeiriza o tom em vez de aproximá-lo.
 - **POC é feminino:** "a POC", "a POC operacional". Nunca "o POC".
-- **Siglas com tradução pt-BR completa, não em inglês.** "Contas a receber" (não "AR"), "contas a pagar" (não "AP"), "fluxo de caixa" (não "cashflow"). Exceção: termos consagrados em inglês sem equivalente natural ("API", "tool-call").
+- **Siglas com tradução pt-BR completa, não em inglês.** "Contas a receber" (não "AR"), "contas a pagar" (não "AP"), "fluxo de caixa" (não "cashflow"). **NUNCA usar "AR" ou "AP" em email a cliente brasileiro — soa como jargão internalizado da equipe técnica que não pertence à conversa.** Exceção: termos consagrados em inglês sem equivalente natural ("API", "tool-call"). "Baseline" também sai — usar "linha de base", "calibração", ou reformular a frase sem o termo. ("Calibragem" NÃO existe em pt-BR — usar "calibração".)
 - **Datas em formato brasileiro.** "15/5", "30/6", "2026-04-29". Não "May 15", não "5/15".
 - **Verbos do cotidiano sobre corporatês.** "Deixo abaixo" beats "submeto à apreciação". "Avançar" beats "endereçar". "Conversar" beats "manter diálogo". "Topa marcar?" beats "Seria possível agendarmos?".
+- **Limite do informal — registro profissional-informal NÃO é registro casual.** Em email a cliente, evitar gírias e contrações de fala oral. Substituições obrigatórias:
+
+| Casual demais (oral) | Substituir por |
+|---|---|
+| "chute" / "chuta um número" | "estimativa" / "estimando" / reformular sem o termo |
+| "rolou" / "rolar" | "aconteceu" / "ocorreu" / "terminou" (conforme contexto) |
+| "pra" (qualquer ocorrência em email a cliente) | "para" SEMPRE. Nenhuma exceção, nenhum conector "curto", nenhuma cadência justifica "pra" em email. Em fala viva existe; em email escrito a cliente, não. |
+| "tá" / "tô" / "né" | nunca em email a cliente |
+| "bater um papo" | "conversar" |
+| "dar uma olhada" | aceitável (já é registro profissional-informal consolidado) |
 
 ## Conectores e Pontuação
 
@@ -132,6 +142,21 @@ Os exemplos abaixo são de uma iteração real, anonimizada. Ilustram princípio
 > O Felipe (cced) está à disposição para uma call dedicada de segurança.
 
 **Cortes:** justificar por que a call é melhor que doc ("vai render mais que qualquer doc que a gente escreva sozinho") chama atenção para a ausência do doc, como se fosse defesa preventiva. A oferta da call se sustenta pelo que é. **Nota:** "Topa marcar?" foi cortado aqui porque o destinatário direto (Carlos) saiu do CC; quando há ponto focal claro, "Topa marcar?" funciona bem como CTA.
+
+## Perguntas Operacionais a Cliente
+
+Quando a pergunta envolve um conceito técnico ou pede categorização do trabalho do destinatário, ancorar em exemplos concretos do mundo dele — não pedir abstrações nem ranqueamentos teóricos.
+
+| Antes (abstrato) | Depois (ancorado) |
+|---|---|
+| "Quando você classifica, em que pistas se apoia? Ranqueie por frequência: (a) memória; (b) descrição; (c) valor; (d) NF/boleto." | "Quando você classifica um lançamento no Omie hoje, como você decide a categoria? Por exemplo: por CNPJ (mesmo CNPJ sempre cai na mesma categoria); por descrição do extrato; por cruzamento com NF/boleto; por valor; ou por uma combinação?" |
+| "Estime o % de CNPJs determinísticos. Dois números — fornecedores e clientes." | "De todos os CNPJs distintos que você classifica, qual a fração que SEMPRE cai na mesma categoria vs. a que varia dependendo do lançamento? Ou seja, fornecedor A sempre é categoria B, ou fornecedor A pode ser B ou C dependendo de características do lançamento?" |
+
+**Princípios:**
+- Cada conceito técnico ganha um "ou seja" ou "por exemplo" inline com instâncias do trabalho real.
+- Em-dash NÃO pode deixar uma frase pendurada. "Dois números — fornecedores e clientes." é fragmento, não frase. Reescrever como sentença completa OU usar lista numerada.
+- "Ranquear por frequência" é pedido abstrato — substituir por enumeração de hipóteses ("por X; por Y; ou combinação?") que o destinatário escolhe entre.
+- Pergunta de gerência ("quem aprova?") já é direta; não precisa de exemplos.
 
 ## Técnica de Cortes Iterativos — Lente pt-BR
 
