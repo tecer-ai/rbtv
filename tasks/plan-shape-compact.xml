@@ -11,6 +11,8 @@
     <rule>Read the complete task before starting execution.</rule>
     <rule>Follow steps in exact order.</rule>
     <rule>Never treat compaction as summarization. Preserve all execution-shaping signal.</rule>
+    <rule>User inputs are signal. Keep them, with concise summarization allowed.</rule>
+    <rule>User questions are noise unless they triggered a plan change, decision, finding, constraint, or unresolved question.</rule>
     <rule>When unsure whether content is signal or noise, keep it and tighten wording.</rule>
     <rule>Do not write the compacted file until the user approves the proposed rewrite.</rule>
   </llm>
@@ -31,12 +33,13 @@
     <step n="2" title="Classify Content">
       <substep n="2a" title="Build Signal Ledger">
         <action>Classify every substantive section or entry as KEEP, DROP, or REWRITE.</action>
-        <action>KEEP scope boundaries, exclusions, decisions, rationale, constraints, findings, unresolved questions, source-of-truth notes, required reference paths, and user-reserved judgment.</action>
-        <action>DROP routine task completions, status updates, "what I did" narration, stale progress notes, duplicate context, and process chatter that does not change future execution.</action>
-        <action>REWRITE mixed entries by removing log sentences and preserving the decision, finding, constraint, or implication.</action>
+        <action>KEEP scope boundaries, exclusions, user inputs, decisions, rationale, constraints, findings, unresolved questions, source-of-truth notes, required reference paths, and user-reserved judgment.</action>
+        <action>DROP routine task completions, status updates, "what I did" narration, stale progress notes, duplicate context, process chatter, and user questions that did not change future execution.</action>
+        <action>REWRITE mixed entries by removing log sentences and preserving the user input, decision, finding, constraint, or implication.</action>
       </substep>
       <substep n="2b" title="Protect Against Over-Compaction">
         <action>For each DROP item, verify it has no downstream decision value.</action>
+        <action>Never drop user inputs. Summarize them only when the summary preserves the execution-shaping meaning.</action>
         <action>Never drop rationale just because it is verbose. Tighten rationale instead.</action>
         <action>Never drop a rejected alternative if it prevents a future agent from repeating a bad path.</action>
         <action>Flag any proposed deletion of a decision, rationale, constraint, or unresolved question as a review risk.</action>
@@ -46,7 +49,7 @@
     <step n="3" title="Draft Compact Shape">
       <substep n="3a" title="Preserve Structure">
         <action>Preserve the document's useful top-level structure unless it is duplicative or misleading.</action>
-        <action>Keep `Original Shaping`, `Standards Applied`, `Decisions and Discoveries`, and `References` when present.</action>
+        <action>Keep `Original Shaping`, `User Inputs`, `Standards Applied`, `Decisions and Discoveries`, and `References` when present.</action>
         <action>Remove explicit work-log sections unless they contain decisions or findings; move preserved signal into the closest appropriate section.</action>
       </substep>
       <substep n="3b" title="Rewrite for Agents">
@@ -77,7 +80,7 @@
       <substep n="5b" title="Verify Result">
         <action>Re-read the written file.</action>
         <action>Verify no routine work-log section remains.</action>
-        <action>Verify all decisions, rationale, constraints, unresolved questions, and required references from the signal ledger remain.</action>
+        <action>Verify all user inputs, decisions, rationale, constraints, unresolved questions, and required references from the signal ledger remain.</action>
         <action>Report only the result, target path, and any residual risks.</action>
       </substep>
     </step>
