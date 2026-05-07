@@ -75,9 +75,9 @@ After ALL batches in the phase complete:
 
 After the reviewer returns clean:
 
-- **`run_mode: halt`** — Present a brief summary of the phase and the reviewer's findings. Ask: "Phase [N] complete. Continue to Phase [N+1]?" Wait for user.
-- **`run_mode: end-to-end`** — Proceed immediately to the next phase. No prompt.
-- **`run_mode: autonomous`** — Proceed immediately to the next phase. No prompt. (No log entry needed for routine phase advancement; only unilateral decisions per the always-log categories trigger an entry.)
+- **`run_mode: halt`** — Present a brief summary of the phase and the reviewer's findings, THEN paste each Human Review Presentation block the reviewer returned (one per qualifying task) verbatim. The blocks are the user's review-driving content — do NOT summarize them, do NOT collapse them, do NOT replace them with your own paraphrase. After the blocks, ask: "Phase [N] complete. Continue to Phase [N+1]?" Wait for user.
+- **`run_mode: end-to-end`** — Proceed immediately to the next phase. No prompt. The Human Review Presentation blocks are still recorded — they surface in the finalization message at end of orchestration (step-04).
+- **`run_mode: autonomous`** — Proceed immediately to the next phase. No prompt. (No log entry needed for routine phase advancement; only unilateral decisions per the always-log categories trigger an entry.) Human Review Presentation blocks are recorded for the finalization message; if any block contains a 🔴 red flag, append the affected task to "Decisions worth your review" in the finalization message regardless of confidence rating.
 
 ### 4. Doubt Escalation Handling
 

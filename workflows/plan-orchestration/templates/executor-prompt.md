@@ -88,4 +88,12 @@ Return ONE of these statuses:
 - `BLOCKED — [what blocked you, what would unblock]`
 
 **The executor MUST author the return paragraph itself.** NEVER delegate the return to a skill output. Skill outputs (e.g., `sb-vault-integrity` summary, `rbtv-commit` summary, `sb-wiki-lint` LINT REPORT) are evidence the executor cites — they are not the return itself. Before returning, verify your return paragraph addresses ALL tasks in the dispatch, not just the most recent skill invocation. If a skill produced a long output, summarize it in 1-2 sentences and reference it by file path; do NOT paste the skill output as your return.
+
+### Human Review Block (REQUIRED when any task in this batch has `human_review: required`)
+
+For each task in this batch whose `.task.md` frontmatter sets `human_review: required` (and for any checkpoint task), append the Human Review Presentation block to your DONE return — one block per qualifying task. The block format is defined in `{rbtv_path}/workflows/planning/templates/plan-task-microstep-template.md` (§ Human Review Presentation). Flag criteria are defined in `{rbtv_path}/workflows/planning/data/plan-creation-rules.md` (§ Human Review Flag Criteria) — use them, do not free-associate.
+
+**Hard rule — no false alarms.** Flag ONLY items backed by concrete evidence in this task's output. If no concrete evidence triggers a flag, write `None identified.` in BOTH lists and add a one-line rationale naming which checks ran clean. Generic "consider X" or "watch for edge cases" hypotheticals are NOT flags.
+
+The reviewer dispatched after this batch will carry your flags forward, audit them, and add its own. Do NOT skip the block on the assumption the reviewer will re-do this work — your flags are the executor-perspective evidence the reviewer needs.
 ```

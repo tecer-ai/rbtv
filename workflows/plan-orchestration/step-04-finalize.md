@@ -26,6 +26,7 @@ Collect from this orchestration session:
 - Any USER-EXECUTED-ONLY tasks left unflipped or pending
 - Any reviewer findings that required user input
 - Any deviations from the original delegation plan
+- **Every Human Review Presentation block returned by reviewers across all phases** (one per qualifying task — `human_review: required` and checkpoints). These travel into the "Human Review" section of the finalization message per the template.
 - If `run_mode: autonomous`: every entry in `{plan_dir}/autonomous-run-log.md`, sorted by confidence ascending
 
 ### 3. Produce the Message
@@ -37,7 +38,8 @@ Write the message inline (chat output) following the template structure exactly.
 | Status line | Always | Plan name, status, commit list, optional phase summary |
 | Batch summary | Always | One row per batch, including reviewer dispatches |
 | Next actions — in order | Always | Self-explanatory items; name paths/decisions/commits inline; state consequences of skipping; list prerequisites |
-| Decisions worth your review | Required if `run_mode: autonomous` AND ≥1 entry has confidence medium or low | Sort lowest-confidence first; otherwise replace with "No low-confidence decisions logged." |
+| Human Review | Required if any phase produced Human Review Presentation blocks (i.e., any task had `human_review: required` or any checkpoint ran) | Paste each finalized block verbatim, grouped by phase. Do NOT collapse, summarize, or replace blocks with your own paraphrase. If `run_mode: end-to-end` or `autonomous`, this section is the user's first opportunity to see per-task review-driving content — its presence and verbatim fidelity matter more than brevity. |
+| Decisions worth your review | Required if `run_mode: autonomous` AND ≥1 entry has confidence medium or low, OR any Human Review block contains a 🔴 red flag | Sort lowest-confidence first; otherwise replace with "No low-confidence decisions logged." Red-flag tasks are listed here in addition to the Human Review section so the user sees them on the priority surface. |
 | Artifacts | Always | Plan, shape, learnings, orchestration state; autonomous run log if mode was autonomous |
 | Working tree note | Optional | Include if uncommitted/unstaged work was deliberately left untouched |
 | Post-merge / next-step commands | Optional | Include if the user must run commands to land or follow up |

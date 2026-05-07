@@ -30,19 +30,29 @@ Each item MUST be self-explanatory. The user reads this with zero session contex
 
 ---
 
+## Human Review
+
+REQUIRED if any phase produced Human Review Presentation blocks (any task with `human_review: required` or any checkpoint). Omit entirely if no qualifying tasks ran.
+
+Group by phase under `### Phase {N} — {phase name}` headers. Under each phase header, paste each finalized Human Review Presentation block (from that phase's reviewer return) VERBATIM. Block format: see `{rbtv_path}/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation. Do NOT collapse, summarize, paraphrase, or hide flags behind a wrapper.
+
+If a task's reviewer flagged a 🔴 red flag, also list that task in the next section.
+
+---
+
 ## Decisions worth your review (lowest confidence first)
 
-REQUIRED if mode was `autonomous` AND any decision logged with `confidence: medium` or `confidence: low`. If neither condition holds, replace this section with: "No low-confidence decisions logged."
+REQUIRED if (a) mode was `autonomous` AND any decision logged with `confidence: medium` or `confidence: low`, OR (b) any Human Review block above contains a 🔴 red flag. If neither condition holds, replace this section with: "No low-confidence decisions logged."
 
-Sort entries by confidence ascending (`low` first, then `medium`). For each:
+Sort autonomous-mode entries by confidence ascending (`low` first, then `medium`). Red-flag tasks (regardless of mode) appear at the top of the list — they are the highest-priority review items. For each:
 
-- **{Entry ID} — {short title}** (confidence: {low\|medium})
-  - **Decided:** {1-line summary}
-  - **Alternatives:** {what the user could have chosen instead}
-  - **Why this one:** {orchestrator's rationale}
+- **{Entry ID or task-id} — {short title}** (confidence: {low\|medium} OR red-flag: {one-line flag summary})
+  - **Decided / Done:** {1-line summary}
+  - **Alternatives:** {what the user could have chosen instead, if applicable}
+  - **Why this one:** {orchestrator's or executor's rationale}
   - **Cost to change:** {effort + reversibility path}
 
-Link to the full log: `{autonomous_run_log_path}`
+Link to the full log: `{autonomous_run_log_path}` (only if autonomous mode was active)
 
 ---
 

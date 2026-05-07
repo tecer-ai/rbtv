@@ -138,6 +138,16 @@ human_review: {required | optional | none}
 ---
 ```
 
+**Setting `human_review`:** This field controls whether the executor MUST emit a Human Review Presentation block at Phase: Close (per `plan-task-microstep-template.md`). Set it deliberately — every `required` task generates a flag block the human must read.
+
+| Value | Set when |
+|-------|----------|
+| `required` | Task involves any of: scope-shaping decisions, irreversible operations, new external dependencies, architectural-constraint-adjacent work, or judgment calls the user reserved. Also: every checkpoint task is implicitly `required`. |
+| `optional` | Task is moderately consequential but routine — user may skim the result without per-task review |
+| `none` | Mechanical task with no judgment surface — file moves following an explicit mapping, format conversions, etc. Setting `none` here means "no flag block needed" — do NOT use this to suppress flag noise on tasks that genuinely warrant review. |
+
+The flag block is mandatory ONLY when `human_review: required`. Setting it everywhere creates noise that conditions the user to skim — set it where it earns its keep.
+
 **Content includes:**
 - Goal section — what this task achieves
 - Context Files — task-specific documents to load. **Path format:** files outside the plan folder use project-root-relative paths; files inside the plan folder use file-relative paths (e.g., `../shape.md`). See Plan Linking Standard in `plan-creation-rules.md`.

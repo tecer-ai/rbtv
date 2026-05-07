@@ -7,6 +7,22 @@ description: Summarize a meeting or document transcript — classify, route, fix
 
 **CRITICAL — Execute these steps in order. Do not respond conversationally until Step 7 completes.**
 
+## Mode Handling — Batched Validation vs Clarifying Questions
+
+Session-level instructions like "work without stopping for clarifying questions", "no stops", "autonomous mode", or voice-mode reminders that say "make the reasonable call and continue" apply ONLY to mid-flow clarifying questions (single open-ended prompts like "which folder?", "what date?"). They do NOT waive the batched validation and approval tables in this workflow.
+
+| Pattern | Affected by no-stop / voice mode? |
+|---------|-----------------------------------|
+| Single open-ended question mid-flow | YES — make a reasonable call, continue, surface the call in your response |
+| Phase 1 validation tables (Step 5 sub-phase) | NO — always present in one batch |
+| Step 3 classification confirmation | NO — always present, but combine with Phase 1 in a single approval block under no-stop mode |
+| Step 4 filename/location proposal | NO — always present |
+| Propagation proposal table (Step 7 / collection CLAUDE.md gates) | NO — always present, requires per-row approval |
+
+Under no-stop / voice mode, consolidate all approval tables into ONE end-of-turn approval block per natural break (after reading the transcript, after writing the summary). The user replies once, you execute the approved rows. Skipping these tables is a workflow violation, not a "reasonable call."
+
+A clarifying question is a STOPPAGE waiting for input. A batched table is a SINGLE round-trip the user can answer in one reply — it is the mechanism that lets the user retain control without per-item interruption.
+
 ## Step 1 — Read Transcript & Load Glossary
 
 1. Read the referenced transcript file completely. If no transcript was provided, STOP and ask the user for the transcript path.

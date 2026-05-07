@@ -63,6 +63,8 @@ For each task, assess complexity across 5 dimensions:
 - 8-11: Moderate task
 - 12-15: Complex task (consider splitting)
 
+**Human review need maps directly to the task file's `human_review` frontmatter** (None → `none`, Optional → `optional`, Required → `required`). When set to `required`, the executor MUST emit a Human Review Presentation block at Phase: Close — see `step-04-generate-artifacts.md` § Setting `human_review` for the criteria. Set this dimension deliberately: under-setting hides risks; over-setting trains the user to skim flag blocks.
+
 ### 6. Add Final Compound Task
 
 **MANDATORY:** The last task of the final phase MUST be a compound learnings task:

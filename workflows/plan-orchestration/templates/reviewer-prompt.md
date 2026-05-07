@@ -42,6 +42,12 @@ The orchestrator has pre-loaded verbatim excerpts from the `[INLINED]` reference
 4. **Fix the issues IN PLACE.** Do not just report them. Edit files, rename, restructure as needed to bring the phase output into compliance with the plan and shape.
 5. **Audit shape.md** (if it exists) against the forbidden patterns in the shape template's APPEND-ONLY RULES: file lists, commit hashes, per-task outcome tables, batch-completion summaries, and entries that don't fit the Decision or Discovery format. For each violation, reframe as a proper Decision/Discovery entry or remove the entry. This is a hard check — the soft audience-judgment rule alone does not prevent drift back to bloated shape.
 6. After fixing, re-verify your fixes.
+7. **Audit and finalize Human Review blocks for this phase.** For each task in this phase whose `.task.md` frontmatter sets `human_review: required` (and for any checkpoint task):
+   - Read the executor's Human Review Presentation block from `{batches_completed}` for that task.
+   - Apply the Flag Criteria in `{rbtv_path}/workflows/planning/data/plan-creation-rules.md` (§ Human Review Flag Criteria). Remove flags that violate the Anti-Flag Rules (false alarms). Add flags the executor missed — your higher tier and broader read make this your job.
+   - If you fixed an issue under step 4 that the executor had flagged, update the corresponding flag to reflect the fix (`{flag} — RESOLVED by reviewer: {one-line fix description}`) so the human sees what was caught and addressed without their input.
+   - If both lists end up empty, keep the `None identified.` lines and require a one-line rationale.
+   - Output the FINAL block per task in your return (see Return Format) — this is what the orchestrator surfaces to the user. Do NOT output a generic "no issues" wrapper that hides per-task flags.
 
 ## Doubt-Escalation Protocol (MANDATORY)
 
@@ -68,4 +74,10 @@ Return ONE of these statuses:
 - `FIXED — [phase name] reviewed, [N] issues found and fixed: [list of fixes]`
 - `DOUBT_ESCALATED — Question: [the doubt] | Tried: [shape result, sonnet result] | Unresolved because: [why]`
 - `BLOCKED — [what blocked you from completing the review]`
+
+### Human Review Blocks (REQUIRED when phase contains `human_review: required` or checkpoint tasks)
+
+After the status line, append the FINAL Human Review Presentation block per qualifying task — these are the audited and finalized blocks from step 7 above. The orchestrator surfaces them to the user verbatim. Block format and flag criteria: see `{rbtv_path}/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation, and `{rbtv_path}/workflows/planning/data/plan-creation-rules.md` § Human Review Flag Criteria.
+
+Do NOT collapse multiple tasks into a single combined block — the human reviews per task. If a phase has no `human_review: required` tasks and no checkpoints, omit this section entirely.
 ```
