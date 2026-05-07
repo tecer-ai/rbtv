@@ -65,6 +65,18 @@ Tools for getting information from the web and processing long-form documents.
 
 ---
 
+#### `/rbtv-plan-shape-compact`
+
+- **What**: Reviews a plan `shape.md` and compacts it in place so it contains only decisions, findings, constraints, unresolved questions, and required references for future execution agents. It removes routine work logs, stale progress notes, duplicate context, and process chatter.
+- **When to use**: A plan shape has grown context-heavy or mixes "what happened" with information that actually changes future execution.
+- **How to invoke**: `/rbtv-plan-shape-compact` — provide a `shape.md` path or a plan directory.
+- **Inputs / outputs**:
+  - Input: path to `shape.md` or a plan directory containing `shape.md`
+  - Output: approved in-place rewrite of the shape document, after a review summary and user confirmation
+- **Example**: `/rbtv-plan-shape-compact 1-projects/my-plan/shape.md` → Claude classifies entries as keep/drop/rewrite, presents compaction risk, then applies the approved compacted shape.
+
+---
+
 #### `/rbtv-digest`
 
 - **What**: Processes a long source (conversation export, transcript, book chapter, long document) that the orchestrator Claude cannot read directly due to context limits. It chunks the source, dispatches sub-agents to extract decisions or concepts from each chunk, groups the results, and synthesizes them into either a **reconciled document** (updates an existing doc with session decisions + user line-comments) or a **study note**. The orchestrator never reads the source — only sub-agents do.

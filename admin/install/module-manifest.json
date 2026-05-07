@@ -46,6 +46,12 @@
         "target": ".claude/commands/rbtv-digest.md",
         "bake": ["rbtv_path"],
         "description": "Mine a long source via sub-agents to reconcile a target doc with user fixups (reconcile mode) or produce study notes (study mode) — orchestrator never reads the source directly"
+      },
+      {
+        "source_template": "commands/plan-shape-compact.md",
+        "target": ".claude/commands/rbtv-plan-shape-compact.md",
+        "bake": ["rbtv_path"],
+        "description": "Review and compact a plan shape.md so it keeps future-agent signal and removes work-log noise"
       }
     ],
     "rules": [

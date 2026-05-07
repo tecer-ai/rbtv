@@ -35,7 +35,7 @@ Resume the workflow from where it was left off, ensuring smooth continuation wit
 
 Search the output path for the plan folder. Look for:
 - `{plan-name}-plan.md` — the main plan file
-- `shape.md` — companion file with execution context
+- `shape.md` — companion file with execution-shaping decisions and findings
 - Phase folders with task files
 
 ### 2. Analyze Current State
@@ -48,9 +48,9 @@ Read the plan file and shape.md to determine:
 ### 3. Review Completed Work
 
 Read shape.md Decisions and Discoveries section to understand:
-- What was done in prior sessions
-- Any direction changes or discoveries
-- Current execution context
+- Direction changes or discoveries
+- Decisions, constraints, and unresolved questions that affect future execution
+- Required references or source-of-truth notes
 
 ### 4. Determine Next Task
 

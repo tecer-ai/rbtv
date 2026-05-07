@@ -97,7 +97,7 @@ Created during finalization in `{output-path}/{plan-name}/`:
 | Artifact | Purpose |
 |----------|---------|
 | {plan-name}-plan.md | Main plan file with phases, tasks, and architectural constraints |
-| shape.md | Scope boundaries, constraints, shaping decisions, append-only execution log |
+| shape.md | Scope boundaries, constraints, shaping decisions, discoveries, and required execution references |
 | learnings.md | System improvement queue for RBTV meta-learnings |
 | phase-N/ | Folders containing micro-step task files |
 | pN-X.task.md | Micro-step files with complete execution instructions per task |

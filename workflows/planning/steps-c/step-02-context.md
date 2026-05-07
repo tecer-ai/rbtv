@@ -81,7 +81,7 @@ Here's the complete context I've gathered for your plan:
 [Display compiled Context section]
 
 Companion files will be created during finalization:
-- shape.md (scope, constraints, shaping decisions, append-only execution log)
+- shape.md (scope, constraints, shaping decisions, discoveries, and required execution references)
 - learnings.md (system improvement queue for RBTV meta-learnings)
 
 Is this complete and accurate?

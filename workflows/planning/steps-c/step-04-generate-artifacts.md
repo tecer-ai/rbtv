@@ -227,7 +227,7 @@ Search all files inside the plan folder for path violations:
 1. Check if the task has a file reference (`→ path`)
 2. If yes: read that file and follow its execution phases
 3. If no: execute directly from the task description
-4. Append to shape.md after each task
+4. Append to shape.md only when a decision, finding, constraint, or unresolved question changes future execution
 5. Mark task complete in plan task list (`[x]`)
 ```
 

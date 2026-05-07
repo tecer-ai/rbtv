@@ -1,6 +1,6 @@
 # Shape Template
 
-Universal template for `shape.md` companion files. Captures shaping decisions and accumulates execution context across any workflow or freeform session.
+Universal template for `shape.md` companion files. Captures shaping decisions, discoveries, constraints, and references that future agents need.
 
 ---
 
@@ -19,7 +19,7 @@ Universal template for `shape.md` companion files. Captures shaping decisions an
 ```markdown
 # Shape - {Name}
 
-> **Purpose:** This document captures shaping decisions and accumulates execution context. The Original Shaping section is immutable. All other sections are append-only during execution.
+> **Purpose:** This document captures shaping decisions, discoveries, constraints, and references that future agents need. The Original Shaping section is immutable. Other sections are append-only during routine execution.
 
 ---
 
@@ -140,13 +140,17 @@ Universal template for `shape.md` companion files. Captures shaping decisions an
 4. **NEVER** modify Original Shaping or previous entries
 5. **NEVER** defer writes to session end — write same turn as context emerges
 
+### Maintenance Compaction
+
+Use `/rbtv-plan-shape-compact` to rewrite noisy shape files. This is the only approved exception to routine append-only behavior. The compacted file must preserve decisions, findings, constraints, unresolved questions, and required references.
+
 ### Append-Only Enforcement
 
 | Purpose | Why |
 |---------|-----|
-| Audit trail | Full history of significant decisions |
-| Context recovery | Any agent can understand execution state |
-| No condensation needed | Eliminates condensation tasks |
+| Decision audit | Significant decisions retain their rationale |
+| Context recovery | Any agent can understand execution-shaping context |
+| Low-noise continuity | Routine work logs stay out of the shape document |
 | Immutable planning record | Original decisions preserved for comparison |
 
 ---
