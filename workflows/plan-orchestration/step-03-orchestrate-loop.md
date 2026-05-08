@@ -6,13 +6,15 @@ nextStepFile: ./step-04-finalize.md
 
 # Step 3: Orchestrate Loop
 
-**Goal:** Execute the delegation plan phase by phase: dispatch executors per batch, dispatch reviewer per phase, honor checkpoint mode, halt on doubts.
+**Goal:** Execute the delegation plan phase by phase: dispatch executors per batch, dispatch reviewer per phase, honor checkpoint and context-refresh modes, halt on doubts.
 
 ---
 
 ## MANDATORY SEQUENCE
 
 **Structure:** For each phase in order, sections 1 → 2 → 3 below run sequentially within the phase. Section 4 (Doubt Escalation) interrupts whenever any sub-agent returns DOUBT_ESCALATED during section 1 or 2. Section 5 (Loop or Advance) fires once after the final phase's section 3 completes.
+
+Before dispatching, read `{plan_dir}/orchestration-state.md`. Use its Approved Delegation Map and Resume Point as the source of truth. If the approved map is missing on a resumed run, rebuild it from step-02 and get user approval before dispatching.
 
 ### 1. Dispatch Executors (one per batch)
 
@@ -69,11 +71,24 @@ After ALL batches in the phase complete:
 5. The reviewer is instructed to FIX issues in place, not just report them.
 6. Wait for the reviewer's return.
 7. If the reviewer escalates a doubt: STOP and surface to user.
-8. After the reviewer returns CLEAN or FIXED, update `{plan_dir}/orchestration-state.md`: set the Reviewer Status cell to CLEAN or FIXED for every batch in this phase, advance Resume Point to the next phase's first batch (or "FINAL — orchestration complete" if this was the last phase), refresh the timestamp.
+8. After the reviewer returns CLEAN or FIXED, update `{plan_dir}/orchestration-state.md`: set the Reviewer Status cell to CLEAN or FIXED for every batch in this phase, advance Resume Point to the next phase's first batch (or "FINAL — orchestration complete" if this was the last phase), refresh Resume Capsule, refresh the timestamp.
 
-### 3. Honor Run Mode (per-phase checkpoint)
+### 3. Honor Context Refresh, Then Run Mode
 
 After the reviewer returns clean:
+
+**Context refresh gate.** If `context_refresh_mode: suggest` AND this phase is an approved Refresh Candidate in `orchestration-state.md`:
+
+1. Update `orchestration-state.md` before asking: set Active State → `Checkpoint awaiting user approval: context refresh after Phase [N]`; ensure Resume Point names the next dispatch; ensure Notes for Resuming Agent contains the reload list and any user overrides.
+2. If `run_mode: halt`, present the normal phase summary and Human Review Presentation blocks first, then ask:
+   > Phase [N] complete and this is a clean refresh point. Choose: (a) continue to Phase [N+1] in this orchestrator, (b) stop here and resume with a fresh orchestrator from `orchestration-state.md`, or (c) pause here without refreshing.
+3. If `run_mode: end-to-end` or `run_mode: autonomous`, ask:
+   > Phase [N] is a clean refresh point. Continue in this orchestrator, or stop here and resume with a fresh orchestrator from `orchestration-state.md`?
+4. If the user chooses **continue**, clear the refresh checkpoint in Active State. If `run_mode: halt`, skip the routine checkpoint below for this phase because this prompt already captured the go-ahead.
+5. If the user chooses **resume fresh**, leave Resume Point set to the next dispatch, leave the refresh checkpoint recorded, and STOP. Tell the user to start a new agent and invoke `rbtv-plan-orchestration` on the same plan path. Do not finalize the plan; orchestration is paused, not complete.
+6. If the user chooses **pause without refreshing**, leave the checkpoint recorded and STOP.
+
+This prompt is allowed to interrupt `end-to-end` or `autonomous` mode because the user approved context-refresh mode before dispatch. Never ask this prompt for non-candidate phase boundaries.
 
 - **`run_mode: halt`** — Present a brief summary of the phase and the reviewer's findings, THEN paste each Human Review Presentation block the reviewer returned (one per qualifying task) verbatim. The blocks are the user's review-driving content — do NOT summarize them, do NOT collapse them, do NOT replace them with your own paraphrase. After the blocks, ask: "Phase [N] complete. Continue to Phase [N+1]?" Wait for user.
 - **`run_mode: end-to-end`** — Proceed immediately to the next phase. No prompt. The Human Review Presentation blocks are still recorded — they surface in the finalization message at end of orchestration (step-04).

@@ -1,6 +1,6 @@
 ---
-name: meeting-summarizer
-description: 'Process meeting transcripts and documents into structured summaries — classifies type, routes to correct folder, fixes filenames, and produces a type-specific or universal debrief. Loads glossary from workspace CLAUDE.md for transcription correction.'
+name: rbtv-meeting-summarizer
+description: "Process meeting transcripts and documents into structured summaries — classifies type, routes to correct folder, fixes filenames, and produces a type-specific or universal debrief. Loads glossary from workspace CLAUDE.md for transcription correction."
 ---
 
 # Meeting Summarizer

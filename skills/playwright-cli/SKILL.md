@@ -1,6 +1,6 @@
 ---
-name: playwright-cli
-description: Automate browser interactions, take screenshots, test web pages with Playwright CLI.
+name: rbtv-playwright-cli
+description: "Automate browser interactions, take screenshots, test web pages with Playwright CLI."
 allowed-tools: Bash(playwright-cli:*)
 ---
 

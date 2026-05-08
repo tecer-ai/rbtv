@@ -31,12 +31,14 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 2. **Just-In-Time Loading** — Only the current step is in memory. Load next step only when ready to advance.
 3. **Sequential Enforcement** — Steps execute in numbered order. No skipping.
 4. **Orchestrator Never Executes** — The orchestrator delegates ALL plan work to sub-agents. The only direct work the orchestrator does is reading the plan, batching tasks, dispatching agents, and surfacing doubts.
+5. **Full-Map Before Refresh** — Context refresh never narrows the orchestrator's scope. The full remaining delegation map must be approved and stored before any executor dispatch, and refresh can only occur at approved clean phase boundaries.
 
 ### Critical Rules
 - 🛑 NEVER load multiple step files simultaneously
 - 📖 ALWAYS read entire step file before execution
 - 🚫 NEVER execute a plan task yourself — always delegate
 - 🧠 NEVER skip the per-phase reviewer dispatch
+- 🔁 NEVER use context refresh to stop after arbitrary batches — refresh points are phase-boundary checkpoints only, after reviewer CLEAN/FIXED
 - ⏸️ ALWAYS halt for the user when a sub-agent escalates a doubt — UNLESS `run_mode: autonomous`, in which case decide unilaterally and log the decision per step-03 §4
 - 🛡️ NEVER override the user's run-mode preference. In `autonomous` mode, plan-marked HARD halts (irreversibility gates) are still NEVER overridden
 

@@ -1,5 +1,5 @@
 ---
-name: rbtv-designer
+name: rbtv-designing
 description: "Visual design for pitch decks and brand identity via Vivian. Use when designing pitch deck visuals, brand visual identity, or AI image prompts."
 ---
 

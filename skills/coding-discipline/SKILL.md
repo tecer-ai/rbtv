@@ -1,6 +1,6 @@
 ---
-name: coding-discipline
-description: Use when writing, reviewing, or modifying code files (HTML, JS, CSS, Python, scripts). Reduces common LLM coding pitfalls -- overcomplication, hidden assumptions, orthogonal edits, and vague success criteria.
+name: rbtv-coding-discipline
+description: "Use when writing, reviewing, or modifying code files (HTML, JS, CSS, Python, scripts). Reduces common LLM coding pitfalls -- overcomplication, hidden assumptions, orthogonal edits, and vague success criteria."
 ---
 
 # Coding Discipline

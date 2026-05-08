@@ -6,7 +6,7 @@ nextStepFile: ./step-03-orchestrate-loop.md
 
 # Step 2: Ingest and Batch
 
-**Goal:** Read the entire plan + shape, map phases to tasks, and produce a private delegation map that avoids both micro-delegation and macro-delegation.
+**Goal:** Read the entire plan + shape, map phases to tasks, store the approved delegation map in `orchestration-state.md`, and identify safe context-refresh candidates without narrowing orchestration scope.
 
 ---
 
@@ -26,9 +26,9 @@ After reading the plan, scan its Architectural Constraints / Execution Rules sec
 
 Look for `orchestration-state.md` in the plan's directory. Three cases:
 
-- **If it exists AND conforms to the template** (has Resume Point + Completed Batches sections per `{rbtv_path}/workflows/plan-orchestration/templates/orchestration-state-template.md`): read it. The Resume Point and Completed Batches table tell you where to pick up. Use this to skip already-done work in batching (next step) and dispatch (step-03).
-- **If it exists BUT does NOT conform** (different structure, custom hand-curated content, missing required sections, or a `.tmp` sibling exists indicating an interrupted prior write): STOP. Surface the file to the user verbatim and ask: (a) migrate this file's content into the template structure, (b) leave as-is and skip resume logic for this run, or (c) move the existing file aside (rename to `orchestration-state.legacy.md`) and initialize fresh. Wait for user choice. NEVER overwrite a non-conforming file silently.
-- **If it does not exist:** copy the template body from `{rbtv_path}/workflows/plan-orchestration/templates/orchestration-state-template.md` to `{plan_dir}/orchestration-state.md`. Fill in the plan name + initial timestamp. Leave Resume Point empty until the first batch dispatches.
+- **If it exists AND conforms to the current template** (has Resume Point, Run Configuration, Approved Delegation Map, Completed Batches, Active State, Resume Capsule, and Notes for Resuming Agent sections per `{rbtv_path}/workflows/plan-orchestration/templates/orchestration-state-template.md`): read it. The Resume Point, Approved Delegation Map, and Completed Batches table tell you where to pick up. Use this to skip already-done work in batching (next step) and dispatch (step-03).
+- **If it exists BUT does NOT conform** (different structure, custom hand-curated content, missing required sections, old-template state without Approved Delegation Map, or a `.tmp` sibling exists indicating an interrupted prior write): STOP. Surface the file to the user verbatim and ask: (a) migrate this file's content into the current template structure, (b) leave as-is and skip resume logic for this run, or (c) move the existing file aside (rename to `orchestration-state.legacy.md`) and initialize fresh. Wait for user choice. NEVER overwrite a non-conforming file silently.
+- **If it does not exist:** copy the template body from `{rbtv_path}/workflows/plan-orchestration/templates/orchestration-state-template.md` to `{plan_dir}/orchestration-state.md`. Fill in the plan name + initial timestamp. Leave Run Configuration, Approved Delegation Map, and Resume Point empty until the delegation plan is approved.
 
 This file is the orchestrator's mutable state. NEVER write orchestration state into shape.md (shape is append-only and reserved for planning decisions per the shape template).
 
@@ -122,22 +122,53 @@ If no case matches OR any gate fails, drop to Step 3.
 - Cross-cutting work where one batch's choices constrain another
 - Any batch flagged by the haiku or sonnet failure-mode tables above
 
-### 6. Present Delegation Plan to User
+### 6. Identify Context-Refresh Candidates
+
+Build a small list of proposed refresh points. These are optional user-approved points where the current orchestrator can stop and a fresh orchestrator can resume from `orchestration-state.md`.
+
+**Hard gates — a refresh candidate is valid ONLY if ALL hold:**
+
+| Gate | Required |
+|------|----------|
+| Boundary | After a phase reviewer returns CLEAN/FIXED |
+| Active work | No batch, reviewer, doubt, blocker, HARD halt, or USER-EXECUTED-ONLY task is pending |
+| Full map | The full remaining delegation map has been approved and written to `orchestration-state.md` |
+| Resume data | Next dispatch, run mode, batch map, refresh mode, and needed docs can be represented in `orchestration-state.md` |
+
+**Risk controls — avoid too-frequent refresh:**
+
+| Control | Rule |
+|---------|------|
+| Minimum remaining work | Do not propose refresh if fewer than 2 executor batches remain, unless the next phase needs a different heavy reference set |
+| Minimum interval | Do not propose refresh after consecutive phases unless the next phase changes scope or reference set materially |
+| Doubt bias | If unsure whether a boundary is clean enough, do not propose refresh |
+
+Mark candidates where the next phase uses a different reference set, role, folder tree, or decision context than the completed phase.
+
+### 7. Present Delegation Plan to User
 
 Show a summary table:
 
-| Phase | Batches | Executor model | Reviewer dispatch |
-|-------|---------|----------------|-------------------|
-| Phase 1 | [N] batches: [brief list] | [model per batch] | After all Phase 1 batches complete |
-| Phase 2 | [N] batches: [brief list] | [model per batch] | After all Phase 2 batches complete |
+| Phase | Batches | Executor model | Reviewer dispatch | Refresh candidate |
+|-------|---------|----------------|-------------------|-------------------|
+| Phase 1 | [N] batches: [brief list] | [model per batch] | After all Phase 1 batches complete | yes/no + reason |
+| Phase 2 | [N] batches: [brief list] | [model per batch] | After all Phase 2 batches complete | yes/no + reason |
 | ... | ... | ... | ... |
 
-Add: "Doubts at any point will halt and surface to you. Confirm to proceed?"
+Add:
+
+> Optional context refresh mode:
+> - **Suggest (recommended)** — I ask only at approved clean phase-boundary candidates whether to stop here and resume with a fresh orchestrator. The new orchestrator resumes from `orchestration-state.md`. I never refresh mid-phase or before the full delegation map is approved.
+> - **Off** — I keep the same orchestrator unless the session is interrupted.
+>
+> Doubts at any point will halt and surface to you. Confirm batching and context refresh mode to proceed?
 
 The Model column is for transparency — the approval gate is on batching only, not on model assignments. The user MAY override model assignments by explicit instruction (e.g., "use haiku for the rename phase"); honor the override without re-asking per batch. If the user adjusts batching, update the map and re-present.
 
-Wait for user approval.
+If the user confirms without naming a refresh mode, record `context_refresh_mode: suggest`.
 
-### 7. Proceed
+On approval, overwrite `{plan_dir}/orchestration-state.md` with the approved delegation map, `run_mode`, `context_refresh_mode`, refresh candidate list, Resume Point, Active State, Resume Capsule, and Notes for Resuming Agent. This file is the orchestration log; do not create a separate handoff artifact.
+
+### 8. Proceed
 
 On approval, load `./step-03-orchestrate-loop.md`.
