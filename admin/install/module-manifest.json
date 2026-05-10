@@ -228,6 +228,14 @@
         "bake": ["rbtv_path"],
         "description": "Guided git commit with repo detection and message conventions"
       }
+    ],
+    "rules": [
+      {
+        "source": "rules/non-technical-user.md",
+        "target": ".claude/rules/rbtv-non-technical-user.md",
+        "mode": "copy",
+        "description": "Plain-language code communication for non-technical users — pair every technical name with a translation, frame coding decisions as behavior changes, lead with decisions, ban raw output dumps. Always active once installed."
+      }
     ]
   },
   "writing": {

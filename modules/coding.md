@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This module is for developers working with Claude Code on real codebases. It solves two problems that come up constantly in AI-assisted development: LLMs tend to overcomplicate, assume silently, and touch more than they should — and committing changes without thinking about repo hygiene produces messy history. `rbtv-coding-discipline` shapes Claude's behavior during code work; `rbtv-commit` handles the commit itself with proper hygiene and conflict handling.
+This module is for developers working with Claude Code on real codebases. It solves three problems that come up constantly in AI-assisted development: LLMs tend to overcomplicate, assume silently, and touch more than they should; committing changes without thinking about repo hygiene produces messy history; and explaining code to a non-technical stakeholder in raw technical language blocks them from making decisions. `rbtv-coding-discipline` shapes Claude's behavior during code work, `rbtv-commit` handles the commit itself with proper hygiene and conflict handling, and `rbtv-non-technical-user` switches communication into plain language when the user does not read code.
 
 ---
 
@@ -34,6 +34,19 @@ This module is for developers working with Claude Code on real codebases. It sol
   > Agent stages specific files, commits, and reports the commit hash. Does not push unless asked.
 
   If remote commits exist that you don't have locally, the skill fetches first, stashes your work, pulls, and pops — surfacing conflicts for you to resolve before touching the commit step.
+
+---
+
+### `rbtv-non-technical-user`
+
+- **What**: A passive rule that reshapes every chat message about code. Pairs every technical name with a plain-language translation (the user is learning the names AND needs to understand them), frames every coding decision as a behavior change instead of code mechanics, leads with the decision, bans raw log/diff/stack-trace dumps, and enforces a fixed question format with concrete options.
+- **When to use**: Always active once the coding module is installed. Install this module ONLY in workspaces where the human reading chat does not read code — installing it in a technical workspace will make every response unnecessarily verbose.
+- **How to invoke**: Automatic. No trigger. The rule loads passively into context and applies to every response.
+- **What it produces**: Changed chat behavior — every code identifier paired with what it does, every decision framed as a system-behavior change ("rework how login is handled" not "refactor the auth module"), decision-first questions with named options, summaries instead of raw output. Code, commits, PRs, and files written to disk are not affected.
+- **Example**:
+  > User: "Did the import work?"
+  > Agent: "Yes — the part that pulls invoices from the bank (called `importInvoices.ts` in code) loaded 47 records. Two were missing a date and got skipped. Fix the two now, or move on?"
+  > Without the rule, the same response might say: "`importInvoices.ts` ran successfully, returning 47 records. 2 records failed Zod validation on the `issuedAt` field…"
 
 ---
 
