@@ -15,6 +15,7 @@ Process transcripts and documents into structured summaries with type-specific p
 | User says "summarize this meeting" / "resumir a reunião" / "meeting debrief" | Execute workflow |
 | User references a transcript file and wants it processed | Execute workflow |
 | User provides any document or content to summarize | Execute workflow (universal fallback) |
+| User provides 2+ files from the same meeting | Execute workflow — Step 1.5 cross-references files; Gemini summary (if present) is source of truth for resolving garbled transcriptions |
 
 ## Built-in Meeting Types
 

@@ -23,11 +23,41 @@ Under no-stop / voice mode, consolidate all approval tables into ONE end-of-turn
 
 A clarifying question is a STOPPAGE waiting for input. A batched table is a SINGLE round-trip the user can answer in one reply — it is the mechanism that lets the user retain control without per-item interruption.
 
-## Step 1 — Read Transcript & Load Glossary
+## Step 1 — Read Transcript(s) & Load Glossary
 
-1. Read the referenced transcript file completely. If no transcript was provided, STOP and ask the user for the transcript path.
+1. Read every referenced transcript/document file completely. If no file was provided, STOP and ask the user for the path.
 2. Load the glossary declared in the operating scope's CLAUDE.md (under `## Name Glossary` heading). If no glossary is declared, skip silently.
 3. Track glossary corrections (matched name → canonical form) for write-back in Step 5.5. Do not modify the file yet.
+4. If 2+ files were provided, execute Step 1.5 before continuing.
+
+## Step 1.5 — Multi-File Cross-Reference (when 2+ files of the same meeting)
+
+**Trigger:** User provided 2+ files that refer to the same meeting (same date + overlapping participants/topic, or same filename stem with different sources/extensions, or files explicitly named as alt-versions like `-gemini`, `-google`, `-zoom`, `-otter`).
+
+If files refer to DIFFERENT meetings, treat them as independent runs of the workflow — do NOT cross-reference.
+
+### Source-of-truth hierarchy
+
+Classify each file:
+
+| File type | Cues | Role |
+|-----------|------|------|
+| Gemini summary | Gemini-generated narrative summary (NOT a verbatim transcript) — prose paragraphs, named sections, bullet decisions, no speaker timestamps, often labeled "Notes by Gemini" / "Resumo da reunião" / `-gemini` in filename | **Source of truth** for words, names, terms, decisions |
+| Verbatim transcript | Speaker-tagged lines, timestamps, raw spoken text — Google Meet transcript, Otter, Zoom transcript, manual transcription | Substrate to be corrected |
+| Other artifacts (chat log, agenda, slides) | Non-transcript supporting docs | Tertiary reference only |
+
+**Rules:**
+
+1. If a Gemini summary is present, it is the **source of truth**. Use its spelling of names, companies, terms, decisions, and numbers to overwrite garbled equivalents in the verbatim transcript(s). The Gemini summary's wording wins on every conflict regarding factual content (names, terms, numbers, decisions). The verbatim transcript still wins on conversational nuance, emotional content, and exact quotes the Gemini summary did not capture.
+2. If NO Gemini summary is present and 2+ verbatim transcripts exist, cross-reference them: where one transcript is garbled/inaudible and another transcribes the same span clearly, adopt the clearer version. Track each substitution.
+3. The chosen primary substrate for the summary in Step 5 is the verbatim transcript with the most coverage (longest, most complete). The Gemini summary is NOT the substrate — it is the corrections oracle.
+
+### Process
+
+1. Build a `corrections[]` list: for each garbled/uncertain span in the primary verbatim transcript, find the corresponding span in the source-of-truth file and record `{location, original, replacement, source_file}`.
+2. Pass this list into the prompt's Phase 1 validation (Step 5) as pre-resolved corrections — present them to the user in the validation table marked `auto-resolved via cross-reference: {source_file}`, so the user can confirm or override in one batch.
+3. Apply confirmed corrections in Step 5.5 to the primary verbatim transcript only. Do NOT modify the Gemini summary or other source files.
+4. Report in Step 7: number of cross-reference corrections applied, and which file served as source of truth.
 
 ## Step 2 — Determine Context
 
