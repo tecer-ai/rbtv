@@ -47,13 +47,18 @@ Invoke `sb-vault-ops` skill before writing. For each target in `inputs.targets`:
 - Apply every `### Change` block where Source matches that target
 - Overwrite the target file in place
 
-#### 2A.3 Write delta file
+#### 2A.3 Write delta file — CONDITIONAL
 
-Resolve delta path:
-- Default: `<target_dir>/<target_basename>-delta.md`
-- Override via `rbtv-output-resolution` rule if CLAUDE.md routing applies
+Count `applied_changes` = `### Change` blocks applied to target docs in 2A.2 (exclude "considered / no change" items). Count `targets_modified`.
 
-Write the final delta-draft.md to that path. Invoke `sb-vault-integrity` after creation.
+| Condition | Action |
+|-----------|--------|
+| `applied_changes` >= 3 OR `targets_modified` > 1 | WRITE the delta file (procedure below) — it earns its place as a multi-change summary. |
+| Otherwise (<= 2 changes confined to a single target, including the 0-change case) | SKIP the delta file. Git diff + commit message are the record. Fold the change summary AND any "considered / no change" notes into the Step 3 final report instead. NEVER create a delta file for a trivial change set. |
+
+WRITE procedure:
+- Resolve delta path. Default: `<target_dir>/<target_basename>-delta.md`. Override via `rbtv-output-resolution` rule if CLAUDE.md routing applies.
+- Write the final delta-draft.md to that path. Invoke `sb-vault-integrity` after creation.
 
 ### 2B. Study Mode Write
 
@@ -76,7 +81,7 @@ Present:
 | Mode | reconcile / study |
 | Run ID | <run_id> |
 | Targets overwritten (reconcile) | <list> |
-| Delta files (reconcile) | <list> |
+| Delta files (reconcile) | <list, or "none — N change(s) reported inline per 2A.3"> |
 | Study doc (study) | <path> |
 | Total source line span processed | <total> |
 | Sub-agent calls | <count> (Haiku: <N>, Opus: <M>) |

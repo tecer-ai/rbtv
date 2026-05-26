@@ -46,7 +46,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 | Mode | Purpose | Final output |
 |------|---------|--------------|
-| reconcile | Update an existing document to reflect source decisions + user line-comments | Target doc(s) overwritten in place + delta doc per target |
+| reconcile | Update an existing document to reflect source decisions + user line-comments | Target doc(s) overwritten in place + delta doc ONLY when changes are substantial (>= 3 changes or > 1 target — see step-06 2A.3); otherwise changes reported inline |
 | study | Produce study notes from a long source | New study doc at user-confirmed destination |
 
 User picks mode in step-01.
