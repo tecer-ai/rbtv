@@ -37,7 +37,7 @@ The orchestrator has pre-loaded verbatim excerpts from the `[INLINED]` reference
 ## Your Task
 
 1. Read the plan and shape sections relevant to this phase.
-2. Inspect the actual state produced by the executors — read the files they created or modified.
+2. Inspect the actual state produced by the executors — read the files they created or modified. **Reconciliation/count mandate:** any reconciliation, count, or "X→Y" tally claim — whether an executor reported it or you assert it — MUST be backed by an ACTUAL run of the relevant pipeline/script (real config, throwaway output dir, never `--force` on real data) with the numbers taken from stdout. NEVER accept or assert a count from a config edit, a written file, or narrative alone — a written file (e.g., a corrections side-ledger) may have NO consumer and thus zero runtime effect, and "tests pass" does not verify a narrative count claim. If you cannot run the pipeline, trace the exact consumer code path and say so; do not certify an unverified count.
 3. Identify any gaps, errors, inconsistencies, or deviations from the plan/shape.
 4. **Fix the issues IN PLACE.** Do not just report them. Edit files, rename, restructure as needed to bring the phase output into compliance with the plan and shape.
 5. **Audit shape.md** (if it exists) against the forbidden patterns in the shape template's APPEND-ONLY RULES: file lists, commit hashes, per-task outcome tables, batch-completion summaries, and entries that don't fit the Decision or Discovery format. For each violation, reframe as a proper Decision/Discovery entry or remove the entry. This is a hard check — the soft audience-judgment rule alone does not prevent drift back to bloated shape.
