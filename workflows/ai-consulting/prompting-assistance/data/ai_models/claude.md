@@ -490,5 +490,3 @@ Links to official documentation for model-specific mechanisms. Link to the most 
 ---
 
 *Last updated: 2025-12-04*
-
-> Codex mirror note: do not read the sibling `AGENTS.md`. It is an auto-generated mirror for Codex agents. This `CLAUDE.md` file is the source of truth.
