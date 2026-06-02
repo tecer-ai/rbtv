@@ -20,6 +20,7 @@ class SkillEntry:
     target_relative: Path
     bake_keys: tuple[str, ...]
     description: str = ""
+    stale: bool = False
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,7 @@ class CommandEntry:
     target_relative: Path
     bake_keys: tuple[str, ...]
     description: str = ""
+    stale: bool = False
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,7 @@ class RuleEntry:
     target_relative: Path
     mode: str  # "copy"
     description: str = ""
+    stale: bool = False
 
 
 @dataclass(frozen=True)
@@ -44,6 +47,7 @@ class SubagentEntry:
     target_relative: Path
     mode: str  # "copy"
     description: str = ""
+    stale: bool = False
 
 
 @dataclass(frozen=True)
@@ -70,6 +74,7 @@ def load_manifest(manifest_path: Path) -> dict[str, Module]:
                 target_relative=Path(s["target"]),
                 bake_keys=tuple(s.get("bake", [])),
                 description=s.get("description", ""),
+                stale=bool(s.get("stale", False)),
             )
             for s in data.get("skills", [])
         )
@@ -79,6 +84,7 @@ def load_manifest(manifest_path: Path) -> dict[str, Module]:
                 target_relative=Path(c["target"]),
                 bake_keys=tuple(c.get("bake", [])),
                 description=c.get("description", ""),
+                stale=bool(c.get("stale", False)),
             )
             for c in data.get("commands", [])
         )
@@ -88,6 +94,7 @@ def load_manifest(manifest_path: Path) -> dict[str, Module]:
                 target_relative=Path(r["target"]),
                 mode=r.get("mode", "copy"),
                 description=r.get("description", ""),
+                stale=bool(r.get("stale", False)),
             )
             for r in data.get("rules", [])
         )
@@ -97,6 +104,7 @@ def load_manifest(manifest_path: Path) -> dict[str, Module]:
                 target_relative=Path(s["target"]),
                 mode=s.get("mode", "copy"),
                 description=s.get("description", ""),
+                stale=bool(s.get("stale", False)),
             )
             for s in data.get("subagents", [])
         )

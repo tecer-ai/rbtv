@@ -3,10 +3,6 @@
     "version": "7.0.0",
     "name": "rbtv"
   },
-  "modules": {
-    "available": ["core", "innovation", "work-productivity", "writing"],
-    "always_installed": ["core"]
-  },
   "defaults": {
     "language": "en"
   }

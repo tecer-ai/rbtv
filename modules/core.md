@@ -120,16 +120,18 @@ Tools for getting information from the web and processing long-form documents.
 
 These rules are copied into every workspace's `.claude/rules/` on install and shape Claude's behavior across every interaction. They aren't invoked manually — they're passive context that fires automatically. Full text is in the linked files.
 
+Rules marked **stale** are retired: the installer skips any manifest entry flagged `stale` — it neither installs nor surfaces them — though the source files remain for reference.
+
 | Rule | What it enforces |
 |------|------------------|
 | [atomic-files](../rules/atomic-files.md) | Agent-facing files must be self-contained, non-repetitive, and use mandatory language — no context-only references or summarized file content |
-| [audio-aware](../rules/audio-aware.md) | Handles transcription artifacts (self-corrections, ambiguous names/dates) and loads a name glossary at session start |
-| [bash-patterns](../rules/bash-patterns.md) | Bans shell operators (`\|`, `&&`, `;`, redirects) in Bash calls — each command must be a single, auditable invocation with absolute paths |
+| ~~[audio-aware](../rules/audio-aware.md)~~ | **Stale — retired, not installed.** Handled transcription artifacts and loaded a name glossary at session start. Superseded by per-skill glossary loading in the meeting/therapy summarizers. |
+| ~~[bash-patterns](../rules/bash-patterns.md)~~ | **Stale — retired, not installed.** Banned shell operators (`\|`, `&&`, `;`, redirects) in Bash calls. Obsolete under Claude auto-mode. |
 | [chat-discipline](../rules/chat-discipline.md) | Every response leads with the decision or result, not the analysis; prose capped at 6 lines outside tables/code; full detail goes to output files |
 | [compounding](../rules/compounding.md) | On any user correction, Claude checks whether a structural fix (rule, workflow, routing change) would prevent recurrence and offers to implement it |
-| [context-preservation](../rules/context-preservation.md) | Detects valuable session context (reasoned choices, unwritten knowledge, structured data) and routes it to the right vault/plan destination before the session ends |
+| ~~[context-preservation](../rules/context-preservation.md)~~ | **Stale — retired, not installed.** Detected valuable session context and routed it before the session ends. Did not reliably trigger; superseded by session-close and compounding. |
 | [output-resolution](../rules/output-resolution.md) | Before writing any output file, Claude proposes a specific resolved path with reasoning and waits for confirmation — never writes to an assumed location |
-| [reasoning](../rules/reasoning.md) | Mandates a `<counter>` block before any agreement or endorsement; enforces position stability under pressure; prevents sycophancy |
+| [reasoning](../rules/reasoning.md) | Mandates a `<counter>` block before any agreement or endorsement; enforces position stability under pressure; prevents sycophancy. Includes an *Execution Discipline* section (simplicity, surgical changes, goal-driven, read-before-write, budgets, checkpoints, fail-loud) covering all artifact work, not only code |
 | [skill-first](../rules/skill-first.md) | The first tool call on any new task must be a skill scan — Claude cannot proceed to Read/Grep/Bash before checking whether a skill covers the task |
-| [source-of-truth](../rules/source-of-truth.md) | Installed `.claude/` files are generated copies — all edits go to the RBTV source repo; re-run `install.py` to propagate |
+| ~~[source-of-truth](../rules/source-of-truth.md)~~ | **Stale — retired, not installed.** Installed `.claude/` files are generated copies — edits go to the RBTV source. Redundant where the host workspace documents this (e.g. sb-os vaults); README 'Source of truth' covers standalone. |
 | [sub-agents](../rules/sub-agents.md) | Pre-dispatch gate for every Agent tool call — sub-agent prompts must explicitly name each matching installed skill using imperative phrasing |

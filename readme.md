@@ -15,7 +15,7 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 | **core** (always installed) | Generic productivity utilities — planning, plan orchestration, plan shape compaction, web research, component creation, browser automation, plus the digest and session-close personas, and the always-on behavioral rules | [modules/core.md](./modules/core.md) |
 | **innovation** | Business innovation frameworks (lean canvas, JTBD, TAM/SAM/SOM, brandbook) via the innovator mentor, plus product discovery | [modules/innovation.md](./modules/innovation.md) |
 | **productivity** | Pitch generation (client, investor), design extraction, document export (PDF/DOCX with brand discovery), legal advisory, meeting prep, meeting summarization, client emails, thinking-partner operator, problem-reframing persona, and visual design | [modules/productivity.md](./modules/productivity.md) |
-| **coding** | Coding discipline and quality guidelines for AI-assisted development, plus guided git commits | [modules/coding.md](./modules/coding.md) |
+| **coding** | Guided git commits for AI-assisted development (the coding-discipline guardrails were generalized into the always-on reasoning rule — see [Retired components](#retired-components)) | [modules/coding.md](./modules/coding.md) |
 | **writing** | Long-form writing via the writer persona, tone extraction | [modules/writing.md](./modules/writing.md) |
 | **caveman** | Optional ultra-compressed caveman communication mode and parody commit voice — token savings and fun, based on JuliusBrussee/caveman | [modules/caveman.md](./modules/caveman.md) |
 
@@ -140,7 +140,19 @@ Content changes appear live. You only need to re-run `install.py` when:
 
 ## Source of truth
 
-Installed files in `.claude/skills/rbtv-*`, `.claude/commands/rbtv-*.md`, `.claude/rules/rbtv-*.md`, `.claude/agents/rbtv-*.md` are regenerated on every `install.py` run. **Do not edit them in your workspace** — edit the source in this repo and re-install. See `.claude/rules/rbtv-source-of-truth.md` in your workspace for more.
+Installed files in `.claude/skills/rbtv-*`, `.claude/commands/rbtv-*.md`, `.claude/rules/rbtv-*.md`, `.claude/agents/rbtv-*.md` are regenerated on every `install.py` run. **Do not edit them in your workspace** — edit the source in this repo and re-install. This section is the canonical statement of that principle: the always-on `rbtv-source-of-truth` rule is retired (see [Retired components](#retired-components)).
+
+## Retired components
+
+Some components ship in this repo but are flagged `stale` in the module manifest — the installer neither installs nor offers them (it skips any manifest entry with `"stale": true` and hides it from the component picker). Source files remain for reference and history. To revive one, remove its `stale` flag and re-run `install.py`.
+
+| Component | Module | Why retired |
+|---|---|---|
+| `audio-aware` (rule) | core | Niche transcription-glossary loader; superseded by per-skill glossary loading in the meeting/therapy summarizers. |
+| `bash-patterns` (rule) | core | Obsolete under Claude auto-mode — the single-command / no-shell-operator constraint is no longer needed. |
+| `context-preservation` (rule) | core | Did not reliably trigger; superseded by the session-close and compounding flows. |
+| `source-of-truth` (rule) | core | Redundant where the host workspace already documents edit-source-not-installed-copies (e.g. sb-os vaults); the **Source of truth** section above covers standalone installs. |
+| `coding-discipline` (skill) | coding | **Deleted, not just flagged.** Its four guardrails were generalized into the always-on `reasoning` rule's *Execution Discipline* section (core) — they apply to all artifact work, not only code. |
 
 ## Architecture notes
 

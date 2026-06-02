@@ -65,13 +65,17 @@
         "source": "rules/audio-aware.md",
         "target": ".claude/rules/rbtv-audio-aware.md",
         "mode": "copy",
-        "description": "Transcription correction, name glossary, and batched confirmation"
+        "description": "Transcription correction, name glossary, and batched confirmation",
+        "stale": true,
+        "stale_reason": "Niche transcription-glossary loader; superseded by per-skill glossary loading in the meeting/therapy summarizers."
       },
       {
         "source": "rules/bash-patterns.md",
         "target": ".claude/rules/rbtv-bash-patterns.md",
         "mode": "copy",
-        "description": "Single-command Bash calls with no shell operators"
+        "description": "Single-command Bash calls with no shell operators",
+        "stale": true,
+        "stale_reason": "Obsolete under Claude auto-mode — the single-command / no-shell-operator constraint is no longer needed."
       },
       {
         "source": "rules/chat-discipline.md",
@@ -89,7 +93,9 @@
         "source": "rules/context-preservation.md",
         "target": ".claude/rules/rbtv-context-preservation.md",
         "mode": "copy",
-        "description": "Detect and capture session context worth preserving"
+        "description": "Detect and capture session context worth preserving",
+        "stale": true,
+        "stale_reason": "Did not reliably trigger in practice; superseded by the session-close and compounding flows."
       },
       {
         "source": "rules/output-resolution.md",
@@ -107,7 +113,9 @@
         "source": "rules/source-of-truth.md",
         "target": ".claude/rules/rbtv-source-of-truth.md",
         "mode": "copy",
-        "description": "RBTV repo is canonical — never edit installed copies"
+        "description": "RBTV repo is canonical — never edit installed copies",
+        "stale": true,
+        "stale_reason": "Redundant in host systems that already enforce edit-source-not-installed-copies (e.g. sb-os vaults document it in CLAUDE.md); README 'Source of truth' covers standalone installs."
       },
       {
         "source": "rules/skill-first.md",
@@ -214,14 +222,8 @@
     ]
   },
   "coding": {
-    "description": "Code quality guidelines, coding discipline, and guided git commits for AI-assisted development.",
+    "description": "Guided git commits for AI-assisted development. (Coding-discipline principles were generalized into the always-on reasoning rule — they apply to all artifact work, not only code.)",
     "skills": [
-      {
-        "source_template": "skills/coding-discipline/SKILL.md",
-        "target": ".claude/skills/rbtv-coding-discipline/SKILL.md",
-        "bake": ["rbtv_path"],
-        "description": "Enforce coding standards and discipline in AI-assisted development"
-      },
       {
         "source_template": "skills/commit/SKILL.md",
         "target": ".claude/skills/rbtv-commit/SKILL.md",

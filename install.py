@@ -24,7 +24,7 @@ Choices are persisted in rbtv.json at the target root so re-installs remember
 selected modules and excluded components.
 
 Configuration:
-    admin/install/defaults.json          Version and module availability
+    admin/install/defaults.json          Installer version (modules come from the manifest)
     admin/install/module-manifest.json   What each module installs
 
 """

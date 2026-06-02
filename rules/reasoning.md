@@ -98,3 +98,17 @@ Fix at the cause, not the symptom. Investigate before fixing. Solutions MUST pre
 Pre-action behaviors that feel like preparation but produce no value — and that no one asked for.
 
 - Format-matching reads — pre-reading existing files to mimic style before writing. Write in a sensible format. If the user wants alignment with specific files, the user will say so.
+
+## Execution Discipline
+
+These apply to any task that produces or changes artifacts — code, vault files, docs, plans. Bias toward caution on non-trivial work; use judgment on trivial tasks. Think-before-acting (state assumptions, surface tradeoffs, ask when unclear) is already mandated under Self-Verification and Critical Partnership — it is not repeated here.
+
+| Principle | Rule |
+|-----------|------|
+| Simplicity first | Minimum work that solves the problem. No speculative features, abstractions, or configurability that was not asked for. If 200 lines could be 50, rewrite it. |
+| Surgical changes | Change only what the request needs. NEVER "improve" adjacent content, formatting, or structure; match existing style. Note unrelated issues — never fix them unasked. Remove only the orphans your own change created. |
+| Goal-driven | Define success criteria up front, then loop until verified — not until steps run out. Weak criteria ("make it work") force constant re-clarification. |
+| Read before write | Read what already exists — callers, related files, existing helpers — before adding, so you do not duplicate or contradict it. This is dependency/correctness reading, distinct from the style-mimicry pre-reads banned under Unnecessary Pre-Work. |
+| Budget long runs | On long autonomous work, set a token/step budget. On breach, summarize state and restart rather than silently overrunning. Surfacing a breach beats blowing the budget. |
+| Checkpoint multi-step | After each significant step, state what is verified and what is left. NEVER continue from a state you cannot describe back. |
+| Fail loud | "Done" is false if anything was skipped. "Tests pass" is false if any were skipped or passed for the wrong reason. Surface the gap; never hide it behind a success label. |

@@ -2,23 +2,13 @@
 
 ## Purpose
 
-This module is for developers working with Claude Code on real codebases. It solves three problems that come up constantly in AI-assisted development: LLMs tend to overcomplicate, assume silently, and touch more than they should; committing changes without thinking about repo hygiene produces messy history; and explaining code to a non-technical stakeholder in raw technical language blocks them from making decisions. `rbtv-coding-discipline` shapes Claude's behavior during code work, `rbtv-commit` handles the commit itself with proper hygiene and conflict handling, and `rbtv-non-technical-user` switches communication into plain language when the user does not read code.
+This module is for developers working with Claude Code on real codebases. It solves two problems: committing changes without thinking about repo hygiene produces messy history; and explaining code to a non-technical stakeholder in raw technical language blocks them from making decisions. `rbtv-commit` handles the commit itself with proper hygiene and conflict handling, and `rbtv-non-technical-user` switches communication into plain language when the user does not read code.
+
+> **Retired:** the `rbtv-coding-discipline` skill that used to live here (don't overcomplicate, don't assume silently, don't touch more than asked, define success criteria) was generalized into the always-on **reasoning** rule's *Execution Discipline* section (core module). Those guardrails apply to all artifact work — vault files, docs, plans — not only code, so a code-scoped skill was the wrong shape.
 
 ---
 
 ## Components
-
-### `rbtv-coding-discipline`
-
-- **What**: A set of behavioral guardrails that fire whenever Claude writes, reviews, or modifies code. Covers four failure modes: silent assumptions, over-engineering, orthogonal edits, and vague success criteria.
-- **When to use**: Auto-triggers on any task involving code files (HTML, JS, CSS, Python, scripts). You don't invoke it — it activates when the task matches.
-- **How to invoke**: Automatic. Works on any prompt that involves editing or writing code. No slash command needed.
-- **What it produces**: Changed behavior, not a file. Claude will explicitly state assumptions before coding, flag when multiple interpretations exist, write minimum viable code, touch only what the task requires, and define verifiable success criteria for multi-step tasks.
-- **Example**:
-  > User: "Add validation to the form."
-  > Agent: "Before I start — I'm assuming the form submits to `/api/register` and that validation means client-side only. Is that right? My success criteria: write a test for each invalid input, then make them pass. Here's my plan: [1] add tests → [2] implement validation → [3] verify no regressions."
-
----
 
 ### `rbtv-commit`
 
@@ -52,4 +42,4 @@ This module is for developers working with Claude Code on real codebases. It sol
 
 ## Commit Message Style
 
-Both skills align on the same convention: [conventional commits](https://www.conventionalcommits.org/), first line under 72 characters, message explains the *why* (the diff already shows the what).
+`rbtv-commit` follows [conventional commits](https://www.conventionalcommits.org/): first line under 72 characters, message explains the *why* (the diff already shows the what).

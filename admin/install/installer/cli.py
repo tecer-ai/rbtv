@@ -66,10 +66,10 @@ def _module_detail_text(module: Module) -> str:
     lines = [f"  {module.name} — {module.description}", ""]
 
     groups: list[tuple[str, list[tuple[str, str]]]] = [
-        ("Skills", [(_component_name(s.target_relative), s.description) for s in module.skills]),
-        ("Commands", [(_component_name(c.target_relative), c.description) for c in module.commands]),
-        ("Rules", [(_component_name(r.target_relative), r.description) for r in module.rules]),
-        ("Subagents", [(_component_name(a.target_relative), a.description) for a in module.subagents]),
+        ("Skills", [(_component_name(s.target_relative), s.description) for s in module.skills if not s.stale]),
+        ("Commands", [(_component_name(c.target_relative), c.description) for c in module.commands if not c.stale]),
+        ("Rules", [(_component_name(r.target_relative), r.description) for r in module.rules if not r.stale]),
+        ("Subagents", [(_component_name(a.target_relative), a.description) for a in module.subagents if not a.stale]),
     ]
     for group_name, entries in groups:
         if entries:
@@ -81,6 +81,16 @@ def _module_detail_text(module: Module) -> str:
                     lines.append(f"    • {name}")
         else:
             lines.append(f"  {group_name}: (none)")
+        lines.append("")
+
+    stale_names = [
+        _component_name(e.target_relative)
+        for group in (module.skills, module.commands, module.rules, module.subagents)
+        for e in group
+        if e.stale
+    ]
+    if stale_names:
+        lines.append(f"  Stale (retired — not installed): {', '.join(stale_names)}")
         lines.append("")
 
     return "\n".join(lines)
@@ -180,6 +190,8 @@ def _prompt_custom_components(
         keys: list[str] = []
 
         for s in mod.skills:
+            if s.stale:
+                continue
             key = str(s.target_relative).replace("\\", "/")
             items.append(
                 {
@@ -190,6 +202,8 @@ def _prompt_custom_components(
             )
             keys.append(key)
         for c in mod.commands:
+            if c.stale:
+                continue
             key = str(c.target_relative).replace("\\", "/")
             items.append(
                 {
@@ -200,6 +214,8 @@ def _prompt_custom_components(
             )
             keys.append(key)
         for r in mod.rules:
+            if r.stale:
+                continue
             key = str(r.target_relative).replace("\\", "/")
             items.append(
                 {
@@ -210,6 +226,8 @@ def _prompt_custom_components(
             )
             keys.append(key)
         for a in mod.subagents:
+            if a.stale:
+                continue
             key = str(a.target_relative).replace("\\", "/")
             items.append(
                 {
@@ -374,6 +392,7 @@ def main(argv: list[str] | None = None) -> int:
 
     installed_paths: list[str] = []
     skipped_count = 0
+    stale_count = 0
 
     def _record(p: Path) -> None:
         rel = p.relative_to(ctx.target_root)
@@ -386,6 +405,9 @@ def main(argv: list[str] | None = None) -> int:
         module = manifest[module_name]
         print(f"\nInstalling module: {module_name} — {module.description}")
         for skill in module.skills:
+            if skill.stale:
+                stale_count += 1
+                continue
             if _is_excluded(skill.target_relative):
                 skipped_count += 1
                 continue
@@ -393,6 +415,9 @@ def main(argv: list[str] | None = None) -> int:
             _record(written)
             print(f"  skill    {_component_name(skill.target_relative)}")
         for command in module.commands:
+            if command.stale:
+                stale_count += 1
+                continue
             if _is_excluded(command.target_relative):
                 skipped_count += 1
                 continue
@@ -400,6 +425,9 @@ def main(argv: list[str] | None = None) -> int:
             _record(written)
             print(f"  cmd      {_component_name(command.target_relative)}")
         for rule in module.rules:
+            if rule.stale:
+                stale_count += 1
+                continue
             if _is_excluded(rule.target_relative):
                 skipped_count += 1
                 continue
@@ -407,6 +435,9 @@ def main(argv: list[str] | None = None) -> int:
             _record(written)
             print(f"  rule     {_component_name(rule.target_relative)}")
         for subagent in module.subagents:
+            if subagent.stale:
+                stale_count += 1
+                continue
             if _is_excluded(subagent.target_relative):
                 skipped_count += 1
                 continue
@@ -416,6 +447,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if skipped_count:
         print(f"\n  ({skipped_count} component(s) skipped by custom selection)")
+    if stale_count:
+        print(f"  ({stale_count} stale component(s) retired — not installed)")
 
     # --- Write state ---------------------------------------------------------
 
