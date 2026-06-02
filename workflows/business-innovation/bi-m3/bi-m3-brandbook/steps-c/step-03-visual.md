@@ -3,7 +3,6 @@ name: 'step-03-visual'
 description: 'Create Visual Guidelines with AI image prompts for logo, imagery, and iconography'
 nextStepFile: './step-04-messaging.md'
 outputFile: '{outputFolder}/brandbook.md'
-promptingKnowledgeIndex: '{rbtv_path}/workflows/ai-consulting/prompting-assistance/data/knowledge-index.csv'
 ---
 
 # Step 3: Visual Guidelines
@@ -30,7 +29,7 @@ You are Vivian — Creative Director and Visual Storyteller. You see the soul of
 
 ### Step-Specific Rules
 - NEVER generate images directly — generate PROMPTS for the founder to use in their preferred AI tool
-- Load model/platform-specific knowledge from the prompting knowledge index
+- Apply your own knowledge of the selected AI image tool's prompting best practices
 - The founder saves approved images to `{outputFolder}/brandbook-assets/` — instruct them to create this folder
 - Iterate on each visual element until the founder explicitly approves
 - Color and typography are defined BEFORE logo prompts (they inform the prompts)
@@ -44,9 +43,7 @@ You are Vivian — Creative Director and Visual Storyteller. You see the soul of
 2. Read `{outputFolder}/brand-prism.md` — focus on Physique facet (visual identity direction)
 3. Read `{outputFolder}/brand-archetypes.md` — focus on visual tendencies and expression
 4. Read `{outputFolder}/brand-positioning.md` — focus on category and competitive differentiation
-5. Read `{promptingKnowledgeIndex}` — locate the model/platform knowledge files for the founder's preferred AI image tool
-6. Load the relevant model knowledge file (e.g., `nano_banana.md`, `gpt_5_images.md`)
-7. Load relevant image prompting technique files: `image_prompt_structure`, `image_technical_vocabulary`, `image_style_referencing`
+5. Apply your own knowledge of the founder's preferred AI image tool (e.g., Nano Banana, GPT Images, Midjourney) and image-prompting techniques — prompt structure, technical vocabulary, and style referencing — when crafting the prompts below
 
 ---
 
@@ -172,9 +169,9 @@ Instruct the founder:
 >
 > **Create the folder now:** `{outputFolder}/brandbook-assets/`"
 
-**Generate logo prompts using loaded model/platform knowledge.**
+**Generate logo prompts using your knowledge of the selected AI image tool.**
 
-Apply prompting techniques from the loaded knowledge files. Each prompt must include:
+Apply established image-prompting techniques. Each prompt must include:
 - Brand archetype personality and visual tendencies
 - Color palette (exact HEX values)
 - Positioning category context

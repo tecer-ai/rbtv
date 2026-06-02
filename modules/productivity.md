@@ -120,11 +120,11 @@ The largest RBTV module — everything a founder, consultant, or PM does between
 
 #### `/rbtv-domcobb`
 
-- **What**: Dom Cobb is a Problem Architect — a former McKinsey consultant obsessed with converting vague needs into structured solutions using MECE, Pyramid Principle, and Problem Trees. Offers a menu: full Problem Structuring (`PS`), a quick PS Lite (`PL`) for simple problems, Prompting Assistance (`PR`) for crafting effective AI prompts, AI Web Project creation (`AWP`) for ChatGPT/Claude/Gemini/Manus assistants, and Add Knowledge (`AK`) for documenting new AI models or prompting techniques.
-- **When to use**: When you want a structured problem deliverable — a `structured-problem.md` — that can be handed off, used in client work, or fed to another AI consulting workflow. More deliberate than Operator; Operator borrows these frameworks in passing, Cobb makes the structured artifact the goal.
-- **How to invoke**: `/rbtv-domcobb` (command). Menu appears. Type `PS`, `PL`, `PR`, `AWP`, or `AK`.
-- **What it produces**: Depending on menu selection: structured problem document, prompting analysis, or a complete AI assistant project brief (system prompt, knowledge base structure, behavior guidelines).
-- **Example**: `/rbtv-domcobb` → `PR` → "Help me craft a prompt for extracting action items from client emails" → Cobb applies prompting technique knowledge, asks clarifying questions, delivers a tested prompt structure.
+- **What**: Dom Cobb is a Problem Architect — a former McKinsey consultant obsessed with converting vague needs into structured solutions using MECE, Pyramid Principle, and Problem Trees. Offers a menu: full Problem Structuring (`PS`) and a quick PS Lite (`PL`) for simple problems.
+- **When to use**: When you want a structured problem deliverable — a `structured-problem.md` — that can be handed off or used in client work. More deliberate than Operator; Operator borrows these frameworks in passing, Cobb makes the structured artifact the goal.
+- **How to invoke**: `/rbtv-domcobb` (command). Menu appears. Type `PS` or `PL`.
+- **What it produces**: A structured problem document (`structured-problem.md`).
+- **Example**: `/rbtv-domcobb` → `PS` → "I'm not sure why our trial-to-paid conversion is dropping" → Cobb builds a MECE problem tree, structures the drivers via Pyramid Principle, and delivers a `structured-problem.md`.
 
 ---
 

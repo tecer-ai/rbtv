@@ -141,16 +141,11 @@ Ask the founder:
 >
 > I'll load platform-specific knowledge to optimize prompts for your tool."
 
-Record the selection. Check if model/platform knowledge exists in the prompting knowledge index:
-- Read `{rbtv_path}/workflows/ai-consulting/prompting-assistance/data/knowledge-index.csv`
-- Search for matching `ai_model` or `platform` entries
-- If found: note the knowledge file paths for Step 3
-- If not found: inform the founder that generic image prompts will be generated, or suggest adding platform knowledge via DomCobb's [AK] Add Knowledge workflow
+Record the selection. You will apply your own knowledge of the selected tool's image-prompting best practices when generating prompts in Step 3.
 
 Update project-memo.md frontmatter with:
 ```yaml
 preferredImageTool: '{selected tool}'
-imageModelKnowledge: '{knowledge file path or "generic"}'
 ```
 
 ### 6. Create Output Document

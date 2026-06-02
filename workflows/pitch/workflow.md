@@ -6,7 +6,6 @@ createStep: ./steps-c/step-01-init.md
 editStep: ./steps-e/step-e01-load.md
 referenceFile: ../_shared/pitch-data/pitch-reference.md
 htmlPatternsFile: ../_shared/pitch-data/html-patterns.md
-promptingKnowledgeIndex: '{rbtv_path}/workflows/ai-consulting/prompting-assistance/data/knowledge-index.csv'
 webResearchStandards: '{rbtv_path}/tasks/data/web-research-standards.md'
 ---
 
@@ -112,5 +111,4 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 | ../_shared/pitch-data/pitch-reference.md | Pitch deck best practices | Step 06 — Structure |
 | ../_shared/pitch-data/html-patterns.md | Layout foundations, colors, typography, print CSS, design constraints | Step 07 — Generate |
 | ../_shared/pitch-data/html-components.md | Component patterns (cards, tables, callouts, flow connectors) | Step 07 — Generate |
-| {promptingKnowledgeIndex} | AI model-specific prompting guidance | Step 05 — Research Prompt |
 | {webResearchStandards} | Research quality and citation standards | Step 05 — Research Prompt |

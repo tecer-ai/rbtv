@@ -3,7 +3,6 @@ stepNumber: 5
 stepName: 'research-prompt'
 nextStepFile: ./step-06-structure.md
 outputFile: pitch-research-prompt.md
-promptingKnowledgeIndex: '{rbtv_path}/workflows/ai-consulting/prompting-assistance/data/knowledge-index.csv'
 webResearchStandards: '{rbtv_path}/tasks/data/web-research-standards.md'
 ---
 
@@ -60,7 +59,7 @@ You are The Buyer crafting a research brief. The research prompt must be broad e
 Ask the user:
 "Which AI will run this research? This matters because I'll adapt the prompt to that model's strengths."
 
-Present available models from the prompting knowledge index. Common options:
+Common options:
 - Claude (Projects, extended thinking)
 - GPT-5 (ChatGPT Projects)
 - Gemini (Deep Research)
@@ -69,11 +68,9 @@ Present available models from the prompting knowledge index. Common options:
 
 Wait for selection. Set {target_model}.
 
-### 2. Load Model-Specific Guidance
+### 2. Apply Model-Specific Guidance
 
-Load `{promptingKnowledgeIndex}` (knowledge-index.csv).
-
-Find the entry for {target_model} and load the corresponding model-specific prompting guide. Extract:
+Using your own knowledge of {target_model}, adapt the research prompt to that model. Account for:
 - Model's strengths and weaknesses for research tasks
 - Preferred prompt structure for this model
 - Any model-specific techniques (e.g., Claude's extended thinking, Gemini's search grounding)

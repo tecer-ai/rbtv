@@ -91,9 +91,3 @@ Framework is complete when:
 | File | Purpose | When to Load |
 |------|---------|--------------|
 | data/brandbook-framework.md | Framework methodology and brandbook structure | Step 01 |
-
-## EXTERNAL KNOWLEDGE
-
-| File | Purpose | When to Load |
-|------|---------|--------------|
-| {rbtv_path}/workflows/ai-consulting/prompting-assistance/data/knowledge-index.csv | AI model/platform knowledge for image prompts | Step 03 |
