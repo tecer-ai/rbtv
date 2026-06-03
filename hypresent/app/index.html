@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>hypresent</title>
+  <link rel="stylesheet" href="/app/css/shell.css">
+  <link rel="stylesheet" href="/app/js/vendor/coloris.css">
+  <script src="/app/js/vendor/moveable.min.js"></script>
+</head>
+<body>
+  <div class="shell-toolbar">
+    <div class="toolbar-group">
+      <button type="button" class="tool-btn" id="fmt-bold" title="Bold">B</button>
+      <button type="button" class="tool-btn" id="fmt-italic" title="Italic">I</button>
+      <button type="button" class="tool-btn" id="fmt-font-inc" title="Increase font size">A+</button>
+      <button type="button" class="tool-btn" id="fmt-font-dec" title="Decrease font size">A-</button>
+    </div>
+    <div class="toolbar-group">
+      <button type="button" class="tool-btn" id="color-btn" title="Color picker">🎨</button>
+    </div>
+    <div class="toolbar-group">
+      <button type="button" class="tool-btn" id="comment-btn" title="Add comment">💬</button>
+    </div>
+    <div class="toolbar-group">
+      <input type="text" id="open-path-input" placeholder="absolute file path">
+      <button type="button" class="tool-btn" id="open-btn">Open…</button>
+      <input type="text" id="save-as-path-input" placeholder="Save as path" title="Target path for Save As">
+      <button type="button" class="tool-btn" id="save-as-btn">Save As…</button>
+    </div>
+    <div class="toolbar-group">
+      <button type="button" class="tool-btn">Undo</button>
+      <button type="button" class="tool-btn">Redo</button>
+    </div>
+    <span id="shell-status" class="shell-status"></span>
+  </div>
+
+  <div class="shell-main">
+    <div class="doc-frame-mount">
+      <iframe class="doc-frame"></iframe>
+    </div>
+    <aside class="shell-panel" id="shell-panel">
+      <div class="outline-panel">
+        <div class="outline-panel-header">
+          <h3>Outline</h3>
+        </div>
+        <div class="outline-list" id="outline-list"></div>
+      </div>
+      <div class="comment-panel">
+        <div class="comment-panel-header">
+          <h3>Comments</h3>
+        </div>
+        <div class="comment-threads" id="comment-threads"></div>
+        <div class="comment-unanchored" id="comment-unanchored"></div>
+      </div>
+    </aside>
+  </div>
+
+  <script type="module" src="/app/js/main.js"></script>
+</body>
+</html>

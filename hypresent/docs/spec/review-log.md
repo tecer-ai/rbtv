@@ -1,0 +1,26 @@
+# Hypresent — Pre-Build Adversarial Review Log
+
+Record of the adversarial pre-build review of the hypresent v1 architecture + implementation-plan docs, and the resolution applied to each finding. Date: 2026-06-03. Scope of edits: docs under `docs/` only; no product code; the 6 locked product decisions (D1–D6) were NOT altered.
+
+---
+
+## Findings & Resolutions
+
+| # | Severity | Finding | Resolution applied | Docs touched |
+|---|----------|---------|--------------------|--------------|
+| 1 | CRITICAL | Serialization claimed "DOMPurify keeps the document's own scripts and strips injected scripts." This is impossible — DOMPurify sanitizes by node/attribute rules and has NO provenance signal, so it cannot keep the report's IIFE while dropping a hypothetical injected script. | Editor-chrome removal is now done SOLELY by NAMESPACE STRIPPING (remove every `hyp-` node/attr/class token + injected inline style + the injected edit-runtime `<script>`). The document's own scripts/handlers/`<style>`/SVG/native `data-*` survive because the strip never touches them. The opened document is the USER'S OWN file (not untrusted) → NO script-stripping sanitizer over the document body. DOMPurify's v1 scope is now explicitly **OPTIONAL defense-in-depth on COMMENT-TEXT rendering ONLY** (v1 renders comment text via `textContent`, already XSS-safe) and MAY be dropped from v1; it is never a whole-document pass. All "keep the doc's scripts via DOMPurify" language removed. | decision-log A8/A11/A9 + Vendored Libraries; `01` §5; `03` serializer + comments; `04` T2/T9; shape.md (Key Decisions row + Collaborative Decision 3 marked superseded + appended Decisions entry); task files T9/T15 |
+| 2 | HIGH | Comment-anchor fingerprint (tag + nth-of-type chain + nearest native id) collides on repeated identical siblings — present in BOTH fixtures (the deck fixture and the report fixture each have repeated identical sibling cards with no id). | Defined a concrete, collision-resistant 5-field anchor key in `01` §6.1: `hook` (H1 `data-hyp-hook`, authoritative when present) + `path` (tag:nth-of-type chain from nearest native id) + `nativeId` + `contentHash` (FNV-1a of first 32 normalized chars of own `textContent`) + `siblingIndex` (index among same-key siblings). Specified the exact build, the match priority order on open (4 ordered rules, first hit wins), and a never-lossy "unanchored" fallback (thread retained + surfaced in panel, re-serialized unchanged). Made it a verbatim contract for T15. | `01` §6 + new §6.1; `03` comments; `04` T15; task file T15 |
+| 3 | HIGH | The injected runtime's script URL/origin was undefined. The mutable `/doc/` root points at the opened file's directory; the runtime lives elsewhere → no resolvable origin for the injected `<script type="module">` or its `import` chain. | Added an explicit, separate FIXED static route `GET /runtime/*` (served from the app's own `runtime/` dir, distinct from the mutable `/doc/*`). Specified the ABSOLUTE injected `src` = `/runtime/js/runtime-main.js` (origin = server origin), and confirmed the ES-module `import` chain resolves against `/runtime/js/` (siblings) and absolute `/app/js/vendor/...` (vendored libs). | decision-log A10; `01` §1/§2/§8; `03` server.py + runtime-main; `04` T1/T3; task files T1/T3 |
+| 4 | MED | T9 acceptance referenced comment-roundtrip and visual/reflow state that does not exist when T9 is built (features come later). | Rescoped T9 acceptance to: (a) output is chrome-free (zero `hyp-` artifacts, empty comment store), (b) the document's own JS is retained (REPORT IIFE byte-for-byte; DECK gains no `<script>`), (c) result is valid standalone HTML that loads. Moved the visual/reflow fidelity, comment-island round-trip, and re-editability gates to T18 (which depends on the feature tasks). | `04` T9 + T18; task file T9 |
+| 5 | MED | The plan graph referenced tasks (T6, T7, T11, T16, T19, T20, T21) with no `*.task.md` file → risk of missing contracts for a zero-context executor. | Added an explicit AUTHORITATIVE CONTRACT statement at the top of `04-implementation-plan.md`: the per-task ROWS in `04` are the single authoritative, complete contract for every `T1..T21` (Goal, Files, Depends on, Public Contract, Acceptance, Parallel-safe, Status); `*.task.md` files are supplementary orchestration wrappers; the row wins on any disagreement. Verified every row T1–T21 + CP1/CP2/CP3/FINAL CP is complete enough for a zero-context kimi agent. No executable task is missing its contract. | `04` header + all rows |
+
+---
+
+## Self-Review Outcome (post-edit sweep)
+
+- No `placeholder`/`TBD`/`TODO`-as-gap text introduced (task `Status` values remain the intended `TODO` lifecycle state).
+- No remaining "DOMPurify keeps the doc's scripts" / "purify keeps doc scripts" language in any doc (verified by search).
+- Every `T1..T21` has a complete contract in `04` (authoritative rows); checkpoints CP1/CP2/CP3/FINAL CP present.
+- Cross-references resolve: decision-log A8/A9/A10/A11 ↔ `01` §1/§2/§5/§6/§6.1/§8 ↔ `03` server/serializer/comments/runtime-main ↔ `04` T1/T2/T3/T9/T15/T18 ↔ task files T1/T3/T9/T15.
+- DOMPurify vendoring retained (`app/js/vendor/purify.min.js`) but re-scoped to optional comment-text sanitize; serializer does not import it.
+- The 6 locked product decisions (D1–D6) are unchanged.

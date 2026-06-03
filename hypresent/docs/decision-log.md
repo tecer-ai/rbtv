@@ -1,0 +1,60 @@
+# Hypresent — Decision Log
+
+Authoritative record of locked product decisions and architecture choices. Downstream `kimi` coding agents treat every row here as non-negotiable. Each entry: the decision and a one-line rationale.
+
+---
+
+## Locked Product Decisions (non-negotiable)
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| D1 | **Resize = flow-aware.** Resize edits `width` / `height` / `flex-basis` / `flex-grow` / grid track sizes in place; the document stays responsive. NEVER force-convert an element to `position:absolute` to resize it. | Test files lay content out in flex/grid flow; absolute conversion would break responsiveness and print pagination. |
+| D2 | **Move = CSS `transform: translate()` only.** Moves are non-destructive to document flow, fully reversible, and undoable. The UI MUST flag (visible badge) when a translate visually carries the element outside its flow box. | `transform` does not reflow siblings, is trivially invertible for undo, and preserves the original DOM order for clean serialization. Both Resize and Move ship in v1. |
+| D3 | **We control the AI-generation format.** Define a format-agnostic "hypresent-friendly HTML" convention expressed as editability HINTS, not document-type assumptions. The editor is robust on conforming files and DEGRADES GRACEFULLY on non-conforming ones. | Two analyzed files prove formats diverge (slide deck vs scrolling report); hints raise editability without locking the editor to one document shape. Convention spec: `docs/spec/02-html-convention.md`. |
+| D4 | **Comments embedded as a hidden JSON island.** A single `<script type="application/json" id="hyp-comments">` block holds all threads; invisible in normal view, portable with the file. UX is Google-Slides-style: element-anchored marker → popover thread (add / reply / resolve), a side comment panel, and an author name asked ONCE then stored in `localStorage`. | A `script[type=application/json]` block is inert (browsers do not execute or render it), survives "Save As" as plain text, and needs no sidecar file. |
+| D5 | **Open/Save via the Python server, operating on the file ON DISK in its ORIGINAL directory.** The server serves the target file's own directory so relative `assets/` and CDN refs resolve. "Save As" writes a NEW standalone `.html` into that directory or a chosen folder. | Serving same-origin from the original directory is the only way the document's relative asset paths and its own JS load unchanged inside the iframe. |
+| D6 | **Recolor = BOTH.** (a) A palette editor mutates the document's CSS theme variables (recolors every element bound to that token) AND (b) a per-element color override. Both paths MUST also handle colors set via inline `style=` that sit OUTSIDE the `:root` variable system. | The deck fixture binds ~80% of color to `:root` variables; the report fixture carries layout-and-color values in inline `style=`. Covering only variables would miss real colors (see `fixture-profiles.md`). |
+
+---
+
+## Move / Resize Reconciliation (locked)
+
+| Aspect | Resolution | Rationale |
+|--------|-----------|-----------|
+| Both in v1 | Resize (D1) and Move (D2) are independent operations, both shipped in v1. | Required by prompt; neither blocks the other. |
+| Distinct CSS surfaces | Resize mutates sizing properties (`width`/`height`/`flex-basis`/`flex-grow`/grid tracks); Move mutates ONLY `transform: translate()`. They never write the same property. | Keeps the two operations orthogonal, so undo entries never collide. |
+| Context read before acting | Both read the target's computed layout role (flex child, grid child, `position:absolute` content, normal-flow block) BEFORE mutating. `position:absolute` may be SEMANTIC content (the report fixture's semantic absolutely-positioned nodes), not decorative. | Prevents corrupting layout-critical absolute positioning (per `fixture-profiles.md`). |
+| Absolute-positioned targets | When the target is already `position:absolute`, Resize MAY edit `top`/`left`/`width`/`height`; Move still uses `transform` so the original `left:%`/`top` anchor is preserved and reversible. | Honors D1's "no forced absolute conversion" while still supporting genuinely-absolute content. |
+| Out-of-flow flag | Move computes, after each drag, whether the translated bounding box overflows the element's pre-transform flow rect; if so the UI shows a non-blocking "out of flow" badge. | Satisfies D2's mandate to flag visual departure from flow without forbidding it. |
+
+---
+
+## Architecture Choices (this build)
+
+| # | Choice | Rationale |
+|---|--------|-----------|
+| A1 | **Iframe isolation, same-origin.** The user's HTML loads inside an `<iframe>` served by the Python server from the document's own directory. Relative assets and the document's own JS run naturally. | Same-origin iframe is the only isolation model where the document's relative paths and self-contained JS work without rewriting; full detail in `docs/spec/01-architecture.md`. |
+| A2 | **App shell lives in the PARENT page.** Toolbar, comment side-panel, file controls (Open/Save As), and the color popover render OUTSIDE the iframe, in the parent document. | Editor chrome must never enter the serialized output and must survive the document's own DOM mutations. |
+| A3 | **Injected edit-runtime lives INSIDE the iframe.** A strictly `hyp-`namespaced runtime handles in-document concerns: selection, `contenteditable`, resize/move handles, `data-hyp-id` tagging, comment anchors. | These concerns require live access to the document's DOM and layout; they cannot be driven from the parent without per-element coordinate proxying. |
+| A4 | **Parent↔iframe via same-origin `contentWindow` access + `postMessage` events.** The parent calls into the iframe runtime through a typed command bridge; the iframe emits events (selection-changed, geometry-changed, comment-requested) back to the parent. | Same-origin permits direct calls for synchronous reads; `postMessage`-style events keep the parent decoupled from the document's internals. Protocol: `docs/spec/01-architecture.md`. |
+| A5 | **Moveable runs INSIDE the iframe**, mounted on the iframe's own document, targeting the selected element directly. Its control box is a `hyp-`namespaced overlay within the iframe. | Running Moveable in the parent would require continuous mapping of iframe-local element rects into parent coordinates across scroll/zoom/responsive reflow — fragile and laggy. In-iframe mounting gives Moveable native, correct coordinates; the parent only sends start/stop commands and receives committed geometry deltas for the history stack. |
+| A6 | **Core modules are small, single-purpose, independently testable; no monolith.** document-model/element-registry, selection, history (unified undo/redo across ALL ops), serializer. | Each module has a narrow public contract a single kimi task can implement and a Chrome-DevTools test can verify in isolation. Module map: `docs/spec/03-module-map.md`. |
+| A7 | **Unified history stack.** One command/inverse-command stack covers text, format, resize, move, color, and comment operations. Every mutating module emits history entries through it; nothing mutates the document outside a command. | A single linear undo/redo is the only model that gives users a coherent Ctrl-Z across mixed operations. |
+| A8 | **Serializer clones the document, strips ALL editor chrome and `hyp-*` artifacts by NAMESPACE STRIPPING, re-embeds the comment JSON island, then serializes to standalone HTML. NO document-body sanitizer pass.** | Cloning avoids mutating the live editing DOM. Editor-chrome removal is achieved SOLELY by removing every `hyp-`namespaced node/attribute/class token, every injected inline style, and the injected edit-runtime `<script>`/`<style>` — the document's OWN `<script>`/inline handlers/IIFE are PRESERVED simply by not touching them. The opened document is the USER'S OWN file and is NOT untrusted, so no script-stripping sanitizer runs over the document body. Flow: `docs/spec/01-architecture.md` §5. |
+| A9 | **Vendored OSS, copied into `app/js/vendor/`, no build step, native ES modules.** Moveable (resize/move), Coloris (color picker), DOMPurify (OPTIONAL comment-text sanitize only — A11). Comments are built from scratch (no suitable licensed lib). | Matches `research-oss.md` recommendations (all MIT/permissive); no build step keeps the project a plain static server + browser app a kimi agent can run directly. |
+| A10 | **Server = Python standard library only (`http.server`), no Flask.** Serves the app shell (`/app/*`), the injected edit-runtime from the app's own dir (`/runtime/*`, a FIXED static route — distinct from the mutable `/doc/` root), and the target file's directory (`/doc/*`); exposes a minimal JSON API: `open` (read file by path) and `save-as` (write file to path). | Zero third-party server deps keeps install trivial and the run command a single `python` invocation. The runtime MUST NOT be served from `/doc/` (which re-roots to each opened file's directory and would not contain the runtime); a dedicated `/runtime/*` route gives the injected `<script type="module">` a stable absolute origin so its ES-module `import` chain resolves. Full route table in `docs/spec/01-architecture.md`. |
+| A11 | **No whole-document DOMPurify pass; the document's own JS survives because nothing strips it.** Editor chrome is removed by namespace stripping ONLY (A8). DOMPurify is NOT run over the serialized document — it is impossible to distinguish the document's own scripts from injected ones by provenance, so any whole-document script-stripping pass would either break the report's IIFE or be a no-op security theater. DOMPurify's ONLY v1 role is OPTIONAL defense-in-depth on COMMENT-TEXT rendering inside the editor. | The report fixture (`fixture-profiles.md`) depends on its own JS; a blanket script strip would break it, and a "keep doc scripts, drop injected scripts" config is not achievable (DOMPurify has no provenance signal). The sole untrusted input is comment text, which v1 renders via `textContent` (inherently XSS-safe), so DOMPurify on comment rendering is belt-and-suspenders, never a serialization step. |
+| A12 | **Namespacing is absolute.** Every injected attribute is `data-hyp-*`; every injected class/id is `hyp-`prefixed; the editor NEVER reuses or mutates the document's own class names, ids, or non-`hyp` `data-*`. | The document's own JS keys off its own state classes and reads native `data-*` content; collision would corrupt its behavior (per `fixture-profiles.md`). |
+
+---
+
+## Vendored Libraries (locked, per `research-oss.md`)
+
+| Concern | Library | License | Why |
+|---------|---------|---------|-----|
+| Resize + Move handles | Moveable | MIT | Only library with production-grade resize+drag handles matching slides-style UX. |
+| Color picker | Coloris (`@melloware/coloris`) | MIT | Actively maintained, zero-dep, 3 kB gz, attaches to any input. |
+| Comment-text sanitize (optional) | DOMPurify | Apache-2.0 / MPL-2.0 | OPTIONAL defense-in-depth on COMMENT-TEXT rendering ONLY (A11). v1 renders comment text via `textContent`, so DOMPurify is belt-and-suspenders; MAY be dropped from v1 without affecting safety. NEVER a whole-document serialization pass. |
+| Comments threading | (built from scratch) | — | No suitable permissively-licensed library; bounded ~250-350 LOC vanilla per `research-oss.md`. |
+| Text formatting | (built from scratch: `contenteditable` + `execCommand` + Selection API) | — | Universal browser support, 0 kB, native undo buffer; per `research-oss.md`. |
+| Serialization | (native `outerHTML` on cloned, namespace-stripped doc) | — | No third-party serializer and NO sanitizer pass needed; chrome removal is namespace stripping only (A8). |
