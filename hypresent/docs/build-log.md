@@ -284,4 +284,19 @@ These require Chrome DevTools MCP (two live windows + real module resolution + p
 python server/server.py            # serves http://127.0.0.1:8765 (defaults 127.0.0.1:8765)
 python server/server.py 127.0.0.1 9000   # custom host/port
 ```
-Open the app shell at `http://127.0.0.1:8765/app/`. Open a document by `POST /api/open {"path":"<absolute-file-path>"}` (the shell's Open control drives this once wired); the document then loads in the iframe from `/doc/<name>` and the runtime injects from `/runtime/js/runtime-main.js`.
+Open the app shell at `http://127.0.0.1:8765/app/`. Open a document by clicking **Open…**; the document then loads in the iframe from `/doc/<name>` and the runtime injects from `/runtime/js/runtime-main.js`.
+
+---
+
+## v2 improvement cycle (improvements-2026-06)
+
+- **Scope:** F1 native OS open/save dialogs · F2 modeless interaction + alignment guides · F3 move/reorder/re-parent on drop (FLIP) · F4 border color · F5 agent-tagged comments + derived head instruction block · G1/G2 verified (already fixed in v1 CP2) + hardened.
+- **Key changes:**
+  - Server: new `/api/dialog-open`, `/api/dialog-save-as`, `/api/save`; PowerShell `-STA` dialog launcher with an injectable seam (`api.set_dialog_launcher`); open-path tracking. Toolbar lost both path inputs; gained a Save button.
+  - Runtime: NEW `interaction.js` (one combined Moveable: drag+resize+Slides snapping/guides; on-drop hit-test → reorder/re-parent/keep-translate with FLIP); NEW pure `reorder.js`; `resize.js` + `move.js` REMOVED (folded in). Moves now write the CSS `translate` property (D6/D2-letter supersession).
+  - Comments: `agentInstruction` flag, `setAgentInstruction`, derived `buildAgentBlock` (head-first-child HTML comment, `-->`→`--&gt;`), `reanchorAfterMove` after DOM moves.
+  - Serializer: agent block inserted as first child of `<head>`; node-count guard extended with an `agentBlockCount` term + a pre-existing-block sweep (prevents duplication on re-save).
+  - Color: per-element Border row with auto-`1px solid` on borderless elements (U6) and a `mixed` state for differing per-side colors.
+  - Shell: NEW `comment-composer.js` anchored popover (replaces `prompt()` for add + reply); per-thread "For agents" toggle.
+- **Tests:** stdlib `unittest` server suites + Playwright (Python, headless Chromium) behavioral suites per feature; full suite green per `docs/verification/v2/result.md`. Dev-only deps: `playwright` (app stays dependency-free).
+- **Note:** G1 (panel survival) and G2 (serializer island count) were already fixed during v1 CP2 re-verify; v2 locked them with regression tests and extended the serializer guard for the new agent block. The v1 recon/scorecard rows for G1/G2 were stale.

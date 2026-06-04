@@ -28,16 +28,15 @@ To stop, Ctrl-C the server. Nothing is written to disk except when you explicitl
 
 ## How to use
 
-1. **Open a document.** Type the **absolute path** of an HTML file into the path field in the toolbar and click **Open**. The document loads in an isolated iframe from its own directory (so its relative `assets/` and CDN references resolve), the document's own JavaScript runs normally, and the edit-runtime is injected on top.
+1. **Open a document.** Click **Open…** to pick a file via a native OS file dialog. The document loads in an isolated iframe from its own directory (so its relative `assets/` and CDN references resolve), the document's own JavaScript runs normally, and the edit-runtime is injected on top.
 2. **Edit text.** **Double-click** any text element to edit it inline; click away (or press Esc) to commit.
 3. **Format text.** With a text edit active, use the toolbar: **B** (bold), **I** (italic), **A+ / A-** (font size up/down).
-4. **Resize.** Select an element, switch to the resize tool, and drag a handle. Resize is **flow-aware**: it edits `width` / `height` / `flex-basis` / grid tracks in place and never force-converts an element to absolute positioning, so the layout stays responsive.
-5. **Move.** Select an element, switch to the move tool, and drag. Moves write **only** `transform: translate(...)` (non-destructive and fully reversible); a badge appears if the element visually leaves its flow box.
-6. **Recolor.** Open the color popover to change a theme **token** (recolors every element bound to that `:root` variable in one operation) or apply a **per-element** color override. Colors set via inline `style=` are handled too. Color picking uses Coloris.
-7. **Comment.** Add a comment anchored to any element (Google-Slides style: marker → thread). You are asked for your name **once** (stored in `localStorage`); after that, **reply** and **resolve** threads from the side panel. Comments persist inside the saved file as a hidden, inert JSON island and re-anchor on reopen.
-8. **Undo / Redo.** A single unified history stack covers every operation above; use the toolbar **Undo** / **Redo** buttons.
-9. **Save As.** Writes a new standalone `.html` to a path you choose. The output is chrome-free (no `hyp-` classes/ids, no `data-hyp-*` attributes, no injected scripts/styles) except for the one inert comment island, and the document's own scripts still run.
-10. **Navigate.** The outline panel lists detected regions (e.g. the deck's slides, the report's sections); click an item to select it in the document.
+4. **Resize / Move.** Select an element and its drag + resize handles appear immediately (no tool switch). Drag the body to move/reorder/re-parent; drag a handle to resize. Alignment guides appear like Google Slides during drag and resize. Resize is **flow-aware**: it edits `width` / `height` / `flex-basis` / grid tracks in place and never force-converts an element to absolute positioning, so the layout stays responsive. Moves write **only** the CSS `translate` property (non-destructive and fully reversible); a badge appears if the element visually leaves its flow box.
+5. **Recolor.** Open the color popover to change a theme **token** (recolors every element bound to that `:root` variable in one operation) or apply a **per-element** color override, including a **Border** color row (applies to all sides; adds a 1px border if the element has none). Colors set via inline `style=` are handled too. Color picking uses Coloris.
+6. **Comment.** Add a comment anchored to any element (Google-Slides style: marker → thread). Adding or replying to a comment opens an anchored composer popover (not a prompt). Tag a thread **For agents** to emit a machine-readable instruction block at the top of the saved file's `<head>` for AI coding agents. You are asked for your name **once** (stored in `localStorage`); after that, **reply** and **resolve** threads from the side panel. Comments persist inside the saved file as a hidden, inert JSON island and re-anchor on reopen.
+7. **Undo / Redo.** A single unified history stack covers every operation above; use the toolbar **Undo** / **Redo** buttons.
+8. **Save / Save As.** Click **Save** to silently overwrite the currently-open file (or **Save As…** to choose a new path via a native save dialog). The output is chrome-free (no `hyp-` classes/ids, no `data-hyp-*` attributes, no injected scripts/styles) except for the one inert comment island, and the document's own scripts still run.
+9. **Navigate.** The outline panel lists detected regions (e.g. the deck's slides, the report's sections); click an item to select it in the document.
 
 ## Architecture
 
@@ -59,6 +58,7 @@ To stop, Ctrl-C the server. Nothing is written to disk except when you explicitl
 | `app/js/bridge/bridge-parent.js` | Parent side of the parent↔iframe protocol |
 | `app/js/shell/file-controls.js` | Open / Save As flow |
 | `app/js/shell/color-popover.js` | Color UI (wraps Coloris) |
+| `app/js/shell/comment-composer.js` | Anchored comment composer popover (replaces `prompt()`) |
 | `app/js/vendor/` | Vendored ES modules: Moveable, Coloris (+ css), DOMPurify |
 | `runtime/js/runtime-main.js` | Iframe boot orchestrator; exposes `window.hyp`, emits `ready` |
 | `runtime/js/bridge-iframe.js` | Iframe side of the protocol (command dispatch + event emit) |
@@ -67,7 +67,9 @@ To stop, Ctrl-C the server. Nothing is written to disk except when you explicitl
 | `runtime/js/history.js` | Unified undo/redo stack across all operations |
 | `runtime/js/commands.js` | Command factory (captures inverse at creation) |
 | `runtime/js/text-edit.js` · `text-format.js` | Inline editing + bold/italic/font-size |
-| `runtime/js/resize.js` · `move.js` | Flow-aware resize (D1) + transform-translate move (D2) |
+| `runtime/js/interaction.js` | Combined Moveable: drag+resize+snap+guides; on-drop FLIP reorder/re-parent |
+| `runtime/js/reorder.js` | Pure drop-classification helpers for reorder/re-parent |
+| `runtime/js/resize.js` · `move.js` | Flow-aware resize (D1) + transform-translate move (D2) — **removed in v2** (folded into `interaction.js`) |
 | `runtime/js/color.js` | Token + per-element + inline-style recolor (D6) |
 | `runtime/js/comments.js` | Comment store, anchor key, JSON-island read/write (D4) |
 | `runtime/js/serializer.js` | Clone → strip chrome → re-embed island → guard → standalone HTML |
@@ -87,4 +89,5 @@ To stop, Ctrl-C the server. Nothing is written to disk except when you explicitl
 - **Font-size caret artifact.** Repeatedly applying A+/A- without re-selecting the word between presses can produce sibling font-size spans rather than editing one in place (a synthetic-caret artifact, not nesting; cosmetic). Re-selecting the word between presses updates a single span. See `docs/verification/cp2/result.md`.
 - **The deck fixture's `assets/` images are absent.** The deck fixture references relative `assets/*` images that do not exist in this workspace, so opening it logs `404`s for those images. These are the fixture's own missing assets, not a hypresent defect.
 - **Chrome only.** The editor targets and is verified on Google Chrome; other browsers are unverified.
+- **Reorder of grid items with explicit `grid-column/row` placement** changes DOM order but may not change visual order (CSS grid honors explicit placement).
 - **Edits existing files only.** hypresent does not create new documents, and has no real-time collaboration — comments are single-user and embedded.
