@@ -6,6 +6,7 @@ templateFile: ./templates/plan-template.md
 microstepTemplateFile: ./templates/plan-task-microstep-template.md
 shapeTemplateFile: '{rbtv_path}/workflows/_shared/templates/shape-template.md'
 learningsTemplateFile: ./templates/learnings-template.md
+deliverablesTemplateFile: ./templates/deliverables-template.md
 ---
 
 # Plan Workflow
@@ -48,7 +49,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 | Mode | Purpose | Entry Point | Steps | Output |
 |------|---------|-------------|-------|--------|
-| Create | Build new plan from scratch | steps-c/step-01-init.md | 4 steps | Plan file (*-plan.md), shape.md, learnings.md, micro-step files |
+| Create | Build new plan from scratch | steps-c/step-01-init.md | 4 steps | Plan file (*-plan.md), shape.md, learnings.md, deliverables.md, micro-step files |
 
 **Create Mode Steps:**
 
@@ -57,7 +58,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 | 01 | step-01-init.md | Initialize, detect state, resolve output path |
 | 02 | step-02-context.md | Gather context and scope |
 | 03 | step-03-structure.md | Create phases, tasks, checkpoints |
-| 04 | step-04-generate-artifacts.md | Write all files (plan, shape, learnings, task files), validate, summary |
+| 04 | step-04-generate-artifacts.md | Write all files (plan, shape, learnings, deliverables, task files), validate, summary |
 
 ---
 
@@ -73,7 +74,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 2. **Single action per task** — Never combine actions
 3. **Explicit file operations** — Use CREATE/UPDATE/DELETE/MOVE verbs
 4. **Zero-context plans** — Plans must be self-contained
-5. **Companion files** — Create shape.md and learnings.md alongside plan
+5. **Companion files** — Create shape.md, learnings.md, and deliverables.md alongside plan
 6. **Micro-step files** — Generate task files with complete execution instructions
 7. **Dependency ordering** — Validate dependencies before dependents
 8. **Checkpoints required** — 3-6 checkpoints at inflection points
@@ -99,5 +100,6 @@ Created during finalization in `{output-path}/{plan-name}/`:
 | {plan-name}-plan.md | Main plan file with phases, tasks, and architectural constraints |
 | shape.md | Scope boundaries, constraints, shaping decisions, discoveries, and required execution references |
 | learnings.md | System improvement queue for RBTV meta-learnings |
+| deliverables.md | Artifact index — one row per task: where its output lands, with status |
 | phase-N/ | Folders containing micro-step task files |
 | pN-X.task.md | Micro-step files with complete execution instructions per task |

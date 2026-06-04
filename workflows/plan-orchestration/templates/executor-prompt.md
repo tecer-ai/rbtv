@@ -34,6 +34,7 @@ The orchestrator has pre-loaded verbatim excerpts from the `[INLINED]` reference
 3. Follow any skills, rules, or conventions referenced in the plan or shape.
 4. When you finish, report status DONE with a one-paragraph summary of what you did.
 5. Do NOT append per-task outcomes, file lists, or commit hashes to shape.md. Shape is for decisions or discoveries that affect future plan execution — not execution logs. The orchestrator tracks batch completion in `orchestration-state.md`. If you discover something that changes the plan, append a Decision or Discovery entry per the shape template; otherwise append nothing to shape.
+6. **Deliverables index (MANDATORY when present).** If `deliverables.md` exists alongside the plan file, read it before starting — it tells you the exact path each task's output must land at. After delivering each task, update that task's row in place: flip Status to ✅ (or `⏸ deferred` with reason) and correct the Path if the artifact landed somewhere other than planned. These in-place index updates are required bookkeeping, NOT the shape-style execution logging banned by Rule 5 — the plan's synthesis tasks consume this index.
 
 ## Denied-Tool Protocol (MANDATORY)
 

@@ -36,14 +36,16 @@ Resume the workflow from where it was left off, ensuring smooth continuation wit
 Search the output path for the plan folder. Look for:
 - `{plan-name}-plan.md` — the main plan file
 - `shape.md` — companion file with execution-shaping decisions and findings
+- `deliverables.md` — artifact index with per-task landing paths and status
 - Phase folders with task files
 
 ### 2. Analyze Current State
 
-Read the plan file and shape.md to determine:
+Read the plan file, shape.md, and deliverables.md to determine:
 - Which tasks are completed (checked `[x]` in task list)
 - Which task was last worked on
 - Any decisions or discoveries logged in shape.md
+- Artifact status per task (deliverables.md Status column)
 
 ### 3. Review Completed Work
 

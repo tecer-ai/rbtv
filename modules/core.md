@@ -14,12 +14,12 @@ Tools for creating structured plans and extending the RBTV system itself.
 
 #### `rbtv-planning`
 
-- **What**: Interactive workflow that produces a complete, self-executing plan — a main plan file, a scope document (`shape.md`), a learnings log, and individual micro-step task files for each action. Each micro-step file contains complete execution instructions so the plan runs without the original conversation context. Tasks set to `human_review: required` (and every checkpoint task) instruct the executor to emit a Human Review Presentation block at completion: a list of evidence-anchored items the user should review first, plus red and yellow flags drawn from concrete criteria — never free-associated, with an explicit "None identified" affirmation when no flag triggers fire.
+- **What**: Interactive workflow that produces a complete, self-executing plan — a main plan file, a scope document (`shape.md`), a learnings log, an artifact index (`deliverables.md`), and individual micro-step task files for each action. Each micro-step file contains complete execution instructions so the plan runs without the original conversation context. Tasks set to `human_review: required` (and every checkpoint task) instruct the executor to emit a Human Review Presentation block at completion: a list of evidence-anchored items the user should review first, plus red and yellow flags drawn from concrete criteria — never free-associated, with an explicit "None identified" affirmation when no flag triggers fire.
 - **When to use**: Any multi-step task where you want a structured output you can hand off to another agent session, delegate to a teammate, or return to later. Good for projects, feature builds, operational rollouts, or anything with more than 3–4 sequential decisions.
 - **How to invoke**: Say "create a plan for X" or "let's plan this out" — Claude picks up the trigger automatically. You can also say `rbtv-planning` directly.
 - **Inputs / outputs**:
   - Input: task description, gathered conversationally across 4 guided steps
-  - Output: `{plan-name}-plan.md`, `shape.md`, `learnings.md`, and `phase-N/pN-X.task.md` micro-step files in a folder at the confirmed output path
+  - Output: `{plan-name}-plan.md`, `shape.md`, `learnings.md`, `deliverables.md`, and `phase-N/pN-X.task.md` micro-step files in a folder at the confirmed output path
 - **Example**: "Create a plan for migrating our CRM to HubSpot" → Claude walks through scope, phases, and task granularity, then writes all files.
 
 ---

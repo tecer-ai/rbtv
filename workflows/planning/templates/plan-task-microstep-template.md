@@ -63,9 +63,10 @@ human_review: required | optional | none
 ### Phase: Understand
 
 1. **MUST** read every file in the Context Files table above. Do not continue until all are read.
-2. Mark this task as in progress in BOTH locations (same turn):
+2. Mark this task as in progress in ALL locations (same turn):
    - In the plan file, change `[ ]` to `[~]` for this task's checkbox.
    - In this task file's YAML frontmatter, change `status: pending` to `status: in_progress`.
+   - In `../deliverables.md`, set this task's row Status to `in-progress` — its Path cell is where your output must land.
 3. Review shape.md Decisions and Discoveries for prior task context.
 4. Confirm task requirements are clear.
 5. {Task-specific understanding steps}
@@ -89,9 +90,10 @@ human_review: required | optional | none
 
 **If executing under plan-orchestration** (the dispatching executor prompt declares orchestration mode):
 
-1. Mark this task complete in BOTH locations (same turn):
+1. Mark this task complete in ALL locations (same turn):
    - In the plan file, change `[~]` to `[x]` for this task's checkbox.
    - In this task file's YAML frontmatter, change `status: in_progress` to `status: completed`.
+   - In `../deliverables.md`, flip this task's row Status to ✅ and confirm the Path matches what you produced.
 2. Reviewer dispatch (orchestration step-04) handles verification and user summary. Do NOT append to shape.md and do NOT wait for user approval — both are handled at the orchestrator layer.
 3. **If `human_review: required`:** include the Human Review Presentation block in the executor's return paragraph so the orchestrator can surface it to the user. Block format and flag criteria: see `{rbtv_path}/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation, and `{rbtv_path}/workflows/planning/data/plan-creation-rules.md` § Human Review Flag Criteria. The block is the executor's contribution to user review — the orchestrator and reviewer carry it forward, not replace it.
 
@@ -100,9 +102,10 @@ human_review: required | optional | none
 1. Append execution entry to shape.md (never modify existing entries).
 2. **MUST** present a brief summary to the user (max 2000 characters) of what was done. Do not mark complete until the user approves.
 3. **If `human_review: required`:** the summary MUST end with the Human Review Presentation block. Block format and flag criteria: see `{rbtv_path}/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation, and `{rbtv_path}/workflows/planning/data/plan-creation-rules.md` § Human Review Flag Criteria. This block drives the user's review by pointing to specific items and surfacing the executor's risk assessment.
-4. After user approval, mark this task as complete in BOTH locations (same turn):
+4. After user approval, mark this task as complete in ALL locations (same turn):
    - In the plan file, change `[~]` to `[x]` for this task's checkbox.
    - In this task file's YAML frontmatter, change `status: in_progress` to `status: completed`.
+   - In `../deliverables.md`, flip this task's row Status to ✅ and confirm the Path matches what you produced.
 5. Notify user of completion and any plan changes.
 
 ---
@@ -235,7 +238,7 @@ Evaluate each criterion. Note whether it passes, fails, or needs attention.
 2. **MUST** append the Human Review Presentation block — checkpoints inherit `human_review: required` semantics. Block format and flag criteria: see `{rbtv_path}/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation, and `{rbtv_path}/workflows/planning/data/plan-creation-rules.md` § Human Review Flag Criteria. The block points the user at specific phase artifacts and surfaces red/yellow flags drawn from phase execution evidence (executor returns, shape.md Discoveries, criterion FAILs). If no flags fire, write "None identified" with a one-line rationale.
 3. **HALT for human approval** — do not advance regardless of findings
 4. If user rejects: document feedback in shape.md, do not advance to next phase
-5. If user approves: mark checkpoint complete in plan task list
+5. If user approves: mark checkpoint complete in plan task list and flip its row Status to ✅ in `../deliverables.md`
 ```
 
 ---
