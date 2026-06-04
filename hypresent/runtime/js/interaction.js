@@ -160,7 +160,8 @@ function ensureInteractionStyle() {
   const style = document.createElement("style");
   style.id = INTERACTION_STYLE_ID;
   style.textContent =
-    "#hyp-interaction-wrapper .moveable-control.moveable-direction { pointer-events: auto; }";
+    "#hyp-interaction-wrapper .moveable-control.moveable-direction," +
+    "#hyp-interaction-wrapper .moveable-line.moveable-direction { pointer-events: auto; }";
   document.head.appendChild(style);
 }
 function removeInteractionStyle() {

@@ -334,7 +334,7 @@ class F2SelectGuidesTests(unittest.TestCase):
             "for(const [x,y] of cand){ const k=x+','+y; if(!seen.has(k)){seen.add(k); uniq.push([x,y]);} }"
             "for(const [x,y] of uniq){"
             "  const el=doc.elementFromPoint(x,y);"
-            "  if(el===null || el===doc.documentElement || el===doc.body || !el.closest('[data-hyp-id]')){"
+            "  if(el===null || el===doc.documentElement || el===doc.body || (!el.closest('[data-hyp-id]') && !el.closest('[class^=\"hyp-\"], [class*=\" hyp-\"]'))){"
             "    return {x,y,total:uniq.length};"
             "  }"
             "}"

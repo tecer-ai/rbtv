@@ -169,6 +169,92 @@ class R2ResizeRealTests(unittest.TestCase):
         self.assertNotAlmostEqual(w1, w0, delta=2, msg="first resize had no effect")
         self.assertNotAlmostEqual(w2, w1, delta=2, msg="second resize had no effect (handle is one-shot — R2 not fully fixed)")
 
+    # E-R2-8 — EDGE resize: real drag of the EAST edge handle changes width
+    def test_edge_handle_resize_changes_geometry(self):
+        self._open()
+        # Click inside .research-card padding (top-left + 5px) so event.target is the
+        # card itself, not a child — this satisfies the D30 selected==target guard.
+        self._scroll_into_view(".research-card")
+        origin = _iframe_origin(self.page)
+        rect = _rect_in_iframe(self.page, ".research-card")
+        self.assertIsNotNone(rect, "element .research-card not found for selection")
+        self.page.mouse.click(origin["x"] + rect["x"] + 5, origin["y"] + rect["y"] + 5)
+        self.page.wait_for_timeout(300)
+
+        # D30 selected==target guard
+        sel_info = self.page.evaluate(
+            """
+            async () => {
+                const iframe = document.querySelector('iframe.doc-frame');
+                return new Promise((resolve, reject) => {
+                    const id = 'probe-' + Date.now() + '-' + Math.random();
+                    const handler = (e) => {
+                        if (e.origin !== location.origin) return;
+                        if (e.data?.source !== 'hyp') return;
+                        if (e.data?.kind === 'response' && e.data?.id === id) {
+                            window.removeEventListener('message', handler);
+                            if (e.data.ok) resolve(e.data.result);
+                            else reject(new Error(e.data.error));
+                        }
+                    };
+                    window.addEventListener('message', handler);
+                    iframe.contentWindow.postMessage(
+                        { source: 'hyp', kind: 'command', id, type: 'get-selection' },
+                        location.origin
+                    );
+                    setTimeout(() => {
+                        window.removeEventListener('message', handler);
+                        reject(new Error('bridge get-selection timed out'));
+                    }, 5000);
+                });
+            }
+            """
+        )
+        target_hyp_id = H.doc_eval(
+            self.page,
+            "const e=doc.querySelector('.research-card'); return e ? e.getAttribute('data-hyp-id') : null;"
+        )
+        selected_hyp_id = sel_info.get("hypId") if sel_info else None
+        self.assertEqual(
+            selected_hyp_id,
+            target_hyp_id,
+            f"selected {selected_hyp_id or 'none'} but target is {target_hyp_id or 'none'} — wrong-element selection",
+        )
+
+        before = H.doc_eval(
+            self.page,
+            "const e=doc.querySelector('.research-card'); const cs=getComputedStyle(e); return {w:parseFloat(cs.width), h:parseFloat(cs.height)};",
+        )
+
+        # locate EAST edge handle (moveable-line.moveable-e, not the corner control)
+        edge = H.doc_eval(
+            self.page,
+            "const el=doc.querySelector('.moveable-control-box .moveable-line.moveable-e');"
+            "if(!el) return null; const r=el.getBoundingClientRect();"
+            "return {x:r.left,y:r.top,w:r.width,h:r.height,"
+            " in_vp:(r.left+r.width/2>=0 && r.left+r.width/2<=win.innerWidth && r.top+r.height/2>=0 && r.top+r.height/2<=win.innerHeight)};",
+        )
+        self.assertIsNotNone(edge, "EAST edge handle (.moveable-line.moveable-e) not found — edge resize handle missing")
+        self.assertTrue(edge["in_vp"], "edge handle center is outside iframe viewport")
+
+        hx = origin["x"] + edge["x"] + edge["w"] / 2
+        hy = origin["y"] + edge["y"] + edge["h"] / 2
+
+        self.page.mouse.move(hx, hy)
+        self.page.mouse.down()
+        for i in range(1, 11):
+            self.page.mouse.move(hx + i * 5, hy)
+            self.page.wait_for_timeout(30)
+        self.page.mouse.up()
+        self.page.wait_for_timeout(200)
+
+        after = H.doc_eval(
+            self.page,
+            "const e=doc.querySelector('.research-card'); const cs=getComputedStyle(e); return {w:parseFloat(cs.width), h:parseFloat(cs.height)};",
+        )
+        self.assertNotAlmostEqual(after["w"], before["w"], delta=2,
+                                  msg=f"width did not change on edge resize: {before['w']} -> {after['w']} (edge resize dead)")
+
     # E-R2-4 — MOVE: a real body drag >=40px changes the CSS `translate` by ~the drag delta
     def test_move_changes_translate_by_delta(self):
         self._open()

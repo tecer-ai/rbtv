@@ -32,10 +32,17 @@ export function openComposer({ rect, mode = "new", commentId = null, onSubmit })
   const frame = document.querySelector("iframe.doc-frame");
   const fb = frame ? frame.getBoundingClientRect() : { left: 0, top: 0 };
   const left = (fb.left + (rect ? rect.left : 20));
-  const top = (fb.top + (rect ? rect.top + (rect.height || 0) : 20));
+  // anchorTop = on-screen top of the anchored element; belowTop = composer's default
+  // position just under the anchor. We may flip to ABOVE the anchor if the composer
+  // would overflow the viewport bottom (it is position:fixed and cannot scroll into view).
+  const anchorTop = (fb.top + (rect ? rect.top : 20));
+  const belowTop = (fb.top + (rect ? rect.top + (rect.height || 0) : 20));
   pop.style.position = "fixed";
   pop.style.left = Math.max(8, left) + "px";
-  pop.style.top = Math.max(8, top) + "px";
+  pop.style.top = Math.max(8, belowTop) + "px";   // provisional; clamped after append (height known)
+  // Stash for the post-append viewport clamp.
+  pop.dataset.hypAnchorTop = String(anchorTop);
+  pop.dataset.hypBelowTop = String(belowTop);
   pop.style.zIndex = "1000000";
 
   const textarea = document.createElement("textarea");
@@ -93,6 +100,24 @@ export function openComposer({ rect, mode = "new", commentId = null, onSubmit })
   document.addEventListener("keydown", onDocKeyForActive, true);
 
   document.body.appendChild(pop);
+  // Viewport clamp (V3-T18 BLOCKER C): a position:fixed composer below the fold is
+  // "visible & stable" but un-actionable (cannot scroll into view) — its agent checkbox
+  // then never receives the click. Measure the real height now and keep the whole
+  // composer inside the viewport: flip above the anchor on bottom overflow, else clamp.
+  {
+    const M = 8, GAP = 6;
+    const h = pop.offsetHeight || 0;
+    const vh = window.innerHeight;
+    const anchorTop = parseFloat(pop.dataset.hypAnchorTop) || 0;
+    let top = parseFloat(pop.style.top) || 0;
+    if (top + h > vh - M) {
+      const flipped = anchorTop - h - GAP;            // place composer fully above the anchor
+      top = (flipped >= M) ? flipped : Math.max(M, vh - h - M);
+      pop.style.top = top + "px";
+    }
+  }
+  delete pop.dataset.hypAnchorTop;
+  delete pop.dataset.hypBelowTop;
   activePopover = pop;
   textarea.focus();
 

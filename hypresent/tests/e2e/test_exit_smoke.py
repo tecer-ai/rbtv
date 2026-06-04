@@ -62,7 +62,30 @@ class ExitSmokeTests(unittest.TestCase):
         self.page.keyboard.press("Escape")
         self.page.wait_for_timeout(200)
 
-        # (b) resize: select an element, drag a resize handle a little
+        # (a2) R8: re-enter edit, select the word via double-click, press A+ 3x → ONE span, +6px, zero empties.
+        # Coordinates via iframe_origin + doc_eval getBoundingClientRect (the v2 pattern) — NOT frame_locator.bounding_box() (RV09).
+        origin_t = self.page.evaluate("() => { const f=document.querySelector('iframe.doc-frame'); const r=f.getBoundingClientRect(); return {x:r.left,y:r.top}; }")
+        rect_t = H.doc_eval(self.page, "const e=doc.querySelector('.slide-title'); if(!e) return null; const r=e.getBoundingClientRect(); return {x:r.left,y:r.top,w:r.width,h:r.height};")
+        if rect_t:
+            self.page.mouse.dblclick(origin_t["x"] + rect_t["x"] + min(rect_t["w"] / 2, 20), origin_t["y"] + rect_t["y"] + rect_t["h"] / 2)
+            self.page.wait_for_timeout(200)
+            base = H.doc_eval(self.page, "return parseFloat(getComputedStyle(doc.querySelector('.slide-title')).fontSize);")
+            for _ in range(3):
+                self.page.click("#fmt-font-inc")
+                self.page.wait_for_timeout(120)
+            spans = H.doc_eval(
+                self.page,
+                "const e=doc.querySelector('.slide-title');"
+                "const s=Array.from(e.querySelectorAll('span')).filter(x=>x.style&&x.style.fontSize);"
+                "return {count:s.length, sizes:s.map(x=>parseFloat(x.style.fontSize)), empties:s.filter(x=>x.textContent.trim()==='').length};",
+            )
+            self.assertEqual(spans["count"], 1, f"R8: 3 presses must yield ONE span, got {spans['count']}")
+            self.assertEqual(spans["empties"], 0, "R8: zero empty sibling spans")
+            self.assertAlmostEqual(spans["sizes"][0], base + 6, delta=1.5, msg="R8: single span must be base+6px")
+            self.page.keyboard.press("Escape")
+            self.page.wait_for_timeout(150)
+
+        # (b) resize: select an element, drag a resize handle — MUST change geometry (R2 fixed)
         title.click()
         self.page.wait_for_timeout(300)
         handle_info = H.doc_eval(
@@ -70,17 +93,20 @@ class ExitSmokeTests(unittest.TestCase):
             "const h=doc.querySelector('.moveable-control-box .moveable-e') || doc.querySelector('.moveable-control-box .moveable-se');"
             "if(!h) return null; const r=h.getBoundingClientRect(); return {x:r.left,y:r.top,w:r.width,h:r.height};",
         )
-        if handle_info:
-            fb = self.page.evaluate(
-                "() => { const f=document.querySelector('iframe.doc-frame'); const r=f.getBoundingClientRect(); return {x:r.left,y:r.top}; }"
-            )
-            hx = fb["x"] + handle_info["x"] + handle_info["w"] / 2
-            hy = fb["y"] + handle_info["y"] + handle_info["h"] / 2
-            self.page.mouse.move(hx, hy)
-            self.page.mouse.down()
-            self.page.mouse.move(hx + 15, hy + 5, steps=5)
-            self.page.mouse.up()
-            self.page.wait_for_timeout(200)
+        self.assertIsNotNone(handle_info, "resize handle must be present after selection (R2 fixed)")
+        before_w = H.doc_eval(self.page, "return parseFloat(getComputedStyle(doc.querySelector('.slide-title')).width);")
+        fb = self.page.evaluate(
+            "() => { const f=document.querySelector('iframe.doc-frame'); const r=f.getBoundingClientRect(); return {x:r.left,y:r.top}; }"
+        )
+        hx = fb["x"] + handle_info["x"] + handle_info["w"] / 2
+        hy = fb["y"] + handle_info["y"] + handle_info["h"] / 2
+        self.page.mouse.move(hx, hy)
+        self.page.mouse.down()
+        self.page.mouse.move(hx + 30, hy + 10, steps=8)
+        self.page.mouse.up()
+        self.page.wait_for_timeout(200)
+        after_w = H.doc_eval(self.page, "return parseFloat(getComputedStyle(doc.querySelector('.slide-title')).width);")
+        self.assertNotAlmostEqual(after_w, before_w, delta=2, msg=f"resize must change width (R2): {before_w} -> {after_w}")
 
         # (c) move→translate: select an element, drag body and drop in empty space
         title.click()
@@ -126,6 +152,36 @@ class ExitSmokeTests(unittest.TestCase):
         self.page.locator("#comment-threads .comment-agent-toggle input").first.check()
         self.page.wait_for_timeout(300)
 
+        # (g) R3: delete an element then undo it (no leftover; round-trips clean)
+        del_sel = ".research-card" if H.doc_eval(self.page, "return !!doc.querySelector('.research-card');") else ".kicker"
+        H.doc_eval(self.page, f"const e=doc.querySelector('{del_sel}'); if(e) e.scrollIntoView({{block:'center'}});")
+        self.page.wait_for_timeout(200)
+        origin_d = self.page.evaluate("() => { const f=document.querySelector('iframe.doc-frame'); const r=f.getBoundingClientRect(); return {x:r.left,y:r.top}; }")
+        rect_d = H.doc_eval(self.page, f"const e=doc.querySelector('{del_sel}'); const r=e.getBoundingClientRect(); return {{x:r.left,y:r.top,w:r.width,h:r.height}};")
+        self.page.mouse.click(origin_d["x"]+rect_d["x"]+min(rect_d["w"]/2,40), origin_d["y"]+rect_d["y"]+rect_d["h"]/2)
+        self.page.wait_for_timeout(200)
+        # Capture the element the runtime ACTUALLY selected (the click resolves to the nearest
+        # registered element under the pointer, which may be a registered CHILD of del_sel).
+        # Delete + undo must round-trip on THAT element, not the static container query.
+        del_id = H.doc_eval(
+            self.page,
+            "const r=doc.querySelector('.hyp-selection-ring');"
+            "if(!r) return null;"
+            "const rr=r.getBoundingClientRect();"
+            "const c=Array.from(doc.querySelectorAll('[data-hyp-id]')).filter(el=>{"
+            " const x=el.getBoundingClientRect();"
+            " return Math.abs(x.left-rr.left)<2 && Math.abs(x.top-rr.top)<2"
+            "  && Math.abs(x.width-rr.width)<2 && Math.abs(x.height-rr.height)<2;});"
+            "return c[0] ? c[0].getAttribute('data-hyp-id') : null;",
+        )
+        self.assertIsNotNone(del_id, "R3: an element must be selected before delete")
+        self.page.click("#delete-btn")
+        self.page.wait_for_timeout(250)
+        self.assertFalse(H.doc_eval(self.page, f"return !!doc.querySelector('[data-hyp-id=\"{del_id}\"]');"), "R3: element deleted")
+        self.page.locator(".shell-toolbar button", has_text="Undo").first.click()
+        self.page.wait_for_timeout(250)
+        self.assertTrue(H.doc_eval(self.page, f"return !!doc.querySelector('[data-hyp-id=\"{del_id}\"]');"), "R3: element restored on undo")
+
         # Save As to temp via fake dialog
         out = os.path.join(os.path.dirname(self.copy), "exit-smoke.html")
         H.set_fake_dialog(self.base, out)
@@ -156,6 +212,10 @@ class ExitSmokeTests(unittest.TestCase):
     def test_saved_file_chrome_free_gate(self):
         # Run the smoke ops again to produce a saved file for chrome-free inspection.
         self.page.goto(self.base + "/app/")
+        # R4 + R9: the removed UI must be absent in the shell.
+        self.assertIsNone(self.page.query_selector("#color-btn"), "R4: #color-btn must be removed")
+        self.assertIsNone(self.page.query_selector("#outline-list"), "R9: #outline-list must be removed")
+        self.assertIsNone(self.page.query_selector(".outline-panel"), "R9: .outline-panel must be removed")
         H.open_via_dialog_ui(self.page, self.base, self.copy)
         frame = self.page.frame_locator("iframe.doc-frame")
 
