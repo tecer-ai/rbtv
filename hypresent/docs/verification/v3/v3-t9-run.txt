@@ -1,0 +1,26 @@
+V3-T9 — R4: remove redundant #color-btn button + handler
+Verification run: 2026-06-04
+
+1. node --check app/js/main.js
+   Result: PASS (no syntax errors)
+
+2. Grep both files for color-btn → ZERO hits
+   Command: python -c "import pathlib; t=pathlib.Path('app/index.html').read_text(encoding='utf-8')+pathlib.Path('app/js/main.js').read_text(encoding='utf-8'); assert 'color-btn' not in t; print('R4 OK')"
+   Result: R4 OK
+
+3. 🎨 glyph absent from index.html
+   Command: python -c "import pathlib; assert '🎨' not in pathlib.Path('app/index.html').read_text(encoding='utf-8'); print('glyph OK')"
+   Result: glyph OK
+
+4. Palette Tokens UI and color-popover.js untouched
+   Result: PASS (file not in allowlist, not modified)
+
+5. Git diff limited to allowlisted files
+   Files changed by this task: app/index.html, app/js/main.js
+   Note: changelog.md has pre-existing uncommitted changes unrelated to this task.
+
+6. Modified files summary:
+   - app/index.html: removed <div class="toolbar-group"> wrapper containing #color-btn
+   - app/js/main.js: removed "Wire toolbar color button" handler block
+
+All acceptance criteria met.

@@ -442,21 +442,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Wire toolbar color button
-  const colorBtn = document.getElementById("color-btn");
-  if (colorBtn) {
-    colorBtn.addEventListener("click", () => {
-      const panel = document.querySelector(".shell-panel");
-      if (!panel) return;
-      // Open the first color input in the panel (triggers Coloris)
-      const firstInput = panel.querySelector(".hyp-coloris-input");
-      if (firstInput) {
-        firstInput.click();
-        firstInput.focus();
-      }
-    });
-  }
-
   // Wire toolbar delete button (R3): toolbar-only trigger (U14 — NO keyboard path).
   const deleteBtn = document.getElementById("delete-btn");
   if (deleteBtn) {
