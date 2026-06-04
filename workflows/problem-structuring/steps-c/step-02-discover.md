@@ -42,6 +42,7 @@ Generate 15-20 questions to understand the problem deeply. Organize by category:
 - **Context:** What's been tried? What constraints exist? What resources available?
 - **Success Criteria:** What does "solved" look like? How will we measure?
 - **Stakeholders:** Who decides? Who influences? Who implements?
+- **Traction:** What's hard about this for you? What are you avoiding? What feels uncomfortable? — targets the user's relationship to the problem, not its content; articulation is the value, not the information
 
 ### 4. Curate Questions
 

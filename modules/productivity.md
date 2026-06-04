@@ -108,20 +108,10 @@ The largest RBTV module — everything a founder, consultant, or PM does between
 
 ### Thinking Partners
 
-#### `/rbtv-operator`
-
-- **What**: A thinking partner for complex or unclear tasks. Opens with a discovery drill — asks clarifying questions until it understands the problem at 95% confidence — then deploys a move set: probe, map (reads workspace files), structure (runs MECE/Pyramid), propose (2-3 paths with tradeoffs), challenge (stress-tests your framing), draft (writes the artifact), or handoff (generates a prompt for the next agent). No sycophancy, no rubber-stamping.
-- **When to use**: You're stuck, unclear, or facing a decision with too many variables. Not for tasks with a known shape (use the specific skill for those). Best for "I need to think through this before I can even say what I need."
-- **How to invoke**: `/rbtv-operator` (command). You can start with a topic or just invoke it cold — it will ask "What problem are we solving today?"
-- **What it produces**: No fixed output artifact. The session IS the output — clarified problem, structured options, or a ready-to-use prompt/artifact depending on where the drill leads.
-- **Example**: `/rbtv-operator` → "I'm not sure whether to pitch Tecer as a finance tool or a compliance tool" → operator runs discovery, maps workspace docs, challenges both framings, proposes positioning options with tradeoffs.
-
----
-
 #### `/rbtv-domcobb`
 
 - **What**: Dom Cobb is a Problem Architect — a former McKinsey consultant obsessed with converting vague needs into structured solutions using MECE, Pyramid Principle, and Problem Trees. Offers a menu: full Problem Structuring (`PS`) and a quick PS Lite (`PL`) for simple problems.
-- **When to use**: When you want a structured problem deliverable — a `structured-problem.md` — that can be handed off or used in client work. More deliberate than Operator; Operator borrows these frameworks in passing, Cobb makes the structured artifact the goal.
+- **When to use**: When you want a structured problem deliverable — a `structured-problem.md` — that can be handed off or used in client work, or quick conversational structuring via `PL` when you're not sure where to start.
 - **How to invoke**: `/rbtv-domcobb` (command). Menu appears. Type `PS` or `PL`.
 - **What it produces**: A structured problem document (`structured-problem.md`).
 - **Example**: `/rbtv-domcobb` → `PS` → "I'm not sure why our trial-to-paid conversion is dropping" → Cobb builds a MECE problem tree, structures the drivers via Pyramid Principle, and delivers a `structured-problem.md`.
@@ -136,4 +126,4 @@ The module has three natural flows:
 
 **Meeting flow:** `rbtv-meeting-prep` the day before → attend the meeting → paste the transcript into `rbtv-meeting-summarizer` immediately after → use `rbtv-client-email` to send the follow-up the same day.
 
-**Thinking-to-artifact flow:** When the problem is unclear, start with `/rbtv-operator` (discovery + move set, no fixed output) → if a structured problem deliverable is the goal, escalate or switch to `/rbtv-domcobb` → once the artifact is clear, pass it to a pitcher, the lawyer, or doc-export depending on what it becomes.
+**Thinking-to-artifact flow:** When the problem is unclear, start with `/rbtv-domcobb` — `PL` for quick conversational structuring, escalating to `PS` when complexity warrants → once the artifact is clear, pass it to a pitcher, the lawyer, or doc-export depending on what it becomes.

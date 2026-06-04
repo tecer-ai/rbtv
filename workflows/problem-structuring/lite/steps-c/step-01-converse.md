@@ -16,14 +16,21 @@ No preamble. No framework introduction. One warm, direct question.
 
 ### 2. CONVERSATION LOOP (2-3 exchanges)
 
+Ask ONE question per exchange — never batch questions.
+
 After each user response:
 
 1. **Clarify** — Ask Socratic questions:
    - "What specifically about X?"
    - "Who is affected?"
    - "What happens if you do nothing?"
-2. **Surface structure** — Organically group related points, identify categories, highlight tensions
-3. **Assess complexity** — Silently evaluate escalation triggers (see below)
+2. **Traction** — Ask at least one traction question during the loop. Traction questions target the user's relationship to the problem, not its content — articulation is the value, not the information:
+   - "What's hard about this for you?"
+   - "What are you avoiding?"
+   - "What feels uncomfortable?"
+   - "What's clear vs. fuzzy?"
+3. **Surface structure** — Organically group related points, identify categories, highlight tensions
+4. **Assess complexity** — Silently evaluate escalation triggers (see below)
 
 ### 3. ESCALATION CHECK
 

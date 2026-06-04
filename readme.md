@@ -14,7 +14,7 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 |---|---|---|
 | **core** (always installed) | Generic productivity utilities — planning, plan orchestration, plan shape compaction, web research, component creation, browser automation, plus the digest and session-close personas, and the always-on behavioral rules | [modules/core.md](./modules/core.md) |
 | **innovation** | Business innovation frameworks (lean canvas, JTBD, TAM/SAM/SOM, brandbook) via the innovator mentor, plus product discovery | [modules/innovation.md](./modules/innovation.md) |
-| **productivity** | Pitch generation (client, investor), design extraction, document export (PDF/DOCX with brand discovery), legal advisory, meeting prep, meeting summarization, client emails, thinking-partner operator, problem-reframing persona, and visual design | [modules/productivity.md](./modules/productivity.md) |
+| **productivity** | Pitch generation (client, investor), design extraction, document export (PDF/DOCX with brand discovery), legal advisory, meeting prep, meeting summarization, client emails, problem-reframing persona, and visual design | [modules/productivity.md](./modules/productivity.md) |
 | **coding** | Guided git commits for AI-assisted development (the coding-discipline guardrails were generalized into the always-on reasoning rule — see [Retired components](#retired-components)) | [modules/coding.md](./modules/coding.md) |
 | **writing** | Long-form writing via the writer persona, tone extraction | [modules/writing.md](./modules/writing.md) |
 | **caveman** | Optional ultra-compressed caveman communication mode and parody commit voice — token savings and fun, based on JuliusBrussee/caveman | [modules/caveman.md](./modules/caveman.md) |
@@ -153,6 +153,7 @@ Some components ship in this repo but are flagged `stale` in the module manifest
 | `context-preservation` (rule) | core | Did not reliably trigger; superseded by the session-close and compounding flows. |
 | `source-of-truth` (rule) | core | Redundant where the host workspace already documents edit-source-not-installed-copies (e.g. sb-os vaults); the **Source of truth** section above covers standalone installs. |
 | `coding-discipline` (skill) | coding | **Deleted, not just flagged.** Its four guardrails were generalized into the always-on `reasoning` rule's *Execution Discipline* section (core) — they apply to all artifact work, not only code. |
+| `operator` (command + workflow) | productivity | **Deleted, not just flagged.** Shallow overlap with `domcobb` — its Structure move already delegated to [PS]/[PL]. Salvage: traction questions and one-question-at-a-time pacing moved into PS Lite (`step-01-converse`) and the [PS] question bank (`step-02-discover`). |
 
 ## Architecture notes
 
