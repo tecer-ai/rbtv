@@ -142,7 +142,7 @@
 | R4 | `#color-btn` 🎨 function identified → owner keep/remove decision executed | ☑ commit `40a5a0f` — removed per U11; lock test 3/3 |
 | R5 | Palette-token tooltip: explains doc-wide recolor | ☑ commit `090e65b` — header ⓘ, exact D18 wording; 3/3 |
 | R6 | Per-token discreet copy-HEX button | ☑ commit `090e65b` — normalized `#rrggbb`, clipboard readback asserted; 4/4 |
-| R7 | Text alignment controls (H + V within the element's box) | ☐ |
+| R7 | Text alignment controls (H + V within the element's box) | ☑ commit `cae645c` — display-branched, capability-reactive, capture-all undo; 9/9 green |
 | R8 | Font-size A+/A− repeatable without re-selection | ☑ commit `bd81b32` — marker-based tracking; 5/5 green (3 presses → 1 span +6px) |
 | R9 | Outline: region detection fixed or panel removed (owner decision) | ☐ |
 | EXIT | Kimi-evidenced clean server run + full suite green incl. new real-input tests | ☐ |
@@ -259,3 +259,5 @@
 | 142 | 2026-06-04 | Kimi | dispatch | V3-T15d: verify/complete T15c edits (confirm probe; ADD the D30 selected==target post-click assertion if absent) + rerun R7 suite :8797 under D29. Required: 9/9. |
 | 143 | 2026-06-04 | Kimi | test | V3-T15d: T15c edits verified complete (py_compile OK; D30 assert already present — exit-1 had died after the work). Suite 8/9 + 1 ERROR (D29 sound: 22.6s/EXIT 1/0 skips; STOP+`v3-t15d-BUG.md`): ALL 8 behavioral tests PASS (block H+undo, flex-row/column, grid, table-cell ENABLED, fixed-height→flex+undo, plain-block-disabled, no-console); sole ERROR = cold-start flake in shared `conftest_helpers.wait_runtime_ready` (8s timeout, first-test-only, passes isolated, zero product frames on stack) — outside T15d allowlist, correctly stopped. |
 | 144 | 2026-06-04 | Orchestrator | decision | D31: `wait_runtime_ready` timeout 8000→15000ms in `conftest_helpers.py` — single-line test-infra fix; readiness still asserted (patience ≠ masking); suite-wide benefit (same cold-start signature as the transient F2 open-timeout in row 91). V3-T15e dispatched: apply + rerun, required 9/9. |
+| 145 | 2026-06-04 | Kimi | test | **V3-T15e GREEN — C7 BEHAVIORALLY COMPLETE.** R7 suite 9/9 OK (22.5s, EXIT 0, 0 skips). Plan: T14 ☑, T15+T15b/c/d/e ☑. |
+| 146 | 2026-06-04 | Claude sub-agent | result | **C7 COMMITTED: `cae645c`** — 19 files (+1241/−5); `modules/core.md` + `rules/reasoning.md` confirmed UNSTAGED (owner-concurrent, excluded); sample never staged; no remote contact. Scorecard R7 ☑. **C8 opens:** V3-T16 (R9 outline removal end-to-end, 5-file allowlist, exact-identifier acceptance). |

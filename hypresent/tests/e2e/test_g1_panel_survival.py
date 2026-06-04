@@ -35,8 +35,6 @@ class G1PanelSurvivalTests(unittest.TestCase):
         copyA = H.copy_fixture()
         copyB = H.copy_fixture()
         H.open_via_dialog_ui(self.page, self.base, copyA)
-        # wait for outline panel to render (fixture yields empty placeholder)
-        self.page.wait_for_selector("#outline-list > *")
         # add a comment so #comment-threads has a card
         frame = self.page.frame_locator("iframe.doc-frame")
         frame.locator(".slide-title").first.click()
@@ -44,15 +42,12 @@ class G1PanelSurvivalTests(unittest.TestCase):
         self.page.fill(".hyp-composer-textarea", "note A")
         self.page.keyboard.press("Control+Enter")
         self.page.wait_for_selector("#comment-threads .comment-thread")
-        # confirm outline rendered (fixture structure yields empty placeholder, not items)
-        self.assertGreater(len(self.page.query_selector_all("#outline-list > *")), 0)
         # OPEN document B
         H.open_via_dialog_ui(self.page, self.base, copyB)
         self.page.wait_for_timeout(400)
         # the panel containers must STILL EXIST (not wiped by the color popover)
         self.assertIsNotNone(self.page.query_selector("#comment-threads"))
         self.assertIsNotNone(self.page.query_selector("#comment-unanchored"))
-        self.assertIsNotNone(self.page.query_selector("#outline-list"))
         self.assertIsNotNone(self.page.query_selector(".hyp-color-popover-container"))
 
     def test_g1_panel_dom_structure(self):                # E-G1-2
@@ -64,15 +59,13 @@ class G1PanelSurvivalTests(unittest.TestCase):
             "els => els.map(e => e.className)"
         )
         self.assertEqual(order[0], "hyp-color-popover-container")
-        self.assertIn("outline-panel", order)
+        self.assertNotIn("outline-panel", order)
         self.assertIn("comment-panel", order)
 
     def test_g1_popover_rerender(self):                   # E-G1-3
         self.page.goto(self.base + "/app/")
         copyA = H.copy_fixture()
         H.open_via_dialog_ui(self.page, self.base, copyA)
-        # wait for outline panel to render (fixture yields empty placeholder)
-        self.page.wait_for_selector("#outline-list > *")
         # add a comment so #comment-threads has a card
         frame = self.page.frame_locator("iframe.doc-frame")
         frame.locator(".slide-title").first.click()
@@ -86,7 +79,6 @@ class G1PanelSurvivalTests(unittest.TestCase):
         self.page.wait_for_timeout(200)
         after_threads = len(self.page.query_selector_all("#comment-threads .comment-thread"))
         self.assertEqual(before_threads, after_threads)
-        self.assertGreater(len(self.page.query_selector_all("#outline-list > *")), 0)
 
 
 if __name__ == "__main__":

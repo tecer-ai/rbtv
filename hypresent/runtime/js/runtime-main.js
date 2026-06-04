@@ -1,5 +1,5 @@
 import { emit, register } from "/runtime/js/bridge-iframe.js";
-import { tag, regions, byId } from "./element-registry.js";
+import { tag, byId } from "./element-registry.js";
 import { select, clear, current, onSelectionChange } from "./selection.js";
 import { undo, redo, state, push as historyPush } from "./history.js";
 import { serialize } from "./serializer.js";
@@ -255,7 +255,7 @@ function boot() {
 
   // 3. Emit ready so the parent shell enables controls
   const palette = readPalette();
-  emit("ready", { tokens: palette.tokens, sections: regions() });
+  emit("ready", { tokens: palette.tokens });
 }
 
 if (document.readyState === "loading") {

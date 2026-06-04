@@ -9,8 +9,6 @@ let bridge = null;
 let isDirty = false;
 let isEditingNow = false;   // R3 edit-guard: cached from runtime 'edit-state' events
 
-let outlineRegions = [];
-let activeOutlineHypId = null;
 let undoBtn = null;
 let redoBtn = null;
 
@@ -223,56 +221,15 @@ async function refreshCommentPanel() {
   }
 }
 
-function renderOutline(regions) {
-  outlineRegions = regions || [];
-  activeOutlineHypId = null;
-  const container = document.getElementById("outline-list");
-  if (!container) return;
-  container.innerHTML = "";
-
-  if (outlineRegions.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "outline-empty";
-    empty.textContent = "No regions detected";
-    container.appendChild(empty);
-    return;
-  }
-
-  for (const region of outlineRegions) {
-    const item = document.createElement("div");
-    item.className = "outline-item";
-    item.textContent = region.label || region.hypId;
-    item.dataset.hypId = region.hypId;
-    item.addEventListener("click", () => {
-      if (!bridge) return;
-      bridge.command("select", { hypId: region.hypId }).catch((err) => {
-        console.error("Select failed:", err.message);
-      });
-    });
-    container.appendChild(item);
-  }
-}
-
-function setActiveOutline(hypId) {
-  activeOutlineHypId = hypId || null;
-  const container = document.getElementById("outline-list");
-  if (!container) return;
-  container.querySelectorAll(".outline-item").forEach((el) => {
-    el.classList.toggle("outline-item-active", el.dataset.hypId === activeOutlineHypId);
-  });
-}
-
 function ensureBridge(iframe) {
   if (bridge) bridge.destroy();
   bridge = createBridge(iframe);
   bridge.on("ready", async (payload) => {
     console.info("runtime ready");
-    renderOutline(payload && payload.sections ? payload.sections : []);
     await refreshCommentPanel();
   });
 
   bridge.on("selection-changed", (payload) => {
-    setActiveOutline(payload && payload.hypId ? payload.hypId : null);
     if (window.__hypUpdateAlignButtons) {
       window.__hypUpdateAlignButtons(payload && payload.alignCaps ? payload.alignCaps : null);
     }

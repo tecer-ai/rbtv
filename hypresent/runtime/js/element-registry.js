@@ -11,7 +11,6 @@
  *   byId(hypId) → Element|null
  *   idOf(el) → hypId|null
  *   roleOf(el) → 'flex-child'|'grid-child'|'absolute'|'block'
- *   regions() → [{hypId, label}]
  *   stripIds(clone)
  */
 
@@ -30,10 +29,6 @@ const SVG_GEOMETRY_TAGS = new Set([
   'marker', 'symbol', 'feturbulence', 'fedisplacementmap', 'fecolormatrix'
 ]);
 
-const SECTIONING_TAGS = new Set([
-  'section', 'article', 'header', 'footer', 'main', 'aside', 'nav'
-]);
-
 // --- State ---
 
 let nextId = 1;
@@ -45,12 +40,6 @@ const originalState = new WeakMap();
 
 function isExplicitlyDecorative(el) {
   return el.getAttribute('data-hyp-decorative') === 'true';
-}
-
-function isDecorativeForRegions(el) {
-  if (el.getAttribute('data-hyp-decorative') === 'true') return true;
-  if (el.getAttribute('aria-hidden') === 'true') return true;
-  return false;
 }
 
 function isInsideSvg(el) {
@@ -71,29 +60,6 @@ function shouldTag(el) {
   if (isExplicitlyDecorative(el)) return false;
   if (!document.body.contains(el)) return false;
   return true;
-}
-
-function countTextDescendants(el) {
-  let count = 0;
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-  while (walker.nextNode()) {
-    if (walker.currentNode.textContent.trim().length > 0) {
-      count++;
-    }
-  }
-  return count;
-}
-
-function getSignature(el) {
-  return `${el.tagName.toLowerCase()}|${el.className || ''}`;
-}
-
-function getRegionLabel(el) {
-  const label = el.getAttribute('data-hyp-region');
-  if (label) return label;
-  const text = el.textContent.trim().replace(/\s+/g, ' ');
-  if (text.length > 0) return text.slice(0, 60);
-  return el.tagName.toLowerCase();
 }
 
 // --- Public API ---
@@ -177,80 +143,6 @@ export function roleOf(el) {
     return 'grid-child';
   }
   return 'block';
-}
-
-/**
- * Return detected regions for the outline/navigator.
- * Honors H3 (data-hyp-region) when present; falls back to the §4 heuristic.
- */
-export function regions() {
-  // H3 hint priority
-  const h3Els = Array.from(document.querySelectorAll('[data-hyp-region]'))
-    .filter(el => document.body.contains(el) && !isDecorativeForRegions(el));
-  if (h3Els.length > 0) {
-    return h3Els
-      .map(el => {
-        const hypId = elToId.get(el);
-        if (!hypId) return null;
-        return { hypId, label: el.getAttribute('data-hyp-region') || '' };
-      })
-      .filter(Boolean);
-  }
-
-  // Heuristic fallback per 02 §4
-  const bodyChildren = Array.from(document.body.children)
-    .filter(c => {
-      const t = c.tagName.toLowerCase();
-      return t !== 'script' && t !== 'style' && t !== 'noscript';
-    });
-
-  // Candidate pool: body children + their immediate children
-  const candidates = [];
-  for (const child of bodyChildren) {
-    candidates.push(child);
-    for (const grandchild of child.children) {
-      candidates.push(grandchild);
-    }
-  }
-
-  let contentRoot = null;
-  let maxTextCount = -1;
-  for (const cand of candidates) {
-    const count = countTextDescendants(cand);
-    if (count > maxTextCount) {
-      maxTextCount = count;
-      contentRoot = cand;
-    }
-  }
-
-  if (!contentRoot) return [];
-
-  const directChildren = Array.from(contentRoot.children)
-    .filter(el => !isDecorativeForRegions(el));
-
-  // Compute repeated-sibling signatures
-  const sigCounts = new Map();
-  for (const child of directChildren) {
-    const sig = getSignature(child);
-    sigCounts.set(sig, (sigCounts.get(sig) || 0) + 1);
-  }
-
-  const result = [];
-  for (const child of directChildren) {
-    const tag = child.tagName.toLowerCase();
-    const sig = getSignature(child);
-    const isRepeated = sigCounts.get(sig) > 1;
-    const isSectioning = SECTIONING_TAGS.has(tag);
-
-    if (isSectioning || isRepeated) {
-      const hypId = elToId.get(child);
-      if (hypId) {
-        result.push({ hypId, label: getRegionLabel(child) });
-      }
-    }
-  }
-
-  return result;
 }
 
 /**

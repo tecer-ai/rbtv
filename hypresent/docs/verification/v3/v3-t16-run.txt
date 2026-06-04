@@ -1,0 +1,55 @@
+V3-T16 — R9: remove outline panel and regions()/sections end-to-end
+=====================================================================
+
+1. node --check results
+-----------------------
+main.js          : PASS (exit 0)
+runtime-main.js  : PASS (exit 0)
+element-registry.js : PASS (exit 0)
+
+2. Orphan-helper grep (before removal)
+--------------------------------------
+countTextDescendants 2
+getSignature 3
+getRegionLabel 2
+isDecorativeForRegions 3
+SECTIONING_TAGS 2
+regions 4
+
+All five helpers counted exactly definition + usage inside regions() → safe to remove.
+
+3. Helpers removed / kept
+--------------------------
+REMOVED: SECTIONING_TAGS
+REMOVED: isDecorativeForRegions
+REMOVED: countTextDescendants
+REMOVED: getSignature
+REMOVED: getRegionLabel
+REMOVED: regions()  (export + doc-comment)
+KEPT:    isExplicitlyDecorative (used by shouldTag → tag())
+KEPT:    isInsideSvg (used by shouldTag → tag())
+KEPT:    shouldTag (used by tag())
+KEPT:    EXCLUDED_TAGS (used by shouldTag)
+KEPT:    SVG_GEOMETRY_TAGS (used by shouldTag)
+
+4. Python ID-survival check
+----------------------------
+REMAINING: []
+(No removed JS identifiers, no .outline- CSS selectors, no regions()/sections payload remain.)
+
+5. git diff (working directory scope)
+--------------------------------------
+Modified by this task (5 allowlisted files):
+  app/index.html
+  app/js/main.js
+  app/css/shell.css
+  runtime/js/runtime-main.js
+  runtime/js/element-registry.js
+
+Pre-existing modification NOT caused by this task:
+  changelog.md (was already dirty before edits)
+
+6. runtime-main.js ready payload
+---------------------------------
+emit("ready", { tokens: palette.tokens });
+→ sections key removed, regions() no longer called.
