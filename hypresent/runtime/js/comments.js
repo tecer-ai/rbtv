@@ -260,6 +260,7 @@ function writeIsland() {
     body: t.body,
     resolved: t.resolved,
     replies: t.replies,
+    agentInstruction: t.agentInstruction === true,
   }));
   island.textContent = JSON.stringify(clean);
 }
@@ -386,10 +387,11 @@ export function toJson() {
     body: t.body,
     resolved: t.resolved,
     replies: t.replies,
+    agentInstruction: t.agentInstruction === true,
   }));
 }
 
-export function add(hypId, body, author) {
+export function add(hypId, body, author, agentInstruction = false) {
   const el = byId(hypId);
   if (!el) throw new Error("add-comment: element not found");
 
@@ -407,6 +409,7 @@ export function add(hypId, body, author) {
     body,
     resolved: false,
     replies: [],
+    agentInstruction: !!agentInstruction,
   };
 
   const doFn = () => {
@@ -484,6 +487,76 @@ export function resolve(commentId, resolved = true) {
     )
   );
   return { commentId };
+}
+
+export function setAgentInstruction(commentId, agentInstruction) {
+  const thread = threadStore.find((t) => t.id === commentId);
+  if (!thread) throw new Error("tag-agent: thread not found");
+  const before = thread.agentInstruction === true;
+  const next = !!agentInstruction;
+  const doFn = () => {
+    thread.agentInstruction = next;
+    writeIsland();
+    emit("dirty-changed", { dirty: true });
+  };
+  const undoFn = () => {
+    thread.agentInstruction = before;
+    writeIsland();
+    emit("dirty-changed", { dirty: true });
+  };
+  historyPush(makeCommentCommand(next ? "tag-agent" : "untag-agent", doFn, undoFn));
+  return { commentId, agentInstruction: next };
+}
+
+// THE single escape function for the agent block (R06): HTML comments cannot
+// contain '-->'. Every interpolated value MUST pass through this.
+function escapeAgentBlock(s) {
+  return String(s == null ? "" : s).replace(/-->/g, "--&gt;");
+}
+
+export function buildAgentBlock() {
+  const agentThreads = threadStore.filter(
+    (t) => t.agentInstruction === true && t.resolved !== true
+  );
+  if (agentThreads.length === 0) return null;
+
+  const lines = [];
+  lines.push("<!-- ===== HYPRESENT AGENT INSTRUCTIONS =====");
+  lines.push(
+    "This block is auto-generated from agent-tagged review comments in this file. Each entry describes a change an AI coding agent should make to the element identified by its anchor."
+  );
+  lines.push(
+    "Do not edit this block manually — it is regenerated on every save and removed when no agent comments remain."
+  );
+  for (const t of agentThreads) {
+    lines.push("");
+    lines.push(`[agent:${escapeAgentBlock(t.id)}]`);
+    const path = escapeAgentBlock((t.anchor && t.anchor.path) || "(root)");
+    const nid = escapeAgentBlock((t.anchor && t.anchor.nativeId) || "");
+    const ctx = escapeAgentBlock((t.contextText || "").slice(0, 80));
+    lines.push(`anchor: ${path} | id="${nid}" | "${ctx}"`);
+    lines.push(`instruction: ${escapeAgentBlock(t.body)}`);
+    for (const r of t.replies || []) {
+      lines.push(`reply: ${escapeAgentBlock(r.body)} — ${escapeAgentBlock(r.author)}`);
+    }
+    lines.push(`author: ${escapeAgentBlock(t.author)}`);
+    lines.push(`date: ${t.createdAt}`);   // ISO-8601 from new Date().toISOString(); cannot contain '-->'
+  }
+  lines.push("===== END HYPRESENT AGENT INSTRUCTIONS ===== -->");
+  return lines.join("\n");
+}
+
+export function reanchorAfterMove() {
+  // Recompute anchors for ALL threads after a DOM move (R14).
+  for (const t of threadStore) {
+    const el = matchAnchor(t.anchor);          // multi-signal resolution (partial-match fallbacks)
+    if (el) {
+      t.anchor = buildAnchorKey(el);           // regenerate path + siblingIndex from CURRENT position
+    }
+    // else: unresolved → keep the old anchor; the thread shows as unanchored, never deleted.
+  }
+  writeIsland();
+  reanchorAll();
 }
 
 export function threads() {

@@ -102,30 +102,84 @@ export function resize(hypId, before, after) {
 }
 
 /**
- * Move command: applies a transform value.
+ * Move command (D2 + S1): applies the CSS individual `translate` property.
+ * Writing `translate` instead of `transform: translate()` composes with any
+ * document-owned `transform: rotate()/scale()` and never clobbers it.
  * @param {string} hypId
- * @param {string} before - previous inline transform value (may be empty)
- * @param {string} after  - new inline transform value
+ * @param {string} before - previous inline `translate` value (may be empty), e.g. "10px 20px"
+ * @param {string} after  - new inline `translate` value, e.g. "30px 40px" or ""
  */
 export function move(hypId, before, after) {
   return {
     do() {
       const el = getElement(hypId);
       if (after === "" || after == null) {
-        el.style.removeProperty("transform");
+        el.style.removeProperty("translate");
       } else {
-        el.style.setProperty("transform", after);
+        el.style.setProperty("translate", after);
       }
     },
     undo() {
       const el = getElement(hypId);
       if (before === "" || before == null) {
-        el.style.removeProperty("transform");
+        el.style.removeProperty("translate");
       } else {
-        el.style.setProperty("transform", before);
+        el.style.setProperty("translate", before);
       }
     },
     label: "move",
+  };
+}
+
+/**
+ * Reorder / re-parent command (F3, S11).
+ * Re-resolves the moved element and parents by hyp-id at run time.
+ * do():   move dragEl into newParent before newNext (or append), clear translate.
+ * undo(): move dragEl back into oldParent before oldNext (or append), restore translate.
+ *
+ * @param {string} hypId            data-hyp-id of the moved element
+ * @param {string} oldParentHypId   data-hyp-id of the original parent
+ * @param {string|null} oldPrevHypId  unused for restore; kept for audit
+ * @param {string|null} oldNextHypId  data-hyp-id of the original next sibling (anchor for undo)
+ * @param {string} newParentHypId   data-hyp-id of the destination parent
+ * @param {string|null} newNextHypId  data-hyp-id of the destination next sibling (anchor for do)
+ * @param {string} oldTranslate     the element's `translate` value before the drop
+ */
+export function reorder(
+  hypId,
+  oldParentHypId,
+  oldPrevHypId,
+  oldNextHypId,
+  newParentHypId,
+  newNextHypId,
+  oldTranslate
+) {
+  function place(el, parentHypId, nextHypId) {
+    const parent = byId(parentHypId);
+    if (!parent) throw new Error(`reorder: parent not found "${parentHypId}"`);
+    const next = nextHypId ? byId(nextHypId) : null;
+    if (next && next.parentNode === parent) {
+      parent.insertBefore(el, next);
+    } else {
+      parent.appendChild(el);
+    }
+  }
+  return {
+    do() {
+      const el = getElement(hypId);
+      place(el, newParentHypId, newNextHypId);
+      el.style.removeProperty("translate");
+    },
+    undo() {
+      const el = getElement(hypId);
+      place(el, oldParentHypId, oldNextHypId);
+      if (oldTranslate === "" || oldTranslate == null) {
+        el.style.removeProperty("translate");
+      } else {
+        el.style.setProperty("translate", oldTranslate);
+      }
+    },
+    label: "reorder",
   };
 }
 
@@ -176,6 +230,60 @@ export function colorElement(hypId, prop, value) {
       }
     },
     label: "color-element",
+  };
+}
+
+/**
+ * Border-color command (F4, U6/S14): sets border-color on all four sides.
+ * If the element has no visible border (style none or width 0 on ALL sides),
+ * also applies `border:1px solid <value>` so the border becomes visible.
+ * Undo restores the prior inline border-related state in full.
+ */
+export function colorBorder(hypId, value) {
+  const el = getElement(hypId);
+  const SIDES = ["top", "right", "bottom", "left"];
+  // Capture prior INLINE values (not computed) for exact undo.
+  const before = {
+    border: el.style.getPropertyValue("border"),
+    "border-color": el.style.getPropertyValue("border-color"),
+    "border-width": el.style.getPropertyValue("border-width"),
+    "border-style": el.style.getPropertyValue("border-style"),
+  };
+  for (const s of SIDES) {
+    before[`border-${s}-color`] = el.style.getPropertyValue(`border-${s}-color`);
+  }
+
+  function restore(target) {
+    // Clear all border-related inline props, then re-apply captured ones.
+    target.style.removeProperty("border");
+    target.style.removeProperty("border-color");
+    target.style.removeProperty("border-width");
+    target.style.removeProperty("border-style");
+    for (const s of SIDES) target.style.removeProperty(`border-${s}-color`);
+    for (const [k, v] of Object.entries(before)) {
+      if (v) target.style.setProperty(k, v);
+    }
+  }
+
+  return {
+    do() {
+      const target = getElement(hypId);
+      const cs = getComputedStyle(target);
+      const noneOrZero = SIDES.every((s) => {
+        const style = cs.getPropertyValue(`border-${s}-style`);
+        const width = parseFloat(cs.getPropertyValue(`border-${s}-width`)) || 0;
+        return style === "none" || width === 0;
+      });
+      if (noneOrZero) {
+        target.style.setProperty("border", `1px solid ${value}`);
+      } else {
+        target.style.setProperty("border-color", value);
+      }
+    },
+    undo() {
+      restore(getElement(hypId));
+    },
+    label: "color-border",
   };
 }
 

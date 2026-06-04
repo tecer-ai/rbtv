@@ -155,37 +155,57 @@ export function createColorPopover({ bridge, panelEl }) {
       return;
     }
 
-    const textRow = document.createElement("div");
-    textRow.className = "hyp-color-row";
-    textRow.innerHTML = `
-      <label>Text</label>
-      <input type="text"
-             class="hyp-coloris-input"
-             data-coloris
-             data-scope="element"
-             data-target="${info.hypId}"
-             data-prop="color"
-             placeholder="none"
-             aria-label="Text color">
-    `;
-    elementBodyEl.appendChild(textRow);
-
-    const bgRow = document.createElement("div");
-    bgRow.className = "hyp-color-row";
-    bgRow.innerHTML = `
-      <label>Background</label>
-      <input type="text"
-             class="hyp-coloris-input"
-             data-coloris
-             data-scope="element"
-             data-target="${info.hypId}"
-             data-prop="background-color"
-             placeholder="none"
-             aria-label="Background color">
-    `;
-    elementBodyEl.appendChild(bgRow);
+    const rows = [
+      { label: "Text", prop: "color" },
+      { label: "Background", prop: "background-color" },
+      { label: "Border", prop: "border-color" },
+    ];
+    for (const r of rows) {
+      const row = document.createElement("div");
+      row.className = "hyp-color-row";
+      row.innerHTML = `
+        <label>${r.label}</label>
+        <input type="text"
+               class="hyp-coloris-input"
+               data-coloris
+               data-scope="element"
+               data-target="${info.hypId}"
+               data-prop="${r.prop}"
+               placeholder="none"
+               aria-label="${r.label} color">
+      `;
+      elementBodyEl.appendChild(row);
+    }
 
     Coloris.wrap(".hyp-coloris-input");
+
+    // Pre-fill the three inputs from one read.
+    bridge
+      .command("element-color-read", { hypId: info.hypId })
+      .then((c) => {
+        const setVal = (prop, value, placeholder) => {
+          const inp = elementBodyEl.querySelector(
+            `.hyp-coloris-input[data-prop="${prop}"]`
+          );
+          if (!inp) return;
+          if (placeholder) {
+            inp.value = "";
+            inp.placeholder = placeholder;
+          } else {
+            inp.value = value || "";
+          }
+        };
+        setVal("color", c.color);
+        setVal("background-color", c.background);
+        if (c.borderMixed) {
+          setVal("border-color", "", "mixed");
+        } else {
+          setVal("border-color", c.borderColor);
+        }
+      })
+      .catch(() => {
+        // read may fail before a document is open; leave inputs empty.
+      });
   }
 
   function escapeHtml(str) {

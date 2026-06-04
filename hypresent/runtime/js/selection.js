@@ -23,6 +23,10 @@ import { emit } from "./bridge-iframe.js";
 let selectedHypId = null;
 let ringEl = null;
 
+const selectionObservers = new Set();
+export function onSelectionChange(cb) { selectionObservers.add(cb); return () => selectionObservers.delete(cb); }
+function notifyObservers(info) { for (const cb of selectionObservers) { try { cb(info); } catch (_e) {} } }
+
 // --- Helpers ---
 
 function isInsideSvg(el) {
@@ -150,6 +154,7 @@ export function select(hypId) {
   if (!el) {
     selectedHypId = null;
     emit("selection-changed", null);
+    notifyObservers(null);
     return;
   }
 
@@ -157,7 +162,9 @@ export function select(hypId) {
   ringEl = createRing();
   updateRing();
 
-  emit("selection-changed", buildInfo(el));
+  const info = buildInfo(el);
+  emit("selection-changed", info);
+  notifyObservers(info);
 }
 
 export function clear() {
@@ -165,6 +172,7 @@ export function clear() {
   selectedHypId = null;
   clearRing();
   emit("selection-changed", null);
+  notifyObservers(null);
 }
 
 export function current() {

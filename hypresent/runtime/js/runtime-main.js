@@ -1,13 +1,12 @@
 import { emit, register } from "/runtime/js/bridge-iframe.js";
 import { tag, regions, byId } from "./element-registry.js";
-import { select, clear, current } from "./selection.js";
+import { select, clear, current, onSelectionChange } from "./selection.js";
 import { undo, redo, state, push as historyPush } from "./history.js";
 import { serialize } from "./serializer.js";
 import { apply as applyFormat } from "./text-format.js";
 import { resize as makeResizeCommand, move as makeMoveCommand } from "./commands.js";
-import { begin as resizeBegin, end as resizeEnd } from "./resize.js";
-import { begin as moveBegin, end as moveEnd } from "./move.js";
-import { readPalette, applyToken, applyElement } from "./color.js";
+import { mount as interactionMount, unmount as interactionUnmount, remount as interactionRemount, isActive as interactionIsActive } from "./interaction.js";
+import { readPalette, applyToken, applyElement, readElementColors } from "./color.js";
 import {
   load as loadComments,
   toJson as commentsToJson,
@@ -15,6 +14,7 @@ import {
   reply as replyComment,
   resolve as resolveComment,
   threads as getThreads,
+  setAgentInstruction as setAgentInstruction,
 } from "./comments.js";
 import "./text-edit.js";
 
@@ -23,6 +23,17 @@ let activeTool = "edit";
 function boot() {
   // 1. Build registry: tag editable elements with data-hyp-id
   tag();
+
+  // Wire selection → combined interaction (R09): registered here, after all
+  // modules are fully evaluated, so onSelectionChange is guaranteed defined.
+  onSelectionChange((info) => {
+    if (info && info.hypId) {
+      if (interactionIsActive()) interactionRemount(info.hypId);
+      else interactionMount(info.hypId);
+    } else {
+      interactionUnmount();
+    }
+  });
 
   // 2. selection.js and history.js self-activate on import (click / keyboard
   //    listeners). We wire their programatic APIs into the bridge so the parent
@@ -72,32 +83,16 @@ function boot() {
   });
 
   register("set-tool", (payload) => {
-    if (!payload || !payload.tool) {
-      throw new Error("set-tool: missing tool");
+    // Compat shim (S2): the modeless model auto-mounts one combined Moveable on
+    // selection. 'edit'/none unmounts; 'resize'/'move' mount on the current selection.
+    const tool = payload && payload.tool ? payload.tool : "edit";
+    const info = current();
+    if (tool === "resize" || tool === "move") {
+      if (info && info.hypId) interactionMount(info.hypId);
+    } else {
+      interactionUnmount();
     }
-    const oldTool = activeTool;
-    const newTool = payload.tool;
-    activeTool = newTool;
-
-    if (oldTool === "resize") {
-      resizeEnd();
-    }
-    if (oldTool === "move") {
-      moveEnd();
-    }
-    if (newTool === "resize") {
-      const info = current();
-      if (info) {
-        resizeBegin(info.hypId);
-      }
-    }
-    if (newTool === "move") {
-      const info = current();
-      if (info) {
-        moveBegin(info.hypId);
-      }
-    }
-    return { tool: newTool };
+    return { tool };
   });
 
   register("resize-commit", (payload) => {
@@ -139,6 +134,13 @@ function boot() {
     return { undoToken: true };
   });
 
+  register("element-color-read", (payload) => {
+    if (!payload || !payload.hypId) {
+      throw new Error("element-color-read: missing hypId");
+    }
+    return readElementColors(payload.hypId);
+  });
+
   // Comments: load existing island before emitting ready
   const existingIsland = document.getElementById("hyp-comments");
   let islandData = [];
@@ -156,7 +158,7 @@ function boot() {
     if (!payload || !payload.hypId || !payload.body || !payload.author) {
       throw new Error("add-comment: missing hypId, body, or author");
     }
-    return addComment(payload.hypId, payload.body, payload.author);
+    return addComment(payload.hypId, payload.body, payload.author, payload.agentInstruction === true);
   });
 
   register("reply-comment", (payload) => {
@@ -172,6 +174,13 @@ function boot() {
     }
     const resolved = payload.resolved !== undefined ? payload.resolved : true;
     return resolveComment(payload.commentId, resolved);
+  });
+
+  register("tag-agent", (payload) => {
+    if (!payload || !payload.commentId) {
+      throw new Error("tag-agent: missing commentId");
+    }
+    return setAgentInstruction(payload.commentId, payload.agentInstruction === true);
   });
 
   register("comments-read", () => {

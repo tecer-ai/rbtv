@@ -1,12 +1,13 @@
 import Coloris from "/app/js/vendor/coloris.min.js";
 import { createBridge } from "/app/js/bridge/bridge-parent.js";
-import { openFile } from "/app/js/shell/file-controls.js";
+import { openViaDialog } from "/app/js/shell/file-controls.js";
 import { createColorPopover } from "/app/js/shell/color-popover.js";
-import { saveAs } from "/app/js/api-client.js";
+import { openComposer } from "/app/js/shell/comment-composer.js";
+import { dialogSaveAs, save } from "/app/js/api-client.js";
 
 let bridge = null;
 let isDirty = false;
-let lastOpenedPath = "";
+
 let outlineRegions = [];
 let activeOutlineHypId = null;
 let undoBtn = null;
@@ -19,21 +20,6 @@ function setStatus(msg, type = "") {
   if (!el) return;
   el.textContent = msg;
   el.className = "shell-status" + (type ? " " + type : "");
-}
-
-function deriveSaveDefault(openPath) {
-  if (!openPath) return "";
-  const sep = openPath.lastIndexOf("\\") >= 0 ? "\\" : "/";
-  const idx = openPath.lastIndexOf(sep);
-  const dir = idx >= 0 ? openPath.slice(0, idx) : "";
-  const name = idx >= 0 ? openPath.slice(idx + 1) : openPath;
-  let defaultName;
-  if (/\.html$/i.test(name)) {
-    defaultName = name.replace(/\.html$/i, "-edited.html");
-  } else {
-    defaultName = name + "-edited.html";
-  }
-  return dir ? dir + sep + defaultName : defaultName;
 }
 
 function getAuthorName() {
@@ -125,21 +111,26 @@ function createThreadEl(thread, isUnanchored = false) {
   const replyBtn = document.createElement("button");
   replyBtn.className = "comment-action-btn";
   replyBtn.textContent = "Reply";
-  replyBtn.addEventListener("click", async (e) => {
+  replyBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    const text = prompt("Reply:");
-    if (!text || !text.trim()) return;
     const author = getAuthorName();
-    try {
-      await bridge.command("reply-comment", {
-        commentId: thread.id,
-        body: text.trim(),
-        author,
-      });
-      await refreshCommentPanel();
-    } catch (err) {
-      console.error("Reply failed:", err.message);
-    }
+    openComposer({
+      rect: thread.rect || null,
+      mode: "reply",
+      commentId: thread.id,
+      onSubmit: async (text) => {
+        try {
+          await bridge.command("reply-comment", {
+            commentId: thread.id,
+            body: text,
+            author,
+          });
+          await refreshCommentPanel();
+        } catch (err) {
+          console.error("Reply failed:", err.message);
+        }
+      },
+    });
   });
   actions.appendChild(replyBtn);
 
@@ -159,6 +150,28 @@ function createThreadEl(thread, isUnanchored = false) {
     }
   });
   actions.appendChild(resolveBtn);
+
+  const agentLabel = document.createElement("label");
+  agentLabel.className = "comment-agent-toggle";
+  const agentCb = document.createElement("input");
+  agentCb.type = "checkbox";
+  agentCb.checked = thread.agentInstruction === true;
+  agentCb.addEventListener("click", (e) => e.stopPropagation());
+  agentCb.addEventListener("change", async (e) => {
+    e.stopPropagation();
+    try {
+      await bridge.command("tag-agent", {
+        commentId: thread.id,
+        agentInstruction: agentCb.checked,
+      });
+      await refreshCommentPanel();
+    } catch (err) {
+      console.error("tag-agent failed:", err.message);
+    }
+  });
+  agentLabel.appendChild(agentCb);
+  agentLabel.appendChild(document.createTextNode(" For agents"));
+  actions.appendChild(agentLabel);
 
   div.appendChild(actions);
 
@@ -325,20 +338,13 @@ document.addEventListener("DOMContentLoaded", () => {
   })();
 
   const openBtn = document.querySelector("#open-btn");
-  const pathInput = document.querySelector("#open-path-input");
-  const saveAsInput = document.querySelector("#save-as-path-input");
-  if (!openBtn || !pathInput) {
+  if (!openBtn) {
     console.error("Open control not found");
   } else {
     openBtn.addEventListener("click", async () => {
-      const path = pathInput.value.trim();
-      if (!path) return;
-      lastOpenedPath = path;
-      if (saveAsInput) {
-        saveAsInput.value = deriveSaveDefault(path);
-      }
       try {
-        await openFile(path, iframe);
+        const result = await openViaDialog(iframe);
+        if (!result) return; // cancelled
         ensureBridge(iframe);
         setStatus("");
       } catch (err) {
@@ -348,34 +354,55 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  const saveAsBtn = document.querySelector("#save-as-btn");
-  if (saveAsBtn && saveAsInput) {
-    saveAsBtn.addEventListener("click", async () => {
-      if (!bridge) {
-        setStatus("No document open.", "error");
-        return;
-      }
-      const path = saveAsInput.value.trim();
-      if (!path) {
-        setStatus("Please enter a save path.", "error");
-        return;
-      }
-      let result;
+  async function serializeDoc() {
+    if (!bridge) { setStatus("No document open.", "error"); return null; }
+    let result;
+    try {
+      result = await bridge.command("serialize");
+    } catch (err) {
+      setStatus("Serialize failed: " + err.message, "error");
+      return null;
+    }
+    if (!result || result.html == null) {
+      setStatus("Document serialization returned null.", "error");
+      return null;
+    }
+    return result.html;
+  }
+
+  const saveBtn = document.querySelector("#save-btn");
+  if (saveBtn) {
+    saveBtn.addEventListener("click", async () => {
+      const html = await serializeDoc();
+      if (html == null) return;
       try {
-        result = await bridge.command("serialize");
+        const data = await save(html);
+        if (data && data.no_open_file) {
+          // No file open yet → fall back to Save As dialog.
+          const sa = await dialogSaveAs(html);
+          if (sa && sa.cancelled) return;
+          isDirty = false; document.title = "hypresent";
+          setStatus("Saved to " + (sa.path || ""), "success");
+          return;
+        }
+        isDirty = false; document.title = "hypresent";
+        setStatus("Saved to " + (data.path || ""), "success");
       } catch (err) {
-        setStatus("Serialize failed: " + err.message, "error");
-        return;
+        setStatus("Save failed: " + err.message, "error");
       }
-      if (!result || result.html == null) {
-        setStatus("Document serialization returned null.", "error");
-        return;
-      }
+    });
+  }
+
+  const saveAsBtn = document.querySelector("#save-as-btn");
+  if (saveAsBtn) {
+    saveAsBtn.addEventListener("click", async () => {
+      const html = await serializeDoc();
+      if (html == null) return;
       try {
-        const data = await saveAs(path, result.html);
-        isDirty = false;
-        document.title = "hypresent";
-        setStatus("Saved to " + (data.path || path), "success");
+        const data = await dialogSaveAs(html);
+        if (data && data.cancelled) return; // user cancelled
+        isDirty = false; document.title = "hypresent";
+        setStatus("Saved to " + (data.path || ""), "success");
       } catch (err) {
         setStatus("Save failed: " + err.message, "error");
       }
@@ -420,7 +447,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Wire toolbar comment button
+  // Wire toolbar comment button → anchored composer popover (F5)
   const commentBtn = document.getElementById("comment-btn");
   if (commentBtn) {
     commentBtn.addEventListener("click", async () => {
@@ -436,19 +463,24 @@ document.addEventListener("DOMContentLoaded", () => {
         alert("Select an element first to add a comment.");
         return;
       }
-      const body = prompt("Comment:");
-      if (!body || !body.trim()) return;
       const author = getAuthorName();
-      try {
-        await bridge.command("add-comment", {
-          hypId: sel.hypId,
-          body: body.trim(),
-          author,
-        });
-        await refreshCommentPanel();
-      } catch (err) {
-        console.error("Add comment failed:", err.message);
-      }
+      openComposer({
+        rect: sel.rect || null,
+        mode: "new",
+        onSubmit: async (text, agentInstruction) => {
+          try {
+            await bridge.command("add-comment", {
+              hypId: sel.hypId,
+              body: text,
+              author,
+              agentInstruction,
+            });
+            await refreshCommentPanel();
+          } catch (err) {
+            console.error("Add comment failed:", err.message);
+          }
+        },
+      });
     });
   }
 

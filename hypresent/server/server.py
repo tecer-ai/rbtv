@@ -3,6 +3,7 @@
 import http.server
 import json
 import mimetypes
+import os
 import pathlib
 import sys
 from urllib.parse import unquote
@@ -134,11 +135,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
             body = self.rfile.read(length)
             payload = json.loads(body) if body else {}
 
+            if path == "/api/_test/set-dialog" and os.environ.get("HYP_TEST_DIALOG") == "1":
+                # Test seam: install a fake dialog launcher returning a fixed path (or None).
+                fake_path = payload.get("path")  # null => cancel
+                api.set_dialog_launcher(lambda kind: fake_path)
+                self._send_json(200, {"ok": True})
+                return
+
             if path == "/api/open":
                 status, resp = api.handle_open(payload)
                 self._send_json(status, resp)
             elif path == "/api/save-as":
                 status, resp = api.handle_save_as(payload)
+                self._send_json(status, resp)
+            elif path == "/api/dialog-open":
+                status, resp = api.handle_dialog_open()
+                self._send_json(status, resp)
+            elif path == "/api/dialog-save-as":
+                status, resp = api.handle_dialog_save_as(payload)
+                self._send_json(status, resp)
+            elif path == "/api/save":
+                status, resp = api.handle_save(payload)
                 self._send_json(status, resp)
             else:
                 self._send_json(404, {"error": "Not found"})

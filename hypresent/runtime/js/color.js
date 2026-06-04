@@ -13,8 +13,8 @@
  * property name, e.g. 'background').
  */
 
-import { idOf } from "./element-registry.js";
-import { colorToken, colorElement } from "./commands.js";
+import { byId, idOf } from "./element-registry.js";
+import { colorToken, colorElement, colorBorder } from "./commands.js";
 import { push as historyPush } from "./history.js";
 
 // --- Constants ---
@@ -159,6 +159,43 @@ export function applyToken(name, value) {
 }
 
 export function applyElement(hypId, prop, value) {
-  const cmd = colorElement(hypId, prop, value);
-  historyPush(cmd);
+  if (prop === "border-color") {
+    historyPush(colorBorder(hypId, value));
+    return;
+  }
+  historyPush(colorElement(hypId, prop, value));
+}
+
+function rgbToHex(rgb) {
+  // Accept "rgb(r, g, b)" / "rgba(r, g, b, a)"; return #rrggbb (ignore alpha).
+  const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(rgb || "");
+  if (!m) return rgb || "";
+  const h = (n) => parseInt(n, 10).toString(16).padStart(2, "0");
+  return `#${h(m[1])}${h(m[2])}${h(m[3])}`;
+}
+
+export function readElementBorder(hypId) {
+  const el = byId(hypId);
+  if (!el) return { color: "", mixed: false };
+  const cs = getComputedStyle(el);
+  const SIDES = ["top", "right", "bottom", "left"];
+  const colors = SIDES.map((s) => cs.getPropertyValue(`border-${s}-color`).trim());
+  const mixed = new Set(colors).size > 1;
+  return { color: mixed ? "" : rgbToHex(colors[0]), mixed };
+}
+
+export function readElementColors(hypId) {
+  const el = byId(hypId);
+  if (!el) return { color: "", background: "", borderColor: "", borderMixed: false };
+  const inline = el.style;
+  const border = readElementBorder(hypId);
+  return {
+    color: inline.getPropertyValue("color") || "",
+    background:
+      inline.getPropertyValue("background-color") ||
+      inline.getPropertyValue("background") ||
+      "",
+    borderColor: border.color,
+    borderMixed: border.mixed,
+  };
 }
