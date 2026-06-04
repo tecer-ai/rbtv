@@ -1,0 +1,113 @@
+================================================================================
+V3-T2b TEST RUN EVIDENCE
+================================================================================
+Date: 2026-06-04
+Command (R2): python -m unittest discover -s tests/e2e -p "test_r2_*.py" -v
+Command (F2): python -m unittest discover -s tests/e2e -p "test_f2_*.py" -v
+
+================================================================================
+R2 SUITE OUTPUT (server :8792)
+================================================================================
+test_control_box_aligns_with_target (test_r2_resize_real.R2ResizeRealTests.test_control_box_aligns_with_target) ... FAIL
+test_handle_is_hittable (test_r2_resize_real.R2ResizeRealTests.test_handle_is_hittable) ... ok
+test_move_changes_translate_by_delta (test_r2_resize_real.R2ResizeRealTests.test_move_changes_translate_by_delta) ... FAIL
+test_no_console_errors (test_r2_resize_real.R2ResizeRealTests.test_no_console_errors) ... ok
+test_reorder_changes_dom_index (test_r2_resize_real.R2ResizeRealTests.test_reorder_changes_dom_index) ... FAIL
+test_resize_changes_geometry (test_r2_resize_real.R2ResizeRealTests.test_resize_changes_geometry) ... ok
+test_resize_twice (test_r2_resize_real.R2ResizeRealTests.test_resize_twice) ... ok
+
+======================================================================
+FAIL: test_control_box_aligns_with_target (test_r2_resize_real.R2ResizeRealTests.test_control_box_aligns_with_target)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\henri\Documents\second-brain\3-resources\tools\rbtv\hypresent\tests\e2e\test_r2_resize_real.py", line 267, in test_control_box_aligns_with_target
+    self.assertLessEqual(abs(alignment["dx"]), 8,
+AssertionError: 22 not less than or equal to 8 : control-box left 102px is >8px from target left 80px (coordinate frame regression)
+
+======================================================================
+FAIL: test_move_changes_translate_by_delta (test_r2_resize_real.R2ResizeRealTests.test_move_changes_translate_by_delta)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\henri\Documents\second-brain\3-resources\tools\rbtv\hypresent\tests\e2e\test_r2_resize_real.py", line 202, in test_move_changes_translate_by_delta
+    self.assertTrue(after.strip() != "", f"body drag did not write style.translate (got {after!r})")
+AssertionError: False is not true : body drag did not write style.translate (got '')
+
+======================================================================
+FAIL: test_reorder_changes_dom_index (test_r2_resize_real.R2ResizeRealTests.test_reorder_changes_dom_index)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\henri\Documents\second-brain\3-resources\tools\rbtv\hypresent\tests\e2e\test_r2_resize_real.py", line 248, in test_reorder_changes_dom_index
+    self.assertNotEqual(
+AssertionError: 0 == 0 : a real drag of one sibling over its neighbor must change its DOM index (reorder dead): 0 -> 0
+
+----------------------------------------------------------------------
+Ran 7 tests in 17.337s
+
+FAILED (failures=3)
+
+================================================================================
+F2 SUITE OUTPUT (server :8782)
+================================================================================
+test_click_mounts_wrapper_control_box_and_ring (test_f2_select_guides.F2SelectGuidesTests.test_click_mounts_wrapper_control_box_and_ring) ... ok
+test_double_click_edits_and_escape_resumes (test_f2_select_guides.F2SelectGuidesTests.test_double_click_edits_and_escape_resumes) ... ERROR
+test_drag_shows_guidelines (test_f2_select_guides.F2SelectGuidesTests.test_drag_shows_guidelines) ... ERROR
+test_escape_and_empty_click_deselect (test_f2_select_guides.F2SelectGuidesTests.test_escape_and_empty_click_deselect) ... FAIL
+test_no_console_errors_on_select (test_f2_select_guides.F2SelectGuidesTests.test_no_console_errors_on_select) ... ok
+test_resize_shows_guidelines (test_f2_select_guides.F2SelectGuidesTests.test_resize_shows_guidelines) ... ok
+test_selection_has_resize_handles (test_f2_select_guides.F2SelectGuidesTests.test_selection_has_resize_handles) ... ok
+test_switch_selection_keeps_one_wrapper (test_f2_select_guides.F2SelectGuidesTests.test_switch_selection_keeps_one_wrapper) ... ok
+
+======================================================================
+ERROR: test_double_click_edits_and_escape_resumes (test_f2_select_guides.F2SelectGuidesTests.test_double_click_edits_and_escape_resumes)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\henri\Documents\second-brain\3-resources\tools\rbtv\hypresent\tests\e2e\test_f2_select_guides.py", line 215, in test_double_click_edits_and_escape_resumes
+    title.dblclick()
+  ...
+playwright._impl._errors.TimeoutError: Locator.dblclick: Timeout 30000ms exceeded.
+Call log:
+  ...
+  - <div class="moveable-control moveable-origin"></div> from <div id="hyp-interaction-wrapper" class="hyp-interaction-wrapper">…</div> subtree intercepts pointer events
+
+======================================================================
+ERROR: test_drag_shows_guidelines (test_f2_select_guides.F2SelectGuidesTests.test_drag_shows_guidelines)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\henri\Documents\second-brain\3-resources\tools\rbtv\hypresent\tests\e2e\test_f2_select_guides.py", line 108, in test_drag_shows_guidelines
+    self.open_and_wait()
+  File "C:\Users\henri\Documents\second-brain\3-resources\tools\rbtv\hypresent\tests\e2e\test_f2_select_guides.py", line 49, in open_and_wait
+    H.open_via_dialog_ui(self.page, self.base, self.copy)
+  File "C:\Users\henri\Documents\second-brain\3-resources\tools\rbtv\hypresent\tests\e2e\conftest_helpers.py", line 74, in open_via_dialog_ui
+    wait_runtime_ready(page)
+  File "C:\Users\henri\Documents\second-brain\3-resources\tools\rbtv\hypresent\tests\e2e\conftest_helpers.py", line 79, in wait_runtime_ready
+    page.wait_for_function(
+  ...
+playwright._impl._errors.TimeoutError: Page.wait_for_function: Timeout 8000ms exceeded.
+
+======================================================================
+FAIL: test_escape_and_empty_click_deselect (test_f2_select_guides.F2SelectGuidesTests.test_escape_and_empty_click_deselect)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\henri\Documents\second-brain\3-resources\tools\rbtv\hypresent\tests\e2e\test_f2_select_guides.py", line 256, in test_escape_and_empty_click_deselect
+    self.assertEqual(wrapper_count, 0, "Escape should remove wrapper")
+AssertionError: 1 != 0 : Escape should remove wrapper
+
+----------------------------------------------------------------------
+Ran 8 tests in 55.583s
+
+FAILED (failures=1, errors=2)
+
+================================================================================
+CHECKLIST
+================================================================================
+[ ] dispatchEvent count in test_r2_resize_real.py ............ 0  PASS
+[ ] dispatchEvent count in test_f2_select_guides.py .......... 0  PASS
+[ ] skipTest count in test_f2_select_guides.py ............... 0  (D25 conditional skip not reached; test failed earlier)
+[ ] skipTest count in test_r2_resize_real.py ................. 0  PASS
+[ ] git diff file list (modified by this session) ............ tests/e2e/test_f2_select_guides.py, tests/e2e/test_r2_resize_real.py
+[ ] git status (pre-existing product changes) ................ changelog.md, runtime/js/interaction.js
+[ ] conftest_helpers.py modified ............................. NO
+
+================================================================================
+VERDICT: BLOCKING BUGS FOUND — v3-t2b-BUG.md written, execution stopped per D14.
+================================================================================

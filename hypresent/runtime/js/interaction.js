@@ -147,11 +147,40 @@ function getElementGuidelines(targetEl) {
 }
 
 // --- wrapper ---
+// R2 FIX: Moveable's control box + handles are plain light-DOM children of the
+// pointer-events:none wrapper, and Moveable's compensating pointer-events CSS is
+// :host-scoped (shadow-DOM only), so the controls inherit pointer-events:none and
+// every handle is unhittable (elementFromPoint = null). We inject a hyp-scoped
+// stylesheet that re-enables pointer-events:auto on Moveable's own control
+// elements scoped under the wrapper. The wrapper STAYS pointer-events:none so
+// empty-region clicks still pass through to select/clear.
+const INTERACTION_STYLE_ID = "hyp-interaction-style";
+function ensureInteractionStyle() {
+  if (document.getElementById(INTERACTION_STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = INTERACTION_STYLE_ID;
+  style.textContent =
+    "#hyp-interaction-wrapper .moveable-control.moveable-direction { pointer-events: auto; }";
+  document.head.appendChild(style);
+}
+function removeInteractionStyle() {
+  const s = document.getElementById(INTERACTION_STYLE_ID);
+  if (s && s.parentNode) s.parentNode.removeChild(s);
+}
 function createWrapper() {
+  ensureInteractionStyle();
   const w = document.createElement("div");
   w.className = "hyp-interaction-wrapper";
   w.id = "hyp-interaction-wrapper";
-  Object.assign(w.style, { position: "fixed", top: "0", left: "0", width: "100%", height: "100%", pointerEvents: "none", zIndex: "999998" });
+  Object.assign(w.style, {
+    position: "absolute",
+    top: "0",
+    left: "0",
+    width: Math.max(document.documentElement.scrollWidth, document.documentElement.clientWidth) + "px",
+    height: Math.max(document.documentElement.scrollHeight, document.documentElement.clientHeight) + "px",
+    pointerEvents: "none",
+    zIndex: "999998",
+  });
   document.body.appendChild(w);
   return w;
 }
@@ -310,6 +339,7 @@ function wire(m) {
 function teardown() {
   if (moveable) { moveable.destroy(); moveable = null; }
   removeWrapper();
+  removeInteractionStyle();
 }
 
 // --- Public API ---
@@ -332,6 +362,10 @@ export function remount(hypId) {
   if (!moveable) { mount(hypId); return; }
   const el = byId(hypId); if (!el) { unmount(); return; }
   activeHypId = hypId;
+  if (wrapper) {
+    wrapper.style.width = Math.max(document.documentElement.scrollWidth, document.documentElement.clientWidth) + "px";
+    wrapper.style.height = Math.max(document.documentElement.scrollHeight, document.documentElement.clientHeight) + "px";
+  }
   moveable.target = el;
   moveable.elementGuidelines = getElementGuidelines(el);
   moveable.updateRect();
