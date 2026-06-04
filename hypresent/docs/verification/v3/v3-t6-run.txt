@@ -1,0 +1,21 @@
+V3-T6 — R1 tests: ctypes OS z-order (real dialog) + in-process seam regression
+================================================================================
+Run date: 2026-06-04
+Command: python -m unittest discover -s tests/unit -p "test_r1_*.py" -v
+
+Result: 6 tests, all passed, 0 skipped
+
+--- seam regression (in-process, no PS) ---
+test_dialog_open_cancel (test_r1_dialog_seam.DialogSeamRegressionTests.test_dialog_open_cancel) ... ok
+test_dialog_open_returns_file (test_r1_dialog_seam.DialogSeamRegressionTests.test_dialog_open_returns_file) ... ok
+test_dialog_save_as_writes (test_r1_dialog_seam.DialogSeamRegressionTests.test_dialog_save_as_writes) ... ok
+test_ps_scripts_have_topmost_owner_and_no_showhelp (test_r1_dialog_seam.DialogSeamRegressionTests.test_ps_scripts_have_topmost_owner_and_no_showhelp) ... ok
+test_save_no_open_file (test_r1_dialog_seam.DialogSeamRegressionTests.test_save_no_open_file) ... ok
+
+--- z-order (real OS dialog via PowerShell -STA) ---
+test_real_open_dialog_is_topmost_and_foreground (test_r1_dialog_zorder.DialogZOrderTests.test_real_open_dialog_is_topmost_and_foreground) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.528s
+
+OK

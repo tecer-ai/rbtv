@@ -45,23 +45,47 @@ def set_dialog_launcher(fn):
 _OPEN_PS = r"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Windows.Forms
-$d = New-Object System.Windows.Forms.OpenFileDialog
-$d.Filter = 'HTML files (*.html;*.htm)|*.html;*.htm|All files (*.*)|*.*'
-$d.Title = 'Open Presentation'
-$d.ShowHelp = $true
-if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.FileName }
+# R1 (V3-S1): a hidden TopMost owner Form forces the dialog above the focused
+# Chrome window (the dialog inherits the owner's top-most band). The owner is
+# invisible (minimized, no taskbar, zero opacity) and disposed after.
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
+$owner.ShowInTaskbar = $false
+$owner.WindowState = 'Minimized'
+$owner.Opacity = 0
+$owner.Show()
+try {
+  $d = New-Object System.Windows.Forms.OpenFileDialog
+  $d.Filter = 'HTML files (*.html;*.htm)|*.html;*.htm|All files (*.*)|*.*'
+  $d.Title = 'Open Presentation'
+  if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.FileName }
+} finally {
+  $owner.Close()
+  $owner.Dispose()
+}
 """
 
 _SAVE_PS = r"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Windows.Forms
-$d = New-Object System.Windows.Forms.SaveFileDialog
-$d.Filter = 'HTML files (*.html;*.htm)|*.html;*.htm|All files (*.*)|*.*'
-$d.DefaultExt = 'html'
-$d.OverwritePrompt = $true
-$d.Title = 'Save As'
-$d.ShowHelp = $true
-if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.FileName }
+# R1 (V3-S1): hidden TopMost owner Form — see _OPEN_PS.
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
+$owner.ShowInTaskbar = $false
+$owner.WindowState = 'Minimized'
+$owner.Opacity = 0
+$owner.Show()
+try {
+  $d = New-Object System.Windows.Forms.SaveFileDialog
+  $d.Filter = 'HTML files (*.html;*.htm)|*.html;*.htm|All files (*.*)|*.*'
+  $d.DefaultExt = 'html'
+  $d.OverwritePrompt = $true
+  $d.Title = 'Save As'
+  if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.FileName }
+} finally {
+  $owner.Close()
+  $owner.Dispose()
+}
 """
 
 

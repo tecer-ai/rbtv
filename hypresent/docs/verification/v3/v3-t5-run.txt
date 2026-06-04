@@ -1,0 +1,38 @@
+V3-T5 R1 verification run
+=========================
+Date: 2026-06-04
+
+1. py_compile check
+   python -c "import py_compile; py_compile.compile('server/api.py', doraise=True); print('OK')"
+   → OK
+
+2. PS string assertions (via tmp_verify_v3t5.py to avoid PowerShell $-expansion issues)
+   - ShowHelp NOT in _OPEN_PS: True
+   - ShowHelp NOT in _SAVE_PS: True
+   - '$d.ShowDialog($owner)' in _OPEN_PS: True
+   - '$d.ShowDialog($owner)' in _SAVE_PS: True
+   - 'TopMost = $true' in _OPEN_PS: True
+   - 'TopMost = $true' in _SAVE_PS: True
+   → R1 PS OK
+
+3. Injected-launcher seam (no PowerShell)
+   python -c "import sys; sys.path.insert(0,'server'); import api; api.set_dialog_launcher(lambda k: None); print(api.handle_dialog_open())"
+   → (200, {'cancelled': True})
+
+4. handle_save with no open file
+   python -c "import sys; sys.path.insert(0,'server'); import api; print(api.handle_save({'html':'x'}))"
+   → (200, {'no_open_file': True})
+
+5. Untouched symbols check
+   - _run_ps_dialog_default: present
+   - _ps_args: present, returns [-STA, -NoProfile, -NonInteractive, -Command, <script>]
+   - candidates list ('pwsh', 'powershell.exe'): present in _run_ps_dialog_default
+   - _launch_dialog: present
+   - All handlers (handle_open, handle_save_as, handle_dialog_open, handle_dialog_save_as, handle_save): present
+   → Symbols OK
+
+6. git diff server/api.py
+   Only _OPEN_PS and _SAVE_PS constants changed (added hidden TopMost owner Form,
+   passed to ShowDialog, removed ShowHelp). No other lines modified.
+
+Result: PASS
