@@ -1,0 +1,38 @@
+V3-T12 Verification Evidence
+============================
+
+1. node --check app/js/shell/color-popover.js
+   Result: PASS (exit code 0)
+
+2. Header markup contains exact D18 title:
+   Found: <span class="hyp-token-info" title="Changing a palette token recolors every element using that color across the whole document.">ⓘ</span>
+   Result: PASS
+
+3. Token-row template contains copy button with data-hex:
+   Found: const hex = token.hex || token.value;
+   Found: <button type="button" class="hyp-token-copy" data-hex="${escapeHtml(hex)}" title="Copy HEX" aria-label="Copy ${token.name} hex">⧉</button>
+   Result: PASS
+
+4. Delegated click handler on container:
+   Found: container.addEventListener("click", (event) => { ... navigator.clipboard.writeText(hex) ... })
+   Found: btn.classList.add("hyp-token-copied");
+   Found: btn.title = "Copied!";
+   Result: PASS
+
+5. Style block contains new rules:
+   Found: .hyp-token-info { ... }
+   Found: .hyp-token-copy { ... }
+   Found: .hyp-token-copy:hover { color: #555; }
+   Found: .hyp-token-copied { color: #16a34a !important; }
+   Result: PASS
+
+6. Existing change listener unchanged:
+   Found: container.addEventListener("change", (event) => { ... })
+   Result: PASS
+
+7. Git diff scope (this task's changes):
+   Only app/js/shell/color-popover.js was modified for V3-T12.
+   Pre-existing V3-T11 changes in runtime/js/color.js and changelog.md are dependencies.
+   Result: PASS
+
+All acceptance criteria verified.

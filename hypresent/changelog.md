@@ -139,7 +139,7 @@
 | R1 | Native open/save dialogs appear on top of the browser window (currently behind) | ☑ commit `7453237` — TopMost owner Form; seam 5/5; z-order test exercises on interactive runs (D28: 10-sec user smoke at close-out) |
 | R2 | Resize works via real handle drag (handles render; drag is dead) | ☑ commit `7e43d21` — resize+move+reorder revived; R2 7/7 + F2 8/8 real-input green |
 | R3 | Element deletion exists (UX per question round) | ☑ commit `18cb82e` — 🗑 toolbar-only, full undo, threads unanchor + re-anchor on undo; 7/7 green |
-| R4 | `#color-btn` 🎨 function identified → owner keep/remove decision executed | ☐ |
+| R4 | `#color-btn` 🎨 function identified → owner keep/remove decision executed | ☑ commit `40a5a0f` — removed per U11; lock test 3/3 |
 | R5 | Palette-token tooltip: explains doc-wide recolor | ☐ |
 | R6 | Per-token discreet copy-HEX button | ☐ |
 | R7 | Text alignment controls (H + V within the element's box) | ☐ |
@@ -244,3 +244,5 @@
 | 127 | 2026-06-04 | Claude sub-agent | result | **C4 COMMITTED: `18cb82e`** — 11 files (+903/−5); tree clean; sample never staged; no remote contact. Scorecard R3 ☑. **C5 opens:** V3-T9 (R4: remove `#color-btn` + its toolbar-group wrapper from index.html; remove handler block from main.js; per U11). |
 | 128 | 2026-06-04 | Kimi | result | V3-T9 PASS (exit 0). Gate: pure deletions confined to the 2 files (index.html −3 button+wrapper, main.js −15 handler); ZERO `color-btn` residue in `app/` (grep). Plan: T9 ☑. |
 | 129 | 2026-06-04 | Kimi | dispatch | V3-T10 (C5 test): NEW `test_r4_color_btn_removed.py` :8794 under D29 — button null, no empty toolbar group, color UI (palette + element rows) still fully functional. |
+| 130 | 2026-06-04 | Kimi | test | V3-T10 GREEN: 3/3 OK in 2.1s (D29 sound, 0 skips). Plan: T9 ☑, T10 ☑. |
+| 131 | 2026-06-04 | Claude sub-agent | result | **C5 COMMITTED: `40a5a0f`** — 6 files (+127/−19); tree clean; no remote contact. Scorecard R4 ☑. **C6 opens:** V3-T11 (R6 data: export `rgbToHex`, add `normalizeHex` w/ DOM-attached probe per RV11, `token.hex` in `readPalette`; allowlist `runtime/js/color.js`). |

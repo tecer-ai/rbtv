@@ -1,0 +1,18 @@
+V3-T13 evidence
+===============
+
+Test suite: R5 token tooltip (port 8795)
+Command: python -m unittest discover -s tests/e2e -p "test_r5_*.py" -v
+Ran 3 tests in 9852 ms
+EXIT code: 0
+SKIPPED_LINES_COUNT: 0
+
+Test suite: R6 copy-HEX (port 8796)
+Command: python -m unittest discover -s tests/e2e -p "test_r6_*.py" -v
+Ran 4 tests in 3195 ms
+EXIT code: 0
+SKIPPED_LINES_COUNT: 0
+
+Files created (allowlist):
+- tests/e2e/test_r5_token_tooltip.py
+- tests/e2e/test_r6_copy_hex.py
