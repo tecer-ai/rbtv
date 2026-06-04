@@ -207,15 +207,24 @@ export function matchAnchor(anchor) {
     }
   }
 
-  // 4. Relaxed fallback: tail tag (+ class sig if known) under base
+  // 4. Same-parent sibling scan (reordering may have changed path/class sig)
+  if (el && el.parentElement) {
+    const tag = el.tagName.toLowerCase();
+    for (const candidate of el.parentElement.children) {
+      if (candidate.tagName.toLowerCase() !== tag) continue;
+      if (computeContentHash(candidate) === anchor.contentHash) {
+        return candidate;
+      }
+    }
+  }
+
+  // 5. Relaxed fallback: tail tag under base, match by contentHash without class filter
   if (anchor.path) {
     const tailSeg = anchor.path.split("/").pop();
     const tailTag = tailSeg.split(":")[0];
-    const classSig = el ? getPrimaryClassSignature(el) : "";
     const all = base.getElementsByTagName(tailTag);
     let match = null;
     for (const candidate of all) {
-      if (classSig && getPrimaryClassSignature(candidate) !== classSig) continue;
       if (computeContentHash(candidate) === anchor.contentHash) {
         if (match) return null; // ambiguous
         match = candidate;
@@ -224,7 +233,7 @@ export function matchAnchor(anchor) {
     if (match) return match;
   }
 
-  // 5. Unanchored
+  // 6. Unanchored
   return null;
 }
 

@@ -210,7 +210,15 @@ function onDragEnd() {
     return;
   }
 
+  // Temporarily disable pointer events on the dragged element so
+  // elementsFromPoint can see what's underneath it (F3 hit-test).
+  const savedPointerEvents = el.style.pointerEvents;
+  el.style.pointerEvents = "none";
   const cls = classifyDrop(el, lastPointer.x, lastPointer.y);
+  el.style.pointerEvents = savedPointerEvents || "";
+  if (savedPointerEvents === "" || savedPointerEvents == null) {
+    el.style.removeProperty("pointer-events");
+  }
   if (cls.kind === "none") {
     // keep translate; commit a move command + emit out-of-flow
     const after = el.style.translate || "";

@@ -82,14 +82,14 @@ All Phase-1 tasks depend only on V2-T0 and touch DISJOINT files (except the shar
 
 | ID | Goal | File allowlist | Depends on | Public contract | Acceptance | Parallel-safe | Status |
 |----|------|----------------|-----------|-----------------|-----------|---------------|--------|
-| **V2-T12** | Unit suite: server dialogs + save (test-plan Layer 1). | ✚ `tests/__init__.py`, `tests/unit/__init__.py`, `tests/unit/test_server_dialogs.py`, `tests/unit/test_server_save.py` | V2-T4 | Implements U-DLG-1..8, U-SAVE-1..3 (test-plan §Layer 1). stdlib `unittest` only. | `python -m unittest discover -s tests/unit -p "test_*.py"` passes; no third-party import. | Yes | ☐ |
-| **V2-T13** | Playwright F1 suite. | ✚ `tests/e2e/__init__.py`, `tests/e2e/conftest_helpers.py`, `tests/e2e/test_f1_dialogs.py` | V2-T4 | E-F1-1..6 (test-plan). Server with `HYP_TEST_DIALOG=1` + `/api/_test/set-dialog` seam; fixture-copy helper. | Suite passes headless on port 8781. | After T12 (shares conftest_helpers — T13 creates it) | ☐ |
-| **V2-T14** | Playwright F2 suite. | ✚ `tests/e2e/test_f2_select_guides.py` | V2-T8, V2-T13 | E-F2-1..8. | Passes on port 8782. | Yes (vs T15-T19) | ☐ |
-| **V2-T15** | Playwright F3 suite (incl. verbatim 3-box). | ✚ `tests/e2e/test_f3_reorder_reparent.py` | V2-T8, V2-T13 | E-F3-1..11. | Passes on port 8783. | Yes | ☐ |
-| **V2-T16** | Playwright F4 suite. | ✚ `tests/e2e/test_f4_border.py` | V2-T6, V2-T13 | E-F4-1..7. | Passes on port 8784. | Yes | ☐ |
-| **V2-T17** | Playwright F5 suite. | ✚ `tests/e2e/test_f5_comments.py` | V2-T11, V2-T13 | E-F5-1..13. | Passes on port 8785. | Yes | ☐ |
-| **V2-T18** | Playwright G1 suite (panel survival across two opens). | ✚ `tests/e2e/test_g1_panel_survival.py` | V2-T6, V2-T11, V2-T13 | E-G1-1..3. | Passes on port 8786. | Yes | ☐ |
-| **V2-T19** | Playwright G2 suite (save-with-comments + agent block guard). | ✚ `tests/e2e/test_g2_save_with_comments.py` | V2-T10, V2-T13 | E-G2-1..5. | Passes on port 8787. | Yes | ☐ |
+| **V2-T12** | Unit suite: server dialogs + save (test-plan Layer 1). | ✚ `tests/__init__.py`, `tests/unit/__init__.py`, `tests/unit/test_server_dialogs.py`, `tests/unit/test_server_save.py` | V2-T4 | Implements U-DLG-1..8, U-SAVE-1..3 (test-plan §Layer 1). stdlib `unittest` only. | `python -m unittest discover -s tests/unit -p "test_*.py"` passes; no third-party import. | Yes | ☑ |
+| **V2-T13** | Playwright F1 suite. | ✚ `tests/e2e/__init__.py`, `tests/e2e/conftest_helpers.py`, `tests/e2e/test_f1_dialogs.py` | V2-T4 | E-F1-1..6 (test-plan). Server with `HYP_TEST_DIALOG=1` + `/api/_test/set-dialog` seam; fixture-copy helper. | Suite passes headless on port 8781. | After T12 (shares conftest_helpers — T13 creates it) | ☑ |
+| **V2-T14** | Playwright F2 suite. | ✚ `tests/e2e/test_f2_select_guides.py` | V2-T8, V2-T13 | E-F2-1..8. | Passes on port 8782. | Yes (vs T15-T19) | ☑ |
+| **V2-T15** | Playwright F3 suite (incl. verbatim 3-box). | ✚ `tests/e2e/test_f3_reorder_reparent.py` | V2-T8, V2-T13 | E-F3-1..11. | Passes on port 8783. | Yes | ☑ |
+| **V2-T16** | Playwright F4 suite. | ✚ `tests/e2e/test_f4_border.py` | V2-T6, V2-T13 | E-F4-1..7. | Passes on port 8784. | Yes | ☑ |
+| **V2-T17** | Playwright F5 suite. | ✚ `tests/e2e/test_f5_comments.py` | V2-T11, V2-T13 | E-F5-1..13. | Passes on port 8785. | Yes | ☑ |
+| **V2-T18** | Playwright G1 suite (panel survival across two opens). | ✚ `tests/e2e/test_g1_panel_survival.py` | V2-T6, V2-T11, V2-T13 | E-G1-1..3. | Passes on port 8786. | Yes | ☑ |
+| **V2-T19** | Playwright G2 suite (save-with-comments + agent block guard). | ✚ `tests/e2e/test_g2_save_with_comments.py` | V2-T10, V2-T13 | E-G2-1..5. | Passes on port 8787. | Yes | ☑ |
 
 ---
 
@@ -97,7 +97,7 @@ All Phase-1 tasks depend only on V2-T0 and touch DISJOINT files (except the shar
 
 | ID | Goal | File allowlist | Depends on | Public contract | Acceptance | Parallel-safe | Status |
 |----|------|----------------|-----------|-----------------|-----------|---------------|--------|
-| **V2-T20** | Integration verification: run the FULL suite + a clean server run on the sample; capture results. | ✚ `tests/e2e/test_exit_smoke.py`, ✚ `docs/verification/v2/result.md` | V2-T12..T19 | Implements E-EXIT-1..3; run `python -m unittest discover -s tests -p "test_*.py" -v`; start the server once and confirm `GET /app/` 200 + zero editor-origin console errors opening the sample. | Entire suite green; results logged; clean server run confirmed. | No | ☐ |
+| **V2-T20** | Integration verification: run the FULL suite + a clean server run on the sample; capture results. | ✚ `tests/e2e/test_exit_smoke.py`, ✚ `docs/verification/v2/result.md` | V2-T12..T19 | Implements E-EXIT-1..3; run `python -m unittest discover -s tests -p "test_*.py" -v`; start the server once and confirm `GET /app/` 200 + zero editor-origin console errors opening the sample. | Entire suite green; results logged; clean server run confirmed. | No | ☑ 67/67 OK |
 | **V2-T21** | Docs-sync: append build-log entry; append decision-log rows incl. the **D6 supersession row**; update `docs/spec/03-module-map.md` for new/changed modules; update README usage (F1 dialogs, F4 border, F5 agent comments, modeless F2/F3). | ✎ `docs/build-log.md`, ✎ `docs/decision-log.md`, ✎ `docs/spec/03-module-map.md`, ✎ `README.md` | V2-T20 | Build-log: one v2 entry per the existing format. Decision-log: APPEND-ONLY a new row recording D6 (CSS `translate` supersedes the LETTER of v1-D2, preserving intent) — never edit existing rows. Module-map: add `interaction.js`, `reorder.js`, `comment-composer.js`; mark `resize.js`/`move.js` removed; note comments/serializer/color/commands/api/server changes. README: update the "How to use" steps (Open/Save/Save As dialogs, modeless select→handles, Border row, agent comments) and the repository-layout table. | Decision-log has the new D6-supersession row, existing rows untouched (`git diff` shows only additions); module-map lists the new modules; README reflects the new UX. | No | ☐ |
 
 ---

@@ -12,14 +12,14 @@
 
 | ID | Improvement | Status |
 |----|-------------|--------|
-| F1 | Native open/save via OS file dialogs (no filepath typing) | ☐ |
-| F2 | Element resize reachable in UI + alignment guidelines (Google-Slides-style) | ☐ |
-| F3 | Element move reachable in UI + same-hierarchy reorder on overlap | ☐ |
-| F4 | Border/edge color editing | ☐ |
-| F5 | Agent comments: per-comment tag + non-rendering instructions at top of HTML | ☐ |
-| G1 | B-PANEL: verify already-applied fix + regression-lock by test (fix confirmed in source by orchestrator — `color-popover.js:21-26`) | ☐ |
-| G2 | B-SERIALIZE: verify already-applied fix + guard hardening for F5 agent block + regression-lock by test (fix confirmed in source — `serializer.js:234,242`) | ☐ |
-| EXIT | Kimi reports clean, error-free server run + automated tests pass on sample HTML | ☐ |
+| F1 | Native open/save via OS file dialogs (no filepath typing) | ☑ unit 12/12 + e2e 6/6 (`unit-run-01.txt`, `e2e-f1-run-01.txt`) |
+| F2 | Element resize reachable in UI + alignment guidelines (Google-Slides-style) | ☑ e2e 8/8 (`result.md`) |
+| F3 | Element move reachable in UI + same-hierarchy reorder on overlap (+ re-parenting, U4) | ☑ e2e 10/10 incl. verbatim 3-box scenario (`result.md`) |
+| F4 | Border/edge color editing (all-sides row + auto-1px on borderless, U6) | ☑ e2e 7/7 (`result.md`) |
+| F5 | Agent comments: per-comment tag + non-rendering instructions at top of HTML | ☑ e2e 13/13 (`result.md`) |
+| G1 | B-PANEL: verified fixed + regression-locked | ☑ `g1-confirm.md` + e2e 3/3 |
+| G2 | B-SERIALIZE: verified fixed + agent-block guard hardening + regression-locked | ☑ e2e 5/5 |
+| EXIT | Kimi reports clean, error-free server run + automated tests pass on sample HTML | ☑ **GREEN — 67/67, 0 failures, 0 skips; `GET /app/` 200; 0 editor console errors** (`result.md`) |
 
 ## Decision Register
 
@@ -99,3 +99,16 @@
 | 40 | 2026-06-03 | Kimi | result | V2-T11 PASS (exit 0). Gate: composer module created; main.js add (L117) + reply (L467) use `openComposer`; `tag-agent` wired; composer CSS present; sole surviving `prompt()` is the one-time author-name ask (intentional, D4). Plan: T11 ☑. |
 | 41 | 2026-06-03 | Kimi | result | V2-T8 PASS (exit 0). Gate: `interaction.js`+`reorder.js` created; `resize.js`/`move.js` deleted; selection observer registry live; R09 verified (interaction.js has zero selection.js imports); snappable/elementSnapDirections/threshold/reanchor present; no out-of-allowlist paths. Plan: T8 ☑. **PHASE 1 COMPLETE (T0–T11).** |
 | 42 | 2026-06-03 | Claude sub-agent | dispatch | Milestone commit C1 via `rbtv-commit` (local only, no push): all Phase-1 product code + session artifacts on `hypresent-v2`. |
+| 43 | 2026-06-03 | Claude sub-agent | result | C1 committed: `76c9ed1` — "feat(hypresent): Phase 1 v2 — native file I/O, modeless interaction, comments data layer, and session docs". 55 files (18M/2D/35A); deletions via `git rm`; sample untouched; no remote contact. |
+| 44 | 2026-06-03 | Kimi ×2 | dispatch | Phase 2 test wave: V2-T12 (unit: server dialogs+save) ∥ V2-T13 (e2e F1 + conftest_helpers + Playwright install). Test tasks may touch ONLY `tests/`; product bugs found by tests are REPORTED, not patched (allowlist gate enforces). |
+| 45 | 2026-06-03 | Orchestrator | decision | D12: Kimi `--quiet` final messages are unreliable as reports (STOP token only) → ALL Kimi run evidence goes to files under `docs/verification/v2/` (decoupled-state protocol), read by Registrar. |
+| 46 | 2026-06-03 | Kimi | test | V2-T12 PASS with evidence: unit suite 12/12 OK, EXITCODE=0 (`unit-run-01.txt`) — 9 dialog-seam + 3 save round-trip incl. HTTP-level save-no-open-file (R15). Gate: only `tests/` created. Plan: T12 ☑. |
+| 47 | 2026-06-03 | Orchestrator | decision | D13: per-suite e2e evidence verified once for T13 (foundation helpers), then T14–T19 in parallel; their individual pass evidence consolidated at V2-T20's full-suite run. |
+| 48 | 2026-06-03 | Kimi | test | V2-T13 PASS with evidence: e2e F1 suite 6/6 OK, EXITCODE=0 (`e2e-f1-run-01.txt`) — dialog open/cancel via seam, inputs removed, save round-trip; sample's local asset 404s are expected-allowed. Plan: T13 ☑. |
+| 49 | 2026-06-03 | Kimi ×6 | dispatch | e2e fan-out in parallel: V2-T14 (F2 guides, :8782), V2-T15 (F3 reorder/reparent, :8783), V2-T16 (F4 border, :8784), V2-T17 (F5 comments, :8785), V2-T18 (G1 panel, :8786), V2-T19 (G2 save+block, :8787). |
+| 50 | 2026-06-03 | Orchestrator | gate | ALLOWLIST VIOLATION surfaced+resolved: stray `inspect_fixture.py` (7-line read-only debug scratch, Kimi-created) at hypresent root. Sample integrity verified intact (0 `hyp-` artifacts; mtime 17:50 predates Kimi work). Stray removed by Registrar as gate enforcement. Tree clean. |
+| 51 | 2026-06-03 | Kimi ×6 | result | V2-T14–T19 all completed exit 0; all 8 e2e suite files + helpers in place. Per D13, individual pass evidence consolidates at V2-T20. |
+| 52 | 2026-06-03 | Orchestrator | gate | TWO out-of-allowlist product edits by test-wave workers, inspected and ACCEPTED as genuine fixes: (a) `interaction.js` — pointer-events toggled off during drop hit-test so `elementsFromPoint` sees beneath the dragged element (without it F3 never reorders); (b) `comments.js` — `matchAnchor` same-parent contentHash rescan (anchor survival after reorder, R14-in-practice). Known limitation logged: sibling scan takes first hash match — identical-text twin siblings could mis-anchor. Strays `test_server.py`/`test_server2.py` (seam probes) removed. |
+| 53 | 2026-06-03 | Orchestrator | decision | D14 (recurrence check, twice-seen pattern): all future Kimi dispatches carry a binding addendum — on blocking product bugs STOP and write a bug-report file (never patch outside allowlist); NEVER create files at the workspace root (scratch goes under a tempdir). |
+| 54 | 2026-06-03 | Kimi | test | **V2-T20 PASS — EXIT GATE GREEN.** Full suite 67/67 OK in 75.8s (12 unit + 55 e2e incl. exit smoke 3/3); 0 failures, 0 skips; clean server run (`/app/` 200, runtime served, 0 editor console errors; sample asset 404s expected-allowed). Evidence: `docs/verification/v2/result.md`. Plan: T14–T20 ☑. Scorecard F1–F5, G1, G2, EXIT all ☑. |
+| 55 | 2026-06-03 | Claude sub-agent | dispatch | Milestone commit C2 via `rbtv-commit` (local only): test suites, verification evidence, accepted product fixes (interaction.js pointer-events, comments.js matchAnchor), registrar docs. |
