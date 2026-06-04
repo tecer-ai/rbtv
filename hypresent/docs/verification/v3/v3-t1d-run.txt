@@ -1,0 +1,51 @@
+# V3-T1d Evidence — R2 edge-handle fix + regression lock + R2 suite re-run
+# Date: 2026-06-04
+
+## Rule diff (product)
+File: runtime/js/interaction.js
+--- old
++++ new
+@@ -160,7 +160,8 @@ function ensureInteractionStyle() {
+   const style = document.createElement("style");
+   style.id = INTERACTION_STYLE_ID;
+   style.textContent =
+-    "#hyp-interaction-wrapper .moveable-control.moveable-direction { pointer-events: auto; }";
++    "#hyp-interaction-wrapper .moveable-control.moveable-direction," +
++    "#hyp-interaction-wrapper .moveable-line.moveable-direction { pointer-events: auto; }";
+   document.head.appendChild(style);
+ }
+
+## Full verbatim unittest output
+```
+test_control_box_aligns_with_target (test_r2_resize_real.R2ResizeRealTests.test_control_box_aligns_with_target) ... ok
+test_edge_handle_resize_changes_geometry (test_r2_resize_real.R2ResizeRealTests.test_edge_handle_resize_changes_geometry) ... ok
+test_handle_is_hittable (test_r2_resize_real.R2ResizeRealTests.test_handle_is_hittable) ... ok
+test_move_changes_translate_by_delta (test_r2_resize_real.R2ResizeRealTests.test_move_changes_translate_by_delta) ... ok
+test_no_console_errors (test_r2_resize_real.R2ResizeRealTests.test_no_console_errors) ... ok
+test_reorder_changes_dom_index (test_r2_resize_real.R2ResizeRealTests.test_reorder_changes_dom_index) ... ok
+test_resize_changes_geometry (test_r2_resize_real.R2ResizeRealTests.test_resize_changes_geometry) ... ok
+test_resize_twice (test_r2_resize_real.R2ResizeRealTests.test_resize_twice) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 10.933s
+
+OK
+EXIT=0
+WALL_MS=11096
+```
+
+## Metrics
+WALL_MS=11096
+EXIT=0
+SKIPPED_LINES_COUNT=0
+
+## git-diff file list (allowlist only)
+runtime/js/interaction.js
+tests/e2e/test_r2_resize_real.py
+
+## Stray-cleanup note
+- Deleted tests/e2e/tmp_debug_sel.py (created during D30 debugging)
+- No stray tmp_debug_* files found at workspace root
+
+## STOP
+8/8 green. Task complete.

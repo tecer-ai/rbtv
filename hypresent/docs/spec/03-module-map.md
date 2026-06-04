@@ -38,17 +38,17 @@ hypresent/
 │  └─ js/
 │     ├─ runtime-main.js      # runtime bootstrap inside iframe; exposes window.hyp
 │     ├─ bridge-iframe.js     # iframe side of the protocol (cmd dispatch + event emit)
-│     ├─ element-registry.js  # detects editable elements, assigns/strips data-hyp-id
-│     ├─ selection.js         # current selection state + visual hyp- selection ring
+│     ├─ element-registry.js  # detects editable elements, assigns/strips data-hyp-id (regions() removed with the outline panel, R9)
+│     ├─ selection.js         # current selection state + visual hyp- selection ring; + `alignCaps` field on the `selection-changed` payload (R7 capability bridge)
 │     ├─ history.js           # unified command/inverse undo-redo stack (ALL ops)
-│     ├─ commands.js          # command factory: builds {do, undo} for each op type + `reorder`, `colorBorder`; `move` now writes the CSS `translate` property
+│     ├─ commands.js          # command factory: builds {do, undo} for each op type + `reorder`, `colorBorder`, `deleteElement`, `align`; `move` writes the CSS `translate` property
 │     ├─ text-edit.js         # contenteditable lifecycle (double-click → edit → commit)
-│     ├─ text-format.js       # bold/italic/font-size via execCommand + Selection
-│     ├─ interaction.js       # single combined Moveable (drag+resize+snap+Slides guides); on-drop hit-test → reorder/re-parent/keep-translate (FLIP); commits one history command. begin via `mount(hypId)`; `unmount/suspend/resume/remount`
+│     ├─ text-format.js       # bold/italic/font-size via execCommand + Selection (font-size: range snapshot/restore + tracked-span, R8); text alignment caps + apply (computeAlignCaps/applyAlign, R7)
+│     ├─ interaction.js       # single combined Moveable (drag+resize+snap+Slides guides); on-drop hit-test → reorder/re-parent/keep-translate (FLIP); injects a hyp-scoped style re-enabling pointer-events on Moveable controls (R2); begin via `mount(hypId)`; `unmount/suspend/resume/remount`
 │     ├─ reorder.js           # pure drop-classification helpers: `classifyDrop`, `isContainer`, `dominantAxis`, `midpointBefore`, `axisFromDisplay`
 │     ├─ resize.js            # flow-aware resize (Moveable) per D1 — REMOVED in v2 (folded into interaction.js)
 │     ├─ move.js              # transform-translate move (Moveable) per D2 + out-of-flow flag — REMOVED in v2 (folded into interaction.js)
-│     ├─ color.js             # palette token mutation + per-element + inline-style color (D6) + border-color routing (auto-1px, U6), `readElementBorder`/`readElementColors`
+│     ├─ color.js             # palette token mutation + per-element + inline-style color (D6) + border-color routing (auto-1px, U6), `readElementBorder`/`readElementColors`; + `rgbToHex` EXPORTED, `normalizeHex`, `token.hex` in `readPalette` (R6 copy-HEX)
 │     ├─ comments.js          # comment store, anchors, JSON island read/write (D4) + `agentInstruction` flag, `setAgentInstruction`, `buildAgentBlock`, `reanchorAfterMove`
 │     └─ serializer.js        # clone → strip ALL hyp chrome → re-embed island → guard → standalone html (A8/A11; no doc-body sanitizer) + agent-block head insertion + revised node-count guard (agentBlockCount + pre-existing-block sweep)
 ├─ docs/                     # specs, plan, decision log (this folder)
@@ -129,7 +129,7 @@ hypresent/
 ### runtime/js/element-registry.js — element detection + id tagging
 - **Purpose:** detect editable elements (per `02-html-convention.md` §1/§4), assign additive `data-hyp-id`, record original `contenteditable`/id state, resolve id↔node, and strip `data-hyp-id` on demand.
 - **Inputs:** the iframe `document`.
-- **Outputs:** `tag()`, `byId(hypId) → Element|null`, `idOf(el) → hypId`, `roleOf(el) → 'flex-child'|'grid-child'|'absolute'|'block'`, `regions() → [{hypId,label}]`, `stripIds(clone)`. NEVER mutates non-`hyp` attributes.
+- **Outputs:** `tag()`, `byId(hypId) → Element|null`, `idOf(el) → hypId`, `roleOf(el) → 'flex-child'|'grid-child'|'absolute'|'block'`, `stripIds(clone)`. NEVER mutates non-`hyp` attributes. (`regions()` was removed in v3 with the outline panel — R9.)
 
 ### runtime/js/selection.js — selection state
 - **Purpose:** track the selected element; draw a `hyp-`class selection ring; clear on demand.
