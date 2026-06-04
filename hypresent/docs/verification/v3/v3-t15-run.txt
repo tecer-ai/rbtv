@@ -1,0 +1,36 @@
+V3-T15 Evidence — R7 alignment matrix + capability payload + disabled-state
+================================================================================
+Date: 2026-06-04
+Command: python -m unittest discover -s tests/e2e -p "test_r7_*.py" -v
+Port: 8797
+
+METRICS
+-------
+WALL_CLOCK_MS: 71155
+EXIT_CODE: 1
+SKIPPED_LINES_COUNT: 0
+
+RESULTS
+-------
+Ran 9 tests in 70.989s
+FAILED (failures=4, errors=3)
+
+PASS (2):
+  test_no_console_errors
+  test_plain_block_vertical_disabled
+
+FAIL (4) — assertion mismatch, computed style unchanged after button press:
+  test_h_block_center_and_undo      → text-align stays 'start' (expected 'center')
+  test_flex_row                     → align-items stays 'normal' (expected 'center')
+  test_flex_column                  → align-items stays 'normal' (expected 'flex-end')
+  test_grid                         → justify-items stays 'normal' (expected 'center')
+
+ERROR (3) — timeout on disabled buttons + SyntaxError:
+  test_fixed_height_block_vertical  → #align-middle disabled on block;height:200px
+  test_table_cell                   → #align-bottom disabled on table-cell
+  test_align_caps_payload           → SyntaxError: Identifier 'win' has already been declared
+
+NOTE
+----
+Blocking product bugs identified. Full details in v3-t15-BUG.md.
+Product files were NOT modified per D14 addendum.

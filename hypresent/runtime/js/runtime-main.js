@@ -3,8 +3,8 @@ import { tag, regions, byId } from "./element-registry.js";
 import { select, clear, current, onSelectionChange } from "./selection.js";
 import { undo, redo, state, push as historyPush } from "./history.js";
 import { serialize } from "./serializer.js";
-import { apply as applyFormat, snapshotSelection as formatSnapshot } from "./text-format.js";
-import { resize as makeResizeCommand, move as makeMoveCommand, deleteElement as makeDeleteCommand } from "./commands.js";
+import { apply as applyFormat, snapshotSelection as formatSnapshot, applyAlign } from "./text-format.js";
+import { resize as makeResizeCommand, move as makeMoveCommand, deleteElement as makeDeleteCommand, align as makeAlignCommand } from "./commands.js";
 import { mount as interactionMount, unmount as interactionUnmount, remount as interactionRemount, isActive as interactionIsActive } from "./interaction.js";
 import { readPalette, applyToken, applyElement, readElementColors } from "./color.js";
 import {
@@ -121,6 +121,19 @@ function boot() {
     // R8: snapshot the live iframe Selection BEFORE the toolbar focus shift, so
     // font-size can restore it on the next apply() and bump one span repeatedly.
     formatSnapshot();
+    return { ok: true };
+  });
+
+  register("align", (payload) => {
+    if (!payload || !payload.axis || !payload.value) {
+      throw new Error("align: missing axis or value");
+    }
+    const info = current();
+    if (!info || !info.hypId) return { ok: false, reason: "no-selection" };
+    const el = byId(info.hypId);
+    if (!el) return { ok: false, reason: "not-found" };
+    const cmd = makeAlignCommand(info.hypId, () => applyAlign(el, payload.axis, payload.value));
+    historyPush(cmd);
     return { ok: true };
   });
 

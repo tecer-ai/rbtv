@@ -273,6 +273,9 @@ function ensureBridge(iframe) {
 
   bridge.on("selection-changed", (payload) => {
     setActiveOutline(payload && payload.hypId ? payload.hypId : null);
+    if (window.__hypUpdateAlignButtons) {
+      window.__hypUpdateAlignButtons(payload && payload.alignCaps ? payload.alignCaps : null);
+    }
   });
 
   bridge.on("dirty-changed", (payload) => {
@@ -441,6 +444,50 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
   }
+
+  // Wire the 6 alignment buttons (R7). Horizontal: left/center/right. Vertical:
+  // top/middle/bottom. Disabled state is set reactively from selection-changed.
+  const alignButtons = [
+    { id: "align-left", axis: "h", value: "left", vertical: false },
+    { id: "align-center", axis: "h", value: "center", vertical: false },
+    { id: "align-right", axis: "h", value: "right", vertical: false },
+    { id: "align-top", axis: "v", value: "top", vertical: true },
+    { id: "align-middle", axis: "v", value: "middle", vertical: true },
+    { id: "align-bottom", axis: "v", value: "bottom", vertical: true },
+  ];
+  for (const { id, axis, value } of alignButtons) {
+    const btn = document.getElementById(id);
+    if (!btn) continue;
+    btn.disabled = true; // disabled until something is selected
+    btn.addEventListener("click", () => {
+      if (!bridge) return;
+      bridge.command("align", { axis, value }).catch((err) => {
+        console.error("Align failed:", err.message);
+      });
+    });
+  }
+
+  function updateAlignButtons(caps) {
+    for (const { id, vertical } of alignButtons) {
+      const btn = document.getElementById(id);
+      if (!btn) continue;
+      if (!caps) {
+        btn.disabled = true;
+        btn.removeAttribute("title");
+        continue;
+      }
+      if (vertical) {
+        btn.disabled = !caps.vertical;
+        if (!caps.vertical) {
+          btn.title = "Vertical alignment needs a fixed-height, flex, grid, or table-cell element";
+        }
+      } else {
+        btn.disabled = !caps.horizontal;
+      }
+    }
+  }
+  // expose to the selection-changed handler below via a window-scoped ref
+  window.__hypUpdateAlignButtons = updateAlignButtons;
 
   // Wire toolbar delete button (R3): toolbar-only trigger (U14 — NO keyboard path).
   const deleteBtn = document.getElementById("delete-btn");

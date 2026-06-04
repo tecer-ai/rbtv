@@ -17,6 +17,7 @@
 
 import { byId, idOf, roleOf } from "./element-registry.js";
 import { emit } from "./bridge-iframe.js";
+import { computeAlignCaps } from "./text-format.js";
 
 // --- State ---
 
@@ -98,6 +99,7 @@ function buildInfo(el) {
     role: roleOf(el),
     rect: domRectToPlain(el.getBoundingClientRect()),
     isText: isTextEditable(el),
+    alignCaps: computeAlignCaps(el),
   };
 }
 

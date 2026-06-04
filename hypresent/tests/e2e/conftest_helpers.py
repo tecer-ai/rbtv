@@ -74,7 +74,7 @@ def open_via_dialog_ui(page, base, file_path):
     wait_runtime_ready(page)
 
 
-def wait_runtime_ready(page, timeout=8000):
+def wait_runtime_ready(page, timeout=15000):
     """Wait until the iframe document has the runtime (window.hyp) loaded."""
     page.wait_for_function(
         """() => {

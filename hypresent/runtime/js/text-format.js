@@ -237,3 +237,82 @@ export function apply(op) {
 
   return true;
 }
+
+// --- R7: text alignment (V3-S15..S17) ---
+// Horizontal is always available (text-align). Vertical depends on display:
+// flex/grid container, table-cell, or a fixed-height block. Plain auto-height
+// block → vertical disabled (never silently convert to flex; U13).
+
+function hasFixedHeight(el) {
+  const inline = el.style.height || el.style.minHeight;
+  if (inline && inline !== "auto" && parseFloat(inline) > 0) return true;
+  const cs = getComputedStyle(el);
+  return cs.minHeight !== "0px" && cs.minHeight !== "auto";
+}
+
+/** Capabilities + per-button CSS mapping for the selected element (V3-S17). */
+export function computeAlignCaps(el) {
+  if (!el) return { horizontal: false, vertical: false, hMap: null, vMap: null };
+  const cs = getComputedStyle(el);
+  const d = cs.display;
+  const fd = cs.flexDirection || "row";
+  const isFlex = d === "flex" || d === "inline-flex";
+  const isGrid = d === "grid" || d === "inline-grid";
+  const isCell = d === "table-cell";
+
+  // Horizontal mapping
+  let hMap;
+  if (isFlex) {
+    hMap = fd.startsWith("row")
+      ? { prop: "justifyContent", left: "flex-start", center: "center", right: "flex-end" }
+      : { prop: "alignItems", left: "flex-start", center: "center", right: "flex-end" };
+  } else if (isGrid) {
+    hMap = { prop: "justifyItems", left: "start", center: "center", right: "end" };
+  } else {
+    hMap = { prop: "textAlign", left: "left", center: "center", right: "right" };
+  }
+
+  // Vertical availability + mapping
+  let vertical = false;
+  let vMap = null;
+  if (isFlex) {
+    vertical = true;
+    vMap = fd.startsWith("row")
+      ? { prop: "alignItems", top: "flex-start", middle: "center", bottom: "flex-end" }
+      : { prop: "justifyContent", top: "flex-start", middle: "center", bottom: "flex-end" };
+  } else if (isGrid) {
+    vertical = true;
+    vMap = { prop: "alignItems", top: "start", middle: "center", bottom: "end" };
+  } else if (isCell) {
+    vertical = true;
+    vMap = { prop: "verticalAlign", top: "top", middle: "middle", bottom: "bottom" };
+  } else if (hasFixedHeight(el)) {
+    vertical = true;
+    // converts to a flex column (acceptable — the user already fixed the height)
+    vMap = { prop: "__flexColumn", top: "flex-start", middle: "center", bottom: "flex-end" };
+  }
+
+  return { horizontal: true, vertical, hMap, vMap };
+}
+
+/** Apply an alignment (axis 'h'|'v', value left/center/right or top/middle/bottom). */
+export function applyAlign(el, axis, value) {
+  if (!el) return;
+  const caps = computeAlignCaps(el);
+  if (axis === "h") {
+    const m = caps.hMap;
+    if (!m) return;
+    el.style[m.prop] = m[value];
+    return;
+  }
+  // vertical
+  if (!caps.vertical || !caps.vMap) return; // plain auto-height block → no-op (U13)
+  const m = caps.vMap;
+  if (m.prop === "__flexColumn") {
+    el.style.display = "flex";
+    el.style.flexDirection = "column";
+    el.style.justifyContent = m[value];
+    return;
+  }
+  el.style[m.prop] = m[value];
+}

@@ -330,6 +330,48 @@ export function deleteElement(hypId) {
 }
 
 /**
+ * Align command (R7, V3-S15). Captures the prior inline values of EVERY
+ * alignment property the apply logic may write, for exact undo (capture-all,
+ * like colorBorder). The apply itself lives in text-format.applyAlign (imported
+ * by runtime-main and called there); this factory only captures + restores.
+ *
+ * @param {string} hypId
+ * @param {function} applyFn  () => void  (closure that calls applyAlign(el,axis,value))
+ */
+export function align(hypId, applyFn) {
+  const el = getElement(hypId);
+  const PROPS = [
+    "text-align",
+    "justify-content",
+    "align-items",
+    "justify-items",
+    "align-content",
+    "justify-self",
+    "align-self",
+    "vertical-align",
+    "display",
+    "flex-direction",
+  ];
+  const before = {};
+  for (const p of PROPS) before[p] = el.style.getPropertyValue(p);
+
+  return {
+    do() {
+      applyFn();
+    },
+    undo() {
+      const target = getElement(hypId);
+      for (const p of PROPS) {
+        const v = before[p];
+        if (v === "" || v == null) target.style.removeProperty(p);
+        else target.style.setProperty(p, v);
+      }
+    },
+    label: "align",
+  };
+}
+
+/**
  * Comment command: generic wrapper for comment-store mutations.
  * The caller captures pre-state and provides do/undo closures.
  */
