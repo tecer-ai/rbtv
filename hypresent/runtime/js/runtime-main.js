@@ -3,7 +3,7 @@ import { tag, regions, byId } from "./element-registry.js";
 import { select, clear, current, onSelectionChange } from "./selection.js";
 import { undo, redo, state, push as historyPush } from "./history.js";
 import { serialize } from "./serializer.js";
-import { apply as applyFormat } from "./text-format.js";
+import { apply as applyFormat, snapshotSelection as formatSnapshot } from "./text-format.js";
 import { resize as makeResizeCommand, move as makeMoveCommand } from "./commands.js";
 import { mount as interactionMount, unmount as interactionUnmount, remount as interactionRemount, isActive as interactionIsActive } from "./interaction.js";
 import { readPalette, applyToken, applyElement, readElementColors } from "./color.js";
@@ -80,6 +80,13 @@ function boot() {
     }
     const ok = applyFormat(payload.op);
     return { ok };
+  });
+
+  register("format-snapshot", () => {
+    // R8: snapshot the live iframe Selection BEFORE the toolbar focus shift, so
+    // font-size can restore it on the next apply() and bump one span repeatedly.
+    formatSnapshot();
+    return { ok: true };
   });
 
   register("set-tool", (payload) => {

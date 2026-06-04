@@ -1,0 +1,55 @@
+V3-T3b Run Evidence — R8 Font-Size Repeat Fix (marker-based tracking)
+====================================================================
+Date: 2026-06-04
+Task: KIMI TASK V3-T3b — R8 final product fix
+File changed: runtime/js/text-format.js (ONLY)
+
+--------------------------------------------------------------------
+1. node --check runtime/js/text-format.js
+--------------------------------------------------------------------
+Result: PASS (exit code 0, no syntax errors)
+
+--------------------------------------------------------------------
+2. Marker approach verification
+--------------------------------------------------------------------
+- FONT_SPAN_MARKER = "data-hyp-fontspan" is defined as module constant
+- trackedFontSpan(el) re-finds marked span via el.querySelector() each call
+- setTrackedFontSpan(el, span) maintains single-marker invariant
+- clearFontState() strips marker document-wide on commit
+- Defective gates corrected:
+  * Collapsed snapshot now lands in repeat path (range.collapsed check)
+  * Fallback path uses querySelector, not stale node reference
+
+--------------------------------------------------------------------
+3. R8 Suite Results (python -m unittest discover -s tests/e2e -p "test_r8_*.py" -v)
+--------------------------------------------------------------------
+test_lifecycle_clear_between_edits (test_r8_font_size_repeat.R8FontSizeRepeatTests.test_lifecycle_clear_between_edits) ... ok
+test_mix_inc_inc_dec (test_r8_font_size_repeat.R8FontSizeRepeatTests.test_mix_inc_inc_dec) ... ok
+test_no_console_errors (test_r8_font_size_repeat.R8FontSizeRepeatTests.test_no_console_errors) ... ok
+test_three_decreases_one_span_minus6 (test_r8_font_size_repeat.R8FontSizeRepeatTests.test_three_decreases_one_span_minus6) ... ok
+test_three_increases_one_span_plus6_zero_empty (test_r8_font_size_repeat.R8FontSizeRepeatTests.test_three_increases_one_span_plus6_zero_empty) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 10.592s
+
+OK
+
+--------------------------------------------------------------------
+4. Git diff confinement
+--------------------------------------------------------------------
+Result: PASS — only runtime/js/text-format.js modified by this task.
+(Other tracked modifications in parent repo are pre-existing and
+outside the task boundary.)
+
+--------------------------------------------------------------------
+ACCEPTANCE CHECKLIST — ALL PASS
+--------------------------------------------------------------------
+[✓] 1. node --check runtime/js/text-format.js passes.
+[✓] 2. The marker approach is in place per the spec (data-hyp-fontspan
+      marker, re-find logic) and the defective gates are corrected
+      per the spec.
+[✓] 3. R8 suite 5/5 OK.
+[✓] 4. git diff confined to runtime/js/text-format.js.
+
+====================================================================
+END OF EVIDENCE

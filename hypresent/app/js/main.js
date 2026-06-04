@@ -422,6 +422,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!btn) continue;
     btn.addEventListener("mousedown", (e) => {
       e.preventDefault();
+      // R8: snapshot the iframe selection BEFORE focus() collapses it, so
+      // font-size can restore the word and bump one span on every press.
+      if (bridge) {
+        bridge.command("format-snapshot").catch(() => {});
+      }
       iframe.contentWindow.focus();
     });
     btn.addEventListener("click", () => {

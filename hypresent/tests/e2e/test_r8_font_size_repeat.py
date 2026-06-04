@@ -1,0 +1,140 @@
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import unittest
+from playwright.sync_api import sync_playwright
+import conftest_helpers as H
+
+PORT = 8798
+
+SPAN_PROBE = (
+    "const e=doc.querySelector({sel!r});"
+    "const spans=Array.from(e.querySelectorAll('span')).filter(s=>s.style&&s.style.fontSize);"
+    "return {{count:spans.length, sizes:spans.map(s=>parseFloat(s.style.fontSize)), "
+    "emptyCount:spans.filter(s=>s.textContent.trim()==='').length}};"
+)
+
+
+class R8FontSizeRepeatTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if not os.path.exists(H.FIXTURE):
+            raise AssertionError(
+                f"Required fixture missing: {H.FIXTURE} (gitignored per U10a; restore it locally before running tests)"
+            )
+        cls.proc, cls.base = H.start_server(PORT, test_dialog=True)
+        cls.pw = sync_playwright().start()
+        cls.browser = cls.pw.chromium.launch(headless=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.browser.close()
+        cls.pw.stop()
+        H.stop_server(cls.proc)
+
+    def setUp(self):
+        self.page = self.browser.new_page()
+        self.copy = H.copy_fixture()
+        self.page.goto(self.base + "/app/")
+        H.open_via_dialog_ui(self.page, self.base, self.copy)
+
+    def tearDown(self):
+        self.page.close()
+
+    def _enter_edit_and_select_word(self, selector=".slide-title"):
+        """Real double-click on the element's center → enters edit + selects the word."""
+        H.doc_eval(self.page, f"const e=doc.querySelector({selector!r}); if(e) e.scrollIntoView({{block:'center'}});")
+        self.page.wait_for_timeout(300)
+        origin = self.page.evaluate(
+            "() => { const f=document.querySelector('iframe.doc-frame'); const r=f.getBoundingClientRect(); return {x:r.left,y:r.top}; }"
+        )
+        rect = H.doc_eval(
+            self.page,
+            f"const e=doc.querySelector({selector!r}); const r=e.getBoundingClientRect(); return {{x:r.left,y:r.top,w:r.width,h:r.height}};",
+        )
+        cx = origin["x"] + rect["x"] + min(rect["w"] / 2, 40)
+        cy = origin["y"] + rect["y"] + rect["h"] / 2
+        self.page.mouse.dblclick(cx, cy)
+        self.page.wait_for_timeout(300)
+
+    def _spans(self, selector=".slide-title"):
+        return H.doc_eval(self.page, SPAN_PROBE.format(sel=selector))
+
+    def _press(self, btn_id, times):
+        for _ in range(times):
+            self.page.click(f"#{btn_id}")
+            self.page.wait_for_timeout(150)
+
+    # E-R8-1 — THE load-bearing test: 3 presses → ONE span, +6px, zero empties
+    def test_three_increases_one_span_plus6_zero_empty(self):
+        self._enter_edit_and_select_word()
+        # base size of the selected word's context (before any press)
+        base = H.doc_eval(
+            self.page,
+            "const e=doc.querySelector('.slide-title'); return parseFloat(getComputedStyle(e).fontSize);",
+        )
+        self._press("fmt-font-inc", 3)
+        s = self._spans()
+        self.assertEqual(s["count"], 1, f"expected exactly ONE font-size span after 3 presses, got {s['count']} (sizes={s['sizes']})")
+        self.assertEqual(s["emptyCount"], 0, f"expected ZERO empty sibling spans, got {s['emptyCount']}")
+        self.assertAlmostEqual(
+            s["sizes"][0], base + 6, delta=1.5,
+            msg=f"single span should be base+6px (base={base}), got {s['sizes'][0]}",
+        )
+
+    # E-R8-2 — decrease symmetry
+    def test_three_decreases_one_span_minus6(self):
+        self._enter_edit_and_select_word()
+        base = H.doc_eval(self.page, "return parseFloat(getComputedStyle(doc.querySelector('.slide-title')).fontSize);")
+        self._press("fmt-font-dec", 3)
+        s = self._spans()
+        self.assertEqual(s["count"], 1, f"expected ONE span, got {s['count']}")
+        self.assertEqual(s["emptyCount"], 0, "expected zero empty spans")
+        expected = max(8, base - 6)
+        self.assertAlmostEqual(s["sizes"][0], expected, delta=1.5, msg=f"span should be {expected}px, got {s['sizes'][0]}")
+
+    # E-R8-3 — mix grows/shrinks monotonically, one span
+    def test_mix_inc_inc_dec(self):
+        self._enter_edit_and_select_word()
+        base = H.doc_eval(self.page, "return parseFloat(getComputedStyle(doc.querySelector('.slide-title')).fontSize);")
+        self._press("fmt-font-inc", 1)
+        self._press("fmt-font-inc", 1)
+        self._press("fmt-font-dec", 1)
+        s = self._spans()
+        self.assertEqual(s["count"], 1, f"expected ONE span, got {s['count']}")
+        self.assertEqual(s["emptyCount"], 0, "expected zero empty spans")
+        self.assertAlmostEqual(s["sizes"][0], base + 2, delta=1.5)
+
+    # E-R8-4 — lifecycle clear: a fresh edit gets its own span (no carry-over)
+    def test_lifecycle_clear_between_edits(self):
+        # Edit element X, press once, commit by clicking away.
+        self._enter_edit_and_select_word(".slide-title")
+        self._press("fmt-font-inc", 1)
+        x_after = self._spans(".slide-title")
+        self.assertEqual(x_after["count"], 1, "X should have one span")
+        # Commit X by pressing Escape (commits the edit)
+        self.page.keyboard.press("Escape")
+        self.page.wait_for_timeout(200)
+        # Now edit a DIFFERENT element (use .kicker if present, else a second .slide-title)
+        target = ".kicker" if H.doc_eval(self.page, "return !!doc.querySelector('.kicker');") else ".slide-title"
+        self._enter_edit_and_select_word(target)
+        self._press("fmt-font-inc", 1)
+        y_after = self._spans(target)
+        self.assertEqual(y_after["count"], 1, f"{target} should get its OWN single span (no carry-over of X's tracked span)")
+
+    # E-R8-5 — no console errors
+    def test_no_console_errors(self):
+        errors = []
+        def on_console(msg):
+            if msg.type == "error":
+                t = msg.text
+                if "assets/" in t and ("404" in t or "Failed to load resource" in t):
+                    return
+                errors.append(t)
+        self.page.on("console", on_console)
+        self._enter_edit_and_select_word()
+        self._press("fmt-font-inc", 3)
+        self.assertEqual(len(errors), 0, f"unexpected console errors: {errors}")
+
+
+if __name__ == "__main__":
+    unittest.main()

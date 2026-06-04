@@ -19,6 +19,7 @@ import { byId, idOf } from "./element-registry.js";
 import { text } from "./commands.js";
 import { push } from "./history.js";
 import { suspend as suspendInteraction, resume as resumeInteraction } from "./interaction.js";
+import { clearFontState } from "./text-format.js";
 
 // --- Constants ---
 
@@ -144,6 +145,7 @@ function commit() {
   beforeHtml = null;
   priorContenteditable = null;
   resumeInteraction();
+  clearFontState();
 }
 
 // --- Event listeners ---
