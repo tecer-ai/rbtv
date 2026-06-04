@@ -4,7 +4,7 @@ import { select, clear, current, onSelectionChange } from "./selection.js";
 import { undo, redo, state, push as historyPush } from "./history.js";
 import { serialize } from "./serializer.js";
 import { apply as applyFormat, snapshotSelection as formatSnapshot } from "./text-format.js";
-import { resize as makeResizeCommand, move as makeMoveCommand } from "./commands.js";
+import { resize as makeResizeCommand, move as makeMoveCommand, deleteElement as makeDeleteCommand } from "./commands.js";
 import { mount as interactionMount, unmount as interactionUnmount, remount as interactionRemount, isActive as interactionIsActive } from "./interaction.js";
 import { readPalette, applyToken, applyElement, readElementColors } from "./color.js";
 import {
@@ -15,6 +15,7 @@ import {
   resolve as resolveComment,
   threads as getThreads,
   setAgentInstruction as setAgentInstruction,
+  reanchorAfterMove as reanchorComments,
 } from "./comments.js";
 import "./text-edit.js";
 
@@ -72,6 +73,40 @@ function boot() {
   register("clear-selection", () => {
     clear();
     return null;
+  });
+
+  register("delete-element", (payload) => {
+    if (!payload || !payload.hypId) {
+      throw new Error("delete-element: missing hypId");
+    }
+    // Edit-active guard (V3-S10): never delete while a text edit is active.
+    const active = document.activeElement;
+    if (active && active.getAttribute && active.getAttribute("contenteditable") === "true") {
+      return { blocked: "editing" };
+    }
+    const el = byId(payload.hypId);
+    if (!el) {
+      return { blocked: "not-found" };
+    }
+    // Last-region guard (V3-S7): never delete the only remaining top-level region.
+    if (el.parentElement === document.body) {
+      const bodyRegions = Array.from(document.body.children).filter((c) =>
+        c.getAttribute("data-hyp-id")
+      );
+      if (bodyRegions.length <= 1 && bodyRegions[0] === el) {
+        return { blocked: "last-region" };
+      }
+    }
+    // V3-S8: reanchor after BOTH do() and undo() so deleted-element threads go unanchored
+    // on delete AND re-anchor on undo (the Undo path runs cmd.undo() only).
+    const cmd = makeDeleteCommand(payload.hypId);
+    historyPush({
+      do() { cmd.do(); reanchorComments(); },
+      undo() { cmd.undo(); reanchorComments(); },
+      label: cmd.label,
+    });
+    clear();              // selection cleared → the observer unmounts the Moveable (V3-S9)
+    return { deleted: payload.hypId };
   });
 
   register("format", (payload) => {

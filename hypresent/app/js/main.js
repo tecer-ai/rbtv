@@ -7,6 +7,7 @@ import { dialogSaveAs, save } from "/app/js/api-client.js";
 
 let bridge = null;
 let isDirty = false;
+let isEditingNow = false;   // R3 edit-guard: cached from runtime 'edit-state' events
 
 let outlineRegions = [];
 let activeOutlineHypId = null;
@@ -279,6 +280,10 @@ function ensureBridge(iframe) {
     document.title = isDirty ? "hypresent *" : "hypresent";
   });
 
+  bridge.on("edit-state", (payload) => {
+    isEditingNow = !!(payload && payload.editing);
+  });
+
   bridge.on("comment-anchor-clicked", (payload) => {
     const panel = document.getElementById("shell-panel");
     if (!panel) return;
@@ -452,6 +457,56 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // Wire toolbar delete button (R3): toolbar-only trigger (U14 — NO keyboard path).
+  const deleteBtn = document.getElementById("delete-btn");
+  if (deleteBtn) {
+    // V3-S10 edit-active gate (shell-primary): snapshot editing state on mousedown,
+    // BEFORE focus leaves the iframe and text-edit commits/exits on blur. The runtime
+    // activeElement check cannot see this (blur fires first) — the mousedown snapshot can.
+    let editingAtPress = false;
+    deleteBtn.addEventListener("mousedown", () => {
+      editingAtPress = isEditingNow;
+    });
+    deleteBtn.addEventListener("click", async () => {
+      if (!bridge) return;
+      if (editingAtPress) {
+        editingAtPress = false;
+        setStatus("Finish editing before deleting the element.", "error");
+        return;
+      }
+      let sel;
+      try {
+        sel = await bridge.command("get-selection");
+      } catch (err) {
+        console.error("Get selection failed:", err.message);
+        return;
+      }
+      if (!sel || !sel.hypId) {
+        setStatus("Select an element to delete.", "error");
+        return;
+      }
+      try {
+        const res = await bridge.command("delete-element", { hypId: sel.hypId });
+        if (res && res.blocked === "last-region") {
+          setStatus("Cannot delete the last remaining region.", "error");
+          return;
+        }
+        if (res && res.blocked === "editing") {
+          setStatus("Finish editing before deleting the element.", "error");
+          return;
+        }
+        if (res && res.blocked) {
+          setStatus("Could not delete the selected element.", "error");
+          return;
+        }
+        setStatus("Element deleted.", "success");
+        await refreshCommentPanel(); // threads may have moved to Unanchored
+      } catch (err) {
+        setStatus("Delete failed: " + err.message, "error");
+      }
+    });
+  }
+
   // Wire toolbar comment button → anchored composer popover (F5)
   const commentBtn = document.getElementById("comment-btn");
   if (commentBtn) {
@@ -498,11 +553,14 @@ document.addEventListener("DOMContentLoaded", () => {
   );
 
   if (undoBtn) {
-    undoBtn.addEventListener("click", () => {
+    undoBtn.addEventListener("click", async () => {
       if (!bridge) return;
-      bridge.command("undo").catch((err) => {
+      try {
+        await bridge.command("undo");
+        await refreshCommentPanel(); // undo may re-anchor threads (R3/V3-S8) → re-render panel
+      } catch (err) {
         console.error("Undo failed:", err.message);
-      });
+      }
     });
   }
   if (redoBtn) {

@@ -288,6 +288,48 @@ export function colorBorder(hypId, value) {
 }
 
 /**
+ * Delete-element command (R3, V3-S5). Captures the parent (by hyp-id, or the
+ * live body node if the parent has no hyp-id), the next sibling's hyp-id, and
+ * the detached node REF so undo restores the exact subtree. Mirrors reorder's
+ * place() insertion. The node keeps its data-hyp-id, so byId resolves it again
+ * once re-attached.
+ *
+ * @param {string} hypId  data-hyp-id of the element to delete
+ */
+export function deleteElement(hypId) {
+  const el = getElement(hypId);
+  const parentEl = el.parentElement;
+  const parentHypId = parentEl ? parentEl.getAttribute("data-hyp-id") : null;
+  const nextHypId = el.nextElementSibling
+    ? el.nextElementSibling.getAttribute("data-hyp-id")
+    : null;
+  const node = el; // capture the live node for exact-subtree undo
+
+  function place() {
+    // Resolve the destination parent: by hyp-id if it had one, else the original
+    // parent node (e.g. document.body, which carries no hyp-id).
+    const parent = parentHypId ? byId(parentHypId) : parentEl;
+    if (!parent) throw new Error(`deleteElement: parent not found for "${hypId}"`);
+    const next = nextHypId ? byId(nextHypId) : null;
+    if (next && next.parentNode === parent) {
+      parent.insertBefore(node, next);
+    } else {
+      parent.appendChild(node);
+    }
+  }
+
+  return {
+    do() {
+      if (node.parentNode) node.parentNode.removeChild(node);
+    },
+    undo() {
+      place();
+    },
+    label: "delete-element",
+  };
+}
+
+/**
  * Comment command: generic wrapper for comment-store mutations.
  * The caller captures pre-state and provides do/undo closures.
  */
