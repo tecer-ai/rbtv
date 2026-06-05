@@ -18,6 +18,7 @@ The 8-step process for creating any plan:
 | 6 | Create or merge shape.md | Check for existing shape.md (from context preservation rule); merge planning context if exists, create from universal template if not |
 | 7 | Create learnings.md | System improvement queue |
 | 8 | Generate micro-step files | `.task.md` file per complex task and per checkpoint |
+| 9 | Create deliverables.md | Artifact index — one `pending` row per task |
 
 ---
 
@@ -229,15 +230,17 @@ When adding a task during execution:
 2. Add to the task list in the plan body
 3. Create micro-step file in correct phase folder if needed
 4. Append discovery entry to shape.md
-5. Notify user: `PLAN MODIFIED: Added: {task-id} - {description}`
+5. Add a `pending` row to deliverables.md in the matching phase table
+6. Notify user: `PLAN MODIFIED: Added: {task-id} - {description}`
 
 ### Task Removal
 
 When removing a task during execution:
 
 1. Mark task with ~~strikethrough~~ in the task list (don't delete)
-2. Append discovery entry explaining removal
-3. Notify user: `PLAN MODIFIED: Removed: {task-id} - {reason}`
+2. Strike the task's row in deliverables.md (don't delete)
+3. Append discovery entry explaining removal
+4. Notify user: `PLAN MODIFIED: Removed: {task-id} - {reason}`
 
 ---
 
@@ -248,7 +251,7 @@ Plans executed by different agents must be self-contained:
 | Rule | Description |
 |------|-------------|
 | No references to "as discussed" | Another agent won't know what was discussed |
-| Include all context | Everything needed is in the plan + shape.md + microstep files |
+| Include all context | Everything needed is in the plan + shape.md + deliverables.md + microstep files |
 | Per-task file references | Each `.task.md` lists its own Context Files table |
 | Explain WHY | Document rationale for significant decisions in shape.md |
 

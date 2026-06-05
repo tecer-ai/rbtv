@@ -5,6 +5,7 @@ nextStepFile: null
 microstepTemplateFile: ../templates/plan-task-microstep-template.md
 shapeTemplateFile: '{rbtv_path}/workflows/_shared/templates/shape-template.md'
 learningsTemplateFile: ../templates/learnings-template.md
+deliverablesTemplateFile: ../templates/deliverables-template.md
 templateFile: ../templates/plan-template.md
 ---
 
@@ -16,7 +17,7 @@ templateFile: ../templates/plan-template.md
 
 ## STEP GOAL
 
-Create all plan artifacts: companion files (shape.md, learnings.md), micro-step task files, and the main plan file. Validate and present summary.
+Create all plan artifacts: companion files (shape.md, learnings.md, deliverables.md), micro-step task files, and the main plan file. Validate and present summary.
 
 ---
 
@@ -41,6 +42,7 @@ Create all plan artifacts: companion files (shape.md, learnings.md), micro-step 
 Read the following templates from frontmatter paths:
 - `{shapeTemplateFile}` — for shape.md structure
 - `{learningsTemplateFile}` — for learnings.md structure
+- `{deliverablesTemplateFile}` — for deliverables.md structure
 - `{microstepTemplateFile}` — for task file structure
 - `{templateFile}` — for plan file structure
 
@@ -166,7 +168,25 @@ Generate a task file that contains:
 
 **Use Write tool for EACH task file individually.**
 
-### 6. Write Plan File
+### 6. Write deliverables.md
+
+**Location:** `{output-path}/{plan-name}/deliverables.md`
+
+Generate deliverables.md using `{deliverablesTemplateFile}`, pre-populated from the final task structure:
+
+| Element | Content |
+|---------|---------|
+| Header block | Plan name + the mandatory read-before / update-after instruction (from template) |
+| Phase tables | One section per phase; one row per task in the plan's task list — including checkpoints and final-phase tasks |
+| Artifact column | What the task produces — from its Output Requirements (micro-step tasks) or task description (inline tasks) |
+| Path column | Intended landing path — `./` file-relative inside the plan folder, project-root-relative outside (Plan Linking Standard) |
+| Status column | `pending` on every row |
+| Synthesis section | Name the plan's synthesis tasks (e.g., pN-compound) and the document-order read sequence |
+| Sub-folder note | Conventional sub-folders derived from the Path column — created on demand by the first task that needs them |
+
+Use Write tool to create the file.
+
+### 7. Write Plan File
 
 **Location:** `{output-path}/{plan-name}/{plan-name}-plan.md`
 
@@ -174,7 +194,7 @@ Generate the plan document per `{templateFile}`:
 
 1. **YAML Frontmatter** — `name` and `overview` only
 2. **Title** — `# {Plan Name}`
-3. **Reference directive** — shape.md and task file pointers
+3. **Reference directive** — shape.md, deliverables.md, and task file pointers
 4. **Architectural Constraints** — plan-specific patterns and execution rules
 5. **Revolving Plan Rules** — discovery handling (keep brief)
 6. **Execution Workflow** — Mermaid diagram from step-03, ONLY if plan is non-linear
@@ -182,24 +202,27 @@ Generate the plan document per `{templateFile}`:
 
 Use Write tool to create the file.
 
-### 7. Validate Artifacts
+### 8. Validate Artifacts
 
-**7a. Core artifacts exist:**
+**8a. Core artifacts exist:**
 
 | Artifact | Path | Required |
 |----------|------|----------|
 | Plan file | `{output-path}/{plan-name}/{plan-name}-plan.md` | ✅ |
 | Shape file | `{output-path}/{plan-name}/shape.md` | ✅ |
 | Learnings file | `{output-path}/{plan-name}/learnings.md` | ✅ |
+| Deliverables file | `{output-path}/{plan-name}/deliverables.md` | ✅ |
 | Phase folders | `{output-path}/{plan-name}/phase-{N}/` | ✅ (one per phase) |
 
-**7b. Task file references resolve:**
+**8b. Task file references and deliverables rows resolve:**
 
 For every task in the plan's task list that has a `→ path` suffix, verify the referenced file exists on disk.
 
 For every `.task.md` file on disk in phase folders, verify a matching `→ path` reference exists in the plan's task list.
 
-**7c. Plan Linking Standard:**
+For every task in the plan's task list (including checkpoints and final-phase tasks), verify a matching row exists in deliverables.md — 1:1, every row Status `pending`.
+
+**8c. Plan Linking Standard:**
 
 Search all files inside the plan folder for path violations:
 - No file contains an absolute or root-relative path referencing the plan folder itself
@@ -207,7 +230,7 @@ Search all files inside the plan folder for path violations:
 
 **If ANY validation fails**, fix the issue before proceeding.
 
-### 8. Present Completion Summary
+### 9. Present Completion Summary
 
 ```
 ✅ Plan Created Successfully
@@ -224,14 +247,15 @@ Search all files inside the plan folder for path violations:
 **First task:** {first-task-id} — {first-task-description}
 
 **How to Execute:**
-1. Check if the task has a file reference (`→ path`)
-2. If yes: read that file and follow its execution phases
-3. If no: execute directly from the task description
-4. Append to shape.md only when a decision, finding, constraint, or unresolved question changes future execution
-5. Mark task complete in plan task list (`[x]`)
+1. Read ./deliverables.md — it tells you where your task's output must land
+2. Check if the task has a file reference (`→ path`)
+3. If yes: read that file and follow its execution phases
+4. If no: execute directly from the task description
+5. Append to shape.md only when a decision, finding, constraint, or unresolved question changes future execution
+6. After delivering: update your task's row in ./deliverables.md (Status + Path), then mark the task complete in the plan task list (`[x]`)
 ```
 
-### 9. Present Final Menu
+### 10. Present Final Menu
 
 Present the following menu and HALT. Wait for user selection.
 
@@ -258,9 +282,11 @@ This completes the Create workflow. The plan and all supporting files are saved 
 - ✅ Phase folders created
 - ✅ shape.md written with planning context (merged if pre-existing, created if not)
 - ✅ learnings.md written with empty structure
+- ✅ deliverables.md written — one `pending` row per task, synthesis section filled
 - ✅ Micro-step task files generated for complex tasks and checkpoints
 - ✅ Plan file written with Markdown task list
 - ✅ Task file references link correctly (`→ path` ↔ file on disk)
+- ✅ deliverables.md rows match the task list 1:1
 - ✅ Plan Linking Standard validated (no brittle self-references)
 - ✅ Completion summary displayed
 - ✅ Menu presented with explicit HALT
