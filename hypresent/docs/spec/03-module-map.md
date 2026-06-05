@@ -23,7 +23,7 @@ hypresent/
 │     │  ├─ toolbar.js        # toolbar UI: tool switch, B/I/font, undo/redo buttons
 │     │  ├─ file-controls.js  # Open / Save As UI + calls to server API
 │     │  ├─ color-popover.js  # palette editor + per-element color UI (wraps Coloris)
-│     │  ├─ comment-composer.js # anchored comment composer popover (textarea + For-agents toggle + Save/Cancel); replaces prompt()
+│     │  ├─ comment-composer.js # anchored comment composer popover (textarea + For-agents toggle + Save/Cancel); replaces prompt(). R13: `edit` mode (prefill, For-agents checkbox hidden).
 │     │  ├─ comment-panel.js  # side panel: thread list, popover open/close
 │     │  └─ outline.js        # region/outline navigator (from runtime `ready` regions)
 │     ├─ bridge/
@@ -44,13 +44,13 @@ hypresent/
 │     ├─ commands.js          # command factory: builds {do, undo} for each op type + `reorder`, `colorBorder`, `deleteElement`, `align`; `move` writes the CSS `translate` property
 │     ├─ text-edit.js         # contenteditable lifecycle (double-click → edit → commit)
 │     ├─ text-format.js       # bold/italic/font-size via execCommand + Selection (font-size: range snapshot/restore + tracked-span, R8); text alignment caps + apply (computeAlignCaps/applyAlign, R7)
-│     ├─ interaction.js       # single combined Moveable (drag+resize+snap+Slides guides); on-drop hit-test → reorder/re-parent/keep-translate (FLIP); injects a hyp-scoped style re-enabling pointer-events on Moveable controls (R2); begin via `mount(hypId)`; `unmount/suspend/resume/remount`
+│     ├─ interaction.js       # single combined Moveable (drag+resize+snap+Slides guides); on-drop hit-test → reorder/re-parent/keep-translate (FLIP); injects a hyp-scoped style re-enabling pointer-events on Moveable controls (R2); begin via `mount(hypId)`; `unmount/suspend/resume/remount`. R10: dragged-edge-1:1 resize — grow-neutralizes `flex-grow`/`flex-shrink` on the resized main axis and drives `flex-basis` from `beforeRect+dist`; R12: Alt-held symmetric resize via Moveable `fixedDirection:[0,0]` (center-origin); R11: equal-size candidate cache (excluding solver-derived flex-grow siblings) + `hyp-size-hint` dashed overlay.
 │     ├─ reorder.js           # pure drop-classification helpers: `classifyDrop`, `isContainer`, `dominantAxis`, `midpointBefore`, `axisFromDisplay`
 │     ├─ resize.js            # flow-aware resize (Moveable) per D1 — REMOVED in v2 (folded into interaction.js)
 │     ├─ move.js              # transform-translate move (Moveable) per D2 + out-of-flow flag — REMOVED in v2 (folded into interaction.js)
 │     ├─ color.js             # palette token mutation + per-element + inline-style color (D6) + border-color routing (auto-1px, U6), `readElementBorder`/`readElementColors`; + `rgbToHex` EXPORTED, `normalizeHex`, `token.hex` in `readPalette` (R6 copy-HEX)
-│     ├─ comments.js          # comment store, anchors, JSON island read/write (D4) + `agentInstruction` flag, `setAgentInstruction`, `buildAgentBlock`, `reanchorAfterMove`
-│     └─ serializer.js        # clone → strip ALL hyp chrome → re-embed island → guard → standalone html (A8/A11; no doc-body sanitizer) + agent-block head insertion + revised node-count guard (agentBlockCount + pre-existing-block sweep)
+│     ├─ comments.js          # comment store, anchors, JSON island read/write (D4) + `agentInstruction` flag, `setAgentInstruction`, `buildAgentBlock`, `reanchorAfterMove`. R13: `editComment`/`deleteComment`/`editReply`/`deleteReply` undoable ops + `editedAt` round-trip; R14: `buildAgentBlock` emits a `[data-hyp-agent~=…]` target selector + self-cleanup directive; new `agentStampMap()` helper.
+│     └─ serializer.js        # clone → strip ALL hyp chrome → re-embed island → guard → standalone html (A8/A11; no doc-body sanitizer) + agent-block head insertion + revised node-count guard (agentBlockCount + pre-existing-block sweep). R14: `serialize()` transient live-stamp of `data-hyp-agent` (clear→stamp→clone→strip-exempt→finally-unstamp); `stripClone` exempts `data-hyp-agent`.
 ├─ docs/                     # specs, plan, decision log (this folder)
 └─ README.md                 # run command + overview (created in plan)
 ```
@@ -118,7 +118,7 @@ hypresent/
 ## 4. Iframe Runtime Modules
 
 ### runtime/js/runtime-main.js — runtime bootstrap
-- **Purpose:** boot inside the iframe, build registry, parse comment island, read tokens, expose `window.hyp`, emit `ready`.
+- **Purpose:** boot inside the iframe, build registry, parse comment island, read tokens, expose `window.hyp`, emit `ready`. R13: `edit-comment`/`delete-comment`/`edit-reply`/`delete-reply` registrations.
 - **In/Out:** in: iframe `load`; out: `window.hyp` command object + `ready` event.
 - **Load origin:** injected by the parent as `<script type="module" src="/runtime/js/runtime-main.js">` (absolute, served by the fixed `/runtime/*` route — `01` §8). Its `import` statements reference sibling runtime modules by relative path (resolving against `/runtime/js/`) and vendored libs by absolute `/app/js/vendor/...`. Never imports from `/doc/`.
 
@@ -165,11 +165,11 @@ hypresent/
 
 ### runtime/js/comments.js — comment store + island (D4)
 - **Purpose:** in-memory thread store; read/write the `<script type="application/json" id="hyp-comments">` island; resolve anchors to live elements using the collision-resistant anchor-key contract (`01` §6.1) — survives the `data-hyp-id` strip and disambiguates repeated identical siblings; manage add/reply/resolve; never lose a thread (unresolvable → "unanchored"). Comment text is rendered via `textContent` (XSS-safe); DOMPurify on comment text is OPTIONAL belt-and-suspenders only (A11), never a serialization step.
-- **In/Out:** `load(islandJson)`, `toJson()`, `add(hypId,body,author)`, `reply(commentId,...)`, `resolve(commentId)`, `threads()`, `anchorRect(commentId)`; `buildAnchorKey(el)` and `matchAnchor(anchor)→Element|null` per `01` §6.1; emits `comment-anchor-clicked`/`comment-requested`. Each mutation produces a command (undoable).
+- **In/Out:** `load(islandJson)`, `toJson()`, `add(hypId,body,author)`, `reply(commentId,...)`, `resolve(commentId)`, `threads()`, `anchorRect(commentId)`; `buildAnchorKey(el)` and `matchAnchor(anchor)→Element|null` per `01` §6.1; emits `comment-anchor-clicked`/`comment-requested`. Each mutation produces a command (undoable). R13: four undoable ops `editComment`/`deleteComment`/`editReply`/`deleteReply` (delete-reply undo restores at the original index); `editedAt` round-trips in the island. R14: `buildAgentBlock` emits `target: [data-hyp-agent~="<id>"]` + `context:` + self-cleanup preamble; `agentStampMap()` drives high-confidence-only stamping.
 
 ### runtime/js/serializer.js — standalone HTML emit (A8/A11)
 - **Purpose:** clone documentElement → strip ALL `hyp-`/editor chrome (`hyp-` ids/classes/nodes, `data-hyp-*` attrs, the injected runtime `<script>`/`<style>`, injected inline styles) → restore original `contenteditable` → re-embed comment island → guard → emit `<!doctype html>` + outerHTML. NO whole-document DOMPurify/sanitizer pass: the document's OWN scripts/handlers/IIFE, `<style>`, SVG, and native `data-*` are preserved by NOT touching them (A8/A11). DOMPurify is NOT a serializer dependency.
-- **In/Out:** `serialize() → htmlString`. Guard: pre/post node-count delta must equal (removed `hyp-` chrome nodes + re-embedded island); a delta outside that band aborts with an `error` event (never emit a damaged file). Order + strip contract per `01` §5.
+- **In/Out:** `serialize() → htmlString`. Guard: pre/post node-count delta must equal (removed `hyp-` chrome nodes + re-embedded island); a delta outside that band aborts with an `error` event (never emit a damaged file). Order + strip contract per `01` §5. R14: transient live-stamp of `data-hyp-agent` on unresolved agent-tagged elements (clear → stamp by `matchAnchor` identity → clone → strip-exempt-this-pass → `finally` unstamp); the saved clone carries the stamp and the live DOM ends each save clean. Attributes are not nodes, so the node-count guard is unaffected.
 
 ---
 

@@ -1,0 +1,28 @@
+V4-T9 RED-first evidence
+==========================
+
+Master health check (STEP 0):
+  python -m pytest tests/ -q
+  Result: 144 passed, 2 skipped in 193.84s (0:03:13) — OK
+
+R14 test run vs current master (no data-hyp-agent stamping applied):
+  python -m pytest tests/e2e/test_r14_agent_stamping.py tests/e2e/test_r14_legibility.py -v
+  Result: 8 failed, 2 passed in 31.83s
+
+Per-case red-first notes:
+  E-R14-1: FAIL — out.count('data-hyp-agent') == 0 → no stamp emitted on master (expected RED)
+  E-R14-2: FAIL — no data-hyp-agent attribute on p-lead; cannot verify space-separated ids (expected RED)
+  E-R14-3: PASS — no stamp ever applied → "no stamp for resolved id" holds vacuously (expected PASS)
+  E-R14-4: PASS — no stamp ever applied → live DOM clean after save holds vacuously (expected PASS)
+  E-R14-5: FAIL — block emits stale 'anchor: (root) | id=...' line; 'target:', 'context: p .lead', self-cleanup directive absent (expected RED)
+  E-R14-6: FAIL — out.count('data-hyp-agent') == 0 → cannot verify idempotence (expected RED)
+  E-R14-7: FAIL — out has 0 data-hyp-agent stamps instead of 3 (expected RED)
+  E-R14-8: FAIL — no data-hyp-agent stamp on p-arch or li-2 in saved text (expected RED)
+  G-R14-LEGIBILITY-1: FAIL — no 'target:' selectors in block to extract; criterion 2 fails (expected RED)
+  G-R14-LEGIBILITY-2: FAIL — self-cleanup directive 'remove the data-hyp-agent' absent from block (expected RED)
+
+Red-first gate: SATISFIED
+  - No data-hyp-agent appears in any save on master.
+  - E-R14-1/-2/-5/-6/-7/-8 + both legibility cases FAIL as expected.
+  - E-R14-3/-4 pass vacuously as expected.
+  - No v4-t9-BUG.md written.
