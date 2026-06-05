@@ -43,6 +43,8 @@ let beforeSizing = null;
 let beforeRect = null;
 let originalTop = 0;
 let originalLeft = 0;
+let resizeAltActive = false;
+let baseTranslateResize = [0, 0];
 
 // drag in-flight
 let beforeTranslate = "";
@@ -99,8 +101,10 @@ function captureSizingState(el, role) {
     m["flex-grow"] = s.getPropertyValue("flex-grow") || "";
     m["flex-shrink"] = s.getPropertyValue("flex-shrink") || "";
     m.width = s.getPropertyValue("width") || ""; m.height = s.getPropertyValue("height") || "";
+    m.translate = s.getPropertyValue("translate") || "";
   } else {
     m.width = s.getPropertyValue("width") || ""; m.height = s.getPropertyValue("height") || "";
+    m.translate = s.getPropertyValue("translate") || "";
   }
   return m;
 }
@@ -139,8 +143,13 @@ function applyVisualResize(el, role, width, height, direction, dist) {
   if (role === "absolute") {
     const dw = width != null ? width - beforeRect.width : 0;
     const dh = height != null ? height - beforeRect.height : 0;
-    if (direction && direction[0] === -1 && dw !== 0) el.style.left = originalLeft - dw + "px";
-    if (direction && direction[1] === -1 && dh !== 0) el.style.top = originalTop - dh + "px";
+    if (resizeAltActive) {
+      if (dw !== 0) el.style.left = originalLeft - dw / 2 + "px";
+      if (dh !== 0) el.style.top  = originalTop  - dh / 2 + "px";
+    } else {
+      if (direction && direction[0] === -1 && dw !== 0) el.style.left = originalLeft - dw + "px";
+      if (direction && direction[1] === -1 && dh !== 0) el.style.top  = originalTop  - dh + "px";
+    }
   }
 }
 
@@ -217,14 +226,27 @@ function removeWrapper() {
 // --- resize handlers ---
 function onResizeStart(e) {
   const el = e.target; const role = roleOf(el);
+  resizeAltActive = !!(e.inputEvent && e.inputEvent.altKey);
   beforeSizing = captureSizingState(el, role);
   beforeRect = el.getBoundingClientRect();
   const cs = getComputedStyle(el);
   originalTop = parseFloat(cs.top) || 0; originalLeft = parseFloat(cs.left) || 0;
+  baseTranslateResize = parseTranslate(el.style.translate);
+  if (resizeAltActive) { e.setFixedDirection([0, 0]); }
 }
-function onResize(e) { const el = e.target; applyVisualResize(el, roleOf(el), e.width, e.height, e.direction, e.dist); }
+function onResize(e) {
+  const el = e.target;
+  const role = roleOf(el);
+  applyVisualResize(el, role, e.width, e.height, e.direction, e.dist);
+  if (resizeAltActive && role !== "absolute" && role !== "flex-child") {
+    // R12 center-shift: under fixedDirection:[0,0] Moveable doubles dist.
+    // Shift by half the total symmetric growth on each axis, composed onto
+    // the pre-existing translate captured at resizeStart.
+    el.style.translate = `${baseTranslateResize[0] - e.dist[0] / 2}px ${baseTranslateResize[1] - e.dist[1] / 2}px`;
+  }
+}
 function onResizeEnd() {
-  const el = byId(activeHypId); if (!el) { beforeSizing = null; beforeRect = null; return; }
+  const el = byId(activeHypId); if (!el) { beforeSizing = null; beforeRect = null; resizeAltActive = false; baseTranslateResize = [0, 0]; return; }
   const role = roleOf(el); const after = captureSizingState(el, role);
   let changed = false; for (const k of Object.keys(after)) if (beforeSizing[k] !== after[k]) { changed = true; break; }
   if (changed) {
@@ -232,6 +254,8 @@ function onResizeEnd() {
     emit("geometry-changed", { hypId: activeHypId, prop: "resize", before: beforeSizing, after });
   }
   beforeSizing = null; beforeRect = null;
+  resizeAltActive = false;
+  baseTranslateResize = [0, 0];
 }
 
 // --- drag handlers (translate; S1) ---
@@ -243,10 +267,9 @@ function onDragStart(e) {
 }
 function onDrag(e) {
   const el = e.target;
-  const [dx, dy] = e.translate;       // Moveable's e.translate is cumulative from drag start
+  const [dx, dy] = e.translate;
   el.style.translate = `${baseTranslate[0] + dx}px ${baseTranslate[1] + dy}px`;
-  dragDist = Math.hypot(dx, dy);      // accumulate distance here (R05)
-  // cache pointer for the drop hit-test (S7)
+  dragDist = Math.hypot(dx, dy);
   const ie = e.inputEvent;
   if (ie && typeof ie.clientX === "number") lastPointer = { x: ie.clientX, y: ie.clientY };
 }
@@ -282,6 +305,7 @@ function onDragEnd() {
       emit("out-of-flow", { hypId: activeHypId, bool: computeOutOfFlow(el) });
     }
     beforeTranslate = ""; baseTranslate = [0, 0]; dragDist = 0;
+    remount(activeHypId);
     return;
   }
   commitDrop(el, cls);

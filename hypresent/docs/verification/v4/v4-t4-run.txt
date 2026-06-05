@@ -1,0 +1,45 @@
+V4-T4 Run Evidence
+==================
+Date: 2026-06-05
+
+--- ADX-4 follow-up run (R12 green) ---
+
+1. node --check runtime/js/interaction.js
+------------------------------------------
+PASS (exit code 0)
+
+2. Targeted R12 test (after ADX-4)
+----------------------------------
+$ python -m pytest tests/e2e/test_r12_alt_symmetric.py -v
+
+tests/e2e/test_r12_alt_symmetric.py::R12AltSymmetricTests::test_e_r12_1_alt_symmetric_growth PASSED
+tests/e2e/test_r12_alt_symmetric.py::R12AltSymmetricTests::test_e_r12_2_no_alt_one_sided PASSED
+tests/e2e/test_r12_alt_symmetric.py::R12AltSymmetricTests::test_e_r12_3_resize_end_reset PASSED
+tests/e2e/test_r12_alt_symmetric.py::R12AltSymmetricTests::test_e_r12_4_alt_composes_with_r10 PASSED
+tests/e2e/test_r12_alt_symmetric.py::R12AltSymmetricTests::test_e_r12_5_alt_with_prior_translate PASSED
+
+============================== 5 passed in 8.48s ==============================
+
+3. R10 regression test
+----------------------
+$ python -m pytest tests/e2e/test_r10_resize_flex.py -v
+
+============================= 9 passed in 12.92s ==============================
+
+4. Full suite (minus R13 red set)
+---------------------------------
+$ python -m pytest tests/ --ignore=tests/e2e/test_r13_comment_edit_delete.py -q
+
+............s...........................................................
+..........................................................
+
+129 passed, 1 skipped in 164.68s (0:02:44)
+
+Conclusion
+----------
+ADX-4 fix: setFixedDirection([0,0]) for all roles in onResizeStart;
+CSS translate center-shift for block/grid-child; NO translate for flex-child
+(because flex layout's justify-content: center already symmetrically re-centers).
+All 5 R12 tests pass. R10 regression green. Full suite 129 passed, 1 skipped, 0 failures.
+BUG updated: docs/verification/v4/v4-t4-BUG.md
+Commit performed.
