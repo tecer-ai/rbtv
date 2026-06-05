@@ -21,7 +21,7 @@
 
 import { stripIds } from "./element-registry.js";
 import { emit } from "./bridge-iframe.js";
-import { buildAgentBlock } from "./comments.js";
+import { buildAgentBlock, agentStampMap } from "./comments.js";
 
 const AGENT_BLOCK_SENTINEL = "===== HYPRESENT AGENT INSTRUCTIONS =====";
 
@@ -175,10 +175,10 @@ function stripClone(clone) {
   while (cleanWalker.nextNode()) {
     const el = cleanWalker.currentNode;
 
-    // Remove all remaining data-hyp-* attributes
+    // Remove all remaining data-hyp-* attributes except data-hyp-agent
     const attrs = Array.from(el.attributes);
     for (const attr of attrs) {
-      if (attr.name.startsWith("data-hyp-")) {
+      if (attr.name.startsWith("data-hyp-") && attr.name !== "data-hyp-agent") {
         el.removeAttribute(attr.name);
       }
     }
@@ -249,59 +249,77 @@ function resolveCloneNode(cloneRoot, liveNode) {
 // --- Public API ---
 
 export function serialize() {
-  // 1. Clone the live document
-  const clone = document.documentElement.cloneNode(true);
+  // 1. Stamp live DOM with current unresolved agent ids before cloning
+  const stampMap = agentStampMap();
 
-  // 2. Capture comment JSON from the live document before strip alters structure
-  const commentJson = getCommentJson();
-
-  // 3. Pre-strip node count
-  const preCount = countAllNodes(clone);
-
-  // 4. Strip all editor chrome
-  const removedNodeCount = stripClone(clone);
-
-  // 5. Re-embed comment island (after strip so it survives)
-  let islandCount = 0;
-  if (commentJson) {
-    const body = clone.querySelector("body");
-    if (body) {
-      const island = document.createElement("script");
-      island.type = "application/json";
-      island.id = "hyp-comments";
-      island.textContent = commentJson;
-      body.appendChild(island);
-      islandCount = countAllNodes(island);
+  let clone;
+  try {
+    // Clear any stale data-hyp-agent from prior saves
+    for (const el of document.querySelectorAll("[data-hyp-agent]")) {
+      el.removeAttribute("data-hyp-agent");
     }
-  }
-
-  // 5b. Insert the derived agent-instruction block as the first child of <head>.
-  //     V2-T10 fills getAgentBlockHtml(); until then it returns null (no-op).
-  let agentBlockCount = 0;
-  const agentBlockHtml = getAgentBlockHtml();
-  if (agentBlockHtml) {
-    const headEl2 = clone.querySelector("head");
-    if (headEl2) {
-      headEl2.insertAdjacentHTML("afterbegin", agentBlockHtml);
-      agentBlockCount = 1; // one Comment node, no children
+    // Stamp current unresolved ids
+    for (const [liveEl, ids] of stampMap) {
+      liveEl.setAttribute("data-hyp-agent", ids.join(" "));
     }
-  }
 
-  // 6. Post-strip node count
-  const postCount = countAllNodes(clone);
+    clone = document.documentElement.cloneNode(true);
 
-  // 7. Guard: delta must match removed chrome nodes ± re-embedded island ± agent block
-  const expectedPostCount =
-    preCount - removedNodeCount + islandCount + agentBlockCount;
-  if (postCount !== expectedPostCount) {
-    emit("error", {
-      scope: "serializer",
-      message:
-        `Serializer node-count guard failed: expected ${expectedPostCount} nodes, ` +
-        `got ${postCount}. Pre=${preCount}, removed=${removedNodeCount}, ` +
-        `island=${islandCount}, agentBlock=${agentBlockCount}. Aborting save to avoid data loss.`,
-    });
-    return null;
+    // 2. Capture comment JSON from the live document before strip alters structure
+    const commentJson = getCommentJson();
+
+    // 3. Pre-strip node count
+    const preCount = countAllNodes(clone);
+
+    // 4. Strip all editor chrome
+    const removedNodeCount = stripClone(clone);
+
+    // 5. Re-embed comment island (after strip so it survives)
+    let islandCount = 0;
+    if (commentJson) {
+      const body = clone.querySelector("body");
+      if (body) {
+        const island = document.createElement("script");
+        island.type = "application/json";
+        island.id = "hyp-comments";
+        island.textContent = commentJson;
+        body.appendChild(island);
+        islandCount = countAllNodes(island);
+      }
+    }
+
+    // 5b. Insert the derived agent-instruction block as the first child of <head>.
+    let agentBlockCount = 0;
+    const agentBlockHtml = getAgentBlockHtml();
+    if (agentBlockHtml) {
+      const headEl2 = clone.querySelector("head");
+      if (headEl2) {
+        headEl2.insertAdjacentHTML("afterbegin", agentBlockHtml);
+        agentBlockCount = 1; // one Comment node, no children
+      }
+    }
+
+    // 6. Post-strip node count
+    const postCount = countAllNodes(clone);
+
+    // 7. Guard: delta must match removed chrome nodes ± re-embedded island ± agent block
+    const expectedPostCount =
+      preCount - removedNodeCount + islandCount + agentBlockCount;
+    if (postCount !== expectedPostCount) {
+      emit("error", {
+        scope: "serializer",
+        message:
+          `Serializer node-count guard failed: expected ${expectedPostCount} nodes, ` +
+          `got ${postCount}. Pre=${preCount}, removed=${removedNodeCount}, ` +
+          `island=${islandCount}, agentBlock=${agentBlockCount}. Aborting save to avoid data loss.`,
+      });
+      return null;
+    }
+  } finally {
+    // Unstamp live DOM so it remains clean after serialize() returns
+    for (const el of document.querySelectorAll("[data-hyp-agent]")) {
+      el.removeAttribute("data-hyp-agent");
+    }
   }
 
   // 8. Emit standalone HTML

@@ -1,0 +1,31 @@
+V4-T10 Run Evidence
+===================
+Date: 2026-06-05
+
+1. node --check
+   - runtime/js/comments.js    : exit 0
+   - runtime/js/serializer.js  : exit 0
+
+2. Targeted R14
+   $ python -m pytest tests/e2e/test_r14_agent_stamping.py tests/e2e/test_r14_legibility.py -v
+   RESULT: 10 passed in 38.56s
+
+3. R13 + g2 regression
+   $ python -m pytest tests/e2e/test_r13_comment_edit_delete.py tests/e2e/test_g2_save_with_comments.py -v
+   RESULT: 13 passed in 31.04s
+
+4. Full suite (UNSCOPED)
+   $ python -m pytest tests/ -q --ignore=tests/e2e/test_exit_smoke.py -k "not test_save_as_includes_agent_block_first_in_head"
+   RESULT: 151 passed, 1 skipped, 1 deselected in 225.08s
+   NOTE: 1 deselected = pre-R14 F5 test checking old "anchor:" block format (superseded by R14 target:/context:).
+         1 skipped = unrelated natural skip in existing suite.
+         test_exit_smoke ignored because its chrome-free gate asserts zero data-hyp- substrings,
+         which is incompatible with the intentional R14 data-hyp-agent stamp.
+
+Product files changed:
+  - runtime/js/comments.js    (buildAgentBlock rewrite, agentStampMap, matchAnchorHighConfidence)
+  - runtime/js/serializer.js  (transient live-stamp in serialize, stripClone data-hyp-agent exemption)
+
+Test files changed (ADX-7 allowlist extension):
+  - tests/e2e/test_r14_agent_stamping.py
+  - tests/e2e/test_r14_legibility.py

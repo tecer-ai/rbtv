@@ -611,6 +611,42 @@ export function deleteReply(commentId, replyIndex) {
 
 // THE single escape function for the agent block (R06): HTML comments cannot
 // contain '-->'. Every interpolated value MUST pass through this.
+function matchAnchorHighConfidence(anchor) {
+  // 1. Hook match (unique only)
+  if (anchor.hook) {
+    const matches = document.querySelectorAll(
+      `[data-hyp-hook="${CSS.escape(anchor.hook)}"]`
+    );
+    if (matches.length === 1) return matches[0];
+  }
+
+  // 2. Base + path walk, then hash check
+  const base = anchor.nativeId
+    ? document.getElementById(anchor.nativeId)
+    : document.documentElement;
+  if (!base) return null;
+
+  const el = walkPath(base, anchor.path);
+  if (el && computeContentHash(el) === anchor.contentHash) {
+    return el;
+  }
+
+  // No fuzzy fall-through (levels 3/4/5 excluded for stamping — G6)
+  return null;
+}
+
+export function agentStampMap() {
+  const map = new Map();
+  for (const t of threadStore) {
+    if (!(t.agentInstruction === true && t.resolved !== true)) continue;
+    const el = matchAnchorHighConfidence(t.anchor);
+    if (!el) continue;
+    if (!map.has(el)) map.set(el, []);
+    map.get(el).push(t.id);
+  }
+  return map;
+}
+
 function escapeAgentBlock(s) {
   return String(s == null ? "" : s).replace(/-->/g, "--&gt;");
 }
@@ -629,13 +665,30 @@ export function buildAgentBlock() {
   lines.push(
     "Do not edit this block manually — it is regenerated on every save and removed when no agent comments remain."
   );
+  lines.push(
+    "After applying an instruction, remove the data-hyp-agent token for that id from the target element and delete this entry."
+  );
   for (const t of agentThreads) {
     lines.push("");
     lines.push(`[agent:${escapeAgentBlock(t.id)}]`);
-    const path = escapeAgentBlock((t.anchor && t.anchor.path) || "(root)");
-    const nid = escapeAgentBlock((t.anchor && t.anchor.nativeId) || "");
     const ctx = escapeAgentBlock((t.contextText || "").slice(0, 80));
-    lines.push(`anchor: ${path} | id="${nid}" | "${ctx}"`);
+    const el = matchAnchor(t.anchor);
+    let tagAndClasses;
+    if (el) {
+      const tag = el.tagName.toLowerCase();
+      const cls = el.getAttribute("class") || "";
+      const tokens = cls
+        .trim()
+        .split(/\s+/)
+        .filter((c) => c && !c.startsWith("hyp-"));
+      tagAndClasses = tag + (tokens.length ? " " + tokens.map((c) => "." + c).join(" ") : "");
+    }
+    lines.push(`target: [data-hyp-agent~="${escapeAgentBlock(t.id)}"]`);
+    lines.push(
+      el
+        ? `context: ${escapeAgentBlock(tagAndClasses)} | "${ctx}"`
+        : `context: (unresolved) | "${ctx}"`
+    );
     lines.push(`instruction: ${escapeAgentBlock(t.body)}`);
     for (const r of t.replies || []) {
       lines.push(`reply: ${escapeAgentBlock(r.body)} — ${escapeAgentBlock(r.author)}`);
