@@ -7,7 +7,7 @@ outputFile: pitch-narrative.md
 
 # Step 03: Narrative Draft with Stress-Testing
 
-**Progress: Step 3 of 10** — Next: Data Layer
+**Progress: Step 3 of 6** — Next: Data Layer
 
 ---
 

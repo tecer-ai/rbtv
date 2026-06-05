@@ -1,19 +1,19 @@
 ---
 stepNumber: 6
 stepName: 'structure'
-nextStepFile: ./step-07-generate.md
-referenceFile: ../../_shared/pitch-data/pitch-reference.md
+nextStepFile: null
+referenceFile: ../data/pitch-reference.md
 ---
 
 # Step 06: Slide Structure
 
-**Progress: Step 6 of 10** — Next: Generate HTML
+**Progress: Step 6 of 6** — Final narrative step; ends in design handoff
 
 ---
 
 ## STEP GOAL
 
-Plan the final slide structure, visual layout, and content mapping based on the validated narrative and data layer. This is the blueprint for HTML generation.
+Plan the final slide structure, visual layout, and content mapping based on the validated narrative and data layer. Write it to the `pitch-structure.md` artifact — the handoff contract the html module's deck-design workflow consumes for HTML generation.
 
 ---
 
@@ -60,7 +60,7 @@ Read `{referenceFile}` completely. Focus on the client pitch section.
 
 ### 2. Load Narrative
 
-Read `{output_folder}/pitch-narrative.md`. This is the agreed story — the structure must serve it.
+Read `{output_folder}/artifacts/pitch-narrative.md`. This is the agreed story — the structure must serve it.
 
 ### 3. Map Narrative to Slide Specs
 
@@ -135,6 +135,36 @@ Wait for response. Apply adjustments.
 
 Present the final slide plan with confirmed content and layout mapping. This becomes the blueprint for HTML generation.
 
+### 6b. Write the Structure Artifact
+
+Save the confirmed structure to `{output_folder}/artifacts/pitch-structure.md` using this template:
+
+```markdown
+---
+type: pitch-structure
+project: '{project_name}'
+pitch_type: '{pitch_type}'
+target_client: '{target_client}'          # client pitches only — omit otherwise
+artifact_language: '{artifact_language}'  # client pitches only — omit otherwise
+narrativeFile: ./pitch-narrative.md
+brandContext: '{brand folder path, or "none"}'
+slideCount: {n}
+date: {YYYY-MM-DD}
+---
+
+# Slide Structure — {project_name}
+
+| # | Slide Title | Layout Type | Focal Element | Data/Proof Points | Content Density | Visual |
+|---|-------------|-------------|---------------|-------------------|-----------------|--------|
+| 1 | {title} | {hero/stats/comparison/...} | {what the eye hits first} | {numbers/evidence} | {sparse/medium/dense} | {image/icon/chart/text-only} |
+
+## Structure Notes
+
+{Slide pattern groupings, dark/light alternation preferences, brand color hints — anything design must honor}
+```
+
+This artifact + the narrative are the complete design handoff — the deck-design workflow reads them from disk and needs zero conversation context.
+
 ### 7. Present Menu
 
 **Select an Option:**
@@ -149,15 +179,15 @@ ALWAYS halt and wait for user selection.
 
 ONLY when **[C] Continue** is selected:
 
-> **AGENT HANDOFF — Design Agent Required**
+> **AGENT HANDOFF — html module (deck-design)**
 >
-> Steps 07-10 (HTML generation, image prompts, synthesis, and PDF export) are owned by the **design agent (Vivian)**, not the current narrative agent. You cannot execute these steps yourself.
+> HTML generation, image prompts, synthesis, and PDF export are owned by the **html module's deck-design workflow** (Vivian, the design agent) — not by the current narrative agent. You cannot execute them yourself.
 >
 > Instruct the user:
 >
-> *"The slide structure is locked. HTML generation, image work, and PDF export require the design agent. To continue, invoke Vivian using the command `@designer` and select **[PD] Pitch Deck Design**. She'll pick up from the finalized structure and carry through to PDF delivery."*
+> *"The slide structure is locked and saved to `artifacts/pitch-structure.md`. HTML generation, image work, and PDF export run in the html module. To continue, invoke the `rbtv-designing` skill (Vivian) and select **[PD] Pitch Deck Design**. She'll read the narrative and structure artifacts from disk and carry through to PDF delivery."*
 >
-> Do NOT load `{nextStepFile}` yourself. The design agent will load it.
+> Do NOT load any deck-design step yourself. The design agent loads them.
 
 ONLY when **[X] Exit** is selected:
 1. Confirm exit and end workflow
@@ -171,6 +201,7 @@ ONLY when **[X] Exit** is selected:
 - Structure reflects the agreed narrative (not a generic template)
 - Every slide has clear layout type and focal element
 - User confirmed the structure
+- `artifacts/pitch-structure.md` written with complete frontmatter and slide spec table
 
 **If pitch_type = investor:**
 - Total slides within 12-15 range

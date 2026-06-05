@@ -1,21 +1,21 @@
 ---
-stepNumber: 7
+stepNumber: 1
 stepName: 'generate'
-nextStepFile: ./step-08-images.md
-htmlPatternsFile: ../../_shared/pitch-data/html-patterns.md
-htmlComponentsFile: ../../_shared/pitch-data/html-components.md
-pitchDeckRulesFile: ../../_shared/pitch-data/pitch-deck-rules.md
+nextStepFile: ./step-02-images.md
+htmlPatternsFile: ../data/html-patterns.md
+htmlComponentsFile: ../data/html-components.md
+pitchDeckRulesFile: ../data/pitch-deck-rules.md
 ---
 
-# Step 07: Generate HTML Pitch Deck
+# Step 01: Generate HTML Pitch Deck
 
-**Progress: Step 7 of 10** — Next: Image Prompts
+**Progress: Step 1 of 4** — Next: Image Prompts
 
 ---
 
 ## STEP GOAL
 
-Generate a complete, professional HTML pitch deck optimized for landscape PDF export via Decktape (step-10), based on the validated narrative and agreed structure.
+Generate a complete, professional HTML pitch deck optimized for landscape PDF export via Decktape (step-04), based on the narrative and structure artifacts produced by the office pitch workflow.
 
 ---
 
@@ -38,10 +38,10 @@ This is a client deck that must feel trustworthy and professional. Visual craft 
 
 ### Step-Specific Rules
 
-- Load the finalized slide structure from step 06 before generating
+- Load the structure artifact (`artifacts/pitch-structure.md`) before generating
 - Load HTML/CSS patterns knowledge before generating
 - Generate ALL slides in a single HTML file
-- Landscape orientation optimized for PDF export via Decktape (step-10)
+- Landscape orientation optimized for PDF export via Decktape (step-04)
 - Professional icon libraries loaded via CDN
 - Image references point to ./images/ relative folder
 - Output must be self-contained (CDN links for fonts/icons only)
@@ -53,11 +53,13 @@ This is a client deck that must feel trustworthy and professional. Visual craft 
 
 ## MANDATORY SEQUENCE
 
-### 1. Load Slide Structure
+### 1. Load Input Artifacts
 
-Read `{output_folder}/pitch-narrative.md` to understand the agreed narrative. This is the story the design must serve — never redesign the narrative.
+Read `{output_folder}/artifacts/pitch-structure.md` — set {pitch_type}, {project_name}, and (client decks) {target_client} and {artifact_language} from its frontmatter. The per-slide spec table (layout type, focal element, data/proof points, density) is your generation blueprint.
 
-If the user has already shared the finalized slide structure from step 06 in this conversation, confirm you have it. Otherwise, ask the user to provide the slide structure output (slide titles, layout types, focal elements) from step 06.
+Read `{output_folder}/artifacts/pitch-narrative.md` to understand the agreed narrative. This is the story the design must serve — never redesign the narrative.
+
+If either artifact is missing, ask the user for its location or for the missing content (slide titles, layout types, focal elements). Never invent narrative or structure.
 
 ### 2. Load HTML Patterns
 
@@ -119,7 +121,7 @@ Create the complete HTML file following these requirements:
 - `@media print` block hiding non-essential elements
 - `-webkit-print-color-adjust: exact; print-color-adjust: exact;`
 - `min-height: 100vh` for each slide
-- Decktape export (step-10) must produce perfect landscape pages with no content clipping
+- Decktape export (step-04) must produce perfect landscape pages with no content clipping
 
 **Icon Libraries (load via CDN):**
 - Font Awesome 6: `<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">`
@@ -175,9 +177,10 @@ Self-check the generated HTML:
 ### 6b. Post-Generation Sync Check
 
 After generating the HTML deck:
-1. Compare key content (slide titles, main messages, supporting elements, data points) against the narrative produced in step-03
+1. Compare key content (slide titles, main messages, supporting elements, data points) against `artifacts/pitch-narrative.md`
 2. If any user-directed changes during HTML generation altered narrative content, update the narrative to match
-3. Report any narrative updates made to the user
+3. If any user-directed changes altered the slide set (count, order, titles, layout), update `artifacts/pitch-structure.md` to match
+4. Report any artifact updates made to the user
 
 CSS/styling-only decisions (colors, fonts, layout) do NOT require narrative updates.
 
@@ -222,7 +225,7 @@ ONLY when **[X] Exit** is selected:
 ✅ **SUCCESS:**
 - Complete HTML file with all slides
 - Slide content matches the agreed narrative
-- Landscape PDF export works via Decktape (step-10)
+- Landscape PDF export works via Decktape (step-04)
 - Icons render from CDN
 - Image paths use ./images/ convention
 - One idea per slide, glance test passes

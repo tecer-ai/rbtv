@@ -6,7 +6,7 @@ nextStepFile: ./step-03-narrative.md
 
 # Step 02: Context Gathering
 
-**Progress: Step 2 of 10** — Next: Narrative Draft
+**Progress: Step 2 of 6** — Next: Narrative Draft
 
 ---
 

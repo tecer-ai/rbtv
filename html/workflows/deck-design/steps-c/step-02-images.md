@@ -1,12 +1,12 @@
 ---
-stepNumber: 8
+stepNumber: 2
 stepName: 'images'
-nextStepFile: ./step-09-synthesis.md
+nextStepFile: ./step-03-synthesis.md
 ---
 
-# Step 08: Visual Identity & Image Prompts
+# Step 02: Visual Identity & Image Prompts
 
-**Progress: Step 8 of 10** — Next: Synthesis
+**Progress: Step 2 of 4** — Next: Synthesis
 
 ---
 
@@ -110,7 +110,7 @@ For each identified opportunity, modify the HTML:
 <div class="slide-bg" style="background-image: url('images/{filename}.png'); opacity: {0.06-0.35};"></div>
 ```
 
-**Ensure supporting CSS exists** (add if Step 07 didn't include it):
+**Ensure supporting CSS exists** (add if Step 01 didn't include it):
 ```css
 .slide-bg {
   position: absolute;
@@ -243,7 +243,7 @@ ONLY when **[X] Exit** is selected:
 - Prompts distinguish between AI-generated images and real photos
 
 ❌ **FAILURE:**
-- Dismissing this step as a "no-op" because Step 07 didn't create `<img>` tags
+- Dismissing this step as a "no-op" because Step 01 didn't create `<img>` tags
 - Only auditing existing `<img>` elements without identifying new visual opportunities
 - Skipping brand asset integration (wordmark/logo)
 - Adding background images to data-heavy slides (competing with content)

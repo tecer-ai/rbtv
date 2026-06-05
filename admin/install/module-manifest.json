@@ -123,16 +123,10 @@
     ],
     "commands": [
       {
-        "source_template": "office/commands/client-pitcher.md",
-        "target": ".claude/commands/rbtv-client-pitcher.md",
+        "source_template": "office/commands/pitcher.md",
+        "target": ".claude/commands/rbtv-pitcher.md",
         "bake": ["rbtv_path"],
-        "description": "Generate client-facing pitch decks and proposals"
-      },
-      {
-        "source_template": "office/commands/investor-pitcher.md",
-        "target": ".claude/commands/rbtv-investor-pitcher.md",
-        "bake": ["rbtv_path"],
-        "description": "Generate investor pitch narratives and materials"
+        "description": "Build investor or client pitch narratives (asks pitch type, loads Roelof or Leo) — HTML design delegated to the html module"
       },
       {
         "source_template": "office/commands/lawyer.md",

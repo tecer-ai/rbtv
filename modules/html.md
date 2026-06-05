@@ -12,10 +12,10 @@ The module also owns **hypresent** — the HTML presentation engine (not install
 
 ### `rbtv-designing` (Vivian)
 
-- **What**: Vivian is the visual layer for both pitch flows — a Creative Director who translates strategy into HTML deck design, AI image prompts, and brand visual identity. She always offers three visual directions and names which one she believes in. Design is explicitly downstream of narrative: she takes completed narrative docs as input and never redoes strategic work.
-- **When to use**: After narrative is locked and you're ready to generate the HTML deck, produce AI image prompts, export to PDF, or design brand visual guidelines. The pitchers (office module) hand off to Vivian automatically at step 7 — you can also invoke her standalone for any of those tasks.
-- **How to invoke**: `rbtv-designing` (skill, not a slash command). Menu options: `PD` (full deck design + export), `PI` (image prompts only), `PDF` (PDF export + QA), `BV` (brand visual identity).
-- **What it produces**: Branded HTML deck, a set of AI image prompts ready to paste into Midjourney/DALL-E, PDF via Decktape, visual brand guidelines.
+- **What**: Vivian is the visual layer for both pitch flows — a Creative Director who translates strategy into HTML deck design, AI image prompts, and brand visual identity. She always offers three visual directions and names which one she believes in. Design is explicitly downstream of narrative: she never redoes strategic work. Her pitch work runs the module's `deck-design` workflow (`html/workflows/deck-design/`), which consumes the pitch artifacts (`pitch-narrative.md` + `pitch-structure.md`) from disk — a fresh session needs zero conversation context.
+- **When to use**: After narrative is locked (office pitcher step 6) and you're ready to generate the HTML deck, produce AI image prompts, export to PDF, edit an existing deck, or design brand visual guidelines. The pitchers hand off here automatically — you can also invoke her standalone for any of those tasks.
+- **How to invoke**: `rbtv-designing` (skill, not a slash command). Menu options: `PD` (full deck design + export), `PI` (image prompts only), `PDF` (PDF export + QA), `DE` (deck edit — content + visual, with narrative/structure back-sync), `BV` (brand visual identity).
+- **What it produces**: Branded HTML deck, a set of AI image prompts ready to paste into Midjourney/DALL-E, PDF via Decktape, edited decks kept in sync with their narrative artifacts, visual brand guidelines.
 - **Example**: After Leo finishes the narrative, she hands off: "Calling Vivian." Vivian opens: "I'm seeing a steel-and-gold palette — quiet authority. Here are three directions."
 
 ---
@@ -42,4 +42,4 @@ The module also owns **hypresent** — the HTML presentation engine (not install
 
 ## How They Fit Together
 
-`/rbtv-design-extractor` captures a reference visual system → Vivian (`rbtv-designing`) turns narrative + design tokens into a branded HTML deck, image prompts, and PDF → `rbtv-playwright-cli` renders, screenshots, and QAs the result. The office-module pitchers enter this flow automatically at their step 7 handoff.
+`/rbtv-design-extractor` captures a reference visual system → Vivian (`rbtv-designing`) turns narrative + design tokens into a branded HTML deck, image prompts, and PDF → `rbtv-playwright-cli` renders, screenshots, and QAs the result. The office-module pitchers enter this flow at their step-6 handoff, through the `pitch-narrative.md` + `pitch-structure.md` artifacts (deck-design's v0 input contract). Deck editing also lives here — Vivian's `DE` keeps HTML, narrative, and structure in sync; story-level rework routes back to the pitchers.

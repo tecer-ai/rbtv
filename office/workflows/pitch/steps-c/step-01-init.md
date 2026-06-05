@@ -6,7 +6,7 @@ nextStepFile: ./step-02-context-gather.md
 
 # Step 01: Initialize Pitch
 
-**Progress: Step 1 of 10** — Next: Context Gathering
+**Progress: Step 1 of 6** — Next: Context Gathering
 
 ---
 
@@ -113,11 +113,12 @@ Investor Pitch Setup:
 - Project: {project_name}
 - Output: {output_folder}/
 
-Deliverables:
+Deliverables (this workflow — narrative):
   1. artifacts/pitch-narrative.md        — The story, stress-tested slide by slide
   2. artifacts/pitch-research-prompt.md  — Research prompt for external AI data gathering
-  3. pitch-deck.html                     — The final HTML deck
-  4. artifacts/pitch-image-prompts.md    — Image generation prompts
+  3. artifacts/pitch-structure.md        — Slide structure spec (the design handoff contract)
+
+Produced downstream by the html module (rbtv-designing — Vivian): pitch-deck.html, image prompts, PDF.
 
 Ready to proceed?
 ```
@@ -132,11 +133,12 @@ Client Pitch Setup:
 - Artifact language: {artifact_language}
 - Output: {output_folder}/
 
-Deliverables:
+Deliverables (this workflow — narrative):
   1. artifacts/pitch-narrative.md        — The story, stress-tested from buyer's perspective
   2. artifacts/pitch-research-prompt.md  — Research prompt for external AI (proof points + buyer objections)
-  3. pitch-deck.html                     — The final HTML deck
-  4. artifacts/pitch-image-prompts.md    — Image generation prompts
+  3. artifacts/pitch-structure.md        — Slide structure spec (the design handoff contract)
+
+Produced downstream by the html module (rbtv-designing — Vivian): pitch-deck.html, image prompts, PDF.
 
 Ready to proceed?
 ```

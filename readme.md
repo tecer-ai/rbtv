@@ -4,7 +4,7 @@ Short for Robotville, RBTV is a standalone Claude Code toolkit for business inno
 
 ## What is RBTV?
 
-RBTV is a self-contained set of agents, workflows, skills, and rules designed to be bootstrapped into any Claude Code workspace. After install, RBTV appears as `/rbtv-<command>` slash commands (e.g., `/rbtv-client-pitcher`, `/rbtv-doc-export`, `/rbtv-planning`) and auto-triggered skills in your workspace.
+RBTV is a self-contained set of agents, workflows, skills, and rules designed to be bootstrapped into any Claude Code workspace. After install, RBTV appears as `/rbtv-<command>` slash commands (e.g., `/rbtv-pitcher`, `/rbtv-doc-export`, `/rbtv-planning`) and auto-triggered skills in your workspace.
 
 ## Modules
 
@@ -13,8 +13,8 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 | Module | What it does | Doc |
 |---|---|---|
 | **core** (always installed) | Powering up AI use — guided git commits, web research, session close, and the always-on behavioral rules | [modules/core.md](./modules/core.md) |
-| **office** | Daily knowledge work — pitch narratives (client, investor), document export (PDF/DOCX with brand discovery), legal advisory, meeting prep, meeting summarization, client emails, and the problem-reframing + idea-sparring persona (formerly `productivity`) | [modules/office.md](./modules/office.md) |
-| **html** | HTML power-up — visual deck design, AI image prompts, brand identity, design-token extraction from live sites, browser automation, and the hypresent presentation engine | [modules/html.md](./modules/html.md) |
+| **office** | Daily knowledge work — pitch narratives via one pitcher command (investor/client personas, narrative-only — HTML delegated to html), document export (PDF/DOCX with brand discovery), legal advisory, meeting prep, meeting summarization, client emails, and the problem-reframing + idea-sparring persona (formerly `productivity`) | [modules/office.md](./modules/office.md) |
+| **html** | HTML power-up — visual deck design + deck editing (deck-design workflow), AI image prompts, brand identity, design-token extraction from live sites, browser automation, and the hypresent presentation engine | [modules/html.md](./modules/html.md) |
 | **orchestration** | Long-horizon work — structured planning, plan execution via tiered sub-agents, plan shape compaction, and long-source digestion | [modules/orchestration.md](./modules/orchestration.md) |
 | **models** | Per-model CLI invocation skills (Kimi, Codex, Manus) — selective install per machine; populated by the models build task | [modules/models.md](./modules/models.md) |
 | **builder** | Building RBTV itself — component creation and the source-of-truth rule | [modules/builder.md](./modules/builder.md) |

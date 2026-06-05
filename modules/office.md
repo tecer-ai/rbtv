@@ -10,25 +10,15 @@ The daily knowledge-work module — everything a founder, consultant, or PM does
 
 ### Pitching
 
-#### `/rbtv-client-pitcher` (Leo)
+#### `/rbtv-pitcher` (Roelof / Leo)
 
-- **What**: Leo is a veteran enterprise buyer with 20 years in procurement and consulting. She sits on the buyer's side of the table and stress-tests every slide against the question "would I sign a contract based on this?" She builds client/sales pitch decks narrative-first — story is agreed and challenged before any HTML is generated. Produces a full deck (narrative, HTML, AI image prompts, PDF) across 10 steps.
-- **When to use**: You're pitching a product, service, or proposal to a client, prospect, or procurement committee. You need the deck to survive a CFO review, not just a founder's enthusiasm check.
-- **How to invoke**: `/rbtv-client-pitcher` — then type `N` for a new pitch or `E` to refine an existing one.
-- **What it produces**: Narrative document, branded HTML deck, AI image prompts, synthesis memo, PDF export.
-- **Example**: `/rbtv-client-pitcher` → `N` → @mention `project-memo.md` → Leo reads existing docs, then starts drilling: "Why would this buyer switch from what they're doing today?"
+- **What**: One entry point for both pitch types. The command asks who the pitch is for — investors or a client — and loads the matching stress-test persona. **Roelof** (investor) is a seasoned VC partner who has reviewed 3,000+ pitches and challenges every claim with "would I write a check based on this?" — calibrated for fund mechanics, unit economics, defensibility, and partner-meeting scrutiny. **Leo** (client) is a veteran enterprise buyer with 20 years in procurement who challenges every slide with "would I sign a contract based on this?" — calibrated for ROI proof, switching costs, and CFO review. Both build the pitch narrative-first across 6 steps — story, data layer, research prompts, slide structure — and never touch HTML.
+- **When to use**: You're pitching VCs/angels/accelerators, or a client/prospect/procurement committee, and need a narrative that survives the room after you leave it.
+- **How to invoke**: `/rbtv-pitcher` — answer investor or client (skipped when context already says it), then `N` for a new pitch or `E` to revise an existing narrative.
+- **What it produces**: `artifacts/pitch-narrative.md` (stress-tested story), `artifacts/pitch-research-prompt.md` (external research prompts), `artifacts/pitch-structure.md` (slide spec — the design handoff contract). HTML deck, image prompts, and PDF are produced downstream by the html module.
+- **Example**: `/rbtv-pitcher` → "investors" → `N` → Roelof immediately challenges market sizing: "Show me the smallest market where you win, then explain the expansion."
 
----
-
-#### `/rbtv-investor-pitcher` (Roelof)
-
-- **What**: Roelof is a seasoned VC partner who has reviewed 3,000+ pitches and made 40 investments. He stress-tests every claim from the investor's side — "would I write a check based on this?" Same workflow architecture as the client pitcher but calibrated for fund mechanics, unit economics, defensibility, and partner-meeting scrutiny.
-- **When to use**: You're raising from VCs, angels, or accelerators and need a deck that survives the room after you leave it.
-- **How to invoke**: `/rbtv-investor-pitcher` — then type `N` for a new pitch or `E` to edit an existing one.
-- **What it produces**: Same artifact set as the client pitcher — narrative, HTML deck, image prompts, synthesis memo, PDF — framed for investor diligence.
-- **Example**: `/rbtv-investor-pitcher` → `N` → Roelof immediately challenges market sizing: "Show me the smallest market where you win, then explain the expansion."
-
-> Both pitchers hand off HTML deck design, image prompts, and PDF export to Vivian (`rbtv-designing`) — an [html module](./html.md) component.
+> Pitchers are narrative-only. HTML deck design, image prompts, deck editing, and PDF export all execute in the [html module](./html.md)'s deck-design workflow via Vivian (`rbtv-designing`) — the pitchers hand off through the `pitch-narrative.md` + `pitch-structure.md` artifacts.
 
 ---
 
@@ -104,7 +94,7 @@ The daily knowledge-work module — everything a founder, consultant, or PM does
 
 The module has three natural flows:
 
-**Pitch flow:** Start with `/rbtv-design-extractor` (html module) to capture a reference site's visual system → `/rbtv-client-pitcher` or `/rbtv-investor-pitcher` to build the narrative (Leo or Roelof stress-test every slide) → `rbtv-designing` (Vivian, html module) takes over at step 7 for HTML generation, image prompts, and PDF export → `rbtv-doc-export` if you need a companion DOCX (proposal, contract, appendix).
+**Pitch flow:** Start with `/rbtv-design-extractor` (html module) to capture a reference site's visual system → `/rbtv-pitcher` to build the narrative (Roelof or Leo stress-test every slide through step 6) → the narrative + structure artifacts hand off to `rbtv-designing` (Vivian, html module) for HTML generation, image prompts, deck editing, and PDF export → `rbtv-doc-export` if you need a companion DOCX (proposal, contract, appendix).
 
 **Meeting flow:** `rbtv-meeting-prep` the day before → attend the meeting → paste the transcript into `rbtv-meeting-summarizer` immediately after → use `rbtv-client-email` to send the follow-up the same day.
 

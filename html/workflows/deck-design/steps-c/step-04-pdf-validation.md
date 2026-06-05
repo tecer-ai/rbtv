@@ -1,11 +1,11 @@
 ---
-stepNumber: 10
+stepNumber: 4
 stepName: 'pdf-validation'
 ---
 
-# Step 10: PDF Export & Visual QA
+# Step 04: PDF Export & Visual QA
 
-**Progress: Step 10 of 10** — Final step
+**Progress: Step 4 of 4** — Final step
 
 ---
 
