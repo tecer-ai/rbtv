@@ -46,6 +46,8 @@ let originalLeft = 0;
 let resizeAltActive = false;
 let baseTranslateResize = [0, 0];
 let flexChildCenterShiftSkip = false;
+let sizeCandidates = null;
+let activeSizeMatch = null;
 
 // drag in-flight
 let beforeTranslate = "";
@@ -224,6 +226,57 @@ function removeWrapper() {
   wrapper = null;
 }
 
+function snapEqualSize(axisValue, axis) {
+  if (!sizeCandidates || axisValue == null) return { value: axisValue, match: null };
+  let best = null;
+  let bestDiff = Infinity;
+  for (const c of sizeCandidates) {
+    const cand = c[axis];
+    const diff = Math.abs(axisValue - cand);
+    if (diff <= 4 && diff < bestDiff) {
+      bestDiff = diff;
+      best = { el: c.el, dim: axis, value: cand };
+    }
+  }
+  if (best) return { value: best.value, match: best };
+  return { value: axisValue, match: null };
+}
+
+let sizeHintEl = null;
+
+function showSizeHint(matchEl, value) {
+  const rect = matchEl.getBoundingClientRect();
+  if (!sizeHintEl) {
+    sizeHintEl = document.createElement("div");
+    sizeHintEl.className = "hyp-size-hint";
+    sizeHintEl.style.position = "absolute";
+    sizeHintEl.style.pointerEvents = "none";
+    sizeHintEl.style.border = "1px dashed #6366f1";
+    sizeHintEl.style.boxSizing = "border-box";
+    sizeHintEl.style.zIndex = "9";
+    const badge = document.createElement("div");
+    badge.className = "hyp-size-hint-badge";
+    badge.style.position = "absolute";
+    badge.style.fontSize = "11px";
+    badge.style.background = "#6366f1";
+    badge.style.color = "#fff";
+    badge.style.padding = "1px 4px";
+    badge.style.pointerEvents = "none";
+    sizeHintEl.appendChild(badge);
+    wrapper.appendChild(sizeHintEl);
+  }
+  sizeHintEl.style.left = (rect.left + window.scrollX) + "px";
+  sizeHintEl.style.top = (rect.top + window.scrollY) + "px";
+  sizeHintEl.style.width = rect.width + "px";
+  sizeHintEl.style.height = rect.height + "px";
+  sizeHintEl.firstChild.textContent = Math.round(value) + "px";
+}
+
+function clearSizeHint() {
+  if (sizeHintEl && sizeHintEl.parentNode) sizeHintEl.parentNode.removeChild(sizeHintEl);
+  sizeHintEl = null;
+}
+
 // --- resize handlers ---
 function onResizeStart(e) {
   const el = e.target; const role = roleOf(el);
@@ -244,24 +297,88 @@ function onResizeStart(e) {
       flexChildCenterShiftSkip = true;
     }
   }
+  const slideRoot = el.closest("section, .slide, [data-hyp-region], body") || document.body;
+  sizeCandidates = Array.from(slideRoot.querySelectorAll("[data-hyp-id]"))
+    .filter((c) => c !== el)
+    .map((c) => { const r = c.getBoundingClientRect(); return { el: c, width: r.width, height: r.height }; })
+    .filter((c) => c.width > 0 && c.height > 0)
+    .filter((c) => {
+      const cand = c.el;
+      // F5: exclude any flex item whose size is solver-derived (flex-grow > 0)
+      if (cand.parentElement) {
+        const pd = getComputedStyle(cand.parentElement).display;
+        if ((pd === "flex" || pd === "inline-flex") && parseFloat(getComputedStyle(cand).flexGrow) > 0) {
+          return false;
+        }
+      }
+      return true;
+    });
+  activeSizeMatch = null;
   if (resizeAltActive) { e.setFixedDirection([0, 0]); }
 }
 function onResize(e) {
   const el = e.target;
   const role = roleOf(el);
-  applyVisualResize(el, role, e.width, e.height, e.direction, e.dist);
+
+  let width = e.width;
+  let height = e.height;
+  let dist = [...e.dist];
+  activeSizeMatch = null;
+
+  if (sizeCandidates) {
+    const parent = el.parentElement;
+    const cp = parent ? getComputedStyle(parent) : null;
+    const isFlexRow = cp && (cp.flexDirection === "row" || cp.flexDirection === "row-reverse");
+    // For flex-child, evaluate equal-size against the cursor-tracked dimension
+    // (beforeRect + dist) because Moveable's e.width can be perturbed by its
+    // own position snap for flex layouts.
+    let snapWidth = width;
+    let snapHeight = height;
+    if (role === "flex-child") {
+      snapWidth = beforeRect.width + dist[0];
+      snapHeight = beforeRect.height + dist[1];
+    }
+    const wMatch = snapEqualSize(snapWidth, "width");
+    if (wMatch.match) {
+      width = wMatch.value;
+      if (role === "flex-child" && isFlexRow) dist[0] = width - beforeRect.width;
+      activeSizeMatch = wMatch.match;
+    }
+    const hMatch = snapEqualSize(snapHeight, "height");
+    if (hMatch.match) {
+      height = hMatch.value;
+      if (role === "flex-child" && !isFlexRow) dist[1] = height - beforeRect.height;
+      if (!activeSizeMatch) activeSizeMatch = hMatch.match;
+    }
+  }
+
+  applyVisualResize(el, role, width, height, e.direction, dist);
+
   if (resizeAltActive && role !== "absolute") {
     const isFlex = role === "flex-child";
     if (!isFlex || !flexChildCenterShiftSkip) {
-      // R12 center-shift: under fixedDirection:[0,0] Moveable doubles dist.
-      // Shift by half the total symmetric growth on each axis, composed onto
-      // the pre-existing translate captured at resizeStart.
-      el.style.translate = `${baseTranslateResize[0] - e.dist[0] / 2}px ${baseTranslateResize[1] - e.dist[1] / 2}px`;
+      let dx, dy;
+      if (activeSizeMatch) {
+        const dw = width != null ? width - beforeRect.width : 0;
+        const dh = height != null ? height - beforeRect.height : 0;
+        dx = dw / 2;
+        dy = dh / 2;
+      } else {
+        dx = e.dist[0] / 2;
+        dy = e.dist[1] / 2;
+      }
+      el.style.translate = `${baseTranslateResize[0] - dx}px ${baseTranslateResize[1] - dy}px`;
     }
+  }
+
+  if (activeSizeMatch) {
+    showSizeHint(activeSizeMatch.el, activeSizeMatch.value);
+  } else {
+    clearSizeHint();
   }
 }
 function onResizeEnd() {
-  const el = byId(activeHypId); if (!el) { beforeSizing = null; beforeRect = null; resizeAltActive = false; baseTranslateResize = [0, 0]; flexChildCenterShiftSkip = false; return; }
+  const el = byId(activeHypId); if (!el) { beforeSizing = null; beforeRect = null; resizeAltActive = false; baseTranslateResize = [0, 0]; flexChildCenterShiftSkip = false; sizeCandidates = null; activeSizeMatch = null; clearSizeHint(); return; }
   const role = roleOf(el); const after = captureSizingState(el, role);
   let changed = false; for (const k of Object.keys(after)) if (beforeSizing[k] !== after[k]) { changed = true; break; }
   if (changed) {
@@ -272,6 +389,9 @@ function onResizeEnd() {
   resizeAltActive = false;
   baseTranslateResize = [0, 0];
   flexChildCenterShiftSkip = false;
+  sizeCandidates = null;
+  activeSizeMatch = null;
+  clearSizeHint();
 }
 
 // --- drag handlers (translate; S1) ---
@@ -406,6 +526,9 @@ function teardown() {
   removeWrapper();
   removeInteractionStyle();
   flexChildCenterShiftSkip = false;
+  sizeCandidates = null;
+  activeSizeMatch = null;
+  clearSizeHint();
 }
 
 // --- Public API ---
