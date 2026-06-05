@@ -96,19 +96,43 @@ function captureSizingState(el, role) {
     m.top = s.getPropertyValue("top") || ""; m.left = s.getPropertyValue("left") || "";
   } else if (role === "flex-child") {
     m.flexBasis = s.getPropertyValue("flex-basis") || "";
+    m["flex-grow"] = s.getPropertyValue("flex-grow") || "";
+    m["flex-shrink"] = s.getPropertyValue("flex-shrink") || "";
     m.width = s.getPropertyValue("width") || ""; m.height = s.getPropertyValue("height") || "";
   } else {
     m.width = s.getPropertyValue("width") || ""; m.height = s.getPropertyValue("height") || "";
   }
   return m;
 }
-function applyVisualResize(el, role, width, height, direction) {
+function applyVisualResize(el, role, width, height, direction, dist) {
   const parent = el.parentElement;
   const cp = parent ? getComputedStyle(parent) : null;
   const isFlexRow = cp && (cp.flexDirection === "row" || cp.flexDirection === "row-reverse");
   if (role === "flex-child" && parent) {
-    if (isFlexRow) { if (width != null) el.style.flexBasis = width + "px"; if (height != null) el.style.height = height + "px"; }
-    else { if (height != null) el.style.flexBasis = height + "px"; if (width != null) el.style.width = width + "px"; }
+    const mainDim = isFlexRow ? "width" : "height";
+    const mainAxisIdx = isFlexRow ? 0 : 1;
+    const cs = getComputedStyle(el);
+    const isContentBox = cs.boxSizing === "content-box";
+    const toContent = (target, axis) => {
+      if (!isContentBox) return target;
+      let sub = 0;
+      if (axis === "width") {
+        sub = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
+            + (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
+      } else {
+        sub = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)
+            + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+      }
+      return Math.max(0, target - sub);
+    };
+    el.style.flexGrow = "0";
+    el.style.flexShrink = "0";
+    el.style.flexBasis = toContent(beforeRect[mainDim] + dist[mainAxisIdx], mainDim) + "px";
+    if (isFlexRow) {
+      el.style.height = toContent(beforeRect.height + dist[1], "height") + "px";
+    } else {
+      el.style.width = toContent(beforeRect.width + dist[0], "width") + "px";
+    }
   } else {
     if (width != null) el.style.width = width + "px"; if (height != null) el.style.height = height + "px";
   }
@@ -198,7 +222,7 @@ function onResizeStart(e) {
   const cs = getComputedStyle(el);
   originalTop = parseFloat(cs.top) || 0; originalLeft = parseFloat(cs.left) || 0;
 }
-function onResize(e) { const el = e.target; applyVisualResize(el, roleOf(el), e.width, e.height, e.direction); }
+function onResize(e) { const el = e.target; applyVisualResize(el, roleOf(el), e.width, e.height, e.direction, e.dist); }
 function onResizeEnd() {
   const el = byId(activeHypId); if (!el) { beforeSizing = null; beforeRect = null; return; }
   const role = roleOf(el); const after = captureSizingState(el, role);

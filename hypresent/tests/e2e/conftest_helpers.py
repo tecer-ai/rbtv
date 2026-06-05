@@ -49,6 +49,19 @@ def copy_fixture():
     return dst
 
 
+SYN_DIR = os.path.join(HERE, "fixtures")   # tests/e2e/fixtures/
+
+
+def copy_synthetic(name):
+    """Copy a synthetic fixture into a fresh tempdir; return the copy's path.
+    Synthetic fixtures are fully self-contained (no external assets), so a
+    tempdir copy serves correctly through the /doc/ route."""
+    d = tempfile.mkdtemp()
+    dst = os.path.join(d, name)
+    shutil.copy(os.path.join(SYN_DIR, name), dst)
+    return dst
+
+
 def post_json(base, path, payload):
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(base + path, data=data,

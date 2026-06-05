@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+  body { margin: 0; font-family: sans-serif; }
+  .slide { padding: 60px; }
+  .flow-diagram { display: flex; flex-direction: row; justify-content: center;
+                  align-items: stretch; gap: 10px; width: 1200px; }
+  .flow-node { flex-grow: 1; flex-shrink: 1; flex-basis: 0%;
+               background: #e5e7eb; padding: 24px; text-align: center; }
+  .flow-node--accent { flex-grow: 1.4; flex-shrink: 1; flex-basis: 0%;
+                       background: #c7d2fe; padding: 24px; text-align: center; }
+  .sizing-twin { width: 300px; height: 120px; background: #fde68a; margin-top: 40px; }
+</style></head><body>
+  <section class="slide">
+    <div class="flow-diagram">
+      <div class="flow-node" id="node-a">estrutura</div>
+      <div class="flow-node--accent" id="node-accent">A Tecer · estrutura·concilia·aprende</div>
+      <div class="flow-node" id="node-b">aprende</div>
+    </div>
+    <div class="sizing-twin" id="twin">equal-size match target</div>
+  </section>
+</body></html>
