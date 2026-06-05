@@ -1,0 +1,38 @@
+V3-T2 test runs — 2026-06-04
+
+---
+Command 1: python -m unittest discover -s tests/e2e -p "test_r2_*.py" -v
+Port: 8792
+Result: FAILED (failures=5, passes=1)
+
+test_handle_is_hittable (test_r2_resize_real.R2ResizeRealTests.test_handle_is_hittable) ... FAIL
+test_move_changes_translate_by_delta (test_r2_resize_real.R2ResizeRealTests.test_move_changes_translate_by_delta) ... FAIL
+test_no_console_errors (test_r2_resize_real.R2ResizeRealTests.test_no_console_errors) ... ok
+test_reorder_changes_dom_index (test_r2_resize_real.R2ResizeRealTests.test_reorder_changes_dom_index) ... FAIL
+test_resize_changes_geometry (test_r2_resize_real.R2ResizeRealTests.test_resize_changes_geometry) ... FAIL
+test_resize_twice (test_r2_resize_real.R2ResizeRealTests.test_resize_twice) ... FAIL
+
+Ran 6 tests in ~16s
+
+---
+Command 2: python -m unittest discover -s tests/e2e -p "test_f2_*.py" -v
+Port: 8782
+Result: FAILED (failures=3, passes=5)
+
+test_click_mounts_wrapper_control_box_and_ring (test_f2_select_guides.F2SelectGuidesTests.test_click_mounts_wrapper_control_box_and_ring) ... ok
+test_double_click_edits_and_escape_resumes (test_f2_select_guides.F2SelectGuidesTests.test_double_click_edits_and_escape_resumes) ... ok
+test_drag_shows_guidelines (test_f2_select_guides.F2SelectGuidesTests.test_drag_shows_guidelines) ... FAIL
+test_escape_and_empty_click_deselect (test_f2_select_guides.F2SelectGuidesTests.test_escape_and_empty_click_deselect) ... FAIL
+test_no_console_errors_on_select (test_f2_select_guides.F2SelectGuidesTests.test_no_console_errors_on_select) ... ok
+test_resize_shows_guidelines (test_f2_select_guides.F2SelectGuidesTests.test_resize_shows_guidelines) ... FAIL
+test_selection_has_resize_handles (test_f2_select_guides.F2SelectGuidesTests.test_selection_has_resize_handles) ... ok
+test_switch_selection_keeps_one_wrapper (test_f2_select_guides.F2SelectGuidesTests.test_switch_selection_keeps_one_wrapper) ... ok
+
+Ran 8 tests in ~16s
+
+---
+Verification checks
+- test_f2_select_guides.py contains ZERO dispatchEvent( calls: YES (0)
+- test_f2_select_guides.py contains ZERO skipTest( calls: YES (0)
+- git diff shows changes ONLY in tests/e2e/test_r2_resize_real.py and tests/e2e/test_f2_select_guides.py: YES
+- Blocking product bug reported in docs/verification/v3/v3-t2-BUG.md: YES

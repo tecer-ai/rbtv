@@ -1,0 +1,14 @@
+COMMAND:
+$sw=[Diagnostics.Stopwatch]::StartNew(); $before=(Get-Process powershell -ErrorAction SilentlyContinue).Count; python -m unittest tests.unit.test_r1_dialog_zorder -v 2>&1 | Tee-Object -Variable out; $code=$LASTEXITCODE; $sw.Stop(); Write-Output ("WALL_MS=" + $sw.ElapsedMilliseconds) ("EXIT=" + $code) ("PS_PROCS_BEFORE=" + $before)
+
+FULL VERBATIM OUTPUT:
+----------------------------------------------------------------------
+setUpClass (tests.unit.test_r1_dialog_zorder.DialogZOrderTests) ... skipped 'No interactive desktop session (headless CI) — the R1 real-dialog z-order test requires a desktop. On an interactive Windows 11 session it runs.'
+----------------------------------------------------------------------
+Ran 0 tests in 0.000s
+OK (skipped=1)
+WALL_MS=117
+EXIT=0
+PS_PROCS_BEFORE=1
+
+SKIPPED_LINES_COUNT=2

@@ -1,6 +1,10 @@
 """Pure handlers for the hypresent API — stdlib only, no HTTP logic."""
 
+import os
 import pathlib
+import subprocess
+import sys
+import threading
 
 # ---------------------------------------------------------------------------
 # Shared-state callback
@@ -9,10 +13,116 @@ import pathlib
 # importing server at the top level (avoids circular imports).
 _set_doc_root = None
 
+_open_path = {"path": None}
+
+
+def set_open_path(p):
+    _open_path["path"] = p
+
+
+def get_open_path():
+    return _open_path["path"]
+
 
 def register_set_doc_root(fn):
     global _set_doc_root
     _set_doc_root = fn
+
+
+# ---------------------------------------------------------------------------
+# Native dialog launcher (injectable for tests)
+# ---------------------------------------------------------------------------
+_DIALOG_LOCK = threading.Lock()
+_dialog_launcher = None  # tests set this via set_dialog_launcher
+
+
+def set_dialog_launcher(fn):
+    """Inject a fake launcher. fn(kind:str) -> path:str|None. kind in {'open','save'}."""
+    global _dialog_launcher
+    _dialog_launcher = fn
+
+
+_OPEN_PS = r"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Windows.Forms
+# R1 (V3-S1): a hidden TopMost owner Form forces the dialog above the focused
+# Chrome window (the dialog inherits the owner's top-most band). The owner is
+# invisible (minimized, no taskbar, zero opacity) and disposed after.
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
+$owner.ShowInTaskbar = $false
+$owner.WindowState = 'Minimized'
+$owner.Opacity = 0
+$owner.Show()
+try {
+  $d = New-Object System.Windows.Forms.OpenFileDialog
+  $d.Filter = 'HTML files (*.html;*.htm)|*.html;*.htm|All files (*.*)|*.*'
+  $d.Title = 'Open Presentation'
+  if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.FileName }
+} finally {
+  $owner.Close()
+  $owner.Dispose()
+}
+"""
+
+_SAVE_PS = r"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Windows.Forms
+# R1 (V3-S1): hidden TopMost owner Form — see _OPEN_PS.
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
+$owner.ShowInTaskbar = $false
+$owner.WindowState = 'Minimized'
+$owner.Opacity = 0
+$owner.Show()
+try {
+  $d = New-Object System.Windows.Forms.SaveFileDialog
+  $d.Filter = 'HTML files (*.html;*.htm)|*.html;*.htm|All files (*.*)|*.*'
+  $d.DefaultExt = 'html'
+  $d.OverwritePrompt = $true
+  $d.Title = 'Save As'
+  if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.FileName }
+} finally {
+  $owner.Close()
+  $owner.Dispose()
+}
+"""
+
+
+def _ps_args(exe, script):
+    """Build the argv for a PowerShell dialog invocation (STA, no profile, non-interactive)."""
+    return [exe, "-STA", "-NoProfile", "-NonInteractive", "-Command", script]
+
+
+def _run_ps_dialog_default(kind):
+    """Default launcher: spawn a PowerShell -STA dialog and return the chosen path or None.
+
+    Tries PowerShell 7 (`pwsh`) first; if it is not installed (FileNotFoundError),
+    falls back to inbox Windows PowerShell (`powershell.exe`). Both are invoked with
+    identical flags: -STA -NoProfile -NonInteractive -Command <script>.
+    """
+    script = _OPEN_PS if kind == "open" else _SAVE_PS
+    candidates = ["pwsh", "powershell.exe"] if sys.platform == "win32" else ["pwsh"]
+    last_exc = None
+    with _DIALOG_LOCK:
+        for exe in candidates:
+            try:
+                r = subprocess.run(
+                    _ps_args(exe, script),
+                    capture_output=True, text=True, encoding="utf-8", timeout=300,
+                )
+            except FileNotFoundError as exc:
+                last_exc = exc
+                continue  # this PowerShell flavor is absent; try the next candidate
+            path = (r.stdout or "").strip()
+            return path if path else None
+    # No PowerShell flavor was found at all.
+    raise last_exc if last_exc is not None else FileNotFoundError("No PowerShell executable found")
+
+
+def _launch_dialog(kind):
+    fn = _dialog_launcher if _dialog_launcher is not None else _run_ps_dialog_default
+    return fn(kind)
 
 
 # ---------------------------------------------------------------------------
@@ -39,6 +149,8 @@ def handle_open(payload):
     parent = p.parent.resolve()
     if _set_doc_root is not None:
         _set_doc_root(str(parent))
+
+    set_open_path(str(p.resolve()))
 
     return (200, {
         "html": html,
@@ -71,3 +183,43 @@ def handle_save_as(payload):
         return (500, {"error": str(exc)})
 
     return (200, {"ok": True, "path": path_str})
+
+
+def handle_dialog_open():
+    """Show a native open dialog; on selection delegate to handle_open."""
+    try:
+        path = _launch_dialog("open")
+    except Exception as exc:
+        return (500, {"error": f"Dialog failed: {exc}"})
+    if not path:
+        return (200, {"cancelled": True})
+    return handle_open({"path": path})
+
+
+def handle_dialog_save_as(payload):
+    """Show a native save dialog; on confirm delegate to handle_save_as."""
+    html = payload.get("html")
+    if html is None:
+        return (500, {"error": "Missing 'html'"})
+    try:
+        path = _launch_dialog("save")
+    except Exception as exc:
+        return (500, {"error": f"Dialog failed: {exc}"})
+    if not path:
+        return (200, {"cancelled": True})
+    result = handle_save_as({"path": path, "html": html})
+    # On a successful write, this path becomes the currently-open file.
+    if result[0] == 200 and result[1].get("ok"):
+        set_open_path(str(pathlib.Path(path).resolve()))
+    return result
+
+
+def handle_save(payload):
+    """Silent overwrite of the currently-open file. If none open, signal fallback."""
+    html = payload.get("html")
+    if html is None:
+        return (500, {"error": "Missing 'html'"})
+    open_path = get_open_path()
+    if not open_path:
+        return (200, {"no_open_file": True})
+    return handle_save_as({"path": open_path, "html": html})

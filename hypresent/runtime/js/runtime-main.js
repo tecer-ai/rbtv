@@ -1,13 +1,12 @@
 import { emit, register } from "/runtime/js/bridge-iframe.js";
-import { tag, regions, byId } from "./element-registry.js";
-import { select, clear, current } from "./selection.js";
+import { tag, byId } from "./element-registry.js";
+import { select, clear, current, onSelectionChange } from "./selection.js";
 import { undo, redo, state, push as historyPush } from "./history.js";
 import { serialize } from "./serializer.js";
-import { apply as applyFormat } from "./text-format.js";
-import { resize as makeResizeCommand, move as makeMoveCommand } from "./commands.js";
-import { begin as resizeBegin, end as resizeEnd } from "./resize.js";
-import { begin as moveBegin, end as moveEnd } from "./move.js";
-import { readPalette, applyToken, applyElement } from "./color.js";
+import { apply as applyFormat, snapshotSelection as formatSnapshot, applyAlign } from "./text-format.js";
+import { resize as makeResizeCommand, move as makeMoveCommand, deleteElement as makeDeleteCommand, align as makeAlignCommand } from "./commands.js";
+import { mount as interactionMount, unmount as interactionUnmount, remount as interactionRemount, isActive as interactionIsActive } from "./interaction.js";
+import { readPalette, applyToken, applyElement, readElementColors } from "./color.js";
 import {
   load as loadComments,
   toJson as commentsToJson,
@@ -15,6 +14,8 @@ import {
   reply as replyComment,
   resolve as resolveComment,
   threads as getThreads,
+  setAgentInstruction as setAgentInstruction,
+  reanchorAfterMove as reanchorComments,
 } from "./comments.js";
 import "./text-edit.js";
 
@@ -23,6 +24,17 @@ let activeTool = "edit";
 function boot() {
   // 1. Build registry: tag editable elements with data-hyp-id
   tag();
+
+  // Wire selection → combined interaction (R09): registered here, after all
+  // modules are fully evaluated, so onSelectionChange is guaranteed defined.
+  onSelectionChange((info) => {
+    if (info && info.hypId) {
+      if (interactionIsActive()) interactionRemount(info.hypId);
+      else interactionMount(info.hypId);
+    } else {
+      interactionUnmount();
+    }
+  });
 
   // 2. selection.js and history.js self-activate on import (click / keyboard
   //    listeners). We wire their programatic APIs into the bridge so the parent
@@ -63,6 +75,40 @@ function boot() {
     return null;
   });
 
+  register("delete-element", (payload) => {
+    if (!payload || !payload.hypId) {
+      throw new Error("delete-element: missing hypId");
+    }
+    // Edit-active guard (V3-S10): never delete while a text edit is active.
+    const active = document.activeElement;
+    if (active && active.getAttribute && active.getAttribute("contenteditable") === "true") {
+      return { blocked: "editing" };
+    }
+    const el = byId(payload.hypId);
+    if (!el) {
+      return { blocked: "not-found" };
+    }
+    // Last-region guard (V3-S7): never delete the only remaining top-level region.
+    if (el.parentElement === document.body) {
+      const bodyRegions = Array.from(document.body.children).filter((c) =>
+        c.getAttribute("data-hyp-id")
+      );
+      if (bodyRegions.length <= 1 && bodyRegions[0] === el) {
+        return { blocked: "last-region" };
+      }
+    }
+    // V3-S8: reanchor after BOTH do() and undo() so deleted-element threads go unanchored
+    // on delete AND re-anchor on undo (the Undo path runs cmd.undo() only).
+    const cmd = makeDeleteCommand(payload.hypId);
+    historyPush({
+      do() { cmd.do(); reanchorComments(); },
+      undo() { cmd.undo(); reanchorComments(); },
+      label: cmd.label,
+    });
+    clear();              // selection cleared → the observer unmounts the Moveable (V3-S9)
+    return { deleted: payload.hypId };
+  });
+
   register("format", (payload) => {
     if (!payload || !payload.op) {
       throw new Error("format: missing op");
@@ -71,33 +117,37 @@ function boot() {
     return { ok };
   });
 
-  register("set-tool", (payload) => {
-    if (!payload || !payload.tool) {
-      throw new Error("set-tool: missing tool");
-    }
-    const oldTool = activeTool;
-    const newTool = payload.tool;
-    activeTool = newTool;
+  register("format-snapshot", () => {
+    // R8: snapshot the live iframe Selection BEFORE the toolbar focus shift, so
+    // font-size can restore it on the next apply() and bump one span repeatedly.
+    formatSnapshot();
+    return { ok: true };
+  });
 
-    if (oldTool === "resize") {
-      resizeEnd();
+  register("align", (payload) => {
+    if (!payload || !payload.axis || !payload.value) {
+      throw new Error("align: missing axis or value");
     }
-    if (oldTool === "move") {
-      moveEnd();
+    const info = current();
+    if (!info || !info.hypId) return { ok: false, reason: "no-selection" };
+    const el = byId(info.hypId);
+    if (!el) return { ok: false, reason: "not-found" };
+    const cmd = makeAlignCommand(info.hypId, () => applyAlign(el, payload.axis, payload.value));
+    historyPush(cmd);
+    return { ok: true };
+  });
+
+  register("set-tool", (payload) => {
+    // Compat shim (S2): the modeless model auto-mounts one combined Moveable on
+    // selection. 'edit'/none unmounts; 'resize'/'move' mount on the current selection.
+    const tool = payload && payload.tool ? payload.tool : "edit";
+    const info = current();
+    if (tool === "resize" || tool === "move") {
+      if (info && info.hypId) interactionMount(info.hypId);
+    } else {
+      interactionUnmount();
     }
-    if (newTool === "resize") {
-      const info = current();
-      if (info) {
-        resizeBegin(info.hypId);
-      }
-    }
-    if (newTool === "move") {
-      const info = current();
-      if (info) {
-        moveBegin(info.hypId);
-      }
-    }
-    return { tool: newTool };
+    return { tool };
   });
 
   register("resize-commit", (payload) => {
@@ -139,6 +189,13 @@ function boot() {
     return { undoToken: true };
   });
 
+  register("element-color-read", (payload) => {
+    if (!payload || !payload.hypId) {
+      throw new Error("element-color-read: missing hypId");
+    }
+    return readElementColors(payload.hypId);
+  });
+
   // Comments: load existing island before emitting ready
   const existingIsland = document.getElementById("hyp-comments");
   let islandData = [];
@@ -156,7 +213,7 @@ function boot() {
     if (!payload || !payload.hypId || !payload.body || !payload.author) {
       throw new Error("add-comment: missing hypId, body, or author");
     }
-    return addComment(payload.hypId, payload.body, payload.author);
+    return addComment(payload.hypId, payload.body, payload.author, payload.agentInstruction === true);
   });
 
   register("reply-comment", (payload) => {
@@ -172,6 +229,13 @@ function boot() {
     }
     const resolved = payload.resolved !== undefined ? payload.resolved : true;
     return resolveComment(payload.commentId, resolved);
+  });
+
+  register("tag-agent", (payload) => {
+    if (!payload || !payload.commentId) {
+      throw new Error("tag-agent: missing commentId");
+    }
+    return setAgentInstruction(payload.commentId, payload.agentInstruction === true);
   });
 
   register("comments-read", () => {
@@ -191,7 +255,7 @@ function boot() {
 
   // 3. Emit ready so the parent shell enables controls
   const palette = readPalette();
-  emit("ready", { tokens: palette.tokens, sections: regions() });
+  emit("ready", { tokens: palette.tokens });
 }
 
 if (document.readyState === "loading") {

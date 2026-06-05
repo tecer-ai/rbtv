@@ -1,0 +1,63 @@
+V3-T19 — docs-sync: README + module-map + decision-log + build-log
+=================================================================
+
+Date: 2026-06-04
+Task: Sync docs to v3 changes (depends on V3-T18 full suite green).
+Files modified (allowlist only):
+  1. README.md
+  2. docs/spec/03-module-map.md
+  3. docs/decision-log.md
+  4. docs/build-log.md
+
+Per-file summary
+----------------
+README.md
+  - Step 4 (Resize/Move): expanded to "Resize / Move / Delete / Align" with
+    delete (🗑 toolbar button) and alignment toolbar group details.
+  - Step 5 (Recolor): added Palette Tokens ⓘ tooltip + per-token copy-HEX.
+  - Step 8 (Save): dropped the "Navigate" outline-panel line; added
+    "Native dialogs appear on top of the browser window" note.
+  - Known Limitations: removed the fixed "Font-size caret artifact" bullet.
+
+docs/spec/03-module-map.md
+  - commands.js: added `deleteElement`, `align` to the tree comment.
+  - interaction.js: added pointer-events injection note (R2).
+  - text-format.js: added font-size snapshot/tracked-span (R8) and
+    computeAlignCaps/applyAlign (R7) notes.
+  - element-registry.js: added regions()-removed note (R9) in tree comment
+    and public-contract line.
+  - selection.js: added `alignCaps` field note (R7).
+  - color.js: added `rgbToHex` EXPORTED, `normalizeHex`, `token.hex` (R6).
+
+docs/decision-log.md
+  - APPEND-ONLY: D8–D11 added after existing D7. No existing row modified.
+  - D8: Outline panel removed (R9/U12).
+  - D9: `#color-btn` toolbar button removed (R4/U11).
+  - D10: Text alignment is display-branched (R7/U13/U16/D21).
+  - D11: Element deletion toolbar-only with full undo (R3/U14/U15/D20).
+  - Verification: `git diff -- docs/decision-log.md` shows only `+` lines
+    on new rows; zero `-` lines on existing D1–D7 / A1–A12 / tables.
+
+docs/build-log.md
+  - Appended v3 improvement cycle section after the v2 entry.
+  - Covers R1–R9 scope, key runtime/shell/server changes, test strategy,
+    and commit cadence.
+
+Engineering learnings (from v3 cycle)
+-------------------------------------
+(a) history's innerHTML round-trip detaches nodes — node-identity tracking
+    across history ops MUST use re-findable DOM markers
+    (data-hyp-fontspan pattern).
+(b) selection-dependent tests MUST pin a unique id on the exact target and
+    assert the runtime-selected hypId matches before outcome assertions;
+    wrong-element selection caused 3 separate red herrings this cycle.
+
+Acceptance check
+----------------
+- [x] README: outline mention gone; font-size limitation gone; step 4 has
+      delete+alignment; step 5 has tooltip+copy-HEX; dialogs-on-top present.
+- [x] 03-module-map.md: all six changed modules reflect v3 deltas.
+- [x] decision-log.md: four new rows D8–D11, append-only, no duplicates,
+      existing rows byte-identical.
+- [x] build-log.md: v3 section appended, prior content unchanged.
+- [x] Changes confined to the four allowlisted files.

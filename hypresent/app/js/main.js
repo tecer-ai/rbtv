@@ -1,14 +1,14 @@
 import Coloris from "/app/js/vendor/coloris.min.js";
 import { createBridge } from "/app/js/bridge/bridge-parent.js";
-import { openFile } from "/app/js/shell/file-controls.js";
+import { openViaDialog } from "/app/js/shell/file-controls.js";
 import { createColorPopover } from "/app/js/shell/color-popover.js";
-import { saveAs } from "/app/js/api-client.js";
+import { openComposer } from "/app/js/shell/comment-composer.js";
+import { dialogSaveAs, save } from "/app/js/api-client.js";
 
 let bridge = null;
 let isDirty = false;
-let lastOpenedPath = "";
-let outlineRegions = [];
-let activeOutlineHypId = null;
+let isEditingNow = false;   // R3 edit-guard: cached from runtime 'edit-state' events
+
 let undoBtn = null;
 let redoBtn = null;
 
@@ -19,21 +19,6 @@ function setStatus(msg, type = "") {
   if (!el) return;
   el.textContent = msg;
   el.className = "shell-status" + (type ? " " + type : "");
-}
-
-function deriveSaveDefault(openPath) {
-  if (!openPath) return "";
-  const sep = openPath.lastIndexOf("\\") >= 0 ? "\\" : "/";
-  const idx = openPath.lastIndexOf(sep);
-  const dir = idx >= 0 ? openPath.slice(0, idx) : "";
-  const name = idx >= 0 ? openPath.slice(idx + 1) : openPath;
-  let defaultName;
-  if (/\.html$/i.test(name)) {
-    defaultName = name.replace(/\.html$/i, "-edited.html");
-  } else {
-    defaultName = name + "-edited.html";
-  }
-  return dir ? dir + sep + defaultName : defaultName;
 }
 
 function getAuthorName() {
@@ -125,21 +110,26 @@ function createThreadEl(thread, isUnanchored = false) {
   const replyBtn = document.createElement("button");
   replyBtn.className = "comment-action-btn";
   replyBtn.textContent = "Reply";
-  replyBtn.addEventListener("click", async (e) => {
+  replyBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    const text = prompt("Reply:");
-    if (!text || !text.trim()) return;
     const author = getAuthorName();
-    try {
-      await bridge.command("reply-comment", {
-        commentId: thread.id,
-        body: text.trim(),
-        author,
-      });
-      await refreshCommentPanel();
-    } catch (err) {
-      console.error("Reply failed:", err.message);
-    }
+    openComposer({
+      rect: thread.rect || null,
+      mode: "reply",
+      commentId: thread.id,
+      onSubmit: async (text) => {
+        try {
+          await bridge.command("reply-comment", {
+            commentId: thread.id,
+            body: text,
+            author,
+          });
+          await refreshCommentPanel();
+        } catch (err) {
+          console.error("Reply failed:", err.message);
+        }
+      },
+    });
   });
   actions.appendChild(replyBtn);
 
@@ -159,6 +149,28 @@ function createThreadEl(thread, isUnanchored = false) {
     }
   });
   actions.appendChild(resolveBtn);
+
+  const agentLabel = document.createElement("label");
+  agentLabel.className = "comment-agent-toggle";
+  const agentCb = document.createElement("input");
+  agentCb.type = "checkbox";
+  agentCb.checked = thread.agentInstruction === true;
+  agentCb.addEventListener("click", (e) => e.stopPropagation());
+  agentCb.addEventListener("change", async (e) => {
+    e.stopPropagation();
+    try {
+      await bridge.command("tag-agent", {
+        commentId: thread.id,
+        agentInstruction: agentCb.checked,
+      });
+      await refreshCommentPanel();
+    } catch (err) {
+      console.error("tag-agent failed:", err.message);
+    }
+  });
+  agentLabel.appendChild(agentCb);
+  agentLabel.appendChild(document.createTextNode(" For agents"));
+  actions.appendChild(agentLabel);
 
   div.appendChild(actions);
 
@@ -209,61 +221,27 @@ async function refreshCommentPanel() {
   }
 }
 
-function renderOutline(regions) {
-  outlineRegions = regions || [];
-  activeOutlineHypId = null;
-  const container = document.getElementById("outline-list");
-  if (!container) return;
-  container.innerHTML = "";
-
-  if (outlineRegions.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "outline-empty";
-    empty.textContent = "No regions detected";
-    container.appendChild(empty);
-    return;
-  }
-
-  for (const region of outlineRegions) {
-    const item = document.createElement("div");
-    item.className = "outline-item";
-    item.textContent = region.label || region.hypId;
-    item.dataset.hypId = region.hypId;
-    item.addEventListener("click", () => {
-      if (!bridge) return;
-      bridge.command("select", { hypId: region.hypId }).catch((err) => {
-        console.error("Select failed:", err.message);
-      });
-    });
-    container.appendChild(item);
-  }
-}
-
-function setActiveOutline(hypId) {
-  activeOutlineHypId = hypId || null;
-  const container = document.getElementById("outline-list");
-  if (!container) return;
-  container.querySelectorAll(".outline-item").forEach((el) => {
-    el.classList.toggle("outline-item-active", el.dataset.hypId === activeOutlineHypId);
-  });
-}
-
 function ensureBridge(iframe) {
   if (bridge) bridge.destroy();
   bridge = createBridge(iframe);
   bridge.on("ready", async (payload) => {
     console.info("runtime ready");
-    renderOutline(payload && payload.sections ? payload.sections : []);
     await refreshCommentPanel();
   });
 
   bridge.on("selection-changed", (payload) => {
-    setActiveOutline(payload && payload.hypId ? payload.hypId : null);
+    if (window.__hypUpdateAlignButtons) {
+      window.__hypUpdateAlignButtons(payload && payload.alignCaps ? payload.alignCaps : null);
+    }
   });
 
   bridge.on("dirty-changed", (payload) => {
     isDirty = payload && payload.dirty ? true : false;
     document.title = isDirty ? "hypresent *" : "hypresent";
+  });
+
+  bridge.on("edit-state", (payload) => {
+    isEditingNow = !!(payload && payload.editing);
   });
 
   bridge.on("comment-anchor-clicked", (payload) => {
@@ -325,20 +303,13 @@ document.addEventListener("DOMContentLoaded", () => {
   })();
 
   const openBtn = document.querySelector("#open-btn");
-  const pathInput = document.querySelector("#open-path-input");
-  const saveAsInput = document.querySelector("#save-as-path-input");
-  if (!openBtn || !pathInput) {
+  if (!openBtn) {
     console.error("Open control not found");
   } else {
     openBtn.addEventListener("click", async () => {
-      const path = pathInput.value.trim();
-      if (!path) return;
-      lastOpenedPath = path;
-      if (saveAsInput) {
-        saveAsInput.value = deriveSaveDefault(path);
-      }
       try {
-        await openFile(path, iframe);
+        const result = await openViaDialog(iframe);
+        if (!result) return; // cancelled
         ensureBridge(iframe);
         setStatus("");
       } catch (err) {
@@ -348,34 +319,55 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  const saveAsBtn = document.querySelector("#save-as-btn");
-  if (saveAsBtn && saveAsInput) {
-    saveAsBtn.addEventListener("click", async () => {
-      if (!bridge) {
-        setStatus("No document open.", "error");
-        return;
-      }
-      const path = saveAsInput.value.trim();
-      if (!path) {
-        setStatus("Please enter a save path.", "error");
-        return;
-      }
-      let result;
+  async function serializeDoc() {
+    if (!bridge) { setStatus("No document open.", "error"); return null; }
+    let result;
+    try {
+      result = await bridge.command("serialize");
+    } catch (err) {
+      setStatus("Serialize failed: " + err.message, "error");
+      return null;
+    }
+    if (!result || result.html == null) {
+      setStatus("Document serialization returned null.", "error");
+      return null;
+    }
+    return result.html;
+  }
+
+  const saveBtn = document.querySelector("#save-btn");
+  if (saveBtn) {
+    saveBtn.addEventListener("click", async () => {
+      const html = await serializeDoc();
+      if (html == null) return;
       try {
-        result = await bridge.command("serialize");
+        const data = await save(html);
+        if (data && data.no_open_file) {
+          // No file open yet → fall back to Save As dialog.
+          const sa = await dialogSaveAs(html);
+          if (sa && sa.cancelled) return;
+          isDirty = false; document.title = "hypresent";
+          setStatus("Saved to " + (sa.path || ""), "success");
+          return;
+        }
+        isDirty = false; document.title = "hypresent";
+        setStatus("Saved to " + (data.path || ""), "success");
       } catch (err) {
-        setStatus("Serialize failed: " + err.message, "error");
-        return;
+        setStatus("Save failed: " + err.message, "error");
       }
-      if (!result || result.html == null) {
-        setStatus("Document serialization returned null.", "error");
-        return;
-      }
+    });
+  }
+
+  const saveAsBtn = document.querySelector("#save-as-btn");
+  if (saveAsBtn) {
+    saveAsBtn.addEventListener("click", async () => {
+      const html = await serializeDoc();
+      if (html == null) return;
       try {
-        const data = await saveAs(path, result.html);
-        isDirty = false;
-        document.title = "hypresent";
-        setStatus("Saved to " + (data.path || path), "success");
+        const data = await dialogSaveAs(html);
+        if (data && data.cancelled) return; // user cancelled
+        isDirty = false; document.title = "hypresent";
+        setStatus("Saved to " + (data.path || ""), "success");
       } catch (err) {
         setStatus("Save failed: " + err.message, "error");
       }
@@ -395,6 +387,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!btn) continue;
     btn.addEventListener("mousedown", (e) => {
       e.preventDefault();
+      // R8: snapshot the iframe selection BEFORE focus() collapses it, so
+      // font-size can restore the word and bump one span on every press.
+      if (bridge) {
+        bridge.command("format-snapshot").catch(() => {});
+      }
       iframe.contentWindow.focus();
     });
     btn.addEventListener("click", () => {
@@ -405,22 +402,101 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Wire toolbar color button
-  const colorBtn = document.getElementById("color-btn");
-  if (colorBtn) {
-    colorBtn.addEventListener("click", () => {
-      const panel = document.querySelector(".shell-panel");
-      if (!panel) return;
-      // Open the first color input in the panel (triggers Coloris)
-      const firstInput = panel.querySelector(".hyp-coloris-input");
-      if (firstInput) {
-        firstInput.click();
-        firstInput.focus();
+  // Wire the 6 alignment buttons (R7). Horizontal: left/center/right. Vertical:
+  // top/middle/bottom. Disabled state is set reactively from selection-changed.
+  const alignButtons = [
+    { id: "align-left", axis: "h", value: "left", vertical: false },
+    { id: "align-center", axis: "h", value: "center", vertical: false },
+    { id: "align-right", axis: "h", value: "right", vertical: false },
+    { id: "align-top", axis: "v", value: "top", vertical: true },
+    { id: "align-middle", axis: "v", value: "middle", vertical: true },
+    { id: "align-bottom", axis: "v", value: "bottom", vertical: true },
+  ];
+  for (const { id, axis, value } of alignButtons) {
+    const btn = document.getElementById(id);
+    if (!btn) continue;
+    btn.disabled = true; // disabled until something is selected
+    btn.addEventListener("click", () => {
+      if (!bridge) return;
+      bridge.command("align", { axis, value }).catch((err) => {
+        console.error("Align failed:", err.message);
+      });
+    });
+  }
+
+  function updateAlignButtons(caps) {
+    for (const { id, vertical } of alignButtons) {
+      const btn = document.getElementById(id);
+      if (!btn) continue;
+      if (!caps) {
+        btn.disabled = true;
+        btn.removeAttribute("title");
+        continue;
+      }
+      if (vertical) {
+        btn.disabled = !caps.vertical;
+        if (!caps.vertical) {
+          btn.title = "Vertical alignment needs a fixed-height, flex, grid, or table-cell element";
+        }
+      } else {
+        btn.disabled = !caps.horizontal;
+      }
+    }
+  }
+  // expose to the selection-changed handler below via a window-scoped ref
+  window.__hypUpdateAlignButtons = updateAlignButtons;
+
+  // Wire toolbar delete button (R3): toolbar-only trigger (U14 — NO keyboard path).
+  const deleteBtn = document.getElementById("delete-btn");
+  if (deleteBtn) {
+    // V3-S10 edit-active gate (shell-primary): snapshot editing state on mousedown,
+    // BEFORE focus leaves the iframe and text-edit commits/exits on blur. The runtime
+    // activeElement check cannot see this (blur fires first) — the mousedown snapshot can.
+    let editingAtPress = false;
+    deleteBtn.addEventListener("mousedown", () => {
+      editingAtPress = isEditingNow;
+    });
+    deleteBtn.addEventListener("click", async () => {
+      if (!bridge) return;
+      if (editingAtPress) {
+        editingAtPress = false;
+        setStatus("Finish editing before deleting the element.", "error");
+        return;
+      }
+      let sel;
+      try {
+        sel = await bridge.command("get-selection");
+      } catch (err) {
+        console.error("Get selection failed:", err.message);
+        return;
+      }
+      if (!sel || !sel.hypId) {
+        setStatus("Select an element to delete.", "error");
+        return;
+      }
+      try {
+        const res = await bridge.command("delete-element", { hypId: sel.hypId });
+        if (res && res.blocked === "last-region") {
+          setStatus("Cannot delete the last remaining region.", "error");
+          return;
+        }
+        if (res && res.blocked === "editing") {
+          setStatus("Finish editing before deleting the element.", "error");
+          return;
+        }
+        if (res && res.blocked) {
+          setStatus("Could not delete the selected element.", "error");
+          return;
+        }
+        setStatus("Element deleted.", "success");
+        await refreshCommentPanel(); // threads may have moved to Unanchored
+      } catch (err) {
+        setStatus("Delete failed: " + err.message, "error");
       }
     });
   }
 
-  // Wire toolbar comment button
+  // Wire toolbar comment button → anchored composer popover (F5)
   const commentBtn = document.getElementById("comment-btn");
   if (commentBtn) {
     commentBtn.addEventListener("click", async () => {
@@ -436,19 +512,24 @@ document.addEventListener("DOMContentLoaded", () => {
         alert("Select an element first to add a comment.");
         return;
       }
-      const body = prompt("Comment:");
-      if (!body || !body.trim()) return;
       const author = getAuthorName();
-      try {
-        await bridge.command("add-comment", {
-          hypId: sel.hypId,
-          body: body.trim(),
-          author,
-        });
-        await refreshCommentPanel();
-      } catch (err) {
-        console.error("Add comment failed:", err.message);
-      }
+      openComposer({
+        rect: sel.rect || null,
+        mode: "new",
+        onSubmit: async (text, agentInstruction) => {
+          try {
+            await bridge.command("add-comment", {
+              hypId: sel.hypId,
+              body: text,
+              author,
+              agentInstruction,
+            });
+            await refreshCommentPanel();
+          } catch (err) {
+            console.error("Add comment failed:", err.message);
+          }
+        },
+      });
     });
   }
 
@@ -461,11 +542,14 @@ document.addEventListener("DOMContentLoaded", () => {
   );
 
   if (undoBtn) {
-    undoBtn.addEventListener("click", () => {
+    undoBtn.addEventListener("click", async () => {
       if (!bridge) return;
-      bridge.command("undo").catch((err) => {
+      try {
+        await bridge.command("undo");
+        await refreshCommentPanel(); // undo may re-anchor threads (R3/V3-S8) → re-render panel
+      } catch (err) {
         console.error("Undo failed:", err.message);
-      });
+      }
     });
   }
   if (redoBtn) {

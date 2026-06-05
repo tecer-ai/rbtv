@@ -18,6 +18,9 @@
 import { byId, idOf } from "./element-registry.js";
 import { text } from "./commands.js";
 import { push } from "./history.js";
+import { suspend as suspendInteraction, resume as resumeInteraction } from "./interaction.js";
+import { clearFontState } from "./text-format.js";
+import { emit } from "./bridge-iframe.js";
 
 // --- Constants ---
 
@@ -107,6 +110,8 @@ function enterEdit(hypId) {
 
   el.setAttribute("contenteditable", "true");
   el.focus();
+  suspendInteraction();
+  emit("edit-state", { editing: true, hypId });
 
   // One-shot blur listener; guarded by activeHypId so manual commit is safe
   el.addEventListener("blur", onBlur, { once: true });
@@ -141,6 +146,9 @@ function commit() {
   activeHypId = null;
   beforeHtml = null;
   priorContenteditable = null;
+  resumeInteraction();
+  clearFontState();
+  emit("edit-state", { editing: false });
 }
 
 // --- Event listeners ---

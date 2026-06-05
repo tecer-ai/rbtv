@@ -12,10 +12,10 @@ This module is for developers working with Claude Code on real codebases. It sol
 
 ### `rbtv-commit`
 
-- **What**: A guided git commit workflow that analyzes your diff, drafts a conventional commit message, checks for remote changes before committing, handles stash/conflict scenarios, and stages specific files (never `git add -A`).
+- **What**: A guided git commit workflow that analyzes your diff, clusters changes by concern (one commit per cluster — unrelated changes never share an umbrella commit), drafts a conventional commit message per cluster, checks for remote changes before committing, handles stash/conflict scenarios, and stages specific files (never `git add -A`).
 - **When to use**: Any time you want to commit changes. Also triggers automatically when a task finishes and you say something like "done, save this."
 - **How to invoke**: Say "commit", "commita", or "salva no git". The skill also fires when you say "done, commit this" after completing a task.
-- **What it produces**: A clean commit in the current repo, with the message confirmed by you before anything is staged. Push happens only if you ask for it.
+- **What it produces**: One or more scoped commits in the current repo, with the commit plan confirmed by you before anything is staged. Push happens only if you ask for it.
 - **Example**:
   > User: "commit my changes"
   > Agent runs `git status` and `git diff`, then:

@@ -284,4 +284,33 @@ These require Chrome DevTools MCP (two live windows + real module resolution + p
 python server/server.py            # serves http://127.0.0.1:8765 (defaults 127.0.0.1:8765)
 python server/server.py 127.0.0.1 9000   # custom host/port
 ```
-Open the app shell at `http://127.0.0.1:8765/app/`. Open a document by `POST /api/open {"path":"<absolute-file-path>"}` (the shell's Open control drives this once wired); the document then loads in the iframe from `/doc/<name>` and the runtime injects from `/runtime/js/runtime-main.js`.
+Open the app shell at `http://127.0.0.1:8765/app/`. Open a document by clicking **Open…**; the document then loads in the iframe from `/doc/<name>` and the runtime injects from `/runtime/js/runtime-main.js`.
+
+---
+
+## v2 improvement cycle (improvements-2026-06)
+
+- **Scope:** F1 native OS open/save dialogs · F2 modeless interaction + alignment guides · F3 move/reorder/re-parent on drop (FLIP) · F4 border color · F5 agent-tagged comments + derived head instruction block · G1/G2 verified (already fixed in v1 CP2) + hardened.
+- **Key changes:**
+  - Server: new `/api/dialog-open`, `/api/dialog-save-as`, `/api/save`; PowerShell `-STA` dialog launcher with an injectable seam (`api.set_dialog_launcher`); open-path tracking. Toolbar lost both path inputs; gained a Save button.
+  - Runtime: NEW `interaction.js` (one combined Moveable: drag+resize+Slides snapping/guides; on-drop hit-test → reorder/re-parent/keep-translate with FLIP); NEW pure `reorder.js`; `resize.js` + `move.js` REMOVED (folded in). Moves now write the CSS `translate` property (D6/D2-letter supersession).
+  - Comments: `agentInstruction` flag, `setAgentInstruction`, derived `buildAgentBlock` (head-first-child HTML comment, `-->`→`--&gt;`), `reanchorAfterMove` after DOM moves.
+  - Serializer: agent block inserted as first child of `<head>`; node-count guard extended with an `agentBlockCount` term + a pre-existing-block sweep (prevents duplication on re-save).
+  - Color: per-element Border row with auto-`1px solid` on borderless elements (U6) and a `mixed` state for differing per-side colors.
+  - Shell: NEW `comment-composer.js` anchored popover (replaces `prompt()` for add + reply); per-thread "For agents" toggle.
+- **Tests:** stdlib `unittest` server suites + Playwright (Python, headless Chromium) behavioral suites per feature; full suite green per `docs/verification/v2/result.md`. Dev-only deps: `playwright` (app stays dependency-free).
+- **Note:** G1 (panel survival) and G2 (serializer island count) were already fixed during v1 CP2 re-verify; v2 locked them with regression tests and extended the serializer guard for the new agent block. The v1 recon/scorecard rows for G1/G2 were stale.
+
+---
+
+## v3 improvement cycle (improvements-2026-06-r2 — Session 2)
+
+- **Scope:** owner hands-on feedback on the v2 build — R1 dialogs appear on top · R2 resize/move actually work · R3 element delete · R4 remove redundant #color-btn · R5 palette-token tooltip · R6 per-token copy-HEX · R7 text alignment (H+V, display-branched) · R8 repeatable font-size · R9 remove the broken outline panel.
+- **Key changes:**
+  - Server: `_OPEN_PS`/`_SAVE_PS` create a hidden `TopMost` owner Form passed to `ShowDialog($owner)`; the unreliable `ShowHelp` hack removed (R1, dialogs now render above Chrome).
+  - Runtime `interaction.js`: injects a `hyp-`scoped stylesheet re-enabling `pointer-events:auto` on Moveable's control elements under the wrapper — the handles were unhittable (light-DOM vs `:host`-scoped vendor CSS), so resize/move were dead (R2). The wrapper stays `pointer-events:none`.
+  - Runtime `text-format.js`: font-size snapshots the live Selection range on the toolbar `mousedown` (before the focus collapse) and restores it, plus a tracked-span fallback, so A+/A− bump ONE span repeatably (R8); added `computeAlignCaps`/`applyAlign` for display-branched alignment (R7).
+  - Runtime `commands.js`: `deleteElement` (full-undo, mirrors reorder's place()) + `align` (capture-all undo). Runtime `runtime-main.js`: `delete-element`, `align`, `format-snapshot` registrations; dropped `regions`/`sections` from the `ready` emit (R9). `selection.js`: `alignCaps` on the `selection-changed` payload (R7). `color.js`: exported `rgbToHex` + `normalizeHex` + `token.hex` (R6). `element-registry.js`: removed `regions()` + its orphan helpers (R9).
+  - Shell: `#delete-btn` 🗑 + 6 alignment buttons added; `#color-btn` + the outline panel removed; the Palette-Tokens ⓘ tooltip + per-token copy-HEX button added (R3/R4/R5/R6/R7/R9).
+- **Tests:** real-input behavioral suites (geometry deltas, DOM mutation, span counts — never artifact presence); the F2 suite rewritten to use real pointer input and hard outcome assertions (no skip-as-green); a stdlib `ctypes` Win32 z-order test drives the REAL dialog and asserts foreground/topmost (R1); full suite green per `docs/verification/v3/result.md`. Dev-only deps unchanged (Playwright + stdlib ctypes; app stays dependency-free).
+- **Commit cadence:** feature-serial (per-feature: implement + tests + gate + commit), branch `hypresent-v2` continued, local-only.

@@ -1,0 +1,53 @@
+V3-T7 R3 Verification Evidence
+==============================
+Date: 2026-06-04
+
+1. node --check results
+-----------------------
+runtime/js/commands.js    -> EXIT:0 (OK)
+runtime/js/runtime-main.js -> EXIT:0 (OK)
+app/js/main.js            -> EXIT:0 (OK)
+
+2. Export confirmation (commands.js)
+------------------------------------
+- `export function deleteElement(hypId)` is present.
+- Uses `place()` that resolves parent by `parentHypId ? byId(parentHypId) : parentEl`.
+- Captures `node = el` for exact-subtree undo.
+
+3. Import confirmation (runtime-main.js)
+----------------------------------------
+- Imports `reanchorAfterMove as reanchorComments` from comments.js.
+- Imports `deleteElement as makeDeleteCommand` from commands.js.
+- Registers `delete-element` with BOTH guards:
+  * `editing` guard (contenteditable activeElement)
+  * `last-region` guard (bodyRegions.length <= 1)
+- On success calls: `historyPush(makeDeleteCommand(...))`, `reanchorComments()`, `clear()`.
+
+4. Button confirmation (index.html)
+-----------------------------------
+- `<button type="button" class="tool-btn" id="delete-btn" title="Delete selected element">🗑</button>`
+  is inside the comment toolbar-group, next to `#comment-btn`.
+
+5. Wiring confirmation (main.js)
+--------------------------------
+- `#delete-btn` click handler:
+  1. Gets selection via `get-selection`
+  2. Status "Select an element to delete." if none
+  3. Calls `delete-element` with `{ hypId }`
+  4. Handles `blocked: "last-region"` -> "Cannot delete the last remaining region."
+  5. Handles `blocked: "editing"` -> "Finish editing before deleting the element."
+  6. Handles generic `blocked` -> "Could not delete the selected element."
+  7. On success: `setStatus("Element deleted.", "success")` + `refreshCommentPanel()`
+
+6. comments.js
+--------------
+- UNCHANGED (not in allowlist; reanchorAfterMove already exported and called).
+
+7. No keyboard handler
+----------------------
+- No Delete/Backspace keydown handler added anywhere (U14).
+
+8. git diff note
+----------------
+- Changes confined to the four allowlisted files.
+- Pre-existing unrelated change in changelog.md was present before this task.

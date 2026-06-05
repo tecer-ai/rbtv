@@ -1,0 +1,35 @@
+V3-T14 R7 verification run
+==========================
+Date: 2026-06-04
+
+1. node --check runtime/js/text-format.js   → True
+2. node --check runtime/js/commands.js      → True
+3. node --check runtime/js/selection.js     → True
+4. node --check runtime/js/runtime-main.js  → True
+5. node --check app/js/main.js              → True
+
+Acceptance checks
+-----------------
+- text-format.js exports computeAlignCaps and applyAlign
+- commands.js exports align(hypId, applyFn) with PROPS array =
+  ["text-align","justify-content","align-items","justify-items",
+   "align-content","justify-self","align-self","vertical-align",
+   "display","flex-direction"] (10 entries, includes justify-self + align-self)
+- selection.js buildInfo includes alignCaps: computeAlignCaps(el)
+- runtime-main.js imports applyAlign + align as makeAlignCommand;
+  registers "align" {axis, value} command
+- index.html has 6 buttons #align-left/-center/-right/-top/-middle/-bottom
+- main.js wires 6 buttons, disables until selection, updates from alignCaps
+
+Git status (this task's changes only in allowlist)
+--------------------------------------------------
+Modified by this task:
+  app/index.html
+  app/js/main.js
+  runtime/js/commands.js
+  runtime/js/runtime-main.js
+  runtime/js/selection.js
+  runtime/js/text-format.js
+
+Pre-existing uncommitted change (from prior task C6/V3-T13):
+  changelog.md

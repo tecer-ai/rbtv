@@ -13,8 +13,8 @@
  * property name, e.g. 'background').
  */
 
-import { idOf } from "./element-registry.js";
-import { colorToken, colorElement } from "./commands.js";
+import { byId, idOf } from "./element-registry.js";
+import { colorToken, colorElement, colorBorder } from "./commands.js";
 import { push as historyPush } from "./history.js";
 
 // --- Constants ---
@@ -147,8 +147,9 @@ function discoverInlineSites() {
 // --- Public API ---
 
 export function readPalette() {
+  const tokens = extractRootVars().map((t) => ({ ...t, hex: normalizeHex(t.value) }));
   return {
-    tokens: extractRootVars(),
+    tokens,
     inlineSites: discoverInlineSites(),
   };
 }
@@ -159,6 +160,81 @@ export function applyToken(name, value) {
 }
 
 export function applyElement(hypId, prop, value) {
-  const cmd = colorElement(hypId, prop, value);
-  historyPush(cmd);
+  if (prop === "border-color") {
+    historyPush(colorBorder(hypId, value));
+    return;
+  }
+  historyPush(colorElement(hypId, prop, value));
+}
+
+export function rgbToHex(rgb) {
+  // Accept "rgb(r, g, b)" / "rgba(r, g, b, a)"; return #rrggbb (ignore alpha).
+  const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(rgb || "");
+  if (!m) return rgb || "";
+  const h = (n) => parseInt(n, 10).toString(16).padStart(2, "0");
+  return `#${h(m[1])}${h(m[2])}${h(m[3])}`;
+}
+
+// R6 (V3-S14): normalize any token value to #rrggbb. Hex passes through (3→6
+// digit expand, lower-case); named/hsl/rgb/var() resolve through a probe element's
+// computed `color` in the document CSS context (so 'red' → '#ff0000'). An
+// unparseable value falls back to itself.
+//
+// The probe is APPENDED to document.body, hidden (visibility:hidden; absolute;
+// pointer-events:none), at module init. This is REQUIRED (RV11): a DETACHED element
+// does NOT resolve CSS var() chains (e.g. `var(--brand-color)`) — getComputedStyle on
+// a detached node computes against the UA stylesheet only and returns '' for a var()
+// reference, so the copy button would copy the raw `var(...)` string. Attached to the
+// live document, the probe inherits the document's :root cascade and var() chains
+// resolve to a concrete rgb(...).
+const _hexProbe = document.createElement("span");
+_hexProbe.style.visibility = "hidden";
+_hexProbe.style.position = "absolute";
+_hexProbe.style.pointerEvents = "none";
+if (document.body) {
+  document.body.appendChild(_hexProbe);
+} else {
+  document.addEventListener("DOMContentLoaded", () => {
+    if (!_hexProbe.isConnected && document.body) document.body.appendChild(_hexProbe);
+  });
+}
+export function normalizeHex(value) {
+  const v = (value || "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) return v.toLowerCase();
+  if (/^#[0-9a-fA-F]{3}$/.test(v)) {
+    return ("#" + v.slice(1).split("").map((c) => c + c).join("")).toLowerCase();
+  }
+  // Lazily ensure the probe is attached (covers the rare case where the module
+  // evaluated before document.body existed and DOMContentLoaded already fired).
+  if (!_hexProbe.isConnected && document.body) document.body.appendChild(_hexProbe);
+  _hexProbe.style.color = "";
+  _hexProbe.style.color = v;
+  const resolved = getComputedStyle(_hexProbe).color; // 'rgb(r, g, b)' or '' if invalid
+  return resolved ? rgbToHex(resolved) : v;
+}
+
+export function readElementBorder(hypId) {
+  const el = byId(hypId);
+  if (!el) return { color: "", mixed: false };
+  const cs = getComputedStyle(el);
+  const SIDES = ["top", "right", "bottom", "left"];
+  const colors = SIDES.map((s) => cs.getPropertyValue(`border-${s}-color`).trim());
+  const mixed = new Set(colors).size > 1;
+  return { color: mixed ? "" : rgbToHex(colors[0]), mixed };
+}
+
+export function readElementColors(hypId) {
+  const el = byId(hypId);
+  if (!el) return { color: "", background: "", borderColor: "", borderMixed: false };
+  const inline = el.style;
+  const border = readElementBorder(hypId);
+  return {
+    color: inline.getPropertyValue("color") || "",
+    background:
+      inline.getPropertyValue("background-color") ||
+      inline.getPropertyValue("background") ||
+      "",
+    borderColor: border.color,
+    borderMixed: border.mixed,
+  };
 }

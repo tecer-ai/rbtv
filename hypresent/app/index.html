@@ -17,15 +17,20 @@
       <button type="button" class="tool-btn" id="fmt-font-dec" title="Decrease font size">A-</button>
     </div>
     <div class="toolbar-group">
-      <button type="button" class="tool-btn" id="color-btn" title="Color picker">🎨</button>
+      <button type="button" class="tool-btn" id="align-left" title="Align left (inside its box)">⬅</button>
+      <button type="button" class="tool-btn" id="align-center" title="Align center horizontally (inside its box)">⬌</button>
+      <button type="button" class="tool-btn" id="align-right" title="Align right (inside its box)">➡</button>
+      <button type="button" class="tool-btn" id="align-top" title="Align top (vertical, inside its box)">⬆</button>
+      <button type="button" class="tool-btn" id="align-middle" title="Align middle (vertical, inside its box)">⬍</button>
+      <button type="button" class="tool-btn" id="align-bottom" title="Align bottom (vertical, inside its box)">⬇</button>
     </div>
     <div class="toolbar-group">
       <button type="button" class="tool-btn" id="comment-btn" title="Add comment">💬</button>
+      <button type="button" class="tool-btn" id="delete-btn" title="Delete selected element">🗑</button>
     </div>
     <div class="toolbar-group">
-      <input type="text" id="open-path-input" placeholder="absolute file path">
       <button type="button" class="tool-btn" id="open-btn">Open…</button>
-      <input type="text" id="save-as-path-input" placeholder="Save as path" title="Target path for Save As">
+      <button type="button" class="tool-btn" id="save-btn">Save</button>
       <button type="button" class="tool-btn" id="save-as-btn">Save As…</button>
     </div>
     <div class="toolbar-group">
@@ -40,12 +45,6 @@
       <iframe class="doc-frame"></iframe>
     </div>
     <aside class="shell-panel" id="shell-panel">
-      <div class="outline-panel">
-        <div class="outline-panel-header">
-          <h3>Outline</h3>
-        </div>
-        <div class="outline-list" id="outline-list"></div>
-      </div>
       <div class="comment-panel">
         <div class="comment-panel-header">
           <h3>Comments</h3>

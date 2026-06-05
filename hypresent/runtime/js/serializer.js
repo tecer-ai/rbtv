@@ -21,6 +21,9 @@
 
 import { stripIds } from "./element-registry.js";
 import { emit } from "./bridge-iframe.js";
+import { buildAgentBlock } from "./comments.js";
+
+const AGENT_BLOCK_SENTINEL = "===== HYPRESENT AGENT INSTRUCTIONS =====";
 
 // --- Helpers ---
 
@@ -65,12 +68,23 @@ function countAllNodes(root) {
 }
 
 /**
+ * Returns the derived agent-instruction HTML comment block, or null.
+ * Derived from the comment island via comments.buildAgentBlock (D7).
+ */
+function getAgentBlockHtml() {
+  try {
+    return buildAgentBlock();
+  } catch (_e) {
+    return null;
+  }
+}
+
+/**
  * Obtain the JSON string to re-embed as the comment island.
- * T15 hook: in-memory comment store takes precedence.
- * T9 fallback: read any existing island from the live document.
+ * In-memory comment store is the single source of truth (D7) once present.
  */
 function getCommentJson() {
-  // Future T15 in-memory store
+  // In-memory comment store is the single source of truth (D7) once present.
   if (
     window.hyp &&
     window.hyp.comments &&
@@ -80,9 +94,14 @@ function getCommentJson() {
     if (Array.isArray(json) && json.length > 0) {
       return JSON.stringify(json);
     }
+    // Store exists but is empty → NO island re-embed. Do NOT fall through to the
+    // stale DOM island (R04): the pre-existing island was already stripped in
+    // Phase A and counted in removedNodeCount, so suppressing re-embed is
+    // guard-consistent and prevents resurrecting resolved threads.
+    return null;
   }
 
-  // Fallback: existing island in the live document
+  // Fallback ONLY when the store is not yet present (pre-boot): existing island.
   const island = document.getElementById("hyp-comments");
   if (island) {
     const text = island.textContent.trim();
@@ -121,6 +140,27 @@ function stripClone(clone) {
   for (const el of toRemove) {
     if (el.parentNode) {
       el.parentNode.removeChild(el);
+    }
+  }
+
+  // Phase A2: remove any pre-existing agent-instruction comment block in <head>
+  // (a plain Comment node, not hyp- classed, so Phase A misses it). This prevents
+  // duplication when re-saving a file that already carries an agent block.
+  const headEl = clone.querySelector("head");
+  if (headEl) {
+    const headComments = [];
+    for (const node of Array.from(headEl.childNodes)) {
+      if (
+        node.nodeType === 8 /* Comment */ &&
+        typeof node.nodeValue === "string" &&
+        node.nodeValue.includes(AGENT_BLOCK_SENTINEL)
+      ) {
+        headComments.push(node);
+      }
+    }
+    for (const c of headComments) {
+      removedNodeCount += 1; // a Comment node has no children → counts as 1
+      if (c.parentNode) c.parentNode.removeChild(c);
     }
   }
 
@@ -235,18 +275,31 @@ export function serialize() {
     }
   }
 
+  // 5b. Insert the derived agent-instruction block as the first child of <head>.
+  //     V2-T10 fills getAgentBlockHtml(); until then it returns null (no-op).
+  let agentBlockCount = 0;
+  const agentBlockHtml = getAgentBlockHtml();
+  if (agentBlockHtml) {
+    const headEl2 = clone.querySelector("head");
+    if (headEl2) {
+      headEl2.insertAdjacentHTML("afterbegin", agentBlockHtml);
+      agentBlockCount = 1; // one Comment node, no children
+    }
+  }
+
   // 6. Post-strip node count
   const postCount = countAllNodes(clone);
 
-  // 7. Guard: delta must match removed chrome nodes ± re-embedded island
-  const expectedPostCount = preCount - removedNodeCount + islandCount;
+  // 7. Guard: delta must match removed chrome nodes ± re-embedded island ± agent block
+  const expectedPostCount =
+    preCount - removedNodeCount + islandCount + agentBlockCount;
   if (postCount !== expectedPostCount) {
     emit("error", {
       scope: "serializer",
       message:
         `Serializer node-count guard failed: expected ${expectedPostCount} nodes, ` +
         `got ${postCount}. Pre=${preCount}, removed=${removedNodeCount}, ` +
-        `island=${islandCount}. Aborting save to avoid data loss.`,
+        `island=${islandCount}, agentBlock=${agentBlockCount}. Aborting save to avoid data loss.`,
     });
     return null;
   }

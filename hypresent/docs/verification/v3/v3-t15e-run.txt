@@ -1,0 +1,43 @@
+diff --git a/hypresent/tests/e2e/conftest_helpers.py b/hypresent/tests/e2e/conftest_helpers.py
+index 9ae05ff..198c40b 100644
+--- a/hypresent/tests/e2e/conftest_helpers.py
++++ b/hypresent/tests/e2e/conftest_helpers.py
+@@ -74,7 +74,7 @@ def open_via_dialog_ui(page, base, file_path):
+     wait_runtime_ready(page)
+ 
+ 
+-def wait_runtime_ready(page, timeout=8000):
++def wait_runtime_ready(page, timeout=15000):
+     """Wait until the iframe document has the runtime (window.hyp) loaded."""
+     page.wait_for_function(
+         """() => {
+
+---
+
+UNITTEST OUTPUT (verbatim):
+
+test_align_caps_payload (test_r7_alignment.R7AlignmentTests.test_align_caps_payload) ... ok
+test_fixed_height_block_vertical (test_r7_alignment.R7AlignmentTests.test_fixed_height_block_vertical) ... ok
+test_flex_column (test_r7_alignment.R7AlignmentTests.test_flex_column) ... ok
+test_flex_row (test_r7_alignment.R7AlignmentTests.test_flex_row) ... ok
+test_grid (test_r7_alignment.R7AlignmentTests.test_grid) ... ok
+test_h_block_center_and_undo (test_r7_alignment.R7AlignmentTests.test_h_block_center_and_undo) ... ok
+test_no_console_errors (test_r7_alignment.R7AlignmentTests.test_no_console_errors) ... ok
+test_plain_block_vertical_disabled (test_r7_alignment.R7AlignmentTests.test_plain_block_vertical_disabled) ... ok
+test_table_cell (test_r7_alignment.R7AlignmentTests.test_table_cell) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 22.373s
+
+OK
+
+---
+
+WALL_MS=22519
+EXIT=0
+SKIPPED_LINES_COUNT=0
+
+---
+
+git-diff file list (modified in working tree):
+hypresent/tests/e2e/conftest_helpers.py

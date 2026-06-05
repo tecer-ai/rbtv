@@ -12,3 +12,6 @@
 
 __pycache__/
 *.py[cod]
+
+# Hypresent sample deck + any derived/edited versions (local fixture, never committed)
+hypresent/tecer-gsmm-introduction*.html

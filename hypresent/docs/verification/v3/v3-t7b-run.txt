@@ -1,0 +1,32 @@
+V3-T7b R3 delete fix — evidence run
+Date: 2026-06-04
+Command: python -m unittest discover -s tests/e2e -p "test_r3_*.py" -v
+Node --check: runtime/js/text-edit.js PASS, runtime/js/runtime-main.js PASS, app/js/main.js PASS
+
+=== FULL VERBATIM UNITTEST OUTPUT (key lines, server logs omitted for readability) ===
+test_delete_blocked_while_editing (test_r3_delete.R3DeleteTests.test_delete_blocked_while_editing) ... ok
+test_delete_then_undo (test_r3_delete.R3DeleteTests.test_delete_then_undo) ... ok
+test_last_region_block (test_r3_delete.R3DeleteTests.test_last_region_block) ... ok
+test_moveable_torn_down_after_delete (test_r3_delete.R3DeleteTests.test_moveable_torn_down_after_delete) ... ok
+test_no_console_errors (test_r3_delete.R3DeleteTests.test_no_console_errors) ... ok
+test_no_keyboard_delete (test_r3_delete.R3DeleteTests.test_no_keyboard_delete) ... ok
+test_thread_unanchored_on_delete_and_reanchor_on_undo (test_r3_delete.R3DeleteTests.test_thread_unanchored_on_delete_and_reanchor_on_undo) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 11.992s
+OK
+
+=== D29 METRICS ===
+WALL_MS=12135
+EXIT=0
+SKIPPED_LINES_COUNT=0
+
+=== GIT STATUS (files touched in this session) ===
+Modified (product allowlist):
+  app/js/main.js
+  runtime/js/runtime-main.js
+  runtime/js/text-edit.js
+Untracked (test allowlist):
+  tests/e2e/test_r3_delete.py
+
+Note: pre-existing modifications in the working tree (app/index.html, changelog.md, runtime/js/commands.js) were present before this session and are outside the V3-T7b allowlist.
