@@ -2,55 +2,34 @@
 
 ## Purpose
 
-The core module is always installed — it's the foundation every other RBTV module depends on. It provides the generic productivity layer: structured planning, web research, document processing, browser automation, and the component authoring workflow. It also installs the behavioral rules that passively shape every Claude interaction in any workspace where RBTV is present. If you install RBTV at all, you have core.
+The core module is always installed — it's the foundation every other RBTV module depends on. Its theme is powering up AI use itself: guided git commits, web research with citation discipline, end-of-session context preservation, and the behavioral rules that passively shape every Claude interaction in any workspace where RBTV is present. If you install RBTV at all, you have core.
 
 ---
 
 ## Components
 
-### Planning & meta
+### Git
 
-Tools for creating structured plans and extending the RBTV system itself.
+#### `rbtv-commit`
 
-#### `rbtv-planning`
+- **What**: A guided git commit workflow that analyzes your diff, clusters changes by concern (one commit per cluster — unrelated changes never share an umbrella commit), drafts a conventional commit message per cluster, checks for remote changes before committing, handles stash/conflict scenarios, stages specific files (never `git add -A`), and checks the index for pre-staged foreign files before each commit (unstage or disclose — never commit them silently).
+- **When to use**: Any time you want to commit changes. Also triggers automatically when a task finishes and you say something like "done, save this."
+- **How to invoke**: Say "commit", "commita", or "salva no git". The skill also fires when you say "done, commit this" after completing a task.
+- **What it produces**: One or more scoped commits in the current repo, with the commit plan confirmed by you before anything is staged. Push happens only if you ask for it.
+- **Example**:
+  > User: "commit my changes"
+  > Agent runs `git status` and `git diff`, then:
+  > "Here's what changed: [summary]. Proposed message: `fix(auth): handle expired token on refresh`. Confirm or edit?"
+  > User: "looks good"
+  > Agent stages specific files, commits, and reports the commit hash. Does not push unless asked.
 
-- **What**: Interactive workflow that produces a complete, self-executing plan — a main plan file, a scope document (`shape.md`), a learnings log, an artifact index (`deliverables.md`), and individual micro-step task files for each action. Each micro-step file contains complete execution instructions so the plan runs without the original conversation context. Tasks set to `human_review: required` (and every checkpoint task) instruct the executor to emit a Human Review Presentation block at completion: a list of evidence-anchored items the user should review first, plus red and yellow flags drawn from concrete criteria — never free-associated, with an explicit "None identified" affirmation when no flag triggers fire.
-- **When to use**: Any multi-step task where you want a structured output you can hand off to another agent session, delegate to a teammate, or return to later. Good for projects, feature builds, operational rollouts, or anything with more than 3–4 sequential decisions.
-- **How to invoke**: Say "create a plan for X" or "let's plan this out" — Claude picks up the trigger automatically. You can also say `rbtv-planning` directly.
-- **Inputs / outputs**:
-  - Input: task description, gathered conversationally across 4 guided steps
-  - Output: `{plan-name}-plan.md`, `shape.md`, `learnings.md`, `deliverables.md`, and `phase-N/pN-X.task.md` micro-step files in a folder at the confirmed output path
-- **Example**: "Create a plan for migrating our CRM to HubSpot" → Claude walks through scope, phases, and task granularity, then writes all files.
+  If remote commits exist that you don't have locally, the skill fetches first, stashes your work, pulls, and pops — surfacing conflicts for you to resolve before touching the commit step.
 
----
-
-#### `rbtv-plan-orchestration`
-
-- **What**: Orchestrates execution of a multi-step **non-code** plan by delegating phases to tiered sub-agents, dispatching a reviewer per phase that fixes issues in place, and routing sub-agent doubts through a chain (re-read shape → sonnet doc-reader on referenced docs → halt to user). Per-batch executor model is assigned by a decision tree: **haiku** for mechanical work (explicit list, deterministic transformation, diff-verifiable, no judgment, single-skill rule chain); **sonnet** for enumerated cases — doc-reader role, reviewer of haiku batches, bulk per-item content work with local judgment, and naming judgment; **opus** by default for everything else. Reviewer model is one tier above the highest executor in the phase, floor `sonnet`, never haiku. The orchestrator never executes plan tasks itself — it only reads the plan, batches tasks, assigns models, dispatches agents, surfaces escalations, and optionally suggests clean phase-boundary context refreshes that resume from `orchestration-state.md`.
-- **When to use**: A written multi-step plan exists for non-code work — vault refactors, content migrations, doc workflows, structural reorganizations. **Not for code work** — use `superpowers:subagent-driven-development` for code plans (it provides per-task spec/quality review, TDD, and git worktree integration this skill does not). Not for single-step tasks.
-- **How to invoke**: "Orchestrate this plan", "execute this plan with sub-agents", or `rbtv-plan-orchestration` directly. Pre-flight asks two questions: (a) confirm orchestration vs direct execution, (b) run mode — `halt`, `end-to-end`, or `autonomous`. Step-02 presents the full delegation map, model assignments, reviewer timing, and refresh candidates. Default context refresh mode is `suggest`: the orchestrator asks only at approved clean phase boundaries whether to continue or pause for a fresh orchestrator. User MAY disable refresh prompts or override model assignments by explicit instruction.
-- **Inputs / outputs**:
-  - Input: path to a multi-step plan, optional shape.md, run-mode preference, context-refresh preference, optional explicit model overrides
-  - Output: in-place execution of the plan via sub-agents, `orchestration-state.md` as the mutable orchestration log/resume artifact, plus a final message per `templates/finalization-message-template.md`
-- **Example**: "Orchestrate `1. Projects/second-brain-evolution/sb-os-cleanup/`" → pre-flight gate confirms scope and checkpoint mode → orchestrator batches each phase's tasks and assigns model tiers → executors run batches sequentially at their assigned tier → reviewer audits and fixes each phase at one tier above → final summary on completion.
-
----
-
-#### `rbtv-create-component`
-
-- **What**: Guided builder for any RBTV or vault AI component — skills, workflows, rules, commands, personas, tasks. Acts as a design partner: it challenges assumptions and forces key decisions before writing any file. Handles both RBTV-standard components (placed in the RBTV source repo) and workspace-native components (placed per that workspace's CLAUDE.md conventions).
-- **When to use**: Creating a new skill, workflow, or rule from scratch. Modifying an existing component. Trying to understand how a component is structured before editing it. Use this instead of manually exploring component directories — the workflow handles discovery.
-- **How to invoke**: "Create a new skill for X" or "build a workflow for Y" — or invoke by name: `rbtv-create-component`.
-- **Inputs / outputs**:
-  - Input: component type, description of what it should do, target system (RBTV or workspace-native)
-  - Output: correctly placed and structured component file(s) with compliant naming and size
-- **Example**: "I need a skill that runs our weekly competitor scan" → Claude identifies the right component type, drafts the structure, confirms placement, writes the files.
+**Commit message style:** `rbtv-commit` follows [conventional commits](https://www.conventionalcommits.org/): first line under 72 characters, message explains the *why* (the diff already shows the what).
 
 ---
 
 ### Research
-
-Tools for getting information from the web and processing long-form documents.
 
 #### `rbtv-web-searching`
 
@@ -62,31 +41,6 @@ Tools for getting information from the web and processing long-form documents.
   - Extract: URL → clean markdown article body (Defuddle removes ads/nav)
   - Research: topic → structured report with scored citations, discarded sources, and fact/analysis/speculation labels
 - **Example**: "Research the current state of AI agent frameworks" → Claude searches, scores sources, and returns a cited report with a legend and discarded-sources list.
-
----
-
-#### `/rbtv-plan-shape-compact`
-
-- **What**: Reviews a plan `shape.md` and compacts it in place so it contains only decisions, findings, constraints, unresolved questions, and required references for future execution agents. It removes routine work logs, stale progress notes, duplicate context, and process chatter.
-- **When to use**: A plan shape has grown context-heavy or mixes "what happened" with information that actually changes future execution.
-- **How to invoke**: `/rbtv-plan-shape-compact` — provide a `shape.md` path or a plan directory.
-- **Inputs / outputs**:
-  - Input: path to `shape.md` or a plan directory containing `shape.md`
-  - Output: approved in-place rewrite of the shape document, after a review summary and user confirmation
-- **Example**: `/rbtv-plan-shape-compact 1-projects/my-plan/shape.md` → Claude classifies entries as keep/drop/rewrite, presents compaction risk, then applies the approved compacted shape.
-
----
-
-#### `/rbtv-digest`
-
-- **What**: Processes a long source (conversation export, transcript, book chapter, long document) that the orchestrator Claude cannot read directly due to context limits. It chunks the source, dispatches sub-agents to extract decisions or concepts from each chunk, groups the results, and synthesizes them into either a **reconciled document** (updates an existing doc with session decisions + user line-comments) or a **study note**. The orchestrator never reads the source — only sub-agents do.
-- **When to use**: You have a long conversation or document you want to mine for decisions, incorporate into an existing spec, or turn into study notes. Especially useful after long planning sessions where you want to update a PRD or plan with what was decided.
-- **How to invoke**: `/rbtv-digest` — Claude asks for source path, mode (reconcile or study), and target document.
-- **Inputs / outputs**:
-  - Input: source file path, mode selection, target document(s) for reconcile or destination for study
-  - Output (reconcile): target document(s) updated in place + a delta document per target showing what changed
-  - Output (study): new study note at confirmed destination
-- **Example**: `/rbtv-digest` → "reconcile" → point to a long strategy conversation → point to your current strategy doc → Claude mines the conversation and updates the doc with decisions made, showing a diff.
 
 ---
 
@@ -104,18 +58,6 @@ Tools for getting information from the web and processing long-form documents.
 
 ---
 
-### Dev utilities
-
-#### `rbtv-playwright-cli`
-
-- **What**: Browser automation via Playwright CLI — takes screenshots, runs interactions, and tests web pages. Restricts Bash permissions to `playwright-cli:*` commands only.
-- **When to use**: Automating browser tasks, capturing page screenshots, or testing web UI.
-- **How to invoke**: "Take a screenshot of X" or "test this page interaction" — or `rbtv-playwright-cli` directly.
-- **Inputs / outputs**: URL or interaction description → screenshots, test results, or extracted page state
-- **Example**: "Screenshot the current state of our staging dashboard" → Claude runs Playwright CLI and returns the image.
-
----
-
 ## Rules — always-loaded behavior
 
 These rules are copied into every workspace's `.claude/rules/` on install and shape Claude's behavior across every interaction. They aren't invoked manually — they're passive context that fires automatically. Full text is in the linked files.
@@ -124,14 +66,15 @@ Rules marked **stale** are retired: the installer skips any manifest entry flagg
 
 | Rule | What it enforces |
 |------|------------------|
-| [atomic-files](../rules/atomic-files.md) | Agent-facing files must be self-contained, non-repetitive, and use mandatory language — no context-only references or summarized file content |
-| ~~[audio-aware](../rules/audio-aware.md)~~ | **Stale — retired, not installed.** Handled transcription artifacts and loaded a name glossary at session start. Superseded by per-skill glossary loading in the meeting/therapy summarizers. |
-| ~~[bash-patterns](../rules/bash-patterns.md)~~ | **Stale — retired, not installed.** Banned shell operators (`\|`, `&&`, `;`, redirects) in Bash calls. Obsolete under Claude auto-mode. |
-| [chat-discipline](../rules/chat-discipline.md) | Every response leads with the decision or result, not the analysis; prose capped at 6 lines outside tables/code; full detail goes to output files |
-| [compounding](../rules/compounding.md) | On any user correction, Claude checks whether a structural fix (rule, workflow, routing change) would prevent recurrence and offers to implement it |
-| ~~[context-preservation](../rules/context-preservation.md)~~ | **Stale — retired, not installed.** Detected valuable session context and routed it before the session ends. Did not reliably trigger; superseded by session-close and compounding. |
-| [output-resolution](../rules/output-resolution.md) | Before writing any output file, Claude proposes a specific resolved path with reasoning and waits for confirmation — never writes to an assumed location |
-| [reasoning](../rules/reasoning.md) | Mandates a `<counter>` block before any agreement or endorsement; enforces position stability under pressure; prevents sycophancy. Includes a *Problem Framing* section (symptom-check intake via Five Whys, deliverable-first commitments, options-with-tradeoffs, impact-scaled gap/assumption surfacing, root-cause discipline) and an *Execution Discipline* section (simplicity, surgical changes, goal-driven, read-before-write, verify-absence, budgets, checkpoints, fail-loud) covering all artifact work, not only code |
-| [skill-first](../rules/skill-first.md) | The first tool call on any new task must be a skill scan — Claude cannot proceed to Read/Grep/Bash before checking whether a skill covers the task |
-| ~~[source-of-truth](../rules/source-of-truth.md)~~ | **Stale — retired, not installed.** Installed `.claude/` files are generated copies — edits go to the RBTV source. Redundant where the host workspace documents this (e.g. sb-os vaults); README 'Source of truth' covers standalone. |
-| [sub-agents](../rules/sub-agents.md) | Pre-dispatch gate for every Agent tool call — sub-agent prompts must explicitly name each matching installed skill using imperative phrasing |
+| [atomic-files](../core/rules/atomic-files.md) | Agent-facing files must be self-contained, non-repetitive, and use mandatory language — no context-only references or summarized file content |
+| ~~[audio-aware](../core/rules/audio-aware.md)~~ | **Stale — retired, not installed.** Handled transcription artifacts and loaded a name glossary at session start. Superseded by per-skill glossary loading in the meeting/therapy summarizers. |
+| ~~[bash-patterns](../core/rules/bash-patterns.md)~~ | **Stale — retired, not installed.** Banned shell operators (`\|`, `&&`, `;`, redirects) in Bash calls. Obsolete under Claude auto-mode. |
+| [chat-discipline](../core/rules/chat-discipline.md) | Every response leads with the decision or result, not the analysis; prose capped at 6 lines outside tables/code; full detail goes to output files |
+| [compounding](../core/rules/compounding.md) | On any user correction, Claude checks whether a structural fix (rule, workflow, routing change) would prevent recurrence and offers to implement it |
+| ~~[context-preservation](../core/rules/context-preservation.md)~~ | **Stale — retired, not installed.** Detected valuable session context and routed it before the session ends. Did not reliably trigger; superseded by session-close and compounding. |
+| [output-resolution](../core/rules/output-resolution.md) | Before writing any output file, Claude proposes a specific resolved path with reasoning and waits for confirmation — never writes to an assumed location |
+| [reasoning](../core/rules/reasoning.md) | Mandates a `<counter>` block before any agreement or endorsement; enforces position stability under pressure; prevents sycophancy. Includes a *Problem Framing* section (symptom-check intake via Five Whys, deliverable-first commitments, options-with-tradeoffs, impact-scaled gap/assumption surfacing, root-cause discipline) and an *Execution Discipline* section (simplicity, surgical changes, goal-driven, read-before-write, verify-absence, budgets, checkpoints, fail-loud) covering all artifact work, not only code |
+| [skill-first](../core/rules/skill-first.md) | The first tool call on any new task must be a skill scan — Claude cannot proceed to Read/Grep/Bash before checking whether a skill covers the task |
+| [sub-agents](../core/rules/sub-agents.md) | Pre-dispatch gate for every Agent tool call — sub-agent prompts must explicitly name each matching installed skill using imperative phrasing |
+
+> The `source-of-truth` rule (installed copies are generated — edit the RBTV source) was recovered from retirement and now ships with the **builder** module — see [modules/builder.md](./builder.md).

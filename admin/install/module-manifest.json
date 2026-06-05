@@ -1,68 +1,38 @@
 {
   "core": {
     "always_installed": true,
-    "description": "Core productivity utilities, always installed.",
+    "description": "Always-installed foundation powering up AI use — guided git commits, web research, session close, and the always-on behavioral rules.",
     "skills": [
       {
-        "source_template": "skills/planning/SKILL.md",
-        "target": ".claude/skills/rbtv-planning/SKILL.md",
+        "source_template": "core/skills/commit/SKILL.md",
+        "target": ".claude/skills/rbtv-commit/SKILL.md",
         "bake": ["rbtv_path"],
-        "description": "Structured planning workflow with iterative clarification"
+        "description": "Guided git commit with repo detection and message conventions"
       },
       {
-        "source_template": "skills/web-searching/SKILL.md",
+        "source_template": "core/skills/web-searching/SKILL.md",
         "target": ".claude/skills/rbtv-web-searching/SKILL.md",
         "bake": ["rbtv_path"],
         "description": "Multi-source web research with extraction and synthesis"
-      },
-      {
-        "source_template": "skills/create-component/SKILL.md",
-        "target": ".claude/skills/rbtv-create-component/SKILL.md",
-        "bake": ["rbtv_path"],
-        "description": "Scaffold new RBTV components (skills, commands, rules, workflows)"
-      },
-      {
-        "source_template": "skills/playwright-cli/SKILL.md",
-        "target": ".claude/skills/rbtv-playwright-cli/SKILL.md",
-        "bake": ["rbtv_path"],
-        "description": "Browser automation via Playwright for testing and scraping"
-      },
-      {
-        "source_template": "skills/plan-orchestration/SKILL.md",
-        "target": ".claude/skills/rbtv-plan-orchestration/SKILL.md",
-        "bake": ["rbtv_path"],
-        "description": "Orchestrate multi-step non-code plans by delegating phases to tiered sub-agents (haiku/sonnet/opus per decision tree) with per-phase review one tier above the executor (floor sonnet) and sonnet doubt-escalation"
       }
     ],
     "commands": [
       {
-        "source_template": "commands/session-close.md",
+        "source_template": "core/commands/session-close.md",
         "target": ".claude/commands/rbtv-session-close.md",
         "bake": ["rbtv_path"],
         "description": "End-of-session summary with context preservation"
-      },
-      {
-        "source_template": "commands/digest.md",
-        "target": ".claude/commands/rbtv-digest.md",
-        "bake": ["rbtv_path"],
-        "description": "Mine a long source via sub-agents to reconcile a target doc with user fixups (reconcile mode) or produce study notes (study mode) — orchestrator never reads the source directly"
-      },
-      {
-        "source_template": "commands/plan-shape-compact.md",
-        "target": ".claude/commands/rbtv-plan-shape-compact.md",
-        "bake": ["rbtv_path"],
-        "description": "Review and compact a plan shape.md so it keeps future-agent signal and removes work-log noise"
       }
     ],
     "rules": [
       {
-        "source": "rules/atomic-files.md",
+        "source": "core/rules/atomic-files.md",
         "target": ".claude/rules/rbtv-atomic-files.md",
         "mode": "copy",
         "description": "Self-contained files with no content repetition"
       },
       {
-        "source": "rules/audio-aware.md",
+        "source": "core/rules/audio-aware.md",
         "target": ".claude/rules/rbtv-audio-aware.md",
         "mode": "copy",
         "description": "Transcription correction, name glossary, and batched confirmation",
@@ -70,7 +40,7 @@
         "stale_reason": "Niche transcription-glossary loader; superseded by per-skill glossary loading in the meeting/therapy summarizers."
       },
       {
-        "source": "rules/bash-patterns.md",
+        "source": "core/rules/bash-patterns.md",
         "target": ".claude/rules/rbtv-bash-patterns.md",
         "mode": "copy",
         "description": "Single-command Bash calls with no shell operators",
@@ -78,19 +48,19 @@
         "stale_reason": "Obsolete under Claude auto-mode — the single-command / no-shell-operator constraint is no longer needed."
       },
       {
-        "source": "rules/chat-discipline.md",
+        "source": "core/rules/chat-discipline.md",
         "target": ".claude/rules/rbtv-chat-discipline.md",
         "mode": "copy",
         "description": "Conclusion-first output, chunked presentation, no restating"
       },
       {
-        "source": "rules/compounding.md",
+        "source": "core/rules/compounding.md",
         "target": ".claude/rules/rbtv-compounding.md",
         "mode": "copy",
         "description": "Turn corrections into structural fixes that prevent recurrence"
       },
       {
-        "source": "rules/context-preservation.md",
+        "source": "core/rules/context-preservation.md",
         "target": ".claude/rules/rbtv-context-preservation.md",
         "mode": "copy",
         "description": "Detect and capture session context worth preserving",
@@ -98,85 +68,54 @@
         "stale_reason": "Did not reliably trigger in practice; superseded by the session-close and compounding flows."
       },
       {
-        "source": "rules/output-resolution.md",
+        "source": "core/rules/output-resolution.md",
         "target": ".claude/rules/rbtv-output-resolution.md",
         "mode": "copy",
         "description": "Resolve output file paths via CLAUDE.md routing tables"
       },
       {
-        "source": "rules/reasoning.md",
+        "source": "core/rules/reasoning.md",
         "target": ".claude/rules/rbtv-reasoning.md",
         "mode": "copy",
         "description": "Self-verification, critical partner mindset, root cause thinking"
       },
       {
-        "source": "rules/source-of-truth.md",
-        "target": ".claude/rules/rbtv-source-of-truth.md",
-        "mode": "copy",
-        "description": "RBTV repo is canonical — never edit installed copies",
-        "stale": true,
-        "stale_reason": "Redundant in host systems that already enforce edit-source-not-installed-copies (e.g. sb-os vaults document it in CLAUDE.md); README 'Source of truth' covers standalone installs."
-      },
-      {
-        "source": "rules/skill-first.md",
+        "source": "core/rules/skill-first.md",
         "target": ".claude/rules/rbtv-skill-first.md",
         "mode": "copy",
         "description": "Always invoke matching skills before acting"
       },
       {
-        "source": "rules/sub-agents.md",
+        "source": "core/rules/sub-agents.md",
         "target": ".claude/rules/rbtv-sub-agents.md",
         "mode": "copy",
         "description": "Pre-dispatch gate for Agent tool calls — name matching skills explicitly in sub-agent prompts"
       }
     ]
   },
-  "innovation": {
-    "description": "Business innovation frameworks, mentorship, and product discovery.",
-    "commands": [
-      {
-        "source_template": "commands/innovator.md",
-        "target": ".claude/commands/rbtv-innovator.md",
-        "bake": ["rbtv_path"],
-        "description": "Business innovation mentor with guided discovery frameworks"
-      },
-      {
-        "source_template": "commands/product-discoverer.md",
-        "target": ".claude/commands/rbtv-product-discoverer.md",
-        "bake": ["rbtv_path"],
-        "description": "Product discovery persona for market fit and validation"
-      }
-    ]
-  },
-  "productivity": {
-    "description": "Pitch generation, design extraction, client engagement, document export, legal advisory, meeting prep and summarization, problem-reframing persona, and visual design.",
+  "office": {
+    "description": "Daily knowledge work — pitch narratives (client, investor), document export, legal advisory, meeting prep and summarization, client emails, and the problem-reframing + idea-sparring persona.",
     "skills": [
       {
-        "source_template": "skills/designing/SKILL.md",
-        "target": ".claude/skills/rbtv-designing/SKILL.md",
-        "bake": ["rbtv_path"],
-        "description": "UI/UX design workflow with iterative screenshot refinement"
-      },
-      {
-        "source_template": "skills/doc-export/SKILL.md",
+        "source_template": "office/skills/doc-export/SKILL.md",
         "target": ".claude/skills/rbtv-doc-export/SKILL.md",
         "bake": ["rbtv_path"],
-        "description": "Export markdown documents to styled PDF"
+        "description": "Export markdown or HTML documents to styled PDF or DOCX"
       },
       {
-        "source_template": "skills/meeting-prep/SKILL.md",
+        "source_template": "office/skills/meeting-prep/SKILL.md",
         "target": ".claude/skills/rbtv-meeting-prep/SKILL.md",
         "bake": ["rbtv_path"],
         "description": "Guided meeting preparation — produces a strategic cheat sheet through classification, discovery, and generation"
       },
       {
-        "source_template": "skills/meeting-summarizer/SKILL.md",
+        "source_template": "office/skills/meeting-summarizer/SKILL.md",
         "target": ".claude/skills/rbtv-meeting-summarizer/SKILL.md",
         "bake": ["rbtv_path"],
         "description": "Process meeting transcripts into structured summaries with type-specific prompts and glossary integration"
       },
       {
-        "source_template": "skills/client-email/SKILL.md",
+        "source_template": "office/skills/client-email/SKILL.md",
         "target": ".claude/skills/rbtv-client-email/SKILL.md",
         "bake": ["rbtv_path"],
         "description": "Voice principles for emails to clients, prospects, and partners — compaction-first, co-constructive stance, plain-text-friendly, with conditional pt-BR tonal realization"
@@ -184,53 +123,123 @@
     ],
     "commands": [
       {
-        "source_template": "commands/client-pitcher.md",
+        "source_template": "office/commands/client-pitcher.md",
         "target": ".claude/commands/rbtv-client-pitcher.md",
         "bake": ["rbtv_path"],
         "description": "Generate client-facing pitch decks and proposals"
       },
       {
-        "source_template": "commands/investor-pitcher.md",
+        "source_template": "office/commands/investor-pitcher.md",
         "target": ".claude/commands/rbtv-investor-pitcher.md",
         "bake": ["rbtv_path"],
         "description": "Generate investor pitch narratives and materials"
       },
       {
-        "source_template": "commands/design-extractor.md",
-        "target": ".claude/commands/rbtv-design-extractor.md",
-        "bake": ["rbtv_path"],
-        "description": "Extract design tokens and patterns from reference materials"
-      },
-      {
-        "source_template": "commands/lawyer.md",
+        "source_template": "office/commands/lawyer.md",
         "target": ".claude/commands/rbtv-lawyer.md",
         "bake": ["rbtv_path"],
         "description": "Legal advisory persona for contract and compliance review"
       },
       {
-        "source_template": "commands/domcobb.md",
+        "source_template": "office/commands/domcobb.md",
         "target": ".claude/commands/rbtv-domcobb.md",
         "bake": ["rbtv_path"],
         "description": "Problem-solving persona that reframes challenges"
       }
     ]
   },
-  "coding": {
-    "description": "Guided git commits for AI-assisted development. (Coding-discipline principles were generalized into the always-on reasoning rule — they apply to all artifact work, not only code.)",
+  "html": {
+    "description": "HTML power-up — visual design (HTML decks, image prompts, brand identity), design-token extraction from live sites, and browser automation.",
     "skills": [
       {
-        "source_template": "skills/commit/SKILL.md",
-        "target": ".claude/skills/rbtv-commit/SKILL.md",
+        "source_template": "html/skills/playwright-cli/SKILL.md",
+        "target": ".claude/skills/rbtv-playwright-cli/SKILL.md",
         "bake": ["rbtv_path"],
-        "description": "Guided git commit with repo detection and message conventions"
+        "description": "Browser automation via Playwright for testing and scraping"
+      },
+      {
+        "source_template": "html/skills/designing/SKILL.md",
+        "target": ".claude/skills/rbtv-designing/SKILL.md",
+        "bake": ["rbtv_path"],
+        "description": "UI/UX design workflow with iterative screenshot refinement"
+      }
+    ],
+    "commands": [
+      {
+        "source_template": "html/commands/design-extractor.md",
+        "target": ".claude/commands/rbtv-design-extractor.md",
+        "bake": ["rbtv_path"],
+        "description": "Extract design tokens and patterns from reference materials"
+      }
+    ]
+  },
+  "orchestration": {
+    "description": "Long-horizon work orchestration — structured planning, plan execution via tiered sub-agents, plan-shape compaction, and long-source digestion.",
+    "skills": [
+      {
+        "source_template": "orchestration/skills/planning/SKILL.md",
+        "target": ".claude/skills/rbtv-planning/SKILL.md",
+        "bake": ["rbtv_path"],
+        "description": "Structured planning workflow with iterative clarification"
+      },
+      {
+        "source_template": "orchestration/skills/plan-orchestration/SKILL.md",
+        "target": ".claude/skills/rbtv-plan-orchestration/SKILL.md",
+        "bake": ["rbtv_path"],
+        "description": "Orchestrate multi-step non-code plans by delegating phases to tiered sub-agents (haiku/sonnet/opus per decision tree) with per-phase review one tier above the executor (floor sonnet) and sonnet doubt-escalation"
+      }
+    ],
+    "commands": [
+      {
+        "source_template": "orchestration/commands/digest.md",
+        "target": ".claude/commands/rbtv-digest.md",
+        "bake": ["rbtv_path"],
+        "description": "Mine a long source via sub-agents to reconcile a target doc with user fixups (reconcile mode) or produce study notes (study mode) — orchestrator never reads the source directly"
+      },
+      {
+        "source_template": "orchestration/commands/plan-shape-compact.md",
+        "target": ".claude/commands/rbtv-plan-shape-compact.md",
+        "bake": ["rbtv_path"],
+        "description": "Review and compact a plan shape.md so it keeps future-agent signal and removes work-log noise"
+      }
+    ]
+  },
+  "models": {
+    "description": "Per-model CLI invocation skills (Kimi, Codex, Manus) — selective install per machine. No components yet; populated by the models build task."
+  },
+  "builder": {
+    "description": "Building RBTV itself — guided component creation/editing and the source-of-truth rule protecting installed copies.",
+    "skills": [
+      {
+        "source_template": "builder/skills/create-component/SKILL.md",
+        "target": ".claude/skills/rbtv-create-component/SKILL.md",
+        "bake": ["rbtv_path"],
+        "description": "Scaffold new RBTV components (skills, commands, rules, workflows)"
       }
     ],
     "rules": [
       {
-        "source": "rules/non-technical-user.md",
-        "target": ".claude/rules/rbtv-non-technical-user.md",
+        "source": "builder/rules/source-of-truth.md",
+        "target": ".claude/rules/rbtv-source-of-truth.md",
         "mode": "copy",
-        "description": "Plain-language code communication for non-technical users — pair every technical name with a translation, frame coding decisions as behavior changes, lead with decisions, ban raw output dumps. Always active once installed."
+        "description": "RBTV repo is canonical — never edit installed copies"
+      }
+    ]
+  },
+  "innovation": {
+    "description": "Business innovation frameworks, mentorship, and product discovery.",
+    "commands": [
+      {
+        "source_template": "innovation/commands/innovator.md",
+        "target": ".claude/commands/rbtv-innovator.md",
+        "bake": ["rbtv_path"],
+        "description": "Business innovation mentor with guided discovery frameworks"
+      },
+      {
+        "source_template": "innovation/commands/product-discoverer.md",
+        "target": ".claude/commands/rbtv-product-discoverer.md",
+        "bake": ["rbtv_path"],
+        "description": "Product discovery persona for market fit and validation"
       }
     ]
   },
@@ -238,16 +247,27 @@
     "description": "Long-form writing and tone analysis.",
     "commands": [
       {
-        "source_template": "commands/writer.md",
+        "source_template": "writing/commands/writer.md",
         "target": ".claude/commands/rbtv-writer.md",
         "bake": ["rbtv_path"],
         "description": "Long-form writing persona with style adaptation"
       },
       {
-        "source_template": "commands/tone-extractor.md",
+        "source_template": "writing/commands/tone-extractor.md",
         "target": ".claude/commands/rbtv-tone-extractor.md",
         "bake": ["rbtv_path"],
         "description": "Analyze and extract tone profiles from text samples"
+      }
+    ]
+  },
+  "coding": {
+    "description": "Plain-language code communication for non-technical users. (Guided git commits moved to core; coding-discipline principles were generalized into the always-on reasoning rule.)",
+    "rules": [
+      {
+        "source": "coding/rules/non-technical-user.md",
+        "target": ".claude/rules/rbtv-non-technical-user.md",
+        "mode": "copy",
+        "description": "Plain-language code communication for non-technical users — pair every technical name with a translation, frame coding decisions as behavior changes, lead with decisions, ban raw output dumps. Always active once installed."
       }
     ]
   },
@@ -255,13 +275,13 @@
     "description": "Ultra-compressed caveman communication mode. Optional — token savings and fun. Based on JuliusBrussee/caveman.",
     "rules": [
       {
-        "source": "rules/caveman.md",
+        "source": "caveman/rules/caveman.md",
         "target": ".claude/rules/rbtv-caveman.md",
         "mode": "copy",
         "description": "Caveman speak with intensity levels (lite/full/ultra) and auto-clarity escape"
       },
       {
-        "source": "rules/caveman-commit.md",
+        "source": "caveman/rules/caveman-commit.md",
         "target": ".claude/rules/rbtv-caveman-commit.md",
         "mode": "copy",
         "description": "Fun-mode parody commit messages in caveman voice — made for laughs, not serious repos"
@@ -270,8 +290,8 @@
   },
   "cross_module_agents": {
     "vivian": {
-      "primary_module": "productivity",
-      "also_used_by": ["innovation"]
+      "primary_module": "html",
+      "also_used_by": ["office", "innovation"]
     }
   }
 }

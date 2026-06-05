@@ -8,15 +8,19 @@ RBTV is a self-contained set of agents, workflows, skills, and rules designed to
 
 ## Modules
 
-Each module is documented in detail in [`modules/`](./modules/). The doc covers the module's purpose, every component it ships, and how to use them.
+Each module is documented in detail in [`modules/`](./modules/). The doc covers the module's purpose, every component it ships, and how to use them. The repo is module-first: each module's components live under its own root folder (`core/`, `office/`, `html/`, …) organized by type (`skills/`, `commands/`, `rules/`, `personas/`, `tasks/`, `workflows/`).
 
 | Module | What it does | Doc |
 |---|---|---|
-| **core** (always installed) | Generic productivity utilities — planning, plan orchestration, plan shape compaction, web research, component creation, browser automation, plus the digest and session-close personas, and the always-on behavioral rules | [modules/core.md](./modules/core.md) |
+| **core** (always installed) | Powering up AI use — guided git commits, web research, session close, and the always-on behavioral rules | [modules/core.md](./modules/core.md) |
+| **office** | Daily knowledge work — pitch narratives (client, investor), document export (PDF/DOCX with brand discovery), legal advisory, meeting prep, meeting summarization, client emails, and the problem-reframing + idea-sparring persona (formerly `productivity`) | [modules/office.md](./modules/office.md) |
+| **html** | HTML power-up — visual deck design, AI image prompts, brand identity, design-token extraction from live sites, browser automation, and the hypresent presentation engine | [modules/html.md](./modules/html.md) |
+| **orchestration** | Long-horizon work — structured planning, plan execution via tiered sub-agents, plan shape compaction, and long-source digestion | [modules/orchestration.md](./modules/orchestration.md) |
+| **models** | Per-model CLI invocation skills (Kimi, Codex, Manus) — selective install per machine; populated by the models build task | [modules/models.md](./modules/models.md) |
+| **builder** | Building RBTV itself — component creation and the source-of-truth rule | [modules/builder.md](./modules/builder.md) |
 | **innovation** | Business innovation frameworks (lean canvas, JTBD, TAM/SAM/SOM, brandbook) via the innovator mentor, plus product discovery | [modules/innovation.md](./modules/innovation.md) |
-| **productivity** | Pitch generation (client, investor), design extraction, document export (PDF/DOCX with brand discovery), legal advisory, meeting prep, meeting summarization, client emails, problem-reframing + idea-sparring persona, and visual design | [modules/productivity.md](./modules/productivity.md) |
-| **coding** | Guided git commits for AI-assisted development (the coding-discipline guardrails were generalized into the always-on reasoning rule — see [Retired components](#retired-components)) | [modules/coding.md](./modules/coding.md) |
 | **writing** | Long-form writing via the writer persona, tone extraction | [modules/writing.md](./modules/writing.md) |
+| **coding** | Plain-language code communication for non-technical users (git commits moved to core; the coding-discipline guardrails were generalized into the always-on reasoning rule — see [Retired components](#retired-components)) | [modules/coding.md](./modules/coding.md) |
 | **caveman** | Optional ultra-compressed caveman communication mode and parody commit voice — token savings and fun, based on JuliusBrussee/caveman | [modules/caveman.md](./modules/caveman.md) |
 
 ## Requirements
@@ -140,7 +144,7 @@ Content changes appear live. You only need to re-run `install.py` when:
 
 ## Source of truth
 
-Installed files in `.claude/skills/rbtv-*`, `.claude/commands/rbtv-*.md`, `.claude/rules/rbtv-*.md`, `.claude/agents/rbtv-*.md` are regenerated on every `install.py` run. **Do not edit them in your workspace** — edit the source in this repo and re-install. This section is the canonical statement of that principle: the always-on `rbtv-source-of-truth` rule is retired (see [Retired components](#retired-components)).
+Installed files in `.claude/skills/rbtv-*`, `.claude/commands/rbtv-*.md`, `.claude/rules/rbtv-*.md`, `.claude/agents/rbtv-*.md` are regenerated on every `install.py` run. **Do not edit them in your workspace** — edit the source in this repo and re-install. This section is the canonical statement of that principle for installs without the **builder** module; workspaces that install builder also get the always-on `rbtv-source-of-truth` rule enforcing it (recovered from retirement — see [modules/builder.md](./modules/builder.md)).
 
 ## Retired components
 
@@ -151,12 +155,14 @@ Some components ship in this repo but are flagged `stale` in the module manifest
 | `audio-aware` (rule) | core | Niche transcription-glossary loader; superseded by per-skill glossary loading in the meeting/therapy summarizers. |
 | `bash-patterns` (rule) | core | Obsolete under Claude auto-mode — the single-command / no-shell-operator constraint is no longer needed. |
 | `context-preservation` (rule) | core | Did not reliably trigger; superseded by the session-close and compounding flows. |
-| `source-of-truth` (rule) | core | Redundant where the host workspace already documents edit-source-not-installed-copies (e.g. sb-os vaults); the **Source of truth** section above covers standalone installs. |
 | `coding-discipline` (skill) | coding | **Deleted, not just flagged.** Its four guardrails were generalized into the always-on `reasoning` rule's *Execution Discipline* section (core) — they apply to all artifact work, not only code. |
-| `operator` (command + workflow) | productivity | **Deleted, not just flagged.** Shallow overlap with `domcobb` — its Structure move already delegated to [PS]/[PL]. Salvage: traction questions and one-question-at-a-time pacing moved into PS Lite (`step-01-converse`) and the [PS] question bank (`step-02-discover`). |
+| `operator` (command + workflow) | office (then `productivity`) | **Deleted, not just flagged.** Shallow overlap with `domcobb` — its Structure move already delegated to [PS]/[PL]. Salvage: traction questions and one-question-at-a-time pacing moved into PS Lite (`step-01-converse`) and the [PS] question bank (`step-02-discover`). |
+
+> `source-of-truth` (rule) was previously in this table — it was **recovered** into the builder module, where edit-source-not-installed-copies discipline is load-bearing for component work.
 
 ## Architecture notes
 
+- **Module-first source layout:** every component lives under its owning module folder (`{module}/{type}/{name}`, e.g. `office/skills/doc-export/SKILL.md`). `admin/install/module-manifest.json` declares what each module installs; `modules/{module}.md` documents it.
 - **Thin loaders:** installed loaders are short files that point back to this repo via a vault-relative path (e.g., `rbtv/`). No content is duplicated into your workspace.
 - **Rule exception:** rule files are copied as content (not loaders), because rules load passively into Claude's context and indirection is unreliable.
 - **Subagent exception:** subagent files (`.claude/agents/rbtv-*.md`) are copied as content too — they're dispatched in fresh context via the Task tool, so they must be self-contained.

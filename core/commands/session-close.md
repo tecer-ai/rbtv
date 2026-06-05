@@ -1,0 +1,1 @@
+Load persona from `{rbtv_path}/core/personas/ana.md` and follow the agent's menu handlers.
