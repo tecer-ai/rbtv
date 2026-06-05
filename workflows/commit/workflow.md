@@ -23,8 +23,15 @@ Execute in order. Never skip steps.
 1. `git -C "{repo}" status` — identify staged, unstaged, untracked
 2. `git -C "{repo}" diff` — review unstaged
 3. `git -C "{repo}" diff --cached` — review staged
+4. Cluster the changes by concern — files serving the same feature, fix, or content batch form one cluster
 
-Summarize changes and draft a commit message. Wait for user confirmation before proceeding.
+**Commit scoping:**
+
+- One commit per cluster. Default is a single commit — split ONLY when clusters are genuinely unrelated
+- Relatedness decides, never size: a large related batch is ONE commit; two unrelated files are TWO commits
+- NEVER bundle unrelated clusters into one umbrella commit
+
+Draft one commit message per cluster. Present the full commit plan (clusters, files, messages) in a single confirmation. Wait for user confirmation before proceeding.
 
 ### 2. Fetch and Check Remote
 
@@ -37,9 +44,12 @@ Summarize changes and draft a commit message. Wait for user confirmation before 
 
 ### 3. Commit (No Remote Changes)
 
-1. Stage specific files: `git -C "{repo}" add {files}` — never `git add -A`
-2. Commit with confirmed message
-3. Push only if user requested it
+For each planned commit, in plan order:
+
+1. Stage that cluster's files: `git -C "{repo}" add {files}` — never `git add -A`
+2. Commit with that cluster's confirmed message
+
+Push only if user requested it.
 
 ### 4. Commit (Remote Changes Exist)
 
@@ -52,7 +62,7 @@ Summarize changes and draft a commit message. Wait for user confirmation before 
 **Stash pop succeeds:**
 
 1. If project has a test command (check `CLAUDE.md` or `package.json`), run tests. Fail → stop, notify user.
-2. Stage and commit
+2. Stage and commit each planned cluster in plan order (per Step 3)
 3. Push only if user requested it
 
 **Stash pop fails (conflict):**
@@ -63,7 +73,7 @@ Summarize changes and draft a commit message. Wait for user confirmation before 
 4. Execute user's resolution
 5. `git -C "{repo}" stash drop`
 6. If project has a test command, run tests. Fail → stop, notify user.
-7. Stage and commit
+7. Stage and commit each planned cluster in plan order (per Step 3)
 8. Push only if user requested it
 
 ## Commit Message Style
