@@ -231,7 +231,7 @@ Use CSS custom properties on `:root` for easy theming:
 
 ```html
 <div class="image-slot" style="background: var(--gray-100); border-radius: 12px; padding: 40px; text-align: center;">
-  <img src="images/slide-02-problem.png" alt="Problem visualization"
+  <img src="assets/slide-02-problem.png" alt="Problem visualization"
        style="max-width: 100%; max-height: 400px; border-radius: 8px;"
        onerror="this.style.display='none'">
 </div>
@@ -313,7 +313,7 @@ When creating or reading asset manifests (`manifest.md`), document whether each 
 ```css
 .slide--textured {
   background-color: var(--fallback-color);
-  background-image: url('images/texture.png');
+  background-image: url('assets/texture.png');
   background-size: cover;
   background-position: center;
 }

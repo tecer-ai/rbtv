@@ -43,7 +43,7 @@ This is a client deck that must feel trustworthy and professional. Visual craft 
 - Generate ALL slides in a single HTML file
 - Landscape orientation optimized for PDF export via Decktape (step-04)
 - Professional icon libraries loaded via CDN
-- Image references point to ./images/ relative folder
+- Image references point to ./assets/ relative folder
 - Output must be self-contained (CDN links for fonts/icons only)
 
 **If pitch_type = client:** Additionally:
@@ -129,7 +129,7 @@ Create the complete HTML file following these requirements:
 - Add Phosphor, Lucide, or Bootstrap Icons only if specific icons are needed
 
 **Image Handling:**
-- All image references use relative paths: `src="images/{descriptive-name}.png"`
+- All image references use relative paths: `src="assets/{descriptive-name}.png"`
 - Use descriptive filenames
 - Include `alt` attributes describing what the image should show
 - Image slots must work gracefully when images are not yet present (use background color fallback with `onerror="this.style.display='none'"`)
@@ -150,7 +150,7 @@ Create the complete HTML file following these requirements:
 
 Save to: `{output_folder}/pitch-deck.html`
 
-Ensure the images directory exists: `{output_folder}/images/`
+Ensure the images directory exists: `{output_folder}/assets/`
 
 ### 6. Verify Output
 
@@ -161,7 +161,7 @@ Self-check the generated HTML:
 | Slide count | Matches agreed structure |
 | Page breaks | Every slide has `page-break-after: always` (except last) |
 | Icons | CDN links present and icon elements render |
-| Images | All src paths use `images/` prefix with descriptive names |
+| Images | All src paths use `assets/` prefix with descriptive names |
 | Colors | Consistent palette, `:root` variables used |
 | Typography | Single font family, clear hierarchy |
 | Whitespace | No cramped slides |
@@ -189,7 +189,7 @@ CSS/styling-only decisions (colors, fonts, layout) do NOT require narrative upda
 **If pitch_type = investor:**
 ```
 ✅ Pitch deck generated: {output_folder}/pitch-deck.html
-📁 Image folder ready: {output_folder}/images/
+📁 Image folder ready: {output_folder}/assets/
 
 Slides: {count} | Type: Investor | Format: HTML → Landscape PDF
 ```
@@ -197,7 +197,7 @@ Slides: {count} | Type: Investor | Format: HTML → Landscape PDF
 **If pitch_type = client:**
 ```
 ✅ Pitch deck generated: {output_folder}/pitch-deck.html
-📁 Image folder ready: {output_folder}/images/
+📁 Image folder ready: {output_folder}/assets/
 
 Slides: {count} | Type: Client | Target: {target_client} | Format: HTML → Landscape PDF
 ```
@@ -227,7 +227,7 @@ ONLY when **[X] Exit** is selected:
 - Slide content matches the agreed narrative
 - Landscape PDF export works via Decktape (step-04)
 - Icons render from CDN
-- Image paths use ./images/ convention
+- Image paths use ./assets/ convention
 - One idea per slide, glance test passes
 
 **If pitch_type = investor:**
@@ -240,7 +240,7 @@ ONLY when **[X] Exit** is selected:
 - Missing slides from agreed structure
 - Slide content diverges from the agreed narrative
 - Portrait or broken print layout
-- Inline images (not from ./images/ folder)
+- Inline images (not from ./assets/ folder)
 - Text-heavy slides (walls of text)
 - Inconsistent design across slides
 - Missing print CSS

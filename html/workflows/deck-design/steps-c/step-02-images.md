@@ -58,7 +58,7 @@ Search the project's brand/M3 milestone output for existing visual assets:
 - Brand pattern files
 - Any existing visual assets
 
-If found: copy or reference them in the deck's `images/` folder.
+If found: copy or reference them in the deck's `assets/` folder.
 
 ### 2. Integrate Brand Assets into HTML
 
@@ -107,7 +107,7 @@ For each identified opportunity, modify the HTML:
 
 **Background images:** Add a `.slide-bg` div as the first child of the slide section:
 ```html
-<div class="slide-bg" style="background-image: url('images/{filename}.png'); opacity: {0.06-0.35};"></div>
+<div class="slide-bg" style="background-image: url('assets/{filename}.png'); opacity: {0.06-0.35};"></div>
 ```
 
 **Ensure supporting CSS exists** (add if Step 01 didn't include it):
@@ -127,7 +127,7 @@ For each identified opportunity, modify the HTML:
 
 **Photo placeholders:** Use `onerror` fallback for any headshots/photos not yet available:
 ```html
-<img src="images/{name}.png" alt="{description}"
+<img src="assets/{name}.png" alt="{description}"
      style="..." onerror="this.style.display='none'; this.parentElement.textContent='{initials}';">
 ```
 
@@ -138,7 +138,7 @@ For each image (backgrounds, photos, any other visuals), create a prompt:
 **Prompt structure per image:**
 ```
 ### {Image Purpose}: {descriptive title}
-**File:** `images/{filename}`
+**File:** `assets/{filename}`
 **Used on:** Slide(s) {n} ({slide title(s)}) at {opacity}% opacity
 **Slide background color:** {hex code}
 
@@ -172,7 +172,7 @@ For any photo slots (headshots, team photos):
 
 ### 7. Save Image Prompts
 
-Save to: `{output_folder}/pitch-image-prompts.md`
+Save to: `{output_folder}/artifacts/pitch-image-prompts.md`
 
 ```markdown
 # Pitch Deck Image Prompts
@@ -181,7 +181,7 @@ Save to: `{output_folder}/pitch-image-prompts.md`
 
 Generated: {date}
 Deck: {deck_filename}
-Image folder: ./images/
+Image folder: ./assets/
 
 ---
 
@@ -196,7 +196,7 @@ Image folder: ./images/
 
 ```
 ✅ Brand assets integrated into HTML
-✅ Image prompts generated: {output_folder}/pitch-image-prompts.md
+✅ Image prompts generated: {output_folder}/artifacts/pitch-image-prompts.md
 📸 {count_generated} images to generate + {count_photos} photos to provide
 
 HTML updated:
@@ -207,7 +207,7 @@ HTML updated:
 To use:
 1. Open pitch-image-prompts.md
 2. Generate each image using the prompts (any image generation tool)
-3. Save images to {output_folder}/images/ with the exact filenames listed
+3. Save images to {output_folder}/assets/ with the exact filenames listed
 4. Refresh the HTML — images will appear automatically
 ```
 

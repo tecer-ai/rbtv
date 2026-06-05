@@ -103,7 +103,7 @@ Execute the edits on `{output_folder}/pitch-deck.html`:
 ### 3. Update Image Prompts (if needed)
 
 If any image references changed in the HTML:
-- Read `{output_folder}/pitch-image-prompts.md` (if it exists)
+- Read `{output_folder}/artifacts/pitch-image-prompts.md` (if it exists)
 - Add prompts for new images
 - Remove prompts for deleted images
 - Update filenames if references changed

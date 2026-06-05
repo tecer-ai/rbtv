@@ -39,7 +39,7 @@ If either artifact is missing, ask the user for its location or the missing cont
 
 | Mode | Purpose | Entry Point | Output |
 |------|---------|-------------|--------|
-| Design | Build deck from narrative + structure | steps-c/step-01-generate.md | pitch-deck.html + pitch-image-prompts.md + pitch-deck.pdf |
+| Design | Build deck from narrative + structure | steps-c/step-01-generate.md | pitch-deck.html + artifacts/pitch-image-prompts.md + pitch-deck.pdf |
 | Edit | Modify an existing deck (content + visual) | steps-e/step-e01-load.md | Updated pitch-deck.html, back-synced narrative/structure |
 
 Mode selection is handled by the invoking agent (Vivian's menu).
