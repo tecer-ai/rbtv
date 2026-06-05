@@ -45,6 +45,7 @@ let originalTop = 0;
 let originalLeft = 0;
 let resizeAltActive = false;
 let baseTranslateResize = [0, 0];
+let flexChildCenterShiftSkip = false;
 
 // drag in-flight
 let beforeTranslate = "";
@@ -232,21 +233,35 @@ function onResizeStart(e) {
   const cs = getComputedStyle(el);
   originalTop = parseFloat(cs.top) || 0; originalLeft = parseFloat(cs.left) || 0;
   baseTranslateResize = parseTranslate(el.style.translate);
+  flexChildCenterShiftSkip = false;
+  if (role === "flex-child" && el.parentElement) {
+    const cp = getComputedStyle(el.parentElement);
+    const j = cp.justifyContent;
+    if (j === "center" || j === "space-around" || j === "space-evenly") {
+      flexChildCenterShiftSkip = true;
+    }
+    if (cs.marginLeft === "auto" || cs.marginRight === "auto") {
+      flexChildCenterShiftSkip = true;
+    }
+  }
   if (resizeAltActive) { e.setFixedDirection([0, 0]); }
 }
 function onResize(e) {
   const el = e.target;
   const role = roleOf(el);
   applyVisualResize(el, role, e.width, e.height, e.direction, e.dist);
-  if (resizeAltActive && role !== "absolute" && role !== "flex-child") {
-    // R12 center-shift: under fixedDirection:[0,0] Moveable doubles dist.
-    // Shift by half the total symmetric growth on each axis, composed onto
-    // the pre-existing translate captured at resizeStart.
-    el.style.translate = `${baseTranslateResize[0] - e.dist[0] / 2}px ${baseTranslateResize[1] - e.dist[1] / 2}px`;
+  if (resizeAltActive && role !== "absolute") {
+    const isFlex = role === "flex-child";
+    if (!isFlex || !flexChildCenterShiftSkip) {
+      // R12 center-shift: under fixedDirection:[0,0] Moveable doubles dist.
+      // Shift by half the total symmetric growth on each axis, composed onto
+      // the pre-existing translate captured at resizeStart.
+      el.style.translate = `${baseTranslateResize[0] - e.dist[0] / 2}px ${baseTranslateResize[1] - e.dist[1] / 2}px`;
+    }
   }
 }
 function onResizeEnd() {
-  const el = byId(activeHypId); if (!el) { beforeSizing = null; beforeRect = null; resizeAltActive = false; baseTranslateResize = [0, 0]; return; }
+  const el = byId(activeHypId); if (!el) { beforeSizing = null; beforeRect = null; resizeAltActive = false; baseTranslateResize = [0, 0]; flexChildCenterShiftSkip = false; return; }
   const role = roleOf(el); const after = captureSizingState(el, role);
   let changed = false; for (const k of Object.keys(after)) if (beforeSizing[k] !== after[k]) { changed = true; break; }
   if (changed) {
@@ -256,6 +271,7 @@ function onResizeEnd() {
   beforeSizing = null; beforeRect = null;
   resizeAltActive = false;
   baseTranslateResize = [0, 0];
+  flexChildCenterShiftSkip = false;
 }
 
 // --- drag handlers (translate; S1) ---
@@ -389,6 +405,7 @@ function teardown() {
   if (moveable) { moveable.destroy(); moveable = null; }
   removeWrapper();
   removeInteractionStyle();
+  flexChildCenterShiftSkip = false;
 }
 
 // --- Public API ---

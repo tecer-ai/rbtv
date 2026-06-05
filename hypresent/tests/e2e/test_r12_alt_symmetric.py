@@ -53,6 +53,36 @@ def bridge_get_selection(page):
     )
 
 
+def bridge_command(page, type_, payload=None):
+    """postMessage command round-trip for {undo, redo}. Mirrors bridge_get_selection."""
+    return page.evaluate(
+        """
+        async ([type, payload]) => {
+            const iframe = document.querySelector('iframe.doc-frame');
+            return new Promise((resolve, reject) => {
+                const id = 'probe-' + Date.now() + '-' + Math.random();
+                const handler = (e) => {
+                    if (e.origin !== location.origin) return;
+                    if (e.data?.source !== 'hyp') return;
+                    if (e.data?.kind === 'response' && e.data?.id === id) {
+                        window.removeEventListener('message', handler);
+                        if (e.data.ok) resolve(e.data.result);
+                        else reject(new Error(e.data.error));
+                    }
+                };
+                window.addEventListener('message', handler);
+                iframe.contentWindow.postMessage(
+                    { source: 'hyp', kind: 'command', id, type, ...(payload||{}) },
+                    location.origin
+                );
+                setTimeout(() => { window.removeEventListener('message', handler); reject(new Error('bridge '+type+' timed out')); }, 5000);
+            });
+        }
+        """,
+        [type_, payload or {}],
+    )
+
+
 _HANDLE_SELECTOR = {
     "e":  ".moveable-control-box .moveable-line.moveable-e, .moveable-control-box .moveable-control.moveable-e, .moveable-control-box .moveable-e",
     "se": ".moveable-control-box .moveable-control.moveable-se, .moveable-control-box .moveable-se",
@@ -235,6 +265,60 @@ class R12AltSymmetricTests(unittest.TestCase):
         # Visual center must stay fixed
         center_after_x = (after["left"] + after["right"]) / 2
         self.assertAlmostEqual(center_after_x, center_before_x, delta=3)
+
+    # E-R12-6 — Alt-resize on a position:absolute element: left/top compensate by -dw/2/-dh/2.
+    def test_e_r12_6_alt_on_absolute(self):
+        H.open_via_dialog_ui(self.page, self.base, H.copy_synthetic("flow-grow.html"))
+        H.doc_eval(self.page, "const e=doc.querySelector('#twin'); e.style.position='absolute'; e.style.left='100px'; e.style.top='80px';")
+        self.select_by_native_id("twin")
+        before = self.rendered("twin")
+        center_before_x = (before["left"] + before["right"]) / 2
+        center_before_y = (before["top"] + before["bottom"]) / 2
+        self.page.keyboard.down("Alt")
+        hx, hy = self.edge_handle_screen("se")
+        self.page.mouse.move(hx, hy)
+        self.page.mouse.down()
+        for i in range(1, 11):
+            self.page.mouse.move(hx + i * 6, hy + i * 6)
+            self.page.wait_for_timeout(30)
+        self.page.mouse.up()
+        self.page.keyboard.up("Alt")
+        after = self.rendered("twin")
+        center_after_x = (after["left"] + after["right"]) / 2
+        center_after_y = (after["top"] + after["bottom"]) / 2
+        self.assertAlmostEqual(center_after_x, center_before_x, delta=3)
+        self.assertAlmostEqual(center_after_y, center_before_y, delta=3)
+        dw = after["w"] - before["w"]
+        dh = after["h"] - before["h"]
+        self.assertAlmostEqual(after["left"], before["left"] - dw / 2, delta=3)
+        self.assertAlmostEqual(after["top"], before["top"] - dh / 2, delta=3)
+
+    # E-R12-7 — Combined undo after Alt on a moved element restores size AND translate.
+    def test_e_r12_7_combined_undo(self):
+        H.open_via_dialog_ui(self.page, self.base, H.copy_synthetic("flow-grow.html"))
+        self.select_by_native_id("twin")
+        H.doc_eval(self.page, "const e=doc.querySelector('#twin'); e.style.translate='40px 20px';")
+        self.select_by_native_id("twin")
+        before = self.rendered("twin")
+        before_w = before["w"]
+        before_tx = before["translate"]
+        self.page.keyboard.down("Alt")
+        hx, hy = self.edge_handle_screen("e")
+        self.page.mouse.move(hx, hy)
+        self.page.mouse.down()
+        for i in range(1, 11):
+            self.page.mouse.move(hx + i * 6, hy)
+            self.page.wait_for_timeout(30)
+        self.page.mouse.up()
+        self.page.keyboard.up("Alt")
+        after = self.rendered("twin")
+        self.assertNotAlmostEqual(after["w"], before_w, delta=2)
+        self.assertNotEqual(after["translate"], before_tx)
+        bridge_command(self.page, "undo")
+        self.page.wait_for_timeout(200)
+        undone = self.rendered("twin")
+        self.assertAlmostEqual(undone["w"], before_w, delta=2)
+        self.assertEqual(undone["translate"], before_tx)
 
 
 if __name__ == "__main__":
