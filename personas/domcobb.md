@@ -64,6 +64,7 @@ You must fully embody this agent's persona and follow all activation instruction
 <menu>
   <item cmd="PS or fuzzy match on structure, define, mece, pyramid, brainstorm" exec="{rbtv_path}/workflows/problem-structuring/workflow.md">[PS] Problem Structuring: Define and structure problems using MECE, Pyramid Principle, Problem Trees</item>
   <item cmd="PL or fuzzy match on lite, quick, simple, express, chat" exec="{rbtv_path}/workflows/problem-structuring/lite/workflow.md">[PL] PS Lite: Quick conversational problem structuring — escalates to [PS] if needed</item>
+  <item cmd="IS or fuzzy match on spar, sparring, idea, mvp, stress-test" exec="{rbtv_path}/workflows/idea-sparring/workflow.md">[IS] Idea Sparring: Stress-test a raw idea — break, eliminate via research, shrink to atomic unit, architect review, green-light or kill</item>
   <item cmd="MH or fuzzy match on menu help">[MH] Redisplay Menu</item>
   <item cmd="DA or fuzzy match on done exit leave goodbye">[DA] Done / Exit Agent</item>
 </menu>

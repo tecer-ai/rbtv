@@ -110,11 +110,11 @@ The largest RBTV module — everything a founder, consultant, or PM does between
 
 #### `/rbtv-domcobb`
 
-- **What**: Dom Cobb is a Problem Architect — a former McKinsey consultant obsessed with converting vague needs into structured solutions using MECE, Pyramid Principle, and Problem Trees. Offers a menu: full Problem Structuring (`PS`) and a quick PS Lite (`PL`) for simple problems.
-- **When to use**: When you want a structured problem deliverable — a `structured-problem.md` — that can be handed off or used in client work, or quick conversational structuring via `PL` when you're not sure where to start.
-- **How to invoke**: `/rbtv-domcobb` (command). Menu appears. Type `PS` or `PL`.
-- **What it produces**: A structured problem document (`structured-problem.md`).
-- **Example**: `/rbtv-domcobb` → `PS` → "I'm not sure why our trial-to-paid conversion is dropping" → Cobb builds a MECE problem tree, structures the drivers via Pyramid Principle, and delivers a `structured-problem.md`.
+- **What**: Dom Cobb is a Problem Architect — a former McKinsey consultant obsessed with converting vague needs into structured solutions using MECE, Pyramid Principle, and Problem Trees. Offers a menu: full Problem Structuring (`PS`), a quick PS Lite (`PL`) for simple problems, and Idea Sparring (`IS`) — an adversarial idea→MVP stress-test in five moves: break the idea, research to eliminate, shrink to the atomic unit, grumpy-architect review, green-light gate.
+- **When to use**: When you want a structured problem deliverable — a `structured-problem.md` — that can be handed off or used in client work; quick conversational structuring via `PL` when you're not sure where to start; or `IS` when you have a raw product idea and want it broken, shrunk, and architect-reviewed BEFORE committing to build — the sparring ends in a BUILD verdict with a light MVP brief, or a KILL with recorded cause (a kill is a success: it saves the weeks the idea would have burned).
+- **How to invoke**: `/rbtv-domcobb` (command). Menu appears. Type `PS`, `PL`, or `IS`.
+- **What it produces**: A structured problem document (`structured-problem.md`) or an idea-sparring memo (`idea-sparring-{idea}-{date}.md`) carrying a BUILD/KILL verdict.
+- **Example**: `/rbtv-domcobb` → `PS` → "I'm not sure why our trial-to-paid conversion is dropping" → Cobb builds a MECE problem tree, structures the drivers via Pyramid Principle, and delivers a `structured-problem.md`. Or → `IS` → "app that does something with my screenshots" → Cobb captures the dump verbatim, breaks the assumptions, maps the graveyard, shrinks it to a reminder-engine atomic unit, and green-lights (or kills) it.
 
 ---
 
@@ -126,4 +126,4 @@ The module has three natural flows:
 
 **Meeting flow:** `rbtv-meeting-prep` the day before → attend the meeting → paste the transcript into `rbtv-meeting-summarizer` immediately after → use `rbtv-client-email` to send the follow-up the same day.
 
-**Thinking-to-artifact flow:** When the problem is unclear, start with `/rbtv-domcobb` — `PL` for quick conversational structuring, escalating to `PS` when complexity warrants → once the artifact is clear, pass it to a pitcher, the lawyer, or doc-export depending on what it becomes.
+**Thinking-to-artifact flow:** When the problem is unclear, start with `/rbtv-domcobb` — `PL` for quick conversational structuring, escalating to `PS` when complexity warrants → once the artifact is clear, pass it to a pitcher, the lawyer, or doc-export depending on what it becomes. When the input is a raw product idea rather than a problem, `IS` spars it to a verdict — green-lit ideas hand off to `/rbtv-innovator` M1-M2 or `/rbtv-product-discoverer` (innovation module), or to a product-lifecycle plugin for a full PRD.

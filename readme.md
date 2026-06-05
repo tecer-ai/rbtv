@@ -14,7 +14,7 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 |---|---|---|
 | **core** (always installed) | Generic productivity utilities — planning, plan orchestration, plan shape compaction, web research, component creation, browser automation, plus the digest and session-close personas, and the always-on behavioral rules | [modules/core.md](./modules/core.md) |
 | **innovation** | Business innovation frameworks (lean canvas, JTBD, TAM/SAM/SOM, brandbook) via the innovator mentor, plus product discovery | [modules/innovation.md](./modules/innovation.md) |
-| **productivity** | Pitch generation (client, investor), design extraction, document export (PDF/DOCX with brand discovery), legal advisory, meeting prep, meeting summarization, client emails, problem-reframing persona, and visual design | [modules/productivity.md](./modules/productivity.md) |
+| **productivity** | Pitch generation (client, investor), design extraction, document export (PDF/DOCX with brand discovery), legal advisory, meeting prep, meeting summarization, client emails, problem-reframing + idea-sparring persona, and visual design | [modules/productivity.md](./modules/productivity.md) |
 | **coding** | Guided git commits for AI-assisted development (the coding-discipline guardrails were generalized into the always-on reasoning rule — see [Retired components](#retired-components)) | [modules/coding.md](./modules/coding.md) |
 | **writing** | Long-form writing via the writer persona, tone extraction | [modules/writing.md](./modules/writing.md) |
 | **caveman** | Optional ultra-compressed caveman communication mode and parody commit voice — token savings and fun, based on JuliusBrussee/caveman | [modules/caveman.md](./modules/caveman.md) |
