@@ -13,6 +13,10 @@ import {
   add as addComment,
   reply as replyComment,
   resolve as resolveComment,
+  editComment as editComment,
+  deleteComment as deleteComment,
+  editReply as editReply,
+  deleteReply as deleteReply,
   threads as getThreads,
   setAgentInstruction as setAgentInstruction,
   reanchorAfterMove as reanchorComments,
@@ -221,6 +225,34 @@ function boot() {
       throw new Error("reply-comment: missing commentId, body, or author");
     }
     return replyComment(payload.commentId, payload.body, payload.author);
+  });
+
+  register("edit-comment", (payload) => {
+    if (!payload || !payload.commentId || typeof payload.body !== "string") {
+      throw new Error("edit-comment: missing commentId or body");
+    }
+    return editComment(payload.commentId, payload.body);
+  });
+
+  register("delete-comment", (payload) => {
+    if (!payload || !payload.commentId) {
+      throw new Error("delete-comment: missing commentId");
+    }
+    return deleteComment(payload.commentId);
+  });
+
+  register("edit-reply", (payload) => {
+    if (!payload || !payload.commentId || typeof payload.replyIndex !== "number" || typeof payload.body !== "string") {
+      throw new Error("edit-reply: missing commentId, replyIndex, or body");
+    }
+    return editReply(payload.commentId, payload.replyIndex, payload.body);
+  });
+
+  register("delete-reply", (payload) => {
+    if (!payload || !payload.commentId || typeof payload.replyIndex !== "number") {
+      throw new Error("delete-reply: missing commentId or replyIndex");
+    }
+    return deleteReply(payload.commentId, payload.replyIndex);
   });
 
   register("resolve-comment", (payload) => {

@@ -1,0 +1,71 @@
+V4-T8 verification run
+Date: 2026-06-05
+
+1. node --check (syntax) on modified JS files
+
+  node --check runtime/js/comments.js
+  -> exit 0
+
+  node --check runtime/js/runtime-main.js
+  -> exit 0
+
+  node --check app/js/main.js
+  -> exit 0
+
+  node --check app/js/shell/comment-composer.js
+  -> exit 0
+
+2. Targeted R13 tests
+
+$ python -m pytest tests/e2e/test_r13_comment_edit_delete.py -v
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.0.3, pluggy-1.6.0
+rootdir: C:\Users\henri\Documents\second-brain\3-resources\tools\rbtv\hypresent
+collected 8 items
+
+tests/e2e/test_r13_comment_edit_delete.py::R13CommentEditDeleteTests::test_e_r13_1_edit_root_comment_body PASSED [ 12%]
+tests/e2e/test_r13_comment_edit_delete.py::R13CommentEditDeleteTests::test_e_r13_2_edit_undo_restores_prior_body PASSED [ 25%]
+tests/e2e/test_r13_comment_edit_delete.py::R13CommentEditDeleteTests::test_e_r13_3_delete_root_comment PASSED [ 37%]
+tests/e2e/test_r13_comment_edit_delete.py::R13CommentEditDeleteTests::test_e_r13_4_delete_root_undo_restores PASSED [ 50%]
+tests/e2e/test_r13_comment_edit_delete.py::R13CommentEditDeleteTests::test_e_r13_5_delete_reply_undo_restores_index PASSED [ 62%]
+tests/e2e/test_r13_comment_edit_delete.py::R13CommentEditDeleteTests::test_e_r13_6_edit_reply_body PASSED [ 75%]
+tests/e2e/test_r13_comment_edit_delete.py::R13CommentEditDeleteTests::test_e_r13_7_edit_composer_viewport_and_no_agent_checkbox PASSED [ 87%]
+tests/e2e/test_r13_comment_edit_delete.py::R13CommentEditDeleteTests::test_e_r13_8_agent_block_reflects_edited_comment PASSED [100%]
+
+============================= 8 passed in 21.03s ==============================
+
+3. Comment regression (F5 + G2)
+
+$ python -m pytest tests/e2e/test_f5_comments.py tests/e2e/test_g2_save_with_comments.py -v
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.0.3, pluggy-1.6.0
+rootdir: C:\Users\henri\Documents\second-brain\3-resources\tools\rbtv\hypresent
+collected 18 items
+
+tests/e2e/test_f5_comments.py::F5CommentTests::test_agent_block_escapes_body PASSED [  5%]
+tests/e2e/test_f5_comments.py::F5CommentTests::test_agent_checkbox_on_submission PASSED [ 11%]
+tests/e2e/test_f5_comments.py::F5CommentTests::test_agent_toggle_in_panel PASSED [ 16%]
+tests/e2e/test_f5_comments.py::F5CommentTests::test_composer_opens_with_no_prompt PASSED [ 22%]
+tests/e2e/test_f5_comments.py::F5CommentTests::test_escape_closes_composer PASSED [ 27%]
+tests/e2e/test_f5_comments.py::F5CommentTests::test_non_agent_does_not_emit_block PASSED [ 33%]
+tests/e2e/test_f5_comments.py::F5CommentTests::test_plain_enter_inserts_newline PASSED [ 38%]
+tests/e2e/test_f5_comments.py::F5CommentTests::test_reply_appears_in_agent_block PASSED [ 44%]
+tests/e2e/test_f5_comments.py::F5CommentTests::test_resolved_agent_thread_removes_block PASSED [ 50%]
+tests/e2e/test_f5_comments.py::F5CommentTests::test_round_trip_reopens_agent_thread PASSED [ 55%]
+tests/e2e/test_f5_comments.py::F5CommentTests::test_save_as_includes_agent_block_first_in_head PASSED [ 61%]
+tests/e2e/test_f5_comments.py::F5CommentTests::test_submit_creates_thread_and_marker PASSED [ 66%]
+tests/e2e/test_f5_comments.py::F5CommentTests::test_tagging_does_not_move_marker PASSED [ 72%]
+tests/e2e/test_g2_save_with_comments.py::TestG2SaveWithComments::test_e_g2_1_save_with_user_comment_succeeds PASSED [ 77%]
+tests/e2e/test_g2_save_with_comments.py::TestG2SaveWithComments::test_e_g2_2_saved_file_contains_exactly_one_comments_block PASSED [ 83%]
+tests/e2e/test_g2_save_with_comments.py::TestG2SaveWithComments::test_e_g2_3_save_with_agent_comment_and_guard PASSED [ 88%]
+tests/e2e/test_g2_save_with_comments.py::TestG2SaveWithComments::test_e_g2_4_roundtrip_no_agent_block_duplication PASSED [ 94%]
+tests/e2e/test_g2_save_with_comments.py::TestG2SaveWithComments::test_e_g2_5_no_comments_means_chrome_free PASSED [100%]
+
+============================= 18 passed in 32.14s =============================
+
+4. Scoped full-suite gate (R11 RED set excluded by orchestrator sanction)
+
+$ python -m pytest tests/ --ignore=tests/e2e/test_r11_resize_guides_equal_size.py -q
+............s........................................................... [ 52%]
+..................................................................       [100%]
+137 passed, 1 skipped in 191.26s (0:03:11)

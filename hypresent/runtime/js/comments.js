@@ -99,9 +99,9 @@ function getSameKeySiblings(el) {
 // --- Helpers: path ---
 
 function buildPath(el) {
-  // base = nearest ancestor with native id, or documentElement
+  // base = nearest ancestor (or self) with native id, or documentElement
   let base = null;
-  let p = el.parentElement;
+  let p = el;
   while (p) {
     if (p.id && !p.id.startsWith("hyp-")) {
       base = p;
@@ -266,6 +266,7 @@ function writeIsland() {
     contextText: t.contextText,
     author: t.author,
     createdAt: t.createdAt,
+    editedAt: t.editedAt,
     body: t.body,
     resolved: t.resolved,
     replies: t.replies,
@@ -393,6 +394,7 @@ export function toJson() {
     contextText: t.contextText,
     author: t.author,
     createdAt: t.createdAt,
+    editedAt: t.editedAt,
     body: t.body,
     resolved: t.resolved,
     replies: t.replies,
@@ -515,6 +517,96 @@ export function setAgentInstruction(commentId, agentInstruction) {
   };
   historyPush(makeCommentCommand(next ? "tag-agent" : "untag-agent", doFn, undoFn));
   return { commentId, agentInstruction: next };
+}
+
+export function editComment(commentId, newBody) {
+  const thread = threadStore.find((t) => t.id === commentId);
+  if (!thread) throw new Error("edit-comment: thread not found");
+  const before = { body: thread.body, editedAt: thread.editedAt };
+  const doFn = () => {
+    thread.body = newBody;
+    thread.editedAt = new Date().toISOString();
+    writeIsland();
+    updateMarkerState(commentId);
+    emit("dirty-changed", { dirty: true });
+  };
+  const undoFn = () => {
+    thread.body = before.body;
+    if (before.editedAt === undefined) delete thread.editedAt;
+    else thread.editedAt = before.editedAt;
+    writeIsland();
+    updateMarkerState(commentId);
+    emit("dirty-changed", { dirty: true });
+  };
+  historyPush(makeCommentCommand("edit-comment", doFn, undoFn));
+  return { commentId };
+}
+
+export function deleteComment(commentId) {
+  const idx = threadStore.findIndex((t) => t.id === commentId);
+  if (idx === -1) throw new Error("delete-comment: thread not found");
+  const saved = threadStore[idx];
+  const doFn = () => {
+    removeMarker(commentId);
+    threadStore.splice(idx, 1);
+    writeIsland();
+    emit("dirty-changed", { dirty: true });
+  };
+  const undoFn = () => {
+    threadStore.splice(idx, 0, saved);
+    writeIsland();
+    reanchorAll();
+    emit("dirty-changed", { dirty: true });
+  };
+  historyPush(makeCommentCommand("delete-comment", doFn, undoFn));
+  return { commentId };
+}
+
+export function editReply(commentId, replyIndex, newBody) {
+  const thread = threadStore.find((t) => t.id === commentId);
+  if (!thread) throw new Error("edit-reply: thread not found");
+  if (!thread.replies || replyIndex < 0 || replyIndex >= thread.replies.length) {
+    throw new Error("edit-reply: reply not found");
+  }
+  const before = { ...thread.replies[replyIndex] };
+  const doFn = () => {
+    thread.replies[replyIndex].body = newBody;
+    thread.replies[replyIndex].editedAt = new Date().toISOString();
+    writeIsland();
+    updateMarkerState(commentId);
+    emit("dirty-changed", { dirty: true });
+  };
+  const undoFn = () => {
+    thread.replies[replyIndex] = before;
+    writeIsland();
+    updateMarkerState(commentId);
+    emit("dirty-changed", { dirty: true });
+  };
+  historyPush(makeCommentCommand("edit-reply", doFn, undoFn));
+  return { commentId };
+}
+
+export function deleteReply(commentId, replyIndex) {
+  const thread = threadStore.find((t) => t.id === commentId);
+  if (!thread) throw new Error("delete-reply: thread not found");
+  if (!thread.replies || replyIndex < 0 || replyIndex >= thread.replies.length) {
+    throw new Error("delete-reply: reply not found");
+  }
+  const saved = thread.replies[replyIndex];
+  const doFn = () => {
+    thread.replies.splice(replyIndex, 1);
+    writeIsland();
+    updateMarkerState(commentId);
+    emit("dirty-changed", { dirty: true });
+  };
+  const undoFn = () => {
+    thread.replies.splice(replyIndex, 0, saved);
+    writeIsland();
+    updateMarkerState(commentId);
+    emit("dirty-changed", { dirty: true });
+  };
+  historyPush(makeCommentCommand("delete-reply", doFn, undoFn));
+  return { commentId };
 }
 
 // THE single escape function for the agent block (R06): HTML comments cannot

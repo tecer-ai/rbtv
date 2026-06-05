@@ -76,10 +76,12 @@ function createThreadEl(thread, isUnanchored = false) {
     div.appendChild(ctx);
   }
 
+  let repliesDiv = null;
   if (thread.replies && thread.replies.length > 0) {
-    const repliesDiv = document.createElement("div");
+    repliesDiv = document.createElement("div");
     repliesDiv.className = "comment-replies";
-    for (const r of thread.replies) {
+    for (let i = 0; i < thread.replies.length; i++) {
+      const r = thread.replies[i];
       const rDiv = document.createElement("div");
       rDiv.className = "comment-reply";
 
@@ -99,9 +101,48 @@ function createThreadEl(thread, isUnanchored = false) {
       rBody.textContent = r.body;
       rDiv.appendChild(rBody);
 
+      const rActions = document.createElement("div");
+      rActions.className = "comment-actions";
+
+      const rEditBtn = document.createElement("button");
+      rEditBtn.className = "comment-action-btn";
+      rEditBtn.textContent = "Edit";
+      rEditBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openComposer({
+          rect: thread.rect || null,
+          mode: "edit",
+          initialText: r.body,
+          onSubmit: async (text) => {
+            try {
+              await bridge.command("edit-reply", { commentId: thread.id, replyIndex: i, body: text });
+              await refreshCommentPanel();
+            } catch (err) {
+              console.error("Edit reply failed:", err.message);
+            }
+          },
+        });
+      });
+      rActions.appendChild(rEditBtn);
+
+      const rDeleteBtn = document.createElement("button");
+      rDeleteBtn.className = "comment-action-btn";
+      rDeleteBtn.textContent = "Delete";
+      rDeleteBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        try {
+          await bridge.command("delete-reply", { commentId: thread.id, replyIndex: i });
+          await refreshCommentPanel();
+        } catch (err) {
+          console.error("Delete reply failed:", err.message);
+        }
+      });
+      rActions.appendChild(rDeleteBtn);
+
+      rDiv.appendChild(rActions);
+
       repliesDiv.appendChild(rDiv);
     }
-    div.appendChild(repliesDiv);
   }
 
   const actions = document.createElement("div");
@@ -150,6 +191,41 @@ function createThreadEl(thread, isUnanchored = false) {
   });
   actions.appendChild(resolveBtn);
 
+  const editBtn = document.createElement("button");
+  editBtn.className = "comment-action-btn";
+  editBtn.textContent = "Edit";
+  editBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openComposer({
+      rect: thread.rect || null,
+      mode: "edit",
+      initialText: thread.body,
+      onSubmit: async (text) => {
+        try {
+          await bridge.command("edit-comment", { commentId: thread.id, body: text });
+          await refreshCommentPanel();
+        } catch (err) {
+          console.error("Edit failed:", err.message);
+        }
+      },
+    });
+  });
+  actions.appendChild(editBtn);
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.className = "comment-action-btn";
+  deleteBtn.textContent = "Delete";
+  deleteBtn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    try {
+      await bridge.command("delete-comment", { commentId: thread.id });
+      await refreshCommentPanel();
+    } catch (err) {
+      console.error("Delete failed:", err.message);
+    }
+  });
+  actions.appendChild(deleteBtn);
+
   const agentLabel = document.createElement("label");
   agentLabel.className = "comment-agent-toggle";
   const agentCb = document.createElement("input");
@@ -173,6 +249,9 @@ function createThreadEl(thread, isUnanchored = false) {
   actions.appendChild(agentLabel);
 
   div.appendChild(actions);
+  if (repliesDiv) {
+    div.appendChild(repliesDiv);
+  }
 
   if (!isUnanchored && thread.hypId) {
     div.addEventListener("click", () => {
@@ -238,6 +317,7 @@ function ensureBridge(iframe) {
   bridge.on("dirty-changed", (payload) => {
     isDirty = payload && payload.dirty ? true : false;
     document.title = isDirty ? "hypresent *" : "hypresent";
+    refreshCommentPanel();
   });
 
   bridge.on("edit-state", (payload) => {

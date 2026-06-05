@@ -23,7 +23,7 @@ function closeActive() {
 
 let onDocKeyForActive = null;
 
-export function openComposer({ rect, mode = "new", commentId = null, onSubmit }) {
+export function openComposer({ rect, mode = "new", commentId = null, initialText = "", onSubmit }) {
   closeActive();
 
   const pop = document.createElement("div");
@@ -48,7 +48,10 @@ export function openComposer({ rect, mode = "new", commentId = null, onSubmit })
   const textarea = document.createElement("textarea");
   textarea.className = "hyp-composer-textarea";
   textarea.rows = 3;
-  textarea.placeholder = mode === "reply" ? "Reply…" : "Comment…";
+  textarea.placeholder = mode === "reply" ? "Reply…" : mode === "edit" ? "Edit comment" : "Comment…";
+  if (mode === "edit") {
+    textarea.value = initialText;
+  }
 
   pop.appendChild(textarea);
 
@@ -90,9 +93,14 @@ export function openComposer({ rect, mode = "new", commentId = null, onSubmit })
 
   // Key handling on the textarea (S17).
   textarea.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { e.preventDefault(); closeActive(); return; }
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(); return; }
+    if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); closeActive(); return; }
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.stopPropagation(); e.preventDefault(); submit(); return; }
     // plain Enter falls through → inserts a newline (default textarea behavior)
+  });
+
+  // Ctrl/Cmd+Enter anywhere in the composer submits (e.g. while the For-agents checkbox has focus).
+  pop.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(); }
   });
 
   // Esc anywhere closes (capture).
