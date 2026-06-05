@@ -14,18 +14,17 @@ Date: 2026-06-05
    $ python -m pytest tests/e2e/test_r13_comment_edit_delete.py tests/e2e/test_g2_save_with_comments.py -v
    RESULT: 13 passed in 31.04s
 
-4. Full suite (UNSCOPED)
-   $ python -m pytest tests/ -q --ignore=tests/e2e/test_exit_smoke.py -k "not test_save_as_includes_agent_block_first_in_head"
-   RESULT: 151 passed, 1 skipped, 1 deselected in 225.08s
-   NOTE: 1 deselected = pre-R14 F5 test checking old "anchor:" block format (superseded by R14 target:/context:).
-         1 skipped = unrelated natural skip in existing suite.
-         test_exit_smoke ignored because its chrome-free gate asserts zero data-hyp- substrings,
-         which is incompatible with the intentional R14 data-hyp-agent stamp.
+4. Full suite UNSCOPED (final)
+   $ python -m pytest tests/ -q
+   RESULT: 155 passed, 1 skipped in 240.80s
+   NOTE: 1 skipped = unrelated historical accepted skip. Zero failures, zero deselections.
 
 Product files changed:
   - runtime/js/comments.js    (buildAgentBlock rewrite, agentStampMap, matchAnchorHighConfidence)
   - runtime/js/serializer.js  (transient live-stamp in serialize, stripClone data-hyp-agent exemption)
 
-Test files changed (ADX-7 allowlist extension):
-  - tests/e2e/test_r14_agent_stamping.py
-  - tests/e2e/test_r14_legibility.py
+Test files changed (ADX-7 allowlist extension + V4-T10c extension):
+  - tests/e2e/test_r14_agent_stamping.py  (DOM-scoped stamp assertions, split saved/live state)
+  - tests/e2e/test_r14_legibility.py      (file:// direct navigation, page-load assertion)
+  - tests/e2e/test_exit_smoke.py          (D4-aware chrome-free gate: data-hyp-agent exempted)
+  - tests/e2e/test_f5_comments.py         (anchor: → target:/context: format update)

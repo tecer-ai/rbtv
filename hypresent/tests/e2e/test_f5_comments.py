@@ -166,8 +166,8 @@ class F5CommentTests(unittest.TestCase):
             html,
         )
         self.assertIn("[agent:", html)
-        self.assertIn("anchor:", html)
-        self.assertIn('| id="', html)
+        self.assertIn("target: [data-hyp-agent~=", html)
+        self.assertIn("context:", html)
         self.assertIn("instruction: Replace bullets", html)
         self.assertIn("author:", html)
         self.assertIn("date:", html)

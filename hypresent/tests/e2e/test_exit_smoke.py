@@ -239,8 +239,13 @@ class ExitSmokeTests(unittest.TestCase):
         with open(out, encoding="utf-8") as fh:
             text = fh.read()
 
-        # zero data-hyp-
-        self.assertNotIn("data-hyp-", text, "saved file must not contain data-hyp- attributes")
+        # data-hyp-agent is the ONLY allowed data-hyp- residue (R14 D4: intentional stamp).
+        # All other data-hyp-* attributes (data-hyp-id, data-hyp-hook, etc.) must be absent.
+        import re
+        all_data_hyp = set(re.findall(r'data-hyp-[a-z-]+', text))
+        leaked = all_data_hyp - {"data-hyp-agent"}
+        self.assertEqual(leaked, set(), f"saved file must not contain non-agent data-hyp- residue: {leaked}")
+
         # except one id="hyp-comments" island allowed
         self.assertEqual(text.count('id="hyp-comments"'), 1, "exactly one hyp-comments island allowed")
 
