@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | Registrar | Orchestrator (lead product designer) |
-| Workspace | `3-resources/tools/rbtv/hypresent` |
+| Workspace | `3-resources/tools/rbtv/html/hypresent` (moved from `3-resources/tools/rbtv/hypresent` on 2026-06-06) |
 | Session artifacts | `docs/improvements-2026-06/` |
 | Kimi contract | `kimi --work-dir "<rbtv-repo>" --quiet --prompt "<task>"` · exit 0=ok, 75=backoff+retry, 1=halt+surface · post-run `git diff` scope gate on every dispatch |
 | Protected file | `docs/spec/04-implementation-plan.md` (original conception plan — read-only) |

@@ -4,7 +4,7 @@
 
 The HTML power-up module — everything that turns narrative and strategy into polished HTML artifacts: visual deck design, AI image prompts, brand visual identity, design-token extraction from live sites, and the browser automation layer that captures and validates rendered output. The office-module pitchers delegate all HTML building here; the module also works standalone for any design or browser-automation task.
 
-The module also owns **hypresent** — the HTML presentation engine (not installable: not a command/skill/rule, but part of the module). It currently lives at the repo root `hypresent/` and moves into `html/` in a scheduled follow-up (it was under active development when the module-first restructure landed).
+The module also owns **hypresent** — the HTML presentation engine (not installable: not a command/skill/rule, but part of the module). It lives at `html/hypresent/`.
 
 ---
 
