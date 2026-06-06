@@ -47,7 +47,7 @@ Draft one commit message per cluster. Present the full commit plan (clusters, fi
 For each planned commit, in plan order:
 
 1. `git -C "{repo}" diff --cached --name-only` — list pre-staged files. `git commit` commits the ENTIRE index, not just what you staged. Any pre-staged file outside the current cluster: unstage it (`git -C "{repo}" restore --staged {file}`), or — only with user confirmation — let it ride and disclose it in the commit message. NEVER commit foreign staged files silently.
-2. Stage that cluster's files: `git -C "{repo}" add {files}` — never `git add -A`
+2. Stage that cluster's files: `git -C "{repo}" add {files}` — explicit FILE paths only. NEVER `git add -A`. NEVER stage a directory in a shared repo: a parallel session can drop a foreign file into it between plan and stage, and it rides into the commit undisclosed.
 3. Commit with that cluster's confirmed message
 
 Push only if user requested it.
