@@ -20,7 +20,7 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 | **builder** | Building RBTV itself — component creation and the source-of-truth rule | [modules/builder.md](./modules/builder.md) |
 | **innovation** | Business innovation frameworks (lean canvas, JTBD, TAM/SAM/SOM, brandbook) via the innovator mentor, plus product discovery | [modules/innovation.md](./modules/innovation.md) |
 | **writing** | Long-form writing via the writer persona, tone extraction | [modules/writing.md](./modules/writing.md) |
-| **coding** | Plain-language code communication for non-technical users (git commits moved to core; the coding-discipline guardrails were generalized into the always-on reasoning rule — see [Retired components](#retired-components)) | [modules/coding.md](./modules/coding.md) |
+| **coding** | Plain-language code communication for non-technical users, plus the done-gate rule — done on coding tasks requires an owner-confirmed outcome contract, real-input exercise of each criterion, and a per-criterion evidence sheet on disk (git commits moved to core; the coding-discipline guardrails were generalized into the always-on reasoning rule — see [Retired components](#retired-components)) | [modules/coding.md](./modules/coding.md) |
 | **caveman** | Optional ultra-compressed caveman communication mode and parody commit voice — token savings and fun, based on JuliusBrussee/caveman | [modules/caveman.md](./modules/caveman.md) |
 
 ## Requirements
