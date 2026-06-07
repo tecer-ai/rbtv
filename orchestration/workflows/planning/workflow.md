@@ -4,7 +4,7 @@ description: 'Create high-quality, self-executing plans with micro-step task fil
 nextStep: ./steps-c/step-01-init.md
 templateFile: ./templates/plan-template.md
 microstepTemplateFile: ./templates/plan-task-microstep-template.md
-shapeTemplateFile: '{rbtv_path}/orchestration/workflows/_shared/templates/shape-template.md'
+decisionsTemplateFile: '{rbtv_path}/orchestration/workflows/_shared/templates/decisions-template.md'
 learningsTemplateFile: ./templates/learnings-template.md
 deliverablesTemplateFile: ./templates/deliverables-template.md
 ---

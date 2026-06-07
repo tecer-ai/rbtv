@@ -3,7 +3,7 @@ stepNumber: 4
 stepName: 'generate-artifacts'
 nextStepFile: null
 microstepTemplateFile: ../templates/plan-task-microstep-template.md
-shapeTemplateFile: '{rbtv_path}/orchestration/workflows/_shared/templates/shape-template.md'
+decisionsTemplateFile: '{rbtv_path}/orchestration/workflows/_shared/templates/decisions-template.md'
 learningsTemplateFile: ../templates/learnings-template.md
 deliverablesTemplateFile: ../templates/deliverables-template.md
 templateFile: ../templates/plan-template.md
@@ -40,7 +40,7 @@ Create all plan artifacts: companion files (shape.md, learnings.md, deliverables
 ### 1. Load Templates
 
 Read the following templates from frontmatter paths:
-- `{shapeTemplateFile}` — for shape.md structure
+- `{decisionsTemplateFile}` — for shape.md structure
 - `{learningsTemplateFile}` — for learnings.md structure
 - `{deliverablesTemplateFile}` — for deliverables.md structure
 - `{microstepTemplateFile}` — for task file structure
@@ -81,7 +81,7 @@ Create phase folders inside the plan folder:
 
 **If shape.md does NOT exist:**
 
-Generate shape.md using `{shapeTemplateFile}` with content from step-02:
+Generate shape.md using `{decisionsTemplateFile}` with content from step-02:
 
 | Section | Content Source |
 |---------|----------------|
