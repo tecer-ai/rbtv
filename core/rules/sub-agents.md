@@ -6,6 +6,18 @@
 
 When launching sub-agents via the Agent tool, use `sonnet` as the default model. NEVER use `haiku` unless the user explicitly requests it.
 
+### Haiku Reconciliation — Approved Delegation Map
+
+An orchestration delegation map the user has approved IS the "explicit request" this section requires — but ONLY for the mechanical batches that map names, and ONLY for haiku. No separate per-dispatch permission is needed once the map is approved.
+
+| Condition | Haiku eligibility |
+|-----------|-------------------|
+| User-approved delegation map names haiku for a specific mechanical batch | Routable for THAT batch — the map approval satisfies the "explicit request" clause above |
+| No approved delegation map naming haiku for the batch | NEVER routed — default to the cheapest **non-haiku** capable model; every pinned role (reviewer, verifier, debug, commit) floors at **sonnet** regardless |
+| Batch carries any judgment call | NOT mechanical — haiku is off the table even under an approved map |
+
+**Mechanical = no judgment:** disjoint-allowlist file ops, format conversions, deterministic batch edits with self-verifiable acceptance. The moment a batch requires a judgment call, it is no longer mechanical. A standalone haiku dispatch outside an approved delegation map still requires the explicit user ask.
+
 ## Pre-Dispatch Gate
 
 Before EVERY Agent tool call, you MUST:
