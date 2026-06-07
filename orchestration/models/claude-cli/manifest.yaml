@@ -94,7 +94,7 @@ variants:
     # --- boundedness + sizing ---
     reasoning_tier: mid             # sonnet for partially-bounded work with doubt_policy: halt, and for zero-context verification personas (learnings §1/S3.6: sonnet everywhere coherence-under-ambiguity is NOT the deliverable — recon, research, review, cold-verify, commits)
     context_window: 200000          # probe H3: --model sonnet → JSON modelUsage.claude-sonnet-4-6 contextWindow = 2e5 (200K)
-    max_output: 64000               # claude-sonnet-4-6 single-turn ceiling; read JSON modelUsage.maxOutputTokens per dispatch for the live value
+    max_output: 32000               # probe H3: --model sonnet → JSON modelUsage.claude-sonnet-4-6 maxOutputTokens = 32000 (NOT 64000 — that is the opus ceiling); read JSON modelUsage.maxOutputTokens per dispatch for the live value
 
     # --- budget + capability gates ---
     cost_class: mid                 # sonnet is mid-tier Claude spend — probe Sonnet calls ≈ $0.04-0.17 (cache-creation-dominated cold). Still the SAME Claude budget as the conductor (no cross-provider arbitrage)
