@@ -59,7 +59,7 @@ The addendum is GENERIC. A model package's delta MAY add model-specific obligati
 
 | Obligation | What codex is bound to |
 |------------|------------------------|
-| **Sandbox + approval are the confinement, and they are the conductor's to set (UNPILOTED enforcement)** | Codex has a real native sandbox (`-s/--sandbox`: `read-only` · `workspace-write` · `danger-full-access`) and an approval policy (`-a/--ask-for-approval`: `untrusted` · `on-request` · `never`). A non-interactive dispatch MUST run `--ask-for-approval never` (any other value stalls headless waiting for a human) paired with the TIGHTEST sandbox the task needs — `read-only` for analysis/research leaves, `workspace-write` for code that edits the work-dir, NEVER `danger-full-access` and NEVER `--dangerously-bypass-approvals-and-sandbox` unless the task explicitly sanctions it. The pairing `never` + `workspace-write` is the bounded-write default. The sandbox is real but its reliability as a confinement boundary for THIS orchestrator is UNPILOTED — back it with the same post-run `git diff --name-only` vs the allowlist that every CLI worker gets. |
+| **Sandbox + approval are the confinement, and they are the conductor's to set (UNPILOTED enforcement)** | Codex has a real native sandbox (`-s/--sandbox`: `read-only` · `workspace-write` · `danger-full-access`) and an approval policy. On Codex CLI **0.137.0** `codex exec` has NO `-a/--ask-for-approval` flag (it was removed from the `exec` subcommand — verified absent in `codex exec --help`, p5-2 smoke probe); the approval policy is set via the config override `-c approval_policy="never"` (a `-c` dotted-path TOML override — `approval_policy` is a recognized key, confirmed under `--strict-config`). A non-interactive dispatch MUST set `-c approval_policy="never"` (so the model never pauses for a human) paired with the TIGHTEST sandbox the task needs — `read-only` for analysis/research leaves, `workspace-write` for code that edits the work-dir, NEVER `danger-full-access` and NEVER `--dangerously-bypass-approvals-and-sandbox` unless the task explicitly sanctions it. The pairing `-c approval_policy="never"` + `--sandbox workspace-write` is the bounded-write default. The sandbox is real but its reliability as a confinement boundary for THIS orchestrator is UNPILOTED — back it with the same post-run `git diff --name-only` vs the allowlist that every CLI worker gets. |
 | **Workspace scope is `-C`/`--cd` + `--add-dir`; writes outside the work-dir are a guardrail breach** | Set `-C <repo-root>` (or run from that cwd) and add only the minimal extra writable dirs via `--add-dir`. Files created/modified outside the scoped workspace are an out-of-allowlist write the conductor catches on the post-run diff — surface, never auto-revert. `--skip-git-repo-check` is required ONLY when the work-dir is not a git repo (codex refuses to run outside a repo otherwise). |
 | **No self-commit unless the task grants it (default OFF)** | Codex MAY commit locally — and ONLY locally — after its declared validation passes, when the task file grants `commit_policy: local-only`. NEVER push, NEVER force-reset, NEVER amend. The commit subject MUST carry the run's mandated `[<task-id>]` convention; the returned hash MUST match `git log`. Absent an explicit grant, codex does NOT commit (the conductor commits via `rbtv-commit`). This authorization, and the commit message convention's survival across a codex run, are UNPILOTED — verify the hash and the subject string on return. |
 | **Project trust is a pre-flight, not a runtime grant** | Codex records per-project `trust_level` in `~/.codex/config.toml` (`[projects.'<path>']`). An untrusted target project triggers a first-run interactive trust prompt — a USER-EXECUTED-ONLY pre-flight (run codex once interactively in the workspace, or pre-set trust) before any headless dispatch. Do NOT attempt to clear a trust prompt programmatically. |
@@ -100,14 +100,14 @@ The schema is identical across workers; only HOW the fields arrive differs by wo
 | **CLI worker (`kimi`, `codex exec`, `claude -p`, `qwen`, …)** | The fields appear in the worker's final message AND the evidence they cite is on disk as files. The final message is treated as a HINT; the disk state and the cited evidence files are the truth the conductor reconciles. |
 | **sdd composite dispatch (`superpowers:subagent-driven-development`)** | sdd is ONE composite dispatch wrapped by the outer gates (routing §5). Its outer-wrapper return carries the five fields as the in-session final reply — same as the Agent-tool row — over its whole code body; its internal TDD sub-structure is not surfaced as separate returns. |
 
-**Codex return surface:** run headless with `codex exec` (alias `codex e`). The final assistant message goes to stdout; pass `-o/--output-last-message <file>` to ALSO write that final message to a file on disk (the durable copy — prefer it over stdout scraping). `--json` streams events as JSONL (one JSON object per line) for machine parsing — the final result is the last `agent_message`/assistant event. The worker carries the five return fields in that final message; treat the message as a HINT, never the truth. Codex runs autonomously to completion under `--ask-for-approval never`, so a dropped or garbled final turn is possible (UNPILOTED failure surface — codex's exact behavior on a mid-return connection drop is not corpus-validated; treat it like the kimi exit-75 class and reconcile from disk). The conductor reconciles every codex return against `git status` / `git log` of the work-dir and the cited evidence files on disk — disk wins on any disagreement. For a strictly-shaped final response, `--output-schema <file>` constrains the model's final JSON to a supplied JSON Schema.
+**Codex return surface:** run headless with `codex exec` (alias `codex e`). The final assistant message goes to stdout; pass `-o/--output-last-message <file>` to ALSO write that final message to a file on disk (the durable copy — prefer it over stdout scraping). `--json` streams events as JSONL (one JSON object per line) for machine parsing — the final result is the last `agent_message`/assistant event. The worker carries the five return fields in that final message; treat the message as a HINT, never the truth. Codex runs autonomously to completion under `-c approval_policy="never"`, so a dropped or garbled final turn is possible (UNPILOTED failure surface — codex's exact behavior on a mid-return connection drop is not corpus-validated; treat it like the kimi exit-75 class and reconcile from disk). The conductor reconciles every codex return against `git status` / `git log` of the work-dir and the cited evidence files on disk — disk wins on any disagreement. For a strictly-shaped final response, `--output-schema <file>` constrains the model's final JSON to a supplied JSON Schema.
 <!-- The model package delta names this worker's exact return surface (e.g., the CLI's final-message flag, the evidence-file convention) here. The fields above never change. -->
 
 ---
 
 ## Invocation — the exact command shape
 
-The codex CLI dispatch manual — the exact command shapes, flags, sandbox/approval grammar, exit handling, resume, and the codex task contract. Verified against **Codex CLI 0.137.0** (`codex --version` → `codex-cli 0.137.0`) on this machine. Re-verify with `codex --help` / `codex exec --help` / `codex --version` before relying on any flag — the CLI evolves fast; `--help` is ground truth for the installed build. Evidence boundary: the separate-process isolation property is live-proven (B4D); everything else here is **UNPILOTED** until the p5-2 smoke probe and is marked where it matters.
+The codex CLI dispatch manual — the exact command shapes, flags, sandbox/approval grammar, exit handling, resume, and the codex task contract. Verified against **Codex CLI 0.137.0** (`codex --version` → `codex-cli 0.137.0`) on this machine. Re-verify with `codex --help` / `codex exec --help` / `codex --version` before relying on any flag — the CLI evolves fast; `--help` is ground truth for the installed build. Evidence boundary: the separate-process isolation property is live-proven (B4D); the p5-2 smoke probe then ran one real `codex exec` dispatch through this manual on 0.137.0 — it caught that `--ask-for-approval` was removed from the `exec` subcommand (now `-c approval_policy="never"`), and exercised Shape B stdin transport, `--sandbox workspace-write`, `--output-last-message`, and the five-field return (exit 0, file landed byte-correct). Facets NOT yet exercised — the non-zero exit taxonomy, resume inside a dispatch loop, self-commit — remain **UNPILOTED** and are marked where it matters.
 
 ### Pre-flight (before any dispatch)
 
@@ -125,7 +125,7 @@ The codex CLI dispatch manual — the exact command shapes, flags, sandbox/appro
 **Shape A — prompt as CLI argument (small prompts):**
 
 ```powershell
-codex exec --cd "<repo>" --sandbox workspace-write --ask-for-approval never `
+codex exec --cd "<repo>" --sandbox workspace-write -c approval_policy="never" `
   --output-last-message "<repo>/.codex-runs/<task-id>.txt" "<task_prompt>"
 ```
 
@@ -134,18 +134,18 @@ Use when the prompt fits comfortably under the host shell's single-argument limi
 **Shape B — prompt via stdin (large prompts; default in autonomous mode):**
 
 ```bash
-cat prompt.md | codex exec --cd "<repo>" --sandbox workspace-write --ask-for-approval never \
+cat prompt.md | codex exec --cd "<repo>" --sandbox workspace-write -c approval_policy="never" \
   --output-last-message "<repo>/.codex-runs/<task-id>.txt" -
 ```
 
-Use when the prompt is large OR when running autonomously and you cannot afford a per-prompt size halt. The trailing `-` tells codex to read the prompt from stdin. **Both shapes** apply the same `--cd` scope, the same sandbox + approval policy, and pass the same allowlist + forbidden-ops checks on return. The composed **header + payload** (generic packaging §1) is written to `prompt.md` on disk and dispatched FROM that file — the same prompt file is the reuse surface on resume. (Windows note: PowerShell ~32 KB single-arg ceiling — prefer Shape B for any non-trivial prompt. Stdin piping was the validated transport for the kimi worker on this machine; codex's stdin handling on Windows is UNPILOTED — verify on the first dispatch.)
+Use when the prompt is large OR when running autonomously and you cannot afford a per-prompt size halt. The trailing `-` tells codex to read the prompt from stdin. **Both shapes** apply the same `--cd` scope, the same sandbox + approval policy, and pass the same allowlist + forbidden-ops checks on return. The composed **header + payload** (generic packaging §1) is written to `prompt.md` on disk and dispatched FROM that file — the same prompt file is the reuse surface on resume. (Windows note: PowerShell ~32 KB single-arg ceiling — prefer Shape B for any non-trivial prompt. Stdin piping via Shape B is the validated transport for codex on this machine — the p5-2 smoke probe ran Shape B from Git Bash, exit 0, the prompt reached the worker and the file landed.)
 
 ### Sandbox + approval grammar — the confinement axis
 
 | Flag | Values | Use |
 |------|--------|-----|
 | `-s` / `--sandbox` | `read-only` · `workspace-write` · `danger-full-access` | The blast-radius control. `read-only` = analysis/research leaf (no file writes). `workspace-write` = code that edits the scoped work-dir (the bounded default for code). `danger-full-access` = NEVER unless the task explicitly sanctions it. |
-| `-a` / `--ask-for-approval` | `untrusted` · `on-request` · `never` | Headless MUST use `never` (the model never pauses for human approval; failures return to the model). `untrusted`/`on-request` stall a headless run waiting for input. `on-failure` is DEPRECATED. |
+| `-c approval_policy="<policy>"` | `untrusted` · `on-request` · `never` (config override; `codex exec` has NO `--ask-for-approval` flag on 0.137.0) | Headless MUST set `-c approval_policy="never"` (the model never pauses for human approval; failures return to the model). `untrusted`/`on-request` stall a headless run waiting for input. Set it as a `-c` dotted-path TOML override — the `--ask-for-approval` flag was removed from the `exec` subcommand (p5-2 smoke probe: `error: unexpected argument '--ask-for-approval'`). |
 | `--dangerously-bypass-approvals-and-sandbox` | (flag) | Skips ALL approvals AND sandboxing. EXTREMELY DANGEROUS — only for an externally-sandboxed environment the task names. Forbidden by default. |
 | `-C` / `--cd <dir>` | path | The agent's working root. Scope codex to the repo. |
 | `--add-dir <dir>` | path (repeatable) | Extra writable dirs alongside the primary workspace. Keep minimal. |
@@ -171,7 +171,7 @@ The codex manifest declares routable variants — route on `(codex, variant)`:
 Codex `exec` returns a process exit code; `0` = success. A non-zero exit means the run did not complete cleanly — halt and surface; do NOT blind-retry. The precise non-zero exit-code taxonomy (which codes are retryable rate-limit/throttle vs non-retryable config/auth) is **UNPILOTED** on this machine — unlike kimi's documented exit-75, codex's retry semantics are not corpus-validated. Until a probe establishes them: on any non-zero exit, reconcile disk state, and if uncommitted in-allowlist work landed without the structured return, apply the disk-state recovery pattern below rather than re-running.
 
 ```powershell
-codex exec --cd "<repo>" --sandbox workspace-write --ask-for-approval never `
+codex exec --cd "<repo>" --sandbox workspace-write -c approval_policy="never" `
   --output-last-message "<repo>/.codex-runs/<task-id>.txt" "<task>"; $code = $LASTEXITCODE
 if ($code -ne 0) { <reconcile disk; recover-or-surface — do NOT blind-retry> }
 ```
@@ -202,7 +202,7 @@ Resume is session-id based (`codex exec resume`). Resume reliability inside an a
 
 | Failure | Pre-emption |
 |---------|-------------|
-| Headless stalls waiting for approval | ALWAYS pass `--ask-for-approval never` for a non-interactive dispatch; any other value blocks. |
+| Headless stalls waiting for approval | ALWAYS set `-c approval_policy="never"` for a non-interactive dispatch; any other policy blocks. (`codex exec` has NO `--ask-for-approval` flag on 0.137.0 — passing it errors `unexpected argument`, p5-2.) |
 | Refuses to run outside a git repo | Pass `--skip-git-repo-check` when the work-dir is not a repo. |
 | First-run project trust prompt | Pre-trust the workspace (`[projects.'<path>'] trust_level`) or run codex once interactively there — USER-EXECUTED-ONLY; never clear it programmatically. |
 | Interactive login required | `codex login` (ChatGPT) or `--with-api-key` via stdin is USER-EXECUTED-ONLY; halt + ask the owner. |
@@ -237,7 +237,7 @@ doubt_policy: halt
 reviewer: claude-opus           # reviewer floor for codex-produced code is Opus (external-CLI code) — non-overridable
 ```
 
-**Required body sections:** Goal (one bounded deliverable) · Context Snapshot (all task-specific context inlined — never make codex infer from broad PRDs) · Allowed Paths (the allowlist in human-readable form) · Forbidden Paths · Sandbox + Approval (the `--sandbox` value and the mandatory `--ask-for-approval never`) · Implementation Requirements (exact behavior — interfaces, data shapes, error semantics, every edge case enumerated) · Validation (the exact commands codex runs before returning) · Commit Rule (local-only after validation, or none) · Return Format (the five-field return schema; land it via `--output-last-message`).
+**Required body sections:** Goal (one bounded deliverable) · Context Snapshot (all task-specific context inlined — never make codex infer from broad PRDs) · Allowed Paths (the allowlist in human-readable form) · Forbidden Paths · Sandbox + Approval (the `--sandbox` value and the mandatory `-c approval_policy="never"`) · Implementation Requirements (exact behavior — interfaces, data shapes, error semantics, every edge case enumerated) · Validation (the exact commands codex runs before returning) · Commit Rule (local-only after validation, or none) · Return Format (the five-field return schema; land it via `--output-last-message`).
 
 **Review gates** every codex coding task passes (verification card owns the gate): codex self-report → orchestrator diff-vs-allowlist check → declared validation passing (or explicit blocker) → Claude/Opus spec-compliance review → Claude/Opus code-quality review → no push until owner/final-workflow publishes. Any gate fails → halt or route a fix task; never proceed on "close enough". Codex is a SEPARATE-PROCESS worker (its one validated property, B4D) — the cold verifier and review pins apply exactly as for any external-CLI code worker.
 
@@ -245,21 +245,21 @@ reviewer: claude-opus           # reviewer floor for codex-produced code is Opus
 
 ```powershell
 # Bounded code edit, durable return file (Shape A):
-codex exec --cd "5-workbench/inni-cte-recon" --sandbox workspace-write --ask-for-approval never `
+codex exec --cd "5-workbench/inni-cte-recon" --sandbox workspace-write -c approval_policy="never" `
   --output-last-message ".codex-runs/t1.txt" "<inlined task file content>"
 ```
 ```bash
 # Large prompt via stdin (Shape B — default autonomous/Windows):
-cat prompt.md | codex exec --cd "<repo>" --sandbox workspace-write --ask-for-approval never \
+cat prompt.md | codex exec --cd "<repo>" --sandbox workspace-write -c approval_policy="never" \
   --output-last-message "<repo>/.codex-runs/t1.txt" -
 ```
 ```powershell
 # Read-only analysis/research leaf (no writes), JSONL events for parsing:
-codex exec --cd "<repo>" --sandbox read-only --ask-for-approval never --json "<analysis task>"
+codex exec --cd "<repo>" --sandbox read-only -c approval_policy="never" --json "<analysis task>"
 ```
 ```powershell
 # High reasoning effort, clean of machine config:
-codex exec --cd "<repo>" --sandbox workspace-write --ask-for-approval never `
+codex exec --cd "<repo>" --sandbox workspace-write -c approval_policy="never" `
   -c model_reasoning_effort="high" --ignore-user-config "<task>"
 ```
 ```powershell
