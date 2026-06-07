@@ -375,6 +375,46 @@ class TestEngineCore(unittest.TestCase):
         with self.assertRaises(Exception):
             mod.parse_yaml_subset("deviations: [modified: x]")
 
+    def test_yaml_writer_deviations_string_scalar(self):
+        """ADX-13: string deviations '-' emits as scalar; list deviations as block list."""
+        mod = self._import_engine_module()
+
+        # String sentinel must emit as scalar line, not as a one-item block list
+        entry_str = {"deviations": "-", "accent": "#B8875A"}
+        written = mod.write_yaml_subset(entry_str)
+        self.assertIn("deviations: -", written)
+        parsed = mod.parse_yaml_subset(written)
+        self.assertEqual(parsed["deviations"], "-")
+        self.assertEqual(parsed["accent"], "#B8875A")
+        # Field-for-field round-trip
+        written_rt = mod.write_yaml_subset(parsed)
+        self.assertEqual(written_rt, written)
+
+        # Real list must emit as block list
+        entry_list = {
+            "deviations": ["removed: proof-metrics", "added: closing-nimbus"],
+            "accent": "#B8875A",
+        }
+        written2 = mod.write_yaml_subset(entry_list)
+        self.assertIn("deviations:\n  - removed: proof-metrics\n  - added: closing-nimbus", written2)
+        parsed2 = mod.parse_yaml_subset(written2)
+        self.assertEqual(parsed2["deviations"], entry_list["deviations"])
+        self.assertEqual(parsed2["accent"], "#B8875A")
+        written2_rt = mod.write_yaml_subset(parsed2)
+        self.assertEqual(written2_rt, written2)
+
+    def test_yaml_writer_empty_list_sentinel(self):
+        """Empty deviations list emits '-' sentinel scalar and round-trips."""
+        mod = self._import_engine_module()
+        entry = {"deviations": [], "accent": "#B8875A"}
+        written = mod.write_yaml_subset(entry)
+        self.assertIn("deviations: -", written)
+        parsed = mod.parse_yaml_subset(written)
+        self.assertEqual(parsed["deviations"], "-")
+        self.assertEqual(parsed["accent"], "#B8875A")
+        written_rt = mod.write_yaml_subset(parsed)
+        self.assertEqual(written_rt, written)
+
     # ═══════════════════════════════════════════════════════════════════════════
     # §1.7  --json envelope shape
     # ═══════════════════════════════════════════════════════════════════════════

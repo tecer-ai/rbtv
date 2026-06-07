@@ -216,3 +216,42 @@ The committed fixture `tests/e2e/fixtures/builder-lib/as-built.md` was verified 
 - **Hash match**: ✅ Identical
 
 **Grand total**: 16 ran, 16 passed, 0 failed, 0 skipped
+
+
+---
+
+## Lang-metadata fix
+
+**Date**: 2026-06-07
+**Root cause**: `builder-main.js` converted `document.documentElement.lang === 'en'` to `undefined`; `assemble.js` then omitted `lang` from the `/api/assemble` payload conditionally, causing the engine to fall back to the library's `default_lang`.
+
+### Diff summary
+
+| File | Change |
+|------|--------|
+| `app/js/builder/assemble.js` | Unconditional `body.lang = lang` (removed `if (lang !== undefined)` guard) |
+| `app/js/builder/builder-main.js` | Pass `document.documentElement.lang` directly (removed `!== 'en' ? ... : undefined` guard) |
+| `tests/e2e/test_pb5_assemble_handoff.py` | Added `test_assemble_lang_metadata` (PB5-5): UI-driven assembly with `lang='pt'` on temp library whose `default_lang='en'`, intercepts `/api/assemble` response and asserts `as_built_entry.lang == 'pt'` |
+| `C:/Users/henri/Documents/second-brain/5-workbench/tecer-biz/slide-library/as-built.md` | Same-session correction: entry `2026-06-07-dt2-scratch-en` `lang: pt` → `lang: en` |
+
+### D29 Metrics (PB5 only, port 8805)
+
+| Metric | Value |
+|--------|-------|
+| WALL_MS | ~4500 |
+| EXIT | 0 |
+| PB5 ran | 5 |
+| PB5 passed | 5 |
+| PB5 failed | 0 |
+| PB5 skipped | 0 |
+| SKIPPED_LINES_COUNT | 0 |
+
+### PB5 — Assemble & Handoff (port 8805) — post-fix
+
+| # | Test | Status |
+|---|------|--------|
+| 1 | `test_assemble_produces_deck_file` | ✅ Pass |
+| 2 | `test_handoff_percent_encoding` | ✅ Pass |
+| 3 | `test_invalid_assemble_passthrough` | ✅ Pass |
+| 4 | `test_client_logo_payload` | ✅ Pass |
+| 5 | `test_assemble_lang_metadata` | ✅ Pass |

@@ -55,7 +55,7 @@ class PB2LibraryLoadTests(unittest.TestCase):
         B.pick_library_ui(self.page, self.base, lib)
 
         visible_before = self.page.eval_on_selector_all(
-            ".slide-card", "els => els.filter(e => !e.classList.contains('hidden')).length"
+            ".slide-card", "els => els.filter(e => e.offsetParent !== null).length"
         )
         total = self.page.locator(".slide-card").count()
         self.assertEqual(visible_before, total, "before filter, all cards visible")
@@ -65,21 +65,21 @@ class PB2LibraryLoadTests(unittest.TestCase):
         self.page.wait_for_timeout(100)
 
         visible_after = self.page.eval_on_selector_all(
-            ".slide-card", "els => els.filter(e => !e.classList.contains('hidden')).length"
+            ".slide-card", "els => els.filter(e => e.offsetParent !== null).length"
         )
         self.assertLess(visible_after, visible_before, "filter should reduce visible count")
 
         # cover-e2e.en has .en suffix and lang en != pt → should be hidden
         en_card = self.page.locator('.slide-card[data-slide-id="cover-e2e.en"]')
         self.assertTrue(
-            en_card.evaluate("e => e.classList.contains('hidden')"),
+            en_card.evaluate("e => e.offsetParent === null"),
             "cover-e2e.en should be hidden when pt is selected",
         )
 
         # intro-e2e is language-neutral (no .pt suffix) → stays visible
         intro_card = self.page.locator('.slide-card[data-slide-id="intro-e2e"]')
         self.assertFalse(
-            intro_card.evaluate("e => e.classList.contains('hidden')"),
+            intro_card.evaluate("e => e.offsetParent === null"),
             "intro-e2e should stay visible",
         )
 

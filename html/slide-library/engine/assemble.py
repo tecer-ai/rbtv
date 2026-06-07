@@ -195,23 +195,15 @@ def write_yaml_subset(entry):
     """Writer for the library-YAML subset."""
     lines = []
     for key, value in entry.items():
-        if key == "deviations":
+        if isinstance(value, list):
             if not value:
-                lines.append("deviations: -")
+                lines.append(f"{key}: -")
             else:
-                lines.append("deviations:")
+                lines.append(f"{key}:")
                 for item in value:
                     lines.append(f"  - {item}")
-        elif isinstance(value, list):
-            if not value:
-                lines.append(f"{key}: []")
-            else:
-                flow = ", ".join(str(v) for v in value)
-                lines.append(f"{key}: [{flow}]")
         elif isinstance(value, bool):
             lines.append(f"{key}: {str(value).lower()}")
-        elif key == "engine_version":
-            lines.append(f'{key}: "{value}"')
         else:
             s = str(value)
             # Quote scalars that are not simple unquoted YAML tokens

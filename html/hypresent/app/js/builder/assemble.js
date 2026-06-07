@@ -7,7 +7,7 @@ export async function pickDestination() {
 
 export async function assembleDeck({ libraryPath, slides, outPath, lang, title, accent, client_logo }) {
   const body = { path: libraryPath, slides, out: outPath };
-  if (lang !== undefined) body.lang = lang;
+  body.lang = lang;
   if (title !== undefined) body.title = title;
   if (accent !== undefined) body.accent = accent;
   if (client_logo !== undefined) body.client_logo = client_logo;

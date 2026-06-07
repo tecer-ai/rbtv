@@ -149,7 +149,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       const outPath = buildOutPath(destFolder, filename);
-      const lang = document.documentElement.lang !== 'en' ? document.documentElement.lang : undefined;
+      const lang = document.documentElement.lang;
       const title = deckFilename && deckFilename.value ? deckFilename.value : undefined;
       try {
         const result = await assembleDeck({

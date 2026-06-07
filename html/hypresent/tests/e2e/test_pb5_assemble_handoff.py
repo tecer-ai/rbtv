@@ -177,6 +177,59 @@ class PB5AssembleHandoffTests(unittest.TestCase):
         idx = spy_args.index("--client-logo")
         self.assertEqual(spy_args[idx + 1], "logo.png", "engine must receive client_logo value")
 
+    # ── PB5-5 ──────────────────────────────────────────────────────────────
+    def test_assemble_lang_metadata(self):
+        """UI-selected lang must be recorded in as_built_entry, not library default."""
+        lib = B.make_temp_library()
+        self.addCleanup(lambda: shutil.rmtree(os.path.dirname(lib), ignore_errors=True))
+
+        # Patch the temp library's assemble.py to return structured as_built_entry with lang
+        orig_engine = B.ENGINE_SRC
+        with open(orig_engine, "r", encoding="utf-8") as f:
+            engine_src = f.read()
+        engine_src = engine_src.replace(
+            '"as_built_entry": entry.strip(),',
+            '"as_built_entry": {"lang": lang or "en", "entry": entry.strip()},'
+        )
+        patched_path = os.path.join(lib, "assemble.py")
+        with open(patched_path, "w", encoding="utf-8") as f:
+            f.write(engine_src)
+
+        self.page.goto(self.base + "/app/builder.html")
+        self._pick_lib(lib)
+
+        # Set UI language to 'pt' (different from library default 'en')
+        self.page.evaluate("() => { document.documentElement.lang = 'pt'; }")
+
+        self._tag_slide("intro-e2e")
+        self._set_destination()
+        self._fill_filename("lang-test")
+
+        # Intercept assemble API to capture response envelope
+        envelope = {}
+        def handle_route(route, request):
+            if request.url.endswith("/api/assemble"):
+                response = route.fetch()
+                try:
+                    envelope["data"] = response.json()
+                except Exception:
+                    pass
+                route.fulfill(response=response)
+            else:
+                route.continue_()
+        self.page.route("**/api/assemble", handle_route)
+
+        self._trigger_assemble()
+        self.page.wait_for_function(
+            "() => location.search.includes('file=')", timeout=10000
+        )
+
+        self.assertIn("data", envelope, "assemble envelope not captured")
+        as_built = envelope["data"].get("as_built_entry")
+        self.assertIsInstance(as_built, dict, "as_built_entry should be a dict")
+        self.assertEqual(as_built.get("lang"), "pt",
+                         "as_built_entry.lang must match UI-selected lang, not library default")
+
 
 if __name__ == "__main__":
     unittest.main()

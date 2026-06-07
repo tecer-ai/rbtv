@@ -112,6 +112,10 @@
   color: #bbb;
 }
 
+.hidden {
+  display: none;
+}
+
 /* Tray pane */
 .builder-tray {
   width: 320px;

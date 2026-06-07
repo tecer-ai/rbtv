@@ -37,6 +37,17 @@ To stop, Ctrl-C the server. Nothing is written to disk except when you explicitl
 7. **Undo / Redo.** A single unified history stack covers every operation above; use the toolbar **Undo** / **Redo** buttons.
 8. **Save / Save As.** Click **Save** to silently overwrite the currently-open file (or **Save As…** to choose a new path via a native save dialog). The output is chrome-free (no `hyp-` classes/ids, no `data-hyp-*` attributes, no injected scripts/styles) except for the one inert comment island, and the document's own scripts still run. Native dialogs appear **on top of** the browser window.
 
+## Builder
+
+hypresent ships a second page at `/app/builder.html` for composing presentation decks from any RBTV slide library. Start the server as above, then open `http://127.0.0.1:8765/app/builder.html`.
+
+1. **Pick a library.** Click **Pick library…** to choose a slide-library folder. The builder validates the library by running its vendored engine in `--catalog-data --json` mode; if the library is invalid, every §8 error is listed before you proceed.
+2. **Choose a flow.** Either select a **preset** to preload the tray with the preset's ordered slides, or build from **scratch** by clicking cards in the browse pane.
+3. **Compose the tray.** The right-hand tray shows the deck order. Drag any row to reorder; the sorter is a hand-rolled pointer-events implementation (no native HTML5 DnD) so it can be driven by real mouse input in tests. Remove rows with the ✗ button.
+4. **Assemble.** Pick a destination folder, name the deck, and click **Assemble**. The builder calls the library's own `assemble.py` via subprocess with `--slides` and `--json`; the engine writes the deck, copies assets, appends the as-built entry, and reports unfilled tokens. On success, the builder navigates to `/app/?file={encodedOutputPath}`, where the editor boot reads the `?file=` parameter once (single decode via `URLSearchParams.get`) and opens the assembled deck through the existing `/api/open` path.
+
+The builder never duplicates engine behavior: the library's vendored engine is the single source of truth for parsing, validation, assembly, and logging (ADX-2).
+
 ## Architecture
 
 - **Python stdlib server** (`server/`) with three roots: `GET /app/*` (the editor shell, fixed), `GET /runtime/*` (the injected edit-runtime, fixed, served from the app's own dir), and `GET /doc/*` (the open document's directory, re-pointed on each open). JSON API: `POST /api/open` and `POST /api/save-as`.

@@ -60,3 +60,22 @@ OK
 - **before SHA-256**: `289bbfaeb23c96d315c9833cc22c38f95f4e1f0e8fdd0feb7a0cb88349b6d59e`
 - **after SHA-256**: `289bbfaeb23c96d315c9833cc22c38f95f4e1f0e8fdd0feb7a0cb88349b6d59e`
 - **Result**: byte-identical — temp libraries are disposable; committed fixture untouched.
+
+## Lang-filter fix (cold-verifier catch) — D29
+
+### CSS diff
+```diff
++ .hidden {
++   display: none;
++ }
+```
+Added to `html/hypresent/app/css/builder.css` after `.slide-card-label` (within browse-pane styles).
+
+### Assertion diff summary
+`test_pb2_library_load.py::test_language_filter` — replaced 4 classList-based assertions with measured-outcome checks:
+- Counting visible cards: `!e.classList.contains('hidden')` → `e.offsetParent !== null`
+- Asserting hidden card: `e.classList.contains('hidden')` → `e.offsetParent === null`
+- Asserting visible card: `!e.classList.contains('hidden')` → `e.offsetParent !== null`
+
+### Suite totals
+- **test_pb2_library_load (port 8802)**: 4 ran, 4 passed, 0 failed, 0 skipped

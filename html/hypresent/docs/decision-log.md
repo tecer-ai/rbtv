@@ -71,3 +71,18 @@ Authoritative record of locked product decisions and architecture choices. Downs
 | Comments threading | (built from scratch) | — | No suitable permissively-licensed library; bounded ~250-350 LOC vanilla per `research-oss.md`. |
 | Text formatting | (built from scratch: `contenteditable` + `execCommand` + Selection API) | — | Universal browser support, 0 kB, native undo buffer; per `research-oss.md`. |
 | Serialization | (native `outerHTML` on cloned, namespace-stripped doc) | — | No third-party serializer and NO sanitizer pass needed; chrome removal is namespace stripping only (A8). |
+
+
+---
+
+## Prez-builder v1 decisions
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| D20 | **Builder page ships as a second static page.** A dedicated `app/builder.html` + `app/js/builder/*` modules + `server/builder_api.py` provide the prez-builder experience; navigation between Editor and Builder is plain `<a href>`. | build-spec S-B1; live `builder.html`, `builder-main.js`, `builder_api.py`. |
+| D21 | **GUI consumes the library's own vendored engine via subprocess with `--json`.** The server calls `python {library}/assemble.py --catalog-data --json` for load and `--slides ... --json` for assemble; the engine envelope is passed through unread. One behavior source per library (ADX-2). | build-spec S-B9 / ADX-2; live `builder_api.py` `_run_engine`. |
+| D22 | **Hand-rolled pointer-events tray sorter.** Drag-reorder is implemented with `pointerdown`/`pointermove`/`pointerup` + `requestAnimationFrame` + `getBoundingClientRect`; no native HTML5 DnD, so the gesture is testable with Playwright real mouse input. | build-spec S-B8; live `tray-sorter.js`. |
+| D23 | **IO-gated srcdoc previews with LRU/in-view-protected eviction.** Slide-card iframes mount via `IntersectionObserver` (`rootMargin: 200px`), cache `theme.css`, and evict LRU only among non-intersecting frames; if every mounted frame is in view the cap raises transiently. | build-spec S-B5; live `previews.js`. |
+| D24 | **`?file=` single-decode editor handoff.** The builder navigates to `/app/?file={encodeURIComponent(absOutPath)}`; the editor boot reads the value with `URLSearchParams.get()` (one decode) and reuses `openFile`. A second `decodeURIComponent` would corrupt literal `%` in Windows paths. | build-spec S-B10.3 / ADX-7; live `builder-main.js`, `main.js`. |
+| D25 | **ADX-13 unfilled-token console-error semantics.** Reproduction check 5 excludes resource-load errors caused by unfilled `{{TOKEN}}`s in URL attributes; those errors are the expected signature of an unfilled reproduction and are already asserted by the token report. Script/runtime console errors remain fatal. | convention-spec ADX-13. |
+| D26 | **Builder sends selected `lang` unconditionally to fix metadata.** The assemble payload always includes the builder's chosen document language so the engine records the resolved `lang` in the as-built entry and applies the correct document chrome. | build-spec S-B10.2 / S-A12; live `builder-main.js` `body.lang = lang`. |

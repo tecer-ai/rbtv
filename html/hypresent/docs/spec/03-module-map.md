@@ -12,7 +12,8 @@ Convention: parent-side modules run in the app shell; iframe-side modules run in
 hypresent/
 ├─ server/
 │  ├─ server.py              # stdlib http.server: static app + /doc/ + JSON API + `/api/dialog-open`, `/api/dialog-save-as`, `/api/save` routes (+ test-only `/api/_test/set-dialog`)
-│  └─ api.py                 # request handlers: open, save-as, (optional) pick + dialog handlers, open-path tracking, injectable dialog launcher
+│  ├─ api.py                 # request handlers: open, save-as, (optional) pick + dialog handlers, open-path tracking, injectable dialog launcher
+│  └─ builder_api.py         # builder endpoints: folder dialog, library load/asset/assemble passthrough to the library's vendored engine
 ├─ app/                      # the editor app shell (parent page), served at /app/
 │  ├─ index.html             # parent page: toolbar, panels, iframe mount
 │  ├─ css/
@@ -29,6 +30,14 @@ hypresent/
 │     ├─ bridge/
 │     │  └─ bridge-parent.js  # parent side of parent↔iframe protocol (cmd + events)
 │     ├─ api-client.js        # fetch wrappers for /api/open, /api/save-as
+│     ├─ builder/             # prez-builder page modules
+│     │  ├─ builder-main.js   # builder shell bootstrap and UI wiring
+│     │  ├─ library-load.js   # folder picker + library catalog load
+│     │  ├─ browse-pane.js    # section-grouped browse pane + language filter
+│     │  ├─ previews.js       # IntersectionObserver-gated srcdoc slide previews
+│     │  ├─ tray.js           # compose tray model and render
+│     │  ├─ tray-sorter.js    # hand-rolled pointer-events drag reorder
+│     │  └─ assemble.js       # destination pick + assemble API wrapper
 │     └─ vendor/              # copied OSS, no build step, native ES modules
 │        ├─ moveable.min.js
 │        ├─ coloris.min.js
@@ -71,6 +80,11 @@ hypresent/
 - **Outputs:** `open` → `{html, dir, name}` (200) or `{error}` (404/500); `save-as` → `{ok, path}` (200) or `{error}` (500). Sets the server's `/doc/` base to the opened file's dir.
 - **Contract:** path is validated as an existing readable file (open) / writable target (save-as); never executes file content; rejects directory traversal outside an allowed root if one is configured.
 
+### server/builder_api.py — builder endpoints + folder dialog + engine passthrough
+- **Purpose:** handlers for the builder page: native folder dialog, library load via engine `--catalog-data`, library-asset read, and assemble via engine `--slides`. All responses are passthroughs of the engine's JSON envelope; the server never parses manifests.
+- **Inputs:** `POST /api/dialog-folder`; `POST /api/library-load {path}`; `POST /api/library-asset {path, name}`; `POST /api/assemble {path, slides, out, lang?, title?, accent?, client_logo?}`.
+- **Outputs:** folder path or cancellation; engine envelope for load/assemble; UTF-8 asset content; 4xx/500 JSON errors on traversal or spawn failure.
+
 ---
 
 ## 3. App-Shell Modules (parent page)
@@ -112,6 +126,34 @@ hypresent/
 ### app/js/api-client.js — server API wrappers
 - **Purpose:** typed fetch wrappers.
 - **In/Out:** `open(path) → {html,dir,name}`; `saveAs(path, html) → {ok,path}`; throws on non-2xx with server `{error}`.
+
+### app/js/builder/builder-main.js — builder page bootstrap
+- **Purpose:** wire the builder shell: library pick/load, language filter, preset selector, destination pick, assemble button, and editor handoff.
+- **In/Out:** DOM ready → live builder session; posts `/api/assemble` and navigates to `/app/?file=...` on success.
+
+### app/js/builder/library-load.js — folder picker + library catalog load
+- **Purpose:** open the native folder dialog and fetch `/api/library-load`; return the engine catalog envelope or invalid-library errors.
+- **In/Out:** `pickAndLoadLibrary()` → `{ok,path,data,warnings}` or `null`; `loadLibraryByPath(path)`.
+
+### app/js/builder/browse-pane.js — section-grouped slide browser
+- **Purpose:** render slide cards grouped by `catalog_data.sections`, populate the language filter, and emit tag clicks to the tray.
+- **In/Out:** `renderBrowse(catalogData, {onTag, libraryPath})`; `applyLangFilter(selectedLang)`.
+
+### app/js/builder/previews.js — IntersectionObserver-gated srcdoc previews
+- **Purpose:** mount per-slide `srcdoc` iframes only when near the viewport, keep a theme cache, and evict LRU/non-intersecting previews under a cap that transiently raises when all mounted iframes are in view.
+- **In/Out:** `mountPreviews(libraryPath, container)`.
+
+### app/js/builder/tray.js — compose tray model + render
+- **Purpose:** maintain the ordered list of tagged slides, render tray rows, sync with drag reorder, and expose the final id order.
+- **In/Out:** `createTray({listEl, onChange})` → `{add, remove, setFromPreset, getOrder, ...}`.
+
+### app/js/builder/tray-sorter.js — hand-rolled pointer-events reorder
+- **Purpose:** drag-to-reorder the tray using `pointerdown`/`pointermove`/`pointerup` inside `requestAnimationFrame`; computes insertion index from row rects; Escape restores pre-drag order.
+- **In/Out:** `attachSorter(listEl, {onReorder})`.
+
+### app/js/builder/assemble.js — destination picker + assemble API wrappers
+- **Purpose:** drive the destination folder dialog and call `/api/assemble`; build the output path from folder + filename.
+- **In/Out:** `pickDestination()` → path or `null`; `assembleDeck({libraryPath, slides, outPath, ...})` → engine envelope; `buildOutPath(folder, filename)`.
 
 ---
 
