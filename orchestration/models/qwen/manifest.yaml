@@ -1,0 +1,83 @@
+# Qwen capability manifest — the routing card's data interface for the qwen package.
+# Schema + field meanings + routing-card consumers: ../manifest-schema.md
+# Source: 1-projects/rbtv-evolution/orchestration/qwen/qwen-cli-reference.md (the p3-8 findings report;
+#         Qwen Code CLI 0.17.1 verified locally on Windows 11, 2026-06-07 — flags/subcommands/exit-codes
+#         from the installed `qwen --help`, captures under .../qwen/captures/). §15 of that report is the
+#         field-by-field answer table this manifest fills.
+# Evidence boundary: the CLI install + headless contract + flag-parsing + exit-1 auth-gate are locally
+#         verified; a full authenticated model turn (exit-0, JSON output shape, swarm depth) was NOT
+#         exercised (auth-gated — free OAuth tier discontinued 2026-04-15). Those legs ship probe-pending
+#         and graduate at p5-2 after the USER-EXECUTED-ONLY auth step (report §13).
+# The exact invocation shape (commands, flags, approval grammar, exit codes, resume) is in ./manual.md
+# (rendered from ./delta.md by ../render-manuals.py) — this manifest points to it, never duplicates it.
+
+model: qwen
+evidence_status: probe-pending   # CLI install + headless contract + flag-parsing + exit-1 auth-gate locally verified; full authenticated turn (exit-0, JSON shape, swarm depth) NOT exercised (auth-gated) — graduates at p5-2 per report §13
+
+variants:
+  - variant: default   # API-key headless profile (the recommended unattended path); model from the configured provider/plan, overridable with -m
+
+    # --- boundedness + sizing (routing §2, §8) ---
+    reasoning_tier: mid             # capable coder model (Qwen3-Coder family) but NOT pilot-validated as a top-tier judgment worker — treat as partially-bounded with doubt_policy: halt (report §15)
+    context_window: 131072          # PROVIDER/CONFIG-DEPENDENT — 131072 (128K, local-setup docs example) up to 262144 (256K, Qwen3.5 native); confirm the configured provider's value before sizing, do NOT assume (report §10/§15)
+    max_output: 65536               # PROVIDER-DEPENDENT, no CLI flag — no fixed value discoverable (report §15: DATA NOT FOUND); conservative default for sizing, mirrors the kimi design budget; size large-output tasks conservatively and split if a turn would exceed the provider's completion limit
+
+    # --- budget + capability gates (routing §2, §6) ---
+    cost_class: low                 # low/mid with BYO API key (DashScope qwen3-coder is inexpensive; depends on provider/model) — FREE TIER DISCONTINUED 2026-04-15, no `cheapest` free path (report §15)
+    code_competence: strong         # purpose-built coding agent — shell/file/edit tools + built-in PR-review (report §15)
+    web_access: false               # no guaranteed native web-search tool — tool/MCP-dependent; provision via MCP if a research leaf needs web, else treat as false for the default (report §15)
+    # multimodal omitted — not established for the CLI worker path; treat text-only unless the configured model+provider expose image input (report §15: DATA NOT FOUND → omit)
+
+    # --- parallelism + resume (routing §8, §4) ---
+    parallel_safe: true             # --worktree gives native per-session git-worktree isolation (<repoRoot>/.qwen/worktrees/<slug>/); concurrent instances under disjoint dirs supported (report §7/§15)
+    resume_support: continue        # --continue (most recent for the project), --resume <id> (specific), --session-id (set), --fork-session; ALL require chat recording on (default) (report §15)
+
+    # --- non-interactive run (routing §4 → dispatch-wrapper) ---
+    headless:
+      flags: "<positional-prompt> --output-format json --approval-mode <auto|auto-edit|yolo>"   # positional prompt canonical on 0.17.1 (-p deprecated-but-functional); headless = prompt non-interactively WITHOUT -i (report §2/§5/§15)
+      auto_approves_tools: true     # true under --yolo/--approval-mode yolo (probe-confirmed host-privilege warning, no sandbox); graded via --approval-mode auto/auto-edit (report §2/§15)
+      prompt_transport: either      # positional arg OR stdin pipe — a positional/-p prompt is appended to stdin content (report §5/§15)
+
+    # --- auth pre-flight (routing §1 → halt-recovery USER-EXECUTED-ONLY) ---
+    auth:
+      required: true                # unauthenticated `qwen -p` exits 1 "No auth type is selected" — verified locally (report §8/§15)
+      method: api-key               # recommended: openai/anthropic/gemini env+keys; cli-login (qwen-oauth) free tier discontinued 2026-04-15
+      interactive: true             # first-time auth (OAuth browser flow, or obtaining+placing a paid-provider API key) is USER-EXECUTED-ONLY — orchestrator cannot self-provision (report §8/§13/§15)
+
+    rate_budget_notes: "NO retryable-throttle exit code (unlike kimi 75) — set QWEN_CODE_UNATTENDED_RETRY=1 for in-process 429/529 backoff (cap 5 min, 30s stderr heartbeat); bound with --max-wall-time → exit 55. Budget overruns: --max-session-turns → exit 53; --max-wall-time/--max-tool-calls → exit 55 (both re-scope, not transient). exit 1 = non-retryable (auth/config/usage) → halt + surface. Free OAuth tier discontinued 2026-04-15 — paid provider or paid-plan login required."
+
+    # --- tool surface + confinement (routing §2, §4, §8) ---
+    tool_surface:
+      native: [shell, file, edit, agent]   # shell/file/edit + the `agent` tool (subagent dispatch); built-in PR-review; extensions add more (report §12/§15)
+      mcp: true                     # qwen mcp add/list/reconnect, --mcp-config <json|file>, --allowed-mcp-server-names (report §9/§15)
+      agent_file: true              # --system-prompt/--append-system-prompt per-run; tool restriction via --allowed-tools/--exclude-tools/--core-tools; guidance via QWEN.md/AGENTS.md (report §15)
+    confinement:
+      workspace_scope: "CWD root + --include-directories/--add-dir (additive; NO single --work-dir flag); --worktree for isolation"   # report §7/§15
+      tool_restriction: "--exclude-tools / --allowed-tools / --core-tools; --approval-mode graded gate; --sandbox container (backend-unverified on Windows)"   # report §7/§15
+      write_enforcement: git-diff-vs-allowlist   # headless --yolo auto-approves all at host privilege, no sandbox — post-run git diff of every changed path vs the task allowlist is the reliable check; --sandbox only if a container backend is confirmed (report §7/§15)
+
+    # --- invocation + failures (routing §4, §2) ---
+    invocation_pointer: ./manual.md   # rendered dispatch manual (../render-manuals.py) — the exact command shape
+    failure_modes:
+      - "headless --yolo/--approval-mode yolo auto-approves ALL tool calls at host privilege — NO sandbox unless --sandbox (container backend unverified on Windows); enforce scope externally + post-run diff"
+      - "unauthenticated run exits 1 (No auth type is selected) — auth is USER-EXECUTED-ONLY; free OAuth tier discontinued 2026-04-15"
+      - "NO retryable-throttle exit code — use QWEN_CODE_UNATTENDED_RETRY=1 for in-process 429/529 backoff; bound with --max-wall-time"
+      - "budget overrun → exit 53 (--max-session-turns) or 55 (--max-wall-time/--max-tool-calls) — re-scope or raise caps, NOT a transient retry"
+      - "--approval-mode default STALLS a headless run waiting for approval — always set auto/auto-edit/yolo non-interactively"
+      - "--continue/--resume/--session-id/--fork-session need chat recording ON (default) — do NOT pass --chat-recording false on a resumable dispatch"
+      - "cd does not persist between shell calls — pass the workspace via CWD + --add-dir, never rely on cd chaining"
+      - "final-message/JSON-output shape is docs-sourced, not pilot-verified (auth-gated) — reconcile from disk; prefer --json-file/--json-schema for a durable structured return"
+
+    # --- guidance file (routing §4 pre-dispatch check) ---
+    guidance_file:
+      convention: QWEN.md           # Qwen natively loads QWEN.md (project + ~/.qwen/QWEN.md, hierarchical, @import syntax); AGENTS.md supported via the context.fileName setting (report §11/§15)
+      mirror_entry: qwen-mirror      # resolves to: python orchestration/models/mirror/mirror.py --config orchestration/models/qwen/mirror-config.yaml --target <workspace>
+
+    # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
+    swarm_support:
+      subagents: true               # `agent` tool — the worker can dispatch its own sub-tasks (--max-tool-calls docs: "agent tool dispatch = 1; inner calls exempt") (report §12/§15)
+      nesting: one-level            # treat as one-level (sub-tasks do not recurse) pending live confirmation — matches kimi + D7 depth cap ≤2; depth NOT pilot-verified (auth-gated) → probe-pending fact
+      default: disabled             # safe default posture for bounded dispatches; enable ONLY for independent slices with disjoint allowlists (report §12)
+
+    os_quirks:
+      windows: "positional prompt AND stdin pipe both work (Get-Content file | qwen \"...\"); config root %USERPROFILE%\\.qwen\\ (settings.json absent until configured); --sandbox needs Docker/Podman (unverified here); exit codes 0/1/53/55/130 propagate to $LASTEXITCODE (verified for exit 1 auth gate)"   # report §14/§15

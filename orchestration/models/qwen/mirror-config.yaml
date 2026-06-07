@@ -1,0 +1,16 @@
+# Qwen mirror-config — the per-model config mirror.py reads to generate qwen's
+# per-workspace guidance file. Qwen natively loads QWEN.md at the workspace root
+# (hierarchical: project + ~/.qwen/QWEN.md); this mirrors the workspace's CLAUDE.md
+# body into it so the qwen worker sees the same instructions the Claude conductor does.
+# QWEN.md is a worker-specific filename that does NOT collide with the user's CLAUDE.md,
+# so a banner-stamped generated copy is safe (the kimi/codex AGENTS.md posture — UNLIKE
+# claude-cli, which is N/A-because-native). AGENTS.md is also supported via the qwen
+# context.fileName setting, but QWEN.md is the default and the safe mirror target.
+# Config schema: ../mirror/mirror-config.md
+# Run: python orchestration/models/mirror/mirror.py --config orchestration/models/qwen/mirror-config.yaml --target <workspace>
+# (the manifest's guidance_file.mirror_entry: qwen-mirror resolves to exactly this).
+
+model: qwen                       # package id — matches models/qwen/ and the manifest's `model`
+guidance_filename: QWEN.md        # the guidance file qwen natively loads at the target root (manifest guidance_file.convention)
+source: CLAUDE.md                 # workspace-relative source whose body is mirrored into QWEN.md
+banner_label: the Qwen Code CLI worker  # interpolated into the DO-NOT-EDIT banner
