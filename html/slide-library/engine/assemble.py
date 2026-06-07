@@ -1,0 +1,901 @@
+#!/usr/bin/env python3
+"""RBTV slide-library engine — assembles single-file HTML decks."""
+
+import argparse
+import html
+import json
+import os
+import re
+import shutil
+import sys
+from datetime import datetime
+from pathlib import Path
+
+# ── Constants ──
+ENGINE_VERSION = "1.0"
+SUPPORTED_CONVENTION_MAJOR = 1
+ENGINE_TARGET_MINOR = 0
+MANIFEST_COLUMNS = [
+    "id", "file", "section", "title", "audience",
+    "lang", "kind", "summary", "assets", "provenance",
+]
+
+TOKEN_RE = re.compile(r"\{\{[^}]+\}\}")
+SLIDE_NUMBER_RE = re.compile(r'(<div class="slide-number">)\{\{N\}\}(</div>)')
+
+LIBRARY = Path(__file__).resolve().parent
+
+JSON_MODE = False
+
+
+class EngineDie(Exception):
+    pass
+
+
+def die(message):
+    if JSON_MODE:
+        raise EngineDie(message)
+    print("ERROR: " + message, file=sys.stderr)
+    sys.exit(1)
+
+
+def warn(message):
+    print("WARNING: " + message, file=sys.stderr)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Parsing
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _split_row(line):
+    cells = line.strip().split("|")
+    if cells and cells[0].strip() == "":
+        cells = cells[1:]
+    if cells and cells[-1].strip() == "":
+        cells = cells[:-1]
+    return [c.strip() for c in cells]
+
+
+def renumber_slides(body):
+    counter = {"n": 0}
+    def repl(match):
+        counter["n"] += 1
+        return f"{match.group(1)}{counter['n']}{match.group(2)}"
+    return SLIDE_NUMBER_RE.sub(repl, body)
+
+
+def _find_section_rows(lines, heading):
+    """Return list of (line_num, raw_line) for |rows under heading until next ## heading."""
+    in_section = False
+    rows = []
+    for line_num, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            if stripped == heading:
+                in_section = True
+            else:
+                if in_section:
+                    break
+            continue
+        if in_section and "|" in line:
+            rows.append((line_num, line))
+    return rows
+
+
+def parse_manifest(md_path):
+    text = md_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    slide_rows = _find_section_rows(lines, "## Slides")
+    if not slide_rows:
+        die("## Slides section has no table rows")
+    header_cells = _split_row(slide_rows[0][1])
+    if header_cells != MANIFEST_COLUMNS:
+        die(f"Manifest header mismatch at line {slide_rows[0][0]}")
+    data = []
+    for line_num, line in slide_rows[2:]:
+        cells = _split_row(line)
+        data.append({"line_num": line_num, "cells": cells})
+    return data
+
+
+def parse_assets_table(md_path):
+    text = md_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    asset_rows = _find_section_rows(lines, "## Assets")
+    files = set()
+    if len(asset_rows) >= 3:
+        for line_num, line in asset_rows[2:]:
+            cells = _split_row(line)
+            if cells:
+                files.add(cells[0].strip('`'))
+    return files
+
+
+def parse_presets(md_path):
+    text = md_path.read_text(encoding="utf-8")
+    blocks = re.findall(r"```ya?ml\s*\n(.*?)```", text, re.DOTALL)
+    presets = []
+    for block in blocks:
+        p = parse_yaml_subset(block)
+        if "preset" in p:
+            presets.append(p)
+    return presets
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# library-YAML subset
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def parse_yaml_subset(text):
+    """Fresh parser for the library-YAML subset grammar."""
+    result = {}
+    lines = text.splitlines()
+    i = 0
+    n = len(lines)
+    current_block_key = None
+
+    while i < n:
+        raw_line = lines[i]
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            i += 1
+            continue
+
+        m = re.match(r"^(\s*)-\s(.*)$", raw_line)
+        if m and current_block_key is not None:
+            rest = m.group(2).rstrip()
+            result[current_block_key].append(rest)
+            i += 1
+            continue
+
+        if ":" in stripped:
+            colon_idx = stripped.index(":")
+            key = stripped[:colon_idx].strip()
+            after = stripped[colon_idx + 1:].strip()
+
+            if not after:
+                result[key] = []
+                current_block_key = key
+            elif after.startswith("["):
+                flow_text = after
+                while i < n and "]" not in flow_text:
+                    i += 1
+                    if i < n:
+                        next_raw = lines[i]
+                        if next_raw.strip().startswith("#"):
+                            continue
+                        flow_text += " " + next_raw.strip()
+                if "]" not in flow_text:
+                    raise ValueError(f"Unterminated flow list for key {key}")
+                inner = flow_text[1:flow_text.index("]")]
+                elems = []
+                for elem in inner.split(","):
+                    elem = elem.strip()
+                    if elem:
+                        if ":" in elem:
+                            raise ValueError(f"Flow list element contains ':': {elem}")
+                        elems.append(elem)
+                result[key] = elems
+                current_block_key = None
+            elif after.startswith('"') and after.endswith('"') and len(after) >= 2:
+                result[key] = after[1:-1]
+                current_block_key = None
+            else:
+                result[key] = after
+                current_block_key = None
+            i += 1
+            continue
+
+        i += 1
+
+    return result
+
+
+def write_yaml_subset(entry):
+    """Writer for the library-YAML subset."""
+    lines = []
+    for key, value in entry.items():
+        if key == "deviations":
+            if not value:
+                lines.append("deviations: -")
+            else:
+                lines.append("deviations:")
+                for item in value:
+                    lines.append(f"  - {item}")
+        elif isinstance(value, list):
+            if not value:
+                lines.append(f"{key}: []")
+            else:
+                flow = ", ".join(str(v) for v in value)
+                lines.append(f"{key}: [{flow}]")
+        elif isinstance(value, bool):
+            lines.append(f"{key}: {str(value).lower()}")
+        elif key == "engine_version":
+            lines.append(f'{key}: "{value}"')
+        else:
+            s = str(value)
+            # Quote scalars that are not simple unquoted YAML tokens
+            if not re.match(r'^[A-Za-z0-9_.\-/]+$', s) or s.startswith("#"):
+                lines.append(f'{key}: "{s}"')
+            else:
+                lines.append(f"{key}: {s}")
+    return "\n".join(lines)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Validation
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def validate_library(library_data, manifest_rows, assets_table_files, base_html,
+                     check_assets=False, client_logo=None, requested_slide_ids=None):
+    errors = []
+    warnings = []
+
+    # Version checks
+    conv_ver = library_data.get("convention_version", "")
+    try:
+        parts = conv_ver.split(".")
+        conv_major = int(parts[0])
+        conv_minor = int(parts[1]) if len(parts) > 1 else 0
+    except (ValueError, IndexError):
+        errors.append(f"Invalid convention_version: {conv_ver}")
+        conv_major = None
+        conv_minor = None
+
+    if conv_major is not None:
+        if conv_major != SUPPORTED_CONVENTION_MAJOR:
+            errors.append(
+                f"Unsupported convention major version: {conv_major}"
+            )
+        elif conv_minor != ENGINE_TARGET_MINOR:
+            warnings.append(
+                f"Convention minor version differs: {conv_minor} "
+                f"(target: {ENGINE_TARGET_MINOR})"
+            )
+
+    lib_engine_ver = library_data.get("engine_version", "")
+    if lib_engine_ver != ENGINE_VERSION:
+        warnings.append(
+            f"Engine version mismatch: library has {lib_engine_ver}, "
+            f"engine is {ENGINE_VERSION}"
+        )
+
+    sections = library_data.get("sections", [])
+    extra_asset_root = library_data.get("extra_asset_root")
+
+    # base.html markers
+    for marker in (
+        "{{LANG}}", "{{TITLE}}", "/* {{ACCENT_CSS}} */",
+        "/* {{THEME_CSS}} */", "<!-- {{SLIDES}} -->",
+    ):
+        if marker not in base_html:
+            errors.append(f"base.html is missing the marker: {marker}")
+
+    seen_ids = set()
+    manifest_asset_names = set()
+
+    for row in manifest_rows:
+        line_num = row["line_num"]
+        cells = row["cells"]
+
+        if len(cells) != 10:
+            id_hint = cells[0] if cells else f"line {line_num}"
+            errors.append(
+                f"Row {id_hint}: expected 10 columns, got {len(cells)}"
+            )
+            continue
+
+        id_, file_, section, title, audience, lang, kind, summary, assets, provenance = cells
+
+        # Empty required cells
+        required = {
+            "id": id_, "file": file_, "section": section,
+            "title": title, "lang": lang, "kind": kind, "summary": summary,
+        }
+        for field, val in required.items():
+            if not val:
+                errors.append(f"Row {id_}: empty required cell '{field}'")
+
+        # Duplicate id
+        if id_:
+            if id_ in seen_ids:
+                errors.append(f"Duplicate id: {id_}")
+            seen_ids.add(id_)
+
+        # Kind enum
+        if kind and kind not in ("ready", "template"):
+            errors.append(f"Row {id_}: invalid kind '{kind}'")
+
+        # Lang format
+        if lang and (not lang.islower() or not re.fullmatch(r"[a-z]{2}", lang)):
+            errors.append(f"Row {id_}: invalid lang '{lang}'")
+
+        # Section
+        if section and section not in sections:
+            errors.append(f"Row {id_}: unknown section '{section}'")
+
+        # Fragment purity
+        if file_:
+            frag_path = LIBRARY / file_
+            if frag_path.exists():
+                text = frag_path.read_text(encoding="utf-8")
+                for tag in ("<head", "<style", "<script", "<html", "<body"):
+                    if tag in text:
+                        errors.append(
+                            f"Row {id_}: fragment contains forbidden tag '{tag}'"
+                        )
+            else:
+                errors.append(
+                    f"Row {id_}: fragment file not found: {file_}"
+                )
+
+        # Collect asset names for table completeness
+        if assets and assets != "-":
+            for a in assets.split(","):
+                a = a.strip()
+                if a and a != "{client-logo}":
+                    if a.startswith("@root/"):
+                        manifest_asset_names.add(a[6:].split("/")[-1])
+                    else:
+                        manifest_asset_names.add(a)
+
+        # Per-composition asset checks
+        if check_assets and assets and assets != "-":
+            if requested_slide_ids is None or id_ in requested_slide_ids:
+                for a in assets.split(","):
+                    a = a.strip()
+                    if not a or a == "-":
+                        continue
+                    if a == "{client-logo}":
+                        if client_logo is None:
+                            errors.append(
+                                f"Row {id_}: {{client-logo}} requested but "
+                                f"--client-logo not provided"
+                            )
+                        continue
+                    if a.startswith("@root/"):
+                        if extra_asset_root is None:
+                            errors.append(
+                                f"Row {id_}: @root/ asset but extra_asset_root is null"
+                            )
+                        else:
+                            src = LIBRARY / extra_asset_root / a[6:]
+                            if not src.exists():
+                                errors.append(f"Row {id_}: asset not found: {a}")
+                    else:
+                        src = LIBRARY / "assets" / a
+                        if not src.exists():
+                            errors.append(f"Row {id_}: asset not found: {a}")
+
+    # Assets-table completeness
+    missing_from_table = manifest_asset_names - assets_table_files
+    for m in sorted(missing_from_table):
+        warnings.append(
+            f"Asset '{m}' listed in manifest but not in Assets table"
+        )
+
+    return errors, warnings
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Assembly
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def assemble_deck(manifest_rows, slide_ids, lang, title, accent, theme_css,
+                  base_html, client_logo=None, extra_asset_root=None):
+    by_id = {}
+    for row in manifest_rows:
+        cells = row["cells"]
+        if len(cells) == 10:
+            by_id[cells[0]] = cells
+
+    fragments = []
+    asset_plan = {}  # leaf_name -> source Path
+
+    for sid in slide_ids:
+        if sid not in by_id:
+            die(f"Slide id not found in manifest: {sid}")
+        row = by_id[sid]
+        id_, file_, section, title_, audience, lang_, kind, summary, assets, provenance = row
+
+        frag_path = LIBRARY / file_
+        if not frag_path.exists():
+            die(f"Fragment file not found: {file_}")
+        text = frag_path.read_text(encoding="utf-8")
+        fragments.append(text)
+
+        if assets and assets != "-":
+            for a in assets.split(","):
+                a = a.strip()
+                if not a or a == "-":
+                    continue
+                src = None
+                if a == "{client-logo}":
+                    if client_logo is None:
+                        die("{client-logo} requested but --client-logo not provided")
+                    src = Path(client_logo)
+                elif a.startswith("@root/"):
+                    if extra_asset_root is None:
+                        die("@root/ asset requested but extra_asset_root is null")
+                    src = LIBRARY / extra_asset_root / a[6:]
+                else:
+                    src = LIBRARY / "assets" / a
+
+                if src is not None:
+                    if not src.exists():
+                        die(f"Asset not found: {a}")
+                    asset_plan[src.name] = src
+
+    slides_html = "\n".join(fragments)
+    slides_html = renumber_slides(slides_html)
+
+    doc = base_html
+    for marker in (
+        "{{LANG}}", "{{TITLE}}", "/* {{ACCENT_CSS}} */",
+        "/* {{THEME_CSS}} */", "<!-- {{SLIDES}} -->",
+    ):
+        if marker not in doc:
+            die(f"base.html is missing the marker: {marker}")
+
+    doc = doc.replace("{{LANG}}", lang)
+    doc = doc.replace("{{TITLE}}", html.escape(title))
+    if accent:
+        accent_css = f":root {{ --client-accent: {accent}; }}"
+        doc = doc.replace("/* {{ACCENT_CSS}} */", accent_css)
+    else:
+        doc = re.sub(
+            r"^[ \t]*/\* \{\{ACCENT_CSS\}\} \*/[ \t]*\n",
+            "",
+            doc,
+            count=1,
+            flags=re.MULTILINE,
+        )
+    doc = doc.replace("/* {{THEME_CSS}} */", theme_css)
+    doc = doc.replace("<!-- {{SLIDES}} -->", slides_html)
+
+    return doc, asset_plan
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# As-built writer
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def build_as_built_entry(out_path, slide_ids, lang, title, accent,
+                         client_logo, preset_name, preset_slide_ids):
+    now = datetime.now()
+    entry = {
+        "date": now.strftime("%Y-%m-%d"),
+        "timestamp": now.isoformat(timespec="seconds"),
+        "output": os.path.relpath(str(out_path), str(LIBRARY)).replace("\\", "/"),
+        "slides": slide_ids,
+        "lang": lang,
+        "title": title if title else "-",
+        "accent": accent if accent else "-",
+        "client_logo": Path(client_logo).name if client_logo else "-",
+        "engine_version": ENGINE_VERSION,
+        "preset": preset_name if preset_name else "-",
+    }
+
+    if preset_slide_ids is not None:
+        if set(slide_ids) == set(preset_slide_ids) and slide_ids != preset_slide_ids:
+            entry["order"] = True
+
+    if preset_slide_ids is not None:
+        preset_set = set(preset_slide_ids)
+        assembled_set = set(slide_ids)
+        deviations = []
+        for sid in sorted(preset_set - assembled_set):
+            deviations.append(f"removed: {sid}")
+        for sid in sorted(assembled_set - preset_set):
+            deviations.append(f"added: {sid}")
+        entry["deviations"] = deviations
+    else:
+        entry["deviations"] = []
+
+    return entry
+
+
+def append_as_built(entry):
+    as_built_path = LIBRARY / "as-built.md"
+    if not as_built_path.exists():
+        die("as-built.md not found")
+
+    text = as_built_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    insert_idx = len(lines)
+    for i, line in enumerate(lines):
+        if line.strip() == "## As-built log":
+            insert_idx = i + 1
+            break
+
+    slug = Path(entry["output"]).stem
+    heading = f"### {entry['date']}-{slug}"
+    yaml_block = write_yaml_subset(entry)
+
+    new_lines = [
+        "",
+        "---",
+        "",
+        heading,
+        "",
+        "```yaml",
+        yaml_block,
+        "```",
+    ]
+
+    lines = lines[:insert_idx] + new_lines + lines[insert_idx:]
+    as_built_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Catalog
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def generate_catalog(manifest_rows, library_data, base_html, theme_css):
+    sections = library_data.get("sections", [])
+    default_lang = library_data.get("default_lang", "en")
+
+    by_id = {}
+    for row in manifest_rows:
+        cells = row["cells"]
+        if len(cells) == 10:
+            by_id[cells[0]] = cells
+
+    section_map = {s: [] for s in sections}
+    for row in manifest_rows:
+        cells = row["cells"]
+        if len(cells) == 10:
+            sec = cells[2]
+            if sec in section_map:
+                section_map[sec].append(cells)
+
+    fragments = []
+    for sec in sections:
+        for cells in section_map[sec]:
+            id_, file_, section, title, audience, lang, kind, summary, assets, provenance = cells
+            label = f"{id_} · {kind} · {audience} · {lang} · {summary}"
+            frag_path = LIBRARY / file_
+            if frag_path.exists():
+                text = frag_path.read_text(encoding="utf-8")
+                fragments.append(f"<!-- {label} -->")
+                fragments.append(text)
+
+    slides_html = "\n".join(fragments)
+    slides_html = renumber_slides(slides_html)
+
+    doc = base_html
+    for marker in (
+        "{{LANG}}", "{{TITLE}}", "/* {{ACCENT_CSS}} */",
+        "/* {{THEME_CSS}} */", "<!-- {{SLIDES}} -->",
+    ):
+        if marker not in doc:
+            die(f"base.html is missing the marker: {marker}")
+
+    doc = doc.replace("{{LANG}}", default_lang)
+    doc = doc.replace("{{TITLE}}", html.escape(library_data.get("name", "Catalog")))
+    doc = re.sub(
+        r"^[ \t]*/\* \{\{ACCENT_CSS\}\} \*/[ \t]*\n",
+        "",
+        doc,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    doc = doc.replace("/* {{THEME_CSS}} */", theme_css)
+    doc = doc.replace("<!-- {{SLIDES}} -->", slides_html)
+
+    return doc
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CLI
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def main():
+    global JSON_MODE
+    parser = argparse.ArgumentParser(description="RBTV slide-library engine")
+    parser.add_argument("--preset", type=str)
+    parser.add_argument("--slides", type=str)
+    parser.add_argument("--check", type=str, metavar="FILE")
+    parser.add_argument("--catalog", action="store_true")
+    parser.add_argument("--catalog-data", action="store_true")
+    parser.add_argument("--out", type=str)
+    parser.add_argument("--lang", type=str)
+    parser.add_argument("--title", type=str)
+    parser.add_argument("--accent", type=str)
+    parser.add_argument("--client-logo", type=str)
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--no-log", action="store_true")
+    parser.allow_abbrev = False
+    args = parser.parse_args()
+
+    JSON_MODE = args.json
+
+    modes = [
+        ("preset", args.preset),
+        ("slides", args.slides),
+        ("check", args.check),
+        ("catalog", args.catalog),
+        ("catalog-data", args.catalog_data),
+    ]
+    active_modes = [(n, v) for n, v in modes if v is not None and v is not False]
+
+    if len(active_modes) != 1:
+        die(
+            "Exactly one mode required: --preset, --slides, "
+            "--check, --catalog, --catalog-data"
+        )
+
+    mode_name, mode_val = active_modes[0]
+
+    if mode_name in ("preset", "slides") and not args.out:
+        die("--out is required for --preset and --slides")
+
+    envelope_mode = mode_name
+    if mode_name in ("preset", "slides"):
+        envelope_mode = "assemble"
+    envelope = {
+        "ok": True,
+        "mode": envelope_mode,
+        "errors": [],
+        "warnings": [],
+        "unfilled_tokens": [],
+        "output": None,
+        "assets_copied": [],
+        "as_built_entry": None,
+        "catalog_data": None,
+    }
+
+    try:
+        # Hard-fault loads
+        library_json_path = LIBRARY / "library.json"
+        if not library_json_path.exists():
+            die("library.json not found")
+        try:
+            with open(library_json_path, "r", encoding="utf-8") as f:
+                library_data = json.load(f)
+        except json.JSONDecodeError as e:
+            die(f"Invalid library.json: {e}")
+
+        manifest_path = LIBRARY / "manifest.md"
+        if not manifest_path.exists():
+            die("manifest.md not found")
+
+        base_html_path = LIBRARY / "base.html"
+        if not base_html_path.exists():
+            die("base.html not found")
+        base_html = base_html_path.read_text(encoding="utf-8")
+
+        theme_css_path = LIBRARY / "theme.css"
+        if not theme_css_path.exists():
+            die("theme.css not found")
+        theme_css = theme_css_path.read_text(encoding="utf-8")
+
+        manifest_rows = parse_manifest(manifest_path)
+        assets_table_files = parse_assets_table(manifest_path)
+        presets = (
+            parse_presets(LIBRARY / "presets.md")
+            if (LIBRARY / "presets.md").exists()
+            else []
+        )
+
+        if mode_name in ("check", "catalog-data"):
+            errors, warnings = validate_library(
+                library_data,
+                manifest_rows,
+                assets_table_files,
+                base_html,
+                check_assets=False,
+            )
+            envelope["warnings"] = warnings
+
+            if mode_name == "check":
+                check_path = Path(mode_val)
+                if not check_path.exists():
+                    die(f"Check file not found: {mode_val}")
+                text = check_path.read_text(encoding="utf-8")
+                tokens = sorted(set(TOKEN_RE.findall(text)))
+                envelope["unfilled_tokens"] = tokens
+                if tokens:
+                    errors.append(
+                        f"Found {len(tokens)} unfilled tokens: {', '.join(tokens)}"
+                    )
+
+            if errors:
+                envelope["ok"] = False
+                envelope["errors"] = errors
+                if args.json:
+                    print(json.dumps(envelope))
+                else:
+                    for e in errors:
+                        print("ERROR: " + e, file=sys.stderr)
+                sys.exit(1)
+
+            if mode_name == "catalog-data":
+                slides = []
+                for row in manifest_rows:
+                    cells = row["cells"]
+                    if len(cells) == 10:
+                        id_, file_, section, title, audience, lang, kind, summary, assets, provenance = cells
+                        asset_list = []
+                        if assets and assets != "-":
+                            asset_list = [
+                                a.strip() for a in assets.split(",")
+                                if a.strip()
+                            ]
+                        slides.append({
+                            "id": id_,
+                            "file": file_,
+                            "section": section,
+                            "title": title,
+                            "audience": audience if audience else "general",
+                            "lang": lang,
+                            "kind": kind,
+                            "summary": summary,
+                            "assets": asset_list,
+                            "provenance": provenance,
+                        })
+                catalog_presets = []
+                for p in presets:
+                    catalog_presets.append({
+                        "preset": p.get("preset", ""),
+                        "slides": p.get("slides", []),
+                        "lang": p.get("lang", ""),
+                        "title": p.get("title", ""),
+                        "audience": p.get("audience", ""),
+                    })
+                envelope["catalog_data"] = {
+                    "name": library_data.get("name", ""),
+                    "default_lang": library_data.get("default_lang", ""),
+                    "sections": library_data.get("sections", []),
+                    "slides": slides,
+                    "presets": catalog_presets,
+                    "extra_asset_root": library_data.get("extra_asset_root"),
+                }
+
+            if args.json:
+                print(json.dumps(envelope))
+            sys.exit(0)
+
+        # Determine requested slide ids for per-composition asset checks
+        requested_slide_ids = None
+        if mode_name == "preset":
+            preset = None
+            for p in presets:
+                if p.get("preset") == mode_val:
+                    preset = p
+                    break
+            if preset is not None:
+                requested_slide_ids = preset.get("slides", [])
+        elif mode_name == "slides":
+            requested_slide_ids = [s.strip() for s in mode_val.split(",") if s.strip()]
+
+        # Assemble and catalog modes: fail-fast validation
+        val_errors, val_warnings = validate_library(
+            library_data,
+            manifest_rows,
+            assets_table_files,
+            base_html,
+            check_assets=(mode_name in ("preset", "slides")),
+            client_logo=args.client_logo,
+            requested_slide_ids=requested_slide_ids,
+        )
+        envelope["warnings"] = val_warnings
+
+        if val_errors:
+            die(val_errors[0])
+
+        if mode_name == "catalog":
+            doc = generate_catalog(
+                manifest_rows, library_data, base_html, theme_css
+            )
+            out = LIBRARY / "catalog.html"
+            out.write_text(doc, encoding="utf-8")
+            envelope["output"] = str(out)
+            if args.json:
+                print(json.dumps(envelope))
+            sys.exit(0)
+
+        # Assemble: preset or slides
+        if mode_name == "preset":
+            preset = None
+            for p in presets:
+                if p.get("preset") == mode_val:
+                    preset = p
+                    break
+            if preset is None:
+                die(f"Preset not found: {mode_val}")
+            slide_ids = preset.get("slides", [])
+            preset_name = mode_val
+            preset_slide_ids = slide_ids[:]
+            lang = (
+                args.lang
+                if args.lang
+                else (preset.get("lang") or library_data.get("default_lang", "en"))
+            )
+            title = args.title if args.title else (preset.get("title") or "-")
+        else:  # slides
+            slide_ids = [s.strip() for s in mode_val.split(",") if s.strip()]
+            preset_name = None
+            preset_slide_ids = None
+            lang = (
+                args.lang
+                if args.lang
+                else library_data.get("default_lang", "en")
+            )
+            title = args.title if args.title else "-"
+
+        accent = args.accent if args.accent else ""
+        extra_asset_root = library_data.get("extra_asset_root")
+
+        doc, asset_plan = assemble_deck(
+            manifest_rows,
+            slide_ids,
+            lang,
+            title,
+            accent,
+            theme_css,
+            base_html,
+            client_logo=args.client_logo,
+            extra_asset_root=extra_asset_root,
+        )
+
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(doc, encoding="utf-8")
+
+        assets_copied = []
+        if asset_plan:
+            sibling_assets = out.parent / "assets"
+            sibling_assets.mkdir(parents=True, exist_ok=True)
+            for name, src in sorted(asset_plan.items()):
+                dst = sibling_assets / name
+                if src.resolve() == dst.resolve():
+                    assets_copied.append(name)
+                    continue
+                shutil.copy2(src, dst)
+                assets_copied.append(name)
+
+        entry = build_as_built_entry(
+            out,
+            slide_ids,
+            lang,
+            title,
+            accent,
+            args.client_logo,
+            preset_name,
+            preset_slide_ids,
+        )
+
+        logged = False
+        if not args.no_log:
+            append_as_built(entry)
+            logged = True
+
+        entry["logged"] = logged
+
+        envelope["ok"] = True
+        envelope["output"] = str(out)
+        envelope["assets_copied"] = assets_copied
+        envelope["as_built_entry"] = entry
+
+        tokens = sorted(set(TOKEN_RE.findall(doc)))
+        envelope["unfilled_tokens"] = tokens
+
+        if args.json:
+            print(json.dumps(envelope))
+
+        sys.exit(0)
+
+    except EngineDie as e:
+        envelope["ok"] = False
+        envelope["errors"].append(str(e))
+        if JSON_MODE:
+            print(json.dumps(envelope))
+        else:
+            print("ERROR: " + str(e), file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

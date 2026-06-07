@@ -167,7 +167,7 @@ Brazilian-Portuguese first-touch introduction. Same spine as nimbus-intro-en wit
 ```yaml
 preset: nimbus-intro-pt
 lang: pt
-slides: [cover-nimbus.pt, intro-pillars, problem-cards, how-nimbus-works, proof-metrics, closing-nimbus]
+slides: [cover-nimbus.pt, intro-pillars, problem-cards, how-nimbus-works, nimbus-divider, proof-metrics, closing-nimbus]
 ```
 ````
 

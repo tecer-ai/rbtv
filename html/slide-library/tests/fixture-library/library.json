@@ -1,0 +1,15 @@
+{
+  "convention_version": "1.0",
+  "engine_version": "1.0",
+  "name": "fixture-library",
+  "default_lang": "en",
+  "sections": [
+    "opening",
+    "intro",
+    "diagnosis",
+    "product",
+    "proof",
+    "closing"
+  ],
+  "extra_asset_root": "../shared-brand"
+}
