@@ -1,0 +1,199 @@
+/* builder.css — prez-builder shell styles. Self-contained; does NOT modify shell.css */
+
+/* Top navigation bar */
+.app-nav {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  background: #1a1a1a;
+  border-bottom: 1px solid #333;
+}
+
+.app-nav-link {
+  color: #ccc;
+  text-decoration: none;
+  padding: 0.25rem 0.5rem;
+  border-radius: 3px;
+  font-size: 0.85rem;
+}
+
+.app-nav-link:hover {
+  background: #333;
+  color: #fff;
+}
+
+/* Top bar */
+.builder-topbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem;
+  background: #1a1a1a;
+  border-bottom: 1px solid #333;
+}
+
+.builder-library-name {
+  font-weight: 600;
+  color: #eee;
+}
+
+/* Main layout: browse left, tray right */
+.builder-main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Browse pane */
+.builder-browse {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0.5rem;
+}
+
+.browse-controls {
+  margin-bottom: 0.5rem;
+}
+
+.browse-groups {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.browse-group {
+  margin-bottom: 1rem;
+}
+
+.browse-group-title {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: #ddd;
+}
+
+.slide-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(256px, 1fr));
+  gap: 0.75rem;
+}
+
+.slide-card {
+  background: #222;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 0.5rem;
+  cursor: pointer;
+}
+
+.slide-card:hover {
+  border-color: #555;
+}
+
+.slide-thumb-wrapper {
+  width: 256px;
+  height: 144px;
+  overflow: hidden;
+  position: relative;
+}
+
+.slide-thumb-wrapper iframe {
+  width: 1280px;
+  height: 720px;
+  transform: scale(0.2);
+  transform-origin: top left;
+  pointer-events: none;
+  border: 0;
+}
+
+.slide-card-label {
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  color: #bbb;
+}
+
+/* Tray pane */
+.builder-tray {
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0.5rem;
+  border-left: 1px solid #333;
+  background: #1a1a1a;
+}
+
+.tray-controls {
+  margin-bottom: 0.5rem;
+}
+
+.tray-list {
+  flex: 1;
+  overflow-y: auto;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.tray-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.25rem;
+  border-bottom: 1px solid #333;
+}
+
+.tray-row .tray-pos {
+  font-size: 0.75rem;
+  color: #888;
+  min-width: 1.5rem;
+  text-align: right;
+}
+
+.tray-row .tray-remove {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.tray-row .tray-remove:hover {
+  color: #f55;
+}
+
+.tray-drag-ghost {
+  opacity: 0.5;
+  background: #2a2a2a;
+}
+
+.tray-destination {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  padding-top: 0.5rem;
+  border-top: 1px solid #333;
+}
+
+.builder-dest-path {
+  font-size: 0.8rem;
+  color: #888;
+}
+
+/* State banners */
+.builder-empty {
+  padding: 2rem;
+  text-align: center;
+  color: #888;
+  font-style: italic;
+}
+
+.builder-invalid {
+  padding: 1rem;
+  background: #3a1a1a;
+  color: #f88;
+  border: 1px solid #633;
+  border-radius: 4px;
+}

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>hypresent — builder</title>
+  <link rel="stylesheet" href="/app/css/shell.css">
+  <link rel="stylesheet" href="/app/css/builder.css">
+</head>
+<body>
+  <nav class="app-nav">
+    <a href="/app/" class="app-nav-link" id="nav-editor">Editor</a>
+    <a href="/app/builder.html" class="app-nav-link" id="nav-builder">Builder</a>
+  </nav>
+  <div class="builder-topbar">
+    <button type="button" class="tool-btn" id="pick-library-btn">Pick library…</button>
+    <span id="library-name" class="builder-library-name"></span>
+    <span id="builder-status" class="shell-status"></span>
+  </div>
+  <div class="builder-main">
+    <section class="builder-browse" id="builder-browse">
+      <div class="browse-controls">
+        <label>Language: <select id="lang-filter"><option value="all">all</option></select></label>
+      </div>
+      <div class="browse-groups" id="browse-groups"></div>
+      <div class="builder-empty" id="browse-empty">Pick a slide library to begin.</div>
+    </section>
+    <aside class="builder-tray" id="builder-tray-pane">
+      <div class="tray-controls">
+        <label>Preset: <select id="preset-select"><option value="">(none)</option></select></label>
+      </div>
+      <ol class="tray-list" id="tray-list"></ol>
+      <div class="tray-destination">
+        <button type="button" class="tool-btn" id="pick-dest-btn">Pick destination…</button>
+        <input type="text" id="deck-filename" placeholder="deck-name" />
+        <span id="dest-path" class="builder-dest-path"></span>
+      </div>
+      <button type="button" class="tool-btn" id="assemble-btn" disabled>Assemble</button>
+    </aside>
+  </div>
+  <script type="module" src="/app/js/builder/builder-main.js"></script>
+</body>
+</html>

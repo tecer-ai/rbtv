@@ -1,6 +1,6 @@
 import Coloris from "/app/js/vendor/coloris.min.js";
 import { createBridge } from "/app/js/bridge/bridge-parent.js";
-import { openViaDialog } from "/app/js/shell/file-controls.js";
+import { openViaDialog, openFile } from "/app/js/shell/file-controls.js";
 import { createColorPopover } from "/app/js/shell/color-popover.js";
 import { openComposer } from "/app/js/shell/comment-composer.js";
 import { dialogSaveAs, save } from "/app/js/api-client.js";
@@ -397,6 +397,24 @@ document.addEventListener("DOMContentLoaded", () => {
         setStatus("Open failed: " + err.message, "error");
       }
     });
+  }
+
+  // prez-builder handoff: open a deck passed via ?file= (set by the builder page).
+  // Absent the param, the editor boot is unchanged (this branch is skipped).
+  // URLSearchParams.get() ALREADY returns the percent-decoded value — do NOT decode again
+  // (a second decodeURIComponent would throw URIError / corrupt a path bearing a literal '%').
+  const fileParam = new URLSearchParams(location.search).get("file");
+  if (fileParam) {
+    (async () => {
+      try {
+        await openFile(fileParam, iframe);
+        ensureBridge(iframe);
+        setStatus("");
+      } catch (err) {
+        console.error("Handoff open failed:", err.message);
+        setStatus("Open failed: " + err.message, "error");
+      }
+    })();
   }
 
   async function serializeDoc() {

@@ -1,0 +1,47 @@
+/* builder-lib theme.css */
+:root {
+  --bg: #0E1116;
+  --fg: #FFFFFF;
+  --client-accent: #3A7BD5;
+}
+
+@page { size: 1280px 720px; margin: 0; }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  color: var(--fg);
+  background: #222;
+}
+
+.slide {
+  position: relative;
+  width: 1280px;
+  height: 720px;
+  padding: 72px 96px;
+  background: #FFFFFF;
+  color: #11151B;
+  overflow: hidden;
+  page-break-after: always;
+}
+
+.slide--cover {
+  background: var(--bg) url('assets/cover-bg.jpg') center/cover no-repeat;
+  color: var(--fg);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.cover-title { font-size: 56px; font-weight: 900; }
+.cover-subtitle { font-size: 22px; opacity: 0.8; margin-top: 16px; }
+.cover-date { font-size: 18px; opacity: 0.6; margin-top: 24px; }
+
+.slide-number {
+  position: absolute;
+  bottom: 28px;
+  right: 32px;
+  font-size: 14px;
+  color: #5B6470;
+}

@@ -37,6 +37,11 @@ try:
 except ImportError:
     import api
 
+try:
+    from . import builder_api
+except ImportError:
+    import builder_api
+
 api.register_set_doc_root(set_doc_root)
 
 
@@ -142,6 +147,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": True})
                 return
 
+            if path == "/api/_test/set-folder-dialog" and os.environ.get("HYP_TEST_DIALOG") == "1":
+                fake_path = payload.get("path")  # null => cancel
+                builder_api.set_folder_dialog_launcher(lambda: fake_path)
+                self._send_json(200, {"ok": True})
+                return
+
             if path == "/api/open":
                 status, resp = api.handle_open(payload)
                 self._send_json(status, resp)
@@ -156,6 +167,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send_json(status, resp)
             elif path == "/api/save":
                 status, resp = api.handle_save(payload)
+                self._send_json(status, resp)
+            elif path == "/api/dialog-folder":
+                status, resp = builder_api.handle_dialog_folder()
+                self._send_json(status, resp)
+            elif path == "/api/library-load":
+                status, resp = builder_api.handle_library_load(payload)
+                self._send_json(status, resp)
+            elif path == "/api/library-asset":
+                status, resp = builder_api.handle_library_asset(payload)
+                self._send_json(status, resp)
+            elif path == "/api/assemble":
+                status, resp = builder_api.handle_assemble(payload)
                 self._send_json(status, resp)
             else:
                 self._send_json(404, {"error": "Not found"})
