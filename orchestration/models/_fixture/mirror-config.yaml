@@ -1,0 +1,12 @@
+# TEST FIXTURE — NOT A REAL MODEL PACKAGE.
+# Exercises mirror.py (the guidance-file mirror engine) until the first real
+# mirror-config (kimi) lands at p3-4. Kept (not deleted) so the done-gate cold
+# verifier can re-exercise the create / in-sync / stale paths against a committed
+# artifact. The leading-underscore folder name `_fixture` cannot collide with a
+# real model id. Safe to delete once two or more real model mirror-configs exist.
+# Config schema: ../mirror/mirror-config.md
+
+model: _fixture                       # fixture package id (matches the _fixture/ folder)
+guidance_filename: FIXTURE_GUIDANCE.md  # the guidance file the engine emits at the target root
+source: SOURCE.md                     # workspace-relative source whose body is mirrored
+banner_label: the _fixture test worker  # interpolated into the DO-NOT-EDIT banner
