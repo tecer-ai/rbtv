@@ -1,0 +1,12 @@
+# Kimi mirror-config — the per-model config mirror.py reads to generate kimi's
+# per-workspace guidance file. Kimi natively loads AGENTS.md at the workspace
+# root; this mirrors the workspace's CLAUDE.md body into it so the kimi worker
+# sees the same instructions the Claude conductor does.
+# Config schema: ../mirror/mirror-config.md
+# Run: python orchestration/models/mirror/mirror.py --config orchestration/models/kimi/mirror-config.yaml --target <workspace>
+# (the manifest's guidance_file.mirror_entry: kimi-mirror resolves to exactly this).
+
+model: kimi                       # package id — matches models/kimi/ and the manifest's `model`
+guidance_filename: AGENTS.md      # the guidance file kimi natively loads at the target root (manifest guidance_file.convention)
+source: CLAUDE.md                 # workspace-relative source whose body is mirrored into AGENTS.md
+banner_label: the Kimi CLI worker  # interpolated into the DO-NOT-EDIT banner

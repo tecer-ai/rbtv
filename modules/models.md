@@ -6,8 +6,8 @@ Per-model CLI invocation skills — one installable skill per external model CLI
 
 ## Components
 
-No components yet. The module is reserved by the locked taxonomy and populated by the models build task in the rbtv-evolution backlog (kimi/codex/manus invocation skills, including the runtime Kimi rules component). The folder structure materializes with the first component.
+**Superseded by D18 (orchestration build).** Models are no longer separate skills: they are JIT **doc packages** that fold into the orchestration module at `orchestration/models/{model}/` (manifest + rendered manual + mirror config), loaded by the `rbtv-orchestrating` skill and selected per-model at install. The first real package — **`orchestration/models/kimi/`** (the validated bounded-code executor, carrying the runtime Kimi contract the M3 mandate needed) — has landed there. This `models.md` module file is retired INTO `modules/orchestration.md` at the docs-coherence pass (p4-11); until then it stands as the pointer to the new home.
 
 ## Linkage
 
-The planned general orchestration skill (orchestration module) references these per-model skills when installed and degrades gracefully when they are absent.
+See `modules/orchestration.md` § Components → `rbtv-orchestrating` → Model packages (`models/`) for the manifest schema, render machinery, mirror engine, and the per-model packages as they land.

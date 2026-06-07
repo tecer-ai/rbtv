@@ -1,67 +1,141 @@
-# Kimi capability manifest — DRY-RUN FILL (p3-1 working material for p3-4).
-# Source: 1-projects/rbtv-evolution/orchestration/kimi/kimi-cli-reference.md (Kimi CLI 1.41.0, verified 2026-06-03).
-# This is the schema dry-run proving every router-relevant kimi fact fits (zero unplaced facts).
-# p3-4 OWNS the final kimi package — it refines this with the package delta, mirror config, and
-# rendered manual, and confirms context_window against the live config (see note below).
-# Schema: ../manifest-schema.md
+# Kimi capability manifest — the routing card's data interface for the kimi package.
+# Schema + field meanings + routing-card consumers: ../manifest-schema.md
+# Sources: kimi-cli-reference.md (Kimi CLI 1.41.0, verified 2026-06-03) + rbtv-kimi-code-orchestration.md
+#          (the validated kimi contract) + the live ~/.kimi/config.toml on this machine (2026-06-07).
+# The most-validated worker: 3 hypresent sessions + 2 inni phases (~66 dispatches).
+# The exact invocation shape (commands, flags, exit codes, resume, recovery) is in ./manual.md
+# (rendered from ./delta.md by ../render-manuals.py) — this manifest points to it, never duplicates it.
 
 model: kimi
-evidence_status: validated   # 3 hypresent sessions + 2 inni phases; the validated bounded-code executor
+evidence_status: validated   # 3 hypresent sessions + 2 inni phases (~66 dispatches); the validated bounded-code executor
 
 variants:
-  - variant: default   # built-in `default` agent, ~15 tools; the validated bounded-code profile
+  - variant: default   # built-in `default` agent, thinking ON (live config default_thinking = true); the validated bounded-code profile
 
-    reasoning_tier: non-reasoning   # RBTV operating model treats Kimi as a non-reasoning executor (kimi-cli-reference §12, M1) — pre-resolve every decision at planning time
-    context_window: 262144          # config max_context_size example = 256K; RBTV operates a ~250K inlined-fact budget (§11, M1). p3-4: confirm the live configured value before sizing
-    max_output: 65536               # model/config-dependent; not separately documented in the reference — p3-4 confirm against live config
+    # --- boundedness + sizing (routing §2, §8) ---
+    reasoning_tier: non-reasoning   # RBTV operating model treats Kimi as a non-reasoning executor (kimi-cli-reference §12, M1) — pre-resolve every decision at planning time; thinking-on does NOT lift it to a judgment worker
+    context_window: 262144          # live-confirmed against ~/.kimi/config.toml max_context_size = 262144 (256K) on 2026-06-07; RBTV operates a ~250K inlined-fact budget (§11, M1)
+    max_output: 65536               # model/provider-determined; NOT exposed in local kimi config (no max_output/max_tokens key) — value from the design budget, not separately discoverable on this machine
 
-    cost_class: low                 # cheap bounded-code executor (learnings — Kimi engineering external to Claude budget; positioned as the cost-saving code worker)
+    # --- budget + capability gates (routing §2, §6) ---
+    cost_class: low                 # cheap bounded-code executor (learnings — Kimi engineering external to the Claude budget; positioned as the cost-saving code worker)
     code_competence: bounded        # the validated bounded-code executor (default for bounded code, routing §4)
     web_access: true                # `default` agent includes web tools (SearchWeb, FetchURL) — strippable via agent-file exclude_tools
+    multimodal: [image, video]      # live configured model (kimi-for-coding / Kimi-k2.6) carries capabilities ["image_in","thinking","video_in"]; image input still FAILS if a future model config lacks image_in (failure_modes)
 
-    parallel_safe: true             # multiple independent subagent tasks run concurrently; parallel workers safe under disjoint allowlists (validated 3-/4-/6-wide)
-    resume_support: session-id      # --session <id> / --resume; also --continue for the work-dir's previous session
+    # --- parallelism + resume (routing §8, §4) ---
+    parallel_safe: true             # multiple independent workers run concurrently under disjoint allowlists (validated 3-/4-/6-wide); Kimi's own subagents also run in parallel
+    resume_support: session-id      # --session <id> / --resume <id> for a specific session; --continue resumes the work-dir's previous session
 
+    # --- non-interactive run (routing §4 → dispatch-wrapper) ---
     headless:
-      flags: --quiet                # alias for --print --output-format text --final-message-only → prints only the final message
-      auto_approves_tools: true     # --print/--quiet implicitly enable --afk: every tool call auto-approved, no native allowlist (§2 warning)
-      prompt_transport: either      # --prompt/-p arg OR stdin pipe ("instruction" | kimi --print); stdin stream-json must be valid JSONL
+      flags: --quiet                # alias for --print --output-format text --final-message-only → prints ONLY the final message
+      auto_approves_tools: true     # --print/--quiet implicitly enable --afk: every tool call auto-approved, AskUserQuestion auto-dismissed, NO native allowlist (kimi-cli-reference §2 warning)
+      prompt_transport: either      # --prompt/-p CLI arg OR stdin pipe (cat prompt.md | kimi --print --input-format text --final-message-only); stdin is the default for prompts ≥30 KB / autonomous mode (Windows ARG_MAX ~32 KB)
 
+    # --- auth pre-flight (routing §1 → halt-recovery USER-EXECUTED-ONLY) ---
     auth:
       required: true
-      method: cli-login             # `kimi login` (interactive) — one-time setup
+      method: cli-login             # `kimi login` (interactive) — one-time setup; credentials cached under ~/.kimi/credentials
       interactive: true             # login is interactive — run manually (USER-EXECUTED-ONLY pre-flight)
 
-    rate_budget_notes: "exit 75 = retryable (rate limits, timeouts, 5xx) → back off and retry same task; exit 1 = non-retryable (config/auth/quota) → halt; Ralph mode (--max-ralph-iterations -1) runs unbounded, cap for any autonomous dispatch"
+    rate_budget_notes: "exit 75 = retryable (rate limits, timeouts, 5xx) → back off and retry the same task; exit 1 = non-retryable (config/auth/quota) → halt + surface; Ralph mode (--max-ralph-iterations -1) runs unbounded — cap it for any autonomous dispatch (live config already caps at 0)"
 
+    # --- tool surface + confinement (routing §2, §4, §8) ---
     tool_surface:
       native: [shell, file, search, web, plan]   # `default` agent ~15 tools incl. Shell, file read/write, search, web, plan mode
-      mcp: true                     # kimi mcp add / --mcp-config / --mcp-config-file (repeatable); stdio servers need command on PATH
-      agent_file: true              # --agent-file YAML (agent_spec_versions ["1"]): explicit `tools` list or `exclude_tools`
-
+      mcp: true                     # kimi mcp add / --mcp-config / --mcp-config-file (repeatable); stdio servers need the command on PATH
+      agent_file: true              # --agent-file YAML (agent_spec_versions ["1"]): explicit `tools` list or `exclude_tools` to constrain the surface
     confinement:
       workspace_scope: "--work-dir (repo root) + --add-dir for extra dirs"   # primary scoping control; keep the set minimal
       tool_restriction: "agent-file tools / exclude_tools (e.g. strip web/network for offline tasks)"
-      write_enforcement: git-diff-vs-allowlist   # NO native path allowlist — post-run git diff of every changed path vs the task allowlist is the only reliable enforcement; out-of-allowlist = halt + surface, never auto-revert
+      write_enforcement: git-diff-vs-allowlist   # NO native path allowlist — post-run git diff of every changed path vs the task allowlist is the ONLY reliable enforcement; out-of-allowlist = halt + surface, never auto-revert
 
-    invocation_pointer: ./manual.md   # rendered dispatch manual (p3-2 render step) — exact command shape
+    # --- invocation + failures (routing §4, §2) ---
+    invocation_pointer: ./manual.md   # rendered dispatch manual (../render-manuals.py) — the exact command shape
     failure_modes:
       - "headless (--print/--quiet/--afk/--yolo) auto-approves every tool call — no interactive gate, no native allowlist; enforce scope externally"
-      - "no native path allowlist — out-of-scope writes caught only by post-run diff; always diff"
-      - "cd does not persist between shell calls — each shell command is an independent subprocess; set --work-dir, never rely on cd chaining"
-      - "image input fails unless the configured model has the image_in capability"
+      - "no native path allowlist — out-of-scope writes caught ONLY by post-run diff; always diff every changed path vs the allowlist"
+      - "cd does not persist between shell calls — each shell command is an independent subprocess; set --work-dir, never rely on cd chaining in prompts"
+      - "exit 75 (EX_TEMPFAIL) on the FINAL return turn — work lands on disk but the structured return + local commit never run; recover via the exit-75 protocol (see manual), never blind-retry"
+      - "image input fails unless the configured model carries the image_in capability (the live kimi-for-coding model has it; a re-pointed model may not)"
       - "work-dir disappearance mid-session → crash report + exit; recover via session id"
       - "stream-json input strictness — must be valid JSONL, UTF-8, \\n endings, one object per line"
       - "Ralph mode runaway — --max-ralph-iterations -1 loops unbounded; cap it for any autonomous dispatch"
 
+    # --- guidance file (routing §4 pre-dispatch check) ---
     guidance_file:
-      convention: AGENTS.md         # Kimi loads the workspace agent guidance file (the mirror machinery target)
-      mirror_entry: kimi-mirror      # generalized from .user/runtime/scripts/kimi-mirror.py (p3-3 mirror machinery)
+      convention: AGENTS.md         # Kimi natively loads the workspace AGENTS.md guidance file (the mirror machinery target)
+      mirror_entry: kimi-mirror      # resolves to: python orchestration/models/mirror/mirror.py --config orchestration/models/kimi/mirror-config.yaml --target <workspace>
 
+    # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
     swarm_support:
-      subagents: true               # root agent launches subagents via the Agent tool (coder / explore / plan)
-      nesting: one-level            # subagents cannot use the Agent tool — only the root spawns subagents (bounds blast radius to one level)
-      default: disabled             # swarm_policy default disabled (rbtv-kimi-code-orchestration); enable only for disjoint-allowlist independent slices
+      subagents: true               # root agent launches subagents via its Agent tool (coder / explore / plan built-in types)
+      nesting: one-level            # subagents are prohibited from using the Agent tool — only the root spawns subagents (bounds blast radius to one level)
+      default: disabled             # swarm_policy default disabled (rbtv-kimi-code-orchestration); enable ONLY for independent slices with disjoint allowlists
 
     os_quirks:
-      windows: "PowerShell invocation; pipe prompt via stdin or --prompt; check $LASTEXITCODE for 0/1/75 retry logic"
+      windows: "PowerShell or Git Bash; pipe the prompt via stdin for prompts ≥~32 KB (ARG_MAX ceiling) — Git Bash/MSYS2 and PowerShell both cap a single arg ~32 KB; check $LASTEXITCODE for 0/1/75 retry logic"
+
+  - variant: no-thinking   # --no-thinking: lower-latency profile for fully-bounded mechanical work where step-by-step reasoning adds no value
+    evidence_status: validated   # same CLI + same validated contract; only the --thinking toggle differs from `default`
+
+    # --- boundedness + sizing ---
+    reasoning_tier: non-reasoning   # still a non-reasoning executor; --no-thinking just drops the visible thinking stream — never route judgment-dense work here
+    context_window: 262144          # same configured model (max_context_size = 262144)
+    max_output: 65536               # same provider-determined ceiling
+
+    # --- budget + capability gates ---
+    cost_class: cheapest            # cheapest kimi profile — no thinking tokens emitted; the cost-floor pick for trivially-bounded mechanical batches
+    code_competence: bounded        # same executor competence
+    web_access: true                # same `default` agent web tools
+
+    # --- parallelism + resume ---
+    parallel_safe: true
+    resume_support: session-id
+
+    # --- non-interactive run ---
+    headless:
+      flags: --quiet --no-thinking  # --quiet plus the explicit --no-thinking toggle (config default_thinking = true, so it must be set per-dispatch)
+      auto_approves_tools: true
+      prompt_transport: either
+
+    # --- auth pre-flight ---
+    auth:
+      required: true
+      method: cli-login
+      interactive: true
+
+    rate_budget_notes: "same exit-code semantics as the default variant (75 retryable, 1 non-retryable); no thinking tokens → marginally lower spend per dispatch"
+
+    # --- tool surface + confinement ---
+    tool_surface:
+      native: [shell, file, search, web, plan]
+      mcp: true
+      agent_file: true
+    confinement:
+      workspace_scope: "--work-dir (repo root) + --add-dir for extra dirs"
+      tool_restriction: "agent-file tools / exclude_tools"
+      write_enforcement: git-diff-vs-allowlist
+
+    # --- invocation + failures ---
+    invocation_pointer: ./manual.md   # same rendered manual; the no-thinking flag is documented there
+    failure_modes:
+      - "headless auto-approves every tool call — no native allowlist; enforce scope externally"
+      - "no native path allowlist — always diff every changed path vs the allowlist"
+      - "cd does not persist between shell calls — set --work-dir, never rely on cd chaining"
+      - "exit 75 on the final return turn — recover via the exit-75 protocol, never blind-retry"
+
+    # --- guidance file ---
+    guidance_file:
+      convention: AGENTS.md
+      mirror_entry: kimi-mirror
+
+    # --- swarm / sub-conducting ---
+    swarm_support:
+      subagents: true
+      nesting: one-level
+      default: disabled
+
+    os_quirks:
+      windows: "pipe the prompt via stdin for prompts ≥~32 KB; check $LASTEXITCODE for 0/1/75 retry logic"

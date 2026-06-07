@@ -1,0 +1,204 @@
+# `kimi` package delta
+
+Per-model delta for the **kimi** CLI worker — the validated bounded-code executor (3 hypresent sessions + 2 inni phases, ~66 dispatches). This file fills the dispatch-wrapper template's INSERT points with kimi-specific binding obligations and the kimi return surface, plus the mandatory `invocation` section — the full kimi CLI dispatch manual that the generic card explicitly does NOT carry (dispatch-wrapper §7).
+
+The render script (`../render-manuals.py`) composes the generic wrapper (`{rbtv_path}/orchestration/skills/orchestrating/cards/dispatch-wrapper.md`) with the sections below into `./manual.md`. Edit kimi behavior HERE; never in the rendered manual.
+
+This package DISSOLVES the `kimi-code-execution` runtime component (the M3 mandate from `cp-workflow-rbtv-kimi-planning-orchestration.md`): the orchestrator's runtime kimi rules — task contract, invocation, guardrails, swarm — live in this manual now, self-contained, with no reference back to the human-facing `kimi-cli-reference.md` design doc.
+
+<!-- RENDER:DELTA model-binding-delta -->
+**Kimi-specific worker obligations** (on top of the generic binding addendum — never restating it):
+
+| Obligation | What kimi is bound to |
+|------------|------------------------|
+| **Non-reasoning executor** | Kimi MUST NOT reason, decide, or interpret intent. Every interface, edge case, validation, and routing decision is pre-resolved in the task file. Kimi implements the enumerated behavior; it never designs, never "handles reasonably", never "fills in the blanks". A decision left to kimi is a planning bug, not kimi's call. |
+| **No agentic exploration** | The task file's allowed paths are kimi's entire read/write universe. Kimi MUST NOT decide which files to read, MUST NOT load other task files / the plan / decisions.md beyond what the header inlines. Required context is inlined into the task body — kimi never goes reading broad PRDs at runtime (the ~250K budget is for inlined facts). |
+| **Stray-file ban** | Create files ONLY where the allowlist directs. NEVER write scratch notes, logs, or summary files into the repo root or anywhere outside the allowlist — the post-run diff treats any such file as an out-of-allowlist write. |
+| **Local-commit authorization (this is where a code worker's self-commit is granted)** | Kimi MAY commit locally — and ONLY locally — after its declared validation passes, when the task file grants `commit_policy: local-only`. NEVER push, NEVER force-reset, NEVER amend. The commit subject MUST carry the run's mandated `[<task-id>]` convention; the returned hash MUST match `git log`. Absent an explicit grant, kimi does NOT commit (the conductor commits via `rbtv-commit`). |
+| **Swarm policy** | Kimi launches its own subagents (coder / explore / plan) ONLY when the task file sets `swarm_policy: allowed` with `max_kimi_subagents: N`. With `swarm_policy: disabled` (the default), kimi launching ANY subagent is a guardrail failure the conductor treats as a failed dispatch — surface it. Subagents cannot nest (one level only). |
+| **Forbidden-ops are exhaustive** | The task's `forbidden_ops` list is the complete prohibition set; absence of mention is NOT permission. No writes outside the allowed work-dir, no `git push`, no destructive git reset, no external production API calls unless the task explicitly sanctions a mocked/local one. |
+<!-- RENDER:DELTA-END model-binding-delta -->
+
+<!-- RENDER:DELTA model-transport-note -->
+**Kimi return surface:** kimi runs headless with `--quiet` (alias for `--print --output-format text --final-message-only`), which prints ONLY kimi's final assistant message to stdout — that message carries the five return fields. Treat it as a HINT, never the truth: a documented failure mode is kimi exiting 75 on the final return turn with the work correctly on disk but the structured message garbled or absent, and resumed long-context sessions drifting to conversational prose over the named-field schema (five instances in one session). The conductor reconciles every kimi return against `git status` / `git log` of the work-dir and the cited evidence files on disk — disk wins on any disagreement. For machine-parseable streaming, `--output-format stream-json` emits one JSON object per line; parse the last `assistant` message without `tool_calls` as the final result.
+<!-- RENDER:DELTA-END model-transport-note -->
+
+<!-- RENDER:DELTA invocation -->
+The kimi CLI dispatch manual — the exact command shapes, flags, exit handling, resume, recovery, and the kimi task contract. Self-contained: this is the orchestrator's complete runtime kimi spec (the dissolved `kimi-code-execution` / M3 content). Verified against Kimi CLI **1.41.0** (`kimi info --json` → `agent_spec_versions: ["1"]`, `wire_protocol_version: "1.9"`). Re-verify with `kimi --help` / `kimi --version` before relying on any flag — the CLI evolves fast; `--help` is ground truth for the installed build.
+
+### Pre-flight (before any dispatch)
+
+| Check | Command | Gate |
+|-------|---------|------|
+| CLI present + version | `kimi --version` (`kimi, version 1.41.0`) | Absent/older → re-verify flags against `kimi --help`. |
+| Auth | `kimi login` (interactive, one-time) | Login is interactive → USER-EXECUTED-ONLY. If unauthenticated, halt and ask the owner to run it; never automate it. |
+| Guidance file | target workspace has `AGENTS.md`? | Absent → offer to generate it via the mirror (`mirror_entry: kimi-mirror`, see the kimi `mirror-config.yaml`). |
+
+### The two invocation shapes (functionally equivalent — pick by prompt size and host shell)
+
+Kimi accepts the task prompt via one of two equivalent shapes. Pick the shape by prompt size and the host shell's `ARG_MAX`.
+
+**Shape A — `--prompt` CLI argument (small prompts):**
+
+```powershell
+kimi --work-dir "<allowed_workdir>" --quiet --prompt "<task_prompt>"
+```
+
+Use when the prompt fits comfortably under the host shell's single-argument limit (Linux ~128 KB headroom; Windows PowerShell and Git Bash/MSYS2 both ~32 KB). Default for short, interactive dispatches.
+
+**Shape B — stdin pipe (large prompts; default in autonomous mode):**
+
+```bash
+cat prompt.md | kimi --work-dir "<allowed_workdir>" --print --input-format text --final-message-only
+```
+
+Use when the prompt is ≥ ~30 KB OR when running autonomously and you cannot afford a per-prompt size halt. `--quiet` is a documented alias for `--print --output-format text --final-message-only`; the stdin pipe replaces the `--prompt TEXT` arg with the same content via standard input. **Both shapes** apply the same `--work-dir` surface, honor the same return contract, and pass the same allowlist + forbidden-ops + swarm-policy checks on return. Default to Shape B at ≥30 KB or in autonomous mode; Shape A is fractionally less ceremony for small interactive dispatches. (Windows note: Git Bash/MSYS2 has a tighter arg limit than Linux; PowerShell ~32 KB single arg. Both pipe cleanly via stdin — prefer Shape B on Windows for any non-trivial prompt.)
+
+The composed **header + payload** (generic packaging §1) is written to `prompt.md` on disk and dispatched FROM that file — the same prompt file is the reuse surface on resume.
+
+### Variants and the thinking toggle
+
+The kimi manifest declares two routable variants — route on `(kimi, variant)`:
+
+| Variant | Flags added | When |
+|---------|-------------|------|
+| `default` | (none — thinking ON per the live config `default_thinking = true`) | The validated profile; default for bounded code. Thinking-on does NOT make kimi a judgment worker — it stays non-reasoning. |
+| `no-thinking` | `--no-thinking` | Fully-bounded mechanical batches where step-by-step reasoning adds nothing; the cost-floor pick (no thinking tokens emitted). Set `--no-thinking` explicitly — config defaults thinking ON. |
+
+`--thinking` / `--no-thinking` override the config default per dispatch. `--model <id>` overrides the configured model. Neither lifts kimi above `non-reasoning` for routing — reasoning tier is a property of the operating model (M1), not the toggle.
+
+### Exit codes — drive retry/recovery logic
+
+| Code | Meaning | Conductor action |
+|------|---------|------------------|
+| `0` | Success | Proceed to the return gate (reconcile against disk, then verification card). |
+| `1` | Non-retryable (config, auth, quota) | Halt and surface — do NOT retry blindly. |
+| `75` | Retryable (rate limits, timeouts, 5xx) | Back off and retry the SAME task — UNLESS the exit-75 recovery trigger fires (below), in which case recover, do not re-run. |
+
+```powershell
+kimi --work-dir "<repo>" --quiet --prompt "<task>"; $code = $LASTEXITCODE
+if ($code -eq 75) { <exit-75 recovery decision — see below> }
+elseif ($code -ne 0) { <halt + surface> }
+```
+
+### Exit-75 recovery protocol (work landed, return/commit lost)
+
+Kimi can exit 75 on the FINAL return turn — the LLM connection drops AFTER files are written to disk but BEFORE kimi prints the structured return and runs its local commit. The disk state is correct; there is no `[<task-id>]` commit and no Concerns list. NEVER blind-retry (re-runs 25+ min of work, wastes credits, risks the same drop) and NEVER halt-without-checking. Run this recovery instead — it is JUDGMENT work, valid only under a high-reasoning conductor (Opus+); a lower-reasoning conductor halts + surfaces exit 75 unless the plan explicitly authorizes the protocol.
+
+**Trigger — fires only when ALL hold:**
+
+1. Kimi exited non-zero with NO structured return on stdout (no `status`, no `landed`, no commit hash).
+2. `git -C "<allowed_workdir>" status --porcelain` shows uncommitted changes inside the task's allowlist.
+3. `git -C "<allowed_workdir>" log -1 --pretty=%s` does NOT show the expected `[<task-id>]` prefix (kimi did not commit before exiting).
+
+If ANY is false → standard handling (`BLOCKED` + surface). Mid-task crash (kimi exits before writing files) → standard retry/BLOCKED, NOT this protocol.
+
+**Recovery steps:**
+
+1. **Verify on-disk state** against the task's Implementation Requirements — read each expected file; confirm structure, exports, signatures, content shape; note gaps.
+2. **Run the task's declared `test_command` / smoke checks** — the same validation a normal `DONE` return would trigger. Pass → functionally complete despite the transient exit.
+3. **Verify allowlist compliance** — `git -C "<allowed_workdir>" diff --name-only HEAD`; every changed path MUST be in the allowlist. Any out-of-allowlist edit → halt + surface (recovery does NOT bless out-of-allowlist writes).
+4. **Verify forbidden-ops compliance** — no frozen-doc touches, no push, no force reset.
+5. **Commit manually with the recovery marker** — the `(orchestrator-recovered)` subject suffix is MANDATORY (it flags the commit for EXTRA review scrutiny because kimi never printed its Concerns):
+
+   ```bash
+   git -C "<allowed_workdir>" add <files-in-allowlist>
+   git -C "<allowed_workdir>" commit -m "[<task-id>] <description> (orchestrator-recovered)" \
+     -m "Co-Authored-By: Claude <noreply@anthropic.com>"
+   ```
+
+6. **Log to the run-log** — exit code, files verified + smoke result, the recovery commit hash, the reason for not retrying, and that the reviewer MUST FULLY re-validate (not trust the orchestrator's smoke pass).
+
+The recovery commit is reversible (`git revert <hash>` restores pre-recovery state, then a fresh dispatch can re-run). Reviewer brief after an `(orchestrator-recovered)` commit: re-validate every Implementation Requirement against the as-shipped code, re-check the behavior contract, and be EXTRA willing to fix in place (kimi printed no Concerns).
+
+**Hung dispatch (kimi never exits):** separate path — orchestrator kills it, evaluates disk state, then decides recover-commit (same steps 1–6) OR re-dispatch a fresh executor.
+
+### Resume mechanics
+
+| Mechanism | Command | Use |
+|-----------|---------|-----|
+| Resume a specific session | `kimi --work-dir "<repo>" --session "<id>" --quiet --prompt "<follow-up>"` | After a `DOUBT_ESCALATED` / `NEEDS_CONTEXT` halt: supply the resolution into the SAME session by id. |
+| Continue the work-dir's previous session | `kimi --work-dir "<repo>" --continue --quiet --prompt "<follow-up>"` | Pick up the last session for that work-dir without tracking an id. |
+| Capture the full audit trail | `kimi export <session-id> -o "<repo>/.kimi-runs/<id>.zip" -y` | Archive session artifacts after a run. |
+
+Avoid `--session` / `--resume` WITHOUT an id in headless mode — it opens an interactive picker. Resume drift warning: resumed long sessions favor prose over the named-field schema — reconcile the resumed return against disk especially hard.
+
+### Allowlist grammar — confinement is the orchestrator's job
+
+Kimi has **no native `--allowlist` / per-path permission flag**, and headless mode auto-approves every tool call. Bound a worker by combining:
+
+| Control | Mechanism |
+|---------|-----------|
+| Workspace scope | `--work-dir <repo-root>` + `--add-dir <extra>` (repeatable). Keep the set minimal. |
+| Tool surface | `--agent-file <kimi-agent.yaml>` with an explicit `tools` list or `exclude_tools` (e.g. strip `kimi_cli.tools.web:SearchWeb` / `FetchURL` for offline tasks). Use `--agent-file` ONLY when `swarm_policy: allowed` or a tool restriction is required. |
+| Read confinement | Inline required context into the task prompt; use the `explore` / `plan` subagent types (read-only) where no writes are needed. |
+| **Write confinement** | **Post-run `git diff --name-only HEAD` of every changed path against the task's `allowlist`** — the ONLY reliable enforcement. Out-of-allowlist edit = halt + surface; NEVER auto-revert silently. |
+| Commit / push | Local-only by policy; verify git state shows no push since dispatch. |
+| Network / prod APIs | No CLI flag blocks these — strip web/MCP tools via the agent file and run with no network MCP servers configured. |
+
+The `allowlist` in the task frontmatter is a list of file/folder globs (computed at planning time). The diff check matches every changed path against it — a glob the change does not match is an out-of-allowlist write.
+
+### Known failure modes to pre-empt
+
+| Failure | Pre-emption |
+|---------|-------------|
+| Headless auto-approves all tools (no native allowlist) | Enforce scope externally (workspace + agent-file + post-run diff). |
+| No native path allowlist | ALWAYS diff every changed path vs the allowlist on return. |
+| `cd` does not persist between shell calls | Each shell command is an independent subprocess — set `--work-dir`; never rely on `cd` chaining in the prompt. |
+| Exit 75 on the final return turn | Run the exit-75 recovery protocol (above), never blind-retry. |
+| Image input fails | Only if the configured model lacks `image_in` (the live `kimi-for-coding` model has `image_in` + `video_in`; a re-pointed model may not). |
+| Work-dir disappears mid-session | Crash report + exit; recover via session id. |
+| `stream-json` input strictness | Must be valid JSONL, UTF-8, `\n` endings, one object per line. |
+| Ralph-mode runaway | `--max-ralph-iterations -1` loops unbounded — cap it for any autonomous dispatch (live config caps at 0). |
+
+### The kimi task contract (plugs into the shared authoring core)
+
+A kimi-executable task file extends the generic task-file contract (`{rbtv_path}/orchestration/workflows/_shared/authoring/`) with kimi-specific frontmatter and body sections. The orchestrator validates a `executor: kimi` task against this contract BEFORE dispatch; a missing required field = halt + report the malformed task — NEVER infer or mutate a field into shape (task shaping belongs to planning).
+
+**Required frontmatter:**
+
+```yaml
+execution_kind: code
+executor: kimi
+allowed_workdir: <absolute-or-project-root-relative repo path>
+allowlist:
+  - <file-or-folder-glob>
+commit_policy: local-only
+test_command: <command-or-NONE>
+forbidden_ops:
+  - git push
+  - writes outside allowlist
+  - destructive git reset
+  - external production API calls
+doubt_policy: halt
+reviewer: claude-opus           # reviewer floor for kimi-produced code is Opus — non-overridable
+swarm_policy: disabled | allowed
+max_kimi_subagents: <N-or-0>
+```
+
+**Required body sections:** Goal (one bounded deliverable) · Context Snapshot (all task-specific context inlined — never make kimi infer from broad PRDs) · Allowed Paths (the allowlist in human-readable form) · Forbidden Paths · Implementation Requirements (exact behavior — interfaces, data shapes, error semantics, every edge case enumerated) · Validation (the exact commands kimi runs before returning) · Commit Rule (local-only after validation) · Swarm Rule (if `allowed`: subagent types, count, task partition) · Return Format (the five-field return schema).
+
+**Swarm mode** (opt-in per task): set `swarm_policy: allowed` + `max_kimi_subagents: N` + a `kimi-agent.yaml` (via `--agent-file`) that defines the allowed subagents, and a prompt that tells kimi when/how to dispatch them. Use ONLY for independent code slices with disjoint allowlists — never for architecture, migrations, schema design, production-API work, or anything needing coordinated shared state. Kimi spawning subagents under `swarm_policy: disabled` is a guardrail failure.
+
+**Review gates** every kimi coding task passes (verification card owns the gate): kimi self-report → orchestrator diff-vs-allowlist check → declared validation passing (or explicit blocker) → Claude/Opus spec-compliance review → Claude/Opus code-quality review → no push until owner/final-workflow publishes. Any gate fails → halt or route a fix task; never proceed on "close enough".
+
+### Recipes
+
+```powershell
+# Single bounded worker, final text only (Shape A):
+kimi --work-dir "5-workbench/inni-cte-recon" --quiet --prompt "<inlined task file content>"
+```
+```bash
+# Large prompt via stdin (Shape B — default autonomous/Windows):
+cat prompt.md | kimi --work-dir "<repo>" --print --input-format text --final-message-only
+```
+```powershell
+# Constrained tools + streamed JSON for parsing:
+kimi --work-dir "<repo>" --agent-file "<kimi-agent.yaml>" --print --output-format stream-json --prompt "<task>"
+```
+```powershell
+# Retry on transient failure (exit 75) — only when the recovery trigger does NOT fire:
+kimi --work-dir "<repo>" --quiet --prompt "<task>"; $c=$LASTEXITCODE
+if ($c -eq 75) { Start-Sleep 10; kimi --work-dir "<repo>" --quiet --prompt "<task>" }
+```
+<!-- RENDER:DELTA-END invocation -->
