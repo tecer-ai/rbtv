@@ -46,9 +46,10 @@ Draft one commit message per cluster. Present the full commit plan (clusters, fi
 
 For each planned commit, in plan order:
 
-1. `git -C "{repo}" diff --cached --name-only` — list pre-staged files. `git commit` commits the ENTIRE index, not just what you staged. Any pre-staged file outside the current cluster: unstage it (`git -C "{repo}" restore --staged {file}`), or — only with user confirmation — let it ride and disclose it in the commit message. NEVER commit foreign staged files silently.
+1. `git -C "{repo}" diff --cached --name-only` — list pre-staged files. Re-run this check IMMEDIATELY before EACH commit of a multi-commit plan — parallel sessions stage files between your commits, and an earlier clean check proves nothing about the current index (observed 2026-06-07: a sibling session's 6 staged files rode into a commit whose check had passed one commit earlier). `git commit` commits the ENTIRE index, not just what you staged. Any pre-staged file outside the current cluster: unstage it (`git -C "{repo}" restore --staged {file}`), or — only with user confirmation — let it ride and disclose it in the commit message. NEVER commit foreign staged files silently.
 2. Stage that cluster's files: `git -C "{repo}" add {files}` — explicit FILE paths only. NEVER `git add -A`. NEVER stage a directory in a shared repo: a parallel session can drop a foreign file into it between plan and stage, and it rides into the commit undisclosed.
-3. Commit with that cluster's confirmed message
+3. Gate the commit: `git -C "{repo}" diff --cached --name-only` MUST list EXACTLY the cluster's files, and the result MUST gate the commit programmatically — in a scripted sequence, abort unless the staged list equals the plan. An unconditional check→stage→commit chain is FORBIDDEN: a check whose output cannot stop the commit is theater. Mismatch → unstage the foreign files and re-run this gate; NEVER commit on a mismatched index.
+4. Commit with that cluster's confirmed message
 
 Push only if user requested it.
 
