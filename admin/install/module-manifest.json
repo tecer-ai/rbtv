@@ -168,7 +168,7 @@
     ]
   },
   "orchestration": {
-    "description": "Long-horizon work orchestration — structured planning, plan execution via tiered sub-agents, plan-shape compaction, and long-source digestion.",
+    "description": "Long-horizon work orchestration — structured planning, plan execution via tiered sub-agents, plan-shape compaction, and long-source mining.",
     "skills": [
       {
         "source_template": "orchestration/skills/orchestrating/SKILL.md",
@@ -191,8 +191,8 @@
     ],
     "commands": [
       {
-        "source_template": "orchestration/commands/digest.md",
-        "target": ".claude/commands/rbtv-digest.md",
+        "source_template": "orchestration/commands/source-mining.md",
+        "target": ".claude/commands/rbtv-source-mining.md",
         "bake": ["rbtv_path"],
         "description": "Mine a long source via sub-agents to reconcile a target doc with user fixups (reconcile mode) or produce study notes (study mode) — orchestrator never reads the source directly"
       },

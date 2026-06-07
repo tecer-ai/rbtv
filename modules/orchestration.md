@@ -59,16 +59,16 @@ The long-horizon work module — creating structured plans, executing them throu
 
 ---
 
-### `/rbtv-digest`
+### `/rbtv-source-mining`
 
 - **What**: Processes a long source (conversation export, transcript, book chapter, long document) that the orchestrator Claude cannot read directly due to context limits. It chunks the source, dispatches sub-agents to extract decisions or concepts from each chunk, groups the results, and synthesizes them into either a **reconciled document** (updates an existing doc with session decisions + user line-comments) or a **study note**. The orchestrator never reads the source — only sub-agents do.
 - **When to use**: You have a long conversation or document you want to mine for decisions, incorporate into an existing spec, or turn into study notes. Especially useful after long planning sessions where you want to update a PRD or plan with what was decided.
-- **How to invoke**: `/rbtv-digest` — Claude asks for source path, mode (reconcile or study), and target document.
+- **How to invoke**: `/rbtv-source-mining` — Claude asks for source path, mode (reconcile or study), and target document.
 - **Inputs / outputs**:
   - Input: source file path, mode selection, target document(s) for reconcile or destination for study
   - Output (reconcile): target document(s) updated in place + a delta document per target showing what changed
   - Output (study): new study note at confirmed destination
-- **Example**: `/rbtv-digest` → "reconcile" → point to a long strategy conversation → point to your current strategy doc → Claude mines the conversation and updates the doc with decisions made, showing a diff.
+- **Example**: `/rbtv-source-mining` → "reconcile" → point to a long strategy conversation → point to your current strategy doc → Claude mines the conversation and updates the doc with decisions made, showing a diff.
 
 ---
 
@@ -84,4 +84,4 @@ The long-horizon work module — creating structured plans, executing them throu
 
 ## How They Fit Together
 
-`rbtv-orchestrating` is the general front door for long-horizon, multi-agent work — it ingests a plan or a goal, routes each task to the right worker, and gates every return; `rbtv-planning` writes the plans it ingests. `rbtv-plan-orchestration` is the earlier non-code plan executor (tiered sub-agents, per-phase review) that the general skill supersedes; it remains installed while the general capability's surgery completes. `/rbtv-plan-shape-compact` keeps a plan's shape lean between sessions, and `/rbtv-digest` mines the long conversations that planning and execution produce, folding decisions back into the plan or PRD.
+`rbtv-orchestrating` is the general front door for long-horizon, multi-agent work — it ingests a plan or a goal, routes each task to the right worker, and gates every return; `rbtv-planning` writes the plans it ingests. `rbtv-plan-orchestration` is the earlier non-code plan executor (tiered sub-agents, per-phase review) that the general skill supersedes; it remains installed while the general capability's surgery completes. `/rbtv-plan-shape-compact` keeps a plan's shape lean between sessions, and `/rbtv-source-mining` mines the long conversations that planning and execution produce, folding decisions back into the plan or PRD.
