@@ -33,7 +33,7 @@ The core module is always installed — it's the foundation every other RBTV mod
 
 #### `rbtv-web-searching`
 
-- **What**: Three-mode web interaction layer — Preview (title/description only), Extract (full page content via Defuddle CLI), and Research (multi-source, cited, scored). Research mode enforces data integrity: every claim requires a verified source, sources are scored on authority/trustability/topic-match, and anything below a 6/10 threshold is discarded. Output always includes a citation legend and a "Sources Discarded" section.
+- **What**: Three-mode web interaction layer — Preview (title/description only), Extract (full page content via Defuddle CLI), and Research (multi-source, cited, scored). Research mode enforces data integrity: every claim requires a verified source, sources are scored on authority/trustability/topic-match, and anything below a 6/10 threshold is discarded. Output always includes a citation legend and a "Sources Discarded" section. Research mode also accepts an OPTIONAL sources manifest — when the dispatch or user names a curated preferred/banned-sources file, Research favors the preferred origins and excludes the banned ones from primary support; absent a pointer, behavior is unchanged.
 - **When to use**: Any time you give Claude a URL to read, ask it to research a topic, or need facts with citations. This skill is also mandatory for any sub-agent doing web work — parent agents must name it explicitly in sub-agent prompts.
 - **How to invoke**: Triggered automatically when you paste a URL or ask Claude to research something. Invocable directly: `rbtv-web-searching`.
 - **Inputs / outputs**:

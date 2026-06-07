@@ -105,6 +105,8 @@ Rigorous multi-source research with data integrity, source evaluation, and citat
 
 Read `{rbtv_path}/core/workflows/web-search/data/web-research-standards.md`. Internalize all rules: data integrity, quantification, source evaluation, citation format, tone.
 
+**Sources manifest (optional):** if the dispatch prompt or the user names a sources-manifest path, load that file and honor it per the standards file's § Sources Manifest (prefer the listed sources, exclude the banned ones from primary support). No path named → skip silently; research behaves exactly as without a manifest.
+
 #### 3. Conduct Research
 
 **3a. Execute Web Searches**
@@ -116,6 +118,7 @@ Read `{rbtv_path}/core/workflows/web-search/data/web-research-standards.md`. Int
 - Score: Authority (AT), Trustability (TR), Topic Match (TM). Scale 1–10.
 - Total Score (TS) = average of AT, TR, TM. Discard sources with TS < 6.
 - Apply marketing language penalty to TR where applicable (see standards file).
+- If a sources manifest was loaded (§2): a preferred-listed source ranks first among comparable-relevance sources; a banned-listed source is excluded from primary support and never stands as sole support. The manifest layers on top of TS — it never lowers the TS ≥ 6 threshold (see standards file § Sources Manifest).
 
 **3c. Group Domain Sources**
 - Multiple links from same domain count as ONE source unless they meet exception criteria (see standards file).

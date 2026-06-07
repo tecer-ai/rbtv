@@ -53,6 +53,33 @@ Reference data for rigorous research, source evaluation, and citation.
 
 ---
 
+## Sources Manifest (Optional)
+
+A research run MAY be pointed at a user-curated **sources manifest** — a file declaring which sources to favor and which to avoid. It is OPTIONAL: absent a pointer, research behaves exactly as specified everywhere else in this file (no manifest = zero change).
+
+**Pointer mechanism:** the dispatch prompt or the user names a manifest path (e.g., "honor the sources manifest at `<path>`"). The web-searching skill loads that file when pointed at one, and skips silently when no path is given. rbtv ships only this mechanism — the manifest file itself is user/workspace-owned and never lives in this repo.
+
+**Manifest shape (minimal — read whatever subset the file provides):**
+
+| Field | Declares | Honor effect |
+|-------|----------|--------------|
+| **Preferred sources** | Origins / domains / publishers the user trusts (optionally tiered) | Favor them in selection and ranking; a preferred origin breaks ties over a comparable non-listed source |
+| **Banned sources** | Origins / domains the user rejects or rates below the evidence bar | Avoid as primary support; a banned source NEVER stands as sole support for a claim — surface it as below-bar, then hunt the trustworthy source behind it |
+| **Per-topic notes** (optional) | Topic- or anchor-scoped guidance | Apply the note only to the matching topic |
+
+**Honor semantics:**
+
+| Stage | With a manifest |
+|-------|-----------------|
+| Selection / ranking | Among sources of comparable topic-relevance, a preferred-listed source ranks first; a banned-listed source is excluded from primary support |
+| Evaluation | The manifest layers ON TOP of the AT/TR/TM scoring — it never lowers the TS ≥ 6 threshold. A preferred source still must clear TS ≥ 6; a banned source is dropped even if it would score above 6 |
+| Sole-support gate | A claim's ONLY support being a banned source = treat as unsupported; report and seek a non-banned replacement |
+| Conflict | Manifest preference breaks ties between comparable sources; it never overrides the data-integrity rules above (multiple-source requirement, conflict resolution, confidence flagging all still bind) |
+
+**Graceful skip:** no pointer → this section does not apply; every other rule in this file governs unchanged.
+
+---
+
 ## Source Evaluation Criteria
 
 Evaluate all sources using three criteria:
