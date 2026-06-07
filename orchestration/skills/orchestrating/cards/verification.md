@@ -17,6 +17,7 @@ Iron rules it serves (from the core protocol): **disk = truth — every return i
 | **A micro-dispatch inside a feature** | The return gate (§1) + the review gate (§2). The cold verifier fires at the feature boundary, not per micro-dispatch. |
 | **An interaction / behavior bug surfaced** | A debug role (§4) — never a CLI worker root-causing. |
 | **The run is about to be declared done** | The orchestrator-executed exit probes (§5) — the conductor personally exercises N probes before declaring the run complete. |
+| **The run is being closed** (exit probes held) | Run finalization (§6) — complete the exit scorecard, set the honest status, and surface every Human Review block + low-confidence/red-flag decision before reporting completion. |
 
 A return that does not clear §1 (and, for development work, §2–§3) is NOT done — it is routed to the halt-recovery card with the gate's finding. This card never marks a task done on the strength of a return message; "done" is purchased only by evidence that clears these gates.
 
@@ -173,11 +174,27 @@ This is the operational form of "done is false if anything was skipped": the con
 
 ---
 
+## 6. Run finalization — close the run and surface review-driving content
+
+Once the exit probes (§5) hold and the run is certifiable as done, the run is CLOSED with a finalization pass before the conductor reports completion. This is the run-end counterpart to the per-return gate: §1–§5 certify each return and the run's outcome; this step produces the run's close.
+
+| Rule | Detail |
+|------|--------|
+| **Complete the exit scorecard** | Fill the `run-log.md` Exit Scorecard (the State card owns its shape): per-feature and cross-feature verification verdicts, the exit-probe verdicts with their capture paths, and the **honest exit reason** (`complete` / `blocked` / `stalled` / `degrading` / `timeout`). The scorecard is the run's durable accountability record — the close report is derived FROM it, never instead of it. |
+| **Status is honest** | The run closes as **COMPLETE** only when every contracted criterion is certified and no irreversible step remains; if a USER-EXECUTED-ONLY step or an owner-decision is still outstanding, the close is **COMPLETE PENDING USER ACTION** with the remaining action named. Never label a run COMPLETE when a final step the owner must take is unfinished. |
+| **Surface every Human Review block** | A run that executed any `human_review: required` task or any checkpoint carries the Human Review Presentation blocks those tasks produced. At close, surface EACH block VERBATIM, grouped by phase — never collapsed, summarized, or paraphrased. In `end-to-end` and `autonomous` modes this close is the user's FIRST sight of that per-task review content (the modes skipped the per-phase halts where `halt` mode would have shown it — intake §7); its verbatim fidelity is the point. Block format and flag criteria are the frozen planning surfaces (`{rbtv_path}/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation; `{rbtv_path}/orchestration/workflows/planning/data/plan-creation-rules.md` § Human Review Flag Criteria) — the conductor surfaces the blocks, it does not re-derive their format. |
+| **Surface low-confidence + red-flag decisions** | In `autonomous` mode, list the `medium`- and `low`-confidence unilateral decisions from the `run-log.md` U-register, lowest confidence first (the high-confidence rows stay in the log, not the close). Any Human Review block carrying a 🔴 red flag is ALSO listed here regardless of mode — red-flag tasks belong on the priority surface, not buried in the per-phase blocks. |
+| **Name the artifacts and next actions** | The close names the run's artifacts (plan, the run's `decisions.md`, `run-log.md`, and — plan runs — `learnings.md` / `deliverables.md`) and any next action the owner must take, each self-explanatory (the reader has zero session context). Leave deliberately-uncommitted working-tree state noted, not silently dropped. |
+
+The close is a CONDUCTOR action, not a dispatch — it is the conductor's own accountable report that the run is done (or done-pending-user-action), backed by the scorecard's evidence. A plan-less run with no `human_review` tasks still closes with the scorecard, the honest status, and any run-end findings the run mode surfaces (State card §6); it simply has no HR blocks to carry.
+
+---
+
 ## Hand off — certified, or routed to recovery
 
 This card's output is a verdict on a return or a gate:
 
-- **Certified** — the return cleared §1, the review gate (§2) is clean, the cold verifier (§3) held at the feature boundary, and (at run end) the exit probes (§5) held. The run proceeds: the next dispatch goes through routing and the dispatch-wrapper; a certified run-end means the run may be declared done.
+- **Certified** — the return cleared §1, the review gate (§2) is clean, the cold verifier (§3) held at the feature boundary, and (at run end) the exit probes (§5) held. The run proceeds: the next dispatch goes through routing and the dispatch-wrapper; a certified run-end goes to run finalization (§6) — the exit scorecard, the honest status, and the surfaced Human Review blocks — before the run is reported done.
 - **Routed to recovery** — any gate detected a non-`DONE` status, a tripwire mismatch, a builder/verifier disagreement, a dead worker, or a failing probe. Open the **halt-recovery card** with the finding; it owns the Halt→Decide→Resume loop, the recovery ladder, and the resume — and a recovered/resumed return comes BACK through this card's gate before it is ever certified.
 
 Do not mark a task or a run done on this card by narrative — done is the verdict these gates produce, backed by the evidence they cite. Follow the situation table in the core protocol; this card's responsibility is to RUN the gate on every return and every quality boundary, and to route what does not pass.
