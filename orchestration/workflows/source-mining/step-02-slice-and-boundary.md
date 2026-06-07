@@ -34,7 +34,7 @@ Produce clean chunk boundaries for each source by running a Haiku boundary-detec
 For each source listed in `manifest.json["inputs"]["sources"]`, run the slicer in inspect mode to get a per-100-line density histogram:
 
 ```bash
-python "{rbtv_path}/orchestration/workflows/digest/scripts/slice.py" \
+python "{rbtv_path}/orchestration/workflows/source-mining/scripts/slice.py" \
   --source "<source-path>" \
   --inspect
 ```
@@ -85,7 +85,7 @@ WAIT for input. Record approved size per source for use in step 2.
 For each source, using the approved size from step 1:
 
 ```bash
-python "{rbtv_path}/orchestration/workflows/digest/scripts/slice.py" \
+python "{rbtv_path}/orchestration/workflows/source-mining/scripts/slice.py" \
   --source "<source-path>" \
   --out "<runtime_root>/chunks-naive/<source-basename>" \
   --size <approved-size>
@@ -182,7 +182,7 @@ WAIT for input.
 For each source:
 
 ```bash
-python "{rbtv_path}/orchestration/workflows/digest/scripts/slice.py" \
+python "{rbtv_path}/orchestration/workflows/source-mining/scripts/slice.py" \
   --source "<source-path>" \
   --out "<runtime_root>/chunks/<source-basename>" \
   --breaks "<comma-separated adjusted boundaries>"

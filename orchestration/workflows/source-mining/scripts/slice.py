@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Slice a source file into line-numbered chunks for the digest workflow.
+"""Slice a source file into line-numbered chunks for the source-mining workflow.
 
 Three modes:
 - inspect: --inspect      (print density histogram, do not slice)

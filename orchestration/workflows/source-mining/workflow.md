@@ -1,10 +1,10 @@
 ---
-name: digest
+name: source-mining
 description: Mine a long source (conversation, transcript, book) chunk-by-chunk via sub-agents to either reconcile an existing document with user fixups (reconcile mode) or produce a study note (study mode) — without the orchestrator ever reading the source directly.
 nextStep: ./step-01-init.md
 ---
 
-# Digest Workflow
+# Source-Mining Workflow
 
 **Goal:** Process a long source the orchestrator cannot read directly. Chunk it, route extraction to fresh sub-agents, and synthesize the result into either a reconciled target document (with delta) or a study note.
 
@@ -55,7 +55,7 @@ User picks mode in step-01.
 
 ## YOLO MODE
 
-`yolo_mode` is a flag captured in step-01 and persisted to `manifest.json`. Invocation: `/digest yolo`.
+`yolo_mode` is a flag captured in step-01 and persisted to `manifest.json`. Invocation: `/source-mining yolo`.
 
 | Behavior | Normal mode | YOLO mode |
 |----------|-------------|-----------|
@@ -84,7 +84,7 @@ Each step's HALT block specifies its yolo bypass behavior inline. The user-decis
 
 ## RUNTIME FOLDER
 
-All working artifacts live under `<workspace-root>/.rbtv-runtime/digest/<run-id>/` where `run-id = <YYYY-MM-DD-HHMM>-<slug>`. The folder is auto-deleted at the end of step-06 after final write succeeds.
+All working artifacts live under `<workspace-root>/.rbtv-runtime/source-mining/<run-id>/` where `run-id = <YYYY-MM-DD-HHMM>-<slug>`. The folder is auto-deleted at the end of step-06 after final write succeeds.
 
 The workflow auto-adds `.rbtv-runtime/` to workspace `.gitignore` on first run if absent.
 

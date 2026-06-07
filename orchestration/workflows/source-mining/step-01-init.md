@@ -82,7 +82,7 @@ DO NOT read content. Use `wc -l`-style metadata only (e.g., `python -c "print(su
 ### 5. Create Runtime Folder
 
 ```
-runtime_root = <workspace-root>/.rbtv-runtime/digest/<run_id>/
+runtime_root = <workspace-root>/.rbtv-runtime/source-mining/<run_id>/
 ```
 
 Create directory. On collision, append `-2`, `-3`, etc. to `run_id`.
@@ -92,7 +92,7 @@ Create directory. On collision, append `-2`, `-3`, etc. to `run_id`.
 Read workspace `.gitignore`. If it does not contain `.rbtv-runtime/`, append:
 
 ```
-# RBTV digest runtime (auto-deleted after each run)
+# RBTV source-mining runtime (auto-deleted after each run)
 .rbtv-runtime/
 ```
 
@@ -100,7 +100,7 @@ If no `.gitignore` exists, create one with the above content.
 
 ### 7. Write manifest.json
 
-Write `<runtime_root>/manifest.json`. Set `yolo` from the value passed by the command (`true` if invoked as `/digest yolo`, else `false`):
+Write `<runtime_root>/manifest.json`. Set `yolo` from the value passed by the command (`true` if invoked as `/source-mining yolo`, else `false`):
 
 ```json
 {

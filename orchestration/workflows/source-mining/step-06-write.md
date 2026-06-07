@@ -95,7 +95,7 @@ Delete `<runtime_root>/` recursively. Confirm to user:
 Runtime folder <runtime_root> deleted.
 ```
 
-If parent `.rbtv-runtime/digest/` is now empty, delete it. If `.rbtv-runtime/` itself is empty, leave it (user may have other tools using it).
+If parent `.rbtv-runtime/source-mining/` is now empty, delete it. If `.rbtv-runtime/` itself is empty, leave it (user may have other tools using it).
 
 ### 5. Step Menu
 
