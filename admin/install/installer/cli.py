@@ -31,7 +31,17 @@ from .generator import (
     install_subagent,
 )
 from .manifest import Module, load_manifest
+from .orchestration import (
+    bake_availability_line,
+    check_manual_render,
+    discover_model_packages,
+    resolve_selected_packages,
+)
 from .state import find_state_upward, read_state, write_state
+
+# The module that owns the model packages — package selection is offered only
+# when this module is installed.
+ORCHESTRATION_MODULE = "orchestration"
 
 
 def _find_rbtv_root() -> Path:
@@ -253,6 +263,82 @@ def _prompt_custom_components(
     return excluded
 
 
+def _prompt_model_packages(
+    available: list[str],
+    previous_selection: list[str] | None,
+) -> tuple[str, ...]:
+    """Interactive checkbox for orchestration model-package selection.
+
+    Each package is independently toggleable (no always-on packages). On a
+    re-install, the previous selection is pre-checked; on a first install every
+    available package is pre-checked (full install is the default).
+    """
+    from .tui import checkbox
+
+    items = []
+    for name in available:
+        if previous_selection is None:
+            pre = True
+        else:
+            pre = name in previous_selection
+        items.append({"label": name, "selected": pre})
+
+    selected_indices = checkbox(
+        "\nSelect orchestration model packages (kimi/codex/claude-cli/qwen) "
+        "to make available in this workspace:",
+        items,
+    )
+    return tuple(available[i] for i in selected_indices)
+
+
+def _resolve_model_packages(
+    rbtv_root: Path,
+    chosen_modules: tuple[str, ...],
+    requested_flag: tuple[str, ...] | None,
+    non_interactive: bool,
+    used_modules_flag: bool,
+    existing_state: dict[str, Any] | None,
+) -> tuple[list[str], list[str], list[str] | None]:
+    """Resolve which model packages this workspace elects.
+
+    Returns (installed, absent, persisted) where:
+      - installed / absent feed the availability-line bake,
+      - persisted is the list written to rbtv.json (None => key omitted, i.e. the
+        orchestration module is not installed so packages do not apply).
+
+    Selection precedence mirrors module resolution:
+      --model-packages flag > non-interactive(prev state or all) > interactive picker.
+    """
+    if ORCHESTRATION_MODULE not in chosen_modules:
+        return [], [], None
+
+    available = discover_model_packages(rbtv_root)
+    if not available:
+        # Orchestration installed but no packages shipped yet — nothing to elect.
+        return [], [], []
+
+    previous = None
+    if existing_state is not None and "model_packages" in existing_state:
+        previous = list(existing_state["model_packages"])
+
+    if requested_flag is not None:
+        requested: tuple[str, ...] | None = requested_flag
+    elif non_interactive or used_modules_flag:
+        # Scripted path: reuse prior selection if any, else elect all available.
+        requested = tuple(previous) if previous is not None else None
+    else:
+        requested = _prompt_model_packages(available, previous)
+
+    installed, absent, unknown = resolve_selected_packages(available, requested)
+    if unknown:
+        print(
+            f"\n  WARNING — unknown model package(s) ignored: {', '.join(unknown)} "
+            f"(available: {', '.join(available)})",
+            file=sys.stderr,
+        )
+    return installed, absent, installed
+
+
 def _check_plugin_prereqs() -> None:
     """Warn if Claude Code plugins required by certain RBTV menu items are missing."""
     home = Path.home()
@@ -311,7 +397,25 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Skip all prompts; use existing rbtv.json + --modules only.",
     )
+    parser.add_argument(
+        "--model-packages",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated orchestration model packages to make available "
+            "(kimi, codex, claude-cli, qwen). Omit to keep the previous selection "
+            "or elect all available packages. Empty string elects none. Only "
+            "applies when the orchestration module is installed."
+        ),
+    )
     args = parser.parse_args(argv)
+
+    # Parse the model-packages flag: None (omitted) vs an explicit (possibly empty) set.
+    requested_model_packages: tuple[str, ...] | None = None
+    if args.model_packages is not None:
+        requested_model_packages = tuple(
+            m.strip() for m in args.model_packages.split(",") if m.strip()
+        )
 
     rbtv_root = _find_rbtv_root()
     defaults = _load_defaults(rbtv_root)
@@ -378,6 +482,17 @@ def main(argv: list[str] | None = None) -> int:
         excluded_components = _prompt_custom_components(
             manifest, chosen_modules, previous_excluded
         )
+
+    # --- Resolve orchestration model packages (D18) --------------------------
+
+    mp_installed, mp_absent, mp_persisted = _resolve_model_packages(
+        rbtv_root=rbtv_root,
+        chosen_modules=chosen_modules,
+        requested_flag=requested_model_packages,
+        non_interactive=args.non_interactive,
+        used_modules_flag=bool(args.modules),
+        existing_state=existing_state,
+    )
 
     # --- Install -------------------------------------------------------------
 
@@ -450,6 +565,28 @@ def main(argv: list[str] | None = None) -> int:
     if stale_count:
         print(f"  ({stale_count} stale component(s) retired — not installed)")
 
+    # --- Orchestration: availability-line bake + render-freshness check (D18) -
+
+    if ORCHESTRATION_MODULE in chosen_modules:
+        if mp_installed or mp_absent:
+            changed, msg = bake_availability_line(rbtv_root, mp_installed, mp_absent)
+            print(f"\n  {msg}")
+        # Render-freshness check is advisory (WARN, never abort) — matches the
+        # plugin-prereq convention. A stale manual degrades gracefully (manuals
+        # are read JIT from the source repo; the routing card trusts the live
+        # folder over any baked line).
+        status, render_msg = check_manual_render(rbtv_root)
+        if status in ("stale", "error"):
+            print(f"\n  WARNING — {render_msg}", file=sys.stderr)
+            print(
+                "  Manuals are read just-in-time from the RBTV source — re-render "
+                "with:\n    python "
+                + str(rbtv_root / "orchestration" / "models" / "render-manuals.py"),
+                file=sys.stderr,
+            )
+        else:
+            print(f"  {render_msg}")
+
     # --- Write state ---------------------------------------------------------
 
     state_file = write_state(
@@ -459,6 +596,7 @@ def main(argv: list[str] | None = None) -> int:
         modules=chosen_modules,
         installed_files=installed_paths,
         excluded_components=excluded_components,
+        model_packages=mp_persisted,
     )
     print(f"\nState written to {state_file.relative_to(ctx.target_root)}")
 

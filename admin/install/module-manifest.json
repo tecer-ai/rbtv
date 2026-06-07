@@ -204,7 +204,33 @@
         "mode": "copy",
         "description": "Discoverability for rbtv-orchestrating — intake trigger bar (explicit ask, orchestration-flagged plan, ≥3 coordinated dispatches, multi-hour AFK, ≥2 worker types) + mid-task escalation (context filling, 3rd same-goal dispatch, cross-repo) + counter-list (single dispatch, quick lookups, <30-min, specialized-workflow-owned) that pulls orchestration-shaped work into the skill without the user naming it"
       }
-    ]
+    ],
+    "model_packages": {
+      "description": "Per-model CLI dispatch DOC packages (D18) for rbtv-orchestrating — NOT installed into .claude/; read just-in-time from orchestration/models/<model>/ in the RBTV source. install.py elects packages per workspace (--model-packages or the interactive picker, persisted in rbtv.json) and bakes the resulting availability line into the orchestrating core between the ORCH:AVAILABILITY markers. A directory is a model package iff it carries manifest.yaml (_fixture and mirror are infra, not packages).",
+      "source_dir": "orchestration/models",
+      "packages": [
+        {
+          "name": "kimi",
+          "manifest": "orchestration/models/kimi/manifest.yaml",
+          "description": "Kimi CLI bounded-code executor (validated) — writes/runs code, commits locally; resume via session id"
+        },
+        {
+          "name": "codex",
+          "manifest": "orchestration/models/codex/manifest.yaml",
+          "description": "OpenAI Codex CLI worker (codex exec, probe-pending) — separate-process code execution"
+        },
+        {
+          "name": "claude-cli",
+          "manifest": "orchestration/models/claude-cli/manifest.yaml",
+          "description": "Claude headless worker (claude -p, validated) — native cwd-CLAUDE.md load; CLI-driven sub-conductor (process boundary clears the nesting wall)"
+        },
+        {
+          "name": "qwen",
+          "manifest": "orchestration/models/qwen/manifest.yaml",
+          "description": "Qwen Code CLI web-capable worker (probe-pending, auth-gated) — the research-leaf executor"
+        }
+      ]
+    }
   },
   "models": {
     "description": "Per-model CLI invocation skills (Kimi, Codex, Manus) — selective install per machine. No components yet; populated by the models build task."

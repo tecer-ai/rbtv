@@ -7,6 +7,8 @@ rbtv.json records:
   - modules: list of installed module names
   - installed_files: sorted list of all files written by the installer
   - excluded_components: target paths the user chose to skip (optional)
+  - model_packages: orchestration model packages elected for this workspace
+    (optional — drives the availability line baked into the orchestrating core)
 """
 from __future__ import annotations
 
@@ -51,6 +53,7 @@ def write_state(
     modules: tuple[str, ...],
     installed_files: list[str],
     excluded_components: set[str] | None = None,
+    model_packages: list[str] | None = None,
 ) -> Path:
     """Write rbtv.json."""
     path = state_path(target_root)
@@ -63,5 +66,7 @@ def write_state(
     }
     if excluded_components:
         payload["excluded_components"] = sorted(excluded_components)
+    if model_packages is not None:
+        payload["model_packages"] = list(model_packages)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return path

@@ -51,7 +51,7 @@ Reading the table: most situations map to a card; a CLI dispatch additionally ma
 
 One line per installed model package, always in the core so routing can recall what is routable WITHOUT opening a manual (the full manual is read JIT at first dispatch). This is the recall surface the boundedness tree uses to know which workers exist; the routing card still confirms availability against the live `models/` folder (disk = truth) before assigning.
 
-The availability line below WILL be written by the installer at install time once the model-package install step is built (p4-10) — it names which packages are present in THIS workspace and which are absent. Until that installer step ships, the marker region carries its fallback text and the live `{rbtv_path}/orchestration/models/` folder is authoritative. Trust the live `models/` folder over this line on any mismatch, and log the mismatch (the routing card owns that check).
+The availability line below is written by the installer (`install.py`) at install time — it names which packages are present in THIS workspace and which are absent (the installer replaces only the content BETWEEN the `ORCH:AVAILABILITY` markers; the markers are preserved so re-install is idempotent). Until an install runs in a workspace, the marker region carries its fallback text and the live `{rbtv_path}/orchestration/models/` folder is authoritative. Trust the live `models/` folder over this line on any mismatch, and log the mismatch (the routing card owns that check).
 
 <!-- ORCH:AVAILABILITY:BEGIN -->
 > **Model packages installed:** _(populated by install.py at install time — until an install runs, treat the live `{rbtv_path}/orchestration/models/` folder as authoritative)_
