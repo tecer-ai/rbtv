@@ -1,0 +1,146 @@
+# Codex capability manifest — the routing card's data interface for the codex package.
+# Schema + field meanings + routing-card consumers: ../manifest-schema.md
+# Sources: live `codex --help` / `codex exec --help` / `codex --version` (Codex CLI 0.137.0,
+#          verified on this machine 2026-06-07) + `~/.codex/config.toml` (model = gpt-5.5,
+#          model_reasoning_effort = medium) + investor run B4D
+#          (cp-rbtv-plan-orchestration-nested-subagent-isolation-validation.md, row B4D/p4-4:
+#          the opt-in Codex backend ran as a SEPARATE OS PROCESS and gave LIVE context isolation).
+# Evidence boundary: separate-process isolation is the ONE live-proven property; the full headless
+# worker contract (return parsing, exit taxonomy, confinement reliability, resume-in-loop) is
+# UNPILOTED — hence evidence_status: probe-pending. The p5-2 smoke probe is the first real dispatch.
+# The exact invocation shape (commands, flags, sandbox/approval grammar, resume) is in ./manual.md
+# (rendered from ./delta.md by ../render-manuals.py) — this manifest points to it, never duplicates it.
+
+model: codex
+evidence_status: probe-pending   # invocable + separate-process isolation live-proven once (B4D); full headless worker contract authored from `codex exec --help`, not pilot-validated
+
+variants:
+  - variant: default   # machine config: model = gpt-5.5, model_reasoning_effort = medium; the mid-tier partially-bounded profile
+
+    # --- boundedness + sizing (routing §2, §8) ---
+    reasoning_tier: mid             # partially-bounded code/analysis with doubt_policy: halt; the boundedness-to-effort mapping for codex is UNPILOTED (probe-pending)
+    context_window: 272000          # gpt-5.5 family input budget (~272K); NOT separately discoverable from local codex config — re-confirm against the configured model before routing large inlined context
+    max_output: 128000              # gpt-5.5 family single-turn output ceiling (~128K); model/provider-determined, not exposed in local codex config
+
+    # --- budget + capability gates (routing §2, §6) ---
+    cost_class: mid                 # frontier OpenAI model via ChatGPT/API auth; mid-tier spend, above the cheap bounded-code workers
+    code_competence: strong         # Codex is a code-specialized agent (codex exec edits the work-dir under sandbox); strong code executor
+    web_access: true                # `--search` enables the native Responses web_search tool (no per-call approval) — research-leaf capable when launched with --search
+    # multimodal: [image]           # -i/--image attaches image(s) to the prompt — OMITTED until the image path is probe-validated (no validated image dispatch in the corpus)
+
+    # --- parallelism + resume (routing §8, §4) ---
+    parallel_safe: true             # independent codex exec processes are separate OS processes (B4D isolation property) — runnable concurrently under disjoint allowlists; concurrent-wave behavior on this machine is UNPILOTED, verify on first parallel use
+    resume_support: session-id      # `codex exec resume <SESSION_ID>` / `--last`; resume reliability inside a dispatch loop is UNPILOTED
+
+    # --- non-interactive run (routing §4 → dispatch-wrapper) ---
+    headless:
+      flags: "exec --ask-for-approval never"   # `codex exec` (alias `codex e`) runs non-interactively; --ask-for-approval never is MANDATORY headless (any other value stalls for human approval)
+      auto_approves_tools: true     # with --ask-for-approval never the model executes shell commands without per-call human approval (bounded by --sandbox); confinement is the sandbox + post-run diff, not an interactive gate
+      prompt_transport: either      # prompt as CLI arg OR via stdin (use `-` as prompt, or pipe; piped stdin + prompt arg → stdin appended as <stdin> block); stdin default for large prompts / Windows ARG_MAX ~32 KB
+
+    # --- auth pre-flight (routing §1 → halt-recovery USER-EXECUTED-ONLY) ---
+    auth:
+      required: true
+      method: cli-login             # `codex login` (ChatGPT sign-in, interactive) OR `printenv OPENAI_API_KEY | codex login --with-api-key`; this machine: "Logged in using ChatGPT"
+      interactive: true             # first-time ChatGPT browser login is interactive (USER-EXECUTED-ONLY); api-key path is non-interactive but still owner-provisioned
+
+    rate_budget_notes: "frontier OpenAI model — mid-tier per-dispatch spend; non-zero exit retry semantics (rate-limit/throttle vs non-retryable) are UNPILOTED on this machine, unlike kimi's documented exit-75 — on any non-zero exit reconcile disk + recover-or-surface, never blind-retry; --ignore-user-config for a spend-predictable clean run"
+
+    # --- tool surface + confinement (routing §2, §4, §8) ---
+    tool_surface:
+      native: [shell, file, web]    # model-generated shell commands (sandboxed), file read/write within scope, web via --search; MCP servers configurable (codex mcp)
+      mcp: true                     # `codex mcp` manages external MCP servers; codex can also run AS an MCP server (codex mcp-server)
+      agent_file: false             # no per-dispatch agent-file tool-restriction spec like kimi's --agent-file; tool surface is governed by --sandbox + approval policy + workspace .rules (execpolicy), not an agent file
+    confinement:
+      workspace_scope: "-C/--cd (work-dir) + --add-dir for extra writable dirs"   # primary scoping; --skip-git-repo-check only when the work-dir is not a git repo
+      tool_restriction: "--sandbox (read-only | workspace-write | danger-full-access) + --ask-for-approval; workspace .rules via execpolicy (--ignore-rules to skip)"
+      write_enforcement: git-diff-vs-allowlist   # the sandbox is real but its reliability as the sole boundary for this orchestrator is UNPILOTED — back it with post-run git diff of every changed path vs the allowlist; out-of-allowlist = halt + surface, never auto-revert
+
+    # --- invocation + failures (routing §4, §2) ---
+    invocation_pointer: ./manual.md   # rendered dispatch manual (../render-manuals.py) — the exact command shape
+    failure_modes:
+      - "headless stalls waiting for approval unless --ask-for-approval never is passed (any other value blocks a non-interactive run)"
+      - "refuses to run outside a git repo — pass --skip-git-repo-check when the work-dir is not a repo"
+      - "first-run per-project trust prompt (config [projects] trust_level) — USER-EXECUTED-ONLY pre-flight; pre-trust or run codex once interactively in the workspace, never clear it programmatically"
+      - "interactive ChatGPT login (codex login) is USER-EXECUTED-ONLY — halt + ask the owner; api-key via stdin is the non-interactive alternative"
+      - "sandbox reliability as the SOLE confinement is UNPILOTED — always back it with the post-run git diff vs allowlist"
+      - "cd does not persist between shell calls — each shell command is an independent subprocess; set --cd, never rely on cd chaining in prompts"
+      - "non-zero exit retry taxonomy is UNPILOTED (unlike kimi exit-75) — reconcile disk + recover-or-surface on any non-zero exit, never blind-retry"
+      - "final-message drop on a dropped turn is UNPILOTED — prefer --output-last-message <file> for a durable return; reconcile from disk on any garbled/absent return"
+
+    # --- guidance file (routing §4 pre-dispatch check) ---
+    guidance_file:
+      convention: AGENTS.md         # Codex natively loads the workspace AGENTS.md guidance file (the mirror machinery target)
+      mirror_entry: codex-mirror     # resolves to: python orchestration/models/mirror/mirror.py --config orchestration/models/codex/mirror-config.yaml --target <workspace>
+
+    # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
+    swarm_support:
+      subagents: false              # codex exec runs as a single worker process; no validated native sub-worker fan-out — it is itself a separate-process leaf in the topology
+      nesting: none                 # no nested codex-spawns-codex in the validated/known surface
+      default: disabled             # safe default; codex is a leaf worker, not a sub-conductor
+
+    os_quirks:
+      windows: "config [windows] sandbox = elevated; PowerShell ~32 KB single-arg ceiling — pipe the prompt via stdin (trailing `-`) for any non-trivial prompt; check $LASTEXITCODE for non-zero (taxonomy UNPILOTED — reconcile disk, do not blind-retry); stdin handling on Windows is UNPILOTED, verify on first dispatch"
+
+  - variant: high-reasoning   # -c model_reasoning_effort="high": judgment-denser work that still routes to codex
+    # inherits package-level evidence_status: probe-pending (no per-variant override — same CLI, same unvalidated worker contract, only reasoning effort differs)
+
+    # --- boundedness + sizing ---
+    reasoning_tier: top             # higher reasoning effort for judgment-dense work routed to codex; still a separate-process external-CLI worker, reviewer floors at Opus
+    context_window: 272000          # same configured model family
+    max_output: 128000              # same provider-determined ceiling
+
+    # --- budget + capability gates ---
+    cost_class: high                # high reasoning effort → higher latency + spend than the default variant
+    code_competence: strong         # same code-specialized executor
+    web_access: true                # same --search web tool
+
+    # --- parallelism + resume ---
+    parallel_safe: true
+    resume_support: session-id
+
+    # --- non-interactive run ---
+    headless:
+      flags: "exec --ask-for-approval never -c model_reasoning_effort=\"high\""   # exec + mandatory no-approval + the high-effort config override
+      auto_approves_tools: true
+      prompt_transport: either
+
+    # --- auth pre-flight ---
+    auth:
+      required: true
+      method: cli-login
+      interactive: true
+
+    rate_budget_notes: "high reasoning effort → notably higher latency + per-dispatch spend than default; same UNPILOTED exit/retry semantics — reconcile disk on any non-zero exit, never blind-retry"
+
+    # --- tool surface + confinement ---
+    tool_surface:
+      native: [shell, file, web]
+      mcp: true
+      agent_file: false
+    confinement:
+      workspace_scope: "-C/--cd (work-dir) + --add-dir"
+      tool_restriction: "--sandbox + --ask-for-approval; workspace .rules via execpolicy"
+      write_enforcement: git-diff-vs-allowlist
+
+    # --- invocation + failures ---
+    invocation_pointer: ./manual.md   # same rendered manual; the high-effort override is documented there
+    failure_modes:
+      - "headless stalls waiting for approval unless --ask-for-approval never is passed"
+      - "refuses to run outside a git repo — pass --skip-git-repo-check when the work-dir is not a repo"
+      - "sandbox reliability as the SOLE confinement is UNPILOTED — back it with the post-run git diff vs allowlist"
+      - "non-zero exit retry taxonomy is UNPILOTED — reconcile disk + recover-or-surface, never blind-retry"
+
+    # --- guidance file ---
+    guidance_file:
+      convention: AGENTS.md
+      mirror_entry: codex-mirror
+
+    # --- swarm / sub-conducting ---
+    swarm_support:
+      subagents: false
+      nesting: none
+      default: disabled
+
+    os_quirks:
+      windows: "config [windows] sandbox = elevated; pipe the prompt via stdin for non-trivial prompts; check $LASTEXITCODE (taxonomy UNPILOTED); stdin handling on Windows UNPILOTED"
