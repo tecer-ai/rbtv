@@ -51,9 +51,9 @@ This workflow spans two agents. Handoff instructions are embedded in the step fi
 
 | Step Range | Agent | Command | Responsibility |
 |------------|-------|---------|----------------|
-| 01-02 | Paul (mentor) | `@mentor` | Init, Brand Identity compilation |
+| 01-02 | Paul (mentor) | `rbtv-innovator` command | Init, Brand Identity compilation |
 | 03 | Vivian (designer) | `rbtv-designing` skill → [BV] | Visual Guidelines (color, typography, logo, imagery, iconography) |
-| 04-05 | Paul (mentor) | `@mentor` | Messaging & Tone, Synthesis |
+| 04-05 | Paul (mentor) | `rbtv-innovator` command → [C] Continue Project | Messaging & Tone, Synthesis |
 
 **Handoff flow:** Paul completes step 02 → user invokes Vivian for step 03 → Vivian completes step 03 → user invokes Paul for step 04.
 

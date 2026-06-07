@@ -347,7 +347,7 @@ ONLY when **[C] Continue** is selected:
 >
 > Instruct the user:
 >
-> *"Visual identity is complete — the brand now has a face. Messaging & Tone is Paul's domain. To continue, invoke Paul using the command `@mentor` and select **[C] Continue Project**. He'll pick up at step 04 to define how the brand sounds."*
+> *"Visual identity is complete — the brand now has a face. Messaging & Tone is Paul's domain. To continue, invoke the `rbtv-innovator` command (Paul) and select **[C] Continue Project**. He'll pick up at step 04 to define how the brand sounds."*
 >
 > Do NOT load `{nextStepFile}` yourself. The mentor agent will load it.
 

@@ -103,6 +103,45 @@ Skills and commands are ALWAYS thin loaders. No exceptions.
 | Required sections | `<objective>`, `<llm>`, `<flow>` |
 | Flow | Sequential `<step>` elements with `<substep>` children |
 
+## Agent Handoff Block
+
+Multi-agent workflows embed handoff instructions in step files at each agent boundary. The handoff block is the ONLY control-transfer mechanism between agents — the current agent NEVER loads a step owned by another agent.
+
+**Format** — a blockquote inside the step's CRITICAL STEP COMPLETION NOTE, executed ONLY when the continuing menu option is selected:
+
+```markdown
+> **AGENT HANDOFF — {target agent or module}**
+>
+> {Next step or capability} is owned by **{agent name (persona)}** — not by the current agent. You cannot execute it yourself.
+>
+> Instruct the user:
+>
+> *"{What was just locked}. To continue, invoke the `{exact-invocation-as-installed}` {skill|command} ({persona name}) and select **[{menu key}] {menu item label}**. {What the next agent will do}."*
+>
+> Do NOT load {next step file} yourself. The {target agent} loads it.
+```
+
+**Required elements:**
+
+| # | Element | Rule |
+|---|---------|------|
+| 1 | Header | Blockquote opening with `**AGENT HANDOFF — {target}**` |
+| 2 | Exact invocation | The skill or command name AS INSTALLED in the target workspace (e.g., `rbtv-designing` skill, `rbtv-innovator` command) — NEVER a persona shorthand (`@designer`, `@mentor`) or a source-repo filename |
+| 3 | Menu item | The exact menu key + label from the target agent's menu — verify it exists in `{module}/personas/{name}.md` before writing the block |
+| 4 | Prohibition | Explicit "Do NOT load {next step} yourself" line — the receiving agent loads its own steps |
+
+**Variants:**
+
+| Variant | Shape | Live example |
+|---------|-------|--------------|
+| One-way | Agent A's final step ends in handoff; control never returns | `office/workflows/pitch/steps-c/step-06-structure.md` |
+| Round-trip | Agent A → Agent B (one step) → back to Agent A; BOTH boundary steps carry a handoff block | `innovation/workflows/business-innovation/bi-m3/bi-m3-brandbook/` (steps 02 → 03 → 04) |
+| Conditional re-handoff | Handoff text branches on detected state (e.g., deck exists vs not) | `office/workflows/pitch/steps-e/step-e01-narrative.md` |
+
+Multi-agent workflow.md files MUST carry a routing table (step range → agent → exact invocation → responsibility) obeying the same invocation rule as element 2.
+
+**Rename discipline:** renaming any skill or command MUST include a repo-wide sweep of handoff blocks and routing tables for the old invocation name. Stale invocations are the defect class this pattern exists to prevent.
+
 ## Common Violations
 
 | Violation | Fix |
@@ -113,3 +152,4 @@ Skills and commands are ALWAYS thin loaders. No exceptions.
 | Fat skill with inline logic | Create a backing task or workflow file, make skill a thin loader |
 | Agent exceeds 100 lines | Externalize protocols/actions to data files |
 | Hardcoded catalog lists | Reference manifests (`tools-manifest.csv`) |
+| Stale handoff invocation (`@designer`, `@mentor`) | Use the exact installed skill/command name; sweep handoff blocks and routing tables on every rename (see Agent Handoff Block) |

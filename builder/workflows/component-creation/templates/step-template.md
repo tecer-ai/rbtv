@@ -135,7 +135,7 @@ ONLY when **[C] Continue** is selected:
 - **MANDATORY EXECUTION RULES**: Behavioral constraints
 - **MANDATORY SEQUENCE**: Numbered actions to follow
 - **Menu Options**: Standard A/P/C pattern
-- **CRITICAL STEP COMPLETION NOTE**: State update procedure
+- **CRITICAL STEP COMPLETION NOTE**: State update procedure. Agent-boundary steps in multi-agent workflows MUST embed an Agent Handoff Block here — follow `../data/component-patterns.md` § Agent Handoff Block
 
 ---
 
