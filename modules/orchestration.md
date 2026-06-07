@@ -59,6 +59,16 @@ The long-horizon work module — creating structured plans, executing them throu
 
 ---
 
+## Shared Components
+
+### Shared Authoring Core
+
+- **What**: A single source of artifact-authoring knowledge at `orchestration/workflows/_shared/authoring/`, consumed by BOTH the interactive `rbtv-planning` workflow and orchestration intake writer agents so both doors produce identical artifact contracts. It owns: the task-file contract (zero-context self-containedness, file-operation verbs, allowlists, context budgets, owner-observable acceptance criteria, and the per-model contract plug-in seam), a behavior-spec + embedded test-plan template for code work, a complexity rubric (Dependencies and Decision Density widened beyond the 1–3 scale to match observed coordination/decision load) that routes a body of work to its entry door, dependency-ordering rules with shared-file serialization, and the worker-facing `decisions.md` entry discipline (decision/rationale/scope only; append-don't-rewrite; size floor on rewrites).
+- **When to use**: Read by planning and intake when authoring task files, specs, and dependency-ordered plans — not invoked directly by users. It is authoring KNOWLEDGE (what an artifact must contain, how to size/order/discipline it), distinct from workflow MECHANICS (step sequencing, plan-document structure), which stay in the consuming workflow.
+- **Inputs / outputs**: Input — a body of work to author artifacts for. Output — task files, specs, and orderings that satisfy one shared contract regardless of which workflow or which executor model produced or runs them.
+
+---
+
 ## How They Fit Together
 
 `rbtv-planning` writes the plan → `rbtv-plan-orchestration` executes it through tiered sub-agents with per-phase review → `/rbtv-plan-shape-compact` keeps the plan's shape.md lean between sessions → `/rbtv-digest` mines the long conversations that planning and execution produce, folding decisions back into the plan or PRD.
