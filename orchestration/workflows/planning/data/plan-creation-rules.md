@@ -6,53 +6,81 @@ Knowledge file for plan creation workflow. These rules ensure consistent, high-q
 
 ## Macro Workflow for Plan Creation
 
-The 8-step process for creating any plan:
+The process for creating any plan:
 
 | Step | Action | Output |
 |------|--------|--------|
 | 1 | Gather requirements from user | Clear understanding of goals and constraints |
-| 2 | Assess complexity (5 dimensions) | Complexity score and task sizing guidance |
+| 2 | Assess complexity (shared widened rubric) | Complexity band, door, and task sizing guidance |
 | 3 | Draft plan structure | Phase breakdown with task IDs |
 | 4 | Apply dependency ordering | Tasks ordered by prerequisites |
-| 5 | Create plan file | `{plan-name}-plan.md` from template |
-| 6 | Create or merge shape.md | Check for existing shape.md (from context preservation rule); merge planning context if exists, create from universal template if not |
-| 7 | Create learnings.md | System improvement queue |
-| 8 | Generate micro-step files | `.task.md` file per complex task and per checkpoint |
-| 9 | Create deliverables.md | Artifact index — one `pending` row per task |
+| 5 | Author specs for code work (conditional) | One behavior-spec + test-plan file per code feature, from the shared spec template (see Spec Authoring below) |
+| 6 | Create plan file | `{plan-name}-plan.md` from template |
+| 7 | Create or merge decisions.md | Check for existing decisions.md (from context preservation rule); merge planning context if exists, create from the decisions template if not |
+| 8 | Create learnings.md | System improvement queue |
+| 9 | Generate micro-step files | `.task.md` file per complex task and per checkpoint |
+| 10 | Create deliverables.md | Artifact index — one `pending` row per task |
 
 ---
 
 ## Complexity Assessment
 
-> **Precedence note (interim, until p4-3).** The orchestration shared authoring core ships a WIDENED complexity rubric at `orchestration/workflows/_shared/authoring/complexity-rubric.md` (5 axes scored 1-3/1-4/1-5, max 18, bands 5-8 / 9-13 / 14-18). That widened rubric SUPERSEDES the bands in this section for any orchestration-aware planning dispatch. The full single-source rewiring of this section lands with the planning-workflow update (task p4-3); until then, when the two disagree (they diverge at scores 8, 12, 13), the widened rubric governs. The bands below are retained for backward compatibility and are not the authoritative source for orchestration runs.
+Score the plan with the **shared widened complexity rubric** — the single source for axes, bands, and doors: `{rbtv_path}/orchestration/workflows/_shared/authoring/complexity-rubric.md`. Read it and apply it directly; this section does NOT restate the axes or thresholds (they live in the rubric, and a second copy here would drift).
 
-Assess each plan across 5 dimensions. Score 1-3 per dimension.
+What the rubric gives you:
 
-### Dimension Scoring
+- Five axes (Context Size, Tool Usage, Human Review at 1-3; Dependencies at 1-4; Decision Density at 1-5), summed to a band over the 5-18 range.
+- Bands map to doors: **5-8 Simple** → conductor-led prep / single-step tasks OK, fewer micro-step files; **9-13 Moderate** → standard granularity, full micro-step files; **14-18 Complex** → fine-grained tasks, research-first pattern, interactive planning.
+- Doors are ALWAYS user-overrideable.
 
-| Dimension | 1 (Low) | 2 (Medium) | 3 (High) |
-|-----------|---------|------------|----------|
-| Context Size | <50k tokens | 50-100k tokens | >100k tokens |
-| Dependencies | Linear, clear | Some branching | Complex graph |
-| Tool Usage | 0-2 tools | 3-5 tools | 6+ tools |
-| Decision Density | Few decisions | Moderate decisions | Many architectural decisions |
-| Human Review | None needed | Optional checkpoints | Required approvals |
+Task-sizing impact by band: Simple may skip micro-step files for trivial tasks; Moderate gets a standard micro-step file per task; Complex considers a research phase and splits large tasks (Context Budgeting below).
 
-### Scoring Thresholds
+---
 
-| Total Score | Complexity Level | Task Guidance |
-|-------------|------------------|---------------|
-| 5-7 | Simple | Single-step tasks OK, fewer micro-step files |
-| 8-11 | Moderate | Standard task granularity, full micro-step files |
-| 12-15 | Complex | Fine-grained tasks, research-first pattern |
+## Orchestration-Aware Modes
 
-### Complexity Impact
+A plan MAY declare that it **will be orchestrated** — executed under an orchestration skill that dispatches its tasks to tiered workers rather than run interactively by one agent. The plan's frontmatter carries `orchestrated: true` when so. **The flag does NOT force orchestration** — the orchestration rule's own triggers decide whether a run is orchestrated; a flagged plan is one such trigger, not a command. A plan with no flag is a plain interactive plan and this whole section is skipped.
 
-| Score Range | Implications |
-|-------------|--------------|
-| 5-7 | May skip some micro-step files for trivial tasks |
-| 8-11 | Standard micro-step file per task |
-| 12-15 | Consider research phase, split large tasks |
+When `orchestrated: true`, ask the user ONE question at step-02: **DEEP or LIGHT pre-resolution.** The answer sets how much gets resolved WITH the user at planning time versus left to the workers' latitude.
+
+| Mode | What gets resolved at planning time | When to choose |
+|------|-------------------------------------|----------------|
+| **DEEP** | EVERY foreseeable doubt is resolved WITH the user, up front — long, for complex/important plans. The plan emits the full pre-resolution set below in the form the router consumes. | High-stakes, irreversible, or decision-dense work; an all-night AFK run where a mid-run halt is expensive. |
+| **LIGHT** | The user resolves only the CRITICAL questions; workers get latitude on the rest, halting to the user when they hit a hard question. | Lower-stakes or well-trodden work where over-resolution is wasted ceremony. |
+
+**HALT discipline is mode-independent.** Even a fully DEEP-resolved plan halts to the user on hard questions outside full-auto — DEEP reduces the EXPECTED number of halts, it does not forbid them. A LIGHT plan halts more often by design. Neither mode removes the worker's obligation to halt rather than guess.
+
+### DEEP-mode pre-resolution set (emit in router-consumable form)
+
+DEEP mode generalizes the validated Kimi-aware pre-resolution list (`1-projects/rbtv-evolution/orchestration/kimi/cp-workflow-rbtv-kimi-planning-orchestration.md` §B3, M1/M2) to any worker. Resolve each item WITH the user and emit it so the router reads FIELDS, never re-derives them. The consuming interface is the routing card (`{rbtv_path}/orchestration/skills/orchestrating/cards/routing.md`) — match what it reads:
+
+| Pre-resolution item | Where it lands | Router/orchestrator consumes it as |
+|---------------------|----------------|------------------------------------|
+| **Per-task executor (model, variant)** | Task frontmatter | The routing card's boundedness leaf is pre-answered — the router reads the assigned (model, variant) rather than scoring it |
+| **Per-task reviewer pin** | Task frontmatter | The reviewer-floor pin (routing §3) is pre-named; orchestrator enforces, does not pick |
+| **File allowlist per task** | Task frontmatter + body (✚ create / ✎ modify / ✗ delete) | The dispatcher's post-run diff-vs-allowlist contract (task-file-contract §4) |
+| **Validation commands per task** | Task body (exact command + expected EXIT) | The return-gate tripwire checks (verification card §1b) |
+| **Batching / serialization order** | Plan body — per shared file (`fileX: T5→T7`) and parallel-wave grouping | The routing card's batching + shared-file serialization (routing §8); dependency-ordering's serialization check |
+| **Hard-halt registry** | Plan body — the checkpoints non-overridable in autonomous mode | The orchestrator reads the list directly; autonomous mode never overrides them |
+
+LIGHT mode emits only the critical subset the user chooses to resolve; the rest are left model-bound-at-routing-time (the task is authored to the generic contract and the router scores boundedness as usual). Both modes still author every task to the **shared task-file contract** (`{rbtv_path}/orchestration/workflows/_shared/authoring/task-file-contract.md`) — orchestration-awareness adds the pre-resolution fields, it does not replace the contract.
+
+---
+
+## Spec Authoring (code work)
+
+**Code-work plans produce a spec before any executor builds.** A spec is a behavior specification with an embedded test plan — authored from the shared spec template, never invented inline here:
+
+> Spec template (the single source): `{rbtv_path}/orchestration/workflows/_shared/authoring/spec-template.md`. Read it and fill it; this section does NOT restate the template's structure.
+
+| Rule | Detail |
+|------|--------|
+| When to author a spec | The plan (or any phase of it) delivers CODE or executable behavior. A docs-only / vault-content / research plan authors no spec. |
+| One spec per feature | A **feature** = one bounded owner-observable behavior. One spec can back several task files; each backing task REFERENCES its spec rather than restating it. |
+| Where it lands | Alongside the plan's other artifacts (e.g., `specs/{feature}-spec.md` in the plan folder, or the path the plan's own structure sets) — a deliverables.md row records it. |
+| Reference, never copy | The spec is the behavior + acceptance source of truth; task files point at it. Never paste the spec body into a task file. |
+
+The spec template's Test Plan section IS the test plan (D2b unified them — there is no separate test-plan file). Its Fidelity Floor + Evidence Plausibility rules bind every criterion; fill them as the template states.
 
 ---
 
@@ -94,7 +122,7 @@ References between files inside the same plan folder MUST use file-relative path
 
 | Rule | Example | Anti-pattern |
 |------|---------|--------------|
-| Use `./` or `../` relative to the referencing file | `../shape.md`, `./phase-1/p1-1.task.md` | ❌ Absolute or root-relative path to own plan folder |
+| Use `./` or `../` relative to the referencing file | `../decisions.md`, `./phase-1/p1-1.task.md` | ❌ Absolute or root-relative path to own plan folder |
 | Task file path references are relative to the plan folder | `phase-1/p1-1.task.md` | ❌ Full path from project root |
 | NEVER embed the plan folder's absolute or root-relative path | `../learnings.md` | ❌ `{project-root}/plans/my-plan/learnings.md` |
 
@@ -190,11 +218,11 @@ Use inline Markdown task description when ALL of these apply:
 
 ## Plan Body Minimalism
 
-**MANDATORY:** The plan body must not repeat content from shape.md, micro-step files, or the task list. Reference companion files; do not duplicate them.
+**MANDATORY:** The plan body must not repeat content from decisions.md, micro-step files, or the task list. Reference companion files; do not duplicate them.
 
 | Principle | Enforcement |
 |-----------|-------------|
-| No content repetition | Context, decisions, constraints live in shape.md — not the plan body |
+| No content repetition | Context, decisions, constraints live in decisions.md — not the plan body |
 | Task list is the execution index | Phase sections state phase goal; task details are in the task list with `→ path` for micro-step files |
 | Per-task context in microsteps | Files-to-load tables belong in `.task.md` files, not the plan body |
 | Folder structure is discoverable | Agents navigate the filesystem — no need to diagram it in the plan |
@@ -204,7 +232,7 @@ Use inline Markdown task description when ALL of these apply:
 The plan file uses minimal YAML frontmatter (`name`, `overview`) and a Markdown body:
 
 1. **YAML Frontmatter**: `name`, `overview` only
-2. **Reference directive**: Pointers to shape.md and task files
+2. **Reference directive**: Pointers to decisions.md and task files
 3. **Architectural Constraints**: Plan-specific patterns and inviolable rules
 4. **Revolving Plan Rules**: Discovery handling, task modification (keep brief)
 5. **Execution Workflow** *(conditional)*: Mermaid diagram — only for non-linear plans (branching or parallel phases)
@@ -220,9 +248,9 @@ Plans adapt during execution based on discoveries.
 
 | Type | Action |
 |------|--------|
-| Simple discovery (<5 min) | Resolve immediately, document in shape.md |
-| Complex discovery (>5 min) | Add new task to plan, document in shape.md |
-| Contradiction with shaping | Document in shape.md Execution Discoveries, proceed with resolution |
+| Simple discovery (<5 min) | Resolve immediately, document in decisions.md |
+| Complex discovery (>5 min) | Add new task to plan, document in decisions.md |
+| Contradiction with shaping | Document in decisions.md Execution Discoveries, proceed with resolution |
 
 ### Task Addition
 
@@ -231,7 +259,7 @@ When adding a task during execution:
 1. Choose appropriate phase and task ID
 2. Add to the task list in the plan body
 3. Create micro-step file in correct phase folder if needed
-4. Append discovery entry to shape.md
+4. Append discovery entry to decisions.md
 5. Add a `pending` row to deliverables.md in the matching phase table
 6. Notify user: `PLAN MODIFIED: Added: {task-id} - {description}`
 
@@ -253,9 +281,9 @@ Plans executed by different agents must be self-contained:
 | Rule | Description |
 |------|-------------|
 | No references to "as discussed" | Another agent won't know what was discussed |
-| Include all context | Everything needed is in the plan + shape.md + deliverables.md + microstep files |
+| Include all context | Everything needed is in the plan + decisions.md + deliverables.md + microstep files |
 | Per-task file references | Each `.task.md` lists its own Context Files table |
-| Explain WHY | Document rationale for significant decisions in shape.md |
+| Explain WHY | Document rationale for significant decisions in decisions.md |
 
 ---
 
@@ -273,27 +301,34 @@ Each checkpoint task file contains:
 - **Review criteria** — 3-7 specific criteria derived from the phase's task descriptions, architectural constraints, and acceptance criteria
 - **Work to evaluate** — summary of what the phase produced (files created/modified, artifacts delivered)
 - **Gate behavior** — present evaluation findings to user, HALT for human approval, do not advance if user rejects
+- **decisions.md audit** — audit `decisions.md` against the entry-shape discipline (Decisions-File Discipline below): every checkpoint's review criteria include the audit checklist, and any failure is a finding
 
 The plan creator composes these review criteria at plan creation time, when full phase context is available.
 
 ---
 
+## Decisions-File Discipline
+
+The plan's worker-facing `decisions.md` carries SIGNAL that changes future work — never an execution log. The entry-shape rules, the size floor, the reminder line, and the reviewer audit checklist are the single source in the shared authoring core; the planning workflow CARRIES them, it does not re-derive them:
+
+> `{rbtv_path}/orchestration/workflows/_shared/authoring/decisions-discipline.md` — entry-shape rules (decision/rationale/scope only; never file-lists; never N→M narratives; UPDATE-not-REWRITE; routine completions excluded), the ≥50% size floor on rewrites, the Reminder Line, and the reviewer Audit Checklist.
+
+Two surfaces the planning workflow wires:
+
+| Surface | What the plan creator does |
+|---------|----------------------------|
+| **Reminder line** (generated plans + task files) | Every generated plan and `.task.md` carries the Reminder Line VERBATIM (the microstep template and plan template already embed the `decisions.md` reminder pattern). It reads: `decisions.md` entries: decision + rationale + scope ONLY — never file-lists or N→M narratives; supersede by appending, never rewrite. |
+| **Checkpoint / review audit** (UPDATE-not-REWRITE + ≥50% size floor) | Every checkpoint task's review criteria include the Audit Checklist above. The checkpoint enforces append-only maintenance: a full-file `decisions.md` rewrite is NOT routine — it requires explicit user sanction AND must retain ≥50% of the prior file's size, preserving all decisions, findings, constraints, open questions, and references. A rewrite below the floor is rejected and the original kept. |
+
+---
+
 ## Dependency Ordering
 
-**MANDATORY:** Tasks must be ordered so dependencies complete before dependents.
+**MANDATORY:** Tasks must be ordered so dependencies complete before dependents. The ordering rules, shared-file serialization, and validity checks are the single source in the shared authoring core — apply them directly:
 
-| Rule | Description |
-|------|-------------|
-| Dependencies first | If task B depends on task A's output, A must come before B |
-| CREATE before UPDATE | Can't UPDATE a file that hasn't been CREATEd |
-| Layer by dependency depth | Group tasks by how many dependencies they have |
-| Validate during creation | Check for circular dependencies and ordering violations |
+> `{rbtv_path}/orchestration/workflows/_shared/authoring/dependency-ordering.md` — ordering rules (dependencies first, CREATE before UPDATE, layer by depth, critical-path first, shared-dependencies grouped), shared-file serialization orders, and the four validity checks run before finalizing.
 
-**Validation Checks:**
-1. No task references output from a later task
-2. No circular dependencies (A→B→C→A)
-3. CREATE operations precede UPDATE operations for same file
-4. Shared dependencies grouped together when possible
+Run those validity checks during step-03; flag and resolve any violation before the structure is confirmed.
 
 ---
 

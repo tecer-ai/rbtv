@@ -5,7 +5,7 @@ overview: "{One-sentence summary of what this plan accomplishes}"
 
 # {Plan Name}
 
-> Read `shape.md` for full context, decisions, and constraints.
+> Read `decisions.md` for full context, decisions, and constraints.
 > Read `./deliverables.md` for the artifact index — where every task lands its output.
 > Task files (`→ path`) contain per-task execution instructions.
 
@@ -20,17 +20,17 @@ Patterns and principles that MUST be followed during execution.
 **Execution Rules:**
 1. Read ./deliverables.md before starting any task — it tells you the exact path your output must land at
 2. Update ./deliverables.md after delivering — flip your task's Status, confirm the Path matches what you produced
-3. Read shape.md before starting any task
+3. Read decisions.md before starting any task
 4. One task in progress at a time
 5. Dependencies are sacred — never skip prerequisite tasks
 6. Checkpoints: evaluate work against review criteria in checkpoint task file, present findings, HALT for human approval
-7. Shape is append-only and reserved for Decision/Discovery entries per the shape template — executors follow the executor-prompt's shape rule (the live, canonical source) for the binding constraint at dispatch time. Never modify previous shape entries.
+7. decisions.md is append-only and reserved for Decision/Discovery entries per the decisions template — executors follow the executor-prompt's decisions rule (the live, canonical source) for the binding constraint at dispatch time. Never modify previous decisions entries.
 8. Internal links use file-relative paths (`./`, `../`); external links use project-root-relative paths
 
 ## Revolving Plan Rules
 
-- Simple discovery (<5 min): resolve immediately, document in shape.md
-- Complex discovery: add new task to plan, document in shape.md, notify user
+- Simple discovery (<5 min): resolve immediately, document in decisions.md
+- Complex discovery: add new task to plan, document in decisions.md, notify user
 
 ## Execution Workflow
 

@@ -2,13 +2,13 @@
 
 The entry-shape discipline for the worker-facing `decisions.md` — the append-only file workers read (alongside their own task file) to pick up decisions, discoveries, and errata that affect future work. This file is the SOURCE of the discipline text; the three D13 surfaces carry it:
 
-| Surface | Carries | Lands at (build artifact — not yet shipped) |
-|---------|---------|---------------------------------------------|
-| `decisions-template.md` hard text (`orchestration/workflows/_shared/templates/decisions-template.md`) | The full discipline below, as enforced template text | created at task p4-2 — does NOT exist until then |
-| Plan + task one-line reminder (in `planning/data/plan-creation-rules.md` + generated task files) | The Reminder Line | wired at task p4-3 |
-| Reviewer audit step (the verification card already references THIS file directly) | The Audit Checklist + size-floor enforcement | wired at task p4-3 |
+| Surface | Carries | Lands at (build artifact) |
+|---------|---------|---------------------------|
+| `decisions-template.md` hard text (`orchestration/workflows/_shared/templates/decisions-template.md`) | The full discipline below, as enforced template text | shipped at task p4-2 |
+| Plan + task one-line reminder (in `planning/data/plan-creation-rules.md` § Decisions-File Discipline + generated task files) | The Reminder Line | shipped at task p4-3 |
+| Reviewer audit step (the verification card references THIS file directly; planning checkpoints carry the Audit Checklist via `plan-creation-rules.md` § Decisions-File Discipline) | The Audit Checklist + size-floor enforcement | shipped at task p4-3 |
 
-During P2-P3, this file IS the live source of the discipline — the verification/state cards reference it directly; the three carrying surfaces above are P4 deliverables that do not yet exist.
+This file is the single source of the discipline; the three carrying surfaces above reference it.
 
 Rationale (D13): the worker-facing decisions file exists to carry SIGNAL that changes future work, not an execution log. Two compounds confirmed routing confusion and rewrite-corruption when entries became narratives; this discipline is the prevention that replaced post-hoc compaction.
 

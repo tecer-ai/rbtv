@@ -1,6 +1,6 @@
 # Deliverables Template
 
-Use this template to create the `deliverables.md` companion file for each plan. Deliverables is the plan's **artifact index** — one row per task recording where that task's output lands and its current status. `shape.md` answers "why did we choose X"; `deliverables.md` answers "where is X".
+Use this template to create the `deliverables.md` companion file for each plan. Deliverables is the plan's **artifact index** — one row per task recording where that task's output lands and its current status. `decisions.md` answers "why did we choose X"; `deliverables.md` answers "where is X".
 
 ---
 
@@ -25,7 +25,7 @@ Use this template to create the `deliverables.md` companion file for each plan. 
 |------|----------|------|--------|
 | p1-1 | {What the task produces} | {Landing path} | pending |
 | p1-2 | {What the task produces} | {Landing path} | pending |
-| p1-checkpoint | Phase 1 evaluation findings + user approval | `./shape.md` (Decision entry) | pending |
+| p1-checkpoint | Phase 1 evaluation findings + user approval | `./decisions.md` (Decision entry) | pending |
 
 {One section per phase. One row per task in the plan's task list — including checkpoints and final-phase tasks (pN-refs, pN-compound, pN-checkpoint).}
 
@@ -38,7 +38,7 @@ Use this template to create the `deliverables.md` companion file for each plan. 
 A fresh agent at {synthesis-task-id} reads, in order:
 
 1. **This file (`deliverables.md`)** — the artifact index.
-2. `./shape.md` end-to-end — every Decision and Discovery; the running rationale.
+2. `./decisions.md` end-to-end — every Decision and Discovery; the running rationale.
 3. Each artifact referenced above, in document order — they build on each other.
 4. `./learnings.md` — meta-observations that may inform the synthesis.
 
@@ -60,7 +60,7 @@ A fresh agent at {synthesis-task-id} reads, in order:
 1. Create during plan creation (step-04), AFTER micro-step task files — Artifact and Path cells derive from each task's Output Requirements
 2. One row per task in the plan's task list, including checkpoints and final-phase tasks — row count MUST equal task count (step-04 validates this 1:1)
 3. **Artifact** — what the task produces, one phrase: from the task's Output Requirements (micro-step tasks) or the task description (inline tasks)
-4. **Path** — intended landing path. Internal artifacts use `./` file-relative paths; external artifacts use project-root-relative paths (Plan Linking Standard). Decision-only tasks land in `./shape.md` (Decision entry)
+4. **Path** — intended landing path. Internal artifacts use `./` file-relative paths; external artifacts use project-root-relative paths (Plan Linking Standard). Decision-only tasks land in `./decisions.md` (Decision entry)
 5. **Status** — `pending` on every row at creation
 6. Fill the synthesis section with the plan's actual synthesis task IDs and the document-order read list
 7. Derive the sub-folder list from the Path column
@@ -69,13 +69,13 @@ A fresh agent at {synthesis-task-id} reads, in order:
 
 1. **Before any task:** read this file — it tells you where your output must land
 2. **After delivering:** update your task's row — flip Status to `✅` (or `⏸ deferred` with reason) and correct the Path if the artifact landed somewhere other than planned
-3. **Status and Path cells are mutable in place** — unlike shape.md (append-only), this file is EDITED. Never append duplicate rows to record a status change
+3. **Status and Path cells are mutable in place** — unlike decisions.md (append-only), this file is EDITED. Never append duplicate rows to record a status change
 4. **Task added during execution** (revolving plan): add its row to the matching phase table with Status `pending`
 5. **Task removed during execution:** strike the row (~~strikethrough~~), mirroring the plan task list convention — never delete it
 
-### deliverables.md vs shape.md
+### deliverables.md vs decisions.md
 
-| | shape.md | deliverables.md |
+| | decisions.md | deliverables.md |
 |---|----------|-----------------|
 | Content | Decisions + discoveries + rationale | Artifact index |
 | Mutability | Append-only narrative | Mutable Status/Path cells |

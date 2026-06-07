@@ -53,13 +53,24 @@ Ask questions one at a time. Wait for response before next question.
 
 ### 3. Document Context
 
-Compile all gathered information — this will be written to shape.md during step-04.
+Compile all gathered information — this will be written to decisions.md during step-04.
 
-### 4. Prepare Companion Files Content
+### 4. Orchestration-Awareness and Code-Work Detection
+
+Two conditional questions, asked here so step-03/step-04 can act on the answers. Both are governed by `../data/plan-creation-rules.md` (§ Orchestration-Aware Modes, § Spec Authoring) — read those sections for the full behavior.
+
+**4a. Orchestration flag + mode.** Determine whether this plan **will be orchestrated** (executed under an orchestration skill that dispatches tasks to tiered workers). Triggers to watch for: an explicit ask to orchestrate, a multi-hour AFK intent, ≥3 coordinated dispatches forecast, or ≥2 worker types needed.
+
+- If orchestration is in view, set `orchestrated: true` for the plan and ask ONE question — **DEEP or LIGHT pre-resolution?** (§ Orchestration-Aware Modes gives the tradeoff: DEEP resolves every foreseeable doubt WITH the user up front and emits the full router-consumable pre-resolution set; LIGHT resolves only critical questions and leaves workers latitude). The flag does NOT force orchestration — it is one trigger; the orchestration rule routes. HALT discipline is mode-independent.
+- If orchestration is not in view, this is a plain interactive plan — skip the mode question.
+
+**4b. Code-work detection.** Scan the work for file/test/git/script/refactor/UI/backend signals. If the plan (or any phase) delivers CODE or executable behavior, flag it code-bearing — step-03/step-04 will author a behavior-spec + test-plan per feature from the shared spec template (§ Spec Authoring). A docs-only / vault-content / research plan authors no spec.
+
+### 5. Prepare Companion Files Content
 
 Gather content for companion files that will be created during finalization.
 
-**shape.md content** — Scope and shaping decisions:
+**decisions.md content** — Scope and shaping decisions:
 - Scope boundaries (IN/OUT)
 - Key decisions made during planning with rationale
 - Constraints identified
@@ -71,7 +82,7 @@ Gather content for companion files that will be created during finalization.
 - NOT for project-specific learnings
 - Will be populated during execution when user provides corrections/suggestions
 
-### 5. Present Summary
+### 6. Present Summary
 
 Display the compiled context to user:
 
@@ -80,8 +91,11 @@ Here's the complete context I've gathered for your plan:
 
 [Display compiled Context section]
 
+Orchestration: [plain interactive | orchestrated — DEEP | orchestrated — LIGHT]
+Code work: [yes — specs will be authored | no]
+
 Companion files will be created during finalization:
-- shape.md (scope, constraints, shaping decisions, discoveries, and required execution references)
+- decisions.md (scope, constraints, shaping decisions, discoveries, and required execution references)
 - learnings.md (system improvement queue for RBTV meta-learnings)
 
 Is this complete and accurate?
@@ -89,7 +103,7 @@ Is this complete and accurate?
 
 Wait for confirmation.
 
-### 6. Present Menu
+### 7. Present Menu
 
 Present the following menu and HALT. Wait for user selection.
 
@@ -115,7 +129,8 @@ On Continue selection:
 ## SUCCESS CRITERIA
 
 - ✅ All six context sections populated (problem, goals, constraints, decisions, rejected, files)
-- ✅ Content prepared for shape.md and learnings.md companion files
+- ✅ Orchestration flag + mode (DEEP/LIGHT) determined; code-work detection done
+- ✅ Content prepared for decisions.md and learnings.md companion files
 - ✅ User confirmed context is complete and accurate
 - ✅ Context is detailed enough for zero-context execution (another agent could understand without additional context)
 - ✅ Menu presented with explicit HALT

@@ -22,7 +22,7 @@ Both doors produce identical contracts because both read these files — no auth
 ## How a consumer uses the core
 
 1. Score the work with `complexity-rubric.md` → band selects the entry door (planning vs intake; full vs light prep).
-2. Author each task file to `task-file-contract.md`. Code tasks additionally get a spec authored from `spec-template.md`. (The orchestration intake writer consumes this today; the interactive `rbtv-planning` side gains its conditional spec-authoring step when the planning workflow is updated at task p4-3 — until then, the spec step is live for intake and pending for planning.)
+2. Author each task file to `task-file-contract.md`. Code tasks additionally get a spec authored from `spec-template.md`. (BOTH consumers run this step: the orchestration intake writer and the interactive `rbtv-planning` workflow, whose conditional spec-authoring step authors one spec per code feature at plan creation.)
 3. Order the task set with `dependency-ordering.md`; run the validity checks before finalizing.
 4. Carry `decisions-discipline.md` into the run's `decisions.md` surfaces so worker-facing entries stay disciplined.
 

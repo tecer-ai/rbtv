@@ -48,20 +48,7 @@ For each phase, generate tasks following granularity rules:
 
 ### 5. Assess Task Complexity
 
-For each task, assess complexity across 5 dimensions:
-
-| Dimension | Low (1) | Medium (2) | High (3) |
-|-----------|---------|------------|----------|
-| Context size | Few files | Multiple files | Many files across folders |
-| Dependencies | Standalone | Some dependencies | Complex dependency chain |
-| Tool usage | Single tool | 2-3 tools | Multiple tools with coordination |
-| Decision density | Routine | Some judgment | Many design decisions |
-| Human review need | None | Optional | Required |
-
-**Scoring thresholds:**
-- 5-7: Simple task
-- 8-11: Moderate task
-- 12-15: Complex task (consider splitting)
+Score the work with the **shared widened complexity rubric** — the single source for axes, bands, and doors: `{rbtv_path}/orchestration/workflows/_shared/authoring/complexity-rubric.md`. Apply it directly (Context Size / Tool Usage / Human Review at 1-3; Dependencies at 1-4; Decision Density at 1-5; summed over 5-18 → Simple 5-8 / Moderate 9-13 / Complex 14-18). Use the band to size tasks per `../data/plan-creation-rules.md` § Complexity Assessment.
 
 **Human review need maps directly to the task file's `human_review` frontmatter** (None → `none`, Optional → `optional`, Required → `required`). When set to `required`, the executor MUST emit a Human Review Presentation block at Phase: Close — see `step-04-generate-artifacts.md` § Setting `human_review` for the criteria. Set this dimension deliberately: under-setting hides risks; over-setting trains the user to skim flag blocks.
 
@@ -72,6 +59,21 @@ For each task, assess complexity across 5 dimensions:
 ```
 - [ ] `pN-compound` Review learnings.md and compound into system improvements
 ```
+
+### 6b. Identify Spec Features (code work)
+
+If step-02 flagged the plan code-bearing, identify the **features** — each a bounded owner-observable behavior. One spec backs each feature (one spec MAY back several task files). Plan a spec artifact per feature now; step-04 authors each from the shared spec template (`{rbtv_path}/orchestration/workflows/_shared/authoring/spec-template.md`) per `../data/plan-creation-rules.md` § Spec Authoring. Each backing task will REFERENCE its spec, never restate it. Docs-only / research plans skip this step.
+
+### 6c. DEEP-mode Pre-Resolution (orchestrated plans)
+
+If step-02 set `orchestrated: true` with **DEEP** mode, resolve the pre-resolution set WITH the user and plan where each field lands so the router reads fields, never re-derives them (`../data/plan-creation-rules.md` § Orchestration-Aware Modes — DEEP-mode pre-resolution set):
+
+- Per-task **executor (model, variant)** and **reviewer pin** → task frontmatter
+- Per-task **file allowlist** (✚/✎/✗) and **validation commands** (+ expected EXIT) → task frontmatter/body
+- **Batching / serialization order** per shared file and parallel-wave grouping → plan body
+- **Hard-halt registry** (checkpoints non-overridable in autonomous mode) → plan body
+
+**LIGHT** mode resolves only the critical subset the user chooses; the rest stay model-bound-at-routing-time. A plain (non-orchestrated) plan skips this step. HALT discipline is mode-independent in every case.
 
 ### 7. Generate Checkpoints
 
@@ -85,7 +87,7 @@ Add 3-6 checkpoints at inflection points:
 For each checkpoint, prepare the content that will go into its `.task.md` file:
 
 1. **Work to Evaluate** — summarize what the preceding phase produced (files created/modified, artifacts delivered), referencing specific paths
-2. **Review Criteria** — derive 3-7 specific criteria from the phase's task descriptions, architectural constraints, and acceptance criteria
+2. **Review Criteria** — derive 3-7 specific criteria from the phase's task descriptions, architectural constraints, and acceptance criteria; INCLUDE the decisions.md audit checklist (`../data/plan-creation-rules.md` § Decisions-File Discipline) — the checkpoint enforces UPDATE-not-REWRITE and the ≥50% size floor
 3. **Gate behavior** — evaluate against criteria, present findings, HALT for human approval
 
 ### 8. Format Task IDs

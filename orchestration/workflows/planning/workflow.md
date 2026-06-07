@@ -49,7 +49,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 | Mode | Purpose | Entry Point | Steps | Output |
 |------|---------|-------------|-------|--------|
-| Create | Build new plan from scratch | steps-c/step-01-init.md | 4 steps | Plan file (*-plan.md), shape.md, learnings.md, deliverables.md, micro-step files |
+| Create | Build new plan from scratch | steps-c/step-01-init.md | 4 steps | Plan file (*-plan.md), decisions.md, learnings.md, deliverables.md, micro-step files, spec files (code work) |
 
 **Create Mode Steps:**
 
@@ -58,7 +58,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 | 01 | step-01-init.md | Initialize, detect state, resolve output path |
 | 02 | step-02-context.md | Gather context and scope |
 | 03 | step-03-structure.md | Create phases, tasks, checkpoints |
-| 04 | step-04-generate-artifacts.md | Write all files (plan, shape, learnings, deliverables, task files), validate, summary |
+| 04 | step-04-generate-artifacts.md | Write all files (plan, decisions, learnings, deliverables, task files, specs), validate, summary |
 
 ---
 
@@ -74,7 +74,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 2. **Single action per task** — Never combine actions
 3. **Explicit file operations** — Use CREATE/UPDATE/DELETE/MOVE verbs
 4. **Zero-context plans** — Plans must be self-contained
-5. **Companion files** — Create shape.md, learnings.md, and deliverables.md alongside plan
+5. **Companion files** — Create decisions.md, learnings.md, and deliverables.md alongside plan
 6. **Micro-step files** — Generate task files with complete execution instructions
 7. **Dependency ordering** — Validate dependencies before dependents
 8. **Checkpoints required** — 3-6 checkpoints at inflection points
@@ -89,7 +89,8 @@ Load these files as needed:
 
 | File | Purpose | When to Load |
 |------|---------|--------------|
-| data/plan-creation-rules.md | Task granularity, file operations, dependency ordering, complexity assessment | During plan creation |
+| data/plan-creation-rules.md | Workflow mechanics: task granularity, file operations, complexity-band-to-door mapping, orchestration-aware modes (DEEP/LIGHT), spec-authoring trigger, decisions-file discipline wiring, checkpoints, plan linking | During plan creation |
+| `{rbtv_path}/orchestration/workflows/_shared/authoring/` | The shared authoring core — the SINGLE SOURCE of authoring knowledge the workflow consumes: `complexity-rubric.md` (axes + bands), `task-file-contract.md` (zero-context task contract), `spec-template.md` (behavior spec + test plan for code work), `dependency-ordering.md` (ordering rules + serialization + validity checks), `decisions-discipline.md` (decisions.md entry-shape rules, size floor, reminder line, audit checklist) | During plan creation — read the core file the step needs; never duplicate its content into the plan |
 
 ## OUTPUT ARTIFACTS
 
@@ -98,8 +99,9 @@ Created during finalization in `{output-path}/{plan-name}/`:
 | Artifact | Purpose |
 |----------|---------|
 | {plan-name}-plan.md | Main plan file with phases, tasks, and architectural constraints |
-| shape.md | Scope boundaries, constraints, shaping decisions, discoveries, and required execution references |
+| decisions.md | Scope boundaries, constraints, shaping decisions, discoveries, and required execution references (worker-facing; entry-shape disciplined) |
 | learnings.md | System improvement queue for RBTV meta-learnings |
 | deliverables.md | Artifact index — one row per task: where its output lands, with status |
+| {feature}-spec.md | Behavior spec + test plan per code feature (code-work plans only; from the shared spec template) |
 | phase-N/ | Folders containing micro-step task files |
 | pN-X.task.md | Micro-step files with complete execution instructions per task |

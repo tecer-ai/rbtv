@@ -15,7 +15,7 @@ Use this template to create the `learnings.md` companion file for each plan. Lea
 
 ## What Belongs Here
 
-`learnings.md` is the catch-all for findings that surface during plan execution but do NOT change plan direction (those go in `shape.md`) and are NOT a single concrete piece of project work (those go in the project's tasks file). The defining trait: every entry is **actionable** — solvable now or compoundable into a later system change. If there is no action, it is not a learning.
+`learnings.md` is the catch-all for findings that surface during plan execution but do NOT change plan direction (those go in `decisions.md`) and are NOT a single concrete piece of project work (those go in the project's tasks file). The defining trait: every entry is **actionable** — solvable now or compoundable into a later system change. If there is no action, it is not a learning.
 
 | Include | Exclude |
 |---------|---------|
@@ -122,7 +122,7 @@ For each group of related learnings:
 
 ### Creating learnings.md
 
-1. Create during plan creation alongside shape.md
+1. Create during plan creation alongside decisions.md
 2. Fill header section with plan name
 3. Leave Learning Entries section empty (template markers only)
 
@@ -139,8 +139,8 @@ For each group of related learnings:
 |---------------|-----|
 | "User wanted X feature" | Feature request — open an issue or task in the relevant system, not here |
 | "Bug in some unrelated component" | If the bug is unrelated to anything you encountered during plan execution, it belongs in that system's issue tracker — not here. Bugs DISCOVERED during plan execution DO belong here (see Include) |
-| "Project needs Z approach" | Project-specific decision, goes in `shape.md` |
-| "Task took longer than expected" | Task context, goes in `shape.md` |
+| "Project needs Z approach" | Project-specific decision, goes in `decisions.md` |
+| "Task took longer than expected" | Task context, goes in `decisions.md` |
 
 ### Examples
 
@@ -154,7 +154,7 @@ For each group of related learnings:
 > "Decided to use Redis for caching in this project."
 
 **Bad learning (no action):**
-> "Phase 3 was harder than expected." → no actionable system change → discard, or move to `shape.md` if it changes plan direction.
+> "Phase 3 was harder than expected." → no actionable system change → discard, or move to `decisions.md` if it changes plan direction.
 
 ---
 

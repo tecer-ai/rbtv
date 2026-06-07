@@ -67,7 +67,7 @@ human_review: required | optional | none
    - In the plan file, change `[ ]` to `[~]` for this task's checkbox.
    - In this task file's YAML frontmatter, change `status: pending` to `status: in_progress`.
    - In `../deliverables.md`, set this task's row Status to `in-progress` — its Path cell is where your output must land.
-3. Review shape.md Decisions and Discoveries for prior task context.
+3. Review decisions.md Decisions and Discoveries for prior task context.
 4. Confirm task requirements are clear.
 5. {Task-specific understanding steps}
 
@@ -78,7 +78,7 @@ human_review: required | optional | none
 3. {Additional steps as needed}
 
 **Discovery Handling:**
-- If simple discovery (<5 min to resolve): Resolve immediately, document in shape.md
+- If simple discovery (<5 min to resolve): Resolve immediately, document in decisions.md
 - If complex discovery: Add new task to plan, notify user of task addition
 
 ### Phase: Validate
@@ -94,12 +94,12 @@ human_review: required | optional | none
    - In the plan file, change `[~]` to `[x]` for this task's checkbox.
    - In this task file's YAML frontmatter, change `status: in_progress` to `status: completed`.
    - In `../deliverables.md`, flip this task's row Status to ✅ and confirm the Path matches what you produced.
-2. Reviewer dispatch (orchestration step-04) handles verification and user summary. Do NOT append to shape.md and do NOT wait for user approval — both are handled at the orchestrator layer.
+2. Reviewer dispatch (orchestration step-04) handles verification and user summary. Do NOT append to decisions.md and do NOT wait for user approval — both are handled at the orchestrator layer.
 3. **If `human_review: required`:** include the Human Review Presentation block in the executor's return paragraph so the orchestrator can surface it to the user. Block format and flag criteria: see `{rbtv_path}/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation, and `{rbtv_path}/orchestration/workflows/planning/data/plan-creation-rules.md` § Human Review Flag Criteria. The block is the executor's contribution to user review — the orchestrator and reviewer carry it forward, not replace it.
 
 **If executing standalone** (no orchestrator):
 
-1. Append execution entry to shape.md (never modify existing entries).
+1. Append execution entry to decisions.md (never modify existing entries).
 2. **MUST** present a brief summary to the user (max 2000 characters) of what was done. Do not mark complete until the user approves.
 3. **If `human_review: required`:** the summary MUST end with the Human Review Presentation block. Block format and flag criteria: see `{rbtv_path}/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation, and `{rbtv_path}/orchestration/workflows/planning/data/plan-creation-rules.md` § Human Review Flag Criteria. This block drives the user's review by pointing to specific items and surfacing the executor's risk assessment.
 4. After user approval, mark this task as complete in ALL locations (same turn):
@@ -121,7 +121,7 @@ human_review: required | optional | none
 ## Revolving Plan Rules
 
 **When discoveries occur:**
-- Append discovery to shape.md Decisions and Discoveries section
+- Append discovery to decisions.md Decisions and Discoveries section
 - If work is complex (>5 min), add new task to plan with next available ID
 - If work is simple, perform immediately and document
 - **MANDATORY**: In output message, clearly state any tasks added or removed
@@ -205,7 +205,7 @@ Evaluate phase deliverables against review criteria and present findings for hum
 
 | File | Purpose |
 |------|---------|
-| ../shape.md | Prior decisions and execution context |
+| ../decisions.md | Prior decisions and execution context |
 | {paths to phase deliverables} | {Work to evaluate} |
 
 ---
@@ -228,16 +228,16 @@ Evaluate each criterion. Note whether it passes, fails, or needs attention.
 ### Phase: Evaluate
 
 1. Read all files listed in Context Files
-2. Review shape.md for decisions and discoveries from this phase
+2. Review decisions.md for decisions and discoveries from this phase
 3. Evaluate deliverables against each review criterion
 4. Prepare findings summary with per-criterion assessment
 
 ### Phase: Gate
 
 1. Present findings summary to user with clear PASS/FAIL per criterion
-2. **MUST** append the Human Review Presentation block — checkpoints inherit `human_review: required` semantics. Block format and flag criteria: see `{rbtv_path}/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation, and `{rbtv_path}/orchestration/workflows/planning/data/plan-creation-rules.md` § Human Review Flag Criteria. The block points the user at specific phase artifacts and surfaces red/yellow flags drawn from phase execution evidence (executor returns, shape.md Discoveries, criterion FAILs). If no flags fire, write "None identified" with a one-line rationale.
+2. **MUST** append the Human Review Presentation block — checkpoints inherit `human_review: required` semantics. Block format and flag criteria: see `{rbtv_path}/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation, and `{rbtv_path}/orchestration/workflows/planning/data/plan-creation-rules.md` § Human Review Flag Criteria. The block points the user at specific phase artifacts and surfaces red/yellow flags drawn from phase execution evidence (executor returns, decisions.md Discoveries, criterion FAILs). If no flags fire, write "None identified" with a one-line rationale.
 3. **HALT for human approval** — do not advance regardless of findings
-4. If user rejects: document feedback in shape.md, do not advance to next phase
+4. If user rejects: document feedback in decisions.md, do not advance to next phase
 5. If user approves: mark checkpoint complete in plan task list and flip its row Status to ✅ in `../deliverables.md`
 ```
 

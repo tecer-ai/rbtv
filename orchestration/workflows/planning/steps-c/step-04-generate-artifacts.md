@@ -17,7 +17,7 @@ templateFile: ../templates/plan-template.md
 
 ## STEP GOAL
 
-Create all plan artifacts: companion files (shape.md, learnings.md, deliverables.md), micro-step task files, and the main plan file. Validate and present summary.
+Create all plan artifacts: companion files (decisions.md, learnings.md, deliverables.md), spec files (code work), micro-step task files, and the main plan file. Validate and present summary.
 
 ---
 
@@ -40,7 +40,7 @@ Create all plan artifacts: companion files (shape.md, learnings.md, deliverables
 ### 1. Load Templates
 
 Read the following templates from frontmatter paths:
-- `{decisionsTemplateFile}` — for shape.md structure
+- `{decisionsTemplateFile}` — for decisions.md structure
 - `{learningsTemplateFile}` — for learnings.md structure
 - `{deliverablesTemplateFile}` — for deliverables.md structure
 - `{microstepTemplateFile}` — for task file structure
@@ -58,15 +58,15 @@ Create phase folders inside the plan folder:
 └── phase-N/
 ```
 
-### 3. Write shape.md
+### 3. Write decisions.md
 
-**Location:** `{output-path}/{plan-name}/shape.md`
+**Location:** `{output-path}/{plan-name}/decisions.md`
 
-**Check for existing shape.md first.** The context preservation rule may have already created a shape.md during planning conversations.
+**Check for existing decisions.md first.** The context preservation rule may have already created a decisions.md during planning conversations.
 
-**If shape.md already exists:**
+**If decisions.md already exists:**
 
-1. Read the existing shape.md
+1. Read the existing decisions.md
 2. Merge planning context into it — preserve all existing content (Decisions and Discoveries entries written by the context preservation rule)
 3. Fill or update these sections from step-02 context:
 
@@ -79,19 +79,19 @@ Create phase folders inside the plan folder:
 
 4. Use Edit tool to update existing sections — never overwrite the file
 
-**If shape.md does NOT exist:**
+**If decisions.md does NOT exist:**
 
-Generate shape.md using `{decisionsTemplateFile}` with content from step-02:
+Generate decisions.md using `{decisionsTemplateFile}` with content from step-02:
 
 | Section | Content Source |
 |---------|----------------|
-| Original Shaping | Scope, key decisions, constraints from step-02 |
+| Original Shaping | Scope, key decisions, constraints from step-02 (record the orchestration flag + mode, and the code-work flag, as Key Decisions when set) |
 | User Inputs | User requirements captured during planning |
 | Collaborative Decisions | AI-user decisions made during planning |
 | Standards Applied | RBTV rules governing this plan |
 | Decisions and Discoveries | Empty — ready for append-only entries |
 
-Use Write tool to create the file.
+The decisions template carries the entry-shape HARD TEXT and the Reminder Line — do NOT strip them when filling. Use Write tool to create the file.
 
 ### 4. Write learnings.md
 
@@ -107,6 +107,18 @@ Generate learnings.md using `{learningsTemplateFile}`:
 | Compound Generation | Instructions (from template) |
 
 Use Write tool to create the file.
+
+### 4b. Write Spec Files (code work)
+
+If the plan was flagged code-bearing (step-02) and features were identified (step-03 §6b), author ONE spec per feature BEFORE generating task files — backing tasks reference the spec, so it must exist first.
+
+**Location:** `{output-path}/{plan-name}/specs/{feature}-spec.md` (or the path the plan's own structure sets).
+
+For each feature, read `{rbtv_path}/orchestration/workflows/_shared/authoring/spec-template.md` and fill it: Goal (owner-framed), Context Snapshot (interfaces/data shapes inlined with content anchors), Behavior Specification, Edge Cases & Error Behavior, Out of Scope, Test Plan (owner-observable criteria at the fidelity floor), Return Expectations. The Test Plan section IS the test plan — no separate file (D2b unified). Per § Spec Authoring in `../data/plan-creation-rules.md`: reference the template, never copy a spec body into a task file.
+
+A docs-only / vault-content / research plan authors no spec — skip this step.
+
+Use Write tool for EACH spec file individually.
 
 ### 5. Generate Micro-Step Task Files
 
@@ -140,6 +152,8 @@ human_review: {required | optional | none}
 ---
 ```
 
+**Orchestration pre-resolution frontmatter (conditional).** When the plan is `orchestrated: true` and step-03 §6c resolved the pre-resolution fields for this task (DEEP mode, or the critical subset under LIGHT), add them to the task frontmatter so the router reads fields rather than re-deriving them: `executor: {model, variant}`, `reviewer: {pin}`, and the file allowlist (✚ create / ✎ modify / ✗ delete — repeated in the body per the task-file contract). A plain (non-orchestrated) plan omits these — the task is bound to a worker at routing time. See `../data/plan-creation-rules.md` § Orchestration-Aware Modes.
+
 **Setting `human_review`:** This field controls whether the executor MUST emit a Human Review Presentation block at Phase: Close (per `plan-task-microstep-template.md`). Set it deliberately — every `required` task generates a flag block the human must read.
 
 | Value | Set when |
@@ -152,10 +166,11 @@ The flag block is mandatory ONLY when `human_review: required`. Setting it every
 
 **Content includes:**
 - Goal section — what this task achieves
-- Context Files — task-specific documents to load. **Path format:** files outside the plan folder use project-root-relative paths; files inside the plan folder use file-relative paths (e.g., `../shape.md`). See Plan Linking Standard in `plan-creation-rules.md`.
+- Context Files — task-specific documents to load. **Path format:** files outside the plan folder use project-root-relative paths; files inside the plan folder use file-relative paths (e.g., `../decisions.md`). See Plan Linking Standard in `plan-creation-rules.md`. For a code task, the Context Files reference its backing **spec** (`specs/{feature}-spec.md`) — the task points at the spec, never restates its behavior.
 - Tools section — ONLY if task requires specialized RBTV skills/sub-agents (omit for basic Read/Write/Bash tasks)
 - Execution Flow — phased steps (understand → execute → validate → close)
 - Discovery Handling — revolving plan rules
+- **Decisions-discipline reminder line** — every generated task file carries the Reminder Line verbatim (the microstep template already embeds it): `decisions.md` entries: decision + rationale + scope ONLY — never file-lists or N→M narratives; supersede by appending, never rewrite.
 - Output Requirements — what to produce and where
 
 **For checkpoint task files:**
@@ -194,7 +209,7 @@ Generate the plan document per `{templateFile}`:
 
 1. **YAML Frontmatter** — `name` and `overview` only
 2. **Title** — `# {Plan Name}`
-3. **Reference directive** — shape.md, deliverables.md, and task file pointers
+3. **Reference directive** — decisions.md, deliverables.md, and task file pointers
 4. **Architectural Constraints** — plan-specific patterns and execution rules
 5. **Revolving Plan Rules** — discovery handling (keep brief)
 6. **Execution Workflow** — Mermaid diagram from step-03, ONLY if plan is non-linear
@@ -209,9 +224,10 @@ Use Write tool to create the file.
 | Artifact | Path | Required |
 |----------|------|----------|
 | Plan file | `{output-path}/{plan-name}/{plan-name}-plan.md` | ✅ |
-| Shape file | `{output-path}/{plan-name}/shape.md` | ✅ |
+| Decisions file | `{output-path}/{plan-name}/decisions.md` | ✅ |
 | Learnings file | `{output-path}/{plan-name}/learnings.md` | ✅ |
 | Deliverables file | `{output-path}/{plan-name}/deliverables.md` | ✅ |
+| Spec files | `{output-path}/{plan-name}/specs/{feature}-spec.md` | conditional — one per feature when the plan is code-bearing; none for docs/research plans |
 | Phase folders | `{output-path}/{plan-name}/phase-{N}/` | ✅ (one per phase) |
 
 **8b. Task file references and deliverables rows resolve:**
@@ -251,7 +267,7 @@ Search all files inside the plan folder for path violations:
 2. Check if the task has a file reference (`→ path`)
 3. If yes: read that file and follow its execution phases
 4. If no: execute directly from the task description
-5. Append to shape.md only when a decision, finding, constraint, or unresolved question changes future execution
+5. Append to decisions.md only when a decision, finding, constraint, or unresolved question changes future execution
 6. After delivering: update your task's row in ./deliverables.md (Status + Path), then mark the task complete in the plan task list (`[x]`)
 ```
 
@@ -280,10 +296,11 @@ This completes the Create workflow. The plan and all supporting files are saved 
 
 - ✅ All templates loaded
 - ✅ Phase folders created
-- ✅ shape.md written with planning context (merged if pre-existing, created if not)
+- ✅ decisions.md written with planning context (merged if pre-existing, created if not), entry-shape hard text + reminder line intact
 - ✅ learnings.md written with empty structure
+- ✅ Spec files authored for each code feature (code-work plans), from the shared spec template
 - ✅ deliverables.md written — one `pending` row per task, synthesis section filled
-- ✅ Micro-step task files generated for complex tasks and checkpoints
+- ✅ Micro-step task files generated for complex tasks and checkpoints, each carrying the decisions-discipline reminder line
 - ✅ Plan file written with Markdown task list
 - ✅ Task file references link correctly (`→ path` ↔ file on disk)
 - ✅ deliverables.md rows match the task list 1:1
