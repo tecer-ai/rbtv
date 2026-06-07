@@ -1,0 +1,67 @@
+# Kimi capability manifest — DRY-RUN FILL (p3-1 working material for p3-4).
+# Source: 1-projects/rbtv-evolution/orchestration/kimi/kimi-cli-reference.md (Kimi CLI 1.41.0, verified 2026-06-03).
+# This is the schema dry-run proving every router-relevant kimi fact fits (zero unplaced facts).
+# p3-4 OWNS the final kimi package — it refines this with the package delta, mirror config, and
+# rendered manual, and confirms context_window against the live config (see note below).
+# Schema: ../manifest-schema.md
+
+model: kimi
+evidence_status: validated   # 3 hypresent sessions + 2 inni phases; the validated bounded-code executor
+
+variants:
+  - variant: default   # built-in `default` agent, ~15 tools; the validated bounded-code profile
+
+    reasoning_tier: non-reasoning   # RBTV operating model treats Kimi as a non-reasoning executor (kimi-cli-reference §12, M1) — pre-resolve every decision at planning time
+    context_window: 262144          # config max_context_size example = 256K; RBTV operates a ~250K inlined-fact budget (§11, M1). p3-4: confirm the live configured value before sizing
+    max_output: 65536               # model/config-dependent; not separately documented in the reference — p3-4 confirm against live config
+
+    cost_class: low                 # cheap bounded-code executor (learnings — Kimi engineering external to Claude budget; positioned as the cost-saving code worker)
+    code_competence: bounded        # the validated bounded-code executor (default for bounded code, routing §4)
+    web_access: true                # `default` agent includes web tools (SearchWeb, FetchURL) — strippable via agent-file exclude_tools
+
+    parallel_safe: true             # multiple independent subagent tasks run concurrently; parallel workers safe under disjoint allowlists (validated 3-/4-/6-wide)
+    resume_support: session-id      # --session <id> / --resume; also --continue for the work-dir's previous session
+
+    headless:
+      flags: --quiet                # alias for --print --output-format text --final-message-only → prints only the final message
+      auto_approves_tools: true     # --print/--quiet implicitly enable --afk: every tool call auto-approved, no native allowlist (§2 warning)
+      prompt_transport: either      # --prompt/-p arg OR stdin pipe ("instruction" | kimi --print); stdin stream-json must be valid JSONL
+
+    auth:
+      required: true
+      method: cli-login             # `kimi login` (interactive) — one-time setup
+      interactive: true             # login is interactive — run manually (USER-EXECUTED-ONLY pre-flight)
+
+    rate_budget_notes: "exit 75 = retryable (rate limits, timeouts, 5xx) → back off and retry same task; exit 1 = non-retryable (config/auth/quota) → halt; Ralph mode (--max-ralph-iterations -1) runs unbounded, cap for any autonomous dispatch"
+
+    tool_surface:
+      native: [shell, file, search, web, plan]   # `default` agent ~15 tools incl. Shell, file read/write, search, web, plan mode
+      mcp: true                     # kimi mcp add / --mcp-config / --mcp-config-file (repeatable); stdio servers need command on PATH
+      agent_file: true              # --agent-file YAML (agent_spec_versions ["1"]): explicit `tools` list or `exclude_tools`
+
+    confinement:
+      workspace_scope: "--work-dir (repo root) + --add-dir for extra dirs"   # primary scoping control; keep the set minimal
+      tool_restriction: "agent-file tools / exclude_tools (e.g. strip web/network for offline tasks)"
+      write_enforcement: git-diff-vs-allowlist   # NO native path allowlist — post-run git diff of every changed path vs the task allowlist is the only reliable enforcement; out-of-allowlist = halt + surface, never auto-revert
+
+    invocation_pointer: ./manual.md   # rendered dispatch manual (p3-2 render step) — exact command shape
+    failure_modes:
+      - "headless (--print/--quiet/--afk/--yolo) auto-approves every tool call — no interactive gate, no native allowlist; enforce scope externally"
+      - "no native path allowlist — out-of-scope writes caught only by post-run diff; always diff"
+      - "cd does not persist between shell calls — each shell command is an independent subprocess; set --work-dir, never rely on cd chaining"
+      - "image input fails unless the configured model has the image_in capability"
+      - "work-dir disappearance mid-session → crash report + exit; recover via session id"
+      - "stream-json input strictness — must be valid JSONL, UTF-8, \\n endings, one object per line"
+      - "Ralph mode runaway — --max-ralph-iterations -1 loops unbounded; cap it for any autonomous dispatch"
+
+    guidance_file:
+      convention: AGENTS.md         # Kimi loads the workspace agent guidance file (the mirror machinery target)
+      mirror_entry: kimi-mirror      # generalized from .user/runtime/scripts/kimi-mirror.py (p3-3 mirror machinery)
+
+    swarm_support:
+      subagents: true               # root agent launches subagents via the Agent tool (coder / explore / plan)
+      nesting: one-level            # subagents cannot use the Agent tool — only the root spawns subagents (bounds blast radius to one level)
+      default: disabled             # swarm_policy default disabled (rbtv-kimi-code-orchestration); enable only for disjoint-allowlist independent slices
+
+    os_quirks:
+      windows: "PowerShell invocation; pipe prompt via stdin or --prompt; check $LASTEXITCODE for 0/1/75 retry logic"

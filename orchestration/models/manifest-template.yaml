@@ -1,0 +1,74 @@
+# Capability-manifest template — copy to models/{model}/manifest.yaml and fill.
+# Schema + field meanings + routing-card consumers: ./manifest-schema.md
+# Format is YAML so the routing card (an LLM conductor) reads each field with its
+# inline comment. Fill every REQUIRED field with an evidence-traceable value;
+# unknown required values mean the package is not ready to ship (no placeholders).
+# Replace every <...>. Delete OPTIONAL blocks that do not apply. Keep the comments.
+
+model: <package id — must equal the models/{model}/ folder name, e.g. kimi>
+evidence_status: <validated | probe-pending>   # package-level; per-variant override allowed below
+
+variants:
+  - variant: <variant id, unique within model, e.g. default | thinking | fast>
+
+    # --- boundedness + sizing (routing §2, §8) ---
+    reasoning_tier: <non-reasoning | mid | top>   # non-reasoning=bounded/mechanical only; mid=partially-bounded w/ halt; top=judgment-dense
+    context_window: <int tokens — usable input budget; sizes inlined context before split>
+    max_output: <int tokens — max single-turn output>
+
+    # --- budget + capability gates (routing §2, §6) ---
+    cost_class: <cheapest | low | mid | high>     # budget filter + cheapest-capable tiebreaker
+    code_competence: <none | bounded | strong>    # none=not a code executor; picks kimi-vs-codex
+    web_access: <true | false>                    # research-leaf gate
+    # multimodal: [image]                         # OPTIONAL — non-text inputs accepted; omit if text-only
+
+    # --- parallelism + resume (routing §8, §4) ---
+    parallel_safe: <true | false>                 # concurrent instances under disjoint allowlists
+    resume_support: <none | session-id | continue>  # how a halted dispatch resumes the SAME session
+
+    # --- non-interactive run (routing §4 → dispatch-wrapper) ---
+    headless:
+      flags: <the headless/print invocation, e.g. --quiet>
+      auto_approves_tools: <true | false>         # does headless mode auto-approve every tool call (confinement burden)
+      prompt_transport: <arg | stdin | either>    # how the prompt reaches the worker (host-limit input)
+
+    # --- auth pre-flight (routing §1 → halt-recovery USER-EXECUTED-ONLY) ---
+    auth:
+      required: <true | false>
+      method: <cli-login | api-key | none>
+      interactive: <true | false>                 # first-time auth needs a human (USER-EXECUTED-ONLY)
+
+    # rate_budget_notes: <throttle/quota/budget gotchas, e.g. exit 75 = retryable throttle>  # OPTIONAL
+
+    # --- tool surface + confinement (routing §2, §4, §8) ---
+    tool_surface:
+      native: [<built-in tool families, e.g. shell, file, web>]
+      mcp: <true | false>                         # accepts MCP servers
+      agent_file: <true | false>                  # supports a per-dispatch agent/guidance spec that constrains tools
+    confinement:
+      workspace_scope: <flag(s) that scope it, e.g. --work-dir + --add-dir>
+      tool_restriction: <how to strip tools, e.g. agent-file exclude_tools — or "none">
+      write_enforcement: <reliable post-run check, e.g. git-diff-vs-allowlist>
+
+    # --- invocation + failures (routing §4, §2) ---
+    invocation_pointer: ./manual.md               # rendered dispatch manual for the exact command shape
+    failure_modes:
+      - <known failure the conductor pre-empts, e.g. headless auto-approves all tools — no native allowlist>
+      # - <e.g. cd does not persist between shell calls>
+      # probe-pending package with no validated failures: leave as []
+
+    # --- guidance file (routing §4 pre-dispatch check) ---
+    # guidance_file:                              # OPTIONAL — omit if the worker loads no workspace guidance file
+    #   convention: <filename the worker natively loads, e.g. AGENTS.md | CLAUDE.md>
+    #   mirror_entry: <mirror-machinery entry point that generates/syncs it>
+
+    # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
+    swarm_support:
+      subagents: <true | false>                   # can it launch its own subagents
+      nesting: <none | one-level>                 # depth it allows
+      default: <enabled | disabled>               # safe default posture
+
+    # os_quirks:                                  # OPTIONAL — omit if none
+    #   windows: <Windows-specific invocation note, e.g. pipe prompt via stdin; exit-75 = retry>
+
+    # evidence_status: <validated | probe-pending>  # OPTIONAL per-variant override; omit to inherit package-level
