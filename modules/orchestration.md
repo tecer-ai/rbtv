@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The long-horizon work module — creating structured plans, executing them through tiered sub-agents, keeping plan context lean, and mining long sources the orchestrator can't read directly. These components make multi-session, multi-agent work repeatable: a plan written today runs without the original conversation, and execution is delegated with per-phase review instead of done in one fragile context.
+The long-horizon work module — creating structured plans, executing them through tiered sub-agents, and mining long sources the orchestrator can't read directly. These components make multi-session, multi-agent work repeatable: a plan written today runs without the original conversation, and execution is delegated with per-phase review instead of done in one fragile context.
 
 ---
 
@@ -47,18 +47,6 @@ The long-horizon work module — creating structured plans, executing them throu
 
 ---
 
-### `/rbtv-plan-shape-compact`
-
-- **What**: Reviews a plan `shape.md` and compacts it in place so it contains only decisions, findings, constraints, unresolved questions, and required references for future execution agents. It removes routine work logs, stale progress notes, duplicate context, and process chatter.
-- **When to use**: A plan shape has grown context-heavy or mixes "what happened" with information that actually changes future execution.
-- **How to invoke**: `/rbtv-plan-shape-compact` — provide a `shape.md` path or a plan directory.
-- **Inputs / outputs**:
-  - Input: path to `shape.md` or a plan directory containing `shape.md`
-  - Output: approved in-place rewrite of the shape document, after a review summary and user confirmation
-- **Example**: `/rbtv-plan-shape-compact 1-projects/my-plan/shape.md` → Claude classifies entries as keep/drop/rewrite, presents compaction risk, then applies the approved compacted shape.
-
----
-
 ### `/rbtv-source-mining`
 
 - **What**: Processes a long source (conversation export, transcript, book chapter, long document) that the orchestrator Claude cannot read directly due to context limits. It chunks the source, dispatches sub-agents to extract decisions or concepts from each chunk, groups the results, and synthesizes them into either a **reconciled document** (updates an existing doc with session decisions + user line-comments) or a **study note**. The orchestrator never reads the source — only sub-agents do.
@@ -84,4 +72,4 @@ The long-horizon work module — creating structured plans, executing them throu
 
 ## How They Fit Together
 
-`rbtv-orchestrating` is the general front door for long-horizon, multi-agent work — it ingests a plan or a goal, routes each task to the right worker, and gates every return; `rbtv-planning` writes the plans it ingests. `rbtv-plan-orchestration` is the earlier non-code plan executor (tiered sub-agents, per-phase review) that the general skill supersedes; it remains installed while the general capability's surgery completes. `/rbtv-plan-shape-compact` keeps a plan's shape lean between sessions, and `/rbtv-source-mining` mines the long conversations that planning and execution produce, folding decisions back into the plan or PRD.
+`rbtv-orchestrating` is the general front door for long-horizon, multi-agent work — it ingests a plan or a goal, routes each task to the right worker, and gates every return; `rbtv-planning` writes the plans it ingests. `rbtv-plan-orchestration` is the earlier non-code plan executor (tiered sub-agents, per-phase review) that the general skill supersedes; it remains installed while the general capability's surgery completes. `/rbtv-source-mining` mines the long conversations that planning and execution produce, folding decisions back into the plan or PRD.
