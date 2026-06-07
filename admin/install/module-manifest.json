@@ -171,6 +171,12 @@
     "description": "Long-horizon work orchestration — structured planning, plan execution via tiered sub-agents, plan-shape compaction, and long-source digestion.",
     "skills": [
       {
+        "source_template": "orchestration/skills/orchestrating/SKILL.md",
+        "target": ".claude/skills/rbtv-orchestrating/SKILL.md",
+        "bake": ["rbtv_path"],
+        "description": "General orchestration — route tasks to the right worker, dispatch with self-contained artifacts + state spine, verify every return against disk, recover from halts; single front door including standalone CLI-model dispatch (kimi/codex/claude-cli/qwen). Thin loader → always-loaded core-protocol (invariants + situation table + installed-model capability summary) → JIT cards (intake, routing, dispatch-wrapper, halt-recovery, verification, state)"
+      },
+      {
         "source_template": "orchestration/skills/planning/SKILL.md",
         "target": ".claude/skills/rbtv-planning/SKILL.md",
         "bake": ["rbtv_path"],
