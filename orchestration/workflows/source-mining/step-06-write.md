@@ -19,7 +19,7 @@ Write final outputs to vault locations and clean up the runtime folder.
 
 ## MANDATORY EXECUTION RULES
 
-- 🛑 RECONCILE MODE: target docs are OVERWRITTEN. Trust git for v1 record.
+- 🛑 RECONCILE MODE: target docs are OVERWRITTEN. Trust git for the prior-version record.
 - 🛑 STUDY MODE: study doc is a NEW file at user-confirmed destination.
 - 🧹 ALWAYS auto-delete `<runtime_root>` after final write succeeds.
 - 🔧 Invoke `sb-vault-ops` skill before vault writes; invoke `sb-vault-integrity` after creating new files.

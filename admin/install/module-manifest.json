@@ -232,9 +232,6 @@
       ]
     }
   },
-  "models": {
-    "description": "Per-model CLI invocation skills (Kimi, Codex, Manus) — selective install per machine. No components yet; populated by the models build task."
-  },
   "builder": {
     "description": "Building RBTV itself — guided component creation/editing and the source-of-truth rule protecting installed copies.",
     "skills": [
