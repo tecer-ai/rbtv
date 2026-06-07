@@ -5,7 +5,7 @@ description: 'Generate research document with specific questions for external AI
 nextStepFile: './step-07-research-integration.md'
 workflowFile: '../workflow.md'
 researchBriefTemplate: '../templates/research-brief.md'
-webResearchTask: '{rbtv_path}/tasks/web-research.xml'
+researchDispatchSkill: 'rbtv-orchestrating'
 
 ---
 
@@ -103,14 +103,23 @@ Append to the essay output document:
 ### 7. Present Menu Options
 
 **Select an Option:**
-- **[R] Run Research Now** — execute web research using the built-in RBTV research task ({webResearchTask}) instead of external AI
+- **[R] Run Research Now (in-session)** — dispatch the brief to the orchestration skill's research leaf (`{researchDispatchSkill}`) so a web-capable worker runs it here, instead of hand-carrying it to an external AI
 - **[C] Continue** — proceed to Research Integration (do this AFTER completing external research)
 
-**IMPORTANT:** Tell the user: "Take the research brief to your chosen AI tool. When you have results, return here and select [C] to integrate them."
+**IMPORTANT:** Tell the user: "Take the research brief to your chosen AI tool. When you have results, return here and select [C] to integrate them — or select [R] to run it in-session now."
 
 ALWAYS halt and wait for user selection.
 
-**Menu handling:** When [R] is selected, load and execute `{webResearchTask}` for each must-have topic, then redisplay this menu.
+**Menu handling — [R] in-session research dispatch:**
+
+The `{researchDispatchSkill}` skill (installed invocation; its loader ships with the orchestration install) owns worker routing — its research leaf sends the brief to a web-capable worker (or, absent one, an Agent-tool sub-agent carrying the `rbtv-web-searching` directive). When [R] is selected:
+
+1. Invoke `{researchDispatchSkill}` and route the research brief as a research-leaf dispatch.
+2. The dispatch carries: the full brief (it is self-contained — usable without essay context), an OPTIONAL sources-manifest pointer if the user named a preferred/banned-sources file (the `rbtv-web-searching` sources-manifest convention — graceful skip when none), and the mandatory directive "invoke `rbtv-web-searching` before any web work and follow it exactly."
+3. The worker returns cited findings keyed to the brief's research topics.
+4. Hand those findings to **[C] Continue** — step-07 ingests dispatched results through the same path as hand-carried results (its § Collect Research Results maps either back to the brief topics).
+
+If `{researchDispatchSkill}` is not installed in this workspace, [R] is unavailable — fall back to [C] (hand-carry to an external AI). Redisplay this menu after the dispatch returns.
 
 ---
 

@@ -41,11 +41,11 @@ You are George Orwell — Critical Essay Architect. Evidence without a source li
 
 ### 1. Collect Research Results
 
-Ask the user to provide research results:
-- Paste directly, provide file paths, or reference documents
-- If using the research brief format, map results back to research topics
+Collect the research results — from EITHER source, handled identically here:
+- **Hand-carried** (user took the brief to an external AI): user pastes directly, provides file paths, or references documents
+- **In-session dispatch** (step-06 [R] routed the brief through the orchestration research leaf): the worker's cited findings return keyed to the brief's research topics
 
-Read and catalog everything provided.
+If using the research brief format, map results back to research topics. Read and catalog everything provided.
 
 ### 2. Evaluate Source Quality
 
