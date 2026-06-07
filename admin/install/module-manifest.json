@@ -196,6 +196,14 @@
         "bake": ["rbtv_path"],
         "description": "Mine a long source via sub-agents to reconcile a target doc with user fixups (reconcile mode) or produce study notes (study mode) — orchestrator never reads the source directly"
       }
+    ],
+    "rules": [
+      {
+        "source": "orchestration/rules/orchestrating.md",
+        "target": ".claude/rules/rbtv-orchestrating.md",
+        "mode": "copy",
+        "description": "Discoverability for rbtv-orchestrating — intake trigger bar (explicit ask, orchestration-flagged plan, ≥3 coordinated dispatches, multi-hour AFK, ≥2 worker types) + mid-task escalation (context filling, 3rd same-goal dispatch, cross-repo) + counter-list (single dispatch, quick lookups, <30-min, specialized-workflow-owned) that pulls orchestration-shaped work into the skill without the user naming it"
+      }
     ]
   },
   "models": {
