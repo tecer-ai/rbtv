@@ -30,27 +30,47 @@ Instantiate this as `run-log.md` in the run's spine location at spine init (inta
 
 ### D-register (orchestrator rulings)
 
+> ID format: `D1`, `D2`, … (bare `D` + integer, no hyphen). Cited as "per D-N" in prose.
+
 | ID | Decision | Rationale | Scope (which queued work it affects) |
 |----|----------|-----------|--------------------------------------|
+<!-- example: D1 | chose X over Y | Z constraint | affects p3-4, p3-5 -->
 
 ### U-register (unilateral decisions — autonomous mode)
 
 | ID | Confidence | Decision | Why decided unilaterally | User might have chosen | Risk accepted | Reversibility |
 |----|-----------|----------|--------------------------|------------------------|---------------|---------------|
+<!-- example: U1 | low | defaulted flag to false | autonomous mode, no user reachable | true | minor rework | revert commit -->
 
 ### ADX-register (errata)
 
+> ID format: `ADX-1`, `ADX-2`, … (the `ADX-` prefix + integer). Cited as "per ADX-N". Numbers are claimed from this register atomically before the erratum is written (state card §6).
+
 | ID | Erratum | Task(s) amended | Logged-from event |
 |----|---------|-----------------|-------------------|
+<!-- example: ADX-1 | use the v2 endpoint | p3-8 | doubt ruling 2026-06-07 -->
+
+
+### Precondition Overrides
+
+> Each `[PRECONDITION-OVERRIDE]` row (halt-recovery §6) — its fields do not fit the Event Log's five columns, so they land here. The Event Log carries a one-line `override` event pointing to the matching row below.
+
+| ID | PRECONDITION (verbatim) | User justification (verbatim) | Protective-scope result | Confidence | Risk accepted | Reversibility |
+|----|-------------------------|-------------------------------|-------------------------|-----------|---------------|---------------|
+<!-- example: OV1 | "MUST NOT dispatch until p1b closed" | "p1b output not needed by these reads" | intersection empty | medium | stale-context | per-output drift markers -->
 
 ---
 
 ## Event Log
 
-> Registrar discipline (state card §7): append a row when a dispatch goes OUT and when its result comes BACK. Re-read this tail after any context gap before dispatching again. Event types: `dispatch` · `return` · `gate` (return-gate / review / cold-verifier) · `probe` · `drift` · `recovery` · `override`.
+> Registrar discipline (state card §7): append a row when a dispatch goes OUT and when its result comes BACK. Re-read this tail after any context gap before dispatching again. Event types (use ONLY these — ad-hoc names destroy grep-ability): `dispatch` · `return` · `gate` (return-gate / review / cold-verifier) · `probe` · `drift` · `recovery` · `override` (precondition-override) · `handover` (USER-EXECUTED-ONLY step handed to the user; Outcome = the verbatim ask + confirmation status).
 
 | Timestamp | Event | Task / Batch | Worker | Outcome |
 |-----------|-------|--------------|--------|---------|
+<!-- example: 2026-06-07T14:02Z | dispatch | p2-9 | sonnet (agent-tool) | sent -->
+<!-- example: 2026-06-07T14:48Z | return  | p2-9 | sonnet (agent-tool) | DONE — reconciled vs disk -->
+<!-- example: 2026-06-07T15:10Z | handover | p4-x | — | "user: run install.py" — awaiting confirmation -->
+
 
 ---
 
@@ -81,4 +101,4 @@ These bind every entry the orchestrator appends. The full discipline lives in ON
 
 ## Render note
 
-This template is instantiated mechanically at spine init — copy the fenced block, substitute `{run-name}` and the timestamp, and write it to the spine location. No section is optional at init: the empty registers and event log are filled as the run proceeds. The two leading callouts (append-only + dual-write) are part of the file and MUST survive instantiation — they are what keep the audience boundary and the dual-write rule visible at the point of use.
+This template is instantiated mechanically at spine init — copy the fenced block, substitute `{run-name}` and the timestamp, and write it to the spine location. No section is optional at init: the empty registers and event log are filled as the run proceeds. The U-register and the Precondition Overrides table stay EMPTY in non-autonomous, no-override runs — an empty table there is the expected state, not a defect; they are retained for uniformity so any run's log has the same shape. The two leading callouts (append-only + dual-write) are part of the file and MUST survive instantiation — they are what keep the audience boundary and the dual-write rule visible at the point of use.

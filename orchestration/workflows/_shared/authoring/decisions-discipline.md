@@ -2,11 +2,13 @@
 
 The entry-shape discipline for the worker-facing `decisions.md` — the append-only file workers read (alongside their own task file) to pick up decisions, discoveries, and errata that affect future work. This file is the SOURCE of the discipline text; the three D13 surfaces carry it:
 
-| Surface | Carries | Lands at |
-|---------|---------|----------|
-| `decisions-template.md` hard text | The full discipline below, as enforced template text | p4-2 |
-| Plan + task one-line reminder | The Reminder Line | p4-3 |
-| Reviewer audit step | The Audit Checklist + size-floor enforcement | p4-3 |
+| Surface | Carries | Lands at (build artifact — not yet shipped) |
+|---------|---------|---------------------------------------------|
+| `decisions-template.md` hard text (`orchestration/workflows/_shared/templates/decisions-template.md`) | The full discipline below, as enforced template text | created at task p4-2 — does NOT exist until then |
+| Plan + task one-line reminder (in `planning/data/plan-creation-rules.md` + generated task files) | The Reminder Line | wired at task p4-3 |
+| Reviewer audit step (the verification card already references THIS file directly) | The Audit Checklist + size-floor enforcement | wired at task p4-3 |
+
+During P2-P3, this file IS the live source of the discipline — the verification/state cards reference it directly; the three carrying surfaces above are P4 deliverables that do not yet exist.
 
 Rationale (D13): the worker-facing decisions file exists to carry SIGNAL that changes future work, not an execution log. Two compounds confirmed routing confusion and rewrite-corruption when entries became narratives; this discipline is the prevention that replaced post-hoc compaction.
 
@@ -24,7 +26,7 @@ Rationale (D13): the worker-facing decisions file exists to carry SIGNAL that ch
 
 ## Size floor on rewrites
 
-Routine maintenance of `decisions.md` is append-only. A full-file rewrite (the only sanctioned exception, via the maintenance-compaction path) MUST preserve at least 50% of the prior file's size. A rewrite that drops below the ≥50% floor is presumed to have discarded signal — it is rejected, and the original is kept. Decisions, findings, constraints, unresolved questions, and required references must all survive any compaction.
+Routine maintenance of `decisions.md` is append-only — a full-file rewrite is NOT a routine operation (the old plan-shape-compact procedure that once owned it is dissolved under D13: prevention via this discipline replaces post-hoc compaction). If a rewrite is ever genuinely needed, it requires explicit user sanction AND MUST preserve at least 50% of the prior file's size. A rewrite that drops below the ≥50% floor is presumed to have discarded signal — it is rejected, and the original is kept. Decisions, findings, constraints, unresolved questions, and required references must all survive any rewrite.
 
 ## Reminder Line
 
@@ -40,4 +42,5 @@ The reviewer runs this against every `decisions.md` it audits; any failure is a 
 2. No entry enumerates files changed.
 3. No entry narrates a count change (N→M).
 4. No earlier entry was rewritten or deleted (history is append-only).
-5. If the file was compacted this cycle, it retained ≥50% of its prior size and preserved all decisions, findings, constraints, open questions, and references.
+5. If the file was rewritten this cycle, it retained ≥50% of its prior size and preserved all decisions, findings, constraints, open questions, and references.
+6. No entry is a routine completion ("Created file X", "updated config Y") — every entry would change future work within one month (Rule 5). A `decisions.md` full of completion logs FAILS this check even when each line is decision-shaped.

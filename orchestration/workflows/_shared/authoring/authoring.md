@@ -14,7 +14,7 @@ Both doors produce identical contracts because both read these files — no auth
 | File | Owns |
 |------|------|
 | `task-file-contract.md` | What a self-contained, zero-context task file MUST contain — granularity, file-operation verbs, context budgets, checkpoint criteria, and the per-model contract plug-in seam |
-| `spec-template.md` | The behavior-spec + test-plan template (NEW) — code-work plans and plan-less intakes both fill it before any executor builds |
+| `spec-template.md` | The behavior-spec + test-plan template (NEW) — code-work plans and plan-less intakes both fill it before any executor builds. D2b's "spec template + test-plan template" are UNIFIED here: the test plan is the spec-template's Test Plan section, not a separate file. There is no standalone test-plan-template.md. |
 | `complexity-rubric.md` | The widened complexity rubric — scores a body of work across weighted axes and routes it to a band (simple / moderate / complex door) |
 | `dependency-ordering.md` | How to order tasks so every dependency lands before its dependents, plus the ordering-validity checks |
 | `decisions-discipline.md` | The entry-shape discipline for the worker-facing `decisions.md` — the text the three D13 surfaces (template, plan reminder, reviewer audit) carry |
@@ -22,7 +22,7 @@ Both doors produce identical contracts because both read these files — no auth
 ## How a consumer uses the core
 
 1. Score the work with `complexity-rubric.md` → band selects the entry door (planning vs intake; full vs light prep).
-2. Author each task file to `task-file-contract.md`. Code tasks additionally get a spec authored from `spec-template.md`.
+2. Author each task file to `task-file-contract.md`. Code tasks additionally get a spec authored from `spec-template.md`. (The orchestration intake writer consumes this today; the interactive `rbtv-planning` side gains its conditional spec-authoring step when the planning workflow is updated at task p4-3 — until then, the spec step is live for intake and pending for planning.)
 3. Order the task set with `dependency-ordering.md`; run the validity checks before finalizing.
 4. Carry `decisions-discipline.md` into the run's `decisions.md` surfaces so worker-facing entries stay disciplined.
 

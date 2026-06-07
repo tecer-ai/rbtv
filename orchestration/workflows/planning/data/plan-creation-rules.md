@@ -24,6 +24,8 @@ The 8-step process for creating any plan:
 
 ## Complexity Assessment
 
+> **Precedence note (interim, until p4-3).** The orchestration shared authoring core ships a WIDENED complexity rubric at `orchestration/workflows/_shared/authoring/complexity-rubric.md` (5 axes scored 1-3/1-4/1-5, max 18, bands 5-8 / 9-13 / 14-18). That widened rubric SUPERSEDES the bands in this section for any orchestration-aware planning dispatch. The full single-source rewiring of this section lands with the planning-workflow update (task p4-3); until then, when the two disagree (they diverge at scores 8, 12, 13), the widened rubric governs. The bands below are retained for backward compatibility and are not the authoritative source for orchestration runs.
+
 Assess each plan across 5 dimensions. Score 1-3 per dimension.
 
 ### Dimension Scoring

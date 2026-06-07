@@ -41,9 +41,11 @@ A task file says WHAT to do and HOW to confine the worker (the task-file contrac
 |---|------------------------------|------------------------|----------------------------|-------------------|
 | 1 | {what the owner will see work} | {the real input/gesture, at the fidelity floor} | {the visible result} | {file written during the exercise — screenshot, output capture, log} |
 
+> Every criterion obeys the **Fidelity floor** + **Evidence plausibility** rules stated below this template block — exercise at the real-app floor, capture a file on disk during the exercise, and reject physically-impossible metrics. (Repeated here inside the block so a fill-from-template author does not miss them.)
+
 **Fidelity floor for every criterion:** the real application running whole, on the owner's real data when one exists; UI criteria use a visible browser + real input, never synthetic `dispatchEvent`. Evidence is a file on disk written DURING the exercise — a prose claim alone does not satisfy a criterion. A genuinely undriveable criterion is marked `unexercisable` with the concrete blocker, never silently skipped.
 
-**Evidence plausibility:** metrics in test evidence must be physically plausible (a browser e2e under 1s, an OS-dialog test under 1.5s, are auto-reject + rerun). Exit 0 plus an evidence file is not proof if the metrics are impossible.
+**Evidence plausibility:** metrics in test evidence must be physically plausible. The concrete bars below are HEURISTIC DEFAULTS (calibrate per project — they are starting thresholds, not a measured constant): a browser e2e under ~1s, an OS-dialog test under ~1.5s, are auto-reject + rerun. Exit 0 plus an evidence file is not proof if the metrics are impossible. (These same bars are applied at run time by the verification card's §1b WALL_MS tripwire, which references this section — this is their single home.)
 
 ## Return Expectations
 {What the executor reports back: files changed, validation commands run + their exit codes + any skips with reasons, local commit hash if committed, concerns, blockers. The report is a hint; the repo state is the truth.}

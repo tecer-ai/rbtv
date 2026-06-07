@@ -4,7 +4,7 @@ Opened when routing has produced an assignment — a chosen (model, variant, age
 
 Iron rules it serves (from the core protocol): **no dispatch without a self-contained task artifact** (this card packages an artifact that already satisfies the task-file contract — it never authors one), and **disk = truth: every return is reconciled against repo state** (the return schema and the post-return rule below exist because the message is a hint, not the truth — five resumed-Kimi sessions drifted to prose while the work had landed correctly on disk; the orchestrator caught all five only by verifying `git` state, never the message).
 
-This card is GENERATED-SOURCE. Sections marked with render markers below are consumed verbatim by the manual render script (p3-2); per-model insertion points are named where a model's delta plugs in. Edit packaging behavior HERE — never in a rendered manual.
+This card is GENERATED-SOURCE. Sections marked with render markers below are consumed verbatim by the manual render script (`{rbtv_path}/orchestration/models/render-manuals.py`, built in P3 — until it ships, the rendered manuals do not yet exist and CLI dispatch falls back per the routing card); per-model insertion points are named where a model's delta plugs in. Edit packaging behavior HERE — never in a rendered manual.
 
 ---
 
@@ -64,7 +64,7 @@ Every dispatch carries this addendum in its header. These are the obligations th
 | **Allowlist boundary** | Create / modify / delete ONLY the files in the task's allowlist. Out-of-allowlist file ops are not silently wrong but are NOT silent — they force conductor review (the conductor diffs actual changes against the allowlist on return). State the allowlist in the dispatch even though the task file also carries it. |
 | **Halt / doubt policy** | On ambiguity the task does not resolve, HALT and return `DOUBT_ESCALATED` (or `NEEDS_CONTEXT`) — never guess, never improvise past a doubt. A fully-bounded task should contain no ambiguity; if the worker hits one, the task was under-specified and the conductor needs to know. |
 | **Evidence-file requirement** | Capture validation evidence as FILES on disk during the work (command output, logs, screenshots for UI), not as prose claims in the reply. For CLI workers the return message is lossy at session end (documented: a completed dispatch returned a garbage final message while the commit had landed) — evidence on disk is what survives. The `validation` field cites what was run; the captures are the proof. |
-| **Commit discipline** | Commits go through `rbtv-commit` (routing pins this to a commit-capable worker — CLI workers are kept OFF commits by default). Local commits only; NEVER push. When the worker is authorized to commit: validation passes first, the commit message follows the run's mandated convention, and the returned commit hash must match what is actually in `git log` (the conductor checks the message string and the hash, not just the file list). |
+| **Commit discipline** | Commits go through `rbtv-commit` (routing pins this to a commit-capable worker — CLI workers are kept OFF commits by default). Local commits only; NEVER push. A CLI worker is authorized to self-commit ONLY when its task file / model delta explicitly grants it (the default is no self-commit; the kimi package's delta is where a code-executing worker's local-commit authorization is declared). When the worker IS authorized: validation passes first, the commit message follows the run's mandated convention, and the returned commit hash must match what is actually in `git log` (the conductor checks the message string and the hash, not just the file list). |
 | **Forbidden operations** | Honor the task's forbidden-ops list (no pushes, no writes outside the allowed work-dir, no destructive git resets, no external production API calls unless the task explicitly allows a mocked/local one). |
 
 The addendum is GENERIC. A model package's delta MAY add model-specific obligations on top (e.g., a worker that must be told not to write stray files in the repo root, or a swarm-policy constraint) — it plugs in at the insertion point below and NEVER restates the generic obligations.
@@ -86,7 +86,7 @@ The worker returns exactly these five fields:
 |-------|---------|
 | **`status`** | EXACTLY one of: `DONE` · `DONE_WITH_NOTES` · `BLOCKED` · `DOUBT_ESCALATED` · `NEEDS_CONTEXT`. No other value is valid. |
 | **`landed`** | What actually changed on disk: files created/modified/deleted, and the commit hash(es) if the worker committed. This is the claim the conductor reconciles against `git status` / `git log`. |
-| **`validation`** | Each validation performed: the command run, its `EXIT` code, its `WALL_MS` (wall-clock duration), and any skipped check WITH its reason. A skip without a reason is a contract violation. Empty validation on a code task is itself a flag. |
+| **`validation`** | Each validation performed: the command run, its `EXIT` code, its `WALL_MS` (wall-clock duration), and any skipped check WITH its reason. The sub-field `SKIPPED_COUNT` carries the number of checks skipped (0 when none); any skip it counts MUST carry a per-skip reason — a skip without a reason, or `SKIPPED_COUNT > 0` with no reasons, is a contract violation. Empty validation on a code task is itself a flag. |
 | **`concerns`** | Anything the worker noticed that the conductor should weigh — risks, smells, partial confidence, adjacent issues spotted but not fixed. Distinct from blockers: concerns did not stop the work. |
 | **`open_questions`** | Questions the worker could not resolve and that bear on this or downstream work. For `DOUBT_ESCALATED` / `NEEDS_CONTEXT` this carries the precise question that halted the work. |
 
@@ -97,8 +97,8 @@ The worker returns exactly these five fields:
 | `DONE` | Every contracted outcome met; nothing to surface | Reconcile against disk, then proceed (verification card owns the gate). |
 | `DONE_WITH_NOTES` | Work landed, but `concerns` / `open_questions` carry items worth the conductor's attention | Reconcile, then weigh the notes before proceeding. |
 | `BLOCKED` | Work could not be completed — an external obstacle, a failed validation that the worker cannot resolve | Route recovery (recovery card); do NOT mark the task done. |
-| `DOUBT_ESCALATED` | The worker hit an ambiguity and stopped rather than guess; `open_questions` holds the doubt | Resolve the doubt (halt-to-user or a doc-reader), then re-dispatch — never accept a guess in its place. |
-| `NEEDS_CONTEXT` | The task lacked something the worker needed to proceed (a missing file, an unstated decision) | Supply the context (amend the task file + log it), then re-dispatch. |
+| `DOUBT_ESCALATED` | The worker hit an ambiguity and stopped rather than guess; `open_questions` holds the doubt | Resolve the doubt (halt-to-user or a doc-reader), then **resume** per halt-recovery §2 (same CLI session via `-r` where supported; a fresh re-dispatch for an Agent-tool worker that has no session) — never accept a guess in its place. Halt-recovery owns the resume-vs-re-dispatch choice. |
+| `NEEDS_CONTEXT` | The task lacked something the worker needed to proceed (a missing file, an unstated decision) | Supply the context (amend the task file + log it), then resume / re-dispatch per halt-recovery §2. |
 
 ### Transport — same fields, two carriers
 
@@ -108,6 +108,7 @@ The schema is identical across workers; only HOW the fields arrive differs by wo
 |-------------|-----------|
 | **Agent-tool helper (Claude sub-agent)** | The five fields ARE the final reply — the sub-agent writes them as its return message; there is no separate file channel required. |
 | **CLI worker (`kimi`, `codex exec`, `claude -p`, `qwen`, …)** | The fields appear in the worker's final message AND the evidence they cite is on disk as files. The final message is treated as a HINT; the disk state and the cited evidence files are the truth the conductor reconciles. |
+| **sdd composite dispatch (`superpowers:subagent-driven-development`)** | sdd is ONE composite dispatch wrapped by the outer gates (routing §5). Its outer-wrapper return carries the five fields as the in-session final reply — same as the Agent-tool row — over its whole code body; its internal TDD sub-structure is not surfaced as separate returns. |
 
 <!-- RENDER:INSERT model-transport-note -->
 <!-- The model package delta names this worker's exact return surface (e.g., the CLI's final-message flag, the evidence-file convention) here. The fields above never change. -->
@@ -115,7 +116,7 @@ The schema is identical across workers; only HOW the fields arrive differs by wo
 
 ---
 
-## 4. Tripwires as field checks (D8 / D29)
+## 4. Tripwires as field checks (D8)
 
 Because the return is named-field, evidence-integrity tripwires are mechanical checks against the schema — not prose judgement. Run these on every return before trusting `status`:
 
@@ -123,9 +124,11 @@ Because the return is named-field, evidence-integrity tripwires are mechanical c
 |----------|-------------|
 | **Phantom commit** | `landed` claims a commit hash → that hash MUST appear in `git log` of the work-dir. Absent → the commit was never made; treat as not-done. |
 | **Implausible speed** | `validation` `WALL_MS` is implausibly small for the work claimed (e.g., a full suite reporting near-zero ms) → the check did not really run; re-exercise it. |
-| **Silent skip** | Any `validation` entry skipped without a stated reason, OR `SKIPPED_COUNT` > 0 unexplained → the gate did not pass; do not accept `DONE`. |
-| **Message ≠ state** | `landed` / `validation` disagree with `git status` / `git log` → **state wins**, and the discrepancy is logged in `run-log.md`. A return whose message contradicts the disk is a drift instance, recorded as one. |
+| **EXIT codes** | Every `validation` entry's `EXIT` MUST be present and `0` (or an explicitly-explained non-zero the task sanctions). A missing or unexplained non-zero `EXIT` → the gate did not pass; do not accept `DONE`. |
+| **Silent skip** | Any `validation` entry skipped without a stated reason, OR `SKIPPED_COUNT` > 0 unexplained → the gate did not pass; do not accept `DONE`. (`SKIPPED_COUNT` is the `validation` sub-field §3 defines for the count of skipped checks.) |
 | **Commit-message drift** | A committed task whose commit message dropped the mandated convention string → flag it (the convention is load-bearing for audits), even when the file list is correct. |
+
+The five field checks above are the parseable-return tripwires; the verification card runs them in its §1b table verbatim (same five). One further tripwire — **Message ≠ state** (`landed` / `validation` disagree with `git status` / `git log` → **state wins**, discrepancy logged in `run-log.md` as a drift instance) — is NOT a §1b field check but the repo-state RECONCILIATION verification performs in its §1c (it compares the parsed fields against the live disk, not within the return). It is named here so the worker knows its message is reconciled against disk; verification owns where it runs.
 
 These checks are the field-level form of "disk = truth." The verification card owns when and how the conductor acts on a tripwire; this card's job is to make the return PARSEABLE so the checks are mechanical.
 
@@ -154,7 +157,7 @@ No per-model knowledge is needed for the Agent-tool path: the model delta and th
 
 ## 7. Composing a CLI dispatch — generic template + model delta
 
-For a CLI worker, the dispatch manual is GENERATED at build time: the render script composes the generic sections of this card (the `RENDER:BEGIN/END` blocks above) with the model package's delta at the named `RENDER:INSERT` points, producing the model's full dispatch manual under `{rbtv_path}/orchestration/models/{model}/`. At run time the conductor opens that rendered manual (JIT, at first dispatch to the model), not this card.
+For a CLI worker, the dispatch manual is GENERATED at build time: the render script (`{rbtv_path}/orchestration/models/render-manuals.py`) composes the generic sections of this card (the `RENDER:BEGIN/END` blocks above) with the model package's delta at the named `RENDER:INSERT` points, producing the model's full dispatch manual under `{rbtv_path}/orchestration/models/{model}/`. At run time the conductor opens that rendered manual (JIT, at first dispatch to the model), not this card.
 
 What the model delta supplies at the insertion points:
 

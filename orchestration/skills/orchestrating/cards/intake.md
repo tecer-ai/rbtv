@@ -27,7 +27,7 @@ Before anything else, confirm the run is viable and capture what the doors need:
 
 | Check | Action |
 |-------|--------|
-| Work is multi-step | A single dispatch, a quick lookup, or a <~30-min task is below the orchestration bar — say so and stop. The module rule's counter-list governs this; do not orchestrate work it excludes. |
+| Work is multi-step | A quick lookup or a trivial <~30-min task is below the orchestration bar — say so and stop. The module rule's counter-list (`{rbtv_path}/orchestration/rules/orchestrating.md`) governs this; do not orchestrate work it excludes. EXCEPTION — a single named-model CLI dispatch (the SKILL's advertised "use kimi for X" front door) IS in scope at minimal ceremony: it still needs a task artifact + spine, but skips the door selector and the full question round. This is distinct from a "quick lookup" (no artifact, no model dispatch), which stays out. |
 | Workspace identified | Resolve the target workspace (where the work and its artifacts live). Read its root `CLAUDE.md` for placement conventions. |
 | Inputs located | Plan door: locate the plan + its companion artifacts. Goal door: capture the goal prompt and any files/data it points at. |
 | Guidance-file presence noted | If code work will route to a CLI worker, note whether the workspace carries that worker's guidance file (`AGENTS.md`, agent file, etc.). A missing one is surfaced at routing, not invented here. |
@@ -38,24 +38,27 @@ There is NO code-vs-non-code hard redirect at intake. Code work is routed, not r
 
 ## 2. Choose the entry door (scored)
 
-Two doors lead to the same dispatch protocol; the difference is only how the dispatchable artifacts come to exist (D2).
+Two ORTHOGONAL decisions, taken in this order — do not conflate them:
+
+1. **Artifact presence decides the DOOR first.** A `rbtv-planning` plan already on disk → **Plan ingest**, full stop (the rubric below does NOT override an existing plan — a plan that scores "Complex" is still ingested, not re-planned). No plan → **Goal-prompt intake**, and only THEN does the prep-level selector apply.
+2. **The prep-level selector applies ONLY to the goal-prompt branch** — it sets how much ceremony the authoring takes, not which door.
 
 | Door | When | What happens |
 |------|------|--------------|
-| **Plan ingest** | `rbtv-planning` artifacts already exist (plan + `shape.md`/`decisions.md` + task files) | Ingest them directly: read the full plan and its companion, map phases to tasks. The artifacts ARE the work surface — no authoring needed. |
-| **Goal-prompt intake** | No plan exists — only a goal prompt | Dispatch writer agents to author the spec + task files from the goal, following the shared authoring core. The authored artifacts become the work surface. |
+| **Plan ingest** | `rbtv-planning` artifacts already exist (plan + `shape.md`/`decisions.md` + task files) | Ingest them directly: read the full plan and its companion, map phases to tasks. The artifacts ARE the work surface — no authoring needed; the selector is skipped. |
+| **Goal-prompt intake** | No plan exists — only a goal prompt | Score the prep level (below), then author the spec + task files from the goal following the shared authoring core. The authored artifacts become the work surface. |
 
-**Selector (D2a).** Score the body of work with the shared complexity rubric at `{rbtv_path}/orchestration/workflows/_shared/authoring/complexity-rubric.md`. Read the rubric; do not reproduce its axes or bands here. The band it returns selects the door:
+**Prep-level selector (D2a) — goal-prompt branch only.** Score the body of work with the shared complexity rubric at `{rbtv_path}/orchestration/workflows/_shared/authoring/complexity-rubric.md`. Read the rubric; do not reproduce its axes or bands here. The band it returns sets the prep level:
 
-| Band | Door | Behavior |
-|------|------|----------|
-| Simple | Conductor-led prep | Author the artifacts yourself (lightest prep); proceed. |
-| Moderate | ASK the user which door | Surface the score and ask whether to do conductor-led prep or escalate to interactive planning. |
+| Band | Prep level | Behavior |
+|------|------------|----------|
+| Simple | Conductor-led prep, IN-SESSION | The conductor authors the task/spec artifacts itself, in-session (no writer-agent dispatch) — lightest prep — then proceeds. Authoring the dispatchable ARTIFACT is intake scaffolding, NOT the deliverable: core Invariant 1 bars writing the user's output, not preparing the dispatchable surface. |
+| Moderate | ASK the user which prep | Surface the score and ask whether to do conductor-led prep (in-session) or escalate to interactive planning. |
 | Complex / decision-dense | Interactive `rbtv-planning` with the user | Hand off to `rbtv-planning` to resolve the plan WITH the user before any execution. |
 
-All bands are user-overrideable: state the score and the door it selected, and accept an explicit override without re-scoring.
+All bands are user-overrideable: state the score and the prep level it selected, and accept an explicit override without re-scoring.
 
-**Goal-door authoring.** When authoring (conductor-led prep, or the moderate door's prep choice), the writer agents follow the shared authoring core — task-file contract, spec template for code work, dependency ordering, and `decisions.md` discipline — at `{rbtv_path}/orchestration/workflows/_shared/authoring/`. They read that core; this card does not restate its contracts. Order the authored task set by the core's dependency-ordering rules and run its validity checks before the set is considered dispatchable.
+**Goal-door authoring — in-session vs dispatched.** Simple band → the conductor authors in-session itself (no writer-agent dispatch). Moderate-prep (when the user chooses conductor-led prep) → the conductor MAY dispatch writer agents to author the artifacts; a writer-agent dispatch goes through the normal routing → dispatch-wrapper path like any other dispatch (it is not a special intake mechanism). Whether authored in-session or dispatched, the writer follows the shared authoring core — task-file contract, spec template for code work, dependency ordering, and `decisions.md` discipline — at `{rbtv_path}/orchestration/workflows/_shared/authoring/`. They read that core; this card does not restate its contracts. Order the authored task set by the core's dependency-ordering rules and run its validity checks before the set is considered dispatchable.
 
 ---
 
@@ -67,7 +70,7 @@ Every run gets the three-file spine before dispatch (D12). The State card owns t
 |------|----------------|
 | `run-log.md` | New, empty append-only audit log. The run's first event rows land here. |
 | `state-capsule.md` | New, with the resume point set to "intake complete," an empty delegation map (filled at routing), and empty active-red-sets / active-doubts sections. |
-| `decisions.md` | Plan-backed run: REUSE the plan's `decisions.md` (do not create a second one). Plan-less run: create a new empty `decisions.md` here at intake. |
+| `decisions.md` | Plan-backed run: REUSE the plan's worker-facing decisions file (do not create a second one) — `decisions.md` for a plan authored after the D13 rename, or `shape.md` for a plan authored before it (the rename lands at p4-2; plans built earlier, including this build's own, carry `shape.md`). Match the filename the plan actually carries. Plan-less run: create a new empty `decisions.md` here at intake. |
 
 **Where the spine lives.**
 
@@ -87,7 +90,8 @@ Fires at EVERY run, no exception (D6). Ask whether any model should be swapped t
 | Element | Content |
 |---------|---------|
 | The ask | "Any model to swap to save this run, or run at the default tiers?" |
-| Spend forecast | A delegation map showing projected spend PER MODEL for the planned work. Forecast basis: per-role token costs from `1-projects/rbtv-evolution/orchestration/learnings/learnings-kimi-worker.md` (worker dispatch sizes, run durations) and the costs in the companion `learnings-claude-subagents.md`. |
+| Sketch the provisional map | Routing has not run yet, so the map is PROVISIONAL: assign each phase/work-cluster its DEFAULT tier from the core capability summary (the boundedness default — bounded code → the validated CLI executor, judgment work → a top-tier Claude, review → the pinned reviewer floor), without the full per-task routing the routing card does later. The user approves a ceiling / swap POLICY against this sketch, not a finalized assignment; routing re-surfaces the binding map at step 8. |
+| Spend forecast | A delegation map showing projected spend PER MODEL for the planned work. Forecast basis: per-role token costs from `1-projects/rbtv-evolution/orchestration/learnings/learnings-kimi-worker.md` (worker dispatch sizes, run durations) and the costs in the companion `learnings-claude-subagents.md`. These two files carry kimi + Claude cost evidence only; for a model with NO cost corpus (codex / claude-cli / qwen — proven-once or install-in-build), flag its line as ESTIMATE-ONLY rather than inventing a number, and refine from the per-package manifest `cost class` once those packages ship. |
 | Timing | The map is provisional at intake (routing finalizes assignments) — present it as the spend the user is approving, and re-surface the final map at step 8. |
 
 The budget answer feeds routing's BUDGET filter; a model swap the user approves here is the standing delegation map for the run.
@@ -152,7 +156,9 @@ If the user confirms without naming a refresh setting, record `context_refresh: 
 
 ## 8. Confirm and hand off to routing
 
-Echo back the run's shape in one pass, then proceed:
+First, **re-write `state-capsule.md` (atomic overwrite) with the now-finalized run configuration** — the capsule was initialized at step 3 before the run mode (step 7), budget answer (step 4), and code backend (step 5) existed; this step writes them in (run mode, context-refresh setting, the approved delegation map). The State card owns the atomic-overwrite mechanics.
+
+Then echo back the run's shape in one pass, then proceed:
 
 - Door taken (plan ingest / goal-prompt intake) and the rubric score that selected it.
 - Spine location (and, for a plan-less no-repo workspace, the flagged no-commit condition).

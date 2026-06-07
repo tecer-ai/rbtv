@@ -26,7 +26,7 @@ Instantiate this as `state-capsule.md` in the run's spine location at spine init
 - **Run mode:** {halt | end-to-end | autonomous}
 - **Context-refresh:** {suggest | off}
 - **Plan path:** {absolute plan path — or NONE (plan-less run)}
-- **Decisions file:** {path to decisions.md}
+- **Decisions file:** {the ONE resolved path — for a plan-backed run, the plan's worker-facing file INSIDE the plan folder (`decisions.md`, or `shape.md` for a pre-D13-rename plan); for a plan-less run, the `decisions.md` INSIDE the spine folder. Never both, never ambiguous.}
 
 ## Approved Delegation Map
 
@@ -40,10 +40,10 @@ Instantiate this as `state-capsule.md` in the run's spine location at spine init
 
 ## Active Red Sets
 
-> Test files whose failures are PLANNED (a RED task landed; its GREEN pair has not). Halt-recovery §5 registers and retires these; a failure IN this list does not halt, a failure NOT in it still halts. Self-expiring — a retired green removes its row.
+> Test files whose failures are PLANNED (a RED task landed; its GREEN pair has not). Halt-recovery §5 registers and retires these; a failure IN this list does not halt, a failure NOT in it still halts. Self-expiring — a retired green removes its row. Format: ONE test-file path per row, relative to the work-dir root — EXACT paths only, never globs (the gate-exclusion match is exact-path, so a glob would over- or under-exclude).
 
-| Red set (test files) | Registered by (RED task) | Retires when (GREEN task) |
-|----------------------|--------------------------|---------------------------|
+| Red set (test file — exact path) | Registered by (RED task) | Retires when (GREEN task) |
+|----------------------------------|--------------------------|---------------------------|
 
 ## Active Doubts / Blockers
 
@@ -70,4 +70,4 @@ Instantiate this as `state-capsule.md` in the run's spine location at spine init
 
 ## Render note
 
-This template is instantiated mechanically at spine init — copy the fenced block, substitute `{run-name}` and the timestamp, write it to the spine location, and set the resume point to "intake complete." The leading callouts (mutable-overwrite + audience) are part of the file and MUST survive instantiation — they keep the mutability boundary and the not-a-worker-surface rule visible at the point of use.
+This template is instantiated mechanically at spine init — copy the fenced block, substitute `{run-name}` and the timestamp, write it to the spine location, and initialize the Resume Point: **Last completed** = "intake complete", **Next dispatch** = the first task/batch routing will assign, **Last update** = the init timestamp. The leading callouts (mutable-overwrite + audience) are part of the file and MUST survive instantiation — they keep the mutability boundary and the not-a-worker-surface rule visible at the point of use.

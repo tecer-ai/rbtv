@@ -51,19 +51,19 @@ Size the context a task loads; split when it will not fit.
 |-----------------|--------|
 | < 50k tokens | Single task, proceed |
 | 50–100k tokens | Consider splitting; state the reasoning |
-| > 100k tokens | MUST split — a research task produces a ~10–20k summary, downstream tasks consume the summary, not the raw sources |
+| > 100k tokens | MUST split. A research task splits by producing a ~10–20k summary that downstream tasks consume instead of the raw sources. A non-research over-budget task splits by decomposing into smaller bounded slices (per `dependency-ordering.md`), each under budget — NEVER by truncating inlined context (truncation breaks self-containedness). |
 
-## 6. Checkpoint / acceptance criteria
+## 6. Acceptance criteria
 
 Acceptance criteria are ALWAYS owner-observable or worker-runnable outcomes — never an internal assertion the worker cannot exercise. Each criterion states the gesture and the visible result: "when done, running `X` produces `Y`" or "the owner opens `Z` and sees `W`". A task whose only "criterion" is "works" or "looks right" is malformed.
 
 ## 7. Return contract
 
-Every task names the fields the worker returns: status, files changed (+ commit hash if committed), validation run (commands + exit + skips with reasons), concerns, blockers/open questions. The return MESSAGE is a hint; disk state is the truth — the dispatcher reconciles the message against the repo before trusting it (`learnings-kimi-worker.md` §S3.2).
+Every task names the five fields the worker returns — the SAME schema the dispatch-wrapper fixes (`orchestration/skills/orchestrating/cards/dispatch-wrapper.md` §3 is the single source for the exact field names): `status` · `landed` (files changed + commit hash if committed) · `validation` (commands + EXIT + WALL_MS + skips with reasons) · `concerns` · `open_questions` (the precise blocker/doubt when halting). Use those exact field names — do not rename them. The return MESSAGE is a hint; disk state is the truth — the dispatcher reconciles the message against the repo before trusting it (`learnings-kimi-worker.md` §S3.2).
 
 ## 8. Per-model contract plug-in seam
 
-This file is the GENERIC contract — model-independent. Each model package (`orchestration/models/{model}/`) extends it with a model delta that adds ONLY what that worker needs on top of §1–§7: required frontmatter fields, invocation-specific constraints (workdir, commit policy, swarm policy), and binding dispatch addenda (e.g., the Kimi root-files ban + evidence-file mandate, `learnings-kimi-worker.md` §5). The delta NEVER restates the generic contract — it plugs in. The dispatch-wrapper composes generic contract + model delta at dispatch time. A task authored for a specific model satisfies §1–§7 AND its model delta; a model-agnostic task satisfies §1–§7 and is bound to a model at routing time.
+This file is the GENERIC contract — model-independent. (This seam is forward-wiring: the model packages it plugs into land in P3 — until a given `orchestration/models/{model}/` package ships, the generic contract §1–§7 stands alone and a task is model-bound at routing time without a delta.) Each model package (`orchestration/models/{model}/`) extends it with a model delta that adds ONLY what that worker needs on top of §1–§7: required frontmatter fields, invocation-specific constraints (workdir, commit policy, swarm policy), and binding dispatch addenda (e.g., the Kimi root-files ban + evidence-file mandate, `learnings-kimi-worker.md` §5). The delta NEVER restates the generic contract — it plugs in. The dispatch-wrapper composes generic contract + model delta at dispatch time. A task authored for a specific model satisfies §1–§7 AND its model delta; a model-agnostic task satisfies §1–§7 and is bound to a model at routing time.
 
 ---
 

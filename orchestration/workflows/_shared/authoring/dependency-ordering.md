@@ -26,6 +26,6 @@ Run all four before finalizing the ordered task set:
 1. No task references the output of a LATER task.
 2. No circular dependencies (A→B→C→A).
 3. CREATE precedes UPDATE for the same file.
-4. Every shared file has a declared serialization order covering all tasks that touch it.
+4. Every shared file has a declared serialization order — written in the plan document (per Shared-file serialization above) — covering all tasks that touch it.
 
 A set that fails any check is not ready to dispatch — reorder, split, or add the missing serialization order, then re-check.

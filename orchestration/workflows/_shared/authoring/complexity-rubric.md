@@ -47,4 +47,4 @@ Each change traces to the evidence corpus. Axes NOT widened are listed with the 
 ## Total-band recomputation
 
 Old: 5 axes × max 3 = 15; bands 5–7 / 8–11 / 12–15 (roughly thirds with a 5-floor).
-New: max 18 (two axes gained +1 and +2 of headroom); bands re-derived as thirds of the 5–18 span — 5–8 / 9–13 / 14–18 — so the proportional position of each door is preserved. A body of work scoring "moderate" under the old scale still lands "moderate" unless one of the widened axes legitimately pushes it up.
+New: max 18 (two axes gained +1 and +2 of headroom); bands re-derived as APPROXIMATELY equal thirds of the 5–18 span — 5–8 / 9–13 / 14–18 (widths 4 / 5 / 5; the 14-wide span does not divide evenly, so the lowest band is one narrower) — so the proportional position of each door is preserved. A body of work scoring "moderate" under the old scale still lands "moderate" unless one of the widened axes legitimately pushes it up.

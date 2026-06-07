@@ -32,6 +32,8 @@ Everything in this card forks on conductor reasoning tier (D9). Resolve this BEF
 
 The rule a non-max conductor MUST escalate, stated once: **halt rulings, recovery commits, ambiguity resolutions, and allowlist/precondition grants are judgment — escalate them.** This is the same carve-out the exit-75 and HDR pilots applied (the disk-state verification and the doubt ruling are judgment work); it is unified here so the card is unambiguous about which moves a downgraded conductor may not make alone.
 
+**Design probe — gather is allowed, rule is not.** A downgraded conductor MAY dispatch a bounded READ-ONLY design probe (§2) to gather evidence for the user to rule on — dispatching a single read-only probe is mechanical, not a ruling. What it MUST NOT do is APPLY the probe's verdict itself: it surfaces the probe's finding + a recommendation to the user, who rules. (It gathers; it does not rule.)
+
 ---
 
 ## 2. Halt→Decide→Resume — the working core loop
@@ -50,13 +52,22 @@ The worker has already returned `DOUBT_ESCALATED` / `NEEDS_CONTEXT` with the pre
 | **Bounded design probe** | The doubt turns on third-party / internal behavior the conductor cannot answer from the artifacts (library API semantics, an internal contract) | Dispatch a SINGLE reasoning agent, ONE question, evidence cited at file:line, ≤1 agent. The probe answers the question and nothing else; its verdict feeds the ruling. (Probe-backed ADX-4 in the pilot is the canonical example.) A probe is an orchestrator-initiated dispatch, NOT a plan task — do not force it into the task taxonomy. |
 | **Halt to the user** | The doubt is a genuine executive decision (irreversibility, scope, taste, a tradeoff only the owner can weigh), OR the conductor is downgraded (D9) | Surface the blocker + options with a recommendation; resume only on the user's answer. In `halt` and `end-to-end` run modes a worker doubt halts to the user; in `autonomous` mode the conductor decides unilaterally and logs the decision as a labeled, confidence-rated `run-log.md` row. |
 
-**ADX erratum — the ruling lives in the consumed artifact, append-only.** A ruling that affects the halted task (or any queued task) is written as an **append-only erratum** into the artifact the worker consumes — the task file's amendments section, or the run's `decisions.md` for cross-task rulings — numbered (`ADX-1`, `ADX-2`, …) so a resumed worker cites "per ADX-N" without re-reading conversation history. This is propagation discipline (the State card owns the mechanics): the ruling is placed IN the artifact, never left in chat, because that is what makes the resume self-contained. The erratum is append-only — NEVER edit a prior amendment or rewrite the task body; append the correction and log a `run-log.md` row pointing to it.
+**ADX erratum — the ruling lives in the consumed artifact, append-only.** A ruling that affects the halted task (or any queued task) is written as an **append-only erratum** into the artifact the worker consumes — the task file's amendments section (a trailing `## Amendments` heading appended to the task file, where the task-file contract collects post-authoring errata), or the run's `decisions.md` for cross-task rulings — numbered (`ADX-1`, `ADX-2`, …) so a resumed worker cites "per ADX-N" without re-reading conversation history. This is propagation discipline (the State card owns the mechanics): the ruling is placed IN the artifact, never left in chat, because that is what makes the resume self-contained. The erratum is append-only — NEVER edit a prior amendment or rewrite the task body; append the correction and log a `run-log.md` row pointing to it.
 
 **Single-resume allowlist grant.** When the ruling requires the worker to touch a file outside its declared allowlist (a fix the doubt surfaced needs an adjacent edit), the conductor may grant an **explicit, logged, single-resume** allowlist extension: name the exact added path(s), record the grant in `run-log.md` (what was added, why, which resume it is scoped to), and state in the resume addendum that the extension applies to THIS resume only. The grant does not widen the task's standing allowlist — the next dispatch of that task uses the original. A non-max conductor does NOT grant — it halts (§1).
 
 ### Resume — continue the same session with the ruling carried
 
-Resume the SAME worker session (CLI `-r` / session resume where the model supports it) with an **"Additional Context Provided by Orchestrator" addendum** that: (a) cites the erratum (`per ADX-N`), (b) re-pins the return contract (the unified return schema — resumed long-context sessions drift to prose, so the re-pin is mandatory; the dispatch-wrapper owns the schema), and (c) names any single-resume allowlist grant in force. The addendum rides the worker's normal prompt transport — no new invocation machinery. Before resuming, run the red-set check (§5). After the resume returns, it goes back through the verification card's gate like any return — a resume is not trusted on its message.
+Resume carries the ruling forward with an **"Additional Context Provided by Orchestrator" addendum** that: (a) cites the erratum (`per ADX-N`), (b) re-pins the return contract by NAMING the five fields verbatim — `status` · `landed` · `validation` · `concerns` · `open_questions` (resumed long-context sessions drift to prose, so the re-pin is mandatory and must be concrete at the moment of drift; the dispatch-wrapper §3 owns the full schema), and (c) names any single-resume allowlist grant in force.
+
+**Transport split — how "resume" is carried differs by worker type** (mirroring the dispatch-wrapper's two-carrier model):
+
+| Worker type | How to resume |
+|-------------|---------------|
+| **CLI worker** (`kimi`, `codex exec`, `claude -p`) | Resume the SAME session via the model's resume flag (`-r` / session id where supported). The addendum rides the worker's normal prompt transport — no new invocation machinery. |
+| **Agent-tool sub-agent** | There is NO session to resume (each Agent-tool dispatch is fresh and stateless). Re-dispatch a FRESH Agent-tool worker carrying the SAME (now amended) task file + the addendum as a new dispatch. "Resume" for an Agent-tool worker IS a fresh re-dispatch — do not look for a session id that does not exist. |
+
+Before resuming, run the red-set check (§5). After the resume returns, it goes back through the verification card's gate like any return — a resume is not trusted on its message.
 
 ---
 
@@ -67,8 +78,8 @@ A worker failure (blocked, death, drift) is recovered by climbing the ladder fro
 | Rung | Name | When it applies | Action |
 |------|------|-----------------|--------|
 | **L1** | Deterministic retry | The failure is transient AND nothing was produced (worker crashed before writing, a transient error with a clean work-dir, a flaky-tool failure with no partial state) | Re-dispatch the SAME prompt file once. Deterministic, no judgment. If L1 fails again the same way, climb — do NOT loop L1. |
-| **L2** | Bounded agentic recovery | The worker DIED after producing work, OR drift shows disk is more-done than the message claims — disk state may already be correct | Run the **disk-state recovery protocol** (below). Max-reasoning conductor only; a downgraded conductor surfaces the verified state to the user instead (§1). |
-| **L3** | Halt→Decide→Resume | The failure is a doubt, an ambiguity, an under-specified task (`NEEDS_CONTEXT`), or anything L1/L2 cannot mechanically resolve | Enter the §2 loop: Decide (rule / probe / halt-to-user) → Resume. This is where genuine blockers and judgment land. |
+| **L2** | Bounded agentic recovery | **A CLI worker** DIED after producing work, OR drift shows disk is more-done than the message claims — disk state may already be correct. (L2 is a CLI-process phenomenon — write-then-die / exit-75. An Agent-tool worker has no separate process and makes no commit; a malformed Agent-tool return has no disk-state to recover and routes to L3 / `BLOCKED` instead.) | Run the **disk-state recovery protocol** (below). Max-reasoning conductor only; a downgraded conductor surfaces the verified state to the user instead (§1). |
+| **L3** | Halt→Decide→Resume | The failure is a doubt, an ambiguity, an under-specified task (`NEEDS_CONTEXT`), or anything L1/L2 cannot mechanically resolve | Enter the §2 loop: Decide (rule / probe / halt-to-user) → Resume. A failure that arrives at L3 is already past the cheap context-recovery moves, so `NEEDS_CONTEXT` here goes STRAIGHT to Decide (supply the context / amend the task), not back through the §4 chain's earlier rungs. This is where genuine blockers and judgment land. |
 
 ### L2 — disk-state recovery (the death / drift path)
 
@@ -76,7 +87,7 @@ The death pattern: a CLI worker's tool-loop completes and writes the work produc
 
 **Trigger — fires only when ALL hold** (any false → fall back to standard `BLOCKED` + surface):
 
-1. The worker exited non-zero with NO structured return on disk/stdout (no `status`, no `landed`, no commit hash).
+1. The worker exited non-zero and the five SCHEMA FIELDS are absent or unparseable on stdout (no `status` / `landed` / `validation` returned in parseable form). Evidence files alone on disk do NOT satisfy this condition — the discriminator is the missing structured RETURN, not missing work product (work product present + no structured return is exactly the death signature; work product present + structured return is a clean `DONE` to reconcile, not a death).
 2. `git status` of the work-dir shows uncommitted changes inside the task's allowlist.
 3. `git log -1` does NOT show the expected `[<task-id>]` prefix — the worker did not commit before exiting.
 
@@ -86,7 +97,7 @@ The death pattern: a CLI worker's tool-loop completes and writes the work produc
 2. **Run the task's declared `test_command` / smoke checks** — the same validation a clean `DONE` return would trigger. Passing validation = the work is functionally complete despite the transient exit.
 3. **Verify allowlist compliance** — `git diff --name-only HEAD`; every changed path MUST be in the task's allowlist. ANY out-of-allowlist edit → HALT + surface (recovery does NOT auto-bless out-of-allowlist edits, regardless of the transient signal).
 4. **Verify forbidden-ops compliance** — no frozen-doc touches, no locked-file edits, no push, no destructive reset — the same checks a normal return gets.
-5. **Commit manually with the recovery marker.** The conductor (via the commit-pinned `rbtv-commit` path) creates the commit; the subject line MUST carry the **`(orchestrator-recovered)`** suffix:
+5. **Commit manually with the recovery marker.** The recovery commit is a NAMED mechanical orchestrator action — one of the explicit Invariant-1 exceptions (core-protocol Invariant 1: the conductor does not write the deliverable, but recovery commits are a named hands-on action). The conductor creates it via the commit-pinned `rbtv-commit` path; the subject line MUST carry the **`(orchestrator-recovered)`** suffix:
    `[<task-id>] <description> (orchestrator-recovered)`
    The suffix is mandatory: it marks the commit as orchestrator-authored rather than worker-end-to-end and tells every later reader (owner at review, reviewers, audits, `git log --grep="(orchestrator-recovered)"`) to apply EXTRA scrutiny — the worker never printed its `concerns` / blockers list, so gaps it would have flagged are now the reviewer's responsibility.
 6. **Log to `run-log.md`** — exit code observed, files verified + smoke result, the recovery commit hash, the reason for not retrying, and an explicit note that the reviewer must FULLY re-validate (not merely trust the conductor's smoke pass).
@@ -121,9 +132,9 @@ A red-set is a set of test files whose failures are PLANNED — a RED task wrote
 
 | Operation | Rule |
 |-----------|------|
-| **Register** | When a RED task lands its planned-failing tests, ADD its test files to the active-red-sets list in `state-capsule.md`. The set names exactly the files whose failures are expected. |
+| **Register** | When a RED task's return is CERTIFIED by verification (never on the raw return message — a red set registered from an unverified message can mis-scope every later gate), ADD its planned-failing test files to the active-red-sets list in `state-capsule.md`. The set names exactly the files whose failures are expected. Register via the capsule's atomic-overwrite protocol (write `.tmp`, verify, replace — State card §3); the list is a capsule section, not an in-place targeted edit. |
 | **Check before resume** | Before resuming or re-dispatching ANY task whose gate runs the suite, read the active-red-sets list and scope the gate to "full suite EXCLUDING active red sets per the registry." A failure that is IN the registry is planned — it does NOT halt. A failure NOT in the registry still halts everything (the registry never excuses a non-test-file failure or an unregistered red). |
-| **Retire on resolution** | When the GREEN pair commits and its tests pass, REMOVE that red-set from the registry in the SAME orchestration beat. Exclusions are self-expiring — a green that does not retire its red leaves a stale exclusion that could mask a real future failure. |
+| **Retire on resolution** | When the GREEN pair commits and its tests pass (certified), REMOVE that red-set from the registry in the SAME orchestration beat, via the same atomic-overwrite protocol. Exclusions are self-expiring — a green that does not retire its red leaves a stale exclusion that could mask a real future failure. |
 
 This keeps planned reds from producing false halts (which would otherwise cost a resume round-trip each) and stops the conductor from hand-crafting per-dispatch `--ignore` exclusions that only session memory holds together. Never weaken the discipline: an unregistered failure is a real failure.
 
@@ -145,7 +156,7 @@ When loading the plan, scan its constraints for any `PRECONDITION`. For each, ve
 
 1. Identify the files/folders the precondition was protecting (derive from the plan's "what this reads/writes" surface).
 2. Cross-check the remaining work in the un-closed dependency: read its remaining task files, extract their write-target paths, and intersect against THIS plan's read-target paths.
-3. **Intersection empty → override is safe**, proceed; record a labeled `[PRECONDITION-OVERRIDE]` row in `run-log.md` capturing: confidence (`medium` when protective-scope-verified; `low` if accepted on user-rationale the conductor cannot independently verify), the PRECONDITION text verbatim, the user justification verbatim, the protective-scope verification result, the realistic alternative (Option A), the risk accepted, and the reversibility path (typically per-output `last-verified-against` drift markers enabling selective re-run).
+3. **Intersection empty → override is safe**, proceed; record a labeled `[PRECONDITION-OVERRIDE]` row in `run-log.md` capturing: confidence (`medium` when protective-scope-verified; `low` if accepted on user-rationale the conductor cannot independently verify), the PRECONDITION text verbatim, the user justification verbatim, the protective-scope verification result, the realistic alternative (Option A), the risk accepted, and the reversibility path (typically per-output `last-verified-against` drift markers enabling selective re-run). **If either path set is NOT mechanically extractable** (a plan-less dependency with no task files to read, or tasks whose allowlists/read-targets are not machine-readable), the override CANNOT be verified safe → treat it as intersection-NON-empty (fail safe): HARD halt and surface to the user. Never proceed on an unverifiable intersection.
 4. **Intersection non-empty → HALT and surface the conflict** — the user CANNOT override a PRECONDITION whose protective scope is actively violated. A PRECONDITION whose scope is violated IS a HARD halt at the moment of violation; **`autonomous` mode does NOT bypass this check** (parallel to "plan-marked HARD halts are NEVER overridden"). A downgraded conductor (§1) does not accept the override itself — it surfaces the verification result and the recommendation to the user.
 
 ---

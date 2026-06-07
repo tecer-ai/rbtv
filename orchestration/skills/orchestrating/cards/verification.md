@@ -20,6 +20,8 @@ Iron rules it serves (from the core protocol): **disk = truth — every return i
 
 A return that does not clear §1 (and, for development work, §2–§3) is NOT done — it is routed to the halt-recovery card with the gate's finding. This card never marks a task done on the strength of a return message; "done" is purchased only by evidence that clears these gates.
 
+**"Development work" defined.** A development dispatch is one whose deliverable is CODE or executable behavior — the work classes the routing card sends down the code path (a bounded code slice, a feature build, a bug fix, an sdd dispatch). It is the trigger for the review gate (§2) and the cold verifier (§3). A non-development dispatch (a doc, a vault-content edit, a research brief, a plan artifact) clears at §1 alone — §2–§3 do not fire. When in doubt, the routing card's work categories decide; this card does not re-derive them.
+
 ---
 
 ## 1. The return-verification gate (D8 — disk = truth)
@@ -37,7 +39,7 @@ These are field-level checks against the parsed schema — the field-mechanics l
 | Tripwire | Mechanical check the conductor runs | Fires → |
 |----------|-------------------------------------|---------|
 | **Phantom commit** | For each commit hash in `landed`: `git -C <workdir> log` MUST contain that hash. | Hash absent → the commit was never made → treat as not-done; route to recovery (drift / death path). |
-| **Implausible WALL_MS** | For each `validation` entry: its `WALL_MS` must be plausible for the work claimed (a full suite reporting near-zero ms did not run; a build claimed in milliseconds did not build). | Implausible → the check did not really run → re-exercise that validation before accepting it. |
+| **Implausible WALL_MS** | For each `validation` entry: its `WALL_MS` must be plausible for the work claimed (a full suite reporting near-zero ms did not run; a build claimed in milliseconds did not build). Apply the concrete per-work-class bars in `{rbtv_path}/orchestration/workflows/_shared/authoring/spec-template.md` § Evidence Plausibility (e.g., a browser e2e under ~1s, an OS-dialog test under ~1.5s, are auto-reject) — those bars live in one place (the spec-template) and are applied here at run time. A duration physically impossible for the work class → the check did not really run. | Implausible → re-exercise that validation before accepting it. |
 | **EXIT codes** | Every `validation` entry's `EXIT` must be present and `0` (or an explicitly-explained non-zero the task sanctions). A missing or non-zero unexplained EXIT = a failed gate. | Non-zero / missing → the gate did not pass → do not accept `DONE`. |
 | **SKIPPED_COUNT** | Any skipped check MUST carry a reason; `SKIPPED_COUNT > 0` without a stated reason per skip = a silent skip. | Unexplained skip → the suite did not really pass → block `DONE`. |
 | **Commit-message validation** | A committed task's commit message MUST carry the run's mandated convention string (e.g. the `[<task-id>]` prefix). Check the MESSAGE, not just the file list — `git -C <workdir> log -1 --format=%s`. | Convention dropped → flag it (grep-ability is load-bearing for audits), even when the file list is correct. |
@@ -48,21 +50,21 @@ The checks are mechanical precisely because the schema is named-field — that i
 
 After the field checks, reconcile the CLAIM against the actual disk state — this is the authoritative step, run on every return including `DONE`, and especially on resumes:
 
-1. Read the actual disk state: `git -C <workdir> status --porcelain` and `git -C <workdir> log --oneline -3` (or deeper as the dispatch warrants), plus the evidence files the `validation` field cites.
+1. Read the actual disk state: `git -C <workdir> status --porcelain` and `git -C <workdir> log --oneline -3` (or deeper as the dispatch warrants), plus the evidence files the `validation` field cites. Resolve `<workdir>` from the dispatch's `landed` paths or the run-log dispatch row — for a worktree-isolated parallel worker (routing §8) it is that worker's worktree path, NOT the conductor's cwd.
 2. Reconcile against `landed` / `validation`. The message is a HINT; the disk is the TRUTH.
 3. **Message and disk disagree → the disk wins**, and the discrepancy is recorded as a drift instance in `run-log.md` (per State-card semantics). A return whose message contradicts the disk is logged as one — never silently smoothed over.
 4. The direction of the mismatch routes the recovery: claimed-but-absent work → recovery's drift/death path (work may need re-dispatch, or the disk may simply be MORE done than the message — a dropped commit/return, recoverable at the disk-state rung); landed-but-understated work → reconcile to the disk reality and proceed once verified.
 
 Why this step is non-negotiable: five resumed-Kimi sessions in ONE chain drifted from the return contract while the work had landed correctly on disk (one returned a garbage non-sequitur final message while commit `045fbb3` held the complete, correct work). The orchestrator caught all five only by verifying `git` state after every return. An orchestrator that trusts final messages loses a commit, accepts a phantom gate, and re-runs completed work. Reconciliation is what makes "disk = truth" operational.
 
-**Count / reconciliation claims get re-run, never accepted on report.** Any count, reconciliation, or "X→Y / 0-diffs" tally — whether the worker reported it or the conductor would assert it — MUST be backed by an ACTUAL run of the producing command under the project's canonical invocation (correct env vars, `PYTHONPATH`, working dir; a throwaway output dir; never `--force` on real data), with the number taken from stdout. A written file (e.g. a side-ledger) may have NO consumer and thus zero runtime effect; "tests pass" does not verify a narrative count. An executor count is a claim, not evidence. If the pipeline cannot be run, trace the exact consumer code path and say so — never certify an unverified count.
+**Count / reconciliation claims get re-run, never accepted on report.** Any count, reconciliation, or "X→Y / 0-diffs" tally — whether the worker reported it or the conductor would assert it — MUST be backed by an ACTUAL run of its producing command under the project's canonical invocation (the correct environment, working dir, and any required env vars — e.g. `PYTHONPATH` for a Python pipeline; a throwaway output dir; never a destructive flag on real data), with the number taken from stdout. For non-code work, re-derive the claim from its actual source the same way (re-run the query, re-count the artifact). A produced file may have NO consumer and thus zero runtime effect; "tests pass" does not verify a narrative count. An executor count is a claim, not evidence. If the producing command cannot be run, trace its exact consumer path and say so — never certify an unverified count.
 
 ### 1d. Gate outcome
 
 | Outcome | Route |
 |---------|-------|
 | All field checks clear AND disk reconciles to `landed`/`validation` AND `status` is `DONE` | Return is reconciled — proceed to the review gate (§2) for development work, or certify for non-development work. |
-| `status` is `DONE_WITH_NOTES` | Reconcile as above, then weigh `concerns` / `open_questions` before proceeding. |
+| `status` is `DONE_WITH_NOTES` | Reconcile as above, then weigh `concerns` / `open_questions`; if they surface no blocker, proceed on the same route as `DONE` — the review gate (§2) for development work, or certify for non-development work. A note that IS a blocker routes to halt-recovery instead. |
 | Any tripwire fired, OR disk disagrees, OR `status` is `BLOCKED` / `DOUBT_ESCALATED` / `NEEDS_CONTEXT`, OR the worker died | Route to the **halt-recovery card** with the gate finding — do NOT mark the task done. This card detects; halt-recovery resolves. |
 
 ---
@@ -111,7 +113,7 @@ For DEVELOPMENT dispatches, review (§2) is necessary but NOT sufficient: a revi
 
 | Firing point | Rule |
 |--------------|------|
-| **Each FEATURE commit boundary** | Feature-serial discipline: at the boundary where a whole feature's work is committed, the cold verifier re-exercises that feature's contract criteria. Micro-dispatches inside the feature stay covered by the review gate (§2); the cold verifier is the feature-grain gate, not the micro-grain one. |
+| **Each FEATURE commit boundary** | Feature-serial discipline (D10): a **feature** = the set of task dispatches that together deliver ONE owner-observable behavior — operationally, one spec's worth of work (the spec-template's one-spec-many-tasks unit); its boundary is the commit that completes that spec's Test Plan. At that boundary the cold verifier re-exercises that feature's contract criteria. Micro-dispatches inside the feature stay covered by the review gate (§2); the cold verifier is the feature-grain gate, not the micro-grain one. |
 | **One cross-feature EXIT verification** | Once, before the run is declared done, a cross-feature verification re-exercises the criteria that span features (the integration the per-feature checks could not see). This is distinct from the orchestrator exit probes (§5) — the cold verifier exits the FEATURE contracts; the exit probes are the conductor's own final hands-on pass. |
 
 The cold verifier is mandatory for development dispatches from day one of an orchestration — builder-graded sheets are INSUFFICIENT inside an orchestration (the done-gate rule fixes this; this card enforces it). It is NOT a cost-optimization target: routing pins it as an independent, fidelity-floor-capable worker.
@@ -128,11 +130,15 @@ The isolation is the point: a verifier handed the builder's tests or sheet inher
 
 ### 3c. What the cold verifier does and returns
 
-The cold verifier re-exercises EACH contract criterion at the fidelity floor (the real app running whole — never a fragment or mock harness; the owner's actual file/data when one exists; for UI, a visible/headed browser with real mouse/keyboard gestures — NEVER synthetic in-page `dispatchEvent`; each criterion end-to-end as the owner performs it; evidence captured as FILES on disk during the exercise; a genuine blocker recorded as `unexercisable` + the concrete blocker, never silently skipped). It returns its OWN evidence sheet (criterion · gesture performed · observed result · evidence-file path · verdict `held`/`failed`/`unexercisable`) — built from its own exercise, citing its own captures.
+The cold verifier re-exercises EACH contract criterion at the fidelity floor defined by the installed `rbtv-done-gate` rule (its §Fidelity Floor — the single source; do NOT re-derive it here), capturing evidence as FILES on disk during the exercise and recording a genuine blocker as `unexercisable` + the concrete blocker, never silently skipped. It returns its OWN evidence sheet (criterion · gesture performed · observed result · evidence-file path · verdict `held`/`failed`/`unexercisable`), at the path the done-gate rule's §Required Output formula fixes — built from its own exercise, citing its own captures.
 
 ### 3d. The mismatch rule — builder/verifier disagreement FAILS the dispatch
 
-**Builder's sheet says held, cold verifier's sheet says failed (or unexercisable) → the dispatch FAILS return-verification.** The dispatch is not done; route it to halt-recovery (the builder's contract was not met, or its evidence was theater). A mismatch is never resolved in the builder's favor — the cold verifier exercised the criterion from the contract at the floor; the builder graded its own work. The done-gate rule's Integrity Tripwire also applies: a builder sheet caught dishonest (a claimed gesture not performed, a fabricated result, a recycled capture) permanently escalates the workspace to independent verification of every contract thereafter.
+**Builder's sheet says held, cold verifier's sheet says `failed` → the dispatch FAILS return-verification.** The dispatch is not done; route it to halt-recovery (the builder's contract was not met, or its evidence was theater). A `failed` mismatch is never resolved in the builder's favor — the cold verifier exercised the criterion from the contract at the floor; the builder graded its own work.
+
+A cold-verifier `unexercisable` row is NOT an automatic FAIL — it follows the installed `rbtv-done-gate` rule's §Exhibit: done is declarable with the `unexercisable` row(s) surfaced explicitly in the done message, and the OWNER decides acceptance. Surface every `unexercisable` row (with its concrete blocker) to the owner; do not silently pass it and do not auto-fail on it. (This is the one-source-of-truth alignment: `failed` → FAILS; `unexercisable` → owner decides.)
+
+The done-gate rule's Integrity Tripwire also applies: a builder sheet caught dishonest (a claimed gesture not performed, a fabricated result, a recycled capture) permanently escalates the workspace to independent verification of every contract thereafter.
 
 ---
 
@@ -153,7 +159,7 @@ A debug role's fix spec re-enters the loop as a binding fix direction (§2d) or 
 
 ## 5. Orchestrator-executed exit probes — the conductor's own hands-on pass
 
-Before the run is declared done, the conductor PERSONALLY exercises N exit probes — not a dispatched worker, the conductor itself. This is the last gate, and it is deliberately hands-on: every other gate dispatched the verification; this one the conductor performs, because the run's "done" claim is the conductor's own and must be backed by the conductor's own evidence.
+Before the run is declared done, the conductor PERSONALLY exercises N exit probes — not a dispatched worker, the conductor itself. N is **at least one probe per contracted owner-observable feature plus one cross-feature integration probe, minimum 2** (a single-feature run still gets the feature probe + one integration pass). This is the last gate, and it is deliberately hands-on: every other gate dispatched the verification; this one the conductor performs, because the run's "done" claim is the conductor's own and must be backed by the conductor's own evidence.
 
 | Rule | Detail |
 |------|--------|
