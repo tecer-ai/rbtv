@@ -114,6 +114,7 @@ The kimi CLI dispatch manual — the exact command shapes, flags, exit handling,
 | Check | Command | Gate |
 |-------|---------|------|
 | CLI present + version | `kimi --version` (`kimi, version 1.41.0`) | Absent/older → re-verify flags against `kimi --help`. |
+| **Pinned-flag existence** (routing §4 gate) | `kimi --help` grepped for every non-trivial flag this dispatch pins (`--work-dir`, `--quiet`/`--print`/`--output-format`/`--final-message-only`, `--no-thinking`, `--agent-file`, `--add-dir`, `--session`/`--continue`) | Runs EVERY dispatch (NOT only on a version mismatch — a flag can vanish at the SAME version family the manual pinned; codex 0.137.0/`--ask-for-approval` is the cautionary case, p5-2). Any pinned flag absent → STOP, do not dispatch; re-resolve at THIS delta, re-render (`../render-manuals.py`), re-run the gate — NEVER hand-edit the rendered manual or pass an ad-hoc flag. A removed/renamed flag is a hard arg-parse error pre-spend if dispatched. |
 | Auth | `kimi login` (interactive, one-time) | Login is interactive → USER-EXECUTED-ONLY. If unauthenticated, halt and ask the owner to run it; never automate it. |
 | Guidance file | target workspace has `AGENTS.md`? | Absent → offer to generate it via the mirror (`mirror_entry: kimi-mirror`, see the kimi `mirror-config.yaml`). |
 
