@@ -332,6 +332,14 @@ Run those validity checks during step-03; flag and resolve any violation before 
 
 ---
 
+## Execution-Level Classification
+
+**MANDATORY.** When authoring each task, determine whether its execution flow dispatches Agent-tool sub-agents (review fan-outs, parallel-worker waves, any "dispatch N sub-agents" step). If it does, mark the task `orchestrator_executed: true` — it runs at the conductor's level and is NEVER delegated whole into an executor sub-agent (the nesting wall). Driving CLI workers as separate OS processes is the sanctioned exception and is NOT flagged. The substantive rule and the process-boundary carve-out are the single source in the shared authoring core — apply it directly, do not restate it here:
+
+> `{rbtv_path}/orchestration/workflows/_shared/authoring/task-file-contract.md` §9 (Execution-level feasibility) — the `orchestrator_executed` marker, the nesting-wall rationale, and the CLI-process exception. Pairs with `dependency-ordering.md` validity check 5 (run with the other validity checks before the structure is confirmed).
+
+---
+
 ## Context Budgeting
 
 **Guidance for task sizing:**

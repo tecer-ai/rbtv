@@ -21,11 +21,12 @@ When multiple tasks touch the SAME file, declare an explicit serialization order
 
 ## Validity checks
 
-Run all four before finalizing the ordered task set:
+Run all five before finalizing the ordered task set:
 
 1. No task references the output of a LATER task.
 2. No circular dependencies (A→B→C→A).
 3. CREATE precedes UPDATE for the same file.
 4. Every shared file has a declared serialization order — written in the plan document (per Shared-file serialization above) — covering all tasks that touch it.
+5. No task whose execution flow dispatches Agent-tool sub-agents is placed at a delegated (executor) level — every such task is marked `orchestrator_executed: true` and runs at the conductor's level (`task-file-contract.md` §9; the nesting wall, routing card §4). A task that only drives CLI workers as separate OS processes is the §9 process-boundary exception and does NOT trip this check.
 
-A set that fails any check is not ready to dispatch — reorder, split, or add the missing serialization order, then re-check.
+A set that fails any check is not ready to dispatch — reorder, split, add the missing serialization order, or re-level the mis-placed sub-agent-dispatching task, then re-check.

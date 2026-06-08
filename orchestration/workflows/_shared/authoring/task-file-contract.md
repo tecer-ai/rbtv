@@ -65,8 +65,14 @@ Every task names the five fields the worker returns — the SAME schema the disp
 
 This file is the GENERIC contract — model-independent. (This seam is forward-wiring: the model packages it plugs into land in P3 — until a given `orchestration/models/{model}/` package ships, the generic contract §1–§7 stands alone and a task is model-bound at routing time without a delta.) Each model package (`orchestration/models/{model}/`) extends it with a model delta that adds ONLY what that worker needs on top of §1–§7: required frontmatter fields, invocation-specific constraints (workdir, commit policy, swarm policy), and binding dispatch addenda (e.g., the Kimi root-files ban + evidence-file mandate, `learnings-kimi-worker.md` §5). The delta NEVER restates the generic contract — it plugs in. The dispatch-wrapper composes generic contract + model delta at dispatch time. A task authored for a specific model satisfies §1–§7 AND its model delta; a model-agnostic task satisfies §1–§7 and is bound to a model at routing time.
 
+## 9. Execution-level feasibility
+
+A task whose execution flow itself dispatches Agent-tool sub-agents (review fan-outs, parallel-worker waves driven via the Agent tool, any "dispatch N sub-agents" step) MUST be authored as **orchestrator-executed** — it carries `orchestrator_executed: true` in frontmatter and runs at the conductor's (top) level. It is NEVER delegated whole into an executor sub-agent, because Agent-tool sub-agents cannot spawn sub-agents (the nesting wall, `orchestration/skills/orchestrating/cards/routing.md` §4 — "One Agent-tool level"). A sub-agent-dispatching task placed at an executor level is malformed: the dispatcher halts and reports it (Malformed-task rule below) rather than routing it down to fail at the wall.
+
+**Process-boundary exception.** This clause bans Agent-tool nesting, NOT all sub-dispatch. A task that drives CLI workers (`kimi`, `codex exec`, `claude -p`, `qwen`) as separate OS processes is the sanctioned sub-conductor path (depth cap ≤ 2, same routing card §4) — a process is not an Agent-tool sub-agent, so the wall does not apply. Such a task is NOT flagged orchestrator-executed on that basis; the marker keys on Agent-tool sub-agent dispatch specifically.
+
 ---
 
 ## Malformed-task rule
 
-If any required element above is missing, the dispatcher MUST halt and report the malformed task. It MUST NOT infer the missing element into shape — authoring is the author's job, not the dispatcher's.
+If any required element above is missing — OR a sub-agent-dispatching task (§9) is authored at an executor level instead of orchestrator-executed — the dispatcher MUST halt and report the malformed task. It MUST NOT infer the missing element into shape or re-level the task itself — authoring is the author's job, not the dispatcher's.
