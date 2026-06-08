@@ -18,6 +18,7 @@ Both doors produce identical contracts because both read these files — no auth
 | `complexity-rubric.md` | The widened complexity rubric — scores a body of work across weighted axes and routes it to a band (simple / moderate / complex door) |
 | `dependency-ordering.md` | How to order tasks so every dependency lands before its dependents, plus the ordering-validity checks |
 | `decisions-discipline.md` | The entry-shape discipline for the worker-facing `decisions.md` — the text the three D13 surfaces (template, plan reminder, reviewer audit) carry |
+| `human-review-criteria.md` | Red/yellow flag criteria and no-flag affirmation rules for Human Review Presentation blocks (tasks with `human_review: required`) |
 
 ## How a consumer uses the core
 

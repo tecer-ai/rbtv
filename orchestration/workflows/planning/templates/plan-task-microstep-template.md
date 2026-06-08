@@ -95,13 +95,13 @@ human_review: required | optional | none
    - In this task file's YAML frontmatter, change `status: in_progress` to `status: completed`.
    - In `../deliverables.md`, flip this task's row Status to ✅ and confirm the Path matches what you produced.
 2. Reviewer dispatch (orchestration step-04) handles verification and user summary. Do NOT append to decisions.md and do NOT wait for user approval — both are handled at the orchestrator layer.
-3. **If `human_review: required`:** include the Human Review Presentation block in the executor's return paragraph so the orchestrator can surface it to the user. Block format and flag criteria: see `{rbtv_path}/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation, and `{rbtv_path}/orchestration/workflows/planning/data/plan-creation-rules.md` § Human Review Flag Criteria. The block is the executor's contribution to user review — the orchestrator and reviewer carry it forward, not replace it.
+3. **If `human_review: required`:** include the Human Review Presentation block in the executor's return paragraph so the orchestrator can surface it to the user. Block format and flag criteria: see `{rbtv_path}/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation, and `{rbtv_path}/orchestration/workflows/_shared/authoring/human-review-criteria.md`. The block is the executor's contribution to user review — the orchestrator and reviewer carry it forward, not replace it.
 
 **If executing standalone** (no orchestrator):
 
 1. Append execution entry to decisions.md (never modify existing entries).
 2. **MUST** present a brief summary to the user (max 2000 characters) of what was done. Do not mark complete until the user approves.
-3. **If `human_review: required`:** the summary MUST end with the Human Review Presentation block. Block format and flag criteria: see `{rbtv_path}/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation, and `{rbtv_path}/orchestration/workflows/planning/data/plan-creation-rules.md` § Human Review Flag Criteria. This block drives the user's review by pointing to specific items and surfacing the executor's risk assessment.
+3. **If `human_review: required`:** the summary MUST end with the Human Review Presentation block. Block format and flag criteria: see `{rbtv_path}/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation, and `{rbtv_path}/orchestration/workflows/_shared/authoring/human-review-criteria.md`. This block drives the user's review by pointing to specific items and surfacing the executor's risk assessment.
 4. After user approval, mark this task as complete in ALL locations (same turn):
    - In the plan file, change `[~]` to `[x]` for this task's checkbox.
    - In this task file's YAML frontmatter, change `status: in_progress` to `status: completed`.
@@ -144,7 +144,7 @@ PLAN MODIFIED:
 
 ### Hard rule — no false alarms
 
-Flag ONLY items backed by concrete evidence in this task's output. If no concrete evidence triggers a flag, write `None identified.` and add a one-line rationale stating which checks ran clean. Generic "consider future X" or "watch for edge cases" hypotheticals are NOT flags. Use the Flag Criteria in `{rbtv_path}/orchestration/workflows/planning/data/plan-creation-rules.md` (§ Human Review Flag Criteria) — do NOT free-associate.
+Flag ONLY items backed by concrete evidence in this task's output. If no concrete evidence triggers a flag, write `None identified.` and add a one-line rationale stating which checks ran clean. Generic "consider future X" or "watch for edge cases" hypotheticals are NOT flags. Use the Flag Criteria in `{rbtv_path}/orchestration/workflows/_shared/authoring/human-review-criteria.md` — do NOT free-associate.
 
 ### Block format
 
@@ -235,7 +235,7 @@ Evaluate each criterion. Note whether it passes, fails, or needs attention.
 ### Phase: Gate
 
 1. Present findings summary to user with clear PASS/FAIL per criterion
-2. **MUST** append the Human Review Presentation block — checkpoints inherit `human_review: required` semantics. Block format and flag criteria: see `{rbtv_path}/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation, and `{rbtv_path}/orchestration/workflows/planning/data/plan-creation-rules.md` § Human Review Flag Criteria. The block points the user at specific phase artifacts and surfaces red/yellow flags drawn from phase execution evidence (executor returns, decisions.md Discoveries, criterion FAILs). If no flags fire, write "None identified" with a one-line rationale.
+2. **MUST** append the Human Review Presentation block — checkpoints inherit `human_review: required` semantics. Block format and flag criteria: see `{rbtv_path}/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation, and `{rbtv_path}/orchestration/workflows/_shared/authoring/human-review-criteria.md`. The block points the user at specific phase artifacts and surfaces red/yellow flags drawn from phase execution evidence (executor returns, decisions.md Discoveries, criterion FAILs). If no flags fire, write "None identified" with a one-line rationale.
 3. **HALT for human approval** — do not advance regardless of findings
 4. If user rejects: document feedback in decisions.md, do not advance to next phase
 5. If user approves: mark checkpoint complete in plan task list and flip its row Status to ✅ in `../deliverables.md`

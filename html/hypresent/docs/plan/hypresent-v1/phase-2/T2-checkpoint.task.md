@@ -49,7 +49,7 @@ Phase-2 produced: text edit (T10); text format (T11); flow-aware resize (T12); t
 
 ### Phase: Gate
 1. Present findings with clear PASS/FAIL per criterion.
-2. MUST append the Human Review Presentation block (format + flag criteria per `3-resources/tools/rbtv/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation and `.../data/plan-creation-rules.md` § Human Review Flag Criteria), pointing at any D1/D2/D6 deviation evidence and regression-checklist FAILs; if none, write "None identified" + one-line rationale.
+2. MUST append the Human Review Presentation block (format + flag criteria per `3-resources/tools/rbtv/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation and `3-resources/tools/rbtv/orchestration/workflows/_shared/authoring/human-review-criteria.md`), pointing at any D1/D2/D6 deviation evidence and regression-checklist FAILs; if none, write "None identified" + one-line rationale.
 3. HALT for human approval — do not advance regardless of findings.
 4. If rejected: document feedback in shape.md, do not advance.
 5. If approved: mark CP2 complete in the plan task list.

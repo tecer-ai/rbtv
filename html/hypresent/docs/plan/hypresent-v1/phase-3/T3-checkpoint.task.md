@@ -49,7 +49,7 @@ Phase-3 produced: region/outline navigator (T16); Save-As wiring end-to-end (T17
 
 ### Phase: Gate
 1. Present findings with clear PASS/FAIL per criterion.
-2. MUST append the Human Review Presentation block (format + flag criteria per `3-resources/tools/rbtv/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation and `.../data/plan-creation-rules.md` § Human Review Flag Criteria), pointing at the §4 gate result and any V-case FAIL; if all green, write "None identified" + one-line rationale.
+2. MUST append the Human Review Presentation block (format + flag criteria per `3-resources/tools/rbtv/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation and `3-resources/tools/rbtv/orchestration/workflows/_shared/authoring/human-review-criteria.md`), pointing at the §4 gate result and any V-case FAIL; if all green, write "None identified" + one-line rationale.
 3. HALT for human approval — do not advance regardless of findings.
 4. If rejected: document feedback in shape.md, do not advance.
 5. If approved: mark CP3 complete in the plan task list.

@@ -50,7 +50,7 @@ Phase-1 produced: stdlib server + open/save API (T1); app shell + vendored libs 
 
 ### Phase: Gate
 1. Present findings with clear PASS/FAIL per criterion.
-2. MUST append the Human Review Presentation block (format + flag criteria per `3-resources/tools/rbtv/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation and `.../data/plan-creation-rules.md` § Human Review Flag Criteria), pointing at the registry namespacing result and the serializer chrome-free output; if no flags fire, write "None identified" + one-line rationale.
+2. MUST append the Human Review Presentation block (format + flag criteria per `3-resources/tools/rbtv/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation and `3-resources/tools/rbtv/orchestration/workflows/_shared/authoring/human-review-criteria.md`), pointing at the registry namespacing result and the serializer chrome-free output; if no flags fire, write "None identified" + one-line rationale.
 3. HALT for human approval — do not advance regardless of findings.
 4. If rejected: document feedback in shape.md, do not advance.
 5. If approved: mark CP1 complete in the plan task list.

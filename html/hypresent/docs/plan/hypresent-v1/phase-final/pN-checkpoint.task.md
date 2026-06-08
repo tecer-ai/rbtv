@@ -47,7 +47,7 @@ Final phase produced: README (T19); reference review (pN-refs/T20); compound lea
 
 ### Phase: Gate
 1. Present the completion summary with clear PASS/FAIL per criterion.
-2. MUST append the Human Review Presentation block (format + flag criteria per `3-resources/tools/rbtv/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation and `.../data/plan-creation-rules.md` § Human Review Flag Criteria); if all green, write "None identified" + one-line rationale.
+2. MUST append the Human Review Presentation block (format + flag criteria per `3-resources/tools/rbtv/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation and `3-resources/tools/rbtv/orchestration/workflows/_shared/authoring/human-review-criteria.md`); if all green, write "None identified" + one-line rationale.
 3. HALT for human approval.
 4. If rejected: document feedback in shape.md, address, do not complete.
 5. If approved: mark the plan complete.
