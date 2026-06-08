@@ -293,6 +293,12 @@
         "target": ".claude/rules/rbtv-done-gate.md",
         "mode": "copy",
         "description": "Evidence-gated done for coding tasks — owner-confirmed outcome contract at intake, each criterion exercised under real input at the fidelity floor, done declarable only with a per-criterion evidence sheet on disk. Always active once installed."
+      },
+      {
+        "source": "coding/rules/build-for-agent-testability.md",
+        "target": ".claude/rules/rbtv-build-for-agent-testability.md",
+        "mode": "copy",
+        "description": "Build-time twin of the done gate — at Contract time, a per-criterion drivability check; any owner-observable outcome running through a surface the agent can't drive (native OS dialog, isolated-run config, fused output) requires a test seam built as part of the feature. Always active once installed."
       }
     ]
   },

@@ -33,6 +33,9 @@ Exercising below the floor is theater, not evidence.
 | The real application running whole — never an isolated fragment or mock harness |
 | The owner's actual file/data when one exists — synthetic fixtures alone do not qualify |
 | UI criteria: visible (headed) browser + real mouse/keyboard gestures — NEVER synthetic in-page `dispatchEvent` |
+| Visual/layout criteria: assert the MEASURED geometry of the real rendered element (size, position, overflow, aspect ratio) in a headed browser — DOM presence and headless e2e do NOT count; a layout can render "present" while visibly broken |
+| CLI/process criteria: read the exit code and errors off the UN-PIPED process — a pipe (e.g. `… \| tee log`) reports the pipe's status, not the program's, masking real failures |
+| Content-validation / heuristic criteria: exercise against REAL-corpus input, not only builder-chosen fixtures — fixtures cannot anticipate which real content trips a heuristic |
 | Each criterion end-to-end, the way the owner will perform it |
 | Evidence captured as files on disk DURING the exercise (screenshots, output files, logs) — prose claims alone NEVER count |
 | Genuine blockers: verdict `unexercisable` + the concrete blocker — never silently skip a criterion |
@@ -81,6 +84,7 @@ Evidence rows MUST cite captures created during this task's exercise. The first 
 | Skip | "Task too small for the gate" | Check the exempt list. Not on it → gated. A one-criterion contract costs minutes. |
 | Skip | "No contract was made at intake — I'll just describe what I did" | STOP. Draft criteria now, confirm with the owner, then exercise them. Done stays locked until then. |
 | Game | "Headless run is equivalent and faster" | Floor violation. UI criteria require a visible browser and real gestures. |
+| Game | "DOM says the element is there / headless e2e is green — the layout's fine" | Presence ≠ geometry. Measure the rendered box (size/position/aspect) in a headed browser; a collapsed or oversized layout passes presence checks. |
 | Game | "I'll fill the sheet from test results / memory" | Sheet rows cite files captured during the exercise. No capture → the row does not exist → done locked. |
 | Game | "Can't drive this — mark it `held`, it probably works" | Mark `unexercisable` + the concrete blocker, and surface it in the done message. |
 | Game | "I'll rephrase the criteria into technical assertions I can pass" | Criteria stay owner-observable. Internal assertions live in your tests, not in the contract. |
