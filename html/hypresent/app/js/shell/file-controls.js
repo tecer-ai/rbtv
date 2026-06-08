@@ -22,6 +22,7 @@ function loadIntoIframe(name, iframe) {
 export async function openFile(path, iframe) {
   const result = await apiClient.open(path);
   await loadIntoIframe(result.name, iframe);
+  return result; // {html,dir,name}
 }
 
 export async function openViaDialog(iframe) {

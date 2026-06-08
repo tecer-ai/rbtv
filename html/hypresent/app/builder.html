@@ -8,35 +8,124 @@
   <link rel="stylesheet" href="/app/css/builder.css">
 </head>
 <body>
-  <nav class="app-nav">
-    <a href="/app/" class="app-nav-link" id="nav-editor">Editor</a>
-    <a href="/app/builder.html" class="app-nav-link" id="nav-builder">Builder</a>
-  </nav>
-  <div class="builder-topbar">
-    <button type="button" class="tool-btn" id="pick-library-btn">Pick library…</button>
-    <span id="library-name" class="builder-library-name"></span>
-    <span id="builder-status" class="shell-status"></span>
-  </div>
+  <header class="topbar">
+    <div class="brand">hypresent<span class="tld">.</span></div>
+
+    <nav class="switcher" aria-label="Module">
+      <a href="/app/" id="nav-editor">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        Editor
+      </a>
+      <a href="/app/builder.html" class="is-active" id="nav-builder" aria-current="page">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Builder
+      </a>
+    </nav>
+
+    <div class="topbar-ctx" id="ctx-builder">
+      <span id="builder-status" class="shell-status"></span>
+      <div class="lib-chip" id="lib-chip" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <b id="lib-chip-name"></b><span class="meta" id="lib-chip-meta"></span>
+        <button type="button" class="swap" id="lib-chip-change">Change</button>
+      </div>
+    </div>
+  </header>
+
   <div class="builder-main">
-    <section class="builder-browse" id="builder-browse">
-      <div class="browse-controls">
-        <label>Language: <select id="lang-filter"><option value="all">all</option></select></label>
+
+    <!-- left rail: library + filters + section nav -->
+    <aside class="lib-rail">
+      <div class="lib-card" id="lib-card">
+        <div class="lc-top">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2Z"/></svg>
+          <span class="lc-name" id="library-name">Library</span>
+        </div>
+        <div class="lc-path" id="lib-path" hidden></div>
+        <div class="lc-meta" id="lib-meta" hidden></div>
+        <p class="lc-empty" id="lib-empty">Pick a slide library to begin.</p>
+        <button type="button" class="lc-change" id="pick-library-btn">Pick library…</button>
       </div>
-      <div class="browse-groups" id="browse-groups"></div>
-      <div class="builder-empty" id="browse-empty">Pick a slide library to begin.</div>
-    </section>
-    <aside class="builder-tray" id="builder-tray-pane">
-      <div class="tray-controls">
-        <label>Preset: <select id="preset-select"><option value="">(none)</option></select></label>
+
+      <div class="rail-block" id="lang-block" hidden>
+        <span class="caps">Language</span>
+        <div class="lang-seg" id="lang-seg" role="group" aria-label="Language filter"></div>
       </div>
-      <ol class="tray-list" id="tray-list"></ol>
-      <div class="tray-destination">
-        <button type="button" class="tool-btn" id="pick-dest-btn">Pick destination…</button>
-        <input type="text" id="deck-filename" placeholder="deck-name" />
-        <span id="dest-path" class="builder-dest-path"></span>
-      </div>
-      <button type="button" class="tool-btn" id="assemble-btn" disabled>Assemble</button>
+
+      <nav class="rail-block" id="sec-block" hidden aria-label="Sections">
+        <span class="caps">Sections</span>
+        <div class="sec-nav" id="sec-nav"></div>
+      </nav>
     </aside>
+
+    <!-- center: browse grid -->
+    <section class="builder-browse" id="builder-browse">
+      <div class="browse-groups" id="browse-groups"></div>
+      <div class="builder-empty" id="browse-empty">
+        <div class="be-brand">hypresent<span style="color:var(--accent)">.</span></div>
+        <p>Pick a slide library to begin composing a deck.</p>
+        <button type="button" class="tb-btn" id="browse-pick-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          Pick library…
+        </button>
+      </div>
+    </section>
+
+    <!-- right: assembly tray -->
+    <aside class="builder-tray" id="builder-tray-pane" aria-label="Presentation tray">
+      <div class="tray-head">
+        <div class="th-row">
+          <h2>Presentation</h2>
+          <span class="count" id="tray-count">0 slides</span>
+        </div>
+        <div class="preset-row">
+          <label for="preset-select">Preset</label>
+          <div class="preset-sel">
+            <select id="preset-select"><option value="">(none — from scratch)</option></select>
+          </div>
+        </div>
+      </div>
+
+      <ol class="tray-list" id="tray-list"></ol>
+
+      <div class="assemble">
+        <div class="as-grid">
+          <div class="field">
+            <label for="deck-filename">Deck name</label>
+            <input type="text" id="deck-filename" placeholder="deck-name">
+          </div>
+          <div class="field">
+            <label for="deck-lang">Language</label>
+            <div class="sel-wrap"><select id="deck-lang"></select></div>
+          </div>
+          <div class="field">
+            <label for="deck-title">Title</label>
+            <input type="text" id="deck-title" placeholder="(engine default)">
+          </div>
+          <div class="field">
+            <label for="accent-input">Accent</label>
+            <div class="accent-pick">
+              <span class="sw" id="accent-swatch"></span>
+              <span class="hex" id="accent-hex">default</span>
+              <input type="color" id="accent-input" value="#2B5EA7" aria-label="Accent color">
+            </div>
+          </div>
+        </div>
+        <div class="dest-row">
+          <span class="dest-path">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <span class="dest-text builder-dest-path" id="dest-path">No destination chosen</span>
+          </span>
+          <button type="button" class="tb-btn" id="pick-dest-btn">Choose…</button>
+        </div>
+        <button type="button" class="assemble-cta" id="assemble-btn" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+          Assemble presentation
+        </button>
+        <p class="assemble-note">Assets are copied to <b>assets/</b> next to the deck.<br>The finished deck opens in the <b>Editor</b> to fill <code>{{TOKENS}}</code>.</p>
+      </div>
+    </aside>
+
   </div>
   <script type="module" src="/app/js/builder/builder-main.js"></script>
 </body>

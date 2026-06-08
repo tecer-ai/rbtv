@@ -63,7 +63,7 @@ class PB6StateTests(unittest.TestCase):
             "#preset-select option",
             "els=>els.map(o=>o.textContent)"
         )
-        self.assertEqual(options, ["(none)"], "preset select should only have (none) when zero presets")
+        self.assertEqual(options, ["(none — from scratch)"], "preset select should only have the none option when zero presets")
 
     # ── PB6-3 ──────────────────────────────────────────────────────────────
     def test_engine_spawn_error(self):

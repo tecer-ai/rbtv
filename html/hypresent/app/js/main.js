@@ -8,6 +8,9 @@ import { dialogSaveAs, save } from "/app/js/api-client.js";
 let bridge = null;
 let isDirty = false;
 let isEditingNow = false;   // R3 edit-guard: cached from runtime 'edit-state' events
+let lastSelection = null;   // cached from runtime 'selection-changed' (for the panel composer)
+let historyCursor = 0;      // runtime history position (from 'history-changed')
+let savedCursor = 0;        // history position at the last save — chip shows Saved when equal
 
 let undoBtn = null;
 let redoBtn = null;
@@ -19,6 +22,24 @@ function setStatus(msg, type = "") {
   if (!el) return;
   el.textContent = msg;
   el.className = "shell-status" + (type ? " " + type : "");
+}
+
+// topbar doc-chip: filename + Saved/Unsaved state
+function setDocChip(name) {
+  const chip = document.getElementById("doc-chip");
+  const nameEl = document.getElementById("doc-name");
+  if (!chip || !nameEl) return;
+  if (name) nameEl.textContent = name;
+  chip.hidden = false;
+  const empty = document.getElementById("canvas-empty");
+  if (empty) empty.hidden = true;
+}
+
+function setDocState(dirty) {
+  const stateEl = document.getElementById("doc-state");
+  if (!stateEl) return;
+  stateEl.textContent = dirty ? "Unsaved" : "Saved";
+  stateEl.classList.toggle("is-dirty", !!dirty);
 }
 
 function getAuthorName() {
@@ -36,11 +57,35 @@ function getAuthorName() {
 }
 
 function formatTime(iso) {
+  // Relative time ("2h ago"); falls back to a locale date for older items.
   try {
-    return new Date(iso).toLocaleString();
+    const then = new Date(iso).getTime();
+    if (Number.isNaN(then)) return iso;
+    const mins = Math.round((Date.now() - then) / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return mins + "m ago";
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return hours + "h ago";
+    const days = Math.round(hours / 24);
+    if (days === 1) return "yesterday";
+    if (days < 7) return days + "d ago";
+    return new Date(iso).toLocaleDateString();
   } catch {
     return iso;
   }
+}
+
+const AVA_COLORS = ["#2B5EA7", "#2D7D6B", "#1B2B4B", "#B23E1D"];
+
+function createAvatar(author) {
+  const span = document.createElement("span");
+  span.className = "cava";
+  const name = (author || "?").trim() || "?";
+  span.textContent = name[0].toUpperCase();
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  span.style.background = AVA_COLORS[hash % AVA_COLORS.length];
+  return span;
 }
 
 function createThreadEl(thread, isUnanchored = false) {
@@ -50,7 +95,7 @@ function createThreadEl(thread, isUnanchored = false) {
   div.dataset.commentId = thread.id;
 
   const header = document.createElement("div");
-  header.className = "comment-thread-header";
+  header.className = "comment-thread-header comment-who";
 
   const authorSpan = document.createElement("span");
   authorSpan.className = "comment-author";
@@ -60,6 +105,7 @@ function createThreadEl(thread, isUnanchored = false) {
   timeSpan.className = "comment-time";
   timeSpan.textContent = formatTime(thread.createdAt);
 
+  header.appendChild(createAvatar(thread.author));
   header.appendChild(authorSpan);
   header.appendChild(timeSpan);
   div.appendChild(header);
@@ -86,12 +132,14 @@ function createThreadEl(thread, isUnanchored = false) {
       rDiv.className = "comment-reply";
 
       const rHeader = document.createElement("div");
+      rHeader.className = "comment-who";
       const rAuthor = document.createElement("span");
       rAuthor.className = "comment-author";
       rAuthor.textContent = r.author;
       const rTime = document.createElement("span");
       rTime.className = "comment-time";
       rTime.textContent = formatTime(r.createdAt);
+      rHeader.appendChild(createAvatar(r.author));
       rHeader.appendChild(rAuthor);
       rHeader.appendChild(rTime);
       rDiv.appendChild(rHeader);
@@ -105,7 +153,7 @@ function createThreadEl(thread, isUnanchored = false) {
       rActions.className = "comment-actions";
 
       const rEditBtn = document.createElement("button");
-      rEditBtn.className = "comment-action-btn";
+      rEditBtn.className = "comment-action-btn comment-action-btn--mut";
       rEditBtn.textContent = "Edit";
       rEditBtn.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -126,7 +174,7 @@ function createThreadEl(thread, isUnanchored = false) {
       rActions.appendChild(rEditBtn);
 
       const rDeleteBtn = document.createElement("button");
-      rDeleteBtn.className = "comment-action-btn";
+      rDeleteBtn.className = "comment-action-btn comment-action-btn--mut";
       rDeleteBtn.textContent = "Delete";
       rDeleteBtn.addEventListener("click", async (e) => {
         e.stopPropagation();
@@ -175,7 +223,7 @@ function createThreadEl(thread, isUnanchored = false) {
   actions.appendChild(replyBtn);
 
   const resolveBtn = document.createElement("button");
-  resolveBtn.className = "comment-action-btn";
+  resolveBtn.className = "comment-action-btn comment-action-btn--mut";
   resolveBtn.textContent = thread.resolved ? "Reopen" : "Resolve";
   resolveBtn.addEventListener("click", async (e) => {
     e.stopPropagation();
@@ -192,7 +240,7 @@ function createThreadEl(thread, isUnanchored = false) {
   actions.appendChild(resolveBtn);
 
   const editBtn = document.createElement("button");
-  editBtn.className = "comment-action-btn";
+  editBtn.className = "comment-action-btn comment-action-btn--mut";
   editBtn.textContent = "Edit";
   editBtn.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -213,7 +261,7 @@ function createThreadEl(thread, isUnanchored = false) {
   actions.appendChild(editBtn);
 
   const deleteBtn = document.createElement("button");
-  deleteBtn.className = "comment-action-btn";
+  deleteBtn.className = "comment-action-btn comment-action-btn--mut";
   deleteBtn.textContent = "Delete";
   deleteBtn.addEventListener("click", async (e) => {
     e.stopPropagation();
@@ -245,6 +293,16 @@ function createThreadEl(thread, isUnanchored = false) {
     }
   });
   agentLabel.appendChild(agentCb);
+  const agentIco = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  agentIco.setAttribute("viewBox", "0 0 24 24");
+  agentIco.setAttribute("fill", "none");
+  agentIco.setAttribute("stroke", "currentColor");
+  agentIco.setAttribute("stroke-width", "2");
+  agentIco.setAttribute("aria-hidden", "true");
+  agentIco.style.width = "11px";
+  agentIco.style.height = "11px";
+  agentIco.innerHTML = '<rect x="5" y="8" width="14" height="11" rx="2"/><path d="M12 4v4M9 13h.01M15 13h.01"/>';
+  agentLabel.appendChild(agentIco);
   agentLabel.appendChild(document.createTextNode(" For agents"));
   actions.appendChild(agentLabel);
 
@@ -305,10 +363,13 @@ function ensureBridge(iframe) {
   bridge = createBridge(iframe);
   bridge.on("ready", async (payload) => {
     console.info("runtime ready");
+    historyCursor = 0;
+    savedCursor = 0;
     await refreshCommentPanel();
   });
 
   bridge.on("selection-changed", (payload) => {
+    lastSelection = payload && payload.hypId ? payload : null;
     if (window.__hypUpdateAlignButtons) {
       window.__hypUpdateAlignButtons(payload && payload.alignCaps ? payload.alignCaps : null);
     }
@@ -317,6 +378,7 @@ function ensureBridge(iframe) {
   bridge.on("dirty-changed", (payload) => {
     isDirty = payload && payload.dirty ? true : false;
     document.title = isDirty ? "hypresent *" : "hypresent";
+    setDocState(isDirty);
     refreshCommentPanel();
   });
 
@@ -340,6 +402,12 @@ function ensureBridge(iframe) {
   bridge.on("history-changed", (payload) => {
     if (undoBtn) undoBtn.disabled = !(payload && payload.canUndo);
     if (redoBtn) redoBtn.disabled = !(payload && payload.canRedo);
+    // Saved/Unsaved chip: any history movement away from the saved position
+    // means the document differs from disk; moving back to it means it matches.
+    if (payload && typeof payload.cursor === "number") {
+      historyCursor = payload.cursor;
+      setDocState(historyCursor !== savedCursor);
+    }
   });
 
   const panel = document.getElementById("shell-panel");
@@ -351,7 +419,7 @@ function ensureBridge(iframe) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  const toolbar = document.querySelector(".shell-toolbar");
+  const toolbar = document.querySelector(".ed-toolbar");
   const main = document.querySelector(".shell-main");
   const mount = document.querySelector(".doc-frame-mount");
   const iframe = document.querySelector(".doc-frame");
@@ -392,11 +460,19 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!result) return; // cancelled
         ensureBridge(iframe);
         setStatus("");
+        setDocChip(result.name || "");
+        setDocState(false);
       } catch (err) {
         console.error("Open failed:", err.message);
         setStatus("Open failed: " + err.message, "error");
       }
     });
+  }
+
+  // canvas empty-state Open button proxies the topbar one
+  const canvasOpenBtn = document.getElementById("canvas-open-btn");
+  if (canvasOpenBtn && openBtn) {
+    canvasOpenBtn.addEventListener("click", () => openBtn.click());
   }
 
   // prez-builder handoff: open a deck passed via ?file= (set by the builder page).
@@ -407,9 +483,11 @@ document.addEventListener("DOMContentLoaded", () => {
   if (fileParam) {
     (async () => {
       try {
-        await openFile(fileParam, iframe);
+        const result = await openFile(fileParam, iframe);
         ensureBridge(iframe);
         setStatus("");
+        setDocChip((result && result.name) || fileParam.split(/[\\/]/).pop() || "");
+        setDocState(false);
       } catch (err) {
         console.error("Handoff open failed:", err.message);
         setStatus("Open failed: " + err.message, "error");
@@ -445,10 +523,15 @@ document.addEventListener("DOMContentLoaded", () => {
           const sa = await dialogSaveAs(html);
           if (sa && sa.cancelled) return;
           isDirty = false; document.title = "hypresent";
+          savedCursor = historyCursor;
+          setDocState(false);
+          setDocChip((sa.path || "").split(/[\/]/).pop() || "");
           setStatus("Saved to " + (sa.path || ""), "success");
           return;
         }
         isDirty = false; document.title = "hypresent";
+        savedCursor = historyCursor;
+        setDocState(false);
         setStatus("Saved to " + (data.path || ""), "success");
       } catch (err) {
         setStatus("Save failed: " + err.message, "error");
@@ -465,6 +548,9 @@ document.addEventListener("DOMContentLoaded", () => {
         const data = await dialogSaveAs(html);
         if (data && data.cancelled) return; // user cancelled
         isDirty = false; document.title = "hypresent";
+        savedCursor = historyCursor;
+        setDocState(false);
+        setDocChip((data.path || "").split(/[\/]/).pop() || "");
         setStatus("Saved to " + (data.path || ""), "success");
       } catch (err) {
         setStatus("Save failed: " + err.message, "error");
@@ -631,13 +717,9 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Wire Undo / Redo buttons (no IDs in HTML; select by label text)
-  undoBtn = Array.from(document.querySelectorAll(".shell-toolbar button")).find(
-    (b) => b.textContent.trim() === "Undo"
-  );
-  redoBtn = Array.from(document.querySelectorAll(".shell-toolbar button")).find(
-    (b) => b.textContent.trim() === "Redo"
-  );
+  // Wire Undo / Redo buttons (topbar icon buttons)
+  undoBtn = document.getElementById("undo-btn");
+  redoBtn = document.getElementById("redo-btn");
 
   if (undoBtn) {
     undoBtn.addEventListener("click", async () => {
@@ -656,6 +738,39 @@ document.addEventListener("DOMContentLoaded", () => {
       bridge.command("redo").catch((err) => {
         console.error("Redo failed:", err.message);
       });
+    });
+  }
+
+  // Panel composer (inspector bottom): comments the currently selected element.
+  const composerInput = document.getElementById("composer-input");
+  const composerSend = document.getElementById("composer-send");
+  async function submitPanelComment() {
+    if (!composerInput) return;
+    const text = composerInput.value.trim();
+    if (!text) return;
+    if (!bridge) { setStatus("Open a document first.", "error"); return; }
+    if (!lastSelection || !lastSelection.hypId) {
+      setStatus("Select an element to comment.", "error");
+      return;
+    }
+    const author = getAuthorName();
+    try {
+      await bridge.command("add-comment", {
+        hypId: lastSelection.hypId,
+        body: text,
+        author,
+        agentInstruction: false,
+      });
+      composerInput.value = "";
+      await refreshCommentPanel();
+    } catch (err) {
+      setStatus("Add comment failed: " + err.message, "error");
+    }
+  }
+  if (composerSend) composerSend.addEventListener("click", submitPanelComment);
+  if (composerInput) {
+    composerInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); submitPanelComment(); }
     });
   }
 });

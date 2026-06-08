@@ -35,8 +35,8 @@ class R3DeleteTests(unittest.TestCase):
         self.page.close()
 
     def _undo_btn(self):
-        # The Undo toolbar button has text "Undo".
-        return self.page.locator(".shell-toolbar button", has_text="Undo").first
+        # The Undo button is the #undo-btn topbar icon (ui-redesign).
+        return self.page.locator("#undo-btn")
 
     def _real_select(self, selector):
         H.doc_eval(self.page, f"const e=doc.querySelector({selector!r}); if(e) e.scrollIntoView({{block:'center'}});")

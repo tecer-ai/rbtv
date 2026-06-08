@@ -425,3 +425,48 @@ Orchestration prompt: `1-projects/rbtv-evolution/hypresent/prompt-to-orchestrate
 | 322 | 2026-06-07 | Opus exerciser (builder side) | result | **DT2 re-exercise held** — real combobox gestures :8821, computed proof (en: 2/2 pt hidden + 55/55 visible; all: 57/57), flip-back confirmed; one wrong-tab screenshot DISCARDED per integrity tripwire (parallel Chrome cross-talk) and recaptured on an isolated page. **DT2 dual-verified. SCOREBOARD COMPLETE: W1–W4 ☑, DT1–DT5 ☑, EX1–EX2 ☑.** |
 | 323 | 2026-06-07 | Claude sub-agents (commit ×2) | dispatch | Closing commits (parallel, different repos): rbtv session-C4 `[prez-v1-c4]` (filter+lang+writer fixes, hardened e2e, docs-sync, evidence, task-file edits, changelog) | tecer-biz final `[prez-v1 t-c3]` (as-built verification entries + 2 sanctioned metadata repairs + re-vendored engine). Both LOCAL-ONLY. |
 | 324 | 2026-06-07 | Orchestrator | session | **SESSION 4 CLOSED — EXIT CONDITIONS MET.** (1) Workstreams W1–W4 ALL ☑ (convention frozen ADX-1..13; engine 51/51 vs fixture; builder page e2e-green + EX1 233/232/1-permitted; tecer migrated + validated + MERGED f208f28). (2) Every done-test criterion exercised and held on the COLD-VERIFIED evidence sheet — builder + verifier sheets reconciled after the verifier's DT2 catch (inert lang filter) was fixed and dual-re-exercised; DT4 verifier-mechanism limitation surfaced. (3) EX1 clean server run Kimi-evidenced. Commits: rbtv a9638ee/3311071/dedaed8/86c0c36 ([prez-v1-c1..c4], master, NOT pushed); tecer 6c7bb1c→c78f104→5649c41→merge f208f28→dbc5de2 ([t-c1..3], main, NOT pushed). Defects caught BY the gate + fixed in-session: engine []-writer (DT4), EN-lang as-built metadata (DT1–3), inert lang filter (EX2). 3 testability-gap registry rows. 27 title corrections under U4 authority. Sheets: 1-projects/rbtv-evolution/coding/done-gate-evidence/hypresent/2026-06-06-prez-builder.md + 2026-06-07-prez-builder-cold-verifier.md. |
+
+---
+
+# Session 5 — 2026-06-07 (ui-redesign: "Warm Studio" shell)
+
+| Field | Value |
+|-------|-------|
+| Registrar | Claude (single-agent build) |
+| Branch | `hypresent-ui-redesign` |
+| Design source | `1-projects/rbtv-evolution/hypresent/ui-redesign/hypresent-ui.html` (static mock, owner-approved) |
+| Contract | 5 owner criteria, confirmed 2026-06-07; evidence sheet `1-projects/rbtv-evolution/coding/done-gate-evidence/hypresent/2026-06-07-ui-redesign.md` |
+
+## Exit Scorecard
+
+| ID | Item | Status |
+|----|------|--------|
+| U1 | Shared "Warm Studio" chrome: wordmark + Editor/Builder pill switcher on both pages (two pages kept; switcher = styled links) | ☑ exercised headed |
+| U2 | Editor: topbar doc-chip (filename + Saved/Unsaved), Open/Save/Save As + Undo/Redo in topbar, format toolbar restyled, worktable canvas + empty state | ☑ e2e + exercised |
+| U3 | Inspector: palette tokens (swatch+hex+copy), selected-element colors, comment threads (avatars, relative time, For-agents chip), bottom composer (new: comments current selection) | ☑ e2e + exercised |
+| U4 | Builder: left rail (library card, segmented language filter, sections nav + scroll-spy), browse cards (hover +Add, position badges, click-to-toggle), tray thumbnails, assemble panel (deck name/language/title/accent fields — lang/title/accent now wired to the engine args) | ☑ e2e + exercised |
+| U5 | Fonts vendored (`app/fonts/` Fraunces italic + Hanken Grotesk variable woff2) — no CDN at runtime | ☑ |
+| EXIT | e2e 168/168 green (3 pre-existing skips) + unit 17/17 (1 pre-existing skip); tests updated where the UI legitimately changed (undo locator, toolbar classes, lang-filter gesture, preset label, agent-chip click) | ☑ |
+
+## Decision Register
+
+| ID | Decision | Rationale |
+|----|----------|-----------|
+| S5-D1 | Two pages restyled with shared chrome; NO single-page merge | Owner choice at contract; mock's module switcher is visual intent — links navigate between the existing pages, zero rewiring risk |
+| S5-D2 | Functional class names/ids preserved (`slide-card`, `tray-row`, `browse-group`, `#shell-panel`, all toolbar ids); mock-only class names added where new elements exist | Keeps the 30-file e2e suite and runtime contracts intact; restyle lives in CSS |
+| S5-D3 | Thumbnails scale via container queries: `transform: scale(calc(100cqw / 1280px))` (typed calc division, Chrome 117+/148 verified) | Responsive cards without per-thumb JS; `scale(calc(100cqw/1280))` is invalid (length, not number) — the `/1280px` division yields a number |
+| S5-D4 | Previews IO root = `#builder-browse` (the scroll container) + cap re-enforced at registration | With a non-scrolling root every thumb "intersects" forever and MOUNT_CAP eviction never finds candidates (caught by pb3) |
+| S5-D5 | Saved/Unsaved chip tracks the runtime history cursor (`history-changed.cursor` vs cursor-at-save) | `dirty-changed` only ever fired for comment ops; cursor equality gives exact dirty semantics incl. undo-back-to-saved |
+| S5-D6 | No toolbar color button (inspector is always-on), no font-size readout | R4 locked the button's removal; no runtime command exposes selection font-size — readout would be a fabrication |
+| S5-D7 | Accent picker = native `<input type=color>` overlaying the styled field; engine receives accent only when user-chosen | Zero new dependencies; engine `--accent` already supported |
+
+## Defects caught by the gate in-session
+
+| # | Defect | Fix |
+|---|--------|-----|
+| 1 | `[hidden]` attribute defeated by `display:flex` rules (stray topbar chip + empty rail blocks) | global `[hidden]{display:none!important}` |
+| 2 | Thumbnails rendered as unscaled top-left crops (invalid `scale()` length argument) | S5-D3 typed division |
+| 3 | Mount cap overflow 30>24 (IO root not the scroll container) | S5-D4 |
+| 4 | Saved state never flipped on text edits (dirty-changed = comments-only, pre-existing) | S5-D5 |
+| 5 | Coloris swatch `::after` painted over the hex text once the button went static (absolute ::after re-anchored to the field) | button `position:relative` |
+| 6 | Language filter leaked other-language slides (id-suffix "language-neutral" heuristic, inherited from PB and test-pinned) — owner-corrected post-done: PT showed EN slides on the real library | Strict `lang === selected` match in `applyLangFilter`; pb2 assertions rewritten to the strict contract; re-exercised headed (C6, 32 pt / 25 en / 57 all) |

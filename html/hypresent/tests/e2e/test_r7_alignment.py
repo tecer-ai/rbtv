@@ -205,7 +205,7 @@ class R7AlignmentTests(unittest.TestCase):
         return H.doc_eval(self.page, f"const e=doc.querySelector({self.TARGET!r}); return getComputedStyle(e).getPropertyValue({prop!r});")
 
     def _undo(self):
-        self.page.locator(".shell-toolbar button", has_text="Undo").first.click()
+        self.page.click("#undo-btn")
         self.page.wait_for_timeout(200)
 
     # E-R7-1 / E-R7-2 — horizontal on a block + undo

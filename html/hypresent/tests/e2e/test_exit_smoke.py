@@ -149,7 +149,7 @@ class ExitSmokeTests(unittest.TestCase):
         self.page.wait_for_selector("#comment-threads .comment-thread")
 
         # (f) tag it for agents
-        self.page.locator("#comment-threads .comment-agent-toggle input").first.check()
+        self.page.locator("#comment-threads .comment-agent-toggle").first.click()
         self.page.wait_for_timeout(300)
 
         # (g) R3: delete an element then undo it (no leftover; round-trips clean)
@@ -178,7 +178,7 @@ class ExitSmokeTests(unittest.TestCase):
         self.page.click("#delete-btn")
         self.page.wait_for_timeout(250)
         self.assertFalse(H.doc_eval(self.page, f"return !!doc.querySelector('[data-hyp-id=\"{del_id}\"]');"), "R3: element deleted")
-        self.page.locator(".shell-toolbar button", has_text="Undo").first.click()
+        self.page.click("#undo-btn")
         self.page.wait_for_timeout(250)
         self.assertTrue(H.doc_eval(self.page, f"return !!doc.querySelector('[data-hyp-id=\"{del_id}\"]');"), "R3: element restored on undo")
 

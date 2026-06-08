@@ -28,101 +28,88 @@ export function createColorPopover({ bridge, panelEl }) {
   container.innerHTML = `
     <style>
       .hyp-color-panel {
-        font-size: 0.8125rem;
+        font-size: 13px;
         display: flex;
         flex-direction: column;
-        gap: 0.75rem;
       }
+      .hyp-color-panel > div { padding: 16px 18px 18px; border-bottom: 1px solid var(--line); }
       .hyp-color-header {
-        font-weight: 600;
-        color: #444;
-        text-transform: uppercase;
-        letter-spacing: 0.02em;
-        font-size: 0.75rem;
-        margin-bottom: 0.25rem;
+        display: flex; align-items: center; gap: 7px;
+        font-size: 11px; font-weight: 700; letter-spacing: .09em;
+        text-transform: uppercase; color: var(--ink-mut);
+        margin-bottom: 12px;
       }
       .hyp-token-list {
         display: flex;
         flex-direction: column;
-        gap: 0.25rem;
         max-height: 40vh;
         overflow-y: auto;
       }
-      .hyp-token-row {
+      .hyp-token-row, .hyp-color-row {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
-        padding: 0.125rem 0;
+        gap: 10px;
+        padding: 6px 2px;
+        border-radius: 6px;
       }
+      .hyp-token-row:hover, .hyp-color-row:hover { background: var(--paper-2); }
       .hyp-token-name {
         flex: 1;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-        font-size: 0.75rem;
-        color: #333;
+        font-size: 13px; font-weight: 600; color: var(--ink);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      .hyp-token-row .clr-field {
-        flex-shrink: 0;
+      .hyp-color-row label { flex: 1; font-size: 12.5px; font-weight: 600; color: var(--ink-mut); }
+      /* Coloris field → mock-style swatch + quiet hex text */
+      .hyp-color-panel .clr-field { display: flex; align-items: center; gap: 8px; flex: none; color: transparent; }
+      .hyp-color-panel .clr-field button {
+        /* relative (not static): Coloris paints the swatch via an absolutely
+           positioned ::after — it must anchor to the button, not the field */
+        position: relative; order: -1; flex: none;
+        top: auto; left: auto; right: auto; bottom: auto;
+        transform: none; margin: 0;
+        width: 20px; height: 20px; border-radius: 6px;
+        border: 1px solid rgba(27,31,42,.14);
+        overflow: hidden; cursor: pointer;
       }
-      .hyp-token-row .clr-field input {
-        width: 5rem;
-        font-size: 0.6875rem;
-        padding: 0.125rem 0.25rem;
-        border: 1px solid #ccc;
-        border-radius: 0.25rem;
-      }
-      .hyp-element-section {
-        border-top: 1px solid #eee;
-        padding-top: 0.75rem;
-      }
-      .hyp-color-row {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.125rem 0;
-      }
-      .hyp-color-row label {
-        width: 4.5rem;
-        font-size: 0.75rem;
-        color: #555;
-      }
-      .hyp-color-row .clr-field input {
-        width: 5rem;
-        font-size: 0.6875rem;
-        padding: 0.125rem 0.25rem;
-        border: 1px solid #ccc;
-        border-radius: 0.25rem;
+      .hyp-color-panel .clr-field button:after { border-radius: 5px; box-shadow: none; }
+      .hyp-color-panel .clr-field input {
+        width: 70px;
+        border: none; background: transparent;
+        font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+        font-size: 11.5px; color: var(--ink-mut);
+        padding: 2px 0;
       }
       .hyp-no-selection {
-        color: #888;
-        font-size: 0.75rem;
+        color: var(--ink-faint);
+        font-size: 12.5px;
         font-style: italic;
-        padding: 0.25rem 0;
+        padding: 2px 0;
       }
       .hyp-token-info {
-        margin-left: 0.35rem;
-        color: #999;
-        cursor: help;
-        font-size: 0.7rem;
+        width: 17px; height: 17px; border-radius: 50%;
+        display: inline-flex; align-items: center; justify-content: center;
+        border: 1px solid var(--line-2); color: var(--ink-faint);
+        font-size: 10.5px; font-weight: 700; font-style: normal;
+        margin-left: auto; cursor: help;
       }
       .hyp-token-copy {
-        flex-shrink: 0;
-        border: none;
-        background: transparent;
-        color: #aaa;
-        cursor: pointer;
-        font-size: 0.75rem;
-        padding: 0 0.15rem;
-        line-height: 1;
+        flex: none;
+        width: 24px; height: 24px; border-radius: 5px;
+        display: inline-flex; align-items: center; justify-content: center;
+        border: none; background: transparent;
+        color: var(--ink-faint); cursor: pointer;
+        font-size: 12px; line-height: 1;
+        opacity: 0; transition: opacity .12s ease, background .12s ease, color .12s ease;
       }
-      .hyp-token-copy:hover { color: #555; }
-      .hyp-token-copied { color: #16a34a !important; }
+      .hyp-token-row:hover .hyp-token-copy { opacity: 1; }
+      .hyp-token-copy:hover { background: var(--line); color: var(--ink); }
+      .hyp-token-copied { color: var(--ok) !important; opacity: 1 !important; }
     </style>
     <div class="hyp-color-panel">
       <div>
-        <div class="hyp-color-header">Palette Tokens<span class="hyp-token-info" title="Changing a palette token recolors every element using that color across the whole document.">ⓘ</span></div>
+        <div class="hyp-color-header">Palette Tokens<span class="hyp-token-info" title="Changing a palette token recolors every element using that color across the whole document.">i</span></div>
         <div class="hyp-token-list">
           <p class="hyp-no-selection">Open a file to see palette tokens</p>
         </div>

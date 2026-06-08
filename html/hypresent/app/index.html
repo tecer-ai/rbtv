@@ -9,52 +9,90 @@
   <script src="/app/js/vendor/moveable.min.js"></script>
 </head>
 <body>
-  <nav class="app-nav">
-    <a href="/app/" class="app-nav-link" id="nav-editor">Editor</a>
-    <a href="/app/builder.html" class="app-nav-link" id="nav-builder">Builder</a>
-  </nav>
-  <div class="shell-toolbar">
-    <div class="toolbar-group">
-      <button type="button" class="tool-btn" id="fmt-bold" title="Bold">B</button>
-      <button type="button" class="tool-btn" id="fmt-italic" title="Italic">I</button>
-      <button type="button" class="tool-btn" id="fmt-font-inc" title="Increase font size">A+</button>
-      <button type="button" class="tool-btn" id="fmt-font-dec" title="Decrease font size">A-</button>
+  <header class="topbar">
+    <div class="brand">hypresent<span class="tld">.</span></div>
+
+    <nav class="switcher" aria-label="Module">
+      <a href="/app/" class="is-active" id="nav-editor" aria-current="page">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        Editor
+      </a>
+      <a href="/app/builder.html" id="nav-builder">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Builder
+      </a>
+    </nav>
+
+    <div class="topbar-ctx" id="ctx-editor">
+      <span id="shell-status" class="shell-status"></span>
+      <div class="doc-chip" id="doc-chip" hidden>
+        <span class="doc-name" id="doc-name"></span>
+        <span class="doc-state" id="doc-state">Saved</span>
+      </div>
+      <button type="button" class="tb-btn" id="open-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        Open…
+      </button>
+      <button type="button" class="tb-btn tb-btn--primary" id="save-btn">Save</button>
+      <button type="button" class="tb-btn" id="save-as-btn">Save As…</button>
+      <span class="tb-sep" aria-hidden="true"></span>
+      <button type="button" class="tb-ico" id="undo-btn" aria-label="Undo" title="Undo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>
+      </button>
+      <button type="button" class="tb-ico" id="redo-btn" aria-label="Redo" title="Redo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 15-6.7L21 13"/></svg>
+      </button>
     </div>
-    <div class="toolbar-group">
-      <button type="button" class="tool-btn" id="align-left" title="Align left (inside its box)">⬅</button>
-      <button type="button" class="tool-btn" id="align-center" title="Align center horizontally (inside its box)">⬌</button>
-      <button type="button" class="tool-btn" id="align-right" title="Align right (inside its box)">➡</button>
-      <button type="button" class="tool-btn" id="align-top" title="Align top (vertical, inside its box)">⬆</button>
-      <button type="button" class="tool-btn" id="align-middle" title="Align middle (vertical, inside its box)">⬍</button>
-      <button type="button" class="tool-btn" id="align-bottom" title="Align bottom (vertical, inside its box)">⬇</button>
+  </header>
+
+  <div class="ed-toolbar" role="toolbar" aria-label="Formatting">
+    <div class="ed-group">
+      <button type="button" class="ed-btn" id="fmt-bold" title="Bold" aria-label="Bold"><span style="font-weight:800">B</span></button>
+      <button type="button" class="ed-btn" id="fmt-italic" title="Italic" aria-label="Italic"><span style="font-style:italic;font-family:Georgia,serif;font-weight:600">I</span></button>
+      <button type="button" class="ed-btn" id="fmt-font-dec" title="Decrease font size" aria-label="Decrease font size">A−</button>
+      <button type="button" class="ed-btn" id="fmt-font-inc" title="Increase font size" aria-label="Increase font size">A+</button>
     </div>
-    <div class="toolbar-group">
-      <button type="button" class="tool-btn" id="comment-btn" title="Add comment">💬</button>
-      <button type="button" class="tool-btn" id="delete-btn" title="Delete selected element">🗑</button>
+    <div class="ed-group" aria-label="Horizontal alignment">
+      <button type="button" class="ed-btn" id="align-left" title="Align left (inside its box)" aria-label="Align left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h10M3 18h14"/></svg></button>
+      <button type="button" class="ed-btn" id="align-center" title="Align center horizontally (inside its box)" aria-label="Align center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M7 12h10M5 18h14"/></svg></button>
+      <button type="button" class="ed-btn" id="align-right" title="Align right (inside its box)" aria-label="Align right"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M11 12h10M7 18h14"/></svg></button>
     </div>
-    <div class="toolbar-group">
-      <button type="button" class="tool-btn" id="open-btn">Open…</button>
-      <button type="button" class="tool-btn" id="save-btn">Save</button>
-      <button type="button" class="tool-btn" id="save-as-btn">Save As…</button>
+    <div class="ed-group" aria-label="Vertical alignment">
+      <button type="button" class="ed-btn" id="align-top" title="Align top (vertical, inside its box)" aria-label="Align top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 4h16"/><rect x="9" y="8" width="6" height="11" rx="1"/></svg></button>
+      <button type="button" class="ed-btn" id="align-middle" title="Align middle (vertical, inside its box)" aria-label="Align middle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 12h3m10 0h3"/><rect x="9" y="6" width="6" height="12" rx="1"/></svg></button>
+      <button type="button" class="ed-btn" id="align-bottom" title="Align bottom (vertical, inside its box)" aria-label="Align bottom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 20h16"/><rect x="9" y="5" width="6" height="11" rx="1"/></svg></button>
     </div>
-    <div class="toolbar-group">
-      <button type="button" class="tool-btn">Undo</button>
-      <button type="button" class="tool-btn">Redo</button>
+    <div class="ed-group">
+      <button type="button" class="ed-btn" id="comment-btn" title="Add comment" aria-label="Add comment"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+      <button type="button" class="ed-btn" id="delete-btn" title="Delete selected element" aria-label="Delete selected element"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
     </div>
-    <span id="shell-status" class="shell-status"></span>
   </div>
 
-  <div class="shell-main">
-    <div class="doc-frame-mount">
+  <div class="ed-body shell-main">
+    <div class="canvas doc-frame-mount">
       <iframe class="doc-frame"></iframe>
+      <div class="canvas-empty" id="canvas-empty">
+        <div class="ce-brand">hypresent<span style="color:var(--accent)">.</span></div>
+        <p>Open an HTML document to edit it visually.</p>
+        <button type="button" class="tb-btn" id="canvas-open-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          Open…
+        </button>
+      </div>
     </div>
-    <aside class="shell-panel" id="shell-panel">
+    <aside class="inspector shell-panel" id="shell-panel">
       <div class="comment-panel">
         <div class="comment-panel-header">
           <h3>Comments</h3>
         </div>
         <div class="comment-threads" id="comment-threads"></div>
         <div class="comment-unanchored" id="comment-unanchored"></div>
+        <div class="composer">
+          <input type="text" id="composer-input" placeholder="Add a comment…" aria-label="Add a comment">
+          <button type="button" class="send" id="composer-send" aria-label="Post comment">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+          </button>
+        </div>
       </div>
     </aside>
   </div>

@@ -2,13 +2,13 @@
 
 const MOUNT_CAP = 24;
 
-let themeCache = null;
-let themePromise = null;
+// caches are keyed by library path so "Change library" never serves stale assets
+const themePromises = new Map();   // libraryPath -> Promise<string>
+const srcdocPromises = new Map();  // `${libraryPath}|${slideId}` -> Promise<string>
 
 function fetchTheme(libraryPath) {
-  if (themeCache) return Promise.resolve(themeCache);
-  if (themePromise) return themePromise;
-  themePromise = fetch('/api/library-asset', {
+  if (themePromises.has(libraryPath)) return themePromises.get(libraryPath);
+  const p = fetch('/api/library-asset', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path: libraryPath, name: 'theme.css' })
@@ -17,15 +17,32 @@ function fetchTheme(libraryPath) {
       if (!r.ok) throw new Error('theme.css fetch failed: ' + r.status);
       return r.json();
     })
-    .then(data => {
-      themeCache = data.content || '';
-      return themeCache;
-    });
-  return themePromise;
+    .then(data => data.content || '');
+  themePromises.set(libraryPath, p);
+  return p;
 }
 
 export function buildSrcdoc(theme, fragment) {
   return `<!DOCTYPE html><html><head><style>${theme}</style></head><body>${fragment}</body></html>`;
+}
+
+// Cached full srcdoc for one slide — shared by browse previews and tray thumbnails.
+export function getSlideSrcdoc(libraryPath, slideId) {
+  const key = libraryPath + '|' + slideId;
+  if (srcdocPromises.has(key)) return srcdocPromises.get(key);
+  const p = Promise.all([
+    fetchTheme(libraryPath),
+    fetch('/api/library-asset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: libraryPath, name: 'slides/' + slideId + '.html' })
+    }).then(r => {
+      if (!r.ok) throw new Error('slide fetch failed: ' + r.status);
+      return r.json();
+    })
+  ]).then(([theme, data]) => buildSrcdoc(theme, data.content || ''));
+  srcdocPromises.set(key, p);
+  return p;
 }
 
 export function initPreviews(libraryPath, container) {
@@ -79,24 +96,18 @@ export function initPreviews(libraryPath, container) {
     }
   }
 
-  function mountIframe(iframe, theme) {
+  function mountIframe(iframe) {
     const id = iframe.dataset.slideId;
     if (!id || iframe.dataset.mounted) return;
 
     evictIfNeeded();
 
-    fetch('/api/library-asset', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: libraryPath, name: 'slides/' + id + '.html' })
-    })
-      .then(r => {
-        if (!r.ok) throw new Error('slide fetch failed: ' + r.status);
-        return r.json();
-      })
-      .then(data => {
-        const fragment = data.content || '';
-        iframe.srcdoc = buildSrcdoc(theme, fragment);
+    getSlideSrcdoc(libraryPath, id)
+      .then(srcdoc => {
+        // Re-enforce the cap at registration: a fast scroll can start many
+        // fetches before any registers, so the entry gate alone is not enough.
+        evictIfNeeded();
+        iframe.srcdoc = srcdoc;
         iframe.dataset.mounted = 'true';
         const now = performance.now();
         mounted.set(iframe, { lastUsed: now });
@@ -118,7 +129,7 @@ export function initPreviews(libraryPath, container) {
         if (mounted.has(iframe)) {
           mounted.get(iframe).lastUsed = now;
         } else {
-          fetchTheme(libraryPath).then(theme => mountIframe(iframe, theme));
+          mountIframe(iframe);
         }
       } else {
         intersecting.delete(iframe);

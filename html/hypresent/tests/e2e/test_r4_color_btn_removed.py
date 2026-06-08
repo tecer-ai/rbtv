@@ -40,11 +40,11 @@ class R4ColorBtnRemovedTests(unittest.TestCase):
     def test_no_empty_group_no_glyph(self):
         # No toolbar-group should contain zero buttons (the #color-btn group is gone, not emptied).
         empty_groups = self.page.evaluate(
-            "() => Array.from(document.querySelectorAll('.shell-toolbar .toolbar-group'))"
+            "() => Array.from(document.querySelectorAll('.ed-toolbar .ed-group'))"
             ".filter(g => g.querySelectorAll('button').length === 0).length"
         )
         self.assertEqual(empty_groups, 0, "no empty toolbar-group should remain after removing #color-btn")
-        toolbar_text = self.page.evaluate("() => document.querySelector('.shell-toolbar').textContent")
+        toolbar_text = self.page.evaluate("() => document.querySelector('.ed-toolbar').textContent")
         self.assertNotIn("🎨", toolbar_text, "the 🎨 glyph must be gone from the toolbar")
 
     # E-R4-3 — color UI still works

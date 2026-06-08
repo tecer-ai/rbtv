@@ -60,7 +60,7 @@ class PB2LibraryLoadTests(unittest.TestCase):
         total = self.page.locator(".slide-card").count()
         self.assertEqual(visible_before, total, "before filter, all cards visible")
 
-        self.page.select_option("#lang-filter", "pt")
+        self.page.click(".lang-seg button[data-lang='pt']")
         # Wait a tick for the DOM update
         self.page.wait_for_timeout(100)
 
@@ -69,19 +69,32 @@ class PB2LibraryLoadTests(unittest.TestCase):
         )
         self.assertLess(visible_after, visible_before, "filter should reduce visible count")
 
-        # cover-e2e.en has .en suffix and lang en != pt → should be hidden
+        # Strict language match (2026-06-07 owner correction): pt shows ONLY
+        # pt-tagged slides — the old id-suffix "language-neutral" heuristic is gone.
         en_card = self.page.locator('.slide-card[data-slide-id="cover-e2e.en"]')
         self.assertTrue(
             en_card.evaluate("e => e.offsetParent === null"),
-            "cover-e2e.en should be hidden when pt is selected",
+            "cover-e2e.en (lang en) should be hidden when pt is selected",
         )
 
-        # intro-e2e is language-neutral (no .pt suffix) → stays visible
         intro_card = self.page.locator('.slide-card[data-slide-id="intro-e2e"]')
-        self.assertFalse(
+        self.assertTrue(
             intro_card.evaluate("e => e.offsetParent === null"),
-            "intro-e2e should stay visible",
+            "intro-e2e (lang en, no suffix) should be hidden when pt is selected",
         )
+
+        pt_card = self.page.locator('.slide-card[data-slide-id="cover-e2e.pt"]')
+        self.assertFalse(
+            pt_card.evaluate("e => e.offsetParent === null"),
+            "cover-e2e.pt should stay visible when pt is selected",
+        )
+
+        # exactly the pt-tagged cards remain
+        visible_langs = self.page.eval_on_selector_all(
+            ".slide-card",
+            "els => [...new Set(els.filter(e => e.offsetParent !== null).map(e => e.dataset.lang))]",
+        )
+        self.assertEqual(visible_langs, ["pt"], "only pt-tagged cards visible under pt")
 
     def test_invalid_library_state(self):
         broken = B.make_temp_library()

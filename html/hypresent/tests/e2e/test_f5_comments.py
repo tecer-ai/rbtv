@@ -142,13 +142,13 @@ class F5CommentTests(unittest.TestCase):
         self._type_and_submit("normal comment")
 
         # toggle on
-        self.page.locator("#comment-threads .comment-agent-toggle input").first.check()
+        self.page.locator("#comment-threads .comment-agent-toggle").first.click()
         self.page.wait_for_timeout(300)
         island = self._read_island()
         self.assertEqual(island[0]["agentInstruction"], True)
 
         # toggle off
-        self.page.locator("#comment-threads .comment-agent-toggle input").first.uncheck()
+        self.page.locator("#comment-threads .comment-agent-toggle").first.click()
         self.page.wait_for_timeout(300)
         island = self._read_island()
         self.assertEqual(island[0]["agentInstruction"], False)
@@ -277,7 +277,7 @@ class F5CommentTests(unittest.TestCase):
         )
         self.assertIsNotNone(before)
 
-        self.page.locator("#comment-threads .comment-agent-toggle input").first.check()
+        self.page.locator("#comment-threads .comment-agent-toggle").first.click()
         self.page.wait_for_timeout(300)
 
         after = H.doc_eval(
