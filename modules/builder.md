@@ -11,7 +11,7 @@ The RBTV-native module — for building RBTV itself. Install it in workspaces wh
 ### `rbtv-create-component`
 
 - **What**: Guided builder for any RBTV or vault AI component — skills, workflows, rules, commands, personas, tasks. Acts as a design partner: it challenges assumptions and forces key decisions before writing any file. Handles both RBTV-standard components (placed in the RBTV source repo, module-first) and workspace-native components (placed per that workspace's CLAUDE.md conventions).
-- **When to use**: Creating a new skill, workflow, or rule from scratch. Modifying an existing component. Trying to understand how a component is structured before editing it. Use this instead of manually exploring component directories — the workflow handles discovery.
+- **When to use**: Creating a new skill, workflow, or rule from scratch. Modifying an existing component. Trying to understand how a component is structured before editing it. Use this instead of manually exploring component directories — the workflow handles discovery. NOT for trivial text-only corrections to an existing component (stale reference, obsolete caveat, typo) that change no structure, frontmatter, steps, or behavior — edit those directly.
 - **How to invoke**: "Create a new skill for X" or "build a workflow for Y" — or invoke by name: `rbtv-create-component`.
 - **Inputs / outputs**:
   - Input: component type, description of what it should do, target system (RBTV or workspace-native)
