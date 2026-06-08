@@ -22,7 +22,7 @@ Sequencing gate plus structured output gate. The build itself is unchanged; the 
 | 1. Contract — at intake | DRAFT outcome criteria in plain language — "when done, the owner can {gesture} and {visible result} happens" — and confirm with the owner in ONE pass. The owner edits conversationally; NEVER ask the owner to write criteria or learn a format. Pushback is MANDATORY on vague criteria ("works", "looks right") — force user-visible outcomes. Criteria count scales with stakes: a small fix may carry a single criterion. Criteria are ALWAYS owner-observable outcomes, never internal/technical assertions. |
 | 2. Build | Existing workflows untouched. |
 | 3. Exercise — before any done-claim | Perform EACH contracted criterion under real input at the Fidelity Floor, capturing evidence files as you go. |
-| 4. Exhibit | Fill the evidence sheet. No sheet → done is UNDECLARABLE. Any `failed` row → back to Build, then re-exercise. `unexercisable` rows → done is declarable ONLY with those rows surfaced explicitly in the done message; the owner decides acceptance. |
+| 4. Exhibit | Fill the evidence sheet. No sheet → done is UNDECLARABLE. Any `failed` row → back to Build, then re-exercise. `unexercisable` rows → done is declarable ONLY with those rows surfaced explicitly in the done message; the owner decides acceptance. Same for `held-surprising` rows — see Surprising Holds. |
 
 ## Fidelity Floor
 
@@ -47,9 +47,23 @@ One sheet per task at `{evidence_root}/{project}/{YYYY-MM-DD}-{feature}.md` — 
 | Gesture performed | What was actually done to exercise it |
 | Observed result | What actually happened |
 | Evidence file | Relative path to the capture created during this exercise |
-| Verdict | `held` / `failed` / `unexercisable` + concrete reason |
+| Verdict | `held` / `held-surprising` / `failed` / `unexercisable` + concrete reason |
 
-The done message to the owner = sheet path + one-line verdict summary + every non-`held` row surfaced explicitly.
+The done message to the owner = sheet path + one-line verdict summary + every `failed`, `unexercisable`, and `held-surprising` row surfaced explicitly.
+
+## Surprising Holds
+
+A criterion is `held-surprising` — not plain `held` — when it holds technically but the observed behavior depends on a non-obvious mechanism the criterion never named: a pre-existing quirk, an undocumented convention, an inherited heuristic.
+
+**Operable trigger (apply at Exhibit, to every `held` row before filing it):** Read the observed result as the owner would — zero build context, first time seeing it. Would they say "that's not quite what I meant"? If yes → `held-surprising`.
+
+`held-surprising` rows surface in the done message exactly like `unexercisable` rows. The owner decides acceptance — not the agent.
+
+| Pattern | Verdict |
+|---------|---------|
+| Observed result matches the criterion's plain words; no hidden mechanism | `held` |
+| Criterion holds; behavior depends on a pre-existing quirk or undocumented convention | `held-surprising` |
+| Criterion holds; an inherited heuristic produced the "right" result for the wrong reason | `held-surprising` |
 
 ## Orchestrated Dispatches
 
@@ -70,3 +84,5 @@ Evidence rows MUST cite captures created during this task's exercise. The first 
 | Game | "I'll fill the sheet from test results / memory" | Sheet rows cite files captured during the exercise. No capture → the row does not exist → done locked. |
 | Game | "Can't drive this — mark it `held`, it probably works" | Mark `unexercisable` + the concrete blocker, and surface it in the done message. |
 | Game | "I'll rephrase the criteria into technical assertions I can pass" | Criteria stay owner-observable. Internal assertions live in your tests, not in the contract. |
+| Game | "The behavior holds technically — the surprise is a pre-existing quirk, not my code" | Mark `held-surprising`. Pre-existing quirks are exactly the surprises the owner must judge. |
+| Game | "I noticed the non-obvious mechanism but the criterion still passes — it's fine" | Apply the owner-lens: read the observed result with zero build context. If surprising → `held-surprising`. |
