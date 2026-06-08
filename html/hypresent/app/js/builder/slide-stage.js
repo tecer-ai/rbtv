@@ -160,6 +160,11 @@ export function createSlideStage(opts) {
     const idx = ids.indexOf(slideId);
     if (idx === -1) return;
 
+    // Remember the originating card so close() can restore focus, and pin the
+    // overlay over the currently-visible region of the scrolled browse pane.
+    stage.dataset.lastSlideId = slideId;
+    stage.style.top = container.scrollTop + 'px';
+
     renderSlide(slideId);
     updateNav(idx, ids.length);
 

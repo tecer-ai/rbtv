@@ -1,17 +1,34 @@
 ---
 task_id: T1-slide-expand
+execution_kind: code
+executor: kimi
 workspace: 3-resources/tools/rbtv
 work_dir: html/hypresent
+allowed_workdir: html/hypresent
 branch: master
 allowlist:
-  create:
-    - app/js/builder/slide-stage.js
-    - tests/e2e/test_pb7_slide_expand.py
-  modify:
-    - app/js/builder/browse-pane.js
-    - app/js/builder/builder-main.js
-    - app/css/builder.css
-  delete: []
+  - app/js/builder/slide-stage.js
+  - app/js/builder/browse-pane.js
+  - app/js/builder/builder-main.js
+  - app/css/builder.css
+  - tests/e2e/test_pb7_slide_expand.py
+commit_policy: local-only
+test_command: node --check app/js/builder/slide-stage.js && node --check app/js/builder/browse-pane.js && node --check app/js/builder/builder-main.js && python -m pytest tests/e2e/test_pb7_slide_expand.py -q
+forbidden_ops:
+  - git push
+  - writes outside allowlist
+  - destructive git reset
+  - external production API calls
+doubt_policy: halt
+reviewer: claude-opus
+swarm_policy: disabled
+max_kimi_subagents: 0
+# Human-readable allowlist (✚ create · ✎ modify):
+#   ✚ app/js/builder/slide-stage.js
+#   ✚ tests/e2e/test_pb7_slide_expand.py
+#   ✎ app/js/builder/browse-pane.js
+#   ✎ app/js/builder/builder-main.js
+#   ✎ app/css/builder.css
 ---
 
 # T1 — Slide expand (full-size in-place inspector)
@@ -316,6 +333,19 @@ Add at least these test methods (use `wait_for_*`, never bare sleeps where avoid
 
 ---
 
+## Forbidden paths / ops
+
+- Do NOT touch any file outside the allowlist (the 5 listed files only). The `app/` and `tests/` trees have many other files — leave them untouched.
+- Do NOT write scratch/log/summary files into the repo root or anywhere outside the allowlist.
+- Do NOT `git push`, force-reset, or amend. No external/production API calls.
+
+## Commit rule
+
+After ALL self-verifiable checks pass (the two `validation` commands below, both EXIT 0), commit locally on `master`:
+- Subject MUST start with `[T1-slide-expand]` (e.g. `[T1-slide-expand] feat(hypresent): slide expand inspector in builder`).
+- Stage ONLY the 5 allowlist files — do NOT `git add -A` (there are unrelated uncommitted files in this repo; never sweep them in).
+- Local commit only. NEVER push. Return the commit hash in `landed`; it MUST match `git log`.
+
 ## Return contract
 
 Return these five fields exactly:
@@ -326,3 +356,20 @@ Return these five fields exactly:
 - `open_questions`: the precise blocker if you halt
 
 If anything in this task is ambiguous or an anchor excerpt does not match the file, HALT and report it in `open_questions` — do NOT guess.
+
+---
+
+## ERRATUM 1 (2026-06-08, done-gate browser exercise) — binding fix
+
+**Defect (Criterion 2):** The expanded slide's frame renders as a 628×720 box (portrait) with a large empty white area below the slide and overflows the column. The slide CONTENT renders correctly; only the frame box is wrong. Cause: `.slide-stage-frame` sets both `width:1280px; height:720px;` AND `max-width:100%` — when width shrinks via `max-width`, the fixed `height:720px` does not, and `aspect-ratio` is ignored because height is explicitly set.
+
+**Required fix (only `app/css/builder.css`, `.slide-stage-frame` rule at the block reading `width: 1280px; height: 720px; max-width: 100%;`):** Drop the fixed `height: 720px` so `aspect-ratio: 16 / 9` drives the frame height from its (capped) width, and add `max-height: 100%` so a wide column cannot make the 16:9 frame overflow the body vertically. Net rule:
+```css
+.slide-stage-frame {
+  width: 1280px; max-width: 100%; height: auto; max-height: 100%;
+  aspect-ratio: 16 / 9; border: 1px solid var(--line); border-radius: var(--r-card);
+  box-shadow: var(--shadow-lift); background: var(--white); overflow: hidden;
+  container-type: inline-size;
+}
+```
+Leave `.slide-stage-frame iframe` unchanged. **Acceptance:** opening any slide expanded, the frame is a clean 16:9 box that fits the center column with no empty white area below the slide, and does not overflow the visible pane.

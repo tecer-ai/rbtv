@@ -311,7 +311,8 @@
 
 /* ════════════ SLIDE STAGE (expanded view) ════════════ */
 .slide-stage {
-  position: absolute; inset: 0; z-index: 20;
+  position: absolute; top: 0; left: 0; right: 0; z-index: 20;
+  height: 100%; /* visible pane height; `top` is set per-open to the scroll offset */
   display: none; flex-direction: column;
   background: var(--paper);
 }
@@ -341,7 +342,7 @@
   padding: 24px; overflow: auto;
 }
 .slide-stage-frame {
-  width: 1280px; height: 720px; max-width: 100%;
+  width: 1280px; max-width: 100%; height: auto; max-height: 100%;
   aspect-ratio: 16 / 9; border: 1px solid var(--line); border-radius: var(--r-card);
   box-shadow: var(--shadow-lift); background: var(--white); overflow: hidden;
   container-type: inline-size;
