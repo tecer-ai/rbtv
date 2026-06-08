@@ -2,7 +2,7 @@
 
 import { mountPreviews } from './previews.js';
 
-export function renderBrowse(data, { onTag, libraryPath }) {
+export function renderBrowse(data, { onTag, libraryPath, onExpand }) {
   const groupsContainer = document.getElementById('browse-groups');
   const emptyState = document.getElementById('browse-empty');
 
@@ -68,6 +68,19 @@ export function renderBrowse(data, { onTag, libraryPath }) {
       iframe.setAttribute('tabindex', '-1');
       // srcdoc intentionally empty — previews mounted lazily below
       thumbWrapper.appendChild(iframe);
+
+      const expandBtn = document.createElement('button');
+      expandBtn.type = 'button';
+      expandBtn.className = 's-expand';
+      expandBtn.setAttribute('aria-label', 'Expand slide');
+      expandBtn.title = 'Expand';
+      // magnifier glyph (inline SVG)
+      expandBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>';
+      expandBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (typeof onExpand === 'function') onExpand(slide.id);
+      });
+      thumbWrapper.appendChild(expandBtn);
 
       const addPill = document.createElement('span');
       addPill.className = 's-add';

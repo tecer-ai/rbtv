@@ -1,6 +1,7 @@
 // builder-main.js — prez-builder entry: rail + browse + tray + assemble wiring.
 import { pickAndLoadLibrary } from './library-load.js';
 import { renderBrowse, applyLangFilter, markTrayState } from './browse-pane.js';
+import { createSlideStage } from './slide-stage.js';
 import { createTray } from './tray.js';
 import { pickDestination, assembleDeck, buildOutPath } from './assemble.js';
 
@@ -212,12 +213,26 @@ document.addEventListener("DOMContentLoaded", () => {
     buildLangSeg(langs);
     state.slideLookup = new Map(slides.map(s => [s.id, s]));
 
+    // close any open stage from a previous library, then (re)create
+    if (state.stage) state.stage.close();
+    state.stage = createSlideStage({
+      container: browsePane,
+      getLibraryPath: () => state.libraryPath,
+      getSlideRecord: (id) => state.slideLookup ? state.slideLookup.get(id) : null,
+      onAdd: (id) => {
+        const rec = state.slideLookup ? state.slideLookup.get(id) : null;
+        if (rec && !tray.has(id)) tray.add(rec);
+      },
+      isAdded: (id) => tray.has(id),
+    });
+    const onExpand = (id) => state.stage.open(id);
+
     // browse + sections nav (cards toggle add/remove on click)
     const onTag = (rec) => {
       if (tray.has(rec.id)) tray.remove(rec.id);
       else tray.add(rec);
     };
-    renderBrowse(result.data, { onTag, libraryPath: result.path });
+    renderBrowse(result.data, { onTag, libraryPath: result.path, onExpand });
     buildSectionsNav(result.data);
     markTrayState(tray.getOrder());
 
