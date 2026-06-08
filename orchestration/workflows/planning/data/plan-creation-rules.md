@@ -418,10 +418,10 @@ The rationale is REQUIRED when both flag lists are empty — without it, the hum
 
 ### Coverage in Orchestration Mode
 
-Under plan-orchestration, the executor's flags travel up the chain:
+Under orchestration mode (dispatched via `rbtv-orchestrating`), the executor's flags travel up the chain:
 
-1. Executor includes the Human Review Presentation block in its return paragraph (per executor-prompt.md).
+1. Executor includes the Human Review Presentation block in its return paragraph (per the dispatch wrapper's return schema).
 2. Phase reviewer (one tier above) reviews the executor's flags AND adds its own per these same criteria. Reviewer's higher tier and broader read make it more likely to catch what the executor missed.
-3. Orchestrator surfaces the merged flag set to the user at the per-phase halt (per step-03 §3) and in finalization (per step-04 finalization message).
+3. Orchestrator surfaces the merged flag set to the user at phase boundaries and in the run finalization (per `rbtv-orchestrating` verification card §6).
 
 In standalone mode the executor is the only voice — the block goes straight to the user at Phase: Close.

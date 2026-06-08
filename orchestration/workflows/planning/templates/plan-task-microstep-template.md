@@ -88,7 +88,7 @@ human_review: required | optional | none
 
 ### Phase: Close
 
-**If executing under plan-orchestration** (the dispatching executor prompt declares orchestration mode):
+**If executing under orchestration mode** (dispatched via `rbtv-orchestrating`):
 
 1. Mark this task complete in ALL locations (same turn):
    - In the plan file, change `[~]` to `[x]` for this task's checkbox.
@@ -138,7 +138,7 @@ PLAN MODIFIED:
 
 ## Human Review Presentation
 
-**Audience:** Executors completing a task whose `.task.md` frontmatter sets `human_review: required` (and reviewers under plan-orchestration handling phases that contain such tasks). Phase: Close (standard template) and Phase: Gate (checkpoint variant) reference this section by path.
+**Audience:** Executors completing a task whose `.task.md` frontmatter sets `human_review: required` (and reviewers under orchestration mode handling phases that contain such tasks). Phase: Close (standard template) and Phase: Gate (checkpoint variant) reference this section by path.
 
 **Purpose:** Drive the user's review of the task's output. The block names what to look at first AND surfaces the executor's evidence-based risk assessment so the user reviews with priorities, not from scratch.
 

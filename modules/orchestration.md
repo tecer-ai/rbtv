@@ -44,20 +44,6 @@ The long-horizon work module — creating structured plans, executing them throu
 
 ---
 
-### `rbtv-plan-orchestration`
-
-> **Retiring post-plan** — superseded by `rbtv-orchestrating`; deletion TODO planted in the vault tasks file (`1-projects/rbtv-evolution/rbtv-evolution-tasks.md`). Frozen during the orchestration-build run (it is the engine executing that plan); removed in a fresh session after the build's final checkpoint.
-
-- **What**: Orchestrates execution of a multi-step **non-code** plan by delegating phases to tiered sub-agents, dispatching a reviewer per phase that fixes issues in place, and routing sub-agent doubts through a chain (re-read shape → sonnet doc-reader on referenced docs → halt to user). Per-batch executor model is assigned by a decision tree: **haiku** for mechanical work (explicit list, deterministic transformation, diff-verifiable, no judgment, single-skill rule chain); **sonnet** for enumerated cases — doc-reader role, reviewer of haiku batches, bulk per-item content work with local judgment, and naming judgment; **opus** by default for everything else. Reviewer model is one tier above the highest executor in the phase, floor `sonnet`, never haiku. The orchestrator never executes plan tasks itself — it only reads the plan, batches tasks, assigns models, dispatches agents, surfaces escalations, and optionally suggests clean phase-boundary context refreshes that resume from `orchestration-state.md`.
-- **When to use**: A written multi-step plan exists for non-code work — vault refactors, content migrations, doc workflows, structural reorganizations. **Not for code work** — use `superpowers:subagent-driven-development` for code plans (it provides per-task spec/quality review, TDD, and git worktree integration this skill does not). Not for single-step tasks.
-- **How to invoke**: "Orchestrate this plan", "execute this plan with sub-agents", or `rbtv-plan-orchestration` directly. Pre-flight asks two questions: (a) confirm orchestration vs direct execution, (b) run mode — `halt`, `end-to-end`, or `autonomous`. Step-02 presents the full delegation map, model assignments, reviewer timing, and refresh candidates. Default context refresh mode is `suggest`: the orchestrator asks only at approved clean phase boundaries whether to continue or pause for a fresh orchestrator. User MAY disable refresh prompts or override model assignments by explicit instruction.
-- **Inputs / outputs**:
-  - Input: path to a multi-step plan, optional shape.md, run-mode preference, context-refresh preference, optional explicit model overrides
-  - Output: in-place execution of the plan via sub-agents, `orchestration-state.md` as the mutable orchestration log/resume artifact, plus a final message per `templates/finalization-message-template.md`
-- **Example**: "Orchestrate `1. Projects/second-brain-evolution/sb-os-cleanup/`" → pre-flight gate confirms scope and checkpoint mode → orchestrator batches each phase's tasks and assigns model tiers → executors run batches sequentially at their assigned tier → reviewer audits and fixes each phase at one tier above → final summary on completion.
-
----
-
 ### `/rbtv-source-mining`
 
 - **What**: Processes a long source (conversation export, transcript, book chapter, long document) that the orchestrator Claude cannot read directly due to context limits. It chunks the source, dispatches sub-agents to extract decisions or concepts from each chunk, groups the results, and synthesizes them into either a **reconciled document** (updates an existing doc with session decisions + user line-comments) or a **study note**. The orchestrator never reads the source — only sub-agents do.
@@ -83,4 +69,4 @@ The long-horizon work module — creating structured plans, executing them throu
 
 ## How They Fit Together
 
-`rbtv-orchestrating` is the general front door for long-horizon, multi-agent work — it ingests a plan or a goal, routes each task to the right worker, and gates every return; the `rbtv-orchestrating` rule is the discoverability layer that pulls qualifying work through that front door (intake trigger bar + mid-task escalation + counter-list) without the user naming it; `rbtv-planning` writes the plans it ingests. `rbtv-plan-orchestration` is the earlier non-code plan executor (tiered sub-agents, per-phase review) that the general skill supersedes; it remains installed (and frozen) while the orchestration-build run that depends on it completes, and is retired post-plan per the deletion TODO in the vault tasks file. `/rbtv-source-mining` mines the long conversations that planning and execution produce, folding decisions back into the plan or PRD.
+`rbtv-orchestrating` is the general front door for long-horizon, multi-agent work — it ingests a plan or a goal, routes each task to the right worker, and gates every return; the `rbtv-orchestrating` rule is the discoverability layer that pulls qualifying work through that front door (intake trigger bar + mid-task escalation + counter-list) without the user naming it; `rbtv-planning` writes the plans it ingests. `/rbtv-source-mining` mines the long conversations that planning and execution produce, folding decisions back into the plan or PRD.
