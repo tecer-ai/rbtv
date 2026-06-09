@@ -13,7 +13,7 @@
  *   - All changes go through commands.format + history.push for undo/redo.
  */
 
-import { idOf } from "./element-registry.js";
+import { idOf, byId } from "./element-registry.js";
 import { format } from "./commands.js";
 import { push } from "./history.js";
 
@@ -202,40 +202,194 @@ function adjustFontSize(el, delta) {
  * @param {'bold'|'italic'|'fontInc'|'fontDec'} op
  * @returns {boolean} true if applied, false if no active edit
  */
-export function apply(op) {
+function captureSelectionOffsets(el) {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  if (!el.contains(range.commonAncestorContainer)) return null;
+
+  let start = 0, end = 0;
+  let counted = 0;
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    const len = node.textContent.length;
+    if (node === range.startContainer) start = counted + range.startOffset;
+    if (node === range.endContainer) end = counted + range.endOffset;
+    counted += len;
+  }
+  return { start, end };
+}
+
+function restoreSelectionOffsets(el, offsets) {
+  if (!offsets) return;
+  let counted = 0;
+  let startNode = null, startOffset = 0;
+  let endNode = null, endOffset = 0;
+
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    const len = node.textContent.length;
+    if (!startNode && counted + len >= offsets.start) {
+      startNode = node;
+      startOffset = offsets.start - counted;
+    }
+    if (!endNode && counted + len >= offsets.end) {
+      endNode = node;
+      endOffset = offsets.end - counted;
+    }
+    counted += len;
+    if (startNode && endNode) break;
+  }
+
+  if (startNode && endNode) {
+    const range = document.createRange();
+    range.setStart(startNode, Math.min(startOffset, startNode.textContent.length));
+    range.setEnd(endNode, Math.min(endOffset, endNode.textContent.length));
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+}
+
+function scaleWholeBox(box, dir, hypId) {
+  const base = parseFloat(getComputedStyle(box).fontSize);
+  const newBase = Math.max(8, Math.round(base + dir * 2));
+  const factor = newBase / base;
+
+  const beforeHtml = box.innerHTML;
+  const beforeSize = box.style.fontSize;
+
+  box.style.fontSize = newBase + "px";
+  box.querySelectorAll("*").forEach((d) => {
+    if (d.style && d.style.fontSize) {
+      const cur = parseFloat(d.style.fontSize);
+      d.style.fontSize = Math.max(8, Math.round(cur * factor)) + "px";
+    }
+  });
+
+  const afterHtml = box.innerHTML;
+  const afterSize = box.style.fontSize;
+
+  push({
+    do() {
+      const b = byId(hypId);
+      if (b) {
+        b.style.fontSize = afterSize;
+        b.innerHTML = afterHtml;
+      }
+    },
+    undo() {
+      const b = byId(hypId);
+      if (b) {
+        b.style.fontSize = beforeSize;
+        b.innerHTML = beforeHtml;
+      }
+    },
+    label: "format",
+  });
+}
+
+export function apply(op, selInfo) {
   const el = getActiveEditElement();
-  if (!el) return false;
 
-  const hypId = idOf(el);
-  const beforeHtml = el.innerHTML;
+  if (el) {
+    // Editing path
+    const hypId = idOf(el);
+    const beforeHtml = el.innerHTML;
 
-  // Ensure focus for execCommand
-  el.focus();
+    // R8: restore snapshot if valid (toolbar click collapses selection)
+    const sel = window.getSelection();
+    if (snapshotIsValid(el)) {
+      sel.removeAllRanges();
+      sel.addRange(savedRange.cloneRange());
+    }
 
-  switch (op) {
-    case "bold":
-      document.execCommand("bold", false, null);
-      break;
-    case "italic":
-      document.execCommand("italic", false, null);
-      break;
-    case "fontInc":
-      adjustFontSize(el, +2);
-      break;
-    case "fontDec":
-      adjustFontSize(el, -2);
-      break;
-    default:
-      return false;
+    let offsets = null;
+    if (op === "bold" || op === "italic") {
+      offsets = captureSelectionOffsets(el);
+    }
+
+    // Ensure focus for execCommand
+    el.focus();
+
+    switch (op) {
+      case "bold":
+        document.execCommand("bold", false, null);
+        break;
+      case "italic":
+        document.execCommand("italic", false, null);
+        break;
+      case "fontInc":
+        adjustFontSize(el, +2);
+        break;
+      case "fontDec":
+        adjustFontSize(el, -2);
+        break;
+      default:
+        savedRange = null;
+        return false;
+    }
+
+    const afterHtml = el.innerHTML;
+    if (afterHtml !== beforeHtml) {
+      const cmd = format(hypId, beforeHtml, afterHtml);
+      push(cmd);
+      if (offsets && (op === "bold" || op === "italic")) {
+        restoreSelectionOffsets(el, offsets);
+      }
+    }
+    savedRange = null;
+    return true;
   }
 
-  const afterHtml = el.innerHTML;
-  if (afterHtml !== beforeHtml) {
-    const cmd = format(hypId, beforeHtml, afterHtml);
-    push(cmd);
+  // Whole-box path
+  if (selInfo && selInfo.isText) {
+    const box = byId(selInfo.hypId);
+    if (!box) return false;
+
+    switch (op) {
+      case "bold":
+      case "italic": {
+        const beforeHtml = box.innerHTML;
+        const priorEditable = box.getAttribute("contenteditable");
+        box.setAttribute("contenteditable", "true");
+        box.focus();
+
+        const range = document.createRange();
+        range.selectNodeContents(box);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+
+        document.execCommand(op, false, null);
+
+        const afterHtml = box.innerHTML;
+        if (afterHtml !== beforeHtml) {
+          const cmd = format(selInfo.hypId, beforeHtml, afterHtml);
+          push(cmd);
+        }
+
+        if (priorEditable === null) {
+          box.removeAttribute("contenteditable");
+        } else {
+          box.setAttribute("contenteditable", priorEditable);
+        }
+        return true;
+      }
+      case "fontInc":
+        scaleWholeBox(box, +1, selInfo.hypId);
+        return true;
+      case "fontDec":
+        scaleWholeBox(box, -1, selInfo.hypId);
+        return true;
+      default:
+        return false;
+    }
   }
 
-  return true;
+  return false;
 }
 
 // --- R7: text alignment (V3-S15..S17) ---

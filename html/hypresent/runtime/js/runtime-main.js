@@ -117,7 +117,7 @@ function boot() {
     if (!payload || !payload.op) {
       throw new Error("format: missing op");
     }
-    const ok = applyFormat(payload.op);
+    const ok = applyFormat(payload.op, current());
     return { ok };
   });
 
