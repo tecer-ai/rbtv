@@ -112,12 +112,33 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--prompt-file", required=True, help="Path to the prompt file")
     parser.add_argument("--output-folder", required=True, help="Directory to write outputs")
     parser.add_argument("--target-file", default=None, help="Optional target file to inline")
+    parser.add_argument("--timeout", type=int, default=None,
+        help="Per-call timeout in seconds passed to the client (e.g. minutes-scale for the Manus agentic worker). Omit to use the client's own default.")
+    parser.add_argument("--grounded", action="store_true",
+        help="Enable web/search grounding via extra_params['grounding']=True (gemini.py reads this). Generic — never provider-specific.")
+    parser.add_argument("--extra-params", type=str, default=None,
+        help="A JSON object merged into RequestOptions.extra_params (advanced pass-through).")
     return parser
 
 
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
+
+    extra_params: Dict[str, Any] = {}
+    if args.grounded:
+        extra_params["grounding"] = True
+    if args.extra_params:
+        try:
+            parsed = json.loads(args.extra_params)
+        except (json.JSONDecodeError, TypeError):
+            print("ERROR: --extra-params must be a JSON object", file=sys.stderr)
+            sys.exit(1)
+        if not isinstance(parsed, dict):
+            print("ERROR: --extra-params must be a JSON object", file=sys.stderr)
+            sys.exit(1)
+        extra_params.update(parsed)
+    extra_params_arg: Optional[Dict[str, Any]] = extra_params or None
 
     # --- dynamic client resolution ---
     try:
@@ -193,8 +214,8 @@ def main() -> None:
     open_questions: List[str] = []
 
     try:
-        client.initialize(ProviderConfig(api_key=key))
-        response = client.chat(messages, RequestOptions(model=args.model))
+        client.initialize(ProviderConfig(api_key=key, timeout=args.timeout))
+        response = client.chat(messages, RequestOptions(model=args.model, extra_params=extra_params_arg))
     except Exception as exc:
         # Never leak the key in error output
         open_questions = [str(exc)]
