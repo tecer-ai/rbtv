@@ -26,6 +26,10 @@ export function buildSrcdoc(theme, fragment) {
   return `<!DOCTYPE html><html><head><style>${theme}</style></head><body>${fragment}</body></html>`;
 }
 
+export function buildDeckSrcdoc(head, fragment) {
+  return `<!DOCTYPE html><html><head>${head}</head><body>${fragment}</body></html>`;
+}
+
 // Cached full srcdoc for one slide — shared by browse previews and tray thumbnails.
 export function getSlideSrcdoc(libraryPath, slideId) {
   const key = libraryPath + '|' + slideId;

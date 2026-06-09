@@ -60,6 +60,25 @@ class PB8DeckOpenTests(unittest.TestCase):
         chip_name = self.page.locator("#deck-chip-name").text_content()
         self.assertEqual(chip_name, "deck.html", "deck chip should show filename")
 
+    # ── PB8-2 ──────────────────────────────────────────────────────────────
+    def test_thumbnails_themed(self):
+        deck_path = self._copy_deck()
+        H.set_fake_dialog(self.base, deck_path)
+        self.page.goto(self.base + "/app/builder.html")
+        self.page.click("#open-deck-btn")
+
+        self.page.wait_for_selector(".tray-row", timeout=10000)
+        rows = self.page.locator(".tray-row").all()
+        self.assertEqual(len(rows), 10, "tray should have 10 rows for 10-section deck")
+
+        for i, row in enumerate(rows):
+            iframe = row.locator("iframe")
+            srcdoc = iframe.get_attribute("srcdoc")
+            self.assertIsNotNone(srcdoc, f"row {i + 1} iframe should have srcdoc")
+            self.assertIn("<section", srcdoc, f"row {i + 1} srcdoc should contain section markup")
+            # Head styles from the deck should be present (e.g., the .slide CSS rule)
+            self.assertIn(".slide {", srcdoc, f"row {i + 1} srcdoc should contain deck head styles")
+
     # ── PB8-3 ──────────────────────────────────────────────────────────────
     def test_non_conforming_rejected(self):
         d = tempfile.mkdtemp()

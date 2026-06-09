@@ -8,6 +8,7 @@ const X_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 export function createTray({ listEl, onChange }) {
   const model = [];
   let libraryPath = null;
+  let srcdocProvider = null;
 
   function renumber() {
     const rows = listEl.querySelectorAll('.tray-row');
@@ -42,7 +43,11 @@ export function createTray({ listEl, onChange }) {
       iframe.setAttribute('tabindex', '-1');
       thumb.appendChild(iframe);
       li.appendChild(thumb);
-      if (libraryPath) {
+      if (srcdocProvider) {
+        srcdocProvider(rec, index)
+          .then(srcdoc => { iframe.srcdoc = srcdoc; })
+          .catch(() => { /* thumbnail is decorative; row stays functional */ });
+      } else if (libraryPath) {
         getSlideSrcdoc(libraryPath, rec.id)
           .then(srcdoc => { iframe.srcdoc = srcdoc; })
           .catch(() => { /* thumbnail is decorative; row stays functional */ });
@@ -118,7 +123,12 @@ export function createTray({ listEl, onChange }) {
 
   function setLibrary(path) {
     libraryPath = path;
+    srcdocProvider = null;
   }
 
-  return { model, add, remove, setFromPreset, render, getOrder, has, setLibrary };
+  function setSrcdocProvider(fn) {
+    srcdocProvider = fn || null;
+  }
+
+  return { model, add, remove, setFromPreset, render, getOrder, has, setLibrary, setSrcdocProvider };
 }

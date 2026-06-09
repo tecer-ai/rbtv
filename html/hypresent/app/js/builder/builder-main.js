@@ -4,6 +4,7 @@ import { pickAndLoadDeck, loadDeckByPath } from './deck-load.js';
 import { renderBrowse, applyLangFilter, markTrayState } from './browse-pane.js';
 import { createSlideStage } from './slide-stage.js';
 import { createTray } from './tray.js';
+import { buildDeckSrcdoc } from './previews.js';
 import { pickDestination, assembleDeck, buildOutPath } from './assemble.js';
 
 const state = { libraryPath: null, data: null, tray: null, slideLookup: null, deck: null };
@@ -294,6 +295,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     tray.setLibrary(null);
+    tray.setSrcdocProvider((rec, index) => {
+      const sec = deckResult.sections[index];
+      if (!sec) return Promise.resolve('');
+      return Promise.resolve(buildDeckSrcdoc(deckResult.head, sec.html));
+    });
+
     const slideLookup = new Map();
     const slideIds = [];
     deckResult.sections.forEach((sec, idx) => {
@@ -307,14 +314,6 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
     tray.setFromPreset(slideIds, slideLookup);
-
-    const rows = trayList.querySelectorAll('.tray-row');
-    rows.forEach((row, idx) => {
-      const iframe = row.querySelector('iframe');
-      if (iframe && deckResult.sections[idx]) {
-        iframe.srcdoc = '<!DOCTYPE html><html><head>' + deckResult.head + '</head><body>' + deckResult.sections[idx].html + '</body></html>';
-      }
-    });
 
     setStatus('');
   }
