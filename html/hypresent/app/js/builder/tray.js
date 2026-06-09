@@ -150,10 +150,11 @@ export function createTray({ listEl, onChange }) {
     if (!src || src.kind === 'library') return;
     const idx = model.findIndex(m => m.uid === uid);
     if (idx === -1) return;
+    const newUid = nextUid++;
     const copy = {
       ...src,
-      uid: nextUid++,
-      id: src.kind === 'blank' ? ('blank-' + nextUid) : src.id
+      uid: newUid,
+      id: src.kind === 'blank' ? ('blank-' + newUid) : src.id
     };
     model.splice(idx + 1, 0, copy);
     render();
