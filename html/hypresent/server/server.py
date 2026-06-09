@@ -42,6 +42,11 @@ try:
 except ImportError:
     import builder_api
 
+try:
+    from . import deck_api
+except ImportError:
+    import deck_api
+
 api.register_set_doc_root(set_doc_root)
 
 
@@ -179,6 +184,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send_json(status, resp)
             elif path == "/api/assemble":
                 status, resp = builder_api.handle_assemble(payload)
+                self._send_json(status, resp)
+            elif path == "/api/deck-load":
+                status, resp = deck_api.handle_deck_load(payload)
+                self._send_json(status, resp)
+            elif path == "/api/deck-save":
+                status, resp = deck_api.handle_deck_save(payload)
+                self._send_json(status, resp)
+            elif path == "/api/dialog-open-path":
+                status, resp = deck_api.handle_dialog_open_path()
+                self._send_json(status, resp)
+            elif path == "/api/dialog-save-path":
+                status, resp = deck_api.handle_dialog_save_path()
                 self._send_json(status, resp)
             else:
                 self._send_json(404, {"error": "Not found"})
