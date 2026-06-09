@@ -89,10 +89,17 @@ def sanitize_path(p: str, output_folder: str) -> str:
     else:
         safe = p
 
-    joined = os.path.join(output_folder, safe)
-    joined_real = os.path.realpath(joined)
+    joined_real = os.path.realpath(os.path.join(output_folder, safe))
 
-    if not joined_real.startswith(output_folder_real):
+    # True path-boundary check (NOT a string-prefix test): the resolved target
+    # must live INSIDE the output folder. os.path.commonpath raises ValueError
+    # on mixed drives / abs-vs-rel mixes — treat that as "outside".
+    try:
+        within = os.path.commonpath([output_folder_real, joined_real]) == output_folder_real
+    except ValueError:
+        within = False
+
+    if not within:
         safe = os.path.basename(safe)
 
     return safe
