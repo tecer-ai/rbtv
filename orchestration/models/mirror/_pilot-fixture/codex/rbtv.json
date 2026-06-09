@@ -1,0 +1,188 @@
+{
+  "model_mirror": {
+    "excluded_paths": [],
+    "managed_files": [
+      {
+        "path": ".agents/behavior-rules/rbtv-atomic-files.md",
+        "kind": "behavior-rule",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/behavior-rules/rbtv-build-for-agent-testability.md",
+        "kind": "behavior-rule",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/behavior-rules/rbtv-chat-discipline.md",
+        "kind": "behavior-rule",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/behavior-rules/rbtv-compounding.md",
+        "kind": "behavior-rule",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/behavior-rules/rbtv-deterministic-first.md",
+        "kind": "behavior-rule",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/behavior-rules/rbtv-done-gate.md",
+        "kind": "behavior-rule",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/behavior-rules/rbtv-non-technical-user.md",
+        "kind": "behavior-rule",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/behavior-rules/rbtv-orchestrating.md",
+        "kind": "behavior-rule",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/behavior-rules/rbtv-output-resolution.md",
+        "kind": "behavior-rule",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/behavior-rules/rbtv-reasoning.md",
+        "kind": "behavior-rule",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/behavior-rules/rbtv-skill-first.md",
+        "kind": "behavior-rule",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/behavior-rules/rbtv-source-of-truth.md",
+        "kind": "behavior-rule",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/behavior-rules/rbtv-sub-agents.md",
+        "kind": "behavior-rule",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/behavior-rules/sb-obsidian-markdown.md",
+        "kind": "behavior-rule",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/behavior-rules/sb-source-of-truth.md",
+        "kind": "behavior-rule",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/behavior-rules/sb-workflow-context.md",
+        "kind": "behavior-rule",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/behavior-rules/testability-gap-collection.md",
+        "kind": "behavior-rule",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/skills/google-tools/SKILL.md",
+        "kind": "skill",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/skills/rbtv-commit/SKILL.md",
+        "kind": "skill",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/skills/rbtv-create-component/SKILL.md",
+        "kind": "skill",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/skills/rbtv-orchestrating/SKILL.md",
+        "kind": "skill",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/skills/rbtv-planning/SKILL.md",
+        "kind": "skill",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/skills/rbtv-web-searching/SKILL.md",
+        "kind": "skill",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/skills/sb-fin-create-decision/SKILL.md",
+        "kind": "skill",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/skills/sb-fin-create-thesis/SKILL.md",
+        "kind": "skill",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/skills/sb-vault-integrity/SKILL.md",
+        "kind": "skill",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/skills/sb-vault-ops/SKILL.md",
+        "kind": "skill",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/skills/sb-wiki-create-topic/SKILL.md",
+        "kind": "skill",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/skills/tecer-search/SKILL.md",
+        "kind": "skill",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/skills/therapy-summarizer/SKILL.md",
+        "kind": "skill",
+        "owner": "shared"
+      },
+      {
+        "path": ".agents/skills/tracer-codex/SKILL.md",
+        "kind": "skill",
+        "owner": "shared"
+      },
+      {
+        "path": ".codex/config.toml",
+        "kind": "config",
+        "owner": "codex"
+      },
+      {
+        "path": ".codex/hooks.json",
+        "kind": "config",
+        "owner": "codex"
+      },
+      {
+        "path": ".codex/rules/default.rules",
+        "kind": "config",
+        "owner": "codex"
+      },
+      {
+        "path": "AGENTS.md",
+        "kind": "guidance",
+        "owner": "agents-md"
+      },
+      {
+        "path": "sub-area/AGENTS.md",
+        "kind": "guidance",
+        "owner": "agents-md"
+      }
+    ],
+    "last_run": "2026-06-09T05:40:35Z"
+  }
+}

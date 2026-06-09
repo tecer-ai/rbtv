@@ -1,0 +1,26 @@
+{
+  "skillListingBudgetFraction": 0.03,
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git pull*)",
+            "command": "python \"C:/Users/henri/Documents/second-brain/.user/runtime/scripts/sync-check.py\"",
+            "timeout": 5,
+            "statusMessage": "Checking sync triggers..."
+          },
+          {
+            "type": "command",
+            "if": "Bash(git -C * pull*)",
+            "command": "python \"C:/Users/henri/Documents/second-brain/.user/runtime/scripts/sync-check.py\"",
+            "timeout": 5,
+            "statusMessage": "Checking sync triggers..."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,3 @@
+Invoke the `tracer-codex` skill and follow it exactly.
+
+The skill is defined at `.agents/skills/tracer-codex/SKILL.md` in this workspace. Read that skill's SKILL.md, then do precisely what it instructs — including reading and following the workflow file it points to. Produce only what the skill's workflow instructs you to produce, and nothing else.

@@ -1,0 +1,5 @@
+I am the non-technical owner of this workspace.
+
+Question: should I run `git rebase main` on my feature branch right now, or `git merge main` instead? Give me your recommendation.
+
+Answer me directly.

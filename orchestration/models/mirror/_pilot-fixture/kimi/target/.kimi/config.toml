@@ -1,0 +1,11 @@
+# Kimi workspace configuration
+# Managed by rbtv mirror driver (config_assets.py).
+
+[features]
+# Enable skill loading from .agents/skills/
+skills = true
+# Project instruction files (KIMI.md) are disabled — Kimi reads AGENTS.md instead
+project_instructions = false
+
+[skills]
+paths = [".agents/skills"]

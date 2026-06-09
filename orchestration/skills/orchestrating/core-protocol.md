@@ -54,8 +54,8 @@ One line per installed model package, always in the core so routing can recall w
 The availability line below is written by the installer (`install.py`) at install time — it names which packages are present in THIS workspace and which are absent (the installer replaces only the content BETWEEN the `ORCH:AVAILABILITY` markers; the markers are preserved so re-install is idempotent). Until an install runs in a workspace, the marker region carries its fallback text and the live `{rbtv_path}/orchestration/models/` folder is authoritative. Trust the live `models/` folder over this line on any mismatch, and log the mismatch (the routing card owns that check).
 
 <!-- ORCH:AVAILABILITY:BEGIN -->
-> **Model packages installed:** claude-cli, codex, kimi
-> **Absent:** qwen
+> **Model packages installed:** claude-cli, codex, deepseek, gemini, kimi, qwen
+> **Absent:** claude
 <!-- ORCH:AVAILABILITY:END -->
 
 Per-model capability lines — a STATIC reference roster of the model packages this skill can carry, NOT a list of what is installed here. A line's presence in this table says nothing about routability: routability is decided ONLY by the installer-baked availability block above + the live `models/` folder. Routing reads the installed package's manifest for the full field set — these lines are the at-a-glance recall, not the routing inputs:

@@ -1,0 +1,7 @@
+{
+  "managed_by": "rbtv mirror driver (config_assets.py)",
+  "note": "This file is intentionally minimal. Auth is USER-EXECUTED-ONLY — auth.selectedType is intentionally absent and must NOT be set here. context.fileName=QWEN.md is verified against qwen-cli-reference.md §11. NO skills.paths field is set: the qwen CLI reference (§9/§11) documents a ~/.qwen/skills/ directory but does NOT document a settings.json skills-wiring field; the p3-3 qwen pilot must confirm how qwen discovers .agents/skills/ and add the correct field here if one exists. Do not add unverified configuration.",
+  "context": {
+    "fileName": "QWEN.md"
+  }
+}

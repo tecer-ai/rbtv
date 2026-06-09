@@ -1,0 +1,11 @@
+# Managed by rbtv mirror driver (config_assets.py).
+# Codex rules control command execution policy, not behavior instructions.
+
+prefix_rule(
+    pattern = ["python"],
+    decision = "prompt",
+    justification = "Python commands may run project scripts; prompt before running outside the sandbox.",
+    match = [
+        "python .user/runtime/scripts/sync-check.py",
+    ],
+)

@@ -1,0 +1,8 @@
+{
+  "managed_by": "rbtv mirror driver (config_assets.py)",
+  "note": "This file is intentionally minimal. Skill loading is configured in .kimi/config.toml ([skills] paths); behavior configuration lives in .agents/skills/ (managed by the driver). Do not add duplicate configuration here.",
+  "tool_preferences": {
+    "prefer_inline_code": true,
+    "shell_safety": "prompt_before_destructive"
+  }
+}

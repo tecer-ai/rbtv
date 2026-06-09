@@ -1,0 +1,213 @@
+<!-- AUTO-GENERATED — DO NOT EDIT. Rendered by orchestration/models/render-manuals.py from orchestration/skills/orchestrating/cards/dispatch-wrapper.md + orchestration/models/manus/delta.md. -->
+
+> [!danger] GENERATED FILE — DO NOT EDIT
+> This dispatch manual is composed by `orchestration/models/render-manuals.py` from:
+> - the generic dispatch contract `orchestration/skills/orchestrating/cards/dispatch-wrapper.md`, and
+> - the `manus` package delta `orchestration/models/manus/delta.md`.
+>
+> Hand-edits are overwritten on the next render and are forbidden. To change
+> packaging/addendum/return behavior, edit the wrapper template; to change
+> manus-specific behavior, edit the delta. Then re-render:
+>
+> ```
+> python orchestration/models/render-manuals.py
+> ```
+
+## 1. Task packaging — the dispatchable unit
+
+The unit sent to a worker is a **self-contained task artifact** (it already satisfies §1–§7 of the task-file contract — this card does not re-author it) composed with the run's binding context. Composition is **header + payload**, never a rewrite of the task file.
+
+| Element | Rule |
+|---------|------|
+| **Payload = the task file, verbatim** | The dispatched prompt carries the task file's content unedited and untruncated. The worker reads NOTHING from conversation history — the artifact IS the brief. Editing the task body at dispatch time is forbidden; if the task is wrong, fix the task file (and log the amendment), then re-dispatch. |
+| **Header = run-binding context** | Prepend only what the worker needs that is not already in the task file: the binding addendum (§2), the return schema (§3), the run's worker-facing `decisions.md` pointer (or its inlined relevant entries), and — for a research leaf — the `rbtv-web-searching` directive in imperative form. The header is composed; the payload is verbatim. |
+| **Prompt-file reuse** | For workers driven by a prompt file (CLI workers, and Agent-tool dispatches large enough to warrant it), write the composed header+payload to a prompt file on disk and dispatch FROM that file. The same prompt file is the reuse surface on resume — re-dispatch reads the file, it is not re-composed from memory. |
+| **One dispatch = one bounded task (or one disjoint-allowlist batch)** | Routing sized the batch (30–90 min, disjoint allowlists for parallel workers). This card packages exactly that unit — never silently merge two tasks into one dispatch. |
+
+### Reference-doc inlining (D21)
+
+A task references other documents. The conductor decides per referenced doc whether the worker reads the source or receives an inlined excerpt — and MARKS each reference so the worker knows which:
+
+| Reference kind | Mark | Worker behavior |
+|----------------|------|-----------------|
+| **Inlined** | `[INLINED]` | The relevant excerpt is pasted into the header under a labelled heading (`### {Doc} — {Section}`, with source path). The worker treats the excerpt as authoritative and does NOT re-read the source unless escalating a doubt. |
+| **Full read** | `[FULL READ]` | The worker opens the source itself via its file tool when it needs the content. |
+
+Inlining rules:
+
+| Rule | Detail |
+|------|--------|
+| Inline frozen-doc and credential excerpts — never grant read access | A frozen reference doc or a credentials path is inlined as the needed excerpt; the worker is NEVER given a read path into it. (Mirrors routing's pre-staging rule: judgment over external files → extend read surface; mechanical need of a fixed excerpt → inline/pre-stage it.) |
+| Inline what is small and load-bearing; point to what is large | A short contract clause the work hinges on → inline it. A large design doc the worker may need parts of → `[FULL READ]` with the exact section named. Budget per the task-file contract's context budgets — a task whose inlined context will not fit gets split, not truncated. |
+| Each inlined excerpt is standalone | Do not assume cross-references between excerpts unless stated; label each with its source so a doubt-escalation can find the full doc. |
+| API-worker dispatch is ALL-`[INLINED]` | An API worker has no file-read tool — it can never do a `[FULL READ]`. EVERY reference in an API-worker dispatch MUST be `[INLINED]`; the runner inlines each `--target-file` into the request. The whole composed prompt is bounded by the variant's `context_window` — a dispatch that won't fit must be SPLIT, never handed off as a path for the worker to read. |
+## 2. The binding addendum — worker obligations
+
+Every dispatch carries this addendum in its header. These are the obligations the worker is held to regardless of model; they are the conductor's enforcement contract on return. State them imperatively in the dispatch ("you MUST…", "return…", "do NOT…") — never permissively.
+
+| Obligation | What the worker is bound to |
+|------------|-----------------------------|
+| **Return-schema compliance** | Return the named-field schema in §3 exactly — every field, no field renamed, none invented. The conductor parses these fields; a prose-only return is a contract violation that triggers re-exercise of the return, not acceptance. |
+| **Allowlist boundary** | Create / modify / delete ONLY the files in the task's allowlist. Out-of-allowlist file ops are not silently wrong but are NOT silent — they force conductor review (the conductor diffs actual changes against the allowlist on return). State the allowlist in the dispatch even though the task file also carries it. |
+| **Halt / doubt policy** | On ambiguity the task does not resolve, HALT and return `DOUBT_ESCALATED` (or `NEEDS_CONTEXT`) — never guess, never improvise past a doubt. A fully-bounded task should contain no ambiguity; if the worker hits one, the task was under-specified and the conductor needs to know. |
+| **Evidence-file requirement** | Capture validation evidence as FILES on disk during the work (command output, logs, screenshots for UI), not as prose claims in the reply. For CLI workers the return message is lossy at session end (documented: a completed dispatch returned a garbage final message while the commit had landed) — evidence on disk is what survives. The `validation` field cites what was run; the captures are the proof. |
+| **Commit discipline** | Commits go through `rbtv-commit` (routing pins this to a commit-capable worker — CLI workers are kept OFF commits by default). Local commits only; NEVER push. A CLI worker is authorized to self-commit ONLY when its task file / model delta explicitly grants it (the default is no self-commit; the kimi package's delta is where a code-executing worker's local-commit authorization is declared). When the worker IS authorized: validation passes first, the commit message follows the run's mandated convention, and the returned commit hash must match what is actually in `git log` (the conductor checks the message string and the hash, not just the file list). |
+| **Forbidden operations** | Honor the task's forbidden-ops list (no pushes, no writes outside the allowed work-dir, no destructive git resets, no external production API calls unless the task explicitly allows a mocked/local one). |
+| **Rule-loading (mirror-equipped workspace)** | Before ANY other action — before reading any task-referenced file, writing, running a tool, or responding — inspect your work-dir for a `.agents/behavior-rules/` directory. If it exists (a mirror-equipped workspace), you MUST FIRST read your own guidance file at the work-dir root (`AGENTS.md` for a Codex/Kimi worker, `QWEN.md` for a qwen worker) AND every file under `.agents/behavior-rules/`, and treat their entire contents as binding, non-negotiable rules governing this whole session — exactly as if they were part of this dispatch. Reading them is mandatory even when this task body never mentions rules; the absence of a rule-read instruction in the task is NOT permission to skip them. If the work-dir has no `.agents/behavior-rules/` directory, this obligation is a silent no-op — proceed normally. |
+
+The addendum is GENERIC. A model package's delta MAY add model-specific obligations on top (e.g., a worker that must be told not to write stray files in the repo root, or a swarm-policy constraint) — it plugs in at the insertion point below and NEVER restates the generic obligations.
+
+**Manus-specific worker obligations** (on top of the generic binding addendum — never restating it):
+
+| Obligation | What the manus worker is bound to |
+|------------|------------------------------------|
+| **Agentic-web worker — no local filesystem access** | The runner submits a task to the Manus API; the agent reads NOTHING from our workspace. ALL context the task needs MUST be inlined into the prompt file at dispatch time — it is inlined into the Manus task `description`. The runner writes ONLY into `--output-folder`. |
+| **Server-side autonomous loop — not ours to constrain** | Manus runs its own browser/tool loop server-side. We do NOT pass an agent file, an MCP server, or a tool allowlist that constrains it; its autonomy is invisible to our topology and depth cap. Confinement is the runner's job (scoping the written OUTPUT), not a work-dir the conductor passes. |
+| **Always raw-dump — no JSON envelope, no code cold-verify** | `structured_output` is False, so every dispatch returns `DONE_WITH_NOTES` + one raw-dumped output file + a concern naming the raw-dump. There is no structured `{files:[…]}` envelope. The return is **non-development** — verified by a Claude reviewer reading the content for quality, NOT by a code cold-verify (there is no code artifact). |
+| **Per-task billing + minutes-scale latency** | Manus is billed PER TASK, not per token — forecast budget by task count. A real autonomous run can take minutes; a `WALL_MS` of seconds-to-minutes is normal and is NOT a hang. The dispatch never exceeds the configured timeout (default 300s / 5 minutes). |
+| **No session resumption** | The poll loop is internal to a single dispatch. A `error`/`timeout`/`DOUBT_ESCALATED` halt triggers a fresh re-dispatch (resolution inlined into the prompt); there is no `--session` / `--continue` path. The conductor does NOT attempt to resume. |
+| **Key-resolution availability** | The runner checks `MANUS_API_KEY` in the OS environment, then the `env_file` path in `rbtv.json`. If absent in both, the package is unavailable for this dispatch; the conductor logs it and degrades — never halts the run. The key is sent as `x-manus-api-key` header and never echoed. |
+| **Validated status** | The single variant is `evidence_status: validated` — piloted live 2026-06-09 against Manus API v2 (`https://api.manus.ai/v2`). `context_window`/`max_output` remain unverified placeholders (Manus publishes no token limits) — do not size large inlined contexts on them. |
+| **Message text only — not file artifacts (D-exec-14)** | The client captures `assistant_message.content` (the agent’s message text/narration), NOT Manus file artifacts. For file-deliverable tasks the substantive output may be in an attachment the client does not yet fetch. Fetching file artifacts is a noted follow-on enhancement. |
+<!-- The model package delta inserts its model-specific binding obligations here. -->
+## 3. The unified return schema (D8)
+
+ONE schema for EVERY worker — bounded CLI worker, mid-tier Claude, top-tier conductor-grade Claude, research worker. The fields are FIXED: the schema is named-field precisely because prose returns drift (resumed long-context sessions favored conversational summaries over the contract — five instances in one session). Named fields are the conductor's parse surface and the substrate the tripwire field-checks (§4) run against.
+
+The worker returns exactly these five fields:
+
+| Field | Content |
+|-------|---------|
+| **`status`** | EXACTLY one of: `DONE` · `DONE_WITH_NOTES` · `BLOCKED` · `DOUBT_ESCALATED` · `NEEDS_CONTEXT`. No other value is valid. |
+| **`landed`** | What actually changed on disk: files created/modified/deleted, and the commit hash(es) if the worker committed. This is the claim the conductor reconciles against `git status` / `git log`. |
+| **`validation`** | Each validation performed: the command run, its `EXIT` code, its `WALL_MS` (wall-clock duration), and any skipped check WITH its reason. The sub-field `SKIPPED_COUNT` carries the number of checks skipped (0 when none); any skip it counts MUST carry a per-skip reason — a skip without a reason, or `SKIPPED_COUNT > 0` with no reasons, is a contract violation. Empty validation on a code task is itself a flag. |
+| **`concerns`** | Anything the worker noticed that the conductor should weigh — risks, smells, partial confidence, adjacent issues spotted but not fixed. Distinct from blockers: concerns did not stop the work. |
+| **`open_questions`** | Questions the worker could not resolve and that bear on this or downstream work. For `DOUBT_ESCALATED` / `NEEDS_CONTEXT` this carries the precise question that halted the work. |
+
+### Status semantics
+
+| Status | Means | Conductor's next move |
+|--------|-------|-----------------------|
+| `DONE` | Every contracted outcome met; nothing to surface | Reconcile against disk, then proceed (verification card owns the gate). |
+| `DONE_WITH_NOTES` | Work landed, but `concerns` / `open_questions` carry items worth the conductor's attention | Reconcile, then weigh the notes before proceeding. |
+| `BLOCKED` | Work could not be completed — an external obstacle, a failed validation that the worker cannot resolve | Route recovery (recovery card); do NOT mark the task done. |
+| `DOUBT_ESCALATED` | The worker hit an ambiguity and stopped rather than guess; `open_questions` holds the doubt | Resolve the doubt (halt-to-user or a doc-reader), then **resume** per halt-recovery §2 (same CLI session via `-r` where supported; a fresh re-dispatch for an Agent-tool worker that has no session) — never accept a guess in its place. Halt-recovery owns the resume-vs-re-dispatch choice. |
+| `NEEDS_CONTEXT` | The task lacked something the worker needed to proceed (a missing file, an unstated decision) | Supply the context (amend the task file + log it), then resume / re-dispatch per halt-recovery §2. |
+
+### Transport — same fields, multiple carriers
+
+The schema is identical across workers; only HOW the fields arrive differs by worker type. This is the one axis the per-model delta touches for the return.
+
+| Worker type | Transport |
+|-------------|-----------|
+| **Agent-tool helper (Claude sub-agent)** | The five fields ARE the final reply — the sub-agent writes them as its return message; there is no separate file channel required. |
+| **CLI worker (`kimi`, `codex exec`, `claude -p`, `qwen`, …)** | The fields appear in the worker's final message AND the evidence they cite is on disk as files. The final message is treated as a HINT; the disk state and the cited evidence files are the truth the conductor reconciles. |
+| **sdd composite dispatch (`superpowers:subagent-driven-development`)** | sdd is ONE composite dispatch wrapped by the outer gates (routing §5). Its outer-wrapper return carries the five fields as the in-session final reply — same as the Agent-tool row — over its whole code body; its internal TDD sub-structure is not surfaced as separate returns. |
+| **API worker (shared runner `models/_api/run.py`)** | The conductor invokes `run.py` via Bash; the RUNNER writes the deliverable output file(s) AND a `return.json` carrying the five fields into the conductor-supplied `--output-folder`. The conductor reads the output folder + `return.json` — the API model cannot write to the repo, run git, or commit. Same "message is a hint, disk is truth" discipline; here "disk" = the output folder, NOT a git repo (so reconciliation is file-exists + non-empty + envelope-valid, not `git log`). |
+
+**Manus return surface — always raw-dump (the only mode Manus has):**
+
+The `_api/run.py` runner submits the task, polls to completion, and writes results into `--output-folder`. Because the client declares `structured_output: False`, the runner uses the **raw-dump path**, not the JSON-envelope path:
+
+1. **`return.json`** in `--output-folder` — the runner's five-field structured return: `status`, `landed`, `validation`, `concerns`, `open_questions`. For Manus, `status` is `DONE_WITH_NOTES` on success (raw-dump is the only path), `landed` lists the single raw-dumped output file, `validation` records the task duration (`WALL_MS`) and the raw-dump-fallback flag (always set for Manus), and `concerns` names the raw-dump. This is the machine-parseable contract the conductor reads after every dispatch.
+2. **One raw-dumped output file** in `--output-folder` — the agent's arbitrary task result, written as-is (or JSON-dumped if structured). This is NOT a parsed `{files:[…]}` envelope — it is the whole agent output as one file.
+
+The conductor treats `return.json` as the primary return signal and reconciles it against the on-disk output file — on any disagreement, disk wins. A missing `return.json` (runner crashed) means the dispatch status is `BLOCKED`; no recovery path exists (re-dispatch fresh).
+
+**Non-development verification path:** a Manus return carries no code artifact to cold-verify. The independent verifier is a Claude **reviewer** that reads the raw-dumped content for quality against the task contract — there is no build/test/lint cold-verify step, because Manus produced agent output, not code.
+<!-- The model package delta names this worker's exact return surface (e.g., the CLI's final-message flag, the evidence-file convention) here. The fields above never change. -->
+
+---
+
+## Invocation — the exact command shape
+
+The Manus API dispatch manual — the exact runner invocation, the single profile, exit/halt handling, and the manus task contract. Sourced from `routing-matrix-reference.md` §7 + Manus API docs + the built client (`_api/clients/manus.py`).
+
+This manual is validated against Manus API v2 (piloted live 2026-06-09). Pricing: ~$0.01/credit, ~150 credits/task ≈ ~$1.50/task. `context_window`/`max_output` in the manifest are unverified placeholders — Manus publishes no token limits; do not size large inlined contexts on them. Reference: `https://api.manus.ai/docs`.
+
+### Pre-flight (before any dispatch)
+
+| Check | How | Gate |
+|-------|-----|------|
+| Runner present | `python orchestration/models/_api/run.py --help` | Absent → the package cannot dispatch; halt and surface |
+| API key resolves | `$env:MANUS_API_KEY` present, or `env_file` in `rbtv.json` carries the key | Absent → package unavailable; conductor degrades, does not halt the run |
+| Task is worth an agent run | Confirm the task genuinely needs autonomy/browser (not a bounded code or chat task) | A non-autonomous task wastes a per-task fee — route it to a chat/code worker instead |
+
+### Invocation shape
+
+The runner is always non-interactive. Manus has a single profile — `--model manus-autonomous` selects it (there is no alternate API model id to swap):
+
+```powershell
+python orchestration/models/_api/run.py `
+  --provider manus `
+  --model manus-autonomous `
+  --prompt-file <path/to/prompt.md> `
+  --output-folder <path/to/output-dir/>
+```
+
+| Flag | Required | Notes |
+|------|----------|-------|
+| `--provider manus` | yes | Selects the Manus client in `_api/clients/` (`ProviderName.MANUS`) |
+| `--model manus-autonomous` | yes | The single RBTV routing label; Manus has no selectable API model id — this names the profile |
+| `--prompt-file <f>` | yes | Path to the prompt file written by the conductor; its content is inlined into the Manus task `description` (the agent reads nothing from the local filesystem) |
+| `--output-folder <d>` | yes | Directory the runner writes `return.json` and the raw-dumped output file into; created by the runner if absent |
+
+### The single profile
+
+Manus declares ONE variant — `manus-autonomous` — because it has a single operating profile (autonomous server-side agent run). There is no second variant: no reasoning-tier, cost-class, or capability field differs across a "mode", so a second entry would be schema bloat (manifest-schema.md §2 variant field-count discipline).
+
+| RBTV variant | Routing profile | Manus selector |
+|--------------|-----------------|----------------|
+| `manus-autonomous` | `cost_class: high` (per-task), `reasoning_tier: top`, `web_access: true`, `code_competence: none` — the autonomous-web leaf; never the code path | `--model manus-autonomous` (no alternate API id) |
+
+### Exit handling
+
+The runner exits 0 on success and non-zero on failure. There is no exit-75 retry convention.
+
+| Runner exit | Meaning | Conductor action |
+|-------------|---------|------------------|
+| `0` | Task completed | Read `return.json` (`status: DONE_WITH_NOTES`, raw-dump) from `--output-folder`; reconcile against the raw-dumped output file; hand to a Claude reviewer for content-quality review |
+| Non-zero | Task status `error`, poll timeout, task-creation failure after retries, or key unresolved | Halt; read runner stderr for the error class (auth/error-task/timeout/network); surface; re-dispatch fresh after resolution |
+
+Task-creation HTTP retries (429, 5xx, 3 attempts with backoff) are the client's responsibility — the conductor does not implement its own retry loop. The poll loop (every ~2s until `stopped`/`error`/timeout) is internal to the single dispatch.
+
+### Known failure modes to pre-empt
+
+| Failure | Pre-emption |
+|---------|-------------|
+| Task `status == error` | The runner returns `BLOCKED` + the Manus error in `open_questions`; no recovery path — re-dispatch fresh |
+| Poll exceeds timeout (task never completes) | The runner returns `BLOCKED` + a timeout note; it never hangs past the configured timeout (default 300s) |
+| Task-creation `POST` fails after 3 retries | `BLOCKED` + the HTTP error |
+| `MANUS_API_KEY` unresolved | Pre-flight key-resolution check; the runner exits non-zero with a clear stderr message and never echoes the key; conductor degrades, does not halt the run |
+| Treating a long run as a hang | Minutes-scale latency is normal for a real autonomous task — only the configured timeout bounds it; do NOT kill a still-polling dispatch as "stuck" |
+| Per-task cost surprise | Manus bills per task, not per token — confirm the task warrants an agent run before dispatch; a wasted run costs a whole task fee |
+| Unverified token sizing | `context_window`/`max_output` are placeholders — do not size large inlined contexts on them; re-verify before any pilot |
+
+### The manus task contract
+
+A manus-executable task file extends the generic task-file contract with the following agentic-web requirements. The conductor validates before dispatch; a missing required field = halt + report.
+
+**Required frontmatter additions:**
+
+```yaml
+execution_kind: agentic   # autonomous agent task — produces raw agent output, not code artifacts or a JSON envelope
+executor: manus
+variant: manus-autonomous
+output_folder: <path relative to the dispatch root — runner writes the raw dump + return.json here>
+doubt_policy: halt
+```
+
+**Required body sections:** Goal (one bounded autonomous task the agent can complete end-to-end) · Context Snapshot (ALL context inlined into the prompt — the agent reads nothing from the workspace) · Output Requirements (what the agent's output should contain; note it is raw-dumped as one file) · Return Format (five-field return schema in `return.json`; `status: DONE_WITH_NOTES` + raw-dump concern is the success shape).
+
+### Recipes
+
+```powershell
+# Manus autonomous task dispatch — the only shape (always raw-dump):
+python orchestration/models/_api/run.py `
+  --provider manus `
+  --model manus-autonomous `
+  --prompt-file dispatch/prompt.md `
+  --output-folder dispatch/output/
+```
+
+(No second variant and no alternate model id — Manus has a single autonomous profile.)
