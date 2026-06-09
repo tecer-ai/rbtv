@@ -66,7 +66,10 @@ def split_sections(html: str) -> list[tuple[int, int]]:
 
 
 def recompose(html: str, items: list[dict]) -> str:
-    """Rebuild document by splicing prefix + items' markup + suffix.
+    """Rebuild document preserving inter-slide separators.
+
+    Output = prefix + item₀ + sep(item₀) + item₁ + sep(item₁) + … +
+             itemₙ₋₁ + suffix  (no separator after the last item).
 
     Each item is a dict:
       - {"kind": "existing", "index": int}  → copy Nth section verbatim
@@ -80,10 +83,37 @@ def recompose(html: str, items: list[dict]) -> str:
     prefix = html[: spans[0][0]]
     suffix = html[spans[-1][1] :]
 
+    # Source separators: sep[i] is the text between section i and i+1.
+    separators: list[str] = []
+    for i in range(len(spans) - 1):
+        separators.append(html[spans[i][1] : spans[i + 1][0]])
+
+    # Default separator: most common, tie → first in document order.
+    # "\n" when the deck has fewer than 2 sections (no separators exist).
+    if len(separators) == 0:
+        default_sep = "\n"
+    else:
+        from collections import Counter
+
+        counts = Counter(separators)
+        max_count = max(counts.values())
+        default_sep = next(sep for sep in separators if counts[sep] == max_count)
+
+    def _sep_for(item: dict) -> str:
+        """Return the separator that follows *item*."""
+        if item.get("kind") == "existing":
+            idx = item["index"]
+            if idx < len(spans) - 1:
+                return separators[idx]
+        return default_sep
+
     parts: list[str] = [prefix]
-    for item in items:
+    last_idx = len(items) - 1
+    for pos, item in enumerate(items):
         kind = item.get("kind")
         if kind == "existing":
+            if "index" not in item:
+                raise RecomposeError("existing item missing 'index'")
             idx = item["index"]
             if not isinstance(idx, int) or idx < 0 or idx >= len(spans):
                 raise RecomposeError(
@@ -92,11 +122,17 @@ def recompose(html: str, items: list[dict]) -> str:
             start, end = spans[idx]
             parts.append(html[start:end])
         elif kind == "fragment":
+            if "html" not in item:
+                raise RecomposeError("fragment item missing 'html'")
             parts.append(item["html"])
         elif kind == "blank":
             parts.append(BLANK_SECTION)
         else:
             raise RecomposeError(f"unknown item kind: {kind}")
+
+        # Separator between items, none after the last item.
+        if pos < last_idx:
+            parts.append(_sep_for(item))
 
     parts.append(suffix)
     return "".join(parts)

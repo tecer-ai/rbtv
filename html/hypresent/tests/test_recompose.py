@@ -88,13 +88,28 @@ def test_recompose_reorder():
             {"kind": "existing", "index": 0},
         ],
     )
-    assert result == "PREFIX<section>B</section><section>A</section>SUFFIX"
+    # Section 1 was the last source section → default separator ("MIDDLE").
+    assert result == "PREFIX<section>B</section>MIDDLE<section>A</section>SUFFIX"
 
 
 def test_recompose_remove():
     html = "PREFIX<section>A</section>MIDDLE<section>B</section>SUFFIX"
     result = recompose(html, [{"kind": "existing", "index": 0}])
+    # Single item → no separator appended.
     assert result == "PREFIX<section>A</section>SUFFIX"
+
+
+def test_recompose_identity_simple():
+    """Identity recompose on a two-section deck must reproduce the source exactly."""
+    html = "PREFIX<section>A</section>MIDDLE<section>B</section>SUFFIX"
+    result = recompose(
+        html,
+        [
+            {"kind": "existing", "index": 0},
+            {"kind": "existing", "index": 1},
+        ],
+    )
+    assert result == html
 
 
 def test_recompose_duplicate():
@@ -159,6 +174,24 @@ def test_recompose_out_of_range_negative():
     html = "<section>A</section><section>B</section>"
     with pytest.raises(RecomposeError, match="out of range"):
         recompose(html, [{"kind": "existing", "index": -1}])
+
+
+def test_recompose_unknown_kind_raises():
+    html = "<section>A</section>"
+    with pytest.raises(RecomposeError, match="unknown item kind"):
+        recompose(html, [{"kind": "banana"}])
+
+
+def test_recompose_existing_missing_index_raises():
+    html = "<section>A</section>"
+    with pytest.raises(RecomposeError, match="missing 'index'"):
+        recompose(html, [{"kind": "existing"}])
+
+
+def test_recompose_fragment_missing_html_raises():
+    html = "<section>A</section>"
+    with pytest.raises(RecomposeError, match="missing 'html'"):
+        recompose(html, [{"kind": "fragment"}])
 
 
 # ---------------------------------------------------------------------------
@@ -248,3 +281,41 @@ def test_real_deck_blank_purity(tmp_path):
     blank_markup = result[result_spans[0][0] : result_spans[0][1]]
     assert "hyp-" not in blank_markup
     assert "data-hyp-" not in blank_markup
+
+
+def test_real_deck_identity_recompose(tmp_path):
+    """Identity recompose of the real deck must return the source exactly."""
+    dst = tmp_path / "deck.html"
+    shutil.copy(REAL_DECK_SRC, dst)
+    html = dst.read_text(encoding="utf-8")
+    spans = split_sections(html)
+    items = [{"kind": "existing", "index": i} for i in range(len(spans))]
+    result = recompose(html, items)
+    assert result == html
+
+
+def test_real_deck_source_never_written(tmp_path):
+    """Recompose is a pure function: exercising it must never touch the
+    READ-ONLY root deck. Snapshot the source bytes + mtime, run a
+    save-shaped recompose against a tmp copy, and assert the source is
+    byte-for-byte and timestamp unchanged."""
+    import os
+
+    before_bytes = open(REAL_DECK_SRC, "rb").read()
+    before_mtime = os.path.getmtime(REAL_DECK_SRC)
+
+    dst = tmp_path / "deck.html"
+    shutil.copy(REAL_DECK_SRC, dst)
+    html = dst.read_text(encoding="utf-8")
+    # A representative reorder+remove+duplicate+blank exercise.
+    items = [
+        {"kind": "blank"},
+        {"kind": "existing", "index": 3},
+        {"kind": "existing", "index": 0},
+        {"kind": "existing", "index": 0},
+    ]
+    recompose(html, items)
+
+    after_bytes = open(REAL_DECK_SRC, "rb").read()
+    assert after_bytes == before_bytes, "root deck was modified during exercise"
+    assert os.path.getmtime(REAL_DECK_SRC) == before_mtime
