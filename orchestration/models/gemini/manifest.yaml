@@ -1,0 +1,145 @@
+# Gemini capability manifest — the routing card's data interface for the gemini package.
+# Schema + field meanings + routing-card consumers: ../manifest-schema.md
+# Sources: routing-matrix-reference.md §4 (2026 estimates — re-verify against provider docs);
+#          Google Gemini API docs: https://ai.google.dev/gemini-api/docs
+# This is an API chat worker (stateless HTTP call — no filesystem access, no tool execution loop).
+# The four CLI-shaped fields (headless, tool_surface, confinement, swarm_support) are filled
+# with the repurposed API-worker values per manifest-schema.md §2a.
+# Gemini is the ONLY web-capable chat worker: tool_surface.native: [web] (search grounding).
+# CAVEAT: grounding is built into the client (gemini.py) but NOT yet wired into the shared
+# run.py runner (no grounding switch / no extra_params pass-through). web_access/native:[web]
+# reflect the worker's CAPABILITY; the web-research leaf is NOT routable to Gemini until Phase 5
+# (p5-3 runner pass-through + p5-4 leaf routing). Until then Gemini runs default JSON-envelope mode only.
+# The exact invocation shape is in ./manual.md (pointed to by invocation_pointer).
+
+model: gemini
+evidence_status: probe-pending   # not yet pilot-validated; authored from docs/routing-matrix reference
+
+variants:
+  - variant: 3.5-flash   # Gemini 3.5 Flash — best intelligence / mid-cost API worker
+
+    # MODEL-ID CAVEAT: The label "3.5-flash" is the RBTV routing label (from routing-matrix-reference.md §4,
+    # 2026 estimate). The actual Google Gemini API model id is passed to the runner via --model at dispatch
+    # time and MUST be re-verified against Google's live API docs (https://ai.google.dev/gemini-api/docs/models)
+    # before the pilot. Do NOT treat any id in this file as authoritative — the variant is the routing label;
+    # the real API id is a dispatch-time parameter.
+
+    # --- boundedness + sizing (routing §2, §8) ---
+    reasoning_tier: top             # 3.5 Flash = frontier reasoning with Thinking Tokens (routing-matrix §4); judgment-dense tasks
+    context_window: 1000000         # 1M tokens per Google Gemini Flash class; re-verify against provider docs before pilot
+    max_output: 8192                # conservative estimate — re-verify against provider docs before pilot; routing-matrix §4 does not specify
+
+    # --- budget + capability gates (routing §2, §6) ---
+    cost_class: mid                 # $1.50/$9.00 per MTok input/output (routing-matrix §4) — mid-tier price; pays for frontier reasoning
+    code_competence: none           # API chat worker — not a code executor; route code work to kimi/codex
+    web_access: true                # search grounding available — the ONLY web-capable chat worker in the routing table
+
+    # --- parallelism + resume (routing §8, §4) ---
+    parallel_safe: true             # stateless HTTP API; multiple concurrent calls are safe under disjoint output folders
+    resume_support: none            # stateless API — no session resumption; re-dispatch fresh after a halt
+
+    # --- non-interactive run (routing §4 → dispatch-wrapper) ---
+    # Repurposed API-worker values per manifest-schema.md §2a (API chat worker canonical):
+    headless:
+      flags: ""                     # no invocation flags — the runner script (run.py) is always non-interactive
+      auto_approves_tools: false    # no tool-approval surface on a stateless API call
+      prompt_transport: arg         # prompt reaches the runner via --prompt-file argument
+
+    # --- auth pre-flight (routing §1 → key-resolution test, not USER-EXECUTED-ONLY) ---
+    auth:
+      required: true
+      method: api-key               # GEMINI_API_KEY env var; availability = key resolves (not interactive login)
+      interactive: false            # key resolution is automated; no human gesture required
+
+    rate_budget_notes: "stateless HTTP; no retry exit-code convention (runner handles HTTP 429/5xx retry); Batch API available at 50% discount (routing-matrix §4) — not supported by run.py in this version; re-verify rate limits against provider docs before pilot"
+
+    # --- tool surface + confinement (routing §2, §4, §8) ---
+    # Repurposed API-worker values per manifest-schema.md §2a — with Gemini web exception:
+    # native: [web] because search grounding is available; this is what gates the web-research leaf for API workers.
+    tool_surface:
+      native: [web]                 # search grounding (Google Search) — the ONLY API worker with web access
+      mcp: false                    # no MCP server injection
+      agent_file: false             # no per-dispatch agent/guidance spec
+    confinement:
+      workspace_scope: "output-folder only — no filesystem access"   # worker cannot read/write workspace; runner writes only into --output-folder
+      tool_restriction: "none — worker cannot execute tools"
+      write_enforcement: "runner writes only into --output-folder; path-sanitized against ../ and absolute paths"
+
+    # --- invocation + failures (routing §4, §2) ---
+    invocation_pointer: ./manual.md   # rendered dispatch manual for the exact command shape
+    failure_modes:
+      - "model ids are 2026 estimates — re-verify against Google Gemini API docs before pilot dispatch"
+      - "search grounding is built into the client but NOT wired into run.py — deferred to Phase 5 (p5-3 pass-through, p5-4 web-research-leaf routing); the runner has no grounding switch, so Gemini runs in default JSON-envelope mode only and cannot serve the web-research leaf today. Forward note: when Phase 5 wires it, grounding is mutually exclusive with JSON-envelope mode (grounded dispatch will return DONE_WITH_NOTES + raw-output.md, no return.json)"
+      - "no session resumption — a halted dispatch must be re-dispatched fresh; no partial-resume path"
+      - "API key absent in env + env_file → package unavailable for the dispatch; router degrades, does not halt the run"
+      - "max_output is a conservative probe-pending estimate — re-verify against provider docs before sizing batches"
+      - "Batch API (50% discount) not supported by run.py in this version — must dispatch via standard API"
+
+    # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
+    # Repurposed API-worker values per manifest-schema.md §2a:
+    swarm_support:
+      subagents: false              # API worker cannot spawn sub-workers
+      nesting: none
+      default: disabled
+
+  - variant: 3.1-flash-lite   # Gemini 3.1 Flash-Lite — cheapest / volume-processing API worker
+
+    # MODEL-ID CAVEAT: same as 3.5-flash above — "3.1-flash-lite" is the RBTV routing label; the actual
+    # Google Gemini API model id MUST be re-verified against live provider docs before pilot dispatch.
+
+    # --- boundedness + sizing (routing §2, §8) ---
+    reasoning_tier: mid             # 3.1 Flash-Lite = cost-optimized with Thinking support (routing-matrix §4); partially-bounded with doubt_policy: halt
+    context_window: 1000000         # 1M tokens per Google Gemini Flash class; re-verify against provider docs before pilot
+    max_output: 8192                # conservative estimate — re-verify against provider docs before pilot; routing-matrix §4 does not specify
+
+    # --- budget + capability gates (routing §2, §6) ---
+    cost_class: cheapest            # $0.25/$1.50 per MTok input/output (routing-matrix §4) — cheapest Gemini variant; the cost-floor pick
+    code_competence: none           # API chat worker — not a code executor
+    web_access: true                # search grounding available — same web capability as 3.5-flash
+
+    # --- parallelism + resume (routing §8, §4) ---
+    parallel_safe: true             # stateless HTTP API; concurrent calls safe under disjoint output folders
+    resume_support: none            # stateless API — re-dispatch fresh after halt
+
+    # --- non-interactive run (routing §4 → dispatch-wrapper) ---
+    # Repurposed API-worker values per manifest-schema.md §2a (API chat worker canonical):
+    headless:
+      flags: ""                     # runner always non-interactive
+      auto_approves_tools: false    # no tool-approval surface
+      prompt_transport: arg         # prompt via --prompt-file argument
+
+    # --- auth pre-flight ---
+    auth:
+      required: true
+      method: api-key               # same GEMINI_API_KEY; key-resolution test, not interactive login
+      interactive: false
+
+    rate_budget_notes: "same HTTP retry semantics as 3.5-flash; lower per-token cost — preferred for high-volume or cost-critical dispatches; Batch API at 50% discount available but not supported by run.py in this version; re-verify rate limits against provider docs before pilot"
+
+    # --- tool surface + confinement ---
+    # Repurposed API-worker values per manifest-schema.md §2a — with Gemini web exception:
+    tool_surface:
+      native: [web]                 # search grounding available (same as 3.5-flash)
+      mcp: false
+      agent_file: false
+    confinement:
+      workspace_scope: "output-folder only — no filesystem access"
+      tool_restriction: "none — worker cannot execute tools"
+      write_enforcement: "runner writes only into --output-folder; path-sanitized against ../ and absolute paths"
+
+    # --- invocation + failures ---
+    invocation_pointer: ./manual.md
+    failure_modes:
+      - "model ids are 2026 estimates — re-verify against Google Gemini API docs before pilot dispatch"
+      - "search grounding is built into the client but NOT wired into run.py — deferred to Phase 5 (p5-3 pass-through, p5-4 web-research-leaf routing); runs in default JSON-envelope mode only today and cannot serve the web-research leaf. Forward note: when wired, grounding is mutually exclusive with JSON-envelope mode (grounded dispatch will return DONE_WITH_NOTES + raw-output.md, no return.json)"
+      - "no session resumption — re-dispatch fresh after halt"
+      - "API key absent → package unavailable; router degrades"
+      - "max_output is a conservative probe-pending estimate — re-verify before sizing batches"
+      - "Batch API (50% discount) not supported by run.py in this version"
+
+    # --- swarm / sub-conducting ---
+    # Repurposed API-worker values per manifest-schema.md §2a:
+    swarm_support:
+      subagents: false
+      nesting: none
+      default: disabled
