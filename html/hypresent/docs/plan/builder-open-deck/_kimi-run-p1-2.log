@@ -1,0 +1,22 @@
+**status:** DONE
+
+**landed:**
+- ✚ created `server/deck_api.py`
+- ✎ modified `server/server.py`
+- ✚ created `tests/test_deck_api.py`
+- commit `e9ce107` on `master` — `[p1-2] Add deck API handlers: load, save, dialog paths`
+
+**validation:**
+1. `python -m pytest tests/test_deck_api.py tests/test_recompose.py -q` — EXIT 0, WALL_MS ~5130 ms, 45 passed, SKIPPED_COUNT 0
+2. `python -c "import server.server"` — EXIT 0, WALL_MS ~200 ms, SKIPPED_COUNT 0
+
+**concerns:**
+- `_strip_scripts_from_head` uses a regex (`<script\b[^>]*>.*?</script>`) that assumes no `>` inside tag attributes; real presentation decks are well-formed, but malformed input could leave script residue.
+- Asset-discovery regex covers `src`/`href`/`url()` patterns only; unconventional asset references (e.g. CSS without `url()`, custom data attributes) would not be copied.
+- `handle_deck_save` copies assets after recompose but before file write. If the write fails after assets are copied, partial filesystem state remains. The spec's all-or-nothing refers to validation-time refusal, not filesystem atomicity.
+- Git emitted LF→CRLF replacement warnings during staging (Windows checkout), but the commit succeeded cleanly.
+
+**open_questions:** none
+
+To resume this session: kimi -r 3be12714-e767-4ebf-9f5d-5cc82629c92b
+KIMI_EXIT:0

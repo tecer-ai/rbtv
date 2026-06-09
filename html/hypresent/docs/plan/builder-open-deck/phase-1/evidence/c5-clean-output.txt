@@ -1,0 +1,23 @@
+=== Criterion 5: Clean output check ===
+Source deck (original copy): /c/Users/henri/AppData/Local/Temp/hyp-c3-sikc8ge0/deck.html
+Output deck (after recompose): /c/Users/henri/AppData/Local/Temp/hyp-c3-sikc8ge0/c3-out.html
+
+--- hyp- class occurrences in SOURCE ---
+Count: 1
+
+--- hyp- class occurrences in OUTPUT ---
+Count: 1
+
+--- data-hyp- attribute occurrences in SOURCE ---
+Count: 0
+
+--- data-hyp- attribute occurrences in OUTPUT ---
+Count: 0
+
+--- Contextual hyp- lines in OUTPUT (first 20) ---
+2460:<span style="visibility: hidden; position: absolute; pointer-events: none;"></span><script type="application/json" id="hyp-comments">[{"id":"1","anchor":{"hook":null,"path":"body:1/section:2/div:2/div:3/div:4","nativeId":null,"contentHash":"c1164d79","siblingIndex":1},"contextText":"Operação vivadecisão · velocidade · insight","author":"Henrique","createdAt":"2026-06-05T20:23:35.723Z","body":"Oi tudo bem","resolved":false,"replies":[],"agentInstruction":false},{"id":"2","anchor":{"hook":null,"path":"body:1/section:3/div:2/div:1/div:4","nativeId":null,"contentHash":"3dfbad83","siblingIndex":3},"contextText":"A gestão escala em esforço, não em capacidade A operação é conduzida em planilha","author":"Henrique","createdAt":"2026-06-05T20:23:51.106Z","body":"hjksdhfjkshkdj","resolved":false,"replies":[],"agentInstruction":true}]</script></body></html>
+
+=== DELTA ===
+New hyp- occurrences introduced: 0
+New data-hyp- occurrences introduced: 0
+VERDICT: PASS — no new hyp-/data-hyp- markers introduced by recompose

@@ -1,0 +1,23 @@
+```yaml
+status: DONE
+landed:
+  - server/recompose.py (modified)
+  - tests/test_recompose.py (modified)
+  - commit: 4756b71
+validation:
+  - command: python -m pytest tests/test_recompose.py -q
+    exit: 0
+    wall_ms: ~1250
+    passed: 26
+    skipped: 0
+    skip_reasons: none
+  - command: grep self-check for html.parser / BeautifulSoup / lxml
+    exit: 0
+    hits: 0
+concerns:
+  - The byte-splicing scanner does not handle `<section>` inside `<script>` tags or attribute values; this is an accepted fidelity limit of the no-parser approach per the spec.
+open_questions: none
+```
+
+To resume this session: kimi -r 35fc3fde-9902-4ce9-b2f2-bc63a2ed6820
+KIMI_EXIT:0

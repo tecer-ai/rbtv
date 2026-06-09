@@ -1,0 +1,12 @@
+=== Criterion 6: Owner-data safety ===
+
+--- git status --porcelain for *.html ---
+(clean — no .html files modified)
+
+--- git diff HEAD -- tecer-gsmm-introduction-test-v3.html ---
+(empty — file matches HEAD exactly)
+
+--- SHA256 hash of real deck (current) ---
+SHA256: 93b2e53b22d284f5d7b7781da3d05d5ed6a3289625467160c45ee4d2e2a9ad4a
+
+VERDICT: PASS — real deck is unmodified (git status clean, diff empty)

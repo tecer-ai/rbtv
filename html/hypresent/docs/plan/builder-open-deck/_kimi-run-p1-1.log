@@ -1,0 +1,36 @@
+```yaml
+status: DONE
+landed:
+  - server/recompose.py (created)
+  - tests/test_recompose.py (created)
+  - commit: cff2be0
+validation:
+  - command: python -m pytest tests/test_recompose.py -q
+    exit: 0
+    wall_ms: ~850
+    passed: 20
+    skipped: 0
+    skip_reasons: none
+  - command: grep self-check for html.parser / BeautifulSoup / lxml
+    exit: 0
+    hits: 0
+concerns:
+  - Spec tension: Behavior row 1 says "inter-slide markup is byte-identical", but the Context Snapshot contract for `recompose` is explicitly prefix + items + suffix, which drops inter-slide whitespace/comments between sections. The implementation follows the explicit function contract.
+  - The byte-splicing scanner only ignores tags inside HTML comments; it does not handle `<section>` tokens inside `<script>` tags or attribute values. This is within the stated spec but is a fidelity limit of the no-parser approach.
+  - `server/` has no `__init__.py`; implicit namespace packages work under CPython 3.3+ but may surprise some tooling.
+open_questions: none
+```
+
+---
+
+> **Human Review Presentation**
+> 
+> `human_review: required` is set for this task. The executor has completed the implementation and all 20 unit tests pass. A reviewer should verify:
+> 
+> 1. `server/recompose.py` contains only stdlib code, no HTML parser imports, and follows the byte-range splicing constraint.
+> 2. `tests/test_recompose.py` covers Behavior rows 1–3 and 6, plus all 4 Edge Case rows (zero sections, comments, nesting, out-of-range).
+> 3. Root deck `tecer-gsmm-introduction-test-v3.html` was never modified (only copied to `tmp_path` by tests).
+> 4. The commit `cff2be0` stages exactly the two allowlist files and no others.
+
+To resume this session: kimi -r 35fc3fde-9902-4ce9-b2f2-bc63a2ed6820
+KIMI_EXIT:0

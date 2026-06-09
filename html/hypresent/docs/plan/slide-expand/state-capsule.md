@@ -3,7 +3,7 @@
 The resume contract. Rebuild conductor state from THIS file first, then the run-log tail, then decisions.md.
 
 ## Resume point
-Intake complete. Authoring the dispatchable task file, then routing the build dispatch.
+**RUN COMPLETE** (2026-06-08). Feature built (kimi 149ca8a), reviewed (opus), done-gate verified in headed browser (5/5 held), fixes committed 1d0bb69. Exit reason: complete.
 
 ## Run configuration
 - Run mode: **end-to-end** (stop only on genuine doubts / user-needed steps)

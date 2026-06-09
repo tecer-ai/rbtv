@@ -1,0 +1,24 @@
+```yaml
+status: DONE
+landed:
+  - app/js/builder/slide-stage.js (created)
+  - tests/e2e/test_pb7_slide_expand.py (created)
+  - app/js/builder/browse-pane.js (modified)
+  - app/js/builder/builder-main.js (modified)
+  - app/css/builder.css (modified)
+  - commit: 149ca8a
+validation:
+  - command: "node --check app/js/builder/slide-stage.js ; node --check app/js/builder/browse-pane.js ; node --check app/js/builder/builder-main.js"
+    exit_code: 0
+    wall_ms: ~2000
+  - command: "python -m pytest tests/e2e/test_pb7_slide_expand.py -q"
+    exit_code: 0
+    wall_ms: ~13000
+    output: "4 passed in 12.95s"
+  - SKIPPED_COUNT: 0
+concerns: none
+open_questions: none
+```
+
+To resume this session: kimi -r 42cb70b2-8079-413c-a917-af7e3ad1b1bb
+KIMI_EXIT=0
