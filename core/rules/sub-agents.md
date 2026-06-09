@@ -58,6 +58,10 @@ The sub-agent prompt MUST contain a directive in one of these forms. Mere mentio
 
 Directives MUST be imperative ("invoke", "follow exactly", "execute") — never permissive ("may", "consider", "can").
 
+## File-Path Hygiene — Write / Move Dispatches
+
+When a sub-agent will CREATE, WRITE, or MOVE files, the prompt MUST give every target path as WORKSPACE-ROOT-ABSOLUTE (or fully absolute) — NEVER a bare relative path. A sub-agent resolves relative paths from its OWN working directory, which is NOT guaranteed to match the parent's; a bare `subdir/file.md` silently lands in the wrong tree. State the workspace root explicitly in the prompt AND prefix every write path with it. After the dispatch returns, VERIFY each claimed file exists at its intended absolute path before treating the dispatch as done — a sub-agent's success report is not proof the file landed where you intended.
+
 ## Red Flags — STOP and Rewrite
 
 If you notice any of these thoughts, you are about to violate this rule:
@@ -70,6 +74,7 @@ If you notice any of these thoughts, you are about to violate this rule:
 | "The prompt is already long, adding skill directives will bloat it" | STOP. Brevity does not waive the gate. |
 | "Specialized sub-agent types (Explore, Plan, general-purpose) don't need this" | STOP. These types need it MOST — they skip skills by default. |
 | "No installed skill matches this exact trigger keyword" | STOP. Re-scan the available skill list for partial matches before declaring the family inactive. |
+| "The sub-agent shares my working directory — a bare relative write path is fine" | STOP. Give workspace-root-absolute write paths and verify each file landed on return. |
 
 ## Scope
 
