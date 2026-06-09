@@ -48,13 +48,22 @@ export function pasteFloat(x, y) {
 
   const cmd = makePasteCommand(clone, slide.getAttribute("data-hyp-id"), null);
 
+  // Tag the freshly-inserted clone exactly ONCE, on the initial paste. On redo,
+  // cmd.do() re-inserts the same (already-tagged) clone, so re-running tag()
+  // would walk the whole body and ALSO tag the editor's own body-level UI
+  // artifacts (selection ring, interaction wrapper) that select()/mount() append
+  // after this push — turning them into orphan "regions" that undo cannot remove.
+  let tagged = false;
   historyPush({
     do() {
       cmd.do();
       if (getComputedStyle(slide).position === "static") {
         slide.style.position = "relative";
       }
-      tag();
+      if (!tagged) {
+        tag();
+        tagged = true;
+      }
       const cloneRect = clone.getBoundingClientRect();
       const slideRect = slide.getBoundingClientRect();
       clone.style.left = `${x - slideRect.left - cloneRect.width / 2 + cascadeAtPush * 16}px`;
@@ -103,10 +112,15 @@ export function pasteIntoLayout(x, y) {
   const first = new Map();
   for (const elx of affected) first.set(elx, elx.getBoundingClientRect());
 
+  // Tag once on the initial paste only (see pasteFloat for why redo must not re-tag).
+  let tagged = false;
   historyPush({
     do() {
       cmd.do();
-      tag();
+      if (!tagged) {
+        tag();
+        tagged = true;
+      }
     },
     undo() {
       cmd.undo();
@@ -154,10 +168,19 @@ function pasteRegion() {
     curRegion?.nextElementSibling?.getAttribute("data-hyp-id") ?? null
   );
 
+  // Tag the inserted region exactly ONCE, on the initial paste. Re-running tag()
+  // on redo walks the whole body and tags the editor's own body-level UI artifacts
+  // (selection ring + interaction wrapper appended by the select() below) as if
+  // they were slide regions; cmd.undo() never removes them, so each redo leaks
+  // permanent orphan "regions" the history cannot undo.
+  let tagged = false;
   historyPush({
     do() {
       cmd.do();
-      tag();
+      if (!tagged) {
+        tag();
+        tagged = true;
+      }
     },
     undo() {
       cmd.undo();

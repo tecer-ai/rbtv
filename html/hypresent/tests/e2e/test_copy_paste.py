@@ -52,6 +52,16 @@ class CopyPasteTests(unittest.TestCase):
     def _exists(self, hyp_id):
         return H.doc_eval(self.page, f"return !!doc.querySelector('[data-hyp-id=\"{hyp_id}\"]');")
 
+    def _body_region_count(self):
+        # Mirrors runtime-main.js's body-region semantics: direct body children
+        # carrying a data-hyp-id. The editor's own UI artifacts (selection ring,
+        # interaction wrapper) live at body level but must NEVER be counted here.
+        return H.doc_eval(
+            self.page,
+            "return Array.from(doc.body.children)"
+            ".filter(c => c.getAttribute('data-hyp-id')).length;",
+        )
+
     def _bridge_cmd(self, type, payload=None):
         return self.page.evaluate(
             """(args) => {
@@ -275,6 +285,75 @@ class CopyPasteTests(unittest.TestCase):
         html = ser.get("html")
         self.assertIsNotNone(html, "serialize should return html")
         self.assertTrue(len(html) > 0, "serialize html should be non-empty")
+
+    # C9 (region) — whole-slide paste must round-trip through redo. The defect:
+    # pasteRegion()'s pushed command re-ran tag() inside its do(), so on REDO
+    # tag() re-walked the whole body and stamped the editor's own body-level UI
+    # artifacts (selection ring + interaction wrapper appended by select()/mount())
+    # as if they were slide regions. Each redo leaked extra "regions" that the
+    # command's undo() — which only removes the pasted clone — could never remove,
+    # so a redo grew the body-region count and the orphans piled up.
+    #
+    # Counting note: this asserts the SAME body-region semantics the app uses
+    # (runtime-main.js: direct body children with a data-hyp-id), which is what
+    # the headed bug report measured — artifacts INCLUDED. A real-<section>-only
+    # count would miss the bug entirely, because the leaked orphans are artifact
+    # <div>s, not duplicate <section>s. So we assert the round-trip INVARIANTS the
+    # bug violates: undo removes exactly one; redo restores to the post-paste
+    # count EXACTLY (no orphan growth); final undo returns to the post-undo count.
+    def test_region_paste_undo_redo_roundtrip(self):
+        self._open_fixture("two-regions.html")
+
+        baseline = self._body_region_count()
+        self.assertGreaterEqual(baseline, 2, "fixture must start with at least two top-level regions")
+
+        # Select a WHOLE top-level region (direct child of body) so copy marks it
+        # wasRegion=true and paste routes through pasteRegion().
+        self._real_select("#region-one")
+        sel_id = self._hyp_id_of("#region-one")
+        self.assertIsNotNone(sel_id, "selected region should carry a hyp-id")
+        is_body_child = H.doc_eval(
+            self.page,
+            "const e=doc.querySelector('#region-one');"
+            "return !!e && e.parentElement === doc.body;",
+        )
+        self.assertTrue(is_body_child, "selected region must be a direct child of body")
+
+        # Copy the whole region.
+        result = self._bridge_cmd("copy")
+        self.assertTrue(result.get("copied", False), "copy of a region should succeed")
+
+        # Paste (region) — coordinates are ignored on the wasRegion path.
+        self._bridge_cmd("paste", {"x": 100, "y": 100})
+        self.page.wait_for_timeout(400)
+        after_paste = self._body_region_count()
+        self.assertGreater(after_paste, baseline,
+                           "region paste should add at least one top-level region")
+
+        # Undo removes exactly the pasted region.
+        self._bridge_cmd("undo")
+        self.page.wait_for_timeout(300)
+        after_undo = self._body_region_count()
+        self.assertEqual(after_undo, after_paste - 1,
+                         "undo should remove exactly the pasted region")
+
+        # Redo must restore the EXACT post-paste count — not more. Pre-fix this
+        # grew past after_paste because tag() re-stamped body-level artifacts.
+        self._bridge_cmd("redo")
+        self.page.wait_for_timeout(300)
+        after_redo = self._body_region_count()
+        self.assertEqual(after_redo, after_paste,
+                         "redo must restore exactly the post-paste region count (no orphan duplicates)")
+
+        # And redo must move the count by exactly +1 over the undone state.
+        self.assertEqual(after_redo - after_undo, 1,
+                         "redo must add exactly one region back, never more")
+
+        # Final undo returns to the post-undo count with no orphans left behind.
+        self._bridge_cmd("undo")
+        self.page.wait_for_timeout(300)
+        self.assertEqual(self._body_region_count(), after_undo,
+                         "undo after redo must return to the post-undo count (no orphans)")
 
 
 if __name__ == "__main__":
