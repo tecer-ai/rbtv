@@ -1,0 +1,135 @@
+# DeepSeek capability manifest — the routing card's data interface for the deepseek package.
+# Schema + field meanings + routing-card consumers: ../manifest-schema.md
+# Sources: routing-matrix-reference.md §2 (2026 estimates — re-verify against provider docs);
+#          DeepSeek API docs: https://api-docs.deepseek.com
+# This is an API chat worker (stateless HTTP call — no filesystem access, no tool execution loop).
+# The four CLI-shaped fields (headless, tool_surface, confinement, swarm_support) are filled
+# with the repurposed API-worker values per manifest-schema.md §2a.
+# The exact invocation shape is in ./manual.md (pointed to by invocation_pointer).
+
+model: deepseek
+evidence_status: probe-pending   # not yet pilot-validated; authored from docs/routing-matrix reference
+
+variants:
+  - variant: v4-flash   # DeepSeek V4-Flash — best cost/benefit API worker
+
+    # MODEL-ID CAVEAT: The label "v4-flash" is the RBTV routing label (from routing-matrix-reference.md §2,
+    # 2026 estimate). The actual DeepSeek API model id is passed to the runner via --model at dispatch time
+    # and MUST be re-verified against DeepSeek's live API docs (https://api-docs.deepseek.com) before the
+    # pilot. Do NOT treat any id in this file as authoritative — the variant is the routing label; the real
+    # API id is a dispatch-time parameter.
+
+    # --- boundedness + sizing (routing §2, §8) ---
+    reasoning_tier: mid            # V4-Flash supports Thinking Mode (routing-matrix §2) — partially-bounded with doubt_policy: halt; NOT a judgment-dense top-tier pick
+    context_window: 1000000        # 1M tokens per routing-matrix §2; re-verify against provider docs before pilot
+    max_output: 384000             # 384k per routing-matrix §2; re-verify against provider docs before pilot
+
+    # --- budget + capability gates (routing §2, §6) ---
+    cost_class: cheapest           # $0.14/$0.28 per MTok input/output (routing-matrix §2) — cheapest DeepSeek variant; the cost-floor pick
+    code_competence: none          # API chat worker — not a code executor; route code work to kimi/codex
+    web_access: false              # no native web grounding; cannot satisfy the research leaf
+
+    # --- parallelism + resume (routing §8, §4) ---
+    parallel_safe: true            # stateless HTTP API; multiple concurrent calls are safe under disjoint output folders
+    resume_support: none           # stateless API — no session resumption; re-dispatch fresh after a halt
+
+    # --- non-interactive run (routing §4 → dispatch-wrapper) ---
+    # Repurposed API-worker values per manifest-schema.md §2a (API chat worker canonical):
+    headless:
+      flags: ""                    # no invocation flags — the runner script (run.py) is always non-interactive
+      auto_approves_tools: false   # no tool-approval surface on a stateless API call
+      prompt_transport: arg        # prompt reaches the runner via --prompt-file argument
+
+    # --- auth pre-flight (routing §1 → key-resolution test, not USER-EXECUTED-ONLY) ---
+    auth:
+      required: true
+      method: api-key              # DEEPSEEK_API_KEY env var; availability = key resolves (not interactive login)
+      interactive: false           # key resolution is automated; no human gesture required
+
+    rate_budget_notes: "stateless HTTP; no retry exit-code convention (runner handles HTTP 429/5xx retry); re-verify rate limits against provider docs before pilot"
+
+    # --- tool surface + confinement (routing §2, §4, §8) ---
+    # Repurposed API-worker values per manifest-schema.md §2a:
+    tool_surface:
+      native: []                   # no built-in shell/file/web tools executed by the worker
+      mcp: false                   # no MCP server injection
+      agent_file: false            # no per-dispatch agent/guidance spec
+    confinement:
+      workspace_scope: "output-folder only — no filesystem access"   # worker cannot read/write workspace; runner writes only into --output-folder
+      tool_restriction: "none — worker cannot execute tools"
+      write_enforcement: "runner writes only into --output-folder; path-sanitized against ../ and absolute paths"
+
+    # --- invocation + failures (routing §4, §2) ---
+    invocation_pointer: ./manual.md   # rendered dispatch manual for the exact command shape
+    failure_modes:
+      - "model ids are 2026 estimates — re-verify against DeepSeek API docs before pilot dispatch"
+      - "no session resumption — a halted dispatch must be re-dispatched fresh; no partial-resume path"
+      - "API key absent in env + env_file → package unavailable for the dispatch; router degrades, does not halt"
+      - "thinking mode behavior (token cost, output format) may differ from routing-matrix estimate — probe before sizing batches"
+
+    # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
+    # Repurposed API-worker values per manifest-schema.md §2a:
+    swarm_support:
+      subagents: false             # API worker cannot spawn sub-workers
+      nesting: none
+      default: disabled
+
+  - variant: v4-pro   # DeepSeek V4-Pro — max reasoning quality API worker
+
+    # MODEL-ID CAVEAT: same as v4-flash above — "v4-pro" is the RBTV routing label; the actual
+    # DeepSeek API model id MUST be re-verified against live provider docs before pilot dispatch.
+
+    # --- boundedness + sizing (routing §2, §8) ---
+    reasoning_tier: top            # V4-Pro = max reasoning quality (routing-matrix §2 "Logical reasoning — Thinking Mode"); judgment-dense tasks
+    context_window: 1000000        # 1M tokens per routing-matrix §2; re-verify against provider docs before pilot
+    max_output: 384000             # 384k per routing-matrix §2; re-verify against provider docs before pilot
+
+    # --- budget + capability gates (routing §2, §6) ---
+    cost_class: low                # $0.435/$0.87 per MTok input/output (routing-matrix §2) — higher than v4-flash but still low absolute; pays for top reasoning tier
+    code_competence: none          # API chat worker — not a code executor
+    web_access: false              # no native web grounding
+
+    # --- parallelism + resume (routing §8, §4) ---
+    parallel_safe: true            # stateless HTTP API; concurrent calls safe under disjoint output folders
+    resume_support: none           # stateless API — re-dispatch fresh after halt
+
+    # --- non-interactive run (routing §4 → dispatch-wrapper) ---
+    # Repurposed API-worker values per manifest-schema.md §2a (API chat worker canonical):
+    headless:
+      flags: ""                    # runner always non-interactive
+      auto_approves_tools: false   # no tool-approval surface
+      prompt_transport: arg        # prompt via --prompt-file argument
+
+    # --- auth pre-flight ---
+    auth:
+      required: true
+      method: api-key              # same DEEPSEEK_API_KEY; key-resolution test, not interactive login
+      interactive: false
+
+    rate_budget_notes: "same HTTP retry semantics as v4-flash; higher per-token cost — apply only where top reasoning tier is required; re-verify rate limits against provider docs before pilot"
+
+    # --- tool surface + confinement ---
+    # Repurposed API-worker values per manifest-schema.md §2a:
+    tool_surface:
+      native: []
+      mcp: false
+      agent_file: false
+    confinement:
+      workspace_scope: "output-folder only — no filesystem access"
+      tool_restriction: "none — worker cannot execute tools"
+      write_enforcement: "runner writes only into --output-folder; path-sanitized against ../ and absolute paths"
+
+    # --- invocation + failures ---
+    invocation_pointer: ./manual.md
+    failure_modes:
+      - "model ids are 2026 estimates — re-verify against DeepSeek API docs before pilot dispatch"
+      - "no session resumption — re-dispatch fresh after halt"
+      - "API key absent → package unavailable; router degrades"
+      - "top reasoning tier carries higher token cost — confirm budget before batching"
+
+    # --- swarm / sub-conducting ---
+    # Repurposed API-worker values per manifest-schema.md §2a:
+    swarm_support:
+      subagents: false
+      nesting: none
+      default: disabled

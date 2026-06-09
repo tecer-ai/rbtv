@@ -62,7 +62,35 @@ Each entry in `variants` carries the fields below. Required fields MUST be prese
 | `os_quirks` | no | map | OS-specific invocation notes, keyed by OS (e.g. `windows:`). Carries the Windows-specific corpus notes (stdin-pipe handling, exit-code semantics, first-run delays). Omitted when none. |
 | `evidence_status` | no | enum | Per-variant override of the package-level `evidence_status` (`validated` · `probe-pending`). Omitted = inherits the package-level value. Lets a model ship one validated variant and one probe-pending variant. |
 
+### 2a. Repurposed field semantics for API/agentic workers
+
+The four required fields `headless`, `tool_surface`, `confinement`, and `swarm_support` are shaped for CLI/Agent-tool workers (run-with-flags, native tool families, filesystem scoping, subagent spawning). API chat workers and Agent-tool in-session workers have none of these in their original CLI sense. **Decision (design §0.4 option a): repurpose — fill with API/agentic-meaningful values** rather than adding a `transport:` discriminator. Rationale: no schema churn; the repurposed values remain routing-informative. `transport:` is the documented escalation path if the repurposed values ever mislead the router.
+
+**Canonical repurposed values for API chat workers** (stateless HTTP-call workers — no filesystem access, no tool execution loop):
+
+| Field | API-worker value | What it means to the router |
+|-------|------------------|------------------------------|
+| `headless` | `flags: ""` (no invocation flags — the runner script is always non-interactive), `auto_approves_tools: false` (no tool-approval surface), `prompt_transport: arg` (prompt reaches the runner via `--prompt-file` argument) | The runner is always non-interactive; no approval dialog exists. |
+| `tool_surface` | `native: []` or `native: [web]` (Gemini only — grounding), `mcp: false`, `agent_file: false` | The worker executes no shell/file tools. Gemini's `native: [web]` is what gates the web-research leaf for API workers. |
+| `confinement` | `workspace_scope: "output-folder only — no filesystem access"`, `tool_restriction: "none — worker cannot execute tools"`, `write_enforcement: "runner writes only into --output-folder; path-sanitized against ../ and absolute paths"` | Confinement is the runner's job (path sanitization), not the CLI's. The conductor does NOT need to scope a work-dir. |
+| `swarm_support` | `subagents: false`, `nesting: none`, `default: disabled` | API workers cannot spawn sub-workers. |
+
+**Canonical repurposed values for Agent-tool in-session workers** (the `models/claude/` package — Claude variants dispatched as sub-agents via the Agent tool, not as a process):
+
+| Field | Agent-tool value | What it means to the router |
+|-------|------------------|------------------------------|
+| `headless` | `flags: ""` (no process flags), `auto_approves_tools: false` (Agent-tool sub-agents run under the conductor's permissions), `prompt_transport: arg` (prompt passed as the Agent tool's `prompt` parameter) | The Agent tool call is always non-interactive; the tool parameter IS the prompt. |
+| `tool_surface` | `native: [shell, file]` (inherits the conductor's tool grants; no native web), `mcp: false` (inherits session MCP), `agent_file: false` (no per-dispatch agent/guidance spec) | The sub-agent operates with the conductor's tool set, not an independently configured one. |
+| `confinement` | `workspace_scope: "allowlist only — no --work-dir flag"`, `tool_restriction: "conductor's disjoint allowlist"`, `write_enforcement: "git-diff-vs-allowlist"` | Confinement is the conductor's job (allowlist passed in the prompt); no process-level directory scoping. |
+| `swarm_support` | `subagents: false`, `nesting: none`, `default: disabled` | Agent-tool sub-agents are the nesting wall — they MUST NOT spawn further sub-agents (depth cap ≤ 2 from the root conductor). |
+
+**`transport:` discriminator — escalation-only fallback.** A `transport: api | cli | agent` field is the documented next step if the repurposed values above ever mislead the router in practice (e.g., if a future routing question cannot be answered unambiguously from the repurposed values). Do NOT add it speculatively; add it only when a concrete ambiguity in the routing card demands it.
+
+---
+
 **Field-count discipline:** every field above is consumed by a routing-card question in §3. If a future edit adds a field, it MUST add the matching consumer row in §3 or it does not belong in the schema (validated-evidence-only applies to schema bloat).
+
+**Variant field-count discipline:** a provider mode that changes NO routing-relevant field does NOT get its own variant entry. Author a variant only when at least one field in §2 differs from the existing variant(s) for the same model (e.g., `reasoning_tier`, `context_window`, `cost_class`, `web_access`, `code_competence`). Identical-routing modes collapse into one variant — duplicating a row that routes identically is schema bloat.
 
 ---
 
@@ -83,7 +111,7 @@ The proof that no field is bloat: each maps to a question the routing card (`{rb
 | `parallel_safe` | "Can I run these in a parallel wave with disjoint allowlists?" | §8 (parallelism, worktree isolation) |
 | `resume_support` | "After a halt, do I resume the session or re-dispatch fresh?" | §4 (topology) → hands to halt-recovery resume choice |
 | `headless` | "How do I run this non-interactively, and does it auto-approve tools?" | §4 (carrier resolution) → dispatch-wrapper invocation |
-| `auth` | "Does this need a USER-EXECUTED-ONLY auth pre-flight before dispatch?" | §1 (availability) → halt-recovery USER-EXECUTED-ONLY |
+| `auth` | "Does this need a USER-EXECUTED-ONLY auth pre-flight before dispatch? Or, for `method: api-key`, does the key resolve?" | §1 (availability) → halt-recovery USER-EXECUTED-ONLY; for `api-key` workers see §4 availability note |
 | `rate_budget_notes` | "What throttle/quota behavior must the conductor handle on this worker?" | §2 (BUDGET), §8 (wave pacing) |
 | `tool_surface` | "Does the worker have the tools this task needs (shell/web/MCP)?" | §2 (capability gate), §6 (web via tools) |
 | `confinement` | "How do I bound this worker's writes — and is that my job, not the CLI's?" | §4 (guidance-file check), §8 (allowlist enforcement) |
@@ -107,6 +135,7 @@ Consumption is **installed-manifests-only**, and **folder presence = availabilit
 | Route on `(model, variant)` pairs | The router never routes on a bare model name — it selects a variant from `variants[]` whose fields satisfy the leaf (boundedness, stakes, budget, capability gates). |
 | Parse expectations | The router reads the YAML as a structured document: top-level `model` / `evidence_status` / `variants`, then per-variant fields by the names in §2. A required field absent → the package is malformed; the router logs it and treats the package as un-routable rather than guessing the value. An unknown extra field is ignored (forward-compatible), not an error. |
 | Degrade gracefully | If the cheapest capable variant for a leaf is not installed, the router routes to the next capable installed `(model, variant)` and logs the substitution. Zero installed packages → only Agent-tool Claude tiers are routable (routing card §1); a task that REQUIRES a CLI worker halts. |
+| `auth.method: api-key` availability | **Availability = the key resolves**, not a USER-EXECUTED login. Check order: OS environment variable first (e.g. `DEEPSEEK_API_KEY`), then the `env_file` path recorded in `rbtv.json`. If the key is absent in both → the package is unavailable for this dispatch; the router logs it and degrades (does not halt). This is distinct from `cli-login` workers, whose availability requires a USER-EXECUTED-ONLY login pre-flight (`auth.interactive: true`). For `method: api-key` workers, `auth.interactive: false` — availability is a key-resolution test the runner performs, never a human gesture. |
 
 The manifest is **recall + routing inputs**; the rendered manual (`./manual.md`, pointed to by `invocation_pointer`) is the exact invocation shape, read JIT at first dispatch. The manifest never duplicates the manual's command text — it points to it.
 
