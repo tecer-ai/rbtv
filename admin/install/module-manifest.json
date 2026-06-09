@@ -212,7 +212,7 @@
       }
     ],
     "model_packages": {
-      "description": "Per-model CLI dispatch DOC packages (D18) for rbtv-orchestrating — NOT installed into .claude/; read just-in-time from orchestration/models/<model>/ in the RBTV source. install.py elects packages per workspace (--model-packages or the interactive picker, persisted in rbtv.json) and bakes the resulting availability line into the orchestrating core between the ORCH:AVAILABILITY markers. A directory is a model package iff it carries manifest.yaml (_fixture and mirror are infra, not packages).",
+      "description": "Per-model dispatch DOC packages (D18) for rbtv-orchestrating — NOT installed into .claude/; read just-in-time from orchestration/models/<model>/ in the RBTV source. install.py elects packages per workspace (--model-packages or the interactive picker, persisted in rbtv.json) and bakes the resulting availability line into the orchestrating core between the ORCH:AVAILABILITY markers. A directory is a model package iff it carries manifest.yaml (_fixture and mirror are infra, not packages). The shared API-worker engine at orchestration/models/_api/ (run.py runner + clients/) is infra — read JIT like _fixture/mirror, no manifest.yaml, not a model package; the API chat packages (deepseek, gemini) and the Agent-tool package (claude) run via it.",
       "source_dir": "orchestration/models",
       "packages": [
         {
@@ -234,6 +234,21 @@
           "name": "qwen",
           "manifest": "orchestration/models/qwen/manifest.yaml",
           "description": "Qwen Code CLI web-capable worker (probe-pending, auth-gated) — the research-leaf executor"
+        },
+        {
+          "name": "deepseek",
+          "manifest": "orchestration/models/deepseek/manifest.yaml",
+          "description": "DeepSeek API chat / text-synthesis worker (probe-pending) — cheapest text, OpenAI-compatible JSON mode; runs via the shared models/_api/run.py runner, keys resolved from rbtv.json env_file"
+        },
+        {
+          "name": "gemini",
+          "manifest": "orchestration/models/gemini/manifest.yaml",
+          "description": "Gemini API chat worker (probe-pending) — light web grounding; runs via the shared models/_api/run.py runner"
+        },
+        {
+          "name": "claude",
+          "manifest": "orchestration/models/claude/manifest.yaml",
+          "description": "Agent-tool Claude tiers opus/sonnet modeled as a routable package (validated) — sibling to claude-cli; in-session carrier, no native CLAUDE.md load, cannot spawn sub-agents (nesting wall)"
         }
       ]
     }
