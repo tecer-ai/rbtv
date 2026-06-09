@@ -1,0 +1,11 @@
+- `status`: `DONE`
+- `landed`: `app/js/shell/shortcuts-help.js`, `tests/e2e/test_cheatsheet.py` → `a3e217d47cf0ca0895147e45aab3aa15a971d8ca`
+- `validation`:
+  - `node --check app/js/shell/shortcuts-help.js` → EXIT 0, WALL_MS ~294 ms
+  - `python -m pytest tests/e2e/test_cheatsheet.py -q` → EXIT 0, WALL_MS ~4357 ms, 5 passed
+  - SKIPPED_COUNT: 0
+- `concerns`: none
+- `open_questions`: none
+
+To resume this session: kimi -r 7ee7bb31-2794-421d-8f56-dd7855d8ccf4
+KIMI_P2FIX_EXIT=0
