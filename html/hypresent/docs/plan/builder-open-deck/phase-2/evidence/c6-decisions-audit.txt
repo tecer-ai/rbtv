@@ -1,0 +1,19 @@
+=== decisions.md ADX audit ===
+
+ADX-2:
+  has_decision: True
+  has_rationale: True
+  has_scope: True
+
+ADX-3:
+  has_decision: True
+  has_rationale: True
+  has_scope: True
+
+ADX-1:
+  has_decision: True
+  has_rationale: True
+  has_scope: True
+
+
+No shape violations found.

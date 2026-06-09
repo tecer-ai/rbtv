@@ -106,6 +106,12 @@
 - **Rationale:** The immutable shaping decision ("raw spans preserve the deck byte-for-byte outside the spliced edits") and Behavior row 1 ("inter-slide markup byte-identical") both require preservation; the function sketch was the authoring defect. Surfaced by the p1-1 Opus review: an identity save dropped 2,195 bytes of comment dividers on the owner's real deck.
 - **Scope:** p1-1 (fix direction issued), and all consumers of `recompose` (p1-2, p3-3, checkpoints exercising saves).
 
+### ADX-3 — Deck-thumbnail stopgap removal assigned to p2-2 (2026-06-09)
+
+- **Decision:** p2-1's manual srcdoc injection after `tray.setFromPreset()` in `builder-main.js` is a sanctioned TEMPORARY stopgap (tray.js was outside p2-1's allowlist); p2-2's allowlist is extended with `builder-main.js` solely to remove it once the per-row srcdoc provider lands in `tray.js`. `builder-main.js` serialization becomes p2-1 → p2-2 → p3-1 → p3-2 → p3-3 → p4-1.
+- **Rationale:** The p2-1 review confirmed tray's internal re-render rebuilds iframes with empty srcdoc when `libraryPath` is null — the stopgap dies on any reorder/remove. Two live srcdoc paths through the p2-checkpoint would mask provider defects (the injection could paint thumbnails the provider failed to produce).
+- **Scope:** p2-2 (ADX-3 erratum on the task: allowlist + removal instruction + extended test_command); p3-1 and later builder-main.js writers inherit the file free of the stopgap.
+
 ### ADX-1 — Status-flip bookkeeping moved to the orchestrator (2026-06-09)
 
 - **Decision:** Plan/task/deliverables status flips are performed by the orchestrator at verified return; executor allowlists remain deliverable-files-only.

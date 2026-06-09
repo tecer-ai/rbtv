@@ -59,17 +59,17 @@ Patterns and principles that MUST be followed during execution.
 
 - [x] `p1-1` CREATE `server/recompose.py` (byte-range section splitting + recompose engine) with unit tests against a real deck copy → `phase-1/p1-1.task.md`
 - [x] `p1-2` CREATE `server/deck_api.py` (deck-load, deck-save with asset copy, path-only dialogs) and UPDATE `server/server.py` routes → `phase-1/p1-2.task.md`
-- [ ] `p1-checkpoint` **CHECKPOINT** — recompose proven on a real deck: saved file opens clean headed, content intact (HARD HALT) → `phase-1/p1-checkpoint.task.md`
+- [x] `p1-checkpoint` **CHECKPOINT** — recompose proven on a real deck: saved file opens clean headed, content intact (HARD HALT) → `phase-1/p1-checkpoint.task.md`
 
 ### Phase 2: Ingest — open a deck in the builder
 
-- [ ] `p2-1` UPDATE builder with "Open deck…" entry + `?file=` arrival loading the deck model and filling the tray → `phase-2/p2-1.task.md`
-- [ ] `p2-2` UPDATE tray/previews so existing-section rows render thumbnails with the deck's own theme → `phase-2/p2-2.task.md`
-- [ ] `p2-checkpoint` **CHECKPOINT** — deck opens with all slides as correct themed thumbnails → `phase-2/p2-checkpoint.task.md`
+- [x] `p2-1` UPDATE builder with "Open deck…" entry + `?file=` arrival loading the deck model and filling the tray → `phase-2/p2-1.task.md`
+- [x] `p2-2` UPDATE tray/previews so existing-section rows render thumbnails with the deck's own theme → `phase-2/p2-2.task.md`
+- [x] `p2-checkpoint` **CHECKPOINT** — deck opens with all slides as correct themed thumbnails → `phase-2/p2-checkpoint.task.md`
 
 ### Phase 3: Compose — heterogeneous tray + save UI
 
-- [ ] `p3-1` UPDATE tray to uid identity with three row kinds (existing · library · blank), duplicate control, and `getItems()` → `phase-3/p3-1.task.md`
+- [x] `p3-1` UPDATE tray to uid identity with three row kinds (existing · library · blank), duplicate control, and `getItems()` → `phase-3/p3-1.task.md`
 - [ ] `p3-2` UPDATE builder so library browse adds to the deck tray and an "Add blank slide" button appends blanks → `phase-3/p3-2.task.md`
 - [ ] `p3-3` CREATE the Save deck UI — new-file vs overwrite chooser on every save, wired to `/api/deck-save` → `phase-3/p3-3.task.md`
 - [ ] `p3-checkpoint` **CHECKPOINT** — full restructure loop: open → reorder/remove/duplicate/add → save → reopen intact → `phase-3/p3-checkpoint.task.md`

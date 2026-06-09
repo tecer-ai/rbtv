@@ -1,0 +1,27 @@
+**status**: DONE
+
+**landed**:
+- `app/js/builder/tray.js` — modified
+- `app/js/builder/tray-sorter.js` — modified
+- `app/js/builder/builder-main.js` — modified
+- `tests/e2e/test_pb9_deck_tray.py` — created
+- commit hash: `8f7239c`
+
+**validation**:
+| command | EXIT | WALL_MS | notes |
+|---|---|---|---|
+| `node --check app/js/builder/tray.js` | 0 | ~500 | passed |
+| `node --check app/js/builder/tray-sorter.js` | 0 | ~500 | passed |
+| `node --check app/js/builder/builder-main.js` | 0 | ~500 | passed |
+| `python -m pytest tests/e2e/test_pb9_deck_tray.py tests/e2e/test_pb4_tray_reorder.py -q` | 0 | ~20,390 | 12 passed, 0 failed |
+| **SKIPPED_COUNT**: 0 | — | — | no skips |
+
+**concerns**:
+1. `attachSorter` is called on every `render()`, accumulating event listeners on `listEl`. This is pre-existing (p2-2) and not introduced by this change, but it is a latent listener leak.
+2. The duplicate button is rendered inline inside `.tray-title` (which has `-webkit-line-clamp: 2`). On very narrow viewports the inline-flex button could interact unexpectedly with line clamping; tests pass at the exercised 1280px viewport.
+3. `getOrder()` now returns only library slide ids. In deck mode, `assembleBtn.disabled` is keyed off `order.length === 0`, so the Assemble button stays enabled as long as any library row exists, even if the tray contains only existing/blank rows. This is acceptable because assembly is not the primary deck-mode action (save button lands in p3-3).
+4. No CSS file was modified, so `.tray-duplicate` has no hover opacity rule. The button is always visible inside the title. This is a minor visual deviation from the remove-button pattern, unavoidable within the allowlist boundary.
+
+**open_questions**: none
+
+To resume this session: kimi -r d41dcc3e-9030-4ea3-b5fe-6eafa463b5f6

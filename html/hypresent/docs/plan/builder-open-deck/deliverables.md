@@ -16,21 +16,21 @@
 |------|----------|------|--------|
 | p1-1 | Recompose engine + unit tests | `server/recompose.py`, `tests/test_recompose.py` | ✅ |
 | p1-2 | Deck API handlers + routes + tests | `server/deck_api.py`, `server/server.py`, `tests/test_deck_api.py` | ✅ |
-| p1-checkpoint | Phase 1 evaluation findings + headed real-deck evidence + user approval | `./phase-1/evidence/` + `./decisions.md` (Decision entry on rejection only) | pending |
+| p1-checkpoint | Phase 1 evaluation findings + headed real-deck evidence + user approval | `./phase-1/evidence/` + `./decisions.md` (Decision entry on rejection only) | ✅ |
 
 ## Phase 2 deliverables — Ingest
 
 | Task | Artifact | Path | Status |
 |------|----------|------|--------|
-| p2-1 | Deck-open module, UI entry, `?file=` arrival, e2e | `app/js/builder/deck-load.js`, `app/js/builder/builder-main.js`, `app/builder.html`, `tests/e2e/test_pb8_deck_open.py` | pending |
-| p2-2 | Deck-themed tray thumbnails + e2e extension | `app/js/builder/previews.js`, `app/js/builder/tray.js`, `app/js/builder/deck-load.js`, `tests/e2e/test_pb8_deck_open.py` | pending |
-| p2-checkpoint | Phase 2 evaluation findings + headed evidence + user approval | `./phase-2/evidence/` | pending |
+| p2-1 | Deck-open module, UI entry, `?file=` arrival, e2e | `app/js/builder/deck-load.js`, `app/js/builder/builder-main.js`, `app/builder.html`, `tests/e2e/test_pb8_deck_open.py` | ✅ |
+| p2-2 | Deck-themed tray thumbnails + e2e extension | `app/js/builder/previews.js`, `app/js/builder/tray.js`, `app/js/builder/deck-load.js`, `tests/e2e/test_pb8_deck_open.py` (+ `app/js/builder/builder-main.js` stopgap removal per ADX-3) | ✅ |
+| p2-checkpoint | Phase 2 evaluation findings + headed evidence + user approval | `./phase-2/evidence/` | ✅ |
 
 ## Phase 3 deliverables — Compose
 
 | Task | Artifact | Path | Status |
 |------|----------|------|--------|
-| p3-1 | Heterogeneous tray (uid identity, 3 kinds, duplicate, `getItems()`) + e2e | `app/js/builder/tray.js`, `app/js/builder/tray-sorter.js`, `app/js/builder/builder-main.js`, `tests/e2e/test_pb9_deck_tray.py` | pending |
+| p3-1 | Heterogeneous tray (uid identity, 3 kinds, duplicate, `getItems()`) + e2e | `app/js/builder/tray.js`, `app/js/builder/tray-sorter.js`, `app/js/builder/builder-main.js`, `tests/e2e/test_pb9_deck_tray.py` | ✅ |
 | p3-2 | Deck-mode library add + blank add + e2e | `app/js/builder/builder-main.js`, `app/js/builder/browse-pane.js`, `app/builder.html`, `tests/e2e/test_pb10_deck_add.py` | pending |
 | p3-3 | Save deck UI (new-file vs overwrite) + e2e | `app/js/builder/deck-save.js`, `app/js/builder/builder-main.js`, `app/builder.html`, `tests/e2e/test_pb11_deck_save.py` | pending |
 | p3-checkpoint | Phase 3 evaluation findings + headed full-loop evidence + user approval | `./phase-3/evidence/` | pending |

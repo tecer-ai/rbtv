@@ -1,6 +1,51 @@
+# DISPATCH — p3-1 (kimi executor) — builder-open-deck
+
+You are a NON-REASONING code executor. Implement EXACTLY what the task below specifies. Do NOT design, do NOT "fill in the blanks", do NOT interpret intent. Every interface and edge case is pre-resolved in the task and its referenced specs. If anything is ambiguous or an anchor excerpt does not match the file on disk, HALT and return `DOUBT_ESCALATED` with the precise question — never guess.
+
+## Binding obligations (you MUST obey)
+
+- **Allowlist boundary:** touch ONLY these 4 files. Nothing else.
+  - ✎ modify `app/js/builder/tray.js`
+  - ✎ modify `app/js/builder/tray-sorter.js`
+  - ✎ modify `app/js/builder/builder-main.js`
+  - ✚ create `tests/e2e/test_pb9_deck_tray.py`
+- **PRESERVE THE p2-2 TRAY INVARIANT (load-bearing — do NOT break it):** `tray.js` already exposes `setSrcdocProvider(fn)` where `fn(rec, index) => Promise<string>`. In `render()`, this per-row srcdoc provider takes PRECEDENCE over `libraryPath`; and `setLibrary()` CLEARS the provider. Your row-manipulation changes (uid identity, three row kinds, duplicate, `getItems()`) MUST preserve BOTH: (a) the provider-precedes-`libraryPath` ordering in `render()`, and (b) `setLibrary()` clearing the provider. Reorder/remove already re-invoke the provider correctly (guarded by the PB8-2b e2e test `test_thumbnails_survive_rerender` in `tests/e2e/test_pb8_deck_open.py`) — keep that working. Breaking this silently wipes the deck-themed slide thumbnails. If your change cannot preserve it, HALT and escalate — do not work around it.
+- **No stray files:** NEVER write scratch/notes/log files into the repo root or anywhere outside the allowlist. Test temp files go through pytest `tmp_path` only.
+- **READ-ONLY owner data:** the root decks `tecer-gsmm-introduction*.html` are the owner's real files. Tests copy them to `tmp_path` — NEVER modify, move, or write to the originals.
+- **Validation before done:** run the full `test_command` from your work-dir root: `node --check app/js/builder/tray.js && node --check app/js/builder/tray-sorter.js && node --check app/js/builder/builder-main.js && python -m pytest tests/e2e/test_pb9_deck_tray.py tests/e2e/test_pb4_tray_reorder.py -q`. ALL EXIT 0, no skips, before you commit or claim DONE. `test_pb4_tray_reorder.py` is the assemble-mode regression guard — it MUST stay green (proves `getOrder()` still returns library slide ids for `markTrayState`).
+- **Commit:** local-only on `master`, subject MUST start with `[p3-1]`, stage ONLY the 4 allowlist files (NEVER `git add -A` — this repo has unrelated uncommitted files from other sessions). NEVER push/amend/force-reset.
+- **Halt on doubt:** doubt_policy is halt. Do not improvise past ambiguity.
+- **No subagents:** swarm_policy is disabled — do NOT launch any kimi subagent.
+
+## Path mapping (the task body was authored in `docs/plan/builder-open-deck/phase-3/` — resolve its relative paths from your work-dir root as follows)
+
+| Task-body path | Actual path from your work-dir root |
+|----------------|--------------------------------------|
+| `../specs/tray-compose-spec.md` | `docs/plan/builder-open-deck/specs/tray-compose-spec.md` |
+| `../specs/deck-save-spec.md` | `docs/plan/builder-open-deck/specs/deck-save-spec.md` |
+| `../decisions.md` | `docs/plan/builder-open-deck/decisions.md` |
+| `../deliverables.md` | `docs/plan/builder-open-deck/deliverables.md` (do not write — see ADX-1 in the task) |
+| `app/...`, `tests/e2e/...` | work-dir-relative as written |
+
+## Required return — these five named fields, exactly (no renames, no prose-only)
+
+- `status`: one of DONE · DONE_WITH_NOTES · BLOCKED · DOUBT_ESCALATED · NEEDS_CONTEXT
+- `landed`: files created/modified + the commit hash (must match `git log`)
+- `validation`: each command run + its EXIT code + WALL_MS; `SKIPPED_COUNT` and a reason per skip
+- `concerns`: risks/smells/adjacent issues you noticed but did not fix
+- `open_questions`: the precise blocker/doubt if you halted (else "none")
+
+The return message is a HINT; your work on disk is the truth and will be reconciled against `git status` / `git log`. Capture validation output as evidence.
+
+Decisions reference (already applied in the task; do not re-derive): `docs/plan/builder-open-deck/decisions.md`.
+
+---
+
+# TASK PAYLOAD (verbatim — implement this)
+
 ---
 task_id: p3-1
-status: done
+status: pending
 phase: understand
 complexity_score: 8
 human_review: optional
