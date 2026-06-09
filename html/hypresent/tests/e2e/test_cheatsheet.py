@@ -73,6 +73,12 @@ class CheatsheetTests(unittest.TestCase):
         self.page.wait_for_timeout(150)
         self._assert_overlay_open()
 
+    def test_overlay_receives_focus_on_open(self):
+        self._open_overlay()
+        self._assert_overlay_open()
+        active = self.page.evaluate("() => document.activeElement.classList.contains('shortcuts-scrim')")
+        self.assertTrue(active, "activeElement should be the shortcuts-scrim overlay")
+
 
 if __name__ == "__main__":
     unittest.main()

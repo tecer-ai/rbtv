@@ -9,6 +9,7 @@ export function createShortcutsHelp() {
     scrim.setAttribute("role", "dialog");
     scrim.setAttribute("aria-modal", "true");
     scrim.setAttribute("aria-label", "Keyboard shortcuts");
+    scrim.setAttribute("tabindex", "-1");
 
     card = document.createElement("div");
     card.className = "shortcuts-card";
@@ -91,6 +92,7 @@ export function createShortcutsHelp() {
   function open() {
     if (!scrim) build();
     scrim.classList.add("is-open");
+    scrim.focus();
     if (!keydownHandler) {
       keydownHandler = (e) => {
         if (e.key === "Escape") close();

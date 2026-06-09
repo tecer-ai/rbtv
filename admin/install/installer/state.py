@@ -9,6 +9,10 @@ rbtv.json records:
   - excluded_components: target paths the user chose to skip (optional)
   - model_packages: orchestration model packages elected for this workspace
     (optional — drives the availability line baked into the orchestrating core)
+  - model_mirror: mirror-driver state for elected worker packages (optional).
+    Shape: {excluded_paths: list[str], managed_files: list[{path, kind, owner}],
+    last_run: ISO timestamp}.  Written by the driver after a full install or a
+    --mirror run; preserved verbatim on any write path that does not update it.
 """
 from __future__ import annotations
 
@@ -54,9 +58,28 @@ def write_state(
     installed_files: list[str],
     excluded_components: set[str] | None = None,
     model_packages: list[str] | None = None,
+    model_mirror: dict[str, Any] | None = None,
 ) -> Path:
-    """Write rbtv.json."""
+    """Write rbtv.json for a full install.
+
+    All installer-owned keys are rebuilt from the supplied arguments.  When
+    *model_mirror* is provided (the driver's returned records), it is included
+    in the payload as the ``model_mirror`` block so the file carries both
+    ``model_packages`` and ``model_mirror`` in one pass.
+
+    Preserves the ``model_mirror`` block from a previous state file when the
+    caller omits the argument (``None``): the existing block is read from disk
+    and re-emitted unchanged, so a reinstall that does not invoke the driver
+    does not silently drop mirror state.
+    """
     path = state_path(target_root)
+
+    # Carry forward any existing model_mirror if the caller does not supply one.
+    if model_mirror is None:
+        existing = read_state(target_root)
+        if existing is not None and "model_mirror" in existing:
+            model_mirror = existing["model_mirror"]
+
     payload: dict[str, Any] = {
         "rbtv_version": rbtv_version,
         "installed_at": _dt.datetime.now().isoformat(timespec="seconds"),
@@ -68,5 +91,32 @@ def write_state(
         payload["excluded_components"] = sorted(excluded_components)
     if model_packages is not None:
         payload["model_packages"] = list(model_packages)
+    if model_mirror is not None:
+        payload["model_mirror"] = model_mirror
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def update_mirror_state(
+    target_root: Path,
+    *,
+    model_mirror: dict[str, Any],
+) -> Path:
+    """Patch rbtv.json with a fresh ``model_mirror`` block — mirror-only update.
+
+    Used by the ``--mirror`` path: reads the existing ``rbtv.json``, replaces
+    ONLY the ``model_mirror`` key (which includes ``last_run`` inside it), and
+    writes the file back.  Every installer-owned key (``rbtv_version``,
+    ``installed_at``, ``rbtv_path``, ``modules``, ``installed_files``,
+    ``excluded_components``, ``model_packages``) is preserved byte-for-byte.
+
+    Raises ``FileNotFoundError`` if no ``rbtv.json`` exists at *target_root* —
+    the caller (``--mirror`` mode in ``cli.py``) is responsible for surfacing
+    the error loudly before invoking this function.
+    """
+    path = state_path(target_root)
+    existing_text = path.read_text(encoding="utf-8")
+    payload: dict[str, Any] = json.loads(existing_text)
+    payload["model_mirror"] = model_mirror
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return path

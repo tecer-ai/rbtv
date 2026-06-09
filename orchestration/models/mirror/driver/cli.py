@@ -130,7 +130,12 @@ def _run_render(target_root: Path, packages: list[str], *, check: bool,
         )
         return 0
 
-    verb = "updated" if result.state_changed else "unchanged"
+    if result.state_created:
+        verb = "created"
+    elif result.state_changed or result.files_written:
+        verb = "updated"
+    else:
+        verb = "unchanged"
     print(
         f"{verb}: rendered mirror for [{', '.join(sorted(packages))}] "
         f"— {len(result.managed_files)} managed file(s) recorded in rbtv.json model_mirror"

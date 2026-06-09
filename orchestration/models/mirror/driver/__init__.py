@@ -147,6 +147,8 @@ class RenderResult:
     skipped_commands: list[str] = field(default_factory=list)
     state_changed: bool = False
     stale: bool = False  # only meaningful in check mode: any drift detected
+    state_created: bool = False  # True when no model_mirror block existed before this render
+    files_written: bool = False  # True when at least one managed file was written to disk
 
 
 @dataclass
@@ -156,6 +158,19 @@ class UninstallResult:
     deleted: list[str] = field(default_factory=list)
     spared: list[str] = field(default_factory=list)
     kept_records: list[dict] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _mtime(path: Path) -> "float | None":
+    """Return the mtime of *path* if it exists, else None."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -206,8 +221,14 @@ def render(
     target_root = Path(target_root).resolve()
     packages = _mirrorable(elected)
 
+    # --- Pre-render: read prior state block (for excluded_paths + verb detection) ---
+    prior_doc = state.read_document(target_root)
+    prior_block = prior_doc.get(state.MIRROR_KEY) if isinstance(
+        prior_doc.get(state.MIRROR_KEY), dict) else None
+    prior_block_exists = prior_block is not None
+
     if excluded_paths is None:
-        excluded_paths = state.read_mirror_block(target_root).get("excluded_paths", [])
+        excluded_paths = (prior_block or {}).get("excluded_paths", [])
 
     result = RenderResult()
 
@@ -216,6 +237,16 @@ def render(
         # is equivalent to a full uninstall of the mirror; we leave existing
         # state untouched here (the installer drives deselection via uninstall()).
         return result
+
+    # Snapshot managed-file mtimes BEFORE rendering so we can detect
+    # whether any file was refreshed (content changed on disk) even when
+    # the managed-file record set stays identical (same paths, same owners).
+    prior_managed_paths: set[str] = {
+        r["path"] for r in (prior_block or {}).get("managed_files", [])
+    }
+    pre_render_mtimes: dict[str, float | None] = {
+        p: (_mtime(target_root / p)) for p in prior_managed_paths
+    }
 
     all_records: list[dict] = []
     stale_any = False
@@ -247,7 +278,24 @@ def render(
     if check:
         stale_any = _detect_drift(target_root, all_records)
 
-    # --- 5. Persist the model_mirror block ---
+    # --- 5. Detect files-written (post-render, pre-state-write) ---
+    # A file was written when: a new path appeared, OR an existing path's mtime
+    # advanced (write_if_changed / _write_if_changed_binary touch mtime on write).
+    post_paths: set[str] = {r["path"] for r in all_records}
+    files_written = False
+    if not check:
+        new_paths = post_paths - prior_managed_paths
+        if new_paths:
+            files_written = True
+        else:
+            for p in post_paths:
+                pre = pre_render_mtimes.get(p)
+                post = _mtime(target_root / p)
+                if pre != post:
+                    files_written = True
+                    break
+
+    # --- 6. Persist the model_mirror block ---
     changed, persisted = state.write_mirror_block(
         target_root,
         managed=all_records,
@@ -257,6 +305,8 @@ def render(
 
     result.managed_files = persisted
     result.state_changed = changed
+    result.state_created = (not prior_block_exists) and (not check)
+    result.files_written = files_written
     result.stale = stale_any or (check and changed)
     return result
 

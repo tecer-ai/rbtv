@@ -37,7 +37,7 @@ from .orchestration import (
     discover_model_packages,
     resolve_selected_packages,
 )
-from .state import find_state_upward, read_state, write_state
+from .state import find_state_upward, read_state, update_mirror_state, write_state
 
 # The module that owns the model packages — package selection is offered only
 # when this module is installed.
@@ -339,6 +339,58 @@ def _resolve_model_packages(
     return installed, absent, installed
 
 
+def _import_mirror_driver(rbtv_root: Path):
+    """Import the mirror driver's ``render`` / ``uninstall`` entry points.
+
+    The driver package lives at ``orchestration/models/mirror/driver/`` and is
+    imported as a top-level ``driver`` package — the same reachability shim the
+    driver's own ``cli.py`` uses for loose-script invocation: insert the PARENT
+    of ``driver/`` onto ``sys.path`` (it has no ancestor ``__init__.py`` chain to
+    the installer package) and import by name. The import is lazy (called only
+    when the orchestration module is installed) so a non-orchestration install
+    never pays the cost and a driver-import failure surfaces only when a mirror is
+    actually requested.
+
+    Returns ``(render, uninstall)`` callables.
+    """
+    driver_parent = rbtv_root / "orchestration" / "models" / "mirror"
+    if str(driver_parent) not in sys.path:
+        sys.path.insert(0, str(driver_parent))
+    from driver import (  # type: ignore[import-not-found]
+        render as mirror_render,
+        uninstall as mirror_uninstall,
+    )
+
+    return mirror_render, mirror_uninstall
+
+
+def _split_mirrorable(rbtv_root: Path, elected: list[str]) -> list[str]:
+    """Return the elected packages the driver can mirror, warning on skips.
+
+    ``claude-cli`` loads its guidance natively and is mirror-less — it is dropped
+    silently (never a missing-assets warning). Any OTHER elected package whose
+    ``orchestration/models/<pkg>/mirror-assets/`` tree is absent is skipped with a
+    NAMED warning (matches the spec's "ships no mirror-assets" edge case — a skip,
+    never a crash), because the driver's config renderer raises on a missing
+    assets tree. The driver itself further drops ids it does not know.
+    """
+    models_dir = rbtv_root / "orchestration" / "models"
+    mirrorable: list[str] = []
+    for pkg in elected:
+        if pkg == "claude-cli":
+            continue  # native, mirror-less — silently skipped
+        if (models_dir / pkg / "mirror-assets").is_dir():
+            mirrorable.append(pkg)
+        else:
+            print(
+                f"\n  WARNING — mirror skipped for '{pkg}': no mirror-assets "
+                f"shipped at orchestration/models/{pkg}/mirror-assets/ "
+                f"(its artifacts will not be rendered).",
+                file=sys.stderr,
+            )
+    return mirrorable
+
+
 def _check_plugin_prereqs() -> None:
     """Warn if Claude Code plugins required by certain RBTV menu items are missing."""
     home = Path.home()
@@ -408,6 +460,16 @@ def main(argv: list[str] | None = None) -> int:
             "applies when the orchestration module is installed."
         ),
     )
+    parser.add_argument(
+        "--mirror",
+        action="store_true",
+        help=(
+            "Mirror-only mode: refresh the mirror artifacts for the packages "
+            "already recorded in rbtv.json without running target/module/component "
+            "prompts or reinstalling components. Resolves the target via --target "
+            "or the nearest rbtv.json."
+        ),
+    )
     args = parser.parse_args(argv)
 
     # Parse the model-packages flag: None (omitted) vs an explicit (possibly empty) set.
@@ -421,6 +483,70 @@ def main(argv: list[str] | None = None) -> int:
     defaults = _load_defaults(rbtv_root)
 
     print(f"\n  RBTV Installer v{defaults['rbtv']['version']}\n")
+
+    # --- --mirror short-circuit: refresh only mirror artifacts, no component install ---
+
+    if args.mirror:
+        # Resolve target: --target flag wins; else walk upward for rbtv.json.
+        if args.target:
+            mirror_target = args.target.resolve()
+            mirror_state = read_state(mirror_target)
+            if mirror_state is None:
+                raise SystemExit(
+                    "ERROR — nothing to mirror from: no rbtv.json found at "
+                    f"'{mirror_target}'. Run a full install first."
+                )
+        else:
+            found = find_state_upward(Path.cwd())
+            if found is None:
+                raise SystemExit(
+                    "ERROR — nothing to mirror from: no rbtv.json found in this "
+                    "directory or any ancestor. Run a full install first, or pass "
+                    "--target <workspace> to specify the installed workspace."
+                )
+            mirror_target, mirror_state = found
+
+        # Read model_packages BEFORE any write so deselect computation is correct.
+        elected_workers: list[str] = list(mirror_state.get("model_packages") or [])
+        mirrorable = _split_mirrorable(rbtv_root, elected_workers)
+
+        # Deselect computation: --mirror reads from the SAME rbtv.json, so there
+        # is no prior-vs-new divergence — deselection does not apply on a
+        # mirror-only run (the election is identical to the recorded state).
+        # We still call the driver in the same render/uninstall order as the full
+        # install for consistency, but deselected is always empty here.
+        try:
+            mirror_render, _mirror_uninstall = _import_mirror_driver(rbtv_root)
+
+            if mirrorable:
+                rendered = mirror_render(mirror_target, mirrorable)
+                # The driver already wrote model_mirror to rbtv.json via
+                # state.write_mirror_block (preserving all other keys). Call
+                # update_mirror_state with the driver's final block so the
+                # --mirror contract is satisfied and the state is consistent.
+                post_state = read_state(mirror_target)
+                if post_state is not None and isinstance(
+                    post_state.get("model_mirror"), dict
+                ):
+                    update_mirror_state(
+                        mirror_target, model_mirror=post_state["model_mirror"]
+                    )
+                verb = "updated" if rendered.files_written else "verified (no changes)"
+                print(
+                    f"  Mirror: [{', '.join(sorted(mirrorable))}] — "
+                    f"{len(rendered.managed_files)} managed file(s) {verb}."
+                )
+            else:
+                print("  Mirror: no mirrorable packages elected — nothing to render.")
+        except Exception as exc:
+            raise SystemExit(
+                f"\nERROR — mirror refresh failed: {exc}\n"
+                "  The workspace's mirror artifacts may be incomplete. "
+                "Re-run once the cause is resolved."
+            ) from exc
+
+        print("\nMirror refresh complete.")
+        return 0
 
     # --- Resolve target path -------------------------------------------------
 
@@ -567,6 +693,11 @@ def main(argv: list[str] | None = None) -> int:
 
     # --- Orchestration: availability-line bake + render-freshness check (D18) -
 
+    # model_mirror block to persist in write_state. None => preserve any prior
+    # block (write_state carries it forward from disk). Set to the driver-written
+    # block when a mirror render runs below.
+    model_mirror_block: dict[str, Any] | None = None
+
     if ORCHESTRATION_MODULE in chosen_modules:
         if mp_installed or mp_absent:
             changed, msg = bake_availability_line(rbtv_root, mp_installed, mp_absent)
@@ -587,6 +718,76 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"  {render_msg}")
 
+        # --- Mirror render-on-elect / delete-on-deselect (driver-owned) ------
+        # Runs ONLY inside the orchestration block, AFTER components are written.
+        # The elected worker set is mp_installed (elected AND present). The driver
+        # renders each elected worker's artifacts and ref-counted-deletes those a
+        # worker DESELECTED since the prior rbtv.json no longer needs (shared
+        # AGENTS.md / .agents/ survive while another worker needs them).
+        elected_workers = list(mp_installed)
+        mirrorable = _split_mirrorable(rbtv_root, elected_workers)
+
+        # Deselection: packages in the prior rbtv.json's model_packages that are
+        # no longer elected. claude-cli is native (never mirrored) so its presence
+        # or absence in either set is inert to the driver.
+        prior_packages: list[str] = []
+        if existing_state is not None and "model_packages" in existing_state:
+            prior_packages = list(existing_state["model_packages"])
+        deselected = [p for p in prior_packages if p not in set(elected_workers)]
+
+        try:
+            mirror_render, mirror_uninstall = _import_mirror_driver(rbtv_root)
+
+            # 1. Uninstall first so ref-counting frees only artifacts no remaining
+            #    elected worker needs; covers the "elected none" case too (the
+            #    deselection path removes now-unelected workers' artifacts even
+            #    when nothing is rendered).
+            if deselected:
+                un = mirror_uninstall(
+                    ctx.target_root, deselected, remaining_elected=elected_workers
+                )
+                print(
+                    f"\n  Mirror: deselected [{', '.join(sorted(deselected))}] — "
+                    f"deleted {len(un.deleted)} file(s), "
+                    f"spared {len(un.spared)} hand-authored guidance file(s)."
+                )
+
+            # 2. Render the elected (mirrorable) worker set. Re-running changes
+            #    nothing; the driver records the canonical managed-file set in
+            #    rbtv.json's model_mirror block.
+            if mirrorable:
+                rendered = mirror_render(ctx.target_root, mirrorable)
+                print(
+                    f"  Mirror: rendered [{', '.join(sorted(mirrorable))}] — "
+                    f"{len(rendered.managed_files)} managed file(s) recorded."
+                )
+        except Exception as exc:  # driver raised mid-reconcile — fail loud.
+            # Surface the error and abort before write_state so no success
+            # model_mirror is claimed for a failed render (spec edge case). The
+            # driver writes rbtv.json itself in two sub-steps (uninstall, then
+            # render); if the uninstall sub-step already committed before the
+            # failure, its model_mirror is on disk while model_packages is left
+            # stale (write_state is skipped). The workspace is therefore in a
+            # known-recoverable partial state, not a false success — re-running
+            # the installer with the intended election heals it fully.
+            raise SystemExit(
+                f"\nERROR — mirror reconcile failed: {exc}\n"
+                "  The workspace's mirror artifacts may be incomplete and "
+                "rbtv.json's model_packages / model_mirror may disagree. No "
+                "success model_mirror was written for the failed render. Re-run "
+                "the installer with the intended worker set once the cause is "
+                "resolved — the re-run reconciles the workspace fully."
+            ) from exc
+
+        # The driver wrote the final model_mirror block to rbtv.json (render runs
+        # last, so the on-disk block reflects the post-uninstall+render truth).
+        # Read it back and hand it to write_state so the block — carrying the
+        # driver's records — persists in the SAME single payload as the installer
+        # keys. Absent (elected none / block dropped) => None => no key written.
+        post_state = read_state(ctx.target_root)
+        if post_state is not None and isinstance(post_state.get("model_mirror"), dict):
+            model_mirror_block = post_state["model_mirror"]
+
     # --- Write state ---------------------------------------------------------
 
     state_file = write_state(
@@ -597,6 +798,7 @@ def main(argv: list[str] | None = None) -> int:
         installed_files=installed_paths,
         excluded_components=excluded_components,
         model_packages=mp_persisted,
+        model_mirror=model_mirror_block,
     )
     print(f"\nState written to {state_file.relative_to(ctx.target_root)}")
 
