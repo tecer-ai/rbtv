@@ -94,6 +94,35 @@
 
 ---
 
+### Learning 2: A "hidden/closed" done-gate verdict must read user-perceived visibility, never DOM presence
+
+**Source:** Task p4-1 | Date: 2026-06-09
+
+**Trigger:** Tool limitation / Pattern discovery
+- [x] Unexpected friction
+- [x] Pattern discovery
+
+**What happened:** The independent cold verifier graded **C5 `failed`** — reporting the cheat-sheet overlay "still visible" after Escape / outside-click / toggle-reclick — across 3 runs on two automation stacks. The verdict was a **false negative**: its "visible?" boolean checked node presence / `getBoundingClientRect` / `offsetParent` / `display`, none of which detect an `opacity:0; pointer-events:none` hide. The overlay's scrim stays in the DOM when closed (`display:flex; position:fixed; inset:0`) — a full-viewport rect at opacity 0 — so a presence-based check reports "visible" forever. The verifier's OWN screenshots showed the overlay closed, and the conductor's measured re-exercise (computed `opacity 1→0`, `is-open` toggled) confirmed C5 held. Left unreconciled, this false negative would have FAILED the dispatch (Verification §3d) and re-opened a correct, shipped feature.
+
+**Category:**
+- [x] Better pattern than current approach (cold-verifier / done-gate exercise methodology)
+
+**Recommended System Change:**
+
+| Aspect | Value |
+|--------|-------|
+| Target | `rbtv-done-gate` § Fidelity Floor (visual/layout criteria) + the cold-verifier guidance in `rbtv-orchestrating` verification card §3 |
+| Type | Clarify instruction |
+| Proposed Change | (1) For any criterion whose outcome is "element is hidden / overlay closed / dismissed", the assertion MUST read **user-perceived** visibility — computed `opacity`, `visibility`, `pointer-events`, and/or an on-screen pixel check (screenshot) — NEVER node presence, `offsetParent`, bounding-rect, or `display` (an opacity/pointer-events hide leaves a full-rect node in the DOM). (2) The reconciliation step must compare a verifier's verdict against its OWN captured screenshots: when the boolean contradicts the pixels, **the pixels win** (disk = truth applies to the verifier's return). A presence-based "still visible" with a screenshot showing it closed is a measurement bug, not a fail. |
+
+**Compound Readiness:**
+- [x] Self-contained (no dependencies on other learnings)
+- [x] Clear implementation path
+- [x] Validated by user feedback (observed live this run — verifier verdict vs. its own pixels)
+- [x] Ready for compound generation
+
+---
+
 ## Compound Generation
 
 When learnings accumulate, the final plan task (`p4-compound`) processes them:

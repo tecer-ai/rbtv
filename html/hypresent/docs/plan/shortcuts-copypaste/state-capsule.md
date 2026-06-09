@@ -5,16 +5,17 @@ The resume contract for `rbtv-orchestrating`. A fresh orchestrator rebuilds full
 ---
 
 ## Resume point
-**PHASE 3 COMPLETE & APPROVED — CONTEXT-REFRESH HANDOFF. Fresh conductor starts the FINAL phase at `p4-1`.** (2026-06-09)
-All of Phase 3 built/committed/reviewed/exercised/approved: p3-1+p3-2 (`d66021c`), p3-3 (`92a0423`+`6c7a129`), p3-4 (`3aca3f6`), p3-fix (`a27c401`); **C6–C9 ALL exercised HEADED and `held`** (C9 after p3-fix); owner approved p3-checkpoint 2026-06-09 and requested this refresh. Spine-protect commit made (pathspec, plan folder).
+**FINAL PHASE — `p4-1` + `p4-refs` + `p4-compound` ALL DONE (2026-06-09). NEXT: `p4-checkpoint` (HARD halt) — awaiting owner approval to complete the plan. NO code/work pending; the only open items are owner DECISIONS (below).**
+Phase 3 done/approved earlier: p3-1+p3-2 (`d66021c`), p3-3 (`92a0423`+`6c7a129`), p3-4 (`3aca3f6`), p3-fix (`a27c401`); C6–C9 held headed (C9 after p3-fix).
+**`p4-1` DONE:** independent cold verifier (opus, chrome-devtools, contract-only) re-exercised C1–C9 → C1-C4/C6-C9 held; **C5 it graded `failed` was a FALSE NEGATIVE** (its visibility boolean read the opacity:0/pointer-events:none/inset:0 hidden-but-present scrim as "visible"). Reconciled to **held** on the verifier's OWN screenshots (overlay closed) + conductor measured re-exercise (opacity 1→0 both open routes). Compat regression **39 passed / EXIT 0**. Conductor exit probes E1 (C5 close) + E2 (cross-feature C1+C6+C9 integration) held. Consolidated sheet updated. Deck file byte-identical (never saved). **C1–C9 ALL held.**
 
-**FRESH CONDUCTOR — resume procedure:** read THIS capsule → `run-log.md` tail → `decisions.md` → `deliverables.md`, then reconcile disk (`git -C 3-resources/tools/rbtv log` — confirm `d66021c`/`92a0423`/`6c7a129`/`3aca3f6`/`a27c401` are ancestors; the parallel writer keeps advancing HEAD with foreign commits — that is expected). Then run the **FINAL phase** in order:
-1. **`p4-1`** (`phase-final/p4-1.task.md`) — dispatch an INDEPENDENT cold-verifier (separate Claude w/ chrome-devtools, contract-only — give it ONLY the C1–C9 contract + the running app, NEVER the builder sheets/claims) to re-exercise C1–C9 at the fidelity floor + run the compat regression; it files its OWN evidence sheet. Builder/verifier mismatch = dispatch FAILS. (Headed-exercise recipe + the real-keys-cross finding are below.)
-2. **`p4-refs`** (`phase-final/p4-refs.task.md`) — plan-artifact link audit.
-3. **`p4-compound`** (`phase-final/p4-compound.task.md`) — process `learnings.md` (currently 1 entry: the CLI-commit-collision → a real rbtv orchestration improvement) into compound system changes.
-4. **`p4-checkpoint`** (HARD halt) — final owner approval to complete the plan.
+**FRESH CONDUCTOR — resume procedure:** read THIS capsule → `run-log.md` tail → `decisions.md` → `deliverables.md`, then reconcile disk (`git -C 3-resources/tools/rbtv log` — confirm the 5 build commits + `a490b89` are ancestors; the parallel writer keeps advancing HEAD with foreign commits — expected). Then run the REMAINING final steps in order:
+1. ✅ **`p4-1`** — DONE (above). Cold-verify sheet `1-projects/.../hypresent/2026-06-09-shortcuts-copypaste-coldverify.md`; consolidation in `…/2026-06-08-shortcuts-copypaste.md` § p4-1.
+2. ✅ **`p4-refs`** — DONE. Link audit CLEAN (live docs use `./`/`../` + root-relative externals; dispatch-file paths correctly work-dir-relative; no fixes).
+3. ✅ **`p4-compound`** — DRAFTED (write-gated). 2 proposals from `learnings.md`: **L1** → `rbtv-orchestrating` pathspec-commit discipline (PRD `.user/compounds/rbtv-orchestrating/cp-rbtv-orchestrating-pathspec-commit-shared-repo.md`); **L2** → done-gate/cold-verifier user-perceived-visibility check (PRD folder owner-routed: `rbtv-done-gate/` new vs `rbtv-orchestrating/`). NOT written — owner approves at p4-checkpoint, THEN write PRDs + add eval task in `2-areas/compounds/compounds-tasks.md`.
+4. **`p4-checkpoint`** (HARD halt — NEXT) — final owner approval to complete the plan. Owner-decision items: (a) accept the **C5 reconciliation** (verifier false-negative → held); (b) the **C1 held-surprising** (bold on CSS-bold text — pre-existing quirk); (c) the known **out-of-scope orphan-UI-tag** hardening flag; (d) approve **writing the 2 compound PRDs** (+ route L2's folder); (e) approve **completing the plan**.
 
-There is NO code work pending and NO open owner question. Run mode is end-to-end — halt only at `p4-checkpoint`.
+There is NO code work pending and NO open owner question. Run mode is end-to-end — the per-task HALTs of p4-1/p4-compound roll up into the single p4-checkpoint halt; nothing is WRITTEN as a system change until owner approval.
 
 ---
 
@@ -115,7 +116,7 @@ git -C <rbtv> log -1 --stat                  # confirm exactly your files
 _none_
 
 ## Active doubts / open questions
-_none blocking._ Phase 3 APPROVED by the owner 2026-06-09 (C6–C9 all held headed; C9 after `p3-fix`). Next is the final verification phase starting at `p4-1` (see Resume point). Evidence sheet (C1–C9 all `held`): `1-projects/rbtv-evolution/coding/done-gate-evidence/hypresent/2026-06-08-shortcuts-copypaste.md`.
+_none blocking._ The entire build + final verification phase is DONE; the run sits at the `p4-checkpoint` HARD halt awaiting owner approval. The open items are owner DECISIONS, not blockers (see Resume point: C5 reconciliation, C1 held-surprising, orphan-UI-tag flag, writing the 2 compound PRDs, completing the plan). Consolidated evidence sheet (C1–C9 all `held` after reconciliation): `1-projects/rbtv-evolution/coding/done-gate-evidence/hypresent/2026-06-08-shortcuts-copypaste.md` (§ p4-1 consolidation); independent cold-verify sheet: `…/2026-06-09-shortcuts-copypaste-coldverify.md`.
 
 _RESOLVED 2026-06-09:_ (1) C9 whole-slide-redo defect → `p3-fix` `a27c401`; (2) kimi-quota 429 block on p3-4 (re-dispatched after reset, clean). _Flagged future hardening (out of scope):_ `element-registry.js` `tag()`/`shouldTag` could skip `hyp-`-classed editor artifacts so UI elements never count as regions. _Non-blocking polish:_ cheat-sheet `close()` focus-restore (modal a11y nicety).
 

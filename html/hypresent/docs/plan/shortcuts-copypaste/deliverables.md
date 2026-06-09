@@ -41,9 +41,9 @@
 
 | Task | Artifact | Path | Status |
 |------|----------|------|--------|
-| p4-1 | Independent cold-verifier sheet + consolidated C1–C9 + compat result | `1-projects/rbtv-evolution/coding/done-gate-evidence/hypresent/2026-06-08-shortcuts-copypaste.md` | pending |
-| p4-refs | Plan-artifact link audit result | `./decisions.md` (Discovery entry only if fixes were needed) | pending |
-| p4-compound | Compound learnings → system improvements (or "none") | `.user/compounds/{component}/cp-…` if any; else `./learnings.md` (marked) | pending |
+| p4-1 | Independent cold-verifier sheet + consolidated C1–C9 + compat result | `1-projects/rbtv-evolution/coding/done-gate-evidence/hypresent/2026-06-08-shortcuts-copypaste.md` (consolidation § p4-1) + cold-verifier sheet `…/2026-06-09-shortcuts-copypaste-coldverify.md` | ✅ (C1–C9 all held; C5 verifier false-neg reconciled; compat 39 passed/EXIT 0) |
+| p4-refs | Plan-artifact link audit result | `./decisions.md` (Discovery entry only if fixes were needed) | ✅ (clean — live docs use `./`/`../` + root-relative externals; no fixes; dispatch-file paths correctly work-dir-relative for the worker) |
+| p4-compound | Compound learnings → system improvements (or "none") | `.user/compounds/{component}/cp-…` if any; else `./learnings.md` (marked) | drafted — 2 proposals (L1 pathspec-commit, L2 visibility-check); WRITE gated to owner approval at p4-checkpoint |
 | p4-checkpoint | Final owner approval to complete the plan | `./decisions.md` (Decision entry) | pending |
 
 **Status values:** `pending` | `in-progress` | `✅` | `⏸ deferred` — deferrals carry a parenthetical reason in the cell.
