@@ -1,11 +1,12 @@
 // builder-main.js — prez-builder entry: rail + browse + tray + assemble wiring.
 import { pickAndLoadLibrary } from './library-load.js';
+import { pickAndLoadDeck, loadDeckByPath } from './deck-load.js';
 import { renderBrowse, applyLangFilter, markTrayState } from './browse-pane.js';
 import { createSlideStage } from './slide-stage.js';
 import { createTray } from './tray.js';
 import { pickDestination, assembleDeck, buildOutPath } from './assemble.js';
 
-const state = { libraryPath: null, data: null, tray: null, slideLookup: null };
+const state = { libraryPath: null, data: null, tray: null, slideLookup: null, deck: null };
 let destFolder = null;
 let accentChosen = false;
 
@@ -43,6 +44,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const accentHex = document.getElementById('accent-hex');
   const pickDestBtn = document.getElementById('pick-dest-btn');
   const destPath = document.getElementById('dest-path');
+  const openDeckBtn = document.getElementById('open-deck-btn');
+  const deckChip = document.getElementById('deck-chip');
+  const deckChipName = document.getElementById('deck-chip-name');
+  const deckChipChange = document.getElementById('deck-chip-change');
 
   function setStatus(msg, type = '') {
     if (!builderStatus) return;
@@ -273,6 +278,74 @@ document.addEventListener("DOMContentLoaded", () => {
     if (btn) btn.addEventListener('click', handlePickLibrary);
   });
 
+  // ── deck load ────────────────────────────────────────────────────────
+  function loadDeckIntoTray(deckResult) {
+    state.deck = {
+      path: deckResult.path,
+      name: deckResult.name,
+      dir: deckResult.dir,
+      head: deckResult.head,
+      sections: deckResult.sections
+    };
+
+    if (deckChip && deckChipName) {
+      deckChipName.textContent = deckResult.name;
+      deckChip.hidden = false;
+    }
+
+    tray.setLibrary(null);
+    const slideLookup = new Map();
+    const slideIds = [];
+    deckResult.sections.forEach((sec, idx) => {
+      const id = 'deck-section-' + idx;
+      slideIds.push(id);
+      slideLookup.set(id, {
+        id,
+        title: 'Slide ' + (idx + 1),
+        kind: 'existing',
+        lang: ''
+      });
+    });
+    tray.setFromPreset(slideIds, slideLookup);
+
+    const rows = trayList.querySelectorAll('.tray-row');
+    rows.forEach((row, idx) => {
+      const iframe = row.querySelector('iframe');
+      if (iframe && deckResult.sections[idx]) {
+        iframe.srcdoc = '<!DOCTYPE html><html><head>' + deckResult.head + '</head><body>' + deckResult.sections[idx].html + '</body></html>';
+      }
+    });
+
+    setStatus('');
+  }
+
+  async function handlePickDeck() {
+    if (state.deck && tray.getOrder().length > 0) {
+      if (!confirm('Replace current deck? Unsaved changes will be lost.')) {
+        return;
+      }
+    }
+
+    let result;
+    try {
+      result = await pickAndLoadDeck();
+    } catch (err) {
+      setStatus('Deck open failed: ' + err.message, 'error');
+      return;
+    }
+    if (result === null) {
+      return;
+    }
+    if (result.ok === false) {
+      setStatus(result.error, 'error');
+      return;
+    }
+    loadDeckIntoTray(result);
+  }
+
+  if (openDeckBtn) openDeckBtn.addEventListener('click', handlePickDeck);
+  if (deckChipChange) deckChipChange.addEventListener('click', handlePickDeck);
+
   // ── presets ───────────────────────────────────────────────────────────
   if (presetSelect) {
     presetSelect.addEventListener('change', (e) => {
@@ -371,5 +444,23 @@ document.addEventListener("DOMContentLoaded", () => {
         setStatus('Assemble failed: ' + err.message, 'error');
       }
     });
+  }
+
+  // ── ?file= boot branch ───────────────────────────────────────────────
+  const fileParam = new URLSearchParams(location.search).get('file');
+  if (fileParam) {
+    (async () => {
+      try {
+        const result = await loadDeckByPath(fileParam);
+        if (result && result.ok) {
+          loadDeckIntoTray(result);
+        } else if (result && result.ok === false) {
+          setStatus(result.error, 'error');
+        }
+      } catch (err) {
+        console.error('Deck handoff failed:', err.message);
+        setStatus('Deck open failed: ' + err.message, 'error');
+      }
+    })();
   }
 });
