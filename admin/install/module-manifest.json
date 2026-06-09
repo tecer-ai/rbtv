@@ -68,6 +68,12 @@
         "stale_reason": "Did not reliably trigger in practice; superseded by the session-close and compounding flows."
       },
       {
+        "source": "core/rules/deterministic-first.md",
+        "target": ".claude/rules/rbtv-deterministic-first.md",
+        "mode": "copy",
+        "description": "Prefer available deterministic capabilities over LLM improvisation; compute (never estimate) exact-answer tasks; propose promoting recurring scripts into their workflow. Hard gate on the exact-answer arm, advisory elsewhere. Always active once installed."
+      },
+      {
         "source": "core/rules/output-resolution.md",
         "target": ".claude/rules/rbtv-output-resolution.md",
         "mode": "copy",
