@@ -13,6 +13,7 @@ rbtv.json records:
     Shape: {excluded_paths: list[str], managed_files: list[{path, kind, owner}],
     last_run: ISO timestamp}.  Written by the driver after a full install or a
     --mirror run; preserved verbatim on any write path that does not update it.
+  - env_file: path to the env file holding API keys for orchestration model workers (optional).
 """
 from __future__ import annotations
 
@@ -59,6 +60,7 @@ def write_state(
     excluded_components: set[str] | None = None,
     model_packages: list[str] | None = None,
     model_mirror: dict[str, Any] | None = None,
+    env_file: str | None = None,
 ) -> Path:
     """Write rbtv.json for a full install.
 
@@ -80,6 +82,12 @@ def write_state(
         if existing is not None and "model_mirror" in existing:
             model_mirror = existing["model_mirror"]
 
+    # Carry forward any existing env_file if the caller does not supply one.
+    if env_file is None:
+        existing = read_state(target_root)
+        if existing is not None and "env_file" in existing:
+            env_file = existing["env_file"]
+
     payload: dict[str, Any] = {
         "rbtv_version": rbtv_version,
         "installed_at": _dt.datetime.now().isoformat(timespec="seconds"),
@@ -87,6 +95,8 @@ def write_state(
         "modules": list(modules),
         "installed_files": sorted(installed_files),
     }
+    if env_file is not None:
+        payload["env_file"] = env_file
     if excluded_components:
         payload["excluded_components"] = sorted(excluded_components)
     if model_packages is not None:

@@ -339,6 +339,43 @@ def _resolve_model_packages(
     return installed, absent, installed
 
 
+def _resolve_env_file(
+    requested_flag: str | None,
+    existing_state: dict[str, Any] | None,
+    chosen_modules: tuple[str, ...],
+    non_interactive: bool,
+    used_modules_flag: bool,
+) -> str | None:
+    """Resolve the env_file PATH to record in rbtv.json (path only — never keys).
+
+    Precedence: --env-file flag > interactive prompt (orchestration + interactive
+    only) > None. Returning None lets write_state carry forward any previously
+    recorded value, so re-installs preserve env_file (D-exec-1 / D-exec-7).
+    """
+    if requested_flag is not None:
+        return requested_flag.strip() or None
+
+    existing_value = None
+    if existing_state is not None and isinstance(existing_state.get("env_file"), str):
+        existing_value = existing_state["env_file"]
+
+    # Scripted path, no flag: keep whatever exists (write_state carries it forward).
+    if non_interactive or used_modules_flag:
+        return None
+
+    # Interactive prompt only when the orchestration module is being installed.
+    if ORCHESTRATION_MODULE not in chosen_modules:
+        return None
+
+    from .tui import text_input
+    entered = text_input(
+        "Path to your env file with API keys for model workers "
+        "(optional — blank to skip / keep current)",
+        default=existing_value or "",
+    ).strip()
+    return entered or None
+
+
 def _import_mirror_driver(rbtv_root: Path):
     """Import the mirror driver's ``render`` / ``uninstall`` entry points.
 
@@ -458,6 +495,18 @@ def main(argv: list[str] | None = None) -> int:
             "(kimi, codex, claude-cli, qwen). Omit to keep the previous selection "
             "or elect all available packages. Empty string elects none. Only "
             "applies when the orchestration module is installed."
+        ),
+    )
+    parser.add_argument(
+        "--env-file",
+        type=str,
+        default=None,
+        help=(
+            "Path (workspace-relative or absolute) to the env file holding API keys "
+            "for orchestration model workers. Recorded in rbtv.json as 'env_file' so "
+            "the API-worker runner resolves keys via file-fallback. Omit to keep any "
+            "previously-recorded value (re-installs preserve it). Only the PATH is "
+            "recorded — keys are never read or stored."
         ),
     )
     parser.add_argument(
@@ -618,6 +667,14 @@ def main(argv: list[str] | None = None) -> int:
         non_interactive=args.non_interactive,
         used_modules_flag=bool(args.modules),
         existing_state=existing_state,
+    )
+
+    env_file_value = _resolve_env_file(
+        requested_flag=args.env_file,
+        existing_state=existing_state,
+        chosen_modules=chosen_modules,
+        non_interactive=args.non_interactive,
+        used_modules_flag=bool(args.modules),
     )
 
     # --- Install -------------------------------------------------------------
@@ -799,6 +856,7 @@ def main(argv: list[str] | None = None) -> int:
         excluded_components=excluded_components,
         model_packages=mp_persisted,
         model_mirror=model_mirror_block,
+        env_file=env_file_value,
     )
     print(f"\nState written to {state_file.relative_to(ctx.target_root)}")
 
