@@ -1,7 +1,7 @@
 # Manus capability manifest — the routing card's data interface for the manus package.
 # Schema + field meanings + routing-card consumers: ../manifest-schema.md
 # Sources: routing-matrix-reference.md §7 (Manus — autonomy/browser, RESTful, per-task cost,
-#          up to 5-min timeout); Manus API docs: https://api.manus.im/docs;
+#          up to 5-min timeout); Manus API docs: https://api.manus.ai/docs;
 #          the built client orchestration/models/_api/clients/manus.py (structured_output: False).
 # This is an AGENTIC-WEB worker (autonomous-agent task API — submit a task, poll, retrieve the
 # agent's output; the agent runs its OWN browser/tool loop SERVER-SIDE). It is NOT a chat worker
@@ -11,7 +11,7 @@
 # The exact invocation shape is in ./manual.md (pointed to by invocation_pointer).
 
 model: manus
-evidence_status: probe-pending   # not yet pilot-validated; authored from docs/routing-matrix reference + the built client
+evidence_status: validated   # piloted live 2026-06-09 against Manus API v2; client validated end-to-end
 
 variants:
   - variant: manus-autonomous   # the single Manus operating profile — autonomous server-side agent run
@@ -45,10 +45,10 @@ variants:
     # --- auth pre-flight (routing §1 → key-resolution test, not USER-EXECUTED-ONLY) ---
     auth:
       required: true
-      method: api-key              # MANUS_API_KEY → Authorization: Bearer (client manus.py); availability = key resolves (not interactive login)
+      method: api-key              # MANUS_API_KEY → x-manus-api-key header (client manus.py); availability = key resolves (not interactive login)
       interactive: false           # key resolution is automated; no human gesture required
 
-    rate_budget_notes: "Billed PER TASK, not per token (routing-matrix §7) — forecast budget by task count, not token volume. Latency is minutes-scale: a real autonomous run can take minutes (unlike a chat call), so a WALL_MS of seconds-to-minutes is normal. The client default timeout is 300s / 5 minutes (manus.py self.timeout = 300, routing-matrix §7 'up to 5 minutes'); a dispatch never hangs past the configured timeout — on overrun the runner returns BLOCKED + a timeout note. Task-creation POST retries 3x with backoff on 429/5xx (client). Re-verify per-task pricing and the timeout ceiling against https://api.manus.im/docs before the pilot."
+    rate_budget_notes: "Billed PER TASK, not per token (routing-matrix §7) — forecast budget by task count, not token volume. Pricing validated live: ~$0.01/credit, ~150 credits per typical task ≈ ~$1.50/task. Latency is minutes-scale: a real autonomous run can take minutes (unlike a chat call), so a WALL_MS of seconds-to-minutes is normal. The client default timeout is 300s / 5 minutes (manus.py self.timeout = 300, routing-matrix §7 'up to 5 minutes'); a dispatch never hangs past the configured timeout — on overrun the runner returns BLOCKED + a timeout note. Task-creation POST retries 3x with backoff on 429/5xx (client). Pricing reference: https://api.manus.ai/docs."
 
     # --- tool surface + confinement (routing §2, §4, §8) ---
     # Repurposed AGENTIC-WEB values per manifest-schema.md §2a (third block):
@@ -69,10 +69,11 @@ variants:
       - "context_window / max_output are PROBE-PENDING placeholders, not published Manus specs — re-verify (or drop as a sizing input) before any pilot; do not size large inlined contexts on these numbers"
       - "per-task billing — a runaway or expensive autonomous run costs a whole task fee, not incremental tokens; confirm the task is worth an agent run before dispatch"
       - "minutes-scale latency — a real task can take minutes; never treat a long WALL_MS as a hang, but never let a dispatch exceed the configured timeout (default 300s)"
-      - "task status == failed → the runner returns BLOCKED + the Manus error in open_questions; no recovery path — re-dispatch fresh"
+      - "task status == error → the runner returns BLOCKED + the Manus error in open_questions; no recovery path — re-dispatch fresh"
       - "poll exceeds timeout (task never completes) → the runner returns BLOCKED + a timeout note; never hangs past the configured timeout"
       - "task-creation POST fails after 3 retries → BLOCKED + the HTTP error"
       - "raw-dump only — structured_output is False (client manus.py); every Manus dispatch returns DONE_WITH_NOTES + one raw-dumped output file + a concern naming the raw-dump; there is NO {files:[…]} JSON envelope and NO code cold-verify path (content is reviewed by a Claude reviewer for quality)"
+      - "message text only, not file artifacts (D-exec-14) — the client captures assistant_message.content (the agent's message text/narration); for file-deliverable tasks the substantive output may be in an attachment the client does not yet fetch; fetching file artifacts is a noted follow-on enhancement"
       - "no session resumption — a halted dispatch must be re-dispatched fresh; never attempt --session / --continue"
       - "API key absent in env + env_file → package unavailable for the dispatch; router degrades, does not halt the run"
 

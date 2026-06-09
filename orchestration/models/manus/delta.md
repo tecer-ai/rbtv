@@ -4,7 +4,7 @@ Per-model delta for the **manus** agentic-web worker — an autonomous-agent tas
 
 The render script (`../render-manuals.py`) composes the generic wrapper (`{rbtv_path}/orchestration/skills/orchestrating/cards/dispatch-wrapper.md`) with the sections below into `./manual.md`. Edit manus behavior HERE; never in the rendered manual.
 
-**Model-label caveat:** `manus-autonomous` is the single RBTV routing label for the one Manus operating profile. Manus is an autonomous agent, not a chat model with selectable model ids — `--model manus-autonomous` selects the routing profile; there is no alternate API model id to swap. Re-verify per-task pricing and the timeout ceiling against `https://api.manus.im/docs` before the pilot.
+**Model-label caveat:** `manus-autonomous` is the single RBTV routing label for the one Manus operating profile. Manus is an autonomous agent, not a chat model with selectable model ids — `--model manus-autonomous` selects the routing profile; there is no alternate API model id to swap. Pricing validated live (2026-06-09): ~$0.01/credit, ~150 credits/task ≈ ~$1.50/task. Reference: `https://api.manus.ai/docs`.
 
 **Manus distinguishing trait — autonomous server-side browser (always raw-dump):** Manus is the ONLY agentic-web worker in the routing table. The agent runs its OWN browser/tool loop **server-side** (navigate, click, fill, synthesize) — we do not drive it and we get no code artifact back, only the agent's task output. The client declares `structured_output: False` (`_api/clients/manus.py`), so the shared runner routes every Manus dispatch through its **raw-dump path** generically: one raw-dumped output file + `return.json` with `status: DONE_WITH_NOTES` and a concern naming the raw-dump. There is **no `{files:[…]}` JSON envelope** — the output is autonomous-agent output, not our structured envelope.
 
@@ -17,9 +17,10 @@ The render script (`../render-manuals.py`) composes the generic wrapper (`{rbtv_
 | **Server-side autonomous loop — not ours to constrain** | Manus runs its own browser/tool loop server-side. We do NOT pass an agent file, an MCP server, or a tool allowlist that constrains it; its autonomy is invisible to our topology and depth cap. Confinement is the runner's job (scoping the written OUTPUT), not a work-dir the conductor passes. |
 | **Always raw-dump — no JSON envelope, no code cold-verify** | `structured_output` is False, so every dispatch returns `DONE_WITH_NOTES` + one raw-dumped output file + a concern naming the raw-dump. There is no structured `{files:[…]}` envelope. The return is **non-development** — verified by a Claude reviewer reading the content for quality, NOT by a code cold-verify (there is no code artifact). |
 | **Per-task billing + minutes-scale latency** | Manus is billed PER TASK, not per token — forecast budget by task count. A real autonomous run can take minutes; a `WALL_MS` of seconds-to-minutes is normal and is NOT a hang. The dispatch never exceeds the configured timeout (default 300s / 5 minutes). |
-| **No session resumption** | The poll loop is internal to a single dispatch. A `failed`/`timeout`/`DOUBT_ESCALATED` halt triggers a fresh re-dispatch (resolution inlined into the prompt); there is no `--session` / `--continue` path. The conductor does NOT attempt to resume. |
-| **Key-resolution availability** | The runner checks `MANUS_API_KEY` in the OS environment, then the `env_file` path in `rbtv.json`. If absent in both, the package is unavailable for this dispatch; the conductor logs it and degrades — never halts the run. The key is sent as `Authorization: Bearer` and never echoed. |
-| **Probe-pending status** | The single variant is `evidence_status: probe-pending` — not yet pilot-validated, and `context_window`/`max_output` are unverified placeholders (Manus publishes no token limits). Use only where the routing card explicitly allows unvalidated workers; flag the seam in the run-log. |
+| **No session resumption** | The poll loop is internal to a single dispatch. A `error`/`timeout`/`DOUBT_ESCALATED` halt triggers a fresh re-dispatch (resolution inlined into the prompt); there is no `--session` / `--continue` path. The conductor does NOT attempt to resume. |
+| **Key-resolution availability** | The runner checks `MANUS_API_KEY` in the OS environment, then the `env_file` path in `rbtv.json`. If absent in both, the package is unavailable for this dispatch; the conductor logs it and degrades — never halts the run. The key is sent as `x-manus-api-key` header and never echoed. |
+| **Validated status** | The single variant is `evidence_status: validated` — piloted live 2026-06-09 against Manus API v2 (`https://api.manus.ai/v2`). `context_window`/`max_output` remain unverified placeholders (Manus publishes no token limits) — do not size large inlined contexts on them. |
+| **Message text only — not file artifacts (D-exec-14)** | The client captures `assistant_message.content` (the agent’s message text/narration), NOT Manus file artifacts. For file-deliverable tasks the substantive output may be in an attachment the client does not yet fetch. Fetching file artifacts is a noted follow-on enhancement. |
 <!-- RENDER:DELTA-END model-binding-delta -->
 
 <!-- RENDER:DELTA model-transport-note -->
@@ -38,7 +39,7 @@ The conductor treats `return.json` as the primary return signal and reconciles i
 <!-- RENDER:DELTA invocation -->
 The Manus API dispatch manual — the exact runner invocation, the single profile, exit/halt handling, and the manus task contract. Sourced from `routing-matrix-reference.md` §7 + Manus API docs + the built client (`_api/clients/manus.py`).
 
-**Re-verify per-task pricing and the timeout ceiling against `https://api.manus.im/docs` before the pilot.** This manual is `probe-pending` until a live pilot validates it. `context_window`/`max_output` in the manifest are unverified placeholders — Manus publishes no token limits.
+This manual is validated against Manus API v2 (piloted live 2026-06-09). Pricing: ~$0.01/credit, ~150 credits/task ≈ ~$1.50/task. `context_window`/`max_output` in the manifest are unverified placeholders — Manus publishes no token limits; do not size large inlined contexts on them. Reference: `https://api.manus.ai/docs`.
 
 ### Pre-flight (before any dispatch)
 
@@ -82,15 +83,15 @@ The runner exits 0 on success and non-zero on failure. There is no exit-75 retry
 | Runner exit | Meaning | Conductor action |
 |-------------|---------|------------------|
 | `0` | Task completed | Read `return.json` (`status: DONE_WITH_NOTES`, raw-dump) from `--output-folder`; reconcile against the raw-dumped output file; hand to a Claude reviewer for content-quality review |
-| Non-zero | Task `failed`, poll timeout, task-creation failure after retries, or key unresolved | Halt; read runner stderr for the error class (auth/failed-task/timeout/network); surface; re-dispatch fresh after resolution |
+| Non-zero | Task status `error`, poll timeout, task-creation failure after retries, or key unresolved | Halt; read runner stderr for the error class (auth/error-task/timeout/network); surface; re-dispatch fresh after resolution |
 
-Task-creation HTTP retries (429, 5xx, 3 attempts with backoff) are the client's responsibility — the conductor does not implement its own retry loop. The poll loop (every ~2s until `completed`/`failed`/timeout) is internal to the single dispatch.
+Task-creation HTTP retries (429, 5xx, 3 attempts with backoff) are the client's responsibility — the conductor does not implement its own retry loop. The poll loop (every ~2s until `stopped`/`error`/timeout) is internal to the single dispatch.
 
 ### Known failure modes to pre-empt
 
 | Failure | Pre-emption |
 |---------|-------------|
-| Task `status == failed` | The runner returns `BLOCKED` + the Manus error in `open_questions`; no recovery path — re-dispatch fresh |
+| Task `status == error` | The runner returns `BLOCKED` + the Manus error in `open_questions`; no recovery path — re-dispatch fresh |
 | Poll exceeds timeout (task never completes) | The runner returns `BLOCKED` + a timeout note; it never hangs past the configured timeout (default 300s) |
 | Task-creation `POST` fails after 3 retries | `BLOCKED` + the HTTP error |
 | `MANUS_API_KEY` unresolved | Pre-flight key-resolution check; the runner exits non-zero with a clear stderr message and never echoes the key; conductor degrades, does not halt the run |
