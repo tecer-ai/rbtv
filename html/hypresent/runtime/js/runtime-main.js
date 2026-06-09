@@ -118,9 +118,6 @@ function boot() {
     return deleteComponentById(payload.hypId);
   });
 
-  // Expose for testing
-  window.__deleteComponentById = deleteComponentById;
-
   register("format", (payload) => {
     if (!payload || !payload.op) {
       throw new Error("format: missing op");

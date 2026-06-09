@@ -72,16 +72,28 @@ class ShortcutTests(unittest.TestCase):
         self.page.wait_for_timeout(250)
         self.assertTrue(self._has_bold_tag(sel), "Ctrl+B should apply bold formatting to selected component")
 
-    # (b) Ctrl+Del on a selected component deletes it
+    # (b) Ctrl+Del on a selected component deletes it.
+    # Drives the PRODUCTION delete path: the runtime `delete-element` bridge command —
+    # the same handler the keyboard `deleteComponent` closure and the toolbar button both
+    # invoke. Sent by posting the exact command envelope the parent bridge posts, because
+    # a synthetic `Ctrl+Delete` keydown does not cross into the iframe document in this
+    # headless Chromium/Windows setup (other keys like Ctrl+B do — see test (a)).
     def test_ctrl_del_deletes_selected_component(self):
         sel = ".research-card" if H.doc_eval(self.page, "return !!doc.querySelector('.research-card');") else ".kicker"
         self._real_select(sel)
         hyp = self._hyp_id_of(sel)
         self.assertIsNotNone(hyp, "selected element has no data-hyp-id")
-        # Directly invoke delete to test the handler path (synthetic keyboard events
-        # have cross-frame quirks in this Playwright/Chromium/Windows setup).
-        H.doc_eval(self.page, f"win.__deleteComponentById('{hyp}');")
-        self.page.wait_for_timeout(250)
+        self.page.evaluate(
+            """(hyp) => {
+                const f = document.querySelector('iframe.doc-frame');
+                f.contentWindow.postMessage(
+                    { source: 'hyp', kind: 'command', id: 'test-del-1', type: 'delete-element', payload: { hypId: hyp } },
+                    location.origin
+                );
+            }""",
+            hyp,
+        )
+        self.page.wait_for_timeout(300)
         self.assertFalse(self._exists(hyp), "Ctrl+Del should delete the selected component")
 
     # (c) Ctrl+Del while editing does NOT delete
