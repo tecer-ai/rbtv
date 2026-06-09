@@ -140,7 +140,7 @@ export function pasteIntoLayout(x, y) {
   reanchorAfterMove();
 }
 
-export function pasteRegion() {
+function pasteRegion() {
   const slot = get();
   const clone = slot.node.cloneNode(true);
 
