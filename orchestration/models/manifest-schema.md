@@ -84,6 +84,15 @@ The four required fields `headless`, `tool_surface`, `confinement`, and `swarm_s
 | `confinement` | `workspace_scope: "allowlist only — no --work-dir flag"`, `tool_restriction: "conductor's disjoint allowlist"`, `write_enforcement: "git-diff-vs-allowlist"` | Confinement is the conductor's job (allowlist passed in the prompt); no process-level directory scoping. |
 | `swarm_support` | `subagents: false`, `nesting: none`, `default: disabled` | Agent-tool sub-agents are the nesting wall — they MUST NOT spawn further sub-agents (depth cap ≤ 2 from the root conductor). |
 
+**Canonical repurposed values for agentic-web workers** (autonomous-agent task-API workers — e.g. Manus: submit a task → poll → retrieve the agent's output; the agent runs its OWN browser/tool loop **server-side**, which we neither drive nor confine):
+
+| Field | Agentic-web value | What it means to the router |
+|-------|-------------------|------------------------------|
+| `headless` | `flags: ""` (runner non-interactive), `auto_approves_tools: false` (no approval surface — the agent's loop is server-side), `prompt_transport: arg` (prompt → runner via `--prompt-file`, inlined into the task `description`) | The runner is always non-interactive; no approval dialog exists. |
+| `tool_surface` | `native: [web, browser]` (the agent's autonomous browser is its defining capability), `mcp: false`, `agent_file: false` | The agent executes its OWN server-side tool loop, NOT ours — `[web, browser]` gates the autonomous-web leaf. |
+| `confinement` | `workspace_scope: "output-folder only — no local filesystem access"`, `tool_restriction: "none — the agent runs its own server-side tool loop, not ours"`, `write_enforcement: "runner writes only the agent's returned output into --output-folder; path-sanitized"` | Confinement is the runner's job; the conductor scopes no work-dir. |
+| `swarm_support` | `subagents: false`, `nesting: none`, `default: disabled` | The agent cannot spawn OUR sub-workers; its internal autonomy is server-side and invisible to our topology/depth-cap. |
+
 **`transport:` discriminator — escalation-only fallback.** A `transport: api | cli | agent` field is the documented next step if the repurposed values above ever mislead the router in practice (e.g., if a future routing question cannot be answered unambiguously from the repurposed values). Do NOT add it speculatively; add it only when a concrete ambiguity in the routing card demands it.
 
 ---

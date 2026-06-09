@@ -1,0 +1,84 @@
+# Manus capability manifest — the routing card's data interface for the manus package.
+# Schema + field meanings + routing-card consumers: ../manifest-schema.md
+# Sources: routing-matrix-reference.md §7 (Manus — autonomy/browser, RESTful, per-task cost,
+#          up to 5-min timeout); Manus API docs: https://api.manus.im/docs;
+#          the built client orchestration/models/_api/clients/manus.py (structured_output: False).
+# This is an AGENTIC-WEB worker (autonomous-agent task API — submit a task, poll, retrieve the
+# agent's output; the agent runs its OWN browser/tool loop SERVER-SIDE). It is NOT a chat worker
+# and NOT a CLI/Agent-tool worker.
+# The four CLI-shaped fields (headless, tool_surface, confinement, swarm_support) are filled
+# with the repurposed AGENTIC-WEB values per manifest-schema.md §2a (third block).
+# The exact invocation shape is in ./manual.md (pointed to by invocation_pointer).
+
+model: manus
+evidence_status: probe-pending   # not yet pilot-validated; authored from docs/routing-matrix reference + the built client
+
+variants:
+  - variant: manus-autonomous   # the single Manus operating profile — autonomous server-side agent run
+
+    # --- boundedness + sizing (routing §2, §8) ---
+    reasoning_tier: top            # autonomous multi-step agent work (navigate/click/fill/synthesize) is judgment-dense, not bounded-mechanical; never route bounded code here
+    # CONTEXT-WINDOW CAVEAT: Manus is an autonomous AGENT, not a chat model — neither the routing
+    # matrix §7 nor the client documents a token context window or single-turn output cap. The two
+    # values below are CONSERVATIVE probe-pending placeholders chosen ONLY so the routing card can
+    # parse the field and size inlined task context; they are NOT published Manus specs and MUST be
+    # re-verified (or removed as a sizing input) before any pilot. Do NOT treat them as authoritative.
+    context_window: 128000         # PROBE-PENDING placeholder — no published Manus context limit; the prompt is inlined into the task `description`. Re-verify against Manus API docs before sizing.
+    max_output: 128000             # PROBE-PENDING placeholder — Manus returns an arbitrary agent task result (raw-dumped as one file), not a token-capped single turn. Re-verify before sizing.
+
+    # --- budget + capability gates (routing §2, §6) ---
+    cost_class: high               # billed PER TASK (routing-matrix §7), not per token — an autonomous agent run is the most expensive worker class; apply only where autonomy/browser is required
+    code_competence: none          # NOT a code executor in our sense — Manus runs its own server-side tool loop; we get the agent's task output, never a code artifact to cold-verify. Route code work to kimi/codex.
+    web_access: true               # the agent autonomously navigates a real browser server-side — this is its DEFINING capability and gates the autonomous-web leaf
+
+    # --- parallelism + resume (routing §8, §4) ---
+    parallel_safe: true            # each dispatch is an independent task submitted to the Manus API under a disjoint --output-folder; concurrent task submissions are safe (no shared local work-dir)
+    resume_support: none           # the poll loop is INTERNAL to a single dispatch; there is no cross-dispatch session to resume. A halt (failed/timeout) re-dispatches fresh — never a --session/--continue path.
+
+    # --- non-interactive run (routing §4 → dispatch-wrapper) ---
+    # Repurposed AGENTIC-WEB values per manifest-schema.md §2a (third block):
+    headless:
+      flags: ""                    # no invocation flags — the runner script (run.py) is always non-interactive
+      auto_approves_tools: false   # no approval surface exists — the agent's tool loop runs SERVER-SIDE, not under our permissions
+      prompt_transport: arg        # prompt reaches the runner via --prompt-file, then is inlined into the Manus task `description`
+
+    # --- auth pre-flight (routing §1 → key-resolution test, not USER-EXECUTED-ONLY) ---
+    auth:
+      required: true
+      method: api-key              # MANUS_API_KEY → Authorization: Bearer (client manus.py); availability = key resolves (not interactive login)
+      interactive: false           # key resolution is automated; no human gesture required
+
+    rate_budget_notes: "Billed PER TASK, not per token (routing-matrix §7) — forecast budget by task count, not token volume. Latency is minutes-scale: a real autonomous run can take minutes (unlike a chat call), so a WALL_MS of seconds-to-minutes is normal. The client default timeout is 300s / 5 minutes (manus.py self.timeout = 300, routing-matrix §7 'up to 5 minutes'); a dispatch never hangs past the configured timeout — on overrun the runner returns BLOCKED + a timeout note. Task-creation POST retries 3x with backoff on 429/5xx (client). Re-verify per-task pricing and the timeout ceiling against https://api.manus.im/docs before the pilot."
+
+    # --- tool surface + confinement (routing §2, §4, §8) ---
+    # Repurposed AGENTIC-WEB values per manifest-schema.md §2a (third block):
+    tool_surface:
+      native: [web, browser]       # the agent's autonomous browser is its defining capability — [web, browser] gates the autonomous-web leaf
+      mcp: false                   # no MCP server injection from our side
+      agent_file: false            # no per-dispatch agent/guidance spec — the agent's loop is server-side and not constrained by an agent file we pass
+    confinement:
+      workspace_scope: "output-folder only — no local filesystem access"   # the agent reads NOTHING from our filesystem; all context is inlined into the task description; the runner writes only into --output-folder
+      tool_restriction: "none — the agent runs its own server-side tool loop, not ours"   # confinement of the agent's tools is not ours to set; it is the runner's job to scope the OUTPUT
+      write_enforcement: "runner writes only the agent's returned output into --output-folder; path-sanitized against ../ and absolute paths"
+    # CONFINEMENT NOTE: confinement is the RUNNER's job (scoping the written output), NOT a work-dir
+    # the conductor passes — the conductor scopes no work-dir for an agentic-web worker.
+
+    # --- invocation + failures (routing §4, §2) ---
+    invocation_pointer: ./manual.md   # rendered dispatch manual for the exact command shape
+    failure_modes:
+      - "context_window / max_output are PROBE-PENDING placeholders, not published Manus specs — re-verify (or drop as a sizing input) before any pilot; do not size large inlined contexts on these numbers"
+      - "per-task billing — a runaway or expensive autonomous run costs a whole task fee, not incremental tokens; confirm the task is worth an agent run before dispatch"
+      - "minutes-scale latency — a real task can take minutes; never treat a long WALL_MS as a hang, but never let a dispatch exceed the configured timeout (default 300s)"
+      - "task status == failed → the runner returns BLOCKED + the Manus error in open_questions; no recovery path — re-dispatch fresh"
+      - "poll exceeds timeout (task never completes) → the runner returns BLOCKED + a timeout note; never hangs past the configured timeout"
+      - "task-creation POST fails after 3 retries → BLOCKED + the HTTP error"
+      - "raw-dump only — structured_output is False (client manus.py); every Manus dispatch returns DONE_WITH_NOTES + one raw-dumped output file + a concern naming the raw-dump; there is NO {files:[…]} JSON envelope and NO code cold-verify path (content is reviewed by a Claude reviewer for quality)"
+      - "no session resumption — a halted dispatch must be re-dispatched fresh; never attempt --session / --continue"
+      - "API key absent in env + env_file → package unavailable for the dispatch; router degrades, does not halt the run"
+
+    # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
+    # Repurposed AGENTIC-WEB values per manifest-schema.md §2a (third block):
+    swarm_support:
+      subagents: false             # the agent cannot spawn OUR sub-workers
+      nesting: none                # its internal autonomy is server-side and invisible to our topology/depth-cap
+      default: disabled            # the safe default posture — it is not a sub-conductor in our topology
