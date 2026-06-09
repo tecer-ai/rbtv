@@ -3,11 +3,13 @@ import { createBridge } from "/app/js/bridge/bridge-parent.js";
 import { openViaDialog, openFile } from "/app/js/shell/file-controls.js";
 import { createColorPopover } from "/app/js/shell/color-popover.js";
 import { openComposer } from "/app/js/shell/comment-composer.js";
+import { createShortcutsHelp } from "/app/js/shell/shortcuts-help.js";
 import { dialogSaveAs, save } from "/app/js/api-client.js";
 
 let bridge = null;
 let isDirty = false;
 let isEditingNow = false;   // R3 edit-guard: cached from runtime 'edit-state' events
+let shortcutsHelp = null;
 let lastSelection = null;   // cached from runtime 'selection-changed' (for the panel composer)
 let historyCursor = 0;      // runtime history position (from 'history-changed')
 let savedCursor = 0;        // history position at the last save — chip shows Saved when equal
@@ -410,6 +412,12 @@ function ensureBridge(iframe) {
     }
   });
 
+  bridge.on("shortcut", (payload) => {
+    const action = payload && payload.action;
+    if (action === "comment") document.getElementById("comment-btn")?.click();
+    else if (action === "show-shortcuts") { if (shortcutsHelp) shortcutsHelp.open(); }
+  });
+
   const panel = document.getElementById("shell-panel");
   if (panel) {
     createColorPopover({ bridge, panelEl: panel });
@@ -740,6 +748,22 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
   }
+
+  shortcutsHelp = createShortcutsHelp();
+  document.getElementById("shortcuts-btn")?.addEventListener("click", () => shortcutsHelp.open());
+
+  document.addEventListener("keydown", (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const t = e.target;
+    const inField = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA");
+    const k = e.key.toLowerCase();
+    if (k === "/") { e.preventDefault(); shortcutsHelp.open(); return; }
+    if (inField) return;
+    if (e.altKey && k === "c") { e.preventDefault(); document.getElementById("comment-btn")?.click(); return; }
+    if (e.key === "Delete") { e.preventDefault(); document.getElementById("delete-btn")?.click(); return; }
+    if (!e.altKey && k === "b") { e.preventDefault(); if (bridge) bridge.command("format", { op: "bold" }).catch(() => {}); return; }
+    if (!e.altKey && k === "i") { e.preventDefault(); if (bridge) bridge.command("format", { op: "italic" }).catch(() => {}); return; }
+  });
 
   // Panel composer (inspector bottom): comments the currently selected element.
   const composerInput = document.getElementById("composer-input");

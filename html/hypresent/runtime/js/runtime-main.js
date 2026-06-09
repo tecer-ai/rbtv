@@ -22,6 +22,7 @@ import {
   reanchorAfterMove as reanchorComments,
 } from "./comments.js";
 import "./text-edit.js";
+import { initShortcuts } from "./shortcuts.js";
 
 let activeTool = "edit";
 
@@ -79,16 +80,13 @@ function boot() {
     return null;
   });
 
-  register("delete-element", (payload) => {
-    if (!payload || !payload.hypId) {
-      throw new Error("delete-element: missing hypId");
-    }
+  function deleteComponentById(hypId) {
     // Edit-active guard (V3-S10): never delete while a text edit is active.
     const active = document.activeElement;
     if (active && active.getAttribute && active.getAttribute("contenteditable") === "true") {
       return { blocked: "editing" };
     }
-    const el = byId(payload.hypId);
+    const el = byId(hypId);
     if (!el) {
       return { blocked: "not-found" };
     }
@@ -103,15 +101,25 @@ function boot() {
     }
     // V3-S8: reanchor after BOTH do() and undo() so deleted-element threads go unanchored
     // on delete AND re-anchor on undo (the Undo path runs cmd.undo() only).
-    const cmd = makeDeleteCommand(payload.hypId);
+    const cmd = makeDeleteCommand(hypId);
     historyPush({
       do() { cmd.do(); reanchorComments(); },
       undo() { cmd.undo(); reanchorComments(); },
       label: cmd.label,
     });
     clear();              // selection cleared → the observer unmounts the Moveable (V3-S9)
-    return { deleted: payload.hypId };
+    return { deleted: hypId };
+  }
+
+  register("delete-element", (payload) => {
+    if (!payload || !payload.hypId) {
+      throw new Error("delete-element: missing hypId");
+    }
+    return deleteComponentById(payload.hypId);
   });
+
+  // Expose for testing
+  window.__deleteComponentById = deleteComponentById;
 
   register("format", (payload) => {
     if (!payload || !payload.op) {
@@ -284,6 +292,14 @@ function boot() {
       toJson: commentsToJson,
     },
   };
+
+  initShortcuts({
+    bold: () => applyFormat("bold", current()),
+    italic: () => applyFormat("italic", current()),
+    deleteComponent: () => { const info = current(); if (info && info.hypId) deleteComponentById(info.hypId); },
+    requestComment: () => emit("shortcut", { action: "comment" }),
+    requestShortcutsHelp: () => emit("shortcut", { action: "show-shortcuts" }),
+  });
 
   // 3. Emit ready so the parent shell enables controls
   const palette = readPalette();
