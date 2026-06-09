@@ -16,18 +16,18 @@ export function attachSorter(listEl, { onReorder }) {
   function getRowOrder() {
     return Array.from(listEl.children)
       .filter(li => li.classList.contains('tray-row'))
-      .map(li => li.dataset.slideId);
+      .map(li => li.dataset.uid);
   }
 
   function restorePreDragOrder() {
     const currentMap = new Map();
     Array.from(listEl.children).forEach(li => {
       if (li.classList.contains('tray-row')) {
-        currentMap.set(li.dataset.slideId, li);
+        currentMap.set(li.dataset.uid, li);
       }
     });
-    preDragOrder.forEach(id => {
-      const li = currentMap.get(id);
+    preDragOrder.forEach(uid => {
+      const li = currentMap.get(uid);
       if (li) listEl.appendChild(li);
     });
   }
@@ -59,7 +59,8 @@ export function attachSorter(listEl, { onReorder }) {
 
   function onPointerDown(e) {
     const removeBtn = e.target.closest('.tray-remove');
-    if (removeBtn) return;
+    const dupBtn = e.target.closest('.tray-duplicate');
+    if (removeBtn || dupBtn) return;
 
     const row = e.target.closest('.tray-row');
     if (!row || row.parentElement !== listEl) return;

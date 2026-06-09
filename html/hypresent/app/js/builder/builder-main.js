@@ -7,7 +7,7 @@ import { createTray } from './tray.js';
 import { buildDeckSrcdoc } from './previews.js';
 import { pickDestination, assembleDeck, buildOutPath } from './assemble.js';
 
-const state = { libraryPath: null, data: null, tray: null, slideLookup: null, deck: null };
+const state = { libraryPath: null, data: null, tray: null, slideLookup: null, deck: null, canSave: false };
 let destFolder = null;
 let accentChosen = false;
 
@@ -49,6 +49,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const deckChip = document.getElementById('deck-chip');
   const deckChipName = document.getElementById('deck-chip-name');
   const deckChipChange = document.getElementById('deck-chip-change');
+  const trayHead = document.querySelector('.tray-head');
 
   function setStatus(msg, type = '') {
     if (!builderStatus) return;
@@ -60,12 +61,27 @@ document.addEventListener("DOMContentLoaded", () => {
     listEl: trayList,
     onChange: () => {
       const order = tray.getOrder();
+      const items = tray.getItems();
+      const total = items.length;
       if (assembleBtn) assembleBtn.disabled = order.length === 0;
-      if (trayCount) trayCount.textContent = order.length + (order.length === 1 ? ' slide' : ' slides');
+      if (trayCount) trayCount.textContent = total + (total === 1 ? ' slide' : ' slides');
       markTrayState(order);
+      state.canSave = state.deck && total > 0;
     }
   });
   state.tray = tray;
+
+  // ── Add blank slide button (inserted dynamically into tray head) ──────
+  if (trayHead) {
+    const addBlankBtn = document.createElement('button');
+    addBlankBtn.type = 'button';
+    addBlankBtn.className = 'tb-btn';
+    addBlankBtn.id = 'add-blank-btn';
+    addBlankBtn.textContent = 'Add blank slide';
+    addBlankBtn.style.marginTop = '8px';
+    addBlankBtn.addEventListener('click', () => tray.addBlank());
+    trayHead.appendChild(addBlankBtn);
+  }
 
   // ── left rail: language segmented filter ─────────────────────────────
   function buildLangSeg(langs) {
@@ -296,7 +312,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     tray.setLibrary(null);
     tray.setSrcdocProvider((rec, index) => {
-      const sec = deckResult.sections[index];
+      const sec = deckResult.sections[rec.index];
       if (!sec) return Promise.resolve('');
       return Promise.resolve(buildDeckSrcdoc(deckResult.head, sec.html));
     });
@@ -310,7 +326,8 @@ document.addEventListener("DOMContentLoaded", () => {
         id,
         title: 'Slide ' + (idx + 1),
         kind: 'existing',
-        lang: ''
+        lang: '',
+        index: idx
       });
     });
     tray.setFromPreset(slideIds, slideLookup);
@@ -319,7 +336,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function handlePickDeck() {
-    if (state.deck && tray.getOrder().length > 0) {
+    if (state.deck && tray.getItems().length > 0) {
       if (!confirm('Replace current deck? Unsaved changes will be lost.')) {
         return;
       }
