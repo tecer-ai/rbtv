@@ -79,6 +79,41 @@ class PB8DeckOpenTests(unittest.TestCase):
             # Head styles from the deck should be present (e.g., the .slide CSS rule)
             self.assertIn(".slide {", srcdoc, f"row {i + 1} srcdoc should contain deck head styles")
 
+    # ── PB8-2b ─────────────────────────────────────────────────────────────
+    def test_thumbnails_survive_rerender(self):
+        # ADX-3 regression guard: removing a row rebuilds every iframe; the
+        # per-row provider (not the removed p2-1 stopgap) must re-paint deck
+        # thumbnails on re-render, not leave them blank.
+        deck_path = self._copy_deck()
+        H.set_fake_dialog(self.base, deck_path)
+        self.page.goto(self.base + "/app/builder.html")
+        self.page.click("#open-deck-btn")
+
+        self.page.wait_for_selector(".tray-row", timeout=10000)
+        self.assertEqual(len(self.page.locator(".tray-row").all()), 10)
+
+        # Remove the first row → tray.render() rebuilds all surviving iframes.
+        self.page.locator(".tray-row").first.locator(".tray-remove").click()
+        self.page.wait_for_function(
+            "() => document.querySelectorAll('.tray-row').length === 9",
+            timeout=5000,
+        )
+
+        rows = self.page.locator(".tray-row").all()
+        self.assertEqual(len(rows), 9, "one row removed → 9 rows remain")
+
+        for i, row in enumerate(rows):
+            iframe = row.locator("iframe")
+            # Provider is async; wait until the rebuilt iframe is re-painted.
+            self.page.wait_for_function(
+                """(el) => { const s = el.getAttribute('srcdoc'); return s && s.includes('<section') && s.includes('.slide {'); }""",
+                arg=iframe.element_handle(),
+                timeout=5000,
+            )
+            srcdoc = iframe.get_attribute("srcdoc")
+            self.assertIn("<section", srcdoc, f"surviving row {i + 1} should keep section markup after re-render")
+            self.assertIn(".slide {", srcdoc, f"surviving row {i + 1} should keep deck head styles after re-render")
+
     # ── PB8-3 ──────────────────────────────────────────────────────────────
     def test_non_conforming_rejected(self):
         d = tempfile.mkdtemp()
