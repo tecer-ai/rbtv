@@ -98,16 +98,16 @@ flowchart TD
 
 ### Phase 3: Copy / paste
 
-- [ ] `p3-1` In-memory clipboard slot → `phase-3/p3-1.task.md`
-- [ ] `p3-2` Paste / insert command factory → `phase-3/p3-2.task.md`
-- [ ] `p3-3` Float-paste + insert-paste + grid fallback + whole-slide → `phase-3/p3-3.task.md`
-- [ ] `p3-4` Copy/paste keys + pointer + bridge commands + module map → `phase-3/p3-4.task.md`
+- [x] `p3-1` In-memory clipboard slot → `phase-3/p3-1.task.md` (`d66021c`)
+- [x] `p3-2` Paste / insert command factory → `phase-3/p3-2.task.md` (`d66021c`)
+- [x] `p3-3` Float-paste + insert-paste + grid fallback + whole-slide → `phase-3/p3-3.task.md` (`92a0423`+`6c7a129`)
+- [x] `p3-4` Copy/paste keys + pointer + bridge commands + module map → `phase-3/p3-4.task.md` (`3aca3f6`)
 - [x] `p3-checkpoint` **CHECKPOINT** — exercise C6/C7/C8/C9 headed → `phase-3/p3-checkpoint.task.md` (APPROVED 2026-06-09; C9 redo defect found+fixed via `p3-fix` `a27c401`)
 - [x] `p3-fix` Whole-slide redo orphan-leak fix (tag-once guard, 3 paste paths) + region-redo e2e → `./decisions.md` (p3-fix Decision) (`a27c401`)
 
 ### Final Phase: Verify & close
 
-- [ ] `p4-1` Independent cold-verifier done-gate (C1–C9) + compat regression → `phase-final/p4-1.task.md`
-- [ ] `p4-refs` Verify plan-artifact links comply with the Plan Linking Standard → `phase-final/p4-refs.task.md`
-- [ ] `p4-compound` Process `learnings.md` into system improvements → `phase-final/p4-compound.task.md`
-- [ ] `p4-checkpoint` **FINAL CHECKPOINT** — owner approval to complete the plan → `phase-final/p4-checkpoint.task.md`
+- [x] `p4-1` Independent cold-verifier done-gate (C1–C9) + compat regression → `phase-final/p4-1.task.md` (C1–C9 all held; C5 verifier false-neg reconciled; compat 39 passed)
+- [x] `p4-refs` Verify plan-artifact links comply with the Plan Linking Standard → `phase-final/p4-refs.task.md` (clean — no fixes)
+- [x] `p4-compound` Process `learnings.md` into system improvements → `phase-final/p4-compound.task.md` (2 PRDs: rbtv-orchestrating + rbtv-done-gate)
+- [x] `p4-checkpoint` **FINAL CHECKPOINT** — owner approval to complete the plan → `phase-final/p4-checkpoint.task.md` (APPROVED 2026-06-09 — plan COMPLETE)

@@ -5,7 +5,7 @@ The resume contract for `rbtv-orchestrating`. A fresh orchestrator rebuilds full
 ---
 
 ## Resume point
-**FINAL PHASE — `p4-1` + `p4-refs` + `p4-compound` ALL DONE (2026-06-09). NEXT: `p4-checkpoint` (HARD halt) — awaiting owner approval to complete the plan. NO code/work pending; the only open items are owner DECISIONS (below).**
+**✅ PLAN COMPLETE — owner approved 2026-06-09. The run is CLOSED; nothing to resume.** All 4 phases + final verification certified: C1–C9 all held (C5 reconciled from a cold-verifier false-negative); compat 39 passed/EXIT 0; exit probes E1+E2 held; link audit clean; 2 compound PRDs written (`rbtv-orchestrating` pathspec-commit, `rbtv-done-gate` visibility-check) + eval tasks. Owner accepted as-is: C5 reconciliation, C1 held-surprising (CSS-bold text), out-of-scope orphan-UI-tag. Code on `master` (p1-1 `0c70ed4` … p3-fix `a27c401`); spine `1e9d987` + completion commit. Feature SHIPS.
 Phase 3 done/approved earlier: p3-1+p3-2 (`d66021c`), p3-3 (`92a0423`+`6c7a129`), p3-4 (`3aca3f6`), p3-fix (`a27c401`); C6–C9 held headed (C9 after p3-fix).
 **`p4-1` DONE:** independent cold verifier (opus, chrome-devtools, contract-only) re-exercised C1–C9 → C1-C4/C6-C9 held; **C5 it graded `failed` was a FALSE NEGATIVE** (its visibility boolean read the opacity:0/pointer-events:none/inset:0 hidden-but-present scrim as "visible"). Reconciled to **held** on the verifier's OWN screenshots (overlay closed) + conductor measured re-exercise (opacity 1→0 both open routes). Compat regression **39 passed / EXIT 0**. Conductor exit probes E1 (C5 close) + E2 (cross-feature C1+C6+C9 integration) held. Consolidated sheet updated. Deck file byte-identical (never saved). **C1–C9 ALL held.**
 
@@ -13,7 +13,7 @@ Phase 3 done/approved earlier: p3-1+p3-2 (`d66021c`), p3-3 (`92a0423`+`6c7a129`)
 1. ✅ **`p4-1`** — DONE (above). Cold-verify sheet `1-projects/.../hypresent/2026-06-09-shortcuts-copypaste-coldverify.md`; consolidation in `…/2026-06-08-shortcuts-copypaste.md` § p4-1.
 2. ✅ **`p4-refs`** — DONE. Link audit CLEAN (live docs use `./`/`../` + root-relative externals; dispatch-file paths correctly work-dir-relative; no fixes).
 3. ✅ **`p4-compound`** — DRAFTED (write-gated). 2 proposals from `learnings.md`: **L1** → `rbtv-orchestrating` pathspec-commit discipline (PRD `.user/compounds/rbtv-orchestrating/cp-rbtv-orchestrating-pathspec-commit-shared-repo.md`); **L2** → done-gate/cold-verifier user-perceived-visibility check (PRD folder owner-routed: `rbtv-done-gate/` new vs `rbtv-orchestrating/`). NOT written — owner approves at p4-checkpoint, THEN write PRDs + add eval task in `2-areas/compounds/compounds-tasks.md`.
-4. **`p4-checkpoint`** (HARD halt — NEXT) — final owner approval to complete the plan. Owner-decision items: (a) accept the **C5 reconciliation** (verifier false-negative → held); (b) the **C1 held-surprising** (bold on CSS-bold text — pre-existing quirk); (c) the known **out-of-scope orphan-UI-tag** hardening flag; (d) approve **writing the 2 compound PRDs** (+ route L2's folder); (e) approve **completing the plan**.
+4. ✅ **`p4-checkpoint`** — DONE. Owner approved 2026-06-09; all decision items accepted (C5 reconciliation, C1 held-surprising, orphan-UI-tag out-of-scope, both compound PRDs written + routed, plan completed).
 
 There is NO code work pending and NO open owner question. Run mode is end-to-end — the per-task HALTs of p4-1/p4-compound roll up into the single p4-checkpoint halt; nothing is WRITTEN as a system change until owner approval.
 

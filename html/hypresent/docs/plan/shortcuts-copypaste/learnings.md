@@ -92,6 +92,8 @@
 - [x] Validated by user feedback (observed live this run)
 - [x] Ready for compound generation
 
+**Compounded:** 2026-06-09 → `.user/compounds/rbtv-orchestrating/cp-rbtv-orchestrating-pathspec-commit-shared-repo.md` (eval task in `2-areas/compounds/compounds-tasks.md`).
+
 ---
 
 ### Learning 2: A "hidden/closed" done-gate verdict must read user-perceived visibility, never DOM presence
@@ -120,6 +122,8 @@
 - [x] Clear implementation path
 - [x] Validated by user feedback (observed live this run — verifier verdict vs. its own pixels)
 - [x] Ready for compound generation
+
+**Compounded:** 2026-06-09 → `.user/compounds/rbtv-done-gate/cp-rbtv-done-gate-user-perceived-visibility-check.md` (eval task in `2-areas/compounds/compounds-tasks.md`).
 
 ---
 
