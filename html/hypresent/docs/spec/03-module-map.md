@@ -26,7 +26,8 @@ hypresent/
 │     │  ├─ color-popover.js  # palette editor + per-element color UI (wraps Coloris)
 │     │  ├─ comment-composer.js # anchored comment composer popover (textarea + For-agents toggle + Save/Cancel); replaces prompt(). R13: `edit` mode (prefill, For-agents checkbox hidden).
 │     │  ├─ comment-panel.js  # side panel: thread list, popover open/close
-│     │  └─ outline.js        # region/outline navigator (from runtime `ready` regions)
+│     │  ├─ outline.js        # region/outline navigator (from runtime `ready` regions)
+│     │  └─ shortcuts-help.js   # cheat-sheet overlay (grouped shortcut list; Esc/outside-click close)
 │     ├─ bridge/
 │     │  └─ bridge-parent.js  # parent side of parent↔iframe protocol (cmd + events)
 │     ├─ api-client.js        # fetch wrappers for /api/open, /api/save-as
@@ -59,7 +60,10 @@ hypresent/
 │     ├─ move.js              # transform-translate move (Moveable) per D2 + out-of-flow flag — REMOVED in v2 (folded into interaction.js)
 │     ├─ color.js             # palette token mutation + per-element + inline-style color (D6) + border-color routing (auto-1px, U6), `readElementBorder`/`readElementColors`; + `rgbToHex` EXPORTED, `normalizeHex`, `token.hex` in `readPalette` (R6 copy-HEX)
 │     ├─ comments.js          # comment store, anchors, JSON island read/write (D4) + `agentInstruction` flag, `setAgentInstruction`, `buildAgentBlock`, `reanchorAfterMove`. R13: `editComment`/`deleteComment`/`editReply`/`deleteReply` undoable ops + `editedAt` round-trip; R14: `buildAgentBlock` emits a `[data-hyp-agent~=…]` target selector + self-cleanup directive; new `agentStampMap()` helper.
-│     └─ serializer.js        # clone → strip ALL hyp chrome → re-embed island → guard → standalone html (A8/A11; no doc-body sanitizer) + agent-block head insertion + revised node-count guard (agentBlockCount + pre-existing-block sweep). R14: `serialize()` transient live-stamp of `data-hyp-agent` (clear→stamp→clone→strip-exempt→finally-unstamp); `stripClone` exempts `data-hyp-agent`.
+│     ├─ serializer.js          # clone → strip ALL hyp chrome → re-embed island → guard → standalone html (A8/A11; no doc-body sanitizer) + agent-block head insertion + revised node-count guard (agentBlockCount + pre-existing-block sweep). R14: `serialize()` transient live-stamp of `data-hyp-agent` (clear→stamp→clone→strip-exempt→finally-unstamp); `stripClone` exempts `data-hyp-agent`.
+│     ├─ shortcuts.js          # in-iframe keydown router (bold/italic/delete/copy/paste) via DI from runtime-main; pointer tracker; forwards shell actions via emit("shortcut",{action})
+│     ├─ clipboard.js          # single in-memory component clipboard slot {node (data-hyp-* stripped), wasRegion, cascade}
+│     └─ paste.js              # float-paste (out-of-flow, no reflow) + insert-paste (FLIP reflow) + grid fallback + whole-slide duplicate; one history command per paste
 ├─ docs/                     # specs, plan, decision log (this folder)
 └─ README.md                 # run command + overview (created in plan)
 ```
@@ -117,6 +121,11 @@ hypresent/
 - **Purpose:** list detected regions; clicking scrolls/selects in the iframe.
 - **Inputs:** `ready` event regions; user clicks.
 - **Outputs:** bridge `select {hypId}`.
+
+### app/js/shell/shortcuts-help.js — cheat-sheet overlay
+- **Purpose:** display a grouped shortcut list; close on Esc or outside click.
+- **Inputs:** user action (`/` key or toolbar button); shell event.
+- **Outputs:** UI overlay.
 
 ### app/js/bridge/bridge-parent.js — parent side of protocol
 - **Purpose:** send commands into the iframe runtime; receive and dispatch runtime events (decision §3 of architecture).
@@ -212,6 +221,18 @@ hypresent/
 ### runtime/js/serializer.js — standalone HTML emit (A8/A11)
 - **Purpose:** clone documentElement → strip ALL `hyp-`/editor chrome (`hyp-` ids/classes/nodes, `data-hyp-*` attrs, the injected runtime `<script>`/`<style>`, injected inline styles) → restore original `contenteditable` → re-embed comment island → guard → emit `<!doctype html>` + outerHTML. NO whole-document DOMPurify/sanitizer pass: the document's OWN scripts/handlers/IIFE, `<style>`, SVG, and native `data-*` are preserved by NOT touching them (A8/A11). DOMPurify is NOT a serializer dependency.
 - **In/Out:** `serialize() → htmlString`. Guard: pre/post node-count delta must equal (removed `hyp-` chrome nodes + re-embedded island); a delta outside that band aborts with an `error` event (never emit a damaged file). Order + strip contract per `01` §5. R14: transient live-stamp of `data-hyp-agent` on unresolved agent-tagged elements (clear → stamp by `matchAnchor` identity → clone → strip-exempt-this-pass → `finally` unstamp); the saved clone carries the stamp and the live DOM ends each save clean. Attributes are not nodes, so the node-count guard is unaffected.
+
+### runtime/js/shortcuts.js — in-iframe keydown router
+- **Purpose:** capture `Ctrl+B/I/Del/C/V/Shift+V` inside the iframe; delegate actions to injected handlers; track pointer for paste positioning; forward shell actions via `emit("shortcut", {action})`.
+- **In/Out:** `initShortcuts(handlers)` where handlers = `{bold, italic, deleteComponent, requestComment, requestShortcutsHelp, copy, pasteFloat, pasteLayout}`.
+
+### runtime/js/clipboard.js — single in-memory component clipboard slot
+- **Purpose:** deep-clone a component, strip all `data-hyp-*` attributes, and store `{node, wasRegion, cascade}` for paste.
+- **In/Out:** `copy(el)`, `get() → slot|null`, `hasContent() → boolean`, `bumpCascade()`.
+
+### runtime/js/paste.js — float-paste + insert-paste + whole-slide duplicate
+- **Purpose:** paste a cloned component either as an absolutely-positioned float (no reflow) or as a layout sibling (FLIP reflow), with grid fallback and whole-slide duplicate for region copies.
+- **In/Out:** `pasteFloat(x, y)`, `pasteIntoLayout(x, y)`.
 
 ---
 

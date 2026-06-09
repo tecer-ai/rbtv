@@ -23,6 +23,8 @@ import {
 } from "./comments.js";
 import "./text-edit.js";
 import { initShortcuts } from "./shortcuts.js";
+import { copy as clipboardCopy, hasContent as clipboardHasContent } from "./clipboard.js";
+import { pasteFloat as doPasteFloat, pasteIntoLayout as doPasteLayout } from "./paste.js";
 
 let activeTool = "edit";
 
@@ -279,6 +281,10 @@ function boot() {
     return { threads: getThreads() };
   });
 
+  register("copy", () => { const info = current(); if (!info || !info.hypId) return { copied: false }; const el = byId(info.hypId); if (!el) return { copied: false }; clipboardCopy(el); return { copied: true }; });
+  register("paste", (payload) => { doPasteFloat((payload && payload.x) || 0, (payload && payload.y) || 0); return { ok: true, hasContent: clipboardHasContent() }; });
+  register("paste-into-layout", (payload) => { doPasteLayout((payload && payload.x) || 0, (payload && payload.y) || 0); return { ok: true }; });
+
   // Preserve existing window.hyp exposure
   window.hyp = {
     command(type, payload) {
@@ -296,6 +302,9 @@ function boot() {
     deleteComponent: () => { const info = current(); if (info && info.hypId) deleteComponentById(info.hypId); },
     requestComment: () => emit("shortcut", { action: "comment" }),
     requestShortcutsHelp: () => emit("shortcut", { action: "show-shortcuts" }),
+    copy: () => { const info = current(); if (!info || !info.hypId) return false; const el = byId(info.hypId); if (!el) return false; clipboardCopy(el); return true; },
+    pasteFloat: (x, y) => doPasteFloat(x, y),
+    pasteLayout: (x, y) => doPasteLayout(x, y),
   });
 
   // 3. Emit ready so the parent shell enables controls
