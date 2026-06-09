@@ -330,6 +330,30 @@ export function deleteElement(hypId) {
 }
 
 /**
+ * Paste / insert command (copy-paste). Inserts a prepared clone `node` into
+ * `parentHypId` (or document.body when null) before `nextHypId` (or appends),
+ * mirroring deleteElement's inverse. The caller (paste.js) tags/selects/mounts
+ * and applies any slide-position side-effect by WRAPPING this command.
+ */
+export function paste(node, parentHypId, nextHypId) {
+  function place() {
+    const parent = parentHypId ? byId(parentHypId) : document.body;
+    if (!parent) throw new Error(`paste: parent not found "${parentHypId}"`);
+    const next = nextHypId ? byId(nextHypId) : null;
+    if (next && next.parentNode === parent) {
+      parent.insertBefore(node, next);
+    } else {
+      parent.appendChild(node);
+    }
+  }
+  return {
+    do() { place(); },
+    undo() { if (node.parentNode) node.parentNode.removeChild(node); },
+    label: "paste",
+  };
+}
+
+/**
  * Align command (R7, V3-S15). Captures the prior inline values of EVERY
  * alignment property the apply logic may write, for exact undo (capture-all,
  * like colorBorder). The apply itself lives in text-format.applyAlign (imported
