@@ -249,6 +249,11 @@
           "name": "claude",
           "manifest": "orchestration/models/claude/manifest.yaml",
           "description": "Agent-tool Claude tiers opus/sonnet modeled as a routable package (validated) — sibling to claude-cli; in-session carrier, no native CLAUDE.md load, cannot spawn sub-agents (nesting wall)"
+        },
+        {
+          "name": "manus",
+          "manifest": "orchestration/models/manus/manifest.yaml",
+          "description": "Manus agentic-web worker (probe-pending) — autonomous server-side browser/tool loop; per-task cost; raw-dump return only (no JSON envelope, no code cold-verify); runs via the shared models/_api/run.py runner"
         }
       ]
     }
