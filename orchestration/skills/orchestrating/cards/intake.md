@@ -85,14 +85,16 @@ Plan-less edge case — workspace has NO git repo: the spine + intake artifacts 
 
 ## 4. Ask the budget question
 
-Fires at EVERY run, no exception (D6). Ask whether any model should be swapped to save spend on this run, and show the projected spend before the user goes AFK.
+Fires at EVERY run, no exception (D6). Ask whether any model should be swapped to save spend on this run, presenting the provisional tier map before the user goes AFK.
+
+NEVER estimate spend in currency. Reliable per-run dollar cost cannot be computed and attempting it wastes context — the choice is framed as worker TIERS (cheaper vs. more capable model per work-cluster), never as a projected dollar amount.
 
 | Element | Content |
 |---------|---------|
 | The ask | "Any model to swap to save this run, or run at the default tiers?" |
 | Sketch the provisional map | Routing has not run yet, so the map is PROVISIONAL: assign each phase/work-cluster its DEFAULT tier from the core capability summary (the boundedness default — bounded code → the validated CLI executor, judgment work → a top-tier Claude, review → the pinned reviewer floor), without the full per-task routing the routing card does later. The user approves a ceiling / swap POLICY against this sketch, not a finalized assignment; routing re-surfaces the binding map at step 8. |
-| Spend forecast | A delegation map showing projected spend PER MODEL for the planned work. Forecast basis: per-role token costs from `1-projects/rbtv-evolution/orchestration/learnings/learnings-kimi-worker.md` (worker dispatch sizes, run durations) and the costs in the companion `learnings-claude-subagents.md`. These two files carry kimi + Claude cost evidence only; for a model with NO cost corpus (codex / claude-cli / qwen — proven-once or install-in-build), flag its line as ESTIMATE-ONLY rather than inventing a number, and refine from the per-package manifest `cost class` once those packages ship. |
-| Timing | The map is provisional at intake (routing finalizes assignments) — present it as the spend the user is approving, and re-surface the final map at step 8. |
+| Tier framing | Each work-cluster's line shows its assigned model and relative cost class (the manifest's `cost class` field — cheap / mid / premium), NOT a dollar figure. The user swaps on the relative tier, not on an invented number. |
+| Timing | The map is provisional at intake (routing finalizes assignments) — present it as the tier policy the user is approving, and re-surface the final map at step 8. |
 
 The budget answer feeds routing's BUDGET filter; a model swap the user approves here is the standing delegation map for the run.
 
@@ -162,7 +164,7 @@ Then echo back the run's shape in one pass, then proceed:
 
 - Door taken (plan ingest / goal-prompt intake) and the rubric score that selected it.
 - Spine location (and, for a plan-less no-repo workspace, the flagged no-commit condition).
-- The final delegation map + projected spend the user approved (budget answer applied).
+- The final delegation map (tier per work-cluster) the user approved (budget answer applied).
 - Code backend (CLI fleet / sdd / non-code) if code work.
 - Run mode + context-refresh setting.
 
