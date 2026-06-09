@@ -164,6 +164,12 @@
         "target": ".claude/commands/rbtv-design-extractor.md",
         "bake": ["rbtv_path"],
         "description": "Extract design tokens and patterns from reference materials"
+      },
+      {
+        "source_template": "html/commands/vision-to-json.md",
+        "target": ".claude/commands/rbtv-vision-to-json.md",
+        "bake": ["rbtv_path"],
+        "description": "Forensically analyze a static reference image into a strict JSON spec and ready-to-paste regeneration prompts for Nano-Pro, Flux, and Midjourney"
       }
     ]
   },

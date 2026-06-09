@@ -30,6 +30,16 @@ The module also owns **hypresent** — the HTML presentation engine (not install
 
 ---
 
+### `/rbtv-vision-to-json`
+
+- **What**: Forensically analyzes ONE static reference image into a strict JSON spec of every visual property, plus three generator-ready regeneration prompts (Nano-Pro, Flux, Midjourney) that recreate the image faithfully. This is photo forensics → regeneration prompt — distinct from `/rbtv-design-extractor`, which extracts UI design tokens from a live DOM.
+- **When to use**: You have a reference photo or rendered image you want to reproduce or adapt. Sits in Vivian's `PI` (image-prompt) domain. The `deck-design` workflow's image step (`html/workflows/deck-design/steps-c/step-02-images.md`) routes any slot for which the user supplies a reference image through this workflow to produce that slot's regeneration prompt.
+- **How to invoke**: `/rbtv-vision-to-json` (command). Provide an image path or attachment.
+- **What it produces**: `vision-to-json-{image-name}.json` plus three ready-to-paste regeneration prompts.
+- **Example**: `/rbtv-vision-to-json` → reference hero shot → JSON spec + a Flux/Midjourney/Nano-Pro prompt that reproduces it.
+
+---
+
 ### `rbtv-playwright-cli`
 
 - **What**: Browser automation via Playwright CLI — takes screenshots, runs interactions, and tests web pages. Restricts Bash permissions to `playwright-cli:*` commands only.
@@ -42,4 +52,4 @@ The module also owns **hypresent** — the HTML presentation engine (not install
 
 ## How They Fit Together
 
-`/rbtv-design-extractor` captures a reference visual system → Vivian (`rbtv-designing`) turns narrative + design tokens into a branded HTML deck, image prompts, and PDF → `rbtv-playwright-cli` renders, screenshots, and QAs the result. The office-module pitchers enter this flow at their step-6 handoff, through the `pitch-narrative.md` + `pitch-structure.md` artifacts (deck-design's v0 input contract). Deck editing also lives here — Vivian's `DE` keeps HTML, narrative, and structure in sync; story-level rework routes back to the pitchers.
+`/rbtv-design-extractor` captures a reference visual system → Vivian (`rbtv-designing`) turns narrative + design tokens into a branded HTML deck, image prompts, and PDF → `rbtv-playwright-cli` renders, screenshots, and QAs the result. During Vivian's image step (`PI`), any slot for which the user supplies a reference image is routed through `/rbtv-vision-to-json` to derive that slot's regeneration prompt. The office-module pitchers enter this flow at their step-6 handoff, through the `pitch-narrative.md` + `pitch-structure.md` artifacts (deck-design's v0 input contract). Deck editing also lives here — Vivian's `DE` keeps HTML, narrative, and structure in sync; story-level rework routes back to the pitchers.

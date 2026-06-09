@@ -97,7 +97,11 @@ Data files (reference docs, examples, config) MAY live alongside SKILL.md, but S
 
 Present both file contents for approval before proceeding.
 
-### 6. Present Complete Scaffold
+### 6. Prompt-Refinement Pass
+
+Read `{rbtv_path}/builder/workflows/component-creation/data/prompt-refinement-checklist.md` and apply it to the drafted component file(s) before finalizing the component's instructions. Run every pass on the draft; fix each finding in the draft before the next pass. A draft that fails any Ship Gate row is not ready — fix the file and rerun that pass.
+
+### 7. Present Complete Scaffold
 
 Present for user approval:
 

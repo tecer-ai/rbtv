@@ -16,6 +16,7 @@ The RBTV-native module — for building RBTV itself. Install it in workspaces wh
 - **Inputs / outputs**:
   - Input: component type, description of what it should do, target system (RBTV or workspace-native)
   - Output: correctly placed and structured component file(s) with compliant naming and size
+- **Draft refinement**: at the scaffold step the workflow runs a prompt-refinement pass (`data/prompt-refinement-checklist.md`) over the drafted instructions before finalizing them — surfacing hidden assumptions, vague wording, missing context, missing constraints, and unforced clarifications so the component's text holds up when executed literally.
 - **Example**: "I need a skill that runs our weekly competitor scan" → Claude identifies the right component type, drafts the structure, confirms placement, writes the files.
 
 ---

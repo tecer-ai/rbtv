@@ -19,6 +19,16 @@ What you WRITE drifts from what you MEAN. You do not notice because you read you
 | Context independence | Will these words mean the same thing when read by a different agent, on a different day, with none of this conversation? |
 | Alternative readings | Could a reasonable reader interpret this differently than you intended? |
 
+**Assumption classification (apply to every assumption the Unstated-assumptions check surfaces):** label each one, then rewrite it as a testable question — a specific, falsifiable question naming what observable evidence would confirm or refute it, and at what threshold. NEVER let a `Convenience`, `Unproven`, or `Outdated` assumption stand unflagged.
+
+| Label | Means |
+|-------|-------|
+| True | Supported by direct, recent evidence; unlikely to be wrong |
+| Partial | Holds in some conditions but not others; needs a scope qualifier |
+| Unproven | Plausible but untested; no direct evidence either way |
+| Outdated | Was once true; conditions have since changed |
+| Convenience | Accepted because it makes the position work or simplifies analysis, not because it is grounded |
+
 The danger zone is not "complex logic." It is any task where low perceived difficulty causes you to skip verification entirely.
 
 ## Critical Partnership
