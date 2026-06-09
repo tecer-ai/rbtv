@@ -65,7 +65,10 @@ Per-model capability lines — a STATIC reference roster of the model packages t
 | **kimi** | Code-executing CLI worker — writes code, runs scripts/servers, commits locally; the validated bounded-code executor. Resume via session id. |
 | **codex** | Code-executing CLI worker (`codex exec`) — separate-process execution; live-proven once. |
 | **claude-cli** | `claude -p` headless worker — natively loads workspace `CLAUDE.md`/rules; usable as a CLI-driven sub-conductor (process boundary clears the nesting wall). |
+| **claude** | Agent-tool Claude tiers (opus/sonnet) — in-session default carrier; no native CLAUDE.md/rules load (parent must inline); nesting wall (cannot spawn sub-agents); sibling to claude-cli (the process carrier). |
 | **qwen** | Web-capable CLI worker — the research-leaf executor; carries the sources-manifest pointer when one is provided. |
+| **deepseek** | API chat text-worker (OpenAI-compatible, JSON mode) — cheapest text synthesis; `code_competence: none` (text leaves only); no native web. |
+| **gemini** | API chat text-worker — carries native web access (search grounding; web-research leaf wired in Phase 5); `code_competence: none`; the only web-capable chat worker. |
 
 A line here is recall, not permission: routing routes only on `(model, variant)` pairs read from an INSTALLED package's manifest, and the capability lines for absent packages are simply not in play this run. The installer-baked availability block above is the single source for what "installed" means in this workspace.
 

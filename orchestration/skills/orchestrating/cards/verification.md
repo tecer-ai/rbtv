@@ -14,6 +14,7 @@ Iron rules it serves (from the core protocol): **disk = truth — every return i
 |-----------|---------------------|
 | **Any worker return** (`DONE` included) | The return-verification gate (§1): tripwire field checks → repo-state reconciliation. ALWAYS, no return exempt. |
 | **A development dispatch returned** | The return gate (§1) AND a review gate (§2). At a FEATURE commit boundary, ALSO the cold verifier (§3). |
+| **An API text-worker returned** | The return gate (§1, deliverable-scoped per §1c) AND the review gate's content-review variant (§2). NOT the cold verifier (§3) — no executable behavior. |
 | **A micro-dispatch inside a feature** | The return gate (§1) + the review gate (§2). The cold verifier fires at the feature boundary, not per micro-dispatch. |
 | **An interaction / behavior bug surfaced** | A debug role (§4) — never a CLI worker root-causing. |
 | **The run is about to be declared done** | The orchestrator-executed exit probes (§5) — the conductor personally exercises N probes before declaring the run complete. |
@@ -21,7 +22,9 @@ Iron rules it serves (from the core protocol): **disk = truth — every return i
 
 A return that does not clear §1 (and, for development work, §2–§3) is NOT done — it is routed to the halt-recovery card with the gate's finding. This card never marks a task done on the strength of a return message; "done" is purchased only by evidence that clears these gates.
 
-**"Development work" defined.** A development dispatch is one whose deliverable is CODE or executable behavior — the work classes the routing card sends down the code path (a bounded code slice, a feature build, a bug fix, an sdd dispatch). It is the trigger for the review gate (§2) and the cold verifier (§3). A non-development dispatch (a doc, a vault-content edit, a research brief, a plan artifact) clears at §1 alone — §2–§3 do not fire. When in doubt, the routing card's work categories decide; this card does not re-derive them.
+**"Development work" defined.** A development dispatch is one whose deliverable is CODE or executable behavior — the work classes the routing card sends down the code path (a bounded code slice, a feature build, a bug fix, an sdd dispatch). It is the trigger for the code-diff review gate (§2) AND the cold verifier (§3). A non-development dispatch (a doc, a vault-content edit, a research brief, a plan artifact) clears at §1 alone — §2–§3 do not fire. **An API text-worker's output is the one non-development case that still takes a review** — §2's content-review variant (a reviewer reads the files; the cold verifier §3 still does not fire). When in doubt, the routing card's work categories decide; this card does not re-derive them.
+
+**API text-worker returns are non-development.** An API text worker (the runner-driven chat workers — DeepSeek, Gemini) emits TEXT/files, never code or executable behavior, so its return is classified non-development: it clears at the §1 return-verification gate PLUS a content review (a reviewer Claude reads the output for quality, §2 reading content instead of diffing code) — NOT through git reconciliation, NOT a test suite. The cold verifier (§3) does NOT fire for a non-development text output — there is no owner-observable executable behavior to re-exercise at the fidelity floor. The agentic worker (Manus) is a different transport (task-create → poll → raw-dump) and gets its own latency / per-task-cost gate specifics in a later task (p5-5) — not here.
 
 ---
 
@@ -56,6 +59,12 @@ After the field checks, reconcile the CLAIM against the actual disk state — th
 3. **Message and disk disagree → the disk wins**, and the discrepancy is recorded as a drift instance in `run-log.md` (per State-card semantics). A return whose message contradicts the disk is logged as one — never silently smoothed over.
 4. The direction of the mismatch routes the recovery: claimed-but-absent work → recovery's drift/death path (work may need re-dispatch, or the disk may simply be MORE done than the message — a dropped commit/return, recoverable at the disk-state rung); landed-but-understated work → reconcile to the disk reality and proceed once verified.
 
+**Deliverable-scoped reconciliation for an API text worker.** An API text worker writes files into an `--output-folder`, not a git repo — its `<workdir>` carries no commit to `git log`, so the §1b phantom-commit / commit-message tripwires and the `git status` read do not apply; "disk = truth" (invariant 3) still holds, but "disk" here = the **output folder**. Reconcile the runner's output against its `landed` list and the `return.json` it wrote:
+
+1. Reconcile **files-exist + non-empty against the runner's `landed` list** — each path the runner reports it wrote MUST exist under the output folder and be non-empty. NEVER reconcile by "folder non-empty": the conductor points `--output-folder` at the deliverable's FINAL destination, which may ALREADY hold other files, so a non-empty folder proves nothing about THIS dispatch.
+2. Field-check the `return.json`: **`envelope_valid == true`** and **`finish_reason == stop`** (a falsy `envelope_valid` means the raw-dump fallback fired → `DONE_WITH_NOTES` + a concern; a `finish_reason` ≠ `stop` means truncation → flagged in `validation`, not a silent half file).
+3. A `landed` path absent or empty on disk, or a `return.json` that contradicts the output folder → the disk wins; record the discrepancy as a drift instance and route per §1d.
+
 Why this step is non-negotiable: five resumed-Kimi sessions in ONE chain drifted from the return contract while the work had landed correctly on disk (one returned a garbage non-sequitur final message while commit `045fbb3` held the complete, correct work). The orchestrator caught all five only by verifying `git` state after every return. An orchestrator that trusts final messages loses a commit, accepts a phantom gate, and re-runs completed work. Reconciliation is what makes "disk = truth" operational.
 
 **Count / reconciliation claims get re-run, never accepted on report.** Any count, reconciliation, or "X→Y / 0-diffs" tally — whether the worker reported it or the conductor would assert it — MUST be backed by an ACTUAL run of its producing command under the project's canonical invocation (the correct environment, working dir, and any required env vars — e.g. `PYTHONPATH` for a Python pipeline; a throwaway output dir; never a destructive flag on real data), with the number taken from stdout. For non-code work, re-derive the claim from its actual source the same way (re-run the query, re-count the artifact). A produced file may have NO consumer and thus zero runtime effect; "tests pass" does not verify a narrative count. An executor count is a claim, not evidence. If the producing command cannot be run, trace its exact consumer path and say so — never certify an unverified count.
@@ -64,15 +73,15 @@ Why this step is non-negotiable: five resumed-Kimi sessions in ONE chain drifted
 
 | Outcome | Route |
 |---------|-------|
-| All field checks clear AND disk reconciles to `landed`/`validation` AND `status` is `DONE` | Return is reconciled — proceed to the review gate (§2) for development work, or certify for non-development work. |
-| `status` is `DONE_WITH_NOTES` | Reconcile as above, then weigh `concerns` / `open_questions`; if they surface no blocker, proceed on the same route as `DONE` — the review gate (§2) for development work, or certify for non-development work. A note that IS a blocker routes to halt-recovery instead. |
+| All field checks clear AND disk reconciles to `landed`/`validation` AND `status` is `DONE` | Return is reconciled — proceed to the review gate (§2) for development work OR for an API text-worker return (its content-review variant, §2); certify directly for other non-development work (a doc, a vault-content edit, a research brief, a plan artifact). |
+| `status` is `DONE_WITH_NOTES` | Reconcile as above, then weigh `concerns` / `open_questions`; if they surface no blocker, proceed on the same route as `DONE` — the review gate (§2) for development work or an API text-worker return, certify directly for other non-development work. A note that IS a blocker routes to halt-recovery instead. |
 | Any tripwire fired, OR disk disagrees, OR `status` is `BLOCKED` / `DOUBT_ESCALATED` / `NEEDS_CONTEXT`, OR the worker died | Route to the **halt-recovery card** with the gate finding — do NOT mark the task done. This card detects; halt-recovery resolves. |
 
 ---
 
 ## 2. Review gates — reviewer ≥ executor + 1, with pre-flagged briefs
 
-Every development dispatch that clears §1 goes through a review gate before its work counts as done. Routing PINNED the reviewer floor; this card RUNS the review.
+Every development dispatch that clears §1 goes through a review gate before its work counts as done. An **API text-worker return** (non-development, §1) ALSO goes through this gate — as a **content-review variant**: the reviewer READS the output files for quality (per the contract/spec the text was produced against) instead of diffing code, and the cold verifier (§3) does NOT fire (there is no executable behavior to re-exercise). Every reviewer pin and discipline below (§2a–§2d) applies to both. Routing PINNED the reviewer floor; this card RUNS the review.
 
 ### 2a. The reviewer pin (routing owns the floor; this card enforces it)
 
