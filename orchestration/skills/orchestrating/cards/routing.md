@@ -126,7 +126,15 @@ For code work whose backend was set to **sdd** at intake (`superpowers:subagent-
 
 ## 6. The research leaf (D15)
 
-When a task's deliverable is **web research** (a self-contained research brief → findings), route it to a web-capable worker:
+When a task's deliverable touches the **web**, route it by which of THREE distinct web tiers the task needs — the tiers differ in autonomy, rigor, and cost, and the §2a selector already enumerates every `web_access: true` worker for the leaf. Honor each named worker's manifest `evidence_status` (the §1 manifest-read surfaces it): a `probe-pending` tier worker routes only with the unvalidated-seam discipline of §9, never as a settled choice.
+
+| Web tier | When it fits | Route to |
+|----------|--------------|----------|
+| **Autonomous-web** | The agent must navigate, click, fill, and synthesize across pages on its OWN — multi-step browser-driven data collection, not a single lookup | The **Manus `manus-autonomous`** agentic worker (`web_access: true`, per-task cost, minutes-scale latency, raw-dump return). Manus carries `code_competence: none`, so §2a's `code_competence ≥ needed` filter already steers code work away from it — never route code here. |
+| **Light grounding** | A single grounded lookup — one search-grounded call, light not rigorous | The **Gemini** API worker (the only `web_access: true` chat worker). |
+| **Rigorous multi-source research** | Source evaluation, citations, cross-checking across many sources | The `rbtv-web-searching` Agent-tool path, or an installed `web_access: true` CLI worker that §2a enumerates for the leaf — NEVER an API chat worker. |
+
+For a rigorous-multi-source brief (a self-contained research brief → findings), apply the rows below:
 
 | Rule | Detail |
 |------|--------|
