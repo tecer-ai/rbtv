@@ -1,0 +1,180 @@
+# Claude (Agent-tool) capability manifest — the routing card's data interface for the claude package.
+# Schema + field meanings + routing-card consumers: ../manifest-schema.md
+# This is the AGENT-TOOL Claude package: Claude tiers dispatched as IN-SESSION sub-agents via the
+# Agent tool (Task tool), NOT as a process. It is a SIBLING to ../claude-cli/ (the `claude -p` process
+# worker), NOT a replacement — the two Claude carriers are deliberately distinct rows so the conductor
+# evaluates each as its own agent. This package's ABSENCE was the "Claude collapses to one entity" gap:
+# claude-cli modeled opus/sonnet variants while the Agent-tool tiers had no manifest at all.
+# (Decision: api-workers-build decisions.md — "Claude-tier modeling", 2026-06-09.)
+#
+# Carrier difference vs claude-cli (the values below encode it):
+#   - NO native CLAUDE.md load: an Agent-tool sub-agent does NOT inherit the workspace CLAUDE.md/rules/skills
+#     (rules are not inherited — the parent must inline what the sub-agent needs into the prompt). So
+#     guidance_file is OMITTED here (claude-cli's UNIQUE native-CLAUDE.md property does not apply).
+#   - NESTING WALL: an Agent-tool sub-agent CANNOT spawn its own sub-agents (documented 4× across pilots;
+#     depth cap ≤ 2 from the root conductor). swarm_support encodes this wall — subagents: false.
+#   - auth.method: none — the conductor IS Claude; an Agent-tool dispatch needs no login/key pre-flight.
+#   - NO process: there is no command/flag/stdin surface. "headless" is repurposed to in-session,
+#     non-interactive; the Agent tool's `prompt` parameter IS the transport. The five return fields ARE
+#     the sub-agent's final reply (no separate file channel required — see ./delta.md model-transport-note).
+# The CLI-shaped fields (headless, tool_surface, confinement, swarm_support) carry the Agent-tool
+# repurposed values per manifest-schema.md §2a (Agent-tool in-session workers block).
+# The exact dispatch shape (Agent tool call, NO CLI invocation) is in ./delta.md (and ./manual.md once
+# render-manuals.py runs) — this manifest points to it, never duplicates it.
+#
+# Cost note: an Agent-tool Claude sub-agent runs on the SAME Claude budget as the conductor — selecting
+# it is NOT cost arbitrage (no cheaper-provider saving like kimi/codex). It buys in-session orchestration
+# (no process boundary, no auth, no guidance-file dependency), not cheaper spend.
+
+model: claude
+evidence_status: validated   # the Agent-tool dispatch contract (in-session sub-agent via the Agent/Task tool, prompt as the tool parameter, the five return fields as the final reply, the nesting wall, no native CLAUDE.md load, no auth) is the pilot-validated baseline carrier — every long-horizon orchestration run has dispatched Agent-tool Claude sub-agents this way. The opus/sonnet role→tier mapping is the validated learnings keystone (opus = judgment-dense keystone; sonnet = mid-tier / zero-context verification).
+
+variants:
+  - variant: opus   # the judgment-dense / keystone profile — max-reasoning Claude as an in-session sub-agent
+
+    # --- boundedness + sizing (routing §2, §8) ---
+    reasoning_tier: top             # opus is the max-reasoning Claude (the keystone tier: used where cross-artifact coherence or judgment-under-ambiguity is the deliverable). The unbounded / judgment-dense leaf of the boundedness tree routes here
+    context_window: 1000000         # opus 1M-context tier (claude-opus-4-8[1m]); the in-session sub-agent inherits the conductor's model class. Read the live model id to confirm — context is model/config-dependent, not a constant to assume
+    max_output: 64000               # opus single-turn output ceiling (model/provider-determined); the live value is model-dependent — size large single-turn output against it
+
+    # --- budget + capability gates (routing §2, §6) ---
+    cost_class: high                # opus is the costliest tier. NOTE: SAME Claude budget as the conductor — choosing an Agent-tool Claude sub-agent buys IN-SESSION orchestration (no process boundary, no auth, no guidance-file dependency), NOT a cheaper provider; there is no cost arbitrage here (contrast kimi/codex)
+    code_competence: strong         # an Agent-tool opus sub-agent carries the conductor's full tool surface (Read/Edit/Write/Bash/Grep/Glob) — a strong code executor and reviewer; the reviewer floor for external-CLI code is Opus, which this variant IS
+    web_access: false               # NOT native via API — an Agent-tool sub-agent has NO native web tool. Web is reachable ONLY by naming the `rbtv-web-searching` skill in the dispatch prompt (the in-session web path, rbtv-sub-agents mandate). web_access reflects NATIVE capability per the schema, hence false; the research leaf routes here only WITH the rbtv-web-searching directive inlined (routing card §6 degrade path)
+    # multimodal: [image]           # OMITTED — no image-input dispatch path is validated for the Agent-tool carrier (validated-evidence-only; add only after an image-path is exercised)
+
+    # --- parallelism + resume (routing §8, §4) ---
+    parallel_safe: true             # the conductor can fan out multiple Agent-tool sub-agents in one turn (validated 3-, 4-, 6-wide parallel waves) under DISJOINT file allowlists. Isolate parallel CODE workers by disjoint allowlist (no worktree flag exists for an in-session sub-agent — the allowlist IS the isolation)
+    resume_support: none            # an Agent-tool sub-agent has NO session-resume handle (unlike claude-cli's session_id). A DOUBT_ESCALATED / NEEDS_CONTEXT halt returns to the conductor, which RE-DISPATCHES a fresh sub-agent with the resolution inlined — there is no resume-the-same-session path
+
+    # --- non-interactive run (routing §4 → dispatch-wrapper) ---
+    # Repurposed Agent-tool values per manifest-schema.md §2a (Agent-tool in-session workers block).
+    # There is NO process and NO CLI: "headless" means the Agent tool call is in-session, non-interactive.
+    headless:
+      flags: ""                     # NO process flags — an Agent-tool dispatch is a tool call, not a command line. "in-session, non-interactive": the Agent/Task tool runs the sub-agent to completion and returns its final reply; there is no headless/print flag to pass
+      auto_approves_tools: false    # an Agent-tool sub-agent runs under the CONDUCTOR's permissions — there is no separate per-dispatch tool-approval surface (and no auto-approve-all flag). Confinement is the conductor's job (allowlist), not a permission flag
+      prompt_transport: arg         # the prompt reaches the sub-agent as the Agent tool's `prompt` PARAMETER (not stdin, not a file, not a -p arg). A large prompt is passed inline in that parameter
+
+    # --- auth pre-flight (routing §1 → NO pre-flight: the conductor IS Claude) ---
+    auth:
+      required: false               # NO auth pre-flight — the conductor IS Claude; an in-session Agent-tool dispatch needs no login or API key
+      method: none                  # the conductor's own session authorizes the sub-agent; there is no separate provisioning (contrast claude-cli's cli-login and the API workers' api-key)
+      interactive: false            # never a human auth gesture — the dispatch is an in-session tool call
+
+    rate_budget_notes: "same Claude account/budget as the conductor — NOT a cost saving (no cheaper-provider arbitrage; contrast kimi/codex). An Agent-tool opus sub-agent draws on the conductor's own budget; there is no separate per-call billing surface or budget-cap flag (unlike claude-cli's --max-budget-usd). Wave pacing (routing §8) is the spend control — size parallel waves, not a per-call cap"
+
+    # --- tool surface + confinement (routing §2, §4, §8) ---
+    # Repurposed Agent-tool values per manifest-schema.md §2a:
+    tool_surface:
+      native: [shell, file]         # the sub-agent INHERITS the conductor's tool grants: Bash (shell), Read/Edit/Write (file), plus Grep/Glob/Skill. NO native web (web_access: false) — web only via the rbtv-web-searching skill named in the prompt
+      mcp: false                    # an Agent-tool sub-agent does NOT independently load MCP servers — it operates with the conductor's tool set, not a separately configured one (schema §2a: "inherits session MCP", modeled false = no per-dispatch MCP config)
+      agent_file: false             # NO per-dispatch agent/guidance file (unlike kimi's --agent-file). The sub-agent's behavior is bound ONLY by what the parent inlines into the prompt — rules are NOT inherited
+    confinement:
+      workspace_scope: "allowlist only — no --work-dir / --add-dir flag"   # there is NO process-level directory scoping for an in-session sub-agent. The blast radius is bounded by the file allowlist passed IN THE PROMPT, not by a cwd or --add-dir flag
+      tool_restriction: "conductor's disjoint allowlist — passed in the prompt; no tool-family flags"   # the sub-agent operates with the conductor's tool set; restriction is by the prompt's allowlist, not --allowedTools/--disallowedTools
+      write_enforcement: git-diff-vs-allowlist   # confinement is the CONDUCTOR's job: after the sub-agent returns, the conductor runs `git diff --name-only HEAD` of every changed path vs the task allowlist — the only reliable write enforcement. Out-of-allowlist = halt + surface, never auto-revert
+
+    # --- invocation + failures (routing §4, §2) ---
+    invocation_pointer: ./manual.md   # rendered dispatch manual (../render-manuals.py) — the exact Agent-tool dispatch shape (NO CLI command)
+    failure_modes:
+      - "NO native CLAUDE.md / rules inheritance — an Agent-tool sub-agent does NOT load the workspace rules; the parent MUST inline every rule/skill directive the task needs into the prompt (rbtv-sub-agents mandate). A rule-less sub-agent silently skips skills it was never told to invoke"
+      - "NESTING WALL: an Agent-tool sub-agent CANNOT spawn its own sub-agents (documented 4×; depth cap ≤ 2). NEVER design an Agent-tool dispatch that asks the sub-agent to dispatch further sub-agents — it cannot. A second conductor level needs a PROCESS boundary (claude-cli), not deeper Agent nesting"
+      - "NO web natively — web_access: false. Routing the research leaf here requires the `rbtv-web-searching` directive inlined in the prompt (the in-session web path); without it the sub-agent has no web tool and the research leaf dead-ends"
+      - "NO session resume — resume_support: none. A halt returns to the conductor; recover by RE-DISPATCHING a fresh sub-agent with the resolution inlined, never by resuming a session id"
+      - "lossy final-turn return is possible (the generic worker lossy-return class) — the five return fields are the sub-agent's final reply; treat them as a HINT and reconcile landed/validation against git status / git log + the cited evidence files on disk. Disk wins on any disagreement"
+      - "bare relative write paths land in the WRONG tree — a sub-agent resolves relative paths from its OWN working directory, not the parent's. The dispatch MUST give workspace-root-absolute write paths and the conductor MUST verify each file landed on return (rbtv-sub-agents file-path hygiene)"
+
+    # --- guidance file (routing §4 pre-dispatch check) ---
+    # guidance_file: OMITTED — an Agent-tool Claude sub-agent does NOT natively load any workspace guidance
+    # file. Unlike claude-cli (which natively auto-loads the cwd CLAUDE.md), and unlike kimi/codex (which
+    # mirror AGENTS.md into the workspace), the Agent-tool sub-agent inherits NO workspace rules: the parent
+    # inlines what it needs into the prompt. There is no convention to load and NO mirror — so the field is
+    # omitted entirely (the schema omits guidance_file when the worker loads no workspace guidance file).
+    # The routing card's pre-dispatch guidance-file check is a NO-OP for this package: there is nothing to
+    # verify or mirror; the obligation moves to "inline the needed rules/skills into the prompt".
+
+    # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
+    swarm_support:
+      subagents: false              # an Agent-tool sub-agent CANNOT spawn its own sub-agents — this package IS the nesting wall (documented 4×). Only the ROOT conductor's Agent-tool dispatches are a level; a sub-agent beneath it is a LEAF that must not nest
+      nesting: none                 # depth cap ≤ 2 from the root conductor: conductor → Agent-tool sub-agent (one level). The sub-agent allows NO further nesting (contrast claude-cli's one-level: a claude -p process CAN sub-conduct via further CLI subprocesses; an Agent-tool sub-agent cannot)
+      default: disabled             # an Agent-tool sub-agent is always dispatched as a LEAF, never as a fan-out parent. There is no enable path — the wall is environmental, not a posture
+
+    os_quirks:
+      windows: "no process / no stdin → NONE of claude-cli's Windows stdin-redirect or exit-code quirks apply (an Agent-tool dispatch is a tool call, not a `claude -p` subprocess). Bare relative write paths in the prompt are the real cross-OS hazard: a sub-agent resolves them from its own cwd — give workspace-root-absolute write paths and verify each file landed on return"
+
+  # NOTE ON sonnet — declared below as the second routable variant (the mid-tier / zero-context-verification profile).
+
+  - variant: sonnet   # the mid-tier / zero-context-verification profile — the default routable Agent-tool Claude variant
+
+    # --- boundedness + sizing (routing §2, §8) ---
+    reasoning_tier: mid             # sonnet for partially-bounded work with doubt_policy: halt, and for zero-context verification personas (recon, research, review, cold-verify, commits) — everywhere coherence-under-ambiguity is NOT the deliverable. The partially-bounded leaf of the boundedness tree routes here; the commit worker (routing §3 pin) is an Agent-tool sonnet invoking rbtv-commit
+    context_window: 1000000         # sonnet context spans ~200k–1M depending on the configured model/tier (the in-session sub-agent inherits the conductor's sonnet class). Read the live model id to confirm the actual window — it is model/config-dependent, not a constant; size inlined context against the confirmed value, not 1M assumed
+    max_output: 32000               # sonnet single-turn output ceiling — NOT opus's 64000. The Agent-tool sonnet sub-agent runs on the SAME underlying sonnet model as ../claude-cli/ --model sonnet, whose in-house probe (../claude-cli/manifest.yaml H3: claude-sonnet-4-6) observed maxOutputTokens = 32000. Model/config-dependent — read the live value per dispatch and size large single-turn output against it, never against opus's ceiling
+
+    # --- budget + capability gates (routing §2, §6) ---
+    cost_class: mid                 # sonnet is mid-tier Claude spend, on the SAME Claude budget as the conductor (no cross-provider arbitrage). The cheapest NON-HAIKU Claude tier this package ships — the "cheapest capable" default for a mechanical Agent-tool batch absent an approved delegation map naming haiku
+    code_competence: strong         # same full inherited tool surface; a strong code executor. NOTE: for external-CLI CODE review the reviewer FLOORS at OPUS — route code review to the opus variant, not this one (routing §3 reviewer pin)
+    web_access: false               # same as opus — NO native web; web only via the `rbtv-web-searching` skill named in the dispatch prompt (the in-session web path). web_access reflects native capability, hence false
+
+    # --- parallelism + resume (routing §8, §4) ---
+    parallel_safe: true             # the conductor fans out multiple sonnet sub-agents under disjoint allowlists (validated parallel waves); the allowlist is the isolation (no worktree flag for an in-session sub-agent)
+    resume_support: none            # same as opus — no session-resume handle; a halt re-dispatches a fresh sub-agent with the resolution inlined
+
+    # --- non-interactive run (routing §4 → dispatch-wrapper) ---
+    # Repurposed Agent-tool values per manifest-schema.md §2a:
+    headless:
+      flags: ""                     # no process flags — in-session, non-interactive Agent tool call; no headless/print flag
+      auto_approves_tools: false    # runs under the conductor's permissions; no separate per-dispatch approval surface
+      prompt_transport: arg         # prompt as the Agent tool's `prompt` parameter
+
+    # --- auth pre-flight ---
+    auth:
+      required: false               # no auth pre-flight — the conductor IS Claude
+      method: none                  # the conductor's session authorizes the sub-agent; no separate provisioning
+      interactive: false            # never a human auth gesture
+
+    rate_budget_notes: "mid-tier Claude spend on the SAME Claude budget as the conductor — no cross-provider saving. No separate per-call billing surface or budget-cap flag (unlike claude-cli's --max-budget-usd); wave pacing (routing §8) is the spend control"
+
+    # --- tool surface + confinement ---
+    # Repurposed Agent-tool values per manifest-schema.md §2a:
+    tool_surface:
+      native: [shell, file]         # inherits the conductor's tool grants (shell/file + Grep/Glob/Skill); NO native web
+      mcp: false                    # no per-dispatch MCP config (operates with the conductor's tool set)
+      agent_file: false             # no per-dispatch agent/guidance file — bound only by what the parent inlines into the prompt
+    confinement:
+      workspace_scope: "allowlist only — no --work-dir / --add-dir flag"   # no process-level directory scoping; the prompt's file allowlist bounds the blast radius
+      tool_restriction: "conductor's disjoint allowlist — passed in the prompt; no tool-family flags"
+      write_enforcement: git-diff-vs-allowlist   # the conductor backs every dispatch with post-run git diff --name-only HEAD vs the allowlist — the only reliable write confinement; out-of-allowlist = halt + surface
+
+    # --- invocation + failures ---
+    invocation_pointer: ./manual.md   # same rendered manual; the sonnet selection is documented there
+    failure_modes:
+      - "NO native CLAUDE.md / rules inheritance — the parent MUST inline every rule/skill directive the task needs (rbtv-sub-agents mandate); a rule-less sub-agent skips skills it was never told to invoke"
+      - "NESTING WALL: a sonnet Agent-tool sub-agent CANNOT spawn further sub-agents (depth cap ≤ 2) — a second conductor level needs a process boundary (claude-cli), not deeper Agent nesting"
+      - "external-CLI CODE review must route to the OPUS variant (reviewer floor) — sonnet executes code but does NOT satisfy the code-review reviewer pin (routing §3)"
+      - "NO web natively — routing the research leaf here requires the `rbtv-web-searching` directive inlined in the prompt; without it the leaf dead-ends"
+      - "NO session resume — a halt re-dispatches a fresh sub-agent with the resolution inlined; never resume a session id"
+      - "lossy final-turn return possible — the five return fields are a HINT; reconcile against git status / git log + disk; disk wins. Bare relative write paths land in the wrong tree — give workspace-root-absolute write paths and verify each landed on return"
+
+    # --- guidance file ---
+    # guidance_file: OMITTED — same as the opus variant: an Agent-tool sub-agent loads NO workspace guidance
+    # file and there is NO mirror; the parent inlines the needed rules/skills into the prompt. The routing
+    # card's pre-dispatch guidance-file check is a NO-OP for this package.
+
+    # --- swarm / sub-conducting ---
+    swarm_support:
+      subagents: false              # cannot spawn its own sub-agents — the nesting wall
+      nesting: none                 # depth cap ≤ 2 from the root conductor; no further nesting beneath this sub-agent
+      default: disabled             # always a leaf, never a fan-out parent
+
+    os_quirks:
+      windows: "no process / no stdin → none of claude-cli's Windows stdin-redirect or exit-code quirks apply. Bare relative write paths are the real cross-OS hazard — give workspace-root-absolute write paths and verify each file landed on return"
+
+  # NOTE ON haiku — DELIBERATELY NOT A VARIANT.
+  # The Agent tool can run a haiku sub-agent, but vault routing policy FLOORS at sonnet: haiku is routable
+  # ONLY for mechanical batches under a USER-APPROVED delegation map that names haiku (routing card §7 /
+  # rbtv-sub-agents Haiku-clause). Absent such an approved map, haiku is never routed and every pinned role
+  # floors at sonnet — so this package ships NO haiku variant. If a future delegation map approves haiku for
+  # specific mechanical batches, add a haiku variant THEN (reasoning_tier: non-reasoning, cost_class:
+  # cheapest, mechanical-only), not before. ("Never haiku" — the sonnet-floor policy; matches the parallel
+  # exclusion in ../claude-cli/manifest.yaml.)
