@@ -1,0 +1,15 @@
+status: DONE
+landed: |
+  file: runtime/js/clipboard.js
+  commit: none (conductor commits at wave boundary)
+validation: |
+  Command: `node --check runtime/js/clipboard.js`
+  EXIT: 0
+  WALL_MS: ~500
+  SKIPPED_COUNT: 0
+concerns: |
+  None. The module follows the contract exactly: deep clone, `stripIds` + full attribute sweep for every `data-hyp-*` prefix, correct `wasRegion` detection, and last-copy-wins semantics.
+open_questions: |
+  None.
+
+To resume this session: kimi -r 44f5cdcc-fa1b-4611-80fb-bb6ded331cf5

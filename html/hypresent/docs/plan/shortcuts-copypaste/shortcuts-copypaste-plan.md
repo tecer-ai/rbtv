@@ -102,7 +102,8 @@ flowchart TD
 - [ ] `p3-2` Paste / insert command factory → `phase-3/p3-2.task.md`
 - [ ] `p3-3` Float-paste + insert-paste + grid fallback + whole-slide → `phase-3/p3-3.task.md`
 - [ ] `p3-4` Copy/paste keys + pointer + bridge commands + module map → `phase-3/p3-4.task.md`
-- [ ] `p3-checkpoint` **CHECKPOINT** — exercise C6/C7/C8/C9 headed → `phase-3/p3-checkpoint.task.md`
+- [x] `p3-checkpoint` **CHECKPOINT** — exercise C6/C7/C8/C9 headed → `phase-3/p3-checkpoint.task.md` (APPROVED 2026-06-09; C9 redo defect found+fixed via `p3-fix` `a27c401`)
+- [x] `p3-fix` Whole-slide redo orphan-leak fix (tag-once guard, 3 paste paths) + region-redo e2e → `./decisions.md` (p3-fix Decision) (`a27c401`)
 
 ### Final Phase: Verify & close
 

@@ -30,11 +30,12 @@
 
 | Task | Artifact | Path | Status |
 |------|----------|------|--------|
-| p3-1 | In-memory clipboard slot | `runtime/js/clipboard.js` | pending |
-| p3-2 | Paste / insert command factory | `runtime/js/commands.js` | pending |
-| p3-3 | Float-paste + insert-paste + grid fallback + whole-slide | `runtime/js/paste.js` | pending |
-| p3-4 | Copy/paste keys + pointer + bridge commands + module map (+ e2e) | `runtime/js/shortcuts.js`, `runtime/js/runtime-main.js`, `docs/spec/03-module-map.md`, `tests/e2e/test_copy_paste.py` | pending |
-| p3-checkpoint | Phase 3 evaluation + C6/C7/C8/C9 evidence rows + approval | `./decisions.md` (Decision entry) + the done-gate sheet | pending |
+| p3-1 | In-memory clipboard slot | `runtime/js/clipboard.js` | ✅ (commit d66021c; review clean) |
+| p3-2 | Paste / insert command factory | `runtime/js/commands.js` | ✅ (commit d66021c; review clean) |
+| p3-3 | Float-paste + insert-paste + grid fallback + whole-slide | `runtime/js/paste.js` | ✅ (commit 92a0423; review 6c7a129) |
+| p3-4 | Copy/paste keys + pointer + bridge commands + module map (+ e2e) | `runtime/js/shortcuts.js`, `runtime/js/runtime-main.js`, `docs/spec/03-module-map.md`, `tests/e2e/test_copy_paste.py` | ✅ (commit 3aca3f6; review clean; e2e 4 passed) |
+| p3-fix | Whole-slide redo orphan-leak fix (tag-once guard, all 3 paste paths) + region-redo regression e2e (found at p3-checkpoint) | `runtime/js/paste.js`, `tests/e2e/test_copy_paste.py`, `tests/e2e/fixtures/two-regions.html` | ✅ (commit a27c401; e2e 5 passed; C9 re-exercised headed → held) |
+| p3-checkpoint | Phase 3 evaluation + C6/C7/C8/C9 evidence rows + approval | `./decisions.md` (Decision entry) + the done-gate sheet | ✅ (APPROVED 2026-06-09; C6–C9 all held, C9 after p3-fix) |
 
 ## Final phase deliverables — Verify & close
 
