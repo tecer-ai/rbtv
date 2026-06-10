@@ -131,6 +131,32 @@ class PB10DeckAddTests(unittest.TestCase):
             "card should not be badged after remove"
         )
 
+    # ── PB10-3: library-first then deck-open clears stale browse cards ──────
+    def test_library_then_deck_clears_browse(self):
+        # Reverse order of the spec's primary flow: load a library FIRST, then
+        # open a deck. Opening a deck nulls the tray library; stale browse cards
+        # must be cleared so a click cannot create a library row with a null
+        # libraryPath (which would corrupt the deck-save items contract).
+        self.page.goto(self.base + "/app/builder.html")
+        self._pick_lib()
+
+        cards_before = self.page.eval_on_selector_all(".slide-card", "els=>els.length")
+        self.assertTrue(cards_before >= 1, "library should render browse cards")
+
+        deck_path = self._copy_deck()
+        H.set_fake_dialog(self.base, deck_path)
+        self.page.click("#open-deck-btn")
+        self.page.wait_for_selector(".tray-row", timeout=10000)
+
+        # Browse pane must be emptied of the stale library cards.
+        cards_after = self.page.eval_on_selector_all(".slide-card", "els=>els.length")
+        self.assertEqual(cards_after, 0, "browse cards must clear when a deck opens")
+
+        # Tray holds the deck's existing rows only — no null library rows.
+        kinds = self._tray_kinds()
+        self.assertEqual(len(kinds), 10, "deck 10 existing rows")
+        self.assertNotIn("lib", kinds, "no library rows from stale cards")
+
 
 if __name__ == "__main__":
     unittest.main()

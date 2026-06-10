@@ -303,6 +303,19 @@ document.addEventListener("DOMContentLoaded", () => {
       deckChip.hidden = false;
     }
 
+    // Opening a deck nulls the tray library; clear the stale browse pane so no
+    // leftover library card / open stage can add a library row with a null
+    // libraryPath (would corrupt the deck-save items contract).
+    if (state.stage) { state.stage.close(); state.stage = null; }
+    state.libraryPath = null;
+    state.data = null;
+    state.slideLookup = null;
+    browse.innerHTML = '';
+    if (browseEmpty) browseEmpty.style.display = '';
+    if (libChip) libChip.hidden = true;
+    if (langBlock) langBlock.hidden = true;
+    if (secBlock) secBlock.hidden = true;
+
     tray.setLibrary(null);
     tray.setSrcdocProvider((rec, index) => {
       const sec = deckResult.sections[rec.index];
