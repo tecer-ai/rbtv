@@ -99,7 +99,7 @@
       <div class="assemble">
         <div class="as-grid">
           <div class="field">
-            <label for="deck-filename">Deck name</label>
+            <label for="deck-filename" data-tip="The file name your deck is saved as on disk (e.g. 'investor-pitch' becomes investor-pitch.html). Not shown inside the slides.">Deck name</label>
             <input type="text" id="deck-filename" placeholder="deck-name">
           </div>
           <div class="field">
@@ -107,11 +107,11 @@
             <div class="sel-wrap"><select id="deck-lang"></select></div>
           </div>
           <div class="field">
-            <label for="deck-title">Title</label>
+            <label for="deck-title" data-tip="The document title shown in the browser tab when the deck opens — the label inside the deck, not the file name. Defaults to 'Deck' if left blank.">Title</label>
             <input type="text" id="deck-title" placeholder="(engine default)">
           </div>
           <div class="field">
-            <label for="accent-input">Accent</label>
+            <label for="accent-input" class="tip-right" data-tip="Optional brand color applied throughout the slides. Leave unset to use the default theme.">Accent</label>
             <div class="accent-pick">
               <span class="sw" id="accent-swatch"></span>
               <span class="hex" id="accent-hex">default</span>

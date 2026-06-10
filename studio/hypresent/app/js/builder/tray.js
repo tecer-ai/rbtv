@@ -99,20 +99,24 @@ export function createTray({ listEl, onChange }) {
       listEl.appendChild(li);
     });
 
-    attachSorter(listEl, {
-      onReorder: (newOrderUids) => {
-        // Sync model to new DOM order
-        const map = new Map(model.map(m => [String(m.uid), m]));
-        const newModel = newOrderUids.map(uid => map.get(uid)).filter(Boolean);
-        model.length = 0;
-        model.push(...newModel);
-        renumber();
-        if (onChange) onChange();
-      }
-    });
-
     renumber();
   }
+
+  // Attach ONCE — the sorter delegates on listEl, so it survives re-renders.
+  // Attaching per render stacked duplicate listeners (N reorders per drop,
+  // N rAF movers fighting each other = the janky drag).
+  attachSorter(listEl, {
+    onReorder: (newOrderUids) => {
+      // Sync model to new DOM order
+      const map = new Map(model.map(m => [String(m.uid), m]));
+      const newModel = newOrderUids.map(uid => map.get(uid)).filter(Boolean);
+      model.length = 0;
+      model.push(...newModel);
+      renumber();
+      if (onChange) onChange();
+    },
+    onDomChange: renumber
+  });
 
   function add(rec) {
     if (model.some(m => m.kind === 'library' && m.id === rec.id)) return;

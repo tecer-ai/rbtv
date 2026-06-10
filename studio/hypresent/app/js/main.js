@@ -11,8 +11,11 @@ let isDirty = false;
 let isEditingNow = false;   // R3 edit-guard: cached from runtime 'edit-state' events
 let shortcutsHelp = null;
 let lastSelection = null;   // cached from runtime 'selection-changed' (for the panel composer)
-let historyCursor = 0;      // runtime history position (from 'history-changed')
-let savedCursor = 0;        // history position at the last save — chip shows Saved when equal
+let historyCursor = -1;     // runtime history position (from 'history-changed'); -1 = empty stack
+let savedCursor = -1;       // history position at the last save — chip shows Saved when equal.
+                            // MUST start at -1: the runtime's empty-history cursor is -1 and the
+                            // FIRST edit pushes cursor 0 — initializing these to 0 made the first
+                            // edit compare equal and silently read as "Saved".
 
 let undoBtn = null;
 let redoBtn = null;
@@ -371,8 +374,8 @@ function ensureBridge(iframe) {
   if (oib) oib.disabled = true;
   bridge.on("ready", async (payload) => {
     console.info("runtime ready");
-    historyCursor = 0;
-    savedCursor = 0;
+    historyCursor = -1;
+    savedCursor = -1;
     // Runtime is now live and serialize() will answer → the crossing can never
     // hit an unready runtime. Enable the button on the TRUE readiness signal,
     // identically for both open paths (dialog open and ?file= handoff arrival).
@@ -467,6 +470,19 @@ document.addEventListener("DOMContentLoaded", () => {
       console.info("DOMPurify not loaded (optional)");
     }
   })();
+
+  // Mode-switch guard: the Builder link is a plain navigation that discards
+  // unsaved edits. Confirm before leaving when the open document is dirty.
+  const navBuilderLink = document.getElementById("nav-builder");
+  if (navBuilderLink) {
+    navBuilderLink.addEventListener("click", (e) => {
+      const unsaved = bridge && (isDirty || historyCursor !== savedCursor);
+      if (!unsaved) return;
+      if (!confirm("Switch to the Builder? Unsaved changes will be lost.")) {
+        e.preventDefault();
+      }
+    });
+  }
 
   const openBtn = document.querySelector("#open-btn");
   if (!openBtn) {

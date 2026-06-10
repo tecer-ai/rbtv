@@ -246,6 +246,27 @@
   background: var(--white); font-size: 13px; width: 100%;
 }
 .field input::placeholder { color: var(--ink-faint); }
+
+/* field tooltips — in-page (not native title) so they style with the shell */
+.field label[data-tip] {
+  position: relative; width: max-content; cursor: help;
+  text-decoration: underline dotted var(--line-2); text-underline-offset: 3px;
+}
+.field label[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute; left: 0; bottom: calc(100% + 7px);
+  width: 220px; padding: 8px 10px;
+  background: var(--ink); color: var(--paper);
+  border-radius: 7px; box-shadow: var(--shadow-lift);
+  font-size: 11.5px; font-weight: 500; line-height: 1.5;
+  letter-spacing: normal; text-transform: none; white-space: normal;
+  opacity: 0; transform: translateY(3px);
+  transition: opacity .15s ease .1s, transform .15s ease .1s;
+  pointer-events: none; z-index: 30;
+}
+.field label.tip-right[data-tip]::after { left: auto; right: 0; }
+.field:hover label[data-tip]::after,
+.field label[data-tip]:hover::after { opacity: 1; transform: none; }
 .field select { appearance: none; cursor: pointer; }
 .field .sel-wrap { position: relative; }
 .field .sel-wrap::after {

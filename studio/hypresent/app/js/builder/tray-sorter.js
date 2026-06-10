@@ -1,7 +1,7 @@
 // tray-sorter.js — hand-rolled pointer-events reorder (D4-S4)
 // Only pointer* + keydown + rAF + getBoundingClientRect. No native DnD API.
 
-export function attachSorter(listEl, { onReorder }) {
+export function attachSorter(listEl, { onReorder, onDomChange }) {
   listEl.style.touchAction = 'none';
 
   let draggedRow = null;
@@ -12,6 +12,8 @@ export function attachSorter(listEl, { onReorder }) {
   let lastClientY = 0;
   let keydownHandler = null;
   let cancelled = false;
+  let grabOffsetY = 0;   // pointer offset inside the row at grab time
+  let translateY = 0;    // transform currently applied to the dragged row
 
   function getRowOrder() {
     return Array.from(listEl.children)
@@ -30,6 +32,7 @@ export function attachSorter(listEl, { onReorder }) {
       const li = currentMap.get(uid);
       if (li) listEl.appendChild(li);
     });
+    if (onDomChange) onDomChange();
   }
 
   function cleanup() {
@@ -55,6 +58,8 @@ export function attachSorter(listEl, { onReorder }) {
     movePending = false;
     lastClientY = 0;
     cancelled = false;
+    grabOffsetY = 0;
+    translateY = 0;
   }
 
   function onPointerDown(e) {
@@ -73,6 +78,8 @@ export function attachSorter(listEl, { onReorder }) {
     preDragOrder = getRowOrder();
     pointerId = e.pointerId;
     cancelled = false;
+    grabOffsetY = e.clientY - row.getBoundingClientRect().top;
+    translateY = 0;
 
     row.setPointerCapture(e.pointerId);
     row.classList.add('tray-drag-ghost');
@@ -108,7 +115,19 @@ export function attachSorter(listEl, { onReorder }) {
     const referenceNode = others[targetIndex] || null;
     if (referenceNode !== draggedRow.nextSibling) {
       listEl.insertBefore(draggedRow, referenceNode);
+      if (onDomChange) onDomChange();
     }
+  }
+
+  // Keep the ghost under the pointer. getBoundingClientRect() includes the
+  // currently applied transform, so subtract it to recover the layout top —
+  // computing from the raw rect (the old code) feeds the transform back into
+  // itself and the ghost drifts away from the cursor.
+  function applyGhostTransform() {
+    if (!draggedRow) return;
+    const layoutTop = draggedRow.getBoundingClientRect().top - translateY;
+    translateY = (lastClientY - grabOffsetY) - layoutTop;
+    draggedRow.style.transform = `translateY(${Math.round(translateY)}px)`;
   }
 
   function onPointerMove(e) {
@@ -116,16 +135,13 @@ export function attachSorter(listEl, { onReorder }) {
     e.preventDefault();
     lastClientY = e.clientY;
 
-    // Apply a small translate transform for visual feedback
-    const deltaY = e.clientY - draggedRow.getBoundingClientRect().top;
-    draggedRow.style.transform = `translateY(${Math.round(deltaY)}px)`;
-
     if (!movePending) {
       movePending = true;
       requestAnimationFrame(() => {
         movePending = false;
         if (draggedRow && !cancelled) {
           moveDraggedRow();
+          applyGhostTransform();
         }
       });
     }

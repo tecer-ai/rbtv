@@ -78,6 +78,17 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   state.tray = tray;
 
+  // ── mode-switch guard: leaving for the Editor discards the tray ───────
+  const navEditorLink = document.getElementById('nav-editor');
+  if (navEditorLink) {
+    navEditorLink.addEventListener('click', (e) => {
+      if (tray.getItems().length === 0) return;
+      if (!confirm('Switch to the Editor? Unsaved builder work will be lost.')) {
+        e.preventDefault();
+      }
+    });
+  }
+
   // ── Add blank slide button ─────────────────────────────────────────────
   const addBlankBtn = document.getElementById('add-blank-btn');
   if (addBlankBtn) {

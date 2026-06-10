@@ -115,16 +115,18 @@ input, select, textarea { font: inherit; color: inherit; }
 .doc-chip .doc-state.is-dirty { color: var(--ink-mut); }
 .doc-chip .doc-state.is-dirty::before { background: var(--line-2); }
 
-.lib-chip {
+.lib-chip, .deck-chip {
   display: flex; align-items: center; gap: 8px;
   padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px;
   background: var(--white); font-size: 13px; white-space: nowrap;
+  min-width: 0;
 }
-.lib-chip svg { width: 14px; height: 14px; color: var(--ink-mut); flex: none; }
-.lib-chip b { font-weight: 600; }
+.lib-chip svg, .deck-chip svg { width: 14px; height: 14px; color: var(--ink-mut); flex: none; }
+.lib-chip b, .deck-chip b { font-weight: 600; }
+.deck-chip b { overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
 .lib-chip .meta { color: var(--ink-mut); }
-.lib-chip .swap { color: var(--accent-deep); font-weight: 600; font-size: 12.5px; margin-left: 2px; }
-.lib-chip .swap:hover { text-decoration: underline; }
+.lib-chip .swap, .deck-chip .swap { color: var(--accent-deep); font-weight: 600; font-size: 12.5px; margin-left: 2px; }
+.lib-chip .swap:hover, .deck-chip .swap:hover { text-decoration: underline; }
 
 .tb-btn {
   display: inline-flex; align-items: center; gap: 7px;
