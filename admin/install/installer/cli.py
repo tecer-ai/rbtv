@@ -519,7 +519,47 @@ def main(argv: list[str] | None = None) -> int:
             "or the nearest rbtv.json."
         ),
     )
+    parser.add_argument(
+        "--exclude",
+        nargs="+",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Workspace-root-relative posix path(s) the mirror skips — no guidance "
+            "file is rendered beside any CLAUDE.md inside an excluded path. The list "
+            "is recorded in rbtv.json (model_mirror.excluded_paths) as the per-user "
+            "default. Passing --exclude REPLACES the recorded list; omitting it "
+            "PRESERVES the recorded list. Applies on both a full install and "
+            "--mirror."
+        ),
+    )
+    parser.add_argument(
+        "--uninstall",
+        action="store_true",
+        help=(
+            "With --mirror: remove ALL generated mirror artifacts for the target "
+            "(guidance files, the shared .agents/ library, and per-model config "
+            "dirs) and clear the model_mirror block from rbtv.json. A full mirror "
+            "teardown for every currently-elected package."
+        ),
+    )
     args = parser.parse_args(argv)
+
+    # --exclude: None (omitted → preserve recorded list) vs an explicit list
+    # (replace the recorded list). The driver defaults excluded_paths from prior
+    # state when None, so omitting the flag preserves the recorded exclusions.
+    requested_excluded_paths: list[str] | None = None
+    if args.exclude is not None:
+        requested_excluded_paths = [
+            p.strip().replace("\\", "/") for p in args.exclude if p.strip()
+        ]
+
+    # --uninstall is a mirror-teardown flag — it only acts in --mirror mode.
+    if args.uninstall and not args.mirror:
+        raise SystemExit(
+            "--uninstall applies only with --mirror (full mirror teardown). "
+            "Run: install.py --mirror --uninstall [--target <workspace>]."
+        )
 
     # Parse the model-packages flag: None (omitted) vs an explicit (possibly empty) set.
     requested_model_packages: tuple[str, ...] | None = None
@@ -559,6 +599,30 @@ def main(argv: list[str] | None = None) -> int:
         elected_workers: list[str] = list(mirror_state.get("model_packages") or [])
         mirrorable = _split_mirrorable(rbtv_root, elected_workers)
 
+        # --- --mirror --uninstall: full mirror teardown for the target ---------
+        if args.uninstall:
+            try:
+                _mirror_render, mirror_uninstall = _import_mirror_driver(rbtv_root)
+                # Tear down EVERY currently-elected package (remaining_elected
+                # empty) so the driver deletes all generated artifacts and drops
+                # the model_mirror block from rbtv.json.
+                un = mirror_uninstall(
+                    mirror_target, mirrorable, remaining_elected=[]
+                )
+            except Exception as exc:
+                raise SystemExit(
+                    f"\nERROR — mirror uninstall failed: {exc}\n"
+                    "  The workspace's mirror artifacts may be partially removed. "
+                    "Re-run once the cause is resolved."
+                ) from exc
+            print(
+                f"  Mirror uninstall: deleted {len(un.deleted)} file(s), "
+                f"spared {len(un.spared)} hand-authored guidance file(s); "
+                "model_mirror cleared."
+            )
+            print("\nMirror uninstall complete.")
+            return 0
+
         # Deselect computation: --mirror reads from the SAME rbtv.json, so there
         # is no prior-vs-new divergence — deselection does not apply on a
         # mirror-only run (the election is identical to the recorded state).
@@ -568,7 +632,11 @@ def main(argv: list[str] | None = None) -> int:
             mirror_render, _mirror_uninstall = _import_mirror_driver(rbtv_root)
 
             if mirrorable:
-                rendered = mirror_render(mirror_target, mirrorable)
+                rendered = mirror_render(
+                    mirror_target,
+                    mirrorable,
+                    excluded_paths=requested_excluded_paths,
+                )
                 # The driver already wrote model_mirror to rbtv.json via
                 # state.write_mirror_block (preserving all other keys). Call
                 # update_mirror_state with the driver's final block so the
@@ -811,9 +879,15 @@ def main(argv: list[str] | None = None) -> int:
 
             # 2. Render the elected (mirrorable) worker set. Re-running changes
             #    nothing; the driver records the canonical managed-file set in
-            #    rbtv.json's model_mirror block.
+            #    rbtv.json's model_mirror block. excluded_paths: passing
+            #    --exclude REPLACES the recorded list; omitting it (None) lets the
+            #    driver default from prior state, PRESERVING the recorded list.
             if mirrorable:
-                rendered = mirror_render(ctx.target_root, mirrorable)
+                rendered = mirror_render(
+                    ctx.target_root,
+                    mirrorable,
+                    excluded_paths=requested_excluded_paths,
+                )
                 print(
                     f"  Mirror: rendered [{', '.join(sorted(mirrorable))}] — "
                     f"{len(rendered.managed_files)} managed file(s) recorded."
