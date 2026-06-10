@@ -1,0 +1,14 @@
+[
+  {
+    "path": "dialog",
+    "enabled": true,
+    "gap_content_to_button_ms": 155,
+    "total_open_to_button_ms": 233
+  },
+  {
+    "path": "file-param",
+    "enabled": true,
+    "gap_content_to_button_ms": 187,
+    "total_open_to_button_ms": 265
+  }
+]

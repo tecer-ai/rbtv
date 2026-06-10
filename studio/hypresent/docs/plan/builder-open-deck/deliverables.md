@@ -40,7 +40,7 @@
 | Task | Artifact | Path | Status |
 |------|----------|------|--------|
 | p4-1 | Save-and-switch controls both directions + e2e | `app/js/builder/builder-main.js`, `app/builder.html`, `app/js/main.js`, `app/index.html`, `app/js/shell/file-controls.js`, `tests/e2e/test_pb12_bridge.py` | ✅ |
-| p4-checkpoint | Phase 4 evaluation findings + headed round-trip evidence + user approval | `./phase-4/evidence/` | pending |
+| p4-checkpoint | Phase 4 evaluation findings + headed round-trip evidence + user approval | `./phase-4/evidence/` | ✅ |
 
 ## Phase 5 deliverables — Close
 

@@ -1,0 +1,71 @@
+[step 1] deck copy: C:\Users\henri\AppData\Local\Temp\tmpz04943zn\deck.html
+[step 2] tray rows before reorder: 10
+  row 0: title='Tecer × GSMM - Operações Financeiras Autônomas' srcdoc_snippet='<!DOCTYPE html><html><head>\n        <meta charset="UTF-8" />'
+  row 1: title='Tecer × GSMM - Operações Financeiras Autônomas' srcdoc_snippet='<!DOCTYPE html><html><head>\n        <meta charset="UTF-8" />'
+  row 2: title='Tecer × GSMM - Operações Financeiras Autônomas' srcdoc_snippet='<!DOCTYPE html><html><head>\n        <meta charset="UTF-8" />'
+  row 3: title='Tecer × GSMM - Operações Financeiras Autônomas' srcdoc_snippet='<!DOCTYPE html><html><head>\n        <meta charset="UTF-8" />'
+  row 4: title='Tecer × GSMM - Operações Financeiras Autônomas' srcdoc_snippet='<!DOCTYPE html><html><head>\n        <meta charset="UTF-8" />'
+  row 5: title='Tecer × GSMM - Operações Financeiras Autônomas' srcdoc_snippet='<!DOCTYPE html><html><head>\n        <meta charset="UTF-8" />'
+  row 6: title='Tecer × GSMM - Operações Financeiras Autônomas' srcdoc_snippet='<!DOCTYPE html><html><head>\n        <meta charset="UTF-8" />'
+  row 7: title='Tecer × GSMM - Operações Financeiras Autônomas' srcdoc_snippet='<!DOCTYPE html><html><head>\n        <meta charset="UTF-8" />'
+  row 8: title='Tecer × GSMM - Operações Financeiras Autônomas' srcdoc_snippet='<!DOCTYPE html><html><head>\n        <meta charset="UTF-8" />'
+  row 9: title='Tecer × GSMM - Operações Financeiras Autônomas' srcdoc_snippet='<!DOCTYPE html><html><head>\n        <meta charset="UTF-8" />'
+[step 2] screenshot c1-fix-01-loaded.png saved
+[step 3] drag handles found: 0
+[step 3] drag row body from (1224,231) to (1224,328)
+[step 3] tray rows after reorder: 10
+  row 0: title='Tecer × GSMM - Operações Financeiras Autônomas'
+  row 1: title='Tecer × GSMM - Operações Financeiras Autônomas'
+  row 2: title='Tecer × GSMM - Operações Financeiras Autônomas'
+  row 3: title='Tecer × GSMM - Operações Financeiras Autônomas'
+  row 4: title='Tecer × GSMM - Operações Financeiras Autônomas'
+  row 5: title='Tecer × GSMM - Operações Financeiras Autônomas'
+  row 6: title='Tecer × GSMM - Operações Financeiras Autônomas'
+  row 7: title='Tecer × GSMM - Operações Financeiras Autônomas'
+  row 8: title='Tecer × GSMM - Operações Financeiras Autônomas'
+  row 9: title='Tecer × GSMM - Operações Financeiras Autônomas'
+[step 3] swap assertion (srcdoc): True
+[step 3] swap assertion (title): True
+[step 3] reorder_happened: True
+  before: row0='Tecer × GSMM - Operações Financeiras Autônomas' row1='Tecer × GSMM - Operações Financeiras Autônomas'
+  after:  row0='Tecer × GSMM - Operações Financeiras Autônomas' row1='Tecer × GSMM - Operações Financeiras Autônomas'
+[step 3] screenshot c1-fix-02-reordered.png saved
+[step 4] navigated to editor: http://127.0.0.1:18900/app/?file=C%3A%5CUsers%5Chenri%5CAppData%5CLocal%5CTemp%5Ctmp849q5hd0%5Ccrossing-1.html
+[step 4] crossing-1.html written: True (C:\Users\henri\AppData\Local\Temp\tmp849q5hd0\crossing-1.html)
+[step 4] OIB button enabled
+[step 5] dblclick at (0.5,0.2): has-selection
+[step 5]   marker_in_iframe_dom: True
+[step 5] edit_success: True
+[step 5] edit_notes: ['dblclick at (0.5,0.2): sel_mode=has-selection', '  marker_in_iframe_dom: True']
+[step 5] screenshot c1-fix-03-edited.png saved
+[step 6] navigated to builder: http://127.0.0.1:18900/app/builder.html?file=C%3A%5CUsers%5Chenri%5CAppData%5CLocal%5CTemp%5Ctmp3avlf2eb%5Ccrossing-2.html
+[step 6] crossing-2.html written: True (C:\Users\henri\AppData\Local\Temp\tmp3avlf2eb\crossing-2.html)
+[step 7] final tray rows: 10
+  row 0: title='Tecer × GSMM - Operações Financeiras Autônomas'
+  row 1: title='Tecer × GSMM - Operações Financeiras Autônomas'
+  row 2: title='Tecer × GSMM - Operações Financeiras Autônomas'
+  row 3: title='Tecer × GSMM - Operações Financeiras Autônomas'
+  row 4: title='Tecer × GSMM - Operações Financeiras Autônomas'
+  row 5: title='Tecer × GSMM - Operações Financeiras Autônomas'
+  row 6: title='Tecer × GSMM - Operações Financeiras Autônomas'
+  row 7: title='Tecer × GSMM - Operações Financeiras Autônomas'
+  row 8: title='Tecer × GSMM - Operações Financeiras Autônomas'
+  row 9: title='Tecer × GSMM - Operações Financeiras Autônomas'
+[step 7] order_matches_post_reorder (srcdoc): False
+[step 7] order_matches_title: True
+[step 7] order_not_original_title: False
+  final_title0='Tecer × GSMM - Operações Financeiras Autônomas' expected='Tecer × GSMM - Operações Financeiras Autônomas' original='Tecer × GSMM - Operações Financeiras Autônomas'
+  final_title1='Tecer × GSMM - Operações Financeiras Autônomas' expected='Tecer × GSMM - Operações Financeiras Autônomas'
+[step 8] scanning 10 final tray rows for [CV-B12]
+[step 8] MARKER FOUND in row 0
+  snippet: ' e a liderança gasta tempo\n                    juntando tudo em vez de decidir. A Tecer reúne&nbsp; [CV-B12]fontes\n                    em uma base úni'
+[step 8] marker_in_dom: True
+[step 8] screenshot c1-fix-04-final-tray.png saved
+[step 8] cropped row screenshot saved: c1-fix-05-thumbnail-zoom.png
+[step 9] disk verification
+[step 9] crossing-2.html bytes contain [CV-B12]: True
+[step 9] deck hash:       5733924338571f3246b49c38e1ac6af7c210ef372fb1948c383d0026583332ae
+[step 9] crossing-1 hash: 9d09314ee0198613f50aa5f7a3b611091725750a4742e6624332366c496cdbac
+[step 9] crossing-1 differs from deck: True
+[step 10] owner decks unchanged: True
+[step 9] c1-fix-order.json written

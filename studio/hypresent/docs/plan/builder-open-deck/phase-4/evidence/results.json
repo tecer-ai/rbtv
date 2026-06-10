@@ -1,0 +1,30 @@
+{
+  "C4": {
+    "verdict": "PASS",
+    "notes": "Both disabled states confirmed; both enable correctly"
+  },
+  "C7": {
+    "verdict": "PASS",
+    "notes": "Gaps (content\u2192button): [155, 187]ms"
+  },
+  "C1": {
+    "verdict": "PASS",
+    "notes": "Both crossings wrote new files; final tray has 10 slides"
+  },
+  "C2": {
+    "verdict": "PASS",
+    "notes": "Each crossing wrote a distinct new file; source and owner decks unchanged"
+  },
+  "C3": {
+    "verdict": "PASS",
+    "notes": "Both cancel paths leave current view intact; no navigation or error"
+  },
+  "C5": {
+    "verdict": "PASS",
+    "notes": "Exit 0 in 19045ms"
+  },
+  "C6": {
+    "verdict": "PASS",
+    "notes": "No prohibited narratives; all 5 entries have Decision+Rationale+Scope; entries=5, Decision=5, Rationale=5, Scope=5, violations=[]"
+  }
+}

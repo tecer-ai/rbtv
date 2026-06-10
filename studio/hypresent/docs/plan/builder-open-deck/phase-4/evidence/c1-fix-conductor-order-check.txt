@@ -1,0 +1,47 @@
+deck: C:\Users\henri\AppData\Local\Temp\tmpz04943zn\deck.html  (10 top-level sections)
+crossing1: C:\Users\henri\AppData\Local\Temp\tmp849q5hd0\crossing-1.html  (10 top-level sections)
+crossing2: C:\Users\henri\AppData\Local\Temp\tmp3avlf2eb\crossing-2.html  (10 top-level sections)
+
+--- deck section text signatures (marker-stripped, normalized) ---
+  [0] × GSMM Operações Financeiras Autônomas A gestão deixa de montar planilha e passa a ter mai
+  [1] Uma plataforma inteligente A Tecer entrega operações financeiras autônomas Hoje a informaç
+  [2] Baseado na conversa de hoje O que entendemos da GSMM Antes de propor qualquer caminho, que
+  [3] A partir do roadmap que a GSMM desenhou Roadmap da GSMM, e onde a Tecer entra em cada etap
+  [4] Do mapa de processos da GSMM As quatro frentes que vocês priorizaram Dos macroprocessos qu
+  [5] Como trabalhamos A Tecer se adapta ao cliente - não o contrário Nossa missão é construir a
+  [6] Dois modelos de operação As atividades de um time financeiro, e o que a Tecer absorve Um t
+  [7] Como funciona por dentro Um sistema operacional para agentes financeiros O motor da Tecer 
+  [8] Próximos passos Como avançamos juntos Começamos pelo NDA, exatamente como você sugeriu: el
+  [9] Obrigado. Próximo passo: NDA, e o diagnóstico começa. Co-founder Guilherme Kenworthy 3 ano
+
+--- crossing1 section text signatures (marker-stripped, normalized) ---
+  [0] Uma plataforma inteligente A Tecer entrega operações financeiras autônomas Hoje a informaç
+  [1] × GSMM Operações Financeiras Autônomas A gestão deixa de montar planilha e passa a ter mai
+  [2] Baseado na conversa de hoje O que entendemos da GSMM Antes de propor qualquer caminho, que
+  [3] A partir do roadmap que a GSMM desenhou Roadmap da GSMM, e onde a Tecer entra em cada etap
+  [4] Do mapa de processos da GSMM As quatro frentes que vocês priorizaram Dos macroprocessos qu
+  [5] Como trabalhamos A Tecer se adapta ao cliente - não o contrário Nossa missão é construir a
+  [6] Dois modelos de operação As atividades de um time financeiro, e o que a Tecer absorve Um t
+  [7] Como funciona por dentro Um sistema operacional para agentes financeiros O motor da Tecer 
+  [8] Próximos passos Como avançamos juntos Começamos pelo NDA, exatamente como você sugeriu: el
+  [9] Obrigado. Próximo passo: NDA, e o diagnóstico começa. Co-founder Guilherme Kenworthy 3 ano
+
+--- crossing2 section text signatures (marker-stripped, normalized) ---
+  [0] Uma plataforma inteligente A Tecer entrega operações financeiras autônomas Hoje a informaç
+  [1] × GSMM Operações Financeiras Autônomas A gestão deixa de montar planilha e passa a ter mai
+  [2] Baseado na conversa de hoje O que entendemos da GSMM Antes de propor qualquer caminho, que
+  [3] A partir do roadmap que a GSMM desenhou Roadmap da GSMM, e onde a Tecer entra em cada etap
+  [4] Do mapa de processos da GSMM As quatro frentes que vocês priorizaram Dos macroprocessos qu
+  [5] Como trabalhamos A Tecer se adapta ao cliente - não o contrário Nossa missão é construir a
+  [6] Dois modelos de operação As atividades de um time financeiro, e o que a Tecer absorve Um t
+  [7] Como funciona por dentro Um sistema operacional para agentes financeiros O motor da Tecer 
+  [8] Próximos passos Como avançamos juntos Começamos pelo NDA, exatamente como você sugeriu: el
+  [9] Obrigado. Próximo passo: NDA, e o diagnóstico começa. Co-founder Guilherme Kenworthy 3 ano
+
+=== VERDICTS (computed) ===
+crossing1_order_equals_deck_with_0_1_swapped : True
+crossing2_order_equals_crossing1             : True
+crossing2_order_differs_from_original_deck   : True
+marker_[CV-B12]_in_crossing2_section0        : True
+marker_[CV-B12]_sections_in_crossing2 (count): 1
+marker_[CV-B12]_anywhere_in_crossing1        : False  (expected False)

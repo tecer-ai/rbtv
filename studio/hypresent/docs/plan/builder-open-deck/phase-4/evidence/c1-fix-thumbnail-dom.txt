@@ -1,0 +1,101 @@
+Marker [CV-B12] search in final tray thumbnail DOM
+Rows scanned: 10
+Marker found in row: 0
+Marker snippet: ' e a liderança gasta tempo\n                    juntando tudo em vez de decidir. A Tecer reúne&nbsp; [CV-B12]fontes\n                    em uma base úni'
+
+--- Per-row srcdoc presence ---
+  row 0: contains_marker=True, srcdoc_len=57036
+  row 1: contains_marker=False, srcdoc_len=53621
+  row 2: contains_marker=False, srcdoc_len=56572
+  row 3: contains_marker=False, srcdoc_len=57538
+  row 4: contains_marker=False, srcdoc_len=55912
+  row 5: contains_marker=False, srcdoc_len=55643
+  row 6: contains_marker=False, srcdoc_len=57602
+  row 7: contains_marker=False, srcdoc_len=58647
+  row 8: contains_marker=False, srcdoc_len=58353
+  row 9: contains_marker=False, srcdoc_len=56016
+
+  Context snippet: ' e a liderança gasta tempo\n                    juntando tudo em vez de decidir. A Tecer reúne&nbsp; [CV-B12]fontes\n                    em uma base úni'
+
+--- Full srcdoc of marker row (first 3000 chars) ---
+<!DOCTYPE html><html><head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Tecer × GSMM - Operações Financeiras Autônomas</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+        <style>
+            /* ── Variables ── */
+            :root {
+                --primary: #2b5ea7;
+                --primary-dark: #1e4a85;
+                --primary-light: #4a7ec4;
+                --secondary: #2d7d6b;
+                --secondary-light: #3a9a84;
+                --accent: #b8875a;
+                --navy: #1b2b4b;
+                --navy-light: #243a60;
+                --highlight: #f5c518;
+                --bg-warm: #f5ede4;
+                --bg-soft: #f7f8fa;
+                --white: #ffffff;
+                --gray-100: #f0f2f5;
+                --gray-200: #e1e5eb;
+                --gray-300: #cbd5e0;
+                --gray-400: #8c95a6;
+                --gray-600: #5a6577;
+                --gray-800: #4a5568;
+            }
+
+            /* ── Reset & Base ── */
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family:
+                    "Outfit",
+                    system-ui,
+                    -apple-system,
+                    sans-serif;
+                background: var(--white);
+                color: var(--gray-800);
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+
+            /* ── Print - fixed 1280x720 frame per slide ── */
+            @page {
+                size: 1280px 720px;
+                margin: 0;
+            }
+            @media print {
+                html,
+                body {
+                    width: 1280px;
+                }
+                body {
+                    -webkit-print-color-adjust: exact;
+                    print-color-adjust: exact;
+                }
+                .slide {
+                    width: 1280px;
+                    height: 720px;
+                    min-height: 720px;
+                    max-height: 720px;
+                    padding: 48px 72px;
+                    page-break-inside: avoid;
+                    break-inside: avoid;
+                    overflow: hidden;
+                }
+                .slide-title {
+                    font-size: 30px !important;
+                    margin-bottom: 8px !important;
+                }
+                .slide-subtitle {
+                    font-size: 16px !important;
+                    margin-bottom: 20px !important

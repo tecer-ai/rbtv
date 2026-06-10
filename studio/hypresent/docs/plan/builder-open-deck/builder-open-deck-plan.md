@@ -77,7 +77,7 @@ Patterns and principles that MUST be followed during execution.
 ### Phase 4: Bridge — cross to the editor
 
 - [x] `p4-1` UPDATE both pages with save-and-switch controls ("Switch to editor" / "Open in builder"), Save-As gated → `phase-4/p4-1.task.md`
-- [ ] `p4-checkpoint` **CHECKPOINT** — round trip builder↔editor without losing work → `phase-4/p4-checkpoint.task.md`
+- [x] `p4-checkpoint` **CHECKPOINT** — round trip builder↔editor without losing work → `phase-4/p4-checkpoint.task.md`
 
 ### Phase 5: Validation and Completion
 
