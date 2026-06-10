@@ -18,7 +18,7 @@ variants:
     max_output: <int tokens — max single-turn output>
 
     # --- budget + capability gates (routing §2, §6) ---
-    cost_class: <cheapest | low | mid | high>     # budget filter + cheapest-capable tiebreaker
+    cost_class: <cheapest | low | mid | high | premium>     # budget filter + cheapest-capable tiebreaker
     code_competence: <none | bounded | strong>    # none=not a code executor; picks kimi-vs-codex
     web_access: <true | false>                    # research-leaf gate
     # multimodal: [image]                         # OPTIONAL — non-text inputs accepted; omit if text-only
