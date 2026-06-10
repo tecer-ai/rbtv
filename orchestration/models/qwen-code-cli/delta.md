@@ -81,15 +81,46 @@ Prompt transport is **either** — positional arg OR stdin pipe; a positional/`-
 
 **Confinement is the orchestrator's job:** `--approval-mode` and `--sandbox` are real, but headless `--yolo` runs at host privilege with no sandbox (probe-confirmed) and the container sandbox is unverified here. ALWAYS back the chosen posture with the post-run `git diff --name-only HEAD` of every changed path against the task's `allowlist` — the same reliable enforcement every CLI worker gets. Out-of-allowlist edit = halt + surface; NEVER auto-revert silently.
 
-### Model + variants
+### Model + variants — the four ModelStudio US backends
 
-The qwen manifest declares one routable variant (route on `(qwen, variant)`):
+Qwen runs against **four configured backends** (`~/.qwen/settings.json` `modelProviders.openai`, all on the
+ModelStudio US endpoint `https://dashscope-us.aliyuncs.com/compatible-mode/v1` under `DASHSCOPE_API_KEY`).
+Per-dispatch selection adds ONE flag to the canonical invocation: `--auth-type openai -m <id>` (omit `-m`
+to fall back to the configured `model.name` = `qwen3.6-plus`). Each is a routable `(qwen-code-cli, variant)`
+modeled ONLY where a routing-relevant field differs (manifest field-count discipline). All four reply-probed
+exit-0 on ModelStudio US 2026-06-10 (`init.model` echoes the id); `deepseek-v4-flash` passed a full
+bounded-code done-gate the same day (evidence:
+`1-projects/rbtv-evolution/coding/done-gate-evidence/rbtv/2026-06-10-qwen-multi-model.md`).
 
-| Variant | Flags / config | When |
-|---------|----------------|------|
-| `default` | API-key headless; model from the configured provider/plan, overridable with `-m/--model` (e.g. `qwen3-coder-plus`, `qwen3-coder-turbo`) | The partially-bounded code/analysis profile with `doubt_policy: halt`. The underlying coder model is the Qwen3-Coder family. |
+| Variant | `-m` id | reasoning · ctx · max_out · cost | Pick it when | Evidence |
+|---------|---------|----------------------------------|--------------|----------|
+| `default` | _(none)_ → `qwen3.6-plus` | mid · 1M · 65,536 · low | The native home backend; no `-m` needed; default bounded code/agentic | validated (2026-06-09 pilot) |
+| `deepseek-flash` | `deepseek-v4-flash` | mid · 1M · 384K · low | Cheapest bulk code; single-turn output may exceed ~64K (6× the default cap) | **validated** (bounded-code done-gate 2026-06-10) |
+| `deepseek-pro` | `deepseek-v4-pro` | top · 1M · 384K · mid | Deeper reasoning within the code fleet, mid cost sanctioned (reasoning_tier `top` is spec-derived → `doubt_policy: halt`) | served; bounded-code unexercised |
+| `glm` | `glm-5.1` | mid · 204,800 · 131,072 · mid | Fleet diversity (non-DeepSeek, non-Qwen agentic); task fits ~200K context | served; bounded-code unexercised |
 
-A `sandbox` variant (`--sandbox`) is possible if a container backend is confirmed on the host — not shipped until verified. `-m/--model <id>` overrides the configured model per dispatch. The reasoning-tier-to-boundedness mapping for qwen is AUTH-PENDING (not pilot-validated as a top-tier judgment model); the manifest marks the package `probe-pending` and the variant `reasoning_tier: mid` with `doubt_policy: halt`.
+`cost_class` values are reference-provider-derived; ModelStudio US per-backend billing is unconfirmed
+(research Q2 — owner-console-only) and may re-rank `glm` vs `deepseek-pro`. A `sandbox` variant (`--sandbox`)
+remains possible if a container backend is confirmed on the host — not shipped until verified.
+
+**Per-backend invocation** (the one-flag delta — everything else in the canonical shape carries over):
+
+```powershell
+qwen "<task>" --auth-type openai -m deepseek-v4-flash --output-format json --approval-mode yolo --max-wall-time 10m
+qwen "<task>" --auth-type openai -m deepseek-v4-pro   --output-format json --approval-mode yolo --max-wall-time 10m
+qwen "<task>" --auth-type openai -m glm-5.1           --output-format json --approval-mode yolo --max-wall-time 10m
+qwen "<task>"                                          --output-format json --approval-mode yolo --max-wall-time 10m   # default → qwen3.6-plus
+```
+
+**Disambiguation — qwen-via-DeepSeek (this package) vs the DeepSeek API worker (`deepseek-api`):** both can
+run DeepSeek models, but they are DIFFERENT ROLES — never interchangeable.
+
+| Use… | …when |
+|------|-------|
+| **`(qwen-code-cli, deepseek-flash\|deepseek-pro)`** — the CLI **code/agentic** role | The task is **bounded CODE or agentic work**: it must write/edit files, run shells/tests, use the `agent`/MCP tools, isolate via `--worktree`, and be confined by a post-run allowlist diff. The qwen CLI carries DeepSeek as a tool-using code executor. |
+| **`deepseek-api`** — the **text-synthesis** role | The task is **stateless TEXT generation** (summarize, classify, rewrite, JSON-mode synthesis) with `code_competence: none` and no filesystem/tool loop — the cheapest text leaf. NEVER for code execution. |
+
+Rule of thumb: **does the task touch the filesystem or run tools? → qwen-via-DeepSeek. Pure text in → text out? → `deepseek-api`.**
 
 ### Context window + output sizing
 

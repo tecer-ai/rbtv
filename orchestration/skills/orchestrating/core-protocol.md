@@ -66,7 +66,7 @@ Per-model capability lines — a STATIC reference roster of the model packages t
 | **codex-cli** | Code-executing CLI worker (`codex exec`) — separate-process execution; live-proven once. |
 | **claude-code-cli** | `claude -p` headless worker — natively loads workspace `CLAUDE.md`/rules; usable as a CLI-driven sub-conductor (process boundary clears the nesting wall). |
 | **claude-code-native** | Agent-tool Claude tiers (opus/sonnet) — in-session default carrier; no native CLAUDE.md/rules load (parent must inline); nesting wall (cannot spawn sub-agents); sibling to claude-code-cli (the process carrier). |
-| **qwen-code-cli** | Web-capable CLI worker — the research-leaf executor; carries the sources-manifest pointer when one is provided. |
+| **qwen-code-cli** | Code-executing CLI worker — multi-backend via ModelStudio US (`-m` selects `qwen3.6-plus` / `deepseek-v4-flash` / `deepseek-v4-pro` / `glm-5.1`); writes code, runs tools, isolates via `--worktree`. NOT web-capable (`web_access: false`) — route web research to codex/claude-cli, not qwen (D-exec-11, 2026-06-10). |
 | **deepseek-api** | API chat text-worker (OpenAI-compatible, JSON mode) — cheapest text synthesis; `code_competence: none` (text leaves only); no native web. |
 | **gemini-api** | API chat text-worker — carries native web access (search grounding; web-research leaf wired in Phase 5); `code_competence: none`; the only web-capable chat worker. |
 
