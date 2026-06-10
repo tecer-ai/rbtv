@@ -363,10 +363,20 @@ async function refreshCommentPanel() {
 function ensureBridge(iframe) {
   if (bridge) bridge.destroy();
   bridge = createBridge(iframe);
+  // New bridge: the runtime in the freshly (re)loaded iframe has NOT booted yet,
+  // so serialize() will not answer until it emits 'ready'. Keep "Open in builder"
+  // disabled until then — enabling on bridge-object-existence alone lets a click
+  // race ahead of the runtime and silently no-op (the suite-load flake).
+  const oib = document.getElementById("open-in-builder-btn");
+  if (oib) oib.disabled = true;
   bridge.on("ready", async (payload) => {
     console.info("runtime ready");
     historyCursor = 0;
     savedCursor = 0;
+    // Runtime is now live and serialize() will answer → the crossing can never
+    // hit an unready runtime. Enable the button on the TRUE readiness signal,
+    // identically for both open paths (dialog open and ?file= handoff arrival).
+    if (oib) oib.disabled = false;
     await refreshCommentPanel();
   });
 
@@ -470,7 +480,9 @@ document.addEventListener("DOMContentLoaded", () => {
         setStatus("");
         setDocChip(result.name || "");
         setDocState(false);
-        setOpenInBuilderEnabled(true);
+        // "Open in builder" is enabled by the bridge 'ready' handler once the
+        // runtime can serialize — NOT here. Enabling on open would re-introduce
+        // the enable-before-ready window the click handler races against.
       } catch (err) {
         console.error("Open failed:", err.message);
         setStatus("Open failed: " + err.message, "error");
@@ -497,7 +509,8 @@ document.addEventListener("DOMContentLoaded", () => {
         setStatus("");
         setDocChip((result && result.name) || fileParam.split(/[\\/]/).pop() || "");
         setDocState(false);
-        setOpenInBuilderEnabled(true);
+        // Enabled by the bridge 'ready' handler, not here — see the dialog-open
+        // path above. Same readiness gate on both crossings into the builder.
       } catch (err) {
         console.error("Handoff open failed:", err.message);
         setStatus("Open failed: " + err.message, "error");
@@ -521,11 +534,9 @@ document.addEventListener("DOMContentLoaded", () => {
     return result.html;
   }
 
-  // Wire "Open in builder" button (bridge crossing: editor → builder)
-  const openInBuilderBtn = document.getElementById("open-in-builder-btn");
-  function setOpenInBuilderEnabled(enabled) {
-    if (openInBuilderBtn) openInBuilderBtn.disabled = !enabled;
-  }
+  // Wire "Open in builder" button (bridge crossing: editor → builder).
+  // Enable/disable is now driven entirely by runtime readiness in ensureBridge's
+  // 'ready' handler (true gate the click depends on), not by open-success here.
   setupOpenInBuilder({
     getSerializeDoc: () => serializeDoc,
     getStatusSetter: () => setStatus,

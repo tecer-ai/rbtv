@@ -54,16 +54,6 @@ class PB12BridgeTests(unittest.TestCase):
     def _tray_count(self):
         return self.page.eval_on_selector_all(".tray-row", "els=>els.length")
 
-    def _tray_order(self):
-        """Return list of slide titles from tray rows (for round-trip order check)."""
-        return self.page.eval_on_selector_all(
-            ".tray-row",
-            "els => els.map(e => { "
-            "  const t = e.querySelector('.tray-title'); "
-            "  return t ? t.textContent.trim() : ''; "
-            "})"
-        )
-
     # ── PB12-1: Builder→editor crossing ───────────────────────────────────
     def test_builder_to_editor_crossing(self):
         """Spec row 1: Switch to editor writes new file, editor opens it with doc chip."""
@@ -127,9 +117,18 @@ class PB12BridgeTests(unittest.TestCase):
             timeout=10000,
         )
 
-        # Verify "Open in builder" button is now enabled
-        btn_disabled = self.page.get_attribute("#open-in-builder-btn", "disabled")
-        self.assertIsNone(btn_disabled, "Open in builder should be enabled when doc is open")
+        # "Open in builder" enables only when the runtime emits 'ready' (serialize()
+        # will answer) — NOT merely when the doc chip appears. On the dialog-open
+        # (#open-btn) path the runtime <script> is injected into the iframe AFTER
+        # open resolves, so the doc chip can show while the runtime is still booting.
+        # Under suite load that boot lags; clicking on the bridge-exists-but-not-ready
+        # window made serialize() time out → no crossing → the old flake. Gate the
+        # click on the button becoming enabled — the product's true readiness signal.
+        self.page.wait_for_function(
+            "() => { const b = document.getElementById('open-in-builder-btn'); "
+            "return b && !b.disabled; }",
+            timeout=10000,
+        )
 
         # Inject a new save path for the crossing
         crossing_dir = tempfile.mkdtemp()
@@ -204,6 +203,17 @@ class PB12BridgeTests(unittest.TestCase):
             "() => !document.getElementById('doc-chip').hidden",
             timeout=10000,
         )
+        # Wait for the button to be ENABLED (runtime ready) before clicking. Without
+        # this, a click during the bridge-exists-but-runtime-not-ready window lands on
+        # a disabled button and no-ops — the test would then "pass" because nothing
+        # happened, NOT because the dialog was cancelled (a false pass masking the very
+        # crossing this row must exercise). Gating on enabled forces the click to reach
+        # the real handler, where the cancelled save-as dialog is what halts navigation.
+        self.page.wait_for_function(
+            "() => { const b = document.getElementById('open-in-builder-btn'); "
+            "return b && !b.disabled; }",
+            timeout=10000,
+        )
         initial_url = self.page.url
 
         # Set dialog to cancel
@@ -227,9 +237,17 @@ class PB12BridgeTests(unittest.TestCase):
         self.page.click(".tray-row:nth-child(1) .tray-duplicate")
         self.page.wait_for_timeout(150)
 
-        order_after_reorder = self._tray_order()
         count_after_reorder = self._tray_count()
         self.assertEqual(count_after_reorder, 10, "should have 10 slides after reorder")
+
+        # The reorder is: remove slide 2, duplicate slide 1. Slide 1 is the cover
+        # section (top-level <section class="… slide--cover">); slide 2 carries the
+        # unique text "plataforma inteligente". So the new SECTION ORDER is:
+        # cover, cover, slide3, … slide10 — exactly two cover SECTIONS leading the
+        # deck and slide-2 content gone. Tray titles are positional ("Slide N") and
+        # cannot prove this; the saved-file section sequence is the only honest
+        # order-survival signal across the round trip.
+        REMOVED_TEXT = "plataforma inteligente"
 
         # Cross to editor
         save_dir = tempfile.mkdtemp()
@@ -244,6 +262,17 @@ class PB12BridgeTests(unittest.TestCase):
             timeout=10000,
         )
         self.assertIn("/app/?file=", self.page.url)
+
+        # The editor's ?file= arrival opens the doc and builds the bridge
+        # ASYNChronously, then enables "Open in builder". Clicking before that
+        # completes finds bridge=null → no crossing (correct product behavior) and
+        # the next navigation wait times out. Gate on the button becoming enabled —
+        # the arrival handler enables it only after openFile + ensureBridge resolve.
+        self.page.wait_for_function(
+            "() => { const b = document.getElementById('open-in-builder-btn'); "
+            "return b && !b.disabled; }",
+            timeout=10000,
+        )
 
         # Cross back to builder
         crossing_dir = tempfile.mkdtemp()
@@ -264,6 +293,41 @@ class PB12BridgeTests(unittest.TestCase):
         self.assertEqual(
             final_count, count_after_reorder,
             f"final tray count ({final_count}) should match pre-crossing count ({count_after_reorder})"
+        )
+
+        # ORDER survival (not merely count): the final saved file is what the
+        # builder re-opened. Split it into its top-level <section> blocks and assert
+        # the SPECIFIC reorder survived builder → editor → builder: slide 1 (cover)
+        # duplicated into the first two section positions, slide 2 removed, 10
+        # sections total. A reset-to-original (cover only at index 0, slide-2 text
+        # present) or a scrambled order (covers off positions 0/1) fails these even
+        # though the deck still has 10 sections.
+        self.assertTrue(
+            os.path.exists(builder_path),
+            f"final round-trip file should exist on disk: {builder_path}"
+        )
+        final_html = open(builder_path, encoding="utf-8").read()
+        # Section chunks: text after each '<section' up to the next one. chunk[0:tag]
+        # is the section's own open-tag (carries its class), so slide--cover in a
+        # chunk's open tag identifies a cover SECTION (not a CSS rule elsewhere).
+        section_chunks = final_html.split("<section")[1:]
+        self.assertEqual(
+            len(section_chunks), 10,
+            f"round-tripped file must carry exactly 10 sections, got {len(section_chunks)}",
+        )
+        cover_section_indexes = [
+            i for i, chunk in enumerate(section_chunks)
+            if "slide--cover" in chunk.split(">", 1)[0]
+        ]
+        self.assertEqual(
+            cover_section_indexes, [0, 1],
+            "slide 1 (cover) must be duplicated into the first two section positions "
+            f"after the round trip; cover sections were at {cover_section_indexes}",
+        )
+        self.assertNotIn(
+            REMOVED_TEXT, final_html,
+            "removed slide 2 (unique text 'plataforma inteligente') must be absent "
+            "from the round-tripped file",
         )
 
 
