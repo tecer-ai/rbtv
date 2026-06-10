@@ -100,7 +100,7 @@
     ]
   },
   "office": {
-    "description": "Daily knowledge work — pitch narratives (client, investor), document export, legal advisory, meeting prep and summarization, client emails, and the problem-reframing + idea-sparring persona.",
+    "description": "Daily knowledge work — studio loop entry via the pitcher command, document export, legal advisory, meeting prep and summarization, client emails, and the problem-reframing + idea-sparring persona.",
     "skills": [
       {
         "source_template": "office/skills/doc-export/SKILL.md",
@@ -132,7 +132,7 @@
         "source_template": "office/commands/pitcher.md",
         "target": ".claude/commands/rbtv-pitcher.md",
         "bake": ["rbtv_path"],
-        "description": "Build investor or client pitch narratives (asks pitch type, loads Roelof or Leo) — HTML design delegated to the studio module"
+        "description": "Enter the studio deck loop — opens the Strategist (audience mode: investor or client) who locks the message and hands off to Vivian for design"
       },
       {
         "source_template": "office/commands/lawyer.md",
@@ -354,7 +354,7 @@
   "cross_module_agents": {
     "vivian": {
       "primary_module": "studio",
-      "also_used_by": ["office", "innovation"]
+      "also_used_by": ["innovation"]
     }
   }
 }

@@ -29,7 +29,7 @@ Every row in this registry carries these six fields. A worker can invoke a capab
 1. Confirm `status` — if `planned`, the capability does not exist yet; do not proceed.
 2. For `built`: read the **entry point** workflow's `workflow.md` fully, then follow it. Supply every item listed under **inputs**; expect every item listed under **outputs**.
 3. For `convention`: the behavior is already woven into the beat that uses it — no separate invocation. See **spec / source pointer** for the governing beat file.
-4. After `p5-4` alignment, both `built` rows will carry a uniform invocation interface; until then, follow their native `workflow.md` directly.
+4. After the `p5-4` alignment, both reuse `built` rows carry the uniform invocation interface (entry point · inputs · outputs) — invoke them through it.
 
 ---
 
@@ -56,12 +56,10 @@ Every row in this registry carries these six fields. A worker can invoke a capab
 |-------|-------|
 | **name** | extract-tokens-from-site |
 | **status** | `built` |
-| **entry point** | Workflow: `studio/workflows/design-extraction/workflow.md` · Command loader: `studio/commands/design-extractor.md` (invocable as `/rbtv-design-extractor` once studio is in the install set; module-internal in v1) |
-| **inputs** | A live site URL; access to a headed browser (Playwright via `browser-automation` infra) |
-| **outputs** | `design-extraction/templates/design-brief.md` — narrative token summary · `design-extraction/templates/design-tokens.json` — structured per-token JSON with per-token source annotations (color / type / spacing / motion) |
-| **spec / source pointer** | `studio/workflows/design-extraction/workflow.md` (native workflow; alignment to registry convention at `p5-4`) |
-
-> **Note:** re-registered AS-IS at `p1-7`. Alignment to the uniform invocation interface (consistent field names, input/output contracts) happens at `p5-4`.
+| **entry point** | Command: `/rbtv-design-extractor` — invocable as the `/rbtv-*` command ONLY once studio is in the install set (`p6-3`); module-internal in v1, reached via the loop by reading `studio/workflows/design-extraction/workflow.md` directly · Source command file: `studio/commands/design-extractor.md` |
+| **inputs** | Target website URL · Output format selection (`brief` \| `tokens` \| `both`) · Runtime ability to navigate the live site and capture pages/screenshots |
+| **outputs** | Design brief at `{output_folder}/design-brief-{slug}.md` (when `brief`/`both` selected) · Design tokens JSON at `{output_folder}/design-tokens-{slug}.json` (when `tokens`/`both` selected), with per-token source attribution (`dom` or `screenshot-sampled`) |
+| **spec / source pointer** | `studio/workflows/design-extraction/workflow.md` · `studio/commands/design-extractor.md` |
 
 ---
 
@@ -71,12 +69,10 @@ Every row in this registry carries these six fields. A worker can invoke a capab
 |-------|-------|
 | **name** | image→JSON |
 | **status** | `built` |
-| **entry point** | Workflow: `studio/workflows/vision-to-json/workflow.md` · Command loader: `studio/commands/vision-to-json.md` (invocable as `/rbtv-vision-to-json` once studio is in the install set; module-internal in v1) |
-| **inputs** | A single image file (screenshot, exemplar, or reference visual) |
-| **outputs** | A strict JSON spec describing the image's visual elements + three regeneration prompts (Nano-Pro, Flux, Midjourney) for AI image generation from the spec |
-| **spec / source pointer** | `studio/workflows/vision-to-json/workflow.md` (native workflow; alignment to registry convention at `p5-4`) |
-
-> **Note:** re-registered AS-IS at `p1-7`. Alignment to the uniform invocation interface happens at `p5-4`.
+| **entry point** | Command: `/rbtv-vision-to-json` — invocable as the `/rbtv-*` command ONLY once studio is in the install set (`p6-3`); module-internal in v1, reached via the loop by reading `studio/workflows/vision-to-json/workflow.md` directly · Source command file: `studio/commands/vision-to-json.md` |
+| **inputs** | One reference image file (path or attachment; PNG, JPG, WEBP, etc.) |
+| **outputs** | Valid JSON file at the resolved output path (default `vision-to-json-{image-name}.json` in the resolved output folder) containing the strict schema plus three generator-ready regeneration prompts (`exact_prompt_for_nano_pro`, `exact_prompt_for_flux`, `exact_prompt_for_midjourney`) |
+| **spec / source pointer** | `studio/workflows/vision-to-json/workflow.md` · `studio/commands/vision-to-json.md` |
 
 ---
 
@@ -146,4 +142,4 @@ This file is written sequentially across the following tasks. NEVER write out of
 | 4 | `p5-3` | Update row 6 (exemplar-screenshot capture) — `planned` → `built` |
 | 5 | `p5-4` | Update rows 2 + 3 (extract-tokens-from-site + image→JSON) — alignment to uniform invocation interface |
 
-> **Slots 2–4 execution note (D6, 2026-06-10):** the capability wave ran `p5-1`/`p5-2`/`p5-3` as three PARALLEL workers with this registry REMOVED from their allowlists; each worker returned its row content (`registry_row` block) and the orchestration conductor wrote slots 2–4 serially in one sitting, plus the row-7 `load-references` addition deferred from `p2-12`. The serialization order above was honored; the writer changed (conductor, not the task workers). Slot 5 (`p5-4`) remains pending. |
+> **Slots 2–4 execution note (D6, 2026-06-10):** the capability wave ran `p5-1`/`p5-2`/`p5-3` as three PARALLEL workers with this registry REMOVED from their allowlists; each worker returned its row content (`registry_row` block) and the orchestration conductor wrote slots 2–4 serially in one sitting, plus the row-7 `load-references` addition deferred from `p2-12`. The serialization order above was honored; the writer changed (conductor, not the task workers). Slot 5 (`p5-4`) executed — rows 2 + 3 aligned to uniform invocation interface. |

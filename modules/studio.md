@@ -12,7 +12,7 @@ The module also owns **hypresent** — the HTML presentation engine (not install
 
 ### Studio Loop — the phase spine (`studio/workflows/studio-loop/`)
 
-- **What**: The artifact-general four-beat HTML pipeline that turns an owner's brief + this project's reference set into an owner-accepted artifact: **message-lock (Strategist) → art-direction → generate (trio → slices → fresh-eyes) → human gate.** Artifact (deck/site/app) and mode (blank-slate) are PARAMETERS each beat adapts to, never top-level branches. It replaces the old `deck-design` workflow. Behavior is governed by the deck-loop-spec in the design-module plan folder.
+- **What**: The artifact-general four-beat HTML pipeline that turns an owner's brief + this project's reference set into an owner-accepted artifact: **message-lock (Strategist) → art-direction → generate (trio → slices → fresh-eyes) → human gate.** Artifact (deck/site/app) and mode (blank-slate) are PARAMETERS each beat adapts to, never top-level branches. Behavior is governed by the deck-loop-spec in the design-module plan folder.
 - **Files**: `workflow.md` (spine entry + artifact/mode fork rules) and four beats under `beats/` — `beat-01-message-lock.md`, `beat-02-art-direction.md`, `beat-03-generate.md` (folds trio + slices + fresh-eyes), `beat-04-human-gate.md`.
 - **How it runs**: The Strategist runs beat 1 and hands a content spec to the Designer (Vivian), who runs beats 2–4. Every worker resumes from **design-state + the reference set ALONE** — zero conversation context. Output is HTML-native (full-screen browser + print-to-PDF CSS); no PPTX.
 - **Entry (v1)**: module-internal — reached via the already-installed `/rbtv-pitcher` (office), retargeted to the loop at P4.
@@ -21,8 +21,8 @@ The module also owns **hypresent** — the HTML presentation engine (not install
 
 ### The Strategist (`studio/personas/strategist.md`)
 
-- **What**: One message-lock persona with audience MODES (investor ← Roelof-mined, client ← Leo-mined; site-marketing + app-product are P5 stubs). Sits on the audience's side of the table, locks the deck's message, and authors the content spec — what to say and what each datum must communicate. NEVER makes a visual-design decision. Every external-facing number is owner-supplied and owner-sourced; an unsourced claim BLOCKS its slide, never fabricated.
-- **When to use**: Beat 1 of the studio loop — before any design exists. Reached via `/rbtv-pitcher`'s Lock-the-Message entry.
+- **What**: One message-lock persona with audience MODES (investor — mined from the retired Roelof persona; client — mined from the retired Leo persona). Sits on the audience's side of the table, locks the deck's message, and authors the content spec — what to say and what each datum must communicate. NEVER makes a visual-design decision. Every external-facing number is owner-supplied and owner-sourced; an unsourced claim BLOCKS its slide, never fabricated.
+- **When to use**: Beat 1 of the studio loop — before any design exists. Reached via `/rbtv-pitcher`.
 - **What it produces**: The content spec (thesis · one point per slide · narrative arc · per-datum communication intent · owner-sourced numbers) + initialized design-state. Hands off to Vivian.
 
 ---
@@ -69,7 +69,7 @@ The module also owns **hypresent** — the HTML presentation engine (not install
 ### `/rbtv-vision-to-json`
 
 - **What**: Forensically analyzes ONE static reference image into a strict JSON spec of every visual property, plus three generator-ready regeneration prompts (Nano-Pro, Flux, Midjourney) that recreate the image faithfully. This is photo forensics → regeneration prompt — distinct from `/rbtv-design-extractor`, which extracts UI design tokens from a live DOM.
-- **When to use**: You have a reference photo or rendered image you want to reproduce or adapt. The legacy `deck-design` workflow's image step (`studio/workflows/deck-design/steps-c/step-02-images.md`) routes any slot for which the user supplies a reference image through this workflow to produce that slot's regeneration prompt (callable until `deck-design` is retired at P4).
+- **When to use**: You have a reference photo or rendered image you want to reproduce or adapt — use when building out a reference set or when a design slot calls for regenerating from a reference image.
 - **How to invoke**: `/rbtv-vision-to-json` (command). Provide an image path or attachment.
 - **What it produces**: `vision-to-json-{image-name}.json` plus three ready-to-paste regeneration prompts.
 - **Example**: `/rbtv-vision-to-json` → reference hero shot → JSON spec + a Flux/Midjourney/Nano-Pro prompt that reproduces it.
@@ -86,8 +86,26 @@ The module also owns **hypresent** — the HTML presentation engine (not install
 
 ---
 
+### Capabilities (`studio/capabilities/`)
+
+The module ships a registry (`studio/capabilities/registry.md`) that indexes every capability. Workers consult the registry for invocation details. Seven capabilities are registered:
+
+| # | Name | Status | Entry point |
+|---|------|--------|-------------|
+| 1 | follow-tokens / brandbook | `convention` — woven into beats 2–4; no separate invocation | n/a |
+| 2 | extract-tokens-from-site | `built` — live-site design-token extraction | `/rbtv-design-extractor` |
+| 3 | image→JSON | `built` — reference image → strict JSON spec + regeneration prompts | `/rbtv-vision-to-json` |
+| 4 | extract-subtle-refs | `built` — motion/interaction reference extraction from live URLs | `studio/capabilities/extract-subtle-refs/extract.py` |
+| 5 | image-gen | `built` — source-pluggable AI image generation (Gemini provider first; live Gemini call requires a quota-carrying key — `free tier limit:0`; fixture provider available) | `studio/capabilities/image-gen/generate.py` |
+| 6 | exemplar-screenshot capture | `built` — headless Playwright screenshot capture into the reference-set `exemplars/` folder + manifest | `studio/capabilities/screenshot-capture/capture.py` |
+| 7 | load-references | `built` — loads all four reference-set layers into working context; HALTS on any missing layer | `studio/capabilities/load-references.md` (procedural) |
+
+Capabilities 4–6 are CLI Python scripts run from the repo root. Read each capability's usage doc before invoking.
+
+---
+
 ## How They Fit Together
 
 The **studio loop** is the spine: the **Strategist** locks the message (beat 1) and hands a content spec + initialized design-state to **Vivian** (`rbtv-designing`), who runs art-direction (beat 2 — mini-briefs picked against the reference set + ban-list), generation (beat 3 — pairwise trio → slice-by-slice deck → fresh-eyes pass against the flaw checklist), and the human gate (beat 4 — headed accept/bounce, surgical patch, bounce-cap escalation, print-to-PDF). Every worker resumes from **design-state** (`studio/state/`) + the workspace **reference set** alone — zero conversation context. The **standards bundle** (`studio/standards/`) makes "world-class AND distinct" testable: the ban-list gates every direction and slide; the flaw checklist drives the fresh-eyes pass.
 
-Supporting capabilities feed the loop on demand: `/rbtv-design-extractor` captures a reference visual system into design tokens; `/rbtv-vision-to-json` turns a reference image into a regeneration prompt; `rbtv-playwright-cli` renders, screenshots, and QAs the result (it powers the headed renders the loop and the done-gate evidence depend on — `file://` is blocked, the loop uses a local HTTP server). The office-module pitchers enter the loop via the `/rbtv-pitcher` handoff (retargeted to the studio loop at P4). The legacy `deck-design` workflow is replaced by the studio loop and retired after the GSMM proof passes (`PI`/`PDF`/`DE` deck-design steps folded into the loop beats).
+Supporting capabilities feed the loop on demand: `/rbtv-design-extractor` captures a reference visual system into design tokens; `/rbtv-vision-to-json` turns a reference image into a regeneration prompt; `rbtv-playwright-cli` renders, screenshots, and QAs the result (it powers the headed renders the loop and the done-gate evidence depend on — `file://` is blocked, the loop uses a local HTTP server). The `extract-subtle-refs`, `image-gen`, and `exemplar-screenshot-capture` CLI capabilities supply motion/interaction data, AI-generated imagery, and reference screenshots to the reference set. `load-references` loads all four reference-set layers before art-direction begins. The office module's `/rbtv-pitcher` command enters the loop and routes to the Strategist for beat 1.

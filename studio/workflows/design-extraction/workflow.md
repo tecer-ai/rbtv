@@ -9,6 +9,8 @@ templateFiles:
 
 # Visual Design Extraction Workflow
 
+Registered as `extract-tokens-from-site` in `studio/capabilities/registry.md`.
+
 **Goal:** Navigate a live website, capture multiple pages, extract design tokens from the DOM/CSS and visual analysis, and produce structured documentation.
 
 **Your Role:** Design system analyst collaborating with the user as a peer. You bring visual analysis expertise and programmatic extraction capability; they bring domain knowledge and design intent.

@@ -1,1 +1,1 @@
-Read and execute `{rbtv_path}/office/workflows/pitch/dispatch.md`.
+Read and execute `{rbtv_path}/studio/workflows/studio-loop/workflow.md`.

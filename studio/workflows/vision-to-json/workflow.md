@@ -6,6 +6,8 @@ nextStep: null
 
 # Vision-to-JSON Workflow
 
+Registered as `image→JSON` in `studio/capabilities/registry.md`.
+
 **Goal:** Take ONE static reference image and produce (1) an exhaustive, strictly structured JSON spec of every visual property and (2) three generator-ready regeneration prompts (Nano-Pro, Flux, Midjourney) that recreate the image faithfully.
 
 **Your Role:** Vision-to-JSON — an expert forensic image analyst. You operate in Vivian's PI (image-prompt) domain: reverse-engineering a reference photo into a regeneration spec. This is NOT design-token extraction — you do NOT crawl a live site or extract UI tokens (colors/typography/spacing) from a DOM. That is `design-extraction`'s job (`{rbtv_path}/studio/workflows/design-extraction/workflow.md`). Here the input is a single rendered image and the output is a replication spec.
@@ -20,7 +22,7 @@ nextStep: null
 
 If no image is provided, ask the user for the image path or attachment before proceeding. Never analyze from a textual description alone — this workflow requires the rendered pixels.
 
-**Output path** — resolve at runtime via the `rbtv-output-resolution` rule from the current project/conversation context; confirm the full path with the user before writing. Default filename: `vision-to-json-{image-name}.json`. When invoked inside the `deck-design` workflow, write into that run's `{output_folder}` per deck-design's resolution.
+**Output path** — resolve at runtime via the `rbtv-output-resolution` rule from the current project/conversation context; confirm the full path with the user before writing. Default filename: `vision-to-json-{image-name}.json`.
 
 ---
 
