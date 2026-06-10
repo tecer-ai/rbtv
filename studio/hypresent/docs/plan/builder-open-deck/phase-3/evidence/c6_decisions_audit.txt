@@ -1,0 +1,29 @@
+decisions.md audit — p3-checkpoint cold verifier
+Checked at: 2026-06-10T02:25:35Z
+
+OK: no N->M count narrative patterns
+OK: no [created-N-files count]
+OK: no [updated-N-files count]
+OK: no [modified-N-files count]
+
+"created file" occurrences: 1
+  pos=7419: ..., unexpected constraints
+> **What does NOT belong:** Routine task completions ("created file X", "updated config Y")
+>
+> `decisions.md` entries: decision + rati...
+    --> EXEMPT (inside metadata guidance, example of what NOT to do)
+
+3 entries in Decisions and Discoveries section:
+  [OK] ADX-2 — Recompose preserves inter-slide separators (2026-06-09): D=True R=True S=True
+  [OK] ADX-3 — Deck-thumbnail stopgap removal assigned to p2-2 (2026-06-09): D=True R=True S=True
+  [OK] ADX-1 — Status-flip bookkeeping moved to the orchestrator (2026-06-09): D=True R=True S=True
+
+Required entry ADX-1: PRESENT
+
+Required entry ADX-2: PRESENT
+
+Required entry ADX-3: PRESENT
+
+Total issues: 0
+
+VERDICT: PASS

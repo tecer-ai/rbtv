@@ -118,6 +118,12 @@
 - **Rationale:** Task allowlists exclude the plan folder, so executor-side flips would trip the post-run diff-vs-allowlist gate; run bookkeeping is registrar work and stays with the conductor (validated slide-expand precedent).
 - **Scope:** All build tasks p1-1 → p4-1 (ADX-1 erratum appended to each); checkpoint tasks unaffected.
 
+### D-asset-colocation — Save copies library-fragment assets only, not the source deck's own assets (2026-06-10)
+
+- **Decision:** `/api/deck-save` co-locates ONLY the assets referenced by added LIBRARY fragments; a saved deck's OWN `assets/*` references (inherited from its source deck, carried verbatim inside the preserved section spans) are NOT copied to a new save directory. This is the correct p3 scope (deck-save-spec Behavior row 5 + Out-of-Scope), confirmed by the p3-checkpoint opus findings audit (B10).
+- **Rationale:** Recompose's asset responsibility is bounded to what IT introduces (library fragments); the source deck's spans are preserved byte-for-byte (ADX-2) and their relative asset refs are the source deck's own. Copying the source deck's full asset tree on every save was never in p3 scope.
+- **Scope:** p4-1 and the bridge/Save-As-to-editor path — a deck saved to a DIFFERENT directory than its source will have unresolved image refs for its own (non-library) slides when reopened/handed to the editor. Surface as a phase-4/5 follow-up if owner relocation of saved decks is a target; not a p3 defect.
+
 ---
 
 ## References

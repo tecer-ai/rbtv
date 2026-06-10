@@ -1,0 +1,22 @@
+Saved file: C:\Users\henri\AppData\Local\Temp\hyp_verifier_mi0l9qvd\c3_save\deck_c3_saved.html
+Size: 89306 bytes
+
+hyp-/data-hyp-* token count: 0
+
+All asset refs in output (informational):
+  assets/cover-bg.jpg
+  assets/closing-bg.jpg
+  assets/bg-dark-threads.jpg
+  assets/tecer-wordmark-white.png
+  assets/gsmm-logo.png
+  assets/founder-guilherme.png
+  assets/founder-henrique.jpeg
+  assets/founder-luiz.jpeg
+  assets/tecer-wordmark-white.png
+
+Library fragment asset refs (checked for copy):
+
+Asset directory listing (C:\Users\henri\AppData\Local\Temp\hyp_verifier_mi0l9qvd\c3_save\assets):
+  (no assets/ directory)
+
+Library fragment verbatim: True
