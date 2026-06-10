@@ -33,13 +33,13 @@ The spine is artifact-general. Each beat reads two parameters from the active de
 
 | Parameter | Values | What it adapts | Resolved by |
 |-----------|--------|----------------|-------------|
-| `artifact` | `deck` (proven) · `site` (ROADMAP) · `app` (ROADMAP) | The row noun and discovery shape: `deck` → slides; `site` → pages (multi-page, image/animation-led); `app` → screens (discovery forks to goal→user-flow; output = plain HTML UI + UX companion docs). The deck path is concrete in v1; site/app are sketched and concretized or dropped at `p3-checkpoint`. | design-state `artifact`; default `deck` (this file's frontmatter) |
-| `mode` | `blank-slate` (v1) · `audit` (deferred) | Whether the run starts from nothing (blank-slate) or audits an existing artifact (audit/improve-existing — deferred to a future plan, never built in v1). | design-state `mode`; default `blank-slate` |
+| `artifact` | `deck` · `site` · `app` | The row noun and discovery shape: `deck` → slides; `site` → pages (multi-page, image/animation-led; see `forks/site.md`); `app` → screens (discovery forks to goal→user-flow; output = plain HTML UI + UX companion docs; see `forks/app.md`). All three forks are built; site/app forks live at `forks/site.md` and `forks/app.md`. | design-state `artifact`; default `deck` (this file's frontmatter) |
+| `mode` | `blank-slate` · `audit` (deferred) | Whether the run starts from nothing (blank-slate) or audits an existing artifact (audit/improve-existing — deferred to a future plan, never built in v1). | design-state `mode`; default `blank-slate` |
 
 **Fork conditional rules (binding on every beat):**
 
 - A beat reads `artifact`/`mode` from design-state FIRST; it NEVER hardcodes `deck`. The deck behavior is the `artifact: deck` branch of each beat's conditional, not the beat's only behavior.
-- `artifact: site` or `app` → the beat follows its ROADMAP fork sketch (architecture §1.1 forks) when one exists; absent a concretized fork, the beat HALTS and surfaces "site/app fork not concretized — `p3-checkpoint`" rather than improvising. v1 ships ONLY the `deck` branch wired end-to-end.
+- `artifact: site` or `app` → the beat follows the built fork (`forks/site.md` or `forks/app.md`). If a beat reads an artifact value with no matching fork file present, it HALTS and surfaces "artifact fork file missing — check `forks/`" rather than improvising.
 - `mode: audit` → not built in v1; a beat that reads `mode: audit` HALTS with "audit mode deferred — blank-slate only in v1." No beat improvises an audit flow.
 - The artifact noun shift (`slide` → `page` for site, `slide` → `screen` for app) is design-state-schema-handled (schema §4); beats use the resolved noun, never a hardcoded "slide" in artifact-general logic.
 
@@ -55,4 +55,4 @@ A worker NEVER reads `run-log.md` or `state-capsule.md` — those are conductor/
 
 ## Entry
 
-v1 entry is module-internal: the owner reaches the loop through the already-installed `/rbtv-pitcher` (office), retargeted to this spine at `p4-1` (architecture §2). The Strategist runs beat 1; the Designer (`rbtv-designing` — Vivian) runs beats 2–4. The loop does NOT depend on `hypresent/` or `slide-library/`; it renders via the `browser-automation` infra (local HTTP server + headed browser; `file://` is blocked).
+The owner reaches the loop through `/rbtv-pitcher` (office), retargeted to this spine at `p4-1` (architecture §2). The Strategist runs beat 1; the Designer (`rbtv-designing` — Vivian, now installed) runs beats 2–4. Vivian can also be invoked directly via the `rbtv-designing` skill to resume from a design-state path. The loop does NOT depend on `hypresent/` or `slide-library/`; it renders via the `browser-automation` infra (local HTTP server + headed browser; `file://` is blocked).

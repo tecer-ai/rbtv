@@ -35,8 +35,8 @@ The deck path is the proven instance of the spine; site/app are forks adapted at
 | Beat 3 — HTML generation | `studio/workflows/studio-loop/beats/beat-03-generate.md` | CREATE (`p2-7`+) | Template trio (pairwise) → slice-by-slice via fresh contexts → fresh-eyes pass. Chart mechanism resolved at the `p2-2` spike |
 | Beat 4 — human gate | `studio/workflows/studio-loop/beats/beat-04-human-gate.md` | CREATE (`p2-10`) | Headed-browser accept/bounce; surgical patch; bounce-cap ≈3/slide → message rethink (H8) |
 | Artifact/mode fork rules | folded into `workflow.md` frontmatter + beat conditionals | CREATE | `artifact` (deck/site/app) + `mode` (blank-slate; audit deferred) as parameters, keyed like the office pitch `{pitch_type}` conditional pattern |
-| **Site path** (sketch) | `studio/workflows/studio-loop/forks/site.md` | ROADMAP — concretize/drop at `p3-checkpoint` | Same spine; multi-page; leans on images/animation. Placeholder proof `p5-7` |
-| **App path** (sketch) | `studio/workflows/studio-loop/forks/app.md` | ROADMAP — concretize/drop at `p3-checkpoint` | Discovery forks to goal→user-flow; output = plain HTML UI + UX companion docs for a coding agent to wire. Placeholder proof `p5-11` |
+| **Site path** | `studio/workflows/studio-loop/forks/site.md` | BUILT (`p5-5`) | Same spine; multi-page; leans on images/animation. Runs in `site-marketing` Strategist mode |
+| **App path** | `studio/workflows/studio-loop/forks/app.md` | BUILT (`p5-8`) | Discovery forks to goal→user-flow; output = plain HTML UI + UX companion docs for a coding agent to wire. Runs in `app-product` Strategist mode |
 | `deck-design/` workflow + `steps-c/`,`steps-e/`,`data/` | `studio/workflows/deck-design/` | REPLACED → mined (`p1-6`) → DELETED (`p4-2`) after the GSMM proof passes | Until deletion it stays callable (no broken window) |
 
 ### 1.2 ROLES — workers & personas
@@ -93,32 +93,32 @@ The module does NOT build a state engine. It defines a **payload** that rides th
 
 > **This section resolves the `p1-3` discovery and binds `p1-7`, `p4-1`, `p6-3`.** It states, for each named entry surface, whether it is **user-invocable** (requires studio to enter the install set + a `.claude/` loader) or **module-internal** (reached only via an already-installed entry point).
 
-### 2.1 The discovery (verified on disk)
+### 2.1 The discovery (verified on disk, as of p1-3 — SUPERSEDED by the p6-checkpoint flip; see §2.2)
 
-The studio module is **NOT in this vault's install set**. `rbtv.json` declares `modules: [core, office, orchestration, builder, coding]`. The studio manifest's user-facing components — `rbtv-designing`, `rbtv-playwright-cli` skills; `rbtv-design-extractor`, `rbtv-vision-to-json` commands — are **absent from `.claude/`** (verified: no such loaders present; only office's `rbtv-pitcher` reaches studio). `install.py` installs only the five declared modules. Studio's own manifest entries (§ `studio` block) describe loaders that would land **if and only if** studio joins the install set.
+The studio module **was NOT in this vault's install set at p1-3**. `rbtv.json` then declared `modules: [core, office, orchestration, builder, coding]`. The studio manifest's user-facing components — `rbtv-designing`, `rbtv-playwright-cli` skills; `rbtv-design-extractor`, `rbtv-vision-to-json` commands — are **absent from `.claude/`** (verified: no such loaders present; only office's `rbtv-pitcher` reaches studio). `install.py` installs only the five declared modules. Studio's own manifest entries (§ `studio` block) describe loaders that would land **if and only if** studio joins the install set.
 
 ### 2.2 The decision
 
-**Decision: keep studio MODULE-INTERNAL for v1; the deck loop is entered through the already-installed `/rbtv-pitcher` (office) retargeted at P4. Do NOT add studio to the install set as part of this build.** The Strategist and Designer become user front doors only at the explicit, separate install step (`p6-3`), gated on the GSMM proof passing.
+**Decision (original, p1-4): keep studio MODULE-INTERNAL for v1; the deck loop is entered through the already-installed `/rbtv-pitcher` (office) retargeted at P4.** The rationale was to minimise install-set churn and ride on the proof before adding standalone front doors (D8).
 
-**Rationale (lands in `decisions.md` this turn):** the office module is installed and `/rbtv-pitcher` already exists and already documents "HTML design delegated to the studio module." Retargeting `/rbtv-pitcher`'s handoff (`p4-1`) to the studio loop gives the owner a working entry to the whole deck path **without** touching the install set — the loop becomes reachable the moment P4 retargets it. Adding studio to the install set is a heavier, separately-gated act (new loaders, manifest entries, doc-sync) that should ride on the proof, not precede it (D8: build the minimum that makes the outcome reachable). This matches the plan's serialized manifest slots (`p4-1` → `p4-4` → `p6-3`) — nothing forces a studio install before P6.
+**Decision superseded at p6-checkpoint (2026-06-10): studio added to the install set.** The owner approved the flip at p6-checkpoint; the install executed that day. Four surfaces are now live: `rbtv-designing` + `rbtv-playwright-cli` skills; `/rbtv-design-extractor` + `/rbtv-vision-to-json` commands. The Strategist and the studio loop beats remain loop-internal BY DESIGN — reached via `/rbtv-pitcher`, not as standalone commands. The proof-gating clause no longer applies; the install decision was executed without requiring the GSMM deck proof (D7 struck the deck proof from the plan).
 
 ### 2.3 Per-surface verdict
 
 | Entry surface | Name (loader / command) | Verdict | Reached how | Wiring task |
 |---------------|-------------------------|---------|-------------|-------------|
 | **Deck loop — owner entry (v1)** | `/rbtv-pitcher` (office, **already installed**) retargeted to the studio loop | **module-internal** (today) | Owner runs the installed `/rbtv-pitcher`; its handoff dispatches into `studio/workflows/studio-loop/` (Strategist beat 1) | **`p4-1`** retargets the handoff destination (manifest-allowlisted slot) |
-| **Designer** | `rbtv-designing` skill → reworked `vivian.md` | **module-internal until `p6-3`**, then **user-invocable** | v1: reached via the loop / the retargeted pitcher handoff. Becomes a standalone front door ONLY when studio enters the install set | **`p6-3`** (install set + loader) — gated on proof |
+| **Designer** | `rbtv-designing` skill → reworked `vivian.md` | **user-invocable** (installed 2026-06-10) | Reached via the loop (via `/rbtv-pitcher`) OR invoked directly via the `rbtv-designing` skill to resume from a design-state path | **executed** at p6-checkpoint flip |
 | **Strategist** | (no standalone loader in v1) — runs as the loop's beat-1 persona | **module-internal** | The loop invokes `studio/personas/strategist.md`; no separate user command in v1 | Optional standalone loader is a `p6-3`/post-v1 decision, not required |
-| **playwright-cli** | `rbtv-playwright-cli` skill | **module-internal infra** | REUSE-as-is rendering/QA infra invoked BY the loop and done-gate evidence; not a user-facing studio feature | Joins `.claude/` only if studio enters the install set (`p6-3`); not required for v1 |
-| **extract-tokens** | `/rbtv-design-extractor` command | **module-internal** (v1) | Invoked on demand via the capability registry during the loop | User-invocable only if studio installs (`p6-3`); re-registered `p1-7`, aligned `p5-4` |
-| **image→JSON** | `/rbtv-vision-to-json` command | **module-internal** (v1) | Same as above | Same as above |
+| **playwright-cli** | `rbtv-playwright-cli` skill | **installed** (2026-06-10) | REUSE-as-is rendering/QA infra — invoked by the loop and done-gate evidence; also available standalone via the `rbtv-playwright-cli` skill | executed at p6-checkpoint flip |
+| **extract-tokens** | `/rbtv-design-extractor` command | **user-invocable** (installed 2026-06-10) | Invoked on demand via the capability registry during the loop OR directly as `/rbtv-design-extractor` | executed at p6-checkpoint flip |
+| **image→JSON** | `/rbtv-vision-to-json` command | **user-invocable** (installed 2026-06-10) | Same | executed at p6-checkpoint flip |
 
 ### 2.4 Downstream implications (carried to `concerns`)
 
 - **`p1-7`** registers capabilities into `studio/capabilities/registry.md` — a module-internal index, NOT a `.claude/` install. No install wiring required at `p1-7`.
 - **`p4-1`** retargets the EXISTING `/rbtv-pitcher` handoff (the one installed surface) to the studio loop. This is the v1 user entry; it is a manifest description edit at the serialized P4 slot, not a new studio install.
-- **`p6-3`** is the ONLY task that may add studio to the install set (Strategist/Designer/capabilities as standalone user front doors) — gated on the GSMM proof passing, serialized with the P5 doc-sweep. If the owner wants studio user-invocable earlier, that is a `p3-checkpoint` decision (see `open_questions`).
+- **`p6-3` (executed at p6-checkpoint, 2026-06-10):** studio added to the install set. The four surfaces listed in §2.3 are live. The Strategist and the loop beats remain loop-internal by design — the install added the reuse capabilities' commands and the Designer/playwright-cli skills; the Strategist has no standalone command (as noted in §2.3).
 
 ---
 
@@ -141,8 +141,8 @@ studio/
 │   │   │   ├── beat-03-generate.md      ✚   trio → slices → fresh-eyes
 │   │   │   └── beat-04-human-gate.md    ✚   headed accept/bounce + bounce-cap
 │   │   └── forks/
-│   │       ├── site.md                  ✚ SKETCH — concretize/drop at p3-checkpoint
-│   │       └── app.md                   ✚ SKETCH — concretize/drop at p3-checkpoint
+│   │       ├── site.md                  ✚ BUILT (p5-5) — artifact: site fork
+│   │       └── app.md                   ✚ BUILT (p5-8) — artifact: app fork
 │   ├── deck-design/                       REPLACED → mined (p1-6) → DELETED (p4-2)
 │   ├── browser-automation/                REUSE AS-IS (render/screenshot/QA infra)
 │   ├── design-extraction/                 REUSE → re-registered (p1-7)
@@ -286,7 +286,7 @@ The design-state file lives with the run's output (`{output_folder}/.../design-s
 |---------------|-------|-------------|
 | Chart mechanism (hand-authored vs library) | the `p2-2` spike against a concrete exemplar | `p2-2` |
 | Site/app fork concretization (or drop) | GSMM evidence in hand | `p3-checkpoint` |
-| Whether studio enters the install set in v1 (vs staying module-internal) | the §2 decision defaults to module-internal; an earlier install is an owner call | `p3-checkpoint` / `p6-3` |
+| Whether studio enters the install set | **RESOLVED** — studio added to install set at p6-checkpoint (2026-06-10); 4 surfaces installed | closed |
 | Exact design-state fields/format | `p1-5` | `p1-5` |
 | Capability registry row schema | `p1-7` | `p1-7` |
 | Critic taxonomy + structural/aesthetic split | v1.1 build | P6 |

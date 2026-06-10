@@ -7,7 +7,7 @@ status: active
 
 # Studio Capability Registry
 
-The single index a worker consults to discover and invoke any studio capability. This is a **module-internal index** — not a `.claude/` install. Workers reach it via the studio loop; it is not user-invocable as a standalone command until `p6-3`.
+The single index a worker consults to discover and invoke any studio capability. This is a **module-internal index** — not a `.claude/` install. Workers reach it via the studio loop. The two reuse capabilities' commands (`/rbtv-design-extractor` and `/rbtv-vision-to-json`) are now installed as of 2026-06-10 (owner-approved at p6-checkpoint); the registry remains the discovery surface for workers; users may also invoke those commands directly.
 
 ---
 
@@ -56,7 +56,7 @@ Every row in this registry carries these six fields. A worker can invoke a capab
 |-------|-------|
 | **name** | extract-tokens-from-site |
 | **status** | `built` |
-| **entry point** | Command: `/rbtv-design-extractor` — invocable as the `/rbtv-*` command ONLY once studio is in the install set (`p6-3`); module-internal in v1, reached via the loop by reading `studio/workflows/design-extraction/workflow.md` directly · Source command file: `studio/commands/design-extractor.md` |
+| **entry point** | Command: `/rbtv-design-extractor` — installed as of 2026-06-10 (p6-checkpoint); invocable as a standalone `/rbtv-*` command OR via the loop by reading `studio/workflows/design-extraction/workflow.md` directly · Source command file: `studio/commands/design-extractor.md` |
 | **inputs** | Target website URL · Output format selection (`brief` \| `tokens` \| `both`) · Runtime ability to navigate the live site and capture pages/screenshots |
 | **outputs** | Design brief at `{output_folder}/design-brief-{slug}.md` (when `brief`/`both` selected) · Design tokens JSON at `{output_folder}/design-tokens-{slug}.json` (when `tokens`/`both` selected), with per-token source attribution (`dom` or `screenshot-sampled`) |
 | **spec / source pointer** | `studio/workflows/design-extraction/workflow.md` · `studio/commands/design-extractor.md` |
@@ -69,7 +69,7 @@ Every row in this registry carries these six fields. A worker can invoke a capab
 |-------|-------|
 | **name** | image→JSON |
 | **status** | `built` |
-| **entry point** | Command: `/rbtv-vision-to-json` — invocable as the `/rbtv-*` command ONLY once studio is in the install set (`p6-3`); module-internal in v1, reached via the loop by reading `studio/workflows/vision-to-json/workflow.md` directly · Source command file: `studio/commands/vision-to-json.md` |
+| **entry point** | Command: `/rbtv-vision-to-json` — installed as of 2026-06-10 (p6-checkpoint); invocable as a standalone `/rbtv-*` command OR via the loop by reading `studio/workflows/vision-to-json/workflow.md` directly · Source command file: `studio/commands/vision-to-json.md` |
 | **inputs** | One reference image file (path or attachment; PNG, JPG, WEBP, etc.) |
 | **outputs** | Valid JSON file at the resolved output path (default `vision-to-json-{image-name}.json` in the resolved output folder) containing the strict schema plus three generator-ready regeneration prompts (`exact_prompt_for_nano_pro`, `exact_prompt_for_flux`, `exact_prompt_for_midjourney`) |
 | **spec / source pointer** | `studio/workflows/vision-to-json/workflow.md` · `studio/commands/vision-to-json.md` |
