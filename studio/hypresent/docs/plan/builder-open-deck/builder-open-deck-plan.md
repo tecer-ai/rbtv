@@ -70,8 +70,8 @@ Patterns and principles that MUST be followed during execution.
 ### Phase 3: Compose — heterogeneous tray + save UI
 
 - [x] `p3-1` UPDATE tray to uid identity with three row kinds (existing · library · blank), duplicate control, and `getItems()` → `phase-3/p3-1.task.md`
-- [ ] `p3-2` UPDATE builder so library browse adds to the deck tray and an "Add blank slide" button appends blanks → `phase-3/p3-2.task.md`
-- [ ] `p3-3` CREATE the Save deck UI — new-file vs overwrite chooser on every save, wired to `/api/deck-save` → `phase-3/p3-3.task.md`
+- [x] `p3-2` UPDATE builder so library browse adds to the deck tray and an "Add blank slide" button appends blanks → `phase-3/p3-2.task.md`
+- [x] `p3-3` CREATE the Save deck UI — new-file vs overwrite chooser on every save, wired to `/api/deck-save` → `phase-3/p3-3.task.md`
 - [ ] `p3-checkpoint` **CHECKPOINT** — full restructure loop: open → reorder/remove/duplicate/add → save → reopen intact → `phase-3/p3-checkpoint.task.md`
 
 ### Phase 4: Bridge — cross to the editor

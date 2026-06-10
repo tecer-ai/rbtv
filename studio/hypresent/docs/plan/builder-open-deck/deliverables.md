@@ -31,8 +31,8 @@
 | Task | Artifact | Path | Status |
 |------|----------|------|--------|
 | p3-1 | Heterogeneous tray (uid identity, 3 kinds, duplicate, `getItems()`) + e2e | `app/js/builder/tray.js`, `app/js/builder/tray-sorter.js`, `app/js/builder/builder-main.js`, `tests/e2e/test_pb9_deck_tray.py` | ✅ |
-| p3-2 | Deck-mode library add + blank add + e2e | `app/js/builder/builder-main.js`, `app/js/builder/browse-pane.js`, `app/builder.html`, `tests/e2e/test_pb10_deck_add.py` | pending |
-| p3-3 | Save deck UI (new-file vs overwrite) + e2e | `app/js/builder/deck-save.js`, `app/js/builder/builder-main.js`, `app/builder.html`, `tests/e2e/test_pb11_deck_save.py` | pending |
+| p3-2 | Deck-mode library add + blank add + e2e | `app/js/builder/builder-main.js`, `app/js/builder/browse-pane.js`, `app/builder.html`, `tests/e2e/test_pb10_deck_add.py` | ✅ |
+| p3-3 | Save deck UI (new-file vs overwrite) + e2e | `app/js/builder/deck-save.js`, `app/js/builder/builder-main.js`, `app/builder.html`, `tests/e2e/test_pb11_deck_save.py` | ✅ |
 | p3-checkpoint | Phase 3 evaluation findings + headed full-loop evidence + user approval | `./phase-3/evidence/` | pending |
 
 ## Phase 4 deliverables — Bridge

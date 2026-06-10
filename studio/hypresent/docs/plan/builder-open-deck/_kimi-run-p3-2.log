@@ -1,0 +1,28 @@
+**status:** DONE
+
+**landed:**
+- `app/builder.html` — modified (static `#add-blank-btn` inside `.tray-head`)
+- `app/js/builder/builder-main.js` — modified (wired static button; removed dynamic injection + unused `trayHead` query)
+- `app/js/builder/browse-pane.js` — no changes required (badge mechanics already correct for kind-aware tray)
+- `tests/e2e/test_pb10_deck_add.py` — created
+- commit `242a1e3` on `master`
+
+**validation:**
+
+| Command | EXIT | Result / WALL_MS |
+|---------|------|------------------|
+| `node --check app/js/builder/builder-main.js` | 0 | passed |
+| `node --check app/js/builder/browse-pane.js` | 0 | passed |
+| `python -m pytest tests/e2e/test_pb10_deck_add.py -q` | 0 | 2 passed in ~4.39s |
+| `python -m pytest tests/e2e/test_pb8_deck_open.py tests/e2e/test_pb9_deck_tray.py -q` | 0 | 9 passed in ~9.89s |
+
+SKIPPED_COUNT: 0 — no skips.
+
+**concerns:**
+- The core deck-mode library-add/blank-add behavior was already functional because p3-1’s tray rework (`uid` identity, three row kinds, `addBlank()`, `getItems()`) provided the public API. This task’s main code change was moving the “Add blank slide” button from dynamic JS creation to static HTML + wiring, which is cleaner and test-stable.
+- `browse-pane.js` needed no edit: `markTrayState(tray.getOrder())` already receives only library-row `slideId`s in deck mode, correctly badging browse cards for library membership.
+- Edge case (not exercised by tests): if a deck is opened while a library is already loaded, `tray.setLibrary(null)` sets the closure variable to `null`. Clicking stale browse cards would create `library` rows with `libraryPath: null`. The spec’s tested flow loads the library after opening the deck, so this is not a regression.
+
+**open_questions:** none
+
+To resume this session: kimi -r 0e745997-ce17-4f04-b401-d723e477d26c
