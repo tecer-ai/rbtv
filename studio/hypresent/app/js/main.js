@@ -1,6 +1,6 @@
 import Coloris from "/app/js/vendor/coloris.min.js";
 import { createBridge } from "/app/js/bridge/bridge-parent.js";
-import { openViaDialog, openFile } from "/app/js/shell/file-controls.js";
+import { openViaDialog, openFile, setupOpenInBuilder } from "/app/js/shell/file-controls.js";
 import { createColorPopover } from "/app/js/shell/color-popover.js";
 import { openComposer } from "/app/js/shell/comment-composer.js";
 import { createShortcutsHelp } from "/app/js/shell/shortcuts-help.js";
@@ -470,6 +470,7 @@ document.addEventListener("DOMContentLoaded", () => {
         setStatus("");
         setDocChip(result.name || "");
         setDocState(false);
+        setOpenInBuilderEnabled(true);
       } catch (err) {
         console.error("Open failed:", err.message);
         setStatus("Open failed: " + err.message, "error");
@@ -496,6 +497,7 @@ document.addEventListener("DOMContentLoaded", () => {
         setStatus("");
         setDocChip((result && result.name) || fileParam.split(/[\\/]/).pop() || "");
         setDocState(false);
+        setOpenInBuilderEnabled(true);
       } catch (err) {
         console.error("Handoff open failed:", err.message);
         setStatus("Open failed: " + err.message, "error");
@@ -518,6 +520,17 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     return result.html;
   }
+
+  // Wire "Open in builder" button (bridge crossing: editor → builder)
+  const openInBuilderBtn = document.getElementById("open-in-builder-btn");
+  function setOpenInBuilderEnabled(enabled) {
+    if (openInBuilderBtn) openInBuilderBtn.disabled = !enabled;
+  }
+  setupOpenInBuilder({
+    getSerializeDoc: () => serializeDoc,
+    getStatusSetter: () => setStatus,
+    getBridge: () => bridge,
+  });
 
   const saveBtn = document.querySelector("#save-btn");
   if (saveBtn) {

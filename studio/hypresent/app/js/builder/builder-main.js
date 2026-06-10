@@ -53,6 +53,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const deckSavePane = document.getElementById('deck-save-pane');
   const saveNewBtn = document.getElementById('save-new-btn');
   const saveOverwriteBtn = document.getElementById('save-overwrite-btn');
+  const switchToEditorBtn = document.getElementById('switch-to-editor-btn');
 
   function setStatus(msg, type = '') {
     if (!builderStatus) return;
@@ -72,6 +73,7 @@ document.addEventListener("DOMContentLoaded", () => {
       state.canSave = state.deck && total > 0;
       if (saveNewBtn) saveNewBtn.disabled = !state.canSave;
       if (saveOverwriteBtn) saveOverwriteBtn.disabled = !state.canSave;
+      if (switchToEditorBtn) switchToEditorBtn.disabled = !state.canSave;
     }
   });
   state.tray = tray;
@@ -522,6 +524,35 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   if (saveOverwriteBtn) {
     saveOverwriteBtn.addEventListener('click', () => doSave('overwrite'));
+  }
+
+  // ── Switch to editor (bridge) ──────────────────────────────────────────
+  if (switchToEditorBtn) {
+    switchToEditorBtn.addEventListener('click', async () => {
+      if (!state.deck) {
+        setStatus('No deck loaded.', 'error');
+        return;
+      }
+      const items = tray.getItems();
+      if (items.length === 0) {
+        setStatus('Tray is empty.', 'error');
+        return;
+      }
+      try {
+        const result = await saveDeck({ deck: state.deck, items, mode: 'new-file' });
+        if (result.cancelled) {
+          return; // user cancelled dialog — stay put
+        }
+        if (!result.ok) {
+          setStatus('Save failed.', 'error');
+          return;
+        }
+        // Save succeeded — navigate to editor via existing handoff
+        window.location.href = '/app/?file=' + encodeURIComponent(result.path);
+      } catch (err) {
+        setStatus('Save failed: ' + err.message, 'error');
+      }
+    });
   }
 
   // ── ?file= boot branch ───────────────────────────────────────────────

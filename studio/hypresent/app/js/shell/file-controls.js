@@ -31,3 +31,38 @@ export async function openViaDialog(iframe) {
   await loadIntoIframe(result.name, iframe);
   return result; // {html,dir,name}
 }
+
+/**
+ * Set up the "Open in builder" button. Caller provides serializeDoc() and setStatus().
+ * The button is disabled when no document is open (bridge is null / no doc chip).
+ */
+export function setupOpenInBuilder({ getSerializeDoc, getStatusSetter, getBridge }) {
+  const btn = document.getElementById('open-in-builder-btn');
+  if (!btn) return;
+
+  btn.addEventListener('click', async () => {
+    const bridge = getBridge();
+    if (!bridge) {
+      setStatusSetter()('No document open.', 'error');
+      return;
+    }
+    const serializeDoc = getSerializeDoc();
+    if (!serializeDoc) return; // serializeDoc already set status on error
+
+    const html = await serializeDoc();
+    if (html == null) return; // serialization failed — status already set
+
+    try {
+      const result = await apiClient.dialogSaveAs(html);
+      if (result && result.cancelled) return; // user cancelled — stay put
+      if (!result || !result.ok) {
+        setStatusSetter()('Save failed.', 'error');
+        return;
+      }
+      // Save succeeded — navigate to builder with ?file= handoff
+      window.location.href = '/app/builder.html?file=' + encodeURIComponent(result.path);
+    } catch (err) {
+      setStatusSetter()('Save failed: ' + err.message, 'error');
+    }
+  });
+}
