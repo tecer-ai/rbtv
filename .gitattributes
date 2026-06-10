@@ -1,0 +1,9 @@
+# Pin the stamp-script test fixtures to LF in every working tree.
+#
+# This repo runs with core.autocrlf=true, so a fresh checkout/clone would
+# otherwise re-materialize these LF-stored fixtures as CRLF. That (a) breaks
+# the premise of test_stamp.py::TestLineEndingPreservation and (b) makes every
+# fresh checkout show spurious CRLF diffs that stage to no-ops.
+# `text eol=lf` keeps them normalized LF on commit and forces LF on checkout
+# regardless of the user's autocrlf setting.
+orchestration/skills/orchestrating/scripts/tests-fixtures/** text eol=lf
