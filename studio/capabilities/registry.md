@@ -85,11 +85,11 @@ Every row in this registry carries these six fields. A worker can invoke a capab
 | Field | Value |
 |-------|-------|
 | **name** | extract-subtle-refs |
-| **status** | `planned` — built at `p5-1` |
-| **entry point** | Not yet built. Will land at `studio/capabilities/extract-subtle-refs.md` (per the spec) |
-| **inputs** | TBD per spec — expected: reference exemplars (motion / interaction samples or video captures) |
-| **outputs** | TBD per spec — expected: structured extraction of motion/interaction references (timing, easing, transition patterns) usable by the art-direction beat |
-| **spec / source pointer** | `1-projects/rbtv-evolution/design-module/design-module-v1-build/specs/subtle-refs-spec.md` |
+| **status** | `built` (at `p5-1`; done-gate exercised + independently cold-verified 2026-06-10) |
+| **entry point** | Usage doc: `studio/capabilities/extract-subtle-refs/extract-subtle-refs.md` (read it fully, then invoke) · CLI: `python studio/capabilities/extract-subtle-refs/extract.py` (run from the repo root) |
+| **inputs** | `--url <URL>` (repeatable) · `--out <report.md>` (required) · `--json-out <report.json>` (optional) · `--headed` (optional debug flag) |
+| **outputs** | Structured markdown report per URL with motion/interaction observations (pattern · element anchor · concrete values · note); optional JSON dump. Dead URLs exit non-zero; a report is written only when ≥1 URL succeeds |
+| **spec / source pointer** | `1-projects/rbtv-evolution/design-module/design-module-v1-build/specs/subtle-refs-spec.md` · usage doc above |
 
 ---
 
@@ -98,13 +98,13 @@ Every row in this registry carries these six fields. A worker can invoke a capab
 | Field | Value |
 |-------|-------|
 | **name** | image-gen |
-| **status** | `planned` — built at `p5-2` |
-| **entry point** | Not yet built. Will land at `studio/capabilities/image-gen.md` (per the spec); provider-pluggable interface, Gemini provider first |
-| **inputs** | TBD per spec — expected: an image spec (likely from the image→JSON capability output) + provider selection |
-| **outputs** | TBD per spec — expected: a generated image file via the selected provider |
-| **spec / source pointer** | `1-projects/rbtv-evolution/design-module/design-module-v1-build/specs/image-gen-spec.md` |
+| **status** | `built` (at `p5-2`; done-gate exercised + independently cold-verified 2026-06-10 — live Gemini call `unexercisable` pending quota: free tier carries limit:0 on `gemini-3.1-flash-image`; credential + error paths verified, fixture provider fully exercised) |
+| **entry point** | Usage doc: `studio/capabilities/image-gen/image-gen.md` (read it fully, then invoke) · CLI: `python studio/capabilities/image-gen/generate.py` (run from the repo root) |
+| **inputs** | `--prompt <text>` · `--out <path>` (format from extension: png/jpg) · `--provider gemini\|fixture` (optional, default gemini) · `--aspect <ratio>` (optional) · `--env-file <path>` (optional; key resolution = OS env `GEMINI_API_KEY` first, then the env-file path — never hardcoded) |
+| **outputs** | Image file at the `--out` path. Missing key → exit 1 naming the env var, no file written; provider failure → exit 1 with provider reason on stderr, no partial file |
+| **spec / source pointer** | `1-projects/rbtv-evolution/design-module/design-module-v1-build/specs/image-gen-spec.md` · usage doc above |
 
-> **Design note:** source-pluggable multi-provider interface. Add providers without rewrite. Gemini is the first concrete provider.
+> **Design note:** source-pluggable multi-provider interface — adapters auto-discovered from `image-gen/adapters/` by filename; add a provider by dropping an adapter module, zero interface edits (proven via the `fixture` adapter). Gemini is the first concrete provider.
 
 ---
 
@@ -113,11 +113,24 @@ Every row in this registry carries these six fields. A worker can invoke a capab
 | Field | Value |
 |-------|-------|
 | **name** | exemplar-screenshot capture |
-| **status** | `planned` — built at `p5-3` |
-| **entry point** | Not yet built. Will land at `studio/capabilities/screenshot-capture.md` (per the spec) |
-| **inputs** | TBD per spec — expected: a URL or local file path + capture parameters (viewport, timing) |
-| **outputs** | TBD per spec — expected: a screenshot file suitable for use as a reference exemplar in the workspace reference set |
-| **spec / source pointer** | `1-projects/rbtv-evolution/design-module/design-module-v1-build/specs/screenshot-capture-spec.md` |
+| **status** | `built` (at `p5-3`; done-gate exercised + independently cold-verified 2026-06-10) |
+| **entry point** | Usage doc: `studio/capabilities/screenshot-capture/screenshot-capture.md` (read it fully, then invoke) · CLI: `python studio/capabilities/screenshot-capture/capture.py` (run from the repo root) |
+| **inputs** | `--url <URL>` (repeatable) · `--refs <reference-set-path>` (required) · `--viewport <WxH>` (optional, default 1440x900) · `--selector <css-selector>` (optional section capture) |
+| **outputs** | PNG file(s) in `<refs>/exemplars/` (versioned `-v{N}` on filename collision — never a silent overwrite; page height capped at 16000px) + one manifest row per capture in `<refs>/exemplars/manifest.md` `## Exemplars` table (current behavior inserts new rows at the TOP — most-recent-first; owner ordering ruling pending). Dead URL → exit non-zero, no file, no manifest row |
+| **spec / source pointer** | `1-projects/rbtv-evolution/design-module/design-module-v1-build/specs/screenshot-capture-spec.md` · usage doc above |
+
+---
+
+### 7. load-references
+
+| Field | Value |
+|-------|-------|
+| **name** | load-references |
+| **status** | `built` (at `p2-12`; discrete row added at the capability wave per the p2-12 deferred follow-up — architecture §1.3/§7 list it as a distinct v1-shipped capability) |
+| **entry point** | `studio/capabilities/load-references.md` (procedural capability — the agent reads it fully and executes its steps; no CLI) |
+| **inputs** | The workspace reference-set path (`5-workbench/tecer-biz/brand/studio-references/`); layer definitions per `studio/standards/reference-set-contract.md` |
+| **outputs** | All four reference layers (tokens · exemplars · subtle-refs · taste file) loaded into working context, each present-and-annotated per the contract; HALT naming the missing layer on any absence — it loads, never authors or corrects reference content (D4) |
+| **spec / source pointer** | `studio/capabilities/load-references.md` · `studio/standards/reference-set-contract.md` (contract authority) |
 
 ---
 
@@ -132,3 +145,5 @@ This file is written sequentially across the following tasks. NEVER write out of
 | 3 | `p5-2` | Update row 5 (image-gen) — `planned` → `built` |
 | 4 | `p5-3` | Update row 6 (exemplar-screenshot capture) — `planned` → `built` |
 | 5 | `p5-4` | Update rows 2 + 3 (extract-tokens-from-site + image→JSON) — alignment to uniform invocation interface |
+
+> **Slots 2–4 execution note (D6, 2026-06-10):** the capability wave ran `p5-1`/`p5-2`/`p5-3` as three PARALLEL workers with this registry REMOVED from their allowlists; each worker returned its row content (`registry_row` block) and the orchestration conductor wrote slots 2–4 serially in one sitting, plus the row-7 `load-references` addition deferred from `p2-12`. The serialization order above was honored; the writer changed (conductor, not the task workers). Slot 5 (`p5-4`) remains pending. |
