@@ -21,7 +21,7 @@ Reference data for the create-component workflow. Defines naming standards, size
 
 ## Structural Layout
 
-The repo is module-first: every component lives under its owning module folder (`core/`, `office/`, `html/`, `orchestration/`, `models/`, `builder/`, `innovation/`, `writing/`, `caveman/`, `coding/`). Module membership is declared in `admin/install/module-manifest.json` and documented in `modules/{module}.md`. Inside each module, components are organized by type:
+The repo is module-first: every component lives under its owning module folder (`core/`, `office/`, `studio/`, `orchestration/`, `models/`, `builder/`, `innovation/`, `writing/`, `caveman/`, `coding/`). Module membership is declared in `admin/install/module-manifest.json` and documented in `modules/{module}.md`. Inside each module, components are organized by type:
 
 | Directory | Contains | Naming |
 |-----------|----------|--------|

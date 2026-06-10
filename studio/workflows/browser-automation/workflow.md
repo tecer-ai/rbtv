@@ -103,12 +103,12 @@ Read the reference file when needed — do NOT pre-load:
 | Capability | Reference |
 |------------|-----------|
 | Full command catalog | `playwright-cli --help` |
-| Playwright tests | `{rbtv_path}/html/workflows/browser-automation/data/references/playwright-tests.md` |
-| Request mocking | `{rbtv_path}/html/workflows/browser-automation/data/references/request-mocking.md` |
-| Running Playwright code | `{rbtv_path}/html/workflows/browser-automation/data/references/running-code.md` |
-| Browser sessions | `{rbtv_path}/html/workflows/browser-automation/data/references/session-management.md` |
-| Storage (cookies, localStorage) | `{rbtv_path}/html/workflows/browser-automation/data/references/storage-state.md` |
-| Test generation | `{rbtv_path}/html/workflows/browser-automation/data/references/test-generation.md` |
-| Tracing | `{rbtv_path}/html/workflows/browser-automation/data/references/tracing.md` |
-| Video recording | `{rbtv_path}/html/workflows/browser-automation/data/references/video-recording.md` |
-| Element attributes | `{rbtv_path}/html/workflows/browser-automation/data/references/element-attributes.md` |
+| Playwright tests | `{rbtv_path}/studio/workflows/browser-automation/data/references/playwright-tests.md` |
+| Request mocking | `{rbtv_path}/studio/workflows/browser-automation/data/references/request-mocking.md` |
+| Running Playwright code | `{rbtv_path}/studio/workflows/browser-automation/data/references/running-code.md` |
+| Browser sessions | `{rbtv_path}/studio/workflows/browser-automation/data/references/session-management.md` |
+| Storage (cookies, localStorage) | `{rbtv_path}/studio/workflows/browser-automation/data/references/storage-state.md` |
+| Test generation | `{rbtv_path}/studio/workflows/browser-automation/data/references/test-generation.md` |
+| Tracing | `{rbtv_path}/studio/workflows/browser-automation/data/references/tracing.md` |
+| Video recording | `{rbtv_path}/studio/workflows/browser-automation/data/references/video-recording.md` |
+| Element attributes | `{rbtv_path}/studio/workflows/browser-automation/data/references/element-attributes.md` |

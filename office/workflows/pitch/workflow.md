@@ -1,6 +1,6 @@
 ---
 name: 'pitch'
-description: 'Build pitch narratives through stress-testing, data validation, and research prompting — HTML design delegated to the html module'
+description: 'Build pitch narratives through stress-testing, data validation, and research prompting — HTML design delegated to the studio module'
 pitch_type: '{pitch_type}'
 createStep: ./steps-c/step-01-init.md
 editStep: ./steps-e/step-e01-narrative.md
@@ -39,7 +39,7 @@ The `{pitch_type}` is set during workflow invocation (by the dispatch file or th
 
 ## SCOPE — NARRATIVE ONLY
 
-This workflow owns the pitch NARRATIVE: story, data layer, research prompts, and slide structure. It NEVER generates or edits HTML. HTML deck design, image prompts, and PDF export execute in the html module's deck-design workflow (`{rbtv_path}/html/workflows/deck-design/workflow.md`), invoked via the `rbtv-designing` skill (Vivian).
+This workflow owns the pitch NARRATIVE: story, data layer, research prompts, and slide structure. It NEVER generates or edits HTML. HTML deck design, image prompts, and PDF export execute in the studio module's deck-design workflow (`{rbtv_path}/studio/workflows/deck-design/workflow.md`), invoked via the `rbtv-designing` skill (Vivian).
 
 ### Handoff Contract (v0)
 
@@ -50,7 +50,7 @@ Step 06 finalizes two artifacts in `{output_folder}/artifacts/` that the deck-de
 | `pitch-narrative.md` | The agreed slide-by-slide story with data annotations |
 | `pitch-structure.md` | Frontmatter (pitch_type, project, target, language, brand pointers) + per-slide spec table (layout, focal element, data/proof, density) |
 
-Contract status: v0 — owned and evolved by the html-module build effort; this workflow produces it as specified there.
+Contract status: v0 — owned and evolved by the studio-module build effort; this workflow produces it as specified there.
 
 ---
 

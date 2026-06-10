@@ -132,7 +132,7 @@
         "source_template": "office/commands/pitcher.md",
         "target": ".claude/commands/rbtv-pitcher.md",
         "bake": ["rbtv_path"],
-        "description": "Build investor or client pitch narratives (asks pitch type, loads Roelof or Leo) — HTML design delegated to the html module"
+        "description": "Build investor or client pitch narratives (asks pitch type, loads Roelof or Leo) — HTML design delegated to the studio module"
       },
       {
         "source_template": "office/commands/lawyer.md",
@@ -148,17 +148,17 @@
       }
     ]
   },
-  "html": {
+  "studio": {
     "description": "HTML power-up — visual design (HTML decks, image prompts, brand identity), design-token extraction from live sites, and browser automation.",
     "skills": [
       {
-        "source_template": "html/skills/playwright-cli/SKILL.md",
+        "source_template": "studio/skills/playwright-cli/SKILL.md",
         "target": ".claude/skills/rbtv-playwright-cli/SKILL.md",
         "bake": ["rbtv_path"],
         "description": "Browser automation via Playwright for testing and scraping"
       },
       {
-        "source_template": "html/skills/designing/SKILL.md",
+        "source_template": "studio/skills/designing/SKILL.md",
         "target": ".claude/skills/rbtv-designing/SKILL.md",
         "bake": ["rbtv_path"],
         "description": "UI/UX design workflow with iterative screenshot refinement"
@@ -166,13 +166,13 @@
     ],
     "commands": [
       {
-        "source_template": "html/commands/design-extractor.md",
+        "source_template": "studio/commands/design-extractor.md",
         "target": ".claude/commands/rbtv-design-extractor.md",
         "bake": ["rbtv_path"],
         "description": "Extract design tokens and patterns from reference materials"
       },
       {
-        "source_template": "html/commands/vision-to-json.md",
+        "source_template": "studio/commands/vision-to-json.md",
         "target": ".claude/commands/rbtv-vision-to-json.md",
         "bake": ["rbtv_path"],
         "description": "Forensically analyze a static reference image into a strict JSON spec and ready-to-paste regeneration prompts for Nano-Pro, Flux, and Midjourney"
@@ -353,7 +353,7 @@
   },
   "cross_module_agents": {
     "vivian": {
-      "primary_module": "html",
+      "primary_module": "studio",
       "also_used_by": ["office", "innovation"]
     }
   }

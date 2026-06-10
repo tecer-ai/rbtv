@@ -13,7 +13,7 @@ referenceFile: ../data/pitch-reference.md
 
 ## STEP GOAL
 
-Plan the final slide structure, visual layout, and content mapping based on the validated narrative and data layer. Write it to the `pitch-structure.md` artifact — the handoff contract the html module's deck-design workflow consumes for HTML generation.
+Plan the final slide structure, visual layout, and content mapping based on the validated narrative and data layer. Write it to the `pitch-structure.md` artifact — the handoff contract the studio module's deck-design workflow consumes for HTML generation.
 
 ---
 
@@ -179,13 +179,13 @@ ALWAYS halt and wait for user selection.
 
 ONLY when **[C] Continue** is selected:
 
-> **AGENT HANDOFF — html module (deck-design)**
+> **AGENT HANDOFF — studio module (deck-design)**
 >
-> HTML generation, image prompts, synthesis, and PDF export are owned by the **html module's deck-design workflow** (Vivian, the design agent) — not by the current narrative agent. You cannot execute them yourself.
+> HTML generation, image prompts, synthesis, and PDF export are owned by the **studio module's deck-design workflow** (Vivian, the design agent) — not by the current narrative agent. You cannot execute them yourself.
 >
 > Instruct the user:
 >
-> *"The slide structure is locked and saved to `artifacts/pitch-structure.md`. HTML generation, image work, and PDF export run in the html module. To continue, invoke the `rbtv-designing` skill (Vivian) and select **[PD] Pitch Deck Design**. She'll read the narrative and structure artifacts from disk and carry through to PDF delivery."*
+> *"The slide structure is locked and saved to `artifacts/pitch-structure.md`. HTML generation, image work, and PDF export run in the studio module. To continue, invoke the `rbtv-designing` skill (Vivian) and select **[PD] Pitch Deck Design**. She'll read the narrative and structure artifacts from disk and carry through to PDF delivery."*
 >
 > Do NOT load any deck-design step yourself. The design agent loads them.
 

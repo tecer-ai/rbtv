@@ -118,7 +118,7 @@ Deliverables (this workflow — narrative):
   2. artifacts/pitch-research-prompt.md  — Research prompt for external AI data gathering
   3. artifacts/pitch-structure.md        — Slide structure spec (the design handoff contract)
 
-Produced downstream by the html module (rbtv-designing — Vivian): pitch-deck.html, image prompts, PDF.
+Produced downstream by the studio module (rbtv-designing — Vivian): pitch-deck.html, image prompts, PDF.
 
 Ready to proceed?
 ```
@@ -138,7 +138,7 @@ Deliverables (this workflow — narrative):
   2. artifacts/pitch-research-prompt.md  — Research prompt for external AI (proof points + buyer objections)
   3. artifacts/pitch-structure.md        — Slide structure spec (the design handoff contract)
 
-Produced downstream by the html module (rbtv-designing — Vivian): pitch-deck.html, image prompts, PDF.
+Produced downstream by the studio module (rbtv-designing — Vivian): pitch-deck.html, image prompts, PDF.
 
 Ready to proceed?
 ```

@@ -29,7 +29,7 @@ This workflow consumes artifacts produced by the office pitch workflow (`{rbtv_p
 
 If either artifact is missing, ask the user for its location or the missing content before proceeding — never invent narrative or structure.
 
-> Contract status: v0 — owned and evolved by the html-module build effort. The office pitchers consume it as-is.
+> Contract status: v0 — owned and evolved by the studio-module build effort. The office pitchers consume it as-is.
 
 **Output path** is the same `{output_folder}` — resolved by the pitch workflow via the `rbtv-output-resolution` rule, or confirmed with the user when entering standalone.
 

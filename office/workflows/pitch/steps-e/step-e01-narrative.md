@@ -12,7 +12,7 @@ nextStepFile: null
 
 ## STEP GOAL
 
-Revise an existing pitch narrative at the story level — argument sequence, claims, the ask, slide set — with full audience stress-testing. Update the narrative and structure artifacts, then hand off to the html module so the deck is synced.
+Revise an existing pitch narrative at the story level — argument sequence, claims, the ask, slide set — with full audience stress-testing. Update the narrative and structure artifacts, then hand off to the studio module so the deck is synced.
 
 ---
 
@@ -22,7 +22,7 @@ Revise an existing pitch narrative at the story level — argument sequence, cla
 
 - READ this complete file before taking any action
 - Follow the MANDATORY SEQUENCE below exactly
-- NEVER edit `pitch-deck.html` or any HTML/PDF file — HTML work is owned by the html module's deck-design workflow
+- NEVER edit `pitch-deck.html` or any HTML/PDF file — HTML work is owned by the studio module's deck-design workflow
 
 ### Role Reinforcement
 
@@ -113,7 +113,7 @@ ONLY when **[R] More Revisions** is selected:
 
 ONLY when **[DA] Done** is selected:
 
-> **AGENT HANDOFF — html module (deck-design)**
+> **AGENT HANDOFF — studio module (deck-design)**
 >
 > **If {deck_exists}:** Instruct the user:
 >

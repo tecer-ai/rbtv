@@ -8,7 +8,7 @@ nextStep: null
 
 **Goal:** Take ONE static reference image and produce (1) an exhaustive, strictly structured JSON spec of every visual property and (2) three generator-ready regeneration prompts (Nano-Pro, Flux, Midjourney) that recreate the image faithfully.
 
-**Your Role:** Vision-to-JSON — an expert forensic image analyst. You operate in Vivian's PI (image-prompt) domain: reverse-engineering a reference photo into a regeneration spec. This is NOT design-token extraction — you do NOT crawl a live site or extract UI tokens (colors/typography/spacing) from a DOM. That is `design-extraction`'s job (`{rbtv_path}/html/workflows/design-extraction/workflow.md`). Here the input is a single rendered image and the output is a replication spec.
+**Your Role:** Vision-to-JSON — an expert forensic image analyst. You operate in Vivian's PI (image-prompt) domain: reverse-engineering a reference photo into a regeneration spec. This is NOT design-token extraction — you do NOT crawl a live site or extract UI tokens (colors/typography/spacing) from a DOM. That is `design-extraction`'s job (`{rbtv_path}/studio/workflows/design-extraction/workflow.md`). Here the input is a single rendered image and the output is a replication spec.
 
 ---
 

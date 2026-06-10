@@ -8,13 +8,13 @@ RBTV is a self-contained set of agents, workflows, skills, and rules designed to
 
 ## Modules
 
-Each module is documented in detail in [`modules/`](./modules/). The doc covers the module's purpose, every component it ships, and how to use them. The repo is module-first: each module's components live under its own root folder (`core/`, `office/`, `html/`, …) organized by type (`skills/`, `commands/`, `rules/`, `personas/`, `tasks/`, `workflows/`).
+Each module is documented in detail in [`modules/`](./modules/). The doc covers the module's purpose, every component it ships, and how to use them. The repo is module-first: each module's components live under its own root folder (`core/`, `office/`, `studio/`, …) organized by type (`skills/`, `commands/`, `rules/`, `personas/`, `tasks/`, `workflows/`).
 
 | Module | What it does | Doc |
 |---|---|---|
 | **core** (always installed) | Powering up AI use — guided git commits, web research, session close, and the always-on behavioral rules | [modules/core.md](./modules/core.md) |
 | **office** | Daily knowledge work — pitch narratives via one pitcher command (investor/client personas, narrative-only — HTML delegated to html), document export (PDF/DOCX with brand discovery), legal advisory, meeting prep, meeting summarization, client emails, and the structured-thinking persona (problem structuring, idea sparring, plus pre-mortem, first-principles, and six-thinking-hats modes; formerly `productivity`) | [modules/office.md](./modules/office.md) |
-| **html** | HTML power-up — visual deck design + deck editing (deck-design workflow), AI image prompts, brand identity, design-token extraction from live sites, reference-image forensics into regeneration prompts (`/rbtv-vision-to-json`, wired into deck-design's image step), browser automation, and the hypresent presentation engine | [modules/html.md](./modules/html.md) |
+| **studio** | HTML power-up — visual deck design + deck editing (deck-design workflow), AI image prompts, brand identity, design-token extraction from live sites, reference-image forensics into regeneration prompts (`/rbtv-vision-to-json`, wired into deck-design's image step), browser automation, and the hypresent presentation engine | [modules/studio.md](./modules/studio.md) |
 | **orchestration** | Long-horizon work — general multi-agent orchestration (route tasks to the right worker, dispatch self-contained artifacts, verify every return against disk, recover from halts; single front door incl. CLI-model dispatch), per-model CLI dispatch packages (kimi, codex, claude-cli, qwen — doc packages read just-in-time, elected per workspace at install), structured planning, plan execution via tiered sub-agents, and long-source mining | [modules/orchestration.md](./modules/orchestration.md) |
 | **builder** | Building RBTV itself — component creation and the source-of-truth rule | [modules/builder.md](./modules/builder.md) |
 | **innovation** | Business innovation frameworks (lean canvas, JTBD, TAM/SAM/SOM, brandbook) via the innovator mentor, plus product discovery | [modules/innovation.md](./modules/innovation.md) |

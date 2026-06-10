@@ -1,10 +1,10 @@
-# HTML
+# Studio
 
 ## Purpose
 
-The HTML power-up module — everything that turns narrative and strategy into polished HTML artifacts: visual deck design, AI image prompts, brand visual identity, design-token extraction from live sites, and the browser automation layer that captures and validates rendered output. The office-module pitchers delegate all HTML building here; the module also works standalone for any design or browser-automation task.
+The studio module — everything that turns narrative and strategy into polished HTML artifacts: visual deck design, AI image prompts, brand visual identity, design-token extraction from live sites, and the browser automation layer that captures and validates rendered output. The office-module pitchers delegate all HTML building here; the module also works standalone for any design or browser-automation task.
 
-The module also owns **hypresent** — the HTML presentation engine (not installable: not a command/skill/rule, but part of the module). It lives at `html/hypresent/`.
+The module also owns **hypresent** — the HTML presentation engine (not installable: not a command/skill/rule, but part of the module). It lives at `studio/hypresent/`.
 
 ---
 
@@ -12,7 +12,7 @@ The module also owns **hypresent** — the HTML presentation engine (not install
 
 ### `rbtv-designing` (Vivian)
 
-- **What**: Vivian is the visual layer for both pitch flows — a Creative Director who translates strategy into HTML deck design, AI image prompts, and brand visual identity. She always offers three visual directions and names which one she believes in. Design is explicitly downstream of narrative: she never redoes strategic work. Her pitch work runs the module's `deck-design` workflow (`html/workflows/deck-design/`), which consumes the pitch artifacts (`pitch-narrative.md` + `pitch-structure.md`) from disk — a fresh session needs zero conversation context.
+- **What**: Vivian is the visual layer for both pitch flows — a Creative Director who translates strategy into HTML deck design, AI image prompts, and brand visual identity. She always offers three visual directions and names which one she believes in. Design is explicitly downstream of narrative: she never redoes strategic work. Her pitch work runs the module's `deck-design` workflow (`studio/workflows/deck-design/`), which consumes the pitch artifacts (`pitch-narrative.md` + `pitch-structure.md`) from disk — a fresh session needs zero conversation context.
 - **When to use**: After narrative is locked (office pitcher step 6) and you're ready to generate the HTML deck, produce AI image prompts, export to PDF, edit an existing deck, or design brand visual guidelines. The pitchers hand off here automatically — you can also invoke her standalone for any of those tasks.
 - **How to invoke**: `rbtv-designing` (skill, not a slash command). Menu options: `PD` (full deck design + export), `PI` (image prompts only), `PDF` (PDF export + QA), `DE` (deck edit — content + visual, with narrative/structure back-sync), `BV` (brand visual identity).
 - **What it produces**: Branded HTML deck, a set of AI image prompts ready to paste into Midjourney/DALL-E, PDF via Decktape, edited decks kept in sync with their narrative artifacts, visual brand guidelines.
@@ -33,7 +33,7 @@ The module also owns **hypresent** — the HTML presentation engine (not install
 ### `/rbtv-vision-to-json`
 
 - **What**: Forensically analyzes ONE static reference image into a strict JSON spec of every visual property, plus three generator-ready regeneration prompts (Nano-Pro, Flux, Midjourney) that recreate the image faithfully. This is photo forensics → regeneration prompt — distinct from `/rbtv-design-extractor`, which extracts UI design tokens from a live DOM.
-- **When to use**: You have a reference photo or rendered image you want to reproduce or adapt. Sits in Vivian's `PI` (image-prompt) domain. The `deck-design` workflow's image step (`html/workflows/deck-design/steps-c/step-02-images.md`) routes any slot for which the user supplies a reference image through this workflow to produce that slot's regeneration prompt.
+- **When to use**: You have a reference photo or rendered image you want to reproduce or adapt. Sits in Vivian's `PI` (image-prompt) domain. The `deck-design` workflow's image step (`studio/workflows/deck-design/steps-c/step-02-images.md`) routes any slot for which the user supplies a reference image through this workflow to produce that slot's regeneration prompt.
 - **How to invoke**: `/rbtv-vision-to-json` (command). Provide an image path or attachment.
 - **What it produces**: `vision-to-json-{image-name}.json` plus three ready-to-paste regeneration prompts.
 - **Example**: `/rbtv-vision-to-json` → reference hero shot → JSON spec + a Flux/Midjourney/Nano-Pro prompt that reproduces it.

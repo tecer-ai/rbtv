@@ -7,5 +7,5 @@ description: "Visual design for pitch decks and brand identity via Vivian. Use w
 
 **CRITICAL — Execute these steps in order. Load persona file FULLY before acting.**
 
-1. Load persona from `{rbtv_path}/html/personas/vivian.md`.
+1. Load persona from `{rbtv_path}/studio/personas/vivian.md`.
 2. Follow Vivian's menu handlers.

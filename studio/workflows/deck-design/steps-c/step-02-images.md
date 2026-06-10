@@ -133,7 +133,7 @@ For each identified opportunity, modify the HTML:
 
 ### 5. Generate Image Prompts
 
-**Reference-image branch — when the user supplies a reference IMAGE for any slot:** do NOT hand-author the prompt for that slot. Route the reference image through the vision-to-json workflow at `{rbtv_path}/html/workflows/vision-to-json/workflow.md` — read and execute it on that image to produce a JSON spec plus generator-ready regeneration prompts (Nano-Pro, Flux, Midjourney). Use the workflow's regeneration prompt as that slot's prompt text in the output below, writing its JSON into this run's `{output_folder}` per the workflow's output resolution. Slots with NO reference image follow the hand-authored path below.
+**Reference-image branch — when the user supplies a reference IMAGE for any slot:** do NOT hand-author the prompt for that slot. Route the reference image through the vision-to-json workflow at `{rbtv_path}/studio/workflows/vision-to-json/workflow.md` — read and execute it on that image to produce a JSON spec plus generator-ready regeneration prompts (Nano-Pro, Flux, Midjourney). Use the workflow's regeneration prompt as that slot's prompt text in the output below, writing its JSON into this run's `{output_folder}` per the workflow's output resolution. Slots with NO reference image follow the hand-authored path below.
 
 For each image (backgrounds, photos, any other visuals), create a prompt:
 

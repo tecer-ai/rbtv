@@ -8,4 +8,4 @@ allowed-tools: Bash(playwright-cli:*)
 
 **CRITICAL — Execute these steps in order.**
 
-1. Read and execute the workflow at `{rbtv_path}/html/workflows/browser-automation/workflow.md`.
+1. Read and execute the workflow at `{rbtv_path}/studio/workflows/browser-automation/workflow.md`.
