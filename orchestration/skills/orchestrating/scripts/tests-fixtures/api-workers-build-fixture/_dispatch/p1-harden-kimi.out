@@ -1,0 +1,8 @@
+- **status:** DONE
+- **landed:** `orchestration/models/_api/run.py` modified (sanitize_path only) + one line (NO commit)
+- **validation:**
+  1. `python -c "import ast; ast.parse(open('orchestration/models/_api/run.py').read())"` → EXIT 0.
+  2. `python -c "import sys, os, tempfile; sys.path.insert(0,'orchestration/models/_api'); import run; d=tempfile.mkdtemp(); assert run.sanitize_path('../escape.txt', d)=='escape.txt', 'traversal'; assert run.sanitize_path('/etc/passwd', d)=='passwd', 'abs'; assert run.sanitize_path('normal.txt', d)=='normal.txt', 'normal'; assert run.sanitize_path('sub/inner.txt', d)=='sub/inner.txt', 'relsub'; print('SANITIZE_BATTERY_OK')"` → EXIT 0, output: `SANITIZE_BATTERY_OK`
+  - SKIPPED_COUNT: 0
+- **concerns:** []
+- **open_questions:** []

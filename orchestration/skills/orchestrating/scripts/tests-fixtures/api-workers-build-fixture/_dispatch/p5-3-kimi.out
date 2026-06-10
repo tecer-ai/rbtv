@@ -1,0 +1,21 @@
+```yaml
+status: DONE
+landed: orchestration/models/_api/run.py
+validation:
+  - command: "python -c \"import ast,io; ast.parse(io.open('orchestration/models/_api/run.py',encoding='utf-8').read()); print('AST_OK')\""
+    exit: 0
+    wall_ms: ~2000
+    skipped_count: 0
+  - command: "python orchestration/models/_api/run.py --help"
+    exit: 0
+    wall_ms: ~2000
+    skipped_count: 0
+    note: "Output contains --timeout, --grounded, --extra-params"
+  - command: "git diff orchestration/models/_api/run.py"
+    exit: 0
+    wall_ms: ~500
+    skipped_count: 0
+    note: "Diff confirms ONLY the 3 new argparse args + extra_params build block + ProviderConfig(..., timeout=args.timeout) + RequestOptions(..., extra_params=extra_params_arg). The structured_output/envelope/raw-dump block (lines 227-265) is UNCHANGED. No provider-name special-case appears anywhere."
+concerns: []
+open_questions: []
+```

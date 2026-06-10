@@ -1,0 +1,13 @@
+**status:** DONE
+
+**landed:** `orchestration/models/_api/run.py` created — shared CLI runner with dynamic provider resolution, envelope/raw-dump dual output paths, key-safe discovery, and `return.json` emission.
+
+**validation:**
+- `python -c "import ast; ast.parse(open('orchestration/models/_api/run.py').read())"` → EXIT 0, ~0.3s
+- `python orchestration/models/_api/run.py --help` → EXIT 0, showed `--provider`, `--model`, `--prompt-file`, `--output-folder`, `--target-file`, ~0.5s
+- Read confirmation: dynamic `importlib.import_module(f"clients.{args.provider}")` with `vars(mod)` scan — zero per-provider branches; no `print(key)` or key-in-f-string leakage anywhere; `return.json` written in envelope path (line 275), raw-dump path (line 275), and BLOCKED exception path (line 196)
+- SKIPPED_COUNT: 0
+
+**concerns:** none
+
+**open_questions:** none

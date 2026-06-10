@@ -65,6 +65,9 @@ variants:
 
     # --- invocation + failures (routing §4, §2) ---
     invocation_pointer: ./manual.md   # rendered dispatch manual for the exact command shape
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/manus/manual.md
+    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/manus/delta.md
+    specialty: "autonomous server-side browser automation — the agentic-web worker that navigates / clicks / fills / synthesizes across pages on its OWN (multi-step, not a single grounded lookup); per-task cost, minutes-scale, raw-dump return"   # within-tier tiebreaker only; boundedness-first stays the master cut
     failure_modes:
       - "context_window / max_output are PROBE-PENDING placeholders, not published Manus specs — re-verify (or drop as a sizing input) before any pilot; do not size large inlined contexts on these numbers"
       - "per-task billing — a runaway or expensive autonomous run costs a whole task fee, not incremental tokens; confirm the task is worth an agent run before dispatch"

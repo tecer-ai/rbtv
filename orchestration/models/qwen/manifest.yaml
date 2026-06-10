@@ -58,6 +58,13 @@ variants:
 
     # --- invocation + failures (routing §4, §2) ---
     invocation_pointer: ./manual.md   # rendered dispatch manual (../render-manuals.py) — the exact command shape
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/qwen/manual.md
+    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/qwen/delta.md
+    specialty: "bounded code/agentic via a configurable DashScope backend — purpose-built coding agent (shell/file/edit + built-in PR-review) with native --worktree isolation; the code/agentic role (text synthesis → DeepSeek API)"   # within-tier tiebreaker only; boundedness-first stays the master cut
+    # --- configurable model (ADX-2 / D6 — qwen serves a CONFIGURABLE model set, not a fixed identity) ---
+    configurable_model:
+      is_configurable: true          # the model the qwen CLI runs is CONFIGURATION, not a fixed package identity — the owner runs qwen against multiple backends (its own Qwen3-Coder PLUS DeepSeek and GLM); the served model is set per-run, not baked into the package
+      note: "served model set by --auth-type + OPENAI_BASE_URL / OPENAI_MODEL (and -m override); availability/attribution resolve the CONFIGURED model id at dispatch, never assume a fixed model from the package name. Per-backend variant modeling (Qwen3-Coder / DeepSeek / GLM as routable variants where a routing-relevant field differs) is Brief B Part 2, DEFERRED (p5-3)"
     failure_modes:
       - "headless --yolo/--approval-mode yolo auto-approves ALL tool calls at host privilege — NO sandbox unless --sandbox (container backend unverified on Windows); enforce scope externally + post-run diff"
       - "unauthenticated run exits 1 (No auth type is selected) — auth is USER-EXECUTED-ONLY; free OAuth tier discontinued 2026-04-15"

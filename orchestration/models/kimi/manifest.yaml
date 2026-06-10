@@ -53,6 +53,9 @@ variants:
 
     # --- invocation + failures (routing §4, §2) ---
     invocation_pointer: ./manual.md   # rendered dispatch manual (../render-manuals.py) — the exact command shape
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/kimi/manual.md
+    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/kimi/delta.md
+    specialty: "the validated bounded-code executor — the cost-saving code worker (external to the Claude budget), most-piloted (~66 dispatches); spec-backed bounded code with local commit + session-id resume"   # within-tier tiebreaker only; boundedness-first stays the master cut
     failure_modes:
       - "headless (--print/--quiet/--afk/--yolo) auto-approves every tool call — no interactive gate, no native allowlist; enforce scope externally"
       - "no native path allowlist — out-of-scope writes caught ONLY by post-run diff; always diff every changed path vs the allowlist"
@@ -120,6 +123,9 @@ variants:
 
     # --- invocation + failures ---
     invocation_pointer: ./manual.md   # same rendered manual; the no-thinking flag is documented there
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/kimi/manual.md
+    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/kimi/delta.md
+    specialty: "cheapest fully-bounded mechanical code execution — the cost-floor kimi profile (no thinking tokens) for trivially-bounded batches where step-by-step reasoning adds no value"   # within-tier tiebreaker only
     failure_modes:
       - "headless auto-approves every tool call — no native allowlist; enforce scope externally"
       - "no native path allowlist — always diff every changed path vs the allowlist"

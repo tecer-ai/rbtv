@@ -61,6 +61,9 @@ variants:
 
     # --- invocation + failures (routing §4, §2) ---
     invocation_pointer: ./manual.md   # rendered dispatch manual for the exact command shape
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/deepseek/manual.md
+    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/deepseek/delta.md
+    specialty: "cheapest text synthesis — the cost-floor API text worker (Thinking Mode, OpenAI-compatible JSON) for partially-bounded text synthesis / mechanical text transforms; never code (code_competence: none)"   # within-tier tiebreaker only; boundedness-first stays the master cut
     failure_modes:
       - "model ids are 2026 estimates — re-verify against DeepSeek API docs before pilot dispatch"
       - "no session resumption — a halted dispatch must be re-dispatched fresh; no partial-resume path"
@@ -121,6 +124,9 @@ variants:
 
     # --- invocation + failures ---
     invocation_pointer: ./manual.md
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/deepseek/manual.md
+    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/deepseek/delta.md
+    specialty: "cheapest top-reasoning-tier text synthesis — max-reasoning DeepSeek (Thinking Mode) at low absolute cost for judgment-dense TEXT/logic synthesis; never code (code_competence: none)"   # within-tier tiebreaker only
     failure_modes:
       - "model ids are 2026 estimates — re-verify against DeepSeek API docs before pilot dispatch"
       - "no session resumption — re-dispatch fresh after halt"

@@ -1,0 +1,20 @@
+**status:** DONE
+
+**landed:** `orchestration/models/_api/clients/deepseek.py` created — synchronous DeepSeek client subclassing `ProviderClient`, with JSON-mode structured output and retry/backoff on 429/5xx.
+
+**validation:**
+- `python -c "import ast; ast.parse(open('orchestration/models/_api/clients/deepseek.py').read())"` → EXIT 0, WALL_MS ~71 ms
+- read/grep confirmations:
+  - subclass of `ProviderClient` — confirmed (line 19)
+  - `structured_output` explicitly declared — confirmed by file read (`structured_output: bool = True` on line 20; grep regex `\s*=\s*` did not match due to the `: bool` annotation)
+  - `chat` signature matches base exactly — confirmed (line 41)
+  - uses `requests`; no `aiohttp` / `async` / `await` — confirmed (no matches)
+  - `response_format = {"type": "json_object"}` set when `structured_output` — confirmed (line 62)
+  - `raw_response=data` holds full JSON response — confirmed (line 111)
+  - retry only on 429 or 5xx (`500 <= resp.status_code < 600`) — confirmed (line 84)
+  - no `call_with_tools`, `stream`, `validate_api_key`, or `get_models` — confirmed (no matches)
+- SKIPPED_COUNT: 0
+
+**concerns:** The runner must pass a valid DeepSeek model ID via `--model` (e.g., `deepseek-chat`). DeepSeek JSON mode (`response_format={"type":"json_object"}`) is supported by `deepseek-chat`; if the pilot uses `deepseek-reasoner`, the caller should inject the appropriate `response_format` or `thinking` params via `options.extra_params` instead, because reasoning models may have different structured-output behavior.
+
+**open_questions:** none.
