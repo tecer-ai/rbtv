@@ -16,7 +16,7 @@
 
 model: qwen-code-cli
 display: "qwen-code (CLI)"
-evidence_status: validated   # auth verified + all four ModelStudio US backends served; default (qwen3.6-plus) and deepseek-v4-flash carry full bounded-code proof. Per-variant overrides below mark deepseek-v4-pro / glm-5.1 as served-but-bounded-code-unexercised (cost-bounded scope).
+evidence_status: validated   # auth verified + all four ModelStudio US backends served; ALL FOUR now carry full bounded-code proof — default (qwen3.6-plus) + deepseek-v4-flash 2026-06-10, deepseek-v4-pro + glm-5.1 2026-06-10 follow-up pilots (per-variant overrides below graduated probe-pending→validated).
 
 # --- Multi-model backends (ModelStudio US, OpenAI-compatible) ---
 # The owner runs qwen against four configured backends via ~/.qwen/settings.json `modelProviders.openai`
@@ -86,7 +86,7 @@ variants:
       - "--approval-mode default STALLS a headless run waiting for approval — always set auto/auto-edit/yolo non-interactively"
       - "--continue/--resume/--session-id/--fork-session need chat recording ON (default) — do NOT pass --chat-recording false on a resumable dispatch"
       - "cd does not persist between shell calls — pass the workspace via CWD + --add-dir, never rely on cd chaining"
-      - "--json-file <path> may not materialize headless on the RBTV qwen fork (observed 2026-06-10) — capture stdout JSON; reconcile the return against disk regardless"
+      - "--json-file <path> does NOT materialize headless on the RBTV qwen fork — CONFIRMED across 3 runs 2026-06-10 (flash, deepseek-v4-pro, glm-5.1; absolute path, file absent every time). Do NOT rely on it for a durable return — capture stdout JSON (--output-format json), or use --json-schema (untested here); reconcile the return against disk regardless"
 
     # --- guidance file (routing §4 pre-dispatch check) ---
     guidance_file:
@@ -146,8 +146,8 @@ variants:
     reasoning_tier: top             # top from spec (DeepSeek V4 Pro flagship MoE, frontier reasoning) — NOT pilot-validated for judgment-dense work here; evidence_status probe-pending below + reviewer floor opus → treat with doubt_policy: halt until a judgment pilot. The field that makes `pro` non-dominated vs `flash`
     context_window: 1048576         # 1M (research §3 [3])
     max_output: 384000              # 384K max (research §3 [3])
-    cost_class: mid                 # $0.435/$0.87 per 1M first-party (research §3 [3]) — ~3× flash. ModelStudio-US billing unconfirmed (research Q2) — reference-derived
-    code_competence: strong         # DeepSeek V4 flagship coder; tool-calling through the shim served (reply-probed 2026-06-10) — directed bounded-code run not yet exercised (shares flash's proven shim path)
+    cost_class: mid                 # $0.435/$0.87 per 1M first-party (research §3 [3]) — ~3× flash. ModelStudio-US billing reference-derived — owner ELECTED to leave it reference-derived 2026-06-10 (research Q2 closed owner-accepted, no console read)
+    code_competence: strong         # DeepSeek V4 flagship coder; bounded-code done-gate PASS 2026-06-10 follow-up (write_file×2 + run_shell_command×1 through the ModelStudio US shim, conductor-reconciled on disk, independent pytest 3 passed)
     web_access: false
     parallel_safe: true
     resume_support: continue
@@ -172,10 +172,10 @@ variants:
     manual_path: ./manual.md
     delta_path: ./delta.md
     specialty: "heavier-reasoning bounded code/agentic via DeepSeek V4 Pro — pick over flash/default within the code fleet when the task needs deeper reasoning and the mid cost is sanctioned (reasoning_tier top is spec-derived, doubt_policy: halt until piloted)"
-    evidence_status: probe-pending  # served (reply-probe 2026-06-10) but no directed bounded-code run AND reasoning_tier: top is spec-derived not pilot-validated — graduates on a bounded-code + judgment pilot
+    evidence_status: validated      # bounded-code execution VALIDATED 2026-06-10 follow-up pilot (judgment-LIGHT factorial write+test, done-gate PASS). reasoning_tier: top remains SPEC-derived — the pilot was judgment-light so it did NOT confirm top-tier judgment; keep doubt_policy: halt + opus reviewer floor until a judgment-dense pilot. Evidence: 1-projects/rbtv-evolution/coding/done-gate-evidence/rbtv/2026-06-10-qwen-multi-model-followup.md
     failure_modes:
       - "same qwen CLI failure modes as `default` — see the default variant"
-      - "reasoning_tier: top is SPEC-derived, not pilot-validated here — do not route judgment-dense work without the doubt_policy: halt + opus reviewer floor"
+      - "reasoning_tier: top is SPEC-derived, not pilot-validated here (the 2026-06-10 bounded-code pilot was judgment-light) — do not route judgment-dense work without the doubt_policy: halt + opus reviewer floor"
       - "DASHSCOPE_API_KEY must resolve; key is owner-session-only → live dispatches owner-run"
     swarm_support:
       subagents: true
@@ -187,8 +187,8 @@ variants:
     reasoning_tier: mid             # capable agentic coder; not pilot-validated as top-tier judgment — partially-bounded, doubt_policy: halt
     context_window: 204800          # 204,800 (research §3 [6][8]) — the smaller-context backend; the routing distinction. Below the 1M DeepSeek/Qwen backends
     max_output: 131072              # 131,072 max (65,536 default) (research §3 [6])
-    cost_class: mid                 # ~$0.98/$3.08 per 1M OpenRouter reference (research §3 [6]). ModelStudio-US billing unconfirmed (research Q2) — reference-derived; if it lands materially cheaper than pro, re-rank
-    code_competence: strong         # Z.AI agentic coding model; tool-calling through the shim served (reply-probed 2026-06-10) — directed bounded-code run not yet exercised
+    cost_class: mid                 # ~$0.98/$3.08 per 1M OpenRouter reference (research §3 [6]). ModelStudio-US billing reference-derived — owner ELECTED to leave it reference-derived 2026-06-10 (research Q2 closed owner-accepted, no console read); the glm-vs-pro re-rank stays OPEN but is not blocking — re-rank only if a future console read shows glm materially cheaper than pro
+    code_competence: strong         # Z.AI agentic coding model; bounded-code done-gate PASS 2026-06-10 follow-up (write_file×2 + run_shell_command×1 through the ModelStudio US shim — proves tool-calling on a non-DeepSeek non-Qwen backend; conductor-reconciled on disk, independent pytest 3 passed)
     web_access: false
     parallel_safe: true
     resume_support: continue
@@ -213,7 +213,7 @@ variants:
     manual_path: ./manual.md
     delta_path: ./delta.md
     specialty: "fleet diversity — a non-DeepSeek non-Qwen agentic-coding backend (Z.AI GLM-5.1); pick when model diversity is wanted and the task fits ~200K context"
-    evidence_status: probe-pending  # served (reply-probe 2026-06-10) but no directed bounded-code run; ModelStudio-US cost vs pro unconfirmed — graduates on a bounded-code pilot + live cost truth
+    evidence_status: validated      # bounded-code execution VALIDATED 2026-06-10 follow-up pilot (factorial write+test, done-gate PASS — tool-calling proven through the shim on a non-DeepSeek non-Qwen backend). cost_class stays reference-derived (owner-elected, research Q2 owner-accepted). Evidence: 1-projects/rbtv-evolution/coding/done-gate-evidence/rbtv/2026-06-10-qwen-multi-model-followup.md
     failure_modes:
       - "same qwen CLI failure modes as `default` — see the default variant"
       - "smaller context (204,800) than the DeepSeek/Qwen backends — split large-context tasks or route them to a 1M backend"

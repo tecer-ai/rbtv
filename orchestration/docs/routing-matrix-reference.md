@@ -81,8 +81,8 @@ The `qwen-code-cli` package is a **CLI code-executor** that runs FOUR configured
 |---------|-----------|---------|-----------|--------------------------|----------------------------|
 | `default` | qwen3.6-plus | 1M | 65,536 | $0.28/$1.65 (0–256K band) | mid · validated |
 | `deepseek-flash` | deepseek-v4-flash | 1M | 384k | $0.14/$0.28 | mid · validated (bounded-code done-gate) |
-| `deepseek-pro` | deepseek-v4-pro | 1M | 384k | $0.435/$0.87 | top (spec-derived) · served/probe-pending |
-| `glm` | glm-5.1 | 204,800 | 131,072 | ~$0.98/$3.08 | mid · served/probe-pending |
+| `deepseek-pro` | deepseek-v4-pro | 1M | 384k | $0.435/$0.87 | top (spec-derived) · validated (bounded-code done-gate, 2026-06-10 follow-up) |
+| `glm` | glm-5.1 | 204,800 | 131,072 | ~$0.98/$3.08 | mid · validated (bounded-code done-gate, 2026-06-10 follow-up) |
 
 **Capability:** a tool-using CLI code-executor (NOT a chat worker) — writes/edits files, runs shells/tests, native `--worktree` isolation; `web_access: false` (route web research elsewhere). `deepseek-flash` = the validated cheap workhorse; `deepseek-pro` = deeper reasoning at ~3× cost; `default` (qwen3.6-plus) = the native Qwen flagship (no `-m`); `glm` = model diversity. ModelStudio-US billing unconfirmed — prices are reference-provider-derived (Note: qwen runs as a CLI code-executor in this workspace, like kimi). Validated 2026-06-10 (owner-run; key in the owner session only).
 
