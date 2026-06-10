@@ -376,6 +376,45 @@ def _resolve_env_file(
     return entered or None
 
 
+def _resolve_model_plans_file(
+    requested_flag: str | None,
+    existing_state: dict[str, Any] | None,
+    chosen_modules: tuple[str, ...],
+    non_interactive: bool,
+    used_modules_flag: bool,
+) -> str | None:
+    """Resolve the model_plans_file PATH to record in rbtv.json (path only).
+
+    Precedence: --model-plans-file flag > interactive prompt (orchestration +
+    interactive only) > None. Returning None lets write_state carry forward any
+    previously recorded value, so re-installs preserve model_plans_file.
+    """
+    if requested_flag is not None:
+        return requested_flag.strip() or None
+
+    existing_value = None
+    if existing_state is not None and isinstance(
+        existing_state.get("model_plans_file"), str
+    ):
+        existing_value = existing_state["model_plans_file"]
+
+    # Scripted path, no flag: keep whatever exists (write_state carries it forward).
+    if non_interactive or used_modules_flag:
+        return None
+
+    # Interactive prompt only when the orchestration module is being installed.
+    if ORCHESTRATION_MODULE not in chosen_modules:
+        return None
+
+    from .tui import text_input
+    entered = text_input(
+        "Path to your model plans YAML with per-model context caps and $/M-token "
+        "reference data (optional — blank to skip / keep current)",
+        default=existing_value or "",
+    ).strip()
+    return entered or None
+
+
 def _import_mirror_driver(rbtv_root: Path):
     """Import the mirror driver's ``render`` / ``uninstall`` entry points.
 
@@ -507,6 +546,17 @@ def main(argv: list[str] | None = None) -> int:
             "the API-worker runner resolves keys via file-fallback. Omit to keep any "
             "previously-recorded value (re-installs preserve it). Only the PATH is "
             "recorded — keys are never read or stored."
+        ),
+    )
+    parser.add_argument(
+        "--model-plans-file",
+        type=str,
+        default=None,
+        help=(
+            "Path (workspace-relative or absolute) to the YAML file with per-model "
+            "subscription-plan caps and reference $/M-token data. Recorded in rbtv.json "
+            "as 'model_plans_file' so the router script reads plan-overlay caps. "
+            "Omit to keep any previously-recorded value (re-installs preserve it)."
         ),
     )
     parser.add_argument(
@@ -745,6 +795,14 @@ def main(argv: list[str] | None = None) -> int:
         used_modules_flag=bool(args.modules),
     )
 
+    model_plans_file_value = _resolve_model_plans_file(
+        requested_flag=args.model_plans_file,
+        existing_state=existing_state,
+        chosen_modules=chosen_modules,
+        non_interactive=args.non_interactive,
+        used_modules_flag=bool(args.modules),
+    )
+
     # --- Install -------------------------------------------------------------
 
     ctx = resolve_from_cli(
@@ -931,6 +989,7 @@ def main(argv: list[str] | None = None) -> int:
         model_packages=mp_persisted,
         model_mirror=model_mirror_block,
         env_file=env_file_value,
+        model_plans_file=model_plans_file_value,
     )
     print(f"\nState written to {state_file.relative_to(ctx.target_root)}")
 

@@ -14,6 +14,9 @@ rbtv.json records:
     last_run: ISO timestamp}.  Written by the driver after a full install or a
     --mirror run; preserved verbatim on any write path that does not update it.
   - env_file: path to the env file holding API keys for orchestration model workers (optional).
+  - model_plans_file: path to the YAML file with per-model subscription-plan caps and
+    reference $/M-token data (optional; read by the router script for effective context
+    windows — graceful skip when absent).
 """
 from __future__ import annotations
 
@@ -61,6 +64,7 @@ def write_state(
     model_packages: list[str] | None = None,
     model_mirror: dict[str, Any] | None = None,
     env_file: str | None = None,
+    model_plans_file: str | None = None,
 ) -> Path:
     """Write rbtv.json for a full install.
 
@@ -88,6 +92,12 @@ def write_state(
         if existing is not None and "env_file" in existing:
             env_file = existing["env_file"]
 
+    # Carry forward any existing model_plans_file if the caller does not supply one.
+    if model_plans_file is None:
+        existing = read_state(target_root)
+        if existing is not None and "model_plans_file" in existing:
+            model_plans_file = existing["model_plans_file"]
+
     payload: dict[str, Any] = {
         "rbtv_version": rbtv_version,
         "installed_at": _dt.datetime.now().isoformat(timespec="seconds"),
@@ -97,6 +107,8 @@ def write_state(
     }
     if env_file is not None:
         payload["env_file"] = env_file
+    if model_plans_file is not None:
+        payload["model_plans_file"] = model_plans_file
     if excluded_components:
         payload["excluded_components"] = sorted(excluded_components)
     if model_packages is not None:
