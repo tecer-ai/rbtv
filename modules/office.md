@@ -2,23 +2,11 @@
 
 ## Purpose
 
-The daily knowledge-work module — everything a founder, consultant, or PM does between strategy and execution. Covers entering the studio deck loop (via `/rbtv-pitcher`), turning narratives into polished documents, preparing for and capturing meetings, handling client communications, getting quick legal orientation, and structured thinking when you're not sure where to start. You reach for it every time work needs to leave your head and become something someone else will read, sign, or act on. (Formerly named `productivity`; visual design, design extraction, and narrative strategy moved to the [studio module](./studio.md).)
+The daily knowledge-work module — everything a founder, consultant, or PM does between strategy and execution. Covers turning narratives into polished documents, preparing for and capturing meetings, handling client communications, getting quick legal orientation, and structured thinking when you're not sure where to start. You reach for it every time work needs to leave your head and become something someone else will read, sign, or act on. (Formerly named `productivity`; visual design, design extraction, narrative strategy, and the studio loop entry — `/rbtv-strategist` — moved to the [studio module](./studio.md).)
 
 ---
 
 ## Components
-
-### Studio Entry Point
-
-#### `/rbtv-pitcher`
-
-- **What**: The office entry point into the studio module's deck loop. The command enters the Strategist's message-lock beat — audience mode (investor or client) is selected there. The Strategist locks the deck's message and authors the content spec; Vivian (`rbtv-designing`) then runs art-direction, generation, and the human gate. Narrative strategy and deck design both execute in the studio module.
-- **When to use**: You want to build an investor or client deck — start here to enter the studio loop.
-- **How to invoke**: `/rbtv-pitcher` — the Strategist persona opens and asks the audience mode.
-- **What it produces**: Routes into the studio loop (`studio/workflows/studio-loop/workflow.md`). Final output is an owner-accepted HTML deck (print-to-PDF) and a locked content spec recorded in design-state.
-- **Example**: `/rbtv-pitcher` → Strategist opens, asks investor or client, then runs message-lock (beat 1) and hands off to Vivian.
-
----
 
 ### Documents
 
@@ -90,10 +78,8 @@ The daily knowledge-work module — everything a founder, consultant, or PM does
 
 ## How They Fit Together
 
-The module has three natural flows:
-
-**Deck flow:** `/rbtv-pitcher` enters the studio loop → the Strategist locks the message (beat 1) → Vivian (`rbtv-designing`, studio module) runs art-direction, generation, and the human gate (beats 2–4) → `rbtv-doc-export` if you need a companion DOCX (proposal, contract, appendix). Use `/rbtv-design-extractor` (studio module) first to capture a reference site's visual system when you need to build a token file.
+The module has two natural flows:
 
 **Meeting flow:** `rbtv-meeting-prep` the day before → attend the meeting → paste the transcript into `rbtv-meeting-summarizer` immediately after → use `rbtv-client-email` to send the follow-up the same day.
 
-**Thinking-to-artifact flow:** When the problem is unclear, start with `/rbtv-domcobb` — `PL` for quick conversational structuring, escalating to `PS` when complexity warrants → once the artifact is clear, pass it to the pitcher, the lawyer, or doc-export depending on what it becomes. When the input is a raw product idea rather than a problem, `IS` spars it to a verdict — green-lit ideas hand off to `/rbtv-innovator` M1-M2 or `/rbtv-product-discoverer` (innovation module), or to a product-lifecycle plugin for a full PRD.
+**Thinking-to-artifact flow:** When the problem is unclear, start with `/rbtv-domcobb` — `PL` for quick conversational structuring, escalating to `PS` when complexity warrants → once the artifact is clear, pass it to the Strategist (`/rbtv-strategist`, studio module), the lawyer, or doc-export depending on what it becomes. When the input is a raw product idea rather than a problem, `IS` spars it to a verdict — green-lit ideas hand off to `/rbtv-innovator` M1-M2 or `/rbtv-product-discoverer` (innovation module), or to a product-lifecycle plugin for a full PRD.

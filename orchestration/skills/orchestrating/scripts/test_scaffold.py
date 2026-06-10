@@ -72,7 +72,7 @@ class TestCriterion1SkeletonKimi:
         out_dir = _scratch_dir()
         try:
             result = _run_scaffold(
-                "--model", "kimi",
+                "--model", "kimi-code-cli",
                 "--output-folder", str(out_dir),
                 "--filename", "k.task.md",
             )
@@ -154,7 +154,7 @@ class TestCriterion2Derive:
 
             # Generate baseline against the unmodified scratch card.
             _run_scaffold(
-                "--model", "kimi",
+                "--model", "kimi-code-cli",
                 "--output-folder", str(out_dir),
                 "--filename", "baseline.task.md",
                 "--wrapper", str(scratch_card),
@@ -173,7 +173,7 @@ class TestCriterion2Derive:
 
             # Regenerate against the modified scratch card.
             _run_scaffold(
-                "--model", "kimi",
+                "--model", "kimi-code-cli",
                 "--output-folder", str(out_dir),
                 "--filename", "derived.task.md",
                 "--wrapper", str(scratch_card),
@@ -215,7 +215,7 @@ class TestCriterion3Preflight:
     def test_missing_output_folder(self):
         missing_dir = _scratch_dir() / "nonexistent-subdir"
         _run_scaffold(
-            "--model", "kimi",
+            "--model", "kimi-code-cli",
             "--output-folder", str(missing_dir),
             "--filename", "x.task.md",
             expect_fail=True,
@@ -225,7 +225,7 @@ class TestCriterion3Preflight:
     def test_stale_manual(self):
         """Modify content inside a RENDER:DELTA section to make the manual stale."""
         out_dir = _scratch_dir()
-        delta_path = MODELS_DIR / "kimi" / "delta.md"
+        delta_path = MODELS_DIR / "kimi-code-cli" / "delta.md"
         original = _read(delta_path)
         try:
             # Modify content inside a RENDER:DELTA block — this will cause
@@ -237,7 +237,7 @@ class TestCriterion3Preflight:
             )
             delta_path.write_text(modified, encoding="utf-8")
             _run_scaffold(
-                "--model", "kimi",
+                "--model", "kimi-code-cli",
                 "--output-folder", str(out_dir),
                 "--filename", "x.task.md",
                 expect_fail=True,
@@ -254,7 +254,7 @@ class TestCriterion3Preflight:
 # ---------------------------------------------------------------------------
 
 class TestCriterion4LaunchFlags:
-    """Generate for kimi and claude-cli; inspect each invocation note.
+    """Generate for kimi and claude-code-cli; inspect each invocation note.
     FIX 1: flags must be DERIVED from the delta invocation section.
     """
 
@@ -262,7 +262,7 @@ class TestCriterion4LaunchFlags:
         out_dir = _scratch_dir()
         try:
             _run_scaffold(
-                "--model", "kimi",
+                "--model", "kimi-code-cli",
                 "--output-folder", str(out_dir),
                 "--filename", "k.task.md",
             )
@@ -280,12 +280,12 @@ class TestCriterion4LaunchFlags:
         out_dir = _scratch_dir()
         try:
             _run_scaffold(
-                "--model", "claude-cli",
+                "--model", "claude-code-cli",
                 "--output-folder", str(out_dir),
                 "--filename", "cc.task.md",
             )
             content = _read(out_dir / "cc.task.md")
-            # claude-cli delta: --add-dir, -p, --print, etc.
+            # claude-code-cli delta: --add-dir, -p, --print, etc.
             assert "--add-dir" in content
             assert "Confinement diff" in content
             assert "derived-from: delta invocation section" in content
@@ -297,7 +297,7 @@ class TestCriterion4LaunchFlags:
         out_dir = _scratch_dir()
         try:
             _run_scaffold(
-                "--model", "codex",
+                "--model", "codex-cli",
                 "--output-folder", str(out_dir),
                 "--filename", "cx.task.md",
             )
@@ -326,7 +326,7 @@ class TestCriterion5G3Hook:
         out_dir = _scratch_dir()
         try:
             _run_scaffold(
-                "--model", "kimi",
+                "--model", "kimi-code-cli",
                 "--output-folder", str(out_dir),
                 "--filename", "k.task.md",
             )
@@ -341,7 +341,7 @@ class TestCriterion5G3Hook:
 # ---------------------------------------------------------------------------
 
 class TestCriterion6ModelDiff:
-    """Generate for kimi and claude-cli with identical other args;
+    """Generate for kimi and claude-code-cli with identical other args;
     diff the two files. Generic blocks (the Run-Binding Header sections)
     must be BYTE-IDENTICAL; only model-specific parts should differ.
     FIX 3: assert byte-identical extraction, not just substring presence.
@@ -409,12 +409,12 @@ class TestCriterion6ModelDiff:
         out_dir = _scratch_dir()
         try:
             _run_scaffold(
-                "--model", "kimi",
+                "--model", "kimi-code-cli",
                 "--output-folder", str(out_dir),
                 "--filename", "k.task.md",
             )
             _run_scaffold(
-                "--model", "claude-cli",
+                "--model", "claude-code-cli",
                 "--output-folder", str(out_dir),
                 "--filename", "cc.task.md",
             )
@@ -422,14 +422,14 @@ class TestCriterion6ModelDiff:
             cc = _read(out_dir / "cc.task.md")
 
             # Files must differ (different models).
-            assert k != cc, "kimi and claude-cli outputs should differ"
+            assert k != cc, "kimi and claude-code-cli outputs should differ"
 
             # FIX 3: Generic binding addendum body must be BYTE-IDENTICAL.
             k_addendum = self._extract_generic_addendum(k)
             cc_addendum = self._extract_generic_addendum(cc)
             assert k_addendum == cc_addendum, (
                 f"Generic binding addendum must be byte-identical.\n"
-                f"kimi len={len(k_addendum)}, claude-cli len={len(cc_addendum)}"
+                f"kimi len={len(k_addendum)}, claude-code-cli len={len(cc_addendum)}"
             )
 
             # FIX 3: Generic return schema must be BYTE-IDENTICAL.
@@ -437,17 +437,17 @@ class TestCriterion6ModelDiff:
             cc_schema = self._extract_generic_return_schema(cc)
             assert k_schema == cc_schema, (
                 f"Generic return schema must be byte-identical.\n"
-                f"kimi len={len(k_schema)}, claude-cli len={len(cc_schema)}"
+                f"kimi len={len(k_schema)}, claude-code-cli len={len(cc_schema)}"
             )
 
             # Model-specific parts differ: kimi has "Non-reasoning executor",
-            # claude-cli has "Unattended writes are EXPLICIT".
+            # claude-code-cli has "Unattended writes are EXPLICIT".
             assert "Non-reasoning executor" in k
             assert "Unattended writes are EXPLICIT" in cc
 
-            # Frontmatter differs: kimi has max_kimi_subagents, claude-cli has model.
+            # Frontmatter differs: kimi has max_kimi_subagents, claude-code-cli has model.
             assert "max_kimi_subagents" in k
-            assert "model:" in cc  # claude-cli frontmatter has 'model' key
+            assert "model:" in cc  # claude-code-cli frontmatter has 'model' key
         finally:
             _rmtree(out_dir)
 
@@ -467,7 +467,7 @@ class TestCriterion7Instructions:
         try:
             instr = "Build a dispatch scaffold for model kimi that passes all tests."
             _run_scaffold(
-                "--model", "kimi",
+                "--model", "kimi-code-cli",
                 "--output-folder", str(out_dir),
                 "--filename", "full.task.md",
                 "--instructions", instr,
@@ -519,7 +519,7 @@ class TestCriterion7Instructions:
             instr_file = out_dir / "instructions.txt"
             instr_file.write_text("Implement the router script per spec.", encoding="utf-8")
             _run_scaffold(
-                "--model", "kimi",
+                "--model", "kimi-code-cli",
                 "--output-folder", str(out_dir),
                 "--filename", "full2.task.md",
                 "--instructions", str(instr_file),
@@ -541,7 +541,7 @@ class TestCriterion7Instructions:
                 "- Frontmatter at top of file.\n"
             )
             _run_scaffold(
-                "--model", "kimi",
+                "--model", "kimi-code-cli",
                 "--output-folder", str(out_dir),
                 "--filename", "heading.task.md",
                 "--instructions", instr,
@@ -570,7 +570,7 @@ class TestCriterion7Instructions:
                 "## Nonexistent Section\nOrphan content lands in Goal.\n"
             )
             _run_scaffold(
-                "--model", "kimi",
+                "--model", "kimi-code-cli",
                 "--output-folder", str(out_dir),
                 "--filename", "unmatched.task.md",
                 "--instructions", instr,
@@ -609,12 +609,12 @@ class TestCriterion8Determinism:
         out_dir = _scratch_dir()
         try:
             _run_scaffold(
-                "--model", "kimi",
+                "--model", "kimi-code-cli",
                 "--output-folder", str(out_dir),
                 "--filename", "run1.task.md",
             )
             _run_scaffold(
-                "--model", "kimi",
+                "--model", "kimi-code-cli",
                 "--output-folder", str(out_dir),
                 "--filename", "run2.task.md",
             )
@@ -647,7 +647,7 @@ class TestCriterion9Malformed:
         )
         try:
             _run_scaffold(
-                "--model", "kimi",
+                "--model", "kimi-code-cli",
                 "--output-folder", str(out_dir),
                 "--filename", "x.task.md",
                 "--wrapper", str(scratch_card),
@@ -701,7 +701,7 @@ class TestCriterion10RealCorpus:
     each should produce a file without errors.
     """
 
-    @pytest.mark.parametrize("model", ["kimi", "claude-cli", "qwen", "codex"])
+    @pytest.mark.parametrize("model", ["kimi-code-cli", "claude-code-cli", "qwen-code-cli", "codex-cli"])
     def test_real_corpus_model(self, model):
         out_dir = _scratch_dir()
         try:
@@ -726,7 +726,7 @@ class TestCriterion10RealCorpus:
         out_dir = _scratch_dir()
         try:
             result = _run_scaffold(
-                "--model", "deepseek",
+                "--model", "deepseek-api",
                 "--output-folder", str(out_dir),
                 "--filename", "ds.task.md",
                 expect_fail=True,
@@ -755,7 +755,7 @@ class TestAD18Fabrication:
         out_dir = _scratch_dir()
         try:
             _run_scaffold(
-                "--model", "claude",
+                "--model", "claude-code-native",
                 "--output-folder", str(out_dir),
                 "--filename", "claude.task.md",
             )
@@ -821,7 +821,7 @@ class TestModelDirConfinementLever:
         pkg_dir.mkdir(parents=True)
 
         # Copy kimi delta as the scratch package delta.
-        kimi_delta = MODELS_DIR / "kimi" / "delta.md"
+        kimi_delta = MODELS_DIR / "kimi-code-cli" / "delta.md"
         scratch_delta = pkg_dir / "delta.md"
         scratch_delta.write_bytes(kimi_delta.read_bytes())
 
@@ -909,7 +909,7 @@ class TestModelDirConfinementLever:
             # kimi is a real model with a fresh manual — should pass with no --model-dir.
             result = subprocess.run(
                 [sys.executable, str(SCAFFOLD),
-                 "--model", "kimi",
+                 "--model", "kimi-code-cli",
                  "--output-folder", str(out_dir),
                  "--filename", "live.task.md"],
                 capture_output=True, text=True, cwd=str(RBTV_ROOT),

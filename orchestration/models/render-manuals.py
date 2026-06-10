@@ -12,7 +12,7 @@ No external dependencies — Python 3.11+ only.
 Usage (run from the rbtv repo root):
     python orchestration/models/render-manuals.py            # render all manuals
     python orchestration/models/render-manuals.py --check    # report drift, write nothing (exit 1 if stale)
-    python orchestration/models/render-manuals.py --model kimi   # render one model only
+    python orchestration/models/render-manuals.py --model kimi-code-cli   # render one model only
 
 Inputs:
     Wrapper template : orchestration/skills/orchestrating/cards/dispatch-wrapper.md

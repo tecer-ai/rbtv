@@ -22,11 +22,12 @@ Manifests are **YAML**, not JSON. Rationale:
 
 ## 1. Schema structure
 
-A manifest is one YAML document with three top-level keys:
+A manifest is one YAML document with four top-level keys:
 
 | Key | Type | Purpose |
 |-----|------|---------|
-| `model` | string | The package id — matches the folder name `models/{model}/` (e.g. `kimi`, `codex`, `claude-cli`, `qwen`). |
+| `model` | string | The package id — matches the folder name `models/{model}/` (e.g. `kimi-code-cli`, `codex-cli`, `claude-code-cli`, `qwen-code-cli`). The id is folder-safe and states carrier + runtime. |
+| `display` | string | Human-facing label shown in the installer worker pick-menu and the baked availability line — the parenthesized carrier+runtime form the folder-safe id cannot carry (e.g. `kimi-code (CLI)`, `claude (native, from Claude Code)`, `gemini (API)`). **Installer-consumed, NOT a routing input** — the router parser (`route.py`) ignores it; it is therefore exempt from the §3 routing-consumer obligation and the variant field-count discipline. Falls back to the bare folder name when absent. |
 | `evidence_status` | string | Package-level validation status: `validated` (piloted live) or `probe-pending` (authored from docs/probe, not yet pilot-validated). Per-variant overrides allowed (see `variants[].evidence_status`). |
 | `variants` | list | One entry per routable `(model, variant)` pair. Routing routes on these — never on a bare model name. A model with a single operating profile still declares one variant. |
 
@@ -61,7 +62,7 @@ Each entry in `variants` carries the fields below. Required fields MUST be prese
 | `specialty` | no | string | A one-line positive "best at" capability statement for this `(model, variant)` — what it is GREAT at (e.g. "bounded code execution", "cheapest text synthesis", "web research via search grounding"). Consumed ONLY as a **within-tier tiebreaker** — never as the master routing cut (boundedness-first stays the master cut; `specialty` breaks a tie BETWEEN variants the boundedness tree already placed in the same tier). Omitted when the variant has no distinguishing specialty beyond its tier. |
 | `configurable_model` | no | map | Declares that the served model is CONFIGURATION, not a fixed package identity — the actual model the harness runs is set by config/env, not baked into the package. Sub-fields: `is_configurable` (bool — true when the CLI runs a configurable model set), `note` (short string naming the configuration surface, e.g. the `--auth-type` / `OPENAI_BASE_URL` / `OPENAI_MODEL` switches). Omitted for packages whose model identity is fixed. Drives result-attribution (the run-log names "the package running configured-model X", never a fixed model id) and the router's provider-model-id resolution (the model id is read at dispatch, not assumed from the package name). |
 | `failure_modes` | yes | list | Known failure modes the conductor pre-empts (each a short string, e.g. `headless auto-approves all tools — no native allowlist`, `cd does not persist between shell calls`, `runaway autonomous loop if iteration cap unset`). Sourced from validated evidence; un-validated packages may carry `[]` plus a `probe-pending` status. |
-| `guidance_file` | no | map | The per-workspace guidance file this worker natively loads, if any. Sub-fields: `convention` (the filename, e.g. `AGENTS.md`, or `CLAUDE.md` for claude-cli), `mirror_entry` (the mirror-machinery entry point that generates/syncs it). Drives routing's pre-dispatch guidance-file check. Omitted when the worker loads no workspace guidance file (e.g. a pure Agent-tool-equivalent). |
+| `guidance_file` | no | map | The per-workspace guidance file this worker natively loads, if any. Sub-fields: `convention` (the filename, e.g. `AGENTS.md`, or `CLAUDE.md` for claude-code-cli), `mirror_entry` (the mirror-machinery entry point that generates/syncs it). Drives routing's pre-dispatch guidance-file check. Omitted when the worker loads no workspace guidance file (e.g. a pure Agent-tool-equivalent). |
 | `swarm_support` | yes | map | Whether the worker can itself spawn sub-workers. Sub-fields: `subagents` (bool — can it launch its own subagents), `nesting` (`none` · `one-level` — depth it allows), `default` (`enabled` · `disabled` — the safe default posture). Informs topology and the depth cap. |
 | `os_quirks` | no | map | OS-specific invocation notes, keyed by OS (e.g. `windows:`). Carries the Windows-specific corpus notes (stdin-pipe handling, exit-code semantics, first-run delays). Omitted when none. |
 | `evidence_status` | no | enum | Per-variant override of the package-level `evidence_status` (`validated` · `probe-pending`). Omitted = inherits the package-level value. Lets a model ship one validated variant and one probe-pending variant. |
@@ -79,7 +80,7 @@ The four required fields `headless`, `tool_surface`, `confinement`, and `swarm_s
 | `confinement` | `workspace_scope: "output-folder only — no filesystem access"`, `tool_restriction: "none — worker cannot execute tools"`, `write_enforcement: "runner writes only into --output-folder; path-sanitized against ../ and absolute paths"` | Confinement is the runner's job (path sanitization), not the CLI's. The conductor does NOT need to scope a work-dir. |
 | `swarm_support` | `subagents: false`, `nesting: none`, `default: disabled` | API workers cannot spawn sub-workers. |
 
-**Canonical repurposed values for Agent-tool in-session workers** (the `models/claude/` package — Claude variants dispatched as sub-agents via the Agent tool, not as a process):
+**Canonical repurposed values for Agent-tool in-session workers** (the `models/claude-code-native/` package — Claude variants dispatched as sub-agents via the Agent tool, not as a process):
 
 | Field | Agent-tool value | What it means to the router |
 |-------|------------------|------------------------------|

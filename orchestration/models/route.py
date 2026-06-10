@@ -287,7 +287,16 @@ def _check_api_key_present(model_name: str, rbtv_cfg: dict, vault_root: Path) ->
     (e.g. `.user/config/env/.env`), so it MUST resolve against vault_root, never the rbtv
     repo root. Manifest enumeration stays at rbtv_root (models/ folder lives there).
     """
-    env_var_name = f"{model_name.upper()}_API_KEY"
+    # The API-key env var is keyed by PROVIDER, not by the package's runtime-suffixed
+    # id. Strip the runtime suffix (-api / -code-cli / -code-native / -cli) so e.g.
+    # qwen-code-cli → QWEN_API_KEY and deepseek-api → DEEPSEEK_API_KEY (the canonical
+    # provider key names — and the names used before the carrier+runtime rename).
+    provider = model_name
+    for _suffix in ("-code-cli", "-code-native", "-cli", "-api"):
+        if provider.endswith(_suffix):
+            provider = provider[: -len(_suffix)]
+            break
+    env_var_name = f"{provider.upper()}_API_KEY"
     if os.environ.get(env_var_name):
         return True
     env_file = rbtv_cfg.get("env_file")
@@ -478,7 +487,12 @@ def _rank(entries: list, profile: dict, explain_log: list) -> list:
         # For closest-not-over: we want the lowest tier that meets the requirement
         # Since we already filtered, all survivors meet the requirement.
         # closest-not-over = lowest tier value among survivors
-        return (cost_idx, evidence_idx, tier_val, e["model"], e["variant"])
+        # Carrier tiebreak: among otherwise-tied top-tier Claude, the agent-tool
+        # carrier (claude-code-native) is the default — rank the process carrier
+        # (claude-code-cli) AFTER it. This preserves the pre-rename order, where the
+        # old ids `claude` < `claude-cli` made agent-tool Claude the default pick;
+        # the rename to claude-code-{cli,native} would otherwise flip that order.
+        return (cost_idx, evidence_idx, tier_val, e["model"] == "claude-code-cli", e["model"], e["variant"])
 
     ranked = sorted(entries, key=_sort_key)
     explain_log.append({
@@ -531,14 +545,14 @@ def _scope_eligible_set(entries: list, profile: dict, explain_log: list) -> list
         return entries
     elif band == "partially-bounded":
         # Scope to Claude mid-tier variants
-        scoped = [e for e in entries if e["model"] in ("claude", "claude-cli") and e["reasoning_tier"] == "mid"]
+        scoped = [e for e in entries if e["model"] in ("claude-code-native", "claude-code-cli") and e["reasoning_tier"] == "mid"]
         explain_log.append({
             "stage": "scope", "action": "partially-bounded",
             "scoped_to": "Claude mid-tier variants", "before": len(entries), "after": len(scoped),
         })
         return scoped
     else:  # unbounded — keystone: scope to top-tier Claude variants
-        scoped = [e for e in entries if e["model"] in ("claude", "claude-cli") and e["reasoning_tier"] == "top"]
+        scoped = [e for e in entries if e["model"] in ("claude-code-native", "claude-code-cli") and e["reasoning_tier"] == "top"]
         explain_log.append({
             "stage": "scope", "action": "unbounded",
             "scoped_to": "top-tier Claude variants (keystone)", "before": len(entries), "after": len(scoped),
@@ -551,9 +565,9 @@ def _resolve_carrier(entry: dict, profile: dict) -> str:
     model = entry["model"]
     needs_process = profile.get("needs_process_boundary", False)
 
-    if model in ("kimi", "codex", "qwen", "claude-cli"):
+    if model in ("kimi-code-cli", "codex-cli", "qwen-code-cli", "claude-code-cli"):
         return "cli-process"
-    elif model == "claude":
+    elif model == "claude-code-native":
         if needs_process:
             return "cli-process"
         return "agent-tool"
@@ -655,19 +669,19 @@ _PINNED_FLOORS = {
     "reviewer": {
         "description": "≥ executor tier + 1, floor sonnet, never haiku",
         "floor_variant": "sonnet",
-        "floor_models": ("claude", "claude-cli"),
+        "floor_models": ("claude-code-native", "claude-code-cli"),
         "floor_tier": "mid",
     },
     "debug": {
         "description": "Top-tier Claude (opus) — never a CLI/API worker (routing.md §3: never let a CLI worker root-cause)",
         "floor_variant": "opus",
-        "floor_models": ("claude", "claude-cli"),
+        "floor_models": ("claude-code-native", "claude-code-cli"),
         "floor_tier": "top",
     },
     "commit": {
         "description": "Agent-tool Claude sonnet floor",
         "floor_variant": "sonnet",
-        "floor_models": ("claude",),
+        "floor_models": ("claude-code-native",),
         "floor_carrier": "agent-tool",
     },
 }
@@ -698,7 +712,7 @@ def _apply_pinned_role_floor(
         if profile.get("reviews_external_cli_code"):
             external_cli_opus = [
                 e for e in original_entries
-                if e["model"] in ("claude", "claude-cli")
+                if e["model"] in ("claude-code-native", "claude-code-cli")
                 and e["variant"] == "opus"
             ]
             if external_cli_opus:
@@ -737,7 +751,7 @@ def _apply_pinned_role_floor(
         # Need to raise: reviewer floors at Claude mid+ (routing.md §3)
         scoped_entries = list(original_entries)
         # Scope to Claude variants for reviewer pin
-        claude_entries = [e for e in scoped_entries if e["model"] in ("claude", "claude-cli")]
+        claude_entries = [e for e in scoped_entries if e["model"] in ("claude-code-native", "claude-code-cli")]
         scoped = _scope_eligible_set(claude_entries, profile, explain_log)
         scoped = _apply_plan_caps(scoped, plans, explain_log)
 
@@ -763,14 +777,14 @@ def _apply_pinned_role_floor(
         # Top-tier CLAUDE (opus) — routing.md §3: debug floors at opus and NEVER lets a
         # CLI/API worker root-cause. A top-tier non-Claude (e.g. deepseek:v4-pro) does NOT
         # satisfy this floor; require BOTH top-tier AND Claude membership.
-        if chosen["model"] in ("claude", "claude-cli") and chosen["reasoning_tier"] == "top":
+        if chosen["model"] in ("claude-code-native", "claude-code-cli") and chosen["reasoning_tier"] == "top":
             explain_log.append({
                 "stage": "pin", "action": "floor_already_met",
                 "role": pinned_role, "reason": f"already top-tier Claude: {chosen['model']}:{chosen['variant']}",
             })
             return chosen
         # Find cheapest top-tier CLAUDE variant
-        scoped_entries = [e for e in original_entries if e["model"] in ("claude", "claude-cli")]
+        scoped_entries = [e for e in original_entries if e["model"] in ("claude-code-native", "claude-code-cli")]
         scoped = _apply_plan_caps(scoped_entries, plans, explain_log)
         top_survivors = [e for e in scoped if e["reasoning_tier"] == "top"]
         if top_survivors:
@@ -786,7 +800,7 @@ def _apply_pinned_role_floor(
 
     elif pinned_role == "commit":
         # Agent-tool Claude sonnet floor
-        if chosen["model"] in ("claude",) and chosen.get("reasoning_tier") in ("mid", "top"):
+        if chosen["model"] in ("claude-code-native",) and chosen.get("reasoning_tier") in ("mid", "top"):
             explain_log.append({
                 "stage": "pin", "action": "floor_already_met",
                 "role": pinned_role, "reason": f"already Claude mid/top: {chosen['model']}:{chosen['variant']}",
@@ -795,7 +809,7 @@ def _apply_pinned_role_floor(
         # Find cheapest Claude sonnet
         scoped_entries = list(original_entries)
         scoped = _scope_eligible_set(scoped_entries, profile, explain_log)
-        sonnet_variants = [e for e in scoped if e["model"] in ("claude",) and e["variant"] == "sonnet"]
+        sonnet_variants = [e for e in scoped if e["model"] in ("claude-code-native",) and e["variant"] == "sonnet"]
         if sonnet_variants:
             sonnet_ranked = _rank(sonnet_variants, profile, explain_log)
             raised = sonnet_ranked[0]

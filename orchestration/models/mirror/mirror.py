@@ -3,9 +3,9 @@
 
 THE shippable, vault-agnostic mirror engine behind D7's pre-dispatch
 guidance-file check (debate-decisions.md D7) and D18's mirror machinery
-generalization (D18). A CLI model worker (kimi, codex, claude-cli, qwen)
+generalization (D18). A CLI model worker (kimi, codex, claude-code-cli, qwen)
 natively loads a per-workspace guidance file — `AGENTS.md` for kimi/codex,
-`CLAUDE.md` for claude-cli. When a target workspace lacks that file, the routing
+`CLAUDE.md` for claude-code-cli. When a target workspace lacks that file, the routing
 card offers to create it via this engine; this engine generates it, stamped with
 an auto-generated DO-NOT-EDIT banner, and detects when an existing one has gone
 stale relative to its source.

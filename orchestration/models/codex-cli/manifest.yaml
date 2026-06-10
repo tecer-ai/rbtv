@@ -11,7 +11,8 @@
 # The exact invocation shape (commands, flags, sandbox/approval grammar, resume) is in ./manual.md
 # (rendered from ./delta.md by ../render-manuals.py) — this manifest points to it, never duplicates it.
 
-model: codex
+model: codex-cli
+display: "codex (CLI)"
 evidence_status: probe-pending   # invocable + separate-process isolation live-proven once (B4D); full headless worker contract authored from `codex exec --help`, not pilot-validated
 
 variants:
@@ -58,8 +59,8 @@ variants:
 
     # --- invocation + failures (routing §4, §2) ---
     invocation_pointer: ./manual.md   # rendered dispatch manual (../render-manuals.py) — the exact command shape
-    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/codex/manual.md
-    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/codex/delta.md
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/codex-cli/manual.md
+    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/codex-cli/delta.md
     specialty: "separate-process sandboxed code execution — a code-specialized agent that edits the work-dir under an OS sandbox in its own process (live-proven context isolation); native --search web for code-with-research"   # within-tier tiebreaker only; boundedness-first stays the master cut
     failure_modes:
       - "headless stalls waiting for approval unless --ask-for-approval never is passed (any other value blocks a non-interactive run)"
@@ -74,7 +75,7 @@ variants:
     # --- guidance file (routing §4 pre-dispatch check) ---
     guidance_file:
       convention: AGENTS.md         # Codex natively loads the workspace AGENTS.md guidance file (the mirror machinery target)
-      mirror_entry: codex-mirror     # resolves to: python orchestration/models/mirror/mirror.py --config orchestration/models/codex/mirror-config.yaml --target <workspace>
+      mirror_entry: codex-mirror     # resolves to: python orchestration/models/mirror/mirror.py --config orchestration/models/codex-cli/mirror-config.yaml --target <workspace>
 
     # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
     swarm_support:
@@ -128,8 +129,8 @@ variants:
 
     # --- invocation + failures ---
     invocation_pointer: ./manual.md   # same rendered manual; the high-effort override is documented there
-    manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/codex/manual.md
-    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/codex/delta.md
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/codex-cli/manual.md
+    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/codex-cli/delta.md
     specialty: "judgment-denser code analysis as a separate process — the high-reasoning-effort codex variant for harder code reasoning that still runs sandboxed in its own process (reviewer still floors at opus)"   # within-tier tiebreaker only
     failure_modes:
       - "headless stalls waiting for approval unless --ask-for-approval never is passed"

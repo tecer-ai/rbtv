@@ -41,7 +41,7 @@ This is the core's router. Each row maps a situation in the run to the ONE card 
 | **A worker did not cleanly finish** — it halted on a doubt, returned `BLOCKED`, died mid-run (exit-75 / hang / crash), or its return drifted from disk | **Halt-recovery** — Halt→Decide→Resume, the L1/L2/L3 recovery ladder, the doubt-escalation chain, red-set bookkeeping, precondition override, USER-EXECUTED-ONLY handover | `cards/halt-recovery.md` |
 | **A state file must be written** — a dispatch goes out, a return comes back, a gate/probe fires, a decision affects queued work | **State** — the three-file spine semantics, registrar discipline, propagation, the dual-write rule | `cards/state.md` |
 | **The run is resuming or refreshing** — a new session, or an approved clean phase-boundary refresh | **State** — rebuild from `state-capsule.md` first, then the `run-log.md` tail, then `decisions.md`; the capsule IS the resume contract (no separate handoff file) | `cards/state.md` |
-| **A task will be dispatched to a CLI model** — a chosen worker is `kimi`, `codex`, `claude-cli`, `qwen`, … | **The model's rendered manual** — open it JIT at first dispatch to that model for the exact invocation shape (command, flags, work-dir, prompt transport, exit handling, resume). **Availability guard:** the manual exists only when that model package is installed AND the render step (P3) has produced it — if `models/{model}/` is absent, the CLI dispatch is not available; routing routes to an Agent-tool Claude tier instead or halts (routing card §1). | `models/{model}/manual.md` |
+| **A task will be dispatched to a CLI model** — a chosen worker is `kimi-code-cli`, `codex-cli`, `claude-code-cli`, `qwen-code-cli`, … | **The model's rendered manual** — open it JIT at first dispatch to that model for the exact invocation shape (command, flags, work-dir, prompt transport, exit handling, resume). **Availability guard:** the manual exists only when that model package is installed AND the render step (P3) has produced it — if `models/{model}/` is absent, the CLI dispatch is not available; routing routes to an Agent-tool Claude tier instead or halts (routing card §1). | `models/{model}/manual.md` |
 
 Reading the table: most situations map to a card; a CLI dispatch additionally maps to the chosen model's manual (the dispatch-wrapper card packages the GENERIC dispatch, the model manual supplies the model-specific invocation). **Parallel waves:** when several workers return concurrently, each return is processed INDEPENDENTLY through the same Verification gate (one return = one gate run); the per-wave reconciliation — committing at wave boundaries to restore git-diff resolution — is the Routing card's wave-commit discipline (routing §8, which also sized the wave). A situation not in this table is either an invariant question (answer it from the invariants above) or a sign the run has drifted off-protocol — stop and reconcile, do not invent a step.
 
@@ -54,21 +54,21 @@ One line per installed model package, always in the core so routing can recall w
 The availability line below is written by the installer (`install.py`) at install time — it names which packages are present in THIS workspace and which are absent (the installer replaces only the content BETWEEN the `ORCH:AVAILABILITY` markers; the markers are preserved so re-install is idempotent). Until an install runs in a workspace, the marker region carries its fallback text and the live `{rbtv_path}/orchestration/models/` folder is authoritative. Trust the live `models/` folder over this line on any mismatch, and log the mismatch (the routing card owns that check).
 
 <!-- ORCH:AVAILABILITY:BEGIN -->
-> **Model packages installed:** claude, kimi, qwen
-> **Absent:** claude-cli, codex, deepseek, gemini, manus
+> **Model packages installed:** claude (native, from Claude Code), kimi-code (CLI), qwen-code (CLI)
+> **Absent:** claude-code (CLI), codex (CLI), deepseek (API), gemini (API), manus (API)
 <!-- ORCH:AVAILABILITY:END -->
 
 Per-model capability lines — a STATIC reference roster of the model packages this skill can carry, NOT a list of what is installed here. A line's presence in this table says nothing about routability: routability is decided ONLY by the installer-baked availability block above + the live `models/` folder. Routing reads the installed package's manifest for the full field set — these lines are the at-a-glance recall, not the routing inputs:
 
 | Model package | One-line capability (recall only — manifest is authoritative) |
 |---------------|----------------------------------------------------------------|
-| **kimi** | Code-executing CLI worker — writes code, runs scripts/servers, commits locally; the validated bounded-code executor. Resume via session id. |
-| **codex** | Code-executing CLI worker (`codex exec`) — separate-process execution; live-proven once. |
-| **claude-cli** | `claude -p` headless worker — natively loads workspace `CLAUDE.md`/rules; usable as a CLI-driven sub-conductor (process boundary clears the nesting wall). |
-| **claude** | Agent-tool Claude tiers (opus/sonnet) — in-session default carrier; no native CLAUDE.md/rules load (parent must inline); nesting wall (cannot spawn sub-agents); sibling to claude-cli (the process carrier). |
-| **qwen** | Web-capable CLI worker — the research-leaf executor; carries the sources-manifest pointer when one is provided. |
-| **deepseek** | API chat text-worker (OpenAI-compatible, JSON mode) — cheapest text synthesis; `code_competence: none` (text leaves only); no native web. |
-| **gemini** | API chat text-worker — carries native web access (search grounding; web-research leaf wired in Phase 5); `code_competence: none`; the only web-capable chat worker. |
+| **kimi-code-cli** | Code-executing CLI worker — writes code, runs scripts/servers, commits locally; the validated bounded-code executor. Resume via session id. |
+| **codex-cli** | Code-executing CLI worker (`codex exec`) — separate-process execution; live-proven once. |
+| **claude-code-cli** | `claude -p` headless worker — natively loads workspace `CLAUDE.md`/rules; usable as a CLI-driven sub-conductor (process boundary clears the nesting wall). |
+| **claude-code-native** | Agent-tool Claude tiers (opus/sonnet) — in-session default carrier; no native CLAUDE.md/rules load (parent must inline); nesting wall (cannot spawn sub-agents); sibling to claude-code-cli (the process carrier). |
+| **qwen-code-cli** | Web-capable CLI worker — the research-leaf executor; carries the sources-manifest pointer when one is provided. |
+| **deepseek-api** | API chat text-worker (OpenAI-compatible, JSON mode) — cheapest text synthesis; `code_competence: none` (text leaves only); no native web. |
+| **gemini-api** | API chat text-worker — carries native web access (search grounding; web-research leaf wired in Phase 5); `code_competence: none`; the only web-capable chat worker. |
 
 A line here is recall, not permission: routing routes only on `(model, variant)` pairs read from an INSTALLED package's manifest, and the capability lines for absent packages are simply not in play this run. The installer-baked availability block above is the single source for what "installed" means in this workspace.
 

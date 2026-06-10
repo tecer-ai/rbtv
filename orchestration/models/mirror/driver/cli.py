@@ -1,7 +1,7 @@
 """cli.py — command-line entry for the rbtv mirror driver.
 
 Renders / checks / uninstalls a workspace's worker-mirror artifacts for an
-elected set of CLI worker packages (codex / kimi / qwen).  Flag conventions match
+elected set of CLI worker packages (codex-cli / kimi-code-cli / qwen-code-cli).  Flag conventions match
 the sibling ``mirror.py`` engine: ``--target`` is the workspace root, ``--check``
 is read-only and exits 1 on drift, ``--uninstall`` removes artifacts, and
 ``--check`` + ``--uninstall`` together are mutually exclusive (exit 2).
@@ -9,15 +9,15 @@ is read-only and exits 1 on drift, ``--uninstall`` removes artifacts, and
 Usage
 -----
     # render the elected worker set into a workspace
-    python -m driver.cli --target <workspace> codex kimi qwen
+    python -m driver.cli --target <workspace> codex-cli kimi-code-cli qwen-code-cli
 
     # report drift without writing (exit 1 if anything is stale/missing)
-    python -m driver.cli --target <workspace> codex kimi qwen --check
+    python -m driver.cli --target <workspace> codex-cli kimi-code-cli qwen-code-cli --check
 
     # deselect a package; remaining elected workers are read from rbtv.json's
     # model_packages (or pass --remaining to override, e.g. for testing)
-    python -m driver.cli --target <workspace> --uninstall codex
-    python -m driver.cli --target <workspace> --uninstall codex --remaining kimi qwen
+    python -m driver.cli --target <workspace> --uninstall codex-cli
+    python -m driver.cli --target <workspace> --uninstall codex-cli --remaining kimi-code-cli qwen-code-cli
 
 Exit codes
 ----------
@@ -101,7 +101,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _validate_packages(packages: list[str]) -> list[str]:
     """Return unknown package ids that are neither mirrorable nor a known native id."""
-    known = set(PACKAGE_FACTS) | {"claude-cli"}
+    known = set(PACKAGE_FACTS) | {"claude-code-cli"}
     return [p for p in packages if p not in known]
 
 
@@ -199,7 +199,7 @@ def main(argv: list[str]) -> int:
     if unknown:
         print(
             f"ERROR: unknown package(s): {', '.join(unknown)}. "
-            f"Known: {', '.join(sorted(set(PACKAGE_FACTS) | {'claude-cli'}))}",
+            f"Known: {', '.join(sorted(set(PACKAGE_FACTS) | {'claude-code-cli'}))}",
             file=sys.stderr,
         )
         return 2

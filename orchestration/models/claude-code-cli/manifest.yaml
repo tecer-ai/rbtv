@@ -1,4 +1,4 @@
-# Claude-cli capability manifest — the routing card's data interface for the claude-cli package.
+# Claude-cli capability manifest — the routing card's data interface for the claude-code-cli package.
 # Schema + field meanings + routing-card consumers: ../manifest-schema.md
 # Sources (every value traces to one of these — zero assumption-authored fields):
 #   - p3-6 in-house probe: 1-projects/rbtv-evolution/coding/done-gate-evidence/rbtv/2026-06-07-claude-cli-probe.md
@@ -13,13 +13,14 @@
 # The exact invocation shape (commands, flags, exit codes, resume, the unique native-CLAUDE.md property) is in ./manual.md
 # (rendered from ./delta.md by ../render-manuals.py) — this manifest points to it, never duplicates it.
 #
-# UNIQUE among the model packages: claude-cli is Claude-as-a-CLI-worker. It natively auto-loads the cwd workspace
+# UNIQUE among the model packages: claude-code-cli is Claude-as-a-CLI-worker. It natively auto-loads the cwd workspace
 # CLAUDE.md/rules/skills (probe H5 — proven), unlike Agent-tool helpers and unlike the other CLI workers. Because the
 # workspace's OWN CLAUDE.md IS the guidance file, there is NO mirror: `guidance_file` records the native convention but
 # omits `mirror_entry` (no mirror-config.yaml ships — see ./delta.md "Workspace rooting" and ../../../shape.md mirror ruling).
-# Same Claude budget as the conductor — selecting claude-cli is NOT cost arbitrage (no cheaper-provider saving like kimi).
+# Same Claude budget as the conductor — selecting claude-code-cli is NOT cost arbitrage (no cheaper-provider saving like kimi).
 
-model: claude-cli
+model: claude-code-cli
+display: "claude-code (CLI)"
 evidence_status: validated   # the invocation contract (launch from a helper, JSON envelope, --model, acceptEdits, native CLAUDE.md load, --resume, exit semantics) is in-house probe-HELD (p3-6). The first real ORCHESTRATED sub-conductor dispatch through this manual is the p5-2 smoke probe — facets beyond the probe matrix (a full task-bearing dispatch, deep recovery) are exercised there.
 
 variants:
@@ -31,7 +32,7 @@ variants:
     max_output: 64000               # claude-opus-4-8[1m] single-turn output ceiling (model/provider-determined); JSON modelUsage.maxOutputTokens reports the live value per dispatch — read it there rather than assuming
 
     # --- budget + capability gates (routing §2, §6) ---
-    cost_class: high                # opus is the costliest tier; probe Opus calls ≈ $0.22/call (JSON total_cost_usd). NOTE: same Claude budget as the conductor — choosing claude-cli buys a PROCESS BOUNDARY (sub-conductor / native workspace rules), NOT a cheaper provider; there is no cost arbitrage here (contrast kimi/codex)
+    cost_class: high                # opus is the costliest tier; probe Opus calls ≈ $0.22/call (JSON total_cost_usd). NOTE: same Claude budget as the conductor — choosing claude-code-cli buys a PROCESS BOUNDARY (sub-conductor / native workspace rules), NOT a cheaper provider; there is no cost arbitrage here (contrast kimi/codex)
     code_competence: strong         # full Claude Code tool surface (Edit/Write/Bash/etc.) — a strong code executor and reviewer; reviewer floor for external-CLI code is Opus, which this variant IS
     web_access: true                # Claude Code carries native web tools (WebSearch/WebFetch) + the rbtv-web-searching skill when run in an rbtv workspace; research-leaf capable
     # multimodal: [image]           # Claude accepts image input in interactive use; OMITTED — no image dispatch was probed in p3-6 (validated-evidence-only; add only after an image-path probe)
@@ -66,8 +67,8 @@ variants:
 
     # --- invocation + failures (routing §4, §2) ---
     invocation_pointer: ./manual.md   # rendered dispatch manual (../render-manuals.py) — the exact command shape
-    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/claude-cli/manual.md
-    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/claude-cli/delta.md
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/claude-code-cli/manual.md
+    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/claude-code-cli/delta.md
     specialty: "process-boundary sub-conductor with native workspace-rule loading — the Claude carrier that itself drives CLI workers (clears the nesting wall as a separate process) and natively auto-loads the cwd CLAUDE.md/rules"   # within-tier tiebreaker only; boundedness-first stays the master cut
     failure_modes:
       - "stdin not redirected → 3s stdin-wait + a 'no stdin data received in 3s' warning that pollutes text stdout (probe C1); ALWAYS redirect stdin ($null | / < NUL / < /dev/null)"
@@ -75,12 +76,12 @@ variants:
       - "--permission-mode authorizes but does not BOUND writes to an allowlist — back every dispatch with post-run git diff --name-only vs the allowlist (the only reliable write confinement; confinement is the orchestrator's job)"
       - "nesting depth: a claude -p worker is a sub-conductor at depth 2 (conductor → claude -p). It can shell out again, but the depth cap ≤2 FORBIDS relying on deeper Agent-tool nesting — do not design a claude -p worker to dispatch its own Agent-tool sub-agents (the 4× documented nesting wall blocks that anyway)"
       - "final-turn drop on a CLI worker is possible (the generic CLI-worker lossy-return class) — the JSON envelope or message is a HINT; reconcile landed/validation against git status / git log + cited evidence files on disk. exit 0 + is_error:false is ground truth, not the prose (corroboration: the harness trusts the operation's exit code, never Claude's claim of success)"
-      - "--bare DISABLES CLAUDE.md auto-discovery (per --help) — never pass it when the worker needs the workspace rules; it is the opposite of the native-rooting property claude-cli is selected for"
+      - "--bare DISABLES CLAUDE.md auto-discovery (per --help) — never pass it when the worker needs the workspace rules; it is the opposite of the native-rooting property claude-code-cli is selected for"
 
     # --- guidance file (routing §4 pre-dispatch check) ---
     guidance_file:
-      convention: CLAUDE.md         # CLI-Claude NATIVELY auto-loads the cwd workspace CLAUDE.md (and its rules/skills) and obeys it — probe H5-pos returned the planted codeword, H5-neg (no file) did not. This is the property that distinguishes claude-cli from Agent-tool helpers and the other CLI workers
-      # mirror_entry: OMITTED — NO mirror for claude-cli. The workspace's OWN CLAUDE.md IS the guidance file; it is loaded natively, not generated. Mirroring CLAUDE.md→CLAUDE.md would be a self-copy where the file exists (and would CLOBBER the user's real CLAUDE.md with a DO-NOT-EDIT banner) and circular where it is absent. The pre-dispatch guidance-file check VERIFIES the target workspace has a CLAUDE.md and that cwd/--add-dir points at it; when absent it inlines the needed rules into the prompt or roots cwd at a CLAUDE.md-bearing dir — it never offers a mirror. No mirror-config.yaml ships in this package. (Ruling: ../../../shape.md mirror Decision, 2026-06-07.)
+      convention: CLAUDE.md         # CLI-Claude NATIVELY auto-loads the cwd workspace CLAUDE.md (and its rules/skills) and obeys it — probe H5-pos returned the planted codeword, H5-neg (no file) did not. This is the property that distinguishes claude-code-cli from Agent-tool helpers and the other CLI workers
+      # mirror_entry: OMITTED — NO mirror for claude-code-cli. The workspace's OWN CLAUDE.md IS the guidance file; it is loaded natively, not generated. Mirroring CLAUDE.md→CLAUDE.md would be a self-copy where the file exists (and would CLOBBER the user's real CLAUDE.md with a DO-NOT-EDIT banner) and circular where it is absent. The pre-dispatch guidance-file check VERIFIES the target workspace has a CLAUDE.md and that cwd/--add-dir points at it; when absent it inlines the needed rules into the prompt or roots cwd at a CLAUDE.md-bearing dir — it never offers a mirror. No mirror-config.yaml ships in this package. (Ruling: ../../../shape.md mirror Decision, 2026-06-07.)
 
     # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
     swarm_support:
@@ -134,9 +135,9 @@ variants:
 
     # --- invocation + failures ---
     invocation_pointer: ./manual.md   # same rendered manual; the --model sonnet selection is documented there
-    manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/claude-cli/manual.md
-    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/claude-cli/delta.md
-    specialty: "process-worker verification with native workspace rules — cold-verify / recon as a claude -p process that natively auto-loads the cwd CLAUDE.md (the cheaper claude-cli tier; sub-conducting still floors at opus where judgment-dense)"   # within-tier tiebreaker only
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/claude-code-cli/manual.md
+    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/claude-code-cli/delta.md
+    specialty: "process-worker verification with native workspace rules — cold-verify / recon as a claude -p process that natively auto-loads the cwd CLAUDE.md (the cheaper claude-code-cli tier; sub-conducting still floors at opus where judgment-dense)"   # within-tier tiebreaker only
     failure_modes:
       - "stdin not redirected → 3s wait + warning polluting text stdout; ALWAYS redirect stdin"
       - "default permission mode is NOT guaranteed read-only (H4-default) — pass --permission-mode acceptEdits explicitly for an intended write"
@@ -172,7 +173,7 @@ variants:
     max_output: 128000              # claude-fable-5 single-turn output ceiling (docs cap; model/provider-determined); JSON modelUsage.maxOutputTokens reports the live value per dispatch — read it there rather than assuming. HIGHER than opus's 64000 (one of the routing-relevant fields distinguishing fable from opus)
 
     # --- budget + capability gates (routing §2, §6) ---
-    cost_class: premium             # fable is premium-priced: ~2× opus ($10/$50 vs $5/$25 per MTok input/output). premium ranks ABOVE high, so cost-ascending selection NEVER auto-picks fable on a cost tie — it is reachable ONLY via the conductor / final-plan-reviewer pins (those pins land at p3-1, not here). Still the SAME Claude budget as the conductor (no cross-provider arbitrage); choosing claude-cli buys a PROCESS BOUNDARY (sub-conductor / native workspace rules), not a cheaper provider
+    cost_class: premium             # fable is premium-priced: ~2× opus ($10/$50 vs $5/$25 per MTok input/output). premium ranks ABOVE high, so cost-ascending selection NEVER auto-picks fable on a cost tie — it is reachable ONLY via the conductor / final-plan-reviewer pins (those pins land at p3-1, not here). Still the SAME Claude budget as the conductor (no cross-provider arbitrage); choosing claude-code-cli buys a PROCESS BOUNDARY (sub-conductor / native workspace rules), not a cheaper provider
     code_competence: strong         # full Claude Code tool surface (Edit/Write/Bash/etc.) — a strong code executor and reviewer; reviewer floor for external-CLI code is Opus, which fable (a top-tier peer) also satisfies
     web_access: true                # Claude Code carries native web tools (WebSearch/WebFetch) + the rbtv-web-searching skill when run in an rbtv workspace; research-leaf capable
     # multimodal: [image]           # Claude accepts image input in interactive use; OMITTED — no image dispatch was probed (validated-evidence-only; add only after an image-path probe)
@@ -207,8 +208,8 @@ variants:
 
     # --- invocation + failures (routing §4, §2) ---
     invocation_pointer: ./manual.md   # rendered dispatch manual (../render-manuals.py) — the exact command shape
-    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/claude-cli/manual.md
-    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/claude-cli/delta.md
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/claude-code-cli/manual.md
+    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/claude-code-cli/delta.md
     specialty: "premium process-boundary sub-conductor with native workspace-rule loading — the Fable 5 carrier the variant orchestration pins as conductor and mandatory final-plan reviewer, itself able to drive CLI workers (clears the nesting wall as a separate process) and natively auto-load the cwd CLAUDE.md/rules. The conductor/reviewer PIN itself lands at the routing card (p3-1), not here"   # within-tier tiebreaker only (fable vs opus, both top-tier); boundedness-first stays the master cut
     failure_modes:
       - "stdin not redirected → 3s stdin-wait + a 'no stdin data received in 3s' warning that pollutes text stdout; ALWAYS redirect stdin ($null | / < NUL / < /dev/null)"
@@ -216,14 +217,14 @@ variants:
       - "--permission-mode authorizes but does not BOUND writes to an allowlist — back every dispatch with post-run git diff --name-only vs the allowlist (the only reliable write confinement; confinement is the orchestrator's job)"
       - "nesting depth: a claude -p worker is a sub-conductor at depth 2 (conductor → claude -p). It can shell out again, but the depth cap ≤2 FORBIDS relying on deeper Agent-tool nesting — do not design a claude -p worker to dispatch its own Agent-tool sub-agents"
       - "final-turn drop on a CLI worker is possible (the generic CLI-worker lossy-return class) — the JSON envelope or message is a HINT; reconcile landed/validation against git status / git log + cited evidence files on disk. exit 0 + is_error:false is ground truth, not the prose"
-      - "--bare DISABLES CLAUDE.md auto-discovery (per --help) — never pass it when the worker needs the workspace rules; it is the opposite of the native-rooting property claude-cli is selected for"
+      - "--bare DISABLES CLAUDE.md auto-discovery (per --help) — never pass it when the worker needs the workspace rules; it is the opposite of the native-rooting property claude-code-cli is selected for"
       - "model-id NOT probe-confirmed — claude-fable-5 was authored from docs, not observed in the p3-6 probe matrix. The --model flag is honored only if the id is valid on the target build; confirm via JSON modelUsage on first dispatch, and treat a model-not-found exit as a config gap, not a code bug"
       - "premium-cost surprise: fable is ~2× opus spend. NEVER route to fable on a cost tie — premium cost_class ranks LAST in cost-ascending selection precisely so the selector cannot auto-pick it; reach fable ONLY via the conductor / final-plan-reviewer pins"
 
     # --- guidance file (routing §4 pre-dispatch check) ---
     guidance_file:
-      convention: CLAUDE.md         # CLI-Claude NATIVELY auto-loads the cwd workspace CLAUDE.md (and its rules/skills) and obeys it — the property that distinguishes claude-cli from Agent-tool helpers and the other CLI workers
-      # mirror_entry: OMITTED — NO mirror for claude-cli. The workspace's OWN CLAUDE.md IS the guidance file; it is loaded natively, not generated. The pre-dispatch guidance-file check VERIFIES the target workspace has a CLAUDE.md and that cwd/--add-dir points at it; when absent it inlines the needed rules into the prompt or roots cwd at a CLAUDE.md-bearing dir — it never offers a mirror. No mirror-config.yaml ships in this package
+      convention: CLAUDE.md         # CLI-Claude NATIVELY auto-loads the cwd workspace CLAUDE.md (and its rules/skills) and obeys it — the property that distinguishes claude-code-cli from Agent-tool helpers and the other CLI workers
+      # mirror_entry: OMITTED — NO mirror for claude-code-cli. The workspace's OWN CLAUDE.md IS the guidance file; it is loaded natively, not generated. The pre-dispatch guidance-file check VERIFIES the target workspace has a CLAUDE.md and that cwd/--add-dir points at it; when absent it inlines the needed rules into the prompt or roots cwd at a CLAUDE.md-bearing dir — it never offers a mirror. No mirror-config.yaml ships in this package
 
     # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
     swarm_support:

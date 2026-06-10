@@ -86,7 +86,7 @@ class TestReferenceProfiles:
         assert exit_code == 0, f"Non-zero exit: {result}"
         assert result["verdict"] == "route"
         # Kimi no-thinking is cheapest with bounded code_competence
-        assert result["model"] == "kimi"
+        assert result["model"] == "kimi-code-cli"
         assert result["variant"] == "no-thinking"
         assert result["carrier"] == "cli-process"
 
@@ -102,7 +102,7 @@ class TestReferenceProfiles:
         assert exit_code == 0, f"Non-zero exit: {result}"
         assert result["verdict"] == "route"
         # Scoped to Claude mid-tier: sonnet is the mid-tier Claude
-        assert result["model"] in ("claude", "claude-cli")
+        assert result["model"] in ("claude-code-native", "claude-code-cli")
         assert result["reasoning_tier" if "reasoning_tier" in result else "variant"] == "sonnet" or result["variant"] == "sonnet"
 
     def test_unbounded(self):
@@ -117,7 +117,7 @@ class TestReferenceProfiles:
         assert exit_code == 0, f"Non-zero exit: {result}"
         assert result["verdict"] == "route"
         # Scoped to top-tier Claude: opus is the cheapest top-tier Claude
-        assert result["model"] in ("claude", "claude-cli")
+        assert result["model"] in ("claude-code-native", "claude-code-cli")
         assert result["variant"] == "opus"
         # Carrier: Claude top-tier default = agent-tool
         assert result["carrier"] == "agent-tool"
@@ -139,7 +139,7 @@ class TestKeystone:
         exit_code, result = _run_route(profile, explain=True)
         assert exit_code == 0
         assert result["verdict"] == "route"
-        assert result["model"] in ("claude", "claude-cli"), (
+        assert result["model"] in ("claude-code-native", "claude-code-cli"), (
             f"Keystone violation: unbounded resolved to {result['model']}, expected top-tier Claude"
         )
         # Check explain trace shows scoping
@@ -205,7 +205,7 @@ class TestApiKeyAvailability:
         # env_file because _check_api_key_present checks OS env FIRST.)
         explain_no_key = result_no_key.get("explain", [])
         qwen_dropped_no_key = any(
-            s.get("stage") == "availability" and s.get("model") == "qwen"
+            s.get("stage") == "availability" and s.get("model") == "qwen-code-cli"
             for s in explain_no_key
         )
         assert qwen_dropped_no_key, (
@@ -214,7 +214,7 @@ class TestApiKeyAvailability:
         )
         explain_with_key = result_with_key.get("explain", [])
         qwen_dropped_with_key = any(
-            s.get("stage") == "availability" and s.get("model") == "qwen"
+            s.get("stage") == "availability" and s.get("model") == "qwen-code-cli"
             for s in explain_with_key
         )
         assert not qwen_dropped_with_key, (
@@ -248,11 +248,11 @@ class TestPlanCap:
         example = MODELS_DIR / "model-plans-example.yaml"
         parsed = route._parse_plans_yaml(example)
         # The schema-blessed example has 4 entries keyed by model id
-        assert set(parsed.keys()) == {"codex", "claude", "kimi", "qwen"}, (
+        assert set(parsed.keys()) == {"codex-cli", "claude-code-native", "kimi-code-cli", "qwen-code-cli"}, (
             f"plans list mis-parsed; got keys {list(parsed.keys())}"
         )
-        assert parsed["kimi"]["context_window"] == 128000
-        assert parsed["codex"]["context_window"] == 200000
+        assert parsed["kimi-code-cli"]["context_window"] == 128000
+        assert parsed["codex-cli"]["context_window"] == 200000
 
     def test_plan_cap_applied_filters_capped_variant(self):
         """Criterion 5 (cap-applied half): a plan cap below the inlined size filters the
@@ -262,7 +262,7 @@ class TestPlanCap:
         rbtv_root = RBTV_ROOT
         cfg = route._load_rbtv_json(VAULT_ROOT)
         # kimi manifest window is 262144; cap it to 100000 and inline 150000.
-        scratch_plans = {"kimi": {"context_window": 100000, "plan_name": "scratch"}}
+        scratch_plans = {"kimi-code-cli": {"context_window": 100000, "plan_name": "scratch"}}
         profile = _profile(
             boundedness="fully-bounded",
             task_type="code",
@@ -271,25 +271,25 @@ class TestPlanCap:
         # Without cap: kimi (fits 262144) wins.
         v_uncapped = route.route(dict(profile), rbtv_root, VAULT_ROOT, cfg, {}, explain=True)
         assert v_uncapped["verdict"] == "route"
-        assert v_uncapped["model"] == "kimi", f"uncapped baseline changed: {v_uncapped}"
+        assert v_uncapped["model"] == "kimi-code-cli", f"uncapped baseline changed: {v_uncapped}"
         # With cap: kimi's effective window = min(262144, 100000) = 100000 < 150000 → dropped.
         v_capped = route.route(dict(profile), rbtv_root, VAULT_ROOT, cfg, scratch_plans, explain=True)
         assert v_capped["verdict"] == "route"
-        assert v_capped["model"] != "kimi", (
+        assert v_capped["model"] != "kimi-code-cli", (
             f"plan cap not applied — kimi should be filtered out, got {v_capped}"
         )
         # The trace must show min(manifest, plan-cap) applied and the resulting drop.
         explain = v_capped.get("explain", [])
         kimi_capped = [
             s for s in explain
-            if s.get("stage") == "plan_cap" and s.get("model") == "kimi"
+            if s.get("stage") == "plan_cap" and s.get("model") == "kimi-code-cli"
         ]
         assert kimi_capped, "expected a plan_cap trace row for kimi"
         assert kimi_capped[0]["effective_window"] == 100000
         kimi_dropped = [
             s for s in explain
             if s.get("stage") == "filter" and s.get("action") == "drop"
-            and s.get("model") == "kimi"
+            and s.get("model") == "kimi-code-cli"
         ]
         assert kimi_dropped, "kimi should be dropped at the Stage-2 size filter under the cap"
 
@@ -439,7 +439,7 @@ class TestRealCorpus:
         assert complete_step["count"] > 0
         installed_models = complete_step.get("models", [])
         # Should include at least kimi and qwen (installed per rbtv.json)
-        assert "kimi" in installed_models or "qwen" in installed_models, (
+        assert "kimi-code-cli" in installed_models or "qwen-code-cli" in installed_models, (
             f"Expected kimi or qwen in installed models: {installed_models}"
         )
 
@@ -482,7 +482,7 @@ class TestStakesTierUp:
         assert exit_code == 0
         assert result["verdict"] == "route"
         # Without stakes: kimi:no-thinking. With tier-up (→ partially-bounded): claude sonnet.
-        assert result["model"] in ("claude", "claude-cli"), (
+        assert result["model"] in ("claude-code-native", "claude-code-cli"), (
             f"Stakes tier-up should raise to Claude mid-tier, got {result['model']}:{result['variant']}"
         )
         # Check explain shows the tier-up re-resolution
@@ -507,7 +507,7 @@ class TestStakesTierUp:
         exit_code, result = _run_route(profile, explain=True)
         assert exit_code == 0
         assert result["verdict"] == "route"
-        assert result["model"] in ("claude", "claude-cli"), (
+        assert result["model"] in ("claude-code-native", "claude-code-cli"), (
             f"Stakes tier-up from partially-bounded should reach top-tier Claude, got {result['model']}"
         )
         assert result["variant"] == "opus", (
@@ -565,7 +565,7 @@ class TestPinnedRoleFloors:
         assert exit_code == 0
         assert result["verdict"] == "route"
         # Reviewer floor: ≥ non-reasoning+1 = mid, floor sonnet → cheapest mid-tier Claude
-        assert result["model"] in ("claude", "claude-cli"), (
+        assert result["model"] in ("claude-code-native", "claude-code-cli"), (
             f"Reviewer floor should raise to Claude mid-tier, got {result['model']}:{result['variant']}"
         )
         assert result["reasoning_tier" if "reasoning_tier" in result else "variant"] in ("sonnet", "mid") or result.get("variant") == "sonnet"
@@ -589,7 +589,7 @@ class TestPinnedRoleFloors:
         assert exit_code == 0
         assert result["verdict"] == "route"
         # Commit floor: Agent-tool Claude sonnet
-        assert result["model"] == "claude", (
+        assert result["model"] == "claude-code-native", (
             f"Commit floor should raise to claude, got {result['model']}:{result['variant']}"
         )
         assert result["variant"] == "sonnet", (
@@ -615,7 +615,7 @@ class TestPinnedRoleFloors:
         assert result["verdict"] == "route"
         # Debug floor must be a Claude carrier, not a top-tier non-Claude (the floor violation
         # this test guards: deepseek:v4-pro would win a tier-only floor on cost_class).
-        assert result["model"] in ("claude", "claude-cli"), (
+        assert result["model"] in ("claude-code-native", "claude-code-cli"), (
             f"Debug floor must be top-tier Claude, got {result['model']}:{result['variant']} "
             "(a CLI/API worker must NEVER root-cause — routing.md §3)"
         )
@@ -627,8 +627,8 @@ class TestPinnedRoleFloors:
         pin_steps = [s for s in explain if s.get("stage") == "pin"]
         raised = [s for s in pin_steps if s.get("action") == "floor_raised"]
         assert raised, f"Expected pin floor_raised step for debug, got: {pin_steps}"
-        assert "claude:opus" in raised[0].get("raised_pick", ""), (
-            f"Debug raise should land on claude:opus, got {raised[0].get('raised_pick')}"
+        assert "claude-code-native:opus" in raised[0].get("raised_pick", ""), (
+            f"Debug raise should land on claude-code-native:opus, got {raised[0].get('raised_pick')}"
         )
 
     def test_reviewer_external_cli_code_resolves_to_opus(self):
@@ -646,7 +646,7 @@ class TestPinnedRoleFloors:
         exit_code, result = _run_route(profile_opus, explain=True)
         assert exit_code == 0
         assert result["verdict"] == "route"
-        assert result["model"] in ("claude", "claude-cli"), (
+        assert result["model"] in ("claude-code-native", "claude-code-cli"), (
             f"Reviewer+external_cli_code should resolve to Claude opus, got {result['model']}:{result['variant']}"
         )
         assert result["variant"] == "opus", (
@@ -749,7 +749,7 @@ class TestEnvFileResolution:
 # for a FUTURE delegation-map-approved haiku: reasoning_tier non-reasoning, cost_class
 # cheapest, code_competence strong (an Agent-tool Claude sub-agent inherits the full tool
 # surface). cost_class cheapest makes haiku the cost-ascending winner WHEN admitted.
-_SYNTH_CLAUDE_MANIFEST = """model: claude
+_SYNTH_CLAUDE_MANIFEST = """model: claude-code-native
 evidence_status: validated
 
 variants:
@@ -798,9 +798,9 @@ variants:
 
 
 def _build_synth_corpus(tmp_path) -> Path:
-    """Create a scratch rbtv_root with orchestration/models/claude/manifest.yaml carrying a
+    """Create a scratch rbtv_root with orchestration/models/claude-code-native/manifest.yaml carrying a
     synthetic haiku variant. Returns the scratch rbtv_root for route.route(rbtv_root=...)."""
-    models = tmp_path / "orchestration" / "models" / "claude"
+    models = tmp_path / "orchestration" / "models" / "claude-code-native"
     models.mkdir(parents=True)
     (models / "manifest.yaml").write_text(_SYNTH_CLAUDE_MANIFEST, encoding="utf-8")
     return tmp_path
@@ -912,9 +912,9 @@ class TestHaikuGuard:
         """Unit: _exclude_haiku drops haiku rows absent the flag, keeps them when set."""
         import route
         entries = [
-            {"model": "claude", "variant": "haiku"},
-            {"model": "claude", "variant": "sonnet"},
-            {"model": "claude", "variant": "opus"},
+            {"model": "claude-code-native", "variant": "haiku"},
+            {"model": "claude-code-native", "variant": "sonnet"},
+            {"model": "claude-code-native", "variant": "opus"},
         ]
         # Flag absent → haiku dropped
         kept = route._exclude_haiku(list(entries), {}, [])
@@ -937,7 +937,7 @@ class TestHaikuGuard:
             "real corpus has no haiku, so the flag must not change the verdict: "
             f"{v_no_flag} vs {v_flag}"
         )
-        assert v_no_flag["model"] == "kimi", f"real-corpus baseline changed: {v_no_flag}"
+        assert v_no_flag["model"] == "kimi-code-cli", f"real-corpus baseline changed: {v_no_flag}"
 
 
 # ---------------------------------------------------------------------------
@@ -1023,7 +1023,7 @@ class TestModelsDir:
         assert enum_complete is not None, "expected enumerate complete step"
         models_found = enum_complete.get("models", [])
         assert "synthetic-only" in models_found, f"scratch model not enumerated: {models_found}"
-        assert "kimi" not in models_found, (
+        assert "kimi-code-cli" not in models_found, (
             f"real catalog leaked into scratch run: kimi in {models_found}"
         )
 
@@ -1074,7 +1074,7 @@ class TestModelsDir:
         assert enum_complete is not None
         models_found = enum_complete.get("models", [])
         assert "synthetic-only" in models_found
-        assert "kimi" not in models_found
+        assert "kimi-code-cli" not in models_found
 
     def test_flag_absent_default_identity(self):
         """Flag absent → route.py output is byte-identical to baseline (kimi wins).
@@ -1093,7 +1093,7 @@ class TestModelsDir:
         # Route using the function (no --models-dir; rbtv_root = real rbtv root).
         result = route.route(dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=False)
         assert result["verdict"] == "route"
-        assert result["model"] == "kimi", (
+        assert result["model"] == "kimi-code-cli", (
             f"flag absent: default behavior changed, expected kimi, got {result['model']}"
         )
 
@@ -1111,6 +1111,6 @@ class TestModelsDir:
         exit_code, result = _run_route(profile, explain=False)
         assert exit_code == 0
         assert result["verdict"] == "route"
-        assert result["model"] == "kimi", (
+        assert result["model"] == "kimi-code-cli", (
             f"CLI no --models-dir: kimi expected (default identity), got {result['model']}"
         )

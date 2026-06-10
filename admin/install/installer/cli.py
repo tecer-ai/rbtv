@@ -34,6 +34,7 @@ from .manifest import Module, load_manifest
 from .orchestration import (
     bake_availability_line,
     check_manual_render,
+    discover_model_displays,
     discover_model_packages,
     resolve_selected_packages,
 )
@@ -266,25 +267,30 @@ def _prompt_custom_components(
 def _prompt_model_packages(
     available: list[str],
     previous_selection: list[str] | None,
+    displays: dict[str, str] | None = None,
 ) -> tuple[str, ...]:
     """Interactive checkbox for orchestration model-package selection.
 
     Each package is independently toggleable (no always-on packages). On a
     re-install, the previous selection is pre-checked; on a first install every
-    available package is pre-checked (full install is the default).
+    available package is pre-checked (full install is the default). Each row shows
+    the package's human-facing display label (carrier + runtime, e.g.
+    "claude-code (CLI)" / "gemini (API)") while the persisted value stays the
+    folder-safe package id.
     """
     from .tui import checkbox
 
+    displays = displays or {}
     items = []
     for name in available:
         if previous_selection is None:
             pre = True
         else:
             pre = name in previous_selection
-        items.append({"label": name, "selected": pre})
+        items.append({"label": displays.get(name, name), "selected": pre})
 
     selected_indices = checkbox(
-        "\nSelect orchestration model packages (kimi/codex/claude-cli/qwen) "
+        "\nSelect orchestration model packages (CLI / native / API workers) "
         "to make available in this workspace:",
         items,
     )
@@ -327,7 +333,9 @@ def _resolve_model_packages(
         # Scripted path: reuse prior selection if any, else elect all available.
         requested = tuple(previous) if previous is not None else None
     else:
-        requested = _prompt_model_packages(available, previous)
+        requested = _prompt_model_packages(
+            available, previous, discover_model_displays(rbtv_root)
+        )
 
     installed, absent, unknown = resolve_selected_packages(available, requested)
     if unknown:
@@ -443,7 +451,7 @@ def _import_mirror_driver(rbtv_root: Path):
 def _split_mirrorable(rbtv_root: Path, elected: list[str]) -> list[str]:
     """Return the elected packages the driver can mirror, warning on skips.
 
-    ``claude-cli`` loads its guidance natively and is mirror-less — it is dropped
+    ``claude-code-cli`` loads its guidance natively and is mirror-less — it is dropped
     silently (never a missing-assets warning). Any OTHER elected package whose
     ``orchestration/models/<pkg>/mirror-assets/`` tree is absent is skipped with a
     NAMED warning (matches the spec's "ships no mirror-assets" edge case — a skip,
@@ -453,7 +461,7 @@ def _split_mirrorable(rbtv_root: Path, elected: list[str]) -> list[str]:
     models_dir = rbtv_root / "orchestration" / "models"
     mirrorable: list[str] = []
     for pkg in elected:
-        if pkg == "claude-cli":
+        if pkg == "claude-code-cli":
             continue  # native, mirror-less — silently skipped
         if (models_dir / pkg / "mirror-assets").is_dir():
             mirrorable.append(pkg)
@@ -531,9 +539,19 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=(
             "Comma-separated orchestration model packages to make available "
-            "(kimi, codex, claude-cli, qwen). Omit to keep the previous selection "
+            "(folder-safe ids, e.g. kimi-code-cli, codex-cli, claude-code-cli, "
+            "qwen-code-cli). Omit to keep the previous selection "
             "or elect all available packages. Empty string elects none. Only "
             "applies when the orchestration module is installed."
+        ),
+    )
+    parser.add_argument(
+        "--list-model-packages",
+        action="store_true",
+        help=(
+            "Print every available orchestration model package as "
+            "'<id>\\t<display label>' (one per line) and exit. Non-interactive view "
+            "of the same id→label rendering the worker pick-menu shows."
         ),
     )
     parser.add_argument(
@@ -619,6 +637,15 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     rbtv_root = _find_rbtv_root()
+
+    # --list-model-packages: non-interactive view of the worker pick-menu's id→label
+    # rendering (the same display read the interactive picker uses). Print and exit.
+    if args.list_model_packages:
+        displays = discover_model_displays(rbtv_root)
+        for pkg in discover_model_packages(rbtv_root):
+            print(f"{pkg}\t{displays.get(pkg, pkg)}")
+        return 0
+
     defaults = _load_defaults(rbtv_root)
 
     print(f"\n  RBTV Installer v{defaults['rbtv']['version']}\n")
@@ -911,7 +938,7 @@ def main(argv: list[str] | None = None) -> int:
         mirrorable = _split_mirrorable(rbtv_root, elected_workers)
 
         # Deselection: packages in the prior rbtv.json's model_packages that are
-        # no longer elected. claude-cli is native (never mirrored) so its presence
+        # no longer elected. claude-code-cli is native (never mirrored) so its presence
         # or absence in either set is inert to the driver.
         prior_packages: list[str] = []
         if existing_state is not None and "model_packages" in existing_state:

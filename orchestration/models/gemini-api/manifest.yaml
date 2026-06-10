@@ -12,7 +12,8 @@
 # (p5-3 runner pass-through + p5-4 leaf routing). Until then Gemini runs default JSON-envelope mode only.
 # The exact invocation shape is in ./manual.md (pointed to by invocation_pointer).
 
-model: gemini
+model: gemini-api
+display: "gemini (API)"
 evidence_status: probe-pending   # not yet pilot-validated; authored from docs/routing-matrix reference
 
 variants:
@@ -67,8 +68,8 @@ variants:
 
     # --- invocation + failures (routing §4, §2) ---
     invocation_pointer: ./manual.md   # rendered dispatch manual for the exact command shape
-    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/gemini/manual.md
-    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/gemini/delta.md
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/gemini-api/manual.md
+    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/gemini-api/delta.md
     specialty: "web research via search grounding — the ONLY web-capable API chat worker (light single-call grounded lookup, NOT rigorous multi-source); frontier reasoning with Thinking Tokens; grounding pending run.py wiring (p5-3/p5-4)"   # within-tier tiebreaker only; boundedness-first stays the master cut
     failure_modes:
       - "model ids are 2026 estimates — re-verify against Google Gemini API docs before pilot dispatch"
@@ -132,8 +133,8 @@ variants:
 
     # --- invocation + failures ---
     invocation_pointer: ./manual.md
-    manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/gemini/manual.md
-    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/gemini/delta.md
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/gemini-api/manual.md
+    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/gemini-api/delta.md
     specialty: "cheapest web-grounded / volume processing — the cost-floor grounded Gemini variant for high-volume or cost-critical grounded lookups; same search-grounding web capability as 3.5-flash, lower per-token cost"   # within-tier tiebreaker only
     failure_modes:
       - "model ids are 2026 estimates — re-verify against Google Gemini API docs before pilot dispatch"

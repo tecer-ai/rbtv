@@ -3,7 +3,7 @@
 The per-model config the mirror engine (`mirror.py`) reads to generate a model's
 per-workspace guidance file. Each model package that needs a guidance file ships
 one at `orchestration/models/<model>/mirror-config.yaml`; the kimi, codex,
-claude-cli, and qwen packages fill this in at their package-build tasks
+claude-code-cli, and qwen packages fill this in at their package-build tasks
 (p3-4/p3-5/p3-7/p3-9). A package whose worker loads NO workspace guidance file
 ships no mirror-config (and its manifest omits `guidance_file`).
 
@@ -28,7 +28,7 @@ lines are allowed; values may be optionally quoted.
 | Key | Required | Meaning |
 |-----|----------|---------|
 | `model` | yes | The package id — matches the folder name `models/<model>/` and the manifest's `model`. Used in error messages and as the config's identity. |
-| `guidance_filename` | yes | The guidance file the worker natively loads, emitted at the target workspace root (e.g. `AGENTS.md` for kimi/codex, `CLAUDE.md` for claude-cli). MUST match the manifest's `guidance_file.convention`. |
+| `guidance_filename` | yes | The guidance file the worker natively loads, emitted at the target workspace root (e.g. `AGENTS.md` for kimi/codex, `CLAUDE.md` for claude-code-cli). MUST match the manifest's `guidance_file.convention`. |
 | `source` | yes | Workspace-relative path to the file whose body is mirrored into the guidance file (e.g. `CLAUDE.md`). Resolved against `--target` at run time. Missing source → the engine fails loudly. |
 | `banner_label` | yes | Short human label naming the consuming worker, interpolated into the DO-NOT-EDIT banner (e.g. `the Kimi CLI worker`). |
 

@@ -7,7 +7,8 @@
 # with the repurposed API-worker values per manifest-schema.md §2a.
 # The exact invocation shape is in ./manual.md (pointed to by invocation_pointer).
 
-model: deepseek
+model: deepseek-api
+display: "deepseek (API)"
 evidence_status: probe-pending   # not yet pilot-validated; authored from docs/routing-matrix reference
 
 variants:
@@ -61,8 +62,8 @@ variants:
 
     # --- invocation + failures (routing §4, §2) ---
     invocation_pointer: ./manual.md   # rendered dispatch manual for the exact command shape
-    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/deepseek/manual.md
-    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/deepseek/delta.md
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/deepseek-api/manual.md
+    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/deepseek-api/delta.md
     specialty: "cheapest text synthesis — the cost-floor API text worker (Thinking Mode, OpenAI-compatible JSON) for partially-bounded text synthesis / mechanical text transforms; never code (code_competence: none)"   # within-tier tiebreaker only; boundedness-first stays the master cut
     failure_modes:
       - "model ids are 2026 estimates — re-verify against DeepSeek API docs before pilot dispatch"
@@ -124,8 +125,8 @@ variants:
 
     # --- invocation + failures ---
     invocation_pointer: ./manual.md
-    manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/deepseek/manual.md
-    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/deepseek/delta.md
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/deepseek-api/manual.md
+    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/deepseek-api/delta.md
     specialty: "cheapest top-reasoning-tier text synthesis — max-reasoning DeepSeek (Thinking Mode) at low absolute cost for judgment-dense TEXT/logic synthesis; never code (code_competence: none)"   # within-tier tiebreaker only
     failure_modes:
       - "model ids are 2026 estimates — re-verify against DeepSeek API docs before pilot dispatch"

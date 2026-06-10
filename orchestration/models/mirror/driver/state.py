@@ -277,12 +277,12 @@ def plan_uninstall_deletions(
     state_records:
         The ``managed_files`` list currently recorded in ``rbtv.json``.
     deselected:
-        Package ids being removed in this uninstall (e.g. ``["codex"]``).
+        Package ids being removed in this uninstall (e.g. ``["codex-cli"]``).
     remaining_elected:
         Package ids that stay elected after this uninstall.
     owner_to_guidance_group:
         Mapping from package id → its guidance-group owner tag
-        (e.g. ``{"codex": "agents-md", "kimi": "agents-md", "qwen": "qwen-md"}``).
+        (e.g. ``{"codex-cli": "agents-md", "kimi-code-cli": "agents-md", "qwen-code-cli": "qwen-md"}``).
         Used to decide whether any remaining package still needs a guidance group.
 
     Returns

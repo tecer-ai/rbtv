@@ -1,13 +1,13 @@
-<!-- AUTO-GENERATED — DO NOT EDIT. Rendered by orchestration/models/render-manuals.py from orchestration/skills/orchestrating/cards/dispatch-wrapper.md + orchestration/models/qwen/delta.md. -->
+<!-- AUTO-GENERATED — DO NOT EDIT. Rendered by orchestration/models/render-manuals.py from orchestration/skills/orchestrating/cards/dispatch-wrapper.md + orchestration/models/qwen-code-cli/delta.md. -->
 
 > [!danger] GENERATED FILE — DO NOT EDIT
 > This dispatch manual is composed by `orchestration/models/render-manuals.py` from:
 > - the generic dispatch contract `orchestration/skills/orchestrating/cards/dispatch-wrapper.md`, and
-> - the `qwen` package delta `orchestration/models/qwen/delta.md`.
+> - the `qwen-code-cli` package delta `orchestration/models/qwen-code-cli/delta.md`.
 >
 > Hand-edits are overwritten on the next render and are forbidden. To change
 > packaging/addendum/return behavior, edit the wrapper template; to change
-> qwen-specific behavior, edit the delta. Then re-render:
+> qwen-code-cli-specific behavior, edit the delta. Then re-render:
 >
 > ```
 > python orchestration/models/render-manuals.py
@@ -55,13 +55,15 @@ Every dispatch carries this addendum in its header. These are the obligations th
 | **Forbidden operations** | Honor the task's forbidden-ops list (no pushes, no writes outside the allowed work-dir, no destructive git resets, no external production API calls unless the task explicitly allows a mocked/local one). |
 | **Rule-loading (mirror-equipped workspace)** | Before ANY other action — before reading any task-referenced file, writing, running a tool, or responding — inspect your work-dir for a `.agents/behavior-rules/` directory. If it exists (a mirror-equipped workspace), you MUST FIRST read your own guidance file at the work-dir root (`AGENTS.md` for a Codex/Kimi worker, `QWEN.md` for a qwen worker) AND every file under `.agents/behavior-rules/`, and treat their entire contents as binding, non-negotiable rules governing this whole session — exactly as if they were part of this dispatch. Reading them is mandatory even when this task body never mentions rules; the absence of a rule-read instruction in the task is NOT permission to skip them. If the work-dir has no `.agents/behavior-rules/` directory, this obligation is a silent no-op — proceed normally. |
 
+**Conductor obligation — instruct the rule-read for harnesses that do NOT auto-read (CLI workers).** A CLI worker whose governance depends on the behavior-rule fan-out only obeys the Rule-loading obligation above if its harness actually reads its rules directory. Harnesses differ: **codex auto-reads** its rules directory (no explicit instruction needed); **kimi and qwen do NOT** — kimi needs an enumerated Step-0 naming the read, and qwen ignores even imperative directory-read prose unless the dispatch invokes its `QWEN.md` preamble by name OR names the specific rule files (qwen delta `model-binding-delta`). So when composing a dispatch for a non-auto-reading CLI worker in a mirror-equipped work-dir, the conductor MUST add an EXPLICIT rule-read instruction to the dispatch prompt (the per-model proven form, from that model's delta); do NOT rely on the generic obligation alone. That instruction MUST tell the worker to read the rule files ONE FILE PER CALL (or in small batches) — NEVER a single recursive bulk read: a bulk `Get-Content -Recurse`-style read of a multi-file rule library truncates silently mid-corpus, so an alphabetically-later rule's body never reaches the model and the obligation it carries goes unread despite the read "firing" (the 2026-06-09 kimi `<counter>` incident). (The mirror-driver `guidance.py` half of this guarantee is deferred to the mirror-install follow-up — not authored here.)
+
 The addendum is GENERIC. A model package's delta MAY add model-specific obligations on top (e.g., a worker that must be told not to write stray files in the repo root, or a swarm-policy constraint) — it plugs in at the insertion point below and NEVER restates the generic obligations.
 
 **Qwen-specific worker obligations** (on top of the generic binding addendum — never restating it):
 
 | Obligation | What qwen is bound to |
 |------------|------------------------|
-| **Approval mode is the confinement dial, and it is the conductor's to set** | A non-interactive dispatch MUST set `--approval-mode` explicitly. `yolo` (= `-y`) auto-approves ALL tool calls and runs at host privilege with NO sandbox (probe-confirmed warning) — use it ONLY when the post-run diff + a minimal workspace scope are the boundary. Prefer the TIGHTEST graded posture the task allows: `auto` (LLM classifier auto-approves safe actions, blocks risky) or `auto-edit` (auto-approve edit tools only). NEVER leave the mode at `default` for a headless run (it prompts for approval and stalls). Suppress the yolo host-privilege notice with `QWEN_CODE_SUPPRESS_YOLO_WARNING=1` when `yolo` is the chosen posture. The `--sandbox`/`-s` container option exists (Docker/Podman-backed) but is **AUTH-PENDING + backend-unverified** on this Windows host — confirm a container backend before relying on it; do NOT assume `--sandbox` is available. |
+| **Approval mode is the confinement dial, and it is the conductor's to set** | A non-interactive dispatch MUST set `--approval-mode` explicitly. **For headless WRITE work, `yolo` (= `-y`) is REQUIRED** (or an explicit `--allowed-tools` grant): live-proven on qwen 0.17.1 (p2-3, 2026-06-10), headless `--approval-mode auto` DENIES every write/edit/shell tool call outright ("…use the -y flag"), so `auto` is READ-ONLY in practice and `auto-edit` cannot be relied on to write headless either. `yolo` auto-approves ALL tool calls and runs at host privilege with NO sandbox (probe-confirmed warning) — use it for headless write work with the post-run diff + a minimal workspace scope as the boundary. Reserve `auto` (and `auto-edit`) for read-only/analysis leaves where no write is needed. NEVER leave the mode at `default` for a headless run (it prompts for approval and stalls). Suppress the yolo host-privilege notice with `QWEN_CODE_SUPPRESS_YOLO_WARNING=1` when `yolo` is the chosen posture. The `--sandbox`/`-s` container option exists (Docker/Podman-backed) but is **AUTH-PENDING + backend-unverified** on this Windows host — confirm a container backend before relying on it; do NOT assume `--sandbox` is available. |
 | **Workspace scope is the CWD root + `--include-directories`/`--add-dir`; there is no single `--work-dir` flag** | The current working directory IS the workspace root; extra writable/readable dirs are ADDITIVE via `--include-directories` (alias `--add-dir`, comma-separated or repeated). Keep the set minimal. Files created/modified outside the scoped workspace are an out-of-allowlist write the conductor catches on the post-run diff — surface, never auto-revert. For parallel waves, prefer `--worktree` (native isolation, below) over sharing a work-dir. |
 | **No self-commit unless the task grants it (default OFF)** | Qwen MAY commit locally — and ONLY locally — after its declared validation passes, when the task file grants `commit_policy: local-only`. NEVER push, NEVER force-reset, NEVER amend. The commit subject MUST carry the run's mandated `[<task-id>]` convention; the returned hash MUST match `git log`. Absent an explicit grant, qwen does NOT commit (the conductor commits via `rbtv-commit`). This authorization, and the commit-message convention's survival across a qwen run, are AUTH-PENDING — verify the hash and the subject string on return. |
 | **Auth is a USER-EXECUTED-ONLY pre-flight, not a runtime grant** | An unauthenticated headless run exits 1 (`No auth type is selected …`, probe-verified). The orchestrator CANNOT self-provision Qwen auth — OAuth needs a browser it cannot drive headlessly, and API-key auth needs the user to obtain a key from a paid provider and place it in env/settings (the free OAuth tier was discontinued 2026-04-15). Before any headless dispatch, confirm auth is configured; if not, HALT and ask the owner to run the §auth pre-flight. NEVER attempt to complete the OAuth browser flow or fabricate a key. |
@@ -154,7 +156,7 @@ Prompt transport is **either** — positional arg OR stdin pipe; a positional/`-
 
 | Flag | Values | Use |
 |------|--------|-----|
-| `--approval-mode` | `plan` · `default` · `auto-edit` · `auto` · `yolo` | The PRIMARY confinement dial. `plan` = plan only (no execution). `default` = prompt for approval (STALLS headless — never use). `auto-edit` = auto-approve edit tools only. `auto` = LLM classifier auto-approves safe / blocks risky (the bounded default where a graded gate is acceptable). `yolo` = auto-approve ALL, host privilege, no sandbox. |
+| `--approval-mode` | `plan` · `default` · `auto-edit` · `auto` · `yolo` | The PRIMARY confinement dial. `plan` = plan only (no execution). `default` = prompt for approval (STALLS headless — never use). `auto-edit` = auto-approve edit tools only. `auto` = **headless: DENIES every write/edit/shell tool call outright** ("Tool requires user approval but cannot execute in non-interactive mode… use the -y flag") — live-proven on qwen 0.17.1 (p2-3, 2026-06-10), refuting the earlier docs-sourced "LLM classifier auto-approves safe / blocks risky" reading for headless runs. A headless `auto` dispatch is **READ-ONLY in practice**; use it ONLY for read-only/analysis leaves. For headless WRITE work use `yolo`/`-y` (or an explicit `--allowed-tools` grant). `yolo` = auto-approve ALL, host privilege, no sandbox. |
 | `--yolo` / `-y` | (flag) | Shorthand for `--approval-mode yolo`. Auto-approve all actions, no sandbox implied. Suppress the host-privilege notice with `QWEN_CODE_SUPPRESS_YOLO_WARNING=1`. |
 | `--sandbox` / `-s` | (flag) | Docker/Podman-backed container isolation (or `QWEN_SANDBOX` env / `tools.sandbox` setting; image via `tools.sandboxImage`). **AUTH-PENDING + backend-unverified on this Windows host** — verify the container backend before relying on it. |
 | `--include-directories` / `--add-dir` | path(s) (comma-sep or repeated) | Additional workspace directories alongside the CWD root. There is NO single `--work-dir` flag — the CWD is the root; extra dirs are additive. Keep minimal. |
@@ -230,6 +232,7 @@ All resume mechanics require chat recording ON (default unless `--chat-recording
 | Failure | Pre-emption |
 |---------|-------------|
 | Headless stalls waiting for approval | NEVER leave `--approval-mode default` for a non-interactive dispatch; set `auto`/`auto-edit`/`yolo`. |
+| Headless `--approval-mode auto` silently does no write work (denies every write/edit/shell call) | Live-proven on qwen 0.17.1 (p2-3, 2026-06-10): headless `auto` does NOT grade tool calls — it DENIES them all ("…use the -y flag"), so an `auto`-mode headless dispatch is read-only in practice. Headless WRITE work requires `yolo`/`-y` (or an explicit `--allowed-tools` grant) backed by the standard external enforcement (post-run `git diff --name-only HEAD` vs the task allowlist; out-of-allowlist = halt + surface). Reserve `auto` for read-only/analysis leaves. |
 | `yolo` auto-approves ALL tools at host privilege, no sandbox | Use the tightest graded mode the task allows; back ANY mode with the post-run `git diff` vs allowlist; `QWEN_CODE_SUPPRESS_YOLO_WARNING=1` only silences the notice, not the exposure. |
 | Unauthenticated run exits 1 (`No auth type is selected`) | Auth is USER-EXECUTED-ONLY (§auth) — confirm before dispatch; halt + ask the owner; free OAuth tier discontinued 2026-04-15. |
 | No retryable-throttle exit code | Set `QWEN_CODE_UNATTENDED_RETRY=1` for in-process 429/529 backoff; bound with `--max-wall-time` (→ exit 55). |
@@ -305,13 +308,14 @@ max_qwen_subagents: <N-or-0>
 
 ```powershell
 # Bounded code edit, JSON result, in-process throttle retry (Shape A):
+# headless WRITE work REQUIRES yolo/-y — auto DENIES every write/edit/shell call (see Approval grammar)
 $env:QWEN_CODE_UNATTENDED_RETRY = "1"
-qwen "<inlined task file content>" --output-format json --approval-mode auto `
+qwen "<inlined task file content>" --output-format json --approval-mode yolo `
   --max-session-turns 30 --max-wall-time 10m --json-file ".qwen-runs/t1.json"
 ```
 ```bash
-# Large prompt via stdin (Shape B):
-cat prompt.md | qwen "<instruction>" --output-format json --approval-mode auto --max-wall-time 10m
+# Large prompt via stdin (Shape B) — write work, so yolo (auto is read-only headless):
+cat prompt.md | qwen "<instruction>" --output-format json --approval-mode yolo --max-wall-time 10m
 ```
 ```powershell
 # Read-only analysis/research leaf (strip write/shell tools), live JSONL events:
@@ -326,6 +330,6 @@ qwen "<task>" --worktree --output-format json --approval-mode yolo --max-wall-ti
 qwen "<task>" --json-schema "@return-schema.json" --approval-mode auto --max-wall-time 10m
 ```
 ```powershell
-# Resume a halted session with the resolution:
-qwen --resume <session-id> "<resolution to the open question>" --output-format json --approval-mode auto
+# Resume a halted session with the resolution (yolo if the resolution writes; auto only for a read-only follow-up):
+qwen --resume <session-id> "<resolution to the open question>" --output-format json --approval-mode yolo
 ```

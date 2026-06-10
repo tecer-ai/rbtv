@@ -65,13 +65,14 @@ def _import_mirror() -> object:
 # ---------------------------------------------------------------------------
 
 #: Packages this module knows how to render.
-SUPPORTED_PACKAGES: frozenset[str] = frozenset({"codex", "kimi", "qwen"})
+SUPPORTED_PACKAGES: frozenset[str] = frozenset({"codex-cli", "kimi-code-cli", "qwen-code-cli"})
 
 #: Config-dir name produced in the target workspace for each package.
+#: Keys are the package ids; values are the tool's native config-dir name (unchanged).
 _CONFIG_DIR: dict[str, str] = {
-    "codex": ".codex",
-    "kimi": ".kimi",
-    "qwen": ".qwen",
+    "codex-cli": ".codex",
+    "kimi-code-cli": ".kimi",
+    "qwen-code-cli": ".qwen",
 }
 
 
@@ -105,7 +106,7 @@ def render_config(
     target_root:
         Absolute path to the target workspace (e.g. the vault root).
     package:
-        One of ``"codex"``, ``"kimi"``, ``"qwen"``.
+        One of ``"codex-cli"``, ``"kimi-code-cli"``, ``"qwen-code-cli"``.
     check:
         When ``True`` the function performs a read-only drift check via
         ``write_if_changed``'s check semantics — it returns ``"stale"`` for any
@@ -164,7 +165,7 @@ def render_config(
     # ------------------------------------------------------------------
     # 2. Codex-only: generate .codex/hooks.json from .claude/settings.json
     # ------------------------------------------------------------------
-    if package == "codex":
+    if package == "codex-cli":
         hooks_record = _render_codex_hooks(target_root, check=check, wic=wic)
         if hooks_record is not None:
             records.append(hooks_record)
@@ -204,5 +205,5 @@ def _render_codex_hooks(
     return {
         "path": _rel(dest, target_root),
         "kind": "config",
-        "owner": "codex",
+        "owner": "codex-cli",
     }

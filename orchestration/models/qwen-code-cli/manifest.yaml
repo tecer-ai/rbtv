@@ -11,7 +11,8 @@
 # The exact invocation shape (commands, flags, approval grammar, exit codes, resume) is in ./manual.md
 # (rendered from ./delta.md by ../render-manuals.py) — this manifest points to it, never duplicates it.
 
-model: qwen
+model: qwen-code-cli
+display: "qwen-code (CLI)"
 evidence_status: probe-pending   # CLI install + headless contract + flag-parsing + exit-1 auth-gate locally verified; full authenticated turn (exit-0, JSON shape, swarm depth) NOT exercised (auth-gated) — graduates at p5-2 per report §13
 
 variants:
@@ -58,8 +59,8 @@ variants:
 
     # --- invocation + failures (routing §4, §2) ---
     invocation_pointer: ./manual.md   # rendered dispatch manual (../render-manuals.py) — the exact command shape
-    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/qwen/manual.md
-    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/qwen/delta.md
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/qwen-code-cli/manual.md
+    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/qwen-code-cli/delta.md
     specialty: "bounded code/agentic via a configurable DashScope backend — purpose-built coding agent (shell/file/edit + built-in PR-review) with native --worktree isolation; the code/agentic role (text synthesis → DeepSeek API)"   # within-tier tiebreaker only; boundedness-first stays the master cut
     # --- configurable model (ADX-2 / D6 — qwen serves a CONFIGURABLE model set, not a fixed identity) ---
     configurable_model:
@@ -78,7 +79,7 @@ variants:
     # --- guidance file (routing §4 pre-dispatch check) ---
     guidance_file:
       convention: QWEN.md           # Qwen natively loads QWEN.md (project + ~/.qwen/QWEN.md, hierarchical, @import syntax); AGENTS.md supported via the context.fileName setting (report §11/§15)
-      mirror_entry: qwen-mirror      # resolves to: python orchestration/models/mirror/mirror.py --config orchestration/models/qwen/mirror-config.yaml --target <workspace>
+      mirror_entry: qwen-mirror      # resolves to: python orchestration/models/mirror/mirror.py --config orchestration/models/qwen-code-cli/mirror-config.yaml --target <workspace>
 
     # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
     swarm_support:

@@ -4,25 +4,25 @@
 # Replace with real plan data at p2-checkpoint.
 ---
 plans:
-  - model: codex
+  - model: codex-cli
     plan_name: basic
     context_window: 200000
     cost_usd_per_m_in: 0.15
     cost_usd_per_m_out: 0.60
 
-  - model: claude
+  - model: claude-code-native
     plan_name: pro
     context_window: 200000
     cost_usd_per_m_in: 3.00
     cost_usd_per_m_out: 15.00
 
-  - model: kimi
+  - model: kimi-code-cli
     plan_name: free
     context_window: 128000
     cost_usd_per_m_in: 0.00
     cost_usd_per_m_out: 0.00
 
-  - model: qwen
+  - model: qwen-code-cli
     plan_name: developer
     context_window: 256000
     cost_usd_per_m_in: 0.40

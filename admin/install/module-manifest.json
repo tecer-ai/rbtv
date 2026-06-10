@@ -100,7 +100,7 @@
     ]
   },
   "office": {
-    "description": "Daily knowledge work — studio loop entry via the pitcher command, document export, legal advisory, meeting prep and summarization, client emails, and the problem-reframing + idea-sparring persona.",
+    "description": "Daily knowledge work — document export, legal advisory, meeting prep and summarization, client emails, and the problem-reframing + idea-sparring persona.",
     "skills": [
       {
         "source_template": "office/skills/doc-export/SKILL.md",
@@ -129,12 +129,6 @@
     ],
     "commands": [
       {
-        "source_template": "office/commands/pitcher.md",
-        "target": ".claude/commands/rbtv-pitcher.md",
-        "bake": ["rbtv_path"],
-        "description": "Enter the studio deck loop — opens the Strategist (audience mode: investor or client) who locks the message and hands off to Vivian for design"
-      },
-      {
         "source_template": "office/commands/lawyer.md",
         "target": ".claude/commands/rbtv-lawyer.md",
         "bake": ["rbtv_path"],
@@ -149,7 +143,7 @@
     ]
   },
   "studio": {
-    "description": "HTML power-up — visual design (HTML decks, image prompts, brand identity), design-token extraction from live sites, and browser automation.",
+    "description": "HTML power-up — the studio loop entry via the strategist command (message-lock → design), visual design (HTML decks, image prompts, brand identity), design-token extraction from live sites, and browser automation.",
     "skills": [
       {
         "source_template": "studio/skills/playwright-cli/SKILL.md",
@@ -165,6 +159,12 @@
       }
     ],
     "commands": [
+      {
+        "source_template": "studio/commands/strategist.md",
+        "target": ".claude/commands/rbtv-strategist.md",
+        "bake": ["rbtv_path"],
+        "description": "Enter the studio loop — opens the Strategist (audience mode: investor, client, site-marketing, or app-product) who locks the message and hands off to Vivian for design"
+      },
       {
         "source_template": "studio/commands/design-extractor.md",
         "target": ".claude/commands/rbtv-design-extractor.md",
@@ -186,7 +186,7 @@
         "source_template": "orchestration/skills/orchestrating/SKILL.md",
         "target": ".claude/skills/rbtv-orchestrating/SKILL.md",
         "bake": ["rbtv_path"],
-        "description": "General orchestration — route tasks to the right worker, dispatch with self-contained artifacts + state spine, verify every return against disk, recover from halts; single front door including standalone CLI-model dispatch (kimi/codex/claude-cli/qwen). Thin loader → always-loaded core-protocol (invariants + situation table + installed-model capability summary) → JIT cards (intake, routing, dispatch-wrapper, halt-recovery, verification, state)"
+        "description": "General orchestration — route tasks to the right worker, dispatch with self-contained artifacts + state spine, verify every return against disk, recover from halts; single front door including standalone CLI-model dispatch (kimi-code-cli/codex-cli/claude-code-cli/qwen-code-cli). Thin loader → always-loaded core-protocol (invariants + situation table + installed-model capability summary) → JIT cards (intake, routing, dispatch-wrapper, halt-recovery, verification, state)"
       },
       {
         "source_template": "orchestration/skills/planning/SKILL.md",
@@ -216,43 +216,43 @@
       "source_dir": "orchestration/models",
       "packages": [
         {
-          "name": "kimi",
-          "manifest": "orchestration/models/kimi/manifest.yaml",
+          "name": "kimi-code-cli",
+          "manifest": "orchestration/models/kimi-code-cli/manifest.yaml",
           "description": "Kimi CLI bounded-code executor (validated) — writes/runs code, commits locally; resume via session id"
         },
         {
-          "name": "codex",
-          "manifest": "orchestration/models/codex/manifest.yaml",
+          "name": "codex-cli",
+          "manifest": "orchestration/models/codex-cli/manifest.yaml",
           "description": "OpenAI Codex CLI worker (codex exec, probe-pending) — separate-process code execution"
         },
         {
-          "name": "claude-cli",
-          "manifest": "orchestration/models/claude-cli/manifest.yaml",
+          "name": "claude-code-cli",
+          "manifest": "orchestration/models/claude-code-cli/manifest.yaml",
           "description": "Claude headless worker (claude -p, validated) — native cwd-CLAUDE.md load; CLI-driven sub-conductor (process boundary clears the nesting wall)"
         },
         {
-          "name": "qwen",
-          "manifest": "orchestration/models/qwen/manifest.yaml",
+          "name": "qwen-code-cli",
+          "manifest": "orchestration/models/qwen-code-cli/manifest.yaml",
           "description": "Qwen Code CLI web-capable worker (probe-pending, auth-gated) — the research-leaf executor"
         },
         {
-          "name": "deepseek",
-          "manifest": "orchestration/models/deepseek/manifest.yaml",
+          "name": "deepseek-api",
+          "manifest": "orchestration/models/deepseek-api/manifest.yaml",
           "description": "DeepSeek API chat / text-synthesis worker (probe-pending) — cheapest text, OpenAI-compatible JSON mode; runs via the shared models/_api/run.py runner, keys resolved from rbtv.json env_file"
         },
         {
-          "name": "gemini",
-          "manifest": "orchestration/models/gemini/manifest.yaml",
+          "name": "gemini-api",
+          "manifest": "orchestration/models/gemini-api/manifest.yaml",
           "description": "Gemini API chat worker (probe-pending) — light web grounding; runs via the shared models/_api/run.py runner"
         },
         {
-          "name": "claude",
-          "manifest": "orchestration/models/claude/manifest.yaml",
-          "description": "Agent-tool Claude tiers opus/sonnet modeled as a routable package (validated) — sibling to claude-cli; in-session carrier, no native CLAUDE.md load, cannot spawn sub-agents (nesting wall)"
+          "name": "claude-code-native",
+          "manifest": "orchestration/models/claude-code-native/manifest.yaml",
+          "description": "Agent-tool Claude tiers opus/sonnet modeled as a routable package (validated) — sibling to claude-code-cli; in-session carrier, no native CLAUDE.md load, cannot spawn sub-agents (nesting wall)"
         },
         {
-          "name": "manus",
-          "manifest": "orchestration/models/manus/manifest.yaml",
+          "name": "manus-api",
+          "manifest": "orchestration/models/manus-api/manifest.yaml",
           "description": "Manus agentic-web worker (probe-pending) — autonomous server-side browser/tool loop; per-task cost; raw-dump return only (no JSON envelope, no code cold-verify); runs via the shared models/_api/run.py runner"
         }
       ]

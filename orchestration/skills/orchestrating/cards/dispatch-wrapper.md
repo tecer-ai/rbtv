@@ -181,7 +181,7 @@ python orchestration/skills/orchestrating/scripts/scaffold.py \
 | **Skeleton** | NO `--instructions` | the composed header (addendum §2 + schema §3 + decisions pointer + — for a CLI model — the invocation/transport note) + the per-model frontmatter SKELETON + empty body-section HEADERS | fills ONLY task-specific content (Goal / Context / Implementation / allowlist values), then dispatches |
 | **Complete** | `--instructions <file-or-inline>` | a COMPLETE dispatchable prompt — the composed header + frontmatter + body with the instructions merged into the task-specific sections | points the worker straight at the file without re-reading the boilerplate |
 
-`--explain` prints the composed source paths + each pre-flight outcome (provenance preview; still writes the file). The scaffold is carrier-aware: an Agent-tool carrier (the `models/claude/` package) gets the no-CLI composition (no invocation note, zero scraped flags); a CLI carrier derives its flags from its delta's `invocation` section.
+`--explain` prints the composed source paths + each pre-flight outcome (provenance preview; still writes the file). The scaffold is carrier-aware: an Agent-tool carrier (the `models/claude-code-native/` package) gets the no-CLI composition (no invocation note, zero scraped flags); a CLI carrier derives its flags from its delta's `invocation` section.
 
 ### Hand-authoring is the FALLBACK only
 

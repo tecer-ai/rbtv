@@ -78,6 +78,31 @@ def discover_model_packages(rbtv_root: Path) -> list[str]:
     )
 
 
+def read_model_display(rbtv_root: Path, pkg: str) -> str:
+    """Return a package's human-facing display label (its manifest `display:` field).
+
+    Falls back to the package folder name when the field is absent. Single-line
+    scan, no YAML parse — matches discover_model_packages' stdlib-only posture.
+    """
+    manifest = rbtv_root / MODELS_RELATIVE / pkg / PACKAGE_MARKER_FILE
+    try:
+        for line in manifest.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("display:"):
+                val = stripped[len("display:"):].strip()
+                if len(val) >= 2 and val[0] in "\"'" and val[-1] == val[0]:
+                    val = val[1:-1]
+                return val or pkg
+    except OSError:
+        pass
+    return pkg
+
+
+def discover_model_displays(rbtv_root: Path) -> dict[str, str]:
+    """Map every model package folder name → its display label (manifest `display:`)."""
+    return {pkg: read_model_display(rbtv_root, pkg) for pkg in discover_model_packages(rbtv_root)}
+
+
 def resolve_selected_packages(
     available: list[str], requested: tuple[str, ...] | None
 ) -> tuple[list[str], list[str], list[str]]:
@@ -99,15 +124,22 @@ def resolve_selected_packages(
     return installed, absent, unknown
 
 
-def _availability_block(installed: list[str], absent: list[str]) -> str:
+def _availability_block(
+    installed: list[str], absent: list[str], displays: dict[str, str] | None = None
+) -> str:
     """The two-line availability block written between the ORCH markers.
 
+    Names render as their human-facing display labels (manifest `display:`) when a
+    `displays` map is supplied, falling back to the folder name otherwise.
     Format matches the marker region's fallback shape (two blockquote lines):
         > **Model packages installed:** a, b
         > **Absent:** c, d
     """
-    installed_text = ", ".join(installed) if installed else "_(none)_"
-    absent_text = ", ".join(absent) if absent else "_(none)_"
+    displays = displays or {}
+    def _fmt(names: list[str]) -> str:
+        return ", ".join(displays.get(n, n) for n in names) if names else "_(none)_"
+    installed_text = _fmt(installed)
+    absent_text = _fmt(absent)
     return (
         f"{AVAILABILITY_BEGIN}\n"
         f"> **Model packages installed:** {installed_text}\n"
@@ -137,7 +169,7 @@ def bake_availability_line(
             f"{CORE_PROTOCOL_RELATIVE.as_posix()}"
         )
 
-    new_block = _availability_block(installed, absent)
+    new_block = _availability_block(installed, absent, discover_model_displays(rbtv_root))
     new_text, n = _AVAILABILITY_RE.subn(new_block, text)
     if n == 0:
         # Markers present individually but not as an ordered pair — leave untouched.

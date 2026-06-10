@@ -47,24 +47,24 @@ class PackageFacts:
     guidance_owner: str     # owner tag for the guidance-filename group
 
 
-#: Packages the driver knows how to mirror.  ``claude-cli`` is intentionally
+#: Packages the driver knows how to mirror.  ``claude-code-cli`` is intentionally
 #: absent — it loads ``CLAUDE.md`` natively and is mirror-less (it is skipped,
 #: never an error).  Banner labels are byte-identical to each package's
 #: ``mirror-config.yaml`` so a single-package guidance file matches ``mirror.py``.
 PACKAGE_FACTS: dict[str, PackageFacts] = {
-    "codex": PackageFacts(
+    "codex-cli": PackageFacts(
         guidance_filename="AGENTS.md",
         config_dir=".codex",
         banner_label="the Codex CLI worker",
         guidance_owner="agents-md",
     ),
-    "kimi": PackageFacts(
+    "kimi-code-cli": PackageFacts(
         guidance_filename="AGENTS.md",
         config_dir=".kimi",
         banner_label="the Kimi CLI worker",
         guidance_owner="agents-md",
     ),
-    "qwen": PackageFacts(
+    "qwen-code-cli": PackageFacts(
         guidance_filename="QWEN.md",
         config_dir=".qwen",
         banner_label="the Qwen Code CLI worker",
@@ -73,13 +73,13 @@ PACKAGE_FACTS: dict[str, PackageFacts] = {
 }
 
 #: Packages that load their guidance file natively and need no mirror.
-NATIVE_PACKAGES: frozenset[str] = frozenset({"claude-cli"})
+NATIVE_PACKAGES: frozenset[str] = frozenset({"claude-code-cli"})
 
 
 def _mirrorable(packages) -> list[str]:
     """Return the elected packages that the driver actually mirrors.
 
-    Drops native packages (claude-cli) and unknown ids silently — an unknown id
+    Drops native packages (claude-code-cli) and unknown ids silently — an unknown id
     is not the driver's to validate (the installer owns selection); the driver
     simply renders nothing for it.
     """
@@ -258,7 +258,7 @@ def render(
         Workspace root.  All managed-file paths are relative to it; the state
         file is ``{target_root}/rbtv.json``.
     elected:
-        Iterable of package ids to render (native ids like ``claude-cli`` and
+        Iterable of package ids to render (native ids like ``claude-code-cli`` and
         unknown ids are skipped silently).
     check:
         Read-only drift mode — renders nothing, writes nothing; reports whether
@@ -430,7 +430,7 @@ def uninstall(
     target_root:
         Workspace root (state file is ``{target_root}/rbtv.json``).
     deselected:
-        Package ids being removed (e.g. ``["codex"]``).
+        Package ids being removed (e.g. ``["codex-cli"]``).
     remaining_elected:
         Package ids that remain elected after this uninstall.
 

@@ -107,8 +107,8 @@ These rows resolve the specific worker overlaps the owner cares about. They are 
 
 | Use… | When |
 |------|------|
-| **DeepSeek API** (`deepseek:v4-flash` / `v4-pro`) | The leaf is **text synthesis / logic over inlined sources** — no code execution. DeepSeek carries `code_competence: none`, so the §2a `code_competence ≥ needed` filter already removes it from every code leaf; it wins on a TEXT leaf as the cheapest capable. Cheapest text worker (v4-flash); cheapest top-reasoning-tier text (v4-pro). |
-| **codex CLI** (`codex:default` / `high-reasoning`) | The leaf **executes code** — edits a work-dir, runs commands, needs a sandboxed separate process. codex is a code-specialized agent (`code_competence: strong`); DeepSeek cannot do this leaf at all. |
+| **DeepSeek API** (`deepseek-api:v4-flash` / `v4-pro`) | The leaf is **text synthesis / logic over inlined sources** — no code execution. DeepSeek carries `code_competence: none`, so the §2a `code_competence ≥ needed` filter already removes it from every code leaf; it wins on a TEXT leaf as the cheapest capable. Cheapest text worker (v4-flash); cheapest top-reasoning-tier text (v4-pro). |
+| **codex CLI** (`codex-cli:default` / `high-reasoning`) | The leaf **executes code** — edits a work-dir, runs commands, needs a sandboxed separate process. codex is a code-specialized agent (`code_competence: strong`); DeepSeek cannot do this leaf at all. |
 
 Boundary: the cut is **text-synthesis vs code-execution**, enforced mechanically by `code_competence` — never route code to DeepSeek, never route pure text-synthesis to a costlier code-executing process when a text worker suffices. (api-workers-build D2: DeepSeek stays the API text worker; the code/agentic role is a CLI worker.)
 
@@ -122,14 +122,14 @@ Boundary: the cut is **text-synthesis vs code-execution**, enforced mechanically
 
 Boundary: **single grounded call (Gemini) → rigorous cited multi-source (rbtv-web-searching) → autonomous multi-step browser agent (Manus)** — three distinct web tiers differing in autonomy, rigor, and cost (routing §6). Match the tier the task needs; do not pay Manus's per-task autonomy for a single lookup, and do not ask Gemini's single grounded call to do rigorous multi-source research.
 
-### claude-cli (process) vs Agent-tool Claude
+### claude-code-cli (process) vs Agent-tool Claude
 
 | Use… | When |
 |------|------|
-| **Agent-tool Claude** (`claude:opus` / `claude:sonnet`) | The **default** Claude carrier — an in-session sub-agent via the Agent tool. No process overhead, no auth pre-flight, no guidance-file dependency. Use for normal in-session dispatches. It does NOT natively load workspace `CLAUDE.md`/rules (the parent inlines them) and CANNOT spawn sub-agents (the nesting wall). |
-| **claude-cli** (`claude-cli:opus` / `claude-cli:sonnet`) | A **process-boundary sub-conductor** is needed (the worker must itself drive CLI workers — the nesting wall forces a separate process), OR **native workspace-rule loading** is required (a `claude -p` process natively auto-loads the cwd `CLAUDE.md`/rules; the Agent-tool carrier does not). |
+| **Agent-tool Claude** (`claude-code-native:opus` / `claude-code-native:sonnet`) | The **default** Claude carrier — an in-session sub-agent via the Agent tool. No process overhead, no auth pre-flight, no guidance-file dependency. Use for normal in-session dispatches. It does NOT natively load workspace `CLAUDE.md`/rules (the parent inlines them) and CANNOT spawn sub-agents (the nesting wall). |
+| **claude-code-cli** (`claude-code-cli:opus` / `claude-code-cli:sonnet`) | A **process-boundary sub-conductor** is needed (the worker must itself drive CLI workers — the nesting wall forces a separate process), OR **native workspace-rule loading** is required (a `claude -p` process natively auto-loads the cwd `CLAUDE.md`/rules; the Agent-tool carrier does not). |
 
-Boundary: **default to Agent-tool Claude; escalate to claude-cli ONLY for a process boundary (sub-conducting) or native workspace-rule loading.** Both are enumerated as distinct `(model, variant)` pairs by §2a — NEVER collapse the two Claude carriers into one entity (routing §4 "Two distinct Claude carriers"). Same Claude budget either way — neither is cost arbitrage.
+Boundary: **default to Agent-tool Claude; escalate to claude-code-cli ONLY for a process boundary (sub-conducting) or native workspace-rule loading.** Both are enumerated as distinct `(model, variant)` pairs by §2a — NEVER collapse the two Claude carriers into one entity (routing §4 "Two distinct Claude carriers"). Same Claude budget either way — neither is cost arbitrage.
 
 ## Source Citations
 
