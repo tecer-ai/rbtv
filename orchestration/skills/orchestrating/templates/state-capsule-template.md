@@ -13,6 +13,8 @@ Instantiate this as `state-capsule.md` in the run's spine location at spine init
 
 > **Audience:** the next conductor session, resuming after interruption or context-refresh. Everything here exists to make resumption clean.
 
+> **Regenerate, don't edit:** at each boundary write (batch close, reviewer close, pre-refresh) re-instantiate this file from the template skeleton carrying ONLY live values — never edit the prior capsule in place. Per-row test: "does the NEXT dispatch need this row?" (history → `run-log.md`, rulings → `decisions.md`; carry pointers, not narratives). State each volatile fact — next dispatch, next hard halt, each worker's quota — EXACTLY ONCE.
+
 ---
 
 ## Resume Point
@@ -62,6 +64,9 @@ Instantiate this as `state-capsule.md` in the run's spine location at spine init
 
 | Rule | Statement |
 |------|-----------|
+| **Regenerate from skeleton** | A boundary write (batch close, reviewer close, pre-refresh) RE-INSTANTIATES this file from the template skeleton carrying only live values — NEVER an in-place edit of the prior capsule. In-place editing accretes superseded rows and contradictions a resuming conductor would act on; regeneration makes leanness independent of session age. |
+| **Per-row liveness** | For each row ask "does the NEXT dispatch need this?" — if not, it does not belong here. History → `run-log.md`, rulings → `decisions.md`. Carry POINTERS (commit hashes, findings paths, D-/ADX-numbers), never narratives. |
+| **Volatile facts once** | Each volatile fact — next dispatch, next hard halt, each worker's quota state — stated EXACTLY ONCE. A fact restated in two sections is a contradiction. The next dispatch belongs ONLY in Resume Point. `stamp.py --scope conductor` refuses a capsule with a duplicate section header, a next-dispatch claim outside Resume Point, or the next dispatch stated more than once. |
 | **Write via temp, then replace** | Write new content to a sibling `state-capsule.md.tmp`, verify it is well-formed (parses, required sections present), then atomically replace the live file. A stray `.tmp` at session start = a prior interrupted write — surface it to the user before proceeding. |
 | **Never append** | Overwriting is the contract. NEVER append to this file and NEVER treat it as a history — history is `run-log.md`. |
 | **Never a planning decision** | A decision that changes future work is append-only and belongs in `decisions.md`, never here. This file carries only in-flight resume state. |

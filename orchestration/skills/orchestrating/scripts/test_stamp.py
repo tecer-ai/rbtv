@@ -767,6 +767,147 @@ class TestMidFlightFailure:
         assert "capsule: unchanged" in stdout3
 
 
+class TestCapsuleStructureGuard:
+    """Capsule regeneration discipline (state.md §3): conductor-scope stamps REFUSE
+    an accreted capsule — a duplicated '## ' section header, a next-dispatch claim
+    OUTSIDE Resume Point, or >1 next-dispatch claim inside Resume Point — with a
+    non-zero EXIT and ZERO files written. The next-dispatch check keys on the two
+    canonical markers ('Next dispatch:' field, 'NEXT:' resume marker), NOT a bare
+    'dispatch' substring: legitimate 'dispatch' note-labels/values stamp normally."""
+
+    CONDUCTOR_ARGS = (
+        "--task", "p3-1",
+        "--status", "completed",
+        "--scope", "conductor",
+        "--event", "| 2026-06-10T12:00Z | return | p3-1 | conductor | status DONE |",
+    )
+
+    def _all_target_hashes(self, plan_dir):
+        return {
+            "plan": file_hash(os.path.join(plan_dir, "api-workers-build-plan.md")),
+            "task": file_hash(os.path.join(plan_dir, "phase-3", "p3-1.task.md")),
+            "del": file_hash(os.path.join(plan_dir, "deliverables.md")),
+            "rl": file_hash(os.path.join(plan_dir, "run-log.md")),
+            "cap": file_hash(os.path.join(plan_dir, "state-capsule.md")),
+        }
+
+    def _corrupt_and_expect_reject(self, plan_dir, corrupted, needle):
+        cap_path = os.path.join(plan_dir, "state-capsule.md")
+        with open(cap_path, "w", encoding="utf-8", newline="") as f:
+            f.write(corrupted)
+        hashes_before = self._all_target_hashes(plan_dir)
+        rc, stdout, stderr = run_stamp(plan_dir, *self.CONDUCTOR_ARGS, expect_fail=True)
+        assert rc != 0, f"Expected non-zero exit ({needle})"
+        assert needle in stderr.lower(), f"stderr missing {needle!r}: {stderr}"
+        assert self._all_target_hashes(plan_dir) == hashes_before, (
+            "Files were written despite the structure-guard rejection"
+        )
+
+    def test_duplicate_section_header_rejected_no_writes(self, active_plan_dir):
+        """Two '## Resume Point' headers (paste-append accretion) → rejected, no writes."""
+        corrupted = read_file(os.path.join(active_plan_dir, "state-capsule.md")) + (
+            "\n## Resume Point\n- **NEXT: dispatch p9-9 (stale duplicate)**\n"
+        )
+        self._corrupt_and_expect_reject(active_plan_dir, corrupted, "duplicate section header")
+
+    def test_next_dispatch_literal_field_outside_resume_rejected(self, active_plan_dir):
+        """The template field '**Next dispatch:**' leaked into Run Configuration →
+        rejected (next-dispatch claim outside Resume Point), no writes."""
+        content = read_file(os.path.join(active_plan_dir, "state-capsule.md"))
+        corrupted = content.replace(
+            "## Run Configuration\n",
+            "## Run Configuration\n- **Next dispatch:** p4-1 (stale, contradicts Resume Point)\n",
+        )
+        self._corrupt_and_expect_reject(active_plan_dir, corrupted, "outside resume point")
+
+    def test_next_dispatch_freetext_marker_outside_resume_rejected(self, active_plan_dir):
+        """The free-text 'NEXT:' resume marker leaked into Run Configuration (the
+        actual 2026-06-10 defect form, no literal field) → rejected, no writes.
+        This is the form the old literal-only check could NOT catch."""
+        content = read_file(os.path.join(active_plan_dir, "state-capsule.md"))
+        corrupted = content.replace(
+            "## Run Configuration\n",
+            "## Run Configuration\n- **NEXT: dispatch p4-1 to codex (stale, contradicts Resume Point)**\n",
+        )
+        self._corrupt_and_expect_reject(active_plan_dir, corrupted, "outside resume point")
+
+    def test_next_dispatch_twice_in_resume_rejected(self, active_plan_dir):
+        """Two next-dispatch claims inside Resume Point → rejected, no writes."""
+        content = read_file(os.path.join(active_plan_dir, "state-capsule.md"))
+        corrupted = content.replace(
+            "- **NEXT: dispatch p3-1 to kimi**",
+            "- **NEXT: dispatch p3-1 to kimi**\n- **Next dispatch:** p9-9 (duplicate claim)",
+            1,
+        )
+        self._corrupt_and_expect_reject(active_plan_dir, corrupted, "states the next dispatch")
+
+    def test_legitimate_dispatch_wording_not_rejected(self, active_plan_dir):
+        """Bolded note-labels containing 'dispatch' (real corpus: 'Standing dispatch
+        rules...', 'Phase 3 dispatch queue...') and field VALUES mentioning dispatch
+        must NOT trip the guard — only the 'Next dispatch:'/'NEXT:' markers do. Inject
+        one more adversarial-but-legit case and confirm a clean stamp."""
+        content = read_file(os.path.join(active_plan_dir, "state-capsule.md"))
+        corrupted = content.replace(
+            "## Notes for Resuming Conductor\n",
+            "## Notes for Resuming Conductor\n"
+            "- **Dispatch protocol reminder:** see dispatch-scaffold-spec.md before the next dispatch wave.\n",
+        )
+        with open(os.path.join(active_plan_dir, "state-capsule.md"), "w", encoding="utf-8", newline="") as f:
+            f.write(corrupted)
+        rc, stdout, stderr = run_stamp(active_plan_dir, *self.CONDUCTOR_ARGS)
+        assert rc == 0, f"Legit 'dispatch' wording wrongly rejected: {stderr}"
+        assert "capsule: changed" in stdout
+
+    def test_clean_capsule_passes_guard(self, active_plan_dir):
+        """The unmodified active capsule (unique headers; the legit '**NEXT: dispatch
+        p3-1 to kimi**' claim in Resume Point + 'dispatch' note-labels elsewhere)
+        stamps normally — no false rejection."""
+        rc, stdout, stderr = run_stamp(active_plan_dir, *self.CONDUCTOR_ARGS)
+        assert rc == 0, f"Clean capsule wrongly rejected: {stderr}"
+        assert "capsule: changed" in stdout
+
+    def test_reread_phase_guard_catches_midwrite_corruption(self, active_plan_dir, tmp_path):
+        """The structure guard runs at BOTH the validate phase AND the capsule
+        re-read site. A capsule corrupted DURING the write window (after validate,
+        before the capsule lockstep) is caught at the re-read site — proving that
+        call exists and is not silently removable. Uses the env-gated pause to open
+        the race window."""
+        import threading
+        import time
+
+        pause_base = str(tmp_path / "pause-signal")
+        cap_path = os.path.join(active_plan_dir, "state-capsule.md")
+
+        def corrupt_during_pause():
+            for _ in range(200):
+                if os.path.exists(pause_base + ".paused"):
+                    break
+                time.sleep(0.05)
+            current = read_file(cap_path)
+            with open(cap_path, "w", encoding="utf-8", newline="") as f:
+                f.write(current + "\n## Resume Point\n- **NEXT: dispatch p9-9 (mid-write)**\n")
+            with open(pause_base + ".resume", "w") as f:
+                f.write("resume")
+
+        t = threading.Thread(target=corrupt_during_pause)
+        t.start()
+
+        env = os.environ.copy()
+        env["STAMP_TEST_PAUSE_FILE"] = pause_base
+        cmd = [
+            sys.executable, STAMP_PY, "--plan-dir", active_plan_dir,
+            "--task", "p3-1", "--status", "completed",
+            "--scope", "conductor",
+            "--event", "| 2026-06-10T12:00Z | return | p3-1 | conductor | status DONE |",
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        t.join(timeout=15)
+
+        assert result.returncode != 0, f"Re-read guard did not reject: {result.stdout}"
+        assert "re-read before write (capsule)" in result.stderr
+        assert "duplicate section header" in result.stderr.lower()
+
+
 class TestLineEndingPreservation:
     """F1: stamp operations preserve input line endings (LF in → LF out)."""
 

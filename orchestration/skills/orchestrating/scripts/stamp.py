@@ -223,6 +223,97 @@ def validate_capsule(content):
     return None
 
 
+# A "next-dispatch claim" is the volatile fact "the next dispatch is task X".
+# It appears in exactly two canonical marker forms the system produces:
+#   - the template field label  '**Next dispatch:** …'
+#   - the stamp/conductor resume marker  '**NEXT: dispatch … to …**'
+# Both belong ONLY in Resume Point, stated once. We match the bolded-bullet LABEL
+# against these markers — NOT a bare 'dispatch' substring, which false-positives on
+# legitimate prose note-labels in the real corpus ('Standing dispatch rules born
+# here:', 'Resume this run from the Phase 3 dispatch queue below.').
+def _is_next_dispatch_label(label):
+    low = label.strip().lower()
+    return low.startswith("next dispatch") or low.startswith("next:")
+
+
+_BOLD_BULLET = re.compile(r"^\s*[-*]\s+\*\*(.+?)\*\*")
+
+
+def validate_capsule_structure(content):
+    """Reject an accreted capsule (state.md §3 regeneration discipline).
+
+    The capsule is REGENERATED from the template skeleton at each boundary write,
+    never edited in place. Three structural signatures betray overwrite-as-append
+    accretion that a resuming conductor would act on:
+      - a duplicated '## ' section header — a prior capsule pasted below the new one
+      - a next-dispatch claim OUTSIDE Resume Point — the leak the 2026-06-10 defect
+        showed (next dispatch stated in Run Configuration AND Resume Point, free to
+        disagree)
+      - more than one next-dispatch claim inside Resume Point — the next dispatch
+        stated twice
+
+    Conductor-scope stamps validate this on every transition and REFUSE (non-zero
+    EXIT, no write) when it trips — the deterministic guard against accretion
+    between regenerations. Returns an error string, or None when clean.
+
+    Scope note: the next-dispatch check keys on the two canonical marker forms
+    (see `_is_next_dispatch_label`), section-anchored to Resume Point. A claim
+    hidden in free prose under another section (no marker) is NOT caught — a broad
+    'dispatch' match is corpus-proven to false-positive on legitimate note-labels,
+    so precision wins over recall in the critical state-save path. Duplicate-section-
+    header detection is the form-independent workhorse.
+
+    Assumption: runs ONLY against an INSTANTIATED `state-capsule.md` (no fenced
+    template skeleton). The template FILE quotes the skeleton inside a ```markdown
+    fence with real '## ' headers — never pass it here, or every header
+    double-counts. The wired call sites (validate phase + capsule re-read) only
+    ever read the live instantiated capsule, so this holds.
+    """
+    seen = {}
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            header = stripped[3:].strip()
+            seen[header] = seen.get(header, 0) + 1
+    dups = sorted(h for h, n in seen.items() if n > 1)
+    if dups:
+        return (
+            f"capsule accretion — duplicate section header(s) {dups}: the capsule "
+            f"must be REGENERATED from the template skeleton at each boundary write, "
+            f"not edited in place (state.md §3)"
+        )
+
+    # Section-anchored next-dispatch scan.
+    current_section = None
+    resume_point_claims = 0
+    foreign_sections = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            current_section = stripped[3:].strip()
+            continue
+        m = _BOLD_BULLET.match(line)
+        if m and _is_next_dispatch_label(m.group(1)):
+            if current_section == "Resume Point":
+                resume_point_claims += 1
+            else:
+                foreign_sections.append(current_section or "(before any section)")
+    if foreign_sections:
+        secs = sorted(set(foreign_sections))
+        return (
+            f"capsule accretion — next-dispatch claim outside Resume Point "
+            f"(found in {secs}): the next dispatch belongs ONLY in Resume Point, "
+            f"stated once (state.md §3 volatile-facts-once)"
+        )
+    if resume_point_claims > 1:
+        return (
+            f"capsule accretion — Resume Point states the next dispatch "
+            f"{resume_point_claims} times: it must be stated EXACTLY ONCE "
+            f"(state.md §3 volatile-facts-once)"
+        )
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Write operations
 # ---------------------------------------------------------------------------
@@ -517,6 +608,10 @@ def main(argv=None):
         if cap_err:
             print(f"ERROR: {cap_err}", file=sys.stderr)
             sys.exit(1)
+        struct_err = validate_capsule_structure(capsule_content)
+        if struct_err:
+            print(f"ERROR: {struct_err}", file=sys.stderr)
+            sys.exit(1)
 
     # --- Check for duplicates (ambiguous matches) ---
     # Re-validate for duplicates
@@ -677,6 +772,10 @@ def main(argv=None):
             cap_err = validate_capsule(fresh_cap)
             if cap_err:
                 print(f"ERROR: re-read before write (capsule): {cap_err}", file=sys.stderr)
+                sys.exit(1)
+            struct_err = validate_capsule_structure(fresh_cap)
+            if struct_err:
+                print(f"ERROR: re-read before write (capsule): {struct_err}", file=sys.stderr)
                 sys.exit(1)
             from datetime import datetime, timezone
             now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
