@@ -6,6 +6,7 @@ import { createSlideStage } from './slide-stage.js';
 import { createTray } from './tray.js';
 import { buildDeckSrcdoc } from './previews.js';
 import { pickDestination, assembleDeck, buildOutPath } from './assemble.js';
+import { saveDeck } from './deck-save.js';
 
 const state = { libraryPath: null, data: null, tray: null, slideLookup: null, deck: null, canSave: false };
 let destFolder = null;
@@ -49,6 +50,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const deckChip = document.getElementById('deck-chip');
   const deckChipName = document.getElementById('deck-chip-name');
   const deckChipChange = document.getElementById('deck-chip-change');
+  const deckSavePane = document.getElementById('deck-save-pane');
+  const saveNewBtn = document.getElementById('save-new-btn');
+  const saveOverwriteBtn = document.getElementById('save-overwrite-btn');
 
   function setStatus(msg, type = '') {
     if (!builderStatus) return;
@@ -66,6 +70,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (trayCount) trayCount.textContent = total + (total === 1 ? ' slide' : ' slides');
       markTrayState(order);
       state.canSave = state.deck && total > 0;
+      if (saveNewBtn) saveNewBtn.disabled = !state.canSave;
+      if (saveOverwriteBtn) saveOverwriteBtn.disabled = !state.canSave;
     }
   });
   state.tray = tray;
@@ -298,6 +304,10 @@ document.addEventListener("DOMContentLoaded", () => {
       sections: deckResult.sections
     };
 
+    // Switch to deck mode: hide assemble, show save pane
+    if (assembleBtn) assembleBtn.closest('.assemble').hidden = true;
+    if (deckSavePane) deckSavePane.hidden = false;
+
     if (deckChip && deckChipName) {
       deckChipName.textContent = deckResult.name;
       deckChip.hidden = false;
@@ -466,6 +476,52 @@ document.addEventListener("DOMContentLoaded", () => {
         setStatus('Assemble failed: ' + err.message, 'error');
       }
     });
+  }
+
+  // ── deck save ───────────────────────────────────────────────────────────
+  async function doSave(mode) {
+    if (!state.deck) {
+      setStatus('No deck loaded.');
+      return;
+    }
+    const items = tray.getItems();
+    if (items.length === 0) {
+      setStatus('Tray is empty.');
+      return;
+    }
+    try {
+      const result = await saveDeck({ deck: state.deck, items, mode });
+      if (result.cancelled) {
+        return; // user cancelled dialog — no error
+      }
+      if (result.ok) {
+        const parts = ['Saved: ' + result.path];
+        if (result.assetsCopied.length > 0) {
+          parts.push('Assets copied: ' + result.assetsCopied.length);
+        }
+        if (result.assetsSkipped.length > 0) {
+          parts.push('Assets skipped: ' + result.assetsSkipped.join(', '));
+        }
+        setStatus(parts.join(' | '), 'success');
+        // After new-file save, point state.deck.path to the new file
+        if (mode === 'new-file') {
+          state.deck.path = result.path;
+          state.deck.name = result.path.split(/[\\/]/).pop() || result.path;
+          if (deckChipName) deckChipName.textContent = state.deck.name;
+        }
+      } else {
+        setStatus('Save failed.', 'error');
+      }
+    } catch (err) {
+      setStatus('Save failed: ' + err.message, 'error');
+    }
+  }
+
+  if (saveNewBtn) {
+    saveNewBtn.addEventListener('click', () => doSave('new-file'));
+  }
+  if (saveOverwriteBtn) {
+    saveOverwriteBtn.addEventListener('click', () => doSave('overwrite'));
   }
 
   // ── ?file= boot branch ───────────────────────────────────────────────
