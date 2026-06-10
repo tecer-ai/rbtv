@@ -25,7 +25,7 @@ This beat implements `deck-loop-spec.md` behavior rows 7–8 and 10, and its bou
 - The owner is the irreducible aesthetic and final gate (D1). NEVER substitute agent judgment for the owner's accept/bounce. A resuming agent reading `who_acts_next: owner` surfaces the decision — it never acts past it (schema §3.3).
 - Render HEADED via the local-server pattern (a visible browser, real geometry + real owner gestures). NEVER headless, NEVER `file://`, NEVER synthetic `dispatchEvent` (this is the fidelity floor the done-gate exercises at).
 - A bounce patches ONLY the flagged slide — all other slides stay BYTE-IDENTICAL (deck-loop-spec ④/⑦). The patch is surgical (beat 3 sub-beat 3B loop); never regenerate the deck to fix one slide.
-- You fix VISUALS. A bounce that demands a MESSAGE change is drift — route it back to the Strategist (`/rbtv-pitcher`), never edit the message yourself (mining map DP-4, ML-3).
+- You fix VISUALS. A bounce that demands a MESSAGE change is drift — route it back to the Strategist (`/rbtv-strategist`), never edit the message yourself (mining map DP-4, ML-3).
 
 ---
 
@@ -72,13 +72,13 @@ ONLY when **[A] Accept all** is selected: confirm all `## Slide Status` rows are
 
 ONLY when **[E] Escalate** (or any slide reaching the bounce cap) is selected:
 
-> **AGENT HANDOFF — studio Strategist (rbtv-pitcher → Lock the Message)**
+> **AGENT HANDOFF — studio Strategist (rbtv-strategist → Lock the Message)**
 >
 > Message-level rethink (beat 1) is owned by the **Strategist** — not the Designer. You cannot execute it yourself.
 >
 > Instruct the user:
 >
-> *"Slide {n} hit the bounce cap — three bounces exhausted the design lane, so the message itself needs a rethink, not more polish. The escalation is recorded in design-state and the run's `decisions.md`. To continue, invoke the `/rbtv-pitcher` command (The Strategist) and select **[M] Lock the Message** — it reads the bounce log for why the message failed, revises the content spec, and hands the reset slide back to me."*
+> *"Slide {n} hit the bounce cap — three bounces exhausted the design lane, so the message itself needs a rethink, not more polish. The escalation is recorded in design-state and the run's `decisions.md`. To continue, invoke the `/rbtv-strategist` command (The Strategist) and select **[M] Lock the Message** — it reads the bounce log for why the message failed, revises the content spec, and hands the reset slide back to me."*
 >
 > Do NOT load beat-01 yourself. The Strategist loads it.
 

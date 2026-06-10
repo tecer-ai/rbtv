@@ -103,6 +103,8 @@ The studio module **was NOT in this vault's install set at p1-3**. `rbtv.json` t
 
 **Decision superseded at p6-checkpoint (2026-06-10): studio added to the install set.** The owner approved the flip at p6-checkpoint; the install executed that day. Four surfaces are now live: `rbtv-designing` + `rbtv-playwright-cli` skills; `/rbtv-design-extractor` + `/rbtv-vision-to-json` commands. The Strategist and the studio loop beats remain loop-internal BY DESIGN — reached via `/rbtv-pitcher`, not as standalone commands. The proof-gating clause no longer applies; the install decision was executed without requiring the GSMM deck proof (D7 struck the deck proof from the plan).
 
+**Decision superseded again (2026-06-10): the loop entry moved into studio and was renamed.** The owner moved the entry command out of office and renamed it `/rbtv-pitcher` → `/rbtv-strategist`; the command (`studio/commands/strategist.md`, manifest `studio` module) now opens the Strategist directly. This executes the "optional standalone loader" noted as a post-v1 decision in §2.3 — the Strategist is no longer office-entered or loop-internal-only; it has its own studio command. The dated p1-3/p1-4 prose below records the prior `/rbtv-pitcher` (office) state as historical fact and is left unchanged.
+
 ### 2.3 Per-surface verdict
 
 | Entry surface | Name (loader / command) | Verdict | Reached how | Wiring task |

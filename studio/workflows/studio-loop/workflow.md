@@ -55,4 +55,4 @@ A worker NEVER reads `run-log.md` or `state-capsule.md` — those are conductor/
 
 ## Entry
 
-The owner reaches the loop through `/rbtv-pitcher` (office), retargeted to this spine at `p4-1` (architecture §2). The Strategist runs beat 1; the Designer (`rbtv-designing` — Vivian, now installed) runs beats 2–4. Vivian can also be invoked directly via the `rbtv-designing` skill to resume from a design-state path. The loop does NOT depend on `hypresent/` or `slide-library/`; it renders via the `browser-automation` infra (local HTTP server + headed browser; `file://` is blocked).
+The owner reaches the loop through `/rbtv-strategist` (studio), which opens the Strategist persona directly. The Strategist runs beat 1; the Designer (`rbtv-designing` — Vivian) runs beats 2–4. Vivian can also be invoked directly via the `rbtv-designing` skill to resume from a design-state path. The loop does NOT depend on `hypresent/` or `slide-library/`; it renders via the `browser-automation` infra (local HTTP server + headed browser; `file://` is blocked).
