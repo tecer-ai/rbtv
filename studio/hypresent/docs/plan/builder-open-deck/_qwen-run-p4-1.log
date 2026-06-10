@@ -1,0 +1,36 @@
+---
+
+## Return
+
+### `status`
+**DONE**
+
+### `landed`
+Files modified/created:
+- ✎ `app/builder.html` — added `#switch-to-editor-btn` (primary, disabled by default)
+- ✎ `app/js/builder/builder-main.js` — button ref, disabled-state in tray onChange, click handler calling `saveDeck({mode:'new-file'})` then `window.location.href = '/app/?file=' + encodeURIComponent(result.path)`
+- ✎ `app/index.html` — added `#open-in-builder-btn` (disabled by default)
+- ✎ `app/js/shell/file-controls.js` — added `setupOpenInBuilder({getSerializeDoc, getStatusSetter, getBridge})` exporting the button handler
+- ✎ `app/js/main.js` — import `setupOpenInBuilder`, wire it with `serializeDoc`/`setStatus`/`bridge` getters, enable button on document open (both `openViaDialog` and `?file=` paths)
+- ✚ `tests/e2e/test_pb12_bridge.py` — 5 tests covering spec rows 1-4
+
+Commit: `5b72397` (matches `git log -1`)
+
+### `validation`
+| Command | EXIT | WALL_MS |
+|---------|------|---------|
+| `node --check app/js/builder/builder-main.js` | 0 | <1s |
+| `node --check app/js/main.js` | 0 | <1s |
+| `node --check app/js/shell/file-controls.js` | 0 | <1s |
+| `python -m pytest tests/e2e/test_pb12_bridge.py -q` | 0 | 11.66s (5 passed) |
+| `python -m pytest tests/e2e/test_pb5_assemble_handoff.py tests/e2e/test_pb8_deck_open.py tests/e2e/test_pb9_deck_tray.py tests/e2e/test_pb10_deck_add.py tests/e2e/test_pb11_deck_save.py -q` | 0 | 47.38s (24 passed) |
+
+**SKIPPED_COUNT:** 0
+
+### `concerns`
+- **D-asset-colocation is in force:** Cross-directory crossings will produce decks with unresolved `assets/*` image refs. This is an accepted limitation per decisions.md — not a bug to fix.
+- The `tecer-gsmm-introduction*.html` root decks exist as untracked files in the workdir; all tests correctly copy to `tmp_path` before any save, never writing to them.
+- The `setOpenInBuilderEnabled` function is defined after the open-btn click handler in `main.js`, but since it's a function declaration it's hoisted and the callback fires later — safe.
+
+### `open_questions`
+none

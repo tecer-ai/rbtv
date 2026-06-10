@@ -124,6 +124,12 @@
 - **Rationale:** Recompose's asset responsibility is bounded to what IT introduces (library fragments); the source deck's spans are preserved byte-for-byte (ADX-2) and their relative asset refs are the source deck's own. Copying the source deck's full asset tree on every save was never in p3 scope.
 - **Scope:** p4-1 and the bridge/Save-As-to-editor path — a deck saved to a DIFFERENT directory than its source will have unresolved image refs for its own (non-library) slides when reopened/handed to the editor. Surface as a phase-4/5 follow-up if owner relocation of saved decks is a target; not a p3 defect.
 
+### D-bridge-runtime-ready — "Open in builder" enables on runtime-ready, not doc-open (2026-06-10)
+
+- **Decision:** The editor's "Open in builder" crossing button is enabled by the iframe runtime's `ready` event (inside `ensureBridge`'s `bridge.on("ready")` handler), NOT on open-success — applied identically to BOTH open paths (dialog `#open-btn` and `?file=` arrival). It is disabled the moment a new bridge is created and re-enabled only once the runtime can serialize.
+- **Rationale:** `createBridge()` returns synchronously but the runtime `<script type="module">` boots async after open resolves; enabling on bridge-object-existence let a click race ahead of the runtime → `serialize` hit its 10s timeout → `serializeDoc()` returned null → the crossing silently no-op'd (a real, if sub-100ms, defect, surfaced as a suite-load e2e flake on `test_editor_to_builder_crossing`). Gating on the true readiness signal makes an enabled button always act, matching the existing align/undo/redo readiness gating.
+- **Scope:** p4-1 (fix folded in `beb85fe`). p4-checkpoint (B12) MUST exercise headed that the disabled→enabled transition is fast enough to not feel laggy on a real (non-suite-loaded) machine — the residual owner-facing window is now a visible disabled-button no-op (strictly better than the prior enabled-button no-op); owner judges acceptance at the checkpoint.
+
 ---
 
 ## References
