@@ -1,0 +1,20 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.0.3, pluggy-1.6.0 -- C:\Users\henri\AppData\Local\Programs\Python\Python312\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\henri\Documents\second-brain\3-resources\tools\rbtv\orchestration\models\_api
+plugins: anyio-4.12.0
+collecting ... collected 10 items
+
+tests/test_manus_client.py::test_attachments_parsed_and_downloaded PASSED [ 10%]
+tests/test_manus_client.py::test_download_auth_fallback PASSED           [ 20%]
+tests/test_manus_client.py::test_download_failure_non_fatal PASSED       [ 30%]
+tests/test_manus_client.py::test_narration_preserved_no_attachments PASSED [ 40%]
+tests/test_manus_client.py::test_structured_output_schema PASSED         [ 50%]
+tests/test_manus_client.py::test_system_message_excluded_from_description PASSED [ 60%]
+tests/test_run_artifacts.py::test_runner_writes_artifacts_and_structured PASSED [ 70%]
+tests/test_run_artifacts.py::test_runner_name_collision_dedup PASSED     [ 80%]
+tests/test_run_artifacts.py::test_runner_raw_dump_unchanged_when_no_artifacts PASSED [ 90%]
+tests/test_run_integration.py::test_main_writes_artifacts_end_to_end PASSED [100%]
+
+============================= 10 passed in 0.11s ==============================
+EXIT_CODE=0

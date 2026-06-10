@@ -105,6 +105,72 @@ def sanitize_path(p: str, output_folder: str) -> str:
     return safe
 
 
+def _dedup_name(name: str, taken: set) -> str:
+    """Return *name*, or *name* with a numeric suffix, so it is not in *taken*."""
+    if name not in taken:
+        return name
+    stem, dot, ext = name.partition(".")
+    suffix = f".{ext}" if dot else ""
+    i = 1
+    while True:
+        candidate = f"{stem}-{i}{suffix}"
+        if candidate not in taken:
+            return candidate
+        i += 1
+
+
+def write_artifacts(
+    response: Any,
+    output_folder: str,
+    landed: List[str],
+    validation: Dict[str, Any],
+    concerns: List[str],
+) -> None:
+    """Write a response's file artifacts and structured result to *output_folder*.
+
+    Generic across providers. Artifact filenames are sanitised and de-duplicated
+    against everything already in *landed* (which includes reserved names like
+    return.json / raw-output.md), so an artifact never clobbers another file.
+    Mutates *landed*, *validation*, and *concerns* in place.
+    """
+    artifacts = getattr(response, "artifacts", None) or []
+    structured_result = getattr(response, "structured_result", None)
+
+    os.makedirs(output_folder, exist_ok=True)
+
+    # Reserve everything already written plus the runner's own return.json.
+    taken = set(landed)
+    taken.add("return.json")
+
+    written = 0
+    for artifact in artifacts:
+        safe = sanitize_path(artifact.filename, output_folder)
+        safe = _dedup_name(safe, taken)
+        taken.add(safe)
+        out_path = pathlib.Path(output_folder) / safe
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(artifact.content)
+        landed.append(safe)
+        written += 1
+
+    validation["artifact_count"] = written
+
+    if structured_result is not None:
+        safe = _dedup_name("structured-output.json", taken)
+        taken.add(safe)
+        out_path = pathlib.Path(output_folder) / safe
+        out_path.write_text(json.dumps(structured_result, indent=2), encoding="utf-8")
+        landed.append(safe)
+
+    # Surface any download failures the client recorded as concerns.
+    raw = getattr(response, "raw_response", None) or {}
+    for err in raw.get("artifact_errors", []) or []:
+        concerns.append(
+            f"artifact download failed: {err.get('filename')} "
+            f"({err.get('url')}) — {err.get('error')}"
+        )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Shared runner for model API calls")
     parser.add_argument("--provider", required=True, help="Provider name (e.g. deepseek)")
@@ -289,6 +355,10 @@ def main() -> None:
     if finish_reason is not None and finish_reason != "stop":
         concerns.append(f"finish_reason was '{finish_reason}' — response may be truncated")
         status = "DONE_WITH_NOTES"
+
+    # Write any file artifacts / structured result (e.g. Manus attachments) the
+    # provider returned. Generic across providers; no-op when there are none.
+    write_artifacts(response, args.output_folder, landed, validation, concerns)
 
     validation["envelope_valid"] = envelope_valid
     validation["file_count"] = len(landed)

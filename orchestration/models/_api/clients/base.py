@@ -33,11 +33,22 @@ class TokenUsage:
 
 
 @dataclass
+class Artifact:
+    """A file deliverable fetched from a provider (e.g. a Manus attachment)."""
+    filename: str
+    content: bytes
+    content_type: Optional[str] = None
+    source_url: Optional[str] = None
+
+
+@dataclass
 class Response:
     content: str
     model: Optional[str] = None
     usage: Optional[TokenUsage] = None
     raw_response: Optional[Dict[str, Any]] = None
+    artifacts: Optional[List["Artifact"]] = None
+    structured_result: Optional[Dict[str, Any]] = None
 
 
 @dataclass
