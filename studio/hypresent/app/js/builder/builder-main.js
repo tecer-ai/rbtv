@@ -49,7 +49,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const deckChip = document.getElementById('deck-chip');
   const deckChipName = document.getElementById('deck-chip-name');
   const deckChipChange = document.getElementById('deck-chip-change');
-  const trayHead = document.querySelector('.tray-head');
 
   function setStatus(msg, type = '') {
     if (!builderStatus) return;
@@ -71,16 +70,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   state.tray = tray;
 
-  // ── Add blank slide button (inserted dynamically into tray head) ──────
-  if (trayHead) {
-    const addBlankBtn = document.createElement('button');
-    addBlankBtn.type = 'button';
-    addBlankBtn.className = 'tb-btn';
-    addBlankBtn.id = 'add-blank-btn';
-    addBlankBtn.textContent = 'Add blank slide';
-    addBlankBtn.style.marginTop = '8px';
+  // ── Add blank slide button ─────────────────────────────────────────────
+  const addBlankBtn = document.getElementById('add-blank-btn');
+  if (addBlankBtn) {
     addBlankBtn.addEventListener('click', () => tray.addBlank());
-    trayHead.appendChild(addBlankBtn);
   }
 
   // ── left rail: language segmented filter ─────────────────────────────
