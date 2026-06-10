@@ -1,0 +1,45 @@
+{
+  "orig_section_count": 10,
+  "saved_section_count": 11,
+  "orig_section_hashes": [
+    "7a48128ced13",
+    "57f758529b58",
+    "9d90de4d0321",
+    "3f81c4684bf1",
+    "9e19dc2db293",
+    "e1ab7661a2b7",
+    "d3dfe02338ec",
+    "5bc48984098a",
+    "d3723d8b2f10",
+    "21dcf8d2098c"
+  ],
+  "saved_section_hashes": [
+    "57f758529b58",
+    "57f758529b58",
+    "57f758529b58",
+    "3f81c4684bf1",
+    "9e19dc2db293",
+    "e1ab7661a2b7",
+    "d3dfe02338ec",
+    "5bc48984098a",
+    "d3723d8b2f10",
+    "21dcf8d2098c",
+    "b97bbf2401a4"
+  ],
+  "reorder_proof": {
+    "orig_sec1_at_saved_pos0": true,
+    "orig_sec0_at_saved_pos1": false
+  },
+  "removal_proof": {
+    "orig_sec2_hash_absent_from_saved": true,
+    "orig_sec2_hash": "9d90de4d0321f019"
+  },
+  "duplicate_proof": {
+    "orig_sec1_appears_n_times": 3,
+    "duplicated": false
+  },
+  "blank_proof": {
+    "last_section_text": "Blank Slide",
+    "blank_confirmed": true
+  }
+}

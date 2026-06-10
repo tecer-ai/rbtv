@@ -1,0 +1,555 @@
+{
+  "orig_hashes": [
+    "26f116db4326",
+    "30861d0ea7a6",
+    "987d1214b487",
+    "d5a7ad0b90da",
+    "3a5c95f25f3f",
+    "62221bfaaed7",
+    "25d0bb9645dd",
+    "ae3d66d0bb35",
+    "4c9d440a0f15",
+    "7cbdf4a2fa55"
+  ],
+  "dom_after_open": null,
+  "states": {
+    "open": [
+      {
+        "i": 0,
+        "uid": "1",
+        "slideId": "deck-section-0",
+        "badge": "deck",
+        "title": "Slide 1"
+      },
+      {
+        "i": 1,
+        "uid": "2",
+        "slideId": "deck-section-1",
+        "badge": "deck",
+        "title": "Slide 2"
+      },
+      {
+        "i": 2,
+        "uid": "3",
+        "slideId": "deck-section-2",
+        "badge": "deck",
+        "title": "Slide 3"
+      },
+      {
+        "i": 3,
+        "uid": "4",
+        "slideId": "deck-section-3",
+        "badge": "deck",
+        "title": "Slide 4"
+      },
+      {
+        "i": 4,
+        "uid": "5",
+        "slideId": "deck-section-4",
+        "badge": "deck",
+        "title": "Slide 5"
+      },
+      {
+        "i": 5,
+        "uid": "6",
+        "slideId": "deck-section-5",
+        "badge": "deck",
+        "title": "Slide 6"
+      },
+      {
+        "i": 6,
+        "uid": "7",
+        "slideId": "deck-section-6",
+        "badge": "deck",
+        "title": "Slide 7"
+      },
+      {
+        "i": 7,
+        "uid": "8",
+        "slideId": "deck-section-7",
+        "badge": "deck",
+        "title": "Slide 8"
+      },
+      {
+        "i": 8,
+        "uid": "9",
+        "slideId": "deck-section-8",
+        "badge": "deck",
+        "title": "Slide 9"
+      },
+      {
+        "i": 9,
+        "uid": "10",
+        "slideId": "deck-section-9",
+        "badge": "deck",
+        "title": "Slide 10"
+      }
+    ],
+    "reorder": [
+      {
+        "i": 0,
+        "uid": "2",
+        "slideId": "deck-section-1",
+        "badge": "deck",
+        "title": "Slide 2"
+      },
+      {
+        "i": 1,
+        "uid": "1",
+        "slideId": "deck-section-0",
+        "badge": "deck",
+        "title": "Slide 1"
+      },
+      {
+        "i": 2,
+        "uid": "3",
+        "slideId": "deck-section-2",
+        "badge": "deck",
+        "title": "Slide 3"
+      },
+      {
+        "i": 3,
+        "uid": "4",
+        "slideId": "deck-section-3",
+        "badge": "deck",
+        "title": "Slide 4"
+      },
+      {
+        "i": 4,
+        "uid": "5",
+        "slideId": "deck-section-4",
+        "badge": "deck",
+        "title": "Slide 5"
+      },
+      {
+        "i": 5,
+        "uid": "6",
+        "slideId": "deck-section-5",
+        "badge": "deck",
+        "title": "Slide 6"
+      },
+      {
+        "i": 6,
+        "uid": "7",
+        "slideId": "deck-section-6",
+        "badge": "deck",
+        "title": "Slide 7"
+      },
+      {
+        "i": 7,
+        "uid": "8",
+        "slideId": "deck-section-7",
+        "badge": "deck",
+        "title": "Slide 8"
+      },
+      {
+        "i": 8,
+        "uid": "9",
+        "slideId": "deck-section-8",
+        "badge": "deck",
+        "title": "Slide 9"
+      },
+      {
+        "i": 9,
+        "uid": "10",
+        "slideId": "deck-section-9",
+        "badge": "deck",
+        "title": "Slide 10"
+      }
+    ],
+    "remove": [
+      {
+        "i": 0,
+        "uid": "2",
+        "slideId": "deck-section-1",
+        "badge": "deck",
+        "title": "Slide 2"
+      },
+      {
+        "i": 1,
+        "uid": "1",
+        "slideId": "deck-section-0",
+        "badge": "deck",
+        "title": "Slide 1"
+      },
+      {
+        "i": 2,
+        "uid": "4",
+        "slideId": "deck-section-3",
+        "badge": "deck",
+        "title": "Slide 4"
+      },
+      {
+        "i": 3,
+        "uid": "5",
+        "slideId": "deck-section-4",
+        "badge": "deck",
+        "title": "Slide 5"
+      },
+      {
+        "i": 4,
+        "uid": "6",
+        "slideId": "deck-section-5",
+        "badge": "deck",
+        "title": "Slide 6"
+      },
+      {
+        "i": 5,
+        "uid": "7",
+        "slideId": "deck-section-6",
+        "badge": "deck",
+        "title": "Slide 7"
+      },
+      {
+        "i": 6,
+        "uid": "8",
+        "slideId": "deck-section-7",
+        "badge": "deck",
+        "title": "Slide 8"
+      },
+      {
+        "i": 7,
+        "uid": "9",
+        "slideId": "deck-section-8",
+        "badge": "deck",
+        "title": "Slide 9"
+      },
+      {
+        "i": 8,
+        "uid": "10",
+        "slideId": "deck-section-9",
+        "badge": "deck",
+        "title": "Slide 10"
+      }
+    ],
+    "duplicate": [
+      {
+        "i": 0,
+        "uid": "2",
+        "slideId": "deck-section-1",
+        "badge": "deck",
+        "title": "Slide 2"
+      },
+      {
+        "i": 1,
+        "uid": "11",
+        "slideId": "deck-section-1",
+        "badge": "deck",
+        "title": "Slide 2"
+      },
+      {
+        "i": 2,
+        "uid": "1",
+        "slideId": "deck-section-0",
+        "badge": "deck",
+        "title": "Slide 1"
+      },
+      {
+        "i": 3,
+        "uid": "4",
+        "slideId": "deck-section-3",
+        "badge": "deck",
+        "title": "Slide 4"
+      },
+      {
+        "i": 4,
+        "uid": "5",
+        "slideId": "deck-section-4",
+        "badge": "deck",
+        "title": "Slide 5"
+      },
+      {
+        "i": 5,
+        "uid": "6",
+        "slideId": "deck-section-5",
+        "badge": "deck",
+        "title": "Slide 6"
+      },
+      {
+        "i": 6,
+        "uid": "7",
+        "slideId": "deck-section-6",
+        "badge": "deck",
+        "title": "Slide 7"
+      },
+      {
+        "i": 7,
+        "uid": "8",
+        "slideId": "deck-section-7",
+        "badge": "deck",
+        "title": "Slide 8"
+      },
+      {
+        "i": 8,
+        "uid": "9",
+        "slideId": "deck-section-8",
+        "badge": "deck",
+        "title": "Slide 9"
+      },
+      {
+        "i": 9,
+        "uid": "10",
+        "slideId": "deck-section-9",
+        "badge": "deck",
+        "title": "Slide 10"
+      }
+    ],
+    "blank": [
+      {
+        "i": 0,
+        "uid": "2",
+        "slideId": "deck-section-1",
+        "badge": "deck",
+        "title": "Slide 2"
+      },
+      {
+        "i": 1,
+        "uid": "11",
+        "slideId": "deck-section-1",
+        "badge": "deck",
+        "title": "Slide 2"
+      },
+      {
+        "i": 2,
+        "uid": "1",
+        "slideId": "deck-section-0",
+        "badge": "deck",
+        "title": "Slide 1"
+      },
+      {
+        "i": 3,
+        "uid": "4",
+        "slideId": "deck-section-3",
+        "badge": "deck",
+        "title": "Slide 4"
+      },
+      {
+        "i": 4,
+        "uid": "5",
+        "slideId": "deck-section-4",
+        "badge": "deck",
+        "title": "Slide 5"
+      },
+      {
+        "i": 5,
+        "uid": "6",
+        "slideId": "deck-section-5",
+        "badge": "deck",
+        "title": "Slide 6"
+      },
+      {
+        "i": 6,
+        "uid": "7",
+        "slideId": "deck-section-6",
+        "badge": "deck",
+        "title": "Slide 7"
+      },
+      {
+        "i": 7,
+        "uid": "8",
+        "slideId": "deck-section-7",
+        "badge": "deck",
+        "title": "Slide 8"
+      },
+      {
+        "i": 8,
+        "uid": "9",
+        "slideId": "deck-section-8",
+        "badge": "deck",
+        "title": "Slide 9"
+      },
+      {
+        "i": 9,
+        "uid": "10",
+        "slideId": "deck-section-9",
+        "badge": "deck",
+        "title": "Slide 10"
+      },
+      {
+        "i": 10,
+        "uid": "12",
+        "slideId": "blank-12",
+        "badge": "blank",
+        "title": "Blank slide"
+      }
+    ],
+    "final_dom": [
+      {
+        "i": 0,
+        "uid": "2",
+        "slideId": "deck-section-1",
+        "badge": "deck",
+        "title": "Slide 2"
+      },
+      {
+        "i": 1,
+        "uid": "11",
+        "slideId": "deck-section-1",
+        "badge": "deck",
+        "title": "Slide 2"
+      },
+      {
+        "i": 2,
+        "uid": "1",
+        "slideId": "deck-section-0",
+        "badge": "deck",
+        "title": "Slide 1"
+      },
+      {
+        "i": 3,
+        "uid": "4",
+        "slideId": "deck-section-3",
+        "badge": "deck",
+        "title": "Slide 4"
+      },
+      {
+        "i": 4,
+        "uid": "5",
+        "slideId": "deck-section-4",
+        "badge": "deck",
+        "title": "Slide 5"
+      },
+      {
+        "i": 5,
+        "uid": "6",
+        "slideId": "deck-section-5",
+        "badge": "deck",
+        "title": "Slide 6"
+      },
+      {
+        "i": 6,
+        "uid": "7",
+        "slideId": "deck-section-6",
+        "badge": "deck",
+        "title": "Slide 7"
+      },
+      {
+        "i": 7,
+        "uid": "8",
+        "slideId": "deck-section-7",
+        "badge": "deck",
+        "title": "Slide 8"
+      },
+      {
+        "i": 8,
+        "uid": "9",
+        "slideId": "deck-section-8",
+        "badge": "deck",
+        "title": "Slide 9"
+      },
+      {
+        "i": 9,
+        "uid": "10",
+        "slideId": "deck-section-9",
+        "badge": "deck",
+        "title": "Slide 10"
+      },
+      {
+        "i": 10,
+        "uid": "12",
+        "slideId": "blank-12",
+        "badge": "blank",
+        "title": "Blank slide"
+      }
+    ]
+  },
+  "captured_payload_items": [
+    {
+      "kind": "existing",
+      "index": 1
+    },
+    {
+      "kind": "existing",
+      "index": 1
+    },
+    {
+      "kind": "existing",
+      "index": 0
+    },
+    {
+      "kind": "existing",
+      "index": 3
+    },
+    {
+      "kind": "existing",
+      "index": 4
+    },
+    {
+      "kind": "existing",
+      "index": 5
+    },
+    {
+      "kind": "existing",
+      "index": 6
+    },
+    {
+      "kind": "existing",
+      "index": 7
+    },
+    {
+      "kind": "existing",
+      "index": 8
+    },
+    {
+      "kind": "existing",
+      "index": 9
+    },
+    {
+      "kind": "blank"
+    }
+  ],
+  "saved_hashes": [
+    "30861d0ea7a6",
+    "30861d0ea7a6",
+    "26f116db4326",
+    "d5a7ad0b90da",
+    "3a5c95f25f3f",
+    "62221bfaaed7",
+    "25d0bb9645dd",
+    "ae3d66d0bb35",
+    "4c9d440a0f15",
+    "7cbdf4a2fa55",
+    "2ff924b54510"
+  ],
+  "predicted_from_payload": [
+    "30861d0ea7a6",
+    "30861d0ea7a6",
+    "26f116db4326",
+    "d5a7ad0b90da",
+    "3a5c95f25f3f",
+    "62221bfaaed7",
+    "25d0bb9645dd",
+    "ae3d66d0bb35",
+    "4c9d440a0f15",
+    "7cbdf4a2fa55",
+    "BLANK"
+  ],
+  "intended_arrangement": [
+    "30861d0ea7a6",
+    "30861d0ea7a6",
+    "26f116db4326",
+    "d5a7ad0b90da",
+    "3a5c95f25f3f",
+    "62221bfaaed7",
+    "25d0bb9645dd",
+    "ae3d66d0bb35",
+    "4c9d440a0f15",
+    "7cbdf4a2fa55",
+    "BLANK"
+  ],
+  "intended_idx": [
+    1,
+    1,
+    0,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "payload_matches_intended": true,
+  "saved_matches_payload": true,
+  "save_path": "C:\\Users\\henri\\AppData\\Local\\Temp\\tmp6mtavheq\\c1-debug-saved.html"
+}

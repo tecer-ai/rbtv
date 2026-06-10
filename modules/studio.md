@@ -4,7 +4,9 @@
 
 The studio module — everything that turns narrative and strategy into polished HTML artifacts: visual deck design, AI image prompts, brand visual identity, design-token extraction from live sites, and the browser automation layer that captures and validates rendered output. The office-module pitchers delegate all HTML building here; the module also works standalone for any design or browser-automation task.
 
-The module also owns **hypresent** — the HTML presentation engine (not installable: not a command/skill/rule, but part of the module). It lives at `studio/hypresent/`.
+**Install status (v1): module-internal.** The studio module is NOT in this vault's install set; its components are reached only through the already-installed office `/rbtv-pitcher` (which retargets into the studio loop), not as standalone `/rbtv-*` commands in your session. The `/rbtv-*` names below identify each component and how it WOULD be invoked once studio joins the install set — adding studio as a set of standalone user front doors is a separate, owner-gated step (architecture §2). Until then, the loop reaches each capability internally via the capability registry.
+
+The module also owns **hypresent** — the HTML presentation engine (not installable: not a command/skill/rule, but part of the module), backed by the **slide-library** convention + engine (`studio/slide-library/`) that organizes slides for it. Both are resident subtrees the v1 build does not depend on and never modifies; they live at `studio/hypresent/` and `studio/slide-library/`.
 
 ---
 
@@ -14,16 +16,28 @@ The module also owns **hypresent** — the HTML presentation engine (not install
 
 - **What**: The artifact-general four-beat HTML pipeline that turns an owner's brief + this project's reference set into an owner-accepted artifact: **message-lock (Strategist) → art-direction → generate (trio → slices → fresh-eyes) → human gate.** Artifact (deck/site/app) and mode (blank-slate) are PARAMETERS each beat adapts to, never top-level branches. Behavior is governed by the deck-loop-spec in the design-module plan folder.
 - **Files**: `workflow.md` (spine entry + artifact/mode fork rules) and four beats under `beats/` — `beat-01-message-lock.md`, `beat-02-art-direction.md`, `beat-03-generate.md` (folds trio + slices + fresh-eyes), `beat-04-human-gate.md`.
-- **How it runs**: The Strategist runs beat 1 and hands a content spec to the Designer (Vivian), who runs beats 2–4. Every worker resumes from **design-state + the reference set ALONE** — zero conversation context. Output is HTML-native (full-screen browser + print-to-PDF CSS); no PPTX.
+- **How it runs**: The Strategist runs beat 1 and hands a content spec to the Designer (Vivian), who runs beats 2–4. Every worker resumes from **design-state + the reference set ALONE** — zero conversation context. Output is HTML-native (full-screen browser + print-to-PDF CSS for decks; responsive multi-page HTML for sites; plain-HTML designed screens for apps); no PPTX.
 - **Entry (v1)**: module-internal — reached via the already-installed `/rbtv-pitcher` (office), retargeted to the loop at P4.
+
+#### Artifact forks (`studio/workflows/studio-loop/forks/`)
+
+Two artifact branches extend the loop for sites and apps. Each is a single file under `forks/`; both ride beats 2–4 of the deck loop unchanged, with only the discovery/structure beat and output contract replaced.
+
+- **`forks/site.md`** — `artifact: site` branch. Adds the **site structure beat** (§A) where the Strategist produces a sitemap + per-page narrative (one communication goal per page, never per-slide), then hands off to the deck loop's art-direction / template / slice / fresh-eyes / human-gate beats parameterized for PAGES. The **site output contract** (§B) replaces the deck's print-to-PDF contract with responsive multi-page HTML (cross-linked pages, desktop + mobile viewports, real-provenance imagery via image-gen, motion within the chosen direction's character). Deck beats 2–4 are reused unchanged via §C downstream wiring — the site fork adds ONE new beat and ONE replaced contract. Runs in the `site-marketing` Strategist mode.
+- **`forks/app.md`** — `artifact: app` branch. Forks EARLIER than sites (at discovery): the Strategist runs THREE discovery beats (§A goals → §B user-flow → §C UX) instead of the deck slide-narrative, producing testable user goals, a reachable flow map, and per-screen UX companion docs. The **app output contract** (§D) replaces the deck contract with plain-HTML screens with designed states (every state named in the UX doc visibly designed — never happy-path-only), responsive at both viewports, ZERO application code. The package — HTML screens + UX companion docs + flow map — is the coding-agent handoff; a fresh coding agent wires the real app from it alone. Deck beats 2–4 reused via §E. Runs in the `app-product` Strategist mode.
 
 ---
 
 ### The Strategist (`studio/personas/strategist.md`)
 
-- **What**: One message-lock persona with audience MODES (investor — mined from the retired Roelof persona; client — mined from the retired Leo persona). Sits on the audience's side of the table, locks the deck's message, and authors the content spec — what to say and what each datum must communicate. NEVER makes a visual-design decision. Every external-facing number is owner-supplied and owner-sourced; an unsourced claim BLOCKS its slide, never fabricated.
+- **What**: One message-lock persona with four audience MODES. Sits on the audience's side of the table, locks the artifact's message (or discovery, for apps), and authors the content spec — what to say and what each datum must communicate. NEVER makes a visual-design decision. Every external-facing number is owner-supplied and owner-sourced; an unsourced claim BLOCKS its slide/page/screen, never fabricated.
+- **Audience modes** (resolved at activation from design-state `audience_mode` or by asking):
+  - `investor` — mined from the retired Roelof persona; VC partner's seat; standard 13-slide investor arc.
+  - `client` — mined from the retired Leo persona; VP-of-Procurement's seat; standard 11-slide client arc.
+  - `site-marketing` — target-visitor's seat; pain→desire arc, one communication goal per page; feeds `forks/site.md` §A (site structure beat).
+  - `app-product` — app-user + product-owner's dual seat; goal-led discovery (testable user goals → flow → UX companion docs); feeds `forks/app.md` §A–§C.
 - **When to use**: Beat 1 of the studio loop — before any design exists. Reached via `/rbtv-pitcher`.
-- **What it produces**: The content spec (thesis · one point per slide · narrative arc · per-datum communication intent · owner-sourced numbers) + initialized design-state. Hands off to Vivian.
+- **What it produces**: Content spec (thesis · one point per slide/page/screen · narrative arc · per-datum communication intent · owner-sourced numbers) + initialized design-state. For apps: also per-screen UX companion docs (§C / `ux-companion-docs-contract.md`). Hands off to Vivian.
 
 ---
 
@@ -39,8 +53,9 @@ The module also owns **hypresent** — the HTML presentation engine (not install
 
 ### Standards bundle (`studio/standards/`)
 
-- **What**: The module-internal standards that make "world-class AND distinct" a testable gate — `ban-list.md` (the default-attractor + mined-correction catalogue every art-direction brief and every slide must obey) and `flaw-checklist.md` (the ~10-item structural checklist the fresh-eyes pass runs against the rendered deck). Module-enforced; the reference set + taste file are workspace-owned.
-- **When to use**: The art-direction beat checks every mini-brief against the ban-list; the fresh-eyes pass (beat 3) reviews against the flaw checklist + the chosen mini-brief.
+- **What**: The module-internal standards that make "world-class AND distinct" a testable gate — `ban-list.md` (the default-attractor + mined-correction catalogue every art-direction brief and every slide must obey), `flaw-checklist.md` (the ~10-item structural checklist the fresh-eyes pass runs against the rendered deck), and `ux-companion-docs-contract.md` (the per-screen document format for the app fork's coding-agent handoff).
+- **When to use**: The art-direction beat checks every mini-brief against the ban-list; the fresh-eyes pass (beat 3) reviews against the flaw checklist + the chosen mini-brief. The app fork's UX beat (forks/app.md §C) emits docs in the `ux-companion-docs-contract.md` format; the Designer keeps each screen's HTML in sync with its companion doc.
+- **`ux-companion-docs-contract.md`** — the per-screen companion doc format that travels with each app-path HTML screen. Five required fields: screen goal (one job, traced to the goals beat) · flow position (from/to transitions) · states (empty/loading/error/success, each named) · interactions (every control accounted for) · acceptance notes (owner-observable wired-correctly criteria). Self-sufficiency bar: a fresh coding agent wires the real app from the package (HTML screens + companion docs + flow map) alone, without the designer.
 
 ---
 
@@ -104,8 +119,23 @@ Capabilities 4–6 are CLI Python scripts run from the repo root. Read each capa
 
 ---
 
+### Critic (`studio/critic/`)
+
+- **What**: The v1.1 comparative, taxonomy-driven critic — an **improver and stopping rule that NEVER gates**. Hand it two+ artifact variants (or one + the project reference set) and it returns: which variant is stronger per structural axis (pairwise, taxonomy-cited, element-anchored); a separate advisory-to-human aesthetic section (your call, never scored). No numeric scores, no pass/fail, no blocking the human gate (D1 — the human gate stays final and untouched).
+- **Files**:
+  - `critic.md` — the executable procedure (load taxonomy + reference set → render headed → structural pass → comparative verdict → advisory-to-human section → emit critique file). Four binding pins: comparative-never-absolute · taxonomy-driven · structural-auto/aesthetic-HUMAN split · per-project anchoring. Module-internal; not a `.claude/` install.
+  - `taxonomy.md` — the structural flaw dataset: 10 axes (Hierarchy & Message · Contrast & Legibility · Alignment & Spacing · Overflow & Density · Type & Color System · Component Weight · Chart Communication · Cover/Closing & Parity · Data Integrity · Print/PDF Safety), each carrying item IDs (`T-H1` … `T-PR1`), flaw descriptions, how-to-spot notes, comparative cues, and borrowed-from IDs tracing to the ban-list/flaw-checklist. A genuinely structural flaw absent from the taxonomy is still reported as `T-UNCAT` + spotting cue for taxonomy growth.
+- **Optional loop wiring (default OFF)**: the critic can be wired into the studio loop beats via the `critic: on` design-state frontmatter toggle (set in the design-state to opt in): beat-03 §3A (post-trio pairwise) and beat-04 step 2 (pre-gate attach). When off or absent, the loop runs exactly as shipped at P2. When on, the critic output is ATTACHED for the owner's review; the human gate proceeds regardless.
+- **When to use**: On demand during any deck/site/app run to compare variants or get a structural flaw pass. Never as a gate; always as an improver.
+
+---
+
 ## How They Fit Together
 
-The **studio loop** is the spine: the **Strategist** locks the message (beat 1) and hands a content spec + initialized design-state to **Vivian** (`rbtv-designing`), who runs art-direction (beat 2 — mini-briefs picked against the reference set + ban-list), generation (beat 3 — pairwise trio → slice-by-slice deck → fresh-eyes pass against the flaw checklist), and the human gate (beat 4 — headed accept/bounce, surgical patch, bounce-cap escalation, print-to-PDF). Every worker resumes from **design-state** (`studio/state/`) + the workspace **reference set** alone — zero conversation context. The **standards bundle** (`studio/standards/`) makes "world-class AND distinct" testable: the ban-list gates every direction and slide; the flaw checklist drives the fresh-eyes pass.
+The **studio loop** is the spine: the **Strategist** locks the message (beat 1) and hands a content spec + initialized design-state to **Vivian** (`rbtv-designing`), who runs art-direction (beat 2 — mini-briefs picked against the reference set + ban-list), generation (beat 3 — pairwise trio → slice-by-slice deck → fresh-eyes pass against the flaw checklist), and the human gate (beat 4 — headed accept/bounce, surgical patch, bounce-cap escalation, print-to-PDF). Every worker resumes from **design-state** (`studio/state/`) + the workspace **reference set** alone — zero conversation context. The **standards bundle** (`studio/standards/`) makes "world-class AND distinct" testable: the ban-list gates every direction and slide; the flaw checklist drives the fresh-eyes pass; the `ux-companion-docs-contract.md` governs the app fork's coding-agent handoff.
+
+The **artifact forks** extend the spine for sites and apps: `forks/site.md` routes `artifact: site` through a site-structure beat (sitemap + per-page narrative) before handing off to the deck's beats 2–4 with responsive multi-page HTML as the output; `forks/app.md` routes `artifact: app` through three discovery beats (goals → user-flow → UX companion docs) before the same shared beats produce plain-HTML designed screens. Both forks are activated by the `artifact` parameter in design-state; the deck path is unaffected. The **Strategist** resolves the matching audience mode at activation — `site-marketing` for sites, `app-product` for apps.
 
 Supporting capabilities feed the loop on demand: `/rbtv-design-extractor` captures a reference visual system into design tokens; `/rbtv-vision-to-json` turns a reference image into a regeneration prompt; `rbtv-playwright-cli` renders, screenshots, and QAs the result (it powers the headed renders the loop and the done-gate evidence depend on — `file://` is blocked, the loop uses a local HTTP server). The `extract-subtle-refs`, `image-gen`, and `exemplar-screenshot-capture` CLI capabilities supply motion/interaction data, AI-generated imagery, and reference screenshots to the reference set. `load-references` loads all four reference-set layers before art-direction begins. The office module's `/rbtv-pitcher` command enters the loop and routes to the Strategist for beat 1.
+
+The **critic** (`studio/critic/`) is the optional improver: on demand (or when `critic: on` in design-state), it compares artifact variants via a taxonomy-cited structural pass and a separate advisory-to-human aesthetic section — never gates, never scores, never replaces the human gate or fresh-eyes.

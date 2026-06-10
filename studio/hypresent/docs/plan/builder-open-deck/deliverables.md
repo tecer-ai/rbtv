@@ -46,9 +46,9 @@
 
 | Task | Artifact | Path | Status |
 |------|----------|------|--------|
-| p5-refs | Link-resolution report (all plan links valid per Plan Linking Standard) | `./decisions.md` (Decision entry only if violations found) | pending |
-| p5-compound | Compound blocks / PRD proposals from learnings | appended to `./learnings.md` | pending |
-| p5-checkpoint | Final evaluation, done-gate evidence sheet, user approval | `./phase-5/evidence/` + `1-projects/rbtv-evolution/coding/done-gate-evidence/hypresent/` | pending |
+| p5-refs | Link-resolution report (all plan links valid per Plan Linking Standard) | `./phase-5/evidence/p5-refs-link-check.md` (+ `.py`) + `./decisions.md` D-link-standard-adjudication | ✅ |
+| p5-compound | Compound blocks / PRD proposals from learnings | appended to `./learnings.md` (4 entries + blocks G1/G2/G3 — proposals, owner approval pending) | ✅ |
+| p5-checkpoint | Final evaluation, done-gate evidence sheet, user approval | `./phase-5/evidence/` + `1-projects/rbtv-evolution/coding/done-gate-evidence/hypresent/` | ✅ |
 
 **Status values:** `pending` | `in-progress` | `✅` | `⏸ deferred` — deferrals carry a parenthetical reason in the cell.
 

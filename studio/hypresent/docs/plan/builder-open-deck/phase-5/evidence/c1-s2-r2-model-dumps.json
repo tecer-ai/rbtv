@@ -1,0 +1,535 @@
+{
+  "after_open": [
+    {
+      "i": 0,
+      "uid": "1",
+      "slideId": "deck-section-0",
+      "badge": "deck",
+      "title": "Slide 1"
+    },
+    {
+      "i": 1,
+      "uid": "2",
+      "slideId": "deck-section-1",
+      "badge": "deck",
+      "title": "Slide 2"
+    },
+    {
+      "i": 2,
+      "uid": "3",
+      "slideId": "deck-section-2",
+      "badge": "deck",
+      "title": "Slide 3"
+    },
+    {
+      "i": 3,
+      "uid": "4",
+      "slideId": "deck-section-3",
+      "badge": "deck",
+      "title": "Slide 4"
+    },
+    {
+      "i": 4,
+      "uid": "5",
+      "slideId": "deck-section-4",
+      "badge": "deck",
+      "title": "Slide 5"
+    },
+    {
+      "i": 5,
+      "uid": "6",
+      "slideId": "deck-section-5",
+      "badge": "deck",
+      "title": "Slide 6"
+    },
+    {
+      "i": 6,
+      "uid": "7",
+      "slideId": "deck-section-6",
+      "badge": "deck",
+      "title": "Slide 7"
+    },
+    {
+      "i": 7,
+      "uid": "8",
+      "slideId": "deck-section-7",
+      "badge": "deck",
+      "title": "Slide 8"
+    },
+    {
+      "i": 8,
+      "uid": "9",
+      "slideId": "deck-section-8",
+      "badge": "deck",
+      "title": "Slide 9"
+    },
+    {
+      "i": 9,
+      "uid": "10",
+      "slideId": "deck-section-9",
+      "badge": "deck",
+      "title": "Slide 10"
+    }
+  ],
+  "after_reorder": [
+    {
+      "i": 0,
+      "uid": "2",
+      "slideId": "deck-section-1",
+      "badge": "deck",
+      "title": "Slide 2"
+    },
+    {
+      "i": 1,
+      "uid": "1",
+      "slideId": "deck-section-0",
+      "badge": "deck",
+      "title": "Slide 1"
+    },
+    {
+      "i": 2,
+      "uid": "3",
+      "slideId": "deck-section-2",
+      "badge": "deck",
+      "title": "Slide 3"
+    },
+    {
+      "i": 3,
+      "uid": "4",
+      "slideId": "deck-section-3",
+      "badge": "deck",
+      "title": "Slide 4"
+    },
+    {
+      "i": 4,
+      "uid": "5",
+      "slideId": "deck-section-4",
+      "badge": "deck",
+      "title": "Slide 5"
+    },
+    {
+      "i": 5,
+      "uid": "6",
+      "slideId": "deck-section-5",
+      "badge": "deck",
+      "title": "Slide 6"
+    },
+    {
+      "i": 6,
+      "uid": "7",
+      "slideId": "deck-section-6",
+      "badge": "deck",
+      "title": "Slide 7"
+    },
+    {
+      "i": 7,
+      "uid": "8",
+      "slideId": "deck-section-7",
+      "badge": "deck",
+      "title": "Slide 8"
+    },
+    {
+      "i": 8,
+      "uid": "9",
+      "slideId": "deck-section-8",
+      "badge": "deck",
+      "title": "Slide 9"
+    },
+    {
+      "i": 9,
+      "uid": "10",
+      "slideId": "deck-section-9",
+      "badge": "deck",
+      "title": "Slide 10"
+    }
+  ],
+  "after_remove": [
+    {
+      "i": 0,
+      "uid": "2",
+      "slideId": "deck-section-1",
+      "badge": "deck",
+      "title": "Slide 2"
+    },
+    {
+      "i": 1,
+      "uid": "1",
+      "slideId": "deck-section-0",
+      "badge": "deck",
+      "title": "Slide 1"
+    },
+    {
+      "i": 2,
+      "uid": "4",
+      "slideId": "deck-section-3",
+      "badge": "deck",
+      "title": "Slide 4"
+    },
+    {
+      "i": 3,
+      "uid": "5",
+      "slideId": "deck-section-4",
+      "badge": "deck",
+      "title": "Slide 5"
+    },
+    {
+      "i": 4,
+      "uid": "6",
+      "slideId": "deck-section-5",
+      "badge": "deck",
+      "title": "Slide 6"
+    },
+    {
+      "i": 5,
+      "uid": "7",
+      "slideId": "deck-section-6",
+      "badge": "deck",
+      "title": "Slide 7"
+    },
+    {
+      "i": 6,
+      "uid": "8",
+      "slideId": "deck-section-7",
+      "badge": "deck",
+      "title": "Slide 8"
+    },
+    {
+      "i": 7,
+      "uid": "9",
+      "slideId": "deck-section-8",
+      "badge": "deck",
+      "title": "Slide 9"
+    },
+    {
+      "i": 8,
+      "uid": "10",
+      "slideId": "deck-section-9",
+      "badge": "deck",
+      "title": "Slide 10"
+    }
+  ],
+  "after_dup": [
+    {
+      "i": 0,
+      "uid": "2",
+      "slideId": "deck-section-1",
+      "badge": "deck",
+      "title": "Slide 2"
+    },
+    {
+      "i": 1,
+      "uid": "11",
+      "slideId": "deck-section-1",
+      "badge": "deck",
+      "title": "Slide 2"
+    },
+    {
+      "i": 2,
+      "uid": "1",
+      "slideId": "deck-section-0",
+      "badge": "deck",
+      "title": "Slide 1"
+    },
+    {
+      "i": 3,
+      "uid": "4",
+      "slideId": "deck-section-3",
+      "badge": "deck",
+      "title": "Slide 4"
+    },
+    {
+      "i": 4,
+      "uid": "5",
+      "slideId": "deck-section-4",
+      "badge": "deck",
+      "title": "Slide 5"
+    },
+    {
+      "i": 5,
+      "uid": "6",
+      "slideId": "deck-section-5",
+      "badge": "deck",
+      "title": "Slide 6"
+    },
+    {
+      "i": 6,
+      "uid": "7",
+      "slideId": "deck-section-6",
+      "badge": "deck",
+      "title": "Slide 7"
+    },
+    {
+      "i": 7,
+      "uid": "8",
+      "slideId": "deck-section-7",
+      "badge": "deck",
+      "title": "Slide 8"
+    },
+    {
+      "i": 8,
+      "uid": "9",
+      "slideId": "deck-section-8",
+      "badge": "deck",
+      "title": "Slide 9"
+    },
+    {
+      "i": 9,
+      "uid": "10",
+      "slideId": "deck-section-9",
+      "badge": "deck",
+      "title": "Slide 10"
+    }
+  ],
+  "after_blank": [
+    {
+      "i": 0,
+      "uid": "2",
+      "slideId": "deck-section-1",
+      "badge": "deck",
+      "title": "Slide 2"
+    },
+    {
+      "i": 1,
+      "uid": "11",
+      "slideId": "deck-section-1",
+      "badge": "deck",
+      "title": "Slide 2"
+    },
+    {
+      "i": 2,
+      "uid": "1",
+      "slideId": "deck-section-0",
+      "badge": "deck",
+      "title": "Slide 1"
+    },
+    {
+      "i": 3,
+      "uid": "4",
+      "slideId": "deck-section-3",
+      "badge": "deck",
+      "title": "Slide 4"
+    },
+    {
+      "i": 4,
+      "uid": "5",
+      "slideId": "deck-section-4",
+      "badge": "deck",
+      "title": "Slide 5"
+    },
+    {
+      "i": 5,
+      "uid": "6",
+      "slideId": "deck-section-5",
+      "badge": "deck",
+      "title": "Slide 6"
+    },
+    {
+      "i": 6,
+      "uid": "7",
+      "slideId": "deck-section-6",
+      "badge": "deck",
+      "title": "Slide 7"
+    },
+    {
+      "i": 7,
+      "uid": "8",
+      "slideId": "deck-section-7",
+      "badge": "deck",
+      "title": "Slide 8"
+    },
+    {
+      "i": 8,
+      "uid": "9",
+      "slideId": "deck-section-8",
+      "badge": "deck",
+      "title": "Slide 9"
+    },
+    {
+      "i": 9,
+      "uid": "10",
+      "slideId": "deck-section-9",
+      "badge": "deck",
+      "title": "Slide 10"
+    },
+    {
+      "i": 10,
+      "uid": "12",
+      "slideId": "blank-12",
+      "badge": "blank",
+      "title": "Blank slide"
+    }
+  ],
+  "after_lib": [
+    {
+      "i": 0,
+      "uid": "2",
+      "slideId": "deck-section-1",
+      "badge": "deck",
+      "title": "Slide 2"
+    },
+    {
+      "i": 1,
+      "uid": "11",
+      "slideId": "deck-section-1",
+      "badge": "deck",
+      "title": "Slide 2"
+    },
+    {
+      "i": 2,
+      "uid": "1",
+      "slideId": "deck-section-0",
+      "badge": "deck",
+      "title": "Slide 1"
+    },
+    {
+      "i": 3,
+      "uid": "4",
+      "slideId": "deck-section-3",
+      "badge": "deck",
+      "title": "Slide 4"
+    },
+    {
+      "i": 4,
+      "uid": "5",
+      "slideId": "deck-section-4",
+      "badge": "deck",
+      "title": "Slide 5"
+    },
+    {
+      "i": 5,
+      "uid": "6",
+      "slideId": "deck-section-5",
+      "badge": "deck",
+      "title": "Slide 6"
+    },
+    {
+      "i": 6,
+      "uid": "7",
+      "slideId": "deck-section-6",
+      "badge": "deck",
+      "title": "Slide 7"
+    },
+    {
+      "i": 7,
+      "uid": "8",
+      "slideId": "deck-section-7",
+      "badge": "deck",
+      "title": "Slide 8"
+    },
+    {
+      "i": 8,
+      "uid": "9",
+      "slideId": "deck-section-8",
+      "badge": "deck",
+      "title": "Slide 9"
+    },
+    {
+      "i": 9,
+      "uid": "10",
+      "slideId": "deck-section-9",
+      "badge": "deck",
+      "title": "Slide 10"
+    },
+    {
+      "i": 10,
+      "uid": "12",
+      "slideId": "blank-12",
+      "badge": "blank",
+      "title": "Blank slide"
+    },
+    {
+      "i": 11,
+      "uid": "13",
+      "slideId": "cover-e2e.pt",
+      "badge": "lib",
+      "title": "Capa E2E"
+    }
+  ],
+  "lib_added": true,
+  "pre_save": [
+    {
+      "i": 0,
+      "uid": "2",
+      "slideId": "deck-section-1",
+      "badge": "deck",
+      "title": "Slide 2"
+    },
+    {
+      "i": 1,
+      "uid": "11",
+      "slideId": "deck-section-1",
+      "badge": "deck",
+      "title": "Slide 2"
+    },
+    {
+      "i": 2,
+      "uid": "1",
+      "slideId": "deck-section-0",
+      "badge": "deck",
+      "title": "Slide 1"
+    },
+    {
+      "i": 3,
+      "uid": "4",
+      "slideId": "deck-section-3",
+      "badge": "deck",
+      "title": "Slide 4"
+    },
+    {
+      "i": 4,
+      "uid": "5",
+      "slideId": "deck-section-4",
+      "badge": "deck",
+      "title": "Slide 5"
+    },
+    {
+      "i": 5,
+      "uid": "6",
+      "slideId": "deck-section-5",
+      "badge": "deck",
+      "title": "Slide 6"
+    },
+    {
+      "i": 6,
+      "uid": "7",
+      "slideId": "deck-section-6",
+      "badge": "deck",
+      "title": "Slide 7"
+    },
+    {
+      "i": 7,
+      "uid": "8",
+      "slideId": "deck-section-7",
+      "badge": "deck",
+      "title": "Slide 8"
+    },
+    {
+      "i": 8,
+      "uid": "9",
+      "slideId": "deck-section-8",
+      "badge": "deck",
+      "title": "Slide 9"
+    },
+    {
+      "i": 9,
+      "uid": "10",
+      "slideId": "deck-section-9",
+      "badge": "deck",
+      "title": "Slide 10"
+    },
+    {
+      "i": 10,
+      "uid": "12",
+      "slideId": "blank-12",
+      "badge": "blank",
+      "title": "Blank slide"
+    },
+    {
+      "i": 11,
+      "uid": "13",
+      "slideId": "cover-e2e.pt",
+      "badge": "lib",
+      "title": "Capa E2E"
+    }
+  ]
+}

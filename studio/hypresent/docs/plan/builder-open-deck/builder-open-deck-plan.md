@@ -81,6 +81,6 @@ Patterns and principles that MUST be followed during execution.
 
 ### Phase 5: Validation and Completion
 
-- [ ] `p5-refs` Verify all internal links resolve and comply with the Plan Linking Standard (internal = file-relative, external = project-root-relative)
-- [ ] `p5-compound` Process learnings.md entries into system improvements → `phase-5/p5-compound.task.md`
-- [ ] `p5-checkpoint` **FINAL CHECKPOINT** — v1 success criteria exercised end-to-end; user approval to complete plan (HARD HALT) → `phase-5/p5-checkpoint.task.md`
+- [x] `p5-refs` Verify all internal links resolve and comply with the Plan Linking Standard (internal = file-relative, external = project-root-relative)
+- [x] `p5-compound` Process learnings.md entries into system improvements → `phase-5/p5-compound.task.md`
+- [x] `p5-checkpoint` **FINAL CHECKPOINT** — v1 success criteria exercised end-to-end; user approval to complete plan (HARD HALT) → `phase-5/p5-checkpoint.task.md`

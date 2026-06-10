@@ -1,0 +1,317 @@
+ORIG section count: 10
+ORIG hashes: ['26f116db4326', '30861d0ea7a6', '987d1214b487', 'd5a7ad0b90da', '3a5c95f25f3f', '62221bfaaed7', '25d0bb9645dd', 'ae3d66d0bb35', '4c9d440a0f15', '7cbdf4a2fa55']
+=== AFTER OPEN ===
+[
+  {
+    "i": 0,
+    "uid": "1",
+    "slideId": "deck-section-0",
+    "badge": "deck",
+    "title": "Slide 1"
+  },
+  {
+    "i": 1,
+    "uid": "2",
+    "slideId": "deck-section-1",
+    "badge": "deck",
+    "title": "Slide 2"
+  },
+  {
+    "i": 2,
+    "uid": "3",
+    "slideId": "deck-section-2",
+    "badge": "deck",
+    "title": "Slide 3"
+  },
+  {
+    "i": 3,
+    "uid": "4",
+    "slideId": "deck-section-3",
+    "badge": "deck",
+    "title": "Slide 4"
+  },
+  {
+    "i": 4,
+    "uid": "5",
+    "slideId": "deck-section-4",
+    "badge": "deck",
+    "title": "Slide 5"
+  }
+]
+=== AFTER REORDER (swap 0<->1) ===
+[
+  {
+    "i": 0,
+    "uid": "2",
+    "slideId": "deck-section-1",
+    "badge": "deck",
+    "title": "Slide 2"
+  },
+  {
+    "i": 1,
+    "uid": "1",
+    "slideId": "deck-section-0",
+    "badge": "deck",
+    "title": "Slide 1"
+  },
+  {
+    "i": 2,
+    "uid": "3",
+    "slideId": "deck-section-2",
+    "badge": "deck",
+    "title": "Slide 3"
+  },
+  {
+    "i": 3,
+    "uid": "4",
+    "slideId": "deck-section-3",
+    "badge": "deck",
+    "title": "Slide 4"
+  },
+  {
+    "i": 4,
+    "uid": "5",
+    "slideId": "deck-section-4",
+    "badge": "deck",
+    "title": "Slide 5"
+  }
+]
+REMOVE target: pos2 uid=3 slideId=deck-section-2
+=== AFTER REMOVE (pos2) ===
+[
+  {
+    "i": 0,
+    "uid": "2",
+    "slideId": "deck-section-1",
+    "badge": "deck",
+    "title": "Slide 2"
+  },
+  {
+    "i": 1,
+    "uid": "1",
+    "slideId": "deck-section-0",
+    "badge": "deck",
+    "title": "Slide 1"
+  },
+  {
+    "i": 2,
+    "uid": "4",
+    "slideId": "deck-section-3",
+    "badge": "deck",
+    "title": "Slide 4"
+  },
+  {
+    "i": 3,
+    "uid": "5",
+    "slideId": "deck-section-4",
+    "badge": "deck",
+    "title": "Slide 5"
+  },
+  {
+    "i": 4,
+    "uid": "6",
+    "slideId": "deck-section-5",
+    "badge": "deck",
+    "title": "Slide 6"
+  }
+]
+DUPLICATE target: pos0 uid=2 slideId=deck-section-1
+=== AFTER DUPLICATE (pos0) ===
+[
+  {
+    "i": 0,
+    "uid": "2",
+    "slideId": "deck-section-1",
+    "badge": "deck",
+    "title": "Slide 2"
+  },
+  {
+    "i": 1,
+    "uid": "11",
+    "slideId": "deck-section-1",
+    "badge": "deck",
+    "title": "Slide 2"
+  },
+  {
+    "i": 2,
+    "uid": "1",
+    "slideId": "deck-section-0",
+    "badge": "deck",
+    "title": "Slide 1"
+  },
+  {
+    "i": 3,
+    "uid": "4",
+    "slideId": "deck-section-3",
+    "badge": "deck",
+    "title": "Slide 4"
+  },
+  {
+    "i": 4,
+    "uid": "5",
+    "slideId": "deck-section-4",
+    "badge": "deck",
+    "title": "Slide 5"
+  },
+  {
+    "i": 5,
+    "uid": "6",
+    "slideId": "deck-section-5",
+    "badge": "deck",
+    "title": "Slide 6"
+  }
+]
+=== AFTER ADD BLANK ===
+[
+  {
+    "i": 9,
+    "uid": "10",
+    "slideId": "deck-section-9",
+    "badge": "deck",
+    "title": "Slide 10"
+  },
+  {
+    "i": 10,
+    "uid": "12",
+    "slideId": "blank-12",
+    "badge": "blank",
+    "title": "Blank slide"
+  }
+]
+  [INTERCEPT] captured /api/deck-save POST body
+=== FINAL DOM (pre-nav) ===
+[
+  {
+    "i": 0,
+    "uid": "2",
+    "slideId": "deck-section-1",
+    "badge": "deck",
+    "title": "Slide 2"
+  },
+  {
+    "i": 1,
+    "uid": "11",
+    "slideId": "deck-section-1",
+    "badge": "deck",
+    "title": "Slide 2"
+  },
+  {
+    "i": 2,
+    "uid": "1",
+    "slideId": "deck-section-0",
+    "badge": "deck",
+    "title": "Slide 1"
+  },
+  {
+    "i": 3,
+    "uid": "4",
+    "slideId": "deck-section-3",
+    "badge": "deck",
+    "title": "Slide 4"
+  },
+  {
+    "i": 4,
+    "uid": "5",
+    "slideId": "deck-section-4",
+    "badge": "deck",
+    "title": "Slide 5"
+  },
+  {
+    "i": 5,
+    "uid": "6",
+    "slideId": "deck-section-5",
+    "badge": "deck",
+    "title": "Slide 6"
+  },
+  {
+    "i": 6,
+    "uid": "7",
+    "slideId": "deck-section-6",
+    "badge": "deck",
+    "title": "Slide 7"
+  },
+  {
+    "i": 7,
+    "uid": "8",
+    "slideId": "deck-section-7",
+    "badge": "deck",
+    "title": "Slide 8"
+  },
+  {
+    "i": 8,
+    "uid": "9",
+    "slideId": "deck-section-8",
+    "badge": "deck",
+    "title": "Slide 9"
+  },
+  {
+    "i": 9,
+    "uid": "10",
+    "slideId": "deck-section-9",
+    "badge": "deck",
+    "title": "Slide 10"
+  },
+  {
+    "i": 10,
+    "uid": "12",
+    "slideId": "blank-12",
+    "badge": "blank",
+    "title": "Blank slide"
+  }
+]
+=== CAPTURED POST PAYLOAD items ===
+[
+  {
+    "kind": "existing",
+    "index": 1
+  },
+  {
+    "kind": "existing",
+    "index": 1
+  },
+  {
+    "kind": "existing",
+    "index": 0
+  },
+  {
+    "kind": "existing",
+    "index": 3
+  },
+  {
+    "kind": "existing",
+    "index": 4
+  },
+  {
+    "kind": "existing",
+    "index": 5
+  },
+  {
+    "kind": "existing",
+    "index": 6
+  },
+  {
+    "kind": "existing",
+    "index": 7
+  },
+  {
+    "kind": "existing",
+    "index": 8
+  },
+  {
+    "kind": "existing",
+    "index": 9
+  },
+  {
+    "kind": "blank"
+  }
+]
+SAVED exists: True sections=11
+SAVED hashes: ['30861d0ea7a6', '30861d0ea7a6', '26f116db4326', 'd5a7ad0b90da', '3a5c95f25f3f', '62221bfaaed7', '25d0bb9645dd', 'ae3d66d0bb35', '4c9d440a0f15', '7cbdf4a2fa55', '2ff924b54510']
+=== PREDICTED-FROM-PAYLOAD vs SAVED ===
+predicted: ['30861d0ea7a6', '30861d0ea7a6', '26f116db4326', 'd5a7ad0b90da', '3a5c95f25f3f', '62221bfaaed7', '25d0bb9645dd', 'ae3d66d0bb35', '4c9d440a0f15', '7cbdf4a2fa55', 'BLANK']
+saved-mapped: ['30861d0ea7a6', '30861d0ea7a6', '26f116db4326', 'd5a7ad0b90da', '3a5c95f25f3f', '62221bfaaed7', '25d0bb9645dd', 'ae3d66d0bb35', '4c9d440a0f15', '7cbdf4a2fa55', '2ff924b54510']
+=== INTENDED (correct) arrangement ===
+intended idx: [1, 1, 0, 3, 4, 5, 6, 7, 8, 9] + blank
+intended hashes: ['30861d0ea7a6', '30861d0ea7a6', '26f116db4326', 'd5a7ad0b90da', '3a5c95f25f3f', '62221bfaaed7', '25d0bb9645dd', 'ae3d66d0bb35', '4c9d440a0f15', '7cbdf4a2fa55', 'BLANK']
+=== VERDICT INPUTS ===
+payload_matches_intended (H not-1 if True): True

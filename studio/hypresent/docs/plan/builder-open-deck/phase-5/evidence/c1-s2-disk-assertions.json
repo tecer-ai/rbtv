@@ -1,0 +1,177 @@
+{
+  "session": "cold-verifier-session-2",
+  "date": "2026-06-10",
+  "wall_ms": 32269,
+  "deck_copy": "C:/Users/henri/AppData/Local/Temp/tmpkrb7j8uc/deck.html",
+  "save_path": "docs/plan/builder-open-deck/phase-5/evidence\\c1-s2-saved.html",
+  "crossback_path": "docs/plan/builder-open-deck/phase-5/evidence\\c1-s2-crossback.html",
+  "save_exists": true,
+  "save_bytes": 91948,
+  "saved_section_count": 11,
+  "saved_hashes": [
+    "30861d0ea7a6",
+    "30861d0ea7a6",
+    "30861d0ea7a6",
+    "d5a7ad0b90da",
+    "3a5c95f25f3f",
+    "62221bfaaed7",
+    "25d0bb9645dd",
+    "ae3d66d0bb35",
+    "4c9d440a0f15",
+    "7cbdf4a2fa55",
+    "2ff924b54510"
+  ],
+  "saved_section_texts": [
+    "Uma plataforma inteligente A Tecer entrega opera\u00e7\u00f5es financeiras aut\u00f4nomas Hoje a informa\u00e7\u00e3o financeira vive espalhada (",
+    "Uma plataforma inteligente A Tecer entrega opera\u00e7\u00f5es financeiras aut\u00f4nomas Hoje a informa\u00e7\u00e3o financeira vive espalhada (",
+    "Uma plataforma inteligente A Tecer entrega opera\u00e7\u00f5es financeiras aut\u00f4nomas Hoje a informa\u00e7\u00e3o financeira vive espalhada (",
+    "A partir do roadmap que a GSMM desenhou Roadmap da GSMM, e onde a Tecer entra em cada etapa O caminho que a GSMM desenho",
+    "Do mapa de processos da GSMM As quatro frentes que voc\u00eas priorizaram Dos macroprocessos que voc\u00eas mapearam, estas s\u00e3o as",
+    "Como trabalhamos A Tecer se adapta ao cliente - n\u00e3o o contr\u00e1rio Nossa miss\u00e3o \u00e9 construir a opera\u00e7\u00e3o financeira que cada ",
+    "Dois modelos de opera\u00e7\u00e3o As atividades de um time financeiro, e o que a Tecer absorve Um time financeiro \u00e9 uma escada de",
+    "Como funciona por dentro Um sistema operacional para agentes financeiros O motor da Tecer \u00e9 um harness somado a uma base",
+    "Pr\u00f3ximos passos Como avan\u00e7amos juntos Come\u00e7amos pelo NDA, exatamente como voc\u00ea sugeriu: ele destrava o diagn\u00f3stico, que ",
+    "Obrigado. Pr\u00f3ximo passo: NDA, e o diagn\u00f3stico come\u00e7a. Co-founder Guilherme Kenworthy 3 anos como CFO da Bipa. Background",
+    "Blank Slide"
+  ],
+  "orig_hashes": [
+    "26f116db4326",
+    "30861d0ea7a6",
+    "987d1214b487",
+    "d5a7ad0b90da",
+    "3a5c95f25f3f",
+    "62221bfaaed7",
+    "25d0bb9645dd",
+    "ae3d66d0bb35",
+    "4c9d440a0f15",
+    "7cbdf4a2fa55"
+  ],
+  "orig_section_count": 10,
+  "captured_payload_items": [
+    {
+      "kind": "existing",
+      "index": 1
+    },
+    {
+      "kind": "existing",
+      "index": 1
+    },
+    {
+      "kind": "existing",
+      "index": 0
+    },
+    {
+      "kind": "existing",
+      "index": 3
+    },
+    {
+      "kind": "existing",
+      "index": 4
+    },
+    {
+      "kind": "existing",
+      "index": 5
+    },
+    {
+      "kind": "existing",
+      "index": 6
+    },
+    {
+      "kind": "existing",
+      "index": 7
+    },
+    {
+      "kind": "existing",
+      "index": 8
+    },
+    {
+      "kind": "existing",
+      "index": 9
+    },
+    {
+      "kind": "blank"
+    }
+  ],
+  "predicted_from_payload": [
+    "30861d0ea7a6",
+    "30861d0ea7a6",
+    "26f116db4326",
+    "d5a7ad0b90da",
+    "3a5c95f25f3f",
+    "62221bfaaed7",
+    "25d0bb9645dd",
+    "ae3d66d0bb35",
+    "4c9d440a0f15",
+    "7cbdf4a2fa55",
+    "BLANK"
+  ],
+  "intended_no_lib": [
+    "30861d0ea7a6",
+    "30861d0ea7a6",
+    "26f116db4326",
+    "d5a7ad0b90da",
+    "3a5c95f25f3f",
+    "62221bfaaed7",
+    "25d0bb9645dd",
+    "ae3d66d0bb35",
+    "4c9d440a0f15",
+    "7cbdf4a2fa55",
+    "BLANK"
+  ],
+  "intended_idx_no_lib": [
+    1,
+    1,
+    0,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "payload_matches_intended_no_lib": true,
+  "lib_added": false,
+  "proof_reorder": {
+    "sec0_pos": null,
+    "sec1_first_pos": 0,
+    "verdict": "MISSING"
+  },
+  "proof_removal": {
+    "sec2_hash": "987d1214b487",
+    "sec2_present_in_saved": false,
+    "verdict": "PASS"
+  },
+  "proof_duplicate": {
+    "sec1_hash": "30861d0ea7a6",
+    "sec1_count_in_saved": 3,
+    "verdict": "PASS",
+    "note": "expected \u22652 (orig + duplicate)"
+  },
+  "proof_blank": {
+    "blank_hashes": [
+      "2ff924b54510"
+    ],
+    "count": 1,
+    "verdict": "PASS"
+  },
+  "proof_lib": {
+    "lib_added": false,
+    "verdict": "NOT_ATTEMPTED"
+  },
+  "proof_marker": {
+    "marker": " [CV-B15-S2]",
+    "in_save": false,
+    "in_crossback": true,
+    "verdict": "PASS"
+  },
+  "hyp_leakage_check": {
+    "hyp_tokens": 0,
+    "data_hyp_tokens": 0,
+    "verdict": "PASS"
+  },
+  "reorder_took": true,
+  "typing_succeeded": true,
+  "switch_back_ok": true,
+  "c1_verdict": "failed_lib_not_added"
+}

@@ -41,6 +41,8 @@ Implements deck-loop-spec row 4 (H5).
 5. Record the winning trio as the deck's **visual contract** in design-state: write it to `{output_folder}/artifacts/art-direction/trio-winning.md`, set the `trio_contract` frontmatter path. Every subsequent slide conforms to it (H5).
 6. **Edge cases (deck-loop-spec):** both variants of a slide type rejected → new variants under the SAME direction. The direction itself is the problem → re-run the pick as beat 2, recorded as a bounce against the DIRECTION, not a slide.
 
+**OPTIONAL critic hook (default OFF — never gates).** If design-state frontmatter carries `critic: on` (the toggle; default `off` / absent = skip), then BEFORE presenting the trio pairwise (step 4): invoke `{rbtv_path}/studio/critic/critic.md` on the two variants of each slide type (comparison shape — variants are an ideal pairwise input). ATTACH its critique to the owner's pairwise-pick packet as advisory input. The owner's pick proceeds REGARDLESS of critic content — the critic NEVER selects the variant, NEVER blocks or auto-confirms a pick (critic-spec Behavior row 5; never-gates pin). The critic is DISTINCT from the fresh-eyes pass (§3C) and does not replace it. When `critic: off` or absent, skip this hook entirely — the default loop is unchanged.
+
 ---
 
 ## SUB-BEAT 3B — Slice Generation (fresh contexts, surgical patch, HTML-native)
@@ -57,7 +59,7 @@ Implements deck-loop-spec rows 5, 7, 10.
 
 ## SUB-BEAT 3C — Fresh-Eyes Pass (before the owner looks)
 
-Implements deck-loop-spec row 6 (H6). **BOUNDARY (verbatim, H6): this is a prompt-file review in a fresh session — NO scoring, NO gating, NO taxonomy dataset.** Those are the v1.1 critic (`p6-1`); building any of them here is a defect.
+Implements deck-loop-spec row 6 (H6). **BOUNDARY (verbatim, H6): this is a prompt-file review in a fresh session — NO scoring, NO gating, NO taxonomy dataset.** Those are the v1.1 critic (`studio/critic/critic.md`); building any of them here is a defect. The optional critic hook (§3A) and this fresh-eyes pass are DISTINCT, always-separate mechanisms — fresh-eyes ALWAYS runs (single-deck punch-list, no taxonomy/comparison); the critic is OPT-IN (`critic: on`) and comparative. The critic NEVER replaces, merges into, or weakens fresh-eyes, regardless of the toggle.
 
 1. A **fresh-context** agent (zero generation context — it did NOT build the deck) loads ONLY: the chosen direction mini-brief (`art_direction_brief`) + the flaw checklist (`{rbtv_path}/studio/standards/flaw-checklist.md`) + the rendered deck. Freshness is mandatory — the builder's eyes cannot run this pass.
 2. It reviews the deck **HEADED** (visible browser, real geometry) against the two anchors: every flaw-checklist item AND every clause of the chosen mini-brief.

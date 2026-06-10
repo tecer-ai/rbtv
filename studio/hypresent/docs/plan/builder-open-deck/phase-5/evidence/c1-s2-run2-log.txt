@@ -1,0 +1,111 @@
+ORIG sections: 10, hashes: ['26f116db4326', '30861d0ea7a6', '987d1214b487', 'd5a7ad0b90da', '3a5c95f25f3f', '62221bfaaed7', '25d0bb9645dd', 'ae3d66d0bb35', '4c9d440a0f15', '7cbdf4a2fa55']
+  orig[0]: × GSMM Operações Financeiras Autônomas A gestão deixa de montar planil
+  orig[1]: Uma plataforma inteligente A Tecer entrega operações financeiras autôn
+  orig[2]: Baseado na conversa de hoje O que entendemos da GSMM Antes de propor q
+  orig[3]: A partir do roadmap que a GSMM desenhou Roadmap da GSMM, e onde a Tece
+  orig[4]: Do mapa de processos da GSMM As quatro frentes que vocês priorizaram D
+  orig[5]: Como trabalhamos A Tecer se adapta ao cliente - não o contrário Nossa 
+  orig[6]: Dois modelos de operação As atividades de um time financeiro, e o que 
+  orig[7]: Como funciona por dentro Um sistema operacional para agentes financeir
+  orig[8]: Próximos passos Como avançamos juntos Começamos pelo NDA, exatamente c
+  orig[9]: Obrigado. Próximo passo: NDA, e o diagnóstico começa. Co-founder Guilh
+
+=== STEP 1: Open deck ===
+  [SCREENSHOT] r2-01-initial.png
+DOM after open (10 rows): [('deck-section-0', '1'), ('deck-section-1', '2'), ('deck-section-2', '3'), ('deck-section-3', '4'), ('deck-section-4', '5'), ('deck-section-5', '6'), ('deck-section-6', '7'), ('deck-section-7', '8'), ('deck-section-8', '9'), ('deck-section-9', '10')]
+  [SCREENSHOT] r2-02-opened.png
+uid map: sec0=1, sec1=2
+
+=== STEP 2: Reorder — swap 0↔1 ===
+  reorder_took=True, DOM: ['deck-section-1', 'deck-section-0', 'deck-section-2', 'deck-section-3', 'deck-section-4', 'deck-section-5', 'deck-section-6', 'deck-section-7', 'deck-section-8', 'deck-section-9']
+  [SCREENSHOT] r2-03-reorder.png
+
+=== STEP 3: Remove deck-section-2 ===
+  removing deck-section-2 uid=3
+  DOM: ['deck-section-1', 'deck-section-0', 'deck-section-3', 'deck-section-4', 'deck-section-5', 'deck-section-6', 'deck-section-7', 'deck-section-8', 'deck-section-9']
+  deck-section-2 absent: True
+  [SCREENSHOT] r2-04-remove.png
+
+=== STEP 4: Duplicate uid_sec1 ===
+  duplicating uid=2 (deck-section-1)
+  DOM: ['deck-section-1', 'deck-section-1', 'deck-section-0', 'deck-section-3', 'deck-section-4', 'deck-section-5', 'deck-section-6', 'deck-section-7', 'deck-section-8', 'deck-section-9']
+  deck-section-1 count: 2
+  [SCREENSHOT] r2-05-dup.png
+
+=== STEP 5: Add blank ===
+  DOM: ['deck-section-1', 'deck-section-1', 'deck-section-0', 'deck-section-3', 'deck-section-4', 'deck-section-5', 'deck-section-6', 'deck-section-7', 'deck-section-8', 'deck-section-9', 'blank-12']
+  blank present: True
+  [SCREENSHOT] r2-06-blank.png
+
+=== STEP 6: Add library slide ===
+  clicked #pick-library-btn
+  browse-groups populated
+  [SCREENSHOT] r2-07-browse.png
+  .s-cap count: 4
+  clicking .s-cap[0] text='Capa E2E
+PT
+template'
+  Library slide ADDED — row: [{'i': 11, 'uid': '13', 'slideId': 'cover-e2e.pt', 'badge': 'lib', 'title': 'Capa E2E'}]
+  [SCREENSHOT] r2-08-lib-added.png
+Library add result: True
+Pre-save DOM: ['deck-section-1', 'deck-section-1', 'deck-section-0', 'deck-section-3', 'deck-section-4', 'deck-section-5', 'deck-section-6', 'deck-section-7', 'deck-section-8', 'deck-section-9', 'blank-12', 'cover-e2e.pt']
+
+=== STEP 7: Save new ===
+  [INTERCEPT] deck-save #1: items=[{"kind": "existing", "index": 1}, {"kind": "existing", "index": 1}, {"kind": "existing", "index": 0}, {"kind": "existing", "index": 3}, {"kind": "existing", "index": 4}, {"kind": "existing", "index":
+  save #1 payload: [{"kind": "existing", "index": 1}, {"kind": "existing", "index": 1}, {"kind": "existing", "index": 0}, {"kind": "existing", "index": 3}, {"kind": "existing", "index": 4}, {"kind": "existing", "index": 5}, {"kind": "existing", "index": 6}, {"kind": "existing", "index": 7}, {"kind": "existing", "index
+  saved file: exists=True, size=92048
+  [SCREENSHOT] r2-09-saved.png
+
+=== Immediate content verification ===
+  saved hashes: ['30861d0ea7a6', '30861d0ea7a6', '26f116db4326', 'd5a7ad0b90da', '3a5c95f25f3f', '62221bfaaed7', '25d0bb9645dd', 'ae3d66d0bb35', '4c9d440a0f15', '7cbdf4a2fa55', '2ff924b54510', '09986792fffd']
+    saved[0]=30861d0ea7a6->orig[1]
+    saved[1]=30861d0ea7a6->orig[1]
+    saved[2]=26f116db4326->orig[0]
+    saved[3]=d5a7ad0b90da->orig[3]
+    saved[4]=3a5c95f25f3f->orig[4]
+    saved[5]=62221bfaaed7->orig[5]
+    saved[6]=25d0bb9645dd->orig[6]
+    saved[7]=ae3d66d0bb35->orig[7]
+    saved[8]=4c9d440a0f15->orig[8]
+    saved[9]=7cbdf4a2fa55->orig[9]
+    saved[10]=2ff924b54510->new/blank
+    saved[11]=09986792fffd->new/blank
+
+=== STEP 8: Switch to editor ===
+  [SCREENSHOT] r2-10-pre-switch.png
+  [INTERCEPT] deck-save #2: items=[{"kind": "existing", "index": 1}, {"kind": "existing", "index": 1}, {"kind": "existing", "index": 0}, {"kind": "existing", "index": 3}, {"kind": "existing", "index": 4}, {"kind": "existing", "index":
+  Editor URL: http://127.0.0.1:9995/app/?file=docs%2Fplan%2Fbuilder-open-deck%2Fphase-5%2Fevidence%5Cc1-s2-r2-saved.html
+  [SCREENSHOT] r2-11-editor.png
+
+=== STEP 9: Type marker [CV-B15-S2] ===
+  Typed via iframe frame element
+  [SCREENSHOT] r2-12-typed.png
+  typing_ok: True
+
+=== Save crossback from editor ===
+  crossback saved via #save-as-btn
+
+=== STEP 10: Switch back to builder ===
+  switched back via #open-in-builder-btn, URL: http://127.0.0.1:9995/app/builder.html?file=docs%2Fplan%2Fbuilder-open-deck%2Fphase-5%2Fevidence%5Cc1-s2-r2-crossback.html
+  [SCREENSHOT] r2-13-back-builder.png
+
+Wall time: 22188 ms
+
+=== DISK ASSERTIONS ===
+
+Proof reorder:   {'sec1_before_sec0': True, 'sec0_pos': 2, 'sec1_first_pos': 0, 'verdict': 'PASS'}
+Proof removal:   {'sec2_absent': True, 'verdict': 'PASS'}
+Proof duplicate: {'sec1_count': 2, 'verdict': 'PASS'}
+Proof blank:     {'blank_count': 2, 'verdict': 'PASS'}
+Proof lib:       {'lib_sig_found': False, 'verdict': 'FAIL'}
+Proof marker:    {'marker_in_crossback': True, 'verdict': 'PASS'}
+Hyp leakage:     {'hyp_tokens': 0, 'data_hyp_tokens': 0, 'verdict': 'PASS'}
+Payload #1 == intended: False
+All saves: 2
+  save#1: [{"kind": "existing", "index": 1}, {"kind": "existing", "index": 1}, {"kind": "existing", "index": 0}, {"kind": "existing", "index": 3}, {"kind": "existing", "index": 4}, {"kind": "existing", "index":
+  save#2: [{"kind": "existing", "index": 1}, {"kind": "existing", "index": 1}, {"kind": "existing", "index": 0}, {"kind": "existing", "index": 3}, {"kind": "existing", "index": 4}, {"kind": "existing", "index":
+
+=== VERDICT: failed ===
+  all_pass=False, any_fail=True, lib_added=True
+WROTE docs/plan/builder-open-deck/phase-5/evidence\c1-s2-r2-disk-assertions.json
+WROTE docs/plan/builder-open-deck/phase-5/evidence\c1-s2-r2-model-dumps.json

@@ -1,0 +1,17 @@
+orig sections: 10 ['26f116db4326', '30861d0ea7a6', '987d1214b487', 'd5a7ad0b90da', '3a5c95f25f3f', '62221bfaaed7', '25d0bb9645dd', 'ae3d66d0bb35', '4c9d440a0f15', '7cbdf4a2fa55']
+=== P1 Ingest ===
+  [shot] ep-p1-opened.png
+P1 HELD: ['deck-section-0', 'deck-section-1', 'deck-section-2', 'deck-section-3', 'deck-section-4', 'deck-section-5', 'deck-section-6', 'deck-section-7', 'deck-section-8', 'deck-section-9']
+=== P2 Compose ===
+  [shot] ep-p2-composed.png
+P2 HELD: ['deck-section-1', 'deck-section-1', 'deck-section-0', 'deck-section-2', 'deck-section-3', 'deck-section-4', 'deck-section-5', 'deck-section-6', 'deck-section-7', 'deck-section-8', 'deck-section-9']
+=== P3 Save ===
+  [shot] ep-p3-saved.png
+P3 HELD: ['30861d0ea7a6', '30861d0ea7a6', '26f116db4326', '987d1214b487', 'd5a7ad0b90da', '3a5c95f25f3f', '62221bfaaed7', '25d0bb9645dd', 'ae3d66d0bb35', '4c9d440a0f15', '7cbdf4a2fa55']
+=== P4 Bridge ===
+  [shot] ep-p4-editor.png
+  [shot] ep-p4-typed.png
+  [shot] ep-p4-back-in-builder.png
+P4 HELD: editor=True typed=True cb=True back=True
+=== P5 Integration ===
+P5 FAILED

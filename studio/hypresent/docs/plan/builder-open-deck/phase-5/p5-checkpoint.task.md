@@ -1,6 +1,6 @@
 ---
 task_id: p5-checkpoint
-status: pending
+status: done
 phase: understand
 complexity_score: 4
 human_review: required
@@ -30,7 +30,7 @@ The complete v1: recompose save path, deck ingest, heterogeneous compose tray, e
 
 ## Review Criteria
 
-1. **v1 success criteria hold end-to-end:** one continuous HEADED session on a real deck copy — open in builder; reorder, remove, duplicate; add a blank and a library slide; save as new file; switch to editor; edit; switch back. Every gesture works as the structured problem's Success Criteria state. Evidence captured to `phase-5/evidence/`.
+1. **v1 success criteria hold end-to-end:** one continuous HEADED session on a real deck copy — open in builder; reorder, remove, duplicate; add a blank and a library slide; save as new file; switch to editor; edit; switch back. Every gesture works as the structured problem's Success Criteria state. Evidence captured to `./evidence/`.
 2. **All deliverables landed:** every `../deliverables.md` row is ✅ (or ⏸ deferred with a reason the user accepts).
 3. **No marker leakage anywhere:** the session's saved files contain no `hyp-`/`data-hyp-*` tokens.
 4. **Full regression green:** `python -m pytest tests/e2e -q` exits 0 (or failures are pre-existing, evidenced by a pre-plan baseline run).

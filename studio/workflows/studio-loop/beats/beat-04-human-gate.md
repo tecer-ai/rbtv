@@ -34,7 +34,8 @@ This beat implements `deck-loop-spec.md` behavior rows 7–8 and 10, and its bou
 ### 1. Headed render for owner review
 
 1. Start the local HTTP server (browser-automation infra); open the full deck in a VISIBLE browser at full-screen. Confirm the geometry is sane (slide canvas aspect held, no overflow/collapsed boxes) before the owner looks. Set design-state `beat_status: awaiting-owner`, `who_acts_next: owner`, `next_action` naming the review.
-2. The owner reviews slide-by-slide and, per slide, ACCEPTS or BOUNCES with a note.
+2. **OPTIONAL critic hook (default OFF — never gates).** If design-state frontmatter carries `critic: on` (default `off` / absent = skip; same toggle as beat-03 §3A), invoke `{rbtv_path}/studio/critic/critic.md` on the full deck (single-artifact shape: a taxonomy flaw pass; no preference fabricated) BEFORE the owner reviews, and ATTACH its critique file alongside the deck as advisory input for the owner. The critic NEVER blocks, auto-accepts, or auto-bounces a slide; the human gate below proceeds REGARDLESS of critic content — the owner's accept/bounce is the irreducible final gate (D1). When `critic: off` or absent, skip this hook entirely. This hook does NOT touch the fresh-eyes pass (beat-03 §3C), which already ran.
+3. The owner reviews slide-by-slide and, per slide, ACCEPTS or BOUNCES with a note.
 
 ### 2. Capture accept / bounce into design-state
 

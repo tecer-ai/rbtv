@@ -130,6 +130,12 @@
 - **Rationale:** `createBridge()` returns synchronously but the runtime `<script type="module">` boots async after open resolves; enabling on bridge-object-existence let a click race ahead of the runtime → `serialize` hit its 10s timeout → `serializeDoc()` returned null → the crossing silently no-op'd (a real, if sub-100ms, defect, surfaced as a suite-load e2e flake on `test_editor_to_builder_crossing`). Gating on the true readiness signal makes an enabled button always act, matching the existing align/undo/redo readiness gating.
 - **Scope:** p4-1 (fix folded in `beb85fe`). p4-checkpoint (B12) MUST exercise headed that the disabled→enabled transition is fast enough to not feel laggy on a real (non-suite-loaded) machine — the residual owner-facing window is now a visible disabled-button no-op (strictly better than the prior enabled-button no-op); owner judges acceptance at the checkpoint.
 
+### D-link-standard-adjudication — p5-refs link-check ruling (2026-06-10)
+
+- **Decision:** The plan's link audit (B13) verdict is PASS with adjudication: zero broken plan links; ONE forward-consumed deviation fixed (`phase-5/p5-checkpoint.task.md` evidence path normalized to file-relative `./evidence/`); completed-phase task files' plan-root-relative `phase-N/evidence/` refs and `phase-1/evidence/findings.md`'s pre-rename `html/hypresent` path are PRESERVED as historical records, not defects; rbtv-repo-root-relative refs to shared standards (decisions.md § Standards) and vault-root-relative `{evidence_root}` refs (deliverables, p5-checkpoint) are tolerated variants that resolve at their intended roots.
+- **Rationale:** Rewriting certified, already-consumed artifacts muddies the run record for zero forward value; the tolerated variants have no project-root-relative form (shared standards live at the rbtv repo root; the done-gate evidence root lives at the vault root per the vault routing table). Full adjudication + method: `./phase-5/evidence/p5-refs-link-check.md` (+ sibling `.py` computation).
+- **Scope:** p5-checkpoint criterion 5 (the B15 verifier evaluates "p5-refs passed" against this ruling and the report — scanner-flagged rows adjudicated there are NOT failures); any future doc authoring in this plan folder (internal = file-relative, external = project-root-relative).
+
 ---
 
 ## References
