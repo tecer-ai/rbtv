@@ -173,6 +173,61 @@ def _mtime(path: Path) -> "float | None":
         return None
 
 
+def _path_under_any_exclusion(rel_path: str, excluded_prefixes: list[str]) -> bool:
+    """True if *rel_path* equals or lies under any normalized excluded prefix.
+
+    Mirrors the prefix semantics ``guidance.py._is_excluded`` uses (``rel ==
+    prefix`` OR ``rel.startswith(prefix + "/")``), applied to a guidance FILE's
+    workspace-relative path (e.g. ``sub/x/AGENTS.md`` under prefix ``sub/x``).
+    """
+    rel_norm = state._normalize_rel_path(rel_path)
+    for prefix in excluded_prefixes:
+        prefix = state._normalize_rel_path(prefix)
+        if not prefix:
+            continue
+        if rel_norm == prefix or rel_norm.startswith(prefix + "/"):
+            return True
+    return False
+
+
+def _prune_newly_excluded_guidance(
+    target_root: Path,
+    prior_block: dict | None,
+    new_records: list[dict],
+    excluded_paths: list[str],
+) -> list[str]:
+    """Delete guidance files orphaned by a NEWLY-excluded path.
+
+    A guidance file that was previously managed (recorded in ``prior_block``'s
+    ``managed_files``) but now falls under an excluded prefix — and is therefore
+    NOT in the freshly-rendered ``new_records`` set — is a stale orphan: the walk
+    skipped it, so ``render`` never refreshes or removes it. Delete it through the
+    driver's EXISTING banner-guarded ``state.apply_deletions`` (a hand-authored,
+    banner-less file is spared, never destroyed).
+
+    Returns the workspace-relative paths actually deleted. NEVER called in check
+    mode (callers gate on ``check``).
+    """
+    if not prior_block:
+        return []
+
+    prior_records = prior_block.get("managed_files", []) or []
+    new_paths = {r["path"] for r in new_records}
+
+    orphans = [
+        rec
+        for rec in prior_records
+        if rec.get("kind") == "guidance"
+        and rec["path"] not in new_paths
+        and _path_under_any_exclusion(rec["path"], excluded_paths)
+    ]
+    if not orphans:
+        return []
+
+    deleted, _spared = state.apply_deletions(target_root, orphans)
+    return deleted
+
+
 # ---------------------------------------------------------------------------
 # Public API — render
 # ---------------------------------------------------------------------------
@@ -273,6 +328,17 @@ def render(
     for pkg in packages:
         config_records = config_assets.render_config(target_root, pkg, check=check)
         all_records.extend(config_records)
+
+    # --- 3b. Prune-on-exclude: delete guidance orphaned by a NEWLY-excluded path ---
+    # A path that became excluded since the prior render leaves its previously
+    # rendered guidance file (AGENTS.md / QWEN.md) on disk — the walk skips it, so
+    # neither render nor uninstall reaches it. Delete such orphans through the
+    # existing banner-guarded deletion (hand-authored files are spared). NEVER in
+    # check mode — a --check run reports drift, it never mutates disk.
+    if not check:
+        _prune_newly_excluded_guidance(
+            target_root, prior_block, all_records, excluded_paths
+        )
 
     # --- 4. Drift detection (check mode) ---
     if check:
