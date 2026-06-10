@@ -91,12 +91,17 @@ class PB11DeckSaveTests(unittest.TestCase):
         self.assertEqual(self._tray_count(), 11)
 
         # Add library slide
-        self._pick_lib()
+        lib = self._pick_lib()
         card_ids = self.page.eval_on_selector_all(".slide-card", "els=>els.map(e=>e.dataset.slideId)")
         self.assertTrue(len(card_ids) >= 1, "fixture needs at least 1 library card")
-        self.page.click(f".slide-card[data-slide-id='{card_ids[0]}']")
+        added_slide_id = card_ids[0]
+        self.page.click(f".slide-card[data-slide-id='{added_slide_id}']")
         self.page.wait_for_timeout(100)
         self.assertEqual(self._tray_count(), 12)
+        # Resolve the exact fragment markup we expect to be spliced (for the disk proof).
+        added_fragment = pathlib.Path(
+            os.path.join(lib, "slides", added_slide_id + ".html")
+        ).read_text(encoding="utf-8")
 
         # Save as new-file — inject the dialog path
         save_dir = tempfile.mkdtemp()
@@ -111,6 +116,46 @@ class PB11DeckSaveTests(unittest.TestCase):
 
         # Saved file must exist
         self.assertTrue(os.path.exists(save_path), "saved file must exist")
+
+        # ── prove the restructure on disk (count alone cannot — sections survive
+        #    recompose byte-for-byte, so order/removal/duplication ARE verifiable) ──
+        sys.path.insert(0, os.path.join(REPO, "server"))
+        from recompose import split_sections  # noqa: E402
+        saved_html = pathlib.Path(save_path).read_bytes().decode("utf-8")
+        saved_spans = split_sections(saved_html)
+        self.assertEqual(len(saved_spans), 12, "saved file must hold 12 sections")
+        saved_secs = [saved_html[s:e] for s, e in saved_spans]
+        # Removal: the dropped slide (source index 2, unique kicker) must be absent.
+        self.assertNotIn(
+            "Baseado na conversa", saved_html,
+            "removed slide 3 (index 2) must not appear in the saved deck"
+        )
+        # Duplication + order: the cover (source index 0) was duplicated to the front,
+        # so the first TWO sections are both the cover (positional proof, not a count).
+        self.assertIn("slide--cover", saved_secs[0], "first section must be the cover")
+        self.assertIn("slide--cover", saved_secs[1], "second section must be the cover duplicate")
+        # The duplicate is the deck's OWN cover markup, byte-identical to section 0.
+        self.assertEqual(
+            saved_secs[0], saved_secs[1],
+            "duplicated cover must be byte-identical to the original cover section"
+        )
+        # Added blank present as a marker-free <section> (recompose BLANK_SECTION).
+        self.assertEqual(
+            sum(1 for sec in saved_secs if "Blank Slide" in sec), 1,
+            "exactly one blank section must be present"
+        )
+        # The added library fragment landed last (added after the blank in this flow)
+        # and was spliced verbatim — its <section> span must appear in the saved deck.
+        frag_spans = split_sections(added_fragment)
+        self.assertEqual(len(frag_spans), 1, "fixture fragment is a single section")
+        fs, fe = frag_spans[0]
+        # Verbatim modulo platform line-endings (write normalizes EOL; markup unchanged).
+        self.assertEqual(
+            saved_secs[-1].replace("\r\n", "\n"), added_fragment[fs:fe].replace("\r\n", "\n"),
+            "last saved section must be the spliced library fragment, verbatim"
+        )
+        # Saved deck stays clean: no hyp- markers leaked (decisions.md clean-output rule).
+        self.assertNotIn("data-hyp-", saved_html, "saved deck must carry no data-hyp-* markers")
 
         # ── reopen the saved file and verify tray reflects the restructure ──
         self.page.goto(self.base + "/app/builder.html")
