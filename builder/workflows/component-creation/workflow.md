@@ -13,6 +13,13 @@ Unified builder replacing both the RBTV create-component workflow and any vault-
 - **RBTV components** — standard placement in the RBTV source repo, bootstrapped to all instances via re-install
 - **Non-RBTV / vault components** — placement governed by workspace conventions read from the target CLAUDE.md
 
+## Modes
+
+| Mode | Trigger | Entry |
+|------|---------|-------|
+| Create / Edit / Understand | Building, modifying, or understanding a component | Activation Sequence below |
+| Review (token efficiency) | The owner asks to review, diagnose, audit, or trim a component's token cost | Load `{rbtv_path}/builder/workflows/component-review/workflow.md` and follow it — skip the Activation Sequence |
+
 ## Activation Sequence
 
 1. Load `{rbtv_path}/builder/workflows/component-creation/data/component-patterns.md` — internalize naming standards, size limits, and compliance rules

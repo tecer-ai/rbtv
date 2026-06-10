@@ -1,7 +1,7 @@
 ---
 name: Build
 description: Create all component files and update references.
-nextStepFile: null
+nextStepFile: step-05-efficiency-gate.md
 ---
 
 # Step 4: Build
@@ -77,6 +77,7 @@ Present:
 
 | Option | Action |
 |--------|--------|
-| [D] Done | Workflow complete |
+| [C] Continue | Proceed to Step 05 — Efficiency Gate |
+| [X] Exit | Stop workflow (ships ungated — state this explicitly when chosen) |
 
 HALT and WAIT for user input.
