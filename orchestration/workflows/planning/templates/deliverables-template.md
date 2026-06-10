@@ -38,9 +38,8 @@ Use this template to create the `deliverables.md` companion file for each plan. 
 A fresh agent at {synthesis-task-id} reads, in order:
 
 1. **This file (`deliverables.md`)** — the artifact index.
-2. `./decisions.md` end-to-end — every Decision and Discovery; the running rationale.
+2. `./decisions.md` end-to-end — every Decision and Discovery; the running rationale (harvest-worthy entries carry the one-word `compoundable` marker).
 3. Each artifact referenced above, in document order — they build on each other.
-4. `./learnings.md` — meta-observations that may inform the synthesis.
 
 {Adapt to the plan's actual synthesis tasks: name each one and state what it folds the artifacts into.}
 

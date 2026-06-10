@@ -52,14 +52,6 @@ Score the work with the **shared widened complexity rubric** — the single sour
 
 **Human review need maps directly to the task file's `human_review` frontmatter** (None → `none`, Optional → `optional`, Required → `required`). When set to `required`, the executor MUST emit a Human Review Presentation block at Phase: Close — see `step-04-generate-artifacts.md` § Setting `human_review` for the criteria. Set this dimension deliberately: under-setting hides risks; over-setting trains the user to skim flag blocks.
 
-### 6. Add Final Compound Task
-
-**MANDATORY:** The last task of the final phase MUST be a compound learnings task:
-
-```
-- [ ] `pN-compound` Review learnings.md and compound into system improvements
-```
-
 ### 6b. Identify Spec Features (code work)
 
 If step-02 flagged the plan code-bearing, identify the **features** — each a bounded owner-observable behavior. One spec backs each feature (one spec MAY back several task files). Plan a spec artifact per feature now; step-04 authors each from the shared spec template (`{rbtv_path}/orchestration/workflows/_shared/authoring/spec-template.md`) per `../data/plan-creation-rules.md` § Spec Authoring. Each backing task will REFERENCE its spec, never restate it. Docs-only / research plans skip this step.
@@ -73,7 +65,9 @@ If step-02 set `orchestrated: true` with **DEEP** mode, resolve the pre-resoluti
 - **Batching / serialization order** per shared file and parallel-wave grouping → plan body
 - **Hard-halt registry** (checkpoints non-overridable in autonomous mode) → plan body
 
-**LIGHT** mode resolves only the critical subset the user chooses; the rest stay model-bound-at-routing-time. A plain (non-orchestrated) plan skips this step. HALT discipline is mode-independent in every case.
+**Pin the per-task executor by CALLING the router — never reason it WITH the user.** The executor `(model, variant)` is a deterministic pure function of the task's profile, NOT a judgment pick. For EACH task: assemble its JSON task profile (`boundedness`, `task_type`, `inlined_context_size`, plus the optional fields the leaf needs — `stakes`/`stakes_tier`, `cross_strategy`, `needs_process_boundary`, `reviews_external_cli_code`, `delegation_map_allows_haiku`) and call `route.py` — the SAME router the conductor calls at run time, so plan-time and run-time routing can never disagree (locked: ONE script, NO LLM middleman). The router CLI, profile field set, and verdict shapes are in the routing card (`{rbtv_path}/orchestration/skills/orchestrating/cards/routing.md` §2a) — call it as that card names; do NOT restate the algorithm here. Record the returned `(model, variant)` as the task's `executor` pin; the reviewer pin (router-derivable too — floor sonnet, ≥ executor+1) lands the same way. A `halt_seam` verdict (`stakes` or `cross-strategy`) is a genuine judgment seam — resolve it WITH the user, as today, then re-run; never let the script decide it.
+
+**LIGHT** mode resolves only the critical subset the user chooses; the rest stay model-bound-at-routing-time. The router call is available in LIGHT for any task the user elects to pre-pin. A plain (non-orchestrated) plan — or a workspace without the orchestration module installed — skips this step and the router call entirely; the task is authored to the generic contract and bound to a worker at routing time. HALT discipline is mode-independent in every case.
 
 ### 7. Generate Checkpoints
 
@@ -189,7 +183,6 @@ On Continue selection:
 - ✅ Tasks follow granularity rules (WHAT not HOW, single action each)
 - ✅ Tasks use explicit file operations (CREATE/UPDATE/DELETE/MOVE)
 - ✅ Task complexity assessed (5-dimension scoring)
-- ✅ Final compound task included (pN-compound)
 - ✅ 3-6 checkpoints at inflection points with review criteria composed
 - ✅ Task IDs follow format rules
 - ✅ Dependency ordering validated (no violations or user-approved overrides)

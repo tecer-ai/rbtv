@@ -77,11 +77,6 @@ Gather content for companion files that will be created during finalization.
 - User inputs captured verbatim
 - Standards that apply to this plan
 
-**learnings.md content** — System improvement queue:
-- This file captures meta-learnings about RBTV
-- NOT for project-specific learnings
-- Will be populated during execution when user provides corrections/suggestions
-
 ### 6. Present Summary
 
 Display the compiled context to user:
@@ -96,7 +91,6 @@ Code work: [yes — specs will be authored | no]
 
 Companion files will be created during finalization:
 - decisions.md (scope, constraints, shaping decisions, discoveries, and required execution references)
-- learnings.md (system improvement queue for RBTV meta-learnings)
 
 Is this complete and accurate?
 ```
@@ -130,7 +124,7 @@ On Continue selection:
 
 - ✅ All six context sections populated (problem, goals, constraints, decisions, rejected, files)
 - ✅ Orchestration flag + mode (DEEP/LIGHT) determined; code-work detection done
-- ✅ Content prepared for decisions.md and learnings.md companion files
+- ✅ Content prepared for decisions.md companion file
 - ✅ User confirmed context is complete and accurate
 - ✅ Context is detailed enough for zero-context execution (another agent could understand without additional context)
 - ✅ Menu presented with explicit HALT

@@ -732,3 +732,209 @@ class TestEnvFileResolution:
                 os.environ.pop("DEEPSEEK_API_KEY", None)
             else:
                 os.environ["DEEPSEEK_API_KEY"] = old_val
+
+
+# ---------------------------------------------------------------------------
+# D16 / spec S7: the delegation_map_allows_haiku guard
+# ---------------------------------------------------------------------------
+# The real Claude manifests ship NO haiku variant (deliberate policy — both carry an
+# explicit "no haiku variant" note). To exercise S7's BOTH directions (default-excluded
+# AND flag-admitted) the corpus must contain a haiku variant, so these tests build a
+# SYNTHETIC scratch models/ corpus on disk with a haiku variant and route.route() over it
+# end-to-end. The real manifests under orchestration/models/*/manifest.yaml are NEVER
+# edited — their no-haiku policy stands.
+
+# Synthetic claude package: opus (top/high) + sonnet (mid/mid) + haiku (non-reasoning/
+# cheapest). The haiku variant follows the shape the real claude/manifest.yaml documents
+# for a FUTURE delegation-map-approved haiku: reasoning_tier non-reasoning, cost_class
+# cheapest, code_competence strong (an Agent-tool Claude sub-agent inherits the full tool
+# surface). cost_class cheapest makes haiku the cost-ascending winner WHEN admitted.
+_SYNTH_CLAUDE_MANIFEST = """model: claude
+evidence_status: validated
+
+variants:
+  - variant: opus
+    reasoning_tier: top
+    context_window: 1000000
+    max_output: 64000
+    cost_class: high
+    code_competence: strong
+    web_access: false
+    parallel_safe: true
+    resume_support: none
+    auth:
+      required: false
+      method: none
+      interactive: false
+
+  - variant: sonnet
+    reasoning_tier: mid
+    context_window: 1000000
+    max_output: 32000
+    cost_class: mid
+    code_competence: strong
+    web_access: false
+    parallel_safe: true
+    resume_support: none
+    auth:
+      required: false
+      method: none
+      interactive: false
+
+  - variant: haiku
+    reasoning_tier: non-reasoning
+    context_window: 200000
+    max_output: 8000
+    cost_class: cheapest
+    code_competence: strong
+    web_access: false
+    parallel_safe: true
+    resume_support: none
+    auth:
+      required: false
+      method: none
+      interactive: false
+"""
+
+
+def _build_synth_corpus(tmp_path) -> Path:
+    """Create a scratch rbtv_root with orchestration/models/claude/manifest.yaml carrying a
+    synthetic haiku variant. Returns the scratch rbtv_root for route.route(rbtv_root=...)."""
+    models = tmp_path / "orchestration" / "models" / "claude"
+    models.mkdir(parents=True)
+    (models / "manifest.yaml").write_text(_SYNTH_CLAUDE_MANIFEST, encoding="utf-8")
+    return tmp_path
+
+
+class TestHaikuGuard:
+    """D16 / spec S7: delegation_map_allows_haiku guard, proven against a synthetic haiku fixture."""
+
+    def test_synth_corpus_enumerates_haiku(self, tmp_path):
+        """Sanity: the scratch corpus actually contributes a haiku variant — so the
+        exclusion/admission assertions below are not vacuously true."""
+        import route
+        rbtv_root = _build_synth_corpus(tmp_path)
+        explain_log = []
+        entries = route._enumerate_models(rbtv_root, tmp_path, {}, explain_log)
+        variants = sorted(e["variant"] for e in entries)
+        assert variants == ["haiku", "opus", "sonnet"], (
+            f"scratch corpus should enumerate opus/sonnet/haiku, got {variants}"
+        )
+
+    def test_haiku_excluded_when_flag_absent(self, tmp_path):
+        """S7 (a): fixture haiku present + flag absent → haiku NEVER in the eligible set nor
+        the verdict. A fully-bounded code task over the synth corpus must NOT pick haiku
+        (the cheapest variant) — it picks the cheapest non-haiku capable instead (sonnet)."""
+        import route
+        rbtv_root = _build_synth_corpus(tmp_path)
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+        )
+        result = route.route(dict(profile), rbtv_root, tmp_path, {}, {}, explain=True)
+        assert result["verdict"] == "route", f"unexpected verdict: {result}"
+        # haiku is the cheapest, code-competent variant — absent the flag it must be excluded,
+        # so the cheapest NON-haiku code-competent variant (sonnet) wins.
+        assert result["variant"] != "haiku", (
+            f"S7 violation: haiku picked with no delegation_map_allows_haiku flag, got {result['variant']}"
+        )
+        assert result["variant"] == "sonnet", (
+            f"expected cheapest non-haiku capable (sonnet), got {result['variant']}"
+        )
+        # The trace must show the haiku exclude row, and no ranked survivor may be haiku.
+        explain = result.get("explain", [])
+        haiku_excludes = [
+            s for s in explain if s.get("stage") == "haiku" and s.get("action") == "exclude"
+        ]
+        assert haiku_excludes, f"expected a haiku exclude trace row, got: {explain}"
+        rank_steps = [s for s in explain if s.get("stage") == "rank"]
+        ranked_variants = [
+            r["variant"] for s in rank_steps for r in s.get("order", [])
+        ]
+        assert "haiku" not in ranked_variants, (
+            f"haiku reached Stage-3 ranking despite no flag: {ranked_variants}"
+        )
+
+    def test_haiku_admitted_and_wins_when_flag_true(self, tmp_path):
+        """S7 (b): flag true + fully-bounded mechanical → haiku eligible AND wins on cheapest.
+        With delegation_map_allows_haiku=true the cheapest code-competent variant (haiku) wins."""
+        import route
+        rbtv_root = _build_synth_corpus(tmp_path)
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+            delegation_map_allows_haiku=True,
+        )
+        result = route.route(dict(profile), rbtv_root, tmp_path, {}, {}, explain=True)
+        assert result["verdict"] == "route", f"unexpected verdict: {result}"
+        assert result["variant"] == "haiku", (
+            f"flag true: haiku (cheapest capable) should win, got {result['variant']}"
+        )
+        # The trace must show haiku ADMITTED, never excluded.
+        explain = result.get("explain", [])
+        admitted = [
+            s for s in explain if s.get("stage") == "haiku" and s.get("action") == "admitted"
+        ]
+        assert admitted, f"expected a haiku admitted trace row, got: {explain}"
+        haiku_excludes = [
+            s for s in explain if s.get("stage") == "haiku" and s.get("action") == "exclude"
+        ]
+        assert not haiku_excludes, "flag true: haiku must NOT be excluded"
+
+    def test_pinned_reviewer_never_haiku_even_under_flag(self, tmp_path):
+        """S7 (c): flag true + a pinned reviewer role → resolved reviewer ≥ sonnet, never haiku.
+        Pinned-role floors are sonnet regardless — haiku is never a pinned-role pick even when
+        the flag is set."""
+        import route
+        rbtv_root = _build_synth_corpus(tmp_path)
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+            delegation_map_allows_haiku=True,
+            pinned_role="reviewer",
+            executor_tier="non-reasoning",
+        )
+        result = route.route(dict(profile), rbtv_root, tmp_path, {}, {}, explain=True)
+        assert result["verdict"] == "route", f"unexpected verdict: {result}"
+        # Even with the flag admitting haiku for the cost-ranked pick, the reviewer floor
+        # (≥ executor+1, floor sonnet, never haiku) raises the result to sonnet.
+        assert result["variant"] != "haiku", (
+            f"S7 violation: reviewer pin resolved to haiku under the flag, got {result['variant']}"
+        )
+        assert result["variant"] in ("sonnet", "opus"), (
+            f"reviewer floor should land ≥ sonnet, got {result['variant']}"
+        )
+
+    def test_exclude_haiku_unit(self):
+        """Unit: _exclude_haiku drops haiku rows absent the flag, keeps them when set."""
+        import route
+        entries = [
+            {"model": "claude", "variant": "haiku"},
+            {"model": "claude", "variant": "sonnet"},
+            {"model": "claude", "variant": "opus"},
+        ]
+        # Flag absent → haiku dropped
+        kept = route._exclude_haiku(list(entries), {}, [])
+        assert sorted(e["variant"] for e in kept) == ["opus", "sonnet"]
+        # Flag true → haiku kept
+        kept_flag = route._exclude_haiku(list(entries), {"delegation_map_allows_haiku": True}, [])
+        assert sorted(e["variant"] for e in kept_flag) == ["haiku", "opus", "sonnet"]
+
+    def test_real_corpus_unaffected_no_haiku_present(self):
+        """Zero-regression spot-check: the REAL manifests ship no haiku, so a fully-bounded
+        code task over the live corpus is byte-identical whether the flag is set or not."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        base = _profile(boundedness="fully-bounded", task_type="code", inlined_context_size=10000)
+        v_no_flag = route.route(dict(base), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=False)
+        v_flag = route.route(
+            dict(base, delegation_map_allows_haiku=True), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=False
+        )
+        assert v_no_flag == v_flag, (
+            "real corpus has no haiku, so the flag must not change the verdict: "
+            f"{v_no_flag} vs {v_flag}"
+        )
+        assert v_no_flag["model"] == "kimi", f"real-corpus baseline changed: {v_no_flag}"

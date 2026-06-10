@@ -32,6 +32,8 @@ Patterns and principles that MUST be followed during execution.
 - Simple discovery (<5 min): resolve immediately, document in decisions.md
 - Complex discovery: add new task to plan, document in decisions.md, notify user
 
+> `decisions.md` entries: decision + rationale + scope ONLY (+ optional one-word `compoundable` marker for harvest-worthy findings) — never file-lists or N→M narratives; supersede by appending, never rewrite.
+
 ## Execution Workflow
 
 {Mermaid diagram — ONLY if plan has branching or parallel phases. Omit for linear sequential plans.}
@@ -52,5 +54,4 @@ Patterns and principles that MUST be followed during execution.
 ### Final Phase: Validation and Completion
 
 - [ ] `pN-refs` Verify all internal links resolve and comply with Plan Linking Standard
-- [ ] `pN-compound` Process learnings.md entries into system improvements
 - [ ] `pN-checkpoint` **FINAL CHECKPOINT** — User approval to complete plan → `phase-N/pN-checkpoint.task.md`

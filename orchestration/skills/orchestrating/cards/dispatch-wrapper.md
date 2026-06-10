@@ -4,7 +4,7 @@ Opened when routing has produced an assignment — a chosen (model, variant, age
 
 Iron rules it serves (from the core protocol): **no dispatch without a self-contained task artifact** (this card packages an artifact that already satisfies the task-file contract — it never authors one), and **disk = truth: every return is reconciled against repo state** (the return schema and the post-return rule below exist because the message is a hint, not the truth — five resumed-Kimi sessions drifted to prose while the work had landed correctly on disk; the orchestrator caught all five only by verifying `git` state, never the message).
 
-This card is GENERATED-SOURCE. Sections marked with render markers below are consumed verbatim by the manual render script (`{rbtv_path}/orchestration/models/render-manuals.py`, built in P3 — until it ships, the rendered manuals do not yet exist and CLI dispatch falls back per the routing card); per-model insertion points are named where a model's delta plugs in. Edit packaging behavior HERE — never in a rendered manual.
+This card is GENERATED-SOURCE. Sections marked with render markers below are consumed verbatim by the manual render script (`{rbtv_path}/orchestration/models/render-manuals.py`); per-model insertion points are named where a model's delta plugs in. Edit packaging behavior HERE — never in a rendered manual.
 
 ---
 
@@ -68,6 +68,8 @@ Every dispatch carries this addendum in its header. These are the obligations th
 | **Commit discipline** | Commits go through `rbtv-commit` (routing pins this to a commit-capable worker — CLI workers are kept OFF commits by default). Local commits only; NEVER push. A CLI worker is authorized to self-commit ONLY when its task file / model delta explicitly grants it (the default is no self-commit; the kimi package's delta is where a code-executing worker's local-commit authorization is declared). When the worker IS authorized: validation passes first, the commit message follows the run's mandated convention, and the returned commit hash must match what is actually in `git log` (the conductor checks the message string and the hash, not just the file list). |
 | **Forbidden operations** | Honor the task's forbidden-ops list (no pushes, no writes outside the allowed work-dir, no destructive git resets, no external production API calls unless the task explicitly allows a mocked/local one). |
 | **Rule-loading (mirror-equipped workspace)** | Before ANY other action — before reading any task-referenced file, writing, running a tool, or responding — inspect your work-dir for a `.agents/behavior-rules/` directory. If it exists (a mirror-equipped workspace), you MUST FIRST read your own guidance file at the work-dir root (`AGENTS.md` for a Codex/Kimi worker, `QWEN.md` for a qwen worker) AND every file under `.agents/behavior-rules/`, and treat their entire contents as binding, non-negotiable rules governing this whole session — exactly as if they were part of this dispatch. Reading them is mandatory even when this task body never mentions rules; the absence of a rule-read instruction in the task is NOT permission to skip them. If the work-dir has no `.agents/behavior-rules/` directory, this obligation is a silent no-op — proceed normally. |
+
+**Conductor obligation — instruct the rule-read for harnesses that do NOT auto-read (CLI workers).** A CLI worker whose governance depends on the behavior-rule fan-out only obeys the Rule-loading obligation above if its harness actually reads its rules directory. Harnesses differ: **codex auto-reads** its rules directory (no explicit instruction needed); **kimi and qwen do NOT** — kimi needs an enumerated Step-0 naming the read, and qwen ignores even imperative directory-read prose unless the dispatch invokes its `QWEN.md` preamble by name OR names the specific rule files (qwen delta `model-binding-delta`). So when composing a dispatch for a non-auto-reading CLI worker in a mirror-equipped work-dir, the conductor MUST add an EXPLICIT rule-read instruction to the dispatch prompt (the per-model proven form, from that model's delta); do NOT rely on the generic obligation alone. (The mirror-driver `guidance.py` half of this guarantee is deferred to the mirror-install follow-up — not authored here.)
 
 The addendum is GENERIC. A model package's delta MAY add model-specific obligations on top (e.g., a worker that must be told not to write stray files in the repo root, or a swarm-policy constraint) — it plugs in at the insertion point below and NEVER restates the generic obligations.
 
@@ -145,22 +147,64 @@ This card carries the WORKER-side obligations that make reconciliation possible 
 
 ---
 
-## 6. Composing an Agent-tool dispatch from this card alone
+## 5a. Generating the dispatch — run the scaffold (pre-flight + execution path)
 
-For an Agent-tool sub-agent (no per-model manual involved), this card is self-sufficient. Compose the dispatch as:
+The composition this card defines (§1 packaging, §2 addendum, §3 schema, + the per-model invocation note for a CLI worker) is GENERATED by the dispatch-scaffold, not hand-authored. The scaffold derives every byte of the boilerplate at run time from THIS card + the chosen model's delta on disk — so a dispatch can never drift from the card. This card's text remains the SOURCE the scaffold derives from: **card text wins; a scaffold output that disagrees with the card is a defect to file, never a reason to hand-patch the dispatch.**
+
+### Pre-flight — scripted, runs before any dispatch (pre-spend)
+
+The scaffold runs four scripted pre-flight gates before it writes anything; ANY failure ⇒ EXIT≠0 + a machine-readable error naming the gap, with NO file written (a broken dispatch is caught before spend):
+
+| # | Scripted check | Passes when |
+|---|----------------|-------------|
+| 1 | **Package installed** | `{rbtv_path}/orchestration/models/{model}/` exists with a `delta.md` |
+| 2 | **Manual fresh** | `render-manuals.py --check --model {model}` reports zero drift — the rendered manual is current with the card + delta (a stale manual signals a re-render is owed first; the scaffold reports it, never papers over it) |
+| 3 | **Guidance file present** | the model's guidance-file convention resolves for the work-dir (present, or its absence is reported so the conductor mirrors it). This is the guidance-FILE check, NOT the rules-library reach (that is Review-5's hook, no-op by default) |
+| 4 | **Output folder exists** | `--output-folder` is an existing directory — the scaffold never creates it |
+
+**Conductor pre-flight hygiene (ADX-1) — these run ALONGSIDE the scripted gates, conductor-side:** any auth/config pre-flight (e.g. confirming an API key resolves, reading a manifest field) queries SPECIFIC non-secret fields ONLY — NEVER dump a whole settings/config file into a command or a transcript (a live key reached a transcript once — a real incident). Secret PRESENCE is checked as a boolean (resolves / does not resolve); a secret VALUE is never echoed, logged, or pasted.
+
+**Capture-bound Manus dispatches (ADX-4):** when the dispatch is a capture-bound Manus task, add the pre-flight line that the prompt MUST demand the complete deliverable in the reply MESSAGE TEXT — an attachment-only return failed live (see the manus delta obligations).
+
+### The execution path — the exact CLI
+
+Run the scaffold from the rbtv repo root (CWD = `{rbtv_path}`):
+
+```
+python orchestration/skills/orchestrating/scripts/scaffold.py \
+  --model <model> --output-folder <dir> --filename <name> \
+  [--instructions <file-or-inline>] [--explain]
+```
+
+| Mode | Trigger | What it writes | Conductor then |
+|------|---------|----------------|----------------|
+| **Skeleton** | NO `--instructions` | the composed header (addendum §2 + schema §3 + decisions pointer + — for a CLI model — the invocation/transport note) + the per-model frontmatter SKELETON + empty body-section HEADERS | fills ONLY task-specific content (Goal / Context / Implementation / allowlist values), then dispatches |
+| **Complete** | `--instructions <file-or-inline>` | a COMPLETE dispatchable prompt — the composed header + frontmatter + body with the instructions merged into the task-specific sections | points the worker straight at the file without re-reading the boilerplate |
+
+`--explain` prints the composed source paths + each pre-flight outcome (provenance preview; still writes the file). The scaffold is carrier-aware: an Agent-tool carrier (the `models/claude/` package) gets the no-CLI composition (no invocation note, zero scraped flags); a CLI carrier derives its flags from its delta's `invocation` section.
+
+### Hand-authoring is the FALLBACK only
+
+Compose a dispatch by hand ONLY when the scaffold pre-flight fails and cannot be cleared in-run (e.g. a model delta is unparseable). Hand-authoring is a named fallback, not a default: when used, log a run-log event recording WHY the scaffold could not generate the dispatch. The card's §1–§3 below remain the authoritative content the hand-authored dispatch must reproduce verbatim.
+
+---
+
+## 6. What the scaffold composes for an Agent-tool dispatch
+
+For an Agent-tool sub-agent (no per-model manual involved), this card is self-sufficient and the scaffold (skeleton or complete mode, §5a) composes the dispatch as:
 
 1. **Payload** — the self-contained task file, verbatim (§1).
 2. **Header** — the binding addendum (§2), the return schema (§3), the `decisions.md` pointer (or inlined entries), and the `[INLINED]`/`[FULL READ]` reference marks with their excerpts.
 3. **Skill directives** — name every skill the task triggers in imperative form (the `rbtv-sub-agents` mandate: research → `rbtv-web-searching`; commits → `rbtv-commit`) — the sub-agent does NOT auto-discover them.
 4. **Transport** — instruct the sub-agent to return the five fields as its final reply (§3 Agent-tool row).
 
-No per-model knowledge is needed for the Agent-tool path: the model delta and the CLI invocation shape exist only for CLI workers. A routing-card assignment plus this card fully specify an Agent-tool dispatch.
+No per-model knowledge is needed for the Agent-tool path: the model delta and the CLI invocation shape exist only for CLI workers. A routing-card assignment plus this card (run through the scaffold) fully specify an Agent-tool dispatch.
 
 ---
 
-## 7. Composing a CLI dispatch — generic template + model delta
+## 7. What the scaffold composes for a CLI dispatch — generic template + model delta
 
-For a CLI worker, the dispatch manual is GENERATED at build time: the render script (`{rbtv_path}/orchestration/models/render-manuals.py`) composes the generic sections of this card (the `RENDER:BEGIN/END` blocks above) with the model package's delta at the named `RENDER:INSERT` points, producing the model's full dispatch manual under `{rbtv_path}/orchestration/models/{model}/`. At run time the conductor opens that rendered manual (JIT, at first dispatch to the model), not this card.
+For a CLI worker, the dispatch manual is GENERATED at build time: the render script (`{rbtv_path}/orchestration/models/render-manuals.py`) composes the generic sections of this card (the `RENDER:BEGIN/END` blocks above) with the model package's delta at the named `RENDER:INSERT` points, producing the model's full dispatch manual under `{rbtv_path}/orchestration/models/{model}/`. At run time the conductor opens that rendered manual (JIT, at first dispatch to the model), not this card; the scaffold (§5a) composes the per-dispatch task file/prompt against that same card + delta.
 
 What the model delta supplies at the insertion points:
 

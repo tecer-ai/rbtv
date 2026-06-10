@@ -13,8 +13,17 @@ status: pending | in_progress | completed | cancelled
 phase: understand | execute | validate | close
 complexity_score: {N}
 human_review: required | optional | none
+# Orchestration pre-resolution fields (ONLY when orchestrated: true and step-03 §6c resolved them — DEEP, or the LIGHT critical subset). Omitted on a plain interactive plan.
+executor: { model: {model}, variant: {variant}, carrier: {carrier} }   # router-pinned (route.py) — NOT reasoned with the user
+reviewer: { model: {model}, variant: {variant} }                       # reviewer pin: ≥ executor+1, floor sonnet, never haiku
+allowlist:
+  create: []
+  modify: []
+  delete: []
 ---
 ```
+
+**Orchestration pre-resolution shape:** `executor`/`reviewer`/`allowlist` are the standing pre-resolution frontmatter the planner emits for an orchestrated DEEP plan (and the LIGHT critical subset). `executor.{model, variant, carrier}` is the router pin (resolved by calling `route.py`, never reasoned with the user); `reviewer.{model, variant}` is the reviewer-floor pin; `allowlist.{create, modify, delete}` is the file-operation allowlist (✚/✎/✗ — also restated in the body per the task-file contract). When the executor pin names a model that ships a per-model contract delta, the model-specific frontmatter keys + body sections are DERIVED from that delta via the dispatch-scaffold in skeleton mode — see `step-04-generate-artifacts.md` § Generate Micro-Step Task Files. A plain (non-orchestrated) plan omits all three blocks.
 
 ```markdown
 # Task {task-id}: {Task Title}
@@ -132,6 +141,12 @@ PLAN MODIFIED:
 - Added: {task-id} - {description}
 - Removed: {task-id} - {reason}
 ```
+
+---
+
+## Decisions Discipline
+
+> `decisions.md` entries: decision + rationale + scope ONLY (+ optional one-word `compoundable` marker for harvest-worthy findings) — never file-lists or N→M narratives; supersede by appending, never rewrite.
 ```
 
 ---
@@ -290,4 +305,4 @@ The Human Review Presentation block is RUNTIME content (emitted by the executor 
 - `phase-1/p1-1.task.md`
 - `phase-1/p1-checkpoint.task.md`
 - `phase-2/p2-3.task.md`
-- `phase-final/pN-compound.task.md`
+- `phase-final/pN-checkpoint.task.md`

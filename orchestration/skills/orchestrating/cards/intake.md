@@ -32,6 +32,27 @@ Before anything else, confirm the run is viable and capture what the doors need:
 | Inputs located | Plan door: locate the plan + its companion artifacts. Goal door: capture the goal prompt and any files/data it points at. |
 | Guidance-file presence noted | If code work will route to a CLI worker, note whether the workspace carries that worker's guidance file (`AGENTS.md`, agent file, etc.). A missing one is surfaced at routing, not invented here. |
 
+**In-run light path — a trivial task inside a running orchestration (the triviality bar).**
+
+A run already in flight may hit a task so trivial that full per-task ceremony (a dispatch prompt, a separate task artifact, a worker round-trip) is pure overhead — the D10 folder-rename pathology (~95% ceremony on a one-second op). For such a task ONLY, the conductor MAY self-execute at light ceremony, overriding the plan's `executor:` pin for THAT task alone. This is the sole sanctioned carve of core Invariant 1 — read core-protocol.md Invariant 1 for the carve's authority; this card owns the bar and the gesture.
+
+**The triviality bar — ALL six conditions MUST hold (else route to a worker normally; fail-safe is to dispatch, never to self-execute on doubt):**
+
+| # | Condition |
+|---|-----------|
+| 1 | Single deterministic file-op against an EXPLICIT source→target mapping (a move/rename/stamp/flip — never "figure out where X goes"). |
+| 2 | No content authoring (no new prose, code, rule text, or design content — authoring the deliverable stays barred by Invariant 1). |
+| 3 | No rule / card / contract / architectural-constraint semantics — purely mechanical bookkeeping or file placement. |
+| 4 | Validation is exactly ONE deterministic command (a clean `git status`, one `pytest` line, a single grep). |
+| 5 | Reversible (trivial undo) and touches NO user content destructively. |
+| 6 | The profile's `stakes_tier` is RESOLVED and low. The bar NEVER clears while stakes are `unresolved`. |
+
+**The self-execute gesture + record.** When all six hold: surface the task and the cleared bar to the owner as a multiple-choice ask ("self-execute this ≈2-min reversible op, or dispatch it?"); on approval — or, in `autonomous` mode, as a LABELED confidence-rated unilateral decision — record it as a run-log event via the stamp script (`{rbtv_path}/orchestration/skills/orchestrating/scripts/stamp.py`), then self-execute. The override applies to the ONE bar-clearing task and expires; the next task keeps its pin.
+
+**Light-path spine writes (one stamp call):** KEEP the run-log event (carrying the approval/decision), the deliverables row, and the plan checkbox; flip the task `status` only if a separate task artifact exists. DROP the dispatch prompt file (no worker is dispatched) and the separate task artifact when the plan task line is self-contained (Invariant 2's "no dispatch without an artifact" floor does not apply — there is no dispatch). All KEEP writes collapse into one `stamp.py` call; the conductor owns all of them (no worker, so the worker-stampable/conductor-only split resolves to conductor-only).
+
+**Boundary — distinct from the entry-level single dispatch.** The minimal-ceremony single dispatch in the EXCEPTION row above is about ENTRY (a fitting unit routes to a worker at run open). This in-run light path is about a trivial task INSIDE a running run that the conductor self-executes. Both are minimal-ceremony; only the in-run light path carves Invariant 1, and only under the six-condition bar.
+
 There is NO code-vs-non-code hard redirect at intake. Code work is routed, not rejected — the code-backend question (step 5) handles it. (Supersedes the retired plan-orchestration pre-flight redirect, per D20.)
 
 ---
@@ -92,12 +113,12 @@ NEVER estimate spend in currency. Reliable per-run dollar cost cannot be compute
 | Element | Content |
 |---------|---------|
 | The ask | "Any model to swap to save this run, or run at the default tiers?" |
-| Sketch the provisional map | Routing has not run yet, so the map is PROVISIONAL, but it STILL names a concrete `(model, variant)` pair per work-cluster — NEVER a bare provider. Assign each phase/work-cluster its DEFAULT pair by running the routing §2a selector (`{rbtv_path}/orchestration/skills/orchestrating/cards/routing.md` §2a — enumerate installed `(model, variant)` → filter to the cluster's boundedness band → rank by `cost_class`) against the installed manifests: bounded code → the cheapest capable code-executor variant (e.g. `kimi:default`), judgment-dense work → a top-tier Claude variant (`claude:opus`), review → the pinned reviewer-floor variant (`claude:opus`), text synthesis → the cheapest capable text variant (e.g. `deepseek:v4-flash`). The `(model, variant)` pairs shown here are ILLUSTRATIVE — the binding pair for each cluster is whatever the live §2a run returns against the installed manifests, never a hardcoded pair. The user approves a ceiling / swap POLICY against this sketch, not a finalized assignment; routing re-surfaces the binding map at step 8. |
-| Spend forecast — per-variant `cost_class` | Each work-cluster's line shows its assigned `(model, variant)` pair and that variant's `cost_class` read from its manifest (`models/manifest-schema.md` §2 — `cheapest` · `low` · `mid` · `high`), NOT a dollar figure. The user swaps on the relative cost class, not on an invented number. Flag any `(model, variant)` whose manifest carries `evidence_status: probe-pending` (the API chat/agentic variants) as **ESTIMATE-ONLY** — its `cost_class` is authored from the routing-matrix reference, not pilot-validated spend. |
+| Sketch the provisional map | Routing has not run yet, so the map is PROVISIONAL, but it STILL names a concrete `(model, variant)` pair per work-cluster — NEVER a bare provider. Assign each phase/work-cluster its DEFAULT pair by calling the routing §2a selector script (`route.py` per `{rbtv_path}/orchestration/skills/orchestrating/cards/routing.md` §2a — one profile per cluster, carrying its boundedness band) against the installed manifests: bounded code → the cheapest capable code-executor variant (e.g. `kimi:default`), judgment-dense work → a top-tier Claude variant (`claude:opus`), review → the pinned reviewer-floor variant (`claude:opus`), text synthesis → the cheapest capable text variant (e.g. `deepseek:v4-flash`). The `(model, variant)` pairs shown here are ILLUSTRATIVE — the binding pair for each cluster is whatever the live §2a run returns against the installed manifests, never a hardcoded pair. The user approves a ceiling / swap POLICY against this sketch, not a finalized assignment; routing re-surfaces the binding map at step 8. |
+| Spend forecast — per-variant `cost_class` | Each work-cluster's line shows its assigned `(model, variant)` pair and that variant's `cost_class` read from its manifest (`models/manifest-schema.md` §2 — `cheapest` · `low` · `mid` · `high` · `premium`), NOT a dollar figure. The user swaps on the relative cost class, not on an invented number. Flag any `(model, variant)` whose manifest carries `evidence_status: probe-pending` (the API chat/agentic variants) as **ESTIMATE-ONLY** — its `cost_class` is authored from the routing-matrix reference, not pilot-validated spend. |
 | Name pairs, never bare providers | The budget summary NAMES `(model, variant)` pairs on EVERY row — e.g. `claude:sonnet`, `deepseek:v4-flash`, `kimi:default` — and NEVER a bare provider like "a top-tier Claude" or "DeepSeek". A bare-provider row is the "Claude as one entity" collapse this enumeration exists to kill (routing §2a "never collapses"; the run-log and this summary name the same pair). |
 | Timing | The map is provisional at intake (routing finalizes assignments) — present it as the cost-class policy the user is approving, and re-surface the final pair-named map at step 8. |
 
-`cost_class` is a TIER LABEL (`cheapest` / `low` / `mid` / `high`), NEVER a dollar amount — this section's opening no-currency rule and core invariant 6 both hold: the forecast stays in cost-class tiers, never currency.
+`cost_class` is a TIER LABEL (`cheapest` / `low` / `mid` / `high` / `premium`, cost-ascending — `premium` ranks above `high`, reserved for premium-priced top-tier models e.g. Fable 5; cost-ascending selection never auto-picks it — pinned-roles reachability), NEVER a dollar amount — this section's opening no-currency rule and core invariant 6 both hold: the forecast stays in cost-class tiers, never currency.
 
 The budget answer feeds routing's BUDGET filter; a model swap the user approves here is the standing delegation map for the run.
 

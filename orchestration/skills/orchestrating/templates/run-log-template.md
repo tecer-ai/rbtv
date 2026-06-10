@@ -9,9 +9,9 @@ Instantiate this as `run-log.md` in the run's spine location at spine init (inta
 ```markdown
 # Run Log — {run-name}
 
-> **Append-only audit log.** Owner-facing accountability record. A WORKER never reads this file — workers read `decisions.md` + their own task file (audience separation: state card §5). Never edit or delete a prior entry; append new events at the bottom in chronological order.
+> [!warning] Append-only audit log — follow `_shared/authoring/decisions-discipline.md` (never edit or delete a prior entry).
 
-> **Distinct from `learnings.md` (plan runs).** This file is the DECISION / EVENT audit trail. `learnings.md` (the plan's file) is the compound-source for future-plan agents. A single event MAY warrant entries in BOTH — when it does, write two separate entries, each in its own shape (dual-write rule: state card §6). NEVER merge the two shapes into one entry.
+> **Distinct from the compound source.** This file is the DECISION / EVENT audit trail. Harvest-worthy findings live in `decisions.md` entries carrying the one-word `compoundable` marker (the single compound home — there is no separate `learnings.md`). A single event MAY warrant entries in BOTH this log AND a `compoundable` decisions entry — when it does, write two separate entries, each in its own shape (dual-write rule: state card §6). NEVER merge the two shapes into one entry.
 
 ---
 
@@ -93,7 +93,7 @@ These bind every entry the orchestrator appends. The full discipline lives in ON
 
 | Rule | Statement |
 |------|-----------|
-| **Append-only, absolute** | NEVER edit or delete a prior entry. New events append at the bottom in chronological order. An audit trail you can rewrite is not an audit trail. |
+| **Append-only, absolute** | NEVER edit or delete a prior entry; new events append at the bottom in chronological order. Full discipline (supersede-by-appending, size-floor): follow `_shared/authoring/decisions-discipline.md`. |
 | **Both directions logged** | Every dispatch logs an OUT row and, on return, a BACK row. A log with dispatches but no returns cannot be resumed correctly (registrar discipline: state card §7). |
 | **Unilateral rows are labeled + confidence-rated** | In autonomous mode every skipped halt / unilateral decision is a U-register row carrying `high` / `medium` / `low`. The finalization surfaces medium and low explicitly. |
 | **Drift is recorded, never smoothed** | When verification finds message ≠ disk, append a `drift` event (disk won; the record proves it) — never silently reconcile away a discrepancy. |

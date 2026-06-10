@@ -5,7 +5,6 @@ nextStep: ./steps-c/step-01-init.md
 templateFile: ./templates/plan-template.md
 microstepTemplateFile: ./templates/plan-task-microstep-template.md
 decisionsTemplateFile: '{rbtv_path}/orchestration/workflows/_shared/templates/decisions-template.md'
-learningsTemplateFile: ./templates/learnings-template.md
 deliverablesTemplateFile: ./templates/deliverables-template.md
 ---
 
@@ -49,7 +48,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 | Mode | Purpose | Entry Point | Steps | Output |
 |------|---------|-------------|-------|--------|
-| Create | Build new plan from scratch | steps-c/step-01-init.md | 4 steps | Plan file (*-plan.md), decisions.md, learnings.md, deliverables.md, micro-step files, spec files (code work) |
+| Create | Build new plan from scratch | steps-c/step-01-init.md | 4 steps | Plan file (*-plan.md), decisions.md, deliverables.md, micro-step files, spec files (code work) |
 
 **Create Mode Steps:**
 
@@ -58,7 +57,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 | 01 | step-01-init.md | Initialize, detect state, resolve output path |
 | 02 | step-02-context.md | Gather context and scope |
 | 03 | step-03-structure.md | Create phases, tasks, checkpoints |
-| 04 | step-04-generate-artifacts.md | Write all files (plan, decisions, learnings, deliverables, task files, specs), validate, summary |
+| 04 | step-04-generate-artifacts.md | Write all files (plan, decisions, deliverables, task files, specs), validate, summary |
 
 ---
 
@@ -74,12 +73,11 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 2. **Single action per task** — Never combine actions
 3. **Explicit file operations** — Use CREATE/UPDATE/DELETE/MOVE verbs
 4. **Zero-context plans** — Plans must be self-contained
-5. **Companion files** — Create decisions.md, learnings.md, and deliverables.md alongside plan
+5. **Companion files** — Create decisions.md and deliverables.md alongside plan
 6. **Micro-step files** — Generate task files with complete execution instructions
 7. **Dependency ordering** — Validate dependencies before dependents
 8. **Checkpoints required** — 3-6 checkpoints at inflection points
 9. **Architectural constraints** — Document patterns that MUST be followed
-10. **Final compound task** — Last task is always pN-compound for learnings review
 
 ---
 
@@ -99,8 +97,7 @@ Created during finalization in `{output-path}/{plan-name}/`:
 | Artifact | Purpose |
 |----------|---------|
 | {plan-name}-plan.md | Main plan file with phases, tasks, and architectural constraints |
-| decisions.md | Scope boundaries, constraints, shaping decisions, discoveries, and required execution references (worker-facing; entry-shape disciplined) |
-| learnings.md | System improvement queue for RBTV meta-learnings |
+| decisions.md | Scope boundaries, constraints, shaping decisions, discoveries, and required execution references (worker-facing; entry-shape disciplined; harvest-worthy entries carry the one-word `compoundable` marker) |
 | deliverables.md | Artifact index — one row per task: where its output lands, with status |
 | {feature}-spec.md | Behavior spec + test plan per code feature (code-work plans only; from the shared spec template) |
 | phase-N/ | Folders containing micro-step task files |

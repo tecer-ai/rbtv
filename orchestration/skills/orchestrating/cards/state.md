@@ -16,9 +16,9 @@ A run carries exactly three state files. Each has ONE audience and ONE mutabilit
 |------|------------|----------|-------|
 | **`run-log.md`** | **Append-only audit** | The OWNER + the conductor reviewing post-hoc — NEVER a worker | Every orchestration event: dispatch / return / gate / probe rows; the exit scorecard; the D- / U- / ADX registers; autonomous unilateral decisions as LABELED, confidence-rated rows |
 | **`state-capsule.md`** | **Mutable, atomic-overwrite** | The NEXT conductor session, resuming after interruption or refresh | The small in-flight state needed to resume cleanly: resume point, run configuration, approved delegation map, active red sets, active doubts / blockers |
-| **`decisions.md`** | **Append-only, worker-facing** | WORKERS (alongside their own task file), plus the later compound/synthesis step that harvests forward-affecting decisions at run close | ONLY decisions / discoveries / errata that affect FUTURE work — never an execution log |
+| **`decisions.md`** | **Append-only, worker-facing** | WORKERS (alongside their own task file) | ONLY decisions / discoveries / errata that affect FUTURE work — never an execution log; harvest-worthy entries carry the one-word `compoundable` marker (the single harvesting home — `rbtv-compounding` covers correction-driven capture in the moment) |
 
-The split is load-bearing: the audit log accretes forever (the owner's accountability record), the capsule is overwritten every beat (only the latest resume state matters), and the worker-facing decisions file carries forward-affecting SIGNAL only. A finding written to the wrong file is lost to its real audience — the two routing-confusion compounds (below, §6) exist because findings landed in audit/state files and never reached `decisions.md` / `learnings.md`.
+The split is load-bearing: the audit log accretes forever (the owner's accountability record), the capsule is overwritten every beat (only the latest resume state matters), and the worker-facing decisions file carries forward-affecting SIGNAL only. A finding written to the wrong file is lost to its real audience — the two routing-confusion compounds (below, §6) exist because findings landed in audit/state files and never reached `decisions.md`.
 
 ---
 
@@ -35,7 +35,7 @@ The run's complete event history, append-only, owner-facing. It absorbs the old 
 | **Drift instances** | When verification's reconciliation finds message ≠ disk, the discrepancy is logged here (disk won; the record proves it). |
 | **`[PRECONDITION-OVERRIDE]` rows** | The precondition-override protocol (halt-recovery §6) records its labeled row here: the PRECONDITION verbatim, the user justification verbatim, the protective-scope verification result, confidence, risk, reversibility. |
 
-**Append-only is absolute.** NEVER edit or delete a prior `run-log.md` entry. New events append at the bottom in chronological order. This is the file's whole value — an audit trail you can rewrite is not an audit trail.
+> Append-only discipline (NEVER edit/delete a prior entry; supersede by appending; size-floor on rewrites) is owned by `_shared/authoring/decisions-discipline.md`. Follow it.
 
 ---
 
@@ -72,9 +72,9 @@ The file WORKERS read (with their own task file) to pick up decisions, discoveri
 
 The `Decisions file:` field in `state-capsule.md` records the ONE resolved path (the plan's file for a plan-backed run; the spine-local file for a plan-less run) — never both, never ambiguous. A resumed conductor reads exactly that path.
 
-**Entry-shape discipline is NOT restated here — it lives in one source.** Follow `{rbtv_path}/orchestration/workflows/_shared/authoring/decisions-discipline.md`: every entry is decision + rationale + scope ONLY; never a files-changed list; never an N→M count narrative; supersede an earlier entry by APPENDING a new one (UPDATE-not-REWRITE), never by rewriting it; routine completions are excluded. That file is the source the `decisions-template` hard text carries (lands at p4-2).
+**Entry-shape discipline is NOT restated here — it lives in one source.** Follow `{rbtv_path}/orchestration/workflows/_shared/authoring/decisions-discipline.md`: every entry is decision + rationale + scope ONLY (plus an optional one-word `compoundable` marker for harvest-worthy findings); never a files-changed list; never an N→M count narrative; supersede an earlier entry by APPENDING a new one (UPDATE-not-REWRITE), never by rewriting it; routine completions are excluded. That file is the source the `decisions-template` hard text carries (lands at p4-2).
 
-> `decisions.md` entries: decision + rationale + scope ONLY — never file-lists or N→M narratives; supersede by appending, never rewrite.
+> `decisions.md` entries: decision + rationale + scope ONLY (+ optional one-word `compoundable` marker for harvest-worthy findings) — never file-lists or N→M narratives; supersede by appending, never rewrite.
 
 ---
 
@@ -99,22 +99,22 @@ When the conductor makes (or a worker surfaces) a decision that affects work alr
 | Step | Action |
 |------|--------|
 | **1. Assign the ADX number, then amend the affected task files** | FIRST claim the next `ADX-N` from the run-log ADX-register (assign atomically before writing the erratum body) — so two concurrent errata never collide on the same N. THEN, for every queued task the decision changes, APPEND the ruling to that task file as the `ADX-N` erratum — append-only, never a rewrite of the task body. The resumed/re-dispatched worker consumes the ruling FROM the task file on disk, not from chat. (This is the same erratum halt-recovery §2 and verification §2d write; this card owns that the number is register-assigned, it is append-only, and it lands in the consumed artifact.) |
-| **2. Log the row** | Record the decision in `run-log.md` (the `D-`/`ADX-` register) so the audit trail carries it. |
-| **3. Carry forward-affecting findings to `decisions.md`** | If the decision is a discovery/erratum that changes FUTURE work (not just the one task), append a `decisions.md` entry per §4's discipline so every later worker and the compound step see it. |
+| **2. Log the row** | Record the decision in `run-log.md` (the `D-`/`ADX-` register) so the audit trail carries it. (A decision that also advances a task's STATE rides the `stamp.py` event of that transition — §7's stamp call, not a separate manual run-log edit.) |
+| **3. Carry forward-affecting findings to `decisions.md`** | If the decision is a discovery/erratum that changes FUTURE work (not just the one task), append a `decisions.md` entry per §4's discipline (carrying the `compoundable` marker if harvest-worthy) so every later worker sees it. |
 
 The rule in one line: a decision that changes queued work is placed IN the artifacts the affected workers read, append-only, AND logged — never left in conversation, never written to only one surface.
 
 ### The dual-write rule (mode-independent)
 
-A single source event MAY qualify for BOTH an audit/state file AND the compound-source `learnings.md` (plan runs). When it does, write TWO separate entries — one to each, each in that file's shape — NEVER one entry with the other's shape grafted in. This holds in every multi-agent mode (the two routing-confusion compounds proved the gap recurs across modes):
+A single source event MAY qualify for BOTH an audit/state file AND a compoundable FINDING. When it does, write TWO separate entries — one to each, each in that file's shape — NEVER one entry with the other's shape grafted in. The compound destination is the worker-facing `decisions.md` entry carrying the one-word `compoundable` marker — the single harvesting home (there is no separate `learnings.md`). This holds in every multi-agent mode (the two routing-confusion compounds proved the gap recurs across modes):
 
 | Mode | The audit/state write | The compound write |
 |------|-----------------------|--------------------|
-| **Autonomous** | The unilateral DECISION → `run-log.md` (labeled, confidence-rated row) | The compoundable FINDING → `learnings.md` |
-| **Orchestrated** | A finding that changes FUTURE work → `decisions.md` (worker-facing, append-only). A finding that changes only the IN-FLIGHT resume state (an active doubt, a new red set, a changed resume point) → the matching `state-capsule.md` Active section (atomic overwrite). A finding that is BOTH goes to both; one that is neither is logged in `run-log.md` only. (No "residual" catch-all — each finding routes by what it changes.) | The compoundable FINDING → `learnings.md` (do NOT rely on the compound step to harvest it back out of state/decisions later — the harvest is lossy) |
-| **Interactive halt** | Findings surface to the user live | The executor SHOULD still append the `learnings.md` entry so the compound step has a durable source |
+| **Autonomous** | The unilateral DECISION → `run-log.md` (labeled, confidence-rated row) | The compoundable FINDING → a `decisions.md` entry marked `compoundable` |
+| **Orchestrated** | A finding that changes FUTURE work → `decisions.md` (worker-facing, append-only). A finding that changes only the IN-FLIGHT resume state (an active doubt, a new red set, a changed resume point) → the matching `state-capsule.md` Active section (atomic overwrite). A finding that is BOTH goes to both; one that is neither is logged in `run-log.md` only. (No "residual" catch-all — each finding routes by what it changes.) | The compoundable FINDING → its `decisions.md` entry carries the `compoundable` marker (a forward-affecting finding that is ALSO harvest-worthy is ONE marked entry, not a second file) |
+| **Interactive halt** | Findings surface to the user live | A compoundable finding is still appended to `decisions.md` with the `compoundable` marker so the harvest source is durable; correction-driven capture is `rbtv-compounding`'s job in the moment |
 
-`learnings.md` and `deliverables.md` are the PLAN's files (owned by `rbtv-planning`), unchanged by this spine — the dual-write rule is the seam between the run's state files and the plan's compound source. A plan-less run has no `learnings.md`; its compoundable findings, if any, surface to the user at run end per the run mode.
+`deliverables.md` is the PLAN's file (owned by `rbtv-planning`), unchanged by this spine. The compound source is no longer a separate file: harvest-worthy findings are `decisions.md` entries carrying the `compoundable` marker, and `rbtv-compounding` covers correction-driven capture in the moment. A plan-less run's compoundable findings surface to the user at run end per the run mode.
 
 ---
 
@@ -127,8 +127,24 @@ The orchestrator is the run's registrar: every dispatch and every result is logg
 | **Log both directions** | Append a row when a dispatch goes OUT (task, worker, timestamp) AND when its result comes BACK (status, reconciled outcome). A run-log with dispatches but no returns cannot be resumed correctly. |
 | **Re-read the tail after any gap** | After a context refresh, an interruption, or ANY gap in the conductor's continuity, RE-READ the `run-log.md` tail (and `state-capsule.md`) before dispatching again — never resume from memory of what was dispatched. The log is the ground truth for "what is in flight." |
 | **Update the capsule in lockstep** | Each logged event that ADVANCES the run also updates `state-capsule.md` (resume point + timestamp). "Advances" = changes the resume point (a batch/task completed, the next dispatch changed), the active red sets, or the active doubts/blockers. An event that does NOT change any of those (e.g., a logged drift instance the conductor immediately reconciled, a mid-batch probe) lands in `run-log.md` ONLY — it does not force a capsule rewrite. The append-only log records every event; the mutable capsule records only the new resume state. |
+| **Name a CLI-worker result by (harness, harness-version, model)** | When a CLI-worker result is recorded in the spine (the run-log result row, a delegation-map entry, a capsule resume note), name it as **(harness, harness-version, model)** — e.g. `qwen-code 0.17.1 / qwen3-coder` — NEVER a bare provider word. A CLI harness serves configurable models (qwen's DashScope model set is the live case: one `qwen` harness, many selectable models), so a bare provider word under-identifies which worker actually ran and is not reproducible on resume. This is the single statement of the attribution convention; other surfaces that record a result POINT here. |
 
 This is the discipline that makes the run survivable across sessions: state lives in the files, not in the process.
+
+**Merge-back discipline — never merge onto a foreign-dirty target.** When a wave's work was done on a worktree branch and is to be merged back, NEVER merge that branch onto a target path carrying uncommitted changes owned by ANOTHER session (foreign-dirty). A merge over a foreign-dirty target silently clobbers the other session's applied-but-uncommitted work. Instead DEFER the merge and record it in `state-capsule.md` as a resume obligation (an Active doubt/blocker or a Resuming-Conductor note): the branch to merge, the target, why it is held (foreign-dirty), and the condition that clears it (the foreign hunks committed or attributed). The resumed conductor reads the obligation and completes the merge once the target is clean.
+
+### The state-transition stamp — `stamp.py` performs the four writes (single authority)
+
+A semantic state transition (a task reaching `in_progress` / `completed` / `deferred`) touches up to four bookkeeping files: the plan task-list checkbox, the task file's `status:` frontmatter, the `deliverables.md` row, and — conductor only — the `run-log.md` event with its `state-capsule.md` lockstep. These four are NOT four hand-edits: they are ONE invocation of `{rbtv_path}/orchestration/skills/orchestrating/scripts/stamp.py`. This is the single specification of that call; every other procedure that advances a task's state POINTS here and never restates the invocation.
+
+| Scope | Call | Surfaces written |
+|-------|------|------------------|
+| **Worker** stamping its OWN task | `stamp.py --plan-dir {plan} --task {id} --status {in_progress\|completed\|deferred} --scope worker` (+ `--reason` for a deferral, `--artifact` to set the deliverables Path cell) | The three worker surfaces ONLY: plan checkbox, task `status:` frontmatter, `deliverables.md` row. The run-log and capsule are HARD-BLOCKED in worker scope (§5 audience separation enforced at the CLI). |
+| **Conductor** advancing the run | `stamp.py --plan-dir {plan} --task {id} --status {…} --scope conductor --event "<run-log line>"` (+ `--resume-note "<text>"` for the capsule resume bullet; `--reason` / `--artifact` as needed) | All four: the three worker surfaces PLUS the appended `run-log.md` event and the `state-capsule.md` resume-point + timestamp lockstep. |
+
+The call is all-or-nothing (every target validated before any write — a missing target writes nothing and EXITs non-zero), idempotent (a re-run is a no-op; the run-log append is deduped on `(task-id, status, event-type)`), and refuses to guess on unrecognized structure. Run with `--explain` to preview every target's current→would-write value without writing.
+
+**A stamp FAILURE halts the transition loudly.** A non-zero EXIT from `stamp.py` means the transition did NOT complete — STOP. Do NOT fall back to hand-editing the four files to "finish" the transition: a manual fallback is allowed ONLY when the conductor first appends a `run-log.md` event recording the stamp failure, the reason, and that the transition is being completed by hand (so the audit trail shows the deviation). Re-running the same stamp after fixing the cause is the normal recovery — the convergent writes already applied stand, and the dedup key keeps the re-run clean (§S9 recoverable-partial-write model). Full CLI contract and failure semantics: `{rbtv_path}/orchestration/skills/orchestrating/scripts/stamp.py` (run `--help`).
 
 ---
 
@@ -138,7 +154,7 @@ The spine is the resume artifact — there is NO separate handoff document. Cont
 
 | Operation | Procedure |
 |-----------|-----------|
-| **Context-refresh (suggest mode)** | At an APPROVED clean phase boundary ONLY, offer to stop and resume with a fresh conductor. Never refresh mid-phase or before the full delegation map is set (intake §7 sets the policy; this card owns the mechanics). On accept: ensure `state-capsule.md` reflects the next dispatch, the log tail is current, then STOP — the fresh session resumes from the capsule. |
+| **Context-refresh (suggest mode)** | The refresh offer is a MANDATORY CHECKLIST ROW of the phase-boundary / checkpoint procedure — a deterministic step the conductor runs every time it reaches an approved clean phase boundary, NOT a mid-phase self-assessment the conductor must remember to fire. At EVERY such boundary, before advancing, the conductor records one line: **offer context refresh — yes/no + a one-line reason** (e.g. "yes — phase 3 done, ~70% context used, clean capsule"; "no — phase short, context ample"). On a yes that the owner approves: ensure `state-capsule.md` reflects the next dispatch, the log tail is current, then STOP — the fresh session resumes from the capsule. The row fires at the boundary ONLY — never mid-phase, never before the full delegation map is set (intake §7 sets the policy; this card owns the mechanics). Making the offer a boundary-row replaces the old unmeasurable "offer when context feels like it is filling" self-trigger, whose protective intent (catch long-session drift before it corrupts a run — the ~9h session that missed its refresh) is now CARRIED by this deterministic row: the boundary is the measurable moment, and the one-line reason forces the conductor to state the context/drift judgment explicitly instead of silently skipping it. |
 | **Context-refresh (off mode)** | Keep the same conductor unless the session is interrupted; the spine is still the recovery artifact if it is. |
 | **Resume (new session)** | Read `state-capsule.md` FIRST (resume point + delegation map + active red sets + active doubts), THEN the `run-log.md` tail to confirm what is in flight, THEN `decisions.md` for the rulings in force. Skip already-completed work per the resume point + completed batches; never redo a batch the capsule marks done. **Capsule absent or corrupted (and no recoverable `.tmp`):** reconstruct the resume state from the `run-log.md` tail — the last Run Configuration row gives mode/refresh/paths, the last logged event gives the resume point and what was in flight, and the registers give the rulings — then re-write a fresh capsule before dispatching. The run-log is the append-only ground truth the mutable capsule is derived from; it can always rebuild the capsule. |
 

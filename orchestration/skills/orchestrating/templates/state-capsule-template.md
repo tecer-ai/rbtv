@@ -9,7 +9,7 @@ Instantiate this as `state-capsule.md` in the run's spine location at spine init
 ```markdown
 # State Capsule — {run-name}
 
-> **Mutable file — overwriting is the contract.** The orchestrator atomically overwrites this file at each batch close and each reviewer close. Holds in-flight resume state ONLY — never an audit log (that is `run-log.md`, append-only) and never a worker-facing decision (that is `decisions.md`, append-only). A WORKER never reads this file.
+> Mutable file, but entries are append-only per `_shared/authoring/decisions-discipline.md`. Follow it. Planning decisions belong in `decisions.md`, not here.
 
 > **Audience:** the next conductor session, resuming after interruption or context-refresh. Everything here exists to make resumption clean.
 

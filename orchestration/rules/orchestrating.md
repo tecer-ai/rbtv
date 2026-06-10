@@ -15,6 +15,7 @@ Scan the task at the moment it arrives. If ANY single row matches, the Action be
 | 3 | ≥3 coordinated dispatches forecast | The work, as scoped, will need three or more sub-agent dispatches that share state or build toward one goal |
 | 4 | Multi-hour AFK intent | The user wants the work run unattended / overnight / "while I'm away" — a long-horizon run, not a single turn |
 | 5 | ≥2 worker types needed | The work needs two or more distinct worker kinds (e.g., a CLI code executor AND a reviewer, or research AND build) |
+| 6 | Fitting single dispatch | A single self-contained unit of work (one bounded coding task, one research brief, one synthesis) fits an installed + available worker that beats the conductor on cost or fit. Fires at MINIMAL ceremony — a task artifact + spine, no full intake round (the skill's intake §1 owns the ceremony level). Does NOT fire for a true quick lookup (a single fact, a path, one file read) — that answers directly, no dispatch. |
 
 ## Mid-Task Escalation — fires while already working
 
@@ -28,11 +29,11 @@ Re-check continuously during execution. Crossing ANY threshold below means STOP 
 
 ## Counter-List — NEVER fires
 
-These are the bounds. If the work is ONLY one of these, the rule does NOT fire — invoking `rbtv-orchestrating` would be eager over-firing. A counter-list item never overrides a genuine Intake Trigger or Escalation above; it only blocks firing when no real trigger is present.
+These are the bounds on FULL orchestration. If the work is ONLY one of these, the rule does not fire FULL orchestration (multi-phase, multi-worker, AFK) — invoking the full machinery would be eager over-firing. A counter-list item never overrides a genuine Intake Trigger or Escalation above; it only blocks FULL orchestration when no real trigger is present. Note the seam: a fitting SINGLE dispatch (trigger #6) is not full orchestration — it fires at minimal ceremony and is not blocked by this list; only a true quick lookup (no worker, no dispatch) stays fully out.
 
 | The rule does NOT fire for | Because |
 |----------------------------|---------|
-| A single dispatch | One worker, one task — no coordination to orchestrate |
+| A single dispatch needing no worker | A task the conductor answers directly with no model dispatch — a quick lookup, a fact, a file read. (A single dispatch that DOES route to a fitting worker is trigger #6, minimal ceremony — not a counter-list exclusion. The bar that separates them is intake §1: a worker dispatch needs a task artifact + spine; a direct answer needs neither.) |
 | Quick lookups | A fact, a path, a file read — answerable directly |
 | Tasks under ≈30 minutes | Too small to amortize an intake + state spine |
 | Work owned by a specialized workflow | `source-mining`, wiki ingest, and planning itself already own their flow — let that workflow run; do NOT wrap it in orchestration |

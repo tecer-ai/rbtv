@@ -17,9 +17,8 @@ The process for creating any plan:
 | 5 | Author specs for code work (conditional) | One behavior-spec + test-plan file per code feature, from the shared spec template (see Spec Authoring below) |
 | 6 | Create plan file | `{plan-name}-plan.md` from template |
 | 7 | Create or merge decisions.md | Check for existing decisions.md (from context preservation rule); merge planning context if exists, create from the decisions template if not |
-| 8 | Create learnings.md | System improvement queue |
-| 9 | Generate micro-step files | `.task.md` file per complex task and per checkpoint |
-| 10 | Create deliverables.md | Artifact index — one `pending` row per task |
+| 8 | Generate micro-step files | `.task.md` file per complex task and per checkpoint |
+| 9 | Create deliverables.md | Artifact index — one `pending` row per task |
 
 ---
 
@@ -56,7 +55,7 @@ DEEP mode generalizes the validated Kimi-aware pre-resolution list (`1-projects/
 
 | Pre-resolution item | Where it lands | Router/orchestrator consumes it as |
 |---------------------|----------------|------------------------------------|
-| **Per-task executor (model, variant)** | Task frontmatter | The routing card's boundedness leaf is pre-answered — the router reads the assigned (model, variant) rather than scoring it |
+| **Per-task executor (model, variant)** | Task frontmatter | The pin is resolved by CALLING `route.py` (routing card §2a) over the task's profile — the SAME router the conductor calls at run time, so plan-time and run-time routing can never disagree (locked: ONE script, NO LLM middleman). A `halt_seam` verdict is resolved WITH the user. The orchestrator then reads the assigned (model, variant) rather than re-scoring it |
 | **Per-task reviewer pin** | Task frontmatter | The reviewer-floor pin (routing §3) is pre-named; orchestrator enforces, does not pick |
 | **File allowlist per task** | Task frontmatter + body (✚ create / ✎ modify / ✗ delete) | The dispatcher's post-run diff-vs-allowlist contract (task-file-contract §4) |
 | **Validation commands per task** | Task body (exact command + expected EXIT) | The return-gate tripwire checks (verification card §1b) |
@@ -64,6 +63,8 @@ DEEP mode generalizes the validated Kimi-aware pre-resolution list (`1-projects/
 | **Hard-halt registry** | Plan body — the checkpoints non-overridable in autonomous mode | The orchestrator reads the list directly; autonomous mode never overrides them |
 
 LIGHT mode emits only the critical subset the user chooses to resolve; the rest are left model-bound-at-routing-time (the task is authored to the generic contract and the router scores boundedness as usual). Both modes still author every task to the **shared task-file contract** (`{rbtv_path}/orchestration/workflows/_shared/authoring/task-file-contract.md`) — orchestration-awareness adds the pre-resolution fields, it does not replace the contract.
+
+**Worker-contract frontmatter for a pinned executor.** When the router pins an executor whose model ships a per-model contract delta (kimi, claude-cli, codex, qwen, …), the generated task file's frontmatter + body MUST satisfy that model's Required-frontmatter / Required-body-sections. The plan creator obtains that skeleton by calling the dispatch-scaffold generator in skeleton mode (it DERIVES the per-model fields from the delta on disk — never hand-copy), then fills task-specific values — see `step-04-generate-artifacts.md` § Generate Micro-Step Task Files. A pin whose model package is not installed fails the scaffold's pre-flight: flag at generation time, never emit generic frontmatter for an underivable contract. A workspace without the orchestration module installed carries no executor pin and skips this — the call degrades gracefully.
 
 ---
 
@@ -124,7 +125,7 @@ References between files inside the same plan folder MUST use file-relative path
 |------|---------|--------------|
 | Use `./` or `../` relative to the referencing file | `../decisions.md`, `./phase-1/p1-1.task.md` | ❌ Absolute or root-relative path to own plan folder |
 | Task file path references are relative to the plan folder | `phase-1/p1-1.task.md` | ❌ Full path from project root |
-| NEVER embed the plan folder's absolute or root-relative path | `../learnings.md` | ❌ `{project-root}/plans/my-plan/learnings.md` |
+| NEVER embed the plan folder's absolute or root-relative path | `../decisions.md` | ❌ `{project-root}/plans/my-plan/decisions.md` |
 
 ### External Links (from plan files to outside)
 
@@ -212,7 +213,7 @@ Use inline Markdown task description when ALL of these apply:
 | Format | `p[phase]-[number]` or `p[phase]-[name]` (e.g., `p1-3`, `p2-auth`) |
 | Sync with body | Task IDs in task list must match section headers in plan body |
 | Checkpoints | Use `p[N]-checkpoint` with description prefix `CHECKPOINT —` |
-| Final tasks | Use `pN-refs`, `pN-compound`, `pN-checkpoint` for final phase |
+| Final tasks | Use `pN-refs`, `pN-checkpoint` for final phase |
 
 ---
 
@@ -317,8 +318,8 @@ Two surfaces the planning workflow wires:
 
 | Surface | What the plan creator does |
 |---------|----------------------------|
-| **Reminder line** (generated plans + task files) | Every generated plan and `.task.md` carries the Reminder Line VERBATIM (the microstep template and plan template already embed the `decisions.md` reminder pattern). It reads: `decisions.md` entries: decision + rationale + scope ONLY — never file-lists or N→M narratives; supersede by appending, never rewrite. |
-| **Checkpoint / review audit** (UPDATE-not-REWRITE + ≥50% size floor) | Every checkpoint task's review criteria include the Audit Checklist above. The checkpoint enforces append-only maintenance: a full-file `decisions.md` rewrite is NOT routine — it requires explicit user sanction AND must retain ≥50% of the prior file's size, preserving all decisions, findings, constraints, open questions, and references. A rewrite below the floor is rejected and the original kept. |
+| **Reminder line** (generated plans + task files) | Every generated plan and `.task.md` carries the Reminder Line VERBATIM (the microstep template and plan template already embed the `decisions.md` reminder pattern). It reads: `decisions.md` entries: decision + rationale + scope ONLY (+ optional one-word `compoundable` marker for harvest-worthy findings) — never file-lists or N→M narratives; supersede by appending, never rewrite. |
+| **Checkpoint / review audit** (UPDATE-not-REWRITE + ≥50% size floor) | Every checkpoint task's review criteria include the Audit Checklist above. The checkpoint enforces append-only maintenance: a full-file `decisions.md` rewrite is NOT routine — it requires explicit user sanction AND must retain ≥50% of the prior file's size, preserving all decisions, findings, constraints, open questions, and references. A rewrite below the floor is rejected and the original kept. A checkpoint that lands its verdict in `decisions.md` records the RULING ONLY (`approved`/`rejected` + scope + condition) per the Checkpoint-ratification entry shape in the source file above — banning "all N criteria held" narration; the criteria tally belongs in the checkpoint findings artifact and the run-log, never the ruling entry. |
 
 ---
 
@@ -364,7 +365,6 @@ Every plan includes these final phase tasks:
 | Task ID | Purpose |
 |---------|---------|
 | `pN-refs` | File reference review - verify all markdown links resolve and comply with Plan Linking Standard (internal = file-relative, external = root-relative) |
-| `pN-compound` | Compound learnings - process learnings.md entries into actionable changes |
 | `pN-checkpoint` | Final checkpoint - user approval to complete plan |
 
 ---

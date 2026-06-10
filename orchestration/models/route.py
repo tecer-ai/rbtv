@@ -489,6 +489,40 @@ def _rank(entries: list, profile: dict, explain_log: list) -> list:
     return ranked
 
 
+def _exclude_haiku(entries: list, profile: dict, explain_log: list) -> list:
+    """S7 haiku exclusion: drop every `haiku` variant from the eligible set BEFORE Stage-3
+    ranking, UNLESS the profile carries `delegation_map_allows_haiku` (the user-approved
+    delegation map IS the explicit request — routing.md §7).
+
+    `delegation_map_allows_haiku` is an OPTIONAL boolean profile field (default false,
+    `.get` access — mirrors `reviews_external_cli_code`, D12); it is NOT in
+    REQUIRED_PROFILE_FIELDS. Flag true → haiku variants stay eligible and rank normally
+    (cost-ascending — a cheapest haiku may win a fully-bounded leaf). Flag absent/false →
+    no `haiku` variant ever reaches Stage-3 ranking or the verdict.
+
+    Pinned-role floors (S1 Stage 4 / routing.md §3) are sonnet regardless and never yield
+    haiku even under the flag — those floors are claude/sonnet/opus-pinned in the pin paths,
+    so haiku is structurally unreachable as a pinned pick; this guard governs only the
+    cost-ranked cheapest-capable selection.
+    """
+    if profile.get("delegation_map_allows_haiku"):
+        explain_log.append({
+            "stage": "haiku", "action": "admitted",
+            "note": "delegation_map_allows_haiku=true -- haiku variants stay eligible (routing.md §7)",
+        })
+        return entries
+    kept = []
+    for e in entries:
+        if e["variant"] == "haiku":
+            explain_log.append({
+                "stage": "haiku", "action": "exclude", "model": e["model"], "variant": e["variant"],
+                "reason": "no delegation_map_allows_haiku flag -- haiku excluded from eligible set (routing.md §7)",
+            })
+        else:
+            kept.append(e)
+    return kept
+
+
 def _scope_eligible_set(entries: list, profile: dict, explain_log: list) -> list:
     """Scope the enumerated set per boundedness band before Stage 2-3 (S2 keystone)."""
     band = profile.get("boundedness", "fully-bounded")
@@ -589,6 +623,17 @@ def _apply_stakes_tier_up(
         explain_log.append({
             "stage": "stakes", "action": "no_survivors_after_tier_up",
             "note": "zero survivors after stakes tier-up -- falling back to original pick",
+        })
+        return chosen
+
+    # S7: exclude haiku before the raised-band re-rank as well — a rank never picks haiku
+    # absent the delegation-map flag (in practice the raised band's tier filter already drops
+    # the non-reasoning haiku, but the guard holds wherever a rank decides a worker).
+    survivors = _exclude_haiku(survivors, raised_profile, explain_log)
+    if not survivors:
+        explain_log.append({
+            "stage": "stakes", "action": "no_survivors_after_tier_up",
+            "note": "zero non-haiku survivors after stakes tier-up -- falling back to original pick",
         })
         return chosen
 
@@ -891,6 +936,17 @@ def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plan
             "error": "zero_candidates",
             "details": "No installed+available variant meets the leaf's hard requirements",
             "failed_requirements": [log for log in explain_log if log.get("action") == "drop"]
+        }
+
+    # S7: exclude haiku variants from the eligible set BEFORE Stage-3 ranking (unless the
+    # delegation-map flag admits them). Default-excludes so a future cheapest haiku is never
+    # auto-picked by cost-ascending ranking absent an approved delegation map (routing.md §7).
+    survivors = _exclude_haiku(survivors, profile, explain_log)
+    if not survivors:
+        return {
+            "error": "zero_candidates",
+            "details": "No installed+available non-haiku variant meets the leaf's hard requirements (haiku excluded per routing.md §7; set delegation_map_allows_haiku to admit haiku for a mechanical batch)",
+            "failed_requirements": [log for log in explain_log if log.get("action") in ("drop", "exclude")]
         }
 
     # Stage 3: rank

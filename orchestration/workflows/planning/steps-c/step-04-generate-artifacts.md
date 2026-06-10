@@ -4,7 +4,6 @@ stepName: 'generate-artifacts'
 nextStepFile: null
 microstepTemplateFile: ../templates/plan-task-microstep-template.md
 decisionsTemplateFile: '{rbtv_path}/orchestration/workflows/_shared/templates/decisions-template.md'
-learningsTemplateFile: ../templates/learnings-template.md
 deliverablesTemplateFile: ../templates/deliverables-template.md
 templateFile: ../templates/plan-template.md
 ---
@@ -17,7 +16,7 @@ templateFile: ../templates/plan-template.md
 
 ## STEP GOAL
 
-Create all plan artifacts: companion files (decisions.md, learnings.md, deliverables.md), spec files (code work), micro-step task files, and the main plan file. Validate and present summary.
+Create all plan artifacts: companion files (decisions.md, deliverables.md), spec files (code work), micro-step task files, and the main plan file. Validate and present summary.
 
 ---
 
@@ -41,7 +40,6 @@ Create all plan artifacts: companion files (decisions.md, learnings.md, delivera
 
 Read the following templates from frontmatter paths:
 - `{decisionsTemplateFile}` — for decisions.md structure
-- `{learningsTemplateFile}` — for learnings.md structure
 - `{deliverablesTemplateFile}` — for deliverables.md structure
 - `{microstepTemplateFile}` — for task file structure
 - `{templateFile}` — for plan file structure
@@ -93,22 +91,7 @@ Generate decisions.md using `{decisionsTemplateFile}` with content from step-02:
 
 The decisions template carries the entry-shape HARD TEXT and the Reminder Line — do NOT strip them when filling. Use Write tool to create the file.
 
-### 4. Write learnings.md
-
-**Location:** `{output-path}/{plan-name}/learnings.md`
-
-Generate learnings.md using `{learningsTemplateFile}`:
-
-| Section | Content |
-|---------|---------|
-| Purpose | System improvement queue for RBTV meta-learnings |
-| What Belongs Here | Guidelines table (from template) |
-| Learning Entries | Empty — ready for append-only entries |
-| Compound Generation | Instructions (from template) |
-
-Use Write tool to create the file.
-
-### 4b. Write Spec Files (code work)
+### 4. Write Spec Files (code work)
 
 If the plan was flagged code-bearing (step-02) and features were identified (step-03 §6b), author ONE spec per feature BEFORE generating task files — backing tasks reference the spec, so it must exist first.
 
@@ -154,6 +137,8 @@ human_review: {required | optional | none}
 
 **Orchestration pre-resolution frontmatter (conditional).** When the plan is `orchestrated: true` and step-03 §6c resolved the pre-resolution fields for this task (DEEP mode, or the critical subset under LIGHT), add them to the task frontmatter so the router reads fields rather than re-deriving them: `executor: {model, variant}`, `reviewer: {pin}`, and the file allowlist (✚ create / ✎ modify / ✗ delete — repeated in the body per the task-file contract). A plain (non-orchestrated) plan omits these — the task is bound to a worker at routing time. See `../data/plan-creation-rules.md` § Orchestration-Aware Modes.
 
+**Worker-contract frontmatter for a pinned executor (conditional).** When a task's `executor` pin names a model that ships a per-model contract delta (kimi, claude-cli, codex, qwen, …), the generated frontmatter AND body MUST satisfy that model's Required-frontmatter and Required-body-sections — so a plan-time pin and the run-time dispatch can never disagree about the contract the worker is held to. Do NOT hand-copy a model's skeleton: obtain it by calling the dispatch-scaffold generator in **skeleton mode** (the run with NO `--instructions`), which DERIVES the per-model frontmatter keys + body-section headers from that model's delta on disk. The scaffold CLI, its skeleton-vs-complete modes, and its pre-flight gates live in its spec — call it as the spec names; do NOT restate the contract here. Merge the scaffold's derived skeleton into this task file, then fill the task-specific values (Goal/Context/Implementation/allowlist). A pin whose model package is NOT installed → the scaffold's pre-flight fails: flag it at generation time and STOP; NEVER silently emit generic frontmatter for a worker whose real contract you could not derive. A workspace without the orchestration module installed has no scaffold and no per-model deltas — such a plan carries no executor pin (step-03 §6c skipped), so this step does not fire.
+
 **Setting `human_review`:** This field controls whether the executor MUST emit a Human Review Presentation block at Phase: Close (per `plan-task-microstep-template.md`). Set it deliberately — every `required` task generates a flag block the human must read.
 
 | Value | Set when |
@@ -170,7 +155,7 @@ The flag block is mandatory ONLY when `human_review: required`. Setting it every
 - Tools section — ONLY if task requires specialized RBTV skills/sub-agents (omit for basic Read/Write/Bash tasks)
 - Execution Flow — phased steps (understand → execute → validate → close)
 - Discovery Handling — revolving plan rules
-- **Decisions-discipline reminder line** — every generated task file carries the Reminder Line verbatim (the microstep template already embeds it): `decisions.md` entries: decision + rationale + scope ONLY — never file-lists or N→M narratives; supersede by appending, never rewrite.
+- **Decisions-discipline reminder line** — every generated task file carries the Reminder Line verbatim (the microstep template already embeds it): `decisions.md` entries: decision + rationale + scope ONLY (+ optional one-word `compoundable` marker for harvest-worthy findings) — never file-lists or N→M narratives; supersede by appending, never rewrite.
 - Output Requirements — what to produce and where
 
 **For checkpoint task files:**
@@ -196,7 +181,7 @@ Generate deliverables.md using `{deliverablesTemplateFile}`, pre-populated from 
 | Artifact column | What the task produces — from its Output Requirements (micro-step tasks) or task description (inline tasks) |
 | Path column | Intended landing path — `./` file-relative inside the plan folder, project-root-relative outside (Plan Linking Standard) |
 | Status column | `pending` on every row |
-| Synthesis section | Name the plan's synthesis tasks (e.g., pN-compound) and the document-order read sequence |
+| Synthesis section | Name the plan's synthesis/integration tasks (if any) and the document-order read sequence |
 | Sub-folder note | Conventional sub-folders derived from the Path column — created on demand by the first task that needs them |
 
 Use Write tool to create the file.
@@ -225,7 +210,6 @@ Use Write tool to create the file.
 |----------|------|----------|
 | Plan file | `{output-path}/{plan-name}/{plan-name}-plan.md` | ✅ |
 | Decisions file | `{output-path}/{plan-name}/decisions.md` | ✅ |
-| Learnings file | `{output-path}/{plan-name}/learnings.md` | ✅ |
 | Deliverables file | `{output-path}/{plan-name}/deliverables.md` | ✅ |
 | Spec files | `{output-path}/{plan-name}/specs/{feature}-spec.md` | conditional — one per feature when the plan is code-bearing; none for docs/research plans |
 | Phase folders | `{output-path}/{plan-name}/phase-{N}/` | ✅ (one per phase) |
@@ -297,7 +281,6 @@ This completes the Create workflow. The plan and all supporting files are saved 
 - ✅ All templates loaded
 - ✅ Phase folders created
 - ✅ decisions.md written with planning context (merged if pre-existing, created if not), entry-shape hard text + reminder line intact
-- ✅ learnings.md written with empty structure
 - ✅ Spec files authored for each code feature (code-work plans), from the shared spec template
 - ✅ deliverables.md written — one `pending` row per task, synthesis section filled
 - ✅ Micro-step task files generated for complex tasks and checkpoints, each carrying the decisions-discipline reminder line

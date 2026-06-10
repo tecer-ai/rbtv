@@ -89,7 +89,7 @@ Every development dispatch that clears §1 goes through a review gate before its
 
 | Pin | Value |
 |-----|-------|
-| Reviewer tier | **≥ executor tier + 1**, floor **sonnet**, **never haiku**. |
+| Reviewer tier | Reviewer pin (tier, floor, never-haiku, external-CLI-Opus): follow `cards/routing.md` §3 Pinned roles. Verification consumes the pin; routing defines it. |
 | External-CLI code | **Opus reviews ALL external-CLI-worker code** — a cheaper reviewer misses inverted contracts and over-generalizations that Opus review caught in the pilots. |
 | Independence | The reviewer is a SEPARATE dispatch from the executor — never the same session grading its own output. |
 
@@ -195,7 +195,7 @@ Once the exit probes (§5) hold and the run is certifiable as done, the run is C
 | **Status is honest** | The run closes as **COMPLETE** only when every contracted criterion is certified and no irreversible step remains; if a USER-EXECUTED-ONLY step or an owner-decision is still outstanding, the close is **COMPLETE PENDING USER ACTION** with the remaining action named. Never label a run COMPLETE when a final step the owner must take is unfinished. |
 | **Surface every Human Review block** | A run that executed any `human_review: required` task or any checkpoint carries the Human Review Presentation blocks those tasks produced. At close, surface EACH block VERBATIM, grouped by phase — never collapsed, summarized, or paraphrased. In `end-to-end` and `autonomous` modes this close is the user's FIRST sight of that per-task review content (the modes skipped the per-phase halts where `halt` mode would have shown it — intake §7); its verbatim fidelity is the point. Block format and flag criteria are the frozen planning surfaces (`{rbtv_path}/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation; `{rbtv_path}/orchestration/workflows/_shared/authoring/human-review-criteria.md`) — the conductor surfaces the blocks, it does not re-derive their format. |
 | **Surface low-confidence + red-flag decisions** | In `autonomous` mode, list the `medium`- and `low`-confidence unilateral decisions from the `run-log.md` U-register, lowest confidence first (the high-confidence rows stay in the log, not the close). Any Human Review block carrying a 🔴 red flag is ALSO listed here regardless of mode — red-flag tasks belong on the priority surface, not buried in the per-phase blocks. |
-| **Name the artifacts and next actions** | The close names the run's artifacts (plan, the run's `decisions.md`, `run-log.md`, and — plan runs — `learnings.md` / `deliverables.md`) and any next action the owner must take, each self-explanatory (the reader has zero session context). Leave deliberately-uncommitted working-tree state noted, not silently dropped. |
+| **Name the artifacts and next actions** | The close names the run's artifacts (plan, the run's `decisions.md`, `run-log.md`, and — plan runs — `deliverables.md`) and any next action the owner must take, each self-explanatory (the reader has zero session context). Leave deliberately-uncommitted working-tree state noted, not silently dropped. |
 
 The close is a CONDUCTOR action, not a dispatch — it is the conductor's own accountable report that the run is done (or done-pending-user-action), backed by the scorecard's evidence. A plan-less run with no `human_review` tasks still closes with the scorecard, the honest status, and any run-end findings the run mode surfaces (State card §6); it simply has no HR blocks to carry.
 

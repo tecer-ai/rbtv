@@ -78,7 +78,7 @@ Use this template to create the `shape.md` companion file for each plan. Shape c
 > 1. Only capture decisions, discoveries, and unexpected constraints — NOT routine task completions
 > 2. NEVER modify previous entries
 > 3. NEVER delete entries
-> 4. Ask yourself: "Will this matter to a future agent executing this plan?" If no, don't log it. Shape's audience is in-flight executors — not post-mortem readers. (`learnings.md` is for META-learnings about the RBTV system itself, not project post-mortems.)
+> 4. Ask yourself: "Will this matter to a future agent executing this plan?" If no, don't log it. Shape's audience is in-flight executors — not post-mortem readers.
 >
 > **What belongs here:** Decisions made during execution that change the plan or its direction, discoveries that contradict prior decisions, unexpected constraints future executors must know
 > **What does NOT belong:** Routine task completions ("created file X", "updated config Y"), per-task outcome tables, file lists, commit hashes, "Phase N batch complete" summaries — orchestration state lives in `orchestration-state.md` (created and overwritten by the orchestrator), not here

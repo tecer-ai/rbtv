@@ -130,17 +130,18 @@ Universal template for `decisions.md` companion files. Captures shaping decision
 
 | Rule | Statement |
 |------|-----------|
-| Decision / rationale / scope only | Each entry carries exactly three things: the decision, its rationale, and its scope (which queued work it affects). Nothing else. |
+| Decision / rationale / scope only | Each entry carries exactly three things: the decision, its rationale, and its scope (which queued work it affects). Nothing else — plus the OPTIONAL `compoundable` marker below. |
 | Never file-lists | An entry NEVER enumerates files changed. Files-changed is audit-log content, not decision content. |
 | Never N→M narratives | An entry NEVER narrates a count change ("went from 4 files to 3", "merged 12 rows into 5"). The decision and its rationale carry the meaning; the arithmetic is noise. |
 | UPDATE, not REWRITE | When a later decision changes an earlier one, APPEND an entry that supersedes it — never rewrite or delete the earlier entry. The append-only history is the audit trail. |
 | Routine completions excluded | "Created file X", "updated config Y" never belong here. Ask: will this change future work in one month? If no, it does not go in `decisions.md`. |
+| `compoundable` marker (optional) | A harvest-worthy finding (system-improvement pattern, bug/discovery, better approach to compound into RBTV/sb-os later) carries the one-word marker `compoundable` inline — the SINGLE harvesting home (no separate `learnings.md`). Most entries are NOT compoundable. Full rule: the canonical single source `{rbtv_path}/orchestration/workflows/_shared/authoring/decisions-discipline.md`. |
 
 **Size floor on rewrites.** Routine maintenance is append-only — a full-file rewrite is NOT a routine operation. If a rewrite is ever genuinely needed, it requires explicit user sanction AND MUST preserve at least 50% of the prior file's size. A rewrite that drops below the ≥50% floor is presumed to have discarded signal — it is rejected, and the original is kept. Decisions, findings, constraints, unresolved questions, and required references must all survive any rewrite.
 
 **Reminder line** (generated plans and task files carry this verbatim):
 
-> `decisions.md` entries: decision + rationale + scope ONLY — never file-lists or N→M narratives; supersede by appending, never rewrite.
+> `decisions.md` entries: decision + rationale + scope ONLY (+ optional one-word `compoundable` marker for harvest-worthy findings) — never file-lists or N→M narratives; supersede by appending, never rewrite.
 
 ---
 
