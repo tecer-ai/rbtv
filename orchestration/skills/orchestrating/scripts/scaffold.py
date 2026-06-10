@@ -379,12 +379,24 @@ def preflight_check_package(model: str, models_dir: Path) -> None:
         _fail(f"pre-flight: model '{model}' has no {DELTA_FILENAME} at {delta_path}")
 
 
-def preflight_check_manual_fresh(model: str) -> None:
-    """Check 2: render-manuals.py --check reports zero drift for this model."""
+def preflight_check_manual_fresh(model: str, models_dir: Path | None = None) -> None:
+    """Check 2: render-manuals.py --check reports zero drift for this model.
+
+    models_dir: when the caller passed --model-dir, this is the override package
+    directory. It is threaded into render-manuals.py via --models-dir so the
+    staleness gate is exercised against the SAME scratch package directory that
+    scaffold.py uses for composition — not the live orchestration/models/ tree.
+    Omitting (None) → render-manuals.py uses its default live tree (today's behavior).
+    """
     import subprocess
 
+    cmd = [sys.executable, str(RENDER_MANUALS), "--check", "--model", model]
+    if models_dir is not None:
+        # Pass the parent of the model package dir as --models-dir so that
+        # render-manuals.py --model {model} resolves {models_dir}/{model}/.
+        cmd += ["--models-dir", str(models_dir)]
     result = subprocess.run(
-        [sys.executable, str(RENDER_MANUALS), "--check", "--model", model],
+        cmd,
         capture_output=True, text=True, encoding="utf-8", errors="replace",
         cwd=str(RBTV_ROOT),
     )
@@ -644,10 +656,13 @@ def _check_pkg(model: str, models_dir: Path) -> tuple[bool, str]:
     return True, ""
 
 
-def _check_manual(model: str) -> tuple[bool, str]:
+def _check_manual(model: str, models_dir: Path | None = None) -> tuple[bool, str]:
     import subprocess
+    cmd = [sys.executable, str(RENDER_MANUALS), "--check", "--model", model]
+    if models_dir is not None:
+        cmd += ["--models-dir", str(models_dir)]
     result = subprocess.run(
-        [sys.executable, str(RENDER_MANUALS), "--check", "--model", model],
+        cmd,
         capture_output=True, text=True, encoding="utf-8", errors="replace",
         cwd=str(RBTV_ROOT),
     )
@@ -698,7 +713,12 @@ def main(argv: list[str] | None = None) -> int:
 
     # --- Pre-flight checks (S6) ---
     preflight_check_package(args.model, models_dir)
-    preflight_check_manual_fresh(args.model)
+    # Thread models_dir into the manual-freshness pre-flight so the staleness gate
+    # checks the scratch package when --model-dir overrides the catalog root.
+    # When models_dir == DEFAULT_MODELS_DIR (no override), pass None to use the
+    # render-manuals.py default (behavior byte-identical to pre-change).
+    preflight_models_dir = models_dir if (args.model_dir is not None) else None
+    preflight_check_manual_fresh(args.model, models_dir=preflight_models_dir)
     preflight_check_guidance(args.model, models_dir)
     preflight_check_output_folder(Path(args.output_folder))
 

@@ -72,8 +72,9 @@ import sys
 from pathlib import Path
 
 SCRIPT_PATH = Path(__file__).resolve()
-MODELS_DIR = SCRIPT_PATH.parent  # orchestration/models/
-REPO_ROOT = MODELS_DIR.parent.parent  # rbtv repo root
+_DEFAULT_MODELS_DIR = SCRIPT_PATH.parent  # orchestration/models/ (default; overridable via --models-dir)
+MODELS_DIR = _DEFAULT_MODELS_DIR  # legacy module-level alias preserved for callers (e.g. scaffold.py RENDER_MANUALS import)
+REPO_ROOT = _DEFAULT_MODELS_DIR.parent.parent  # rbtv repo root
 
 # Template that defines the generic dispatch contract + the render seams.
 TEMPLATE_PATH = (
@@ -101,10 +102,15 @@ class RenderError(Exception):
     """A malformed-marker condition that must fail the render loudly."""
 
 
-def rel(path: Path) -> str:
-    """Repo-root-relative POSIX path for stable, machine-independent messages/banners."""
+def rel(path: Path, repo_root: Path | None = None) -> str:
+    """Repo-root-relative POSIX path for stable, machine-independent messages/banners.
+
+    When a custom models_dir is active the effective repo_root differs from REPO_ROOT;
+    callers that know the active root pass it explicitly. Falls back to REPO_ROOT.
+    """
+    root = repo_root if repo_root is not None else REPO_ROOT
     try:
-        return path.resolve().relative_to(REPO_ROOT).as_posix()
+        return path.resolve().relative_to(root).as_posix()
     except ValueError:
         return path.as_posix()
 
@@ -280,20 +286,29 @@ def _strip_blank_edges(buf: list[str]) -> str:
 # Composition
 # ---------------------------------------------------------------------------
 
-def make_banner(model: str) -> str:
+def make_banner(model: str, models_dir: Path | None = None) -> str:
     """The DO-NOT-EDIT banner — names the sources and the render command.
 
     Deterministic: no timestamp (a timestamp would break idempotency / the
     re-render zero-diff check). The sources ARE the provenance.
+
+    models_dir: the active models directory (default: _DEFAULT_MODELS_DIR).
+    When models_dir differs from _DEFAULT_MODELS_DIR the banner uses the
+    default paths so the composed manual is byte-identical to a default render
+    (confinement-mode renders are test-only and must not drift the real manuals).
     """
+    # Always use the canonical default paths in the banner so that a
+    # confinement-override render against a scratch tree produces a banner
+    # identical to a normal render — no leak of temp paths into a manual.
+    active_models_dir = _DEFAULT_MODELS_DIR
     return (
         f"<!-- AUTO-GENERATED — DO NOT EDIT. Rendered by "
-        f"{rel(SCRIPT_PATH)} from {rel(TEMPLATE_PATH)} + {rel(MODELS_DIR / model / DELTA_FILENAME)}. -->\n"
+        f"{rel(SCRIPT_PATH)} from {rel(TEMPLATE_PATH)} + {rel(active_models_dir / model / DELTA_FILENAME)}. -->\n"
         f"\n"
         f"> [!danger] GENERATED FILE — DO NOT EDIT\n"
         f"> This dispatch manual is composed by `{rel(SCRIPT_PATH)}` from:\n"
         f"> - the generic dispatch contract `{rel(TEMPLATE_PATH)}`, and\n"
-        f"> - the `{model}` package delta `{rel(MODELS_DIR / model / DELTA_FILENAME)}`.\n"
+        f"> - the `{model}` package delta `{rel(active_models_dir / model / DELTA_FILENAME)}`.\n"
         f">\n"
         f"> Hand-edits are overwritten on the next render and are forbidden. To change\n"
         f"> packaging/addendum/return behavior, edit the wrapper template; to change\n"
@@ -359,13 +374,19 @@ def compose_manual(
 # Driver
 # ---------------------------------------------------------------------------
 
-def discover_model_dirs(only: str | None) -> list[Path]:
+def discover_model_dirs(only: str | None, models_dir: Path | None = None) -> list[Path]:
+    """Return the list of model package directories to render.
+
+    models_dir: the active models directory. Defaults to _DEFAULT_MODELS_DIR.
+    When --models-dir is given, discovers packages from the override directory.
+    """
+    active = models_dir if models_dir is not None else _DEFAULT_MODELS_DIR
     if only is not None:
-        d = MODELS_DIR / only
+        d = active / only
         if not d.is_dir():
             raise RenderError(f"--model '{only}': folder not found at {rel(d)}")
         return [d]
-    return sorted(p for p in MODELS_DIR.iterdir() if p.is_dir())
+    return sorted(p for p in active.iterdir() if p.is_dir())
 
 
 def write_if_changed(path: Path, content: str, *, check: bool) -> str:
@@ -392,11 +413,26 @@ def main(argv: list[str]) -> int:
         "--model", metavar="NAME",
         help="Render only this model package (folder name under orchestration/models/).",
     )
+    parser.add_argument(
+        "--models-dir", metavar="DIR", default=None,
+        help=(
+            "Override the catalog root (the orchestration/models/ directory). "
+            "When given, BOTH render and --check paths discover and resolve model packages "
+            "from this directory instead of the default orchestration/models/ tree. "
+            "Confinement seam: manual.md outputs are written inside the override directory; "
+            "the DO-NOT-EDIT banner always uses the canonical default paths so rendered content "
+            "is byte-identical to a default render. "
+            "Default: None — uses the orchestration/models/ directory co-located with this script."
+        ),
+    )
     args = parser.parse_args(argv)
+
+    # Resolve the active models directory (override or default).
+    active_models_dir: Path | None = Path(args.models_dir).resolve() if args.models_dir else None
 
     try:
         blocks, insert_ids = parse_template(TEMPLATE_PATH)
-        model_dirs = discover_model_dirs(args.model)
+        model_dirs = discover_model_dirs(args.model, models_dir=active_models_dir)
     except RenderError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2

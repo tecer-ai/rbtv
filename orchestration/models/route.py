@@ -982,6 +982,17 @@ def main():
     parser = argparse.ArgumentParser(description="Deterministic router script — task profile → (model, variant, carrier)")
     parser.add_argument("--profile", type=str, help="Path to task profile JSON file (default: stdin)")
     parser.add_argument("--explain", action="store_true", help="Print the enumerate→filter→rank trace")
+    parser.add_argument(
+        "--models-dir", type=str, default=None,
+        help=(
+            "Override the catalog root (the orchestration/models/ directory). "
+            "When given, EVERY catalog-resolution path (enumeration, manifest loading) uses this "
+            "directory instead of the live orchestration/models/ tree. "
+            "Confinement boundary: rbtv.json-derived inputs that are NOT catalog content "
+            "(env_file key presence, plan-overlay caps) are still resolved from the live vault root. "
+            "Default: None — resolves the live orchestration/models/ tree from the rbtv repo root."
+        ),
+    )
     args = parser.parse_args()
 
     # Load profile
@@ -1009,6 +1020,19 @@ def main():
         fallback = Path(__file__).resolve().parents[2]
         if (fallback / "orchestration" / "models").exists():
             rbtv_root = fallback
+
+    # --models-dir override: when given, replace the catalog root used by _enumerate_models.
+    # We accomplish this by replacing rbtv_root with a synthetic root whose
+    # orchestration/models/ subtree points to the override directory.
+    # rbtv.json-derived inputs (env_file, plan-overlay) always come from vault_root — unaffected.
+    if args.models_dir:
+        override_models_dir = Path(args.models_dir).resolve()
+        # Build a synthetic rbtv_root: a temporary shim so that
+        # rbtv_root / "orchestration" / "models" == override_models_dir.
+        # We do this by computing the parent two levels up from override_models_dir,
+        # which makes rbtv_root = override_models_dir.parent.parent
+        # (override_models_dir is treated as orchestration/models/).
+        rbtv_root = override_models_dir.parent.parent
 
     rbtv_cfg = _load_rbtv_json(vault_root)
     plans = _load_model_plans(vault_root, rbtv_cfg)

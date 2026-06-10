@@ -790,6 +790,140 @@ class TestAD18Fabrication:
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Confinement lever: --model-dir (criterion 2 of pilot-levers task)
+# ---------------------------------------------------------------------------
+
+class TestModelDirConfinementLever:
+    """Criterion 2 of pilot-levers: scaffold.py --model-dir pre-flight confinement.
+
+    (a) A deliberately-stale scratch manual fails the pre-flight: EXIT != 0, no output file.
+    (b) A fresh scratch manual passes the pre-flight and produces an output file.
+    (c) Omitting --model-dir → today's behavior (pre-flight against the real live tree).
+
+    The scratch model package is built from the REAL kimi delta + a rendered manual so
+    render-manuals.py --check can evaluate freshness against it.
+    """
+
+    @staticmethod
+    def _build_scratch_package(base_dir: Path, stale: bool) -> tuple[Path, str]:
+        """Build a scratch models directory with a 'scratch-kimi' package.
+
+        Copies kimi's delta.md as scratch-kimi/delta.md and either:
+        - (fresh) renders the manual so --check reports 0 drift,
+        - (stale) writes a deliberately wrong manual so --check reports drift.
+
+        Returns (scratch_models_dir, model_name).
+        """
+        model_name = "scratch-kimi"
+        scratch_models = base_dir / "models"
+        pkg_dir = scratch_models / model_name
+        pkg_dir.mkdir(parents=True)
+
+        # Copy kimi delta as the scratch package delta.
+        kimi_delta = MODELS_DIR / "kimi" / "delta.md"
+        scratch_delta = pkg_dir / "delta.md"
+        scratch_delta.write_bytes(kimi_delta.read_bytes())
+
+        render_manuals = RBTV_ROOT / "orchestration" / "models" / "render-manuals.py"
+        manual_path = pkg_dir / "manual.md"
+
+        if stale:
+            # Write a deliberately wrong manual — any content that won't match
+            # what render-manuals.py would compose.
+            manual_path.write_text(
+                "<!-- STALE MANUAL — DO NOT USE -->\nThis is deliberately stale.\n",
+                encoding="utf-8",
+            )
+        else:
+            # Render the manual so it is fresh (--check reports 0 drift).
+            result = subprocess.run(
+                [sys.executable, str(render_manuals),
+                 "--model", model_name, "--models-dir", str(scratch_models)],
+                capture_output=True, text=True, cwd=str(RBTV_ROOT),
+            )
+            assert result.returncode == 0, (
+                f"Failed to render scratch manual: {result.stderr}"
+            )
+            assert manual_path.exists(), "render-manuals.py wrote nothing"
+
+        return scratch_models, model_name
+
+    def test_stale_scratch_manual_fails_preflight(self):
+        """Stale scratch manual → preflight EXIT != 0, no output file written."""
+        out_dir = _scratch_dir()
+        base_dir = _scratch_dir()
+        try:
+            scratch_models, model_name = self._build_scratch_package(base_dir, stale=True)
+            result = subprocess.run(
+                [sys.executable, str(SCAFFOLD),
+                 "--model", model_name,
+                 "--model-dir", str(scratch_models),
+                 "--output-folder", str(out_dir),
+                 "--filename", "x.task.md"],
+                capture_output=True, text=True, cwd=str(RBTV_ROOT),
+            )
+            assert result.returncode != 0, (
+                f"Expected non-zero exit for stale manual, got 0.\n"
+                f"stdout: {result.stdout}\nstderr: {result.stderr}"
+            )
+            assert not (out_dir / "x.task.md").exists(), (
+                "No output file should be written when pre-flight fails"
+            )
+            # Error message must mention staleness.
+            combined = result.stdout + result.stderr
+            assert "stale" in combined.lower() or "drift" in combined.lower() or "re-render" in combined.lower(), (
+                f"Error message should mention staleness/drift, got:\n{combined}"
+            )
+        finally:
+            _rmtree(out_dir)
+            _rmtree(base_dir)
+
+    def test_fresh_scratch_manual_passes_preflight(self):
+        """Fresh scratch manual → preflight passes, output file written."""
+        out_dir = _scratch_dir()
+        base_dir = _scratch_dir()
+        try:
+            scratch_models, model_name = self._build_scratch_package(base_dir, stale=False)
+            result = subprocess.run(
+                [sys.executable, str(SCAFFOLD),
+                 "--model", model_name,
+                 "--model-dir", str(scratch_models),
+                 "--output-folder", str(out_dir),
+                 "--filename", "y.task.md"],
+                capture_output=True, text=True, cwd=str(RBTV_ROOT),
+            )
+            assert result.returncode == 0, (
+                f"Expected exit 0 for fresh scratch manual, got {result.returncode}.\n"
+                f"stdout: {result.stdout}\nstderr: {result.stderr}"
+            )
+            assert (out_dir / "y.task.md").exists(), "Output file should be written"
+        finally:
+            _rmtree(out_dir)
+            _rmtree(base_dir)
+
+    def test_no_model_dir_uses_live_tree(self):
+        """Omitting --model-dir → pre-flight checks the LIVE orchestration/models/ tree."""
+        out_dir = _scratch_dir()
+        try:
+            # kimi is a real model with a fresh manual — should pass with no --model-dir.
+            result = subprocess.run(
+                [sys.executable, str(SCAFFOLD),
+                 "--model", "kimi",
+                 "--output-folder", str(out_dir),
+                 "--filename", "live.task.md"],
+                capture_output=True, text=True, cwd=str(RBTV_ROOT),
+            )
+            assert result.returncode == 0, (
+                f"No --model-dir: real kimi should pass preflight.\n"
+                f"stdout: {result.stdout}\nstderr: {result.stderr}"
+            )
+            assert (out_dir / "live.task.md").exists()
+        finally:
+            _rmtree(out_dir)
+
+
+# ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
 

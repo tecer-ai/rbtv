@@ -938,3 +938,179 @@ class TestHaikuGuard:
             f"{v_no_flag} vs {v_flag}"
         )
         assert v_no_flag["model"] == "kimi", f"real-corpus baseline changed: {v_no_flag}"
+
+
+# ---------------------------------------------------------------------------
+# Confinement lever: --models-dir (criterion 1 of pilot-levers task)
+# ---------------------------------------------------------------------------
+
+# Synthetic package manifest for the confinement tests.
+# A single "synthetic-only" variant that should never appear in the real corpus.
+_SYNTH_ONLY_MANIFEST = """model: synthetic-only
+evidence_status: validated
+
+variants:
+  - variant: cheapest-synth
+    reasoning_tier: non-reasoning
+    context_window: 500000
+    max_output: 8000
+    cost_class: cheapest
+    code_competence: strong
+    web_access: false
+    parallel_safe: true
+    resume_support: none
+    auth:
+      required: false
+      method: none
+      interactive: false
+"""
+
+
+def _build_synth_only_corpus(tmp_path: Path) -> Path:
+    """Create a scratch rbtv_root with orchestration/models/synthetic-only/manifest.yaml.
+
+    Returns the scratch rbtv_root; models_dir = scratch_rbtv_root / orchestration / models.
+    """
+    models = tmp_path / "orchestration" / "models" / "synthetic-only"
+    models.mkdir(parents=True)
+    (models / "manifest.yaml").write_text(_SYNTH_ONLY_MANIFEST, encoding="utf-8")
+    return tmp_path
+
+
+class TestModelsDir:
+    """Criterion 1 of pilot-levers: --models-dir confinement for route.py.
+
+    (a) Flagged run routes FROM the scratch catalog — synthetic-only variant wins.
+    (b) Flagged run --explain trace contains the synthetic-only model and NOT real models.
+    (c) Flag absent → default behavior: kimi wins as before (byte-identical to pre-change baseline).
+    """
+
+    def test_flagged_routes_from_scratch_catalog(self, tmp_path):
+        """--models-dir <scratch> routes from the scratch catalog only.
+
+        The synthetic-only variant (cheapest, code-competent) wins the
+        fully-bounded code profile; real catalog packages do not appear.
+        """
+        scratch_rbtv_root = _build_synth_only_corpus(tmp_path)
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+        )
+        result = route.route(
+            dict(profile),
+            scratch_rbtv_root,
+            VAULT_ROOT,
+            cfg,
+            {},
+            explain=True,
+        )
+        assert result["verdict"] == "route", f"unexpected verdict: {result}"
+        assert result["model"] == "synthetic-only", (
+            f"--models-dir scratch: expected synthetic-only to win, got {result['model']}:{result['variant']}"
+        )
+        assert result["variant"] == "cheapest-synth", (
+            f"unexpected variant: {result['variant']}"
+        )
+        # Real catalog packages must not appear in the explain trace.
+        explain = result.get("explain", [])
+        enum_complete = next(
+            (s for s in explain if s.get("stage") == "enumerate" and s.get("action") == "complete"),
+            None,
+        )
+        assert enum_complete is not None, "expected enumerate complete step"
+        models_found = enum_complete.get("models", [])
+        assert "synthetic-only" in models_found, f"scratch model not enumerated: {models_found}"
+        assert "kimi" not in models_found, (
+            f"real catalog leaked into scratch run: kimi in {models_found}"
+        )
+
+    def test_flagged_via_cli_scratch_variant_wins(self, tmp_path):
+        """CLI --models-dir exercise: run route.py --models-dir <scratch-models-dir> --explain.
+
+        The scratch-models-dir is the orchestration/models/ subdir of the scratch tree
+        (not the rbtv_root) — the CLI flag accepts a catalog root directly.
+        """
+        scratch_rbtv_root = _build_synth_only_corpus(tmp_path)
+        scratch_models_dir = scratch_rbtv_root / "orchestration" / "models"
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+        )
+
+        def _run_route_with_models_dir(profile_dict, models_dir_path, explain=False):
+            cmd = [sys.executable, str(ROUTE_PY), "--models-dir", str(models_dir_path)]
+            if explain:
+                cmd.append("--explain")
+            env = os.environ.copy()
+            proc = subprocess.run(
+                cmd,
+                input=json.dumps(profile_dict),
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            try:
+                output = json.loads(proc.stdout)
+            except json.JSONDecodeError:
+                output = {"_raw_stdout": proc.stdout, "_raw_stderr": proc.stderr}
+            return proc.returncode, output
+
+        exit_code, result = _run_route_with_models_dir(profile, scratch_models_dir, explain=True)
+        assert exit_code == 0, f"Non-zero exit: {result}"
+        assert result["verdict"] == "route"
+        assert result["model"] == "synthetic-only", (
+            f"CLI --models-dir: synthetic-only should win, got {result['model']}"
+        )
+        # The --explain trace must show synthetic-only, not real packages.
+        explain = result.get("explain", [])
+        enum_complete = next(
+            (s for s in explain if s.get("stage") == "enumerate" and s.get("action") == "complete"),
+            None,
+        )
+        assert enum_complete is not None
+        models_found = enum_complete.get("models", [])
+        assert "synthetic-only" in models_found
+        assert "kimi" not in models_found
+
+    def test_flag_absent_default_identity(self):
+        """Flag absent → route.py output is byte-identical to baseline (kimi wins).
+
+        This is the default-identity assertion from the criterion: omitting
+        --models-dir leaves behavior byte-identical to the pre-change script
+        on the same profile.
+        """
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+        )
+        # Route using the function (no --models-dir; rbtv_root = real rbtv root).
+        result = route.route(dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=False)
+        assert result["verdict"] == "route"
+        assert result["model"] == "kimi", (
+            f"flag absent: default behavior changed, expected kimi, got {result['model']}"
+        )
+
+    def test_cli_flag_absent_same_as_pre_change(self):
+        """CLI path: no --models-dir → same output as calling route.py without the flag.
+
+        Runs route.py twice via subprocess: once with the new code but no flag,
+        once with --explain. Both must produce the expected kimi verdict.
+        """
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+        )
+        exit_code, result = _run_route(profile, explain=False)
+        assert exit_code == 0
+        assert result["verdict"] == "route"
+        assert result["model"] == "kimi", (
+            f"CLI no --models-dir: kimi expected (default identity), got {result['model']}"
+        )

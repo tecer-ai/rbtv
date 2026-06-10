@@ -20,6 +20,16 @@ Unified builder replacing both the RBTV create-component workflow and any vault-
 | Create / Edit / Understand | Building, modifying, or understanding a component | Activation Sequence below |
 | Review (token efficiency) | The owner asks to review, diagnose, audit, or trim a component's token cost | Load `{rbtv_path}/builder/workflows/component-review/workflow.md` and follow it — skip the Activation Sequence |
 
+## Critical Rules
+
+- 🛑 NEVER generate content without user input
+- 🛑 NEVER load multiple step files simultaneously
+- 📖 ALWAYS read entire step file before execution
+- 🚫 NEVER skip steps or optimize the sequence
+- 🎯 ALWAYS follow the exact instructions in the step file
+- ⏸️ ALWAYS halt at menus and wait for user input
+- 📋 NEVER create mental todo lists from future steps
+
 ## Activation Sequence
 
 1. Load `{rbtv_path}/builder/workflows/component-creation/data/component-patterns.md` — internalize naming standards, size limits, and compliance rules
