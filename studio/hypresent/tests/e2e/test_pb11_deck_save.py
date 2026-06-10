@@ -283,6 +283,139 @@ class PB11DeckSaveTests(unittest.TestCase):
             "root deck must be byte-unchanged"
         )
 
+    # ── PB11-8: crossing/second save after restructure stays faithful ─────
+    #    Regression for the stale-index re-application defect: after a save-new
+    #    of a reordered+duplicated deck, the builder re-points the deck source to
+    #    the new file but the tray model kept PRE-save indices. The NEXT save (the
+    #    "Switch to editor" crossing's Save-As, or any second save) re-applied those
+    #    stale indices against the new source → a slide was silently DROPPED and the
+    #    duplicate gained an extra copy (section count preserved, masking it).
+    #    Fix: after save-new, the tray rebases to identity indices against the saved
+    #    file, so the second save recomposes faithfully (byte-identical structure to
+    #    save-#1). Assertions are content/order/identity-level — NEVER count-only.
+    def _reorder_first_two(self, uid_src, uid_dst):
+        """Drag the row with uid_src to sit before the row with uid_dst.
+        Mirrors the exit-probe drag (pointer events through the hand-rolled sorter),
+        with the same retry — headless drag occasionally does not 'take'."""
+        for _ in range(3):
+            g = self.page.query_selector(
+                f"#tray-list .tray-row[data-uid='{uid_src}'] .grip"
+            ).bounding_box()
+            t = self.page.query_selector(
+                f"#tray-list .tray-row[data-uid='{uid_dst}']"
+            ).bounding_box()
+            sx, sy = g["x"] + g["width"] / 2, g["y"] + g["height"] / 2
+            tx, ty = t["x"] + t["width"] / 2, t["y"] - 6
+            self.page.mouse.move(sx, sy)
+            self.page.mouse.down()
+            self.page.wait_for_timeout(250)
+            for k in range(19):
+                self.page.mouse.move(sx + (tx - sx) * k / 18, sy + (ty - sy) * k / 18)
+                self.page.wait_for_timeout(25)
+            self.page.wait_for_timeout(250)
+            self.page.mouse.up()
+            self.page.wait_for_timeout(600)
+            try:
+                self.page.wait_for_function(
+                    f"() => document.querySelectorAll('#tray-list .tray-row')[0].dataset.uid==='{uid_src}'",
+                    timeout=3000,
+                )
+                return True
+            except Exception:
+                continue
+        return False
+
+    def test_second_save_after_restructure_faithful(self):
+        root_bytes = pathlib.Path(DECK_FIXTURE).read_bytes()
+        sys.path.insert(0, os.path.join(REPO, "server"))
+        from recompose import split_sections  # noqa: E402
+
+        deck_path = self._copy_deck()
+        self._open_deck(deck_path)
+        self.assertEqual(self._tray_count(), 10, "deck should have 10 slides")
+
+        # Owner restructure: reorder slide 2 (deck-section-1) before slide 1
+        # (deck-section-0), then duplicate that reordered slide — the exact gesture
+        # the exit probe used to expose the defect.
+        uids = self.page.eval_on_selector_all(
+            ".tray-row",
+            "els=>els.map(e=>({uid:e.dataset.uid, sid:e.dataset.slideId}))",
+        )
+        uid0 = next(u["uid"] for u in uids if u["sid"] == "deck-section-0")
+        uid1 = next(u["uid"] for u in uids if u["sid"] == "deck-section-1")
+        reordered = self._reorder_first_two(uid1, uid0)
+        self.assertTrue(reordered, "reorder (sec1 before sec0) must take")
+
+        # Duplicate the now-first row (deck-section-1).
+        self.page.click(f".tray-row[data-uid='{uid1}'] .tray-duplicate")
+        self.page.wait_for_timeout(200)
+        self.assertEqual(self._tray_count(), 11, "after duplicate the tray holds 11 rows")
+
+        # First save-new — this one is correct (maps against the original source).
+        save_dir = tempfile.mkdtemp()
+        save1_path = os.path.join(save_dir, "restructured.html")
+        H.set_fake_dialog(self.base, save1_path)
+        self.page.click("#save-new-btn")
+        self.page.wait_for_selector(".shell-status.success", timeout=10000)
+        self.assertTrue(os.path.exists(save1_path), "first save file must exist")
+
+        # Freeze save-#1 bytes immediately — this is the faithful reference.
+        save1_html = pathlib.Path(save1_path).read_bytes().decode("utf-8")
+        s1_spans = split_sections(save1_html)
+        s1_secs = [save1_html[s:e] for s, e in s1_spans]
+        self.assertEqual(len(s1_secs), 11, "save-#1 must hold 11 sections")
+        # Identity/order proof on save-#1: [sec1, sec1, sec0, sec2..sec9].
+        self.assertEqual(s1_secs[0], s1_secs[1], "save-#1: rows 0,1 are the sec1 duplicate")
+        self.assertIn("Uma plataforma inteligente", s1_secs[0], "save-#1 row0 is sec1")
+        self.assertIn("slide--cover", s1_secs[2], "save-#1 row2 is sec0 (cover)")
+        self.assertIn("Obrigado.", save1_html, "save-#1 must still contain the closing 'Obrigado' slide")
+
+        # SECOND save — the crossing save. state.deck.path is now save1_path. Without
+        # the fix, stale indices re-apply here and drop a slide. Save to a SECOND path
+        # so we can compare bytes against the frozen save-#1.
+        save2_path = os.path.join(save_dir, "crossing.html")
+        H.set_fake_dialog(self.base, save2_path)
+        self.page.click("#save-new-btn")
+        # The save-#1 success status is still on screen, so wait on the distinct
+        # on-disk signal (the second file appearing) rather than the status selector.
+        for _ in range(100):
+            if os.path.exists(save2_path):
+                break
+            self.page.wait_for_timeout(100)
+        self.assertTrue(os.path.exists(save2_path), "second save file must exist")
+
+        save2_html = pathlib.Path(save2_path).read_bytes().decode("utf-8")
+        s2_spans = split_sections(save2_html)
+        s2_secs = [save2_html[s:e] for s, e in s2_spans]
+
+        # ── The regression assertions (content/order/identity, never count-only) ──
+        self.assertEqual(len(s2_secs), 11, "second save must still hold 11 sections")
+        # The dropped slide ('Obrigado', source sec9) MUST be present — the defect dropped it.
+        self.assertIn(
+            "Obrigado.", save2_html,
+            "REGRESSION: closing slide 'Obrigado' was silently dropped by the second save"
+        )
+        # The duplicate (sec1) must sit at EXACTLY positions 0 and 1 — not spread to a third.
+        self.assertEqual(s2_secs[0], s2_secs[1], "second save: duplicate must be at positions 0,1")
+        self.assertIn("Uma plataforma inteligente", s2_secs[0], "second save row0 is sec1")
+        self.assertNotEqual(
+            s2_secs[1], s2_secs[2],
+            "REGRESSION: sec1 leaked into a THIRD position (stale-index re-application)"
+        )
+        self.assertIn("slide--cover", s2_secs[2], "second save row2 is sec0 (cover)")
+        # The decisive proof: the second save is structurally byte-identical to save-#1.
+        self.assertEqual(
+            [s.replace("\r\n", "\n") for s in s2_secs],
+            [s.replace("\r\n", "\n") for s in s1_secs],
+            "REGRESSION: second save bytes diverge from the faithful save-#1 (stale-index corruption)"
+        )
+
+        # Root deck must be byte-unchanged.
+        self.assertEqual(
+            pathlib.Path(DECK_FIXTURE).read_bytes(), root_bytes,
+            "root deck must be byte-unchanged after restructure + two saves"
+        )
+
     # ── PB11-6: save pane visible in deck mode, assemble hidden ───────────
     def test_deck_mode_save_pane_visible(self):
         deck_path = self._copy_deck()

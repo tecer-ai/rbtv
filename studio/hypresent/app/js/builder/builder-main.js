@@ -353,6 +353,26 @@ document.addEventListener("DOMContentLoaded", () => {
     setStatus('');
   }
 
+  // After a new-file save, the current deck source is re-pointed to the freshly
+  // written file. Reload that file's head+sections and rebase the tray model to
+  // identity indices so the NEXT save recomposes against the new source faithfully
+  // (without this, stale pre-save indices re-apply against the new file and a slide
+  // is silently dropped while a duplicate gains an extra copy).
+  async function rebaseDeckToSavedFile(savedPath) {
+    const reloaded = await loadDeckByPath(savedPath);
+    if (!reloaded || reloaded.ok !== true) {
+      throw new Error(reloaded && reloaded.error ? reloaded.error : 'Reload after save failed');
+    }
+    state.deck.head = reloaded.head;
+    state.deck.sections = reloaded.sections;
+    tray.setSrcdocProvider((rec, index) => {
+      const sec = reloaded.sections[rec.index];
+      if (!sec) return Promise.resolve('');
+      return Promise.resolve(buildDeckSrcdoc(reloaded.head, sec.html));
+    });
+    tray.rebaseToSavedDeck();
+  }
+
   async function handlePickDeck() {
     if (state.deck && tray.getItems().length > 0) {
       if (!confirm('Replace current deck? Unsaved changes will be lost.')) {
@@ -505,11 +525,14 @@ document.addEventListener("DOMContentLoaded", () => {
           parts.push('Assets skipped: ' + result.assetsSkipped.join(', '));
         }
         setStatus(parts.join(' | '), 'success');
-        // After new-file save, point state.deck.path to the new file
+        // After new-file save, point state.deck to the new file and rebase the
+        // tray model to identity indices against it (prevents stale-index re-application
+        // corrupting the next save).
         if (mode === 'new-file') {
           state.deck.path = result.path;
           state.deck.name = result.path.split(/[\\/]/).pop() || result.path;
           if (deckChipName) deckChipName.textContent = state.deck.name;
+          await rebaseDeckToSavedFile(result.path);
         }
       } else {
         setStatus('Save failed.', 'error');

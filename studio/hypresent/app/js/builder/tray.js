@@ -206,6 +206,24 @@ export function createTray({ listEl, onChange }) {
     if (onChange) onChange();
   }
 
+  function rebaseToSavedDeck() {
+    // After a save-new, the current deck source is re-pointed to the freshly
+    // written file. Recompose wrote one <section> per tray row in tray order,
+    // so every row now maps to that file's section at its OWN position. Collapse
+    // each row to an 'existing' record with an identity index (its position),
+    // discarding stale pre-save indices and library/blank provenance. Without
+    // this, the next save re-applies stale indices against the new source and
+    // silently drops/duplicates slides.
+    model.forEach((m, idx) => {
+      m.kind = 'existing';
+      m.id = 'deck-section-' + idx;
+      m.title = 'Slide ' + (idx + 1);
+      m.index = idx;
+      delete m.libraryPath;
+    });
+    render();
+  }
+
   function getOrder() {
     return model.filter(m => m.kind === 'library').map(m => m.id);
   }
@@ -235,5 +253,5 @@ export function createTray({ listEl, onChange }) {
     srcdocProvider = fn || null;
   }
 
-  return { model, add, remove, removeByUid, duplicate, addBlank, setFromPreset, render, getOrder, getItems, has, setLibrary, setSrcdocProvider };
+  return { model, add, remove, removeByUid, duplicate, addBlank, setFromPreset, rebaseToSavedDeck, render, getOrder, getItems, has, setLibrary, setSrcdocProvider };
 }
