@@ -32,6 +32,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 - 💾 ALWAYS update project-memo after synthesis (Step 3)
 - ⏸️ ALWAYS halt at menus and wait for user input
 - 📋 NEVER pre-load or mentally plan future steps
+- 🛑 NEVER generate content without user input
 
 ---
 
