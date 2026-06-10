@@ -1,8 +1,8 @@
 # State Capsule — api-workers-build
 
-> **Mutable file — overwriting is the contract.** This is the TERMINAL capsule.
+> **Mutable file — overwriting is the contract.** This is the ACTIVE capsule.
 
-> **RUN CLOSED 2026-06-09T20:33Z — PLAN COMPLETE PENDING USER ACTION (owner approved at p6-checkpoint, option A; recorded as D-exec-16).** Nothing is in flight; nothing resumes. A future session touching this build starts from the durable record, not from this capsule.
+> **RUN ACTIVE — Phase 3 in progress.** The next dispatch is p3-1; resume from the durable record below.
 
 ---
 
@@ -19,11 +19,11 @@
 
 ## Run Configuration
 
-- Run mode was end-to-end; plan + decisions paths as in the record above. (Closed — configuration retained for audit only.)
+- Run mode was end-to-end; plan + decisions paths as in the record above. (Active — configuration current for resuming conductor.)
 
 ## Approved Delegation Map
 
-(Closed — the map served the run; see `run-log.md` for the per-dispatch record.)
+(Active — see `run-log.md` for the per-dispatch record.)
 
 ## Completed Batches
 
@@ -38,10 +38,10 @@
 
 ## Active Doubts / Blockers
 
-(none — run closed)
+(none)
 
 ## Notes for Resuming Conductor
 
-- **Do not resume this run — it is closed.** Future work on this build's follow-ons starts from `1-projects/rbtv-evolution/rbtv-evolution-tasks.md` (each task is cold-start sufficient).
+- **Resume this run from the Phase 3 dispatch queue below.** Fresh conductor rebuilds from this capsule + `run-log.md` tail + `decisions.md`.
 - **Standing repo caution (for the cleanup-batch task):** the rbtv repo carries the mirror-install's PAUSED uncommitted footprint AND parallel sessions actively commit to it — re-diff every target against the LIVE tree before staging; commits via `rbtv-commit`, explicit pathspecs, never `git add -A`.
 - **Standing dispatch rules born here:** future DeepSeek dispatches use `deepseek-v4-flash`/`v4-pro` ids (D-exec-15); every Manus dispatch demands the deliverable in message text (Learning 4 / PRD); the keystone §2 Claude naming must survive any future routing edit (D-exec-9c).

@@ -682,3 +682,123 @@ class TestResumeNote:
         assert "Stamp transition: p3-2 → completed" in after, (
             "Derived fallback text not found in capsule when --resume-note absent"
         )
+
+
+# ---------------------------------------------------------------------------
+# ADX-20 — Mid-flight failure recoverable model (F2) + line-ending guard (F1)
+# ---------------------------------------------------------------------------
+
+class TestMidFlightFailure:
+    """F2: injected failure between write targets proves spec §S9 recoverable model."""
+
+    def test_injected_failure_after_task_frontmatter(self, active_plan_dir):
+        """Failure after task_frontmatter write: earlier writes stand, run-log absent,
+        EXIT non-zero naming the target; re-run heals to complete idempotent state."""
+        event_line = "| 2026-06-10T12:00Z | return | p3-1 | conductor | status DONE |"
+
+        # Pre-capture hashes
+        plan_path = os.path.join(active_plan_dir, "api-workers-build-plan.md")
+        task_path = os.path.join(active_plan_dir, "phase-3", "p3-1.task.md")
+        del_path = os.path.join(active_plan_dir, "deliverables.md")
+        rl_path = os.path.join(active_plan_dir, "run-log.md")
+        cap_path = os.path.join(active_plan_dir, "state-capsule.md")
+
+        hashes_before = {
+            "plan": file_hash(plan_path),
+            "task": file_hash(task_path),
+            "del": file_hash(del_path),
+            "rl": file_hash(rl_path),
+            "cap": file_hash(cap_path),
+        }
+
+        # Run with injected failure after task_frontmatter
+        env = os.environ.copy()
+        env["STAMP_TEST_FAIL_AFTER"] = "task_frontmatter"
+        cmd = [
+            sys.executable, STAMP_PY,
+            "--plan-dir", active_plan_dir,
+            "--task", "p3-1",
+            "--status", "completed",
+            "--scope", "conductor",
+            "--event", event_line,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+
+        assert result.returncode != 0, "Expected non-zero exit on injected failure"
+        assert "INJECTED_FAILURE after task_frontmatter" in result.stderr
+
+        # Earlier writes (plan checkbox + task frontmatter) DID land
+        plan_after = read_file(plan_path)
+        assert "- [x] `p3-1`" in plan_after, "Plan checkbox should have been written"
+        task_after = read_file(task_path)
+        assert "status: completed" in task_after, "Task frontmatter should have been written"
+
+        # Later targets untouched
+        assert file_hash(del_path) == hashes_before["del"], "Deliverables modified despite failure"
+        assert file_hash(rl_path) == hashes_before["rl"], "Run-log modified despite failure"
+        assert file_hash(cap_path) == hashes_before["cap"], "Capsule modified despite failure"
+
+        # Re-run WITHOUT injection → heals to complete state
+        rc2, stdout2, stderr2 = run_stamp(
+            active_plan_dir,
+            "--task", "p3-1",
+            "--status", "completed",
+            "--scope", "conductor",
+            "--event", event_line,
+        )
+        assert rc2 == 0, f"Heal re-run failed: {stderr2}"
+        assert "deliverables_status: changed" in stdout2
+        assert "run_log_event: changed" in stdout2
+        assert "capsule: changed" in stdout2
+
+        # Re-run again → idempotent (all unchanged)
+        rc3, stdout3, _ = run_stamp(
+            active_plan_dir,
+            "--task", "p3-1",
+            "--status", "completed",
+            "--scope", "conductor",
+            "--event", event_line,
+        )
+        assert rc3 == 0
+        assert "plan_checkbox: unchanged" in stdout3
+        assert "task_frontmatter: unchanged" in stdout3
+        assert "deliverables_status: unchanged" in stdout3
+        assert "run_log_event: unchanged" in stdout3
+        assert "capsule: unchanged" in stdout3
+
+
+class TestLineEndingPreservation:
+    """F1: stamp operations preserve input line endings (LF in → LF out)."""
+
+    def test_no_crlf_after_transition_on_normalized_fixture(self, active_plan_dir):
+        """After a conductor-scope transition on the normalized active fixture,
+        no file in the plan dir contains \r\n bytes."""
+        event_line = "| 2026-06-10T12:00Z | return | p3-2 | conductor | status DONE |"
+        rc, stdout, stderr = run_stamp(
+            active_plan_dir,
+            "--task", "p3-2",
+            "--status", "completed",
+            "--scope", "conductor",
+            "--event", event_line,
+        )
+        assert rc == 0, f"stderr: {stderr}"
+
+        # Check only the files stamp.py touches (_dispatch/*.out are faithful
+        # corpus artifacts with native CRLF and are NOT stamp targets).
+        targets = [
+            os.path.join(active_plan_dir, "api-workers-build-plan.md"),
+            os.path.join(active_plan_dir, "phase-3", "p3-2.task.md"),
+            os.path.join(active_plan_dir, "deliverables.md"),
+            os.path.join(active_plan_dir, "run-log.md"),
+            os.path.join(active_plan_dir, "state-capsule.md"),
+        ]
+        bad_files = []
+        for fpath in targets:
+            with open(fpath, "rb") as f:
+                data = f.read()
+            if b"\r\n" in data:
+                bad_files.append(os.path.relpath(fpath, active_plan_dir))
+
+        assert not bad_files, (
+            f"Stamp targets containing CRLF after transition: {bad_files}"
+        )

@@ -584,6 +584,12 @@ def main(argv=None):
     # preserved: if ANY re-locate fails, no further writes happen; targets 1–3 are
     # convergent (safe to re-run), and the run-log has not yet been touched.
 
+    def _inject_failure_after(target):
+        """Env-gated mid-flight failure injection — inert by default."""
+        if os.environ.get("STAMP_TEST_FAIL_AFTER") == target:
+            print(f"ERROR: INJECTED_FAILURE after {target}", file=sys.stderr)
+            sys.exit(1)
+
     # 1. Plan checkbox
     if checkbox_changed:
         with open(plan_file, "r", encoding="utf-8", newline="") as f:
@@ -600,6 +606,7 @@ def main(argv=None):
         results["plan_checkbox"] = "changed"
     else:
         results["plan_checkbox"] = "unchanged"
+    _inject_failure_after("plan_checkbox")
 
     # 2. Task frontmatter
     if fm_changed:
@@ -617,6 +624,7 @@ def main(argv=None):
         results["task_frontmatter"] = "changed"
     else:
         results["task_frontmatter"] = "unchanged"
+    _inject_failure_after("task_frontmatter")
 
     # 3. Deliverables row
     del_path_arg = artifact if del_path_changed else None
@@ -641,6 +649,7 @@ def main(argv=None):
         results["deliverables_status"] = "unchanged"
         if artifact and not del_path_changed:
             results["deliverables_path"] = "unchanged"
+    _inject_failure_after("deliverables")
 
     # 4. Run-log append (conductor only, LAST)
     if scope == "conductor":
@@ -659,6 +668,7 @@ def main(argv=None):
                 print(f"ERROR: {err}", file=sys.stderr)
                 sys.exit(1)
             results["run_log_event"] = "changed"
+        _inject_failure_after("run_log")
 
         # 4b. Capsule lockstep (only when event was actually appended)
         if not run_log_dedup_hit:
