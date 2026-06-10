@@ -73,14 +73,18 @@
 
 **Capability:** real autonomy — browser navigation, clicks, form-fill, full workflows; RESTful task API; per-task cost; ~5-min timeout. Complement to LLMs, not a substitute.
 
-## 8. Qwen (Alibaba)
+## 8. Qwen Code CLI (multi-backend, ModelStudio US)
 
-| Model | Multimodal | Agent | Context | API |
-|-------|------------|-------|---------|-----|
-| Qwen3.7 | Text, image, video | Yes | Not specified | OpenAI-compatible |
-| Qwen3.5-Plus | Text, image, video | Yes | Not specified | OpenAI-compatible |
+The `qwen-code-cli` package is a **CLI code-executor** that runs FOUR configured backends via ModelStudio US (OpenAI-compatible; `--auth-type openai -m <id>`, omit `-m` → `qwen3.6-plus`). It routes on `(qwen-code-cli, variant)` — each backend modeled only where a routing-field differs (field-count discipline):
 
-**Capability:** multimodal (text/image/video); Agent Mode; OpenAI-compatible.
+| Variant | Backend id | Context | Max Output | Price in/out (reference) | reasoning_tier · evidence |
+|---------|-----------|---------|-----------|--------------------------|----------------------------|
+| `default` | qwen3.6-plus | 1M | 65,536 | $0.28/$1.65 (0–256K band) | mid · validated |
+| `deepseek-flash` | deepseek-v4-flash | 1M | 384k | $0.14/$0.28 | mid · validated (bounded-code done-gate) |
+| `deepseek-pro` | deepseek-v4-pro | 1M | 384k | $0.435/$0.87 | top (spec-derived) · served/probe-pending |
+| `glm` | glm-5.1 | 204,800 | 131,072 | ~$0.98/$3.08 | mid · served/probe-pending |
+
+**Capability:** a tool-using CLI code-executor (NOT a chat worker) — writes/edits files, runs shells/tests, native `--worktree` isolation; `web_access: false` (route web research elsewhere). `deepseek-flash` = the validated cheap workhorse; `deepseek-pro` = deeper reasoning at ~3× cost; `default` (qwen3.6-plus) = the native Qwen flagship (no `-m`); `glm` = model diversity. ModelStudio-US billing unconfirmed — prices are reference-provider-derived (Note: qwen runs as a CLI code-executor in this workspace, like kimi). Validated 2026-06-10 (owner-run; key in the owner session only).
 
 ## Quick-Decision Matrix
 
@@ -97,7 +101,9 @@
 | Integrated search | Gemini | 3.5 Flash | Search Grounding |
 | Corporate RAG | Cohere | Command A+ | Native RAG |
 | Autonomy | Manus | API | Browser automation |
-| Advanced multimodal | Qwen | 3.7 | Video + image |
+| Bounded code, cheapest CLI | Qwen Code CLI | deepseek-flash | $0.14/$0.28, validated, 384k out |
+| Bounded code, deeper reasoning | Qwen Code CLI | deepseek-pro | reasoning_tier top (spec), mid cost |
+| Code-fleet model diversity | Qwen Code CLI | glm / default | non-DeepSeek option (glm) or native Qwen (default) |
 
 ## Overlap Disambiguation — within-tier "use X when / use Y when"
 
@@ -111,6 +117,17 @@ These rows resolve the specific worker overlaps the owner cares about. They are 
 | **codex CLI** (`codex-cli:default` / `high-reasoning`) | The leaf **executes code** — edits a work-dir, runs commands, needs a sandboxed separate process. codex is a code-specialized agent (`code_competence: strong`); DeepSeek cannot do this leaf at all. |
 
 Boundary: the cut is **text-synthesis vs code-execution**, enforced mechanically by `code_competence` — never route code to DeepSeek, never route pure text-synthesis to a costlier code-executing process when a text worker suffices. (api-workers-build D2: DeepSeek stays the API text worker; the code/agentic role is a CLI worker.)
+
+### qwen-code-cli (DeepSeek/GLM backend) vs DeepSeek-API
+
+The qwen CLI can run DeepSeek V4 models too (`-m deepseek-v4-flash`/`-m deepseek-v4-pro`) — the SAME models the `deepseek-api` package serves. They are different ROLES, never interchangeable.
+
+| Use… | When |
+|------|------|
+| **qwen-code-cli** (`deepseek-flash` / `deepseek-pro` / `glm` / `default`) | The leaf **executes code or agentic work** — writes/edits files, runs shells/tests, uses the `agent`/MCP tools, `--worktree` isolation, post-run allowlist diff. The qwen CLI carries DeepSeek (and GLM, and native Qwen) as a TOOL-USING code executor. `code_competence: strong`. |
+| **DeepSeek API** (`deepseek-api:v4-flash` / `v4-pro`) | The leaf is **stateless text synthesis** — summarize/classify/rewrite/JSON over inlined sources, no filesystem or tool loop. `code_competence: none` — the §2a filter removes it from every code leaf. Cheapest text worker. |
+
+Boundary: **does the task touch the filesystem or run tools? → qwen-code-cli (DeepSeek backend). Pure text in → text out? → deepseek-api.** Same underlying DeepSeek V4 models, two different ROLES. (The CLI-code vs API-text cut of "DeepSeek-API vs codex-CLI" above, applied to the qwen CLI's DeepSeek backends. Within the qwen code fleet, pick the variant per §8: flash = cheap workhorse, pro = deeper reasoning, default = native Qwen, glm = diversity.)
 
 ### Gemini-grounding vs rbtv-web-searching vs manus
 

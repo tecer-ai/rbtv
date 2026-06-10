@@ -63,10 +63,11 @@ The addendum is GENERIC. A model package's delta MAY add model-specific obligati
 
 | Obligation | What qwen is bound to |
 |------------|------------------------|
-| **Approval mode is the confinement dial, and it is the conductor's to set** | A non-interactive dispatch MUST set `--approval-mode` explicitly. **For headless WRITE work, `yolo` (= `-y`) is REQUIRED** (or an explicit `--allowed-tools` grant): live-proven on qwen 0.17.1 (p2-3, 2026-06-10), headless `--approval-mode auto` DENIES every write/edit/shell tool call outright ("…use the -y flag"), so `auto` is READ-ONLY in practice and `auto-edit` cannot be relied on to write headless either. `yolo` auto-approves ALL tool calls and runs at host privilege with NO sandbox (probe-confirmed warning) — use it for headless write work with the post-run diff + a minimal workspace scope as the boundary. Reserve `auto` (and `auto-edit`) for read-only/analysis leaves where no write is needed. NEVER leave the mode at `default` for a headless run (it prompts for approval and stalls). Suppress the yolo host-privilege notice with `QWEN_CODE_SUPPRESS_YOLO_WARNING=1` when `yolo` is the chosen posture. The `--sandbox`/`-s` container option exists (Docker/Podman-backed) but is **AUTH-PENDING + backend-unverified** on this Windows host — confirm a container backend before relying on it; do NOT assume `--sandbox` is available. |
+| **Approval mode is the confinement dial, and it is the conductor's to set** | A non-interactive dispatch MUST set `--approval-mode` explicitly. **For headless WRITE work, `yolo` (= `-y`) is REQUIRED** (or an explicit `--allowed-tools` grant): live-proven on qwen 0.17.1 (p2-3, 2026-06-10), headless `--approval-mode auto` DENIES every write/edit/shell tool call outright ("…use the -y flag"), so `auto` is READ-ONLY in practice and `auto-edit` cannot be relied on to write headless either. `yolo` auto-approves ALL tool calls and runs at host privilege with NO sandbox (probe-confirmed warning) — use it for headless write work with the post-run diff + a minimal workspace scope as the boundary. Reserve `auto` (and `auto-edit`) for read-only/analysis leaves where no write is needed. NEVER leave the mode at `default` for a headless run (it prompts for approval and stalls). Suppress the yolo host-privilege notice with `QWEN_CODE_SUPPRESS_YOLO_WARNING=1` when `yolo` is the chosen posture. The `--sandbox`/`-s` container option exists (Docker/Podman-backed) but is **backend-unverified** on this Windows host — confirm a container backend before relying on it; do NOT assume `--sandbox` is available. |
 | **Workspace scope is the CWD root + `--include-directories`/`--add-dir`; there is no single `--work-dir` flag** | The current working directory IS the workspace root; extra writable/readable dirs are ADDITIVE via `--include-directories` (alias `--add-dir`, comma-separated or repeated). Keep the set minimal. Files created/modified outside the scoped workspace are an out-of-allowlist write the conductor catches on the post-run diff — surface, never auto-revert. For parallel waves, prefer `--worktree` (native isolation, below) over sharing a work-dir. |
-| **No self-commit unless the task grants it (default OFF)** | Qwen MAY commit locally — and ONLY locally — after its declared validation passes, when the task file grants `commit_policy: local-only`. NEVER push, NEVER force-reset, NEVER amend. The commit subject MUST carry the run's mandated `[<task-id>]` convention; the returned hash MUST match `git log`. Absent an explicit grant, qwen does NOT commit (the conductor commits via `rbtv-commit`). This authorization, and the commit-message convention's survival across a qwen run, are AUTH-PENDING — verify the hash and the subject string on return. |
-| **Auth is a USER-EXECUTED-ONLY pre-flight, not a runtime grant** | An unauthenticated headless run exits 1 (`No auth type is selected …`, probe-verified). The orchestrator CANNOT self-provision Qwen auth — OAuth needs a browser it cannot drive headlessly, and API-key auth needs the user to obtain a key from a paid provider and place it in env/settings (the free OAuth tier was discontinued 2026-04-15). Before any headless dispatch, confirm auth is configured; if not, HALT and ask the owner to run the §auth pre-flight. NEVER attempt to complete the OAuth browser flow or fabricate a key. |
+| **The dispatched command MUST START WITH `qwen` (permission-prefix rule)** | The pre-approved `Bash(qwen:*)` / `PowerShell(qwen:*)` permission rules are **prefix** rules — they match ONLY a command line that BEGINS with `qwen`. A dispatch that begins with anything else (`cd …`, an `$env:…=`/`VAR=` assignment, or a `Get-Content … \|`/`cat … \|` pipe) does NOT match and falls through to the permission classifier, which denies in-session CLI yolo spawns (the D17 block). So the command line the harness executes MUST begin with `qwen`: (1) run from the orchestrator/vault-root working directory — NO leading `cd`; pass the work-target via `--include-directories`/`--add-dir`. (2) Set env (`QWEN_CODE_UNATTENDED_RETRY`, `QWEN_CODE_SUPPRESS_YOLO_WARNING`) in a SEPARATE preceding command, or persist it once in the session — NEVER inline-prefix the qwen line with it. (3) Pass the brief as a SHORT positional prompt that POINTS AT a brief file (`qwen "Read and execute <brief-path> exactly" …`) — NOT a `Get-Content <file> \|`/`cat <file> \|` stdin pipe, which prefixes the line with the pipe source and breaks the match. Proven 2026-06-10: a `qwen`-leading command dispatched cleanly under the pre-approved rules where an env-/`cd`-prefixed command fell to the classifier. |
+| **No self-commit unless the task grants it (default OFF)** | Qwen MAY commit locally — and ONLY locally — after its declared validation passes, when the task file grants `commit_policy: local-only`. NEVER push, NEVER force-reset, NEVER amend. The commit subject MUST carry the run's mandated `[<task-id>]` convention; the returned hash MUST match `git log`. Absent an explicit grant, qwen does NOT commit (the conductor commits via `rbtv-commit`). This authorization, and the commit-message convention's survival across a qwen run, are not yet exercised in a graded run — verify the hash and the subject string on return. |
+| **Auth is configured (api-key) but the key lives ONLY in the owner's session → dispatches are owner-run** | An unauthenticated headless run exits 1 (`No auth type is selected …`, probe-verified). This machine IS authed — `--auth-type openai` + `DASHSCOPE_API_KEY` (ModelStudio US) — but that key is set ONLY in the owner's interactive shell (unset in Process/User/Machine/.env), so a conductor-launched process cannot authenticate. Live `qwen` dispatches are therefore OWNER-RUN: the owner runs the `qwen`-leading command via `!`, the conductor packages it and reconciles the return against disk. The conductor CANNOT self-provision the key and NEVER reads, prints, or fabricates it. If the owner's session lacks the key, HALT and ask the owner to set it / run the §auth pre-flight. |
 | **Tool-call budgets are the runaway guard, and `--continue`/`--resume` need chat recording** | Bound every unattended dispatch with `--max-wall-time` (e.g. `10m`) and `--max-session-turns` (e.g. `30`); add `--max-tool-calls` where the tool count is knowable. Qwen has NO retryable-throttle exit code — set `QWEN_CODE_UNATTENDED_RETRY=1` so transient 429/529 retry in-process (capped 5 min, 30s stderr heartbeat) rather than bouncing an external retry loop. `--continue`/`--resume`/`--session-id`/`--fork-session` work ONLY with chat recording ON (the default unless `--chat-recording false`) — do NOT disable recording on a dispatch you may need to resume. |
 | **Stray-file ban** | Create files ONLY where the allowlist directs. NEVER write scratch notes, logs, or summary files into the repo root or anywhere outside the allowlist — the post-run diff treats any such file as an out-of-allowlist write. Use `--json-file <path>` (or capture stdout) to land the structured result at a known path INSIDE the allowlist rather than scattering files. |
 | **Forbidden-ops are exhaustive** | The task's `forbidden_ops` list is the complete prohibition set; absence of mention is NOT permission. No writes outside the scoped work-dir, no `git push`, no destructive git reset, no external production API calls unless the task explicitly sanctions a mocked/local one, no `--yolo` without the task sanctioning host-privilege auto-approval. |
@@ -107,14 +108,14 @@ The schema is identical across workers; only HOW the fields arrive differs by wo
 | **sdd composite dispatch (`superpowers:subagent-driven-development`)** | sdd is ONE composite dispatch wrapped by the outer gates (routing §5). Its outer-wrapper return carries the five fields as the in-session final reply — same as the Agent-tool row — over its whole code body; its internal TDD sub-structure is not surfaced as separate returns. |
 | **API worker (shared runner `models/_api/run.py`)** | The conductor invokes `run.py` via Bash; the RUNNER writes the deliverable output file(s) AND a `return.json` carrying the five fields into the conductor-supplied `--output-folder`. The conductor reads the output folder + `return.json` — the API model cannot write to the repo, run git, or commit. Same "message is a hint, disk is truth" discipline; here "disk" = the output folder, NOT a git repo (so reconciliation is file-exists + non-empty + envelope-valid, not `git log`). |
 
-**Qwen return surface:** run headless by supplying the prompt non-interactively (positional argument — canonical on `0.17.1`; `-p`/`--prompt` is deprecated-but-functional) WITHOUT `-i`/`--prompt-interactive`. Add `--output-format json` for a buffered machine-readable result object at completion (message objects of type `system`/`assistant`/`result`); `text` (default) prints the human-readable final message; `stream-json` emits line-delimited events live. The exact `json`/`stream-json` payload shape is **docs-sourced, AUTH-PENDING** — treat the documented field names (`assistant.message.content`/`usage`/`model`; `result.subtype`/`is_error`/`duration_ms`/`usage`) as the contract and confirm against a real authenticated run. The worker carries the five return fields in that final message; treat the message as a HINT, never the truth. Qwen runs autonomously to completion under `--approval-mode yolo`/`auto`, so a dropped or garbled final turn is possible (AUTH-PENDING failure surface — not corpus-validated; reconcile from disk). The conductor reconciles every qwen return against `git status` / `git log` of the work-dir and the cited evidence files on disk — disk wins on any disagreement. For a strictly-shaped final response, `--json-schema <json|@path>` (HEADLESS ONLY) registers a synthetic `structured_output` tool and ends the session on the first valid call — the durable structured return.
+**Qwen return surface:** run headless by supplying the prompt non-interactively (positional argument — canonical on `0.17.1`; `-p`/`--prompt` is deprecated-but-functional) WITHOUT `-i`/`--prompt-interactive`. Add `--output-format json` for a buffered machine-readable result object at completion (message objects of type `system`/`assistant`/`result`); `text` (default) prints the human-readable final message; `stream-json` emits line-delimited events live. The `json` payload shape is **CONFIRMED** (2026-06-10 runs): a `system`/`init` object naming the served `model`, `assistant` objects, and a `result` object carrying `subtype`/`is_error`/`duration_ms`/`usage` — `init.model` echoes the configured backend per run. (`stream-json` live-event shape remains docs-sourced.) The worker carries the five return fields in that final message; treat the message as a HINT, never the truth. Qwen runs autonomously to completion under `--approval-mode yolo`/`auto`, so a dropped or garbled final turn is possible (not corpus-validated across many runs; reconcile from disk). The conductor reconciles every qwen return against `git status` / `git log` of the work-dir and the cited evidence files on disk — disk wins on any disagreement. For a strictly-shaped final response, `--json-schema <json|@path>` (HEADLESS ONLY) registers a synthetic `structured_output` tool and ends the session on the first valid call — the durable structured return.
 <!-- The model package delta names this worker's exact return surface (e.g., the CLI's final-message flag, the evidence-file convention) here. The fields above never change. -->
 
 ---
 
 ## Invocation — the exact command shape
 
-The qwen CLI dispatch manual — the exact command shapes, flags, approval/confinement grammar, exit handling, resume, and the qwen task contract. Verified against **Qwen Code CLI `0.17.1`** (`qwen --version` → `0.17.1`; `npm ls -g` → `@qwen-code/qwen-code@0.17.1`; Node `v24.11.1`) on Windows 11. Re-verify with `qwen --help` / `qwen --version` before relying on any flag — the CLI evolves fast; `--help` is ground truth for the installed build. Node `>=22.0.0` required. Evidence boundary: CLI launch, flag-parsing, and the exit-1 auth-gate are locally verified; the exit-0 success path, JSON output shape, and swarm/turn facets are **AUTH-PENDING** (auth-gated, §auth) until the p5-2 smoke probe and are marked where it matters.
+The qwen CLI dispatch manual — the exact command shapes, flags, approval/confinement grammar, exit handling, resume, and the qwen task contract. Verified against **Qwen Code CLI `0.17.1`** (`qwen --version` → `0.17.1`; `npm ls -g` → `@qwen-code/qwen-code@0.17.1`; Node `v24.11.1`) on Windows 11. Re-verify with `qwen --help` / `qwen --version` before relying on any flag — the CLI evolves fast; `--help` is ground truth for the installed build. Node `>=22.0.0` required. Evidence boundary: CLI launch, flag-parsing, the exit-1 auth-gate, AND — 2026-06-10 — the exit-0 success path, JSON output shape, tool-calling, and per-run attribution are all verified; swarm/subagent depth and `--json-file` headless durability remain unexercised and are marked where it matters.
 
 ### Pre-flight (before any dispatch)
 
@@ -129,28 +130,31 @@ The qwen CLI dispatch manual — the exact command shapes, flags, approval/confi
 
 Headless mode is entered by supplying a prompt non-interactively WITHOUT `-i`/`--prompt-interactive`. The default positional behavior is one-shot (`qwen [query..]` → "Defaults to one-shot"): the process runs the task and exits; stdout is the return, the exit code signals success/budget/error.
 
-**Shape A — positional prompt (canonical on 0.17.1; small prompts):**
+The command line the harness executes MUST **begin with `qwen`** so the pre-approved `Bash(qwen:*)`/`PowerShell(qwen:*)` prefix permission rule matches (see the binding obligation above). Both shapes below lead with `qwen`; set env in a SEPARATE preceding statement and run from the orchestrator/vault-root CWD (no leading `cd`), passing the work-target via `--include-directories`.
+
+**Shape A — short positional prompt, command STARTS WITH `qwen` (canonical on 0.17.1):**
 
 ```powershell
-$env:QWEN_CODE_UNATTENDED_RETRY = "1"   # in-process 429/529 retry for unattended runs
-qwen "<self-contained task prompt>" --output-format json --approval-mode yolo `
+# env in a SEPARATE prior statement (NOT prefixing the qwen line):
+$env:QWEN_CODE_UNATTENDED_RETRY = "1"; $env:QWEN_CODE_SUPPRESS_YOLO_WARNING = "1"
+# the DISPATCHED command — BEGINS with `qwen` (matches the qwen:* prefix rule):
+qwen "<short self-contained prompt>" --auth-type openai -m deepseek-v4-flash `
+  --include-directories "<work-target>" --output-format json --approval-mode yolo `
   --max-session-turns 30 --max-wall-time 10m
 ```
 
-The prompt is a **POSITIONAL argument**. `--help` marks `-p`/`--prompt` deprecated ("Use the positional prompt instead. This flag will be removed in a future version.") though `-p` still works today — prefer the positional form for forward-compatibility; fall back to `-p` only if a downstream tool requires a flag.
+The prompt is a **POSITIONAL argument**. `--help` marks `-p`/`--prompt` deprecated — prefer the positional form.
 
-**Shape B — stdin pipe (large prompts / when the prompt content is a file):**
+**Shape B — large brief via a FILE POINTER (NOT a stdin pipe):**
+
+For a brief too large to inline, write it to a file and point qwen at it with a SHORT positional prompt. Do **not** pipe it with `Get-Content <file> | qwen` / `cat <file> | qwen`: the pipe makes the command line BEGIN with the pipe source (`Get-Content`/`cat`), which does NOT match the `qwen:*` prefix rule and falls to the permission classifier.
 
 ```powershell
-# PowerShell:
-Get-Content prompt.md | qwen "<instruction>" --output-format json --approval-mode yolo --max-wall-time 10m
-```
-```bash
-# bash: the positional prompt is APPENDED to the piped stdin input
-cat prompt.md | qwen "<instruction>" --output-format json --approval-mode yolo --max-wall-time 10m
+qwen "Read and execute the task described in '<brief-path>' exactly; create only the files it allowlists." `
+  --include-directories "<work-target>" --output-format json --approval-mode yolo --max-wall-time 10m
 ```
 
-Prompt transport is **either** — positional arg OR stdin pipe; a positional/`-p` prompt is appended to any stdin content. **Both shapes** apply the same approval mode, the same workspace scope (CWD + `--add-dir`), and pass the same allowlist + forbidden-ops checks on return. The composed **header + payload** (generic packaging §1) is written to `prompt.md` on disk and dispatched FROM that file — the same prompt file is the reuse surface on resume. (Windows note: PowerShell stdin uses `Get-Content file | qwen "..."`; positional and stdin both work — prefer stdin for any non-trivial prompt to avoid an arg-size ceiling.)
+qwen loads the brief via its `read_file` tool, so the command stays short AND begins with `qwen`; the brief file on disk is the reuse surface on resume. (The stdin-pipe form still works FUNCTIONALLY — a positional/`-p` prompt is appended to any piped stdin — but it breaks the permission-prefix match for in-session dispatches, so avoid it there; an owner-typed `!` dispatch may use either form.)
 
 ### Approval + sandbox grammar — the confinement axis
 
@@ -158,7 +162,7 @@ Prompt transport is **either** — positional arg OR stdin pipe; a positional/`-
 |------|--------|-----|
 | `--approval-mode` | `plan` · `default` · `auto-edit` · `auto` · `yolo` | The PRIMARY confinement dial. `plan` = plan only (no execution). `default` = prompt for approval (STALLS headless — never use). `auto-edit` = auto-approve edit tools only. `auto` = **headless: DENIES every write/edit/shell tool call outright** ("Tool requires user approval but cannot execute in non-interactive mode… use the -y flag") — live-proven on qwen 0.17.1 (p2-3, 2026-06-10), refuting the earlier docs-sourced "LLM classifier auto-approves safe / blocks risky" reading for headless runs. A headless `auto` dispatch is **READ-ONLY in practice**; use it ONLY for read-only/analysis leaves. For headless WRITE work use `yolo`/`-y` (or an explicit `--allowed-tools` grant). `yolo` = auto-approve ALL, host privilege, no sandbox. |
 | `--yolo` / `-y` | (flag) | Shorthand for `--approval-mode yolo`. Auto-approve all actions, no sandbox implied. Suppress the host-privilege notice with `QWEN_CODE_SUPPRESS_YOLO_WARNING=1`. |
-| `--sandbox` / `-s` | (flag) | Docker/Podman-backed container isolation (or `QWEN_SANDBOX` env / `tools.sandbox` setting; image via `tools.sandboxImage`). **AUTH-PENDING + backend-unverified on this Windows host** — verify the container backend before relying on it. |
+| `--sandbox` / `-s` | (flag) | Docker/Podman-backed container isolation (or `QWEN_SANDBOX` env / `tools.sandbox` setting; image via `tools.sandboxImage`). **backend-unverified on this Windows host** — verify the container backend before relying on it. |
 | `--include-directories` / `--add-dir` | path(s) (comma-sep or repeated) | Additional workspace directories alongside the CWD root. There is NO single `--work-dir` flag — the CWD is the root; extra dirs are additive. Keep minimal. |
 | `--worktree` | `[SLUG\|#PR\|URL]` | Run the session inside a git worktree at `<repoRoot>/.qwen/worktrees/<slug>/`. Bare `--worktree` auto-generates a slug. The native parallel-isolation primitive (kimi requires manual worktree setup). |
 | `--exclude-tools` | ARRAY | Strip tools (e.g. web/shell) for an offline or narrowed dispatch. The tool-stripping control. |
@@ -200,15 +204,7 @@ qwen "<task>" --auth-type openai -m glm-5.1           --output-format json --app
 qwen "<task>"                                          --output-format json --approval-mode yolo --max-wall-time 10m   # default → qwen3.6-plus
 ```
 
-**Disambiguation — qwen-via-DeepSeek (this package) vs the DeepSeek API worker (`deepseek-api`):** both can
-run DeepSeek models, but they are DIFFERENT ROLES — never interchangeable.
-
-| Use… | …when |
-|------|-------|
-| **`(qwen-code-cli, deepseek-flash\|deepseek-pro)`** — the CLI **code/agentic** role | The task is **bounded CODE or agentic work**: it must write/edit files, run shells/tests, use the `agent`/MCP tools, isolate via `--worktree`, and be confined by a post-run allowlist diff. The qwen CLI carries DeepSeek as a tool-using code executor. |
-| **`deepseek-api`** — the **text-synthesis** role | The task is **stateless TEXT generation** (summarize, classify, rewrite, JSON-mode synthesis) with `code_competence: none` and no filesystem/tool loop — the cheapest text leaf. NEVER for code execution. |
-
-Rule of thumb: **does the task touch the filesystem or run tools? → qwen-via-DeepSeek. Pure text in → text out? → `deepseek-api`.**
+**Disambiguation — qwen-via-DeepSeek (this package) vs the DeepSeek API worker (`deepseek-api`):** they run the SAME DeepSeek V4 models but are different ROLES (CLI code/agentic vs stateless text), never interchangeable. The full "use X when / use Y when" rule — and the within-fleet pick (flash vs pro vs default vs glm) — live in the routing-matrix reference: `orchestration/docs/routing-matrix-reference.md` §8 + § "qwen-code-cli (DeepSeek/GLM backend) vs DeepSeek-API". Rule of thumb: **touches the filesystem or runs tools → qwen-via-DeepSeek; pure text in → text out → `deepseek-api`.**
 
 ### Context window + output sizing
 
@@ -219,7 +215,7 @@ Rule of thumb: **does the task touch the filesystem or run tools? → qwen-via-D
 
 | Code | Meaning | Conductor action |
 |------|---------|------------------|
-| `0` | Success | Proceed to the return gate (reconcile against disk, then verification card). *(docs-sourced; AUTH-PENDING — not yet exercised.)* |
+| `0` | Success | Proceed to the return gate (reconcile against disk, then verification card). *(exit-0 path exercised 2026-06-10.)* |
 | `1` | Generic failure (e.g. **no auth type selected** — verified locally; also config/usage errors) | Halt and surface — do NOT retry blindly. For the auth case, the fix is USER-EXECUTED (§auth). |
 | `53` | `--max-session-turns` overrun | Turn-budget hit. Re-dispatch with a higher cap or split the task; NOT a transient retry. |
 | `55` | Budget exceeded — `--max-wall-time` or `--max-tool-calls` overrun (`FatalBudgetExceededError`) | Wall/tool budget hit. Re-dispatch with a higher cap or a smaller task; NOT a transient retry. |
@@ -235,7 +231,7 @@ elseif ($code -ne 0) { <reconcile disk; halt + surface — do NOT blind-retry> }
 
 **No dedicated retryable-throttle exit code** (unlike kimi's 75). Transient HTTP 429/529 are handled IN-PROCESS by `QWEN_CODE_UNATTENDED_RETRY=1`: set it and the CLI retries indefinitely with exponential backoff (capped at 5 min), printing a stderr heartbeat every 30s. For unattended orchestration prefer that env switch over an external exit-code retry loop, and bound the run with `--max-wall-time` so a stuck retry exits 55 rather than hanging.
 
-### Disk-state recovery (work landed, return/commit lost) — AUTH-PENDING, judgment-only
+### Disk-state recovery (work landed, return/commit lost) — UNVALIDATED, judgment-only
 
 Mirrors the kimi exit-75 recovery in shape; qwen's exact drop behavior is unvalidated (auth-gated), so treat this as a candidate protocol, valid only under a high-reasoning conductor (a lower-reasoning conductor halts + surfaces). Trigger only when ALL hold: qwen exited non-zero with NO structured return (no `status`, no commit hash) on stdout / in the `--json-file`; `git -C "<repo>" status --porcelain` shows uncommitted changes inside the allowlist; `git -C "<repo>" log -1 --pretty=%s` does NOT show the expected `[<task-id>]` prefix. Steps: (1) verify on-disk state against the task's Implementation Requirements; (2) run the declared `test_command` / smoke checks; (3) verify allowlist compliance (`git diff --name-only HEAD` — every changed path in the allowlist, else halt + surface); (4) verify forbidden-ops compliance; (5) commit manually with the mandatory `(orchestrator-recovered)` subject suffix:
 
@@ -271,27 +267,27 @@ All resume mechanics require chat recording ON (default unless `--chat-recording
 | `--continue`/`--resume` silently do nothing | They require chat recording ON — do NOT pass `--chat-recording false` on a resumable dispatch. |
 | `--sandbox` unavailable | Needs Docker/Podman; unverified on this Windows host — confirm the backend before relying on container isolation. |
 | `cd` does not persist between shell calls | Each shell command is an independent subprocess — pass the workspace via CWD + `--add-dir`; never rely on `cd` chaining in the prompt. |
-| Final-message drop on a dropped turn (AUTH-PENDING) | Prefer `--json-file <path>` / `--json-schema` for a durable structured return; reconcile from disk on any garbled/absent return. |
+| Final-message drop on a dropped turn (unexercised) | Prefer `--json-file <path>` / `--json-schema` for a durable structured return; reconcile from disk on any garbled/absent return. (`--json-file` durability on the RBTV fork is itself unconfirmed — see failure_modes.) |
 
 ### Swarm / subagents
 
 - Qwen Code has an **`agent` tool** (the `--max-tool-calls` docs state "`agent` tool dispatch = 1; inner calls exempt") — the worker CAN dispatch its own sub-tasks/subagents.
-- Depth: treat as **one-level** (the worker spawns sub-tasks; those do not recurse) pending live confirmation — matches the kimi subagent model and the D7 depth cap ≤2. **AUTH-PENDING** (not pilot-verified) → manifest `swarm_support` carries `probe-pending` on the depth fact.
+- Depth: treat as **one-level** (the worker spawns sub-tasks; those do not recurse) pending live confirmation — matches the kimi subagent model and the D7 depth cap ≤2. **Not pilot-verified** (the 2026-06-10 validation did not exercise subagents) → manifest `swarm_support` carries `probe-pending` on the depth fact.
 - Safe default posture: **disabled** for bounded worker dispatches (enable only for independent slices with disjoint allowlists), consistent with the kimi/codex swarm policy.
 - ACP mode (`--acp`) and `serve` (`--http-bridge`) are alternative programmatic surfaces, NOT the bounded-worker pattern — out of scope for the standard dispatch.
 
 ### Authentication — the USER-EXECUTED-ONLY pre-flight
 
-The CLI is installed and verified; only auth remains, and it CANNOT be done by an agent (OAuth needs a browser the orchestrator cannot drive; API-key auth needs the user to obtain + place a key from a PAID provider — the free OAuth tier was discontinued 2026-04-15). An unauthenticated headless run exits 1. The user runs ONE of:
+On THIS machine auth IS configured and validated: `--auth-type openai` + `DASHSCOPE_API_KEY` (ModelStudio US), with the key set ONLY in the owner's interactive session — so conductor-launched processes cannot authenticate and live dispatches are owner-run via `!`. An unauthenticated headless run exits 1 (`No auth type is selected`). The conductor CANNOT self-provision the key (OAuth needs a browser it cannot drive; an API key must be placed by the owner) and NEVER reads, prints, or fabricates it. For reference, the owner sets up auth via ONE of:
 
 **Option A — OpenAI-compatible API key (e.g. DashScope; recommended for unattended use):**
 
 ```powershell
-# In an interactive shell the agent must NOT run on the user's behalf:
-$env:OPENAI_API_KEY  = "<your-key>"
-$env:OPENAI_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"   # or another OpenAI-compatible provider
-$env:OPENAI_MODEL    = "qwen3-coder-plus"
-qwen "Reply with exactly: QWEN-PROBE-OK" --auth-type openai --output-format json --approval-mode yolo --max-wall-time 60s
+# This machine: DASHSCOPE_API_KEY + four `modelProviders.openai` entries already in ~/.qwen/settings.json
+# (all on the ModelStudio US endpoint). The owner sets the key in their OWN session — never persisted/committed:
+$env:DASHSCOPE_API_KEY = "<your-key>"   # owner-session only; the agent must NOT read, print, or set it
+# probe (command BEGINS with qwen); backend selected per-run with -m:
+qwen "Reply with exactly: QWEN-PROBE-OK" --auth-type openai -m deepseek-v4-flash --output-format json --approval-mode yolo --max-wall-time 60s
 ```
 
 `settings.json` auth shape (`~/.qwen/settings.json`): `{ "security": { "auth": { "selectedType": "openai" } } }`. Auth types: `--auth-type openai|anthropic|qwen-oauth|gemini|vertex-ai` (env vars: `OPENAI_API_KEY`/`OPENAI_BASE_URL`/`OPENAI_MODEL`; `ANTHROPIC_API_KEY`/…; `GEMINI_API_KEY`/…). The `qwen auth` subcommand is REMOVED — do NOT script it; use `/auth` (interactive), `--auth-type` + env/keys, or `settings.json`.
@@ -302,7 +298,7 @@ qwen "Reply with exactly: QWEN-PROBE-OK" --auth-type openai --output-format json
 qwen          # then use /auth, pick the provider, complete the browser login
 ```
 
-After auth is configured, a clean exit 0 from the §canonical invocation with the expected output graduates the JSON-output, exit-0, and swarm facets from `probe-pending` toward `validated` — this is the p5-2 smoke-probe moment.
+Auth is configured and the package is VALIDATED (2026-06-10): exit-0, JSON-output shape, tool-calling, and per-run attribution are exercised facts (all four backends reply-probed; `deepseek-v4-flash` passed a bounded-code done-gate). Swarm depth and `--json-file` headless durability remain the unexercised facets (manifest per-variant `probe-pending` for `deepseek-pro`/`glm`).
 
 ### The qwen task contract (plugs into the shared authoring core)
 
@@ -333,20 +329,22 @@ max_qwen_subagents: <N-or-0>
 
 **Required body sections:** Goal (one bounded deliverable) · Context Snapshot (all task-specific context inlined — never make qwen infer from broad PRDs) · Allowed Paths (the allowlist in human-readable form) · Forbidden Paths · Approval Mode (the `--approval-mode` value; the mandatory non-`default` posture) · Implementation Requirements (exact behavior — interfaces, data shapes, error semantics, every edge case enumerated) · Validation (the exact commands qwen runs before returning) · Commit Rule (local-only after validation, or none) · Swarm Rule (if `allowed`: subagent posture, count, disjoint partition) · Return Format (the five-field return schema; land a durable copy via `--json-file`/`--json-schema`).
 
-**Review gates** every qwen coding task passes (verification card owns the gate): qwen self-report → orchestrator diff-vs-allowlist check → declared validation passing (or explicit blocker) → Claude/Opus spec-compliance review → Claude/Opus code-quality review → no push until owner/final-workflow publishes. Any gate fails → halt or route a fix task; never proceed on "close enough". Qwen ships `evidence_status: probe-pending` — until the p5-2 smoke probe validates a real authenticated turn, treat every AUTH-PENDING leg as unverified and reconcile hard against disk.
+**Review gates** every qwen coding task passes (verification card owns the gate): qwen self-report → orchestrator diff-vs-allowlist check → declared validation passing (or explicit blocker) → Claude/Opus spec-compliance review → Claude/Opus code-quality review → no push until owner/final-workflow publishes. Any gate fails → halt or route a fix task; never proceed on "close enough". Qwen ships `evidence_status: validated` (per-variant `deepseek-pro`/`glm` are `probe-pending` — served, directed bounded-code unexercised); still treat each remaining unexercised leg (swarm depth, `--json-file` headless durability, disk-state recovery) as unverified and reconcile hard against disk.
 
 ### Recipes
 
 ```powershell
-# Bounded code edit, JSON result, in-process throttle retry (Shape A):
+# Bounded code edit, JSON result (Shape A) — command BEGINS with `qwen` (qwen:* prefix rule); env set separately:
 # headless WRITE work REQUIRES yolo/-y — auto DENIES every write/edit/shell call (see Approval grammar)
-$env:QWEN_CODE_UNATTENDED_RETRY = "1"
-qwen "<inlined task file content>" --output-format json --approval-mode yolo `
+$env:QWEN_CODE_UNATTENDED_RETRY = "1"   # SEPARATE prior statement — never inline-prefix the qwen line with it
+qwen "<short prompt, or: Read and execute '<brief-path>' exactly>" --auth-type openai -m deepseek-v4-flash `
+  --include-directories "<work-target>" --output-format json --approval-mode yolo `
   --max-session-turns 30 --max-wall-time 10m --json-file ".qwen-runs/t1.json"
 ```
-```bash
-# Large prompt via stdin (Shape B) — write work, so yolo (auto is read-only headless):
-cat prompt.md | qwen "<instruction>" --output-format json --approval-mode yolo --max-wall-time 10m
+```powershell
+# Large brief via a FILE POINTER (Shape B) — command BEGINS with `qwen`; point at the file, do NOT pipe it in:
+qwen "Read and execute the task in '<brief-path>' exactly" --include-directories "<work-target>" `
+  --output-format json --approval-mode yolo --max-wall-time 10m
 ```
 ```powershell
 # Read-only analysis/research leaf (strip write/shell tools), live JSONL events:
