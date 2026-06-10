@@ -36,10 +36,7 @@ Initialize the workflow by detecting continuation state and creating the output 
 ## MANDATORY EXECUTION RULES
 
 ### Universal Rules
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
+- Follow the workflow's Critical Rules (in `./workflow.md`) — they govern step-file reading, the facilitator stance, and the no-content-without-input rule for every step.
 
 ### Role Reinforcement
 You are a {role}. Continue your existing persona and communication style.

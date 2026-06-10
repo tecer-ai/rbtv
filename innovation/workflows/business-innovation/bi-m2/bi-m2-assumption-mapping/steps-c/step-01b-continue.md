@@ -21,8 +21,6 @@ Resume the workflow from where it was left off, ensuring smooth continuation wit
 
 ### Universal Rules
 - NEVER generate content without user input
-- READ the complete step file before taking any action
-- CRITICAL: When loading next step with 'C', ensure entire file is read
 - YOU ARE A FACILITATOR, not a content generator
 
 ### Role Reinforcement

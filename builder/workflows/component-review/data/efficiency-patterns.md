@@ -25,6 +25,7 @@ A waste item is filed under the locus where its FIX lives, not where its symptom
 | Multi-source clause | The same constraint stated verbatim or near-verbatim in 2+ files — the duplication detector in `../scripts/measure-component.py` surfaces shared blocks | Single authority: one canonical statement; every other site carries a functional reference only |
 | Render/copy artifact | Generated copies multiplying a shared core (N rendered files × the same boilerplate) | Verify runtime reads are JIT against the source; exclude generated mass from cost claims — but confirm nothing reads the copies wholesale |
 | Monolithic loading | A consumer must load a large file to use a small part — no index, no section anchors, no per-mode split | Split by consumption unit; index plus selective load |
+| Self-duplicated section | The cross-file duplication detector misses it; detect by intra-file section-heading repetition (same `##` heading twice) | Delete the second occurrence |
 
 ## DECIDE Patterns
 
@@ -34,6 +35,7 @@ A waste item is filed under the locus where its FIX lives, not where its symptom
 | Algorithm-in-prose | A procedure with exact inputs and outputs specified as prose the agent re-interprets per run (tokenizers, scoring formulas, selection orders) | Extract to a script or lookup table; the file cites the invocation, never restates the algorithm |
 | Dual authority | A workflow or step restating behavior an always-on rule already mandates — or two files each claiming to own the same decision | Delete the restatement; exactly one file owns the behavior, all others reference it |
 | Judgment-fired trigger | A trigger relying on agent self-assessment at an unmeasurable moment ("when context fills", "when appropriate") — these under-fire precisely when the agent is busiest | Anchor to a discrete observable moment: a mandatory checklist row inside an existing procedure, or a measurable threshold |
+| Cross-trigger single-source over-merge | A clause appears in 2 files BUT the two sites fire on different triggers; naive dedup would silence one trigger | Single-source the *statement*, keep a one-line trigger stub at each site that cross-references the canonical home — do NOT collapse to one site if a trigger would lose coverage |
 
 ## RECORD Patterns
 

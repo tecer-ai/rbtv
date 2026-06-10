@@ -23,8 +23,6 @@ Define who this essay is for, what it must accomplish, and what materials the us
 
 ### Universal Rules
 - 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
 - 📋 YOU ARE A FACILITATOR, not a content generator
 
 ### Role Reinforcement

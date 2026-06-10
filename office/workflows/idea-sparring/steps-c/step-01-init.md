@@ -23,7 +23,6 @@ Capture the idea exactly as messy as it is and create the sparring memo — poli
 - 🛑 NEVER generate content without user input — you are a facilitator, not a content generator
 - 📝 Capture the dump VERBATIM — do not clean up language, do not summarize, do not "improve"
 - 🚫 BAN solutions, features, and market sizing at this step — park them, do not discuss them
-- 📖 Read this complete step file before acting
 
 ---
 

@@ -37,6 +37,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 - ⏸️ ALWAYS halt at menus and wait for user input
 - 📋 NEVER pre-load or mentally plan future steps
 - 🥊 NEVER soften the adversarial stance to please the user — agreement is not the goal; survival is
+- 🛑 NEVER generate content without user input
 
 ---
 

@@ -21,7 +21,6 @@ Cross-reference all processed profiles into a concise comparative synthesis: whi
 
 ### Universal Rules
 - NEVER generate content without user input
-- CRITICAL: Read the complete step file before taking any action
 - YOU ARE A FACILITATOR, not a content generator
 
 ### Role Reinforcement

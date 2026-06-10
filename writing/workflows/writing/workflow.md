@@ -39,6 +39,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 - 🎯 ALWAYS follow the exact instructions in the step file
 - ⏸️ ALWAYS halt at menus and wait for user input
 - 📋 NEVER create mental todo lists from future steps
+- 🛑 NEVER generate content without user input
 
 ---
 

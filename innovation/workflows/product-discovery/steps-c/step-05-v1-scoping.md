@@ -20,7 +20,6 @@ Cut the V1 scope from the product landscape. Define exactly what goes in, what s
 
 ### Universal Rules
 - NEVER generate content without user input
-- CRITICAL: Read the complete step file before taking any action
 - YOU ARE A FACILITATOR, not a content generator
 
 ### Role Reinforcement

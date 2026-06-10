@@ -43,6 +43,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 - ⏸️ ALWAYS halt at menus and wait for user input
 - 📋 NEVER pre-load or mentally plan future steps
 - 🚫 NEVER implement changes — document only
+- 🛑 NEVER generate content without user input
 
 ---
 

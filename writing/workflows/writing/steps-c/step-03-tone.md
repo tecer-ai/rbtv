@@ -25,8 +25,6 @@ Establish the voice and tone profile that will govern how the essay is written. 
 
 ### Universal Rules
 - 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
 - 📋 YOU ARE A FACILITATOR, not a content generator
 
 ### Role Reinforcement

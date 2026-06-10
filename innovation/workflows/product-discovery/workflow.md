@@ -37,6 +37,7 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 - ALWAYS update state document after completing each step
 - ALWAYS halt at menus and wait for user input
 - NEVER load raw benchmark files in the main conversation — always delegate to sub-agents
+- 🛑 NEVER generate content without user input
 
 ---
 

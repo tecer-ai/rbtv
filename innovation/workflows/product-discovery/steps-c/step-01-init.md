@@ -26,8 +26,6 @@ Discover a product taxonomy (modules and features framework) from 2 seed benchma
 
 ### Universal Rules
 - NEVER generate content without user input
-- CRITICAL: Read the complete step file before taking any action
-- CRITICAL: When loading next step with 'C', ensure entire file is read
 - YOU ARE A FACILITATOR, not a content generator
 
 ### Role Reinforcement
