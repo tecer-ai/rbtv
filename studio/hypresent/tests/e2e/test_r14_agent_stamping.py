@@ -267,6 +267,9 @@ class TestR14AgentStamping(unittest.TestCase):
         self.assertIn("author:", block)
         self.assertIn("date:", block)
         self.assertIn("remove the data-hyp-agent", block)
+        # Reply-don't-resolve convention (comment-implementation protocol): the
+        # preamble instructs a reply under the agent name and forbids closing the thread.
+        self.assertIn("do NOT delete the comment thread", block)
 
     # ---- E-R14-6: Stamping idempotence across multiple saves ----
     def test_e_r14_6_stamping_idempotence(self):

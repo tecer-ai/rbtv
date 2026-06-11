@@ -666,7 +666,7 @@ export function buildAgentBlock() {
     "Do not edit this block manually — it is regenerated on every save and removed when no agent comments remain."
   );
   lines.push(
-    "After applying an instruction, remove the data-hyp-agent token for that id from the target element and delete this entry."
+    "After applying an instruction: (1) remove the data-hyp-agent token for that id from the target element so this entry drops on the next save; (2) add a reply to the comment thread under your agent name (e.g. \"Vivian (designer agent)\") describing exactly what you changed. Do NOT resolve and do NOT delete the comment thread itself — leave it for the human owner to resolve."
   );
   for (const t of agentThreads) {
     lines.push("");
