@@ -22,13 +22,14 @@ Manifests are **YAML**, not JSON. Rationale:
 
 ## 1. Schema structure
 
-A manifest is one YAML document with four top-level keys:
+A manifest is one YAML document with four top-level keys (plus one optional installer-consumed key):
 
 | Key | Type | Purpose |
 |-----|------|---------|
 | `model` | string | The package id — matches the folder name `models/{model}/` (e.g. `kimi-code-cli`, `codex-cli`, `claude-code-cli`, `qwen-code-cli`). The id is folder-safe and states carrier + runtime. |
 | `display` | string | Human-facing label shown in the installer worker pick-menu and the baked availability line — the parenthesized carrier+runtime form the folder-safe id cannot carry (e.g. `kimi-code (CLI)`, `claude (native, from Claude Code)`, `gemini (API)`). **Installer-consumed, NOT a routing input** — the router parser (`route.py`) ignores it; it is therefore exempt from the §3 routing-consumer obligation and the variant field-count discipline. Falls back to the bare folder name when absent. |
 | `evidence_status` | string | Package-level validation status: `validated` (piloted live) or `probe-pending` (authored from docs/probe, not yet pilot-validated). Per-variant overrides allowed (see `variants[].evidence_status`). |
+| `permission_rules` | list (optional) | The literal Claude Code permission-allowlist strings a conductor session needs to spawn this CLI worker in-session (e.g. `"Bash(qwen:*)"`, `"PowerShell(qwen:*)"` — PREFIX rules, hence the start-with-binary dispatch shaping in `dispatch-wrapper.md` §1). **Installer-consumed, NOT a routing input** (same §3 exemption as `display`): on install, an ELECTED package's strings are ensured present in the target's `.claude/settings.local.json` `permissions.allow`; a present-but-NOT-elected package's strings are removed. Only these exact strings are ever touched — hand-added entries survive. Omit for packages a session never shell-spawns (API workers, the native Agent-tool carrier). Must be TOP-LEVEL (column 0) — the installer's line-scan reader ignores nested keys. |
 | `variants` | list | One entry per routable `(model, variant)` pair. Routing routes on these — never on a bare model name. A model with a single operating profile still declares one variant. |
 
 Every routing input below the model level lives **inside a variant** — because routing routes on `(model, variant)`, and two variants of the same model can differ in reasoning tier, cost class, or context window (e.g. a `--thinking` vs `--no-thinking` profile, or two configured models).

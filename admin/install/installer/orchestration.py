@@ -31,6 +31,7 @@ scan, not a YAML parse).
 """
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -186,6 +187,124 @@ def bake_availability_line(
     return True, (
         f"availability line baked into {CORE_PROTOCOL_RELATIVE.as_posix()} "
         f"(installed: {', '.join(installed) or 'none'}; absent: {', '.join(absent) or 'none'})"
+    )
+
+
+def read_permission_rules(rbtv_root: Path, pkg: str) -> list[str]:
+    """Return a package manifest's top-level `permission_rules:` list.
+
+    These are the literal permission-allowlist strings (e.g. "Bash(qwen:*)")
+    the target workspace needs so a conductor session may spawn this CLI
+    worker in-session (D17). Packages without the field (API workers, the
+    native carrier) return []. Line scan, no YAML parse — matches
+    read_model_display's stdlib-only posture. Only a TOP-LEVEL (column-0)
+    `permission_rules:` key is honored; nested keys of the same name (e.g.
+    under a variant) are ignored.
+    """
+    manifest = rbtv_root / MODELS_RELATIVE / pkg / PACKAGE_MARKER_FILE
+    rules: list[str] = []
+    try:
+        in_block = False
+        for line in manifest.read_text(encoding="utf-8").splitlines():
+            if not in_block:
+                if line.startswith("permission_rules:"):
+                    in_block = True
+                continue
+            stripped = line.strip()
+            if stripped.startswith("- "):
+                val = stripped[2:].split("#", 1)[0].strip()
+                if len(val) >= 2 and val[0] in "\"'" and val[-1] == val[0]:
+                    val = val[1:-1]
+                if val:
+                    rules.append(val)
+            elif stripped == "" or stripped.startswith("#"):
+                continue
+            else:
+                break  # next top-level key — the list is closed
+    except OSError:
+        pass
+    return rules
+
+
+def sync_permission_rules(
+    target_root: Path, rbtv_root: Path, installed: list[str], absent: list[str]
+) -> tuple[bool, str]:
+    """Reconcile the target's `.claude/settings.local.json` permission allowlist
+    with the elected model packages (D17).
+
+    - ELECTED package  -> its manifest's `permission_rules` strings are ensured
+      present in `permissions.allow`.
+    - NON-ELECTED package (present in the repo but not elected) -> its declared
+      strings are removed.
+
+    Touches ONLY the exact strings the manifests declare — hand-added entries
+    are never modified. Idempotent. Fails soft (returns False + message) on a
+    malformed settings file rather than clobbering it.
+    """
+    settings_path = target_root / ".claude" / "settings.local.json"
+
+    wanted: list[str] = []
+    for pkg in installed:
+        for rule in read_permission_rules(rbtv_root, pkg):
+            if rule not in wanted:
+                wanted.append(rule)
+    unwanted: set[str] = set()
+    for pkg in absent:
+        unwanted.update(read_permission_rules(rbtv_root, pkg))
+    unwanted -= set(wanted)  # a rule shared with an elected package stays
+
+    if not wanted and not unwanted:
+        return False, "permission sync: no model package declares permission rules"
+
+    settings: dict = {}
+    if settings_path.is_file():
+        try:
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            return False, (
+                f"permission sync skipped: could not parse "
+                f"{settings_path.as_posix()} ({exc}) — fix the file and re-run"
+            )
+        if not isinstance(settings, dict):
+            return False, (
+                f"permission sync skipped: {settings_path.as_posix()} is not a "
+                "JSON object — fix the file and re-run"
+            )
+
+    permissions = settings.setdefault("permissions", {})
+    if not isinstance(permissions, dict):
+        return False, (
+            f"permission sync skipped: 'permissions' in "
+            f"{settings_path.as_posix()} is not an object — fix the file and re-run"
+        )
+    allow = permissions.setdefault("allow", [])
+    if not isinstance(allow, list):
+        return False, (
+            f"permission sync skipped: 'permissions.allow' in "
+            f"{settings_path.as_posix()} is not a list — fix the file and re-run"
+        )
+
+    added = [r for r in wanted if r not in allow]
+    removed = [r for r in allow if r in unwanted]
+    if not added and not removed:
+        return False, (
+            "permission sync: allowlist already current "
+            f"(managed entries: {', '.join(wanted) or 'none'})"
+        )
+
+    permissions["allow"] = [r for r in allow if r not in unwanted] + added
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        json.dumps(settings, indent=2) + "\n", encoding="utf-8"
+    )
+    parts = []
+    if added:
+        parts.append(f"added {', '.join(added)}")
+    if removed:
+        parts.append(f"removed {', '.join(removed)}")
+    return True, (
+        f"permission sync: {'; '.join(parts)} in "
+        f"{settings_path.relative_to(target_root).as_posix()}"
     )
 
 

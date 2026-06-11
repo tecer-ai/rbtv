@@ -22,6 +22,7 @@ The unit sent to a worker is a **self-contained task artifact** (it already sati
 | **Payload = the task file, verbatim** | The dispatched prompt carries the task file's content unedited and untruncated. The worker reads NOTHING from conversation history — the artifact IS the brief. Editing the task body at dispatch time is forbidden; if the task is wrong, fix the task file (and log the amendment), then re-dispatch. |
 | **Header = run-binding context** | Prepend only what the worker needs that is not already in the task file: the binding addendum (§2), the return schema (§3), the run's worker-facing `decisions.md` pointer (or its inlined relevant entries), and — for a research leaf — the `rbtv-web-searching` directive in imperative form. The header is composed; the payload is verbatim. |
 | **Prompt-file reuse** | For workers driven by a prompt file (CLI workers, and Agent-tool dispatches large enough to warrant it), write the composed header+payload to a prompt file on disk and dispatch FROM that file. The same prompt file is the reuse surface on resume — re-dispatch reads the file, it is not re-composed from memory. |
+| **In-session CLI spawns BEGIN with the worker binary (D17)** | A CLI dispatch issued from inside a Claude session is permitted by PREFIX allowlist rules (`Bash(<bin>:*)` / `PowerShell(<bin>:*)`, installer-managed from the package manifest's `permission_rules`) — they match ONLY a command line that BEGINS with the worker binary. A leading `cd …`, an inline env assignment, or a `cat …\|`/`Get-Content …\|` stdin pipe breaks the match and the spawn falls to the permission classifier, which denies in-session yolo spawns. So: run from the conductor's CWD (pass the work-target via the model's add-dir flag, never a leading `cd`), set env vars in a SEPARATE prior statement, and hand a large brief to the worker as a SHORT positional/file-pointer prompt naming the prompt file — never a stdin pipe. Pipe and env-prefixed forms remain functionally valid ONLY for owner-typed `!` dispatches (those bypass the session classifier). Each model's delta carries its binary-first shape. |
 | **One dispatch = one bounded task (or one disjoint-allowlist batch)** | Routing sized the batch (30–90 min, disjoint allowlists for parallel workers). This card packages exactly that unit — never silently merge two tasks into one dispatch. |
 
 ### Reference-doc inlining (D21)
@@ -144,13 +145,15 @@ kimi --work-dir "<allowed_workdir>" --quiet --prompt "<task_prompt>"
 
 Use when the prompt fits comfortably under the host shell's single-argument limit (Linux ~128 KB headroom; Windows PowerShell and Git Bash/MSYS2 both ~32 KB). Default for short, interactive dispatches.
 
-**Shape B — stdin pipe (large prompts; default in autonomous mode):**
+**Shape B — large brief via a FILE POINTER (default in autonomous mode; command BEGINS with `kimi`):**
 
-```bash
-cat prompt.md | kimi --work-dir "<allowed_workdir>" --print --input-format text --final-message-only
+For a prompt too large to inline (≥ ~30 KB; PowerShell/Git Bash ~32 KB single-arg ceiling), write it to a file and point kimi at it with a SHORT `--prompt`:
+
+```powershell
+kimi --work-dir "<allowed_workdir>" --quiet --prompt "Read the file '<prompt-path>' and execute the task it contains exactly; create only the files it allowlists."
 ```
 
-Use when the prompt is ≥ ~30 KB OR when running autonomously and you cannot afford a per-prompt size halt. `--quiet` is a documented alias for `--print --output-format text --final-message-only`; the stdin pipe replaces the `--prompt TEXT` arg with the same content via standard input. **Both shapes** apply the same `--work-dir` surface, honor the same return contract, and pass the same allowlist + forbidden-ops + swarm-policy checks on return. Default to Shape B at ≥30 KB or in autonomous mode; Shape A is fractionally less ceremony for small interactive dispatches. (Windows note: Git Bash/MSYS2 has a tighter arg limit than Linux; PowerShell ~32 KB single arg. Both pipe cleanly via stdin — prefer Shape B on Windows for any non-trivial prompt.)
+Kimi loads the brief via its own file tool, so the command stays short AND begins with `kimi` (the in-session permission requirement — generic packaging §1 D17 row). Do **not** pipe the brief with `cat prompt.md | kimi …` for an in-session dispatch: the pipe makes the command line BEGIN with `cat`, which does not match the `kimi:*` prefix rule and falls to the permission classifier. The stdin-pipe form (`cat prompt.md | kimi --work-dir "<repo>" --print --input-format text --final-message-only`) stays functionally valid for owner-typed `!` dispatches only. **Both shapes** apply the same `--work-dir` surface, honor the same return contract, and pass the same allowlist + forbidden-ops + swarm-policy checks on return.
 
 The composed **header + payload** (generic packaging §1) is written to `prompt.md` on disk and dispatched FROM that file — the same prompt file is the reuse surface on resume.
 
@@ -286,9 +289,9 @@ max_kimi_subagents: <N-or-0>
 # Single bounded worker, final text only (Shape A):
 kimi --work-dir "5-workbench/inni-cte-recon" --quiet --prompt "<inlined task file content>"
 ```
-```bash
-# Large prompt via stdin (Shape B — default autonomous/Windows):
-cat prompt.md | kimi --work-dir "<repo>" --print --input-format text --final-message-only
+```powershell
+# Large brief via a FILE POINTER (Shape B — default autonomous/Windows; command BEGINS with `kimi`):
+kimi --work-dir "<repo>" --quiet --prompt "Read the file '<prompt-path>' and execute the task it contains exactly"
 ```
 ```powershell
 # Constrained tools + streamed JSON for parsing:

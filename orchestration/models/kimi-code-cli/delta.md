@@ -56,13 +56,15 @@ kimi --work-dir "<allowed_workdir>" --quiet --prompt "<task_prompt>"
 
 Use when the prompt fits comfortably under the host shell's single-argument limit (Linux ~128 KB headroom; Windows PowerShell and Git Bash/MSYS2 both ~32 KB). Default for short, interactive dispatches.
 
-**Shape B — stdin pipe (large prompts; default in autonomous mode):**
+**Shape B — large brief via a FILE POINTER (default in autonomous mode; command BEGINS with `kimi`):**
 
-```bash
-cat prompt.md | kimi --work-dir "<allowed_workdir>" --print --input-format text --final-message-only
+For a prompt too large to inline (≥ ~30 KB; PowerShell/Git Bash ~32 KB single-arg ceiling), write it to a file and point kimi at it with a SHORT `--prompt`:
+
+```powershell
+kimi --work-dir "<allowed_workdir>" --quiet --prompt "Read the file '<prompt-path>' and execute the task it contains exactly; create only the files it allowlists."
 ```
 
-Use when the prompt is ≥ ~30 KB OR when running autonomously and you cannot afford a per-prompt size halt. `--quiet` is a documented alias for `--print --output-format text --final-message-only`; the stdin pipe replaces the `--prompt TEXT` arg with the same content via standard input. **Both shapes** apply the same `--work-dir` surface, honor the same return contract, and pass the same allowlist + forbidden-ops + swarm-policy checks on return. Default to Shape B at ≥30 KB or in autonomous mode; Shape A is fractionally less ceremony for small interactive dispatches. (Windows note: Git Bash/MSYS2 has a tighter arg limit than Linux; PowerShell ~32 KB single arg. Both pipe cleanly via stdin — prefer Shape B on Windows for any non-trivial prompt.)
+Kimi loads the brief via its own file tool, so the command stays short AND begins with `kimi` (the in-session permission requirement — generic packaging §1 D17 row). Do **not** pipe the brief with `cat prompt.md | kimi …` for an in-session dispatch: the pipe makes the command line BEGIN with `cat`, which does not match the `kimi:*` prefix rule and falls to the permission classifier. The stdin-pipe form (`cat prompt.md | kimi --work-dir "<repo>" --print --input-format text --final-message-only`) stays functionally valid for owner-typed `!` dispatches only. **Both shapes** apply the same `--work-dir` surface, honor the same return contract, and pass the same allowlist + forbidden-ops + swarm-policy checks on return.
 
 The composed **header + payload** (generic packaging §1) is written to `prompt.md` on disk and dispatched FROM that file — the same prompt file is the reuse surface on resume.
 
@@ -198,9 +200,9 @@ max_kimi_subagents: <N-or-0>
 # Single bounded worker, final text only (Shape A):
 kimi --work-dir "5-workbench/inni-cte-recon" --quiet --prompt "<inlined task file content>"
 ```
-```bash
-# Large prompt via stdin (Shape B — default autonomous/Windows):
-cat prompt.md | kimi --work-dir "<repo>" --print --input-format text --final-message-only
+```powershell
+# Large brief via a FILE POINTER (Shape B — default autonomous/Windows; command BEGINS with `kimi`):
+kimi --work-dir "<repo>" --quiet --prompt "Read the file '<prompt-path>' and execute the task it contains exactly"
 ```
 ```powershell
 # Constrained tools + streamed JSON for parsing:

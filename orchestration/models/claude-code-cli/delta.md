@@ -32,11 +32,17 @@ The claude-code-cli dispatch manual — the exact command shapes, flags, exit ha
 
 ### Canonical unattended dispatch shape (Windows)
 
+```bash
+# In-session dispatch (bash carrier) — command BEGINS with `claude`; stdin redirect TRAILS:
+claude -p "<PROMPT>" --output-format json --model <opus|sonnet|fullname> [--permission-mode acceptEdits] [--add-dir <DIR>] < /dev/null
+```
+
 ```powershell
+# Owner-typed `!` dispatch (PowerShell) — the leading $null| pipe is fine OUTSIDE the session classifier:
 $null | claude -p "<PROMPT>" --output-format json --model <opus|sonnet|fullname> [--permission-mode acceptEdits] [--add-dir <DIR>]
 ```
 
-The mandatory `$null |` stdin redirect, the JSON envelope, `--model`, the optional unattended-write flag, and `--add-dir` are all probe-validated. Run the command FROM the target workspace root so the worker auto-loads that workspace's `CLAUDE.md` (see "Workspace rooting").
+The mandatory stdin redirect, the JSON envelope, `--model`, the optional unattended-write flag, and `--add-dir` are all probe-validated. For an IN-SESSION dispatch the command line MUST BEGIN with `claude` (generic packaging §1 D17 row): PowerShell's only stdin-redirect mechanism is a leading `$null |` pipe, which breaks the `claude:*` prefix match — so in-session dispatches go through the bash carrier, where `< /dev/null` trails the command. Run the command FROM the target workspace root so the worker auto-loads that workspace's `CLAUDE.md` (see "Workspace rooting").
 
 ### Pre-flight (before any dispatch)
 
@@ -51,28 +57,28 @@ The mandatory `$null |` stdin redirect, the JSON envelope, `--model`, the option
 
 `-p` / `--print` runs Claude non-interactively: it executes the prompt and exits (probe: every H row). It skips the workspace trust dialog — run it ONLY in trusted directories. The prompt reaches the worker as the `-p` argument; **stdin MUST be redirected** or the CLI waits 3s for piped input (see "Windows stdin" below).
 
-**Shape A — prompt as the `-p` argument (small prompts):**
+**Shape A — prompt as the `-p` argument (small prompts; command BEGINS with `claude`):**
 
-```powershell
-$null | claude -p "<task_prompt>" --output-format json --model sonnet --permission-mode acceptEdits
+```bash
+claude -p "<task_prompt>" --output-format json --model sonnet --permission-mode acceptEdits < /dev/null
 ```
 
-Use when the prompt fits comfortably under the host shell's single-argument limit (Windows PowerShell ~32 KB). Default for short dispatches.
+Use when the prompt fits comfortably under the host shell's single-argument limit (~32 KB single arg on Windows shells). Default for short dispatches.
 
-**Shape B — prompt from a file, passed as the arg (large prompts; default in autonomous mode):**
+**Shape B — large brief via a FILE POINTER (default in autonomous mode; command BEGINS with `claude`):**
 
-```powershell
-$prompt = Get-Content -Raw prompt.md
-$null | claude -p "$prompt" --output-format json --model opus --permission-mode acceptEdits --add-dir "<repo>"
+```bash
+claude -p "Read the file '<prompt-path>' and execute the task it contains exactly; create only the files it allowlists." \
+  --output-format json --model opus --permission-mode acceptEdits --add-dir "<repo>" < /dev/null
 ```
 
-Use when the prompt is large OR when running autonomously. The composed **header + payload** (generic packaging §1) is written to `prompt.md` on disk and the dispatch reads from that file — the same prompt file is the reuse surface on resume. (Claude reads the prompt from the `-p` arg, not from stdin in `-p` mode — stdin stays redirected to `$null`; do not pipe the prompt via stdin.)
+Use when the prompt is large OR when running autonomously. The composed **header + payload** (generic packaging §1) is written to `prompt.md` on disk and the worker loads it via its own file tool — the command stays short AND begins with `claude` (the in-session permission requirement; the prompt file is the reuse surface on resume). Do **not** read the file into a shell variable first (`$prompt = Get-Content -Raw prompt.md; $null | claude -p "$prompt" …`): the leading assignment/pipe breaks the `claude:*` prefix match in-session — that form stays valid for owner-typed `!` dispatches only. (Claude reads the prompt from the `-p` arg, not from stdin in `-p` mode — stdin stays redirected; do not pipe the prompt via stdin.)
 
 ### Windows stdin — the mandatory redirect
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| 3s pause + `no stdin data received in 3s, proceeding without it` on stderr; the warning pollutes `text` stdout | `claude -p` waits for piped stdin when none is redirected (probe C1) | ALWAYS redirect stdin: `$null \|` (PowerShell) · `< NUL` (cmd) · `< /dev/null` (bash). Probe C2 + every H row ran clean with the redirect. |
+| 3s pause + `no stdin data received in 3s, proceeding without it` on stderr; the warning pollutes `text` stdout | `claude -p` waits for piped stdin when none is redirected (probe C1) | ALWAYS redirect stdin: `< /dev/null` (bash, TRAILING — the in-session form, keeps the command beginning with `claude`) · `< NUL` (cmd) · `$null \|` (PowerShell — leading pipe, breaks the in-session `claude:*` prefix match; owner-typed `!` dispatches only). Probe C2 + every H row ran clean with the redirect. |
 
 ### Output format + the JSON envelope
 
@@ -128,9 +134,10 @@ CLI-Claude **natively auto-loads the cwd workspace `CLAUDE.md`** (and its rules/
 
 No richer exit-code taxonomy was probed (no hang was engineered, per the task's "do NOT engineer a hang"; observed durations 0.4–10.1s). On any unexpected non-zero exit, reconcile disk state and recover-or-surface; do NOT blind-retry.
 
-```powershell
-$null | claude -p "<task>" --output-format json --model sonnet --permission-mode acceptEdits > out.json; $code = $LASTEXITCODE
-if ($code -ne 0) { <halt + surface — H6: arg-parse error, no spend; fix the command> }
+```bash
+claude -p "<task>" --output-format json --model sonnet --permission-mode acceptEdits > out.json < /dev/null
+code=$?
+# non-zero -> halt + surface — H6: arg-parse error, no spend; fix the command
 # else: parse out.json; trust is_error:false + exit 0, then reconcile against git status / git log
 ```
 
@@ -150,7 +157,7 @@ git -C "<repo>" commit -m "[<task-id>] <description> (orchestrator-recovered)" \
 
 | Mechanism | Command | Use |
 |-----------|---------|-----|
-| Resume a specific session | `$null \| claude -p --resume <session_id> "<follow-up>" --output-format json` | After a `DOUBT_ESCALATED` / `NEEDS_CONTEXT` halt: supply the resolution into the SAME session by id (probe H7 recalled the earlier turn; the same `session_id` returns). The `session_id` comes from the prior JSON envelope. |
+| Resume a specific session | `claude -p --resume <session_id> "<follow-up>" --output-format json < /dev/null` (bash; in-session form) | After a `DOUBT_ESCALATED` / `NEEDS_CONTEXT` halt: supply the resolution into the SAME session by id (probe H7 recalled the earlier turn; the same `session_id` returns). The `session_id` comes from the prior JSON envelope. |
 | Fork instead of continue | `claude -p --fork-session --resume <session_id> "<prompt>"` | Branch a new session from an existing one (per `--help`; not separately exercised). |
 | Pin a session id | `claude -p --session-id <uuid> "<prompt>"` | Assign a known id up front (per `--help`). |
 | Run without persisting | `claude -p --no-session-persistence "<prompt>"` | A print-only dispatch that should leave no resumable session (per `--help`). |
@@ -216,23 +223,25 @@ reviewer: claude-opus           # reviewer floor for external-CLI code is Opus �
 
 ### Recipes
 
-```powershell
+All in-session recipes are bash-carrier, command BEGINS with `claude`, stdin redirect trailing (the `$null | claude …` PowerShell forms remain valid for owner-typed `!` dispatches only):
+
+```bash
 # Bounded write dispatch, JSON envelope captured to a durable file (Shape A), rooted in the workspace:
-$null | claude -p "<inlined task file content>" --output-format json --model sonnet `
-  --permission-mode acceptEdits --add-dir "5-workbench/inni-cte-recon" > .claude-runs/t1.json
+claude -p "<inlined task file content>" --output-format json --model sonnet \
+  --permission-mode acceptEdits --add-dir "5-workbench/inni-cte-recon" > .claude-runs/t1.json < /dev/null
 ```
-```powershell
-# Large prompt from a file, opus sub-conductor, rooted at the repo:
-$prompt = Get-Content -Raw prompt.md
-$null | claude -p "$prompt" --output-format json --model opus --permission-mode acceptEdits --add-dir "<repo>" > .claude-runs/t1.json
+```bash
+# Large brief via a FILE POINTER (Shape B), opus sub-conductor, rooted at the repo:
+claude -p "Read the file '<prompt-path>' and execute the task it contains exactly" \
+  --output-format json --model opus --permission-mode acceptEdits --add-dir "<repo>" > .claude-runs/t1.json < /dev/null
 ```
-```powershell
+```bash
 # Read-only analysis / cold-verify leaf (no writes), opus, no acceptEdits (plan mode):
-$null | claude -p "<verification task: exercise these criteria on the running artifact>" `
-  --output-format json --model opus --permission-mode plan --add-dir "<repo>" > .claude-runs/verify.json
+claude -p "<verification task: exercise these criteria on the running artifact>" \
+  --output-format json --model opus --permission-mode plan --add-dir "<repo>" > .claude-runs/verify.json < /dev/null
 ```
-```powershell
+```bash
 # Resume a halted session with the resolution:
-$null | claude -p --resume <session_id> "<resolution to the open question>" --output-format json > .claude-runs/t1-resume.json
+claude -p --resume <session_id> "<resolution to the open question>" --output-format json > .claude-runs/t1-resume.json < /dev/null
 ```
 <!-- RENDER:DELTA-END invocation -->

@@ -22,6 +22,7 @@ The unit sent to a worker is a **self-contained task artifact** (it already sati
 | **Payload = the task file, verbatim** | The dispatched prompt carries the task file's content unedited and untruncated. The worker reads NOTHING from conversation history — the artifact IS the brief. Editing the task body at dispatch time is forbidden; if the task is wrong, fix the task file (and log the amendment), then re-dispatch. |
 | **Header = run-binding context** | Prepend only what the worker needs that is not already in the task file: the binding addendum (§2), the return schema (§3), the run's worker-facing `decisions.md` pointer (or its inlined relevant entries), and — for a research leaf — the `rbtv-web-searching` directive in imperative form. The header is composed; the payload is verbatim. |
 | **Prompt-file reuse** | For workers driven by a prompt file (CLI workers, and Agent-tool dispatches large enough to warrant it), write the composed header+payload to a prompt file on disk and dispatch FROM that file. The same prompt file is the reuse surface on resume — re-dispatch reads the file, it is not re-composed from memory. |
+| **In-session CLI spawns BEGIN with the worker binary (D17)** | A CLI dispatch issued from inside a Claude session is permitted by PREFIX allowlist rules (`Bash(<bin>:*)` / `PowerShell(<bin>:*)`, installer-managed from the package manifest's `permission_rules`) — they match ONLY a command line that BEGINS with the worker binary. A leading `cd …`, an inline env assignment, or a `cat …\|`/`Get-Content …\|` stdin pipe breaks the match and the spawn falls to the permission classifier, which denies in-session yolo spawns. So: run from the conductor's CWD (pass the work-target via the model's add-dir flag, never a leading `cd`), set env vars in a SEPARATE prior statement, and hand a large brief to the worker as a SHORT positional/file-pointer prompt naming the prompt file — never a stdin pipe. Pipe and env-prefixed forms remain functionally valid ONLY for owner-typed `!` dispatches (those bypass the session classifier). Each model's delta carries its binary-first shape. |
 | **One dispatch = one bounded task (or one disjoint-allowlist batch)** | Routing sized the batch (30–90 min, disjoint allowlists for parallel workers). This card packages exactly that unit — never silently merge two tasks into one dispatch. |
 
 ### Reference-doc inlining (D21)
@@ -112,7 +113,7 @@ The schema is identical across workers; only HOW the fields arrive differs by wo
 
 ## Invocation — the exact command shape
 
-The codex CLI dispatch manual — the exact command shapes, flags, sandbox/approval grammar, exit handling, resume, and the codex task contract. Verified against **Codex CLI 0.137.0** (`codex --version` → `codex-cli 0.137.0`) on this machine. Re-verify with `codex --help` / `codex exec --help` / `codex --version` before relying on any flag — the CLI evolves fast; `--help` is ground truth for the installed build. Evidence boundary: the separate-process isolation property is live-proven (B4D); the p5-2 smoke probe then ran one real `codex exec` dispatch through this manual on 0.137.0 — it caught that `--ask-for-approval` was removed from the `exec` subcommand (now `-c approval_policy="never"`), and exercised Shape B stdin transport, `--sandbox workspace-write`, `--output-last-message`, and the five-field return (exit 0, file landed byte-correct). Facets NOT yet exercised — the non-zero exit taxonomy, resume inside a dispatch loop, self-commit — remain **UNPILOTED** and are marked where it matters.
+The codex CLI dispatch manual — the exact command shapes, flags, sandbox/approval grammar, exit handling, resume, and the codex task contract. Verified against **Codex CLI 0.137.0** (`codex --version` → `codex-cli 0.137.0`) on this machine. Re-verify with `codex --help` / `codex exec --help` / `codex --version` before relying on any flag — the CLI evolves fast; `--help` is ground truth for the installed build. Evidence boundary: the separate-process isolation property is live-proven (B4D); the p5-2 smoke probe then ran one real `codex exec` dispatch through this manual on 0.137.0 — it caught that `--ask-for-approval` was removed from the `exec` subcommand (now `-c approval_policy="never"`), and exercised the stdin-pipe transport (now the `!`-dispatch form under Shape B), `--sandbox workspace-write`, `--output-last-message`, and the five-field return (exit 0, file landed byte-correct). Facets NOT yet exercised — the non-zero exit taxonomy, resume inside a dispatch loop, self-commit — remain **UNPILOTED** and are marked where it matters.
 
 ### Pre-flight (before any dispatch)
 
@@ -137,14 +138,17 @@ codex exec --cd "<repo>" --sandbox workspace-write -c approval_policy="never" `
 
 Use when the prompt fits comfortably under the host shell's single-argument limit (Windows PowerShell ~32 KB). Default for short dispatches.
 
-**Shape B — prompt via stdin (large prompts; default in autonomous mode):**
+**Shape B — large brief via a FILE POINTER (default in autonomous mode; command BEGINS with `codex`):**
 
-```bash
-cat prompt.md | codex exec --cd "<repo>" --sandbox workspace-write -c approval_policy="never" \
-  --output-last-message "<repo>/.codex-runs/<task-id>.txt" -
+For a prompt too large to inline (PowerShell ~32 KB single-arg ceiling), write it to a file inside the scoped workspace and point codex at it with a SHORT prompt arg:
+
+```powershell
+codex exec --cd "<repo>" --sandbox workspace-write -c approval_policy="never" `
+  --output-last-message "<repo>/.codex-runs/<task-id>.txt" `
+  "Read the file '<prompt-path>' and execute the task it contains exactly; create only the files it allowlists."
 ```
 
-Use when the prompt is large OR when running autonomously and you cannot afford a per-prompt size halt. The trailing `-` tells codex to read the prompt from stdin. **Both shapes** apply the same `--cd` scope, the same sandbox + approval policy, and pass the same allowlist + forbidden-ops checks on return. The composed **header + payload** (generic packaging §1) is written to `prompt.md` on disk and dispatched FROM that file — the same prompt file is the reuse surface on resume. (Windows note: PowerShell ~32 KB single-arg ceiling — prefer Shape B for any non-trivial prompt. Stdin piping via Shape B is the validated transport for codex on this machine — the p5-2 smoke probe ran Shape B from Git Bash, exit 0, the prompt reached the worker and the file landed.)
+Codex loads the brief via its own file tool, so the command stays short AND begins with `codex` (the in-session permission requirement — generic packaging §1 D17 row; the file-pointer read itself is UNPILOTED for codex). Do **not** pipe the brief with `cat prompt.md | codex exec … -` for an in-session dispatch: the pipe makes the command line BEGIN with `cat`, which does not match the `codex:*` prefix rule and falls to the permission classifier. The stdin-pipe form (`cat prompt.md | codex exec --cd "<repo>" … -`, trailing `-` = read prompt from stdin) remains the p5-2-VALIDATED transport (Git Bash, exit 0, prompt reached the worker, file landed) — use it for owner-typed `!` dispatches. **Both shapes** apply the same `--cd` scope, the same sandbox + approval policy, and pass the same allowlist + forbidden-ops checks on return. The composed **header + payload** (generic packaging §1) is written to `prompt.md` on disk and dispatched FROM that file — the same prompt file is the reuse surface on resume.
 
 ### Sandbox + approval grammar — the confinement axis
 
@@ -254,10 +258,10 @@ reviewer: claude-opus           # reviewer floor for codex-produced code is Opus
 codex exec --cd "5-workbench/inni-cte-recon" --sandbox workspace-write -c approval_policy="never" `
   --output-last-message ".codex-runs/t1.txt" "<inlined task file content>"
 ```
-```bash
-# Large prompt via stdin (Shape B — default autonomous/Windows):
-cat prompt.md | codex exec --cd "<repo>" --sandbox workspace-write -c approval_policy="never" \
-  --output-last-message "<repo>/.codex-runs/t1.txt" -
+```powershell
+# Large brief via a FILE POINTER (Shape B — default autonomous/Windows; command BEGINS with `codex`):
+codex exec --cd "<repo>" --sandbox workspace-write -c approval_policy="never" `
+  --output-last-message "<repo>/.codex-runs/t1.txt" "Read the file '<prompt-path>' and execute the task it contains exactly"
 ```
 ```powershell
 # Read-only analysis/research leaf (no writes), JSONL events for parsing:

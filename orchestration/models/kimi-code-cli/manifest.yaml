@@ -9,6 +9,9 @@
 model: kimi-code-cli
 display: "kimi-code (CLI)"
 evidence_status: validated   # 3 hypresent sessions + 2 inni phases (~66 dispatches); the validated bounded-code executor
+permission_rules:            # installer-managed allowlist entries in the target's .claude/settings.local.json (D17) — added when this package is elected, removed when deselected; schema: ../manifest-schema.md
+  - "Bash(kimi:*)"
+  - "PowerShell(kimi:*)"
 
 variants:
   - variant: default   # built-in `default` agent, thinking ON (live config default_thinking = true); the validated bounded-code profile

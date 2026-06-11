@@ -22,6 +22,9 @@
 model: claude-code-cli
 display: "claude-code (CLI)"
 evidence_status: validated   # the invocation contract (launch from a helper, JSON envelope, --model, acceptEdits, native CLAUDE.md load, --resume, exit semantics) is in-house probe-HELD (p3-6). The first real ORCHESTRATED sub-conductor dispatch through this manual is the p5-2 smoke probe — facets beyond the probe matrix (a full task-bearing dispatch, deep recovery) are exercised there.
+permission_rules:            # installer-managed allowlist entries in the target's .claude/settings.local.json (D17) — added when this package is elected, removed when deselected; schema: ../manifest-schema.md
+  - "Bash(claude:*)"
+  - "PowerShell(claude:*)"
 
 variants:
   - variant: opus   # the judgment-dense / sub-conductor profile — max-reasoning Claude as a CLI worker (the learnings keystone tier)

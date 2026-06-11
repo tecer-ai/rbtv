@@ -17,6 +17,9 @@
 model: qwen-code-cli
 display: "qwen-code (CLI)"
 evidence_status: validated   # auth verified + all four ModelStudio US backends served; ALL FOUR now carry full bounded-code proof — default (qwen3.6-plus) + deepseek-v4-flash 2026-06-10, deepseek-v4-pro + glm-5.1 2026-06-10 follow-up pilots (per-variant overrides below graduated probe-pending→validated).
+permission_rules:            # installer-managed allowlist entries in the target's .claude/settings.local.json (D17) — added when this package is elected, removed when deselected; schema: ../manifest-schema.md
+  - "Bash(qwen:*)"
+  - "PowerShell(qwen:*)"
 
 # --- Multi-model backends (ModelStudio US, OpenAI-compatible) ---
 # The owner runs qwen against four configured backends via ~/.qwen/settings.json `modelProviders.openai`

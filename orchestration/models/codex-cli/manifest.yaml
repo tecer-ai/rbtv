@@ -14,6 +14,9 @@
 model: codex-cli
 display: "codex (CLI)"
 evidence_status: probe-pending   # invocable + separate-process isolation live-proven once (B4D); full headless worker contract authored from `codex exec --help`, not pilot-validated
+permission_rules:            # installer-managed allowlist entries in the target's .claude/settings.local.json (D17) — added when this package is elected, removed when deselected; schema: ../manifest-schema.md
+  - "Bash(codex:*)"
+  - "PowerShell(codex:*)"
 
 variants:
   - variant: default   # machine config: model = gpt-5.5, model_reasoning_effort = medium; the mid-tier partially-bounded profile

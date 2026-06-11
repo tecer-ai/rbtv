@@ -37,6 +37,7 @@ from .orchestration import (
     discover_model_displays,
     discover_model_packages,
     resolve_selected_packages,
+    sync_permission_rules,
 )
 from .state import find_state_upward, read_state, update_mirror_state, write_state
 
@@ -912,6 +913,14 @@ def main(argv: list[str] | None = None) -> int:
         if mp_installed or mp_absent:
             changed, msg = bake_availability_line(rbtv_root, mp_installed, mp_absent)
             print(f"\n  {msg}")
+            # Permission allowlist reconcile (D17): elected CLI packages get
+            # their manifest-declared entries in the target's
+            # .claude/settings.local.json; non-elected packages' entries are
+            # removed. Only manifest-declared strings are touched.
+            _, perm_msg = sync_permission_rules(
+                ctx.target_root, rbtv_root, mp_installed, mp_absent
+            )
+            print(f"  {perm_msg}")
         # Render-freshness check is advisory (WARN, never abort) — matches the
         # plugin-prereq convention. A stale manual degrades gracefully (manuals
         # are read JIT from the source repo; the routing card trusts the live
