@@ -2,7 +2,7 @@
 
 Opened when a task is ready to dispatch — once per task (or per batch of like tasks), after intake has put a dispatchable work surface on disk. Routing answers ONE question: which worker — (model, variant, agent-type) — receives this task, under what role pins, in what topology. When it returns an assignment, open the dispatch-wrapper card to package the dispatch.
 
-Iron rules it serves (from the core protocol): **the conductor never executes the work itself** (routing always produces a worker, never "I'll just do this one"), and **disk = truth** (routing reads installed manifests and the live models folder, never assumes a model is present).
+Iron rules it serves (from the core protocol): **the conductor never executes the work itself** (routing always produces a worker, never "I'll just do this one"), and **disk = truth** (routing honors the workspace election and reads the live manifests, never assumes a model is routable).
 
 **The cross-strategy seam is the least-validated leg of this whole system.** The within-strategy mechanics below (which model for a bounded code task, reviewer pins, batching) are each pilot-validated; choosing BETWEEN whole strategies — CLI fleet vs sdd vs Agent-tool Claude vs a research worker — was never piloted end-to-end. Route it with the explicit judgment discipline in §9, not with false confidence. When the strategy choice is genuinely uncertain, halt and ask — a halt is cheaper than a wrong all-night run.
 
@@ -10,7 +10,7 @@ Iron rules it serves (from the core protocol): **the conductor never executes th
 
 ## Sequence
 
-1. Read the installed manifests (what workers exist)
+1. Read the elected manifests (what workers route here)
 2. Walk the master tree (boundedness → stakes → budget)
 3. Apply the pinned-role floor (roles that never route down)
 4. Resolve topology (one Agent-tool level; CLI fleets below; depth cap; guidance-file check)
@@ -20,18 +20,18 @@ Iron rules it serves (from the core protocol): **the conductor never executes th
 
 ---
 
-## 1. Read the installed manifests first (D5)
+## 1. Read the elected manifests first (D5)
 
-Routing decides on workers that ACTUALLY exist in this workspace — never on the full roster. Before the tree, resolve availability:
+Routing decides on workers ELECTED in this workspace — never on the full roster, and never on raw catalog-folder presence. Before the tree, resolve availability:
 
 | Step | Action |
 |------|--------|
-| List the models folder | Presence of `{rbtv_path}/orchestration/models/{model}/` = that package is installed and routable. An absent folder = an absent row; that model is simply not a choice this run. **Skip underscore/known-infra dirs** (`_api/`, `_fixture/`, `mirror/`) — these are runner-engine / fixture / mirror-machinery dirs, NOT model packages; a dir carrying no `manifest.yaml` is un-routable and the underscore/infra dirs are skipped explicitly, never enumerated as a worker. |
+| List the elected packages | The routable set is the workspace ELECTION (`rbtv.json` `model_packages`), NOT raw folder presence — `route.py` enumerates only elected packages. `{rbtv_path}/orchestration/models/` is the shippable CATALOG (a superset: every package the repo ships); a package present there but NOT elected does not route this run (it appears under **Not elected** in the baked line). Folder presence is still a necessary guard — an elected package whose folder or `manifest.yaml` is absent cannot route. **Skip underscore/known-infra dirs** (`_api/`, `_fixture/`, `mirror/`) and any dir carrying no `manifest.yaml` — never enumerated as a worker. |
 | Test api-key availability for `auth.method: api-key` workers | For a package whose manifest declares `auth: {method: api-key}`, folder-presence alone does NOT make it routable — **availability = the key resolves**. Apply the key-resolution test per `models/manifest-schema.md` §4 (`auth.method: api-key` availability): OS environment variable first, then the `env_file` path in `rbtv.json`. Key absent in both → the package is unavailable for this dispatch; log it and degrade (next-capable / Agent-tool Claude fallback), never halt. This is distinct from `cli-login` workers (availability requires a USER-EXECUTED-ONLY login pre-flight); api-key availability is a key-resolution test the runner performs, never a human gesture. |
-| Cross-check the baked line | The installer bakes an availability line into the installed loader ("Model packages installed: … — absent: …"). Cross-check it against the folder listing; trust the FOLDER on any mismatch (disk = truth) and note the mismatch in `run-log.md`. |
-| Read only installed manifests | For each installed package, read its manifest. Route on **(model, variant) pairs** — never on a bare model name. The manifest's reasoning tier, code competence, web access, parallel-safety, headless flags, resume support, cost class, and known failure modes are the routing inputs. Do NOT reproduce manifest contents here; read them at routing time. |
-| Degrade gracefully | If the cheapest capable model for a leaf is not installed, route to the next capable installed (model, variant) and log the substitution. Never block a run because a preferred package is absent. |
-| Zero model packages installed | If the `models/` folder is EMPTY or absent entirely (a fresh install with only the skill, before any model package ships): the CLI leaves (kimi-code-cli / codex-cli / claude-code-cli / qwen-code-cli) are simply unavailable, and ONLY the Agent-tool Claude tiers (§4) are routable — the boundedness tree still runs, routing every leaf to an Agent-tool Claude variant. A task that genuinely REQUIRES a CLI worker (e.g., a sub-conductor via process boundary, or code execution Agent-tool cannot do) HALTS to the user. The skill is usable before any model package is installed; it just has no CLI fleet until one is. |
+| Cross-check the baked line | The installer bakes the election into the loader ("Model packages installed: … — Not elected: …"); it reflects `rbtv.json` `model_packages`, the authority `route.py` reads. On any line-vs-catalog mismatch the ELECTION wins (extra folder packages are catalog, not routable); note the mismatch in `run-log.md`. In a multi-workspace repo the shared baked line may lag a given workspace's `rbtv.json` — `route.py` reads `rbtv.json` directly, so routing stays correct regardless. |
+| Read only elected manifests | For each ELECTED package, read its manifest. Route on **(model, variant) pairs** — never on a bare model name. The manifest's reasoning tier, code competence, web access, parallel-safety, headless flags, resume support, cost class, and known failure modes are the routing inputs. Do NOT reproduce manifest contents here; read them at routing time. |
+| Degrade gracefully | If the cheapest capable model for a leaf is not elected/available, route to the next capable ELECTED (model, variant) and log the substitution. Never block a run because a non-elected package would have been cheaper. |
+| No routable packages | If NO packages are elected (or the `models/` folder is empty/absent entirely): the CLI leaves (kimi-code-cli / codex-cli / claude-code-cli / qwen-code-cli) are unavailable, and ONLY the Agent-tool Claude tiers (§4) are routable — and only if `claude-code-native` is elected. With it elected, the boundedness tree still runs, routing every leaf to an Agent-tool Claude variant; a task that genuinely REQUIRES a CLI worker (e.g., a sub-conductor via process boundary, or code execution Agent-tool cannot do) HALTS to the user. If even `claude-code-native` is not elected, routing halts. The skill is usable with a minimal election; it just has no CLI fleet until those packages are elected. |
 
 Absent the manifests, routing has no inputs. This step is the gate; the tree below assumes it has run.
 
@@ -68,7 +68,7 @@ The boundedness table above names a TIER ("the cheapest capable (model, variant)
 
 | Stage | Rule (the contract `route.py` implements) |
 |-------|------|
-| **1. Enumerate** | List EVERY installed `(model, variant)` from the live `models/` folder — Claude (Agent-tool, §4), claude-code-cli, kimi-code-cli, codex-cli, the installed API packages — never a bare provider name. A model with one operating profile still contributes one variant. |
+| **1. Enumerate** | List every ELECTED `(model, variant)` — `route.py` filters the live `models/` folder to the workspace election (`rbtv.json` `model_packages`), so non-elected catalog packages never appear; the elected set may include Claude (Agent-tool, §4), claude-code-cli, kimi-code-cli, codex-cli, the API packages — never a bare provider name. A model with one operating profile still contributes one variant. |
 | **2. Filter** | Keep ONLY variants meeting the leaf's hard requirements: `reasoning_tier ≥ needed`, `context_window ≥ inlined size`, `web_access` if the leaf needs web, `code_competence ≥ needed`. Drop the rest. |
 | **3. Rank by total order** | Order the survivors by, in strict priority: (1) `cost_class` ascending (`cheapest` < `low` < `mid` < `high` < `premium`); (2) `evidence_status` (`validated` > `probe-pending`); (3) `reasoning_tier` fit — closest-not-over (the lowest tier that still meets the requirement, never a tier above what the leaf needs); (4) model-name lexical (ascending); (5) `variant-name` lexical (ascending). Pick the top. |
 | **4. Pins/stakes apply AFTER** | The STAKES tier-up and the §3 pinned-role floors apply ONLY after this cheapest pick — they may override it UPWARD (reviewer ≥ sonnet, etc.), never below the floor. The selector picks the cheapest capable; pins/stakes raise it. |

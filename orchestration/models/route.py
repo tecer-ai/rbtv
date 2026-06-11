@@ -338,11 +338,16 @@ def _is_variant_available(variant: dict, model_name: str, rbtv_cfg: dict, vault_
 # Core routing logic
 # ---------------------------------------------------------------------------
 
-def _enumerate_models(rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, explain_log: list) -> list:
+def _enumerate_models(rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, explain_log: list, elected: list | None = None) -> list:
     """Stage 1: enumerate every (model, variant) from the live models/ folder.
 
     rbtv_root: rbtv repo root (orchestration/models/ lives here — enumeration root).
     vault_root: vault root (where rbtv.json was found — env_file resolution root for availability).
+    elected: when not None, the workspace's elected model-package ids (rbtv.json
+        `model_packages`). A package directory present on disk but NOT in this list is skipped
+        at enumerate — routing honors the owner's election, not raw disk presence
+        (election-authoritative). elected=None disables the filter so every present package
+        enumerates: the back-compat path AND the --models-dir confinement bypass.
     """
     models_dir = rbtv_root / "orchestration" / "models"
     if not models_dir.exists():
@@ -358,6 +363,11 @@ def _enumerate_models(rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, explain
         manifest_path = d / "manifest.yaml"
         if not manifest_path.exists():
             explain_log.append({"stage": "enumerate", "action": "skip", "model": d.name, "reason": "no manifest.yaml"})
+            continue
+        # Election filter (election-authoritative): a real package present on disk but not in
+        # the workspace's elected set is not routable here. elected=None disables the filter.
+        if elected is not None and d.name not in elected:
+            explain_log.append({"stage": "enumerate", "action": "skip", "model": d.name, "reason": "not elected (rbtv.json model_packages)"})
             continue
         manifest = _load_manifest(manifest_path)
         model_name = manifest.get("model", d.name)
@@ -883,11 +893,13 @@ def _validate_profile(profile: dict) -> list[str]:
     return errors
 
 
-def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plans: dict, explain: bool = False) -> dict:
+def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plans: dict, explain: bool = False, elected: list | None = None) -> dict:
     """Main routing function. Returns a verdict dict.
 
     rbtv_root: rbtv repo root (orchestration/models/ lives here — enumeration root).
     vault_root: vault root (where rbtv.json was found — env_file/model_plans_file resolution root).
+    elected: workspace's elected model packages (rbtv.json `model_packages`); None disables the
+        election filter (back-compat + --models-dir confinement). Passed to _enumerate_models.
     """
     explain_log: list = []
 
@@ -912,7 +924,7 @@ def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plan
         return verdict
 
     # Stage 1: enumerate (rbtv_root = models/ folder; vault_root = env_file resolution)
-    entries = _enumerate_models(rbtv_root, vault_root, rbtv_cfg, explain_log)
+    entries = _enumerate_models(rbtv_root, vault_root, rbtv_cfg, explain_log, elected=elected)
     if not entries:
         return {"error": "no_models", "details": "No installed model packages found in models/"}
 
@@ -1051,8 +1063,13 @@ def main():
     rbtv_cfg = _load_rbtv_json(vault_root)
     plans = _load_model_plans(vault_root, rbtv_cfg)
 
+    # Election (election-authoritative): the workspace's elected model packages gate routing.
+    # --models-dir confinement is an explicit catalog override and BYPASSES the election (route
+    # from exactly that catalog). Absent model_packages -> None -> no filter (back-compat).
+    elected = None if args.models_dir else rbtv_cfg.get("model_packages")
+
     # Route
-    result = route(profile, rbtv_root, vault_root, rbtv_cfg, plans, explain=args.explain)
+    result = route(profile, rbtv_root, vault_root, rbtv_cfg, plans, explain=args.explain, elected=elected)
 
     # Output
     output = json.dumps(result, indent=2, ensure_ascii=False)

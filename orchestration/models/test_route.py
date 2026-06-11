@@ -31,11 +31,20 @@ if str(MODELS_DIR) not in sys.path:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _run_route(profile: dict, explain: bool = False, env_override: dict | None = None) -> tuple[int, dict]:
-    """Run route.py with a profile, return (exit_code, parsed_json)."""
+def _run_route(profile: dict, explain: bool = False, env_override: dict | None = None, elect: bool = False) -> tuple[int, dict]:
+    """Run route.py with a profile, return (exit_code, parsed_json).
+
+    By default (elect=False) routes over the full real corpus with the workspace election
+    BYPASSED: it passes --models-dir at the live models/ dir, which (by design) disables the
+    election filter. Ranking-logic assertions then do not depend on the mutable rbtv.json
+    `model_packages`. Pass elect=True to exercise the default CLI path with election ACTIVE
+    (the election filter itself is covered by TestElection)."""
     cmd = [sys.executable, str(ROUTE_PY)]
     if explain:
         cmd.append("--explain")
+    if not elect:
+        # Bypass the workspace election → route the full real corpus (election-independent).
+        cmd += ["--models-dir", str(MODELS_DIR)]
 
     env = os.environ.copy()
     if env_override:
@@ -1098,10 +1107,10 @@ class TestModelsDir:
         )
 
     def test_cli_flag_absent_same_as_pre_change(self):
-        """CLI path: no --models-dir → same output as calling route.py without the flag.
-
-        Runs route.py twice via subprocess: once with the new code but no flag,
-        once with --explain. Both must produce the expected kimi verdict.
+        """Full-corpus baseline via the CLI: _run_route (elect=False) passes --models-dir at the
+        live catalog, which bypasses the workspace election and routes the FULL real corpus —
+        the pre-election behavior, where kimi:no-thinking wins a fully-bounded code task. The
+        election-active default path is covered by TestElection.
         """
         profile = _profile(
             boundedness="fully-bounded",
@@ -1113,4 +1122,86 @@ class TestModelsDir:
         assert result["verdict"] == "route"
         assert result["model"] == "kimi-code-cli", (
             f"CLI no --models-dir: kimi expected (default identity), got {result['model']}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Election-authoritative routing: route honors rbtv.json model_packages
+# ---------------------------------------------------------------------------
+
+class TestElection:
+    """Routing honors the workspace election (rbtv.json `model_packages`).
+
+    `_enumerate_models` takes an `elected` arg:
+      - elected=None  → no filter (back-compat: every present package enumerates).
+      - elected=[ids] → only those package dirs enumerate; a present-but-not-elected
+        package is skipped at enumerate with a 'not elected' reason.
+
+    main() activates election from rbtv.json `model_packages` (and bypasses it under
+    --models-dir confinement). The filter is pinned at the function level so these
+    tests do not depend on the mutable rbtv.json election.
+    """
+
+    def test_elected_none_enumerates_all_present(self):
+        """Back-compat: elected=None enumerates every present package (incl. non-elected ones)."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        log = []
+        entries = route._enumerate_models(RBTV_ROOT, VAULT_ROOT, cfg, log, elected=None)
+        models = sorted(set(e["model"] for e in entries))
+        assert "kimi-code-cli" in models
+        # qwen ships on disk; with no election filter it MUST enumerate
+        assert "qwen-code-cli" in models, f"elected=None should enumerate all present, got {models}"
+
+    def test_elected_subset_drops_present_but_not_elected(self):
+        """elected=[kimi] → only kimi enumerates; qwen (present on disk, not elected) is
+        skipped at enumerate with a 'not elected' reason."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        log = []
+        entries = route._enumerate_models(RBTV_ROOT, VAULT_ROOT, cfg, log, elected=["kimi-code-cli"])
+        models = sorted(set(e["model"] for e in entries))
+        assert models == ["kimi-code-cli"], f"only the elected package should enumerate, got {models}"
+        not_elected_skips = {
+            s["model"] for s in log
+            if s.get("stage") == "enumerate" and s.get("action") == "skip"
+            and "not elected" in s.get("reason", "")
+        }
+        assert "qwen-code-cli" in not_elected_skips, (
+            f"qwen present-but-not-elected should be skipped as 'not elected': {log}"
+        )
+
+    def test_route_resolves_within_elected_set(self):
+        """Integration: with only kimi elected, a fully-bounded code task resolves to kimi
+        (the sole elected code worker) — election applied end-to-end."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        profile = _profile(boundedness="fully-bounded", task_type="code", inlined_context_size=10000)
+        result = route.route(
+            dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True, elected=["kimi-code-cli"]
+        )
+        assert result["verdict"] == "route"
+        assert result["model"] == "kimi-code-cli", (
+            f"election should confine the pick to the elected set, got {result}"
+        )
+
+    def test_main_applies_election_no_non_elected_leak(self):
+        """Wiring: the CLI (main) activates election from rbtv.json — a present package that is
+        NOT elected (qwen-code-cli, in the live workspace) must not enumerate via the CLI."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        elected = cfg.get("model_packages") or []
+        if "qwen-code-cli" in elected:
+            pytest.skip("qwen is elected in this workspace — the non-leak case is not exercised")
+        profile = _profile(boundedness="fully-bounded", task_type="text", inlined_context_size=10000)
+        exit_code, result = _run_route(profile, explain=True, elect=True)
+        assert exit_code == 0
+        explain = result.get("explain", [])
+        complete = next(
+            (s for s in explain if s.get("stage") == "enumerate" and s.get("action") == "complete"),
+            None,
+        )
+        assert complete is not None
+        assert "qwen-code-cli" not in complete.get("models", []), (
+            "non-elected qwen leaked into CLI enumeration — main() not applying election"
         )

@@ -131,10 +131,14 @@ def _availability_block(
     """The two-line availability block written between the ORCH markers.
 
     Names render as their human-facing display labels (manifest `display:`) when a
-    `displays` map is supplied, falling back to the folder name otherwise.
+    `displays` map is supplied, falling back to the folder name otherwise. The first line is
+    the workspace's ELECTED packages (routable here); the second is packages present in the
+    repo but NOT elected (rbtv.json `model_packages`) — routing (`route.py`) skips them, so
+    they are not routable in this workspace (election-authoritative), even though they ship in
+    the catalog folder.
     Format matches the marker region's fallback shape (two blockquote lines):
         > **Model packages installed:** a, b
-        > **Absent:** c, d
+        > **Not elected:** c, d
     """
     displays = displays or {}
     def _fmt(names: list[str]) -> str:
@@ -144,7 +148,7 @@ def _availability_block(
     return (
         f"{AVAILABILITY_BEGIN}\n"
         f"> **Model packages installed:** {installed_text}\n"
-        f"> **Absent:** {absent_text}\n"
+        f"> **Not elected:** {absent_text}\n"
         f"{AVAILABILITY_END}"
     )
 
@@ -319,8 +323,8 @@ def check_manual_render(rbtv_root: Path) -> tuple[str, str]:
 
     NON-FATAL by design (matches the installer's _check_plugin_prereqs warn-not-
     abort convention): the caller WARNS on 'stale'/'error' and proceeds. Manuals
-    are read JIT from {rbtv_path}, so a stale manual degrades gracefully — the
-    routing card already trusts the live folder over any baked line.
+    are read JIT from {rbtv_path}, so a stale manual is corrected on the next render
+    rather than blocking the install.
     """
     script = rbtv_root / RENDER_SCRIPT_RELATIVE
     if not script.is_file():
