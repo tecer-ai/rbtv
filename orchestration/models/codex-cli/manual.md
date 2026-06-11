@@ -122,21 +122,23 @@ The codex CLI dispatch manual — the exact command shapes, flags, sandbox/appro
 | CLI present + version | `codex --version` (`codex-cli 0.137.0`) | Absent/older → re-verify flags against `codex exec --help`. |
 | **Pinned-flag existence** (routing §4 gate) | `codex exec --help` grepped for every non-trivial flag this dispatch pins (`--sandbox`, `-C`/`--cd`, `--output-last-message`, `--add-dir`); the `-c approval_policy` override key confirmed via `codex exec --strict-config` | Runs EVERY dispatch (NOT only on a version mismatch — a flag can vanish at the SAME version family the manual pinned). Subcommand-aware: verify `codex exec --help`, never `codex --help`. Any pinned flag absent → STOP, do not dispatch; re-resolve at THIS delta, re-render (`../render-manuals.py`), re-run the gate — NEVER hand-edit the rendered manual or pass an ad-hoc flag. A removed/renamed flag is a hard `unexpected argument` exit-2 pre-spend if dispatched (p5-2: `--ask-for-approval` was removed from `exec` at 0.137.0 → `-c approval_policy="never"`). |
 | Auth | `codex login status` (this machine → `Logged in using ChatGPT`) | Login is interactive (`codex login`, ChatGPT sign-in) OR `printenv OPENAI_API_KEY \| codex login --with-api-key`. First-time interactive login → USER-EXECUTED-ONLY; if unauthenticated, halt and ask the owner to run it; never automate the browser sign-in. |
-| Project trust | target project has `trust_level = "trusted"` in `~/.codex/config.toml` `[projects.'<path>']`? | Untrusted → first-run interactive trust prompt (USER-EXECUTED-ONLY). Pre-trust the workspace or run codex once interactively there before headless dispatch. |
+| Project trust | target project has `trust_level = "trusted"` in `~/.codex/config.toml` `[projects.'<path>']`? | Untrusted → first-run interactive trust prompt (USER-EXECUTED-ONLY). Pre-trust the workspace or run codex once interactively there before headless dispatch. Trust resolves up the directory tree — a trusted ancestor (e.g. `c:\users\henri`) covers nested repos beneath it, so a nested git root under a trusted root is NOT separately untrusted. |
 | Guidance file | target workspace has `AGENTS.md`? | Absent → offer to generate it via the mirror (`mirror_entry: codex-mirror`, see the codex `mirror-config.yaml`). Codex natively reads `AGENTS.md`. |
 
 ### The invocation shape — `codex exec` (non-interactive)
 
 `codex exec` (alias `codex e`) runs Codex non-interactively. The prompt reaches the worker as a CLI argument OR via stdin (use `-` as the prompt, or pipe; if stdin is piped AND a prompt arg is given, stdin is appended as a `<stdin>` block).
 
+**Stdin-EOF guard — MANDATORY on EVERY headless dispatch.** Because codex reads stdin whenever it is non-TTY, a dispatch from the PowerShell/Bash tool or any background harness HANGS forever on "Reading additional input from stdin..." unless stdin EOFs — even when the prompt is passed as a CLI arg. This was the live-diagnosed multi-minute "stall" (root cause: stdin, NOT project trust). Force the EOF: **Bash dispatch → suffix `< /dev/null`** (PREFERRED — the command still BEGINS with `codex`, preserving the §1 D17 binary-first allowlist match; live-verified exit 0 / `SMOKE_OK`). **PowerShell dispatch → prefix `$null |`** (live-verified exit 0, 39s) — but the line then begins with `$null`, so it breaks the `PowerShell(codex:*)` binary-first prefix and carries the stdin-pipe permission caveat (valid under auto-mode/`!` dispatch, not the strict in-session classifier). The shapes below are PowerShell-fenced; apply the matching guard for the shell you dispatch from.
+
 **Shape A — prompt as CLI argument (small prompts):**
 
 ```powershell
-codex exec --cd "<repo>" --sandbox workspace-write -c approval_policy="never" `
+$null | codex exec --cd "<repo>" --sandbox workspace-write -c approval_policy="never" `
   --output-last-message "<repo>/.codex-runs/<task-id>.txt" "<task_prompt>"
 ```
 
-Use when the prompt fits comfortably under the host shell's single-argument limit (Windows PowerShell ~32 KB). Default for short dispatches.
+Use when the prompt fits comfortably under the host shell's single-argument limit (Windows PowerShell ~32 KB). Default for short dispatches. The leading `$null |` is the PowerShell stdin-EOF guard (see above); from the Bash tool use `codex exec … "<task_prompt>" < /dev/null` instead.
 
 **Shape B — large brief via a FILE POINTER (default in autonomous mode; command BEGINS with `codex`):**
 
@@ -148,7 +150,7 @@ codex exec --cd "<repo>" --sandbox workspace-write -c approval_policy="never" `
   "Read the file '<prompt-path>' and execute the task it contains exactly; create only the files it allowlists."
 ```
 
-Codex loads the brief via its own file tool, so the command stays short AND begins with `codex` (the in-session permission requirement — generic packaging §1 D17 row; the file-pointer read itself is UNPILOTED for codex). Do **not** pipe the brief with `cat prompt.md | codex exec … -` for an in-session dispatch: the pipe makes the command line BEGIN with `cat`, which does not match the `codex:*` prefix rule and falls to the permission classifier. The stdin-pipe form (`cat prompt.md | codex exec --cd "<repo>" … -`, trailing `-` = read prompt from stdin) remains the p5-2-VALIDATED transport (Git Bash, exit 0, prompt reached the worker, file landed) — use it for owner-typed `!` dispatches. **Both shapes** apply the same `--cd` scope, the same sandbox + approval policy, and pass the same allowlist + forbidden-ops checks on return. The composed **header + payload** (generic packaging §1) is written to `prompt.md` on disk and dispatched FROM that file — the same prompt file is the reuse surface on resume.
+Codex loads the brief via its own file tool, so the command stays short AND begins with `codex` (the in-session permission requirement — generic packaging §1 D17 row; the file-pointer read itself is UNPILOTED for codex). Do **not** pipe the brief with `cat prompt.md | codex exec … -` for an in-session dispatch: the pipe makes the command line BEGIN with `cat`, which does not match the `codex:*` prefix rule and falls to the permission classifier. The same binary-first rule governs the mandatory stdin-EOF guard: the PowerShell `$null |` prefix likewise begins the line with a non-`codex` token (so it is auto-mode/`!`-dispatch only), whereas the Bash `< /dev/null` SUFFIX EOFs stdin while keeping the line beginning with `codex` — the in-session binary-first-safe guard. So a strict in-session Shape-B dispatch runs from the Bash tool: `codex exec --cd "<repo>" … "Read the file '<prompt-path>' …" < /dev/null`. The stdin-pipe form (`cat prompt.md | codex exec --cd "<repo>" … -`, trailing `-` = read prompt from stdin) remains the p5-2-VALIDATED transport (Git Bash, exit 0, prompt reached the worker, file landed) — use it for owner-typed `!` dispatches. **Both shapes** apply the same `--cd` scope, the same sandbox + approval policy, and pass the same allowlist + forbidden-ops checks on return. The composed **header + payload** (generic packaging §1) is written to `prompt.md` on disk and dispatched FROM that file — the same prompt file is the reuse surface on resume.
 
 ### Sandbox + approval grammar — the confinement axis
 
@@ -213,6 +215,7 @@ Resume is session-id based (`codex exec resume`). Resume reliability inside an a
 | Failure | Pre-emption |
 |---------|-------------|
 | Headless stalls waiting for approval | ALWAYS set `-c approval_policy="never"` for a non-interactive dispatch; any other policy blocks. (`codex exec` has NO `--ask-for-approval` flag on 0.137.0 — passing it errors `unexpected argument`, p5-2.) |
+| Headless HANGS reading non-TTY stdin (the real stall) | `codex exec` reads stdin whenever it is piped/non-TTY — EVEN with a prompt arg (help: "stdin is appended as a `<stdin>` block"). Under a non-interactive harness (the PowerShell/Bash tool, a background dispatch) stdin is an open pipe that never EOFs → codex blocks forever on "Reading additional input from stdin...". This was the observed multi-minute "stall" (NOT trust — trust resolves via a trusted ancestor). Force an immediate stdin EOF on EVERY headless dispatch: **Bash → suffix `< /dev/null`** (preferred: the line still BEGINS with `codex`, so the `Bash(codex:*)` D17 allowlist matches — live-verified exit 0); **PowerShell → prefix `$null \|`** (live-verified exit 0, 39s) BUT the line then begins with `$null`, breaking the `PowerShell(codex:*)` binary-first match, so it carries the same broad/`!`-dispatch permission caveat as the stdin-pipe transport. An owner's interactive terminal has a TTY stdin → no guard needed. |
 | Refuses to run outside a git repo | Pass `--skip-git-repo-check` when the work-dir is not a repo. |
 | First-run project trust prompt | Pre-trust the workspace (`[projects.'<path>'] trust_level`) or run codex once interactively there — USER-EXECUTED-ONLY; never clear it programmatically. |
 | Interactive login required | `codex login` (ChatGPT) or `--with-api-key` via stdin is USER-EXECUTED-ONLY; halt + ask the owner. |
@@ -252,6 +255,8 @@ reviewer: claude-opus           # reviewer floor for codex-produced code is Opus
 **Review gates** every codex coding task passes (verification card owns the gate): codex self-report → orchestrator diff-vs-allowlist check → declared validation passing (or explicit blocker) → Claude/Opus spec-compliance review → Claude/Opus code-quality review → no push until owner/final-workflow publishes. Any gate fails → halt or route a fix task; never proceed on "close enough". Codex is a SEPARATE-PROCESS worker (its one validated property, B4D) — the cold verifier and review pins apply exactly as for any external-CLI code worker.
 
 ### Recipes
+
+Every recipe below requires the stdin-EOF guard (PowerShell `$null |` prefix, or Bash `< /dev/null` suffix — see the Stdin-EOF guard above); it is omitted from these snippets for brevity but is MANDATORY on dispatch.
 
 ```powershell
 # Bounded code edit, durable return file (Shape A):
