@@ -14,6 +14,7 @@ Use this template to create the `deliverables.md` companion file for each plan. 
 > **Every agent working on this plan MUST:**
 > 1. Read this file BEFORE starting any task — it tells you the exact path your output must land at.
 > 2. UPDATE this file AFTER delivering — flip the Status to ✅ and confirm the Path matches what you produced.
+> 3. EDIT Status/Path cells in place — this file is mutable (unlike append-only decisions.md); NEVER append duplicate rows to record a status change. A task added during execution gets a `pending` row in its phase table; a removed task's row is ~~struck~~, never deleted.
 >
 > The synthesis tasks ({synthesis-task-ids}) read this map to find every input they need. If an artifact lands somewhere this map doesn't list, the synthesis agent will miss it. The index being accurate is a hard dependency, not a courtesy.
 
@@ -54,23 +55,7 @@ A fresh agent at {synthesis-task-id} reads, in order:
 
 ## Usage Instructions
 
-### Creating deliverables.md
-
-1. Create during plan creation (step-04), AFTER micro-step task files — Artifact and Path cells derive from each task's Output Requirements
-2. One row per task in the plan's task list, including checkpoints and final-phase tasks — row count MUST equal task count (step-04 validates this 1:1)
-3. **Artifact** — what the task produces, one phrase: from the task's Output Requirements (micro-step tasks) or the task description (inline tasks)
-4. **Path** — intended landing path. Internal artifacts use `./` file-relative paths; external artifacts use project-root-relative paths (Plan Linking Standard). Decision-only tasks land in `./decisions.md` (Decision entry)
-5. **Status** — `pending` on every row at creation
-6. Fill the synthesis section with the plan's actual synthesis task IDs and the document-order read list
-7. Derive the sub-folder list from the Path column
-
-### During Execution
-
-1. **Before any task:** read this file — it tells you where your output must land
-2. **After delivering:** update your task's row — flip Status to `✅` (or `⏸ deferred` with reason) and correct the Path if the artifact landed somewhere other than planned
-3. **Status and Path cells are mutable in place** — unlike decisions.md (append-only), this file is EDITED. Never append duplicate rows to record a status change
-4. **Task added during execution** (revolving plan): add its row to the matching phase table with Status `pending`
-5. **Task removed during execution:** strike the row (~~strikethrough~~), mirroring the plan task list convention — never delete it
+Creation mechanics (when to create, row derivation, 1:1 validation) are owned by `../steps-c/step-04-generate-artifacts.md` §6 — follow it there. Execution-time update rules ride INSIDE the generated artifact's header block above, where their real consumer (the executing agent) reads them.
 
 ### deliverables.md vs decisions.md
 

@@ -4,35 +4,9 @@ Knowledge file for plan creation workflow. These rules ensure consistent, high-q
 
 ---
 
-## Macro Workflow for Plan Creation
-
-The process for creating any plan:
-
-| Step | Action | Output |
-|------|--------|--------|
-| 1 | Gather requirements from user | Clear understanding of goals and constraints |
-| 2 | Assess complexity (shared widened rubric) | Complexity band, door, and task sizing guidance |
-| 3 | Draft plan structure | Phase breakdown with task IDs |
-| 4 | Apply dependency ordering | Tasks ordered by prerequisites |
-| 5 | Author specs for code work (conditional) | One behavior-spec + test-plan file per code feature, from the shared spec template (see Spec Authoring below) |
-| 6 | Create plan file | `{plan-name}-plan.md` from template |
-| 7 | Create or merge decisions.md | Check for existing decisions.md (from context preservation rule); merge planning context if exists, create from the decisions template if not |
-| 8 | Generate micro-step files | `.task.md` file per complex task and per checkpoint |
-| 9 | Create deliverables.md | Artifact index — one `pending` row per task |
-
----
-
 ## Complexity Assessment
 
-Score the plan with the **shared widened complexity rubric** — the single source for axes, bands, and doors: `{rbtv_path}/orchestration/workflows/_shared/authoring/complexity-rubric.md`. Read it and apply it directly; this section does NOT restate the axes or thresholds (they live in the rubric, and a second copy here would drift).
-
-What the rubric gives you:
-
-- Five axes (Context Size, Tool Usage, Human Review at 1-3; Dependencies at 1-4; Decision Density at 1-5), summed to a band over the 5-18 range.
-- Bands map to doors: **5-8 Simple** → conductor-led prep / single-step tasks OK, fewer micro-step files; **9-13 Moderate** → standard granularity, full micro-step files; **14-18 Complex** → fine-grained tasks, research-first pattern, interactive planning.
-- Doors are ALWAYS user-overrideable.
-
-Task-sizing impact by band: Simple may skip micro-step files for trivial tasks; Moderate gets a standard micro-step file per task; Complex considers a research phase and splits large tasks (Context Budgeting below).
+Score the plan with the **shared widened complexity rubric** — the single source for axes, bands, doors, and per-band task sizing: `{rbtv_path}/orchestration/workflows/_shared/authoring/complexity-rubric.md`. Read it and apply it directly; this section does NOT restate the axes, thresholds, or band-to-door mapping (they live in the rubric, and a second copy here would drift).
 
 ---
 
@@ -51,7 +25,7 @@ When `orchestrated: true`, ask the user ONE question at step-02: **DEEP or LIGHT
 
 ### DEEP-mode pre-resolution set (emit in router-consumable form)
 
-DEEP mode generalizes the validated Kimi-aware pre-resolution list (`1-projects/rbtv-evolution/orchestration/kimi/cp-workflow-rbtv-kimi-planning-orchestration.md` §B3, M1/M2) to any worker. Resolve each item WITH the user and emit it so the router reads FIELDS, never re-derives them. The consuming interface is the routing card (`{rbtv_path}/orchestration/skills/orchestrating/cards/routing.md`) — match what it reads:
+DEEP mode generalizes the validated Kimi-aware pre-resolution list (`4-archives/executed/rbtv/orchestration-build/plan-design/kimi/cp-workflow-rbtv-kimi-planning-orchestration.md` §B3, M1/M2) to any worker. Resolve each item WITH the user and emit it so the router reads FIELDS, never re-derives them. The consuming interface is the routing card (`{rbtv_path}/orchestration/skills/orchestrating/cards/routing.md`) — match what it reads:
 
 | Pre-resolution item | Where it lands | Router/orchestrator consumes it as |
 |---------------------|----------------|------------------------------------|
@@ -64,7 +38,7 @@ DEEP mode generalizes the validated Kimi-aware pre-resolution list (`1-projects/
 
 LIGHT mode emits only the critical subset the user chooses to resolve; the rest are left model-bound-at-routing-time (the task is authored to the generic contract and the router scores boundedness as usual). Both modes still author every task to the **shared task-file contract** (`{rbtv_path}/orchestration/workflows/_shared/authoring/task-file-contract.md`) — orchestration-awareness adds the pre-resolution fields, it does not replace the contract.
 
-**Worker-contract frontmatter for a pinned executor.** When the router pins an executor whose model ships a per-model contract delta (kimi, claude-cli, codex, qwen, …), the generated task file's frontmatter + body MUST satisfy that model's Required-frontmatter / Required-body-sections. The plan creator obtains that skeleton by calling the dispatch-scaffold generator in skeleton mode (it DERIVES the per-model fields from the delta on disk — never hand-copy), then fills task-specific values — see `step-04-generate-artifacts.md` § Generate Micro-Step Task Files. A pin whose model package is not installed fails the scaffold's pre-flight: flag at generation time, never emit generic frontmatter for an underivable contract. A workspace without the orchestration module installed carries no executor pin and skips this — the call degrades gracefully.
+**Worker-contract frontmatter for a pinned executor.** When the router pins an executor whose model ships a per-model contract delta (kimi, claude-cli, codex, qwen, …), the generated task file's frontmatter + body MUST satisfy that model's contract. The operative procedure — dispatch-scaffold skeleton mode, pre-flight STOP on an uninstalled model package, merge of the derived skeleton — is owned by `step-04-generate-artifacts.md` § Generate Micro-Step Task Files; follow it there, it is not restated here.
 
 ---
 
@@ -228,19 +202,6 @@ Use inline Markdown task description when ALL of these apply:
 | Per-task context in microsteps | Files-to-load tables belong in `.task.md` files, not the plan body |
 | Folder structure is discoverable | Agents navigate the filesystem — no need to diagram it in the plan |
 
-## Plan Structure
-
-The plan file uses minimal YAML frontmatter (`name`, `overview`) and a Markdown body:
-
-1. **YAML Frontmatter**: `name`, `overview` only
-2. **Reference directive**: Pointers to decisions.md and task files
-3. **Architectural Constraints**: Plan-specific patterns and inviolable rules
-4. **Revolving Plan Rules**: Discovery handling, task modification (keep brief)
-5. **Execution Workflow** *(conditional)*: Mermaid diagram — only for non-linear plans (branching or parallel phases)
-6. **Tasks**: Markdown checkbox list grouped by phase, with `→ path` suffix for tasks with micro-step files
-
----
-
 ## Revolving Plan Rules
 
 Plans adapt during execution based on discoveries.
@@ -355,17 +316,6 @@ Run those validity checks during step-03; flag and resolve any violation before 
 1. Research phase produces summary (~10-20k tokens)
 2. Downstream tasks consume summary, not raw sources
 3. Reduces context load from ~200k+ to ~20k
-
----
-
-## Final Phase Tasks
-
-Every plan includes these final phase tasks:
-
-| Task ID | Purpose |
-|---------|---------|
-| `pN-refs` | File reference review - verify all markdown links resolve and comply with Plan Linking Standard (internal = file-relative, external = root-relative) |
-| `pN-checkpoint` | Final checkpoint - user approval to complete plan |
 
 ---
 

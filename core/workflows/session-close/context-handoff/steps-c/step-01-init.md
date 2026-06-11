@@ -4,7 +4,7 @@ stepName: 'init'
 nextStepFile: ./step-02-location-selection.md
 continueStepFile: './step-01b-continue.md'
 templateFiles:
-  plan-development: '{rbtv_path}/orchestration/workflows/planning/templates/shape-template.md'
+  plan-development: '{rbtv_path}/orchestration/workflows/_shared/templates/decisions-template.md'
   execution: ../templates/handoff-execution.md
   project: ../templates/handoff-project.md
 outputFile: '{outputFolder}/{filename}.md'
@@ -81,11 +81,11 @@ Select the template based on detected handoff type:
 
 | Handoff Type | Template File | Output |
 |--------------|---------------|--------|
-| `plan-development` | `shape-template.md` (plan-lifecycle) | `shape.md` |
+| `plan-development` | `decisions-template.md` (shared, `orchestration/workflows/_shared/templates/`) | `decisions.md` |
 | `execution` | `../templates/handoff-execution.md` | `handoff-{slug}.md` |
 | `project` | `../templates/handoff-project.md` | `handoff-{slug}.md` |
 
-**Note:** Plan-development type creates/updates `shape.md` (the plan's companion file) rather than a separate handoff file. This captures user inputs and collaborative decisions in a structured format that serves both shaping and context transfer purposes.
+**Note:** Plan-development type creates/updates the plan's `decisions.md` (its companion file) rather than a separate handoff file. This captures user inputs and collaborative decisions in a structured format that serves both shaping and context transfer purposes — the planning workflow merges a pre-existing `decisions.md` at step-04.
 
 - Read the appropriate template from `{templateFiles}` based on `{handoffType}`
 - If template not found → Display error, present Retry/Exit menu
@@ -97,7 +97,7 @@ Select the template based on detected handoff type:
 
 | Handoff Type | Filename | Location |
 |--------------|----------|----------|
-| `plan-development` | `shape.md` | Plan folder (e.g., `.cursor/plans/{plan-name}/`) |
+| `plan-development` | `decisions.md` | Plan folder (`{output-path}/{plan-name}/`) |
 | `execution` | `handoff-{context-slug}.md` | User-selected or default |
 | `project` | `handoff-{context-slug}.md` | User-selected or default |
 
@@ -105,10 +105,10 @@ Select the template based on detected handoff type:
 - Create new document using template structure
 - Populate frontmatter based on type:
 
-**For plan-development (shape.md):**
+**For plan-development (decisions.md):**
 ```yaml
-# No YAML frontmatter — shape.md uses markdown headers
-# Document starts with: # Shape - {Plan Name}
+# No YAML frontmatter — decisions.md uses markdown headers
+# Document starts with: # Decisions - {Plan Name}
 ```
 
 **For execution/project (handoff files):**

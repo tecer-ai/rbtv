@@ -97,7 +97,7 @@ If the plan was flagged code-bearing (step-02) and features were identified (ste
 
 **Location:** `{output-path}/{plan-name}/specs/{feature}-spec.md` (or the path the plan's own structure sets).
 
-For each feature, read `{rbtv_path}/orchestration/workflows/_shared/authoring/spec-template.md` and fill it: Goal (owner-framed), Context Snapshot (interfaces/data shapes inlined with content anchors), Behavior Specification, Edge Cases & Error Behavior, Out of Scope, Test Plan (owner-observable criteria at the fidelity floor), Return Expectations. The Test Plan section IS the test plan — no separate file (D2b unified). Per § Spec Authoring in `../data/plan-creation-rules.md`: reference the template, never copy a spec body into a task file.
+For each feature, read `{rbtv_path}/orchestration/workflows/_shared/authoring/spec-template.md` and fill it — the template owns the section structure; do not restate it here. The Test Plan section IS the test plan — no separate file (D2b unified). Per § Spec Authoring in `../data/plan-creation-rules.md`: reference the template, never copy a spec body into a task file.
 
 A docs-only / vault-content / research plan authors no spec — skip this step.
 
@@ -105,19 +105,7 @@ Use Write tool for EACH spec file individually.
 
 ### 5. Generate Micro-Step Task Files
 
-For each task, decide whether it needs a micro-step file:
-
-**Generate a `.task.md` file when ANY of these apply:**
-- Task requires loading 2+ context files
-- Task uses specialized RBTV tools (skills, sub-agents)
-- Task has 3+ distinct substeps
-- Task requires phased execution (understand → execute → validate)
-- Task is a checkpoint
-
-**Skip micro-step file when ALL of these apply:**
-- Task is self-explanatory from its description
-- Single action, completable in one step
-- No special context files or tools needed
+For each task, decide whether it needs a micro-step file by applying the Decision Criteria in `../data/plan-creation-rules.md` § Micro-step File Generation (generate when ANY generate-criterion applies; skip when ALL skip-criteria apply) — the criteria live there, do not restate them here.
 
 **For tasks that need a micro-step file:**
 
@@ -129,7 +117,6 @@ Generate using `{microstepTemplateFile}` with:
 ---
 task_id: {task-id}
 status: pending
-phase: understand
 complexity_score: {from step-03 assessment}
 human_review: {required | optional | none}
 ---
@@ -155,7 +142,7 @@ The flag block is mandatory ONLY when `human_review: required`. Setting it every
 - Tools section — ONLY if task requires specialized RBTV skills/sub-agents (omit for basic Read/Write/Bash tasks)
 - Execution Flow — phased steps (understand → execute → validate → close)
 - Discovery Handling — revolving plan rules
-- **Decisions-discipline reminder line** — every generated task file carries the Reminder Line verbatim (the microstep template already embeds it): `decisions.md` entries: decision + rationale + scope ONLY (+ optional one-word `compoundable` marker for harvest-worthy findings) — never file-lists or N→M narratives; supersede by appending, never rewrite.
+- **Decisions-discipline reminder line** — every generated task file carries the Reminder Line verbatim; the microstep template already embeds it (wording: `../data/plan-creation-rules.md` § Decisions-File Discipline). Verify it survives generation.
 - Output Requirements — what to produce and where
 
 **For checkpoint task files:**

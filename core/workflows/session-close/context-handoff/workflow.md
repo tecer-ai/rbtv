@@ -4,7 +4,7 @@ description: 'Create context transfer summaries for agent continuity'
 nextStep: ./steps-c/step-01-init.md
 editWorkflow: ./steps-e/step-01-init.md
 templateFiles:
-  plan-development: '{rbtv_path}/orchestration/workflows/planning/templates/shape-template.md'
+  plan-development: '{rbtv_path}/orchestration/workflows/_shared/templates/decisions-template.md'
   execution: ./templates/handoff-execution.md
   project: ./templates/handoff-project.md
 outputFolder: 'handoffs'
@@ -64,11 +64,11 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 
 | Type | Purpose | Output | Key Sections |
 |------|---------|--------|--------------|
-| **Plan Development** | Continue plan creation/modification | `shape.md` | User Inputs, Collaborative Decisions, Scope, Constraints |
+| **Plan Development** | Continue plan creation/modification | `decisions.md` | Original Shaping (Scope, Key Decisions, Constraints), User Inputs, Collaborative Decisions |
 | **Execution** | Execute tasks from approved plan | Handoff file | Problem, Goals, Decisions, Files to Load, Task Instructions |
 | **Project** | General project context transfer | Handoff file | Context Summary, Current State, Decisions, References |
 
-**Note:** Plan Development type creates/updates `shape.md` (the plan's companion file) rather than a separate handoff file. Shape.md serves as both the shaping document and the context transfer artifact.
+**Note:** Plan Development type creates/updates the plan's `decisions.md` (its companion file, from the shared decisions template) rather than a separate handoff file — the same file the planning workflow merges at step-04. decisions.md serves as both the shaping document and the context transfer artifact.
 
 ---
 

@@ -10,7 +10,6 @@ Use this template to generate micro-step task files during plan creation. Each c
 ---
 task_id: {task-id}
 status: pending | in_progress | completed | cancelled
-phase: understand | execute | validate | close
 complexity_score: {N}
 human_review: required | optional | none
 # Orchestration pre-resolution fields (ONLY when orchestrated: true and step-03 §6c resolved them — DEEP, or the LIGHT critical subset). Omitted on a plain interactive plan.
@@ -72,10 +71,9 @@ allowlist:
 ### Phase: Understand
 
 1. **MUST** read every file in the Context Files table above. Do not continue until all are read.
-2. Mark this task as in progress in ALL locations (same turn):
-   - In the plan file, change `[ ]` to `[~]` for this task's checkbox.
-   - In this task file's YAML frontmatter, change `status: pending` to `status: in_progress`.
-   - In `../deliverables.md`, set this task's row Status to `in-progress` — its Path cell is where your output must land.
+2. Mark this task in progress — ONE stamp call, NEVER three hand-edits:
+   `python {rbtv_path}/orchestration/skills/orchestrating/scripts/stamp.py --plan-dir {plan-folder} --task {task-id} --status in_progress --scope worker`
+   (`{plan-folder}` = the folder holding the plan file and `../deliverables.md` — this file's parent's parent; resolve it at runtime, never hard-code it.) The stamp is the single authority for all three bookkeeping surfaces: plan checkbox `[~]`, this file's `status:` frontmatter, and the `../deliverables.md` row — whose Path cell is where your output must land. The call is idempotent; a non-zero exit means the transition did NOT happen — STOP and surface it, never hand-edit around a failed stamp.
 3. Review decisions.md Decisions and Discoveries for prior task context.
 4. Confirm task requirements are clear.
 5. {Task-specific understanding steps}
@@ -99,22 +97,20 @@ allowlist:
 
 **If executing under orchestration mode** (dispatched via `rbtv-orchestrating`):
 
-1. Mark this task complete in ALL locations (same turn):
-   - In the plan file, change `[~]` to `[x]` for this task's checkbox.
-   - In this task file's YAML frontmatter, change `status: in_progress` to `status: completed`.
-   - In `../deliverables.md`, flip this task's row Status to ✅ and confirm the Path matches what you produced.
+1. Mark this task complete — ONE stamp call, NEVER three hand-edits:
+   `python {rbtv_path}/orchestration/skills/orchestrating/scripts/stamp.py --plan-dir {plan-folder} --task {task-id} --status completed --scope worker`
+   (add `--artifact "{path}"` if your output landed somewhere other than the deliverables row's Path cell). Worker scope writes exactly the three worker surfaces — plan checkbox `[x]`, this file's `status:`, the `../deliverables.md` row; the run-log and state-capsule are the CONDUCTOR's surfaces (its own conductor-scope stamp), never yours. On a non-zero exit, report the failure in your return — never hand-edit around it.
 2. Reviewer dispatch (orchestration step-04) handles verification and user summary. Do NOT append to decisions.md and do NOT wait for user approval — both are handled at the orchestrator layer.
 3. **If `human_review: required`:** include the Human Review Presentation block in the executor's return paragraph so the orchestrator can surface it to the user. Block format and flag criteria: see `{rbtv_path}/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation, and `{rbtv_path}/orchestration/workflows/_shared/authoring/human-review-criteria.md`. The block is the executor's contribution to user review — the orchestrator and reviewer carry it forward, not replace it.
 
 **If executing standalone** (no orchestrator):
 
-1. Append execution entry to decisions.md (never modify existing entries).
+1. Append a decisions.md entry ONLY if this task produced a decision, discovery, or constraint that changes future work (never modify existing entries; routine completions are NOT logged — Decisions Discipline below).
 2. **MUST** present a brief summary to the user (max 2000 characters) of what was done. Do not mark complete until the user approves.
 3. **If `human_review: required`:** the summary MUST end with the Human Review Presentation block. Block format and flag criteria: see `{rbtv_path}/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation, and `{rbtv_path}/orchestration/workflows/_shared/authoring/human-review-criteria.md`. This block drives the user's review by pointing to specific items and surfacing the executor's risk assessment.
-4. After user approval, mark this task as complete in ALL locations (same turn):
-   - In the plan file, change `[~]` to `[x]` for this task's checkbox.
-   - In this task file's YAML frontmatter, change `status: in_progress` to `status: completed`.
-   - In `../deliverables.md`, flip this task's row Status to ✅ and confirm the Path matches what you produced.
+4. After user approval, mark this task complete — ONE stamp call, NEVER three hand-edits:
+   `python {rbtv_path}/orchestration/skills/orchestrating/scripts/stamp.py --plan-dir {plan-folder} --task {task-id} --status completed --scope worker`
+   (add `--artifact "{path}"` if your output landed somewhere other than the deliverables row's Path cell). The stamp writes the plan checkbox `[x]`, this file's `status:`, and the `../deliverables.md` row in one idempotent call. On a non-zero exit, surface the error — never hand-edit around it.
 5. Notify user of completion and any plan changes.
 
 ---
@@ -192,7 +188,7 @@ OR
 
 | Section | Guidance |
 |---------|----------|
-| What to review | 2-5 items. Each item names a concrete artifact (file path, decision in shape.md, output value) — not an abstraction. Order by what the human should open first. |
+| What to review | 2-5 items. Each item names a concrete artifact (file path, decision in decisions.md, output value) — not an abstraction. Order by what the human should open first. |
 | Red flags | Use Flag Criteria § Red Flag Triggers. Anchor each flag to specific evidence (file path + line range, decision name, command output). If unsure whether a concern qualifies, check the Anti-Flag Rules; when in doubt, omit. |
 | Yellow flags | Use Flag Criteria § Yellow Flag Triggers. Same evidence requirement. |
 | No-flag rationale | REQUIRED when both flag lists are empty. One line, naming which Flag Criteria checks ran clean (e.g., "No irreversible ops, no scope deviation, no new dependencies"). Without the rationale, the human cannot tell whether the executor checked or skipped the analysis. |
@@ -253,56 +249,11 @@ Evaluate each criterion. Note whether it passes, fails, or needs attention.
 2. **MUST** append the Human Review Presentation block — checkpoints inherit `human_review: required` semantics. Block format and flag criteria: see `{rbtv_path}/orchestration/workflows/planning/templates/plan-task-microstep-template.md` § Human Review Presentation, and `{rbtv_path}/orchestration/workflows/_shared/authoring/human-review-criteria.md`. The block points the user at specific phase artifacts and surfaces red/yellow flags drawn from phase execution evidence (executor returns, decisions.md Discoveries, criterion FAILs). If no flags fire, write "None identified" with a one-line rationale.
 3. **HALT for human approval** — do not advance regardless of findings
 4. If user rejects: document feedback in decisions.md, do not advance to next phase
-5. If user approves: mark checkpoint complete in plan task list and flip its row Status to ✅ in `../deliverables.md`
+5. If user approves: mark the checkpoint complete via the single-authority stamp — `python {rbtv_path}/orchestration/skills/orchestrating/scripts/stamp.py --plan-dir {plan-folder} --task {task-id} --status completed --scope worker` (plan checkbox + this file's `status:` + the `../deliverables.md` row in one call; never hand-edit them)
 ```
 
 ---
 
-## Field Instructions
+## Naming and Location
 
-### YAML Frontmatter
-
-| Field | Description | Values |
-|-------|-------------|--------|
-| task_id | Matches plan task list ID | `p[phase]-[number]` |
-| status | Current state | `pending`, `in_progress`, `completed`, `cancelled` |
-| phase | Current execution phase | `understand`, `execute`, `validate`, `close` |
-| complexity_score | Assessed complexity | 1-15 (see complexity assessment) |
-| human_review | Review requirement | `required` (executor MUST emit Human Review Presentation block at Phase: Close — see template), `optional`, `none` |
-
-### Sections
-
-| Section | Purpose |
-|---------|---------|
-| Goal | Single deliverable statement |
-| Context Files | Documents agent MUST read before any phase; include mandatory read instruction above table |
-| Tools | (Optional) Only include if task requires specialized RBTV skills/sub-agents |
-| Execution Flow | Phased steps (understand → execute → validate → close) |
-| Output Requirements | What to produce and where |
-| Revolving Plan Rules | Discovery handling instructions |
-
----
-
-## Size Guidelines
-
-| Metric | Target | Max |
-|--------|--------|-----|
-| Total lines | 60-100 | 150 |
-| Context files | 2-5 | 10 |
-| Execution steps per phase | 2-4 | 6 |
-
-The Human Review Presentation block is RUNTIME content (emitted by the executor when the task closes). It does NOT count toward the task file's size budget — the file only references the block format.
-
----
-
-## Naming Convention
-
-**File naming:** `{task-id}.task.md`
-
-**Location:** `{output-path}/{plan-name}/phase-{N}/`
-
-**Examples:**
-- `phase-1/p1-1.task.md`
-- `phase-1/p1-checkpoint.task.md`
-- `phase-2/p2-3.task.md`
-- `phase-final/pN-checkpoint.task.md`
+File naming and location follow `plan-creation-rules.md` § Micro-step File Generation → File Location: `{output-path}/{plan-name}/phase-{N}/{task-id}.task.md`.
