@@ -1,0 +1,5 @@
+- `status`: implemented; no commit or push run.
+- `landed`: updated only the five allowlisted e2e files for drivers A/B/C: inline reply input, `#doc-state` save assertions, and bridge confirm modal handling.
+- `validation`: `git --no-pager diff --stat -- tests/e2e/` exit 0: 5 files changed, 59 insertions, 40 deletions. `uv run python -m py_compile ...` exit 0. Required pytest command could not run: `python` not found, and `uv run python -m pytest ...` exit 1 with `No module named pytest`.
+- `concerns`: could not confirm the suite green or the known pre-existing failure because this environment lacks `pytest`.
+- `open_questions`: none.

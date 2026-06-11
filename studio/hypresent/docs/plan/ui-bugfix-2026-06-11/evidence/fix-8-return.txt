@@ -1,0 +1,9 @@
+status: DONE
+
+landed: runtime/js/text-edit.js:45 changed `"strike", "ins", "del", "big"` to `"strike", "ins", "del", "big", "svg"`; runtime/js/selection.js:70 changed `"strike", "ins", "del", "big"` to `"strike", "ins", "del", "big", "svg"`
+
+validation: `git --no-pager diff -- runtime/js/text-edit.js runtime/js/selection.js` EXIT 0, WALL_MS 700, SKIPPED_COUNT 1 (`test_command: NONE`; conductor runs e2e gate). Output showed exactly two added `"svg"` entries, one in each allow-set, and no other code changes. Git also warned LF will be replaced by CRLF next time Git touches both files. `Select-String -Path 'runtime/js/text-edit.js','runtime/js/selection.js' -Pattern '"strike", "ins", "del", "big", "svg"'` EXIT 0, WALL_MS 800, confirmed lines 45 and 70.
+
+concerns: Pre-existing working tree had unrelated modified/untracked files. I did not touch them. `rg` was unavailable in this shell, so I used PowerShell `Select-String` for line lookup.
+
+open_questions: none

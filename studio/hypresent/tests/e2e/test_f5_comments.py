@@ -104,17 +104,22 @@ class F5CommentTests(unittest.TestCase):
         cards = self.page.query_selector_all("#comment-threads .comment-thread")
         self.assertEqual(len(cards), 0)
 
-    def test_plain_enter_inserts_newline(self):            # E-F5-3
+    def test_enter_submits_shift_enter_newline(self):      # E-F5-3 (Enter submits; Shift+Enter = newline)
         self._open_composer()
         textarea = self.page.locator(".hyp-composer-textarea")
         textarea.click()
-        textarea.type("do X")
-        self.page.keyboard.press("Enter")
+        textarea.type("line one")
+        # Shift+Enter inserts a newline and keeps the composer open
+        self.page.keyboard.press("Shift+Enter")
         self.page.wait_for_timeout(100)
-
-        val = textarea.input_value()
-        self.assertIn("\n", val)
+        self.assertIn("\n", textarea.input_value())
         self.assertIsNotNone(self.page.query_selector(".hyp-comment-composer"))
+        # Plain Enter submits: composer closes and a thread is created
+        self.page.keyboard.press("Enter")
+        self.page.wait_for_timeout(300)
+        self.assertIsNone(self.page.query_selector(".hyp-comment-composer"))
+        cards = self.page.query_selector_all("#comment-threads .comment-thread")
+        self.assertEqual(len(cards), 1)
 
     def test_submit_creates_thread_and_marker(self):       # E-F5-4
         self._open_composer()
@@ -207,13 +212,9 @@ class F5CommentTests(unittest.TestCase):
         self._open_composer()
         self._type_and_submit("Replace bullets", agent=True)
 
-        # click Reply on the panel card
-        self.page.locator("#comment-threads .comment-action-btn").first.click()
-        self.page.wait_for_timeout(200)
-
-        # reply composer should appear
-        self.page.locator(".hyp-composer-textarea").fill("also bold it")
-        self.page.keyboard.press("Control+Enter")
+        reply_input = self.page.locator("#comment-threads .comment-thread .comment-reply-input").first
+        reply_input.fill("also bold it")
+        reply_input.press("Enter")
         self.page.wait_for_timeout(300)
 
         out = os.path.join(os.path.dirname(self.copy), "out_f5_10.html")
@@ -228,11 +229,8 @@ class F5CommentTests(unittest.TestCase):
         html1 = self._save_as_and_read(out1)
         self.assertIn("HYPRESENT AGENT INSTRUCTIONS", html1)
 
-        # resolve the thread
-        btns = self.page.query_selector_all("#comment-threads .comment-action-btn")
-        # second button is Resolve (first is Reply)
-        resolve_btn = btns[1]
-        resolve_btn.click()
+        # resolve the thread (Reply is now an inline input, so Resolve is the first action button)
+        self.page.locator("#comment-threads .comment-action-btn", has_text="Resolve").first.click()
         self.page.wait_for_timeout(300)
 
         out2 = os.path.join(os.path.dirname(self.copy), "out_f5_11b.html")

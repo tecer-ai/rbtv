@@ -285,6 +285,40 @@ function positionMarker(marker, el) {
   marker.style.left = `${rect.right + sx - 8}px`;
 }
 
+// --- Numbering (document order; resolved excluded so unresolved number 1..N) ---
+function documentOrderedIds() {
+  const arr = [];
+  for (const t of threadStore) {
+    if (t.resolved === true) continue;
+    const el = matchAnchor(t.anchor);
+    if (el) arr.push({ id: t.id, el });
+  }
+  arr.sort((a, b) => {
+    const p = a.el.compareDocumentPosition(b.el);
+    if (p & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+    if (p & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+    return 0;
+  });
+  return arr.map((x) => x.id);
+}
+
+function commentNumber(commentId, order) {
+  const list = order || documentOrderedIds();
+  const i = list.indexOf(commentId);
+  return i >= 0 ? i + 1 : null;
+}
+
+function renumberMarkers() {
+  const order = documentOrderedIds();
+  for (const [commentId, marker] of markers) {
+    const t = threadStore.find((x) => x.id === commentId);
+    if (!t) continue;
+    if (t.resolved) { marker.textContent = "✓"; continue; }
+    const n = commentNumber(commentId, order);
+    marker.textContent = n != null ? String(n) : "";
+  }
+}
+
 function renderMarkerFor(thread, el) {
   removeMarker(thread.id);
   if (!el) return;
@@ -305,9 +339,7 @@ function renderMarkerFor(thread, el) {
   marker.style.justifyContent = "center";
   marker.style.fontSize = "10px";
   marker.style.lineHeight = "1";
-  marker.textContent = thread.resolved
-    ? "✓"
-    : String(1 + thread.replies.length);
+  marker.textContent = thread.resolved ? "✓" : "";
   marker.title = `Comment by ${thread.author}`;
 
   marker.addEventListener("click", (e) => {
@@ -338,9 +370,7 @@ function updateMarkerState(commentId) {
   if (!thread || !marker) return;
   marker.style.background = thread.resolved ? "#9ca3af" : "#fbbf24";
   marker.style.borderColor = thread.resolved ? "#6b7280" : "#f59e0b";
-  marker.textContent = thread.resolved
-    ? "✓"
-    : String(1 + thread.replies.length);
+  renumberMarkers();
 }
 
 function updateAllMarkers() {
@@ -372,6 +402,7 @@ function reanchorAll() {
       renderMarkerFor(thread, el);
     }
   }
+  renumberMarkers();
 }
 
 // --- Public API ---
@@ -428,6 +459,7 @@ export function add(hypId, body, author, agentInstruction = false) {
     writeIsland();
     const resolvedEl = matchAnchor(anchor);
     renderMarkerFor(thread, resolvedEl);
+    renumberMarkers();
     emit("dirty-changed", { dirty: true });
   };
 
@@ -550,6 +582,7 @@ export function deleteComment(commentId) {
     removeMarker(commentId);
     threadStore.splice(idx, 1);
     writeIsland();
+    renumberMarkers();
     emit("dirty-changed", { dirty: true });
   };
   const undoFn = () => {
@@ -714,6 +747,7 @@ export function reanchorAfterMove() {
 }
 
 export function threads() {
+  const order = documentOrderedIds();
   return threadStore.map((t) => {
     const el = matchAnchor(t.anchor);
     const hypId = el ? idOf(el) : null;
@@ -723,6 +757,7 @@ export function threads() {
       unanchored: !el,
       hypId,
       rect,
+      number: commentNumber(t.id, order),
     };
   });
 }

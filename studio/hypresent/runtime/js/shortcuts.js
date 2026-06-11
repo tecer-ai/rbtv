@@ -27,7 +27,7 @@ export function initShortcuts(handlers) {
     }
 
     // Comment
-    if ((e.key === "c" || e.key === "C") && e.altKey && !e.shiftKey) {
+    if ((e.key === "m" || e.key === "M") && !e.altKey && !e.shiftKey) {
       e.preventDefault();
       handlers.requestComment();
       return;

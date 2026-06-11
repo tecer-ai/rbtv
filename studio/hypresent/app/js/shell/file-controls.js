@@ -1,4 +1,5 @@
 import * as apiClient from '/app/js/api-client.js';
+import { confirmSaveOverwrite } from '/app/js/shell/confirm-modal.js';
 
 function loadIntoIframe(name, iframe) {
   return new Promise((resolve) => {
@@ -43,7 +44,7 @@ export function setupOpenInBuilder({ getSerializeDoc, getStatusSetter, getBridge
   btn.addEventListener('click', async () => {
     const bridge = getBridge();
     if (!bridge) {
-      setStatusSetter()('No document open.', 'error');
+      getStatusSetter()('No document open.', 'error');
       return;
     }
     const serializeDoc = getSerializeDoc();
@@ -53,16 +54,30 @@ export function setupOpenInBuilder({ getSerializeDoc, getStatusSetter, getBridge
     if (html == null) return; // serialization failed — status already set
 
     try {
-      const result = await apiClient.dialogSaveAs(html);
-      if (result && result.cancelled) return; // user cancelled — stay put
+      const docChip = document.getElementById('doc-chip');
+      const docName = document.getElementById('doc-name');
+      const hasOpenFile = !!(docChip && !docChip.hidden && docName && docName.textContent);
+      let result;
+      if (hasOpenFile) {
+        const choice = await confirmSaveOverwrite(docName.textContent);
+        if (choice === 'cancel') return;                  // stay in the editor
+        if (choice === 'proceed') {
+          result = await apiClient.save(html);            // overwrite the opened file
+          if (result && result.no_open_file) result = await apiClient.dialogSaveAs(html);
+        } else {
+          result = await apiClient.dialogSaveAs(html);    // Save As — keep the original
+        }
+      } else {
+        result = await apiClient.dialogSaveAs(html);      // never-saved deck → pick a path
+      }
+      if (result && result.cancelled) return;
       if (!result || !result.ok) {
-        setStatusSetter()('Save failed.', 'error');
+        getStatusSetter()('Save failed.', 'error');
         return;
       }
-      // Save succeeded — navigate to builder with ?file= handoff
       window.location.href = '/app/builder.html?file=' + encodeURIComponent(result.path);
     } catch (err) {
-      setStatusSetter()('Save failed: ' + err.message, 'error');
+      getStatusSetter()('Save failed: ' + err.message, 'error');
     }
   });
 }

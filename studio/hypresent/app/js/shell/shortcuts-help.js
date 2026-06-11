@@ -40,7 +40,7 @@ export function createShortcutsHelp() {
       {
         heading: "Editing",
         rows: [
-          { keys: ["Ctrl", "Alt", "C"], label: "Comment" },
+          { keys: ["Ctrl", "M"], label: "Comment" },
           { keys: ["Ctrl", "Z"], label: "Undo" },
           { keys: ["Ctrl", "Shift", "Z"], label: "Redo" },
           { keys: ["Ctrl", "/"], label: "Show shortcuts" },

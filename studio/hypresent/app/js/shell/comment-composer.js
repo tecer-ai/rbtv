@@ -96,7 +96,8 @@ export function openComposer({ rect, mode = "new", commentId = null, initialText
   textarea.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); closeActive(); return; }
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.stopPropagation(); e.preventDefault(); submit(); return; }
-    // plain Enter falls through → inserts a newline (default textarea behavior)
+    if (e.key === "Enter" && !e.shiftKey) { e.stopPropagation(); e.preventDefault(); submit(); return; }
+    // Shift+Enter falls through → inserts a newline (default textarea behavior)
   });
 
   // Ctrl/Cmd+Enter anywhere in the composer submits (e.g. while the For-agents checkbox has focus).

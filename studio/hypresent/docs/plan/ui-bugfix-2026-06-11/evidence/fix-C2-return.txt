@@ -1,0 +1,9 @@
+status: landed_with_concern
+
+landed: Applied A1-A7 in `runtime/js/comments.js` and B1-B2 in `app/js/main.js`. No commit or push run.
+
+validation: `git --no-pager diff -- runtime/js/comments.js app/js/main.js` exited `0`. Output showed the requested numbering/comment-panel hunks, preserved `"✓"`, and only these two paths. It also showed pre-existing unrelated hunks in `app/js/main.js` already present before my edits, plus CRLF warnings.
+
+concerns: The task’s “confirm ONLY A1-A7 and B1-B2 changes appear” cannot be strictly satisfied against the current worktree because `app/js/main.js` already had unrelated uncommitted changes. I preserved them and did not revert user work.
+
+open_questions: none.

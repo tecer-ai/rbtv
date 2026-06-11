@@ -7,6 +7,7 @@ import { createTray } from './tray.js';
 import { buildDeckSrcdoc } from './previews.js';
 import { pickDestination, assembleDeck, buildOutPath } from './assemble.js';
 import { saveDeck } from './deck-save.js';
+import { confirmSaveOverwrite } from '/app/js/shell/confirm-modal.js';
 
 const state = { libraryPath: null, data: null, tray: null, slideLookup: null, deck: null, canSave: false };
 let destFolder = null;
@@ -82,10 +83,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const navEditorLink = document.getElementById('nav-editor');
   if (navEditorLink) {
     navEditorLink.addEventListener('click', (e) => {
-      if (tray.getItems().length === 0) return;
-      if (!confirm('Switch to the Editor? Unsaved builder work will be lost.')) {
-        e.preventDefault();
-      }
+      // Route the pill switch through the same save + confirm-overwrite modal as the
+      // "Switch to editor" button, so switching never silently discards the tray.
+      if (tray.getItems().length === 0) return;   // nothing to save → plain navigation
+      e.preventDefault();
+      if (switchToEditorBtn) switchToEditorBtn.click();
     });
   }
 
@@ -543,8 +545,11 @@ document.addEventListener("DOMContentLoaded", () => {
           state.deck.path = result.path;
           state.deck.name = result.path.split(/[\\/]/).pop() || result.path;
           if (deckChipName) deckChipName.textContent = state.deck.name;
-          await rebaseDeckToSavedFile(result.path);
         }
+        // Rebase after BOTH modes: an overwrite also restructures the saved file's
+        // sections, so the tray model's existing-indices must be re-synced or the
+        // next save resolves stale indices to the wrong sections.
+        await rebaseDeckToSavedFile(result.path);
       } else {
         setStatus('Save failed.', 'error');
       }
@@ -573,7 +578,15 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       try {
-        const result = await saveDeck({ deck: state.deck, items, mode: 'new-file' });
+        let result;
+        if (state.deck.path) {
+          const choice = await confirmSaveOverwrite(state.deck.name || state.deck.path);
+          if (choice === 'cancel') return;               // stay in the builder
+          const mode = (choice === 'proceed') ? 'overwrite' : 'new-file';
+          result = await saveDeck({ deck: state.deck, items, mode });
+        } else {
+          result = await saveDeck({ deck: state.deck, items, mode: 'new-file' });
+        }
         if (result.cancelled) {
           return; // user cancelled dialog — stay put
         }

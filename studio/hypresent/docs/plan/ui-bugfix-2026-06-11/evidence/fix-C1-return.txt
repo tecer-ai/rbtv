@@ -1,0 +1,14 @@
+status: landed
+
+landed: Applied all three fixes exactly in the allowlisted files only:
+- `runtime/js/shortcuts.js`: comment shortcut changed to `Ctrl+M`
+- `app/js/shell/shortcuts-help.js`: help row changed to `Ctrl+M`
+- `app/js/main.js`: shell shortcut changed, comment refresh coalescing added, doc chip/status path handling updated
+
+validation: Ran `git --no-pager diff -- runtime/js/shortcuts.js app/js/shell/shortcuts-help.js app/js/main.js`  
+EXIT: `0`  
+Output showed only the requested hunks: shortcut rebinds, `_commentRefreshInFlight` / `_commentRefreshQueued`, `setDocChip(name, fullPath)`, tooltip path passing, basename regex fixes, and `setStatus("Saved", "success")`. Git also printed LF-to-CRLF working-copy warnings for the three touched files.
+
+concerns: None.
+
+open_questions: None.

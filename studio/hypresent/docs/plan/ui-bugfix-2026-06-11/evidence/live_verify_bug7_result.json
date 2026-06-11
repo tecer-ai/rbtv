@@ -1,0 +1,25 @@
+{
+  "all_pass": true,
+  "results": [
+    {
+      "check": "builder: deck opened with rows",
+      "pass": true,
+      "detail": "rows=10"
+    },
+    {
+      "check": "bug7: saved deck has expected section count (orig-1 + 2 blanks)",
+      "pass": true,
+      "detail": "saved=11 expected=11"
+    },
+    {
+      "check": "bug7: every non-removed original slide survives (none deleted by overwrite)",
+      "pass": true,
+      "detail": "missing=[]"
+    },
+    {
+      "check": "bug7: the intentionally-removed slide is absent",
+      "pass": true,
+      "detail": "removed_chunk_present=False"
+    }
+  ]
+}

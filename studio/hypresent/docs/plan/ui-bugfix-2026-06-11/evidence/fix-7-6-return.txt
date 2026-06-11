@@ -1,0 +1,19 @@
+status: completed
+
+landed: Applied both tasks in order. Modified only `app/js/builder/builder-main.js` and `app/js/shell/file-controls.js`.
+
+validation: |
+  `git --no-pager diff -- app/js/builder/builder-main.js` EXIT 0 showed only the fix-7 rebase move plus required explanatory comment.
+
+  `git --no-pager diff -- app/js/shell/file-controls.js app/js/builder/builder-main.js` EXIT 0 showed the cumulative requested changes:
+  - `rebaseDeckToSavedFile(result.path)` moved outside the `new-file` block with the required comment.
+  - Builder→Editor status line inserted before `saveDeck(...)`.
+  - Editor→Builder status line inserted before `apiClient.dialogSaveAs(html)`.
+
+  `git status --short -- app/js/builder/builder-main.js app/js/shell/file-controls.js` EXIT 0 showed:
+  - `M app/js/builder/builder-main.js`
+  - `M app/js/shell/file-controls.js`
+
+concerns: Git emitted existing environment warnings about LF→CRLF and inaccessible `C:\Users\henri/.config/git/ignore`; validation commands still exited 0.
+
+open_questions: none

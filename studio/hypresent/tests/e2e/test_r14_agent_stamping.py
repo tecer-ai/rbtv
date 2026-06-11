@@ -108,11 +108,9 @@ class TestR14AgentStamping(unittest.TestCase):
                     self.page.wait_for_timeout(300)
 
     def _add_reply(self, text):
-        self.page.locator("#comment-threads .comment-action-btn").first.click()
-        self.page.wait_for_timeout(200)
-        ta = self.page.locator(".hyp-comment-composer textarea, .hyp-composer-textarea").first
-        ta.fill(text)
-        self.page.keyboard.press("Control+Enter")
+        reply_input = self.page.locator("#comment-threads .comment-thread .comment-reply-input").first
+        reply_input.fill(text)
+        reply_input.press("Enter")
         self.page.wait_for_timeout(300)
 
     def _save_to_temp(self, suffix=".html"):
@@ -323,8 +321,11 @@ class TestR14AgentStamping(unittest.TestCase):
         self._add_comment("fix li2", agent=True)
 
         out = self._save_to_temp("-r14-7.html")
-        status = self.page.text_content("#shell-status")
-        self.assertIn("Saved", status)
+        self.page.wait_for_function(
+            "() => document.getElementById('doc-state')?.textContent === 'Saved'",
+            timeout=5000,
+        )
+        self.assertEqual(self.page.text_content("#doc-state"), "Saved")
         self.assertTrue(os.path.exists(out))
         self.assertGreater(os.path.getsize(out), 0)
 

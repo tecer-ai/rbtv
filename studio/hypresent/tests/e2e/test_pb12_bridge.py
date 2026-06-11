@@ -70,6 +70,8 @@ class PB12BridgeTests(unittest.TestCase):
 
         # Click "Switch to editor"
         self.page.click("#switch-to-editor-btn")
+        self.page.wait_for_selector(".hyp-modal-scrim", timeout=8000)
+        self.page.locator(".hyp-modal-scrim button", has_text="Save As").click()
 
         # Wait for navigation to editor with ?file=
         self.page.wait_for_function(
@@ -138,6 +140,8 @@ class PB12BridgeTests(unittest.TestCase):
 
         # Click "Open in builder"
         self.page.click("#open-in-builder-btn")
+        self.page.wait_for_selector(".hyp-modal-scrim", timeout=8000)
+        self.page.locator(".hyp-modal-scrim button", has_text="Save As").click()
 
         # Wait for navigation to builder with ?file=
         self.page.wait_for_function(
@@ -168,10 +172,10 @@ class PB12BridgeTests(unittest.TestCase):
         self._open_deck_in_builder(deck_path)
         initial_url = self.page.url
 
-        # Set dialog to cancel
-        H.set_fake_dialog(self.base, None)
         self.page.click("#switch-to-editor-btn")
-        self.page.wait_for_timeout(500)
+        self.page.wait_for_selector(".hyp-modal-scrim", timeout=8000)
+        self.page.keyboard.press("Escape")
+        self.page.wait_for_selector(".hyp-modal-scrim", state="detached", timeout=5000)
 
         # Should still be on builder page
         self.assertIn("builder.html", self.page.url, "should remain on builder after cancel")
@@ -216,10 +220,10 @@ class PB12BridgeTests(unittest.TestCase):
         )
         initial_url = self.page.url
 
-        # Set dialog to cancel
-        H.set_fake_dialog(self.base, None)
         self.page.click("#open-in-builder-btn")
-        self.page.wait_for_timeout(500)
+        self.page.wait_for_selector(".hyp-modal-scrim", timeout=8000)
+        self.page.keyboard.press("Escape")
+        self.page.wait_for_selector(".hyp-modal-scrim", state="detached", timeout=5000)
 
         # Should still be on editor page
         self.assertIn("/app/", self.page.url, "should remain on editor after cancel")
@@ -255,6 +259,8 @@ class PB12BridgeTests(unittest.TestCase):
         editor_path = os.path.join(save_dir, "reordered.html")
         H.set_fake_dialog(self.base, editor_path)
         self.page.click("#switch-to-editor-btn")
+        self.page.wait_for_selector(".hyp-modal-scrim", timeout=8000)
+        self.page.locator(".hyp-modal-scrim button", has_text="Save As").click()
 
         # Wait for editor
         self.page.wait_for_function(
@@ -280,6 +286,8 @@ class PB12BridgeTests(unittest.TestCase):
         builder_path = os.path.join(crossing_dir, "reopened-in-builder.html")
         H.set_fake_dialog(self.base, builder_path)
         self.page.click("#open-in-builder-btn")
+        self.page.wait_for_selector(".hyp-modal-scrim", timeout=8000)
+        self.page.locator(".hyp-modal-scrim button", has_text="Save As").click()
 
         # Wait for builder
         self.page.wait_for_function(

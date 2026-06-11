@@ -67,7 +67,7 @@ function isTextEditable(el) {
     "a", "abbr", "b", "bdi", "bdo", "cite", "code", "data", "dfn", "em",
     "i", "kbd", "mark", "q", "rp", "rt", "ruby", "s", "samp", "small",
     "span", "strong", "sub", "sup", "time", "u", "var", "wbr", "font",
-    "strike", "ins", "del", "big"
+    "strike", "ins", "del", "big", "svg"
   ]);
 
   for (const child of el.children) {

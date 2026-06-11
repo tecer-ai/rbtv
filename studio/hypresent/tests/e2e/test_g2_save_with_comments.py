@@ -55,8 +55,11 @@ class TestG2SaveWithComments(unittest.TestCase):
         out1 = self.copy.replace(".html", "-out1.html")
         self.add_comment("c1")
         self.save_as(out1)
-        status = self.page.text_content("#shell-status")
-        self.assertIn("Saved", status)
+        self.page.wait_for_function(
+            "() => document.getElementById('doc-state')?.textContent === 'Saved'",
+            timeout=5000,
+        )
+        self.assertEqual(self.page.text_content("#doc-state"), "Saved")
         self.assertTrue(os.path.exists(out1))
         self.assertGreater(os.path.getsize(out1), 0)
 
@@ -85,8 +88,11 @@ class TestG2SaveWithComments(unittest.TestCase):
         out2 = self.copy.replace(".html", "-out2.html")
         self.add_comment("c2", agent=True)
         self.save_as(out2)
-        status = self.page.text_content("#shell-status")
-        self.assertIn("Saved", status)
+        self.page.wait_for_function(
+            "() => document.getElementById('doc-state')?.textContent === 'Saved'",
+            timeout=5000,
+        )
+        self.assertEqual(self.page.text_content("#doc-state"), "Saved")
         with open(out2, encoding="utf-8") as f:
             text = f.read()
         self.assertIn('id="hyp-comments"', text)
@@ -104,8 +110,11 @@ class TestG2SaveWithComments(unittest.TestCase):
         H.open_via_dialog_ui(self.page, self.base, out2)
         self.page.wait_for_timeout(500)
         self.save_as(out3)
-        status = self.page.text_content("#shell-status")
-        self.assertIn("Saved", status)
+        self.page.wait_for_function(
+            "() => document.getElementById('doc-state')?.textContent === 'Saved'",
+            timeout=5000,
+        )
+        self.assertEqual(self.page.text_content("#doc-state"), "Saved")
         with open(out3, encoding="utf-8") as f:
             text = f.read()
         self.assertEqual(text.count("===== HYPRESENT AGENT INSTRUCTIONS ====="), 1)
@@ -116,8 +125,11 @@ class TestG2SaveWithComments(unittest.TestCase):
     def test_e_g2_5_no_comments_means_chrome_free(self):
         out5 = self.copy.replace(".html", "-out5.html")
         self.save_as(out5)
-        status = self.page.text_content("#shell-status")
-        self.assertIn("Saved", status)
+        self.page.wait_for_function(
+            "() => document.getElementById('doc-state')?.textContent === 'Saved'",
+            timeout=5000,
+        )
+        self.assertEqual(self.page.text_content("#doc-state"), "Saved")
         with open(out5, encoding="utf-8") as f:
             text = f.read()
         self.assertNotIn("data-hyp-", text)

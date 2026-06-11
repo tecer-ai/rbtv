@@ -120,12 +120,9 @@ class R13CommentEditDeleteTests(unittest.TestCase):
                     self.page.wait_for_timeout(300)
 
     def _add_reply(self, text):
-        # Use the existing Reply affordance confirmed in test_f5_comments.py
-        self.page.locator("#comment-threads .comment-action-btn").first.click()
-        self.page.wait_for_timeout(200)
-        ta = self.page.locator(".hyp-comment-composer textarea, .hyp-composer-textarea").first
-        ta.fill(text)
-        self.page.keyboard.press("Control+Enter")
+        reply_input = self.page.locator("#comment-threads .comment-thread .comment-reply-input").first
+        reply_input.fill(text)
+        reply_input.press("Enter")
         self.page.wait_for_timeout(300)
 
     def _click_row_action(self, thread_id, label):

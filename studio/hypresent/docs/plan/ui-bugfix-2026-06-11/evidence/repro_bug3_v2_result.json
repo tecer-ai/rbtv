@@ -1,0 +1,160 @@
+{
+  "console": [
+    "info: Shell DOM mounted",
+    "info: Moveable available: true",
+    "info: Coloris available: function",
+    "info: DOMPurify available: function",
+    "error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "info: runtime ready",
+    "error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "[reload] info: Shell DOM mounted",
+    "[reload] info: Moveable available: true",
+    "[reload] info: Coloris available: function",
+    "[reload] info: DOMPurify available: function",
+    "[reload] error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "[reload] error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "[reload] error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "[reload] error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "[reload] error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "[reload] error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "[reload] info: runtime ready"
+  ],
+  "phases": {
+    "after_adds": {
+      "panel": {
+        "count": 1,
+        "unanchoredHeader": false,
+        "threads": [
+          {
+            "id": "1",
+            "classes": "comment-thread",
+            "agentChecked": false
+          }
+        ]
+      },
+      "runtime": [
+        {
+          "id": "1",
+          "agent": false,
+          "replies": 0
+        }
+      ]
+    },
+    "tag_clicks": [
+      {
+        "i": 0,
+        "ok": true
+      }
+    ],
+    "after_tag": {
+      "panel": {
+        "count": 1,
+        "unanchoredHeader": false,
+        "threads": [
+          {
+            "id": "1",
+            "classes": "comment-thread",
+            "agentChecked": true
+          }
+        ]
+      },
+      "runtime": [
+        {
+          "id": "1",
+          "agent": true,
+          "replies": 0
+        }
+      ]
+    },
+    "save_status": "Saved to C:\\Users\\henri\\AppData\\Local\\Temp\\tmpcgbaqrah\\gsmm-repro.html",
+    "saved_inspect": {
+      "has_agent_block": true,
+      "data_hyp_agent_count": 3,
+      "comment_island_present": true,
+      "size": 185277
+    },
+    "after_reload": {
+      "panel": {
+        "count": 1,
+        "unanchoredHeader": false,
+        "threads": [
+          {
+            "id": "1",
+            "classes": "comment-thread",
+            "agentChecked": true
+          }
+        ]
+      },
+      "runtime": [
+        {
+          "id": "1",
+          "agent": true,
+          "replies": 0
+        }
+      ]
+    },
+    "after_marker_click": {
+      "panel": {
+        "count": 1,
+        "unanchoredHeader": false,
+        "threads": [
+          {
+            "id": "1",
+            "classes": "comment-thread comment-thread-highlight",
+            "agentChecked": true
+          }
+        ]
+      }
+    },
+    "after_reload_tag": {
+      "panel": {
+        "count": 1,
+        "unanchoredHeader": false,
+        "threads": [
+          {
+            "id": "1",
+            "classes": "comment-thread",
+            "agentChecked": false
+          }
+        ]
+      },
+      "runtime": [
+        {
+          "id": "1",
+          "agent": false,
+          "replies": 0
+        }
+      ]
+    }
+  },
+  "candidates": {
+    "plain": [
+      {
+        "id": "hyp-2",
+        "tag": "div",
+        "svgChild": false,
+        "text": "JUNHO 2026"
+      }
+    ],
+    "svg": [
+      {
+        "id": "hyp-275",
+        "tag": "div",
+        "svgChild": true,
+        "text": "Pagamentos"
+      }
+    ]
+  },
+  "add_errors": [
+    "TimeoutError('Locator.click: Timeout 5000ms exceeded.\\nCall log:\\n  - waiting for locator(\"iframe.doc-frame\").content_frame.locator(\"[data-hyp-id=\\\\\"hyp-2\\\\\"]\").first\\n    - locator resolved to <div class=\"chip\" data-hyp-id=\"hyp-2\">JUNHO 2026</div>\\n  - attempting click action\\n    2 × waiting for element to be visible, enabled and stable\\n      - element is visible, enabled and stable\\n      - scrolling into view if needed\\n      - done scrolling\\n      - <div class=\"stage\" data-hyp-id=\"hyp-10\">…</div> intercepts pointer events\\n    - retrying click action\\n    - waiting 20ms\\n    2 × waiting for element to be visible, enabled and stable\\n      - element is visible, enabled and stable\\n      - scrolling into view if needed\\n      - done scrolling\\n      - <div class=\"stage\" data-hyp-id=\"hyp-10\">…</div> intercepts pointer events\\n    - retrying click action\\n      - waiting 100ms\\n    9 × waiting for element to be visible, enabled and stable\\n      - element is visible, enabled and stable\\n      - scrolling into view if needed\\n      - done scrolling\\n      - <div class=\"stage\" data-hyp-id=\"hyp-10\">…</div> intercepts pointer events\\n    - retrying click action\\n      - waiting 500ms\\n')"
+  ]
+}

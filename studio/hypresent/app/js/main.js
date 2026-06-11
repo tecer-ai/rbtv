@@ -30,11 +30,12 @@ function setStatus(msg, type = "") {
 }
 
 // topbar doc-chip: filename + Saved/Unsaved state
-function setDocChip(name) {
+function setDocChip(name, fullPath) {
   const chip = document.getElementById("doc-chip");
   const nameEl = document.getElementById("doc-name");
   if (!chip || !nameEl) return;
   if (name) nameEl.textContent = name;
+  if (fullPath) chip.title = fullPath; else chip.removeAttribute("title");
   chip.hidden = false;
   const empty = document.getElementById("canvas-empty");
   if (empty) empty.hidden = true;
@@ -110,6 +111,15 @@ function createThreadEl(thread, isUnanchored = false) {
   timeSpan.className = "comment-time";
   timeSpan.textContent = formatTime(thread.createdAt);
 
+  if (thread.number != null) {
+    const numSpan = document.createElement("span");
+    numSpan.className = "comment-number";
+    numSpan.textContent = "#" + thread.number;
+    numSpan.style.fontWeight = "700";
+    numSpan.style.color = "var(--ink-mut)";
+    numSpan.style.marginRight = "2px";
+    header.appendChild(numSpan);
+  }
   header.appendChild(createAvatar(thread.author));
   header.appendChild(authorSpan);
   header.appendChild(timeSpan);
@@ -201,32 +211,6 @@ function createThreadEl(thread, isUnanchored = false) {
   const actions = document.createElement("div");
   actions.className = "comment-actions";
 
-  const replyBtn = document.createElement("button");
-  replyBtn.className = "comment-action-btn";
-  replyBtn.textContent = "Reply";
-  replyBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const author = getAuthorName();
-    openComposer({
-      rect: thread.rect || null,
-      mode: "reply",
-      commentId: thread.id,
-      onSubmit: async (text) => {
-        try {
-          await bridge.command("reply-comment", {
-            commentId: thread.id,
-            body: text,
-            author,
-          });
-          await refreshCommentPanel();
-        } catch (err) {
-          console.error("Reply failed:", err.message);
-        }
-      },
-    });
-  });
-  actions.appendChild(replyBtn);
-
   const resolveBtn = document.createElement("button");
   resolveBtn.className = "comment-action-btn comment-action-btn--mut";
   resolveBtn.textContent = thread.resolved ? "Reopen" : "Resolve";
@@ -316,6 +300,37 @@ function createThreadEl(thread, isUnanchored = false) {
     div.appendChild(repliesDiv);
   }
 
+  if (!isUnanchored && !thread.resolved) {
+    const replyForm = document.createElement("div");
+    replyForm.className = "comment-reply-form";
+    const replyInput = document.createElement("input");
+    replyInput.type = "text";
+    replyInput.className = "comment-reply-input";
+    replyInput.placeholder = "Reply…";
+    replyInput.style.cssText =
+      "width:100%; margin-top:10px; height:32px; padding:0 12px; border:1px solid var(--line-2); border-radius:999px; background:var(--white); font-size:12.5px; color:var(--ink);";
+    replyInput.addEventListener("click", (e) => e.stopPropagation());
+    replyInput.addEventListener("keydown", async (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const text = replyInput.value.trim();
+        if (!text) return;
+        const author = getAuthorName();
+        replyInput.disabled = true;
+        try {
+          await bridge.command("reply-comment", { commentId: thread.id, body: text, author });
+          await refreshCommentPanel();
+        } catch (err) {
+          console.error("Reply failed:", err.message);
+          replyInput.disabled = false;
+        }
+      }
+    });
+    replyForm.appendChild(replyInput);
+    div.appendChild(replyForm);
+  }
+
   if (!isUnanchored && thread.hypId) {
     div.addEventListener("click", () => {
       bridge.command("select", { hypId: thread.hypId }).catch((err) => {
@@ -335,7 +350,9 @@ function renderCommentPanel(threads) {
   container.innerHTML = "";
   if (unanchoredContainer) unanchoredContainer.innerHTML = "";
 
-  const anchored = threads.filter((t) => !t.unanchored);
+  const anchored = threads
+    .filter((t) => !t.unanchored)
+    .sort((a, b) => (a.number || 0) - (b.number || 0));
   const unanchored = threads.filter((t) => t.unanchored);
 
   for (const thread of anchored) {
@@ -353,13 +370,20 @@ function renderCommentPanel(threads) {
   }
 }
 
+let _commentRefreshInFlight = false;
+let _commentRefreshQueued = false;
 async function refreshCommentPanel() {
   if (!bridge) return;
+  if (_commentRefreshInFlight) { _commentRefreshQueued = true; return; }
+  _commentRefreshInFlight = true;
   try {
     const result = await bridge.command("comments-read");
     renderCommentPanel(result.threads || []);
   } catch (err) {
     console.error("Failed to read comments:", err.message);
+  } finally {
+    _commentRefreshInFlight = false;
+    if (_commentRefreshQueued) { _commentRefreshQueued = false; refreshCommentPanel(); }
   }
 }
 
@@ -476,11 +500,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const navBuilderLink = document.getElementById("nav-builder");
   if (navBuilderLink) {
     navBuilderLink.addEventListener("click", (e) => {
-      const unsaved = bridge && (isDirty || historyCursor !== savedCursor);
-      if (!unsaved) return;
-      if (!confirm("Switch to the Builder? Unsaved changes will be lost.")) {
+      // Route the pill switch through the same save + confirm-overwrite modal as the
+      // "Open in builder" button, so switching never silently discards unsaved work.
+      const oib = document.getElementById("open-in-builder-btn");
+      if (oib && !oib.disabled) {
         e.preventDefault();
+        oib.click();
       }
+      // else: no document open → allow the plain navigation
     });
   }
 
@@ -523,7 +550,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const result = await openFile(fileParam, iframe);
         ensureBridge(iframe);
         setStatus("");
-        setDocChip((result && result.name) || fileParam.split(/[\\/]/).pop() || "");
+        setDocChip((result && result.name) || fileParam.split(/[\\/]/).pop() || "", fileParam);
         setDocState(false);
         // Enabled by the bridge 'ready' handler, not here — see the dialog-open
         // path above. Same readiness gate on both crossings into the builder.
@@ -573,14 +600,14 @@ document.addEventListener("DOMContentLoaded", () => {
           isDirty = false; document.title = "hypresent";
           savedCursor = historyCursor;
           setDocState(false);
-          setDocChip((sa.path || "").split(/[\/]/).pop() || "");
-          setStatus("Saved to " + (sa.path || ""), "success");
+          setDocChip((sa.path || "").split(/[\\/]/).pop() || "", sa.path || "");
+          setStatus("");
           return;
         }
         isDirty = false; document.title = "hypresent";
         savedCursor = historyCursor;
         setDocState(false);
-        setStatus("Saved to " + (data.path || ""), "success");
+        setStatus("");
       } catch (err) {
         setStatus("Save failed: " + err.message, "error");
       }
@@ -598,8 +625,8 @@ document.addEventListener("DOMContentLoaded", () => {
         isDirty = false; document.title = "hypresent";
         savedCursor = historyCursor;
         setDocState(false);
-        setDocChip((data.path || "").split(/[\/]/).pop() || "");
-        setStatus("Saved to " + (data.path || ""), "success");
+        setDocChip((data.path || "").split(/[\\/]/).pop() || "", data.path || "");
+        setStatus("");
       } catch (err) {
         setStatus("Save failed: " + err.message, "error");
       }
@@ -799,7 +826,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const k = e.key.toLowerCase();
     if (k === "/") { e.preventDefault(); shortcutsHelp.open(); return; }
     if (inField) return;
-    if (e.altKey && k === "c") { e.preventDefault(); document.getElementById("comment-btn")?.click(); return; }
+    if (!e.altKey && k === "m") { e.preventDefault(); document.getElementById("comment-btn")?.click(); return; }
     if (e.key === "Delete") { e.preventDefault(); document.getElementById("delete-btn")?.click(); return; }
     if (!e.altKey && k === "b") { e.preventDefault(); if (bridge) bridge.command("format", { op: "bold" }).catch(() => {}); return; }
     if (!e.altKey && k === "i") { e.preventDefault(); if (bridge) bridge.command("format", { op: "italic" }).catch(() => {}); return; }

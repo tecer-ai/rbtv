@@ -1,0 +1,40 @@
+{
+  "all_pass": true,
+  "results": [
+    {
+      "check": "bug8: inline-svg element enters edit mode on dblclick",
+      "pass": true,
+      "detail": "contenteditable=true on hyp-275"
+    },
+    {
+      "check": "bug2: markers show distinct numbers (not all '1')",
+      "pass": true,
+      "detail": "markers=['1', '2', '3']"
+    },
+    {
+      "check": "bug2: numbers are contiguous 1..N",
+      "pass": true,
+      "detail": "sorted=['1', '2', '3']"
+    },
+    {
+      "check": "bug2: panel shows #N badges for each thread",
+      "pass": true,
+      "detail": "panel=['#1', '#2', '#3']"
+    },
+    {
+      "check": "bug4: doc chip shows basename only (no separators)",
+      "pass": true,
+      "detail": "name=saved-deck.html"
+    },
+    {
+      "check": "bug4: full path on hover (title attr)",
+      "pass": true,
+      "detail": "title=C:\\Users\\henri\\AppData\\Local\\Temp\\tmpi7i5691c\\saved-deck.html"
+    },
+    {
+      "check": "bug4: status no longer prints the full path",
+      "pass": true,
+      "detail": "status=Saved"
+    }
+  ]
+}

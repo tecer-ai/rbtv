@@ -1,0 +1,9 @@
+status: landed
+
+landed: Modified only `app/js/shell/comment-composer.js`; plain Enter now submits, Shift+Enter falls through to newline.
+
+validation: `git --no-pager diff -- app/js/shell/comment-composer.js` exited `0` and showed only the added Enter branch plus updated comment. Git also printed an LF-to-CRLF working-copy warning.
+
+concerns: None beyond the existing Git line-ending warning.
+
+open_questions: None.

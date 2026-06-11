@@ -1,0 +1,9 @@
+status: landed
+
+landed: Created `app/js/shell/confirm-modal.js` with the specified modal content. Added the import and overwrite-confirm flow in `app/js/shell/file-controls.js` and `app/js/builder/builder-main.js`. No commit or push run.
+
+validation: Ran `git --no-pager diff -- app/js/shell/confirm-modal.js app/js/shell/file-controls.js app/js/builder/builder-main.js`; EXIT `0`. Output showed the two imports and both handler replacements. It also printed CRLF warnings for the two modified existing files.
+
+concerns: `git diff` does not show untracked new files, so `confirm-modal.js` was not included in that diff output; I separately read it back and confirmed the requested content is present. The diff also includes pre-existing working-tree changes in the same files compared with `HEAD`.
+
+open_questions: none
