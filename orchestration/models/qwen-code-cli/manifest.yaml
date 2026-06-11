@@ -6,7 +6,8 @@
 #         1-projects/rbtv-evolution/orchestration/qwen-multi-model/qwen-multi-model-research.md (2026-06-10).
 # Evidence boundary: the CLI install + headless contract + flag-parsing are locally verified. The full
 #         authenticated turn (exit-0, JSON output shape, tool-calling, attribution) IS NOW VALIDATED —
-#         2026-06-10, owner-run via `!` (auth lives only in the owner's session): all four ModelStudio US
+#         2026-06-10 (validation runs issued via `!`; auth is pre-provisioned in qwen's own ~/.qwen/settings.json
+#         `env` block and resolves in ANY session — conductor/unattended included, see auth notes below): all four ModelStudio US
 #         backends (qwen3.6-plus, deepseek-v4-flash, deepseek-v4-pro, glm-5.1) reply-probed exit-0 with
 #         init.model echoing the id, and `deepseek-v4-flash` passed a full bounded-code done-gate
 #         (write+test through the compatible-mode shim, conductor-reconciled on disk). Evidence:
@@ -57,7 +58,7 @@ variants:
     auth:
       required: true                # unauthenticated `qwen -p` exits 1 "No auth type is selected" — verified locally (report §8/§15)
       method: api-key               # openai/anthropic/gemini env+keys; here: --auth-type openai + DASHSCOPE_API_KEY (ModelStudio US). cli-login (qwen-oauth) free tier discontinued 2026-04-15
-      interactive: false            # api-key path: availability = the key resolves in the env (DASHSCOPE_API_KEY); no human gesture per dispatch (schema §4 api-key note). The key lives only in the owner's session → live dispatches are owner-run
+      interactive: false            # api-key path: availability = the key resolves (DASHSCOPE_API_KEY); no human gesture per dispatch (schema §4 api-key note). The key is PRE-PROVISIONED in qwen's own ~/.qwen/settings.json `env` block → it resolves in ANY session (conductor/unattended included), so live dispatches authenticate directly — NOT owner-run-only (corrected 2026-06-11, C2). SECURITY: any run can spend ModelStudio credit — bound with budget/--max-wall-time
 
     rate_budget_notes: "NO retryable-throttle exit code (unlike kimi 75) — set QWEN_CODE_UNATTENDED_RETRY=1 for in-process 429/529 backoff (cap 5 min, 30s stderr heartbeat); bound with --max-wall-time → exit 55. Budget overruns: --max-session-turns → exit 53; --max-wall-time/--max-tool-calls → exit 55. exit 1 = non-retryable (auth/config/usage) → halt + surface. Auth via --auth-type openai + DASHSCOPE_API_KEY (ModelStudio US)."
 
@@ -83,7 +84,7 @@ variants:
     failure_modes:
       - "headless --yolo/--approval-mode yolo auto-approves ALL tool calls at host privilege — NO sandbox unless --sandbox (container backend unverified on Windows); enforce scope externally + post-run diff"
       - "headless --approval-mode auto DENIES every write/edit/shell call (read-only in practice) — use yolo/-y for headless write work (live-proven p2-3)"
-      - "unauthenticated run exits 1 (No auth type is selected) — DASHSCOPE_API_KEY must resolve in the env; the key lives only in the owner's session → live dispatches owner-run"
+      - "unauthenticated run exits 1 (No auth type is selected) — DASHSCOPE_API_KEY must resolve; it is PRE-PROVISIONED in qwen's own ~/.qwen/settings.json `env` block and resolves on EVERY qwen invocation by this user, so conductor/unattended dispatches authenticate directly (proven C2 2026-06-10). SECURITY: any run can spend ModelStudio credit — bound with budget/--max-wall-time. If settings.json ever loses the key/auth, HALT and ask the owner to re-provision — the conductor never self-provisions, reads, or prints it"
       - "NO retryable-throttle exit code — use QWEN_CODE_UNATTENDED_RETRY=1 for in-process 429/529 backoff; bound with --max-wall-time"
       - "budget overrun → exit 53 (--max-session-turns) or 55 (--max-wall-time/--max-tool-calls) — re-scope or raise caps, NOT a transient retry"
       - "--approval-mode default STALLS a headless run waiting for approval — always set auto/auto-edit/yolo non-interactively"
@@ -122,7 +123,7 @@ variants:
     auth:
       required: true
       method: api-key               # --auth-type openai + DASHSCOPE_API_KEY (ModelStudio US)
-      interactive: false            # availability = key resolves; owner-session-only key → owner-run dispatches
+      interactive: false            # availability = key resolves; key PRE-PROVISIONED in qwen's ~/.qwen/settings.json → resolves in ANY session (conductor/unattended dispatches authenticate directly; bound spend with budget/--max-wall-time)
     rate_budget_notes: "QWEN_CODE_UNATTENDED_RETRY=1 for 429/529; bound with --max-wall-time. No retryable-throttle exit code. (Same qwen CLI budget grammar as default.)"
     tool_surface:
       native: [shell, file, edit, agent]   # qwen CLI tool surface (backend-independent); tool-calling through the ModelStudio US shim proven 2026-06-10
@@ -138,7 +139,7 @@ variants:
     specialty: "cheapest large-output bounded code via DeepSeek V4 Flash — the validated bulk code executor (full done-gate 2026-06-10); pick over `default` when single-turn output may exceed ~64K tokens"
     failure_modes:
       - "same qwen CLI failure modes as `default` (headless yolo host-privilege, auto denies writes, exit 1 auth gate, exit 53/55 budgets, cd non-persistence) — see the default variant"
-      - "DASHSCOPE_API_KEY must resolve; key is owner-session-only → live dispatches owner-run"
+      - "DASHSCOPE_API_KEY must resolve; PRE-PROVISIONED in qwen's ~/.qwen/settings.json → resolves in ANY session (conductor/unattended dispatches authenticate directly; bound spend with budget/--max-wall-time)"
     swarm_support:
       subagents: true
       nesting: one-level
@@ -179,7 +180,7 @@ variants:
     failure_modes:
       - "same qwen CLI failure modes as `default` — see the default variant"
       - "reasoning_tier: top is SPEC-derived, not pilot-validated here (the 2026-06-10 bounded-code pilot was judgment-light) — do not route judgment-dense work without the doubt_policy: halt + opus reviewer floor"
-      - "DASHSCOPE_API_KEY must resolve; key is owner-session-only → live dispatches owner-run"
+      - "DASHSCOPE_API_KEY must resolve; PRE-PROVISIONED in qwen's ~/.qwen/settings.json → resolves in ANY session (conductor/unattended dispatches authenticate directly; bound spend with budget/--max-wall-time)"
     swarm_support:
       subagents: true
       nesting: one-level
@@ -220,7 +221,7 @@ variants:
     failure_modes:
       - "same qwen CLI failure modes as `default` — see the default variant"
       - "smaller context (204,800) than the DeepSeek/Qwen backends — split large-context tasks or route them to a 1M backend"
-      - "DASHSCOPE_API_KEY must resolve; key is owner-session-only → live dispatches owner-run"
+      - "DASHSCOPE_API_KEY must resolve; PRE-PROVISIONED in qwen's ~/.qwen/settings.json → resolves in ANY session (conductor/unattended dispatches authenticate directly; bound spend with budget/--max-wall-time)"
     swarm_support:
       subagents: true
       nesting: one-level
