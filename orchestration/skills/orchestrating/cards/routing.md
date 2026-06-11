@@ -162,7 +162,15 @@ For a rigorous-multi-source brief (a self-contained research brief → findings)
 
 ## 7. The haiku clause (D4)
 
-> The haiku-eligibility rule (approved-delegation-map exception, the `sonnet` floor for every pinned role, and the mechanical = no-judgment definition) is owned by `core/rules/sub-agents.md` § Haiku Reconciliation. Follow it. Routing applies that rule; it does not restate it.
+Haiku eligibility is routing policy and is owned HERE (moved from `core/rules/sub-agents.md` — that rule no longer carries model policy). Default model posture: sub-agent dispatches default to `sonnet`; haiku is NEVER routed without the explicit ask below.
+
+| Condition | Haiku eligibility |
+|-----------|-------------------|
+| User-approved delegation map names haiku for a specific mechanical batch | Routable for THAT batch — the map approval IS the required explicit ask; no separate per-dispatch permission needed once the map is approved |
+| No approved delegation map naming haiku for the batch | NEVER routed — default to the cheapest **non-haiku** capable variant; every pinned role (§3) floors at **sonnet** regardless |
+| Batch carries any judgment call | NOT mechanical — haiku is off the table even under an approved map |
+
+**Mechanical = no judgment:** disjoint-allowlist file ops, format conversions, deterministic batch edits with self-verifiable acceptance. The moment a batch requires a judgment call, it is no longer mechanical. A standalone haiku dispatch outside an approved delegation map requires an explicit user ask.
 
 ---
 

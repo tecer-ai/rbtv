@@ -257,8 +257,8 @@ variants:
 
   # NOTE ON haiku — DELIBERATELY NOT A VARIANT.
   # The Agent tool can run a haiku sub-agent, but vault routing policy FLOORS at sonnet: haiku is routable
-  # ONLY for mechanical batches under a USER-APPROVED delegation map that names haiku (routing card §7 /
-  # rbtv-sub-agents Haiku-clause). Absent such an approved map, haiku is never routed and every pinned role
+  # ONLY for mechanical batches under a USER-APPROVED delegation map that names haiku (routing card §7
+  # Haiku-clause — routing owns model policy). Absent such an approved map, haiku is never routed and every pinned role
   # floors at sonnet — so this package ships NO haiku variant. If a future delegation map approves haiku for
   # specific mechanical batches, add a haiku variant THEN (reasoning_tier: non-reasoning, cost_class:
   # cheapest, mechanical-only), not before. ("Never haiku" — the sonnet-floor policy; matches the parallel

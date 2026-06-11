@@ -62,7 +62,7 @@ There is **no `$null |` stdin redirect, no `-p`, no `--model` flag, no `--permis
 
 | Check | How | Gate |
 |-------|-----|------|
-| **Skill/rule directives inlined** | Scan the planned `prompt` for every trigger the task hits (web/research → `rbtv-web-searching`; commit/stage/push → `rbtv-commit`; plus any non-RBTV skill that matches) and confirm each matching skill is NAMED in imperative form in the prompt (`rbtv-sub-agents` Pre-Dispatch Gate) | Any matching skill not named → STOP and rewrite the prompt before dispatching. A sub-agent does not auto-discover reliably and inherits no rules. |
+| **Skill/rule directives inlined** | Scan the installed skill list for every skill the task triggers — any source, matched on each skill's description — and confirm each match is NAMED in imperative form in the prompt, with its workspace-root-absolute path (`rbtv-sub-agents` Pre-Dispatch Gate) | Any matching skill not named → STOP and rewrite the prompt before dispatching. A sub-agent does not auto-discover reliably and inherits no rules. |
 | **Write paths are workspace-root-absolute** | Every ✚ create / ✎ modify / ✗ delete path in the prompt is workspace-root-absolute (or fully absolute), with the workspace root stated explicitly | A bare relative write path → rewrite it absolute before dispatch (a sub-agent resolves relatives from its own cwd). |
 | **Allowlist stated as the complete write surface** | The prompt declares the disjoint file allowlist as the ONLY paths the sub-agent may touch | Missing/ambiguous allowlist → tighten it before dispatch; confinement is the conductor's job. |
 | Auth | (none — the conductor IS Claude) | NO auth pre-flight — an in-session Agent-tool dispatch needs no login or key (contrast `claude-code-cli`'s `cli-login` and the API workers' `api-key`). |
@@ -87,7 +87,7 @@ The claude manifest declares two routable variants — route on `(claude, varian
 | `opus` | `reasoning_tier: top`, `cost_class: high` | Judgment-dense work and cross-artifact coherence; the unbounded leaf of the boundedness tree; the external-CLI **code-review reviewer floor** (reviewer for kimi/codex code is Opus — route it here). Max-reasoning Claude. |
 | `sonnet` | `reasoning_tier: mid`, `cost_class: mid` | Partially-bounded work with `doubt_policy: halt`, and zero-context verification personas (recon, research, cold-verify, commits). The default routable Agent-tool Claude variant; the carrier for the commit worker (an Agent-tool sonnet invoking `rbtv-commit`). |
 
-**haiku is NOT a routable variant** (vault routing floors at sonnet absent a user-approved delegation map naming haiku — routing card §7 / `rbtv-sub-agents` Haiku-clause). The cheapest NON-HAIKU Claude tier this package ships is `sonnet`; route a mechanical Agent-tool batch there unless an approved delegation map names haiku.
+**haiku is NOT a routable variant** (vault routing floors at sonnet absent a user-approved delegation map naming haiku — routing card §7 Haiku-clause). The cheapest NON-HAIKU Claude tier this package ships is `sonnet`; route a mechanical Agent-tool batch there unless an approved delegation map names haiku.
 
 ### Confinement — the conductor's job (no process scoping)
 

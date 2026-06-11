@@ -196,7 +196,7 @@ For an Agent-tool sub-agent (no per-model manual involved), this card is self-su
 
 1. **Payload** — the self-contained task file, verbatim (§1).
 2. **Header** — the binding addendum (§2), the return schema (§3), the `decisions.md` pointer (or inlined entries), and the `[INLINED]`/`[FULL READ]` reference marks with their excerpts.
-3. **Skill directives** — name every skill the task triggers in imperative form (the `rbtv-sub-agents` mandate: research → `rbtv-web-searching`; commits → `rbtv-commit`) — the sub-agent does NOT auto-discover them.
+3. **Skill directives** — run the `rbtv-sub-agents` Pre-Dispatch Gate: name every skill the task triggers, imperatively and with its workspace-root-absolute path — the sub-agent does NOT reliably auto-discover them.
 4. **Transport** — instruct the sub-agent to return the five fields as its final reply (§3 Agent-tool row).
 
 No per-model knowledge is needed for the Agent-tool path: the model delta and the CLI invocation shape exist only for CLI workers. A routing-card assignment plus this card (run through the scaffold) fully specify an Agent-tool dispatch.
