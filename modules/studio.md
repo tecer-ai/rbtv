@@ -6,7 +6,7 @@ The studio module — everything that turns narrative and strategy into polished
 
 **Install status: INSTALLED (as of 2026-06-10 — owner-approved at p6-checkpoint).** The studio module is in the install set. Five surfaces are live in `.claude/`: the `rbtv-designing` skill (Vivian, the Designer) and `rbtv-playwright-cli` skill (browser automation), and the `/rbtv-strategist`, `/rbtv-design-extractor`, and `/rbtv-vision-to-json` commands. `/rbtv-strategist` (moved from office and renamed from `/rbtv-pitcher`, 2026-06-10) opens the Strategist for message-lock. The studio loop beats, the artifact forks (`forks/site.md`, `forks/app.md`), and the critic remain loop-internal BY DESIGN — they are reached via `/rbtv-strategist` → the studio loop, not as standalone commands.
 
-The module also owns **hypresent** — the HTML presentation engine (not installable: not a command/skill/rule, but part of the module), backed by the **slide-library** convention + engine (`studio/slide-library/`) that organizes slides for it. Both are resident subtrees the v1 build does not depend on and never modifies; they live at `studio/hypresent/` and `studio/slide-library/`.
+The module also owns **hypresent** — the HTML presentation engine (not installable: not a command/skill/rule, but part of the module), backed by the **slide-library** convention + engine (`studio/slide-library/`) that organizes slides for it. Both are resident subtrees the studio loop never *requires* and never modifies in `studio/`; they live at `studio/hypresent/` and `studio/slide-library/`. Beat 3 MAY *optionally* reuse a spec-compliant slide library found in the working repo (e.g. a client's `slide-library/` at its repo root) when one fits the deck — owner-gated, never required (beat-03 § 3·0).
 
 ---
 

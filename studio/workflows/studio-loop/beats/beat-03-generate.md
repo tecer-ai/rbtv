@@ -6,7 +6,7 @@ nextStepFile: ../beats/beat-04-human-gate.md
 
 # Beat 03 — HTML Generation (Designer)
 
-**Beat 3 of 4** — Prev: art-direction (Designer). Next: human gate (Designer). Three sub-beats run in order: **3A template trio → 3B slice generation → 3C fresh-eyes pass.** The locked message is never altered here.
+**Beat 3 of 4** — Prev: art-direction (Designer). Next: human gate (Designer). An optional **3·0 library probe** runs first (reuse an existing slide library when one fits); then three sub-beats in order: **3A template trio → 3B slice generation → 3C fresh-eyes pass.** The locked message is never altered here.
 
 ---
 
@@ -14,13 +14,13 @@ nextStepFile: ../beats/beat-04-human-gate.md
 
 Produce the full HTML artifact under the chosen direction: first establish the visual contract via a pairwise-picked template trio (3A), then generate every slide slice-by-slice by fresh-context workers conforming to that contract (3B), then raise the floor with a fresh-eyes pass before the owner ever looks (3C). Output is HTML-native: full-screen browser + print-to-PDF CSS, no PPTX.
 
-This beat implements `deck-loop-spec.md` behavior rows 4, 5, 6, 7, 10. Read those rows + Edge Cases for the behavioral floor — this file never restates them.
+This beat implements `deck-loop-spec.md` behavior rows 3·0, 4, 5, 6, 7, 10. Read those rows + Edge Cases for the behavioral floor — this file never restates them.
 
 ---
 
 ## MANDATORY EXECUTION RULES
 
-- READ this complete file before taking any action. Run sub-beats 3A → 3B → 3C in order — do not skip or reorder.
+- READ this complete file before taking any action. Run sub-beats **3·0 → 3A → 3B → 3C** in order — do not skip or reorder. The owner's pick at 3·0 (library probe) MAY route to an assemble-from-library path that SKIPS 3A; every other sub-beat runs unchanged.
 - You are The Designer (Vivian). Resume from design-state + the reference set + the content spec ALONE — zero conversation context (deck-loop-spec ⑨; schema §2). Make NO change to the locked message.
 - Read `artifact`/`mode` from design-state FIRST (workflow.md fork rules); adapt the row noun (slide/page/screen). v1 ships the `deck` branch.
 - Every artifact conforms to the chosen direction mini-brief AND the winning trio contract, and obeys the ban-list (`{rbtv_path}/studio/standards/ban-list.md`). A banned attractor is a defect.
@@ -30,9 +30,25 @@ This beat implements `deck-loop-spec.md` behavior rows 4, 5, 6, 7, 10. Read thos
 
 ---
 
+## SUB-BEAT 3·0 — Slide-Library Probe (optional reuse, owner-gated)
+
+Runs ONCE at beat entry, before 3A. Purpose: when a spec-compliant slide library already covers part of this deck, reuse it instead of authoring every slide from scratch. The loop NEVER requires a library — absent one, skip straight to 3A, unchanged.
+
+1. **Detect (deterministic).** Glob `**/library.json` from the vault root. You are launched from the vault and the library lives in a client repo's `slide-library/` (e.g. `5-workbench/tecer-biz/slide-library/library.json`), NOT under the deck's output folder — so a vault-wide glob is the correct, only reliable root; `library.json` is a rare filename. Read each hit; KEEP it only if it parses as JSON carrying a `convention_version` (a real RBTV slide-library — `{rbtv_path}/studio/slide-library/docs/convention-spec.md` § 7). DISCARD any hit whose path contains `slide-library/tests/` — that is the convention's synthetic fixture, never a deck source.
+2. **Select (judgment).** From the validated libraries, pick the ONE whose owning repo/brand fits THIS deck — the content spec names the audience; the output path names the client. Disambiguate per `rbtv-output-resolution` (conversation context + the repo's CLAUDE.md decide). On a genuine tie or no fit, conclude "no fitting library" — NEVER force one.
+3. **Branch + HALT.**
+   - **No fitting library** → state "no slide library found — building bespoke" and proceed to 3A (today's path).
+   - **A fitting library** → read its `README-FOR-AGENTS.md` + `manifest.md`, map each content-spec slide to a manifest fragment by `section`/`summary`/`lang` (covered vs uncovered), set design-state `beat_status: awaiting-owner` / `who_acts_next: owner`, and offer the owner:
+     - **[L] Assemble from library** — follow the library's `README-FOR-AGENTS.md` cold-agent path: pick a preset or compose an id order, run its `assemble.py`, then do the creative token-fill pass. On this path the library's `theme.css` IS the deck's design system; **3A is SKIPPED**, and any uncovered content-spec slide is authored as a new fragment conforming to that same `theme.css` (coherence beats a fresh trio). NEVER edit the library's `slides/`/`manifest.md`/`presets.md` in place — the engine appends its own as-built entry. Then continue to 3C (fresh-eyes still runs).
+     - **[B] Build bespoke** — ignore the library; proceed to 3A. Every slide authored fresh under the owner-picked direction.
+
+The owner gate is the safety net: even if Select mis-picks, the owner sees the offer and can choose [B].
+
+---
+
 ## SUB-BEAT 3A — Template Trio (pairwise → visual contract)
 
-Implements deck-loop-spec row 4 (H5).
+Implements deck-loop-spec row 4 (H5). SKIPPED when the owner picked **[L] Assemble from library** at 3·0 (the library's `theme.css` is the deck's design system on that path). Runs as written for the bespoke path ([B] or no library).
 
 1. Under the owner-picked direction (design-state `art_direction_brief`), generate **2 variants each** of three slide types — **cover · content slide · chart slide** — = six trio artifacts. Each variant honors all six direction axes (type pairing · palette within tokens · grid principle · signature motif · chart style · cover treatment) and the ban-list.
 2. The **chart-slide** variants are hand-authored inline SVG/CSS with an action-title (the takeaway, not an axis name) — the `p2-2` mechanism decision; NO charting library (mining map PR-5, AD-3; decisions.md p2-2).
@@ -93,6 +109,7 @@ ONLY when **[X] Exit** is selected: confirm exit; design-state is saved.
 ## SUCCESS / FAILURE METRICS
 
 ✅ **SUCCESS:**
+- Library probe: ran before 3A; a `convention_version`-valid library fitting the deck's client was offered to the owner ([L]/[B]); the `slide-library/tests/` fixture was never offered; absent a fit, the deck built bespoke and said so.
 - Trio: 2 variants × cover/content/chart, rendered HEADED, picked PAIRWISE, winning trio recorded as the visual contract in design-state.
 - Slices: every content-spec slide generated by a fresh-context worker resuming from design-state ALONE; every slide conforms to the trio contract; per-slide status tracked; charts hand-authored SVG/CSS.
 - Surgical patch: a bounce/punch-list item changes only the flagged slide; all others byte-identical.
@@ -100,6 +117,7 @@ ONLY when **[X] Exit** is selected: confirm exit; design-state is saved.
 - Fresh-eyes: a fresh-context (non-builder) agent reviewed headed against mini-brief + flaw checklist; punch-list (citing items) landed in design-state and was patched BEFORE the owner gate. No scoring/gating/taxonomy.
 
 ❌ **FAILURE:**
+- The probe offered the `slide-library/tests/` fixture as a real library, forced a non-fitting library, or skipped the owner gate; an [L] run that mixed the library's design system with a fresh trio, or edited the library's `slides/`/`manifest.md`/`presets.md` in place.
 - A trio variant rendered headless or via `file://`; a non-pairwise trio presentation.
 - A slice worker carrying conversation context instead of resuming from design-state; a slide not conforming to the trio contract.
 - A whole-deck regeneration to fix one slide (must be a surgical patch).

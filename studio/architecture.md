@@ -256,7 +256,7 @@ design_state: ./design-state.md   # back-pointer; design lives THERE, never here
 | `studio/hypresent/` | The slide-presentation/builder app (its own server, app, tests, multi-version plans) | UNTOUCHED — rode along on the `html/`→`studio/` parent rename. No studio-build task writes inside it. A parallel session is active under `hypresent/docs/plan/builder-open-deck/` — stay out |
 | `studio/slide-library/` | Library + engine that organizes slides so hypresent works (wired to hypresent) | UNTOUCHED — parent-rename only; `p1-1`/`p1-3` proved untouchability (rename-only git status + slide-library pytest baseline) |
 
-The studio loop does NOT depend on hypresent or slide-library for v1; the deck path renders via the `browser-automation` infra (local HTTP server + headed browser), independent of the hypresent app.
+The studio loop does NOT *require* hypresent or slide-library; the deck path renders via the `browser-automation` infra (local HTTP server + headed browser), independent of the hypresent app. Beat 3 MAY *optionally* reuse a spec-compliant slide library found in the working repo when one fits the deck (owner-gated; see beat-03 § 3·0) — but never requires one and never writes into the convention's `studio/slide-library/`.
 
 ---
 
