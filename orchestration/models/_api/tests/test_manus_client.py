@@ -1,7 +1,15 @@
 """Mocked unit tests for the Manus client artifact-fetch + structured-output path.
 
 NO network. NO spend. Every HTTP call (requests.post / requests.get) is mocked.
-Covers spec test-plan items 1-6.
+
+Download-auth contract (revised 2026-06-11 after a 40-call live probe —
+`2-areas/rbtv/orchestration/manus-artifact-fetch/auth-probe/summary.md`): Manus
+serves every output artifact via a CloudFront *presigned* URL whose query
+signature carries the authorization; the `x-manus-api-key` header is ignored by
+the CDN. The client does a SINGLE GET (key header retained as zero-cost
+insurance for a hypothetical api-gated artifact) and FAILS LOUD on any non-200
+— there is no with-key/no-key fallback and no login-page heuristic (a presigned
+URL returns a 403 on an invalid/expired signature, never a 200 login page).
 """
 import json
 
@@ -40,12 +48,11 @@ class ManusHTTP:
     post(task.create) -> {"task_id": ...}
     get(task.detail)  -> status stopped
     get(task.listMessages) -> the supplied messages payload
-    get(<attachment url>)  -> bytes, honouring an optional auth-fallback rule
+    get(<attachment url>)  -> bytes OR a callable(headers)->FakeResponse
     """
 
     def __init__(self, list_messages_payload, downloads=None, detail_status="stopped"):
         self.list_messages_payload = list_messages_payload
-        # downloads: {url: handler} where handler is bytes OR a callable(headers)->FakeResponse
         self.downloads = downloads or {}
         self.detail_status = detail_status
         self.create_bodies = []   # captured POST json bodies to task.create
@@ -90,11 +97,11 @@ def assistant_event(content="", attachments=None):
 
 
 # --------------------------------------------------------------------------
-# Test 1 — attachments parsed + downloaded
+# Test 1 — attachments parsed + downloaded (one GET per url, WITH key)
 # --------------------------------------------------------------------------
 def test_attachments_parsed_and_downloaded(monkeypatch):
-    file_url = "https://files.manus.ai/report.pdf"
-    image_url = "https://files.manus.ai/chart.png"
+    file_url = "https://private-us-east-1.manuscdn.com/report.pdf?Signature=x"
+    image_url = "https://private-us-east-1.manuscdn.com/chart.png?Signature=y"
     attachments = [
         {"type": "file", "filename": "report.pdf", "url": file_url,
          "content_type": "application/pdf"},
@@ -119,23 +126,22 @@ def test_attachments_parsed_and_downloaded(monkeypatch):
     assert by_name["report.pdf"].content_type == "application/pdf"
     assert by_name["report.pdf"].source_url == file_url
     assert by_name["chart.png"].content == b"PNGBYTES-2"
-    assert by_name["chart.png"].content_type == "image/png"
+    # exactly one GET per url, each carrying the key header
+    assert http.download_calls == [(file_url, True), (image_url, True)]
     # narration still captured
     assert resp.content == "Here is your report."
 
 
 # --------------------------------------------------------------------------
-# Test 2 — download auth fallback (401 WITH header -> 200 WITHOUT header)
+# Test 2 — single GET, no fallback, no artifact_auth recorded
 # --------------------------------------------------------------------------
-def test_download_auth_fallback(monkeypatch):
-    url = "https://api.manus.ai/files/secret.bin"
+def test_single_get_no_fallback(monkeypatch):
+    url = "https://private-us-east-1.manuscdn.com/data.bin?Signature=z"
 
     def handler(headers):
-        if "x-manus-api-key" in headers:
-            return FakeResponse(401, text="unauthorized")
-        return FakeResponse(200, content=b"SECRETBYTES")
+        return FakeResponse(200, content=b"PRESIGNEDBYTES")
 
-    attachments = [{"type": "file", "filename": "secret.bin", "url": url,
+    attachments = [{"type": "file", "filename": "data.bin", "url": url,
                     "content_type": "application/octet-stream"}]
     payload = {"messages": [assistant_event("done", attachments)]}
     http = ManusHTTP(payload, downloads={url: handler})
@@ -146,23 +152,22 @@ def test_download_auth_fallback(monkeypatch):
     resp = client.chat([Message(role="user", content="x")])
 
     assert len(resp.artifacts) == 1
-    assert resp.artifacts[0].content == b"SECRETBYTES"
-    # fallback fired: two GETs to the same url, first WITH key, then WITHOUT
-    assert http.download_calls == [(url, True), (url, False)]
-    # success path recorded as header-less (no-auth) in raw_response
-    auth_modes = http  # placeholder kept simple
-    assert resp.raw_response.get("artifact_auth") == {url: "no-key"}
+    assert resp.artifacts[0].content == b"PRESIGNEDBYTES"
+    # ONE GET, with the key header; no second attempt
+    assert http.download_calls == [(url, True)]
+    # the auth-mode map is gone — mode is constant (presigned), nothing to record
+    assert "artifact_auth" not in resp.raw_response
 
 
 # --------------------------------------------------------------------------
-# Test 3 — download failure is non-fatal
+# Test 3 — a non-200 (e.g. expired presign 403) is a NON-FATAL recorded error
 # --------------------------------------------------------------------------
-def test_download_failure_non_fatal(monkeypatch):
-    good_url = "https://files.manus.ai/good.txt"
-    bad_url = "https://files.manus.ai/bad.txt"
+def test_non_200_recorded_as_error_no_fallback(monkeypatch):
+    good_url = "https://private-us-east-1.manuscdn.com/good.txt?Signature=a"
+    bad_url = "https://private-us-east-1.manuscdn.com/bad.txt?Signature=b"
 
     def bad_handler(headers):
-        return FakeResponse(500, text="server error")
+        return FakeResponse(403, text="expired signature")
 
     attachments = [
         {"type": "file", "filename": "good.txt", "url": good_url,
@@ -185,11 +190,41 @@ def test_download_failure_non_fatal(monkeypatch):
     assert len(errors) == 1
     assert errors[0]["filename"] == "bad.txt"
     assert errors[0]["url"] == bad_url
-    assert "error" in errors[0]
+    assert "403" in errors[0]["error"]
+    # the failing URL was hit exactly once — no with-key/no-key retry
+    assert http.download_calls.count((bad_url, True)) == 1
+    assert (bad_url, False) not in http.download_calls
 
 
 # --------------------------------------------------------------------------
-# Test 4 — narration preserved (C2 regression), no attachments
+# Test 4 — an HTML artifact (200 text/html) is saved as-is (no login heuristic)
+# --------------------------------------------------------------------------
+def test_html_artifact_downloaded_as_is(monkeypatch):
+    url = "https://private-us-east-1.manuscdn.com/page.html?Signature=h"
+
+    def handler(headers):
+        return FakeResponse(
+            200, content=b"<html>real content</html>",
+            headers={"Content-Type": "text/html"},
+        )
+
+    attachments = [{"type": "file", "filename": "page.html", "url": url,
+                    "content_type": "text/html"}]
+    payload = {"messages": [assistant_event("done", attachments)]}
+    http = ManusHTTP(payload, downloads={url: handler})
+    monkeypatch.setattr("clients.manus.requests.post", http.post)
+    monkeypatch.setattr("clients.manus.requests.get", http.get)
+
+    client = make_client()
+    resp = client.chat([Message(role="user", content="x")])
+
+    assert len(resp.artifacts) == 1
+    assert resp.artifacts[0].content == b"<html>real content</html>"
+    assert http.download_calls == [(url, True)]
+
+
+# --------------------------------------------------------------------------
+# Test 5 — narration preserved (C2 regression), no attachments
 # --------------------------------------------------------------------------
 def test_narration_preserved_no_attachments(monkeypatch):
     payload = {
@@ -210,7 +245,7 @@ def test_narration_preserved_no_attachments(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# Test 5 — structured_output_schema (C3)
+# Test 6 — structured_output_schema (C3)
 # --------------------------------------------------------------------------
 def test_structured_output_schema(monkeypatch):
     schema = {"type": "object", "properties": {"answer": {"type": "string"}}}
@@ -250,7 +285,7 @@ def test_structured_output_schema(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# Test 6 — system message excluded from task.create description
+# Test 7 — system message excluded from task.create description
 # --------------------------------------------------------------------------
 def test_system_message_excluded_from_description(monkeypatch):
     payload = {"messages": [assistant_event("ok", [])]}
@@ -270,106 +305,3 @@ def test_system_message_excluded_from_description(monkeypatch):
     description = http.create_bodies[0]["message"]["content"]
     assert system_text not in description
     assert user_text in description
-
-
-# --------------------------------------------------------------------------
-# Test 2b — login-redirect masked as 200+HTML WITH key -> retry WITHOUT key
-# --------------------------------------------------------------------------
-def test_download_login_redirect_fallback(monkeypatch):
-    """A 302 login redirect is auto-followed to a 200 HTML page. The declared
-    content_type is application/pdf, so the HTML body is a masked auth failure:
-    the no-key retry must fire and capture the real bytes."""
-    url = "https://api.manus.ai/files/report.pdf"
-
-    def handler(headers):
-        if "x-manus-api-key" in headers:
-            # login page served as 200 + text/html (requests followed the 302)
-            return FakeResponse(
-                200, content=b"<html>login</html>",
-                headers={"Content-Type": "text/html; charset=utf-8"},
-            )
-        return FakeResponse(
-            200, content=b"%PDF-realbytes",
-            headers={"Content-Type": "application/pdf"},
-        )
-
-    attachments = [{"type": "file", "filename": "report.pdf", "url": url,
-                    "content_type": "application/pdf"}]
-    payload = {"messages": [assistant_event("done", attachments)]}
-    http = ManusHTTP(payload, downloads={url: handler})
-    monkeypatch.setattr("clients.manus.requests.post", http.post)
-    monkeypatch.setattr("clients.manus.requests.get", http.get)
-
-    client = make_client()
-    resp = client.chat([Message(role="user", content="x")])
-
-    # the masked login page was NOT saved; the real bytes were, via no-key path
-    assert len(resp.artifacts) == 1
-    assert resp.artifacts[0].content == b"%PDF-realbytes"
-    assert http.download_calls == [(url, True), (url, False)]
-    assert resp.raw_response.get("artifact_auth") == {url: "no-key"}
-
-
-# --------------------------------------------------------------------------
-# Test 3b — login redirect on BOTH paths -> recorded as error, NOT saved
-# --------------------------------------------------------------------------
-def test_download_login_redirect_both_paths_recorded(monkeypatch):
-    """Both with-key and no-key GETs return a 200 HTML login page while the
-    attachment declared a PDF. No bytes may be saved; the failure is recorded
-    in artifact_errors so login-page HTML is never passed off as the artifact."""
-    url = "https://api.manus.ai/files/report.pdf"
-
-    def handler(headers):
-        return FakeResponse(
-            200, content=b"<html>login</html>",
-            headers={"Content-Type": "text/html"},
-        )
-
-    attachments = [{"type": "file", "filename": "report.pdf", "url": url,
-                    "content_type": "application/pdf"}]
-    payload = {"messages": [assistant_event("done", attachments)]}
-    http = ManusHTTP(payload, downloads={url: handler})
-    monkeypatch.setattr("clients.manus.requests.post", http.post)
-    monkeypatch.setattr("clients.manus.requests.get", http.get)
-
-    client = make_client()
-    resp = client.chat([Message(role="user", content="x")])
-
-    # nothing saved; error recorded; both auth paths were attempted
-    assert not resp.artifacts
-    errors = resp.raw_response.get("artifact_errors", [])
-    assert len(errors) == 1
-    assert errors[0]["filename"] == "report.pdf"
-    assert "login-redirect" in errors[0]["error"]
-    assert http.download_calls == [(url, True), (url, False)]
-
-
-# --------------------------------------------------------------------------
-# Test 2c — a GENUINE HTML artifact (declared text/html) is NOT treated as login
-# --------------------------------------------------------------------------
-def test_download_genuine_html_artifact_not_login(monkeypatch):
-    """When the attachment itself declares text/html, a 200 HTML body is the
-    real artifact — the login-redirect heuristic must NOT fire."""
-    url = "https://files.manus.ai/page.html"
-
-    def handler(headers):
-        return FakeResponse(
-            200, content=b"<html>real content</html>",
-            headers={"Content-Type": "text/html"},
-        )
-
-    attachments = [{"type": "file", "filename": "page.html", "url": url,
-                    "content_type": "text/html"}]
-    payload = {"messages": [assistant_event("done", attachments)]}
-    http = ManusHTTP(payload, downloads={url: handler})
-    monkeypatch.setattr("clients.manus.requests.post", http.post)
-    monkeypatch.setattr("clients.manus.requests.get", http.get)
-
-    client = make_client()
-    resp = client.chat([Message(role="user", content="x")])
-
-    assert len(resp.artifacts) == 1
-    assert resp.artifacts[0].content == b"<html>real content</html>"
-    # captured on the first (with-key) attempt — no fallback needed
-    assert http.download_calls == [(url, True)]
-    assert resp.raw_response.get("artifact_auth") == {url: "with-key"}
