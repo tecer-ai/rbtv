@@ -51,7 +51,7 @@ variants:
 
     # --- non-interactive run (routing §4 → dispatch-wrapper) ---
     headless:
-      flags: "exec --ask-for-approval never -c model_reasoning_effort=\"low\""   # exec + mandatory no-approval + the low-effort config override (exact 0.137.0 grammar — `-c approval_policy=\"never\"` — is in ./manual.md; this field is recall, the manual is authoritative)
+      flags: "exec -c approval_policy=\"never\" -c model_reasoning_effort=\"low\""   # exec + mandatory no-approval + the low-effort config override (exact 0.137.0 grammar — `-c approval_policy=\"never\"` — is in ./manual.md; this field is recall, the manual is authoritative)
       auto_approves_tools: true
       prompt_transport: either
 
@@ -117,7 +117,7 @@ variants:
 
     # --- non-interactive run (routing §4 → dispatch-wrapper) ---
     headless:
-      flags: "exec --ask-for-approval never"   # `codex exec` (alias `codex e`) runs non-interactively; --ask-for-approval never is MANDATORY headless (any other value stalls for human approval)
+      flags: "exec -c approval_policy=\"never\""   # `codex exec` (alias `codex e`) runs non-interactively; `-c approval_policy="never"` is MANDATORY headless (any other policy stalls for human approval; codex 0.137.0 removed the `--ask-for-approval` flag from `exec`)
       auto_approves_tools: true     # with --ask-for-approval never the model executes shell commands without per-call human approval (bounded by --sandbox); confinement is the sandbox + post-run diff, not an interactive gate
       prompt_transport: either      # prompt as CLI arg OR via stdin (use `-` as prompt, or pipe; piped stdin + prompt arg → stdin appended as <stdin> block); stdin default for large prompts / Windows ARG_MAX ~32 KB
 
@@ -187,7 +187,7 @@ variants:
 
     # --- non-interactive run ---
     headless:
-      flags: "exec --ask-for-approval never -c model_reasoning_effort=\"high\""   # exec + mandatory no-approval + the high-effort config override
+      flags: "exec -c approval_policy=\"never\" -c model_reasoning_effort=\"high\""   # exec + mandatory no-approval + the high-effort config override
       auto_approves_tools: true
       prompt_transport: either
 
@@ -263,7 +263,7 @@ variants:
 
     # --- non-interactive run (routing §4 → dispatch-wrapper) ---
     headless:
-      flags: "exec --ask-for-approval never -m gpt-5.4 -c model_reasoning_effort=\"low\""   # exec + mandatory no-approval + the gpt-5.4 model pin + low-effort override (exact 0.137.0 grammar — `-c approval_policy=\"never\"` — is in ./manual.md; this field is recall, the manual is authoritative)
+      flags: "exec -c approval_policy=\"never\" -m gpt-5.4 -c model_reasoning_effort=\"low\""   # exec + mandatory no-approval + the gpt-5.4 model pin + low-effort override (exact 0.137.0 grammar — `-c approval_policy=\"never\"` — is in ./manual.md; this field is recall, the manual is authoritative)
       auto_approves_tools: true
       prompt_transport: either
 
@@ -330,7 +330,7 @@ variants:
 
     # --- non-interactive run (routing §4 → dispatch-wrapper) ---
     headless:
-      flags: "exec --ask-for-approval never -m gpt-5.4 -c model_reasoning_effort=\"medium\""   # exec + no-approval + gpt-5.4 pin + medium-effort override (exact 0.137.0 grammar in ./manual.md; field is recall)
+      flags: "exec -c approval_policy=\"never\" -m gpt-5.4 -c model_reasoning_effort=\"medium\""   # exec + no-approval + gpt-5.4 pin + medium-effort override (exact 0.137.0 grammar in ./manual.md; field is recall)
       auto_approves_tools: true
       prompt_transport: either
 
@@ -397,7 +397,7 @@ variants:
 
     # --- non-interactive run (routing §4 → dispatch-wrapper) ---
     headless:
-      flags: "exec --ask-for-approval never -m gpt-5.4 -c model_reasoning_effort=\"high\""   # exec + no-approval + gpt-5.4 pin + high-effort override (exact 0.137.0 grammar in ./manual.md; field is recall)
+      flags: "exec -c approval_policy=\"never\" -m gpt-5.4 -c model_reasoning_effort=\"high\""   # exec + no-approval + gpt-5.4 pin + high-effort override (exact 0.137.0 grammar in ./manual.md; field is recall)
       auto_approves_tools: true
       prompt_transport: either
 
