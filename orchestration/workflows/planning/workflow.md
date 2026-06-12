@@ -88,7 +88,8 @@ Load these files as needed:
 
 | File | Purpose | When to Load |
 |------|---------|--------------|
-| data/plan-creation-rules.md | Workflow mechanics: task granularity, file operations, complexity-band-to-door mapping, orchestration-aware modes (DEEP/LIGHT), spec-authoring trigger, decisions-file discipline wiring, checkpoints, plan linking | During plan creation |
+| data/plan-creation-rules.md | Authoring core: task granularity, file operations, complexity-band-to-door mapping, spec-authoring trigger, decisions-file discipline wiring, checkpoints, plan linking. Loaded ONCE at step-03. | step-03 (single load; step-01 no longer pre-loads it) |
+| data/orchestration-planning.md | Orchestration-only layer: DEEP/LIGHT modes, the router-pin pre-resolution set, worker-contract frontmatter, microstep orchestration frontmatter shape | **Orchestrated plans only** — loaded at step-02 §4a when `orchestrated: true`; never on a plain run |
 | `{rbtv_path}/orchestration/workflows/_shared/authoring/` | The shared authoring core — the SINGLE SOURCE of authoring knowledge the workflow consumes: `complexity-rubric.md` (axes + bands), `task-file-contract.md` (zero-context task contract), `spec-template.md` (behavior spec + test plan for code work), `dependency-ordering.md` (ordering rules + serialization + validity checks), `decisions-discipline.md` (decisions.md entry-shape rules, size floor, reminder line, audit checklist) | During plan creation — read the core file the step needs; never duplicate its content into the plan |
 
 ## OUTPUT ARTIFACTS

@@ -4,7 +4,6 @@ stepName: 'init'
 nextStepFile: ./step-02-context.md
 continueStepFile: './step-01b-continue.md'
 templateFile: ../templates/plan-template.md
-dataFile: ../data/plan-creation-rules.md
 ---
 
 # Step 01: Initialize Plan Creation
@@ -17,12 +16,7 @@ dataFile: ../data/plan-creation-rules.md
 
 Follow these instructions in exact order. Do NOT skip, reorder, or optimize.
 
-### 1. Load Knowledge
-
-- Read `{dataFile}` from frontmatter
-- Store task granularity rules, ID format rules, and plan structure requirements in memory
-
-### 2. Context Discovery
+### 1. Context Discovery
 
 Analyze conversation history to identify:
 - What is the user trying to accomplish? (problem statement)

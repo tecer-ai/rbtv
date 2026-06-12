@@ -15,9 +15,9 @@ dataFile: ../data/plan-creation-rules.md
 
 Follow these instructions in exact order. Do NOT skip, reorder, or optimize.
 
-### 1. Reload Knowledge
+### 1. Load Knowledge
 
-- Read `{dataFile}` from frontmatter if not already in memory
+- Read `{dataFile}` from frontmatter
 - Focus on: Task granularity rules, Task ID format, Checkpoint rules
 
 ### 2. Analyze Scope
@@ -58,16 +58,7 @@ If step-02 flagged the plan code-bearing, identify the **features** — each a b
 
 ### 6c. DEEP-mode Pre-Resolution (orchestrated plans)
 
-If step-02 set `orchestrated: true` with **DEEP** mode, resolve the pre-resolution set WITH the user and plan where each field lands so the router reads fields, never re-derives them (`../data/plan-creation-rules.md` § Orchestration-Aware Modes — DEEP-mode pre-resolution set):
-
-- Per-task **executor (model, variant)** and **reviewer pin** → task frontmatter
-- Per-task **file allowlist** (✚/✎/✗) and **validation commands** (+ expected EXIT) → task frontmatter/body
-- **Batching / serialization order** per shared file and parallel-wave grouping → plan body
-- **Hard-halt registry** (checkpoints non-overridable in autonomous mode) → plan body
-
-**Pin the per-task executor by CALLING the router — never reason it WITH the user.** The executor `(model, variant)` is a deterministic pure function of the task's profile, NOT a judgment pick. For EACH task: assemble its JSON task profile (`boundedness`, `task_type`, `inlined_context_size`, plus the optional fields the leaf needs — `stakes`/`stakes_tier`, `cross_strategy`, `needs_process_boundary`, `reviews_external_cli_code`, `delegation_map_allows_haiku`) and call `route.py` — the SAME router the conductor calls at run time, so plan-time and run-time routing can never disagree (locked: ONE script, NO LLM middleman). The router CLI, profile field set, and verdict shapes are in the routing card (`{rbtv_path}/orchestration/skills/orchestrating/cards/routing.md` §2a) — call it as that card names; do NOT restate the algorithm here. Record the returned `(model, variant)` as the task's `executor` pin; the reviewer pin (router-derivable too — floor sonnet, ≥ executor+1) lands the same way. A `halt_seam` verdict (`stakes` or `cross-strategy`) is a genuine judgment seam — resolve it WITH the user, as today, then re-run; never let the script decide it.
-
-**LIGHT** mode resolves only the critical subset the user chooses; the rest stay model-bound-at-routing-time. The router call is available in LIGHT for any task the user elects to pre-pin. A plain (non-orchestrated) plan — or a workspace without the orchestration module installed — skips this step and the router call entirely; the task is authored to the generic contract and bound to a worker at routing time. HALT discipline is mode-independent in every case.
+**Orchestrated plans only.** READ `../data/orchestration-planning.md` § DEEP-Mode Pre-Resolution (step-03 §6c body) and execute it — it carries the pre-resolution field-landing set and the mandatory "pin the executor by CALLING route.py, never reason it" rule. A plain (non-orchestrated) plan — or a workspace without the orchestration module installed — skips this step and the router call entirely.
 
 ### 7. Generate Checkpoints
 

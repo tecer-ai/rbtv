@@ -12,33 +12,7 @@ Score the plan with the **shared widened complexity rubric** — the single sour
 
 ## Orchestration-Aware Modes
 
-A plan MAY declare that it **will be orchestrated** — executed under an orchestration skill that dispatches its tasks to tiered workers rather than run interactively by one agent. The plan's frontmatter carries `orchestrated: true` when so. **The flag does NOT force orchestration** — the orchestration rule's own triggers decide whether a run is orchestrated; a flagged plan is one such trigger, not a command. A plan with no flag is a plain interactive plan and this whole section is skipped.
-
-When `orchestrated: true`, ask the user ONE question at step-02: **DEEP or LIGHT pre-resolution.** The answer sets how much gets resolved WITH the user at planning time versus left to the workers' latitude.
-
-| Mode | What gets resolved at planning time | When to choose |
-|------|-------------------------------------|----------------|
-| **DEEP** | EVERY foreseeable doubt is resolved WITH the user, up front — long, for complex/important plans. The plan emits the full pre-resolution set below in the form the router consumes. | High-stakes, irreversible, or decision-dense work; an all-night AFK run where a mid-run halt is expensive. |
-| **LIGHT** | The user resolves only the CRITICAL questions; workers get latitude on the rest, halting to the user when they hit a hard question. | Lower-stakes or well-trodden work where over-resolution is wasted ceremony. |
-
-**HALT discipline is mode-independent.** Even a fully DEEP-resolved plan halts to the user on hard questions outside full-auto — DEEP reduces the EXPECTED number of halts, it does not forbid them. A LIGHT plan halts more often by design. Neither mode removes the worker's obligation to halt rather than guess.
-
-### DEEP-mode pre-resolution set (emit in router-consumable form)
-
-DEEP mode generalizes the validated Kimi-aware pre-resolution list (`4-archives/executed/rbtv/orchestration-build/plan-design/kimi/cp-workflow-rbtv-kimi-planning-orchestration.md` §B3, M1/M2) to any worker. Resolve each item WITH the user and emit it so the router reads FIELDS, never re-derives them. The consuming interface is the routing card (`{rbtv_path}/orchestration/skills/orchestrating/cards/routing.md`) — match what it reads:
-
-| Pre-resolution item | Where it lands | Router/orchestrator consumes it as |
-|---------------------|----------------|------------------------------------|
-| **Per-task executor (model, variant)** | Task frontmatter | The pin is resolved by CALLING `route.py` (routing card §2a) over the task's profile — the SAME router the conductor calls at run time, so plan-time and run-time routing can never disagree (locked: ONE script, NO LLM middleman). A `halt_seam` verdict is resolved WITH the user. The orchestrator then reads the assigned (model, variant) rather than re-scoring it |
-| **Per-task reviewer pin** | Task frontmatter | The reviewer-floor pin (routing §3) is pre-named; orchestrator enforces, does not pick |
-| **File allowlist per task** | Task frontmatter + body (✚ create / ✎ modify / ✗ delete) | The dispatcher's post-run diff-vs-allowlist contract (task-file-contract §4) |
-| **Validation commands per task** | Task body (exact command + expected EXIT) | The return-gate tripwire checks (verification card §1b) |
-| **Batching / serialization order** | Plan body — per shared file (`fileX: T5→T7`) and parallel-wave grouping | The routing card's batching + shared-file serialization (routing §8); dependency-ordering's serialization check |
-| **Hard-halt registry** | Plan body — the checkpoints non-overridable in autonomous mode | The orchestrator reads the list directly; autonomous mode never overrides them |
-
-LIGHT mode emits only the critical subset the user chooses to resolve; the rest are left model-bound-at-routing-time (the task is authored to the generic contract and the router scores boundedness as usual). Both modes still author every task to the **shared task-file contract** (`{rbtv_path}/orchestration/workflows/_shared/authoring/task-file-contract.md`) — orchestration-awareness adds the pre-resolution fields, it does not replace the contract.
-
-**Worker-contract frontmatter for a pinned executor.** When the router pins an executor whose model ships a per-model contract delta (kimi, claude-cli, codex, qwen, …), the generated task file's frontmatter + body MUST satisfy that model's contract. The operative procedure — dispatch-scaffold skeleton mode, pre-flight STOP on an uninstalled model package, merge of the derived skeleton — is owned by `step-04-generate-artifacts.md` § Generate Micro-Step Task Files; follow it there, it is not restated here.
+**Orchestrated plans only.** This section's content has moved to the orchestration JIT file. Orchestrated plans (`orchestrated: true`): READ `{rbtv_path}/orchestration/workflows/planning/data/orchestration-planning.md` § Orchestration-Aware Modes and apply it. Plain interactive plans skip it entirely.
 
 ---
 
