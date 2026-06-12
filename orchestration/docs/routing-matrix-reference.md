@@ -137,7 +137,7 @@ Boundary: **does the task touch the filesystem or run tools? → qwen-code-cli (
 
 | Use… | When |
 |------|------|
-| **Gemini** (`gemini:3.5-flash` / `3.1-flash-lite`) | A **single grounded lookup** — one search-grounded call, light not rigorous. The ONLY `web_access: true` API chat worker. (Grounding pending run.py wiring — p5-3/p5-4; until then Gemini runs default JSON-envelope mode only.) |
+| **Gemini** (`gemini:3.5-flash` / `3.1-flash-lite`) | A **single grounded lookup** — one search-grounded call, light not rigorous. The ONLY `web_access: true` API chat worker. (Grounding is SHIPPED — dispatch with `--grounded`; p5-3 runner pass-through + p5-4 leaf routing both landed; a grounded call returns a raw dump, no `return.json`.) |
 | **`rbtv-web-searching`** (Agent-tool path) | **Rigorous multi-source research** — source evaluation, citations, cross-checking across many sources. The in-session web path, always available even when no web-capable model package is installed (routing §6 degrade). NEVER an API chat worker for this tier. |
 | **Manus** (`manus:manus-autonomous`) | **Autonomous multi-step browser work** — the agent must navigate, click, fill, and synthesize across pages on its OWN (multi-step data collection), not a single lookup. Per-task cost, minutes-scale latency, raw-dump return. |
 
@@ -161,4 +161,4 @@ Boundary: **default to Agent-tool Claude; escalate to claude-code-cli ONLY for a
 - OpenAI: https://platform.openai.com/docs/models
 - Cohere: https://docs.cohere.com/docs/models , https://docs.cohere.com/docs/rag
 - Qwen: https://dashscope.aliyuncs.com/docs
-- Manus: https://api.manus.im/docs
+- Manus: https://open.manus.ai/docs/v2/ (the v2 API the client targets — `_api/clients/manus.py` base_url `https://api.manus.ai/v2`, D-exec-13)

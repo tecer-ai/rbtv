@@ -54,8 +54,8 @@ One line per ELECTED model package, always in the core so routing can recall wha
 The availability line below is written by the installer (`install.py`) at install time from this workspace's election — the first line names the ELECTED (routable) packages, the second the present-but-not-elected ones (the installer replaces only the content BETWEEN the `ORCH:AVAILABILITY` markers; they are preserved so re-install is idempotent). It is a human recall surface: `rbtv.json` `model_packages` is the authority `route.py` actually reads, so routing stays correct even if this shared line lags (in a multi-workspace repo the last install wins the line). On any line-vs-folder mismatch the ELECTION wins — the extra folder packages are catalog, not routable; the routing card §1 logs the reconciliation.
 
 <!-- ORCH:AVAILABILITY:BEGIN -->
-> **Model packages installed:** claude (native, from Claude Code), codex (CLI)
-> **Not elected:** claude-code (CLI), deepseek (API), gemini (API), kimi-code (CLI), manus (API), qwen-code (CLI)
+> **Model packages installed:** claude (native, from Claude Code), codex (CLI), deepseek (API), gemini (API), kimi-code (CLI), manus (API), qwen-code (CLI)
+> **Not elected:** claude-code (CLI)
 <!-- ORCH:AVAILABILITY:END -->
 
 Per-model capability lines — a STATIC reference roster of the model packages this skill can carry, NOT a list of what is elected here. A line's presence in this table says nothing about routability: routability is decided ONLY by the workspace election (`rbtv.json` `model_packages`, reflected in the baked block above); the live `models/` folder is the catalog the elected packages are drawn from, not the routable set. Routing reads the elected package's manifest for the full field set — these lines are the at-a-glance recall, not the routing inputs:
@@ -68,7 +68,7 @@ Per-model capability lines — a STATIC reference roster of the model packages t
 | **claude-code-native** | Agent-tool Claude tiers (opus/sonnet) — in-session default carrier; no native CLAUDE.md/rules load (parent must inline); nesting wall (cannot spawn sub-agents); sibling to claude-code-cli (the process carrier). |
 | **qwen-code-cli** | Code-executing CLI worker — multi-backend via ModelStudio US (`-m` selects `qwen3.6-plus` / `deepseek-v4-flash` / `deepseek-v4-pro` / `glm-5.1`); writes code, runs tools, isolates via `--worktree`. NOT web-capable (`web_access: false`) — route web research to codex/claude-cli, not qwen (D-exec-11, 2026-06-10). |
 | **deepseek-api** | API chat text-worker (OpenAI-compatible, JSON mode) — cheapest text synthesis; `code_competence: none` (text leaves only); no native web. |
-| **gemini-api** | API chat text-worker — carries native web access (search grounding; web-research leaf wired in Phase 5); `code_competence: none`; the only web-capable chat worker. |
+| **gemini-api** | API chat text-worker — carries native web access (search grounding, shipped: dispatch `--grounded` for the light-grounding web-research leaf); `code_competence: none`; the only web-capable chat worker. |
 
 A line here is recall, not permission: routing routes only on `(model, variant)` pairs from an ELECTED package's manifest, and the lines for non-elected packages are simply not in play this run. `rbtv.json` `model_packages` (reflected in the baked block above) is the single source for what is ELECTED — and therefore routable — in this workspace.
 

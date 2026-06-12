@@ -6,10 +6,12 @@
 # The four CLI-shaped fields (headless, tool_surface, confinement, swarm_support) are filled
 # with the repurposed API-worker values per manifest-schema.md §2a.
 # Gemini is the ONLY web-capable chat worker: tool_surface.native: [web] (search grounding).
-# CAVEAT: grounding is built into the client (gemini.py) but NOT yet wired into the shared
-# run.py runner (no grounding switch / no extra_params pass-through). web_access/native:[web]
-# reflect the worker's CAPABILITY; the web-research leaf is NOT routable to Gemini until Phase 5
-# (p5-3 runner pass-through + p5-4 leaf routing). Until then Gemini runs default JSON-envelope mode only.
+# Grounding is SHIPPED and routable: run.py exposes --grounded (sets extra_params["grounding"]=True)
+# and --extra-params; gemini.py reads extra_params["grounding"] and swaps responseMimeType:application/json
+# for the google_search tool. First live-fired 2026-06-09 (p6-1 pilot). web_access/native:[web] gate the
+# light-grounding web-research leaf, which routes to Gemini (routing §6, p5-3 runner pass-through + p5-4
+# leaf routing both shipped). A grounded dispatch is mutually exclusive with JSON-envelope mode —
+# it returns DONE_WITH_NOTES + raw-output.md, no return.json.
 # The exact invocation shape is in ./manual.md (pointed to by invocation_pointer).
 
 model: gemini-api
@@ -68,10 +70,10 @@ variants:
     invocation_pointer: ./manual.md   # rendered dispatch manual for the exact command shape
     manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/gemini-api/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/gemini-api/delta.md
-    specialty: "web research via search grounding — the ONLY web-capable API chat worker (light single-call grounded lookup, NOT rigorous multi-source); frontier reasoning with Thinking Tokens; grounding pending run.py wiring (p5-3/p5-4)"   # within-tier tiebreaker only; boundedness-first stays the master cut
+    specialty: "web research via search grounding — the ONLY web-capable API chat worker (light single-call grounded lookup, NOT rigorous multi-source); frontier reasoning with Thinking Tokens; grounding shipped and routable via --grounded (routing §6 light-grounding leaf)"   # within-tier tiebreaker only; boundedness-first stays the master cut
     failure_modes:
       - "variant names are the live Gemini API ids (gemini-3.5-flash / gemini-3.1-flash-lite), id + price-confirmed 2026-06-09 (D-exec-15); re-verify only after a provider model refresh"
-      - "search grounding is built into the client but NOT wired into run.py — deferred to Phase 5 (p5-3 pass-through, p5-4 web-research-leaf routing); the runner has no grounding switch, so Gemini runs in default JSON-envelope mode only and cannot serve the web-research leaf today. Forward note: when Phase 5 wires it, grounding is mutually exclusive with JSON-envelope mode (grounded dispatch will return DONE_WITH_NOTES + raw-output.md, no return.json)"
+      - "grounded dispatch (--grounded) is mutually exclusive with JSON-envelope mode: gemini.py swaps responseMimeType:application/json for the google_search tool, so a grounded call returns DONE_WITH_NOTES + raw-output.md and NO return.json — the conductor must expect the raw-dump return surface, not the standard five-field envelope"
       - "no session resumption — a halted dispatch must be re-dispatched fresh; no partial-resume path"
       - "API key absent in env + env_file → package unavailable for the dispatch; router degrades, does not halt the run"
       - "max_output is a conservative probe-pending estimate — re-verify against provider docs before sizing batches"
@@ -136,7 +138,7 @@ variants:
     specialty: "cheapest web-grounded / volume processing — the cost-floor grounded Gemini variant for high-volume or cost-critical grounded lookups; same search-grounding web capability as 3.5-flash, lower per-token cost"   # within-tier tiebreaker only
     failure_modes:
       - "variant names are the live Gemini API ids (gemini-3.5-flash / gemini-3.1-flash-lite), id + price-confirmed 2026-06-09 (D-exec-15); re-verify only after a provider model refresh"
-      - "search grounding is built into the client but NOT wired into run.py — deferred to Phase 5 (p5-3 pass-through, p5-4 web-research-leaf routing); runs in default JSON-envelope mode only today and cannot serve the web-research leaf. Forward note: when wired, grounding is mutually exclusive with JSON-envelope mode (grounded dispatch will return DONE_WITH_NOTES + raw-output.md, no return.json)"
+      - "grounded dispatch (--grounded) is mutually exclusive with JSON-envelope mode: gemini.py swaps responseMimeType:application/json for the google_search tool, so a grounded call returns DONE_WITH_NOTES + raw-output.md and NO return.json — the conductor must expect the raw-dump return surface, not the standard five-field envelope"
       - "no session resumption — re-dispatch fresh after halt"
       - "API key absent → package unavailable; router degrades"
       - "max_output is a conservative probe-pending estimate — re-verify before sizing batches"
