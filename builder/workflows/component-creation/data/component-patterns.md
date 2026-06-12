@@ -63,6 +63,8 @@ Skills and commands are ALWAYS thin loaders. No exceptions.
 | Paths | All paths use `{rbtv_path}` variables, never relative (`../`) |
 | Persona structure | `<role>`, `<identity>`, `<communication_style>`, `<principles>` |
 
+**Exception — mandated multi-mode/multi-section personas:** The ~100-line soft-max does NOT apply to persona files mandated by an architecture spec to carry multiple self-contained audience or mode sections. For these, the budget scales with the number of mandated sections: the soft-max applies PER mode-section, not to the whole file. A reviewer finding such a persona over the whole-file soft-max MUST check whether the length is mandated-structural (architecture + decision record) before flagging it as a defect.
+
 ## Workflow Files (`{module}/workflows/*/workflow.md`)
 
 | Rule | Requirement |
