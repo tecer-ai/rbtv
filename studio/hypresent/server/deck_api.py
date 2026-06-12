@@ -79,6 +79,38 @@ def _find_referenced_assets(fragment_html: str) -> list[str]:
     return assets
 
 
+def _rewrite_referenced_assets(html: str, replacements: dict[str, str]) -> str:
+    """Rewrite only complete asset refs captured by _ASSET_RE."""
+    if not replacements:
+        return html
+
+    def _replace(match: re.Match) -> str:
+        rel_path = match.group(1) or match.group(2)
+        replacement = replacements.get(rel_path)
+        if not replacement:
+            return match.group(0)
+        return match.group(0).replace(rel_path, replacement, 1)
+
+    return _ASSET_RE.sub(_replace, html)
+
+
+def _unique_asset_path(rel_path: str, out_dir: pathlib.Path, allocated: set[str]) -> str:
+    """Return assets/name-{n}.ext, free in out_dir and this save."""
+    rel = pathlib.PurePosixPath(rel_path)
+    for n in range(1, 1000000):
+        if rel.suffix:
+            candidate = rel.with_name(f"{rel.stem}-{n}{rel.suffix}")
+        else:
+            candidate = rel.with_name(f"{rel.name}-{n}")
+        candidate_str = candidate.as_posix()
+        if candidate_str in allocated:
+            continue
+        if (out_dir / candidate_str).exists():
+            continue
+        return candidate_str
+    raise RuntimeError(f"Unable to allocate unique asset path for {rel_path}")
+
+
 # ---------------------------------------------------------------------------
 # Handlers
 # ---------------------------------------------------------------------------
@@ -215,6 +247,17 @@ def handle_deck_save(payload):
                 fragment_html = _resolve_library_fragment(library_path, slide_id)
             except Exception as exc:
                 return (500, {"error": f"Failed to load fragment: {exc}"})
+            try:
+                fragment_spans = split_sections(fragment_html)
+            except RecomposeError as exc:
+                return (500, {"error": f"Invalid fragment: {exc}"})
+            if len(fragment_spans) != 1:
+                return (
+                    500,
+                    {
+                        "error": "library fragment must contain exactly one top-level section"
+                    },
+                )
             recompose_items.append({"kind": "fragment", "html": fragment_html})
             resolved_fragments.append((library_path, slide_id))
         elif kind == "blank":
@@ -230,15 +273,10 @@ def handle_deck_save(payload):
             {"error": f"Parent directory does not exist: {out_dir}"},
         )
 
-    # Build final HTML.
-    try:
-        result = recompose(html, recompose_items)
-    except RecomposeError as exc:
-        return (500, {"error": str(exc)})
-
     # Copy referenced assets from libraries.
     assets_copied: list[str] = []
     assets_skipped: list[str] = []
+    assets_renamed: list[dict[str, str]] = []
 
     for library_path, slide_id in resolved_fragments:
         fragment_html = _resolve_library_fragment(library_path, slide_id)
@@ -256,6 +294,75 @@ def handle_deck_save(payload):
             shutil.copy2(str(src_asset), str(dst_asset))
             assets_copied.append(str(rel_path))
 
+    # Copy referenced own-assets from preserved source sections when saving
+    # to a different directory. Collisions are handled by overriding only the
+    # affected existing section HTML before recompose splices it.
+    source_root = pathlib.Path(source_path).resolve().parent
+    out_root = out_dir.resolve()
+    if source_root != out_root:
+        asset_targets: dict[str, str] = {}
+        allocated: set[str] = set()
+        updated_items: list[dict] = []
+
+        for item in recompose_items:
+            if item.get("kind") != "existing":
+                updated_items.append(item)
+                continue
+
+            idx = item["index"]
+            start, end = spans[idx]
+            section_html = html[start:end]
+            replacements: dict[str, str] = {}
+
+            for rel_path in _find_referenced_assets(section_html):
+                src_asset = source_root / rel_path
+                if not src_asset.exists() or not src_asset.is_file():
+                    continue
+
+                target_rel = asset_targets.get(rel_path)
+                if target_rel is None:
+                    dst_asset = out_dir / rel_path
+                    if dst_asset.exists():
+                        target_rel = _unique_asset_path(
+                            rel_path,
+                            out_dir,
+                            allocated,
+                        )
+                        target_asset = out_dir / target_rel
+                        target_asset.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(str(src_asset), str(target_asset))
+                        assets_renamed.append(
+                            {"from": str(rel_path), "to": target_rel}
+                        )
+                    else:
+                        target_rel = rel_path
+                        dst_asset.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(str(src_asset), str(dst_asset))
+                        assets_copied.append(str(rel_path))
+                    allocated.add(target_rel)
+                    asset_targets[rel_path] = target_rel
+
+                if target_rel != rel_path:
+                    replacements[rel_path] = target_rel
+
+            if replacements:
+                updated_item = dict(item)
+                updated_item["html"] = _rewrite_referenced_assets(
+                    section_html,
+                    replacements,
+                )
+                updated_items.append(updated_item)
+            else:
+                updated_items.append(item)
+
+        recompose_items = updated_items
+
+    # Build final HTML.
+    try:
+        result = recompose(html, recompose_items)
+    except RecomposeError as exc:
+        return (500, {"error": str(exc)})
+
     # Write output.
     try:
         pathlib.Path(out_path).write_text(result, encoding="utf-8")
@@ -269,6 +376,8 @@ def handle_deck_save(payload):
     }
     if assets_skipped:
         response["assets_skipped"] = assets_skipped
+    if assets_renamed:
+        response["assets_renamed"] = assets_renamed
     return (200, response)
 
 

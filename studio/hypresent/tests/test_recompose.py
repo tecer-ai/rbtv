@@ -159,6 +159,33 @@ def test_recompose_fragment():
     assert result == 'PREFIX<section class="lib">L</section>SUFFIX'
 
 
+def test_recompose_existing_html_override_preserves_index_separator():
+    html = (
+        "PREFIX"
+        "<section>A</section>"
+        "\n<!-- sep-a -->\n"
+        "<section>B</section>"
+        "\n<!-- sep-b -->\n"
+        "<section>C</section>"
+        "SUFFIX"
+    )
+    result = recompose(
+        html,
+        [
+            {"kind": "existing", "index": 1, "html": "<section>B2</section>"},
+            {"kind": "existing", "index": 0},
+        ],
+    )
+    assert (
+        result
+        == "PREFIX"
+        "<section>B2</section>"
+        "\n<!-- sep-b -->\n"
+        "<section>A</section>"
+        "SUFFIX"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Edge case — out-of-range index
 # ---------------------------------------------------------------------------

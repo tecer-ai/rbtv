@@ -17,6 +17,34 @@ REAL_DECK_SECTION_COUNT = 10
 FIXTURE_LIB = "tests/e2e/fixtures/builder-lib"
 
 
+def _write_deck_with_assets(tmp_path, sections, assets):
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    assets_dir = src_dir / "assets"
+    assets_dir.mkdir()
+    for name, content in assets.items():
+        target = assets_dir / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+    source = src_dir / "deck.html"
+    source.write_text(
+        "<html><body>" + "\n".join(sections) + "</body></html>",
+        encoding="utf-8",
+    )
+    return source
+
+
+def _save_existing_sections(source, out, indexes):
+    return handle_deck_save(
+        {
+            "source_path": str(source),
+            "out_path": str(out),
+            "items": [{"kind": "existing", "index": i} for i in indexes],
+            "libraries": {},
+        }
+    )
+
+
 # ---------------------------------------------------------------------------
 # deck-load
 # ---------------------------------------------------------------------------
@@ -339,6 +367,147 @@ def test_deck_save_asset_collision_skip(tmp_path):
     assert resp["ok"] is True
     assert "assets/logo.png" in resp["assets_skipped"]
     assert (out_dir / "assets" / "logo.png").read_bytes() == b"OLD"
+
+
+def test_deck_save_refuses_multi_section_fragment(tmp_path):
+    lib = tmp_path / "mylib"
+    slides_dir = lib / "slides"
+    slides_dir.mkdir(parents=True)
+    (slides_dir / "two.html").write_text(
+        "<section>A</section>\n<section>B</section>", encoding="utf-8"
+    )
+
+    src = tmp_path / "source.html"
+    shutil.copy(REAL_DECK_SRC, src)
+    out = tmp_path / "out" / "deck.html"
+    out.parent.mkdir()
+
+    status, resp = handle_deck_save(
+        {
+            "source_path": str(src),
+            "out_path": str(out),
+            "items": [
+                {"kind": "library", "library_path": str(lib), "slide_id": "two"}
+            ],
+            "libraries": {str(lib): True},
+        }
+    )
+    assert status == 500
+    assert "exactly one top-level section" in resp["error"]
+    assert not out.exists()
+
+
+def test_deck_save_copies_own_asset_to_new_dir(tmp_path):
+    source = _write_deck_with_assets(
+        tmp_path,
+        ['<section><img src="assets/own.png"></section>'],
+        {"own.png": b"OWN"},
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    out = out_dir / "deck.html"
+
+    status, resp = _save_existing_sections(source, out, [0])
+
+    assert status == 200
+    assert resp["ok"] is True
+    assert resp["assets_copied"] == ["assets/own.png"]
+    assert "assets_renamed" not in resp
+    assert (out_dir / "assets" / "own.png").read_bytes() == b"OWN"
+    result = out.read_text(encoding="utf-8")
+    assert '<section><img src="assets/own.png"></section>' in result
+
+
+def test_deck_save_skips_own_asset_from_dropped_slide(tmp_path):
+    source = _write_deck_with_assets(
+        tmp_path,
+        [
+            '<section><img src="assets/keep.png"></section>',
+            '<section><img src="assets/drop.png"></section>',
+        ],
+        {"keep.png": b"KEEP", "drop.png": b"DROP"},
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    out = out_dir / "deck.html"
+
+    status, resp = _save_existing_sections(source, out, [0])
+
+    assert status == 200
+    assert resp["assets_copied"] == ["assets/keep.png"]
+    assert (out_dir / "assets" / "keep.png").read_bytes() == b"KEEP"
+    assert not (out_dir / "assets" / "drop.png").exists()
+    assert "assets/drop.png" not in out.read_text(encoding="utf-8")
+
+
+def test_deck_save_same_dir_leaves_own_asset_refs_byte_identical(tmp_path):
+    section = '<section><img src="assets/own.png"></section>'
+    source = _write_deck_with_assets(tmp_path, [section], {"own.png": b"OWN"})
+    out = source.parent / "saved.html"
+
+    status, resp = _save_existing_sections(source, out, [0])
+
+    assert status == 200
+    assert resp["assets_copied"] == []
+    assert "assets_renamed" not in resp
+    result = out.read_text(encoding="utf-8")
+    result_spans = split_sections(result)
+    assert result[result_spans[0][0] : result_spans[0][1]] == section
+
+
+def test_deck_save_renames_colliding_own_asset_and_rewrites_safe_refs(tmp_path):
+    section = (
+        '<section><img src="assets/logo.png">'
+        '<a href="assets/logo.png.bak">bak</a>'
+        '<style>.hero{background:url(assets/logo.png)}</style></section>'
+    )
+    source = _write_deck_with_assets(
+        tmp_path,
+        [section],
+        {"logo.png": b"OWN"},
+    )
+    out_dir = tmp_path / "out"
+    (out_dir / "assets").mkdir(parents=True)
+    (out_dir / "assets" / "logo.png").write_bytes(b"OLD")
+    out = out_dir / "deck.html"
+
+    status, resp = _save_existing_sections(source, out, [0])
+
+    assert status == 200
+    assert resp["assets_copied"] == []
+    assert resp["assets_renamed"] == [
+        {"from": "assets/logo.png", "to": "assets/logo-1.png"}
+    ]
+    assert (out_dir / "assets" / "logo.png").read_bytes() == b"OLD"
+    assert (out_dir / "assets" / "logo-1.png").read_bytes() == b"OWN"
+    result = out.read_text(encoding="utf-8")
+    assert 'src="assets/logo-1.png"' in result
+    assert "url(assets/logo-1.png)" in result
+    assert 'href="assets/logo.png.bak"' in result
+
+
+def test_deck_save_reuses_one_rename_for_duplicate_own_section(tmp_path):
+    source = _write_deck_with_assets(
+        tmp_path,
+        ['<section><img src="assets/logo.png"></section>'],
+        {"logo.png": b"OWN"},
+    )
+    out_dir = tmp_path / "out"
+    (out_dir / "assets").mkdir(parents=True)
+    (out_dir / "assets" / "logo.png").write_bytes(b"OLD")
+    out = out_dir / "deck.html"
+
+    status, resp = _save_existing_sections(source, out, [0, 0])
+
+    assert status == 200
+    assert resp["assets_renamed"] == [
+        {"from": "assets/logo.png", "to": "assets/logo-1.png"}
+    ]
+    assert (out_dir / "assets" / "logo.png").read_bytes() == b"OLD"
+    assert (out_dir / "assets" / "logo-1.png").read_bytes() == b"OWN"
+    result = out.read_text(encoding="utf-8")
+    assert result.count('src="assets/logo-1.png"') == 2
+    assert 'src="assets/logo.png"' not in result
 
 
 def test_deck_save_with_fixture_library_no_assets(tmp_path):

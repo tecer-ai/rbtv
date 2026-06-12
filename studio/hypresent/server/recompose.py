@@ -73,6 +73,8 @@ def recompose(html: str, items: list[dict]) -> str:
 
     Each item is a dict:
       - {"kind": "existing", "index": int}  → copy Nth section verbatim
+        Optional "html" overrides the copied section while "index" still
+        controls separator selection.
       - {"kind": "fragment", "html": str}   → insert html as-is
       - {"kind": "blank"}                   → insert BLANK_SECTION
     """
@@ -119,8 +121,14 @@ def recompose(html: str, items: list[dict]) -> str:
                 raise RecomposeError(
                     f"section index {idx} out of range (0-{len(spans) - 1})"
                 )
-            start, end = spans[idx]
-            parts.append(html[start:end])
+            if "html" in item:
+                override_html = item["html"]
+                if not isinstance(override_html, str):
+                    raise RecomposeError("existing item 'html' must be a string")
+                parts.append(override_html)
+            else:
+                start, end = spans[idx]
+                parts.append(html[start:end])
         elif kind == "fragment":
             if "html" not in item:
                 raise RecomposeError("fragment item missing 'html'")
