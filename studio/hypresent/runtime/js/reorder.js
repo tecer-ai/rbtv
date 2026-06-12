@@ -69,8 +69,17 @@ export function classifyDrop(dragEl, clientX, clientY) {
   const hov = hovered.closest("[data-hyp-id]");
   if (!hov || hov === dragEl) return none;
 
+  // The command layer (commands.reorder) resolves BOTH parents by data-hyp-id,
+  // so a drop CONTAINER that carries no data-hyp-id (e.g. <body>, which the
+  // registry never tags) can never be a valid destination — building a reorder
+  // command for it makes reorder.do() throw "parent not found null", which
+  // silently aborts the whole drop (no history push, no dirty flag, orphaned
+  // translate). Any such drop falls through to `none` = a keep-translate move.
+  const hasHypId = (el) => !!(el && el.getAttribute && el.getAttribute("data-hyp-id"));
+
   // (1) same-parent sibling → reorder
   if (hov.parentElement === dragEl.parentElement) {
+    if (!hasHypId(dragEl.parentElement)) return none;
     const axis = dominantAxis(dragEl.parentElement);
     const r = hov.getBoundingClientRect();
     return {
@@ -81,9 +90,9 @@ export function classifyDrop(dragEl, clientX, clientY) {
     };
   }
 
-  // (2) different parent → reparent if hovered's parent qualifies as a container
+  // (2) different parent → reparent if hovered's parent qualifies as a registered container
   const container = hov.parentElement;
-  if (container && container !== dragEl.parentElement && isContainer(container)) {
+  if (container && container !== dragEl.parentElement && isContainer(container) && hasHypId(container)) {
     const axis = dominantAxis(container);
     const r = hov.getBoundingClientRect();
     return {

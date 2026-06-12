@@ -291,6 +291,74 @@ class R2ResizeRealTests(unittest.TestCase):
         self.assertAlmostEqual(ax - bx, DX, delta=15, msg=f"translate-x delta {ax-bx} not ~{DX} (move dead/wrong)")
         self.assertAlmostEqual(ay - by, DY, delta=15, msg=f"translate-y delta {ay-by} not ~{DY} (move dead/wrong)")
 
+    # E-R2-13 — MOVE commits to history: a real move-drag pushes ONE history command,
+    # flips the doc-state chip to Unsaved, and is reversible by the Undo button.
+    # Guards the undo/dirty-miss gap: classifyDrop must NOT misfire as a reparent into
+    # an unregistered container (e.g. <body>), which silently threw and dropped the move.
+    def test_move_commits_to_history_undo_and_dirty(self):
+        self.page.add_init_script(
+            "window.__bridge = [];"
+            "window.addEventListener('message', (e) => {"
+            "  if (e.data && e.data.source === 'hyp' && e.data.kind === 'event')"
+            "    window.__bridge.push({type: e.data.type, payload: e.data.payload});"
+            "});"
+        )
+        self._open()
+        self._real_click(".slide-number")
+
+        def parse_translate(s):
+            s = (s or "").strip()
+            if not s:
+                return 0.0, 0.0
+            parts = s.split()
+            tx = float(parts[0].replace("px", "")) if parts else 0.0
+            ty = float(parts[1].replace("px", "")) if len(parts) > 1 else 0.0
+            return tx, ty
+
+        before = H.doc_eval(self.page, "return doc.querySelector('.slide-number').style.translate || '';")
+        bx, by = parse_translate(before)
+        # discard selection-phase bridge noise so the assertions see only the move
+        self.page.evaluate("() => { window.__bridge = []; }")
+
+        origin = _iframe_origin(self.page)
+        rect = _rect_in_iframe(self.page, ".slide-number")
+        cx, cy = _screen_center(origin, rect)
+        DX, DY = 40, 0
+        self.page.mouse.move(cx, cy)
+        self.page.mouse.down()
+        for i in range(1, 9):
+            self.page.mouse.move(cx + (DX * i) / 8.0, cy + (DY * i) / 8.0)
+            self.page.wait_for_timeout(20)
+        self.page.mouse.up()
+        self.page.wait_for_timeout(200)
+
+        after = H.doc_eval(self.page, "return doc.querySelector('.slide-number').style.translate || '';")
+        ax, ay = parse_translate(after)
+        self.assertAlmostEqual(ax - bx, DX, delta=15, msg=f"move did not apply translate ({before!r} -> {after!r})")
+
+        # (1) the move pushed exactly one undoable history command across the bridge
+        hist = self.page.evaluate(
+            "() => window.__bridge.filter(e => e.type === 'history-changed').map(e => e.payload)"
+        )
+        self.assertTrue(
+            any(p.get("canUndo") for p in hist),
+            f"move-drag emitted no undoable history-changed event (history push missed): {hist!r}",
+        )
+
+        # (2) the doc-state chip flipped to Unsaved
+        chip = self.page.evaluate("() => document.getElementById('doc-state').textContent.trim()")
+        self.assertEqual(chip, "Unsaved", "doc-state chip did not flip to Unsaved after a move-only edit")
+
+        # (3) the Undo button reverts the move (translate returns to its pre-drag value)
+        undo_btn = self.page.locator("#undo-btn")
+        self.assertFalse(undo_btn.is_disabled(), "Undo button is disabled after a move — nothing was committed")
+        undo_btn.click()
+        self.page.wait_for_timeout(150)
+        reverted = H.doc_eval(self.page, "return doc.querySelector('.slide-number').style.translate || '';")
+        rx, ry = parse_translate(reverted)
+        self.assertAlmostEqual(rx, bx, delta=1, msg=f"undo did not revert translate-x ({reverted!r}, expected ~{before!r})")
+        self.assertAlmostEqual(ry, by, delta=1, msg=f"undo did not revert translate-y ({reverted!r}, expected ~{before!r})")
+
     # E-R2-5 — REORDER: one real drag of a sibling over its adjacent sibling changes the DOM index
     def test_reorder_changes_dom_index(self):
         self._open()
