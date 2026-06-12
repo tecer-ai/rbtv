@@ -17,16 +17,17 @@
 
 | Task | Artifact | Path | Status |
 |------|----------|------|--------|
-| p1-1 | Own-asset copy + collision-safe rename/rewrite in the save handler (and the recompose override, if used) | `server/deck_api.py`, `server/recompose.py` | pending |
-| p1-2 | Unit tests for own-asset behavior (spec test plan rows 1-5) + any recompose-override tests | `tests/test_deck_api.py`, `tests/test_recompose.py` | pending |
-| p1-checkpoint | Phase 1 evaluation findings + user approval | `./decisions.md` (Checkpoint entry) | pending |
+| p1-1 | Own-asset copy + collision-safe rename/rewrite in the save handler (and the recompose override, if used) | `server/deck_api.py`, `server/recompose.py` | ✅ |
+| p1-2 | Unit tests for own-asset behavior (spec test plan rows 1-5) + any recompose-override tests | `tests/test_deck_api.py`, `tests/test_recompose.py` | ✅ |
+| p1-checkpoint | Phase 1 evaluation findings + user approval | `./decisions.md` (Checkpoint entry) | ✅ |
 
 ## Phase 2 deliverables
 
 | Task | Artifact | Path | Status |
 |------|----------|------|--------|
-| p2-1 | Headed done-gate evidence — real deck copy renders own images in builder + editor (incl. collision case) | `./phase-2/done-gate-evidence/` | pending |
+| p2-1 | Headed done-gate evidence — real deck copy renders own images in builder + editor (incl. collision case) | `./phase-2/done-gate-evidence/` | ⏸ deferred (done-gate PROVEN editor-render + disk colocation; surfaced the p2-3 live-path bug + builder srcdoc gap) |
 | p2-2 | Save-to-new-dir own-asset regression assertion | `tests/e2e/test_pb11_deck_save.py` | pending |
+| p2-3 | BUG fix — real builder save-to-new-dir copies no own-assets (live-path divergence) | `server/deck_api.py` / live save path (TBD at root-cause) | pending (next session) |
 | p2-refs | Plan-folder link validation result | `./decisions.md` (Discovery entry only if a violation is found) | pending |
 | p2-checkpoint | Final evaluation findings + user approval to complete | `./decisions.md` (Checkpoint entry) | pending |
 

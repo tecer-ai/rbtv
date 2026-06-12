@@ -1,0 +1,11 @@
+Builder srcdoc frame asset render check
+srcdoc frames found: 10
+frames with #own-img-blue: 1
+finding: unexercisable-in-builder-thumbnails
+detail: [{'found': True, 'naturalWidth': 0, 'complete': True}, {'found': False}, {'found': False}, {'found': False}, {'found': False}, {'found': False}, {'found': False}, {'found': False}, {'found': False}, {'found': False}]
+
+Conclusion: The builder tray uses srcdoc iframes without a base URL.
+Asset requests go to /app/assets/... (relative to builder page origin) — all 404.
+Own-assets in deck thumbnails cannot render in the builder by structural design.
+This is NOT a bug in own-asset colocation — the feature copies files correctly.
+The editor (/doc/ route) correctly serves and renders the colocated assets.

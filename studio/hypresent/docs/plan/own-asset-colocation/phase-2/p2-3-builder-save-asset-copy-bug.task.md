@@ -1,0 +1,82 @@
+---
+task_id: p2-3
+status: pending
+complexity_score: 13
+human_review: required
+---
+
+# Task p2-3: BUG — real builder save-to-new-dir does NOT copy own-assets (live path diverges from the unit-tested handler)
+
+## Severity
+
+**Blocks the feature.** The phase-1 code is committed (`3ce0400`) and passes 52/52 unit+e2e tests, AND a direct `handle_deck_save` call copies assets correctly — but the OWNER's real builder save (open a real deck → restructure → Save-As to the Desktop) copies NOTHING. The feature does not work end-to-end. This must be root-caused before the plan can be called done.
+
+## What happened (2026-06-12, during p2-1)
+
+The owner saved a real gsmm/tecer pitch deck from the builder to `C:\Users\henri\Desktop\teste.html`. The saved HTML references its own slide images (`assets/founder-guilherme.png`, `assets/founder-henrique.jpeg`, `assets/founder-luiz.jpeg`, `assets/gsmm-logo.png`, `assets/tecer-wordmark-white.png` — all inside `<section>` bodies, verified), but **no `assets/` folder was created at the Desktop and no images copied**. Re-tested on a freshly started server — **same failure**.
+
+## Path anchor
+
+`server/…`, `tests/…` relative to the hypresent app dir `3-resources/tools/rbtv/studio/hypresent/`. Run `python -m pytest` from there (global Python 3.12 has pytest 9.0.3 + playwright chromium 1223). The hypresent server runs `python server/server.py` on `127.0.0.1:8765` (stdlib `http.server`, **NO auto-reload** — must be restarted to load code changes).
+
+## What is already DONE / VERIFIED (do not redo)
+
+- **Phase-1 code committed `3ce0400`** (rbtv repo, branch `master`): `server/deck_api.py` (+121: own-asset copy + collision rename via `_unique_asset_path`/`_rewrite_referenced_assets` + `existing.html` override path + 1:1 fragment-span guard + `assets_renamed` response), `server/recompose.py` (+12: optional `existing.html` override, `index` still drives separators), `tests/test_deck_api.py` + `tests/test_recompose.py` (own-asset + collision + boundary-safe + 1:1-refusal tests). Suite **52/52 green**.
+- **The handler logic is CORRECT in isolation** — direct repro PROVED it:
+  ```bash
+  # from hypresent app dir; copies 5 assets, STATUS 200, creates out_dir/assets/
+  python -c "
+  import sys, pathlib, tempfile, os; sys.path.insert(0,'server')
+  from recompose import split_sections
+  import deck_api
+  src = r'C:\Users\henri\Documents\second-brain\5-workbench\tecer-biz\investors\_decks\pitch-deck\small-deck-v3\tecer-pitch-deck.html'
+  n = len(split_sections(pathlib.Path(src).read_text(encoding='utf-8')))
+  out = tempfile.mkdtemp(); outp = os.path.join(out,'t.html')
+  items = [{'kind':'existing','index':i} for i in range(n)]
+  print(deck_api.handle_deck_save({'source_path':src,'out_path':outp,'items':items,'libraries':{}}))
+  print(os.listdir(os.path.join(out,'assets')))
+  "
+  ```
+- **The open-deck flow preserves the real path:** `api.py` `handle_open` → `set_open_path(str(p.resolve()))` (L153) and `set_doc_root(parent)` (L151); `deck-load.js` `loadDeckByPath(path)` returns `{path}`. So `deck.path` (= `source_path` the builder POSTs, per `deck-save.js`) is the real resolved deck location, whose dir has `assets/` beside it for a normal deck.
+- **DISPROVEN root causes:** (a) stale/pre-patch server — owner re-tested on a fresh server, same failure; (b) assets referenced outside `<section>` — verified the founder/logo refs are INSIDE section bodies (`teste.html` L3371/3373/3465/3481/4376/4378); (c) open-flow re-points to a copy without assets — `api.py` resolves the real path.
+
+## The divergence to root-cause (THE lead)
+
+The unit-tested handler + a direct call both COPY assets, but the live builder save does NOT — for the same feature, same deck family. The bug is in the REAL builder→server save path, in something the direct repro did not replicate. Prime suspects, in order:
+
+1. **The actual `source_path` the builder POSTs may not be the assets-bearing dir.** The owner's deck may have been opened from / re-pointed to a location WITHOUT `assets/` beside it (e.g. a prior Desktop save `teste.html` became `deck.path`, then re-saving from there has no `assets/` at `source_root`; or the deck was loaded from a standalone copy). The handler then hits `if not src_asset.exists(): continue` and silently copies nothing (spec Behavior row 5 — correct behavior, wrong input).
+2. **The running server may not actually be executing `3ce0400`'s `deck_api.py`** — a stale `__pycache__/deck_api.*.pyc`, a DIFFERENT hypresent instance/checkout, or the server started from a different cwd. Confirm the live server imports THIS file.
+3. **`items` from `tray.getItems()` after a restructure** may not be the `{kind:'existing','index':i}` shape the loop scans (or the indices don't cover the asset-bearing sections). `teste.html` IS restructured (slide order s01,s1b,s02,s1c,s05,s03,… non-sequential).
+
+## Investigation plan (next session)
+
+1. **Instrument the live path.** Add temporary logging to `handle_deck_save` (or a request log in `server/server.py`) that prints the received `source_path`, `out_path`, `len(items)` + item kinds, `source_root`, whether `source_root/'assets'` exists, and the final `assets_copied`/`assets_skipped`/`assets_renamed`. Have the owner reproduce the EXACT save (same deck, same Desktop target). Capture the real payload — this is the decisive evidence. (Remove the logging after.)
+2. From the captured `source_path`: check `Path(source_path).resolve().parent / 'assets'` exists and holds the referenced files. If NOT → the bug is upstream (the deck was opened from / re-pointed to an assets-less location); decide whether the feature should also handle that (e.g. resolve assets relative to the deck's ORIGINAL source, or the doc-root). If it DOES exist → the bug is inside the handler's live execution → suspect #2 (stale bytecode / wrong instance) or #3 (items shape).
+3. Confirm the live server runs `3ce0400` code: check `import deck_api; deck_api.__file__` from the server's interpreter, clear `__pycache__`, restart, retest.
+4. Reproduce the FULL flow headed if needed (the e2e harness works: `tests/e2e/test_pb11_deck_save.py`, `builder_helpers.py`, `conftest_helpers.py`), driving an actual open→restructure→save-new and asserting `out_dir/assets/` on disk — extend p2-2's intent to the REAL open path, not a synthetic injected deck.
+5. Fix at the root cause (prevent recurrence, per `rbtv-reasoning` root-cause discipline). Re-validate: the OWNER's real save creates `out_dir/assets/` with the images, AND the editor/builder render them.
+
+## Context files
+
+| File | Purpose |
+|------|---------|
+| `server/deck_api.py` `handle_deck_save` (L169-371) | The handler; the own-asset loop is L297-358 (scans `section_html = html[spans[idx]]` per `existing` item) |
+| `app/js/builder/deck-save.js` | The builder POST: body `{source_path: deck.path, out_path, items, libraries}` — NO `html` field (server reads source from `source_path`) |
+| `server/api.py` `handle_open` (L131-153) | Sets `open_path` = resolved deck path; `deck.path` derives from here |
+| `app/js/builder/tray.js` `getItems()` | What `items` actually contains after a restructure |
+| `../specs/own-asset-colocation-spec.md` | Behavior rows + invariants (row 5: missing source asset tolerated — the silent-skip path this bug likely hits) |
+| `../decisions.md` | All decisions + the discoveries logged during this run |
+| `./done-gate-evidence/2026-06-12-own-asset-colocation.md` | p2-1 done-gate sheet (editor render PROVEN; builder srcdoc gap noted) |
+
+## Also note (separate, lower priority — do not conflate with this bug)
+
+- **Builder thumbnail render gap (pre-existing, orthogonal):** builder slide thumbnails/stage render via `srcdoc` iframes (`app/js/builder/previews.js`, `tray.js`, `slide-stage.js`) with NO `<base>` tag → ALL relative `assets/…` refs 404 in the builder (own, library, pre-existing alike). The editor (`/doc/` route, `server.py` `set_doc_root`) serves from the real dir and renders correctly. The spec's "render in the builder" criterion is unachievable until a `<base>`-tag fix lands in the srcdoc machinery. This is NOT this bug and NOT a colocation defect — it is a candidate separate follow-up (a `<base>`-tag injection in `buildDeckSrcdoc`/preview srcdoc).
+- **`assets_renamed` not surfaced in builder UI:** `deck-save.js` reads only `assets_copied`/`assets_skipped` from the response — `assets_renamed` is dropped from the status bar (display only, not a correctness bug).
+
+## Criteria
+
+Root cause identified (with the captured live payload as evidence); the OWNER's real builder save of a deck with its own `assets/*` to a NEW directory creates `out_dir/assets/` with the images, and they render in the editor (and builder once the srcdoc gap is separately addressed) — proven headed on the real deck, done-gate floor.
+
+## Return contract
+
+`status` · `landed` · `validation` (commands + EXIT + WALL_MS + the captured live payload) · `concerns` · `open_questions`.

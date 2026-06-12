@@ -1,0 +1,30 @@
+COMMAND: uv run pytest tests/test_deck_api.py tests/test_recompose.py -q
+EXIT: 2
+WALL_MS: 182
+OUTPUT:
+error: Failed to spawn: `pytest`
+  Caused by: program not found
+
+COMMAND: uv run python - (scratch own-asset colocation smoke)
+EXIT: 0
+WALL_MS: 328
+OUTPUT:
+own asset copied: {'ok': True, 'path': 'C:\\Users\\henri\\AppData\\Local\\Temp\\p1_1_smoke_7nylmjex\\out\\deck.html', 'assets_copied': ['assets/own.png']}
+collision renamed: {'ok': True, 'path': 'C:\\Users\\henri\\AppData\\Local\\Temp\\p1_1_collision_cz2ovv14\\out\\deck.html', 'assets_copied': [], 'assets_renamed': [{'from': 'assets/logo.png', 'to': 'assets/logo-1.png'}]}
+
+COMMAND: uv run --with pytest pytest tests/test_deck_api.py tests/test_recompose.py -q
+EXIT: 2
+WALL_MS: 10614
+OUTPUT:
+error: Request failed after 3 retries in 10.4s
+  Caused by: Failed to fetch: `https://pypi.org/simple/pytest/`
+  Caused by: error sending request for url (https://pypi.org/simple/pytest/)
+  Caused by: client error (Connect)
+  Caused by: tcp connect error
+  Caused by: Foi feita uma tentativa de acesso a um soquete de uma maneira que é proibida pelas permissões de acesso. (os error 10013)
+
+COMMAND: uv run python -m compileall server/deck_api.py server/recompose.py
+EXIT: 0
+WALL_MS: 275
+OUTPUT:
+
