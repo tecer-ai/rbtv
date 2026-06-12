@@ -33,7 +33,7 @@
 | p2-5 | Chrome (head-CSS) own-asset colocation + `assets_missing` coverage + unit tests + headed real-gsmm proof | server/deck_api.py, tests/test_deck_api.py, phase-2/done-gate-evidence/p2-5-real-gsmm-proof.json | ✅ |
 | p2-6 | Root cause of the owner's post-p2-5 re-test failure + fix + owner-flow headed proof + wave commit | `./phase-2/p2-6.task.md` (investigation corpus); evidence to `./phase-2/done-gate-evidence/` | ✅ |
 | p2-7 | Editor/bridge save-as colocation (shared helper + handle_save_as extension) + unit tests + headed editor-save proof | server/api.py, server/deck_api.py, tests/test_api_save.py, phase-2/done-gate-evidence/p2-7-editor-saveas-proof.json | ✅ |
-| p2-checkpoint | Final evaluation findings + user approval to complete | `./decisions.md` (Checkpoint entry) | in-progress |
+| p2-checkpoint | Final evaluation findings + user approval to complete | `./decisions.md` (Checkpoint entry) | ✅ |
 
 **Status values:** `pending` | `in-progress` | `✅` | `⏸ deferred` — deferrals carry a parenthetical reason in the cell.
 

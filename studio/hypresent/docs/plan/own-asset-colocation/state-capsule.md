@@ -10,9 +10,9 @@
 
 ## Resume Point
 
-- **Last completed:** p2-6 resolved (second save endpoint); owner re-test PASSED
-- **Next dispatch:** focused opus review of p2-7 diff -> commit wave (rbtv-commit) -> p2-checkpoint complete -> close
-- **Last update:** 2026-06-12T16:34Z
+- **Last completed:** RUN COMPLETE — owner-verified; committed cb4b8de + 45c5c8b
+- **Next dispatch:** run CLOSED — no further dispatches
+- **Last update:** 2026-06-12T16:37Z
 
 ## Run Configuration
 

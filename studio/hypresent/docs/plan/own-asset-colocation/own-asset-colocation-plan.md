@@ -61,4 +61,4 @@ overview: "On save-to-a-new-directory, /api/deck-save copies the source deck's o
 
 ### Final gate
 
-- [~] `p2-checkpoint` **FINAL CHECKPOINT** — done-gate evidence sufficient · full `pytest` (unit + e2e) green · refs validated · `decisions.md` audit · user approval to complete → `phase-2/p2-checkpoint.task.md`
+- [x] `p2-checkpoint` **FINAL CHECKPOINT** — done-gate evidence sufficient · full `pytest` (unit + e2e) green · refs validated · `decisions.md` audit · user approval to complete → `phase-2/p2-checkpoint.task.md`
