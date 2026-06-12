@@ -14,7 +14,7 @@ __pycache__/
 *.py[cod]
 
 # Hypresent sample deck + any derived/edited versions (local fixture, never committed)
-html/hypresent/tecer-gsmm-introduction*.html
+studio/hypresent/tecer-gsmm-introduction*.html
 
 # Local done-gate evidence artifacts (sheets + captures) — never shipped
 docs/done-gate-evidence/
