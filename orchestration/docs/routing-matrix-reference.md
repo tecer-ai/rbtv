@@ -1,4 +1,4 @@
-> **Reference data — NOT a router.** This is a within-tier TIEBREAKER the conductor may consult; it is NEVER the master routing cut (boundedness-first stays the cut, per `cards/routing.md`). Model ids and prices are 2026 estimates harvested from a prior research doc — **re-verify against provider docs before relying on any specific id/price.**
+> **Reference data — NOT a router.** This is a within-tier TIEBREAKER the conductor may consult; it is NEVER the master routing cut (boundedness-first stays the cut, per `cards/routing.md`). Model ids and prices are 2026 estimates harvested from a prior research doc — **re-verify against provider docs before relying on any specific id/price.** EXCEPTION: the **DeepSeek (§2)** and **Gemini (§4)** ids + prices were **live-confirmed 2026-06-09** (p6-1 orchestrated pilot, two independent paid workers — D-exec-15); see each section's note.
 
 # AI Provider Routing Matrix — Reference
 
@@ -21,6 +21,8 @@
 
 **Capability:** V4-Pro = max reasoning quality; V4-Flash = best cost/benefit. Both: Thinking Mode + Tool Calling + JSON output.
 
+> **Live-confirmed 2026-06-09** (p6-1 pilot, D-exec-15): the ids + prices above are current. The legacy `deepseek-chat`/`deepseek-reasoner` compatibility aliases are **removed 2026-07-24 15:59 UTC** — dispatch `deepseek-v4-flash`/`deepseek-v4-pro`, never the aliases.
+
 ## 3. Kimi (Moonshot AI)
 
 | Model | Context | Multimodal | Thinking | Agent Mode | API |
@@ -39,6 +41,8 @@
 | Gemini 3.1 Flash-Lite | $0.25/$1.50 per MTok | Yes | Yes | 50% discount |
 
 **Capability:** Thinking tokens (in output price); Search Grounding (real-time web); Batch API 50% off. 3.5 Flash = smartest; 3.1 Flash-Lite = cheapest.
+
+> **Live-confirmed 2026-06-09** (p6-1 pilot, D-exec-15): the prices above are current and the model names ARE the live Gemini API ids (the `gemini-api` manifest's `3.5-flash` / `3.1-flash-lite` variants map to `gemini-3.5-flash` / `gemini-3.1-flash-lite`).
 
 ## 5. OpenAI
 

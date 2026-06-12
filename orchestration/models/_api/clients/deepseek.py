@@ -70,7 +70,7 @@ class DeepSeekClient(ProviderClient):
         }
 
         url = f"{self.base_url}/chat/completions"
-        last_error: Exception
+        last_error: Optional[Exception] = None
 
         for attempt in range(self.retries):
             try:
@@ -116,4 +116,4 @@ class DeepSeekClient(ProviderClient):
                 time.sleep(2 ** attempt)
                 continue
 
-        raise last_error
+        raise last_error if last_error is not None else Exception("DeepSeek API error: max retries exceeded")

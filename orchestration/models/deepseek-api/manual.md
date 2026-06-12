@@ -69,7 +69,7 @@ The addendum is GENERIC. A model package's delta MAY add model-specific obligati
 | **Model id is a dispatch-time parameter** | The routing variant (`v4-flash` or `v4-pro`) selects the RBTV routing profile. The actual DeepSeek API model id is supplied via `--model <id>` at dispatch; re-verify the id against live provider docs before every pilot — the routing label is NOT an API id. |
 | **Key-resolution availability** | The runner checks `DEEPSEEK_API_KEY` in the OS environment, then the `env_file` path in `rbtv.json`. If absent in both, the package is unavailable for this dispatch; the conductor logs it and degrades to the next capable worker — never halts the run. |
 | **Output-folder confinement** | The runner path-sanitizes every write against `../` traversal and absolute paths. The conductor does NOT need to scope a work-dir. Post-run, verify that the returned files land inside `--output-folder` only. |
-| **Probe-pending status** | Both variants are `evidence_status: probe-pending` — not yet pilot-validated. Use only where the routing card explicitly allows unvalidated workers; flag the seam in the run-log. |
+| **Validated status** | Both variants are `evidence_status: validated` — the worker path ran end-to-end on a real paid DeepSeek call at the p6-1 pilot (2026-06-09); ids + prices live-confirmed the same pilot (D-exec-15). Routable as a settled choice. |
 <!-- The model package delta inserts its model-specific binding obligations here. -->
 ## 3. The unified return schema (D8)
 
@@ -118,9 +118,9 @@ The conductor treats `return.json` as the primary return signal. Reconcile it ag
 
 ## Invocation — the exact command shape
 
-The DeepSeek API dispatch manual — the exact runner invocation, variant selection, exit handling, and the deepseek task contract. Sourced from `routing-matrix-reference.md` §2 (2026 estimates) + DeepSeek API docs.
+The DeepSeek API dispatch manual — the exact runner invocation, variant selection, exit handling, and the deepseek task contract. Sourced from `routing-matrix-reference.md` §2 (ids + prices live-confirmed 2026-06-09) + DeepSeek API docs.
 
-**Re-verify model ids, context limits, and pricing against `https://api-docs.deepseek.com` before the pilot.** This manual is `probe-pending` until a live pilot validates it.
+**Model ids + pricing were live-confirmed 2026-06-09 (p6-1 pilot, D-exec-15); re-verify context limits and any post-refresh pricing against `https://api-docs.deepseek.com`.** This manual is `validated`. **The legacy `deepseek-chat`/`deepseek-reasoner` aliases are removed 2026-07-24 15:59 UTC — dispatch `deepseek-v4-flash`/`deepseek-v4-pro`.**
 
 ### Pre-flight (before any dispatch)
 
@@ -155,8 +155,8 @@ Route on the `(deepseek, variant)` pair from the manifest; translate to a `--mod
 
 | RBTV variant | Routing profile | DeepSeek API model id |
 |--------------|-----------------|----------------------|
-| `v4-flash` | `cost_class: cheapest`, `reasoning_tier: mid` — best cost/benefit; partially-bounded tasks | Re-verify at `https://api-docs.deepseek.com` before dispatch |
-| `v4-pro` | `cost_class: low`, `reasoning_tier: top` — max reasoning quality; judgment-dense tasks | Re-verify at `https://api-docs.deepseek.com` before dispatch |
+| `v4-flash` | `cost_class: cheapest`, `reasoning_tier: mid` — best cost/benefit; partially-bounded tasks | `deepseek-v4-flash` — live-confirmed 2026-06-09 (D-exec-15) |
+| `v4-pro` | `cost_class: low`, `reasoning_tier: top` — max reasoning quality; judgment-dense tasks | `deepseek-v4-pro` — live-confirmed 2026-06-09 (D-exec-15) |
 
 Both variants share identical `headless`, `tool_surface`, `confinement`, and `swarm_support` values — they differ ONLY on `reasoning_tier` and `cost_class`, which is the routing-relevant distinction required by the schema's variant field-count discipline.
 

@@ -1,6 +1,6 @@
 # DeepSeek capability manifest — the routing card's data interface for the deepseek package.
 # Schema + field meanings + routing-card consumers: ../manifest-schema.md
-# Sources: routing-matrix-reference.md §2 (2026 estimates — re-verify against provider docs);
+# Sources: routing-matrix-reference.md §2 (ids + prices live-confirmed 2026-06-09, p6-1 pilot, D-exec-15);
 #          DeepSeek API docs: https://api-docs.deepseek.com
 # This is an API chat worker (stateless HTTP call — no filesystem access, no tool execution loop).
 # The four CLI-shaped fields (headless, tool_surface, confinement, swarm_support) are filled
@@ -9,16 +9,15 @@
 
 model: deepseek-api
 display: "deepseek (API)"
-evidence_status: probe-pending   # not yet pilot-validated; authored from docs/routing-matrix reference
+evidence_status: validated   # live-confirmed 2026-06-09 (p6-1 orchestrated pilot, D-exec-15): the text-leaf worker path ran end-to-end on a real paid DeepSeek call (exit 0, valid envelope); v4-flash/v4-pro ids + prices independently confirmed live by two paid workers. NOTE: the pilot dispatched via the deepseek-chat alias — the v4 ids were id/price-confirmed live, not each separately exercised end-to-end.
 
 variants:
   - variant: v4-flash   # DeepSeek V4-Flash — best cost/benefit API worker
 
-    # MODEL-ID CAVEAT: The label "v4-flash" is the RBTV routing label (from routing-matrix-reference.md §2,
-    # 2026 estimate). The actual DeepSeek API model id is passed to the runner via --model at dispatch time
-    # and MUST be re-verified against DeepSeek's live API docs (https://api-docs.deepseek.com) before the
-    # pilot. Do NOT treat any id in this file as authoritative — the variant is the routing label; the real
-    # API id is a dispatch-time parameter.
+    # MODEL-ID NOTE: "v4-flash" is the RBTV routing label; the live DeepSeek API model id is
+    # `deepseek-v4-flash` (id + price live-confirmed 2026-06-09, p6-1 pilot, D-exec-15), passed to the
+    # runner via --model at dispatch time. DEPRECATION: the legacy `deepseek-chat`/`deepseek-reasoner`
+    # compatibility aliases are REMOVED 2026-07-24 15:59 UTC — never dispatch them; use the v4 ids.
 
     # --- boundedness + sizing (routing §2, §8) ---
     reasoning_tier: mid            # V4-Flash supports Thinking Mode (routing-matrix §2) — partially-bounded with doubt_policy: halt; NOT a judgment-dense top-tier pick
@@ -66,7 +65,7 @@ variants:
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/deepseek-api/delta.md
     specialty: "cheapest text synthesis — the cost-floor API text worker (Thinking Mode, OpenAI-compatible JSON) for partially-bounded text synthesis / mechanical text transforms; never code (code_competence: none)"   # within-tier tiebreaker only; boundedness-first stays the master cut
     failure_modes:
-      - "model ids are 2026 estimates — re-verify against DeepSeek API docs before pilot dispatch"
+      - "legacy deepseek-chat/deepseek-reasoner aliases removed 2026-07-24 15:59 UTC — dispatch deepseek-v4-flash/deepseek-v4-pro (ids + prices live-confirmed 2026-06-09, D-exec-15)"
       - "no session resumption — a halted dispatch must be re-dispatched fresh; no partial-resume path"
       - "API key absent in env + env_file → package unavailable for the dispatch; router degrades, does not halt"
       - "thinking mode behavior (token cost, output format) may differ from routing-matrix estimate — probe before sizing batches"
@@ -80,8 +79,8 @@ variants:
 
   - variant: v4-pro   # DeepSeek V4-Pro — max reasoning quality API worker
 
-    # MODEL-ID CAVEAT: same as v4-flash above — "v4-pro" is the RBTV routing label; the actual
-    # DeepSeek API model id MUST be re-verified against live provider docs before pilot dispatch.
+    # MODEL-ID NOTE: same as v4-flash above — "v4-pro" is the RBTV routing label; the live DeepSeek API
+    # model id is `deepseek-v4-pro` (id + price live-confirmed 2026-06-09, p6-1 pilot, D-exec-15).
 
     # --- boundedness + sizing (routing §2, §8) ---
     reasoning_tier: top            # V4-Pro = max reasoning quality (routing-matrix §2 "Logical reasoning — Thinking Mode"); judgment-dense tasks
@@ -129,7 +128,7 @@ variants:
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/deepseek-api/delta.md
     specialty: "cheapest top-reasoning-tier text synthesis — max-reasoning DeepSeek (Thinking Mode) at low absolute cost for judgment-dense TEXT/logic synthesis; never code (code_competence: none)"   # within-tier tiebreaker only
     failure_modes:
-      - "model ids are 2026 estimates — re-verify against DeepSeek API docs before pilot dispatch"
+      - "legacy deepseek-chat/deepseek-reasoner aliases removed 2026-07-24 15:59 UTC — dispatch deepseek-v4-flash/deepseek-v4-pro (ids + prices live-confirmed 2026-06-09, D-exec-15)"
       - "no session resumption — re-dispatch fresh after halt"
       - "API key absent → package unavailable; router degrades"
       - "top reasoning tier carries higher token cost — confirm budget before batching"

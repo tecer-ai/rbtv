@@ -69,7 +69,7 @@ The addendum is GENERIC. A model package's delta MAY add model-specific obligati
 | **Model id is a dispatch-time parameter** | The routing variant (`3.5-flash` or `3.1-flash-lite`) selects the RBTV routing profile. The actual Gemini API model id is supplied via `--model <id>` at dispatch; re-verify the id against live provider docs before every pilot — the routing label is NOT an API id. |
 | **Key-resolution availability** | The runner checks `GEMINI_API_KEY` in the OS environment, then the `env_file` path in `rbtv.json`. If absent in both, the package is unavailable for this dispatch; the conductor logs it and degrades to the next capable worker — never halts the run. |
 | **Output-folder confinement** | The runner path-sanitizes every write against `../` traversal and absolute paths. The conductor does NOT need to scope a work-dir. Post-run, verify that the returned files land inside `--output-folder` only. |
-| **Probe-pending status** | Both variants are `evidence_status: probe-pending` — not yet pilot-validated. Use only where the routing card explicitly allows unvalidated workers; flag the seam in the run-log. |
+| **Validated status** | Both variants are `evidence_status: validated` — the worker path ran end-to-end on a real paid Gemini call at the p6-1 pilot (2026-06-09); variant ids + prices live-confirmed the same pilot (D-exec-15). Routable as a settled choice. |
 <!-- The model package delta inserts its model-specific binding obligations here. -->
 ## 3. The unified return schema (D8)
 
@@ -124,7 +124,7 @@ The conductor treats `return.json` as the primary return signal. Reconcile it ag
 
 The Gemini API dispatch manual — the exact runner invocation, variant selection, exit handling, and the gemini task contract. Sourced from `routing-matrix-reference.md` §4 (2026 estimates) + Google Gemini API docs.
 
-**Re-verify model ids, context limits, and pricing against `https://ai.google.dev/gemini-api/docs` before the pilot.** This manual is `probe-pending` until a live pilot validates it.
+**Variant ids + pricing were live-confirmed 2026-06-09 (p6-1 pilot, D-exec-15); re-verify context limits and any post-refresh pricing against `https://ai.google.dev/gemini-api/docs`.** This manual is `validated`.
 
 **Grounding is DEFERRED to Phase 5 — there is no grounded dispatch in this manual.** The Gemini client supports search grounding, but the shared `run.py` runner exposes no grounding switch and passes no `extra_params`, so grounding is unreachable today. Every dispatch below runs in default JSON-envelope mode. (Phase 5 wires it: p5-3 adds the runner pass-through, p5-4 routes the web-research leaf.)
 
@@ -163,8 +163,8 @@ Route on the `(gemini, variant)` pair from the manifest; translate to a `--model
 
 | RBTV variant | Routing profile | Gemini API model id |
 |--------------|-----------------|---------------------|
-| `3.5-flash` | `cost_class: mid`, `reasoning_tier: top` — best intelligence; judgment-dense tasks | Re-verify at `https://ai.google.dev/gemini-api/docs/models` before dispatch |
-| `3.1-flash-lite` | `cost_class: cheapest`, `reasoning_tier: mid` — volume processing; cost-critical tasks | Re-verify at `https://ai.google.dev/gemini-api/docs/models` before dispatch |
+| `3.5-flash` | `cost_class: mid`, `reasoning_tier: top` — best intelligence; judgment-dense tasks | `gemini-3.5-flash` — live-confirmed 2026-06-09 (D-exec-15) |
+| `3.1-flash-lite` | `cost_class: cheapest`, `reasoning_tier: mid` — volume processing; cost-critical tasks | `gemini-3.1-flash-lite` — live-confirmed 2026-06-09 (D-exec-15) |
 
 Both variants share identical `headless`, `tool_surface`, `confinement`, and `swarm_support` values and both carry `web_access: true`. They differ on `reasoning_tier` and `cost_class`, which is the routing-relevant distinction required by the schema's variant field-count discipline.
 

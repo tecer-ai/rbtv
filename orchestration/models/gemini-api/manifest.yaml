@@ -1,6 +1,6 @@
 # Gemini capability manifest — the routing card's data interface for the gemini package.
 # Schema + field meanings + routing-card consumers: ../manifest-schema.md
-# Sources: routing-matrix-reference.md §4 (2026 estimates — re-verify against provider docs);
+# Sources: routing-matrix-reference.md §4 (variant ids + prices live-confirmed 2026-06-09, p6-1 pilot, D-exec-15);
 #          Google Gemini API docs: https://ai.google.dev/gemini-api/docs
 # This is an API chat worker (stateless HTTP call — no filesystem access, no tool execution loop).
 # The four CLI-shaped fields (headless, tool_surface, confinement, swarm_support) are filled
@@ -14,16 +14,14 @@
 
 model: gemini-api
 display: "gemini (API)"
-evidence_status: probe-pending   # not yet pilot-validated; authored from docs/routing-matrix reference
+evidence_status: validated   # live-confirmed 2026-06-09 (p6-1 orchestrated pilot, D-exec-15): the Gemini worker path ran end-to-end on a real paid call (exit 0); variant ids + prices independently confirmed live. NOTE: the pilot dispatched gemini-2.5-flash — the 3.5-flash/3.1-flash-lite ids were id/price-confirmed live, not each separately exercised end-to-end.
 
 variants:
   - variant: 3.5-flash   # Gemini 3.5 Flash — best intelligence / mid-cost API worker
 
-    # MODEL-ID CAVEAT: The label "3.5-flash" is the RBTV routing label (from routing-matrix-reference.md §4,
-    # 2026 estimate). The actual Google Gemini API model id is passed to the runner via --model at dispatch
-    # time and MUST be re-verified against Google's live API docs (https://ai.google.dev/gemini-api/docs/models)
-    # before the pilot. Do NOT treat any id in this file as authoritative — the variant is the routing label;
-    # the real API id is a dispatch-time parameter.
+    # MODEL-ID NOTE: "3.5-flash" is the RBTV routing label, and the variant name IS the live Google Gemini
+    # API model id (`gemini-3.5-flash`, id + price live-confirmed 2026-06-09, p6-1 pilot, D-exec-15), passed
+    # to the runner via --model at dispatch time.
 
     # --- boundedness + sizing (routing §2, §8) ---
     reasoning_tier: top             # 3.5 Flash = frontier reasoning with Thinking Tokens (routing-matrix §4); judgment-dense tasks
@@ -72,7 +70,7 @@ variants:
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/gemini-api/delta.md
     specialty: "web research via search grounding — the ONLY web-capable API chat worker (light single-call grounded lookup, NOT rigorous multi-source); frontier reasoning with Thinking Tokens; grounding pending run.py wiring (p5-3/p5-4)"   # within-tier tiebreaker only; boundedness-first stays the master cut
     failure_modes:
-      - "model ids are 2026 estimates — re-verify against Google Gemini API docs before pilot dispatch"
+      - "variant names are the live Gemini API ids (gemini-3.5-flash / gemini-3.1-flash-lite), id + price-confirmed 2026-06-09 (D-exec-15); re-verify only after a provider model refresh"
       - "search grounding is built into the client but NOT wired into run.py — deferred to Phase 5 (p5-3 pass-through, p5-4 web-research-leaf routing); the runner has no grounding switch, so Gemini runs in default JSON-envelope mode only and cannot serve the web-research leaf today. Forward note: when Phase 5 wires it, grounding is mutually exclusive with JSON-envelope mode (grounded dispatch will return DONE_WITH_NOTES + raw-output.md, no return.json)"
       - "no session resumption — a halted dispatch must be re-dispatched fresh; no partial-resume path"
       - "API key absent in env + env_file → package unavailable for the dispatch; router degrades, does not halt the run"
@@ -88,8 +86,8 @@ variants:
 
   - variant: 3.1-flash-lite   # Gemini 3.1 Flash-Lite — cheapest / volume-processing API worker
 
-    # MODEL-ID CAVEAT: same as 3.5-flash above — "3.1-flash-lite" is the RBTV routing label; the actual
-    # Google Gemini API model id MUST be re-verified against live provider docs before pilot dispatch.
+    # MODEL-ID NOTE: same as 3.5-flash above — "3.1-flash-lite" is the RBTV routing label and IS the live
+    # Gemini API model id (`gemini-3.1-flash-lite`, id + price live-confirmed 2026-06-09, p6-1 pilot, D-exec-15).
 
     # --- boundedness + sizing (routing §2, §8) ---
     reasoning_tier: mid             # 3.1 Flash-Lite = cost-optimized with Thinking support (routing-matrix §4); partially-bounded with doubt_policy: halt
@@ -137,7 +135,7 @@ variants:
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/gemini-api/delta.md
     specialty: "cheapest web-grounded / volume processing — the cost-floor grounded Gemini variant for high-volume or cost-critical grounded lookups; same search-grounding web capability as 3.5-flash, lower per-token cost"   # within-tier tiebreaker only
     failure_modes:
-      - "model ids are 2026 estimates — re-verify against Google Gemini API docs before pilot dispatch"
+      - "variant names are the live Gemini API ids (gemini-3.5-flash / gemini-3.1-flash-lite), id + price-confirmed 2026-06-09 (D-exec-15); re-verify only after a provider model refresh"
       - "search grounding is built into the client but NOT wired into run.py — deferred to Phase 5 (p5-3 pass-through, p5-4 web-research-leaf routing); runs in default JSON-envelope mode only today and cannot serve the web-research leaf. Forward note: when wired, grounding is mutually exclusive with JSON-envelope mode (grounded dispatch will return DONE_WITH_NOTES + raw-output.md, no return.json)"
       - "no session resumption — re-dispatch fresh after halt"
       - "API key absent → package unavailable; router degrades"
