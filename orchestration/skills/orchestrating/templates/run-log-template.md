@@ -63,7 +63,7 @@ Instantiate this as `run-log.md` in the run's spine location at spine init (inta
 
 ## Event Log
 
-> Registrar discipline (state card §7): append a row when a dispatch goes OUT and when its result comes BACK. Re-read this tail after any context gap before dispatching again. Event types (use ONLY these — ad-hoc names destroy grep-ability): `dispatch` · `return` · `gate` (return-gate / review / cold-verifier) · `probe` · `drift` · `recovery` · `override` (precondition-override) · `handover` (USER-EXECUTED-ONLY step handed to the user; Outcome = the verbatim ask + confirmation status).
+> Registrar discipline (state card §7): append a row when a dispatch goes OUT and when its result comes BACK. Re-read this tail after any context gap before dispatching again. Event types (use ONLY these — ad-hoc names destroy grep-ability): `dispatch` · `return` · `gate` (return-gate / review / cold-verifier) · `probe` · `drift` · `recovery` · `override` (precondition-override) · `handover` (USER-EXECUTED-ONLY step handed to the user; Outcome = the verbatim ask + confirmation status). A row that rides a state transition is COMPOSED by `stamp.py --scope conductor` from `--event-type` / `--worker` / `--outcome` (timestamp auto) — never hand-format it; hand-append only events with no stampable surface (state card §7 / intake light path).
 
 | Timestamp | Event | Task / Batch | Worker | Outcome |
 |-----------|-------|--------------|--------|---------|

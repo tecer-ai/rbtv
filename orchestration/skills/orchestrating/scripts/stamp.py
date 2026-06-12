@@ -3,7 +3,14 @@ state-stamp script — performs a complete 4-file semantic state transition
 for an orchestrated plan run (plan checkbox, task frontmatter, deliverables row,
 run-log event + capsule lockstep).
 
-Spec: 1-projects/rbtv-evolution/orchestration/token-efficiency/token-efficiency-refactor/specs/state-stamp-spec.md
+Live contract: cards/state.md §7 (the single specification of the stamp call).
+Build-time spec (archived): the token-efficiency-refactor plan's state-stamp-spec.md.
+
+Conductor scope composes the run-log Event Log row from structured args
+(--event-type / --worker / --outcome; timestamp auto) — the caller never
+hand-formats a table row — and updates the capsule Resume Point's three
+labeled bullets (`Last completed` / `Next dispatch` / `Last update`) in place,
+refusing a capsule that does not carry them.
 """
 
 import argparse
@@ -38,6 +45,16 @@ DELIVERABLES_MAP = {
 
 VALID_STATUSES = {"in_progress", "completed", "deferred"}
 
+# Canonical Event Log event types (run-log template § Event Log — ad-hoc names
+# destroy grep-ability, so the CLI pins the vocabulary).
+EVENT_TYPES = [
+    "dispatch", "return", "gate", "probe",
+    "drift", "recovery", "override", "handover",
+]
+
+# The capsule Resume Point's three labeled bullets (state-capsule template).
+RESUME_LABELS = ("Last completed", "Next dispatch", "Last update")
+
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -51,14 +68,23 @@ def parse_args(argv=None):
                    help="Target status")
     p.add_argument("--scope", default="worker", choices=["worker", "conductor"],
                    help="Audience scope (default: worker)")
-    p.add_argument("--event", default=None,
-                   help="Run-log event line (conductor scope only)")
+    p.add_argument("--event-type", default=None, choices=EVENT_TYPES,
+                   help="Run-log event type (conductor scope, required); the script "
+                        "composes the Event Log row — timestamp auto-generated")
+    p.add_argument("--worker", default=None,
+                   help="Run-log Worker cell (conductor scope; default: conductor)")
+    p.add_argument("--outcome", default=None,
+                   help="Run-log Outcome cell text (conductor scope, required)")
     p.add_argument("--artifact", default=None,
                    help="Deliverables Path cell value")
     p.add_argument("--reason", default=None,
                    help="Reason for deferral (required when --status deferred)")
     p.add_argument("--resume-note", default=None,
-                   help="Capsule resume-point bullet text (conductor scope; falls back to derived text if absent)")
+                   help="Capsule 'Last completed' bullet text (conductor scope; "
+                        "falls back to derived text if absent)")
+    p.add_argument("--next-dispatch", default=None,
+                   help="Capsule 'Next dispatch' bullet text (conductor scope, "
+                        "required — prevents a stale next-dispatch claim)")
     p.add_argument("--explain", action="store_true",
                    help="Preview mode — resolve targets, print diffs, exit without writing")
     return p.parse_args(argv)
@@ -220,6 +246,51 @@ def validate_capsule(content):
     """Check that the capsule has resume-point content. Returns error or None."""
     if "Resume Point" not in content and "resume" not in content.lower():
         return "state-capsule.md has no resume-point content"
+    return None
+
+
+_RESUME_LABEL_BULLET = re.compile(
+    r"^\s*[-*]\s+\*\*(" + "|".join(RESUME_LABELS) + r"):\*\*"
+)
+
+
+def validate_resume_point_fields(content):
+    """The Resume Point section must carry the template's three labeled bullets
+    (`Last completed` / `Next dispatch` / `Last update`), each exactly once.
+
+    The capsule lockstep writes INTO these labeled bullets — never over an
+    unlabeled first bullet (the pre-fix behavior that destroyed the label and
+    left the next-dispatch claim stale). A capsule without them is off the
+    template skeleton: REFUSE and point the conductor at regeneration
+    (state.md §3) rather than guess-writing. Returns an error string or None.
+    """
+    counts = {label: 0 for label in RESUME_LABELS}
+    current_section = None
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            current_section = stripped[3:].strip()
+            continue
+        if current_section == "Resume Point":
+            m = _RESUME_LABEL_BULLET.match(line)
+            if m:
+                counts[m.group(1)] += 1
+    missing = [label for label in RESUME_LABELS if counts[label] == 0]
+    if missing:
+        return (
+            f"capsule Resume Point is missing the labeled bullet(s) "
+            f"{missing}: the conductor-scope lockstep writes the "
+            f"'**Last completed:**' / '**Next dispatch:**' / '**Last update:**' "
+            f"fields and refuses any other shape — regenerate the capsule from "
+            f"the template skeleton (state.md §3)"
+        )
+    dups = [label for label in RESUME_LABELS if counts[label] > 1]
+    if dups:
+        return (
+            f"capsule Resume Point states the labeled bullet(s) {dups} more than "
+            f"once: each field is stated EXACTLY ONCE (state.md §3 "
+            f"volatile-facts-once)"
+        )
     return None
 
 
@@ -423,63 +494,91 @@ def append_run_log_event(content, event_line):
     return "\n".join(lines) + "\n"
 
 
-def check_run_log_dedup(content, event_line):
-    """Check if the exact event line already exists in the Event Log."""
-    event_stripped = event_line.strip()
-    for line in content.splitlines():
-        if line.strip() == event_stripped:
+def compose_event_row(timestamp, event_type, task_id, worker, outcome):
+    """Compose the 5-column Event Log row from structured fields."""
+    return f"| {timestamp} | {event_type} | {task_id} | {worker} | {outcome} |"
+
+
+def check_event_dedup(content, event_type, task_id, worker, outcome):
+    """Check if an Event Log row already exists for (event, task, worker, outcome).
+
+    The timestamp cell is IGNORED — the conductor-scope stamp auto-generates it,
+    so an exact-line match would never dedup a re-run. The key matches the
+    documented idempotency contract (state card §7): an identical re-stamp of the
+    same transition is a no-op; a genuinely new event for the same task differs
+    in event type or outcome text. Scoped to the '## Event Log' section so an
+    Exit Scorecard row can never produce a false dedup hit.
+    """
+    lines = content.splitlines()
+    start, end = _event_log_section_bounds(lines)
+    if start is None:
+        return False
+    for i in range(start, end):
+        stripped = lines[i].strip()
+        if not stripped.startswith("|"):
+            continue
+        cells = [c.strip() for c in stripped.split("|")]
+        if len(cells) != 7 or cells[1] == "Timestamp" or stripped.startswith("|---"):
+            continue
+        if (cells[2] == event_type and cells[3] == task_id
+                and cells[4] == worker and cells[5] == outcome):
             return True
     return False
 
 
-def update_capsule(content, new_resume_point, new_timestamp):
-    """Update the capsule's resume-point and timestamp fields. Returns new_content.
+def update_capsule(content, last_completed, next_dispatch, new_timestamp):
+    """Update the capsule Resume Point's three labeled bullets. Returns new_content.
 
-    Anchors to the first ``- **…**`` bullet under ``## Resume Point`` — not
-    terminal-only text — so the lockstep works on ACTIVE capsules whose resume
-    point reads ``- **NEXT: dispatch p3-2 …**`` instead of ``NONE … run is closed``.
-    Spec §S4: the capsule's RESUME fields are mutable; decisions are append-only.
+    Writes INTO the template's labeled bullets — ``- **Last completed:** …``,
+    ``- **Next dispatch:** …``, ``- **Last update:** …`` — section-anchored to
+    ``## Resume Point``, labels preserved. Other Resume Point bullets (and every
+    other section) are untouched. Spec §S4: the capsule's RESUME fields are
+    mutable; decisions are append-only. The caller validates the three bullets
+    exist (validate_resume_point_fields) before calling.
     """
+    replacements = {
+        "Last completed": last_completed,
+        "Next dispatch": next_dispatch,
+        "Last update": new_timestamp,
+    }
     lines = content.splitlines()
     new_lines = []
     i = 0
     in_resume_section = False
-    resume_point_updated = False
+    updated = set()
 
     while i < len(lines):
         line = lines[i]
         stripped = line.strip()
 
-        # Enter Resume Point section
         if stripped == "## Resume Point":
             in_resume_section = True
             new_lines.append(line)
             i += 1
             continue
 
-        # Exit Resume Point section (next ## heading)
         if in_resume_section and stripped.startswith("## "):
             in_resume_section = False
 
-        # First bullet under Resume Point → update resume point
-        if (in_resume_section and not resume_point_updated
-                and stripped.startswith("- **")):
-            new_lines.append(f"- **{new_resume_point}**")
-            resume_point_updated = True
+        m = _RESUME_LABEL_BULLET.match(line) if in_resume_section else None
+        if m and m.group(1) not in updated:
+            label = m.group(1)
+            new_lines.append(f"- **{label}:** {replacements[label]}")
+            updated.add(label)
             i += 1
-            # Skip continuation lines (indented content belonging to this bullet)
+            # Drop continuation lines (indented content belonging to the
+            # replaced bullet) so no stale fragment survives the rewrite
             while i < len(lines) and lines[i].startswith("    ") and lines[i].strip():
                 i += 1
             continue
 
-        # Last update line → update timestamp
-        if stripped.startswith("- **Last update:**"):
-            new_lines.append(f"- **Last update:** {new_timestamp}")
-            i += 1
-            continue
-
         new_lines.append(line)
         i += 1
+
+    if len(updated) != len(RESUME_LABELS):
+        raise ValueError(
+            "Resume Point labeled bullet(s) disappeared between validate and write"
+        )
 
     return "\n".join(new_lines) + "\n"
 
@@ -494,10 +593,13 @@ def main(argv=None):
     task_id = args.task
     status = args.status
     scope = args.scope
-    event = args.event
+    event_type = args.event_type
+    worker = args.worker
+    outcome = args.outcome
     artifact = args.artifact
     reason = args.reason
     resume_note = args.resume_note
+    next_dispatch = args.next_dispatch
     explain = args.explain
 
     errors = []
@@ -510,15 +612,47 @@ def main(argv=None):
         print(f"ERROR: --status deferred requires --reason", file=sys.stderr)
         sys.exit(1)
 
-    # worker scope cannot have --event
-    if scope == "worker" and event is not None:
-        print(f"ERROR: --event is conductor-only; scope '{scope}' cannot use --event", file=sys.stderr)
-        sys.exit(1)
+    # worker scope cannot use any conductor-only arg (§5 audience separation)
+    conductor_only = {
+        "--event-type": event_type,
+        "--worker": worker,
+        "--outcome": outcome,
+        "--resume-note": resume_note,
+        "--next-dispatch": next_dispatch,
+    }
+    if scope == "worker":
+        offending = sorted(flag for flag, value in conductor_only.items()
+                           if value is not None)
+        if offending:
+            print(f"ERROR: {', '.join(offending)} are conductor-only; "
+                  f"scope '{scope}' cannot use them", file=sys.stderr)
+            sys.exit(1)
 
-    # conductor scope requires --event
-    if scope == "conductor" and event is None:
-        print(f"ERROR: conductor scope requires --event", file=sys.stderr)
-        sys.exit(1)
+    # conductor scope requires the composed-row fields + the next-dispatch text
+    if scope == "conductor":
+        missing = sorted(flag for flag, value in (
+            ("--event-type", event_type),
+            ("--outcome", outcome),
+            ("--next-dispatch", next_dispatch),
+        ) if value is None)
+        if missing:
+            print(f"ERROR: conductor scope requires {', '.join(missing)}",
+                  file=sys.stderr)
+            sys.exit(1)
+        if worker is None:
+            worker = "conductor"
+        # Row cells must not break the table shape; bullet texts must be one line
+        for flag, value in (("--worker", worker), ("--outcome", outcome)):
+            if "|" in value:
+                print(f"ERROR: {flag} must not contain '|' (pipe) — it would "
+                      f"break the Event Log table row", file=sys.stderr)
+                sys.exit(1)
+        for flag, value in (("--worker", worker), ("--outcome", outcome),
+                            ("--resume-note", resume_note),
+                            ("--next-dispatch", next_dispatch)):
+            if value is not None and ("\n" in value or "\r" in value):
+                print(f"ERROR: {flag} must be a single line", file=sys.stderr)
+                sys.exit(1)
 
     # --- Resolve targets ---
 
@@ -600,7 +734,8 @@ def main(argv=None):
         if err:
             print(f"ERROR: {err}", file=sys.stderr)
             sys.exit(1)
-        run_log_dedup_hit = check_run_log_dedup(run_log_content, event)
+        run_log_dedup_hit = check_event_dedup(
+            run_log_content, event_type, task_id, worker, outcome)
 
     # 4b. Capsule validation (conductor only)
     if scope == "conductor":
@@ -611,6 +746,10 @@ def main(argv=None):
         struct_err = validate_capsule_structure(capsule_content)
         if struct_err:
             print(f"ERROR: {struct_err}", file=sys.stderr)
+            sys.exit(1)
+        fields_err = validate_resume_point_fields(capsule_content)
+        if fields_err:
+            print(f"ERROR: {fields_err}", file=sys.stderr)
             sys.exit(1)
 
     # --- Check for duplicates (ambiguous matches) ---
@@ -645,13 +784,20 @@ def main(argv=None):
             old_path = del_cells[3] if len(del_cells) > 3 else "(empty)"
             print(f"  Path: {old_path} → {artifact}  ({'changed' if del_path_changed else 'unchanged'})")
         if scope == "conductor":
+            from datetime import datetime, timezone
+            preview_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+            preview_row = compose_event_row(preview_ts, event_type, task_id,
+                                            worker, outcome)
             print(f"Run-log: {run_log_file}")
             if run_log_dedup_hit:
                 print(f"  event: DEDUP HIT — would skip append (unchanged)")
             else:
-                print(f"  event: would APPEND: {event}")
+                print(f"  event: would APPEND: {preview_row}")
             print(f"Capsule: {capsule_file}")
-            print(f"  resume-point + timestamp: would update")
+            preview_note = resume_note if resume_note else f"Stamp transition: {task_id} → {status}"
+            print(f"  Last completed: would set to: {preview_note}")
+            print(f"  Next dispatch: would set to: {next_dispatch}")
+            print(f"  Last update: would set to: {preview_ts}")
         sys.exit(0)
 
     # --- Test hook: pause before write (env-gated per rbtv-build-for-agent-testability) ---
@@ -748,6 +894,8 @@ def main(argv=None):
 
     # 4. Run-log append (conductor only, LAST)
     if scope == "conductor":
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
         if run_log_dedup_hit:
             results["run_log_event"] = "unchanged"
         else:
@@ -757,7 +905,8 @@ def main(argv=None):
             if err:
                 print(f"ERROR: re-read before write (run-log): {err}", file=sys.stderr)
                 sys.exit(1)
-            new_rl = append_run_log_event(fresh_rl, event)
+            event_row = compose_event_row(now, event_type, task_id, worker, outcome)
+            new_rl = append_run_log_event(fresh_rl, event_row)
             err = write_file_atomic(run_log_file, new_rl)
             if err:
                 print(f"ERROR: {err}", file=sys.stderr)
@@ -777,11 +926,13 @@ def main(argv=None):
             if struct_err:
                 print(f"ERROR: re-read before write (capsule): {struct_err}", file=sys.stderr)
                 sys.exit(1)
-            from datetime import datetime, timezone
-            now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+            fields_err = validate_resume_point_fields(fresh_cap)
+            if fields_err:
+                print(f"ERROR: re-read before write (capsule): {fields_err}", file=sys.stderr)
+                sys.exit(1)
             # ADX-17: conductor-supplied resume text with derived fallback
             resume_text = resume_note if resume_note else f"Stamp transition: {task_id} → {status}"
-            new_capsule = update_capsule(fresh_cap, resume_text, now)
+            new_capsule = update_capsule(fresh_cap, resume_text, next_dispatch, now)
             err = write_file_atomic(capsule_file, new_capsule)
             if err:
                 print(f"ERROR: {err}", file=sys.stderr)

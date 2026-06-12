@@ -8,7 +8,8 @@
 
 ## Resume Point
 
-- **NONE — the run is closed.** All 6 phases + all 6 checkpoints approved; all deliverables ✅ (see `deliverables.md`); Exit Scorecard filled (`run-log.md` § Exit Scorecard); honest exit reason: complete (close status COMPLETE PENDING USER ACTION — the crit-7 USER-EXECUTED `install.py` run remains with the owner, captured as a Must task).
+- **Last completed:** p6-checkpoint — the run is closed. All 6 phases + all 6 checkpoints approved; all deliverables ✅ (see `deliverables.md`); Exit Scorecard filled (`run-log.md` § Exit Scorecard); honest exit reason: complete (close status COMPLETE PENDING USER ACTION — the crit-7 USER-EXECUTED `install.py` run remains with the owner, captured as a Must task).
+- **Next dispatch:** FINAL — run complete
 - **Where everything lives:**
   - Audit: `run-log.md` (events + Exit Scorecard) · Decisions: `decisions.md` (D1–D3, D-exec-1..16, ADX-1..4) · Artifact index: `deliverables.md` · Learnings: `learnings.md` (processed at p6-compound)
   - Evidence: `1-projects/rbtv-evolution/coding/done-gate-evidence/rbtv/` — 6 build sheets (deepseek-pilot, chat-duo, deterministic-routing, conductor-integration, manus-pilot, orchestrated-pilot + captures)

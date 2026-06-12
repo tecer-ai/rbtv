@@ -8,7 +8,8 @@
 
 ## Resume Point
 
-- **NEXT: dispatch p3-1 to kimi** — Claude Agent-tool package (opus/sonnet tiers) build pending, then update routing card §2a.
+- **Last completed:** p2-checkpoint — Phase 2 approved
+- **Next dispatch:** p3-1 to kimi — Claude Agent-tool package (opus/sonnet tiers) build pending, then update routing card §2a.
 - **Where everything lives:**
   - Audit: `run-log.md` (events + Exit Scorecard) · Decisions: `decisions.md` (D1–D3, D-exec-1..16, ADX-1..4) · Artifact index: `deliverables.md` · Learnings: `learnings.md` (processed at p6-compound)
   - Evidence: `1-projects/rbtv-evolution/coding/done-gate-evidence/rbtv/` — 6 build sheets (deepseek-pilot, chat-duo, deterministic-routing, conductor-integration, manus-pilot, orchestrated-pilot + captures)
