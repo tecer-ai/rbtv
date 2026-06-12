@@ -187,16 +187,16 @@ def extract_motion_data(page):
             );
         }
 
-        // 8. Explicit no-motion flag when nothing meaningful is found
+        // 8. Explicit uncertainty flag when nothing meaningful is found
         const hasMotion = results.some(r =>
             ["css-transition", "css-animation", "keyframes-catalog", "hover-rules", "js-animation-library", "scroll-trigger-hints"].includes(r.pattern)
         );
         if (!hasMotion) {
             pushObservation(
-                "no-detectable-motion",
+                "settle-uncertain",
                 "page",
                 {},
-                "No CSS transitions, animations, hover motion rules, keyframes, JS animation libraries, or scroll-trigger attributes were detected."
+                "Zero motion detected — the page may be genuinely STATIC, OR motion had not attached by the settle window (networkidle + 2s). Treat as uncertain; re-run headed / with a longer settle to disambiguate."
             );
         }
 
@@ -254,6 +254,11 @@ def process_url(url, headless=True):
     return observations, error
 
 
+def has_settle_uncertain(observations):
+    """Return true when extraction found only an ambiguous zero-motion signal."""
+    return any(obs.get("pattern") == "settle-uncertain" for obs in observations)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Extract motion/interaction character from reference URLs.")
     parser.add_argument("--url", action="append", required=True, help="URL to analyze (can be given multiple times)")
@@ -279,6 +284,8 @@ def main():
             any_error = True
             all_results.append({"url": url, "error": error, "observations": []})
         else:
+            if has_settle_uncertain(observations):
+                print(f"WARN: settle-uncertain: {url} — zero motion; static OR settle missed it", file=sys.stderr)
             print(f"OK: {url} — {len(observations)} observation(s)", file=sys.stderr)
             all_results.append({"url": url, "observations": observations})
 

@@ -94,7 +94,7 @@ Every row in this registry carries these six fields. A worker can invoke a capab
 | Field | Value |
 |-------|-------|
 | **name** | image-gen |
-| **status** | `built` (at `p5-2`; done-gate exercised + independently cold-verified 2026-06-10 — live Gemini call `unexercisable` pending quota: free tier carries limit:0 on `gemini-3.1-flash-image`; credential + error paths verified, fixture provider fully exercised) |
+| **status** | `built` (at `p5-2`; done-gate exercised + independently cold-verified 2026-06-10 — live Gemini call exercised, quota resolved on the paid key, `--aspect` fixed 2026-06-12 (now uses `imageConfig.aspectRatio`); credential + error paths verified, fixture provider fully exercised) |
 | **entry point** | Usage doc: `studio/capabilities/image-gen/image-gen.md` (read it fully, then invoke) · CLI: `python studio/capabilities/image-gen/generate.py` (run from the repo root) |
 | **inputs** | `--prompt <text>` · `--out <path>` (format from extension: png/jpg) · `--provider gemini\|fixture` (optional, default gemini) · `--aspect <ratio>` (optional) · `--env-file <path>` (optional; key resolution = OS env `GEMINI_API_KEY` first, then the env-file path — never hardcoded) |
 | **outputs** | Image file at the `--out` path. Missing key → exit 1 naming the env var, no file written; provider failure → exit 1 with provider reason on stderr, no partial file |
@@ -112,7 +112,7 @@ Every row in this registry carries these six fields. A worker can invoke a capab
 | **status** | `built` (at `p5-3`; done-gate exercised + independently cold-verified 2026-06-10) |
 | **entry point** | Usage doc: `studio/capabilities/screenshot-capture/screenshot-capture.md` (read it fully, then invoke) · CLI: `python studio/capabilities/screenshot-capture/capture.py` (run from the repo root) |
 | **inputs** | `--url <URL>` (repeatable) · `--refs <reference-set-path>` (required) · `--viewport <WxH>` (optional, default 1440x900) · `--selector <css-selector>` (optional section capture) |
-| **outputs** | PNG file(s) in `<refs>/exemplars/` (versioned `-v{N}` on filename collision — never a silent overwrite; page height capped at 16000px) + one manifest row per capture in `<refs>/exemplars/manifest.md` `## Exemplars` table (current behavior inserts new rows at the TOP — most-recent-first; owner ordering ruling pending). Dead URL → exit non-zero, no file, no manifest row |
+| **outputs** | PNG file(s) in `<refs>/exemplars/` (versioned `-v{N}` on filename collision — never a silent overwrite; page height capped at 16000px) + one manifest row per capture in `<refs>/exemplars/manifest.md` `## Exemplars` table (current behavior inserts new rows at the TOP — most-recent-first; most-recent-first ordering ruled keep, 2026-06-12). Dead URL → exit non-zero, no file, no manifest row |
 | **spec / source pointer** | `1-projects/rbtv-evolution/design-module/design-module-v1-build/specs/screenshot-capture-spec.md` · usage doc above |
 
 ---

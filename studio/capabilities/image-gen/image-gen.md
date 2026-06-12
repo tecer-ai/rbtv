@@ -55,3 +55,4 @@ The key is never printed, logged, or echoed.
 ## Model
 
 Gemini adapter uses `gemini-3.1-flash-image` via the `v1beta` Generative Language REST API.
+Live Gemini generation is enabled with the paid key quota resolved. The default `gemini` provider supports `--aspect` through `generationConfig.imageConfig.aspectRatio`.

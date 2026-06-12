@@ -9,7 +9,6 @@ from pathlib import Path
 import requests
 
 API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent"
-DEFAULT_IMAGE_SIZE = "1024"
 
 
 def generate(prompt: str, out_path: str, fmt: str, aspect: str | None = None, api_key: str | None = None) -> None:
@@ -35,11 +34,8 @@ def generate(prompt: str, out_path: str, fmt: str, aspect: str | None = None, ap
     }
 
     if aspect:
-        body["generationConfig"]["responseFormat"] = {
-            "image": {
-                "aspectRatio": aspect,
-                "imageSize": DEFAULT_IMAGE_SIZE,
-            }
+        body["generationConfig"]["imageConfig"] = {
+            "aspectRatio": aspect,
         }
 
     resp = requests.post(API_ENDPOINT, headers=headers, json=body, timeout=120)

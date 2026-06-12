@@ -25,7 +25,7 @@ python studio/capabilities/extract-subtle-refs/extract.py --url <URL> --out <rep
 
 ## Outputs
 
-- **Markdown report** (`--out`): One section per URL. Each observation carries a pattern name, element anchor, observed values (duration/easing/transform/trigger), and a note.
+- **Markdown report** (`--out`): One section per URL. Each observation carries a pattern name, element anchor, observed values (duration/easing/transform/trigger), and a note. A zero-motion result is reported as `settle-uncertain`, because the page may be static OR the settle window may have missed late-attaching motion.
 - **Optional JSON** (`--json-out`): Raw observation array per URL.
 
 ## Behavior
@@ -40,7 +40,7 @@ python studio/capabilities/extract-subtle-refs/extract.py --url <URL> --out <rep
    - Scroll-behavior setting.
    - Detected JS animation libraries (GSAP, anime.js, AOS, etc.).
    - Scroll-trigger attribute hints (`data-aos`, `data-sr`, `data-scroll`).
-4. If no motion patterns are found, the report emits a `no-detectable-motion` observation whose note states that no CSS transitions, animations, hover motion rules, keyframes, JS animation libraries, or scroll-trigger attributes were detected. A static page therefore always yields a report (never an empty file): the `scroll-behavior` structural row plus the `no-detectable-motion` row. NOTE: a heavy or slow page whose motion has not yet attached when the settle window closes produces this SAME no-motion result with exit 0 — an empty-findings report is not proof the page is static.
+4. If no motion patterns are found, the report emits a `settle-uncertain` observation whose note states that zero motion was detected, and that the page may be genuinely static OR motion may not have attached by the settle window (`networkidle` + 2s). The CLI also writes `WARN: settle-uncertain: <url> — zero motion; static OR settle missed it` to stderr. This warning does not change exit-code behavior: a reachable static or uncertain page still exits 0.
 5. If the page is unreachable, exits non-zero with a reason written to stderr; no success report is produced.
 6. For heavy SPAs that cannot settle, the report names the limitation.
 

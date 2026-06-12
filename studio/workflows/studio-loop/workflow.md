@@ -35,6 +35,7 @@ The spine is artifact-general. Each beat reads two parameters from the active de
 |-----------|--------|----------------|-------------|
 | `artifact` | `deck` · `site` · `app` | The row noun and discovery shape: `deck` → slides; `site` → pages (multi-page, image/animation-led; see `forks/site.md`); `app` → screens (discovery forks to goal→user-flow; output = plain HTML UI + UX companion docs; see `forks/app.md`). All three forks are built; site/app forks live at `forks/site.md` and `forks/app.md`. | design-state `artifact`; default `deck` (this file's frontmatter) |
 | `mode` | `blank-slate` · `audit` (deferred) | Whether the run starts from nothing (blank-slate) or audits an existing artifact (audit/improve-existing — deferred to a future plan, never built in v1). | design-state `mode`; default `blank-slate` |
+| `critic` | `on` · `off` | Whether the v1.1 structural critic runs its comparative taxonomy pass at the design beats. Advisory only — it NEVER gates the loop. | design-state `critic`; default `off` |
 
 **Fork conditional rules (binding on every beat):**
 

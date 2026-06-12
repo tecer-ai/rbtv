@@ -177,6 +177,17 @@ def capture_single(
     with Image.open(out_path) as img:
         actual_w, actual_h = img.size
 
+    out_hash = file_hash(out_path)
+    for existing_path in exemplars_dir.glob("*.png"):
+        if existing_path.resolve() == out_path.resolve():
+            continue
+        if file_hash(existing_path) == out_hash:
+            sys.stderr.write(
+                "WARN: duplicate-capture: "
+                f"{out_path.name} is byte-identical to existing {existing_path.name}\n"
+            )
+            break
+
     # Append manifest row
     if not dry_run:
         append_manifest_row(

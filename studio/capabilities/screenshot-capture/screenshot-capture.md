@@ -24,7 +24,7 @@ python studio/capabilities/screenshot-capture/capture.py \
 ## Outputs
 
 - PNG file(s) in `<refs>/exemplars/`
-- One manifest row appended per capture to `<refs>/exemplars/manifest.md`
+- One manifest row inserted per capture at the TOP of the `<refs>/exemplars/manifest.md` `## Exemplars` table (most-recent-first)
 
 ## Dependencies
 
@@ -43,12 +43,13 @@ No additional packages required.
 | Full-page | No `--selector` | Entire page rendered at `--viewport`; file capped at 16000 px height if necessary |
 | Section | `--selector <css>` | Only the matched element is captured |
 | Versioning | Filename collision on same day | Automatic `v{N}` suffix; existing files are never overwritten |
-| Dead URL | Navigation failure / timeout | Non-zero exit; no file written; no manifest row appended |
+| Duplicate capture | Output PNG byte-identical to an existing exemplar | Warning to stderr naming both files; capture still proceeds |
+| Dead URL | Navigation failure / timeout | Non-zero exit; no file written; no manifest row inserted |
 | Overlays | Cookie / consent banners survive dismissal | Capture proceeds; manifest scope flags `overlay-present` |
 
 ## Manifest Row Contract
 
-Each successful capture appends one row with the fields required by the reference-set manifest:
+Each successful capture inserts one most-recent-first row with the fields required by the reference-set manifest:
 
 ```
 | filename | source_url | capture_date | viewport | scope |
