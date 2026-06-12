@@ -263,32 +263,38 @@ class F5CommentTests(unittest.TestCase):
         self.assertTrue(marker)
 
     def test_tagging_does_not_move_marker(self):           # E-F5-13
+        # The marker is `position:absolute` anchored in DOCUMENT space via
+        # style.top/left (= anchor rect + scrollY/scrollX). "Does not move" means
+        # its DOCUMENT-space anchor is invariant across tagging. The earlier
+        # version compared getBoundingClientRect() (VIEWPORT-relative) coords,
+        # which are scroll-dependent: the tag-agent flow runs refreshCommentPanel(),
+        # whose relayout shifts the iframe scroll, and Playwright's auto-scroll on
+        # the pre-tag .slide-title click leaves scrollY at one of two values
+        # run-to-run. That made viewport-top flip between ~514 and ~253 with the
+        # marker perfectly anchored (style.top stayed 639px in every run) — a
+        # flaky assertion against the wrong coordinate space. Asserting style.top/
+        # left (scroll-independent) tests the real intent and still fails loudly if
+        # tagging ever re-anchors or repositions the marker.
         self._open_composer()
         self._type_and_submit("stable anchor")
 
-        before = H.doc_eval(
-            self.page,
-            """const m = doc.querySelector('.hyp-comment-marker');
+        probe = """const m = doc.querySelector('.hyp-comment-marker');
                if (!m) return null;
                const r = m.getBoundingClientRect();
-               return {top:r.top, left:r.left, width:r.width, height:r.height, display:m.style.display};""",
-        )
+               return {top:m.style.top, left:m.style.left,
+                       width:r.width, height:r.height, display:m.style.display};"""
+
+        before = H.doc_eval(self.page, probe)
         self.assertIsNotNone(before)
 
         self.page.locator("#comment-threads .comment-agent-toggle").first.click()
         self.page.wait_for_timeout(300)
 
-        after = H.doc_eval(
-            self.page,
-            """const m = doc.querySelector('.hyp-comment-marker');
-               if (!m) return null;
-               const r = m.getBoundingClientRect();
-               return {top:r.top, left:r.left, width:r.width, height:r.height, display:m.style.display};""",
-        )
+        after = H.doc_eval(self.page, probe)
         self.assertIsNotNone(after)
 
-        self.assertEqual(before["top"], after["top"])
-        self.assertEqual(before["left"], after["left"])
+        self.assertEqual(before["top"], after["top"], "marker document-space top moved on tagging")
+        self.assertEqual(before["left"], after["left"], "marker document-space left moved on tagging")
         self.assertEqual(before["width"], after["width"])
         self.assertEqual(before["height"], after["height"])
         self.assertEqual(before["display"], after["display"])
