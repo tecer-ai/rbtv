@@ -1,0 +1,20 @@
+{
+  "flow": "EDITOR open -> #save-as-btn -> reopen saved",
+  "saved_file_exists": true,
+  "dest_assets_listing": [
+    "bg-dark-threads.jpg",
+    "closing-bg.jpg",
+    "cover-bg.jpg",
+    "founder-guilherme.png",
+    "founder-henrique.jpeg",
+    "founder-luiz.jpeg",
+    "gsmm-logo.png",
+    "tecer-wordmark-white.png"
+  ],
+  "dest_assets_count": 8,
+  "status_text": "",
+  "editor_cover_bg_loads_after_reopen": {
+    "ok": true,
+    "w": 1600
+  }
+}

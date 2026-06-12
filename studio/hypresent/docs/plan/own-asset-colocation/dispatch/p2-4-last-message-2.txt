@@ -1,0 +1,21 @@
+status: DONE_WITH_NOTES
+
+landed:
+Modified only allowlisted files:
+`studio/hypresent/server/deck_api.py`
+`studio/hypresent/app/js/builder/deck-save.js`
+`studio/hypresent/app/js/builder/builder-main.js`
+`studio/hypresent/tests/test_deck_api.py`
+
+validation:
+`git diff --check -- <allowlist>` · EXIT 0 · WALL_MS ~900  
+`node --check deck-save.js` · EXIT 0 · WALL_MS ~800  
+`node --check builder-main.js` · EXIT 0 · WALL_MS ~1100  
+Scoped allowlist diff check · EXIT 0 · WALL_MS ~700  
+SKIPPED_COUNT: 1 — pytest/e2e/headed proof skipped exactly per dispatch; conductor runs repo Python and headed warning proof.
+
+concerns:
+The rbtv worktree already has foreign uncommitted changes outside the allowlist; I left them untouched. Git emitted existing CRLF/config-ignore warnings during diff checks.
+
+open_questions:
+None.

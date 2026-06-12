@@ -1,0 +1,9 @@
+status: DONE_WITH_NOTES
+
+landed: Modified only allowlisted files: `studio/hypresent/server/deck_api.py`, `studio/hypresent/tests/test_deck_api.py`. Added chrome scanning outside section spans, copying/missing/skip behavior for head CSS `url("assets/...")`, and unit coverage for copy, missing, and section-copied skip cases.
+
+validation: `git -C ... diff --name-only HEAD` EXIT 0 WALL_MS ~1200. `SKIPPED_COUNT: 1` — pytest/e2e/headed proof intentionally not run per dispatch: sandbox cannot execute repo Python; conductor runs validation.
+
+concerns: Working tree already contains unrelated uncommitted files outside the allowlist; I did not touch them. Tests are correct by inspection only.
+
+open_questions: none.

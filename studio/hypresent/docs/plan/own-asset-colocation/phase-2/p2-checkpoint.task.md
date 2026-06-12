@@ -1,6 +1,6 @@
 ---
 task_id: p2-checkpoint
-status: pending
+status: in_progress
 complexity_score: 6
 human_review: required
 ---

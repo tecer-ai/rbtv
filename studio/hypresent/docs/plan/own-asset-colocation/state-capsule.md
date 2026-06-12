@@ -10,9 +10,9 @@
 
 ## Resume Point
 
-- **Last completed:** Phase 1 committed `3ce0400` (52/52 green); p2-1 done-gate proved editor-render + disk-colocation but SURFACED a blocker
-- **Next dispatch:** p2-3 — root-cause the live builder save-to-new-dir asset-copy BUG (see `./phase-2/p2-3-builder-save-asset-copy-bug.task.md`). Then p2-2, p2-refs, p2-checkpoint.
-- **Last update:** 2026-06-12T03:40Z
+- **Last completed:** p2-6 resolved (second save endpoint); owner re-test PASSED
+- **Next dispatch:** focused opus review of p2-7 diff -> commit wave (rbtv-commit) -> p2-checkpoint complete -> close
+- **Last update:** 2026-06-12T16:34Z
 
 ## Run Configuration
 
@@ -26,16 +26,16 @@
 
 | Batch | Phase | Tasks | Worker (model, variant) | Reviewer timing | Refresh candidate |
 |-------|-------|-------|-------------------------|-----------------|-------------------|
-| B-bug | 2 | p2-3 (live-bug root-cause) | top-tier opus debug role (live-debug-with-owner — needs the real builder + a captured payload) | HALT (human) | — |
-| B5 | 2 | p2-2 | codex-cli:default (conductor runs e2e) | opus | — |
-| B6 | 2 | p2-refs + p2-checkpoint | claude-code-native:opus | HALT (human) | — |
+| B-live | 2 | p2-6 (owner-flow divergence) | live-debug-with-owner (Step-0 owner narration; then conductor probes or top-tier debug worker) | HALT (human) | — |
 
 ## Completed Batches
 
 | Batch | Phase | Tasks | Worker | Status | Reviewer |
 |-------|-------|-------|--------|--------|----------|
 | B1-B3 | 1 | p1-1, p1-2, p1-checkpoint | codex (build) + opus (review) | DONE — committed `3ce0400`, 52/52 green | opus §2 PASS + owner approved |
-| B4 | 2 | p2-1 | sonnet (done-gate) | DONE_WITH_NOTES — editor-render + disk-colocation PROVEN; surfaced p2-3 blocker + builder srcdoc gap | conductor cold-verify |
+| B4, B-bug, B5, B6 | 2 | p2-1, p2-3, p2-2, p2-refs + checkpoint-eval | sonnet / opus / codex | DONE (see run-log) — editor render, root-cause evidence, e2e regression test, all-PASS review | conductor gates PASS |
+| B7 | 2 | p2-4 (warning) | codex 0.137.0 / gpt-5.5 (default) | DONE — warning headed-proven (`p2-4-warning-probe.json`); 64/64 | conductor gate PASS + re-checkpoint opus PASS |
+| B8 | 2 | p2-5 (chrome colocation) | codex 0.137.0 / gpt-5.5 (default) | DONE — real gsmm deck: all 8 assets + editor cover-bg render (`p2-5-real-gsmm-proof.json`); 67/67 | conductor gate PASS + re-checkpoint opus PASS |
 
 ## Active Red Sets
 
@@ -45,13 +45,12 @@
 ## Active Doubts / Blockers
 
 - **Doubt escalated:** none
-- **Blocker:** **p2-3 — real builder save-to-new-dir copies NO own-assets, even on a fresh server, despite committed code passing 52/52 tests AND a direct `handle_deck_save` call copying 5 assets. Live-path divergence UNRESOLVED. Decisive next step: instrument `/api/deck-save`, capture the real payload (`source_path`/`out_path`/`items`/`source_root`/assets existence). Full plan in the p2-3 task file.**
-- **Checkpoint awaiting user approval:** run HALTED at owner instruction (capture-not-solve); p2-checkpoint not reached.
+- **Blocker:** **p2-6 — the OWNER's real save still copies no assets after p2-4+p2-5, while every probe (direct handler ×2 real gsmm decks; headed builder UI ×3 decks incl. the real gsmm intro = all 8 assets) is green. The divergence lives in something his flow does that no probe replicated. Full corpus + investigation order in `./phase-2/p2-6.task.md`.**
+- **Checkpoint awaiting user approval:** p2-checkpoint REJECTED twice (option-B ruling, then failed re-test); re-runs only after p2-6 closes.
 
 ## Notes for Resuming Conductor
 
-- **RUN HALTED 2026-06-12 — phase 1 committed `3ce0400`; phase 2 BLOCKED on p2-3 (live builder save bug).** Owner asked to capture + stop, not solve. Resume by executing `./phase-2/p2-3-builder-save-asset-copy-bug.task.md`.
-- **Repro that WORKS (code is correct in isolation):** direct `handle_deck_save` on `5-workbench/tecer-biz/investors/_decks/pitch-deck/small-deck-v3/tecer-pitch-deck.html` copies 5 assets (command in the p2-3 task file). The bug is in the LIVE builder→server path only.
-- **Source task updated:** `2-areas/rbtv/rbtv-tasks.md` → "Implement own-asset handling…" carries a `_Status (2026-06-12)_` bullet + plan link.
-- **Two separate lower-priority follow-ups (decisions.md):** builder thumbnail `srcdoc` `<base>` gap (renders no relative asset, pre-existing, orthogonal); `assets_renamed` not shown in the builder status bar.
-- hypresent server: `python server/server.py` on 127.0.0.1:8765, stdlib http.server, **NO auto-reload** (restart to load code). `pytest`/e2e: `python -m pytest` from hypresent (global Python312 has pytest 9.0.3 + playwright chromium 1223). codex sandbox can't run repo python → conductor runs all validation (decisions.md). `rbtv-coding-discipline` skill not installed (rbtv-reasoning-equivalent). stamp.py CLI was reworked mid-run by a parallel session (`--event-type`/`--worker`/`--outcome`/`--next-dispatch`).
+- **UNCOMMITTED VALIDATED WAVE — parallel-session exposure.** p2-4+p2-5 code sits uncommitted in the rbtv working tree: `studio/hypresent/server/deck_api.py`, `app/js/builder/{builder-main,deck-save}.js`, `tests/test_deck_api.py`, `tests/e2e/test_pb11_deck_save.py`, `tests/e2e/p2_3_live_repro.py` (+ plan-state under `docs/plan/own-asset-colocation/**`). HEAD moved to `08206c9` via a parallel session mid-run. Before ANY staging: `git status` + per-file `git diff` to confirm the deltas survive; commit via `rbtv-commit`, explicit pathspecs, never `git add -A`. A parallel `git restore` would wipe validated work — p2-6 names the re-derivation sources if that happens.
+- **Owner's deck candidates:** real (WITH assets): `5-workbench/tecer-biz/prospects/gsmm/presentations/2026-06-02-introduction/tecer-gsmm-introduction.html`, `…/2026-06-11-board/tecer-gsmm-board-v8.html`. Trap copies (NO assets, KEEP as repro material until p2-6 closes): hypresent root `tecer-gsmm-introduction.html`, `tecer-gsmm-introduction-test-v3.html`.
+- **Vault follow-ups captured in `2-areas/rbtv/rbtv-tasks.md` (2026-06-12):** builder srcdoc `<base>` gap; flaky `test_r2_resize_real.py::test_control_box_aligns_with_target`; `assets_renamed` not surfaced in builder status bar. The main vault task carries the p2-6 pointer.
+- hypresent server: `python server/server.py` on 127.0.0.1:8765, stdlib http.server, **NO auto-reload** (restart to load the uncommitted code). `python -m pytest` from the hypresent app dir. codex sandbox can't run repo python → conductor runs all validation. Known pre-existing flakes (outside the named 3-file suite): `test_f5_comments.py::test_tagging_does_not_move_marker`, `test_r2_resize_real.py::test_control_box_aligns_with_target`.

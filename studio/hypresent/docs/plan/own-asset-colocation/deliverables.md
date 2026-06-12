@@ -26,10 +26,14 @@
 | Task | Artifact | Path | Status |
 |------|----------|------|--------|
 | p2-1 | Headed done-gate evidence — real deck copy renders own images in builder + editor (incl. collision case) | `./phase-2/done-gate-evidence/` | ⏸ deferred (done-gate PROVEN editor-render + disk colocation; surfaced the p2-3 live-path bug + builder srcdoc gap) |
-| p2-2 | Save-to-new-dir own-asset regression assertion | `tests/e2e/test_pb11_deck_save.py` | pending |
-| p2-3 | BUG fix — real builder save-to-new-dir copies no own-assets (live-path divergence) | `server/deck_api.py` / live save path (TBD at root-cause) | pending (next session) |
-| p2-refs | Plan-folder link validation result | `./decisions.md` (Discovery entry only if a violation is found) | pending |
-| p2-checkpoint | Final evaluation findings + user approval to complete | `./decisions.md` (Checkpoint entry) | pending |
+| p2-2 | Save-to-new-dir own-asset regression assertion | tests/e2e/test_pb11_deck_save.py | ✅ |
+| p2-3 | BUG fix — real builder save-to-new-dir copies no own-assets (live-path divergence) | phase-2/done-gate-evidence/2026-06-12-p2-3-live-save-bug.md | ✅ |
+| p2-refs | Plan-folder link validation result | `./decisions.md` (Discovery entry only if a violation is found) | ✅ |
+| p2-4 | `assets_missing` response field + non-blocking builder warning (owner option-B ruling) + unit tests + headed warning proof | server/deck_api.py, app/js/builder/{deck-save,builder-main}.js, tests/test_deck_api.py | ✅ |
+| p2-5 | Chrome (head-CSS) own-asset colocation + `assets_missing` coverage + unit tests + headed real-gsmm proof | server/deck_api.py, tests/test_deck_api.py, phase-2/done-gate-evidence/p2-5-real-gsmm-proof.json | ✅ |
+| p2-6 | Root cause of the owner's post-p2-5 re-test failure + fix + owner-flow headed proof + wave commit | `./phase-2/p2-6.task.md` (investigation corpus); evidence to `./phase-2/done-gate-evidence/` | ✅ |
+| p2-7 | Editor/bridge save-as colocation (shared helper + handle_save_as extension) + unit tests + headed editor-save proof | server/api.py, server/deck_api.py, tests/test_api_save.py, phase-2/done-gate-evidence/p2-7-editor-saveas-proof.json | ✅ |
+| p2-checkpoint | Final evaluation findings + user approval to complete | `./decisions.md` (Checkpoint entry) | in-progress |
 
 **Status values:** `pending` | `in-progress` | `✅` | `⏸ deferred` — deferrals carry a parenthetical reason in the cell.
 

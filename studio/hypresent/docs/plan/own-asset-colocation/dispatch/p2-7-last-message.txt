@@ -1,0 +1,9 @@
+status: DONE_WITH_NOTES
+
+landed: Modified `studio/hypresent/server/api.py`, `studio/hypresent/server/deck_api.py`; created `studio/hypresent/tests/test_api_save.py`. No commit/stage/push.
+
+validation: `git status --short studio/hypresent/server/api.py studio/hypresent/server/deck_api.py studio/hypresent/tests/test_api_save.py` EXIT 0 WALL_MS ~700. SKIPPED_COUNT: 1; skipped `python -m pytest tests/test_deck_api.py tests/test_recompose.py -q` and e2e per dispatch: sandbox cannot execute repo Python; conductor runs validation.
+
+concerns: Repo has substantial pre-existing uncommitted foreign state outside this task’s allowlist; left untouched. Git emitted existing permission/line-ending warnings during status/diff.
+
+open_questions: none.
