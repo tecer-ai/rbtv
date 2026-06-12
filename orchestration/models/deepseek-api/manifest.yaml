@@ -9,7 +9,7 @@
 
 model: deepseek-api
 display: "deepseek (API)"
-evidence_status: validated   # live-confirmed 2026-06-09 (p6-1 orchestrated pilot, D-exec-15): the text-leaf worker path ran end-to-end on a real paid DeepSeek call (exit 0, valid envelope); v4-flash/v4-pro ids + prices independently confirmed live by two paid workers. NOTE: the pilot dispatched via the deepseek-chat alias — the v4 ids were id/price-confirmed live, not each separately exercised end-to-end.
+evidence_status: validated   # live-confirmed 2026-06-09 (p6-1, D-exec-15): the text-leaf worker path ran end-to-end on a real paid DeepSeek call. Per-id integration confirmed 2026-06-11: deepseek-v4-flash AND deepseek-v4-pro each ran end-to-end through run.py (exit 0, json_parsed, finish_reason stop) — removes the prior "ids confirmed but not each exercised" caveat. Evidence: 2-areas/rbtv/coding/done-gate-evidence/rbtv/2026-06-11-worker-tier-benchmark.md.
 
 variants:
   - variant: v4-flash   # DeepSeek V4-Flash — best cost/benefit API worker
@@ -20,7 +20,7 @@ variants:
     # compatibility aliases are REMOVED 2026-07-24 15:59 UTC — never dispatch them; use the v4 ids.
 
     # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: mid            # V4-Flash supports Thinking Mode (routing-matrix §2) — partially-bounded with doubt_policy: halt; NOT a judgment-dense top-tier pick
+    reasoning_tier: mid            # HELD at mid + doubt_policy: halt. ⚑ UNDER-RATED per published benchmark (DeepSeek V4-Flash: 79.0% SWE-V ≈ Sonnet 79.6, AA Intelligence Index 1388) — a judgment-pilot candidate, but NOT bumped: SWE measures code, not judgment, and no judgment-dense pilot run (re-sourced from routing-matrix estimate → benchmark, 2026-06-11)
     context_window: 1000000        # 1M tokens per routing-matrix §2; re-verify against provider docs before pilot
     max_output: 384000             # 384k per routing-matrix §2; re-verify against provider docs before pilot
 
@@ -83,7 +83,7 @@ variants:
     # model id is `deepseek-v4-pro` (id + price live-confirmed 2026-06-09, p6-1 pilot, D-exec-15).
 
     # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: top            # V4-Pro = max reasoning quality (routing-matrix §2 "Logical reasoning — Thinking Mode"); judgment-dense tasks
+    reasoning_tier: top            # benchmark-corroborated (was routing-matrix estimate): DeepSeek V4-Pro 80.6% SWE-V (≥ Sonnet 79.6) + Artificial Analysis #2 open-weight reasoning model (2026-06-11). Judgment-dense tasks.
     context_window: 1000000        # 1M tokens per routing-matrix §2; re-verify against provider docs before pilot
     max_output: 384000             # 384k per routing-matrix §2; re-verify against provider docs before pilot
 

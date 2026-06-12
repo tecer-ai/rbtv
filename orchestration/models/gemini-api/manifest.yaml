@@ -16,7 +16,7 @@
 
 model: gemini-api
 display: "gemini (API)"
-evidence_status: validated   # live-confirmed 2026-06-09 (p6-1 orchestrated pilot, D-exec-15): the Gemini worker path ran end-to-end on a real paid call (exit 0); variant ids + prices independently confirmed live. NOTE: the pilot dispatched gemini-2.5-flash — the 3.5-flash/3.1-flash-lite ids were id/price-confirmed live, not each separately exercised end-to-end.
+evidence_status: validated   # live-confirmed 2026-06-09 (p6-1, D-exec-15): the Gemini worker path ran end-to-end on a real paid call. Per-id integration confirmed 2026-06-11: gemini-3.5-flash AND gemini-3.1-flash-lite each ran end-to-end through run.py (exit 0, envelope_valid, finish_reason stop) — removes the prior "ids confirmed but not each exercised" caveat. CAVEAT: model self-reported ids are unreliable (the smoke content mislabeled itself) — this attests the runner↔provider path per --model id, NOT which model answered; id↔price binding stands on D-exec-15. Evidence: 2-areas/rbtv/coding/done-gate-evidence/rbtv/2026-06-11-worker-tier-benchmark.md.
 
 variants:
   - variant: 3.5-flash   # Gemini 3.5 Flash — best intelligence / mid-cost API worker
@@ -26,7 +26,7 @@ variants:
     # to the runner via --model at dispatch time.
 
     # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: top             # 3.5 Flash = frontier reasoning with Thinking Tokens (routing-matrix §4); judgment-dense tasks
+    reasoning_tier: top             # benchmark-corroborated (was routing-matrix estimate): Gemini 3.5 Flash 78% SWE-V (Google) ≈ Sonnet, frontier reasoning with Thinking Tokens (2026-06-11); judgment-dense tasks
     context_window: 1000000         # 1M tokens per Google Gemini Flash class; re-verify against provider docs before pilot
     max_output: 8192                # conservative estimate — re-verify against provider docs before pilot; routing-matrix §4 does not specify
 
@@ -92,7 +92,7 @@ variants:
     # Gemini API model id (`gemini-3.1-flash-lite`, id + price live-confirmed 2026-06-09, p6-1 pilot, D-exec-15).
 
     # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: mid             # 3.1 Flash-Lite = cost-optimized with Thinking support (routing-matrix §4); partially-bounded with doubt_policy: halt
+    reasoning_tier: mid             # confirmed mid (was routing-matrix estimate): Gemini 3.1 Flash-Lite GPQA Diamond 86.9 — above Haiku, below the Flash tier; cost-optimized with Thinking support; partially-bounded with doubt_policy: halt (2026-06-11)
     context_window: 1000000         # 1M tokens per Google Gemini Flash class; re-verify against provider docs before pilot
     max_output: 8192                # conservative estimate — re-verify against provider docs before pilot; routing-matrix §4 does not specify
 

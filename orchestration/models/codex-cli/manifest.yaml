@@ -5,15 +5,19 @@
 #          model_reasoning_effort = medium) + investor run B4D
 #          (cp-rbtv-plan-orchestration-nested-subagent-isolation-validation.md, row B4D/p4-4:
 #          the opt-in Codex backend ran as a SEPARATE OS PROCESS and gave LIVE context isolation).
-# Evidence boundary: separate-process isolation is the ONE live-proven property; the full headless
-# worker contract (return parsing, exit taxonomy, confinement reliability, resume-in-loop) is
-# UNPILOTED — hence evidence_status: probe-pending. The p5-2 smoke probe is the first real dispatch.
+# Evidence boundary: the full headless worker contract IS NOW VALIDATED — 2026-06-11, hypresent
+# ui-bugfix run: codex 0.137.0 / gpt-5.5 default ran ~10 bounded-code dispatches end-to-end (exit 0,
+# each conductor-reconciled vs disk, no out-of-allowlist writes; stdin-hang guard fixed in rbtv@1733b17).
+# Evidence: studio/hypresent/docs/plan/ui-bugfix-2026-06-11/{run-log.md, evidence/fix-*-return.txt} +
+# 2-areas/rbtv/coding/done-gate-evidence/rbtv/2026-06-11-worker-tier-benchmark.md. Residual: only the
+# `default` variant (gpt-5.5, effort medium) was exercised; the high-reasoning (effort=high) variant
+# shares the CLI contract but was not separately run. Exit taxonomy + resume-in-loop remain UNPILOTED.
 # The exact invocation shape (commands, flags, sandbox/approval grammar, resume) is in ./manual.md
 # (rendered from ./delta.md by ../render-manuals.py) — this manifest points to it, never duplicates it.
 
 model: codex-cli
 display: "codex (CLI)"
-evidence_status: probe-pending   # invocable + separate-process isolation live-proven once (B4D); full headless worker contract authored from `codex exec --help`, not pilot-validated
+evidence_status: validated   # full headless worker contract VALIDATED 2026-06-11 (hypresent ui-bugfix: ~10 bounded-code dispatches via codex 0.137.0 / gpt-5.5 default, all exit 0, disk-reconciled). Only `default` (effort medium) exercised — high-reasoning (effort=high) shares the contract but is unexercised; exit/retry taxonomy + resume-in-loop still UNPILOTED. Evidence: 2-areas/rbtv/coding/done-gate-evidence/rbtv/2026-06-11-worker-tier-benchmark.md
 permission_rules:            # installer-managed allowlist entries in the target's .claude/settings.local.json (D17) — added when this package is elected, removed when deselected; schema: ../manifest-schema.md
   - "Bash(codex:*)"
   - "PowerShell(codex:*)"
@@ -22,7 +26,7 @@ variants:
   - variant: default   # machine config: model = gpt-5.5, model_reasoning_effort = medium; the mid-tier partially-bounded profile
 
     # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: mid             # partially-bounded code/analysis with doubt_policy: halt; the boundedness-to-effort mapping for codex is UNPILOTED (probe-pending)
+    reasoning_tier: mid             # partially-bounded code/analysis with doubt_policy: halt. code_competence corroborated by published benchmark (GPT-5.5: SWE-bench Pro 58.6, Terminal-Bench 2.0 82.7% SOTA) AND today's live run; reasoning_tier HELD at mid (SWE measures code, not judgment — judgment-dense effort=high mapping still UNPILOTED)
     context_window: 272000          # gpt-5.5 family input budget (~272K); NOT separately discoverable from local codex config — re-confirm against the configured model before routing large inlined context
     max_output: 128000              # gpt-5.5 family single-turn output ceiling (~128K); model/provider-determined, not exposed in local codex config
 

@@ -34,7 +34,7 @@ variants:
   - variant: default   # qwen3.6-plus — the configured model.name (no -m needed); native Apr-2026 flagship coder. The home backend.
 
     # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: mid             # capable coder (Qwen3.6 flagship) but NOT pilot-validated as a top-tier judgment worker — partially-bounded, doubt_policy: halt (report §15)
+    reasoning_tier: mid             # HELD at mid + doubt_policy: halt. ⚑ UNDER-RATED per published benchmark (Qwen3.6-Plus 78.8% SWE-V, independent: HF/Willison/Register ≈ Sonnet 79.6) — judgment-pilot candidate, NOT bumped (SWE measures code; code_competence already strong; judgment unpiloted). Re-sourced from spec → benchmark 2026-06-11
     context_window: 1048576         # 1M native (qwen3.6-plus); the configured ModelStudio backend. Earlier 131072 figure was the local-setup docs EXAMPLE, not this backend (research §3)
     max_output: 65536               # qwen3.6-plus single-turn cap (research §3). Smaller than the DeepSeek backends (384K) — the routing distinction for large-output code tasks
     cost_class: low                 # DashScope tiered: $0.28/$1.65 per 1M (0–256K band) (research §3 [4][5]). ModelStudio-US billing unconfirmed (research Q2) — reference-derived
@@ -108,7 +108,7 @@ variants:
 
   - variant: deepseek-flash   # -m deepseek-v4-flash — DeepSeek V4 efficiency tier (284B MoE, 13B active) via ModelStudio US. The cheapest large-output code executor.
     # Differs from `default` on: max_output (384K vs 65536 — large-output code), and provider/specialty. Shares the qwen CLI contract.
-    reasoning_tier: mid             # strong coder, efficiency tier; NOT pilot-validated as top-tier judgment — partially-bounded, doubt_policy: halt
+    reasoning_tier: mid             # HELD at mid + doubt_policy: halt. ⚑ UNDER-RATED per published benchmark (DeepSeek V4-Flash 79.0% SWE-V ≈ Sonnet, AA index 1388) — judgment-pilot candidate, NOT bumped (code metric, not judgment). Re-sourced from spec → benchmark 2026-06-11
     context_window: 1048576         # 1M (research §3 [3])
     max_output: 384000              # 384K max (research §3 [3]) — 6× the default backend; the large-output code distinction
     cost_class: low                 # $0.14/$0.28 per 1M first-party (research §3 [3]) — the cheapest backend. ModelStudio-US billing unconfirmed (research Q2) — reference-derived
@@ -147,7 +147,7 @@ variants:
 
   - variant: deepseek-pro   # -m deepseek-v4-pro — DeepSeek V4 flagship (1.6T MoE, 49B active) via ModelStudio US. The heavier-reasoning code/agentic backend.
     # Differs from `deepseek-flash` on: reasoning_tier (top) and cost_class (mid). The fleet's top-reasoning qwen-carrier backend.
-    reasoning_tier: top             # top from spec (DeepSeek V4 Pro flagship MoE, frontier reasoning) — NOT pilot-validated for judgment-dense work here; evidence_status probe-pending below + reviewer floor opus → treat with doubt_policy: halt until a judgment pilot. The field that makes `pro` non-dominated vs `flash`
+    reasoning_tier: top             # benchmark-corroborated (was spec-derived): DeepSeek V4-Pro 80.6% SWE-V (≥ Sonnet) + Artificial Analysis #2 open-weight reasoning (2026-06-11). Bounded-code execution validated; judgment-dense work still NOT piloted here → keep doubt_policy: halt + opus reviewer floor until a judgment pilot. The field that makes `pro` non-dominated vs `flash`
     context_window: 1048576         # 1M (research §3 [3])
     max_output: 384000              # 384K max (research §3 [3])
     cost_class: mid                 # $0.435/$0.87 per 1M first-party (research §3 [3]) — ~3× flash. ModelStudio-US billing reference-derived — owner ELECTED to leave it reference-derived 2026-06-10 (research Q2 closed owner-accepted, no console read)
@@ -188,7 +188,7 @@ variants:
 
   - variant: glm   # -m glm-5.1 — Z.AI (Zhipu) GLM-5.1 via ModelStudio US. Fleet diversity: a non-DeepSeek, non-Qwen agentic-coding backend.
     # Differs from the others on: context_window (204800 — smaller). Kept routable per the owner's explicit "GLM access" intent (model diversity for the code fleet).
-    reasoning_tier: mid             # capable agentic coder; not pilot-validated as top-tier judgment — partially-bounded, doubt_policy: halt
+    reasoning_tier: mid             # HELD at mid + doubt_policy: halt. ⚑ STRONGLY UNDER-RATED per published benchmark (GLM-5.1: 58.4 SWE-bench Pro — #1 open-weight, BEATS Opus 4.6 at 57.3) — top judgment-pilot candidate, NOT bumped (SWE-Pro is code/agentic, not judgment; code_competence already strong). Re-sourced from spec → benchmark 2026-06-11
     context_window: 204800          # 204,800 (research §3 [6][8]) — the smaller-context backend; the routing distinction. Below the 1M DeepSeek/Qwen backends
     max_output: 131072              # 131,072 max (65,536 default) (research §3 [6])
     cost_class: mid                 # ~$0.98/$3.08 per 1M OpenRouter reference (research §3 [6]). ModelStudio-US billing reference-derived — owner ELECTED to leave it reference-derived 2026-06-10 (research Q2 closed owner-accepted, no console read); the glm-vs-pro re-rank stays OPEN but is not blocking — re-rank only if a future console read shows glm materially cheaper than pro
