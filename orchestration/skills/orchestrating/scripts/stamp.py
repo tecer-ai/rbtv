@@ -11,6 +11,13 @@ Conductor scope composes the run-log Event Log row from structured args
 hand-formats a table row — and updates the capsule Resume Point's three
 labeled bullets (`Last completed` / `Next dispatch` / `Last update`) in place,
 refusing a capsule that does not carry them.
+
+A conductor-executed plan-line task has plan presence (checkbox + deliverables
+row) but NO `{id}.task.md` by design (no worker, so nothing scaffolded the
+artifact). For that case pass --no-task-file (conductor scope only): the script
+SKIPS the task-frontmatter surface and stamps the three that exist. The flag
+REQUIRES the task file to be absent — if one exists it refuses, so a genuinely
+missing worker task file (a scaffold defect) is still caught without the flag.
 """
 
 import argparse
@@ -68,6 +75,10 @@ def parse_args(argv=None):
                    help="Target status")
     p.add_argument("--scope", default="worker", choices=["worker", "conductor"],
                    help="Audience scope (default: worker)")
+    p.add_argument("--no-task-file", action="store_true",
+                   help="Conductor-executed plan-line task with no {id}.task.md by "
+                        "design (conductor scope only): skip the task-frontmatter "
+                        "surface, stamp the rest. Refuses if a task file exists.")
     p.add_argument("--event-type", default=None, choices=EVENT_TYPES,
                    help="Run-log event type (conductor scope, required); the script "
                         "composes the Event Log row — timestamp auto-generated")
@@ -593,6 +604,7 @@ def main(argv=None):
     task_id = args.task
     status = args.status
     scope = args.scope
+    no_task_file = args.no_task_file
     event_type = args.event_type
     worker = args.worker
     outcome = args.outcome
@@ -610,6 +622,12 @@ def main(argv=None):
     # deferred requires reason
     if status == "deferred" and not reason:
         print(f"ERROR: --status deferred requires --reason", file=sys.stderr)
+        sys.exit(1)
+
+    # --no-task-file is conductor-only — a worker always carries its task file
+    if no_task_file and scope == "worker":
+        print("ERROR: --no-task-file is conductor-only; a worker always carries "
+              "its task file", file=sys.stderr)
         sys.exit(1)
 
     # worker scope cannot use any conductor-only arg (§5 audience separation)
@@ -659,9 +677,19 @@ def main(argv=None):
     plan_file, err = resolve_plan_file(plan_dir)
     if err:
         errors.append(f"PLAN_FILE: {err}")
-    task_file, err = find_task_file(plan_dir, task_id)
-    if err:
-        errors.append(f"TASK_FILE: {err}")
+    task_file = None
+    if no_task_file:
+        # Caller asserts this conductor-executed plan-line task has no task
+        # artifact. Refuse if one actually exists — a stale assertion would
+        # silently skip a real frontmatter surface.
+        found, _ = find_task_file(plan_dir, task_id)
+        if found:
+            errors.append(f"TASK_FILE: --no-task-file given but {found} exists — "
+                          f"drop the flag (this task has a task artifact)")
+    else:
+        task_file, err = find_task_file(plan_dir, task_id)
+        if err:
+            errors.append(f"TASK_FILE: {err}")
     deliverables_file, err = resolve_deliverables(plan_dir)
     if err:
         errors.append(f"DELIVERABLES: {err}")
@@ -685,8 +713,10 @@ def main(argv=None):
 
     with open(plan_file, "r", encoding="utf-8") as f:
         plan_content = f.read()
-    with open(task_file, "r", encoding="utf-8") as f:
-        task_content = f.read()
+    task_content = None
+    if task_file is not None:
+        with open(task_file, "r", encoding="utf-8") as f:
+            task_content = f.read()
     with open(deliverables_file, "r", encoding="utf-8") as f:
         deliverables_content = f.read()
 
@@ -708,13 +738,17 @@ def main(argv=None):
     target_glyph = CHECKBOX_MAP[status]
     checkbox_changed = current_glyph != target_glyph
 
-    # 2. Task frontmatter
-    fm_idx, current_fm, err = validate_frontmatter(task_content)
-    if err:
-        print(f"ERROR: {err}", file=sys.stderr)
-        sys.exit(1)
-    target_fm = FRONTMATTER_MAP[status]
-    fm_changed = current_fm != target_fm
+    # 2. Task frontmatter (skipped when --no-task-file: no artifact to stamp)
+    current_fm = None
+    target_fm = None
+    fm_changed = False
+    if task_file is not None:
+        fm_idx, current_fm, err = validate_frontmatter(task_content)
+        if err:
+            print(f"ERROR: {err}", file=sys.stderr)
+            sys.exit(1)
+        target_fm = FRONTMATTER_MAP[status]
+        fm_changed = current_fm != target_fm
 
     # 3. Deliverables row
     del_idx, del_cells, err = validate_deliverables_row(deliverables_content, task_id)
@@ -776,8 +810,11 @@ def main(argv=None):
         print(f"=== EXPLAIN MODE — no files will be written ===")
         print(f"Plan file: {plan_file}")
         print(f"  checkbox: [{current_glyph}] → [{target_glyph}]  ({'changed' if checkbox_changed else 'unchanged'})")
-        print(f"Task file: {task_file}")
-        print(f"  status: {current_fm} → {target_fm}  ({'changed' if fm_changed else 'unchanged'})")
+        if task_file is None:
+            print(f"Task file: (none — --no-task-file; frontmatter surface skipped)")
+        else:
+            print(f"Task file: {task_file}")
+            print(f"  status: {current_fm} → {target_fm}  ({'changed' if fm_changed else 'unchanged'})")
         print(f"Deliverables: {deliverables_file}")
         print(f"  Status: {del_cells[4]} → {target_del_status}  ({'changed' if del_status_changed else 'unchanged'})")
         if artifact:
@@ -849,8 +886,10 @@ def main(argv=None):
         results["plan_checkbox"] = "unchanged"
     _inject_failure_after("plan_checkbox")
 
-    # 2. Task frontmatter
-    if fm_changed:
+    # 2. Task frontmatter (skipped when --no-task-file: no artifact to stamp)
+    if task_file is None:
+        results["task_frontmatter"] = "skipped (no task file)"
+    elif fm_changed:
         with open(task_file, "r", encoding="utf-8", newline="") as f:
             fresh_task = f.read()
         _, _, err = validate_frontmatter(fresh_task)

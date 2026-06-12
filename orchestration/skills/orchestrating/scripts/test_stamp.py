@@ -1047,6 +1047,117 @@ class TestConcurrentForeignEdit:
         assert found_p1_1_updated, "p1-1 row not found after stamp"
 
 
+class TestNoTaskFile:
+    """A conductor-executed plan-line task has plan presence (checkbox +
+    deliverables row) but NO {id}.task.md by design. --no-task-file (conductor
+    scope) skips the frontmatter surface and stamps the three that exist; without
+    the flag a missing task file still hard-errors (defect teeth preserved)."""
+
+    def _surface_hashes(self, plan_dir):
+        return {
+            "plan": file_hash(os.path.join(plan_dir, "api-workers-build-plan.md")),
+            "del": file_hash(os.path.join(plan_dir, "deliverables.md")),
+            "rl": file_hash(os.path.join(plan_dir, "run-log.md")),
+            "cap": file_hash(os.path.join(plan_dir, "state-capsule.md")),
+        }
+
+    def test_in_progress_skips_frontmatter_stamps_rest(self, active_plan_dir):
+        """Delete p3-1's task file; --no-task-file in_progress stamps the 3 live
+        surfaces and reports the frontmatter surface skipped."""
+        os.remove(os.path.join(active_plan_dir, "phase-3", "p3-1.task.md"))
+
+        rc, stdout, stderr = run_stamp(
+            active_plan_dir,
+            *conductor_args("p3-1", status="in_progress",
+                            event_type="dispatch",
+                            outcome="conductor self-exec — install.py + D25"),
+            "--no-task-file",
+        )
+        assert rc == 0, f"stderr: {stderr}"
+        assert "task_frontmatter: skipped (no task file)" in stdout
+
+        # Plan checkbox → [~]
+        plan_content = read_file(os.path.join(active_plan_dir, "api-workers-build-plan.md"))
+        assert "- [~] `p3-1`" in plan_content
+        # Deliverables → in-progress
+        del_content = read_file(os.path.join(active_plan_dir, "deliverables.md"))
+        for line in del_content.splitlines():
+            cells = [c.strip() for c in line.split("|")]
+            if len(cells) >= 5 and cells[1] == "p3-1":
+                assert cells[4] == "in-progress"
+                break
+        # Run-log event appended + capsule updated
+        rl_content = read_file(os.path.join(active_plan_dir, "run-log.md"))
+        assert find_event_row(rl_content, "dispatch", "p3-1") is not None
+        assert "plan_checkbox: changed" in stdout
+        assert "run_log_event: changed" in stdout
+        assert "capsule: changed" in stdout
+
+    def test_completed_transition_also_works(self, active_plan_dir):
+        """The same flag covers the completed/close transition (scope decision:
+        both in_progress and completed)."""
+        os.remove(os.path.join(active_plan_dir, "phase-3", "p3-1.task.md"))
+        rc, stdout, stderr = run_stamp(
+            active_plan_dir,
+            *conductor_args("p3-1", status="completed", event_type="return",
+                            outcome="conductor task closed"),
+            "--no-task-file",
+        )
+        assert rc == 0, f"stderr: {stderr}"
+        assert "task_frontmatter: skipped (no task file)" in stdout
+        plan_content = read_file(os.path.join(active_plan_dir, "api-workers-build-plan.md"))
+        assert "- [x] `p3-1`" in plan_content
+
+    def test_missing_task_file_without_flag_still_errors(self, active_plan_dir):
+        """The defect-detection path: a missing task file WITHOUT the flag is still
+        a hard error — a genuine scaffold failure is not silently tolerated."""
+        os.remove(os.path.join(active_plan_dir, "phase-3", "p3-1.task.md"))
+        before = self._surface_hashes(active_plan_dir)
+        rc, stdout, stderr = run_stamp(
+            active_plan_dir, *conductor_args("p3-1"), expect_fail=True,
+        )
+        assert rc != 0
+        assert "task" in stderr.lower() and ".task.md" in stderr
+        assert self._surface_hashes(active_plan_dir) == before, "Wrote despite error"
+
+    def test_flag_refused_when_task_file_exists(self, active_plan_dir):
+        """Misuse guard: --no-task-file with an EXISTING task file is refused (no
+        writes) — a stale assertion would skip a real frontmatter surface."""
+        before = self._surface_hashes(active_plan_dir)
+        rc, stdout, stderr = run_stamp(
+            active_plan_dir, *conductor_args("p3-1"), "--no-task-file",
+            expect_fail=True,
+        )
+        assert rc != 0
+        assert "exists" in stderr.lower()
+        assert self._surface_hashes(active_plan_dir) == before, "Wrote despite refusal"
+
+    def test_flag_rejected_in_worker_scope(self, active_plan_dir):
+        """--no-task-file is conductor-only."""
+        rc, stdout, stderr = run_stamp(
+            active_plan_dir,
+            "--task", "p3-1", "--status", "in_progress",
+            "--scope", "worker", "--no-task-file",
+            expect_fail=True,
+        )
+        assert rc != 0
+        assert "conductor-only" in stderr.lower()
+
+    def test_explain_shows_skipped_no_writes(self, active_plan_dir):
+        """--explain with --no-task-file previews the skipped surface, writes nothing."""
+        os.remove(os.path.join(active_plan_dir, "phase-3", "p3-1.task.md"))
+        before = self._surface_hashes(active_plan_dir)
+        rc, stdout, stderr = run_stamp(
+            active_plan_dir,
+            *conductor_args("p3-1", status="in_progress"),
+            "--no-task-file", "--explain",
+        )
+        assert rc == 0, f"stderr: {stderr}"
+        assert "EXPLAIN MODE" in stdout
+        assert "frontmatter surface skipped" in stdout
+        assert self._surface_hashes(active_plan_dir) == before, "--explain wrote files"
+
+
 class TestLineEndingPreservation:
     """F1: stamp operations preserve input line endings (LF in → LF out)."""
 
