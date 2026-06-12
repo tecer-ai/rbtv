@@ -34,6 +34,27 @@ def _write_deck_with_assets(tmp_path, sections, assets):
     return source
 
 
+def _write_deck_with_head_and_assets(tmp_path, head, sections, assets):
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    assets_dir = src_dir / "assets"
+    assets_dir.mkdir()
+    for name, content in assets.items():
+        target = assets_dir / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+    source = src_dir / "deck.html"
+    source.write_text(
+        "<html><head>"
+        + head
+        + "</head><body>"
+        + "\n".join(sections)
+        + "</body></html>",
+        encoding="utf-8",
+    )
+    return source
+
+
 def _save_existing_sections(source, out, indexes):
     return handle_deck_save(
         {
@@ -412,10 +433,149 @@ def test_deck_save_copies_own_asset_to_new_dir(tmp_path):
     assert status == 200
     assert resp["ok"] is True
     assert resp["assets_copied"] == ["assets/own.png"]
+    assert resp["assets_missing"] == []
     assert "assets_renamed" not in resp
     assert (out_dir / "assets" / "own.png").read_bytes() == b"OWN"
     result = out.read_text(encoding="utf-8")
     assert '<section><img src="assets/own.png"></section>' in result
+
+
+def test_deck_save_reports_missing_own_asset_without_copying(tmp_path):
+    source = _write_deck_with_assets(
+        tmp_path,
+        ['<section><img src="assets/missing.png"></section>'],
+        {},
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    out = out_dir / "deck.html"
+
+    status, resp = _save_existing_sections(source, out, [0])
+
+    assert status == 200
+    assert resp["ok"] is True
+    assert resp["assets_copied"] == []
+    assert resp["assets_missing"] == ["assets/missing.png"]
+    assert not (out_dir / "assets").exists()
+    result = out.read_text(encoding="utf-8")
+    assert '<section><img src="assets/missing.png"></section>' in result
+
+
+def test_deck_save_copies_head_css_own_asset_to_new_dir(tmp_path):
+    head = '<style>.cover{background-image:url("assets/bg.jpg")}</style>'
+    section = "<section><p>Keep me</p></section>"
+    source = _write_deck_with_head_and_assets(
+        tmp_path,
+        head,
+        [section],
+        {"bg.jpg": b"BG"},
+    )
+    source_html = source.read_text(encoding="utf-8")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    out = out_dir / "deck.html"
+
+    status, resp = _save_existing_sections(source, out, [0])
+
+    assert status == 200
+    assert resp["ok"] is True
+    assert resp["assets_copied"] == ["assets/bg.jpg"]
+    assert resp["assets_missing"] == []
+    assert "assets_renamed" not in resp
+    assert (out_dir / "assets" / "bg.jpg").read_bytes() == b"BG"
+    assert out.read_text(encoding="utf-8") == source_html
+
+
+def test_deck_save_reports_missing_head_css_own_asset(tmp_path):
+    head = '<style>.cover{background-image:url("assets/bg.jpg")}</style>'
+    source = _write_deck_with_head_and_assets(
+        tmp_path,
+        head,
+        ["<section><p>Keep me</p></section>"],
+        {},
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    out = out_dir / "deck.html"
+
+    status, resp = _save_existing_sections(source, out, [0])
+
+    assert status == 200
+    assert resp["ok"] is True
+    assert resp["assets_copied"] == []
+    assert resp["assets_missing"] == ["assets/bg.jpg"]
+    assert not (out_dir / "assets").exists()
+
+
+def test_deck_save_skips_head_css_asset_already_copied_by_section(tmp_path):
+    head = '<style>.cover{background-image:url("assets/bg.jpg")}</style>'
+    section = '<section><img src="assets/bg.jpg"></section>'
+    source = _write_deck_with_head_and_assets(
+        tmp_path,
+        head,
+        [section],
+        {"bg.jpg": b"BG"},
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    out = out_dir / "deck.html"
+
+    status, resp = _save_existing_sections(source, out, [0])
+
+    assert status == 200
+    assert resp["ok"] is True
+    assert resp["assets_copied"] == ["assets/bg.jpg"]
+    assert resp["assets_skipped"] == ["assets/bg.jpg"]
+    assert resp["assets_missing"] == []
+    assert (out_dir / "assets" / "bg.jpg").read_bytes() == b"BG"
+
+
+def test_deck_save_copies_existing_and_reports_missing_own_asset(tmp_path):
+    section = (
+        '<section><img src="assets/own.png">'
+        '<img src="assets/missing.png"></section>'
+    )
+    source = _write_deck_with_assets(
+        tmp_path,
+        [section],
+        {"own.png": b"OWN"},
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    out = out_dir / "deck.html"
+
+    status, resp = _save_existing_sections(source, out, [0])
+
+    assert status == 200
+    assert resp["ok"] is True
+    assert resp["assets_copied"] == ["assets/own.png"]
+    assert resp["assets_missing"] == ["assets/missing.png"]
+    assert (out_dir / "assets" / "own.png").read_bytes() == b"OWN"
+    result = out.read_text(encoding="utf-8")
+    assert section in result
+
+
+def test_deck_save_deduplicates_missing_own_assets_in_first_seen_order(tmp_path):
+    source = _write_deck_with_assets(
+        tmp_path,
+        [
+            '<section><img src="assets/first.png"><img src="assets/second.png"></section>',
+            '<section><img src="assets/second.png"><img src="assets/first.png"></section>',
+        ],
+        {},
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    out = out_dir / "deck.html"
+
+    status, resp = _save_existing_sections(source, out, [0, 1])
+
+    assert status == 200
+    assert resp["assets_missing"] == [
+        "assets/first.png",
+        "assets/second.png",
+    ]
+    assert not (out_dir / "assets").exists()
 
 
 def test_deck_save_skips_own_asset_from_dropped_slide(tmp_path):

@@ -79,6 +79,17 @@ def _find_referenced_assets(fragment_html: str) -> list[str]:
     return assets
 
 
+def _html_outside_spans(html: str, spans: list[tuple[int, int]]) -> str:
+    """Return document chrome preserved by recompose: head, separators, tail."""
+    parts: list[str] = []
+    cursor = 0
+    for start, end in spans:
+        parts.append(html[cursor:start])
+        cursor = end
+    parts.append(html[cursor:])
+    return "".join(parts)
+
+
 def _rewrite_referenced_assets(html: str, replacements: dict[str, str]) -> str:
     """Rewrite only complete asset refs captured by _ASSET_RE."""
     if not replacements:
@@ -109,6 +120,40 @@ def _unique_asset_path(rel_path: str, out_dir: pathlib.Path, allocated: set[str]
             continue
         return candidate_str
     raise RuntimeError(f"Unable to allocate unique asset path for {rel_path}")
+
+
+def colocate_own_assets(html: str, source_root: pathlib.Path, out_dir: pathlib.Path):
+    """Copy referenced own assets without rewriting refs."""
+    assets_copied: list[str] = []
+    assets_skipped: list[str] = []
+    assets_missing: list[str] = []
+    assets_missing_seen: set[str] = set()
+    source_root = pathlib.Path(source_root).resolve()
+
+    for rel_path in _find_referenced_assets(html):
+        src_asset = source_root / rel_path
+        if not src_asset.exists() or not src_asset.is_file():
+            if rel_path not in assets_missing_seen:
+                assets_missing_seen.add(rel_path)
+                assets_missing.append(rel_path)
+            continue
+
+        dst_asset = out_dir / rel_path
+        if dst_asset.exists():
+            assets_skipped.append(str(rel_path))
+            continue
+
+        try:
+            dst_asset.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(src_asset), str(dst_asset))
+        except Exception:
+            if rel_path not in assets_missing_seen:
+                assets_missing_seen.add(rel_path)
+                assets_missing.append(rel_path)
+            continue
+        assets_copied.append(str(rel_path))
+
+    return assets_copied, assets_skipped, assets_missing
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +322,8 @@ def handle_deck_save(payload):
     assets_copied: list[str] = []
     assets_skipped: list[str] = []
     assets_renamed: list[dict[str, str]] = []
+    assets_missing: list[str] = []
+    assets_missing_seen: set[str] = set()
 
     for library_path, slide_id in resolved_fragments:
         fragment_html = _resolve_library_fragment(library_path, slide_id)
@@ -317,6 +364,9 @@ def handle_deck_save(payload):
             for rel_path in _find_referenced_assets(section_html):
                 src_asset = source_root / rel_path
                 if not src_asset.exists() or not src_asset.is_file():
+                    if rel_path not in assets_missing_seen:
+                        assets_missing_seen.add(rel_path)
+                        assets_missing.append(rel_path)
                     continue
 
                 target_rel = asset_targets.get(rel_path)
@@ -357,6 +407,18 @@ def handle_deck_save(payload):
 
         recompose_items = updated_items
 
+        chrome_copied, chrome_skipped, chrome_missing = colocate_own_assets(
+            _html_outside_spans(html, spans),
+            source_root,
+            out_dir,
+        )
+        assets_copied.extend(chrome_copied)
+        assets_skipped.extend(chrome_skipped)
+        for rel_path in chrome_missing:
+            if rel_path not in assets_missing_seen:
+                assets_missing_seen.add(rel_path)
+                assets_missing.append(rel_path)
+
     # Build final HTML.
     try:
         result = recompose(html, recompose_items)
@@ -373,6 +435,7 @@ def handle_deck_save(payload):
         "ok": True,
         "path": out_path,
         "assets_copied": assets_copied,
+        "assets_missing": assets_missing,
     }
     if assets_skipped:
         response["assets_skipped"] = assets_skipped

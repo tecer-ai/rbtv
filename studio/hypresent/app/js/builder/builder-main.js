@@ -537,6 +537,12 @@ document.addEventListener("DOMContentLoaded", () => {
         if (result.assetsSkipped.length > 0) {
           parts.push('Assets skipped: ' + result.assetsSkipped.join(', '));
         }
+        if (result.assetsMissing.length > 0) {
+          parts.push(
+            '⚠ ' + result.assetsMissing.length
+            + ' own-asset ref(s) not colocated — source files not found beside the deck'
+          );
+        }
         setStatus(parts.join(' | '), 'success');
         // After new-file save, point state.deck to the new file and rebase the
         // tray model to identity indices against it (prevents stale-index re-application

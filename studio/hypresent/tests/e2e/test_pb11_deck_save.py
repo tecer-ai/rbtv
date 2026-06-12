@@ -177,6 +177,58 @@ class PB11DeckSaveTests(unittest.TestCase):
             "root deck must be byte-unchanged after new-file save"
         )
 
+    # ── PB11-1a: own asset copied beside save-to-new-dir deck ─────────────
+    def test_new_file_save_colocates_preserved_own_asset(self):
+        sys.path.insert(0, os.path.join(REPO, "server"))
+        from recompose import split_sections  # noqa: E402
+
+        deck_path = self._copy_deck()
+        deck_dir = pathlib.Path(deck_path).parent
+        rel_asset = "assets/own-e2e.txt"
+        asset_bytes = b"pb11 own asset colocation\n"
+        asset_path = deck_dir / rel_asset
+        asset_path.parent.mkdir(parents=True, exist_ok=True)
+        asset_path.write_bytes(asset_bytes)
+
+        deck_html = pathlib.Path(deck_path).read_text(encoding="utf-8")
+        spans = split_sections(deck_html)
+        self.assertTrue(spans, "fixture deck must contain sections")
+        first_start, first_end = spans[0]
+        first_section = deck_html[first_start:first_end]
+        own_ref = '<a class="pb11-own-asset" href="assets/own-e2e.txt">own asset</a>'
+        self.assertIn("</section>", first_section, "first section must be closed")
+        first_section = first_section.replace("</section>", own_ref + "</section>", 1)
+        deck_html = deck_html[:first_start] + first_section + deck_html[first_end:]
+        pathlib.Path(deck_path).write_text(deck_html, encoding="utf-8")
+
+        self._open_deck(deck_path)
+        self.assertEqual(self._tray_count(), 10, "deck should have 10 slides")
+
+        # Remove a later slide so the deck is restructured while preserving slide 1,
+        # which carries the own asset reference.
+        self.page.locator(".tray-row:nth-child(3) .tray-remove").click()
+        self.page.wait_for_timeout(150)
+        self.assertEqual(self._tray_count(), 9)
+
+        save_dir = tempfile.mkdtemp()
+        save_path = os.path.join(save_dir, "saved-own-asset.html")
+        H.set_fake_dialog(self.base, save_path)
+        self.page.click("#save-new-btn")
+        self.page.wait_for_selector(".shell-status.success", timeout=10000)
+
+        saved_asset_path = pathlib.Path(save_dir) / rel_asset
+        self.assertTrue(saved_asset_path.exists(), "own asset must be copied beside saved deck")
+        self.assertEqual(
+            saved_asset_path.read_bytes(), asset_bytes,
+            "copied own asset bytes must match the source asset"
+        )
+
+        saved_html = pathlib.Path(save_path).read_text(encoding="utf-8")
+        self.assertIn(
+            'href="assets/own-e2e.txt"', saved_html,
+            "non-colliding own asset ref should remain unchanged"
+        )
+
     # ── PB11-2: overwrite save + reopen intact ─────────────────────────────
     def test_overwrite_save(self):
         root_bytes = pathlib.Path(DECK_FIXTURE).read_bytes()

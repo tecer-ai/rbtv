@@ -182,7 +182,28 @@ def handle_save_as(payload):
     except Exception as exc:
         return (500, {"error": str(exc)})
 
-    return (200, {"ok": True, "path": path_str})
+    response = {"ok": True, "path": path_str}
+    open_path = get_open_path()
+    if open_path:
+        source_parent = pathlib.Path(open_path).resolve().parent
+        target_parent = parent.resolve()
+        if source_parent != target_parent:
+            try:
+                from .deck_api import colocate_own_assets
+            except ImportError:
+                from deck_api import colocate_own_assets
+
+            assets_copied, assets_skipped, assets_missing = colocate_own_assets(
+                html,
+                source_parent,
+                target_parent,
+            )
+            response["assets_copied"] = assets_copied
+            response["assets_missing"] = assets_missing
+            if assets_skipped:
+                response["assets_skipped"] = assets_skipped
+
+    return (200, response)
 
 
 def handle_dialog_open():
