@@ -88,14 +88,14 @@ The death pattern: a CLI worker's tool-loop completes and writes the work produc
 **Trigger — fires only when ALL hold** (any false → fall back to standard `BLOCKED` + surface):
 
 1. The worker exited non-zero and the five SCHEMA FIELDS are absent or unparseable on stdout (no `status` / `landed` / `validation` returned in parseable form). Evidence files alone on disk do NOT satisfy this condition — the discriminator is the missing structured RETURN, not missing work product (work product present + no structured return is exactly the death signature; work product present + structured return is a clean `DONE` to reconcile, not a death).
-2. `git status` of the work-dir shows uncommitted changes inside the task's allowlist.
-3. `git log -1` does NOT show the expected `[<task-id>]` prefix — the worker did not commit before exiting.
+2. `git -C <work-target> status` (the work-target's git — the task's `allowed_workdir`, never the worker's launch root) shows uncommitted changes inside the task's allowlist.
+3. `git -C <work-target> log -1` does NOT show the expected `[<task-id>]` prefix — the worker did not commit before exiting.
 
 **Protocol** (max-reasoning conductor; judgment work — a downgraded conductor halts to the user with the verified state):
 
 1. **Verify on-disk state against the task's Implementation Requirements.** Read each file the worker was to produce; confirm structure, exports, signatures, expected shape. Note any apparent gap (incomplete file, missing function).
 2. **Run the task's declared `test_command` / smoke checks** — the same validation a clean `DONE` return would trigger. Passing validation = the work is functionally complete despite the transient exit.
-3. **Verify allowlist compliance** — `git diff --name-only HEAD`; every changed path MUST be in the task's allowlist. ANY out-of-allowlist edit → HALT + surface (recovery does NOT auto-bless out-of-allowlist edits, regardless of the transient signal).
+3. **Verify allowlist compliance** — `git -C <work-target> diff --name-only HEAD` (in the WORK-TARGET's git, never the launch-root's); every changed path MUST be in the task's allowlist. ANY out-of-allowlist edit → HALT + surface (recovery does NOT auto-bless out-of-allowlist edits, regardless of the transient signal).
 4. **Verify forbidden-ops compliance** — no frozen-doc touches, no locked-file edits, no push, no destructive reset — the same checks a normal return gets.
 5. **Commit manually with the recovery marker.** The recovery commit is a NAMED mechanical orchestrator action — one of the explicit Invariant-1 exceptions (core-protocol Invariant 1: the conductor does not write the deliverable, but recovery commits are a named hands-on action). The conductor creates it via the commit-pinned `rbtv-commit` path; the subject line MUST carry the **`(orchestrator-recovered)`** suffix:
    `[<task-id>] <description> (orchestrator-recovered)`

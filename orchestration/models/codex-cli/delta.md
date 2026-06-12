@@ -10,7 +10,7 @@ The render script (`../render-manuals.py`) composes the generic wrapper (`{rbtv_
 | Obligation | What codex is bound to |
 |------------|------------------------|
 | **Sandbox + approval are the confinement, and they are the conductor's to set (UNPILOTED enforcement)** | Codex has a real native sandbox (`-s/--sandbox`: `read-only` · `workspace-write` · `danger-full-access`) and an approval policy. On Codex CLI **0.137.0** `codex exec` has NO `-a/--ask-for-approval` flag (it was removed from the `exec` subcommand — verified absent in `codex exec --help`, p5-2 smoke probe); the approval policy is set via the config override `-c approval_policy="never"` (a `-c` dotted-path TOML override — `approval_policy` is a recognized key, confirmed under `--strict-config`). A non-interactive dispatch MUST set `-c approval_policy="never"` (so the model never pauses for a human) paired with the TIGHTEST sandbox the task needs — `read-only` for analysis/research leaves, `workspace-write` for code that edits the work-dir, NEVER `danger-full-access` and NEVER `--dangerously-bypass-approvals-and-sandbox` unless the task explicitly sanctions it. The pairing `-c approval_policy="never"` + `--sandbox workspace-write` is the bounded-write default. The sandbox is real but its reliability as a confinement boundary for THIS orchestrator is UNPILOTED — back it with the same post-run `git diff --name-only` vs the allowlist that every CLI worker gets. |
-| **Workspace scope is `-C`/`--cd` + `--add-dir`; writes outside the work-dir are a guardrail breach** | Set `-C <repo-root>` (or run from that cwd) and add only the minimal extra writable dirs via `--add-dir`. Files created/modified outside the scoped workspace are an out-of-allowlist write the conductor catches on the post-run diff — surface, never auto-revert. `--skip-git-repo-check` is required ONLY when the work-dir is not a git repo (codex refuses to run outside a repo otherwise). |
+| **Workspace scope is `-C`/`--cd` + `--add-dir`; the launch root is the ORCHESTRATOR root, never the work-target** | Set `-C <orchestrator-root>` (or run from that cwd) — the launch root codex auto-reads its `AGENTS.md` + rules from — and pass the actual **work-target** via `--add-dir <work-target>` (+ further minimal extra dirs only when needed). NEVER root codex at a nested-repo work-target: the mirror skips nested repos, so a worker rooted there loads zero behavior-rules (the a3e217d defect class). The work-target's own local `CLAUDE.md`/`AGENTS.md` conventions are NOT auto-loaded from `--add-dir` — the conductor inlines the load-bearing ones or marks them `[FULL READ]`. Files created/modified outside the work-target allowlist are an out-of-allowlist write the conductor catches on the post-run diff run in the WORK-TARGET's git (`git -C <work-target> diff --name-only HEAD`) — surface, never auto-revert. `--skip-git-repo-check` is required ONLY when the launch root is not a git repo (codex refuses to run outside a repo otherwise). |
 | **No self-commit unless the task grants it (default OFF)** | Codex MAY commit locally — and ONLY locally — after its declared validation passes, when the task file grants `commit_policy: local-only`. NEVER push, NEVER force-reset, NEVER amend. The commit subject MUST carry the run's mandated `[<task-id>]` convention; the returned hash MUST match `git log`. Absent an explicit grant, codex does NOT commit (the conductor commits via `rbtv-commit`). This authorization, and the commit message convention's survival across a codex run, are UNPILOTED — verify the hash and the subject string on return. |
 | **Project trust is a pre-flight, not a runtime grant** | Codex records per-project `trust_level` in `~/.codex/config.toml` (`[projects.'<path>']`). An untrusted target project triggers a first-run interactive trust prompt — a USER-EXECUTED-ONLY pre-flight (run codex once interactively in the workspace, or pre-set trust) before any headless dispatch. Do NOT attempt to clear a trust prompt programmatically. |
 | **Stray-file ban** | Create files ONLY where the allowlist directs. NEVER write scratch notes, logs, or summary files into the repo root or anywhere outside the allowlist — the post-run diff treats any such file as an out-of-allowlist write. Use `-o/--output-last-message <file>` to land the structured return at a known path INSIDE the allowlist rather than scraping stdout. |
@@ -32,7 +32,7 @@ The codex CLI dispatch manual — the exact command shapes, flags, sandbox/appro
 | **Pinned-flag existence** (routing §4 gate) | `codex exec --help` grepped for every non-trivial flag this dispatch pins (`--sandbox`, `-C`/`--cd`, `--output-last-message`, `--add-dir`); the `-c approval_policy` override key confirmed via `codex exec --strict-config` | Runs EVERY dispatch (NOT only on a version mismatch — a flag can vanish at the SAME version family the manual pinned). Subcommand-aware: verify `codex exec --help`, never `codex --help`. Any pinned flag absent → STOP, do not dispatch; re-resolve at THIS delta, re-render (`../render-manuals.py`), re-run the gate — NEVER hand-edit the rendered manual or pass an ad-hoc flag. A removed/renamed flag is a hard `unexpected argument` exit-2 pre-spend if dispatched (p5-2: `--ask-for-approval` was removed from `exec` at 0.137.0 → `-c approval_policy="never"`). |
 | Auth | `codex login status` (this machine → `Logged in using ChatGPT`) | Login is interactive (`codex login`, ChatGPT sign-in) OR `printenv OPENAI_API_KEY \| codex login --with-api-key`. First-time interactive login → USER-EXECUTED-ONLY; if unauthenticated, halt and ask the owner to run it; never automate the browser sign-in. |
 | Project trust | target project has `trust_level = "trusted"` in `~/.codex/config.toml` `[projects.'<path>']`? | Untrusted → first-run interactive trust prompt (USER-EXECUTED-ONLY). Pre-trust the workspace or run codex once interactively there before headless dispatch. Trust resolves up the directory tree — a trusted ancestor (e.g. `c:\users\henri`) covers nested repos beneath it, so a nested git root under a trusted root is NOT separately untrusted. |
-| Guidance file | target workspace has `AGENTS.md`? | Absent → offer to generate it via the mirror (`mirror_entry: codex-mirror`, see the codex `mirror-config.yaml`). Codex natively reads `AGENTS.md`. |
+| Guidance file | the LAUNCH ROOT (orchestrator root — the `-C`/`--cd` value) has `AGENTS.md`? | Checked at the launch root, NEVER the work-target (the work-target needs no guidance file — the mirror skips nested repos by design). Absent at the launch root → offer to generate it via the mirror (`mirror_entry: codex-mirror`, see the codex `mirror-config.yaml`). Codex natively reads `AGENTS.md` from its working root. |
 
 ### The invocation shape — `codex exec` (non-interactive)
 
@@ -43,8 +43,8 @@ The codex CLI dispatch manual — the exact command shapes, flags, sandbox/appro
 **Shape A — prompt as CLI argument (small prompts):**
 
 ```powershell
-$null | codex exec --cd "<repo>" --sandbox workspace-write -c approval_policy="never" `
-  --output-last-message "<repo>/.codex-runs/<task-id>.txt" "<task_prompt>"
+$null | codex exec --cd "<orchestrator-root>" --add-dir "<work-target>" --sandbox workspace-write -c approval_policy="never" `
+  --output-last-message "<work-target>/.codex-runs/<task-id>.txt" "<task_prompt>"
 ```
 
 Use when the prompt fits comfortably under the host shell's single-argument limit (Windows PowerShell ~32 KB). Default for short dispatches. The leading `$null |` is the PowerShell stdin-EOF guard (see above); from the Bash tool use `codex exec … "<task_prompt>" < /dev/null` instead.
@@ -54,12 +54,12 @@ Use when the prompt fits comfortably under the host shell's single-argument limi
 For a prompt too large to inline (PowerShell ~32 KB single-arg ceiling), write it to a file inside the scoped workspace and point codex at it with a SHORT prompt arg:
 
 ```powershell
-codex exec --cd "<repo>" --sandbox workspace-write -c approval_policy="never" `
-  --output-last-message "<repo>/.codex-runs/<task-id>.txt" `
+codex exec --cd "<orchestrator-root>" --add-dir "<work-target>" --sandbox workspace-write -c approval_policy="never" `
+  --output-last-message "<work-target>/.codex-runs/<task-id>.txt" `
   "Read the file '<prompt-path>' and execute the task it contains exactly; create only the files it allowlists."
 ```
 
-Codex loads the brief via its own file tool, so the command stays short AND begins with `codex` (the in-session permission requirement — generic packaging §1 D17 row; the file-pointer read itself is UNPILOTED for codex). Do **not** pipe the brief with `cat prompt.md | codex exec … -` for an in-session dispatch: the pipe makes the command line BEGIN with `cat`, which does not match the `codex:*` prefix rule and falls to the permission classifier. The same binary-first rule governs the mandatory stdin-EOF guard: the PowerShell `$null |` prefix likewise begins the line with a non-`codex` token (so it is auto-mode/`!`-dispatch only), whereas the Bash `< /dev/null` SUFFIX EOFs stdin while keeping the line beginning with `codex` — the in-session binary-first-safe guard. So a strict in-session Shape-B dispatch runs from the Bash tool: `codex exec --cd "<repo>" … "Read the file '<prompt-path>' …" < /dev/null`. The stdin-pipe form (`cat prompt.md | codex exec --cd "<repo>" … -`, trailing `-` = read prompt from stdin) remains the p5-2-VALIDATED transport (Git Bash, exit 0, prompt reached the worker, file landed) — use it for owner-typed `!` dispatches. **Both shapes** apply the same `--cd` scope, the same sandbox + approval policy, and pass the same allowlist + forbidden-ops checks on return. The composed **header + payload** (generic packaging §1) is written to `prompt.md` on disk and dispatched FROM that file — the same prompt file is the reuse surface on resume.
+Codex loads the brief via its own file tool, so the command stays short AND begins with `codex` (the in-session permission requirement — generic packaging §1 D17 row; the file-pointer read itself is UNPILOTED for codex). Do **not** pipe the brief with `cat prompt.md | codex exec … -` for an in-session dispatch: the pipe makes the command line BEGIN with `cat`, which does not match the `codex:*` prefix rule and falls to the permission classifier. The same binary-first rule governs the mandatory stdin-EOF guard: the PowerShell `$null |` prefix likewise begins the line with a non-`codex` token (so it is auto-mode/`!`-dispatch only), whereas the Bash `< /dev/null` SUFFIX EOFs stdin while keeping the line beginning with `codex` — the in-session binary-first-safe guard. So a strict in-session Shape-B dispatch runs from the Bash tool: `codex exec --cd "<orchestrator-root>" --add-dir "<work-target>" … "Read the file '<prompt-path>' …" < /dev/null`. The stdin-pipe form (`cat prompt.md | codex exec --cd "<orchestrator-root>" --add-dir "<work-target>" … -`, trailing `-` = read prompt from stdin) remains the p5-2-VALIDATED transport (Git Bash, exit 0, prompt reached the worker, file landed) — use it for owner-typed `!` dispatches. **Both shapes** apply the same launch-root/work-target scope, the same sandbox + approval policy, and pass the same allowlist + forbidden-ops checks on return. The composed **header + payload** (generic packaging §1) is written to `prompt.md` on disk and dispatched FROM that file — the same prompt file is the reuse surface on resume.
 
 ### Sandbox + approval grammar — the confinement axis
 
@@ -68,13 +68,13 @@ Codex loads the brief via its own file tool, so the command stays short AND begi
 | `-s` / `--sandbox` | `read-only` · `workspace-write` · `danger-full-access` | The blast-radius control. `read-only` = analysis/research leaf (no file writes). `workspace-write` = code that edits the scoped work-dir (the bounded default for code). `danger-full-access` = NEVER unless the task explicitly sanctions it. |
 | `-c approval_policy="<policy>"` | `untrusted` · `on-request` · `never` (config override; `codex exec` has NO `--ask-for-approval` flag on 0.137.0) | Headless MUST set `-c approval_policy="never"` (the model never pauses for human approval; failures return to the model). `untrusted`/`on-request` stall a headless run waiting for input. Set it as a `-c` dotted-path TOML override — the `--ask-for-approval` flag was removed from the `exec` subcommand (p5-2 smoke probe: `error: unexpected argument '--ask-for-approval'`). |
 | `--dangerously-bypass-approvals-and-sandbox` | (flag) | Skips ALL approvals AND sandboxing. EXTREMELY DANGEROUS — only for an externally-sandboxed environment the task names. Forbidden by default. |
-| `-C` / `--cd <dir>` | path | The agent's working root. Scope codex to the repo. |
-| `--add-dir <dir>` | path (repeatable) | Extra writable dirs alongside the primary workspace. Keep minimal. |
+| `-C` / `--cd <dir>` | path | The agent's working root = the LAUNCH ROOT — always the orchestrator root (guidance/`AGENTS.md` loads from here), never a nested-repo work-target. |
+| `--add-dir <dir>` | path (repeatable) | The work-target rides here, plus any minimal extra writable dirs. Keep minimal. |
 | `--skip-git-repo-check` | (flag) | Required only when the work-dir is NOT a git repo (codex refuses outside a repo otherwise). |
 | `--ignore-rules` | (flag) | Do NOT load user/project execpolicy `.rules` files. Use only when a workspace `.rules` file would wrongly block a sanctioned dispatch. |
 | `--ignore-user-config` | (flag) | Do NOT load `~/.codex/config.toml` (auth still uses `CODEX_HOME`). Use for a clean, reproducible dispatch independent of the machine's personal codex config. |
 
-**Confinement is the orchestrator's job (UNPILOTED reliability):** the sandbox is real, but its reliability as the sole confinement boundary for this orchestrator is not corpus-validated. ALWAYS back it with the post-run `git diff --name-only HEAD` of every changed path against the task's `allowlist` — the same reliable enforcement every CLI worker gets. Out-of-allowlist edit = halt + surface; NEVER auto-revert silently.
+**Confinement is the orchestrator's job (UNPILOTED reliability):** the sandbox is real, but its reliability as the sole confinement boundary for this orchestrator is not corpus-validated. ALWAYS back it with the post-run `git -C <work-target> diff --name-only HEAD` of every changed path against the task's `allowlist` — run in the WORK-TARGET's git, never the launch-root's; the same reliable enforcement every CLI worker gets. Out-of-allowlist edit = halt + surface; NEVER auto-revert silently.
 
 ### Model + reasoning-effort settings → variants
 
@@ -98,8 +98,8 @@ The codex manifest declares routable variants — route on `(codex, variant)`:
 Codex `exec` returns a process exit code; `0` = success. A non-zero exit means the run did not complete cleanly — halt and surface; do NOT blind-retry. The precise non-zero exit-code taxonomy (which codes are retryable rate-limit/throttle vs non-retryable config/auth) is **UNPILOTED** on this machine — unlike kimi's documented exit-75, codex's retry semantics are not corpus-validated. Until a probe establishes them: on any non-zero exit, reconcile disk state, and if uncommitted in-allowlist work landed without the structured return, apply the disk-state recovery pattern below rather than re-running.
 
 ```powershell
-codex exec --cd "<repo>" --sandbox workspace-write -c approval_policy="never" `
-  --output-last-message "<repo>/.codex-runs/<task-id>.txt" "<task>"; $code = $LASTEXITCODE
+codex exec --cd "<orchestrator-root>" --add-dir "<work-target>" --sandbox workspace-write -c approval_policy="never" `
+  --output-last-message "<work-target>/.codex-runs/<task-id>.txt" "<task>"; $code = $LASTEXITCODE
 if ($code -ne 0) { <reconcile disk; recover-or-surface — do NOT blind-retry> }
 ```
 
@@ -149,7 +149,7 @@ A codex-executable task file extends the generic task-file contract (`{rbtv_path
 ```yaml
 execution_kind: code            # or research/analysis for a read-only leaf
 executor: codex
-allowed_workdir: <absolute-or-project-root-relative repo path>   # → --cd
+allowed_workdir: <work-target repo path — passed via --add-dir; --cd is the orchestrator-root launch root, never this>
 allowlist:
   - <file-or-folder-glob>
 sandbox: read-only | workspace-write   # the tightest the task needs (never danger-full-access by default)
@@ -174,22 +174,22 @@ reviewer: claude-opus           # reviewer floor for codex-produced code is Opus
 Every recipe below requires the stdin-EOF guard (PowerShell `$null |` prefix, or Bash `< /dev/null` suffix — see the Stdin-EOF guard above); it is omitted from these snippets for brevity but is MANDATORY on dispatch.
 
 ```powershell
-# Bounded code edit, durable return file (Shape A):
-codex exec --cd "5-workbench/inni-cte-recon" --sandbox workspace-write -c approval_policy="never" `
-  --output-last-message ".codex-runs/t1.txt" "<inlined task file content>"
+# Bounded code edit, durable return file (Shape A) — launch root = orchestrator root, work-target via --add-dir:
+codex exec --cd "<orchestrator-root>" --add-dir "5-workbench/inni-cte-recon" --sandbox workspace-write -c approval_policy="never" `
+  --output-last-message "5-workbench/inni-cte-recon/.codex-runs/t1.txt" "<inlined task file content>"
 ```
 ```powershell
 # Large brief via a FILE POINTER (Shape B — default autonomous/Windows; command BEGINS with `codex`):
-codex exec --cd "<repo>" --sandbox workspace-write -c approval_policy="never" `
-  --output-last-message "<repo>/.codex-runs/t1.txt" "Read the file '<prompt-path>' and execute the task it contains exactly"
+codex exec --cd "<orchestrator-root>" --add-dir "<work-target>" --sandbox workspace-write -c approval_policy="never" `
+  --output-last-message "<work-target>/.codex-runs/t1.txt" "Read the file '<prompt-path>' and execute the task it contains exactly"
 ```
 ```powershell
 # Read-only analysis/research leaf (no writes), JSONL events for parsing:
-codex exec --cd "<repo>" --sandbox read-only -c approval_policy="never" --json "<analysis task>"
+codex exec --cd "<orchestrator-root>" --add-dir "<work-target>" --sandbox read-only -c approval_policy="never" --json "<analysis task>"
 ```
 ```powershell
 # High reasoning effort, clean of machine config:
-codex exec --cd "<repo>" --sandbox workspace-write -c approval_policy="never" `
+codex exec --cd "<orchestrator-root>" --add-dir "<work-target>" --sandbox workspace-write -c approval_policy="never" `
   -c model_reasoning_effort="high" --ignore-user-config "<task>"
 ```
 ```powershell

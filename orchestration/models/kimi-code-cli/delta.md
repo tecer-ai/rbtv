@@ -27,13 +27,21 @@ This package DISSOLVES the `kimi-code-execution` runtime component (the M3 manda
 <!-- RENDER:DELTA invocation -->
 The kimi CLI dispatch manual — the exact command shapes, flags, exit handling, resume, recovery, and the kimi task contract. Self-contained: this is the orchestrator's complete runtime kimi spec (the dissolved `kimi-code-execution` / M3 content). Verified against Kimi CLI **1.41.0** (`kimi info --json` → `agent_spec_versions: ["1"]`, `wire_protocol_version: "1.9"`). Re-verify with `kimi --help` / `kimi --version` before relying on any flag — the CLI evolves fast; `--help` is ground truth for the installed build.
 
+### Launch-root vs work-target — the confinement split (G1)
+
+Kimi keys its guidance to `--work-dir`. Under orchestration, `--work-dir` is ALWAYS the **orchestrator root** (the launch root, where the full rules/skills mirror lives — `AGENTS.md` + `.agents/behavior-rules/`), NEVER the work-target. The actual **work-target** (the repo the task edits — `allowed_workdir` in the task frontmatter) is passed via `--add-dir "<work-target>"`. Rooting kimi at a nested-repo work-target loads ZERO behavior-rules (the mirror skips nested git repos by design) — the a3e217d incident: a bare self-commit from a rules-blind kimi swept 5 foreign files. Three consequences:
+
+- Every shape and recipe below sets `--work-dir "<orchestrator-root>" --add-dir "<work-target>"`.
+- The post-run confinement diff runs in the **work-target's git**: `git -C "<allowed_workdir>" diff --name-only HEAD` (a diff in the launch-root's git passes vacuously when the work-target is a nested repo).
+- The work-target's own local `CLAUDE.md`/`AGENTS.md` conventions are NOT auto-loaded from `--add-dir` — the conductor inlines the load-bearing ones into the task body or marks the file `[FULL READ]`.
+
 ### Mirror-equipped dispatch composition
 
-When the target work-dir contains a `.agents/behavior-rules/` directory (a mirror-equipped workspace), the conductor MUST prepend to the kimi task body an explicit ENUMERATED first step — a literal **Step 0** that reads, verbatim:
+When the launch root (`--work-dir`) contains a `.agents/behavior-rules/` directory (a mirror-equipped workspace), the conductor MUST prepend to the kimi task body an explicit ENUMERATED first step — a literal **Step 0** that reads, verbatim:
 
 > **Step 0 — before any other work:** read each file under `.agents/behavior-rules/` individually (one read per file, NEVER a bulk `Get-Content -Recurse` / `cat .agents/behavior-rules/*` / any single command that emits every file at once). Then read your `AGENTS.md`. Treat all of it as binding, non-negotiable rules for this entire session. Only after you have read every rule file may you begin the task.
 
-This forced task-step is MANDATORY for mirror governance — it is not optional and not a no-op the conductor MAY skip on a mirror-equipped work-dir. The reason is proven, not theoretical: kimi does NOT reliably act on the passive header binding-addendum obligation alone — given only the addendum's "Rule-loading" row, kimi skipped the rule read ENTIRELY (0 rule-file reads on repeated bare-prompt runs), so `rbtv-reasoning.md`'s Pre-Agreement-Gate `<counter>` format never reached the model and the rules never governed. Only an explicit enumerated FIRST STEP in the task body reliably forces kimi to read each rule file (proven: the forced step drove ~17 separate per-file reads → the verbatim `<counter>` block). The per-file-read discipline (one read per file, never a bulk recursive read) carries over from the `model-binding-delta` obligation above — Step 0 names HOW to read so the late-sorting rules (e.g. `rbtv-reasoning.md`) are never truncated out of context. On a work-dir with NO `.agents/behavior-rules/`, this composition rule does not fire — dispatch the bare task body unchanged.
+This forced task-step is MANDATORY for mirror governance — it is not optional and not a no-op the conductor MAY skip on a mirror-equipped launch root. The reason is proven, not theoretical: kimi does NOT reliably act on the passive header binding-addendum obligation alone — given only the addendum's "Rule-loading" row, kimi skipped the rule read ENTIRELY (0 rule-file reads on repeated bare-prompt runs), so `rbtv-reasoning.md`'s Pre-Agreement-Gate `<counter>` format never reached the model and the rules never governed. Only an explicit enumerated FIRST STEP in the task body reliably forces kimi to read each rule file (proven: the forced step drove ~17 separate per-file reads → the verbatim `<counter>` block). The per-file-read discipline (one read per file, never a bulk recursive read) carries over from the `model-binding-delta` obligation above — Step 0 names HOW to read so the late-sorting rules (e.g. `rbtv-reasoning.md`) are never truncated out of context. On a launch root with NO `.agents/behavior-rules/`, this composition rule does not fire — dispatch the bare task body unchanged.
 
 ### Pre-flight (before any dispatch)
 
@@ -42,7 +50,7 @@ This forced task-step is MANDATORY for mirror governance — it is not optional 
 | CLI present + version | `kimi --version` (`kimi, version 1.41.0`) | Absent/older → re-verify flags against `kimi --help`. |
 | **Pinned-flag existence** (routing §4 gate) | `kimi --help` grepped for every non-trivial flag this dispatch pins (`--work-dir`, `--quiet`/`--print`/`--output-format`/`--final-message-only`, `--no-thinking`, `--agent-file`, `--add-dir`, `--session`/`--continue`). **Truncation caveat:** kimi's boxed help TRUNCATES long flag names at narrow widths (`--final-message-only` renders as `--final-message…`) — a literal string match on the boxed output false-negatives (verified live, 2026-06-10). Widen the render (`$env:COLUMNS='250'; kimi --help`) or match the truncated prefix before ruling a flag ABSENT. | Runs EVERY dispatch (NOT only on a version mismatch — a flag can vanish at the SAME version family the manual pinned; codex 0.137.0/`--ask-for-approval` is the cautionary case, p5-2). Any pinned flag absent → STOP, do not dispatch; re-resolve at THIS delta, re-render (`../render-manuals.py`), re-run the gate — NEVER hand-edit the rendered manual or pass an ad-hoc flag. A removed/renamed flag is a hard arg-parse error pre-spend if dispatched. |
 | Auth | `kimi login` (interactive, one-time) | Login is interactive → USER-EXECUTED-ONLY. If unauthenticated, halt and ask the owner to run it; never automate it. |
-| Guidance file | target workspace has `AGENTS.md`? | Absent → offer to generate it via the mirror (`mirror_entry: kimi-mirror`, see the kimi `mirror-config.yaml`). |
+| Guidance file | the LAUNCH ROOT (orchestrator root — the `--work-dir` value) has `AGENTS.md` + `.agents/behavior-rules/`? | Checked at the launch root, NEVER the work-target (the work-target needs no guidance file — the mirror skips nested repos by design). Absent at the launch root → offer to generate it via the mirror (`mirror_entry: kimi-mirror`, see the kimi `mirror-config.yaml`). |
 
 ### The two invocation shapes (functionally equivalent — pick by prompt size and host shell)
 
@@ -51,7 +59,7 @@ Kimi accepts the task prompt via one of two equivalent shapes. Pick the shape by
 **Shape A — `--prompt` CLI argument (small prompts):**
 
 ```powershell
-kimi --work-dir "<allowed_workdir>" --quiet --prompt "<task_prompt>"
+kimi --work-dir "<orchestrator-root>" --add-dir "<work-target>" --quiet --prompt "<task_prompt>"
 ```
 
 Use when the prompt fits comfortably under the host shell's single-argument limit (Linux ~128 KB headroom; Windows PowerShell and Git Bash/MSYS2 both ~32 KB). Default for short, interactive dispatches.
@@ -61,10 +69,10 @@ Use when the prompt fits comfortably under the host shell's single-argument limi
 For a prompt too large to inline (≥ ~30 KB; PowerShell/Git Bash ~32 KB single-arg ceiling), write it to a file and point kimi at it with a SHORT `--prompt`:
 
 ```powershell
-kimi --work-dir "<allowed_workdir>" --quiet --prompt "Read the file '<prompt-path>' and execute the task it contains exactly; create only the files it allowlists."
+kimi --work-dir "<orchestrator-root>" --add-dir "<work-target>" --quiet --prompt "Read the file '<prompt-path>' and execute the task it contains exactly; create only the files it allowlists."
 ```
 
-Kimi loads the brief via its own file tool, so the command stays short AND begins with `kimi` (the in-session permission requirement — generic packaging §1 D17 row). Do **not** pipe the brief with `cat prompt.md | kimi …` for an in-session dispatch: the pipe makes the command line BEGIN with `cat`, which does not match the `kimi:*` prefix rule and falls to the permission classifier. The stdin-pipe form (`cat prompt.md | kimi --work-dir "<repo>" --print --input-format text --final-message-only`) stays functionally valid for owner-typed `!` dispatches only. **Both shapes** apply the same `--work-dir` surface, honor the same return contract, and pass the same allowlist + forbidden-ops + swarm-policy checks on return.
+Kimi loads the brief via its own file tool, so the command stays short AND begins with `kimi` (the in-session permission requirement — generic packaging §1 D17 row). Do **not** pipe the brief with `cat prompt.md | kimi …` for an in-session dispatch: the pipe makes the command line BEGIN with `cat`, which does not match the `kimi:*` prefix rule and falls to the permission classifier. The stdin-pipe form (`cat prompt.md | kimi --work-dir "<orchestrator-root>" --add-dir "<work-target>" --print --input-format text --final-message-only`) stays functionally valid for owner-typed `!` dispatches only. **Both shapes** apply the same launch-root/work-target surface, honor the same return contract, and pass the same allowlist + forbidden-ops + swarm-policy checks on return.
 
 The composed **header + payload** (generic packaging §1) is written to `prompt.md` on disk and dispatched FROM that file — the same prompt file is the reuse surface on resume.
 
@@ -88,7 +96,7 @@ The kimi manifest declares two routable variants — route on `(kimi, variant)`:
 | `75` | Retryable (rate limits, timeouts, 5xx) | Back off and retry the SAME task — UNLESS the exit-75 recovery trigger fires (below), in which case recover, do not re-run. |
 
 ```powershell
-kimi --work-dir "<repo>" --quiet --prompt "<task>"; $code = $LASTEXITCODE
+kimi --work-dir "<orchestrator-root>" --add-dir "<work-target>" --quiet --prompt "<task>"; $code = $LASTEXITCODE
 if ($code -eq 75) { <exit-75 recovery decision — see below> }
 elseif ($code -ne 0) { <halt + surface> }
 ```
@@ -129,9 +137,9 @@ The recovery commit is reversible (`git revert <hash>` restores pre-recovery sta
 
 | Mechanism | Command | Use |
 |-----------|---------|-----|
-| Resume a specific session | `kimi --work-dir "<repo>" --session "<id>" --quiet --prompt "<follow-up>"` | After a `DOUBT_ESCALATED` / `NEEDS_CONTEXT` halt: supply the resolution into the SAME session by id. |
-| Continue the work-dir's previous session | `kimi --work-dir "<repo>" --continue --quiet --prompt "<follow-up>"` | Pick up the last session for that work-dir without tracking an id. |
-| Capture the full audit trail | `kimi export <session-id> -o "<repo>/.kimi-runs/<id>.zip" -y` | Archive session artifacts after a run. |
+| Resume a specific session | `kimi --work-dir "<orchestrator-root>" --add-dir "<work-target>" --session "<id>" --quiet --prompt "<follow-up>"` | After a `DOUBT_ESCALATED` / `NEEDS_CONTEXT` halt: supply the resolution into the SAME session by id. Re-pass the SAME launch-root/work-target flags as the original dispatch. |
+| Continue the work-dir's previous session | `kimi --work-dir "<orchestrator-root>" --add-dir "<work-target>" --continue --quiet --prompt "<follow-up>"` | Pick up the last session for that launch root without tracking an id. |
+| Capture the full audit trail | `kimi export <session-id> -o "<work-target>/.kimi-runs/<id>.zip" -y` | Archive session artifacts after a run. |
 
 Avoid `--session` / `--resume` WITHOUT an id in headless mode — it opens an interactive picker. Resume drift warning: resumed long sessions favor prose over the named-field schema — reconcile the resumed return against disk especially hard.
 
@@ -141,10 +149,10 @@ Kimi has **no native `--allowlist` / per-path permission flag**, and headless mo
 
 | Control | Mechanism |
 |---------|-----------|
-| Workspace scope | `--work-dir <repo-root>` + `--add-dir <extra>` (repeatable). Keep the set minimal. |
+| Workspace scope | `--work-dir <orchestrator-root>` (the launch root — guidance loads from here) + `--add-dir <work-target>` (+ further `--add-dir <extra>` only when the task needs it; repeatable). Keep the set minimal. |
 | Tool surface | `--agent-file <kimi-agent.yaml>` with an explicit `tools` list or `exclude_tools` (e.g. strip `kimi_cli.tools.web:SearchWeb` / `FetchURL` for offline tasks). Use `--agent-file` ONLY when `swarm_policy: allowed` or a tool restriction is required. |
 | Read confinement | Inline required context into the task prompt; use the `explore` / `plan` subagent types (read-only) where no writes are needed. |
-| **Write confinement** | **Post-run `git diff --name-only HEAD` of every changed path against the task's `allowlist`** — the ONLY reliable enforcement. Out-of-allowlist edit = halt + surface; NEVER auto-revert silently. |
+| **Write confinement** | **Post-run `git -C "<allowed_workdir>" diff --name-only HEAD` of every changed path against the task's `allowlist`** — run in the WORK-TARGET's git, never the launch-root's (a nested-repo work-target has its own git; a launch-root diff passes vacuously). The ONLY reliable enforcement. Out-of-allowlist edit = halt + surface; NEVER auto-revert silently. |
 | Commit / push | Local-only by policy; verify git state shows no push since dispatch. |
 | Network / prod APIs | No CLI flag blocks these — strip web/MCP tools via the agent file and run with no network MCP servers configured. |
 
@@ -155,6 +163,7 @@ The `allowlist` in the task frontmatter is a list of file/folder globs (computed
 | Failure | Pre-emption |
 |---------|-------------|
 | Headless auto-approves all tools (no native allowlist) | Enforce scope externally (workspace + agent-file + post-run diff). |
+| Launched with `--work-dir` = a nested-repo work-target → 0 behavior-rules loaded → rules-blind worker (the a3e217d sweep) | NEVER root kimi at the work-target: `--work-dir <orchestrator-root>` + `--add-dir <work-target>`, always (the G1 launch-root split above). |
 | No native path allowlist | ALWAYS diff every changed path vs the allowlist on return. |
 | `cd` does not persist between shell calls | Each shell command is an independent subprocess — set `--work-dir`; never rely on `cd` chaining in the prompt. |
 | Exit 75 on the final return turn | Run the exit-75 recovery protocol (above), never blind-retry. |
@@ -172,7 +181,7 @@ A kimi-executable task file extends the generic task-file contract (`{rbtv_path}
 ```yaml
 execution_kind: code
 executor: kimi
-allowed_workdir: <absolute-or-project-root-relative repo path>
+allowed_workdir: <work-target repo path — passed via --add-dir; NEVER the --work-dir launch root>
 allowlist:
   - <file-or-folder-glob>
 commit_policy: local-only
@@ -197,20 +206,20 @@ max_kimi_subagents: <N-or-0>
 ### Recipes
 
 ```powershell
-# Single bounded worker, final text only (Shape A):
-kimi --work-dir "5-workbench/inni-cte-recon" --quiet --prompt "<inlined task file content>"
+# Single bounded worker, final text only (Shape A) — launch root = orchestrator root, work-target via --add-dir:
+kimi --work-dir "<orchestrator-root>" --add-dir "5-workbench/inni-cte-recon" --quiet --prompt "<inlined task file content>"
 ```
 ```powershell
 # Large brief via a FILE POINTER (Shape B — default autonomous/Windows; command BEGINS with `kimi`):
-kimi --work-dir "<repo>" --quiet --prompt "Read the file '<prompt-path>' and execute the task it contains exactly"
+kimi --work-dir "<orchestrator-root>" --add-dir "<work-target>" --quiet --prompt "Read the file '<prompt-path>' and execute the task it contains exactly"
 ```
 ```powershell
 # Constrained tools + streamed JSON for parsing:
-kimi --work-dir "<repo>" --agent-file "<kimi-agent.yaml>" --print --output-format stream-json --prompt "<task>"
+kimi --work-dir "<orchestrator-root>" --add-dir "<work-target>" --agent-file "<kimi-agent.yaml>" --print --output-format stream-json --prompt "<task>"
 ```
 ```powershell
 # Retry on transient failure (exit 75) — only when the recovery trigger does NOT fire:
-kimi --work-dir "<repo>" --quiet --prompt "<task>"; $c=$LASTEXITCODE
-if ($c -eq 75) { Start-Sleep 10; kimi --work-dir "<repo>" --quiet --prompt "<task>" }
+kimi --work-dir "<orchestrator-root>" --add-dir "<work-target>" --quiet --prompt "<task>"; $c=$LASTEXITCODE
+if ($c -eq 75) { Start-Sleep 10; kimi --work-dir "<orchestrator-root>" --add-dir "<work-target>" --quiet --prompt "<task>" }
 ```
 <!-- RENDER:DELTA-END invocation -->
