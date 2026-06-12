@@ -80,12 +80,18 @@ Codex loads the brief via its own file tool, so the command stays short AND begi
 
 The codex manifest declares routable variants — route on `(codex, variant)`:
 
-| Variant | Flags / config | When |
-|---------|----------------|------|
-| `default` | (machine config: `model = "gpt-5.5"`, `model_reasoning_effort = "medium"`) | The mid-tier profile; partially-bounded code/analysis with `doubt_policy: halt`. |
-| `high-reasoning` | `-c model_reasoning_effort="high"` (or the workspace's configured high-effort model) | Judgment-denser work that still routes to codex. Higher latency + spend. |
+| Variant | Flags / config | reasoning_tier · cost · evidence | When |
+|---------|----------------|----------------------------------|------|
+| `low-reasoning` | `-c model_reasoning_effort="low"` (configured gpt-5.5) | mid · low · probe-pending | The cheaper, lower-effort end of the bounded-code band; effort=low NOT separately exercised. |
+| `default` | (machine config: `model = "gpt-5.5"`, `model_reasoning_effort = "medium"`) | mid · mid · **validated** | The mid-tier profile; partially-bounded code/analysis with `doubt_policy: halt`. The one exercised variant (2026-06-11 done-gate). |
+| `high-reasoning` | `-c model_reasoning_effort="high"` (or the workspace's configured high-effort model) | top · high · probe-pending | Judgment-denser work that still routes to codex. Higher latency + spend; effort=high NOT separately exercised. |
+| `gpt-5.4-low` | `-m gpt-5.4 -c model_reasoning_effort="low"` | mid · cheapest · probe-pending | Cheapest prior-gen codex; bounded end. |
+| `gpt-5.4` | `-m gpt-5.4 -c model_reasoning_effort="medium"` | mid · mid · probe-pending | Prior-gen counterpart to `default`; model-diversity alternative. |
+| `gpt-5.4-high` | `-m gpt-5.4 -c model_reasoning_effort="high"` | top · high · probe-pending | Prior-gen counterpart to `high-reasoning`; harder code reasoning. |
 
-`-m/--model <id>` overrides the configured model per dispatch; `-c model_reasoning_effort="<low|medium|high>"` overrides reasoning effort (a `-c` dotted-path config override, TOML-parsed). `-p/--profile <name>` layers a `$CODEX_HOME/<name>.config.toml` profile on top of the base config. The configured model on this machine is `gpt-5.5` at `medium` effort (`~/.codex/config.toml`); a re-pointed model/profile changes the reasoning tier — re-confirm against the live config before routing. The exact reasoning-tier-to-boundedness mapping for codex is UNPILOTED; the manifest marks the package `probe-pending`.
+**gpt-5.4 (owner-confirmed access 2026-06-11):** live-probed at all three efforts through this same codex 0.137.0 in the 2026-06-11 reasoning-test battery (`codex exec -m gpt-5.4 -c model_reasoning_effort=<low|medium|high>`, exit 0, correct output). That battery was CONDUCT-ONLY (no grading), so every gpt-5.4 variant carries `evidence_status: probe-pending` and its `reasoning_tier`/`cost_class` are UNGRADED effort-ladder inferences mirroring the gpt-5.5 variants — verify against a graded run before trusting the routing placement. gpt-5.4's exact context window/pricing are NOT separately confirmed (re-confirm before routing large context or on a spend-sensitive run). Only gpt-5.5/medium (`default`) has been pilot-exercised; the other five (model, effort) combinations share the validated CLI worker contract but the specific behavior is unexercised → `probe-pending`.
+
+`-m/--model <id>` overrides the configured model per dispatch (the gpt-5.4 variants pin `-m gpt-5.4`); `-c model_reasoning_effort="<low|medium|high>"` overrides reasoning effort (a `-c` dotted-path config override, TOML-parsed). `-p/--profile <name>` layers a `$CODEX_HOME/<name>.config.toml` profile on top of the base config. The configured model on this machine is `gpt-5.5` at `medium` effort (`~/.codex/config.toml`); a re-pointed model/profile changes the reasoning tier — re-confirm against the live config before routing. The exact reasoning-tier-to-boundedness mapping for codex is UNPILOTED; the manifest marks every unexercised (model, effort) variant `probe-pending`.
 
 ### Exit handling
 

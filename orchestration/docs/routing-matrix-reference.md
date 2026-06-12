@@ -49,12 +49,13 @@
 | Model | Context | Specialty | Coding | Agentic |
 |-------|---------|-----------|--------|---------|
 | GPT-5.5 | ~200k | General | Advanced | Yes |
+| GPT-5.4 | ~200k | Prior-gen general | Advanced | Yes |
 | GPT-5.4 mini | ~200k | Light | Good | Yes |
 | GPT-5.4 nano | ~200k | Ultra-light | Basic | Yes |
 
-**Capability:** GPT-5.5 = top reasoning + coding; mini/nano = lighter/cheaper.
+**Capability:** GPT-5.5 = top reasoning + coding; GPT-5.4 = prior-gen frontier (owner-confirmed access 2026-06-11); mini/nano = lighter/cheaper.
 
-> **Note:** Routed via the `codex` CLI (code execution) in this workspace — NOT built as an API chat worker (dropped per build decision D1). Listed here as reference only.
+> **Note:** Routed via the `codex` CLI (code execution) in this workspace — NOT built as an API chat worker (dropped per build decision D1). The `codex-cli` package wires SIX routable `(model, effort)` variants: gpt-5.5 `low-reasoning`/`default`/`high-reasoning` and gpt-5.4 `gpt-5.4-low`/`gpt-5.4`/`gpt-5.4-high` (`-m gpt-5.4`). Only gpt-5.5/medium `default` is `validated`; the rest are `probe-pending` (gpt-5.4 live-probed at all 3 efforts exit-0 in the 2026-06-11 reasoning battery, but UNGRADED — its reasoning_tier/cost are effort-ladder inferences; context/pricing unconfirmed). Context ~200k here is the reference figure; the manifest carries 272k for the gpt-5.5 family pending re-confirmation.
 
 ## 6. Cohere
 
@@ -118,7 +119,7 @@ These rows resolve the specific worker overlaps the owner cares about. They are 
 | Use… | When |
 |------|------|
 | **DeepSeek API** (`deepseek-api:v4-flash` / `v4-pro`) | The leaf is **text synthesis / logic over inlined sources** — no code execution. DeepSeek carries `code_competence: none`, so the §2a `code_competence ≥ needed` filter already removes it from every code leaf; it wins on a TEXT leaf as the cheapest capable. Cheapest text worker (v4-flash); cheapest top-reasoning-tier text (v4-pro). |
-| **codex CLI** (`codex-cli:default` / `high-reasoning`) | The leaf **executes code** — edits a work-dir, runs commands, needs a sandboxed separate process. codex is a code-specialized agent (`code_competence: strong`); DeepSeek cannot do this leaf at all. |
+| **codex CLI** (gpt-5.5 `low-reasoning`/`default`/`high-reasoning` + gpt-5.4 `gpt-5.4-low`/`gpt-5.4`/`gpt-5.4-high`) | The leaf **executes code** — edits a work-dir, runs commands, needs a sandboxed separate process. codex is a code-specialized agent (`code_competence: strong`); DeepSeek cannot do this leaf at all. Within the codex variants, pick by effort/cost (low→cheapest, high→top tier) and generation (gpt-5.4 = prior-gen, all probe-pending); only gpt-5.5/medium `default` is validated. |
 
 Boundary: the cut is **text-synthesis vs code-execution**, enforced mechanically by `code_competence` — never route code to DeepSeek, never route pure text-synthesis to a costlier code-executing process when a text worker suffices. (api-workers-build D2: DeepSeek stays the API text worker; the code/agentic role is a CLI worker.)
 
