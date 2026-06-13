@@ -32,6 +32,7 @@ permission_rules:            # installer-managed allowlist entries in the target
 
 variants:
   - variant: default   # qwen3.6-plus — the configured model.name (no -m needed); native Apr-2026 flagship coder. The home backend.
+    display: "Qwen3.6 Plus"   # installer backend-election label (per-variant; installer-consumed, NOT a routing input — schema §2)
 
     # --- boundedness + sizing (routing §2, §8) ---
     reasoning_tier: mid             # HELD at mid + doubt_policy: halt. ⚑ UNDER-RATED per published benchmark (Qwen3.6-Plus 78.8% SWE-V, independent: HF/Willison/Register ≈ Sonnet 79.6) — judgment-pilot candidate, NOT bumped (SWE measures code; code_competence already strong; judgment unpiloted). Re-sourced from spec → benchmark 2026-06-11
@@ -79,6 +80,7 @@ variants:
     specialty: "bounded code/agentic via the native Qwen3.6 flagship — purpose-built coding agent (shell/file/edit + built-in PR-review) with native --worktree isolation; the no-`-m` home backend (text synthesis → DeepSeek API worker)"   # within-tier tiebreaker only; boundedness-first stays the master cut
     # --- configurable model (ADX-2 / D6 / Brief B Part 2 — qwen serves a CONFIGURABLE backend set, not a fixed identity) ---
     configurable_model:
+      provider_label: "qwen-code (DashScope US)"   # installer backend-election provider-path label (installer-consumed; not a routing input)
       is_configurable: true          # the model the qwen CLI runs is CONFIGURATION, not a fixed package identity — the owner runs qwen against four ModelStudio US backends (native Qwen3.6 PLUS deepseek-v4-flash/pro and glm-5.1); the served model is set per-run via -m, modeled as the four variants here
       note: "served backend set by --auth-type openai + -m <id> (qwen3.6-plus | deepseek-v4-flash | deepseek-v4-pro | glm-5.1), all on ModelStudio US under DASHSCOPE_API_KEY; availability/attribution resolve the CONFIGURED id at dispatch (init.model echoes it), never assume from the package name. Per-backend variants modeled 2026-06-10 (Brief B Part 2 — was deferred, now DONE)"
     failure_modes:
@@ -107,6 +109,7 @@ variants:
       windows: "positional prompt AND stdin pipe both work (Get-Content file | qwen \"...\"); config root %USERPROFILE%\\.qwen\\; --sandbox needs Docker/Podman (unverified here); exit codes 0/1/53/55/130 propagate to $LASTEXITCODE"   # report §14/§15
 
   - variant: deepseek-flash   # -m deepseek-v4-flash — DeepSeek V4 efficiency tier (284B MoE, 13B active) via ModelStudio US. The cheapest large-output code executor.
+    display: "DeepSeek V4 Flash"   # installer backend-election label (per-variant; installer-consumed, NOT a routing input — schema §2)
     # Differs from `default` on: max_output (384K vs 65536 — large-output code), and provider/specialty. Shares the qwen CLI contract.
     reasoning_tier: mid             # HELD at mid + doubt_policy: halt. ⚑ UNDER-RATED per published benchmark (DeepSeek V4-Flash 79.0% SWE-V ≈ Sonnet, AA index 1388) — judgment-pilot candidate, NOT bumped (code metric, not judgment). Re-sourced from spec → benchmark 2026-06-11
     context_window: 1048576         # 1M (research §3 [3])
@@ -146,6 +149,7 @@ variants:
       default: disabled
 
   - variant: deepseek-pro   # -m deepseek-v4-pro — DeepSeek V4 flagship (1.6T MoE, 49B active) via ModelStudio US. The heavier-reasoning code/agentic backend.
+    display: "DeepSeek V4 Pro"   # installer backend-election label (per-variant; installer-consumed, NOT a routing input — schema §2)
     # Differs from `deepseek-flash` on: reasoning_tier (top) and cost_class (mid). The fleet's top-reasoning qwen-carrier backend.
     reasoning_tier: top             # benchmark-corroborated (was spec-derived): DeepSeek V4-Pro 80.6% SWE-V (≥ Sonnet) + Artificial Analysis #2 open-weight reasoning (2026-06-11). Bounded-code execution validated; judgment-dense work still NOT piloted here → keep doubt_policy: halt + opus reviewer floor until a judgment pilot. The field that makes `pro` non-dominated vs `flash`
     context_window: 1048576         # 1M (research §3 [3])
@@ -187,6 +191,7 @@ variants:
       default: disabled
 
   - variant: glm   # -m glm-5.1 — Z.AI (Zhipu) GLM-5.1 via ModelStudio US. Fleet diversity: a non-DeepSeek, non-Qwen agentic-coding backend.
+    display: "GLM 5.1"   # installer backend-election label (per-variant; installer-consumed, NOT a routing input — schema §2)
     # Differs from the others on: context_window (204800 — smaller). Kept routable per the owner's explicit "GLM access" intent (model diversity for the code fleet).
     reasoning_tier: mid             # HELD at mid + doubt_policy: halt. ⚑ STRONGLY UNDER-RATED per published benchmark (GLM-5.1: 58.4 SWE-bench Pro — #1 open-weight, BEATS Opus 4.6 at 57.3) — top judgment-pilot candidate, NOT bumped (SWE-Pro is code/agentic, not judgment; code_competence already strong). Re-sourced from spec → benchmark 2026-06-11
     context_window: 204800          # 204,800 (research §3 [6][8]) — the smaller-context backend; the routing distinction. Below the 1M DeepSeek/Qwen backends

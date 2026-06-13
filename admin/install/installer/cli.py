@@ -33,10 +33,13 @@ from .generator import (
 from .manifest import Module, load_manifest
 from .orchestration import (
     bake_availability_line,
+    build_electable_entries,
     check_manual_render,
     discover_model_displays,
     discover_model_packages,
+    normalize_model_variants,
     resolve_selected_packages,
+    resolve_selection_from_entry_ids,
     sync_permission_rules,
 )
 from .state import find_state_upward, read_state, update_mirror_state, write_state
@@ -265,78 +268,136 @@ def _prompt_custom_components(
     return excluded
 
 
-def _prompt_model_packages(
-    available: list[str],
-    previous_selection: list[str] | None,
-    displays: dict[str, str] | None = None,
-) -> tuple[str, ...]:
-    """Interactive checkbox for orchestration model-package selection.
+def _prompt_model_selection(
+    rbtv_root: Path,
+    previous_packages: list[str] | None,
+    previous_variants: dict[str, list[str]] | None,
+) -> tuple[list[str], dict[str, list[str]]]:
+    """Interactive checkbox over the electable worker entries (build_electable_entries).
 
-    Each package is independently toggleable (no always-on packages). On a
-    re-install, the previous selection is pre-checked; on a first install every
-    available package is pre-checked (full install is the default). Each row shows
-    the package's human-facing display label (carrier + runtime, e.g.
-    "claude-code (CLI)" / "gemini (API)") while the persisted value stays the
-    folder-safe package id.
+    A configurable package (e.g. qwen-code-cli) contributes one row PER native backend,
+    each provider-path labeled so a both-paths model (DeepSeek via qwen-code vs via a
+    direct-API package) is unambiguous; every other package is a single row. On a
+    re-install the previous election is pre-checked; on a first install everything is
+    pre-checked (full install is the default). Returns (packages, model_variants) via
+    resolve_selection_from_entry_ids (model_variants carries only proper-subset
+    configurable packages).
     """
     from .tui import checkbox
 
-    displays = displays or {}
-    items = []
-    for name in available:
-        if previous_selection is None:
+    entries = build_electable_entries(rbtv_root)
+    previous_variants = previous_variants or {}
+    items: list[dict[str, Any]] = []
+    for e in entries:
+        pkg = e["package"]
+        if previous_packages is None:
+            pre = True
+        elif pkg not in previous_packages:
+            pre = False
+        elif e["variant"] is None:
             pre = True
         else:
-            pre = name in previous_selection
-        items.append({"label": displays.get(name, name), "selected": pre})
+            restricted = previous_variants.get(pkg)
+            pre = restricted is None or e["variant"] in restricted
+        item: dict[str, Any] = {"label": e["label"], "selected": pre}
+        if e["hint"]:
+            item["hint"] = e["hint"]
+        items.append(item)
 
     selected_indices = checkbox(
-        "\nSelect orchestration model packages (CLI / native / API workers) "
-        "to make available in this workspace:",
+        "\nSelect orchestration model workers / backends to make available in this "
+        "workspace\n  (a configurable CLI lists each native backend separately, "
+        "provider-path labeled):",
         items,
     )
-    return tuple(available[i] for i in selected_indices)
+    selected_ids = [str(entries[i]["id"]) for i in selected_indices]
+    return resolve_selection_from_entry_ids(rbtv_root, selected_ids)
+
+
+def _carry_variants(
+    previous_variants: dict[str, list[str]] | None, elected_packages: list[str] | None
+) -> dict[str, list[str]]:
+    """Carry forward a previous model_variants map, dropping entries for packages no
+    longer elected. Used on the scripted (non-interactive / --modules) path and when
+    --model-packages is given without --model-variants — a re-install preserves the
+    recorded backend subset for still-elected configurable packages."""
+    if not previous_variants:
+        return {}
+    elected = set(elected_packages or [])
+    return {p: list(vs) for p, vs in previous_variants.items() if p in elected}
 
 
 def _resolve_model_packages(
     rbtv_root: Path,
     chosen_modules: tuple[str, ...],
-    requested_flag: tuple[str, ...] | None,
+    requested_packages: tuple[str, ...] | None,
+    requested_variants: dict[str, list[str]] | None,
     non_interactive: bool,
     used_modules_flag: bool,
     existing_state: dict[str, Any] | None,
-) -> tuple[list[str], list[str], list[str] | None]:
-    """Resolve which model packages this workspace elects.
+) -> tuple[list[str], list[str], list[str] | None, dict[str, list[str]] | None]:
+    """Resolve which model packages — and, for configurable packages, which native
+    backends — this workspace elects.
 
-    Returns (installed, absent, persisted) where:
-      - installed / absent feed the availability-line bake,
-      - persisted is the list written to rbtv.json (None => key omitted, i.e. the
-        orchestration module is not installed so packages do not apply).
+    Returns (installed, absent, persisted_packages, persisted_variants):
+      - installed / absent feed the availability-line bake (package granularity),
+      - persisted_packages is written to rbtv.json `model_packages` (None => key omitted:
+        the orchestration module is not installed so packages do not apply),
+      - persisted_variants is written to rbtv.json `model_variants` (None => key omitted:
+        no proper-subset restriction on any configurable package).
 
     Selection precedence mirrors module resolution:
-      --model-packages flag > non-interactive(prev state or all) > interactive picker.
+      --model-packages / --model-variants flags > non-interactive(prev state or all)
+      > interactive picker.
     """
     if ORCHESTRATION_MODULE not in chosen_modules:
-        return [], [], None
+        return [], [], None, None
 
     available = discover_model_packages(rbtv_root)
     if not available:
         # Orchestration installed but no packages shipped yet — nothing to elect.
-        return [], [], []
+        return [], [], [], None
 
-    previous = None
-    if existing_state is not None and "model_packages" in existing_state:
-        previous = list(existing_state["model_packages"])
+    prev_packages: list[str] | None = None
+    prev_variants: dict[str, list[str]] | None = None
+    if existing_state is not None:
+        if "model_packages" in existing_state:
+            prev_packages = list(existing_state["model_packages"])
+        if isinstance(existing_state.get("model_variants"), dict):
+            prev_variants = {
+                k: list(v) for k, v in existing_state["model_variants"].items()
+            }
 
-    if requested_flag is not None:
-        requested: tuple[str, ...] | None = requested_flag
+    variants_map: dict[str, list[str]]
+    if requested_packages is not None or requested_variants is not None:
+        # Flag path.
+        if requested_packages is not None:
+            req_pkgs = list(dict.fromkeys(requested_packages))
+        else:
+            req_pkgs = list(prev_packages) if prev_packages is not None else list(available)
+        # A package named only in --model-variants is implicitly elected.
+        if requested_variants:
+            for p in requested_variants:
+                if p in available and p not in req_pkgs:
+                    req_pkgs.append(p)
+        if requested_variants is not None:
+            variants_map, warns = normalize_model_variants(rbtv_root, requested_variants)
+            for w in warns:
+                print(f"\n  WARNING — {w}", file=sys.stderr)
+        else:
+            variants_map = _carry_variants(prev_variants, req_pkgs)
+        requested: tuple[str, ...] | None = tuple(req_pkgs)
     elif non_interactive or used_modules_flag:
         # Scripted path: reuse prior selection if any, else elect all available.
-        requested = tuple(previous) if previous is not None else None
-    else:
-        requested = _prompt_model_packages(
-            available, previous, discover_model_displays(rbtv_root)
+        requested = tuple(prev_packages) if prev_packages is not None else None
+        variants_map = _carry_variants(
+            prev_variants, prev_packages if prev_packages is not None else available
         )
+    else:
+        packages, variants_map = _prompt_model_selection(
+            rbtv_root, prev_packages, prev_variants
+        )
+        requested = tuple(packages)
 
     installed, absent, unknown = resolve_selected_packages(available, requested)
     if unknown:
@@ -345,7 +406,9 @@ def _resolve_model_packages(
             f"(available: {', '.join(available)})",
             file=sys.stderr,
         )
-    return installed, absent, installed
+    # Confine model_variants to actually-installed packages; empty => None (omit the key).
+    variants_map = {p: vs for p, vs in variants_map.items() if p in installed}
+    return installed, absent, installed, (variants_map or None)
 
 
 def _resolve_env_file(
@@ -567,12 +630,37 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--model-variants",
+        type=str,
+        default=None,
+        help=(
+            "Restrict CONFIGURABLE packages to a backend subset, as "
+            "'package=variant,variant' groups separated by ';' "
+            "(e.g. 'qwen-code-cli=deepseek-flash,deepseek-pro'). A package named here is "
+            "implicitly elected. Recorded in rbtv.json 'model_variants'; the router then "
+            "routes only the listed backends of that package. Omit to keep the previous "
+            "subset (re-installs preserve it); a package not listed keeps ALL its backends. "
+            "Only applies when the orchestration module is installed."
+        ),
+    )
+    parser.add_argument(
         "--list-model-packages",
         action="store_true",
         help=(
             "Print every available orchestration model package as "
             "'<id>\\t<display label>' (one per line) and exit. Non-interactive view "
             "of the same id→label rendering the worker pick-menu shows."
+        ),
+    )
+    parser.add_argument(
+        "--list-model-backends",
+        action="store_true",
+        help=(
+            "Print every independently-electable worker ROW as "
+            "'<id>\\t<label>\\t<provider-path>' (one per line) and exit — the exact "
+            "rows the interactive picker shows, with each configurable CLI expanded into "
+            "its native backends (id '<pkg>:<variant>'). Non-interactive view of the "
+            "backend-election menu."
         ),
     )
     parser.add_argument(
@@ -659,6 +747,27 @@ def main(argv: list[str] | None = None) -> int:
             m.strip() for m in args.model_packages.split(",") if m.strip()
         )
 
+    # Parse the model-variants flag: None (omitted) vs an explicit map. Format:
+    # 'pkg=v1,v2;pkg2=v3'. An empty string parses to {} (clears any recorded subset).
+    requested_model_variants: dict[str, list[str]] | None = None
+    if args.model_variants is not None:
+        requested_model_variants = {}
+        for chunk in args.model_variants.split(";"):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            if "=" not in chunk:
+                raise SystemExit(
+                    "--model-variants: expected 'package=variant,variant' groups "
+                    f"separated by ';', got '{chunk}'"
+                )
+            pkg, _, vars_str = chunk.partition("=")
+            pkg = pkg.strip()
+            if pkg:
+                requested_model_variants[pkg] = [
+                    v.strip() for v in vars_str.split(",") if v.strip()
+                ]
+
     rbtv_root = _find_rbtv_root()
 
     # --list-model-packages: non-interactive view of the worker pick-menu's id→label
@@ -667,6 +776,13 @@ def main(argv: list[str] | None = None) -> int:
         displays = discover_model_displays(rbtv_root)
         for pkg in discover_model_packages(rbtv_root):
             print(f"{pkg}\t{displays.get(pkg, pkg)}")
+        return 0
+
+    # --list-model-backends: non-interactive view of the backend-election menu (each
+    # configurable package expanded into its native backends with provider-path labels).
+    if args.list_model_backends:
+        for e in build_electable_entries(rbtv_root):
+            print(f"{e['id']}\t{e['label']}\t{e['hint'] or ''}")
         return 0
 
     defaults = _load_defaults(rbtv_root)
@@ -829,10 +945,11 @@ def main(argv: list[str] | None = None) -> int:
 
     # --- Resolve orchestration model packages (D18) --------------------------
 
-    mp_installed, mp_absent, mp_persisted = _resolve_model_packages(
+    mp_installed, mp_absent, mp_persisted, mv_persisted = _resolve_model_packages(
         rbtv_root=rbtv_root,
         chosen_modules=chosen_modules,
-        requested_flag=requested_model_packages,
+        requested_packages=requested_model_packages,
+        requested_variants=requested_model_variants,
         non_interactive=args.non_interactive,
         used_modules_flag=bool(args.modules),
         existing_state=existing_state,
@@ -1047,6 +1164,7 @@ def main(argv: list[str] | None = None) -> int:
         installed_files=installed_paths,
         excluded_components=excluded_components,
         model_packages=mp_persisted,
+        model_variants=mv_persisted,
         model_mirror=model_mirror_block,
         env_file=env_file_value,
         model_plans_file=model_plans_file_value,

@@ -9,6 +9,12 @@ rbtv.json records:
   - excluded_components: target paths the user chose to skip (optional)
   - model_packages: orchestration model packages elected for this workspace
     (optional — drives the availability line baked into the orchestrating core)
+  - model_variants: per-package backend-subset election for CONFIGURABLE packages
+    (optional). Shape: {package_id: [variant_id, ...]}. Present ONLY when a proper
+    subset of a configurable package's native backends is elected (e.g.
+    {"qwen-code-cli": ["deepseek-flash", "deepseek-pro"]}); a fully-elected or
+    non-configurable package records no entry. The router (route.py) confines an
+    elected package to these variants; an absent entry => all variants (back-compat).
   - model_mirror: mirror-driver state for elected worker packages (optional).
     Shape: {excluded_paths: list[str], managed_files: list[{path, kind, owner}],
     last_run: ISO timestamp}.  Written by the driver after a full install or a
@@ -62,6 +68,7 @@ def write_state(
     installed_files: list[str],
     excluded_components: set[str] | None = None,
     model_packages: list[str] | None = None,
+    model_variants: dict[str, list[str]] | None = None,
     model_mirror: dict[str, Any] | None = None,
     env_file: str | None = None,
     model_plans_file: str | None = None,
@@ -113,6 +120,8 @@ def write_state(
         payload["excluded_components"] = sorted(excluded_components)
     if model_packages is not None:
         payload["model_packages"] = list(model_packages)
+    if model_variants:
+        payload["model_variants"] = {k: list(v) for k, v in model_variants.items()}
     if model_mirror is not None:
         payload["model_mirror"] = model_mirror
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

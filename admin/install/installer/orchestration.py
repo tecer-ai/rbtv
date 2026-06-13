@@ -104,6 +104,205 @@ def discover_model_displays(rbtv_root: Path) -> dict[str, str]:
     return {pkg: read_model_display(rbtv_root, pkg) for pkg in discover_model_packages(rbtv_root)}
 
 
+def _scalar_value(raw: str) -> str:
+    """Extract a YAML scalar from a line's value portion: unwrap one layer of quotes,
+    else strip an inline ``#`` comment. Stdlib-only line-scan posture (no YAML parser),
+    matching read_model_display. Handles a quoted value followed by a comment
+    (e.g. ``"DeepSeek V4 Flash"   # note`` → ``DeepSeek V4 Flash``)."""
+    raw = raw.strip()
+    if raw and raw[0] in "\"'":
+        end = raw.find(raw[0], 1)
+        if end != -1:
+            return raw[1:end]
+    return raw.split("#", 1)[0].strip()
+
+
+def is_package_configurable(rbtv_root: Path, pkg: str) -> bool:
+    """True when a package manifest declares a configurable backend set
+    (``configurable_model.is_configurable: true`` on any variant).
+
+    A configurable package's individual backends are surfaced as separately-electable
+    rows in the installer; a non-configurable package is a single row. Line scan, no
+    YAML parse — matches read_model_display's posture.
+    """
+    manifest = rbtv_root / MODELS_RELATIVE / pkg / PACKAGE_MARKER_FILE
+    try:
+        for line in manifest.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("is_configurable:"):
+                if _scalar_value(stripped[len("is_configurable:"):]).lower() == "true":
+                    return True
+    except OSError:
+        pass
+    return False
+
+
+def read_variant_displays(rbtv_root: Path, pkg: str) -> list[tuple[str, str]]:
+    """Return a package's variants as ordered ``(variant_id, display_label)`` pairs.
+
+    The label is the variant's ``display:`` field; absent, it falls back to the
+    variant id. Order follows the manifest. Only the FIRST ``display:`` after each
+    ``- variant:`` (and before the next) is taken. Line scan, no YAML parse.
+    """
+    manifest = rbtv_root / MODELS_RELATIVE / pkg / PACKAGE_MARKER_FILE
+    pairs: list[tuple[str, str]] = []
+    current_id: str | None = None
+    current_display: str | None = None
+    in_variants = False
+    try:
+        for line in manifest.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not in_variants:
+                if stripped == "variants:":
+                    in_variants = True
+                continue
+            if stripped.startswith("- variant:"):
+                if current_id is not None:
+                    pairs.append((current_id, current_display or current_id))
+                current_id = _scalar_value(stripped[len("- variant:"):])
+                current_display = None
+            elif (
+                current_id is not None
+                and current_display is None
+                and stripped.startswith("display:")
+            ):
+                current_display = _scalar_value(stripped[len("display:"):])
+    except OSError:
+        return []
+    if current_id is not None:
+        pairs.append((current_id, current_display or current_id))
+    return pairs
+
+
+def read_provider_label(rbtv_root: Path, pkg: str) -> str:
+    """Return a configurable package's provider-path label for backend election rows.
+
+    Reads ``configurable_model.provider_label`` when present; otherwise derives it
+    from the package ``display`` by dropping the trailing parenthetical
+    (e.g. ``"qwen-code (CLI)"`` → ``"qwen-code"``). Line scan, no YAML parse.
+    """
+    manifest = rbtv_root / MODELS_RELATIVE / pkg / PACKAGE_MARKER_FILE
+    try:
+        for line in manifest.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("provider_label:"):
+                val = _scalar_value(stripped[len("provider_label:"):])
+                if val:
+                    return val
+    except OSError:
+        pass
+    display = read_model_display(rbtv_root, pkg)
+    base = display.split("(", 1)[0].strip()
+    return base or display
+
+
+def build_electable_entries(rbtv_root: Path) -> list[dict[str, str | None]]:
+    """The ordered list of independently-electable worker rows the installer offers.
+
+    A NON-configurable package contributes ONE entry (id = the package id). A
+    configurable package (is_package_configurable) contributes ONE entry PER native
+    backend (id = ``"{pkg}:{variant}"``) so the owner elects any subset, each row
+    labeled with its provider path so a both-paths model (e.g. DeepSeek, reachable
+    via qwen-code AND via a direct-API package) is unambiguous.
+
+    Each entry: ``{id, package, variant, label, hint}`` — ``variant`` is None for a
+    whole-package row; ``hint`` carries the provider-path label for backend rows.
+    Shared by the interactive picker AND ``--list-model-backends`` so both render
+    identically.
+    """
+    entries: list[dict[str, str | None]] = []
+    for pkg in discover_model_packages(rbtv_root):
+        if is_package_configurable(rbtv_root, pkg):
+            provider = read_provider_label(rbtv_root, pkg)
+            for variant_id, v_display in read_variant_displays(rbtv_root, pkg):
+                entries.append(
+                    {
+                        "id": f"{pkg}:{variant_id}",
+                        "package": pkg,
+                        "variant": variant_id,
+                        "label": v_display,
+                        "hint": f"via {provider}",
+                    }
+                )
+        else:
+            entries.append(
+                {
+                    "id": pkg,
+                    "package": pkg,
+                    "variant": None,
+                    "label": read_model_display(rbtv_root, pkg),
+                    "hint": "",
+                }
+            )
+    return entries
+
+
+def resolve_selection_from_entry_ids(
+    rbtv_root: Path, selected_ids: list[str]
+) -> tuple[list[str], dict[str, list[str]]]:
+    """Map a set of selected electable-entry ids to (packages, model_variants).
+
+    - packages: ordered, de-duplicated package ids with >=1 selected entry.
+    - model_variants: for each configurable package, the elected backend ids — but
+      ONLY when a PROPER SUBSET is elected. A configurable package with ALL its
+      backends elected records no entry (so a backend added later is auto-included,
+      and pre-variant installs stay back-compatible: an absent entry => all backends).
+    """
+    selected = set(selected_ids)
+    packages: list[str] = []
+    chosen_by_pkg: dict[str, list[str]] = {}
+    for e in build_electable_entries(rbtv_root):
+        if e["id"] not in selected:
+            continue
+        pkg = e["package"]
+        assert pkg is not None
+        if pkg not in packages:
+            packages.append(pkg)
+        if e["variant"] is not None:
+            chosen_by_pkg.setdefault(pkg, []).append(e["variant"])
+    variants_map: dict[str, list[str]] = {}
+    for pkg, chosen in chosen_by_pkg.items():
+        all_ids = [v for v, _ in read_variant_displays(rbtv_root, pkg)]
+        if set(chosen) != set(all_ids):
+            variants_map[pkg] = [v for v in all_ids if v in set(chosen)]
+    return packages, variants_map
+
+
+def normalize_model_variants(
+    rbtv_root: Path, requested: dict[str, list[str]]
+) -> tuple[dict[str, list[str]], list[str]]:
+    """Validate a requested ``{package: [variants]}`` restriction against the manifests.
+
+    Returns (variants_map, warnings). Drops unknown packages / unknown variants (each
+    warned), keeps manifest order, and applies omit-when-all (a package with ALL its
+    backends listed records no entry). Only configurable packages are eligible; a
+    non-configurable package named here is warned and ignored.
+    """
+    variants_map: dict[str, list[str]] = {}
+    warnings: list[str] = []
+    available = discover_model_packages(rbtv_root)
+    for pkg, req_vars in requested.items():
+        if pkg not in available:
+            warnings.append(f"unknown model package '{pkg}' in --model-variants — ignored")
+            continue
+        if not is_package_configurable(rbtv_root, pkg):
+            warnings.append(
+                f"'{pkg}' has no electable backends (not configurable) — --model-variants ignored for it"
+            )
+            continue
+        all_ids = [v for v, _ in read_variant_displays(rbtv_root, pkg)]
+        chosen_set = set(req_vars)
+        chosen = [v for v in all_ids if v in chosen_set]
+        for u in req_vars:
+            if u not in all_ids:
+                warnings.append(
+                    f"unknown backend '{pkg}:{u}' — ignored (available: {', '.join(all_ids)})"
+                )
+        if chosen and set(chosen) != set(all_ids):
+            variants_map[pkg] = chosen
+    return variants_map, warnings
+
+
 def resolve_selected_packages(
     available: list[str], requested: tuple[str, ...] | None
 ) -> tuple[list[str], list[str], list[str]]:

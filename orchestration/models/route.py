@@ -338,7 +338,7 @@ def _is_variant_available(variant: dict, model_name: str, rbtv_cfg: dict, vault_
 # Core routing logic
 # ---------------------------------------------------------------------------
 
-def _enumerate_models(rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, explain_log: list, elected: list | None = None) -> list:
+def _enumerate_models(rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, explain_log: list, elected: list | None = None, elected_variants: dict | None = None) -> list:
     """Stage 1: enumerate every (model, variant) from the live models/ folder.
 
     rbtv_root: rbtv repo root (orchestration/models/ lives here — enumeration root).
@@ -348,6 +348,10 @@ def _enumerate_models(rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, explain
         at enumerate — routing honors the owner's election, not raw disk presence
         (election-authoritative). elected=None disables the filter so every present package
         enumerates: the back-compat path AND the --models-dir confinement bypass.
+    elected_variants: when not None, a {package_id: [variant_id, ...]} map confining a
+        CONFIGURABLE package to a backend subset (rbtv.json `model_variants`). A backend of
+        such a package NOT in its list is skipped at enumerate; a package with no entry has
+        all its variants enumerate. None disables the backend filter entirely.
     """
     models_dir = rbtv_root / "orchestration" / "models"
     if not models_dir.exists():
@@ -373,6 +377,21 @@ def _enumerate_models(rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, explain
         model_name = manifest.get("model", d.name)
         pkg_evidence = manifest.get("evidence_status", "probe-pending")
         for v in manifest.get("variants", []):
+            # Variant-election filter (election-authoritative at the backend level): a
+            # CONFIGURABLE package confined to a backend subset (rbtv.json model_variants)
+            # skips any backend not in its subset. No entry for a package => all its
+            # variants enumerate (back-compat with pre-variant installs).
+            if (
+                elected_variants
+                and d.name in elected_variants
+                and v.get("variant") not in elected_variants[d.name]
+            ):
+                explain_log.append({
+                    "stage": "enumerate", "action": "skip", "model": model_name,
+                    "variant": v.get("variant", "?"),
+                    "reason": "not elected (rbtv.json model_variants)",
+                })
+                continue
             # Check required fields
             missing = [f for f in REQUIRED_VARIANT_FIELDS if f not in v]
             if missing:
@@ -893,13 +912,15 @@ def _validate_profile(profile: dict) -> list[str]:
     return errors
 
 
-def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plans: dict, explain: bool = False, elected: list | None = None) -> dict:
+def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plans: dict, explain: bool = False, elected: list | None = None, elected_variants: dict | None = None) -> dict:
     """Main routing function. Returns a verdict dict.
 
     rbtv_root: rbtv repo root (orchestration/models/ lives here — enumeration root).
     vault_root: vault root (where rbtv.json was found — env_file/model_plans_file resolution root).
     elected: workspace's elected model packages (rbtv.json `model_packages`); None disables the
         election filter (back-compat + --models-dir confinement). Passed to _enumerate_models.
+    elected_variants: workspace's per-package backend-subset election (rbtv.json `model_variants`);
+        None disables the backend filter. Passed to _enumerate_models.
     """
     explain_log: list = []
 
@@ -924,7 +945,7 @@ def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plan
         return verdict
 
     # Stage 1: enumerate (rbtv_root = models/ folder; vault_root = env_file resolution)
-    entries = _enumerate_models(rbtv_root, vault_root, rbtv_cfg, explain_log, elected=elected)
+    entries = _enumerate_models(rbtv_root, vault_root, rbtv_cfg, explain_log, elected=elected, elected_variants=elected_variants)
     if not entries:
         return {"error": "no_models", "details": "No installed model packages found in models/"}
 
@@ -1019,6 +1040,15 @@ def main():
             "Default: None — resolves the live orchestration/models/ tree from the rbtv repo root."
         ),
     )
+    parser.add_argument(
+        "--rbtv-json", type=str, default=None,
+        help=(
+            "Resolve the workspace election (model_packages / model_variants) and config "
+            "(env_file, model_plans_file) from THIS rbtv.json instead of the one found by "
+            "walking up from this script. The catalog (models/) is unaffected. A test / "
+            "what-if seam: route a scratch install's election without touching live config."
+        ),
+    )
     args = parser.parse_args()
 
     # Load profile
@@ -1060,16 +1090,31 @@ def main():
         # (override_models_dir is treated as orchestration/models/).
         rbtv_root = override_models_dir.parent.parent
 
-    rbtv_cfg = _load_rbtv_json(vault_root)
+    # --rbtv-json override: resolve election + config from an explicit rbtv.json (test/what-if
+    # seam) instead of the walked-up one. env_file / model_plans_file in that file resolve
+    # relative to ITS parent; the catalog (models/) still comes from the real rbtv_root (or
+    # --models-dir). Lets a scratch install's election be routed without touching live config.
+    if args.rbtv_json:
+        cfg_path = Path(args.rbtv_json).resolve()
+        try:
+            with open(cfg_path, encoding="utf-8") as f:
+                rbtv_cfg = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            print(json.dumps({"error": "rbtv_json_load_failed", "details": str(e)}), file=sys.stderr)
+            sys.exit(1)
+        vault_root = cfg_path.parent
+    else:
+        rbtv_cfg = _load_rbtv_json(vault_root)
     plans = _load_model_plans(vault_root, rbtv_cfg)
 
     # Election (election-authoritative): the workspace's elected model packages gate routing.
     # --models-dir confinement is an explicit catalog override and BYPASSES the election (route
     # from exactly that catalog). Absent model_packages -> None -> no filter (back-compat).
     elected = None if args.models_dir else rbtv_cfg.get("model_packages")
+    elected_variants = None if args.models_dir else rbtv_cfg.get("model_variants")
 
     # Route
-    result = route(profile, rbtv_root, vault_root, rbtv_cfg, plans, explain=args.explain, elected=elected)
+    result = route(profile, rbtv_root, vault_root, rbtv_cfg, plans, explain=args.explain, elected=elected, elected_variants=elected_variants)
 
     # Output
     output = json.dumps(result, indent=2, ensure_ascii=False)

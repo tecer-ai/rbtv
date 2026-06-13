@@ -1205,3 +1205,120 @@ class TestElection:
         assert "qwen-code-cli" not in complete.get("models", []), (
             "non-elected qwen leaked into CLI enumeration — main() not applying election"
         )
+
+
+# ---------------------------------------------------------------------------
+# Backend-subset election: route honors rbtv.json model_variants + --rbtv-json seam
+# ---------------------------------------------------------------------------
+
+class TestVariantElection:
+    """Routing honors the per-package backend-subset election (rbtv.json `model_variants`).
+
+    `_enumerate_models` takes an `elected_variants` arg ({pkg: [variant, ...]}):
+      - a CONFIGURABLE package confined to a subset enumerates ONLY those backends;
+      - a package with no entry enumerates ALL its variants (back-compat).
+    The CLI activates it from rbtv.json `model_variants`; `--rbtv-json <path>` resolves the
+    election from an explicit install file (the test/what-if seam).
+    """
+
+    QWEN_ALL = ["default", "deepseek-flash", "deepseek-pro", "glm"]
+
+    def test_variant_subset_confines_enumeration(self):
+        """elected_variants confines qwen to its DeepSeek backends; default + glm are
+        skipped at enumerate with a 'model_variants' reason."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        log = []
+        entries = route._enumerate_models(
+            RBTV_ROOT, VAULT_ROOT, cfg, log,
+            elected=["qwen-code-cli"],
+            elected_variants={"qwen-code-cli": ["deepseek-flash", "deepseek-pro"]},
+        )
+        qwen = sorted(e["variant"] for e in entries if e["model"] == "qwen-code-cli")
+        assert qwen == ["deepseek-flash", "deepseek-pro"], qwen
+        skipped = {
+            s["variant"] for s in log
+            if s.get("stage") == "enumerate" and s.get("action") == "skip"
+            and "model_variants" in s.get("reason", "")
+        }
+        assert {"default", "glm"} <= skipped, f"expected default+glm skipped, got {skipped}"
+
+    def test_variant_election_none_enumerates_all(self):
+        """elected_variants=None → every qwen backend enumerates (back-compat)."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        log = []
+        entries = route._enumerate_models(
+            RBTV_ROOT, VAULT_ROOT, cfg, log,
+            elected=["qwen-code-cli"], elected_variants=None,
+        )
+        qwen = sorted(e["variant"] for e in entries if e["model"] == "qwen-code-cli")
+        assert qwen == sorted(self.QWEN_ALL), qwen
+
+    def test_unlisted_package_keeps_all_variants(self):
+        """A package with no model_variants entry keeps ALL its variants while another
+        package is confined to a subset."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        log = []
+        entries = route._enumerate_models(
+            RBTV_ROOT, VAULT_ROOT, cfg, log,
+            elected=["qwen-code-cli", "kimi-code-cli"],
+            elected_variants={"qwen-code-cli": ["glm"]},
+        )
+        qwen = sorted(e["variant"] for e in entries if e["model"] == "qwen-code-cli")
+        kimi = [e for e in entries if e["model"] == "kimi-code-cli"]
+        assert qwen == ["glm"], qwen
+        assert kimi, "kimi (no model_variants entry) should keep its variants"
+
+    def test_route_resolves_within_elected_backend(self):
+        """Integration: with only qwen elected and confined to deepseek-flash, a fully-bounded
+        code task resolves to qwen-code-cli:deepseek-flash. QWEN_API_KEY injected via OS env so
+        availability does not gate the assertion (route.route reads OS env first)."""
+        import route
+        old = os.environ.get("QWEN_API_KEY")
+        try:
+            os.environ["QWEN_API_KEY"] = "test-fake-not-real"
+            profile = _profile(boundedness="fully-bounded", task_type="code", inlined_context_size=10000)
+            result = route.route(
+                dict(profile), RBTV_ROOT, VAULT_ROOT, {}, {}, explain=True,
+                elected=["qwen-code-cli"],
+                elected_variants={"qwen-code-cli": ["deepseek-flash"]},
+            )
+            assert result["verdict"] == "route", result
+            assert result["model"] == "qwen-code-cli"
+            assert result["variant"] == "deepseek-flash", result
+        finally:
+            if old is None:
+                os.environ.pop("QWEN_API_KEY", None)
+            else:
+                os.environ["QWEN_API_KEY"] = old
+
+    def test_rbtv_json_seam_routes_scratch_election(self, tmp_path):
+        """The --rbtv-json seam: a scratch install electing only qwen's DeepSeek backends routes
+        a code task to a DeepSeek-via-qwen backend, default+glm skipped at enumerate — WITHOUT
+        touching live config. QWEN_API_KEY supplied via the scratch env_file."""
+        env_file = tmp_path / ".env"
+        env_file.write_text("QWEN_API_KEY=test-fake-not-real\n", encoding="utf-8")
+        rbtv_json = tmp_path / "rbtv.json"
+        rbtv_json.write_text(json.dumps({
+            "model_packages": ["qwen-code-cli"],
+            "model_variants": {"qwen-code-cli": ["deepseek-flash", "deepseek-pro"]},
+            "env_file": ".env",
+        }), encoding="utf-8")
+
+        profile = _profile(boundedness="fully-bounded", task_type="code", inlined_context_size=10000)
+        cmd = [sys.executable, str(ROUTE_PY), "--rbtv-json", str(rbtv_json), "--explain"]
+        env = {k: v for k, v in os.environ.items() if k != "QWEN_API_KEY"}
+        proc = subprocess.run(cmd, input=json.dumps(profile), capture_output=True, text=True, env=env)
+        assert proc.returncode == 0, f"{proc.stdout}\n{proc.stderr}"
+        result = json.loads(proc.stdout)
+        assert result["verdict"] == "route", result
+        assert result["model"] == "qwen-code-cli"
+        assert result["variant"] in ("deepseek-flash", "deepseek-pro"), result
+        skipped = {
+            s["variant"] for s in result.get("explain", [])
+            if s.get("stage") == "enumerate" and s.get("action") == "skip"
+            and "model_variants" in s.get("reason", "")
+        }
+        assert {"default", "glm"} <= skipped, f"expected default+glm skipped, got {skipped}"
