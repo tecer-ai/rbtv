@@ -39,8 +39,10 @@ A spec-compliant library is a single folder containing the following. **Required
 ├── base.html                REQUIRED  document skeleton with the 5 markers (§ 6)
 ├── theme.css                REQUIRED  the single design system, inlined at assembly (§ 6)
 ├── assemble.py              REQUIRED  the vendored engine (§ 1.1)
+├── archive.py              OPTIONAL  the vendored archive tool — archive/restore superseded fragments (§ 1.3)
 ├── slides/                  REQUIRED  flat directory of {id}.html fragments (§ 2)
 ├── assets/                  REQUIRED  shared images referenced by fragments (MAY be empty)
+├── archive/                OPTIONAL  superseded fragments + archive.md log; NEVER read by the engine (§ 1.3)
 ├── catalog.html            OPTIONAL  engine-generated; every fragment rendered (§ 6.4)
 ├── CLAUDE.md               OPTIONAL  thin pointer to README-FOR-AGENTS.md for Claude-Code workspaces
 └── docs/                   OPTIONAL  design notes, extraction logs — never read by the engine
@@ -60,6 +62,46 @@ To prevent silent drift, the library's `library.json` records `engine_version` a
 - `slides/` is FLAT — NEVER subfolders. Section grouping is metadata (§ 4), never directory structure.
 - The library NEVER contains an assembled deck. Decks are build outputs written elsewhere.
 - The library NEVER contains per-deck client data (a client logo, filled tokens, a client name). Client-identifying content enters ONLY the build output. (The "leakage rule": fragments and templates carry ZERO client data.)
+
+### 1.3 The archive folder (OPTIONAL) and the archive tool
+
+A library MAY supersede a fragment without deleting it. An archived fragment is moved OUT of the active set and parked in `archive/`, so it stops appearing in any assembled deck or catalog while remaining restorable.
+
+- `archive/` is an OPTIONAL top-level folder, **NEVER read by the engine** (same class as `docs/`). It holds the archived fragments as `archive/{id}.html` and an append-only log `archive/archive.md`.
+- An archived fragment has **NO `manifest.md` row**. The engine is manifest-driven (it loads only fragments named by a `## Slides` row), so removing the row makes the fragment invisible to assembly and the catalog with NO engine change. The § 2.2 rule that `file` MUST be `slides/{id}.html` already forbids a manifest row pointing into `archive/`.
+- `archive.py` is the ONLY writer of `archive/` and `archive/archive.md`. Archiving and restoring are NEVER hand-edited git moves — the tool keeps the move, the manifest-row removal, and the log append atomic and lossless.
+- `archive/` is created on the first archive. A library with nothing archived has no `archive/` folder (the scaffold below MAY pre-create an empty one).
+- Assets stay in `assets/` when a fragment is archived (an asset MAY be shared). Pruning orphaned assets is human judgment, not enforced by the tool.
+
+**`archive.py` contract** (stdlib-only; canonical source in the RBTV repo `engine/archive.py`, vendored per-library by `install-engine.py` alongside `assemble.py`). Run from the library root, or from anywhere with `--library <path>`:
+
+| Invocation | Effect |
+|------------|--------|
+| `archive.py <id> [--reason "…"] [--superseded-by <id>] [--json]` | Validate `<id>` has a live manifest row AND `slides/<id>.html` exists AND `archive/<id>.html` does not. Then move the fragment to `archive/<id>.html`, remove the manifest row, and append an `archive.md` entry (date, reason, superseded-by, and the **verbatim** removed row). |
+| `archive.py --unarchive <id> [--json]` | Validate `archive/<id>.html` exists AND `<id>` has no live manifest row AND an unrestored `archive.md` entry holds the original row. Then move the fragment back to `slides/<id>.html`, re-insert the stored row into `## Slides` (appended — manifest order is non-load-bearing), and stamp the log entry `restored: {date}`. |
+| `archive.py --list [--json]` | List currently-archived ids. No mutation. |
+
+Invariants: **loud + atomic** — all preconditions are validated before any mutation; on any failure the tool performs no net change (no half-archived state) and exits non-zero. `--json` emits a machine-readable envelope (`op`, `id`, `library`, paths, `ok`/`error`) for GUI pass-through. `archive.py` NEVER calls `assemble.py` — it edits `manifest.md`, moves files, and writes `archive.md` only.
+
+**`archive/archive.md` format.** Append-only; `archive.py` is its only writer. A header, the one-line restore instruction, and an `## Archived slides` section; one entry per archive action:
+
+````markdown
+### {id} — archived {YYYY-MM-DD}
+
+- id: {id}
+- archived: {YYYY-MM-DD}
+- reason: {reason or -}
+- superseded-by: {id or -}
+- restored: {- until restored, then YYYY-MM-DD}
+
+Original manifest row (re-inserted verbatim on unarchive):
+
+```text
+| {id} | slides/{id}.html | {section} | … | {provenance} |
+```
+````
+
+The verbatim row inside the fenced `text` block is what makes `--unarchive` lossless — it is re-inserted into `## Slides` exactly as it was removed. The engine never reads this file.
 
 ---
 

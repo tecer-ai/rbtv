@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Re-vendor tool: copies the engine into a target library and syncs engine_version."""
+"""Re-vendor tool: copies the engine (and archive tool) into a target library and syncs engine_version."""
 
 import argparse
 import importlib.util
@@ -36,6 +36,15 @@ def main():
     target_assemble = library_path / "assemble.py"
     shutil.copy2(ENGINE_SRC, target_assemble)
     print(f"copied engine -> {target_assemble}")
+
+    # Vendor the archive tool alongside the engine (optional companion).
+    ARCHIVE_SRC = Path(__file__).resolve().parent / "archive.py"
+    if ARCHIVE_SRC.exists():
+        target_archive = library_path / "archive.py"
+        shutil.copy2(ARCHIVE_SRC, target_archive)
+        print(f"copied archive tool -> {target_archive}")
+    else:
+        print(f"WARNING: archive tool not found, skipped: {ARCHIVE_SRC}", file=sys.stderr)
 
     with open(library_json_path, "r", encoding="utf-8") as f:
         library_data = json.load(f)
