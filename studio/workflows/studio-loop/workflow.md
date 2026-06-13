@@ -10,7 +10,7 @@ mode: blank-slate
 
 The four-beat HTML pipeline that turns an owner's brief + this project's reference set into an owner-accepted artifact. Two worker classes drive it: the **Strategist** (beat 1 — what to say) hands a content spec to the **Designer** (beats 2–4 — making it awesome and distinct). Behavior is governed by the deck-loop-spec; this entry owns sequencing and the fork parameters, never the behavior.
 
-Read `1-projects/rbtv-evolution/design-module/design-module-v1-build/specs/deck-loop-spec.md` (vault-root-relative) for the behavior floor and `{rbtv_path}/studio/architecture.md` for the subsystem map. This file never restates them.
+Read `{rbtv_path}/studio/deck-loop-spec.md` for the behavior floor and `{rbtv_path}/studio/architecture.md` for the subsystem map. This file never restates them.
 
 ---
 

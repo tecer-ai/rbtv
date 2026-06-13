@@ -13,7 +13,7 @@ This is a **module-internal standard** — not a `.claude/` rule and NOT the v1.
 
 ## Binding
 
-This checklist drives the fresh-eyes pass. Read `1-projects/rbtv-evolution/design-module/design-module-v1-build/specs/deck-loop-spec.md` (vault-root-relative):
+This checklist drives the fresh-eyes pass. Read `{rbtv_path}/studio/deck-loop-spec.md`:
 
 - **Fresh-eyes pass (Behavior Specification row 6)** — a fresh-context review against the chosen direction mini-brief AND this checklist, producing a punch-list; patches apply to flagged slides only.
 

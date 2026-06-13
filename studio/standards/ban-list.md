@@ -13,7 +13,7 @@ This is a **module-internal standard** — not a `.claude/` rule. The reference 
 
 ## Binding
 
-This ban-list binds two surfaces of the deck loop. Read `1-projects/rbtv-evolution/design-module/design-module-v1-build/specs/deck-loop-spec.md` (vault-root-relative):
+This ban-list binds two surfaces of the deck loop. Read `{rbtv_path}/studio/deck-loop-spec.md`:
 
 - **Art-direction beat (Behavior Specification row 3)** — every direction mini-brief must be ban-list-clean before the owner picks; a banned attractor present in any brief fails the beat.
 - **All generation (Behavior Specification rows 4–6)** — the template trio, every slice, and the fresh-eyes pass enforce this list; a banned attractor surfaced at fresh-eyes is a punch-list item.

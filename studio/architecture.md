@@ -1,6 +1,6 @@
 # Studio Module — Architecture
 
-> The blueprint every Phase-2 builder builds against. Maps the five subsystems (Process · Roles · Tools · Standards · Memory) to concrete studio components with landing paths, names every entry surface with its user-invocable-vs-internal verdict, fixes the file layout under `studio/`, and defines the exact Strategist→Designer content-spec contract. Behavior specs in `./` (deck path: the deck-loop-spec in the plan folder) own the *what*; this doc owns the *where* and the *shape*. Authored at `p1-4`; site/app sections are deliberately lean (D8) and get adapted at `p3-checkpoint`.
+> The blueprint every Phase-2 builder builds against. Maps the five subsystems (Process · Roles · Tools · Standards · Memory) to concrete studio components with landing paths, names every entry surface with its user-invocable-vs-internal verdict, fixes the file layout under `studio/`, and defines the exact Strategist→Designer content-spec contract. Behavior specs in `./` (deck path: `{rbtv_path}/studio/deck-loop-spec.md`) own the *what*; this doc owns the *where* and the *shape*. Authored at `p1-4`; site/app sections are deliberately lean (D8) and get adapted at `p3-checkpoint`.
 
 **Scope frame (binding):** the plan `decisions.md` is the authority on scope, dispositions, and constraints — this doc never restates it, it lands the architecture those decisions imply. The deck path is concrete; site + app are sketched. The v1.1 critic, 5 deferred capabilities, and improve-existing mode are named as roadmap anchors only, never built here.
 

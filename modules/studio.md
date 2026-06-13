@@ -14,7 +14,7 @@ The module also owns **hypresent** — the HTML presentation engine (not install
 
 ### Studio Loop — the phase spine (`studio/workflows/studio-loop/`)
 
-- **What**: The artifact-general four-beat HTML pipeline that turns an owner's brief + this project's reference set into an owner-accepted artifact: **message-lock (Strategist) → art-direction → generate (trio → slices → fresh-eyes) → human gate.** Artifact (deck/site/app) and mode (blank-slate) are PARAMETERS each beat adapts to, never top-level branches. Behavior is governed by the deck-loop-spec in the design-module plan folder.
+- **What**: The artifact-general four-beat HTML pipeline that turns an owner's brief + this project's reference set into an owner-accepted artifact: **message-lock (Strategist) → art-direction → generate (trio → slices → fresh-eyes) → human gate.** Artifact (deck/site/app) and mode (blank-slate) are PARAMETERS each beat adapts to, never top-level branches. Behavior is governed by the deck-loop-spec (`studio/deck-loop-spec.md`).
 - **Files**: `workflow.md` (spine entry + artifact/mode fork rules) and four beats under `beats/` — `beat-01-message-lock.md`, `beat-02-art-direction.md`, `beat-03-generate.md` (folds trio + slices + fresh-eyes), `beat-04-human-gate.md`.
 - **How it runs**: The Strategist runs beat 1 and hands a content spec to the Designer (Vivian), who runs beats 2–4. Every worker resumes from **design-state + the reference set ALONE** — zero conversation context. Output is HTML-native (full-screen browser + print-to-PDF CSS for decks; responsive multi-page HTML for sites; plain-HTML designed screens for apps); no PPTX.
 - **Entry**: `/rbtv-strategist` (studio) — opens the Strategist for beat 1; the Designer (`rbtv-designing`) runs beats 2–4.
