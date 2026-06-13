@@ -169,6 +169,15 @@ def _run_uninstall(target_root: Path, deselected: list[str],
         print(f"  spared {len(result.spared)} hand-authored guidance file(s) (no banner):")
         for p in result.spared:
             print(f"    ~ {p}")
+    if result.leftover_dirs:
+        print(
+            f"  left {len(result.leftover_dirs)} worker dir(s) in place — they still "
+            "hold file(s) rbtv did not create (delete by hand if no longer needed):"
+        )
+        for entry in result.leftover_dirs:
+            print(f"    ~ {entry['dir']}/ ({len(entry['files'])} non-rbtv file(s))")
+            for f in entry["files"]:
+                print(f"        - {f}")
     print(f"  {len(result.kept_records)} managed file(s) remain recorded in rbtv.json model_mirror")
     return 0
 

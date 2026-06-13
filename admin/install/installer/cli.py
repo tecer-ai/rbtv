@@ -476,6 +476,26 @@ def _split_mirrorable(rbtv_root: Path, elected: list[str]) -> list[str]:
     return mirrorable
 
 
+def _print_leftover_worker_dirs(uninstall_result: Any) -> None:
+    """Surface worker dirs an uninstall left in place because they still hold files
+    rbtv did not create (tool-written leftovers / prior-install orphans).
+
+    The mirror only deletes files it created and prunes a dir that empties; a dir
+    kept alive by a foreign file is reported here so the owner can remove it by
+    hand. No-op when there are none.
+    """
+    leftovers = getattr(uninstall_result, "leftover_dirs", None)
+    if not leftovers:
+        return
+    print(
+        f"  Note — {len(leftovers)} worker dir(s) left in place because they still "
+        "hold file(s) rbtv did not create:"
+    )
+    for entry in leftovers:
+        print(f"    ~ {entry['dir']}/ ({len(entry['files'])} non-rbtv file(s))")
+    print("    Delete them by hand if you no longer need them.")
+
+
 def _check_plugin_prereqs() -> None:
     """Warn if Claude Code plugins required by certain RBTV menu items are missing."""
     home = Path.home()
@@ -609,7 +629,9 @@ def main(argv: list[str] | None = None) -> int:
             "With --mirror: remove ALL generated mirror artifacts for the target "
             "(guidance files, the shared .agents/ library, and per-model config "
             "dirs) and clear the model_mirror block from rbtv.json. A full mirror "
-            "teardown for every currently-elected package."
+            "teardown for every currently-elected package. A worker dir emptied of "
+            "rbtv's files is removed; one still holding files rbtv did not create "
+            "is named (not deleted) so you can remove it by hand."
         ),
     )
     args = parser.parse_args(argv)
@@ -698,6 +720,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"spared {len(un.spared)} hand-authored guidance file(s); "
                 "model_mirror cleared."
             )
+            _print_leftover_worker_dirs(un)
             print("\nMirror uninstall complete.")
             return 0
 
@@ -970,6 +993,7 @@ def main(argv: list[str] | None = None) -> int:
                     f"deleted {len(un.deleted)} file(s), "
                     f"spared {len(un.spared)} hand-authored guidance file(s)."
                 )
+                _print_leftover_worker_dirs(un)
 
             # 2. Render the elected (mirrorable) worker set. Re-running changes
             #    nothing; the driver records the canonical managed-file set in

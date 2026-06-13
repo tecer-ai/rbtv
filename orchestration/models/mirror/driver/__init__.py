@@ -75,6 +75,9 @@ PACKAGE_FACTS: dict[str, PackageFacts] = {
 #: Packages that load their guidance file natively and need no mirror.
 NATIVE_PACKAGES: frozenset[str] = frozenset({"claude-code-cli"})
 
+#: The shared worker library dir rendered once for any elected worker.
+SHARED_LIBRARY_DIR = ".agents"
+
 
 def _mirrorable(packages) -> list[str]:
     """Return the elected packages that the driver actually mirrors.
@@ -158,6 +161,13 @@ class UninstallResult:
     deleted: list[str] = field(default_factory=list)
     spared: list[str] = field(default_factory=list)
     kept_records: list[dict] = field(default_factory=list)
+    #: Known worker dirs that survived this uninstall because they still hold
+    #: files rbtv did not create (tool-written leftovers / prior-install orphans).
+    #: Each entry: ``{"dir": <workspace-rel posix>, "files": [<rel posix>, ...]}``.
+    #: Surfaced to the owner so they can delete the dir by hand — rbtv never
+    #: deletes a file it did not create (per the owner's delete-managed-then-prune
+    #: policy), so a foreign file legitimately keeps its dir alive.
+    leftover_dirs: list[dict] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -407,6 +417,62 @@ def _detect_drift(target_root: Path, rendered: list[dict]) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _worker_config_dirs() -> dict[str, str]:
+    """Map every known mirrorable package id → its config-dir name (``.codex`` …)."""
+    return {pkg: facts.config_dir for pkg, facts in PACKAGE_FACTS.items()}
+
+
+def _detect_leftover_worker_dirs(
+    target_root: Path,
+    deselected: list[str],
+    remaining_elected: list[str],
+) -> list[dict]:
+    """Return known worker dirs that survive the uninstall holding non-rbtv files.
+
+    Run AFTER ``state.apply_deletions`` (managed files removed, emptied dirs
+    pruned). A worker dir that is still present therefore holds only files rbtv
+    did not create — tool-written leftovers or prior-install orphans — which the
+    owner's delete-managed-then-prune policy leaves in place. These are surfaced
+    so the owner can remove the dir by hand.
+
+    Scope:
+      - a config dir (``.codex``/``.kimi``/``.qwen``) is in scope when its package
+        was deselected and is NOT needed by a remaining elected package;
+      - on a FULL teardown (no worker remains) EVERY known config dir plus the
+        shared ``.agents/`` library is in scope — so a never-managed stray (e.g. a
+        ``.qwen/`` the qwen CLI created without rbtv ever electing it) is surfaced
+        by a full ``--mirror --uninstall`` too.
+
+    Each entry is ``{"dir": <rel posix>, "files": [<rel posix>, ...]}``; a dir with
+    no remaining files is omitted (it was fully removed or is empty).
+    """
+    config_dirs = _worker_config_dirs()
+    remaining = set(remaining_elected)
+    full_teardown = not remaining
+
+    in_scope: set[str] = set()
+    for pkg in deselected:
+        if pkg in config_dirs and pkg not in remaining:
+            in_scope.add(config_dirs[pkg])
+    if full_teardown:
+        in_scope.update(config_dirs.values())
+        in_scope.add(SHARED_LIBRARY_DIR)
+
+    leftovers: list[dict] = []
+    for rel_dir in sorted(in_scope):
+        dir_path = target_root / rel_dir
+        if not dir_path.is_dir():
+            continue
+        files = sorted(
+            f.relative_to(target_root).as_posix()
+            for f in dir_path.rglob("*")
+            if f.is_file()
+        )
+        if files:
+            leftovers.append({"dir": rel_dir, "files": files})
+    return leftovers
+
+
 def uninstall(
     target_root: Path | str,
     deselected,
@@ -437,6 +503,8 @@ def uninstall(
     Returns
     -------
     UninstallResult
+        ``leftover_dirs`` names any known worker dir left on disk because it still
+        holds files rbtv did not create (the owner deletes those by hand).
     """
     target_root = Path(target_root).resolve()
 
@@ -454,6 +522,14 @@ def uninstall(
 
     deleted, spared = state.apply_deletions(target_root, to_delete)
 
+    # After deletion + empty-dir prune: any known worker dir still on disk holds
+    # only files rbtv did not create. Surface them so the owner can delete the dir
+    # by hand (the policy is delete-managed-then-prune; foreign files are never
+    # rbtv's to remove).
+    leftover_dirs = _detect_leftover_worker_dirs(
+        target_root, deselected, remaining_elected
+    )
+
     # A guidance record that was spared (hand-authored, banner-less) must NOT be
     # dropped from state silently as deleted — but it is also no longer ours to
     # manage.  Keep only records that are still on disk and owned: the survivors
@@ -462,4 +538,9 @@ def uninstall(
     # file we won't overwrite/delete), so kept state == to_keep.
     state.write_managed_records(target_root, to_keep)
 
-    return UninstallResult(deleted=deleted, spared=spared, kept_records=to_keep)
+    return UninstallResult(
+        deleted=deleted,
+        spared=spared,
+        kept_records=to_keep,
+        leftover_dirs=leftover_dirs,
+    )
