@@ -23,13 +23,18 @@ Re-check continuously during execution. Crossing ANY threshold below means STOP 
 
 | # | Escalation trigger | Crossed when |
 |---|--------------------|--------------|
-| 1 | Context filling while work remains | Your context is filling up and substantial work is still unfinished — the run no longer fits one context |
+| 1 | Context filling while work remains | Context use has passed ~70% of the window — or the harness has surfaced a compaction / auto-compact warning — while more than one further dispatch of work remains. Observable trigger, not a subjective "feels full". |
 | 2 | About to dispatch the 3rd sub-agent for the same goal | You are reaching for a third sub-agent in service of one goal — ad-hoc dispatch has become orchestration |
 | 3 | Cross-repo coordination emerges | The work has grown to span more than one repository and the pieces must be coordinated |
 
 ## Counter-List — NEVER fires
 
-These are the bounds on FULL orchestration. If the work is ONLY one of these, the rule does not fire FULL orchestration (multi-phase, multi-worker, AFK) — invoking the full machinery would be eager over-firing. A counter-list item never overrides a genuine Intake Trigger or Escalation above; it only blocks FULL orchestration when no real trigger is present. Note the seam: a fitting SINGLE dispatch (trigger #6) is not full orchestration — it fires at minimal ceremony and is not blocked by this list; only a true quick lookup (no worker, no dispatch) stays fully out.
+These bound FULL orchestration (multi-phase, multi-worker, AFK). Resolve precedence in order — read it, do not re-arbitrate it each task:
+
+1. A fired Intake Trigger or Mid-Task Escalation WINS — a counter-list item NEVER overrides it.
+2. No trigger fired AND the work is ONLY a row below → FULL orchestration does not fire (firing it would be over-firing).
+3. A fitting single dispatch (trigger #6) is NOT full orchestration — minimal ceremony; this list does not block it.
+4. A true quick lookup (no worker, no dispatch) stays fully out.
 
 | The rule does NOT fire for | Because |
 |----------------------------|---------|

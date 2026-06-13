@@ -24,4 +24,4 @@ You MUST NOT dispatch until the prompt satisfies all three steps. If you catch y
 
 ## Scope
 
-Applies to EVERY worker dispatch — Agent tool calls (including parallel and background dispatches), CLI worker spawns, and API worker dispatches. It does NOT apply to the `Skill` tool (direct skill invocation by the parent agent). Model selection, floors, and haiku eligibility are NOT this rule's concern — orchestration routing (`orchestration/skills/orchestrating/cards/routing.md` §7) owns model policy.
+Applies to EVERY worker dispatch — Agent tool calls (including parallel and background dispatches), CLI worker spawns, and API worker dispatches. It does NOT apply to the `Skill` tool (direct skill invocation by the parent agent). Model selection, floors, and haiku eligibility are NOT this rule's concern — orchestration routing (`{rbtv_path}/orchestration/skills/orchestrating/cards/routing.md` §7 — resolve `{rbtv_path}` from `rbtv.json`) owns model policy.

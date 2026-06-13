@@ -312,27 +312,38 @@
     ]
   },
   "coding": {
-    "description": "Plain-language code communication for non-technical users and the evidence-gated done protocol. (Guided git commits moved to core; coding-discipline principles were generalized into the always-on reasoning rule.)",
+    "description": "The evidence-gated, weight-graded done protocol for coding tasks. (Plain-language code communication moved to the new communication module; guided git commits moved to core; coding-discipline principles were generalized into the always-on reasoning rule.)",
     "skills": [
       {
         "source_template": "coding/skills/done-gate/SKILL.md",
         "target": ".claude/skills/rbtv-done-gate/SKILL.md",
         "bake": ["rbtv_path"],
-        "description": "On-fire body of the always-on rbtv-done-gate rule — thin loader that reads coding/skills/done-gate/done-gate-protocol.md (read JIT from {rbtv_path}, not installed): Contract/Exercise/Exhibit mechanics, Drivability Check + seam patterns, Fidelity Floor, evidence-sheet format, Surprising Holds, Orchestrated Dispatches, Integrity Tripwire, anti-patterns. Invoked by the rule's Load Gate when a non-exempt coding task fires."
+        "description": "On-fire body of the always-on rbtv-done-gate rule — thin loader that reads coding/skills/done-gate/done-gate-protocol.md (read JIT from {rbtv_path}, not installed): Contract/Exercise/Exhibit mechanics, Drivability Check + seam patterns, Fidelity Floor, Evidence Tier (Light inline / Full disk sheet), evidence-sheet format, Surprising Holds, Orchestrated Dispatches, Integrity Tripwire, anti-patterns. Invoked by the rule's Load Gate when a non-exempt coding task fires."
       }
     ],
     "rules": [
       {
-        "source": "coding/rules/non-technical-user.md",
-        "target": ".claude/rules/rbtv-non-technical-user.md",
-        "mode": "copy",
-        "description": "Plain-language code communication for non-technical users — pair every technical name with a translation, frame coding decisions as behavior changes, lead with decisions, ban raw output dumps. Always active once installed."
-      },
-      {
         "source": "coding/rules/done-gate.md",
         "target": ".claude/rules/rbtv-done-gate.md",
         "mode": "copy",
-        "description": "Evidence-gated done for coding tasks — THIN always-on trigger layer (≈404 words): activation moments (Contract at task intake, Exercise+Exhibit at done-claim), the exempt list + fail-safe, the drivability-only exemption, the done-lock, and a MANDATORY Load Gate that invokes the rbtv-done-gate skill (the on-fire protocol body) the moment a non-exempt coding task starts. Exemption decisions stay in this always-on rule so 'this task is exempt' is never decided with the protocol unloaded. Always active once installed."
+        "description": "Evidence-gated, weight-graded done for coding tasks — THIN always-on trigger layer (≈420 words): activation moments (Contract at task intake, Exercise+Exhibit at done-claim), the exempt list + fail-safe, the drivability-only exemption, the done-lock, and a MANDATORY Load Gate that invokes the rbtv-done-gate skill (the on-fire protocol body) the moment a non-exempt coding task starts. Evidence is weight-graded — a disk sheet for Full-tier work, the same rows inline in the done message for Light-tier. Exemption decisions stay in this always-on rule so 'this task is exempt' is never decided with the protocol unloaded. Always active once installed."
+      }
+    ]
+  },
+  "communication": {
+    "description": "Audience-adapted communication — general plain-language explanation for non-experts (define terms, no jargon, no analogies, no bare name-drops) plus the non-technical-user code-communication overlay. Elective and independent of the coding module.",
+    "rules": [
+      {
+        "source": "communication/rules/plain-language.md",
+        "target": ".claude/rules/rbtv-plain-language.md",
+        "mode": "copy",
+        "description": "General plain-language layer — define every term, no analogies, no unexpanded acronyms, never a bare name-drop, state what a plan phase IS not just its label. Chat prose only. Always active once installed."
+      },
+      {
+        "source": "communication/rules/non-technical-user.md",
+        "target": ".claude/rules/rbtv-non-technical-user.md",
+        "mode": "copy",
+        "description": "Code-communication overlay for non-technical users — pair every code identifier with a translation, frame coding decisions as behavior changes, ban raw output dumps; defers general plain-language to the plain-language rule and lead-with-decision to chat-discipline. Always active once installed."
       }
     ]
   },
@@ -343,13 +354,15 @@
         "source": "caveman/rules/caveman.md",
         "target": ".claude/rules/rbtv-caveman.md",
         "mode": "copy",
-        "description": "Caveman speak with intensity levels (lite/full/ultra) and auto-clarity escape"
+        "description": "Caveman-speak linguistic transform (fragments, abbreviations, arrows, 1-3 lines) + auto-clarity escape — layered on chat-discipline (MECE: the behavioral filler/restating bans live in chat-discipline, not here)"
       },
       {
         "source": "caveman/rules/caveman-commit.md",
         "target": ".claude/rules/rbtv-caveman-commit.md",
         "mode": "copy",
-        "description": "Fun-mode parody commit messages in caveman voice — made for laughs, not serious repos"
+        "description": "Fun-mode parody commit messages in caveman voice — made for laughs, not serious repos",
+        "stale": true,
+        "stale_reason": "Owner-marked opt-out 2026-06-13: parody commit voice is rarely wanted; keep the source but skip default install. Un-stale to re-enable."
       }
     ]
   },

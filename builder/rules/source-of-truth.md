@@ -9,7 +9,7 @@ RBTV components installed into `.claude/` (skills, commands, rules, subagents) a
 
 The canonical source is the RBTV repo. Its path in the target workspace is recorded in `rbtv.json` (`rbtv_path:` field) at the workspace root.
 
-The repo is module-first — `<module>` is the component's owning module folder (declared in `admin/install/module-manifest.json`).
+The repo is module-first — `<module>` is the component's owning module folder (declared in `{rbtv_path}/admin/install/module-manifest.json`).
 
 | What | Edit in RBTV source | Never in target |
 |------|--------------------|------------------|
@@ -29,7 +29,7 @@ Skills, commands, rules, and subagents are thin loaders or copies in `.claude/` 
 
 For content changes (workflows, personas, tasks, SKILL.md bodies referenced by loaders), just `git pull` in the RBTV source — changes are live immediately.
 
-When a skill, command, rule, or subagent is created, deleted, or renamed, update `admin/install/module-manifest.json` to reflect the change, then re-run the installer:
+When a skill, command, rule, or subagent is created, deleted, or renamed, update `{rbtv_path}/admin/install/module-manifest.json` to reflect the change, then re-run the installer:
 
 ```bash
 python install.py

@@ -1,6 +1,6 @@
 # Done Gate
 
-An agent MUST NOT declare a coding task done until it has exercised every contracted criterion the way the owner will use the feature and exhibited file-based evidence — nothing else buys done. This trigger layer is always-on; the gate mechanics load on fire (Load Gate).
+An agent MUST NOT declare a coding task done until it has exercised every contracted criterion the way the owner will use the feature and exhibited the evidence — nothing else buys done. Evidence is **weight-graded**: a disk evidence sheet for Full-tier work, the same rows inline in the done message for Light-tier (the protocol owns the tier split). This trigger layer is always-on; the gate mechanics load on fire (Load Gate).
 
 ## Activation
 
@@ -23,7 +23,7 @@ Default-ON for every coding task. **Does NOT apply to:**
 
 ## The Lock
 
-No evidence sheet → done is UNDECLARABLE. A `failed` row → back to Build, then re-exercise. `unexercisable` and `held-surprising` rows → done declarable ONLY with those rows surfaced explicitly in the done message; the owner decides acceptance, never the agent.
+No exercised evidence — the sheet (Full tier) or the inline rows (Light tier) — → done is UNDECLARABLE. A `failed` row → back to Build, then re-exercise. `unexercisable` and `held-surprising` rows → done declarable ONLY with those rows surfaced explicitly in the done message; the owner decides acceptance, never the agent.
 
 ## Load Gate — MANDATORY
 

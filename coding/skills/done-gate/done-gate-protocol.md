@@ -12,12 +12,12 @@ Sequencing gate plus structured output gate. The build itself is unchanged; the 
 |-------|-------------|
 | 1. Contract — at intake | DRAFT outcome criteria in plain language — "when done, the owner can {gesture} and {visible result} happens" — and confirm with the owner in ONE pass. The owner edits conversationally; NEVER ask the owner to write criteria or learn a format. Pushback is MANDATORY on vague criteria ("works", "looks right") — force user-visible outcomes. Criteria count scales with stakes: a small fix may carry a single criterion. Criteria are ALWAYS owner-observable outcomes, never internal/technical assertions. Then, for EACH drafted criterion, run the Drivability Check (below) BEFORE Build. |
 | 2. Build | Existing workflows untouched. Any `needs-seam` verdict from the Drivability Check is built here, AS PART OF the feature. |
-| 3. Exercise — before any done-claim | Perform EACH contracted criterion under real input at the Fidelity Floor, capturing evidence files as you go. |
-| 4. Exhibit | Fill the evidence sheet. No sheet → done is UNDECLARABLE. Any `failed` row → back to Build, then re-exercise. `unexercisable` rows → done is declarable ONLY with those rows surfaced explicitly in the done message; the owner decides acceptance. Same for `held-surprising` rows — see Surprising Holds. |
+| 3. Exercise — before any done-claim | Perform EACH contracted criterion under real input at the Fidelity Floor, capturing evidence as you go (see Evidence Tier for the form — files for Full, the concrete observed value for Light). |
+| 4. Exhibit | Record the evidence at the task's tier (Full: fill the Evidence Sheet on disk; Light: write the same Exercise rows inline in the done message — see Evidence Tier). No exercised evidence → done is UNDECLARABLE. Any `failed` row → back to Build, then re-exercise. `unexercisable` rows → done is declarable ONLY with those rows surfaced explicitly in the done message; the owner decides acceptance. Same for `held-surprising` rows — see Surprising Holds. |
 
 ### Drivability Check + Seam Plan (Contract phase)
 
-Structured-output gate, run at Contract time and recorded on the same done-gate evidence sheet (no separate artifact). For EACH criterion, classify its outcome surface and act before Build:
+Structured-output gate, run at Contract time and recorded with the rest of the evidence (on the sheet for Full tier, inline for Light) — never a separate artifact. For EACH criterion, classify its outcome surface and act before Build:
 
 | Verdict | Meaning | Required action before Build |
 |---------|---------|------------------------------|
@@ -41,13 +41,28 @@ Exercising below the floor is theater, not evidence.
 | CLI/process criteria: read the exit code and errors off the UN-PIPED process — a pipe (e.g. `… \| tee log`) reports the pipe's status, not the program's, masking real failures |
 | Content-validation / heuristic criteria: exercise against REAL-corpus input, not only builder-chosen fixtures — fixtures cannot anticipate which real content trips a heuristic |
 | Each criterion end-to-end, the way the owner will perform it |
-| Evidence captured as files on disk DURING the exercise (screenshots, output files, logs) — prose claims alone NEVER count |
+| Evidence captured DURING the exercise: a file on disk (screenshot, output file, log) when the criterion's evidence is inherently a file — that criterion forces Full tier — else the concrete observed value recorded inline (exit code, returned value, diff). A bare "it works" / prose claim alone NEVER counts, in either tier. |
 | Production-untouched / no-rerun criteria: scope the assertion to the artifact's REACHABLE path set (its target files + their parent dirs), never whole-tree emptiness or a clean whole-corpus diff — in a live multi-session vault a concurrent session mutates unrelated files during the exercise window, so a whole-tree clean-diff form is undrivable; filter the diff to the reachable set and disclose any concurrent-session intermediate state |
 | Genuine blockers: verdict `unexercisable` + the concrete blocker — never silently skip a criterion |
 
-## Required Output — the Evidence Sheet
+## Evidence Tier — Light vs Full
 
-One sheet per task at `{evidence_root}/{project}/{YYYY-MM-DD}-{feature}.md` — `{project}` is the app or repo being modified; capture files go in a sibling folder `{YYYY-MM-DD}-{feature}/`. Resolve `{evidence_root}` from the workspace CLAUDE.md routing table; absent a routing entry, default to `docs/done-gate-evidence/` at the modified repo's root. Create the sheet at Contract time with the confirmed criteria; fill verdicts at Exhibit.
+The gate ALWAYS runs — Contract, the Drivability Check, Exercise at the Fidelity Floor, and the Lock. Only the STORAGE of the exercise evidence is weight-graded. Classify the task at Contract, right after the criteria are confirmed.
+
+| Tier | Applies when | Evidence form |
+|------|--------------|---------------|
+| **Full** — disk sheet | ANY of: a criterion's Fidelity-Floor evidence is inherently a FILE (UI screenshot, measured geometry, output artifact, real-corpus log); OR the task changes persistent behavior across multiple steps; OR it touches a risk surface (data mutation, auth, migration, external API); OR it is an orchestrated development dispatch or an integrity-escalated workspace (the cold verifier needs the sheet — see Orchestrated Dispatches + Integrity Tripwire); OR the owner asks for a sheet | The Evidence Sheet below, on disk + capture folder |
+| **Light** — inline | NONE of the Full triggers fire — a bounded change the agent drives directly whose every criterion's evidence is inline-expressible text (an exit code off the un-piped process, a returned value, a small reachable-set diff) | The same two row families (Drivability + Exercise), written INLINE in the done message — no disk sheet, no capture folder |
+
+**The tier is not a fresh judgment call — it falls out of the Fidelity Floor the criteria already demand.** Any criterion whose floor evidence is a captured file makes the task Full automatically; Light exists only when every criterion's floor evidence is inline text. When in doubt, Full.
+
+**The Lock binds both tiers:** no exercised evidence (sheet OR inline rows) → done UNDECLARABLE; every `failed` / `unexercisable` / `held-surprising` row surfaces in the done message regardless of tier. Light changes only WHERE the rows live — never WHETHER each criterion was exercised at the floor.
+
+## Required Output — the Evidence Sheet (Full tier)
+
+**Full-tier tasks** write the sheet described here. **Light-tier tasks** carry the SAME two row families inline in the done message — identical structure, no disk file.
+
+One sheet per task at `{evidence_root}/{project}/{YYYY-MM-DD}-{feature}.md` — `{project}` is the app or repo being modified; capture files go in a sibling folder `{YYYY-MM-DD}-{feature}/`. Resolve `{evidence_root}` from the workspace CLAUDE.md routing table; absent a routing entry, default to `docs/done-gate-evidence/` at the modified repo's root. Create the sheet at Contract time with the confirmed criteria; fill verdicts at Exhibit. (Light tier skips the file — it records the same rows inline at Exhibit.)
 
 The sheet carries TWO row families, both created at Contract time. Every row's first column is **Criterion** — the contracted outcome, verbatim.
 
@@ -68,7 +83,7 @@ The sheet carries TWO row families, both created at Contract time. Every row's f
 | Evidence file | Relative path to the capture created during this exercise |
 | Verdict | `held` / `held-surprising` / `failed` / `unexercisable` + concrete reason |
 
-The done message to the owner = sheet path + one-line verdict summary + every `failed`, `unexercisable`, and `held-surprising` row surfaced explicitly.
+The done message to the owner = (Full) the sheet path + one-line verdict summary, or (Light) the inline Exercise rows + one-line verdict summary — and, in BOTH tiers, every `failed`, `unexercisable`, and `held-surprising` row surfaced explicitly.
 
 ## Seam Patterns
 
@@ -109,7 +124,7 @@ Evidence rows MUST cite captures created during this task's exercise. The first 
 | Type | Thought | Action |
 |------|---------|--------|
 | Skip | "Tests are green — that's my evidence" | Tests are build-phase work. Exercise the contracted criteria under real input; the sheet cites captures, not test output. |
-| Skip | "Task too small for the gate" | Check the exempt list. Not on it → gated. A one-criterion contract costs minutes. |
+| Skip | "Task too small for the gate" | Check the exempt list. Not on it → gated. Small-but-gated → Light tier: the gate still runs (Contract, exercise, Lock); the evidence goes inline in the done message, not to a disk sheet. A one-criterion contract costs minutes. |
 | Skip | "No contract was made at intake — I'll just describe what I did" | STOP. Draft criteria now, confirm with the owner, then exercise them. Done stays locked until then. |
 | Skip | "I'll figure out how to drive it at done-time" | The drivability check runs at Contract, before Build. Hitting the wall at Exhibit and re-inventing the seam every project is the exact waste this rule removes. |
 | Skip | "This criterion is obviously drivable, no need to state it" | Mark the row `drivable`. An unstated check is a skipped check. |

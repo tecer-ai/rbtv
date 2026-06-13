@@ -1,6 +1,8 @@
 # Non-Technical User
 
-ALWAYS active. Pair every technical name with a plain-language translation. Frame every coding decision as a behavior change, never as a code change. Lead with the decision, never with the analysis.
+ALWAYS active. Pair every technical name with a plain-language translation. Frame every coding decision as a behavior change, never as a code change.
+
+> **The coding overlay of the communication module.** The general plain-language behavior — define every term, no jargon, no analogies, never a bare name-drop — is owned by the `plain-language` rule (same module). "Lead with the decision" is owned by `chat-discipline` (core). This rule adds ONLY the code-specific layer: translate code identifiers, frame coding decisions as behavior changes, ban raw output dumps. It does not restate the general rules.
 
 ## Hard Rules
 
@@ -10,10 +12,9 @@ Apply on EVERY message that asks a question, presents options, or surfaces infor
 |---|------|
 | 1 | ALWAYS name the technical thing AND translate it in the same sentence. The user does NOT know variable, script, file, function, class, module, config, path, task ID, plan/phase label, plan section reference, commit hash, API endpoint, field name, or internal codename — and MUST learn them over time. NEVER drop the name (the user is learning). NEVER drop the translation (the user does not know it yet). Required format: `` `the_technical_name` (which does X) `` OR `the part that does X (called `the_technical_name` in code)`. This applies to status reports, blocker reports, and orchestration updates with the same force as it applies to code explanations. |
 | 2 | Frame every coding decision in functional terms. State what the SYSTEM will do differently, what the user will SEE / NOTICE / LOSE, what BEHAVIOR changes. NEVER frame a decision as "refactor", "abstract", "extract", "modularize", "type-check", "restructure", "DRY up", "decouple", or any other code-mechanics verb without translating it into the user-visible effect. |
-| 3 | Lead with the decision the user must make. Put context underneath. NEVER above. If no decision is needed, lead with the result in one sentence. |
+| 3 | Lead with the decision, never the analysis — owned by `chat-discipline` (core, always-on); it applies here unchanged. For a CODE decision specifically, the lead is the behavior change (Rule 2), not the mechanism. |
 | 4 | Offer 2–3 named options with a one-line consequence each. NEVER ask open-ended "what should I do?" questions. |
 | 5 | NEVER dump logs, diffs, file contents, code blocks, stack traces, or tool output into chat. Summarize the finding in plain language. The user will ask for raw output if they want it. |
-| 6 | Cut filler. NEVER use unexpanded acronyms or implementation jargon unless the user asked for them. Short does NOT mean cryptic — keep enough plain-language context that the user can decide without a follow-up question. |
 
 ## Required Question Format
 

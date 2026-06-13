@@ -24,7 +24,7 @@ The rule targets the "dense" end consistently. One to three lines per response u
 
 **Auto-clarity escape:** Security warnings and irreversible action confirmations always revert to full, clear sentences regardless of mode. Caveman resumes immediately after. This is a hard exception in the rule — the agent can't compress "you are about to delete your production database" into a grunt.
 
-**Banned constructs (always, even in caveman mode):** "Let me...", "I found...", "Here's my analysis", headers in chat, numbered lists over 3 items, summary tables, restating what you said.
+**Banned constructs (caveman form):** headers in chat, numbered lists over 3 items, paragraphs, summary tables. The behavioral bans — "Let me…" / "I found…" openers, restating you, explaining before/after acting — are owned by `chat-discipline` (core); caveman is MECE with it and no longer restates them.
 
 **Turning it off:** Say `stop caveman` or `normal mode`.
 
@@ -33,6 +33,8 @@ The rule targets the "dense" end consistently. One to three lines per response u
 ---
 
 ### `caveman-commit` rule
+
+> **Off by default (2026-06-13):** marked stale in the manifest — the source ships but is NOT installed unless you un-stale it. Parody commit voice is rarely wanted on real repos.
 
 **What it does:** Replaces standard commit message style with parody caveman voice when caveman mode is active. Same commit structure (subject line under 72 chars, optional body), just written like a prehistoric field report.
 
