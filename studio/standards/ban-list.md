@@ -77,9 +77,10 @@ These read as slop because they destroy trust the moment a reader checks — the
 |---|------------------|----------------------|-------------------|----------------|
 | E-1 | Sub-13px content; two-line stat labels | Tiny or wrapping labels read as cramped and unconsidered | Body ≥15px, diagram nodes ≥14px, table cells ≥13px; no content below 13px; shorten copy so stat labels fit one line | T-1 |
 | E-2 | Sub-24px or muted feature-card icons | Small/faded icons add visual noise without function — a generated-deck tell | Feature-card icons ≥24px in `var(--primary)`; remove icons that cannot meet this rather than shrinking them | T-3 |
-| E-3 | Placeholder/training-mean color values left in `:root`; un-inverted logos on dark backgrounds | Stock palette values are the clearest "no brand input" signal | Replace every `:root` value with real brand tokens; dark-background logos use `filter: brightness(0) invert(1)` | C-1 |
+| E-3 | Placeholder/training-mean color values left in `:root` | Stock palette values are the clearest "no brand input" signal | Replace every `:root` value with real brand tokens | C-1 |
 | E-4 | Mixed stat colors within one semantic group; `var(--danger)` used for non-negative values; mixed currency/time basis in one grid | Inconsistent stat coloring reads as random, not systematic; misused danger-red miscommunicates | One accent color per semantic stat group; reserve `var(--danger)` for genuinely negative values only; uniform currency and time basis across a grid | C-2 |
 | E-5 | Colored borders used diagonally or at random; red borders on decision/go-no-go boxes | Random colored borders destroy the system signal; red reads as danger, not rigor | Colored borders carry consistent, intentional logic across the deck; decision/kill-criteria boxes use NEUTRAL borders | C-4 |
+| E-6 | **Recoloring a client's logo mark** — white/black knockout, inversion, tinting, or any color shift to make it fit a slide | The logo is the one asset that must appear exactly as the brand owns it; altering it reads as off-brand and careless, and on a known brand it is an instant credibility hit | Render every logo in its ORIGINAL brand colors, even at aesthetic cost. On a dark background where it would disappear, use a client-supplied reversed/light logo if one exists, ELSE sit the original-color logo on a light backing panel/container — NEVER recolor, invert, or knock out the mark | owner directive 2026-06-13 |
 
 ---
 
@@ -91,6 +92,7 @@ These read as slop because they destroy trust the moment a reader checks — the
 | F-2 | Risk or decision-gate statements styled as footnotes | Burying failure modes and kill criteria reads as hiding them; they are first-class content | `.callout--risk` (danger-bordered) for failure modes; `.callout--gate` (warning-bordered) for decision gates | CP-3 |
 | F-3 | 1px gray flow-diagram connectors | Thin gray connectors disappear in PDF and read as unfinished | Unicode arrows (→, ↓) in brand color, minimum 2px weight | CP-4 |
 | F-4 | Equal-weight before/after columns | Rendering both sides identically loses the transformation the slide exists to show | "After" column heavier (`var(--primary-dark)`, weight 600); "before" de-emphasized (`var(--gray-600)`, weight 400) | CP-5 |
+| F-5 | **Source citations placed inline / mid-text** — a `(Source: …)` or reference dropped beside the claim in the body | Inline citations interrupt the one-idea-per-slide read and clutter the focal content; they read as unpolished | Anchor source citations as **footnotes at the BOTTOM of the slide**, visually subordinate to the body (small, muted), with a small marker beside the claim only if needed. Distinct from F-2: risk/decision statements are first-class callouts, never footnotes — THIS rule governs SOURCE CITATIONS only | owner directive 2026-06-13 |
 
 ---
 

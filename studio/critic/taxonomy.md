@@ -63,7 +63,9 @@ For each item: the critic determines, per artifact, the **direction and degree**
 |----|------|-------------------------------|--------------------------|---------------|
 | T-T1 | Type-pairing inconsistency | >2 fonts; type scale arbitrary per slide; mixed icon libraries on one semantic set | Which artifact holds 1–2 fonts + one icon library more consistently | flaw-checklist 6; ban A-3/A-4/E-2; T-3 |
 | T-T2 | Color-system incoherence | Stat colors mixed within a semantic group; `var(--danger)` on non-negative values; colored borders random/diagonal | Which artifact's color logic is more systematic | flaw-checklist 7; ban E-4/E-5; C-2/C-4 |
-| T-T3 | Training-mean / placeholder palette | Purple-blue gradient; stock `:root` values; un-inverted logos on dark bg | Which artifact reads brand-grounded vs default-attractor | ban A-1/E-3; C-1 |
+| T-T3 | Training-mean / placeholder palette | Purple-blue gradient; stock `:root` values | Which artifact reads brand-grounded vs default-attractor | ban A-1/E-3; C-1 |
+| T-T4 | Client logo recolored | Logo white/black knockout, inverted, tinted, or hue-shifted to fit a slide instead of shown in its original brand colors | Which artifact preserves the logo's true colors (recolored = flaw) | flaw-checklist 14; ban E-6 |
+| T-T5 | Source citations inline / mid-text | A `(Source: …)` or reference beside the claim in the body instead of a footnote at the slide bottom | Which artifact anchors source citations as bottom footnotes | flaw-checklist 13; ban F-5 |
 
 ## Axis 6 — Component Weight
 
