@@ -229,6 +229,61 @@ class PB11DeckSaveTests(unittest.TestCase):
             "non-colliding own asset ref should remain unchanged"
         )
 
+    # ── PB11-1b: colliding own asset renamed + surfaced in status bar ──────
+    def test_new_file_save_surfaces_renamed_own_asset(self):
+        sys.path.insert(0, os.path.join(REPO, "server"))
+        from recompose import split_sections  # noqa: E402
+
+        deck_path = self._copy_deck()
+        deck_dir = pathlib.Path(deck_path).parent
+        rel_asset = "assets/logo.png"
+        asset_path = deck_dir / rel_asset
+        asset_path.parent.mkdir(parents=True, exist_ok=True)
+        asset_path.write_bytes(b"pb11 own asset to be renamed\n")
+
+        deck_html = pathlib.Path(deck_path).read_text(encoding="utf-8")
+        spans = split_sections(deck_html)
+        self.assertTrue(spans, "fixture deck must contain sections")
+        first_start, first_end = spans[0]
+        first_section = deck_html[first_start:first_end]
+        own_ref = '<img class="pb11-own-asset" src="assets/logo.png">'
+        self.assertIn("</section>", first_section, "first section must be closed")
+        first_section = first_section.replace("</section>", own_ref + "</section>", 1)
+        deck_html = deck_html[:first_start] + first_section + deck_html[first_end:]
+        pathlib.Path(deck_path).write_text(deck_html, encoding="utf-8")
+
+        self._open_deck(deck_path)
+        self.assertEqual(self._tray_count(), 10, "deck should have 10 slides")
+
+        # Restructure while preserving slide 1 (carries the own-asset ref).
+        self.page.locator(".tray-row:nth-child(3) .tray-remove").click()
+        self.page.wait_for_timeout(150)
+        self.assertEqual(self._tray_count(), 9)
+
+        # Pre-seed a DIFFERENT file at the destination asset path so the save
+        # must rename the deck's own asset to avoid clobbering it.
+        save_dir = tempfile.mkdtemp()
+        existing = pathlib.Path(save_dir) / rel_asset
+        existing.parent.mkdir(parents=True, exist_ok=True)
+        existing.write_bytes(b"pre-existing unrelated asset\n")
+
+        save_path = os.path.join(save_dir, "saved-renamed-asset.html")
+        H.set_fake_dialog(self.base, save_path)
+        self.page.click("#save-new-btn")
+        self.page.wait_for_selector(".shell-status.success", timeout=10000)
+
+        status_text = self.page.locator("#builder-status").text_content()
+        self.assertIn(
+            "Renamed: assets/logo.png → assets/logo-1.png", status_text,
+            "status bar must surface the colliding-asset rename"
+        )
+        # Renamed copy landed; the pre-existing file was not clobbered.
+        self.assertEqual(
+            (pathlib.Path(save_dir) / "assets" / "logo-1.png").read_bytes(),
+            b"pb11 own asset to be renamed\n",
+        )
+        self.assertEqual(existing.read_bytes(), b"pre-existing unrelated asset\n")
+
     # ── PB11-2: overwrite save + reopen intact ─────────────────────────────
     def test_overwrite_save(self):
         root_bytes = pathlib.Path(DECK_FIXTURE).read_bytes()

@@ -63,6 +63,7 @@ export async function saveDeck({ deck, items, mode }) {
     path: data.path,
     assetsCopied: data.assets_copied || [],
     assetsSkipped: data.assets_skipped || [],
+    assetsRenamed: data.assets_renamed || [],
     assetsMissing: data.assets_missing || [],
   };
 }

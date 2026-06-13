@@ -537,6 +537,14 @@ document.addEventListener("DOMContentLoaded", () => {
         if (result.assetsSkipped.length > 0) {
           parts.push('Assets skipped: ' + result.assetsSkipped.join(', '));
         }
+        if (result.assetsRenamed.length > 0) {
+          parts.push(
+            'Renamed: '
+            + result.assetsRenamed.map(function (r) {
+              return r.from + ' → ' + r.to;
+            }).join(', ')
+          );
+        }
         if (result.assetsMissing.length > 0) {
           parts.push(
             '⚠ ' + result.assetsMissing.length
