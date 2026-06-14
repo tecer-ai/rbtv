@@ -61,6 +61,10 @@ class MoveDragReliabilityTests(unittest.TestCase):
                       <div id="p2-g2" data-hyp-id="p2-g2" style="height:64px;background:#fce7f3;">G2</div>
                       <div id="p2-g3" data-hyp-id="p2-g3" style="height:64px;background:#ecfccb;">G3</div>
                     </div>
+                    <div id="p2-grid-two" data-hyp-id="p2-grid-two" style="display:grid;grid-template-columns:110px 110px;gap:14px;margin-top:48px;">
+                      <div id="p2-h1" data-hyp-id="p2-h1" style="height:64px;background:#cffafe;">H1</div>
+                      <div id="p2-h2" data-hyp-id="p2-h2" style="height:64px;background:#fde68a;">H2</div>
+                    </div>
                     <div id="p2-block" data-hyp-id="p2-block" style="display:block;margin-top:48px;width:360px;">
                       <div id="p2-k1" data-hyp-id="p2-k1" style="height:48px;margin-bottom:12px;background:#fae8ff;">K1</div>
                       <div id="p2-k2" data-hyp-id="p2-k2" style="height:48px;margin-bottom:12px;background:#ccfbf1;">K2</div>
@@ -177,6 +181,11 @@ class MoveDragReliabilityTests(unittest.TestCase):
         self.assertEqual(self._order("p2-block"), ["p2-k2", "p2-k3", "p2-k1"])
         self._drag_to("p2-k1", "p2-k2", y_frac=0.2, shift=True)
         self.assertEqual(self._order("p2-block"), ["p2-k1", "p2-k2", "p2-k3"])
+
+    def test_shift_drag_reorders_two_item_single_row_grid_by_horizontal_midpoint(self):
+        self._drag_to("p2-h1", "p2-h2", x_frac=0.8, y_frac=0.25, shift=True)
+
+        self.assertEqual(self._order("p2-grid-two"), ["p2-h2", "p2-h1"])
 
     def test_shift_drag_reparents_to_different_container(self):
         self._drag_to("p2-a", "p2-x", x_frac=0.25, shift=True)

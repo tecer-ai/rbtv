@@ -76,16 +76,44 @@ function siblingsWithHypId(container, dragEl) {
   });
 }
 
+function parseTranslate(str) {
+  if (!str) return [0, 0];
+  const parts = str.trim().split(/\s+/);
+  const x = parseFloat(parts[0]) || 0;
+  const y = parseFloat(parts[1]) || 0;
+  return [x, y];
+}
+
+function rectBeforeCurrentTranslate(el) {
+  const rect = el.getBoundingClientRect();
+  const [tx, ty] = parseTranslate(el.style.translate || "");
+  return {
+    left: rect.left - tx,
+    right: rect.right - tx,
+    top: rect.top - ty,
+    bottom: rect.bottom - ty,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
 function layoutAxis(container, elements, computedStyle = null) {
+  return layoutAxisFromRects(
+    container,
+    elements.map((el) => el.getBoundingClientRect()),
+    computedStyle,
+  );
+}
+
+function layoutAxisFromRects(container, rects, computedStyle = null) {
   const cs = computedStyle || getComputedStyle(container);
   if (cs.display === "flex" || cs.display === "inline-flex") {
     return axisFromDisplay(cs.display, cs.flexDirection);
   }
-  if (elements.length < 2) return axisFromDisplay(cs.display, cs.flexDirection);
+  if (rects.length < 2) return axisFromDisplay(cs.display, cs.flexDirection);
 
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const el of elements) {
-    const rect = el.getBoundingClientRect();
+  for (const rect of rects) {
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
     minX = Math.min(minX, centerX);
@@ -108,7 +136,10 @@ function classifySameParentByMidpoint(dragEl, clientX, clientY) {
   if (!hasHypId(container)) return none;
 
   const siblings = siblingsWithHypId(container, dragEl);
-  const axis = layoutAxis(container, siblings);
+  const axis = layoutAxisFromRects(container, [
+    rectBeforeCurrentTranslate(dragEl),
+    ...siblings.map((el) => el.getBoundingClientRect()),
+  ]);
   for (const target of siblings) {
     const rect = target.getBoundingClientRect();
     if (!containsOnCrossAxis(axis, rect, clientX, clientY)) continue;

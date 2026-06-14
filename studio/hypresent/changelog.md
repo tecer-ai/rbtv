@@ -58,6 +58,7 @@
 
 | # | Date | Actor | Type | Entry |
 |---|------|-------|------|-------|
+| 325 | 2026-06-14 | Codex | fix | Reorder axis detection now includes the dragged element's pre-drag rect, fixing same-parent insert-side inversion for exactly 2 auto-placed grid items in one horizontal row; regression test added in `test_move_drag_reliability.py`. |
 | 1 | 2026-06-03 | Orchestrator | session | Session opened. Roles: Opus=spec+test design, Sonnet=research, Kimi=exclusive engineering. Orchestrator never executes. |
 | 2 | 2026-06-03 | Orchestrator | doc | Kimi CLI reference loaded (verified against v1.41.0). Headless invocation + exit-code retry policy adopted (see Kimi contract). |
 | 3 | 2026-06-03 | Sonnet repo-analyst | recon | Completed: full codebase survey → `docs/improvements-2026-06/recon.md`. Architecture: parent shell + same-origin iframe; 5 shell + 13 runtime ES modules; Moveable.js, Coloris, DOMPurify vendored; stdlib Python server `server/server.py` (127.0.0.1:8765). |
