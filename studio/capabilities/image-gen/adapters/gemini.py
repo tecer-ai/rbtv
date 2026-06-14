@@ -4,11 +4,26 @@ Uses the Generative Language REST API. Model: gemini-3.1-flash-image.
 """
 
 import base64
-from pathlib import Path
+import io
 
 import requests
+from PIL import Image
 
 API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent"
+
+
+def _write_in_format(image_bytes: bytes, out_path: str, fmt: str) -> None:
+    """Save the API's raw image bytes at out_path re-encoded to the requested format.
+
+    The Gemini API returns JPEG bytes regardless of the requested extension, so the
+    bytes are decoded and re-encoded to honor fmt (png/jpg) — otherwise a `.png`
+    output would silently hold JPEG bytes. See image-gen-spec.md behavior-row-4.
+    """
+    target = "JPEG" if fmt == "jpg" else "PNG"
+    img = Image.open(io.BytesIO(image_bytes))
+    if target == "JPEG" and img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    img.save(out_path, format=target)
 
 
 def generate(prompt: str, out_path: str, fmt: str, aspect: str | None = None, api_key: str | None = None) -> None:
@@ -59,7 +74,7 @@ def generate(prompt: str, out_path: str, fmt: str, aspect: str | None = None, ap
             b64_data = inline_data.get("data", "")
             if b64_data:
                 image_bytes = base64.b64decode(b64_data)
-                Path(out_path).write_bytes(image_bytes)
+                _write_in_format(image_bytes, out_path, fmt)
                 image_found = True
                 break
 

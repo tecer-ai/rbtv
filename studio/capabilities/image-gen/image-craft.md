@@ -111,7 +111,7 @@ python studio/capabilities/image-gen/generate.py --prompt "..." --out <path>.jpg
 
 The model is `gemini-3.1-flash-image` (v1beta). The key `GEMINI_API_KEY` resolves OS-env first, then the `--env-file` path. A missing key exits 1 naming the var and writes no file.
 
-**Output format — name the gemini file `.jpg`.** The `gemini` provider writes the API's raw JPEG bytes regardless of the extension in `--out`, so a `.png` name yields a file holding JPEG bytes under a `.png` name — name gemini outputs `.jpg`. Only the `fixture` provider honors the `--out` extension.
+**Output format — the `--out` extension is honored.** Every provider, `gemini` included, writes the format implied by the `--out` extension (`png` or `jpg`): the `gemini` adapter re-encodes the API's raw bytes to the requested format, so a `.png` name yields a real PNG and a `.jpg` name a real JPEG.
 
 **Asset-path convention:** save every generated image into the artifact's OWN `assets/` folder so the artifact's own-asset colocation keeps the image on save and reopen. Read `{rbtv_path}/studio/capabilities/image-gen/image-gen.md` for the full flag reference.
 
