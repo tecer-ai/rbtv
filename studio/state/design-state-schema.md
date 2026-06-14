@@ -40,6 +40,7 @@ design-state is a single markdown file: YAML frontmatter for the stable, machine
 | 6 | Per-slide HTML status | `## Slide Status` table | Designer (beat 3) |
 | 7 | Accept/bounce notes + per-slide bounce COUNT | `## Slide Status` table + `## Bounce Log` | Designer (beat 4 / human gate) |
 | 8 | Fresh-eyes punch-lists | `## Fresh-Eyes Punch-List` | Designer (beat 3 fresh-eyes pass) |
+| 9 | Imagery assets | `## Imagery` body section | Designer (beats 2–3) |
 
 ### 1.1 Frontmatter (groups 1–5 stable keys)
 
@@ -131,6 +132,18 @@ beat 1 (H8 / deck-loop-spec ⑧). The escalation is recorded in `## Bounce Log` 
 - **Pass {p} ({YYYY-MM-DD}):**
   - [ ] Slide {n}: {flaw, referencing the checklist item} → {patch} — open
   - [x] Slide {n}: {flaw} → {patch} — applied
+
+## Imagery
+> Group 9. OPTIONAL — ABSENT entirely when the run uses no generated imagery. One row per proposed / generated / placed
+> image (beats 2–3). Tracks owner-gated imagery so a fresh agent resumes imagery state from this file alone. Imagery is
+> real-provenance only (deck-loop-spec row 5·5); a row never represents a fabricated "real" photo.
+
+| Purpose | Target slide/page/screen | Style | Provider | Aspect | Asset out-path | Status |
+|---------|--------------------------|-------|----------|--------|----------------|--------|
+| {cover / background / divider / concept / …} | {slide n / page / screen} | {style family} | gemini \| fixture | {16:9 / 1:1 / …} | {./assets/{name}.jpg} | proposed |
+
+**Status values:** `proposed` (Designer surfaced it, owner not yet decided) → `generated` (image created via the capability) →
+`placed` (positioned in the artifact), plus `declined` (owner said no — kept for resume so it is not re-proposed).
 ````
 
 ---

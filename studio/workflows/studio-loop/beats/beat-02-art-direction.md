@@ -51,6 +51,9 @@ This beat implements `deck-loop-spec.md` behavior row 3 and its Edge Cases. Read
    | 4 | **Signature motif** | The one recurring visual device that makes the lane distinct (a rule, a frame, a mark) — the divergent element, ban-list-clean |
    | 5 | **Chart style** | How charts read in this lane — hand-authored inline SVG/CSS (the `p2-2` decision; NO charting library); action-title (takeaway, not axis name) (mining map PR-5, AD-3; decisions.md p2-2) |
    | 6 | **Cover treatment** | The cover-slide approach: title card only (brand mark + one category line); cover and closing share identical treatment (mining map V-3, V-4; ban B-3, B-4) |
+   | 7 | **Imagery treatment** (OPTIONAL) | Does this lane use generated imagery (cover / full-bleed background / divider / concept), in what style, and for which slides — owner-gated, real-provenance, ban-list-clean. Absent imagery is a valid lane. Per the image-craft guide (`{rbtv_path}/studio/capabilities/image-gen/image-craft.md`) |
+
+Row 7 is ADDITIVE and OPTIONAL — the six axes above stay mandatory. Any imagery direction a lane proposes surfaces WITH the mini-briefs for the owner pick, never inserted unasked.
 
 3. For EACH mini-brief, CITE the taste file: name which admirable principles (per exemplar) the lane USES and which it deliberately BREAKS, and why the break serves THIS deck's thesis. A mini-brief with no taste citation is incomplete.
 4. Run each mini-brief through the ban-list (`{rbtv_path}/studio/standards/ban-list.md`): confirm NO banned attractor (purple-blue gradient, rounded-card-grid-of-three, default-font look, emoji icons, and every mined correction) is present. A brief carrying a banned attractor FAILS — regenerate it clean.
@@ -88,7 +91,7 @@ ONLY when **[X] Exit** is selected: confirm exit; design-state is saved.
 
 ✅ **SUCCESS:**
 - Reference set loaded; any missing layer HALTED with its exact name; taste file present and cited.
-- ≥2–3 genuinely distinct mini-briefs, each covering all six axes, each citing taste-file principles used/broken, ALL ban-list-clean.
+- ≥2–3 genuinely distinct mini-briefs, each covering all six axes, each citing taste-file principles used/broken, ALL ban-list-clean. The optional imagery treatment (row 7) MAY be present on a lane — owner-gated and real-provenance when it is.
 - The Designer named the believed-in lane and offered a daring alternative to the safe choice.
 - Owner pick recorded in design-state (`art_direction_brief` + rationale + `## Art Direction`); cursor advanced to beat 3.
 

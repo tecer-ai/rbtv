@@ -98,9 +98,9 @@ Every row in this registry carries these six fields. A worker can invoke a capab
 | **entry point** | Usage doc: `studio/capabilities/image-gen/image-gen.md` (read it fully, then invoke) · CLI: `python studio/capabilities/image-gen/generate.py` (run from the repo root) |
 | **inputs** | `--prompt <text>` · `--out <path>` (format from extension: png/jpg) · `--provider gemini\|fixture` (optional, default gemini) · `--aspect <ratio>` (optional) · `--env-file <path>` (optional; key resolution = OS env `GEMINI_API_KEY` first, then the env-file path — never hardcoded) |
 | **outputs** | Image file at the `--out` path. Missing key → exit 1 naming the env var, no file written; provider failure → exit 1 with provider reason on stderr, no partial file |
-| **spec / source pointer** | `./image-gen/image-gen-spec.md` · usage doc above |
+| **spec / source pointer** | `./image-gen/image-gen-spec.md` · usage doc above · `./image-gen/image-craft.md` (Designer prompt/style/when-to-propose craft) |
 
-> **Design note:** source-pluggable multi-provider interface — adapters auto-discovered from `image-gen/adapters/` by filename; add a provider by dropping an adapter module, zero interface edits (proven via the `fixture` adapter). Gemini is the first concrete provider.
+> **Design note:** source-pluggable multi-provider interface — adapters auto-discovered from `image-gen/adapters/` by filename; add a provider by dropping an adapter module, zero interface edits (proven via the `fixture` adapter). Gemini is the first concrete provider. Prompt-craft, style families, and when-to-propose heuristics live in the Designer craft guide `./image-gen/image-craft.md`.
 
 ---
 
