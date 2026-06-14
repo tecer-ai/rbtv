@@ -2,7 +2,7 @@
 
 > The per-screen document format that travels with the app path's plain-HTML screens. A studio **module-internal standard** (not a `.claude/` rule), authored at `p5-10`; slot fixed by `architecture.md` §1.4/§3 (`studio/standards/`). It makes the app fork's handoff self-sufficient: a coding agent wires a real app reading ONLY the package (HTML screens + these companion docs + the flow map) — the designer is never needed for a wiring question. The app fork (`{rbtv_path}/studio/workflows/studio-loop/forks/app.md` §C) emits docs in THIS format; the app-path-spec owns the behavior floor, this contract owns the doc SHAPE.
 
-Read `1-projects/rbtv-evolution/design-module/design-module-v1-build/specs/app-path-spec.md` (vault-root-relative) for the behavior floor (the handoff criterion is its behavior row 5). This contract never restates it.
+Read `{rbtv_path}/studio/workflows/studio-loop/forks/app-path-spec.md` for the behavior floor (the handoff criterion is its behavior row 5). This contract never restates it.
 
 ---
 

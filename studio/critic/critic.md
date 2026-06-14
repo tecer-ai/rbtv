@@ -8,7 +8,7 @@ nextStep: null
 
 A best-effort **improver and stopping rule** — never the quality gate. The HUMAN gate stays final and untouched (D1). The critic reads artifacts and the reference set from disk and writes a comparative, taxonomy-cited critique a worker (mid-loop) or the owner consumes. It is module-internal, invoked on demand — not a `.claude/` install.
 
-Behavior is governed by `1-projects/rbtv-evolution/design-module/design-module-v1-build/specs/critic-spec.md` (vault-root-relative). Read that spec's Behavior Specification + Edge Cases for the floor — this file never restates them; it owns the executable procedure.
+Behavior is governed by `./critic-spec.md`. Read that spec's Behavior Specification + Edge Cases for the floor — this file never restates them; it owns the executable procedure.
 
 ---
 

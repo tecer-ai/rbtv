@@ -85,7 +85,7 @@ Every row in this registry carries these six fields. A worker can invoke a capab
 | **entry point** | Usage doc: `studio/capabilities/extract-subtle-refs/extract-subtle-refs.md` (read it fully, then invoke) · CLI: `python studio/capabilities/extract-subtle-refs/extract.py` (run from the repo root) |
 | **inputs** | `--url <URL>` (repeatable) · `--out <report.md>` (required) · `--json-out <report.json>` (optional) · `--headed` (optional debug flag) |
 | **outputs** | Structured markdown report per URL with motion/interaction observations (pattern · element anchor · concrete values · note); optional JSON dump. Dead URLs exit non-zero; a report is written only when ≥1 URL succeeds |
-| **spec / source pointer** | `1-projects/rbtv-evolution/design-module/design-module-v1-build/specs/subtle-refs-spec.md` · usage doc above |
+| **spec / source pointer** | `./extract-subtle-refs/subtle-refs-spec.md` · usage doc above |
 
 ---
 
@@ -98,7 +98,7 @@ Every row in this registry carries these six fields. A worker can invoke a capab
 | **entry point** | Usage doc: `studio/capabilities/image-gen/image-gen.md` (read it fully, then invoke) · CLI: `python studio/capabilities/image-gen/generate.py` (run from the repo root) |
 | **inputs** | `--prompt <text>` · `--out <path>` (format from extension: png/jpg) · `--provider gemini\|fixture` (optional, default gemini) · `--aspect <ratio>` (optional) · `--env-file <path>` (optional; key resolution = OS env `GEMINI_API_KEY` first, then the env-file path — never hardcoded) |
 | **outputs** | Image file at the `--out` path. Missing key → exit 1 naming the env var, no file written; provider failure → exit 1 with provider reason on stderr, no partial file |
-| **spec / source pointer** | `1-projects/rbtv-evolution/design-module/design-module-v1-build/specs/image-gen-spec.md` · usage doc above |
+| **spec / source pointer** | `./image-gen/image-gen-spec.md` · usage doc above |
 
 > **Design note:** source-pluggable multi-provider interface — adapters auto-discovered from `image-gen/adapters/` by filename; add a provider by dropping an adapter module, zero interface edits (proven via the `fixture` adapter). Gemini is the first concrete provider.
 
@@ -113,7 +113,7 @@ Every row in this registry carries these six fields. A worker can invoke a capab
 | **entry point** | Usage doc: `studio/capabilities/screenshot-capture/screenshot-capture.md` (read it fully, then invoke) · CLI: `python studio/capabilities/screenshot-capture/capture.py` (run from the repo root) |
 | **inputs** | `--url <URL>` (repeatable) · `--refs <reference-set-path>` (required) · `--viewport <WxH>` (optional, default 1440x900) · `--selector <css-selector>` (optional section capture) |
 | **outputs** | PNG file(s) in `<refs>/exemplars/` (versioned `-v{N}` on filename collision — never a silent overwrite; page height capped at 16000px) + one manifest row per capture in `<refs>/exemplars/manifest.md` `## Exemplars` table (current behavior inserts new rows at the TOP — most-recent-first; most-recent-first ordering ruled keep, 2026-06-12). Dead URL → exit non-zero, no file, no manifest row |
-| **spec / source pointer** | `1-projects/rbtv-evolution/design-module/design-module-v1-build/specs/screenshot-capture-spec.md` · usage doc above |
+| **spec / source pointer** | `./screenshot-capture/screenshot-capture-spec.md` · usage doc above |
 
 ---
 

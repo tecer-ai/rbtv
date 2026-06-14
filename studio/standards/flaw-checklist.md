@@ -17,7 +17,7 @@ This checklist drives the fresh-eyes pass. Read `{rbtv_path}/studio/deck-loop-sp
 
 - **Fresh-eyes pass (Behavior Specification row 6)** — a fresh-context review against the chosen direction mini-brief AND this checklist, producing a punch-list; patches apply to flagged slides only.
 
-The reviewer checks the rendered deck (headed browser, real geometry) against every item below. Each item carries: the **flaw** and **how to spot it**. Items cite the mining-map row (`1-projects/rbtv-evolution/design-module/design-module-v1-build/phase-1/mining-map.md`, vault-root-relative) they derive from.
+The reviewer checks the rendered deck (headed browser, real geometry) against every item below. Each item carries: the **flaw** and **how to spot it**. Items cite the mining-map row (`./mining-map.md`) they derive from.
 
 ---
 

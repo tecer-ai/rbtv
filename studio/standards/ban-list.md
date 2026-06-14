@@ -18,7 +18,7 @@ This ban-list binds two surfaces of the deck loop. Read `{rbtv_path}/studio/deck
 - **Art-direction beat (Behavior Specification row 3)** — every direction mini-brief must be ban-list-clean before the owner picks; a banned attractor present in any brief fails the beat.
 - **All generation (Behavior Specification rows 4–6)** — the template trio, every slice, and the fresh-eyes pass enforce this list; a banned attractor surfaced at fresh-eyes is a punch-list item.
 
-Each entry below carries: the **banned attractor**, **why it reads as slop**, and **what to reach for instead**. Mined entries cite the mining-map row (`1-projects/rbtv-evolution/design-module/design-module-v1-build/phase-1/mining-map.md`, vault-root-relative) they derive from.
+Each entry below carries: the **banned attractor**, **why it reads as slop**, and **what to reach for instead**. Mined entries cite the mining-map row (`./mining-map.md`) they derive from.
 
 ---
 

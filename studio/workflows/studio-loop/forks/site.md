@@ -9,7 +9,7 @@ outputFile: content-spec.md
 
 The studio loop is artifact-general: `artifact` is a design-state parameter each beat reads, never a top-level branch (workflow.md fork rules). This file is the `artifact: site` branch. It exists because sites genuinely fork from decks at exactly ONE point — the **structure** phase: a deck is slide-led (one linear slide sequence); a site is **linear-led but multi-page** (a sitemap of pages, each with its own communication goal, navigable in any order). After structure, a site rides the deck loop's beats 2–4 with `slide` read as `page`.
 
-Read `1-projects/rbtv-evolution/design-module/design-module-v1-build/specs/site-path-spec.md` (vault-root-relative) for the behavior floor and `{rbtv_path}/studio/architecture.md` §1.1/§3 for the subsystem map and landing paths. This file never restates them.
+Read `./site-path-spec.md` for the behavior floor and `{rbtv_path}/studio/architecture.md` §1.1/§3 for the subsystem map and landing paths. This file never restates them.
 
 ---
 

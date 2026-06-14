@@ -74,7 +74,7 @@ The module enforces the standard; the reference set + taste file are workspace-o
 | Mining sources | `studio/workflows/deck-design/data/{html-patterns,html-components,pitch-deck-rules}.md` | MINED into the Standards bundle; retire with `deck-design` | Living corrections → ban-list + flaw checklist + craft rules |
 | Reference-set CONTRACT (what the workspace must supply) | documented in `studio/capabilities/load-references.md` + `studio/standards/reference-set-contract.md` | CREATE (`p2-1`) | tokens file (color/type/spacing/motion) + `exemplars/` screenshots + **taste file** (3–5 admirable-principle bullets per exemplar, H3) + a chart exemplar. Workspace path: `5-workbench/tecer-biz/brand/studio-references/` |
 | Distinctiveness/anti-slop rule(s) | `studio/standards/anti-slop.md` (module-internal standard, not a `.claude/` rule) | CREATE (`p2-5`) | Encodes: explicit art-direction beat · divergent reference use (principles, not copy) · ≥2–3 forced-distinct mini-briefs · pairwise trio · fresh-eyes pass |
-| Design done-gate (deck) | governed by `deck-loop-spec.md` Test Plan + the always-on `rbtv-done-gate` rule | (no new file) | Evidence root `1-projects/rbtv-evolution/coding/done-gate-evidence/studio-gsmm-deck/` |
+| Design done-gate (deck) | governed by `deck-loop-spec.md` Test Plan + the always-on `rbtv-done-gate` rule | (no new file) | Evidence root resolved per `rbtv-done-gate` at run time |
 | **Critic** (comparative · taxonomy-driven · structural-auto/aesthetic-HUMAN · per-project) | `studio/critic/` + `critic-spec.md` | ROADMAP — built P6 (`v1.1`); evaluator pinned `claude:fable` at `p6-checkpoint` | NEVER gates aesthetics. Named here as the v1.1 anchor only |
 
 ### 1.5 MEMORY / COORD — persist, resume, switch

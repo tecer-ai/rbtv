@@ -9,7 +9,7 @@ outputFile: content-spec.md
 
 The studio loop is artifact-general: `artifact` is a design-state parameter each beat reads, never a top-level branch (workflow.md fork rules). This file is the `artifact: app` branch. It exists because apps fork from decks EARLIER than sites do — at the **discovery** phase, not the structure phase: a deck locks a linear slide narrative; an app must first establish what the user must ACHIEVE (goals), then HOW they move toward each goal across screens (user-flow), then the per-screen UX detail a coding agent needs (UX). After discovery converges into a content spec, an app rides the deck loop's beats 2–4 with `slide` read as `screen`, producing plain-HTML screens with designed states (NOT a wired app — wiring is a coding agent's job, handed off via the UX companion docs).
 
-Read `1-projects/rbtv-evolution/design-module/design-module-v1-build/specs/app-path-spec.md` (vault-root-relative) for the behavior floor and `{rbtv_path}/studio/architecture.md` §1.1/§3 for the subsystem map and landing paths. This file never restates them.
+Read `./app-path-spec.md` for the behavior floor and `{rbtv_path}/studio/architecture.md` §1.1/§3 for the subsystem map and landing paths. This file never restates them.
 
 ---
 
