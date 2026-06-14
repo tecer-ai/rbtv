@@ -415,12 +415,44 @@ class R2ResizeRealTests(unittest.TestCase):
             f"a real drag of one sibling over its neighbor must change its DOM index (reorder dead): {idx_before} -> {idx_after}",
         )
 
+    def _wait_control_box_settled(self, timeout=5000):
+        """Event-driven wait until the Moveable control box exists AND its top-left has
+        stopped drifting between two reads 60 ms apart (tolerance ±1 px).
+
+        Rationale: `_real_click` ends with a fixed 300 ms blind wait that is sufficient
+        under low CPU load but races Moveable's layout pass under full-suite load (40+
+        concurrent browser instances). This poller gates the geometry assertion on actual
+        stability rather than a wall-clock guess (RV14 pattern). Timeout 5 s — well above
+        any realistic settle time; failure here surfaces the real root cause rather than a
+        spurious alignment failure.
+        """
+        self.page.wait_for_function(
+            """() => {
+                const f = document.querySelector('iframe.doc-frame');
+                if (!f) return false;
+                const d = f.contentDocument; if (!d) return false;
+                const box = d.querySelector('.moveable-control-box');
+                if (!box) return false;
+                const r1 = box.getBoundingClientRect();
+                // schedule a second read after 60 ms and resolve when stable
+                return new Promise(resolve => setTimeout(() => {
+                    const r2 = box.getBoundingClientRect();
+                    resolve(Math.abs(r2.left - r1.left) <= 1 && Math.abs(r2.top - r1.top) <= 1);
+                }, 60));
+            }""",
+            timeout=timeout,
+        )
+
     # E-R2-7 — control box alignment with target (regression guard for position:fixed coordinate-frame bug)
     def test_control_box_aligns_with_target(self):
         self._open()
         # .slide-title has no registered child at its geometric centre, so the registry
         # selects .slide-title itself — no selection-vs-clicked mismatch (v3-t2c-debug.md §2).
         self._real_click(".slide-title")
+        # Wait for Moveable's control box to finish positioning before reading geometry.
+        # The 300 ms blind wait in _real_click is not sufficient under full-suite CPU load
+        # (observed flake: FAILED 1× in 287-test run, passed standalone). See _wait_control_box_settled.
+        self._wait_control_box_settled()
         alignment = H.doc_eval(
             self.page,
             "const box=doc.querySelector('.moveable-control-box');"
