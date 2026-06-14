@@ -12,6 +12,7 @@
 
 | ID | Improvement | Status |
 |----|-------------|--------|
+| P2-1 | Move/drag reliability: plain drag now keeps translate; Shift gates reorder and reparent; undo restores pre-drag translate; FLIP preserves sibling inline transforms | Authored, pending conductor-headed validation |
 | F1 | Native open/save via OS file dialogs (no filepath typing) | ☑ unit 12/12 + e2e 6/6 (`unit-run-01.txt`, `e2e-f1-run-01.txt`) |
 | F2 | Element resize reachable in UI + alignment guidelines (Google-Slides-style) | ☑ e2e 8/8 (`result.md`) |
 | F3 | Element move reachable in UI + same-hierarchy reorder on overlap (+ re-parenting, U4) | ☑ e2e 10/10 incl. verbatim 3-box scenario (`result.md`) |

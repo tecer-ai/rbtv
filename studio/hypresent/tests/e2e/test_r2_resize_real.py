@@ -402,12 +402,16 @@ class R2ResizeRealTests(unittest.TestCase):
         tx = origin["x"] + r2["x"] + r2["w"] / 2
         ty = origin["y"] + r2["y"] + r2["h"] * 0.75   # lower half ⇒ insertBefore=false ⇒ real index change
         self.page.mouse.move(sx, sy)
+        self.page.keyboard.down("Shift")
         self.page.mouse.down()
-        steps = 10
-        for i in range(1, steps + 1):
-            self.page.mouse.move(sx + (tx - sx) * i / steps, sy + (ty - sy) * i / steps)
-            self.page.wait_for_timeout(20)
-        self.page.mouse.up()
+        try:
+            steps = 10
+            for i in range(1, steps + 1):
+                self.page.mouse.move(sx + (tx - sx) * i / steps, sy + (ty - sy) * i / steps)
+                self.page.wait_for_timeout(20)
+            self.page.mouse.up()
+        finally:
+            self.page.keyboard.up("Shift")
         self.page.wait_for_timeout(300)
         idx_after = index_of(first_id)
         self.assertNotEqual(

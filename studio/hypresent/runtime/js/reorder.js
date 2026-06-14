@@ -2,7 +2,8 @@
  * runtime/js/reorder.js
  *
  * Pure drop-classification helpers for F3 (no history, no Moveable).
- * classifyDrop decides reorder vs reparent vs none from the pointer position.
+ * classifyDrop decides Shift-gated reorder vs reparent vs none from the pointer
+ * position.
  *
  * Public contract:
  *   classifyDrop(dragEl, clientX, clientY) -> {kind, target, container, insertBefore}
@@ -34,7 +35,7 @@ export function axisFromDisplay(display, flexDirection) {
 
 export function dominantAxis(container) {
   const cs = getComputedStyle(container);
-  return axisFromDisplay(cs.display, cs.flexDirection);
+  return layoutAxis(container, siblingsWithHypId(container, null), cs);
 }
 
 export function midpointBefore(axis, rect, x, y) {
@@ -62,8 +63,82 @@ function elementUnderPointerSkippingHypChrome(x, y) {
   return null;
 }
 
+function hasHypId(el) {
+  return !!(el && el.getAttribute && el.getAttribute("data-hyp-id"));
+}
+
+function siblingsWithHypId(container, dragEl) {
+  return Array.from(container.children).filter((el) => {
+    if (el === dragEl) return false;
+    if (!hasHypId(el)) return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  });
+}
+
+function layoutAxis(container, elements, computedStyle = null) {
+  const cs = computedStyle || getComputedStyle(container);
+  if (cs.display === "flex" || cs.display === "inline-flex") {
+    return axisFromDisplay(cs.display, cs.flexDirection);
+  }
+  if (elements.length < 2) return axisFromDisplay(cs.display, cs.flexDirection);
+
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const el of elements) {
+    const rect = el.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    minX = Math.min(minX, centerX);
+    maxX = Math.max(maxX, centerX);
+    minY = Math.min(minY, centerY);
+    maxY = Math.max(maxY, centerY);
+  }
+
+  return (maxX - minX) > (maxY - minY) ? "x" : "y";
+}
+
+function containsOnCrossAxis(axis, rect, x, y) {
+  if (axis === "x") return y >= rect.top && y <= rect.bottom;
+  return x >= rect.left && x <= rect.right;
+}
+
+function classifySameParentByMidpoint(dragEl, clientX, clientY) {
+  const container = dragEl.parentElement;
+  const none = { kind: "none", target: null, container: null, insertBefore: false };
+  if (!hasHypId(container)) return none;
+
+  const siblings = siblingsWithHypId(container, dragEl);
+  const axis = layoutAxis(container, siblings);
+  for (const target of siblings) {
+    const rect = target.getBoundingClientRect();
+    if (!containsOnCrossAxis(axis, rect, clientX, clientY)) continue;
+    if (axis === "x") {
+      if (clientX >= rect.left && clientX <= rect.right) {
+        return {
+          kind: "reorder",
+          target,
+          container,
+          insertBefore: midpointBefore(axis, rect, clientX, clientY),
+        };
+      }
+    } else if (clientY >= rect.top && clientY <= rect.bottom) {
+      return {
+        kind: "reorder",
+        target,
+        container,
+        insertBefore: midpointBefore(axis, rect, clientX, clientY),
+      };
+    }
+  }
+  return none;
+}
+
 export function classifyDrop(dragEl, clientX, clientY) {
   const none = { kind: "none", target: null, container: null, insertBefore: false };
+
+  const sameParent = classifySameParentByMidpoint(dragEl, clientX, clientY);
+  if (sameParent.kind !== "none") return sameParent;
+
   const hovered = elementUnderPointerSkippingHypChrome(clientX, clientY);
   if (!hovered) return none;
   const hov = hovered.closest("[data-hyp-id]");
@@ -75,19 +150,9 @@ export function classifyDrop(dragEl, clientX, clientY) {
   // command for it makes reorder.do() throw "parent not found null", which
   // silently aborts the whole drop (no history push, no dirty flag, orphaned
   // translate). Any such drop falls through to `none` = a keep-translate move.
-  const hasHypId = (el) => !!(el && el.getAttribute && el.getAttribute("data-hyp-id"));
-
   // (1) same-parent sibling → reorder
   if (hov.parentElement === dragEl.parentElement) {
-    if (!hasHypId(dragEl.parentElement)) return none;
-    const axis = dominantAxis(dragEl.parentElement);
-    const r = hov.getBoundingClientRect();
-    return {
-      kind: "reorder",
-      target: hov,
-      container: dragEl.parentElement,
-      insertBefore: midpointBefore(axis, r, clientX, clientY),
-    };
+    return none;
   }
 
   // (2) different parent → reparent if hovered's parent qualifies as a registered container

@@ -52,7 +52,7 @@ let activeSizeMatch = null;
 // drag in-flight
 let beforeTranslate = "";
 let baseTranslate = [0, 0];
-let lastPointer = { x: 0, y: 0 };
+let lastPointer = { x: 0, y: 0, shiftKey: false };
 let dragDist = 0;   // cumulative Euclidean drag distance, updated in onDrag (R05)
 
 // --- Moveable script (from resize.js, verbatim pattern) ---
@@ -399,6 +399,7 @@ function onDragStart(e) {
   const el = e.target;
   beforeTranslate = el.style.translate || "";
   baseTranslate = parseTranslate(beforeTranslate);
+  lastPointer = { x: 0, y: 0, shiftKey: !!(e.inputEvent && e.inputEvent.shiftKey) };
   dragDist = 0;                       // reset cumulative drag distance (R05)
 }
 function onDrag(e) {
@@ -407,10 +408,12 @@ function onDrag(e) {
   el.style.translate = `${baseTranslate[0] + dx}px ${baseTranslate[1] + dy}px`;
   dragDist = Math.hypot(dx, dy);
   const ie = e.inputEvent;
-  if (ie && typeof ie.clientX === "number") lastPointer = { x: ie.clientX, y: ie.clientY };
+  if (ie && typeof ie.clientX === "number") {
+    lastPointer = { x: ie.clientX, y: ie.clientY, shiftKey: !!ie.shiftKey };
+  }
 }
-function onDragEnd() {
-  const el = byId(activeHypId); if (!el) { beforeTranslate = ""; baseTranslate = [0, 0]; dragDist = 0; return; }
+function onDragEnd(e) {
+  const el = byId(activeHypId); if (!el) { beforeTranslate = ""; baseTranslate = [0, 0]; lastPointer = { x: 0, y: 0, shiftKey: false }; dragDist = 0; return; }
 
   // (R05) Zero-distance drag = a click Moveable surfaced as a drag. Treat as a
   // no-op: restore the pre-drag translate (onDrag may have written a sub-pixel
@@ -419,7 +422,22 @@ function onDragEnd() {
   if (dragDist <= DRAG_THRESHOLD) {
     if (beforeTranslate === "" || beforeTranslate == null) el.style.removeProperty("translate");
     else el.style.setProperty("translate", beforeTranslate);
-    beforeTranslate = ""; baseTranslate = [0, 0]; dragDist = 0;
+    beforeTranslate = ""; baseTranslate = [0, 0]; lastPointer = { x: 0, y: 0, shiftKey: false }; dragDist = 0;
+    return;
+  }
+
+  const dropShift = !!((e && e.inputEvent && e.inputEvent.shiftKey) || lastPointer.shiftKey);
+  if (!dropShift) {
+    // Plain drag is always a free move. Reorder/reparent are deliberate
+    // structural edits and require Shift at drop time.
+    const after = el.style.translate || "";
+    if (beforeTranslate !== after) {
+      historyPush(makeMoveCommand(activeHypId, beforeTranslate, after));
+      emit("geometry-changed", { hypId: activeHypId, prop: "translate", before: beforeTranslate, after });
+      emit("out-of-flow", { hypId: activeHypId, bool: computeOutOfFlow(el) });
+    }
+    beforeTranslate = ""; baseTranslate = [0, 0]; lastPointer = { x: 0, y: 0, shiftKey: false }; dragDist = 0;
+    remount(activeHypId);
     return;
   }
 
@@ -440,12 +458,12 @@ function onDragEnd() {
       emit("geometry-changed", { hypId: activeHypId, prop: "translate", before: beforeTranslate, after });
       emit("out-of-flow", { hypId: activeHypId, bool: computeOutOfFlow(el) });
     }
-    beforeTranslate = ""; baseTranslate = [0, 0]; dragDist = 0;
+    beforeTranslate = ""; baseTranslate = [0, 0]; lastPointer = { x: 0, y: 0, shiftKey: false }; dragDist = 0;
     remount(activeHypId);
     return;
   }
   commitDrop(el, cls);
-  beforeTranslate = ""; baseTranslate = [0, 0]; dragDist = 0;
+  beforeTranslate = ""; baseTranslate = [0, 0]; lastPointer = { x: 0, y: 0, shiftKey: false }; dragDist = 0;
 }
 
 // --- drop commit + FLIP + reanchor (F3, S11/S12) ---
@@ -456,7 +474,7 @@ function commitDrop(dragEl, cls) {
   const oldParent = dragEl.parentElement;
   const oldPrev = dragEl.previousElementSibling?.getAttribute("data-hyp-id") ?? null;
   const oldNext = dragEl.nextElementSibling?.getAttribute("data-hyp-id") ?? null;
-  const oldTranslate = dragEl.style.translate || "";
+  const oldTranslate = beforeTranslate || "";
 
   // FLIP FIRST snapshot — DISPLACED SIBLINGS ONLY. The dragged element is
   // EXCLUDED (R10): it lands instantly at its new flow position; FLIP-animating
@@ -465,7 +483,13 @@ function commitDrop(dragEl, cls) {
     [...childrenWithHypId(oldParent), ...childrenWithHypId(cls.container)].filter((e) => e !== dragEl)
   );
   const first = new Map();
-  for (const elx of affected) first.set(elx, elx.getBoundingClientRect());
+  for (const elx of affected) {
+    first.set(elx, {
+      rect: elx.getBoundingClientRect(),
+      transform: elx.style.transform || "",
+      transition: elx.style.transition || "",
+    });
+  }
 
   // compute destination next-sibling
   const ref = cls.insertBefore ? cls.target : cls.target.nextElementSibling;
@@ -483,17 +507,26 @@ function commitDrop(dragEl, cls) {
 
   // FLIP PLAY
   requestAnimationFrame(() => {
-    for (const [elx, before] of first) {
+    for (const [elx, beforeState] of first) {
+      const before = beforeState.rect;
       const after = elx.getBoundingClientRect();
       const dx = before.left - after.left, dy = before.top - after.top;
       if (dx || dy) {
         elx.style.transition = "none";
-        elx.style.transform = `translate(${dx}px, ${dy}px)`;
+        elx.style.transform = beforeState.transform
+          ? `translate(${dx}px, ${dy}px) ${beforeState.transform}`
+          : `translate(${dx}px, ${dy}px)`;
         requestAnimationFrame(() => {
           elx.style.transition = "transform 180ms ease";
-          elx.style.transform = "";
+          if (beforeState.transform) elx.style.transform = beforeState.transform;
+          else elx.style.removeProperty("transform");
           // clean the transient transition prop after it ends
-          setTimeout(() => { elx.style.transition = ""; if (elx.style.transform === "") elx.style.removeProperty("transform"); }, 220);
+          setTimeout(() => {
+            if (beforeState.transition) elx.style.transition = beforeState.transition;
+            else elx.style.removeProperty("transition");
+            if (beforeState.transform) elx.style.transform = beforeState.transform;
+            else if (elx.style.transform === "") elx.style.removeProperty("transform");
+          }, 220);
         });
       }
     }
