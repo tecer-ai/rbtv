@@ -66,7 +66,7 @@ Two artifact branches extend the loop for sites and apps. Each is a single file 
 
 ---
 
-### Reference-set scaffold (workspace-owned, at `5-workbench/tecer-biz/brand/studio-references/`)
+### Reference-set scaffold (workspace-owned, at `{reference_set}/` — resolved at runtime per `rbtv-output-resolution`)
 
 - **What**: The four-layer reference set the loop LOADS and ENFORCES (never authors): tokens file (color/type/spacing/motion) + `exemplars/` screenshots + taste file (3–5 admirable-principle bullets per exemplar) + a chart exemplar. The contract is documented in `studio/standards/reference-set-contract.md`; the module HALTS on any missing layer.
 

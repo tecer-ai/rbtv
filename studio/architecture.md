@@ -72,7 +72,7 @@ The module enforces the standard; the reference set + taste file are workspace-o
 |-----------|--------------|-------------|-------|
 | **Standards bundle** (ban-list, flaw checklist, craft rules) | `studio/standards/` | CREATE (`p2-5`) — MINED from `deck-design/data/*` | `ban-list.md` (default attractors, H4) · `flaw-checklist.md` (~10-item fresh-eyes checklist, H6) · `craft-rules.md` (design/data-integrity/print rules) |
 | Mining sources | `studio/workflows/deck-design/data/{html-patterns,html-components,pitch-deck-rules}.md` | MINED into the Standards bundle; retire with `deck-design` | Living corrections → ban-list + flaw checklist + craft rules |
-| Reference-set CONTRACT (what the workspace must supply) | documented in `studio/capabilities/load-references.md` + `studio/standards/reference-set-contract.md` | CREATE (`p2-1`) | tokens file (color/type/spacing/motion) + `exemplars/` screenshots + **taste file** (3–5 admirable-principle bullets per exemplar, H3) + a chart exemplar. Workspace path: `5-workbench/tecer-biz/brand/studio-references/` |
+| Reference-set CONTRACT (what the workspace must supply) | documented in `studio/capabilities/load-references.md` + `studio/standards/reference-set-contract.md` | CREATE (`p2-1`) | tokens file (color/type/spacing/motion) + `exemplars/` screenshots + **taste file** (3–5 admirable-principle bullets per exemplar, H3) + a chart exemplar. Workspace path: `{reference_set}/` (resolved at runtime per `rbtv-output-resolution`) |
 | Distinctiveness/anti-slop rule(s) | `studio/standards/anti-slop.md` (module-internal standard, not a `.claude/` rule) | CREATE (`p2-5`) | Encodes: explicit art-direction beat · divergent reference use (principles, not copy) · ≥2–3 forced-distinct mini-briefs · pairwise trio · fresh-eyes pass |
 | Design done-gate (deck) | governed by `deck-loop-spec.md` Test Plan + the always-on `rbtv-done-gate` rule | (no new file) | Evidence root resolved per `rbtv-done-gate` at run time |
 | **Critic** (comparative · taxonomy-driven · structural-auto/aesthetic-HUMAN · per-project) | `studio/critic/` + `critic-spec.md` | ROADMAP — built P6 (`v1.1`); evaluator pinned `claude:fable` at `p6-checkpoint` | NEVER gates aesthetics. Named here as the v1.1 anchor only |
@@ -182,7 +182,7 @@ studio/
 
 ## 4. The Reference Set (workspace-owned, module-enforced)
 
-The module LOADS and ENFORCES; it never authors or ships references (D4). Located at the workspace path `5-workbench/tecer-biz/brand/studio-references/` (scaffolded by `p2-1`). The reference-set contract (`studio/standards/reference-set-contract.md`) prescribes the four required layers:
+The module LOADS and ENFORCES; it never authors or ships references (D4). Located at the workspace reference-set path `{reference_set}/` — resolved at runtime per `rbtv-output-resolution` (scaffolded by `p2-1`). The reference-set contract (`studio/standards/reference-set-contract.md`) prescribes the four required layers:
 
 | Layer | Content | On absence |
 |-------|---------|-----------|

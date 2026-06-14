@@ -7,16 +7,16 @@ status: active
 
 # Reference-Set Contract
 
-> Defines the four layers the workspace MUST supply before any design beat runs. The studio module LOADS and ENFORCES this contract; it NEVER authors or ships reference content (D4). Workspace path: `5-workbench/tecer-biz/brand/studio-references/`.
+> Defines the four layers the workspace MUST supply before any design beat runs. The studio module LOADS and ENFORCES this contract; it NEVER authors or ships reference content (D4). Workspace path: `{reference_set}/` (defined below).
 
 ---
 
 ## Workspace Path
 
-All four layers live under one workspace-owned folder:
+`{reference_set}` is the workspace-owned reference-set directory, resolved at runtime per `rbtv-output-resolution` (conversation context + the workspace's `CLAUDE.md` decide the concrete path) — never hardcoded in the module. All four layers live under it:
 
 ```
-5-workbench/tecer-biz/brand/studio-references/
+{reference_set}/
 ├── tokens.md
 ├── taste-file.md
 ├── exemplars/
@@ -26,7 +26,7 @@ All four layers live under one workspace-owned folder:
     └── {chart-image-file}
 ```
 
-**Do not rename files or restructure this folder** without updating this contract and `studio/capabilities/load-references.md`.
+**Do not rename files or restructure this folder** without updating this contract and `studio/capabilities/load-references.md`. (`{reference_set}/` denotes the resolved path throughout this contract.)
 
 ---
 

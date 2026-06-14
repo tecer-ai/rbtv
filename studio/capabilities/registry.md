@@ -42,7 +42,7 @@ Every row in this registry carries these six fields. A worker can invoke a capab
 | **name** | follow-tokens / brandbook |
 | **status** | `convention` — lives in the beats; not a discrete invocable tool |
 | **entry point** | n/a — enforced within beat-02-art-direction and beat-03-generate |
-| **inputs** | Tokens file at the workspace reference path (`5-workbench/tecer-biz/brand/studio-references/`) loaded by the reference-loading capability |
+| **inputs** | Tokens file at the workspace reference-set path (`{reference_set}/`, resolved at runtime per `rbtv-output-resolution`) loaded by the reference-loading capability |
 | **outputs** | Compliance: generated HTML uses only the project's token values; inconsistencies flagged as beat output; the module NEVER authors or corrects tokens |
 | **spec / source pointer** | `studio/workflows/studio-loop/beats/beat-02-art-direction.md` (art-direction enforcement) · `studio/workflows/studio-loop/beats/beat-03-generate.md` (generation enforcement) · `studio/standards/reference-set-contract.md` (token layer definition) |
 
@@ -124,7 +124,7 @@ Every row in this registry carries these six fields. A worker can invoke a capab
 | **name** | load-references |
 | **status** | `built` (at `p2-12`; discrete row added at the capability wave per the p2-12 deferred follow-up — architecture §1.3/§7 list it as a distinct v1-shipped capability) |
 | **entry point** | `studio/capabilities/load-references.md` (procedural capability — the agent reads it fully and executes its steps; no CLI) |
-| **inputs** | The workspace reference-set path (`5-workbench/tecer-biz/brand/studio-references/`); layer definitions per `studio/standards/reference-set-contract.md` |
+| **inputs** | The workspace reference-set path (`{reference_set}/`, resolved at runtime per `rbtv-output-resolution`); layer definitions per `studio/standards/reference-set-contract.md` |
 | **outputs** | All four reference layers (tokens · exemplars · subtle-refs · taste file) loaded into working context, each present-and-annotated per the contract; HALT naming the missing layer on any absence — it loads, never authors or corrects reference content (D4) |
 | **spec / source pointer** | `studio/capabilities/load-references.md` · `studio/standards/reference-set-contract.md` (contract authority) |
 

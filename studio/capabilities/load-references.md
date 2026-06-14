@@ -9,7 +9,7 @@ status: active
 
 > v1's only shipped capability. Loads the project's reference set from the workspace path and halts on any missing or unannotated layer per the contract. This capability LOADS — it never authors or corrects reference content (D4).
 
-**Workspace path:** `5-workbench/tecer-biz/brand/studio-references/`  
+**Workspace path:** `{reference_set}/` — the workspace's reference-set directory, resolved at runtime per `rbtv-output-resolution`; never hardcoded in the module.  
 **Contract authority:** `studio/standards/reference-set-contract.md` — read it for layer definitions, file names, annotated-check logic, and all on-absence behavior.
 
 ---
@@ -26,14 +26,14 @@ Execute each step in order. Do not skip or parallelize.
 
 ### Step 1 — Load Layer 1: Tokens File
 
-1. Read `5-workbench/tecer-biz/brand/studio-references/tokens.md` in full.
+1. Read `{reference_set}/tokens.md` in full.
 2. Check that each of the four token categories (`## Color`, `## Type`, `## Spacing`, `## Motion`) has at least one non-empty slot value (a slot reading `[empty …]` or blank counts as empty).
 3. **HALT if:** the file is absent OR all slots in any category are empty. Name the missing layer as "tokens file". Stop — do not load remaining layers. Report to the owner and wait.
 4. **On pass:** hold token values in working context. Note: if a downstream step needs JSON-formatted tokens, perform the conversion from the markdown values in context — never require the owner to author JSON.
 
 ### Step 2 — Load Layer 2: Exemplars
 
-1. Read `5-workbench/tecer-biz/brand/studio-references/exemplars/manifest.md`.
+1. Read `{reference_set}/exemplars/manifest.md`.
 2. Confirm the manifest contains at least one non-stub row (a row reading `*(empty …)*` does not count).
 3. For each row in the manifest, note the filename and confirm the image file exists at `exemplars/{filename}` (or `exemplars/charts/{filename}` for chart-prefixed rows). A manifest row pointing to a missing file is treated as an absent exemplar.
 4. **HALT if:** the manifest is empty (no real rows) OR zero image files are confirmed present. Name the missing layer as "exemplars". Stop — do not proceed. Report to the owner and wait.
@@ -41,14 +41,14 @@ Execute each step in order. Do not skip or parallelize.
 
 ### Step 3 — Load Layer 3: Taste File
 
-1. Read `5-workbench/tecer-biz/brand/studio-references/taste-file.md` in full.
+1. Read `{reference_set}/taste-file.md` in full.
 2. For each confirmed exemplar filename from Step 2, check that `taste-file.md` contains a matching H3 heading (exact filename match, case-sensitive) with at least one non-template bullet.
 3. **HALT if:** the taste file is absent, has no H3 sections, or has NO confirmed exemplar with a matching annotated H3 section. Name the missing layer as "taste file — unannotated". Stop — halt the art-direction beat to the owner. Report: "Taste file present but unannotated for [filename list]. Art-direction beat cannot proceed until the owner annotates these entries. (The `p3-gate` clears this halt for the GSMM run once annotations are in place.)" Wait.
 4. **On pass:** hold the taste-file annotation content in working context, keyed by exemplar filename.
 
 ### Step 4 — Load Layer 4: Chart Exemplar
 
-1. List files in `5-workbench/tecer-biz/brand/studio-references/exemplars/charts/`.
+1. List files in `{reference_set}/exemplars/charts/`.
 2. Identify the first image file present (PNG or JPG). Ignore `SLOT.md` and any non-image files.
 3. **HALT if:** no image file is found. Name the missing layer as "chart exemplar". Stop — the chart beat is blocked. Report to the owner and wait.
 4. **On pass:** hold the chart-exemplar image path in working context.

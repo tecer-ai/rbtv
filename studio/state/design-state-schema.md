@@ -53,7 +53,7 @@ schema_version: 1
 project: '{project_name}'              # human-readable project name
 owner: '{owner}'                       # the human final gate (D1)
 reference_set: '{vault-root-relative path to the workspace reference set}'
-                                       # e.g. 5-workbench/tecer-biz/brand/studio-references/
+                                       # e.g. {reference_set}/  (resolved per rbtv-output-resolution)
                                        # the FOUR-layer set the run loads (tokens · exemplars · taste · chart exemplar)
 
 # ── Group 2: Artifact + mode ──────────────────────────
