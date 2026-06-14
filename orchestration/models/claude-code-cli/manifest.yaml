@@ -171,8 +171,10 @@ variants:
     # ⚠ UNAVAILABLE (probe 2026-06-14): headless `claude -p --model claude-fable-5` returns "Claude Fable 5 is currently
     # unavailable — Fable Mythos access" (access-gated rollout). NOT dispatchable until access is granted. Variant RETAINED
     # (owner 2026-06-14: keep + mark unavailable); the routing §3 conductor / final-plan-reviewer pins fall back to opus
-    # meanwhile. Restore on a successful probe. NOT yet enforced by route.py (cli-login variants read as always-available) —
-    # a functional `available:` filter + selector drop is a captured follow-up.
+    # meanwhile. Restore on a successful probe by setting `available: true` below (or removing the field).
+    # ENFORCED by route.py: the `available: false` field below makes `_is_variant_available()` drop this variant
+    # regardless of auth method (cli-login), so no pin/selector can resolve to it while Fable is access-gated.
+    available: false                 # functional availability override (../manifest-schema.md §2) — drops fable from routing while Fable 5 is access-gated
     evidence_status: probe-pending   # claude-fable-5 was NOT in the p3-6 probe matrix (which observed claude-opus-4-8[1m] / claude-sonnet-4-6). The CLI contract (flags, --model, JSON envelope, exit semantics) is the same as opus — only the model id differs — but the fable model id itself is docs-authored here, not yet probe-confirmed on the target machine. Re-confirm via a JSON probe (modelUsage.{contextWindow,maxOutputTokens}) on first dispatch
 
     # --- boundedness + sizing (routing §2, §8) ---

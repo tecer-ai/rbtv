@@ -1322,3 +1322,136 @@ class TestVariantElection:
             and "model_variants" in s.get("reason", "")
         }
         assert {"default", "glm"} <= skipped, f"expected default+glm skipped, got {skipped}"
+
+
+# ---------------------------------------------------------------------------
+# General `available:` field: functional variant-unavailability enforcement
+# ---------------------------------------------------------------------------
+# A variant marked `available: false` in its manifest is dropped at the availability stage
+# REGARDLESS of auth method — the general override for a cli-login/none-auth model the provider
+# has taken offline (e.g. Fable 5 during an access-gated rollout), which the api-key probe cannot
+# detect. Default (absent field / true) leaves the auth-based checks in charge.
+
+# Synthetic two-variant corpus: 'offline' is the CHEAPEST capable variant but marked
+# available: false; 'online' is the next-cheapest and available. Absent the drop, 'offline'
+# would win on cost — so a verdict of 'online' proves the unavailable variant was dropped.
+_SYNTH_AVAIL_MANIFEST = """model: scratch-avail
+evidence_status: validated
+
+variants:
+  - variant: offline
+    available: false
+    reasoning_tier: non-reasoning
+    context_window: 500000
+    max_output: 8000
+    cost_class: cheapest
+    code_competence: strong
+    web_access: false
+    parallel_safe: true
+    resume_support: none
+    auth:
+      required: false
+      method: none
+      interactive: false
+
+  - variant: online
+    reasoning_tier: non-reasoning
+    context_window: 500000
+    max_output: 8000
+    cost_class: low
+    code_competence: strong
+    web_access: false
+    parallel_safe: true
+    resume_support: none
+    auth:
+      required: false
+      method: none
+      interactive: false
+"""
+
+
+class TestAvailableField:
+    """Functional enforcement of the per-variant `available:` field (route.py)."""
+
+    def test_is_variant_available_honors_explicit_false(self):
+        """_is_variant_available returns False for available: false under ANY auth method,
+        and defaults to available when the field is absent or true."""
+        import route
+        # available: false drops regardless of auth method
+        assert not route._is_variant_available(
+            {"available": False, "auth": {"method": "cli-login"}}, "claude-code-cli", {}, VAULT_ROOT
+        ), "available: false + cli-login should be unavailable"
+        assert not route._is_variant_available(
+            {"available": False, "auth": {"method": "none"}}, "claude-code-native", {}, VAULT_ROOT
+        ), "available: false + none should be unavailable"
+        # Default true: absent field or explicit true → available (none-auth, no key needed)
+        assert route._is_variant_available(
+            {"auth": {"method": "none"}}, "claude-code-native", {}, VAULT_ROOT
+        ), "absent available field should default to available"
+        assert route._is_variant_available(
+            {"available": True, "auth": {"method": "none"}}, "claude-code-native", {}, VAULT_ROOT
+        ), "available: true should be available"
+
+    def test_available_field_parsed_from_yaml(self, tmp_path):
+        """Guards the parser fix: `available: false` must survive _parse_manifest_yaml (the
+        SCALAR_KEYS allow-list). A silently-dropped field would disable enforcement entirely."""
+        import route
+        manifest = tmp_path / "manifest.yaml"
+        manifest.write_text(_SYNTH_AVAIL_MANIFEST, encoding="utf-8")
+        parsed = route._load_manifest(manifest)
+        offline = next(v for v in parsed["variants"] if v["variant"] == "offline")
+        online = next(v for v in parsed["variants"] if v["variant"] == "online")
+        assert offline["available"] is False, f"parser dropped available: false → {offline}"
+        assert "available" not in online, f"online has no available field; parser invented one: {online}"
+
+    def test_available_false_dropped_end_to_end(self, tmp_path):
+        """End-to-end over a real-parsed synthetic corpus: the cheapest variant (offline) is
+        marked available: false, so the next-cheapest available variant (online) wins, and the
+        trace shows the availability drop citing the explicit mark."""
+        import route
+        models = tmp_path / "orchestration" / "models" / "scratch-avail"
+        models.mkdir(parents=True)
+        (models / "manifest.yaml").write_text(_SYNTH_AVAIL_MANIFEST, encoding="utf-8")
+        profile = _profile(boundedness="fully-bounded", task_type="code", inlined_context_size=10000)
+        result = route.route(dict(profile), tmp_path, tmp_path, {}, {}, explain=True)
+        assert result["verdict"] == "route", result
+        assert result["variant"] == "online", (
+            f"available: false variant not dropped — got {result['variant']} "
+            "(offline is cheapest; it should be dropped and online should win)"
+        )
+        drops = [
+            s for s in result.get("explain", [])
+            if s.get("stage") == "availability" and s.get("action") == "drop"
+            and s.get("variant") == "offline"
+        ]
+        assert drops, f"expected an availability drop for 'offline': {result.get('explain')}"
+        assert "available: false" in drops[0].get("reason", ""), (
+            f"drop reason should cite the explicit mark, got {drops[0].get('reason')}"
+        )
+
+    def test_real_fable_variants_dropped_while_marked_unavailable(self):
+        """The real claude-code-{cli,native} fable variants carry available: false (Fable 5
+        access-gated, 2026-06-14). Over the real corpus an unbounded leaf must drop fable at
+        availability and still resolve to opus. Auto-skips once fable is restored (field flipped),
+        so the test is not brittle to a future re-enable."""
+        import route
+        cli_manifest = RBTV_ROOT / "orchestration" / "models" / "claude-code-cli" / "manifest.yaml"
+        cli = route._load_manifest(cli_manifest)
+        fable_cli = next((v for v in cli.get("variants", []) if v.get("variant") == "fable"), None)
+        if fable_cli is None or fable_cli.get("available") is not False:
+            pytest.skip("fable not marked available: false — functional-drop case not active")
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        profile = _profile(boundedness="unbounded", task_type="text", inlined_context_size=10000)
+        result = route.route(dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True, elected=None)
+        assert result["verdict"] == "route", result
+        fable_drops = [
+            s for s in result.get("explain", [])
+            if s.get("stage") == "availability" and s.get("action") == "drop"
+            and s.get("variant") == "fable"
+        ]
+        assert fable_drops, (
+            f"fable marked available: false must drop at availability: {result.get('explain')}"
+        )
+        assert result["variant"] == "opus", (
+            f"unbounded should still resolve to opus after fable drops, got {result['variant']}"
+        )

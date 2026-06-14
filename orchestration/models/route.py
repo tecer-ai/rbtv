@@ -190,7 +190,7 @@ def _parse_manifest_yaml(path: Path) -> dict:
         "reasoning_tier", "context_window", "max_output",
         "cost_class", "code_competence", "web_access",
         "multimodal", "parallel_safe", "resume_support",
-        "evidence_status", "variant",
+        "evidence_status", "variant", "available",
     }
     ALL_VARIANT_KEYS = MAP_KEYS | SCALAR_KEYS
 
@@ -322,16 +322,36 @@ def _get_auth_method(variant: dict) -> str:
 
 
 def _is_variant_available(variant: dict, model_name: str, rbtv_cfg: dict, vault_root: Path) -> bool:
-    """Availability = key-present for api-key variants; cli-login/none always available.
+    """Availability gate.
+
+    An explicit `available: false` mark drops the variant regardless of auth method; otherwise
+    availability = key-present for api-key variants, and cli-login/none are always available.
+
+    The `available:` field (default true — an absent field or `true` means available) is the
+    GENERAL override for a variant the provider has taken offline that the api-key probe cannot
+    detect — e.g. a `cli-login`/`none`-auth model such as Fable 5 during an access-gated rollout.
+    Without it, cli-login/none variants always read available and a marked-unavailable variant
+    could still be resolved by a pin/selector.
 
     vault_root: vault root (where rbtv.json was found) — env_file resolution requires it.
     rbtv_root is the models/ folder root — NOT used here.
     """
+    # Explicit availability override: ONLY an explicit `available: false` drops the variant.
+    # A missing field or `available: true` falls through to the auth-based checks (default true).
+    if variant.get("available") is False:
+        return False
     auth_method = _get_auth_method(variant)
     if auth_method == "api-key":
         return _check_api_key_present(model_name, rbtv_cfg, vault_root)
     # cli-login and none are not key-tested by the script
     return True
+
+
+def _unavailable_reason(variant: dict) -> str:
+    """The explain-trace reason a variant was dropped at the availability stage."""
+    if variant.get("available") is False:
+        return "marked available: false in manifest"
+    return "api-key absent in both OS env and env_file"
 
 
 # ---------------------------------------------------------------------------
@@ -649,7 +669,7 @@ def _apply_stakes_tier_up(
             explain_log.append({
                 "stage": "availability", "action": "drop",
                 "model": e["model"], "variant": e["variant"],
-                "reason": "api-key absent in both OS env and env_file",
+                "reason": _unavailable_reason(e["raw_variant"]),
                 "context": "stakes-tier-up re-resolution",
             })
 
@@ -970,7 +990,7 @@ def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plan
         else:
             explain_log.append({
                 "stage": "availability", "action": "drop", "model": e["model"],
-                "variant": e["variant"], "reason": "api-key absent in both OS env and env_file",
+                "variant": e["variant"], "reason": _unavailable_reason(e["raw_variant"]),
             })
 
     if not available:
