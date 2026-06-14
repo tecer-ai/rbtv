@@ -7,7 +7,7 @@ status: active
 
 # Studio Ban-List — Default Attractors
 
-The catalogue of attractors every studio output must avoid: the model's training-mean defaults plus the living corrections mined from the retired `deck-design` data files (deleted at p4-2). An attractor on this list reads as AI slop — generic, template-default, or credibility-destroying — and must never appear in a generated artifact.
+The catalogue of attractors every studio output must avoid: the model's training-mean defaults plus the living corrections mined from the retired `deck-design` data files. An attractor on this list reads as AI slop — generic, template-default, or credibility-destroying — and must never appear in a generated artifact.
 
 This is a **module-internal standard** — not a `.claude/` rule. The reference set and taste file are workspace-owned; this list is module-enforced.
 

@@ -55,7 +55,7 @@ For each item: the critic determines, per artifact, the **direction and degree**
 | T-D1 | Content overruns the slide / clipping | A block pushed past ~70vh or clipped at the slide edge | Which artifact avoids overflow on more slides | flaw-checklist 5; ban D-1; L-2/L-4 |
 | T-D2 | Too many content zones / undifferentiated zones | >3 zones per slide; zones with no `.zone-label` that merge visually | Which artifact respects the ≤3-zone ceiling | flaw-checklist 5; ban D-2; L-3 |
 | T-D3 | Grid card-count exceeded | `.grid-3` >6 cards / 2 rows; grids switched mid-deck without a visual reason | Which artifact respects grid ceilings | ban D-1; L-2 |
-| T-D4 | DOM layout fragment — element outside its containing block | A flow/grid element rendered as a loose direct child of `.slide`, outside its intended containing block (its zone/grid wrapper) | Which artifact keeps every flow/grid element nested inside its containing block | cold-verify finding (design-module-v1-build p6) |
+| T-D4 | DOM layout fragment — element outside its containing block | A flow/grid element rendered as a loose direct child of `.slide`, outside its intended containing block (its zone/grid wrapper) | Which artifact keeps every flow/grid element nested inside its containing block | cold-verify finding |
 
 ## Axis 5 — Type & Color System
 

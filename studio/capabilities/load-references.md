@@ -43,7 +43,7 @@ Execute each step in order. Do not skip or parallelize.
 
 1. Read `{reference_set}/taste-file.md` in full.
 2. For each confirmed exemplar filename from Step 2, check that `taste-file.md` contains a matching H3 heading (exact filename match, case-sensitive) with at least one non-template bullet.
-3. **HALT if:** the taste file is absent, has no H3 sections, or has NO confirmed exemplar with a matching annotated H3 section. Name the missing layer as "taste file — unannotated". Stop — halt the art-direction beat to the owner. Report: "Taste file present but unannotated for [filename list]. Art-direction beat cannot proceed until the owner annotates these entries. (The `p3-gate` clears this halt for the GSMM run once annotations are in place.)" Wait.
+3. **HALT if:** the taste file is absent, has no H3 sections, or has NO confirmed exemplar with a matching annotated H3 section. Name the missing layer as "taste file — unannotated". Stop — halt the art-direction beat to the owner. Report: "Taste file present but unannotated for [filename list]. Art-direction beat cannot proceed until the owner annotates these entries. (The halt clears once annotations are in place.)" Wait.
 4. **On pass:** hold the taste-file annotation content in working context, keyed by exemplar filename.
 
 ### Step 4 — Load Layer 4: Chart Exemplar

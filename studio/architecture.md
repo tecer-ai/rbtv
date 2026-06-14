@@ -1,6 +1,6 @@
 # Studio Module — Architecture
 
-> The blueprint every Phase-2 builder builds against. Maps the five subsystems (Process · Roles · Tools · Standards · Memory) to concrete studio components with landing paths, names every entry surface with its user-invocable-vs-internal verdict, fixes the file layout under `studio/`, and defines the exact Strategist→Designer content-spec contract. Behavior specs in `./` (deck path: `{rbtv_path}/studio/deck-loop-spec.md`) own the *what*; this doc owns the *where* and the *shape*. Authored at `p1-4`; site/app sections are deliberately lean (D8) and get adapted at `p3-checkpoint`.
+> The blueprint studio builders build against. Maps the five subsystems (Process · Roles · Tools · Standards · Memory) to concrete studio components with landing paths, names every entry surface with its user-invocable-vs-internal verdict, fixes the file layout under `studio/`, and defines the exact Strategist→Designer content-spec contract. Behavior specs in `./` (deck path: `{rbtv_path}/studio/deck-loop-spec.md`) own the *what*; this doc owns the *where* and the *shape*. Site/app sections are deliberately lean (D8) and get adapted when the forks are concretized.
 
 **Scope frame (binding):** the plan `decisions.md` is the authority on scope, dispositions, and constraints — this doc never restates it, it lands the architecture those decisions imply. The deck path is concrete; site + app are sketched. The v1.1 critic, 5 deferred capabilities, and improve-existing mode are named as roadmap anchors only, never built here.
 
@@ -10,7 +10,7 @@
 
 | Fact | Value |
 |------|-------|
-| Module folder | `studio/` (rename of `html/` — `p1-1`/`p1-2`; hypresent + slide-library rode along content-untouched) |
+| Module folder | `studio/` (rename of `html/`; hypresent + slide-library rode along content-untouched) |
 | What it is | One resumable, phase-first HTML **design + communication** pipeline; artifact (deck / site / app-UI) is a PARAMETER each phase adapts to, never a top-level branch |
 | Output substrate | HTML-native for every artifact — full-screen browser + print-to-PDF (D7). No PPTX, ever |
 | Two worker classes | **Strategist** (discover → narrative → content-spec: *what to say, what each datum must communicate*) hands a spec to the **Designer** (art-direction → layout → visual: *making it awesome and distinct*) |
@@ -21,23 +21,23 @@
 
 ## 1. Component Map — the Five Subsystems
 
-Each subsystem → its concrete studio components + landing path + disposition (CREATE-new / REWORK-existing / MINE-from / REUSE-as-is / ROADMAP). Paths are repo-relative to `studio/` unless marked otherwise. Path-shapes for components built in P2+ are the **prescribed layout** this architecture fixes; the building task creates them.
+Each subsystem → its concrete studio components + landing path + disposition (CREATE-new / REWORK-existing / MINE-from / REUSE-as-is / ROADMAP). Paths are repo-relative to `studio/` unless marked otherwise. Path-shapes for built components are the **prescribed layout** this architecture fixes; the building task creates them.
 
 ### 1.1 PROCESS — the artifact-general phase spine
 
-The deck path is the proven instance of the spine; site/app are forks adapted at `p3-checkpoint`.
+The deck path is the proven instance of the spine; site/app are forks adapted when concretized.
 
 | Component | Landing path | Disposition | Notes |
 |-----------|--------------|-------------|-------|
-| **Studio loop workflow** (the phase spine entry) | `studio/workflows/studio-loop/workflow.md` | CREATE (`p2-3`+) | The 4-beat deck loop: message-lock → references+art-direction → HTML generation (trio → slices → fresh-eyes) → human gate. Behavior governed by `deck-loop-spec.md`. Replaces `deck-design` |
-| Beat 1 — message-lock (Strategist) | `studio/workflows/studio-loop/beats/beat-01-message-lock.md` | CREATE (`p2-3`) | Produces the content spec (§5). Zero design decisions. Strategist craft mined from office `pitch/` steps 01–06 |
-| Beat 2 — references + art-direction | `studio/workflows/studio-loop/beats/beat-02-art-direction.md` | CREATE (`p2-4`/`p2-6`) | ≥2–3 distinct direction mini-briefs on the loaded reference set; owner-picked. Obeys ban-list |
-| Beat 3 — HTML generation | `studio/workflows/studio-loop/beats/beat-03-generate.md` | CREATE (`p2-7`+) | Template trio (pairwise) → slice-by-slice via fresh contexts → fresh-eyes pass. Chart mechanism resolved at the `p2-2` spike |
-| Beat 4 — human gate | `studio/workflows/studio-loop/beats/beat-04-human-gate.md` | CREATE (`p2-10`) | Headed-browser accept/bounce; surgical patch; bounce-cap ≈3/slide → message rethink (H8) |
+| **Studio loop workflow** (the phase spine entry) | `studio/workflows/studio-loop/workflow.md` | CREATE | The 4-beat deck loop: message-lock → references+art-direction → HTML generation (trio → slices → fresh-eyes) → human gate. Behavior governed by `deck-loop-spec.md`. Replaces `deck-design` |
+| Beat 1 — message-lock (Strategist) | `studio/workflows/studio-loop/beats/beat-01-message-lock.md` | CREATE | Produces the content spec (§5). Zero design decisions. Strategist craft mined from office `pitch/` steps 01–06 |
+| Beat 2 — references + art-direction | `studio/workflows/studio-loop/beats/beat-02-art-direction.md` | CREATE | ≥2–3 distinct direction mini-briefs on the loaded reference set; owner-picked. Obeys ban-list |
+| Beat 3 — HTML generation | `studio/workflows/studio-loop/beats/beat-03-generate.md` | CREATE | Template trio (pairwise) → slice-by-slice via fresh contexts → fresh-eyes pass. Chart mechanism resolved at the chart spike |
+| Beat 4 — human gate | `studio/workflows/studio-loop/beats/beat-04-human-gate.md` | CREATE | Headed-browser accept/bounce; surgical patch; bounce-cap ≈3/slide → message rethink (H8) |
 | Artifact/mode fork rules | folded into `workflow.md` frontmatter + beat conditionals | CREATE | `artifact` (deck/site/app) + `mode` (blank-slate; audit deferred) as parameters, keyed like the office pitch `{pitch_type}` conditional pattern |
-| **Site path** | `studio/workflows/studio-loop/forks/site.md` | BUILT (`p5-5`) | Same spine; multi-page; leans on images/animation. Runs in `site-marketing` Strategist mode |
-| **App path** | `studio/workflows/studio-loop/forks/app.md` | BUILT (`p5-8`) | Discovery forks to goal→user-flow; output = plain HTML UI + UX companion docs for a coding agent to wire. Runs in `app-product` Strategist mode |
-| `deck-design/` workflow + `steps-c/`,`steps-e/`,`data/` | `studio/workflows/deck-design/` | REPLACED → mined (`p1-6`) → DELETED (`p4-2`) after the GSMM proof passes | Until deletion it stays callable (no broken window) |
+| **Site path** | `studio/workflows/studio-loop/forks/site.md` | BUILT | Same spine; multi-page; leans on images/animation. Runs in `site-marketing` Strategist mode |
+| **App path** | `studio/workflows/studio-loop/forks/app.md` | BUILT | Discovery forks to goal→user-flow; output = plain HTML UI + UX companion docs for a coding agent to wire. Runs in `app-product` Strategist mode |
+| `deck-design/` workflow + `steps-c/`,`steps-e/`,`data/` | `studio/workflows/deck-design/` | REPLACED → mined → DELETED after the proof passes | Until deletion it stays callable (no broken window) |
 
 ### 1.2 ROLES — workers & personas
 
@@ -45,10 +45,10 @@ One Strategist (audience modes), one Designer. Art-direction is the Designer's o
 
 | Component | Landing path | Disposition | Notes |
 |-----------|--------------|-------------|-------|
-| **Strategist persona** | `studio/personas/strategist.md` | CREATE NEW (`p2-3`/`p2-4`) | ONE persona, audience MODES: investor (Roelof-mined), client (Leo-mined), site-marketing (P5), app-product (P5). Drives beat 1; authors the content spec |
+| **Strategist persona** | `studio/personas/strategist.md` | CREATE NEW | ONE persona, audience MODES: investor (Roelof-mined), client (Leo-mined), site-marketing, app-product. Drives beat 1; authors the content spec |
 | **Designer persona** | `studio/personas/vivian.md` | REWORK (existing → studio Designer) | Vivian retargeted: art-direction → layout → visual. Menu points at the studio loop, not `deck-design`. `[BV]` brand-visual item keeps pointing at the innovation module (cross-module — manifest `cross_module_agents.vivian`) |
-| `roelof.md` (Investor) | `office/personas/roelof.md` | MINED into Strategist investor mode → DELETED at `p4-3` | Stress-test craft + investor vocabulary mined; not moved |
-| `leo.md` (Buyer) | `office/personas/leo.md` | MINED into Strategist client mode → DELETED at `p4-3` | Procurement-defense craft mined |
+| `roelof.md` (Investor) | `office/personas/roelof.md` | MINED into Strategist investor mode → DELETED | Stress-test craft + investor vocabulary mined; not moved |
+| `leo.md` (Buyer) | `office/personas/leo.md` | MINED into Strategist client mode → DELETED | Procurement-defense craft mined |
 | `rbtv-designing` skill (loader) | `studio/skills/designing/SKILL.md` | REWORK | Designer entry loader → points at reworked `vivian.md` (see §3 entry surfaces) |
 
 ### 1.3 TOOLS — one shared capability layer (workers invoke on demand)
@@ -57,10 +57,10 @@ v1 ships reference-LOADING only; the other capabilities are roadmap. The module 
 
 | Component | Landing path | Disposition | Notes |
 |-----------|--------------|-------------|-------|
-| **Capability registry** | `studio/capabilities/registry.md` | CREATE (`p1-7` fills it) | How a worker discovers + invokes a capability. The single index P2 capability work registers into (§7) |
-| Reference-loading (v1's only shipped capability) | `studio/capabilities/load-references.md` | CREATE (`p2-1` scaffolds the ref-set contract) | Loads THIS project's reference set from the workspace path (§4); HALTS on missing layer. NOT an authoring tool |
-| extract-tokens (from live site) | `studio/workflows/design-extraction/` + `studio/commands/design-extractor.md` | REUSE → re-registered (`p1-7`), aligned (`p5-4`) | Existing token output shape: `design-extraction/templates/design-tokens.json` |
-| image→JSON | `studio/workflows/vision-to-json/` + `studio/commands/vision-to-json.md` | REUSE → re-registered (`p1-7`), aligned (`p5-4`) | Forensic image→strict-JSON + regeneration prompts |
+| **Capability registry** | `studio/capabilities/registry.md` | CREATE | How a worker discovers + invokes a capability. The single index capability work registers into (§7) |
+| Reference-loading (v1's only shipped capability) | `studio/capabilities/load-references.md` | CREATE (scaffolds the ref-set contract) | Loads THIS project's reference set from the workspace path (§4); HALTS on missing layer. NOT an authoring tool |
+| extract-tokens (from live site) | `studio/workflows/design-extraction/` + `studio/commands/design-extractor.md` | REUSE → re-registered, aligned | Existing token output shape: `design-extraction/templates/design-tokens.json` |
+| image→JSON | `studio/workflows/vision-to-json/` + `studio/commands/vision-to-json.md` | REUSE → re-registered, aligned | Forensic image→strict-JSON + regeneration prompts |
 | browser-automation (render/screenshot/QA infra) | `studio/workflows/browser-automation/` + `studio/skills/playwright-cli/SKILL.md` | REUSE AS-IS | Powers fresh-eyes rendering, headed-review screenshots, done-gate evidence. Local HTTP server pattern — `file://` is blocked |
 | extract-subtle-refs (motion/interaction) · image-gen (multi-provider, Gemini-first) | `studio/capabilities/` (roadmap stubs) | ROADMAP (D10) | Source-pluggable image-gen interface; named, not built in v1 |
 
@@ -70,12 +70,12 @@ The module enforces the standard; the reference set + taste file are workspace-o
 
 | Component | Landing path | Disposition | Notes |
 |-----------|--------------|-------------|-------|
-| **Standards bundle** (ban-list, flaw checklist, craft rules) | `studio/standards/` | CREATE (`p2-5`) — MINED from `deck-design/data/*` | `ban-list.md` (default attractors, H4) · `flaw-checklist.md` (~10-item fresh-eyes checklist, H6) · `craft-rules.md` (design/data-integrity/print rules) |
+| **Standards bundle** (ban-list, flaw checklist, craft rules) | `studio/standards/` | CREATE — MINED from `deck-design/data/*` | `ban-list.md` (default attractors, H4) · `flaw-checklist.md` (~10-item fresh-eyes checklist, H6) · `craft-rules.md` (design/data-integrity/print rules) |
 | Mining sources | `studio/workflows/deck-design/data/{html-patterns,html-components,pitch-deck-rules}.md` | MINED into the Standards bundle; retire with `deck-design` | Living corrections → ban-list + flaw checklist + craft rules |
-| Reference-set CONTRACT (what the workspace must supply) | documented in `studio/capabilities/load-references.md` + `studio/standards/reference-set-contract.md` | CREATE (`p2-1`) | tokens file (color/type/spacing/motion) + `exemplars/` screenshots + **taste file** (3–5 admirable-principle bullets per exemplar, H3) + a chart exemplar. Workspace path: `{reference_set}/` (resolved at runtime per `rbtv-output-resolution`) |
-| Distinctiveness/anti-slop rule(s) | `studio/standards/anti-slop.md` (module-internal standard, not a `.claude/` rule) | CREATE (`p2-5`) | Encodes: explicit art-direction beat · divergent reference use (principles, not copy) · ≥2–3 forced-distinct mini-briefs · pairwise trio · fresh-eyes pass |
+| Reference-set CONTRACT (what the workspace must supply) | documented in `studio/capabilities/load-references.md` + `studio/standards/reference-set-contract.md` | CREATE | tokens file (color/type/spacing/motion) + `exemplars/` screenshots + **taste file** (3–5 admirable-principle bullets per exemplar, H3) + a chart exemplar. Workspace path: `{reference_set}/` (resolved at runtime per `rbtv-output-resolution`) |
+| Distinctiveness/anti-slop rule(s) | `studio/standards/anti-slop.md` (module-internal standard, not a `.claude/` rule) | CREATE | Encodes: explicit art-direction beat · divergent reference use (principles, not copy) · ≥2–3 forced-distinct mini-briefs · pairwise trio · fresh-eyes pass |
 | Design done-gate (deck) | governed by `deck-loop-spec.md` Test Plan + the always-on `rbtv-done-gate` rule | (no new file) | Evidence root resolved per `rbtv-done-gate` at run time |
-| **Critic** (comparative · taxonomy-driven · structural-auto/aesthetic-HUMAN · per-project) | `studio/critic/` + `critic-spec.md` | ROADMAP — built P6 (`v1.1`); evaluator pinned `claude:fable` at `p6-checkpoint` | NEVER gates aesthetics. Named here as the v1.1 anchor only |
+| **Critic** (comparative · taxonomy-driven · structural-auto/aesthetic-HUMAN · per-project) | `studio/critic/` + `critic-spec.md` | ROADMAP — built post-v1 (`v1.1`); evaluator pinned `claude:fable` at the critic checkpoint | NEVER gates aesthetics. Named here as the v1.1 anchor only |
 
 ### 1.5 MEMORY / COORD — persist, resume, switch
 
@@ -83,7 +83,7 @@ The module does NOT build a state engine. It defines a **payload** that rides th
 
 | Component | Landing path | Disposition | Notes |
 |-----------|--------------|-------------|-------|
-| **Design-state schema** | `studio/state/design-state-schema.md` | CREATE (`p1-5` fills it; this doc fixes the slot) | The module-level artifact (§8). Rides the spine, never replaces it |
+| **Design-state schema** | `studio/state/design-state-schema.md` | CREATE (filled by the schema task; this doc fixes the slot) | The module-level artifact (§8). Rides the spine, never replaces it |
 | Resume / worker-switch protocol | documented in the schema file + `studio-loop/workflow.md` | CREATE | Any fresh agent (or Strategist↔Designer switch) resumes from design-state + the reference set ALONE — zero conversation history (deck-loop-spec behavior ⑨) |
 | State spine it rides on | `orchestration/skills/orchestrating/cards/state.md` (the three files: `run-log.md` append-only audit · `state-capsule.md` mutable resume · `decisions.md` worker-facing) | REUSE (pointer only) | The design-state file is a run artifact a worker reads alongside its task file + the run's `decisions.md`; it is NOT a fourth spine file. See §8 |
 
@@ -91,36 +91,36 @@ The module does NOT build a state engine. It defines a **payload** that rides th
 
 ## 2. Entry Surfaces — with the install verdict (DECISION-BEARING)
 
-> **This section resolves the `p1-3` discovery and binds `p1-7`, `p4-1`, `p6-3`.** It states, for each named entry surface, whether it is **user-invocable** (requires studio to enter the install set + a `.claude/` loader) or **module-internal** (reached only via an already-installed entry point).
+> **This section resolves the install-surface discovery.** It states, for each named entry surface, whether it is **user-invocable** (requires studio to enter the install set + a `.claude/` loader) or **module-internal** (reached only via an already-installed entry point).
 
-### 2.1 The discovery (verified on disk, as of p1-3 — SUPERSEDED by the p6-checkpoint flip; see §2.2)
+### 2.1 The discovery (verified on disk — SUPERSEDED by the install flip; see §2.2)
 
-The studio module **was NOT in this vault's install set at p1-3**. `rbtv.json` then declared `modules: [core, office, orchestration, builder, coding]`. The studio manifest's user-facing components — `rbtv-designing`, `rbtv-playwright-cli` skills; `rbtv-design-extractor`, `rbtv-vision-to-json` commands — are **absent from `.claude/`** (verified: no such loaders present; only office's `rbtv-pitcher` reaches studio). `install.py` installs only the five declared modules. Studio's own manifest entries (§ `studio` block) describe loaders that would land **if and only if** studio joins the install set.
+The studio module **was NOT initially in this vault's install set**. `rbtv.json` then declared `modules: [core, office, orchestration, builder, coding]`. The studio manifest's user-facing components — `rbtv-designing`, `rbtv-playwright-cli` skills; `rbtv-design-extractor`, `rbtv-vision-to-json` commands — are **absent from `.claude/`** (verified: no such loaders present; only office's `rbtv-pitcher` reaches studio). `install.py` installs only the five declared modules. Studio's own manifest entries (§ `studio` block) describe loaders that would land **if and only if** studio joins the install set.
 
 ### 2.2 The decision
 
-**Decision (original, p1-4): keep studio MODULE-INTERNAL for v1; the deck loop is entered through the already-installed `/rbtv-pitcher` (office) retargeted at P4.** The rationale was to minimise install-set churn and ride on the proof before adding standalone front doors (D8).
+**Decision (original): keep studio MODULE-INTERNAL for v1; the deck loop is entered through the already-installed `/rbtv-pitcher` (office) retargeted at the install wiring step.** The rationale was to minimise install-set churn and ride on the proof before adding standalone front doors (D8).
 
-**Decision superseded at p6-checkpoint (2026-06-10): studio added to the install set.** The owner approved the flip at p6-checkpoint; the install executed that day. Four surfaces are now live: `rbtv-designing` + `rbtv-playwright-cli` skills; `/rbtv-design-extractor` + `/rbtv-vision-to-json` commands. The Strategist and the studio loop beats remain loop-internal BY DESIGN — reached via `/rbtv-pitcher`, not as standalone commands. The proof-gating clause no longer applies; the install decision was executed without requiring the GSMM deck proof (D7 struck the deck proof from the plan).
+**Decision superseded (2026-06-10): studio added to the install set.** The owner approved the flip at the install checkpoint; the install executed that day. Four surfaces are now live: `rbtv-designing` + `rbtv-playwright-cli` skills; `/rbtv-design-extractor` + `/rbtv-vision-to-json` commands. The Strategist and the studio loop beats remain loop-internal BY DESIGN — reached via `/rbtv-pitcher`, not as standalone commands. The proof-gating clause no longer applies; the install decision was executed without requiring the deck proof (D7 struck the deck proof from the plan).
 
-**Decision superseded again (2026-06-10): the loop entry moved into studio and was renamed.** The owner moved the entry command out of office and renamed it `/rbtv-pitcher` → `/rbtv-strategist`; the command (`studio/commands/strategist.md`, manifest `studio` module) now opens the Strategist directly. This executes the "optional standalone loader" noted as a post-v1 decision in §2.3 — the Strategist is no longer office-entered or loop-internal-only; it has its own studio command. The dated p1-3/p1-4 prose below records the prior `/rbtv-pitcher` (office) state as historical fact and is left unchanged.
+**Decision superseded again (2026-06-10): the loop entry moved into studio and was renamed.** The owner moved the entry command out of office and renamed it `/rbtv-pitcher` → `/rbtv-strategist`; the command (`studio/commands/strategist.md`, manifest `studio` module) now opens the Strategist directly. This executes the "optional standalone loader" noted as a post-v1 decision in §2.3 — the Strategist is no longer office-entered or loop-internal-only; it has its own studio command. The dated prose below records the prior `/rbtv-pitcher` (office) state as historical fact and is left unchanged.
 
 ### 2.3 Per-surface verdict
 
 | Entry surface | Name (loader / command) | Verdict | Reached how | Wiring task |
 |---------------|-------------------------|---------|-------------|-------------|
-| **Deck loop — owner entry (v1)** | `/rbtv-pitcher` (office, **already installed**) retargeted to the studio loop | **module-internal** (today) | Owner runs the installed `/rbtv-pitcher`; its handoff dispatches into `studio/workflows/studio-loop/` (Strategist beat 1) | **`p4-1`** retargets the handoff destination (manifest-allowlisted slot) |
-| **Designer** | `rbtv-designing` skill → reworked `vivian.md` | **user-invocable** (installed 2026-06-10) | Reached via the loop (via `/rbtv-pitcher`) OR invoked directly via the `rbtv-designing` skill to resume from a design-state path | **executed** at p6-checkpoint flip |
-| **Strategist** | (no standalone loader in v1) — runs as the loop's beat-1 persona | **module-internal** | The loop invokes `studio/personas/strategist.md`; no separate user command in v1 | Optional standalone loader is a `p6-3`/post-v1 decision, not required |
-| **playwright-cli** | `rbtv-playwright-cli` skill | **installed** (2026-06-10) | REUSE-as-is rendering/QA infra — invoked by the loop and done-gate evidence; also available standalone via the `rbtv-playwright-cli` skill | executed at p6-checkpoint flip |
-| **extract-tokens** | `/rbtv-design-extractor` command | **user-invocable** (installed 2026-06-10) | Invoked on demand via the capability registry during the loop OR directly as `/rbtv-design-extractor` | executed at p6-checkpoint flip |
-| **image→JSON** | `/rbtv-vision-to-json` command | **user-invocable** (installed 2026-06-10) | Same | executed at p6-checkpoint flip |
+| **Deck loop — owner entry (v1)** | `/rbtv-pitcher` (office, **already installed**) retargeted to the studio loop | **module-internal** (today) | Owner runs the installed `/rbtv-pitcher`; its handoff dispatches into `studio/workflows/studio-loop/` (Strategist beat 1) | Retargeting the handoff destination (manifest-allowlisted slot) |
+| **Designer** | `rbtv-designing` skill → reworked `vivian.md` | **user-invocable** (installed 2026-06-10) | Reached via the loop (via `/rbtv-pitcher`) OR invoked directly via the `rbtv-designing` skill to resume from a design-state path | **executed** at the install flip |
+| **Strategist** | (no standalone loader in v1) — runs as the loop's beat-1 persona | **module-internal** | The loop invokes `studio/personas/strategist.md`; no separate user command in v1 | Optional standalone loader is a post-v1 decision, not required |
+| **playwright-cli** | `rbtv-playwright-cli` skill | **installed** (2026-06-10) | REUSE-as-is rendering/QA infra — invoked by the loop and done-gate evidence; also available standalone via the `rbtv-playwright-cli` skill | executed at the install flip |
+| **extract-tokens** | `/rbtv-design-extractor` command | **user-invocable** (installed 2026-06-10) | Invoked on demand via the capability registry during the loop OR directly as `/rbtv-design-extractor` | executed at the install flip |
+| **image→JSON** | `/rbtv-vision-to-json` command | **user-invocable** (installed 2026-06-10) | Same | executed at the install flip |
 
 ### 2.4 Downstream implications (carried to `concerns`)
 
-- **`p1-7`** registers capabilities into `studio/capabilities/registry.md` — a module-internal index, NOT a `.claude/` install. No install wiring required at `p1-7`.
-- **`p4-1`** retargets the EXISTING `/rbtv-pitcher` handoff (the one installed surface) to the studio loop. This is the v1 user entry; it is a manifest description edit at the serialized P4 slot, not a new studio install.
-- **`p6-3` (executed at p6-checkpoint, 2026-06-10):** studio added to the install set. The four surfaces listed in §2.3 are live. The Strategist and the loop beats remain loop-internal by design — the install added the reuse capabilities' commands and the Designer/playwright-cli skills; the Strategist has no standalone command (as noted in §2.3).
+- The registry task registers capabilities into `studio/capabilities/registry.md` — a module-internal index, NOT a `.claude/` install. No install wiring required.
+- The handoff-retarget task retargets the EXISTING `/rbtv-pitcher` handoff (the one installed surface) to the studio loop. This is the v1 user entry; it is a manifest description edit, not a new studio install.
+- **Install wiring (executed 2026-06-10):** studio added to the install set. The four surfaces listed in §2.3 are live. The Strategist and the loop beats remain loop-internal by design — the install added the reuse capabilities' commands and the Designer/playwright-cli skills; the Strategist has no standalone command (as noted in §2.3).
 
 ---
 
@@ -130,9 +130,9 @@ The prescribed tree (✚ = built in this plan; existing kept; resident = untouch
 
 ```
 studio/
-├── architecture.md                      ← THIS doc (p1-4)
+├── architecture.md                      ← THIS doc
 ├── personas/
-│   ├── strategist.md                    ✚ CREATE (p2-3/p2-4) — one persona, audience modes
+│   ├── strategist.md                    ✚ CREATE — one persona, audience modes
 │   └── vivian.md                          REWORK → studio Designer (menu retargeted)
 ├── workflows/
 │   ├── studio-loop/                     ✚ CREATE — the phase spine (replaces deck-design)
@@ -143,25 +143,25 @@ studio/
 │   │   │   ├── beat-03-generate.md      ✚   trio → slices → fresh-eyes
 │   │   │   └── beat-04-human-gate.md    ✚   headed accept/bounce + bounce-cap
 │   │   └── forks/
-│   │       ├── site.md                  ✚ BUILT (p5-5) — artifact: site fork
-│   │       └── app.md                   ✚ BUILT (p5-8) — artifact: app fork
-│   ├── deck-design/                       REPLACED → mined (p1-6) → DELETED (p4-2)
+│   │       ├── site.md                  ✚ BUILT — artifact: site fork
+│   │       └── app.md                   ✚ BUILT — artifact: app fork
+│   ├── deck-design/                       REPLACED → mined → DELETED
 │   ├── browser-automation/                REUSE AS-IS (render/screenshot/QA infra)
-│   ├── design-extraction/                 REUSE → re-registered (p1-7)
-│   └── vision-to-json/                    REUSE → re-registered (p1-7)
+│   ├── design-extraction/                 REUSE → re-registered
+│   └── vision-to-json/                    REUSE → re-registered
 ├── capabilities/                        ✚ CREATE — the shared capability layer
-│   ├── registry.md                      ✚   capability discovery/invocation index (p1-7)
-│   ├── load-references.md               ✚   v1's only shipped capability (p2-1 contract)
+│   ├── registry.md                      ✚   capability discovery/invocation index
+│   ├── load-references.md               ✚   v1's only shipped capability (ref-set contract)
 │   └── (roadmap stubs: extract-subtle-refs, image-gen)   ROADMAP (named, not built)
-├── standards/                           ✚ CREATE (p2-5) — mined from deck-design/data/*
+├── standards/                           ✚ CREATE — mined from deck-design/data/*
 │   ├── ban-list.md                      ✚   default-attractor ban-list (H4)
 │   ├── flaw-checklist.md                ✚   ~10-item fresh-eyes checklist (H6)
 │   ├── craft-rules.md                   ✚   design/data-integrity/print rules
 │   ├── anti-slop.md                     ✚   distinctiveness mechanics standard
 │   └── reference-set-contract.md        ✚   what the workspace must supply (D4)
 ├── state/                               ✚ CREATE
-│   └── design-state-schema.md           ✚   design-state payload schema (p1-5)
-├── critic/                                ROADMAP — built P6 (v1.1); critic-spec.md anchor
+│   └── design-state-schema.md           ✚   design-state payload schema
+├── critic/                                ROADMAP — built post-v1 (v1.1); critic-spec.md anchor
 ├── commands/
 │   ├── design-extractor.md                REUSE (loader → design-extraction workflow)
 │   └── vision-to-json.md                  REUSE (loader → vision-to-json workflow)
@@ -182,13 +182,13 @@ studio/
 
 ## 4. The Reference Set (workspace-owned, module-enforced)
 
-The module LOADS and ENFORCES; it never authors or ships references (D4). Located at the workspace reference-set path `{reference_set}/` — resolved at runtime per `rbtv-output-resolution` (scaffolded by `p2-1`). The reference-set contract (`studio/standards/reference-set-contract.md`) prescribes the four required layers:
+The module LOADS and ENFORCES; it never authors or ships references (D4). Located at the workspace reference-set path `{reference_set}/` — resolved at runtime per `rbtv-output-resolution`. The reference-set contract (`studio/standards/reference-set-contract.md`) prescribes the four required layers:
 
 | Layer | Content | On absence |
 |-------|---------|-----------|
 | Tokens file | color / type / spacing / motion (shape: `design-extraction/templates/design-tokens.json`) | HALT with named missing layer — never proceed on training-mean defaults |
 | `exemplars/` | world-class exemplar screenshots | HALT |
-| **Taste file** | 3–5 admirable-principle bullets per exemplar (H3 format) | Art-direction beat HALTS to owner; never substitutes model taste silently (`p3-gate` clears this for the GSMM run) |
+| **Taste file** | 3–5 admirable-principle bullets per exemplar (H3 format) | Art-direction beat HALTS to owner; never substitutes model taste silently (the halt clears once the owner annotates the file) |
 | Chart exemplar | one reference chart slide | HALT (chart beat blocked) |
 
 ---
@@ -254,21 +254,21 @@ design_state: ./design-state.md   # back-pointer; design lives THERE, never here
 | Resident | What it is | This build's relation |
 |----------|-----------|----------------------|
 | `studio/hypresent/` | The slide-presentation/builder app (its own server, app, tests, multi-version plans) | UNTOUCHED — rode along on the `html/`→`studio/` parent rename. No studio-build task writes inside it. A parallel session is active under `hypresent/docs/plan/builder-open-deck/` — stay out |
-| `studio/slide-library/` | Library + engine that organizes slides so hypresent works (wired to hypresent) | UNTOUCHED — parent-rename only; `p1-1`/`p1-3` proved untouchability (rename-only git status + slide-library pytest baseline) |
+| `studio/slide-library/` | Library + engine that organizes slides so hypresent works (wired to hypresent) | UNTOUCHED — parent-rename only; proved untouchable (rename-only git status + slide-library pytest baseline) |
 
 The studio loop does NOT *require* hypresent or slide-library; the deck path renders via the `browser-automation` infra (local HTTP server + headed browser), independent of the hypresent app. Beat 3 MAY *optionally* reuse a spec-compliant slide library found in the working repo when one fits the deck (owner-gated; see beat-03 § 3·0) — but never requires one and never writes into the convention's `studio/slide-library/`.
 
 ---
 
-## 7. Pointer — Capability Registry (`p1-7`)
+## 7. Pointer — Capability Registry
 
-The capability registry at `studio/capabilities/registry.md` is the single index a worker consults to discover and invoke a capability. **`p1-7` fills it**: registers v1's reference-loading capability and re-registers the two REUSE capabilities (extract-tokens, image→JSON) plus the browser-automation infra, each with: capability name, invoke path (workflow/command/skill), input contract, output shape, and the on-absence behavior. It is a **module-internal index, not a `.claude/` install** (see §2.4). Roadmap capabilities (extract-subtle-refs, image-gen) are listed as named-not-built rows so a future builder finds the slot.
+The capability registry at `studio/capabilities/registry.md` is the single index a worker consults to discover and invoke a capability. **The registry task fills it**: registers v1's reference-loading capability and re-registers the two REUSE capabilities (extract-tokens, image→JSON) plus the browser-automation infra, each with: capability name, invoke path (workflow/command/skill), input contract, output shape, and the on-absence behavior. It is a **module-internal index, not a `.claude/` install** (see §2.4). Roadmap capabilities (extract-subtle-refs, image-gen) are listed as named-not-built rows so a future builder finds the slot.
 
 ---
 
-## 8. Pointer — Design-State Schema (`p1-5`)
+## 8. Pointer — Design-State Schema
 
-The design-state schema at `studio/state/design-state-schema.md` is **filled by `p1-5`**; this architecture fixes its slot and its relationship to the spine. Required payload (from `deck-loop-spec.md` Context Snapshot): project meta · artifact+mode · active phase · content-spec ref · chosen art direction · per-slide HTML status · accept/bounce notes · fresh-eyes punch-lists.
+The design-state schema at `studio/state/design-state-schema.md` is **filled by the schema task**; this architecture fixes its slot and its relationship to the spine. Required payload (from `deck-loop-spec.md` Context Snapshot): project meta · artifact+mode · active phase · content-spec ref · chosen art direction · per-slide HTML status · accept/bounce notes · fresh-eyes punch-lists.
 
 **Spine relationship (binding):** design-state is a **module-level run artifact that RIDES the orchestration three-file state spine — it never replaces or adds to it.** Per `orchestration/.../cards/state.md`:
 
@@ -278,7 +278,7 @@ The design-state schema at `studio/state/design-state-schema.md` is **filled by 
 | `state-capsule.md` (mutable resume) | The conductor's resume state points at the active design-state file; design-state itself is the loop-internal mutable working file (per-slide status, bounce notes) |
 | `run-log.md` (append-only audit) | A worker NEVER reads it; design-state carries none of its audit role |
 
-The design-state file lives with the run's output (`{output_folder}/.../design-state.md`), referenced by the content spec's `design_state:` frontmatter (§5.1). `p1-5` defines the exact fields/format; it must state explicitly that design-state is a fourth *artifact*, not a fourth *spine file*, so a fresh agent resumes the loop from design-state + the reference set alone (deck-loop-spec ⑨).
+The design-state file lives with the run's output (`{output_folder}/.../design-state.md`), referenced by the content spec's `design_state:` frontmatter (§5.1). The schema file defines the exact fields/format; it must state explicitly that design-state is a fourth *artifact*, not a fourth *spine file*, so a fresh agent resumes the loop from design-state + the reference set alone (deck-loop-spec ⑨).
 
 ---
 
@@ -286,9 +286,9 @@ The design-state file lives with the run's output (`{output_folder}/.../design-s
 
 | Open decision | Owner | Resolved at |
 |---------------|-------|-------------|
-| Chart mechanism (hand-authored vs library) | the `p2-2` spike against a concrete exemplar | `p2-2` |
-| Site/app fork concretization (or drop) | GSMM evidence in hand | `p3-checkpoint` |
-| Whether studio enters the install set | **RESOLVED** — studio added to install set at p6-checkpoint (2026-06-10); 4 surfaces installed | closed |
-| Exact design-state fields/format | `p1-5` | `p1-5` |
-| Capability registry row schema | `p1-7` | `p1-7` |
-| Critic taxonomy + structural/aesthetic split | v1.1 build | P6 |
+| Chart mechanism (hand-authored vs library) | the chart spike against a concrete exemplar | the chart spike |
+| Site/app fork concretization (or drop) | fork evidence in hand | the fork checkpoint |
+| Whether studio enters the install set | **RESOLVED** — studio added to install set (2026-06-10); 4 surfaces installed | closed |
+| Exact design-state fields/format | the schema task | the schema task |
+| Capability registry row schema | the registry task | the registry task |
+| Critic taxonomy + structural/aesthetic split | v1.1 build | post-v1 |

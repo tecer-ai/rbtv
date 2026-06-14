@@ -62,7 +62,7 @@ status: active
 | **File** | `taste-file.md` |
 | **Content** | One H3 section per exemplar listed in `exemplars/manifest.md`. Each section heading matches the exemplar filename exactly (case-sensitive; chart exemplars prefixed `charts/`). Each section carries 3–5 specific, named admirable-principle bullets. |
 | **Annotated check** | A taste file with no H3 sections, or with every H3 section containing only template-example content, is treated as unannotated. An exemplar whose filename has no matching H3 in `taste-file.md` is considered unannotated for that file. |
-| **On absence or unannotated** | The art-direction beat (beat-02) HALTS to the owner — never substitutes model taste silently. This is not an error the module corrects; it is an owner-curation gap. The `p3-gate` clears this halt for the GSMM run once the owner annotates the file. |
+| **On absence or unannotated** | The art-direction beat (beat-02) HALTS to the owner — never substitutes model taste silently. This is not an error the module corrects; it is an owner-curation gap. The halt clears once the owner annotates the file. |
 
 ---
 

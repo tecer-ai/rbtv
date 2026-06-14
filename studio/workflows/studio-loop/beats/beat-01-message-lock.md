@@ -1,6 +1,6 @@
 ---
 name: 'beat-01-message-lock'
-description: 'Deck loop beat 1 (Strategist) — discovery → narrative → content spec in the P1 contract format, consuming ONLY owner-supplied verified numbers. Initializes design-state and hands off to the Designer.'
+description: 'Deck loop beat 1 (Strategist) — discovery → narrative → content spec in the content-spec contract format, consuming ONLY owner-supplied verified numbers. Initializes design-state and hands off to the Designer.'
 nextStepFile: ../beats/beat-02-art-direction.md
 outputFile: content-spec.md
 ---

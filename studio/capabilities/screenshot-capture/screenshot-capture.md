@@ -55,7 +55,7 @@ Each successful capture inserts one most-recent-first row with the fields requir
 | filename | source_url | capture_date | viewport | scope |
 ```
 
-Read `studio-references/exemplars/manifest.md` for the canonical row format.
+Read `{reference_set}/exemplars/manifest.md` for the canonical row format.
 
 ## Examples
 
@@ -64,12 +64,12 @@ Read `studio-references/exemplars/manifest.md` for the canonical row format.
 python studio/capabilities/screenshot-capture/capture.py \
   --url https://stripe.com \
   --url https://www.apple.com \
-  --refs C:/Users/henri/.../studio-references
+  --refs {reference_set}
 
 # Section capture at custom viewport
 python studio/capabilities/screenshot-capture/capture.py \
   --url https://stripe.com/pricing \
-  --refs C:/Users/henri/.../studio-references \
+  --refs {reference_set} \
   --viewport 1920x1080 \
   --selector "[data-testid='pricing-table']"
 ```

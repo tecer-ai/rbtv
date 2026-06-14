@@ -1,6 +1,6 @@
 # Design-State Schema — the Studio Loop's Working Memory
 
-> The schema for `design-state.md`: the module-level state file every studio run (deck / site / app) maintains. It carries everything a fresh agent — or an incoming worker after a Strategist↔Designer switch — needs to resume the loop mid-flight from **design-state + the reference set ALONE**, with zero conversation history (deck-loop-spec behavior ⑨). Authored at `p1-5`; slot fixed by `architecture.md` §8. Behavior specs in the plan folder (`deck-loop-spec.md`) own the *what* the loop does; this doc owns the *shape* of the state it carries.
+> The schema for `design-state.md`: the module-level state file every studio run (deck / site / app) maintains. It carries everything a fresh agent — or an incoming worker after a Strategist↔Designer switch — needs to resume the loop mid-flight from **design-state + the reference set ALONE**, with zero conversation history (deck-loop-spec behavior ⑨). Slot fixed by `architecture.md` §8. Behavior specs in the plan folder (`deck-loop-spec.md`) own the *what* the loop does; this doc owns the *shape* of the state it carries.
 
 ---
 
@@ -200,4 +200,4 @@ When a beat reaches a human checkpoint — art-direction pick (beat 2), trio pai
 
 ## 4. Cross-artifact note (site / app)
 
-For `artifact: site` or `app`, the schema is unchanged — only the row noun in `## Slide Status` shifts (slide → page for site, slide → screen for app), and the per-row HTML status applies per page/screen. The frontmatter cursor, resume protocol, and worker-switch protocol are artifact-general. The site/app forks themselves are sketched, not built in v1 (architecture §1.1); they are concretized or dropped at `p3-checkpoint`. This schema already carries them as a parameter so the forks need no separate state shape.
+For `artifact: site` or `app`, the schema is unchanged — only the row noun in `## Slide Status` shifts (slide → page for site, slide → screen for app), and the per-row HTML status applies per page/screen. The frontmatter cursor, resume protocol, and worker-switch protocol are artifact-general. The site/app forks themselves are sketched, not built in v1 (architecture §1.1); they are concretized or dropped at the fork checkpoint. This schema already carries them as a parameter so the forks need no separate state shape.

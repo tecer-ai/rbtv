@@ -49,7 +49,7 @@ This beat implements `deck-loop-spec.md` behavior row 3 and its Edge Cases. Read
    | 2 | **Palette within tokens** | The palette drawn from the `:root` brand tokens — never placeholder/training-mean values; one accent per semantic stat group (mining map C-1, C-2; ban A-1, E-3) |
    | 3 | **Grid principle** | The governing grid logic for the lane (card counts driven by content density, not a reflexive 3-up); respects grid ceilings (mining map L-2; ban A-2) |
    | 4 | **Signature motif** | The one recurring visual device that makes the lane distinct (a rule, a frame, a mark) — the divergent element, ban-list-clean |
-   | 5 | **Chart style** | How charts read in this lane — hand-authored inline SVG/CSS (the `p2-2` decision; NO charting library); action-title (takeaway, not axis name) (mining map PR-5, AD-3; decisions.md p2-2) |
+   | 5 | **Chart style** | How charts read in this lane — hand-authored inline SVG/CSS (NO charting library); action-title (takeaway, not axis name) (mining map PR-5, AD-3) |
    | 6 | **Cover treatment** | The cover-slide approach: title card only (brand mark + one category line); cover and closing share identical treatment (mining map V-3, V-4; ban B-3, B-4) |
    | 7 | **Imagery treatment** (OPTIONAL) | Does this lane use generated imagery (cover / full-bleed background / divider / concept), in what style, and for which slides — owner-gated, real-provenance, ban-list-clean. Absent imagery is a valid lane. Per the image-craft guide (`{rbtv_path}/studio/capabilities/image-gen/image-craft.md`) |
 
@@ -100,4 +100,4 @@ ONLY when **[X] Exit** is selected: confirm exit; design-state is saved.
 - Any mini-brief missing one of the six axes, missing its taste citation, or carrying a banned attractor.
 - Recycling a rejected brief on regeneration.
 - Any change to the locked message / content spec.
-- A charting-library dependency in the chart-style axis (must be hand-authored SVG/CSS — decisions.md p2-2).
+- A charting-library dependency in the chart-style axis (must be hand-authored SVG/CSS).

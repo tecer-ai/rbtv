@@ -25,7 +25,7 @@ Behavior is governed by `./critic-spec.md`. Read that spec's Behavior Specificat
 
 - The critic produces NO verdict that stops, blocks, or auto-passes anything. It is a stopping-rule HINT ("differences are now marginal — diminishing returns") and an improver, never a gate.
 - It NEVER replaces fresh-eyes (`beat-03` §3C / `studio/standards/flaw-checklist.md`) — a distinct single-deck punch-list mechanism. Both may run on one artifact; neither replaces the other.
-- When wired into the loop (`p6-2`), the human gate proceeds REGARDLESS of critic content. The critic output is ATTACHED for the owner, never consulted as a precondition.
+- When wired into the loop, the human gate proceeds REGARDLESS of critic content. The critic output is ATTACHED for the owner, never consulted as a precondition.
 
 ---
 
