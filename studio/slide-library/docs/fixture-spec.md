@@ -32,8 +32,8 @@
 | Preset spanning multiple lines | `nimbus-intro-en` `slides:` list wraps |
 | As-built log (seeded with 1 historical entry) | `as-built.md` |
 | Variant classes | `slide--cover`, `slide--dark`, `slide--closing`, `slide--soft`, plain `slide` |
-| Self-description (DT4 interface) | `README-FOR-AGENTS.md` |
-| Thin `CLAUDE.md` pointer | `CLAUDE.md` |
+| Self-description (DT4 interface) | `CLAUDE.md` |
+| `AGENTS.md` mirror for Codex | `AGENTS.md` |
 
 The fixture has **9 fragments across 6 sections, 2 languages, 4 ready + 5 template** (the 9th fragment, `nimbus-divider`, is a plain-`slide` ready divider exercising the no-header variant, and is the 4th `ready` fragment). Two assets live in the library; one lives in the extra root.
 
@@ -44,8 +44,9 @@ The fixture has **9 fragments across 6 sections, 2 languages, 4 ready + 5 templa
 ```
 fixture-library/
 ├── library.json
-├── README-FOR-AGENTS.md
-├── CLAUDE.md
+├── CLAUDE.md                 (REQUIRED — normative cold-agent self-description, § 5)
+├── AGENTS.md                 (OPTIONAL mirror of CLAUDE.md for Codex agents, § 5.3)
+├── README-FOR-AGENTS.md      (OPTIONAL — one-line pointer to CLAUDE.md; retired)
 ├── manifest.md
 ├── presets.md
 ├── as-built.md
@@ -705,22 +706,11 @@ Rule 3 (positional separator skip) is a parse step, not a die()-able rule — it
 
 ---
 
-## README-FOR-AGENTS.md and CLAUDE.md for the fixture
+## `CLAUDE.md`, `AGENTS.md`, and `README-FOR-AGENTS.md` for the fixture
 
 ### `fixture-library/CLAUDE.md`
 
-Create with exactly:
-
-```markdown
-# CLAUDE.md — fixture-library
-
-Read `README-FOR-AGENTS.md` in this folder before assembling any deck. It is the
-self-contained agent guide for this slide library.
-```
-
-### `fixture-library/README-FOR-AGENTS.md`
-
-Create from the convention spec § 5.1 template, with the fixture's specifics filled in. Use exactly:
+`CLAUDE.md` is the REQUIRED normative cold-agent self-description (convention spec § 5). Create from the § 5.1 template with the fixture's specifics filled in. Use exactly:
 
 ````markdown
 # Assembling Decks From This Slide Library — Agent Guide
@@ -818,4 +808,18 @@ These remain your responsibility; the engine does not enforce them:
 - **Upstream proposals:** if you improve a `ready` slide during a build, propose it back:
   update `slides/{id}.html` + its manifest row + regenerate the catalog, and note it in your
   as-built entry's `upstream` field. Client-specific copy is never upstreamed.
+
+> Codex mirror note: do not read the sibling `AGENTS.md`. It is an auto-generated mirror for Codex agents. This `CLAUDE.md` is the source of truth.
 ````
+
+### `fixture-library/AGENTS.md`
+
+`AGENTS.md` is the OPTIONAL Codex mirror (convention spec § 5.3). Create with IDENTICAL content to `CLAUDE.md` above — copy it verbatim. The only difference is that `AGENTS.md` omits the trailing Codex mirror note (that note is Claude-Code-specific). Codex auto-loads `AGENTS.md`; Claude-Code auto-loads `CLAUDE.md`. Both point the agent to the same self-contained assembly guide.
+
+### `fixture-library/README-FOR-AGENTS.md`
+
+`README-FOR-AGENTS.md` is retired. Update to a one-line pointer:
+
+```markdown
+Read `CLAUDE.md` in this folder — it is the self-contained agent guide for this slide library.
+```

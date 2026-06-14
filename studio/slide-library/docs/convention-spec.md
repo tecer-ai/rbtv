@@ -32,7 +32,7 @@ A spec-compliant library is a single folder containing the following. **Required
 ```
 {library}/
 ├── library.json            REQUIRED  convention version, engine version, config, ordered sections (§ 7)
-├── README-FOR-AGENTS.md     REQUIRED  the cold-agent entry point — the self-description (§ 5)
+├── CLAUDE.md               REQUIRED  the cold-agent entry point — the self-description (§ 5)
 ├── manifest.md              REQUIRED  strict per-fragment metadata table (§ 2)
 ├── presets.md               REQUIRED  named compositions (MAY contain zero presets) (§ 3)
 ├── as-built.md              REQUIRED  append-only assembly log; engine writes here (§ 4)
@@ -44,7 +44,8 @@ A spec-compliant library is a single folder containing the following. **Required
 ├── assets/                  REQUIRED  shared images referenced by fragments (MAY be empty)
 ├── archive/                OPTIONAL  superseded fragments + archive.md log; NEVER read by the engine (§ 1.3)
 ├── catalog.html            OPTIONAL  engine-generated; every fragment rendered (§ 6.4)
-├── CLAUDE.md               OPTIONAL  thin pointer to README-FOR-AGENTS.md for Claude-Code workspaces
+├── AGENTS.md               OPTIONAL  mirror of CLAUDE.md for Codex agents (§ 5)
+├── README-FOR-AGENTS.md    OPTIONAL  one-line pointer to CLAUDE.md (retired; kept for back-compat)
 └── docs/                   OPTIONAL  design notes, extraction logs — never read by the engine
 ```
 
@@ -399,15 +400,17 @@ Reading this entry against the grammar (§ 4.1): `title` is a plain scalar; `acc
 
 ---
 
-## 5. Self-Description — the Cold-Agent Interface (`README-FOR-AGENTS.md`)
+## 5. Self-Description — the Cold-Agent Interface (`CLAUDE.md`)
 
-`README-FOR-AGENTS.md` is the REQUIRED entry-point document that makes a cold agent succeed with NOTHING but the library folder. It is the contracted dual-consumer interface (done-test DT4). A library that lives inside a Claude-Code workspace SHOULD ALSO carry a one-line `CLAUDE.md` pointing here, so Claude-Code auto-load works.
+`CLAUDE.md` is the REQUIRED entry-point document that makes a cold agent succeed with NOTHING but the library folder. It is the contracted dual-consumer interface (done-test DT4). A library SHOULD ALSO carry an `AGENTS.md` mirror (identical content) at the same root, so Codex agents auto-load it alongside Claude-Code.
+
+> **`README-FOR-AGENTS.md` is retired.** Libraries that previously carried it as the normative guide MUST fold its content into `CLAUDE.md` and reduce `README-FOR-AGENTS.md` (if kept at all) to a one-line pointer: `Read CLAUDE.md in this folder — it is the self-contained agent guide for this slide library.` No REQUIRED reference to `README-FOR-AGENTS.md` may remain in any spec-compliant library.
 
 The template below is the COMPLETE required content. A library author copies it verbatim and fills the `{...}` placeholders with that library's specifics. Sections marked REQUIRED MUST be present.
 
-> **Executor note (per RV-18):** the `## 1`–`## 6` headings INSIDE the template below are the README's OWN headings — copy them verbatim into `README-FOR-AGENTS.md`. They are NOT this spec's top-level sections (§ 1–§ 9) and MUST NOT be conflated with them. Treat § 5.1's body as a literal block to copy.
+> **Executor note (per RV-18):** the `## 1`–`## 6` headings INSIDE the template below are `CLAUDE.md`'s OWN headings — copy them verbatim. They are NOT this spec's top-level sections (§ 1–§ 9) and MUST NOT be conflated with them. Treat § 5.1's body as a literal block to copy.
 
-### 5.1 The complete `README-FOR-AGENTS.md` template
+### 5.1 The complete `CLAUDE.md` template
 
 ````markdown
 # Assembling Decks From This Slide Library — Agent Guide
@@ -517,6 +520,10 @@ These remain your responsibility; the engine does not enforce them:
 ### 5.2 Why every section is required
 
 The cold agent has no external instructions. Section 1 orients it; section 2 makes the manifest legible; section 3 is the selection logic; section 4 is the exact mechanical invocation (the single most important section — without it the agent cannot assemble); section 5 is the creative-pass contract; section 6 carries the governance that stays judgment (lifted from the proven informal convention's human-judgment classification). Omitting any section breaks DT4.
+
+### 5.3 `AGENTS.md` mirror
+
+A library SHOULD emit an `AGENTS.md` file at the library root with IDENTICAL content to `CLAUDE.md`. Codex agents auto-load `AGENTS.md`; Claude-Code agents auto-load `CLAUDE.md`. The mirror ensures both agent families can cold-start from the library folder with zero external instructions. The mirror is kept in sync manually (update both whenever `CLAUDE.md` changes). A library is spec-compliant without `AGENTS.md`; omitting it means Codex agents cannot auto-load the guide.
 
 ---
 
@@ -724,7 +731,7 @@ This appendix maps the proven informal convention (tecer's `slide-library/`) to 
 | `manifest.md` `## Assets` (3 cols) | `manifest.md` `## Assets` | Unchanged — already conformant. |
 | `presets.md` `## Presets` (prose + YAML) | `presets.md` `## Presets` | Unchanged format. Optionally add `title`/`audience` keys. |
 | `presets.md` `## As-built log` (11 retro entries, prose-ish) | `as-built.md` `## As-built log` (fenced YAML entries) | EXTRACT the 11 entries into the new file, converting each to the § 4.2 schema in the library-YAML subset (§ 4.1): `deviations` as a block list (one `- ` plain-string line per deviation; empty set → `deviations: -`), `slides` as a flow list. Mark each `retroactive: true`. Set `engine_version` to the migrated engine version; `date` per § 9.5 (year-only entries backfilled from the git commit date); `preset` where the entry maps to a named preset (`investor-small`↔small-deck-v3-1, etc.), else `-`. Preserve every deviation line's CONTENT verbatim as a block-list string — NEVER as a sub-mapping (the line `modified: x — y` becomes the string `modified: x — y`). The 11→library-YAML conversion is round-trip-tested (§ 9.5). |
-| `CLAUDE.md` (agent workflow, Claude-Code-specific) | `README-FOR-AGENTS.md` (REQUIRED) + thin `CLAUDE.md` (OPTIONAL pointer) | Author `README-FOR-AGENTS.md` from the § 5.1 template, porting tecer's MUST-step content into the matching sections (selection → § 3-mapped section 3; leakage/freshness/upstream → section 6). Replace tecer's `CLAUDE.md` body with a one-line pointer to `README-FOR-AGENTS.md`. |
+| `CLAUDE.md` (agent workflow, Claude-Code-specific) | `CLAUDE.md` (REQUIRED, normative self-description) + `AGENTS.md` (OPTIONAL mirror) | Rewrite `CLAUDE.md` from the § 5.1 template, porting the MUST-step content into the matching sections (selection → section 3; leakage/freshness/upstream → section 6). Emit an `AGENTS.md` mirror with identical content. `README-FOR-AGENTS.md` is retired: keep it only as a one-line pointer to `CLAUDE.md` if back-compat is needed, else delete. |
 | `assemble.py` (440 lines, tecer-anchored paths) | `assemble.py` (vendored RBTV engine) | Replace with the RBTV engine (workstream 2). The engine reads `--library` / library-relative paths and `library.json` instead of the hardcoded `LIB`/`REPO_ROOT` constants. (per F3) |
 | `base.html` (5 markers) | `base.html` | Unchanged — already conformant. |
 | `theme.css` | `theme.css` | Unchanged. |
@@ -750,12 +757,12 @@ This appendix maps the proven informal convention (tecer's `slide-library/`) to 
 
 | Irregularity (from recon + live verification) | Handling |
 |-----------------------------------------------|----------|
-| **Slide-count drift: `CLAUDE.md` says "54", recon says "58", live manifest is "57".** (Contradiction C1; live-verified: 57 manifest rows = 57 disk files, zero drift.) | Migration derives ALL counts from the live manifest, NEVER from any prose string. The new convention puts NO count in any prose file — `manifest.md` IS the count. The stale "54" in tecer's `CLAUDE.md` is discarded when that file becomes a thin pointer. |
+| **Slide-count drift: `CLAUDE.md` says "54", recon says "58", live manifest is "57".** (Contradiction C1; live-verified: 57 manifest rows = 57 disk files, zero drift.) | Migration derives ALL counts from the live manifest, NEVER from any prose string. The new convention puts NO count in any prose file — `manifest.md` IS the count. The stale "54" in tecer's old `CLAUDE.md` body is discarded when the file is rewritten as the normative self-description (§ 5). |
 | **As-built log lives inside `presets.md`.** (recon § 6) | Extract to a separate `as-built.md` (F10) so the engine's automatic appends never touch curated presets. |
 | **All 11 as-built entries are retroactive (`upstream: n/a (retro)`) — the log was never a live discipline.** (recon orchestrator-note #4) | Resolved structurally: the new engine writes the entry AUTOMATICALLY on every assembly (F6a). The 11 retro entries migrate as historical records; from cutover forward, entries are engine-written and live. |
 | **Two-root asset resolution is implicit (`/` = repo root) and fragile.** (recon orchestrator-note #3) | Per **ADX-3 (BINDING)**: vendor the single cross-root PNG into the library's `assets/` and drop `@root` for tecer (`extra_asset_root: null`). `@root` + `extra_asset_root` stay generic convention features (a fixture exercises them), NOT a tecer choice. **Exact cutover edit:** tecer's only `/`-cross-root user is `cover-investor` at manifest row 48, whose `assets` cell reads `cover-bg.jpg, brand/logo/tecer-logo-white-transparent.png`. The PNG is byte-identical (md5) to the already-present library `tecer-wordmark-white.png`. At cutover: (1) copy `brand/logo/tecer-logo-white-transparent.png` into `slide-library/assets/` as `tecer-logo-white-transparent.png` (or reuse the existing byte-identical `tecer-wordmark-white.png`); (2) rewrite manifest row 48's asset cell from `brand/logo/tecer-logo-white-transparent.png` to the bare filename. No other manifest row references a cross-root path (verified). This is the engine keying on `@root/` not `/`-presence (§ 8.1 #11) — after the rewrite there is no `/`-bearing asset entry left. |
 | **`--client-logo` accepted but unused when no fragment lists `{client-logo}`.** (recon C3; live-verified) | The convention documents the two distinct mechanisms (§ 2.4 asset-cell `{client-logo}` served by `--client-logo`, vs the `{{CLIENT_LOGO_SRC}}` creative-pass token). No migration action — tecer keeps using the token path; the flag stays harmless. |
-| **Prose-only optionality / governance buried in `CLAUDE.md` MUST steps.** | The mechanically-enforceable steps become engine behavior (assemble, renumber, asset copy, token report, check, auto-log); the judgment steps (freshness, leakage, upstream) move to `README-FOR-AGENTS.md` § 6 verbatim in intent. |
+| **Prose-only optionality / governance buried in `CLAUDE.md` MUST steps.** | The mechanically-enforceable steps become engine behavior (assemble, renumber, asset copy, token report, check, auto-log); the judgment steps (freshness, leakage, upstream) move to `CLAUDE.md` § 6 verbatim in intent. |
 
 ### 9.4 Cutover ordering (migration risk control)
 
@@ -789,7 +796,7 @@ The chain NEVER blocks — rule 4 always yields. The output is a DRAFT: the migr
 - **ADX-1 — 2026-06-06 — Ratification round (contract-author-notes.md forks).** F1, F2, F4, F5, F6, F6a, F7, F8, F8a, F8b, F9, F10, F10a: ALL RATIFIED as authored. **F3 RATIFIED as (a)-hybrid**: engine vendored at `{library}/assemble.py` (required artifact), `engine_version` stamp in `library.json`, documented re-vendor command; canonical source `html/slide-library/engine/assemble.py`. Assumptions A1–A5 accepted (A1: DT4 read literally; A4: DT5 bar = structural + visual parity, byte-exact non-goal).
 - **ADX-2 — 2026-06-06 — GUI engine face (cross-workstream ruling).** The hypresent builder page consumes the TARGET LIBRARY's own vendored engine via subprocess — never a separate central code path — using a machine-readable output mode whose exact form workstream 2 designs. Version-stamp mismatch warnings surface in the GUI. Rationale: one behavior source per library; the GUI is a gesture layer over the same contract the cold agent uses.
 - **ADX-3 — 2026-06-06 — Tecer cross-root asset.** Migration vendors the single cross-root PNG (`brand/logo/tecer-logo-white-transparent.png`) into the library's `assets/` and drops `@root` usage for tecer. The convention KEEPS `@root` + `extra_asset_root` for generality.
-- **ADX-4 — 2026-06-07 — Replay mode (`--no-log`).** The engine gains a `--no-log` flag: a VERIFICATION/REPLAY mode that performs the full assembly but suppresses the § 4 as-built append. The § 4 MUST ("append one entry on every successful assembly") binds every PRODUCTION assembly — GUI flow, cold-agent flow — and those flows NEVER pass `--no-log`. Legitimate uses are exactly: DT5/§ 4.4 reproduction runs (re-assembling a known deck to compare — recording the replay would pollute the log it validates) and automated test/verification harnesses (which additionally run on TEMP COPIES of libraries, never on committed/live ones). `README-FOR-AGENTS.md` does NOT advertise the flag. In `--json` mode with `--no-log`, the envelope's `as_built_entry` field carries the entry that WOULD have been written, marked `"logged": false`.
+- **ADX-4 — 2026-06-07 — Replay mode (`--no-log`).** The engine gains a `--no-log` flag: a VERIFICATION/REPLAY mode that performs the full assembly but suppresses the § 4 as-built append. The § 4 MUST ("append one entry on every successful assembly") binds every PRODUCTION assembly — GUI flow, cold-agent flow — and those flows NEVER pass `--no-log`. Legitimate uses are exactly: DT5/§ 4.4 reproduction runs (re-assembling a known deck to compare — recording the replay would pollute the log it validates) and automated test/verification harnesses (which additionally run on TEMP COPIES of libraries, never on committed/live ones). `CLAUDE.md` does NOT advertise the flag. In `--json` mode with `--no-log`, the envelope's `as_built_entry` field carries the entry that WOULD have been written, marked `"logged": false`.
 - **ADX-10 — 2026-06-07 — Fixture-spec §C erratum (PB-T1 halt).** The `nimbus-intro-pt` preset YAML in `fixture-spec.md` §C was missing `nimbus-divider` (6 ids) while §C's own prose ("Same spine as nimbus-intro-en") and §H check 11 (7 ids per preset) demand it. RULED: the prose + check are the intent; the pt `slides:` list gains `nimbus-divider` after `how-nimbus-works`, mirroring the en preset. Fixture-spec amended in place; PB-T1's session resumed to re-copy `presets.md` and re-run §H. (ADX-5..9 live in build-spec § Amendments; ADX numbering is session-global.)
 - **ADX-11 — 2026-06-07 — Rule 15 affirmed; happy-path tests carry the flag (PB-T3 halt, bug 1).** `{client-logo}` composed without `--client-logo` is an ERROR exactly as § 8 rule 15 and fixture-spec § I rule 15 pin — the engine implemented the contract correctly; the T3 happy-path tests were the defect. RULED: every fixture happy-path assembly that composes a cover passes `--client-logo` with the fixture's `tests/shared-brand/partner-mark.png` (also exercising the § 4.2 `client_logo` as-built key). Tecer impact: none — tecer's manifest does not use the asset-cell sentinel (token path only, recon C3).
 - **ADX-12 — 2026-06-07 — Parser is grammar-faithful; `-` is the literal string (PB-T3 halt, bug 2).** `parse_yaml_subset` returns EXACTLY what the § 4.1 grammar produces: `deviations: -` parses to the plain scalar `"-"`. No key-specific normalization inside the parser (the engine's `[]`-conversion and the test's `"none"` expectation were both inventions). Consumers (DT5 comparator, GUI, § H checkers) interpret `"-"` as the none-sentinel per § 4.2. Bugs 3 (`:` in flow element not rejected — § 4.1 `elem` forbids it, § I rule 23 = ERROR) and 4 (mid-line `#` stripping corrupts quoted scalars like `"#B8875A"` — the grammar has WHOLE-LINE comments only) are engine defects to fix as specced.
