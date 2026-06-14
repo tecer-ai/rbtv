@@ -3,6 +3,7 @@
 import { getSlideSrcdoc } from './previews.js';
 
 export function createSlideStage(opts) {
+  opts = opts || {};
   const { container, getLibraryPath, getSlideRecord, onAdd, isAdded } = opts;
   if (!container) return { open() {}, close() {} };
 

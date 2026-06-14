@@ -16,14 +16,20 @@ APP_ROOT = (REPO_ROOT / "app").resolve()
 RUNTIME_ROOT = (REPO_ROOT / "runtime").resolve()
 
 # ---------------------------------------------------------------------------
-# Mutable /doc/ root
+# Mutable /doc/ and /lib/ roots
 # ---------------------------------------------------------------------------
 _doc_root = {"path": None}
+_lib_root = {"path": None}
 
 
 def set_doc_root(path):
     """Expose a setter so api.py can re-point the /doc/ root."""
     _doc_root["path"] = pathlib.Path(path).resolve() if path else None
+
+
+def set_lib_root(path):
+    """Expose a setter so library previews can resolve assets via /lib/."""
+    _lib_root["path"] = pathlib.Path(path).resolve() if path else None
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +137,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self._send_json(404, {"error": "No document open"})
                     return
                 self._serve_static(doc_root, path[len("/doc/"):])
+            elif path.startswith("/lib/"):
+                lib_root = _lib_root["path"]
+                if lib_root is None:
+                    self._send_json(404, {"error": "No library open"})
+                    return
+                self._serve_static(lib_root, path[len("/lib/"):])
             else:
                 self._send_json(404, {"error": "Not found"})
         except Exception as exc:
@@ -178,6 +190,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send_json(status, resp)
             elif path == "/api/library-load":
                 status, resp = builder_api.handle_library_load(payload)
+                if status == 200 and payload.get("path") and resp.get("ok") is not False:
+                    set_lib_root(payload["path"])
+                elif payload.get("path"):
+                    set_lib_root(None)
                 self._send_json(status, resp)
             elif path == "/api/library-asset":
                 status, resp = builder_api.handle_library_asset(payload)

@@ -58,6 +58,7 @@
 
 | # | Date | Actor | Type | Entry |
 |---|------|-------|------|-------|
+| 326 | 2026-06-14 | Codex | fix | Library-mode builder previews now use a `/lib/` GET root for the current library, so relative `assets/*` references resolve without disturbing deck-mode `/doc/` previews. |
 | 325 | 2026-06-14 | Codex | fix | Reorder axis detection now includes the dragged element's pre-drag rect, fixing same-parent insert-side inversion for exactly 2 auto-placed grid items in one horizontal row; regression test added in `test_move_drag_reliability.py`. |
 | 1 | 2026-06-03 | Orchestrator | session | Session opened. Roles: Opus=spec+test design, Sonnet=research, Kimi=exclusive engineering. Orchestrator never executes. |
 | 2 | 2026-06-03 | Orchestrator | doc | Kimi CLI reference loaded (verified against v1.41.0). Headless invocation + exit-code retry policy adopted (see Kimi contract). |

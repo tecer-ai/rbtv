@@ -22,15 +22,18 @@ function fetchTheme(libraryPath) {
   return p;
 }
 
-// _docBase: the URL that srcdoc iframes use as their <base href> so relative
-// assets/* refs (e.g. src="assets/logo.png") resolve against the server's /doc/
-// route instead of the builder page's own /app/ origin.
-// The default points to /doc/ on the same server that serves the builder page.
-// Set a different value before building srcdocs when a non-standard route is used.
+// _docBase/_libraryBase: URLs that srcdoc iframes use as their <base href> so
+// relative assets/* refs resolve against the loaded deck or library root instead
+// of the builder page's own /app/ origin.
 const _docBase = window.location.origin + '/doc/';
+let _libraryBase = window.location.origin + '/lib/';
+
+export function setLibraryBase(base) {
+  _libraryBase = base || (window.location.origin + '/lib/');
+}
 
 export function buildSrcdoc(theme, fragment) {
-  return `<!DOCTYPE html><html><head><base href="${_docBase}"><style>${theme}</style></head><body>${fragment}</body></html>`;
+  return `<!DOCTYPE html><html><head><base href="${_libraryBase}"><style>${theme}</style></head><body>${fragment}</body></html>`;
 }
 
 export function buildDeckSrcdoc(head, fragment) {
