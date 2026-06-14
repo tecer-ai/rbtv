@@ -22,12 +22,19 @@ function fetchTheme(libraryPath) {
   return p;
 }
 
+// _docBase: the URL that srcdoc iframes use as their <base href> so relative
+// assets/* refs (e.g. src="assets/logo.png") resolve against the server's /doc/
+// route instead of the builder page's own /app/ origin.
+// The default points to /doc/ on the same server that serves the builder page.
+// Set a different value before building srcdocs when a non-standard route is used.
+const _docBase = window.location.origin + '/doc/';
+
 export function buildSrcdoc(theme, fragment) {
-  return `<!DOCTYPE html><html><head><style>${theme}</style></head><body>${fragment}</body></html>`;
+  return `<!DOCTYPE html><html><head><base href="${_docBase}"><style>${theme}</style></head><body>${fragment}</body></html>`;
 }
 
 export function buildDeckSrcdoc(head, fragment) {
-  return `<!DOCTYPE html><html><head>${head}</head><body>${fragment}</body></html>`;
+  return `<!DOCTYPE html><html><head><base href="${_docBase}">${head}</head><body>${fragment}</body></html>`;
 }
 
 // Cached full srcdoc for one slide — shared by browse previews and tray thumbnails.

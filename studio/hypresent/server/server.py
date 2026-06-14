@@ -187,6 +187,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send_json(status, resp)
             elif path == "/api/deck-load":
                 status, resp = deck_api.handle_deck_load(payload)
+                if status == 200 and resp.get("dir"):
+                    set_doc_root(resp["dir"])
                 self._send_json(status, resp)
             elif path == "/api/deck-save":
                 status, resp = deck_api.handle_deck_save(payload)
