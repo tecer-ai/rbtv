@@ -183,6 +183,11 @@ variants:
   # (manifest-schema.md §2 "Variant field-count discipline": a variant must differ in ≥1 routing-relevant field).
 
   - variant: fable   # the senior-conductor / final-plan-review profile — premium top-tier Claude (Fable 5) as an in-session sub-agent
+    # ⚠ UNAVAILABLE (probe 2026-06-14): headless `claude -p --model claude-fable-5` returns "Claude Fable 5 is currently
+    # unavailable — Fable Mythos access" (access-gated rollout). NOT dispatchable until access is granted. Variant RETAINED
+    # (owner 2026-06-14: keep + mark unavailable); the routing §3 conductor / final-plan-reviewer pins fall back to opus
+    # meanwhile. Restore on a successful probe. NOT yet enforced by route.py (auth:none variants read as always-available) —
+    # a functional `available:` filter + selector drop is a captured follow-up.
     evidence_status: probe-pending   # the Agent-tool dispatch CONTRACT is the package's validated baseline (model-agnostic — holds for any Claude model via the Agent tool), but Fable 5 SPECIFICALLY has not been pilot-dispatched through this carrier and its sizing values (context_window, max_output) are docs-authored, not pilot-observed. Per manifest-schema.md §5 (unvalidated values carry probe-pending) the variant is probe-pending until a fable dispatch validates it; the opus/sonnet variants remain validated
 
     # --- boundedness + sizing (routing §2, §8) ---
