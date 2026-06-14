@@ -2,7 +2,7 @@
 
 import { mountPreviews } from './previews.js';
 
-export function renderBrowse(data, { onTag, libraryPath, onExpand }) {
+export function renderBrowse(data, { onTag, libraryPath, onExpand, onArchive }) {
   const groupsContainer = document.getElementById('browse-groups');
   const emptyState = document.getElementById('browse-empty');
 
@@ -82,6 +82,18 @@ export function renderBrowse(data, { onTag, libraryPath, onExpand }) {
       });
       thumbWrapper.appendChild(expandBtn);
 
+      const archiveBtn = document.createElement('button');
+      archiveBtn.type = 'button';
+      archiveBtn.className = 's-archive';
+      archiveBtn.setAttribute('aria-label', 'Archive slide');
+      archiveBtn.title = 'Archive';
+      archiveBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>';
+      archiveBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (typeof onArchive === 'function') onArchive(slide.id);
+      });
+      thumbWrapper.appendChild(archiveBtn);
+
       const addPill = document.createElement('span');
       addPill.className = 's-add';
       addPill.textContent = '+ Add';
@@ -134,6 +146,84 @@ export function renderBrowse(data, { onTag, libraryPath, onExpand }) {
     const scrollRoot = document.getElementById('builder-browse') || groupsContainer;
     mountPreviews(libraryPath, scrollRoot);
   }
+}
+
+export function renderArchived(archived, { onRestore }) {
+  const groupsContainer = document.getElementById('browse-groups');
+  const emptyState = document.getElementById('browse-empty');
+
+  groupsContainer.innerHTML = '';
+  if (emptyState) {
+    emptyState.style.display = 'none';
+  }
+
+  if (!archived || archived.length === 0) {
+    const emptyLine = document.createElement('p');
+    emptyLine.className = 'browse-empty-archived';
+    emptyLine.textContent = 'No archived slides.';
+    groupsContainer.appendChild(emptyLine);
+    return;
+  }
+
+  const group = document.createElement('section');
+  group.className = 'browse-group browse-sec';
+
+  const header = document.createElement('header');
+  const label = document.createElement('h2');
+  label.className = 'browse-group-label';
+  label.textContent = 'Archived';
+  header.appendChild(label);
+
+  const count = document.createElement('span');
+  count.className = 'n';
+  count.textContent = archived.length + (archived.length === 1 ? ' slide' : ' slides');
+  header.appendChild(count);
+
+  const rule = document.createElement('span');
+  rule.className = 'rule';
+  header.appendChild(rule);
+
+  group.appendChild(header);
+
+  const grid = document.createElement('div');
+  grid.className = 'slide-grid';
+
+  archived.forEach(entry => {
+    const card = document.createElement('article');
+    card.className = 'slide-card';
+    card.dataset.slideId = entry.id;
+    card.tabIndex = 0;
+    card.setAttribute('aria-label', entry.id);
+
+    const thumbWrapper = document.createElement('div');
+    thumbWrapper.className = 'slide-thumb-wrapper';
+
+    const restoreBtn = document.createElement('button');
+    restoreBtn.type = 'button';
+    restoreBtn.className = 's-restore';
+    restoreBtn.textContent = 'Restore';
+    restoreBtn.setAttribute('aria-label', 'Restore slide');
+    restoreBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (typeof onRestore === 'function') onRestore(entry.id);
+    });
+    thumbWrapper.appendChild(restoreBtn);
+
+    card.appendChild(thumbWrapper);
+
+    const cap = document.createElement('div');
+    cap.className = 's-cap';
+    const title = document.createElement('h3');
+    title.className = 'slide-title';
+    title.textContent = entry.id;
+    cap.appendChild(title);
+    card.appendChild(cap);
+
+    grid.appendChild(card);
+  });
+
+  group.appendChild(grid);
+  groupsContainer.appendChild(group);
 }
 
 export function applyLangFilter(selectedLang) {

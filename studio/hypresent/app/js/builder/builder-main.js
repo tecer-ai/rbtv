@@ -1,7 +1,8 @@
 // builder-main.js — prez-builder entry: rail + browse + tray + assemble wiring.
-import { pickAndLoadLibrary } from './library-load.js';
+import { pickAndLoadLibrary, loadLibraryByPath } from './library-load.js';
 import { pickAndLoadDeck, loadDeckByPath } from './deck-load.js';
-import { renderBrowse, applyLangFilter, markTrayState } from './browse-pane.js';
+import { renderBrowse, renderArchived, applyLangFilter, markTrayState } from './browse-pane.js';
+import { archiveSlide, unarchiveSlide, listArchived } from './archive-actions.js';
 import { createSlideStage } from './slide-stage.js';
 import { createTray } from './tray.js';
 import { buildDeckSrcdoc } from './previews.js';
@@ -9,7 +10,7 @@ import { pickDestination, assembleDeck, buildOutPath } from './assemble.js';
 import { saveDeck } from './deck-save.js';
 import { confirmSaveOverwrite } from '/app/js/shell/confirm-modal.js';
 
-const state = { libraryPath: null, data: null, tray: null, slideLookup: null, deck: null, canSave: false };
+const state = { libraryPath: null, data: null, tray: null, slideLookup: null, deck: null, canSave: false, showArchived: false };
 let destFolder = null;
 let accentChosen = false;
 
@@ -35,6 +36,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const langSeg = document.getElementById('lang-seg');
   const secBlock = document.getElementById('sec-block');
   const secNav = document.getElementById('sec-nav');
+  const viewBlock = document.getElementById('view-block');
+  const showArchivedBtn = document.getElementById('show-archived-btn');
   const builderStatus = document.getElementById('builder-status');
   const presetSelect = document.getElementById('preset-select');
   const trayCount = document.getElementById('tray-count');
@@ -172,6 +175,62 @@ document.addEventListener("DOMContentLoaded", () => {
     }, { passive: true });
   }
 
+  // ── archive / restore gestures ───────────────────────────────────────
+  const onExpand = (id) => { if (state.stage) state.stage.open(id); };
+  const onTag = (rec) => { if (tray.has(rec.id)) tray.remove(rec.id); else tray.add(rec); };
+
+  function renderLiveGrid() {
+    renderBrowse(state.data, { onTag, libraryPath: state.libraryPath, onExpand, onArchive });
+    buildSectionsNav(state.data);
+    markTrayState(tray.getOrder());
+  }
+
+  async function reloadLibraryState() {
+    const r = await loadLibraryByPath(state.libraryPath);
+    if (!r || r.ok === false) { setStatus('Library reload failed', 'error'); return false; }
+    state.data = r.data;
+    state.slideLookup = new Map((r.data.slides || []).map(s => [s.id, s]));
+    return true;
+  }
+
+  async function showArchivedView() {
+    const res = await listArchived(state.libraryPath);
+    if (!res || res.ok === false) { setStatus('Could not load archived slides', 'error'); return; }
+    renderArchived(res.archived || [], { onRestore });
+  }
+
+  function renderCurrentMode() { if (state.showArchived) showArchivedView(); else renderLiveGrid(); }
+
+  const onArchive = async (id) => {
+    const res = await archiveSlide(state.libraryPath, id);
+    if (res && res.ok) {
+      setStatus('Archived ' + id, 'success');
+      if (await reloadLibraryState()) renderCurrentMode();
+    } else {
+      setStatus('Archive failed: ' + ((res && res.error) || 'unknown'), 'error');
+    }
+  };
+
+  const onRestore = async (id) => {
+    const res = await unarchiveSlide(state.libraryPath, id);
+    if (res && res.ok) {
+      setStatus('Restored ' + id, 'success');
+      if (await reloadLibraryState()) renderCurrentMode();
+    } else {
+      setStatus('Restore failed: ' + ((res && res.error) || 'unknown'), 'error');
+    }
+  };
+
+  // ── left rail: archived view toggle ──────────────────────────────────
+  if (showArchivedBtn) {
+    showArchivedBtn.addEventListener('click', () => {
+      state.showArchived = !state.showArchived;
+      showArchivedBtn.classList.toggle('is-active', state.showArchived);
+      showArchivedBtn.setAttribute('aria-pressed', String(state.showArchived));
+      renderCurrentMode();
+    });
+  }
+
   // ── library load (three entry points share one handler) ──────────────
   async function handlePickLibrary() {
     let result;
@@ -261,16 +320,13 @@ document.addEventListener("DOMContentLoaded", () => {
       },
       isAdded: (id) => tray.has(id),
     });
-    const onExpand = (id) => state.stage.open(id);
-
-    // browse + sections nav (cards toggle add/remove on click)
-    const onTag = (rec) => {
-      if (tray.has(rec.id)) tray.remove(rec.id);
-      else tray.add(rec);
-    };
-    renderBrowse(result.data, { onTag, libraryPath: result.path, onExpand });
-    buildSectionsNav(result.data);
-    markTrayState(tray.getOrder());
+    state.showArchived = false;
+    renderLiveGrid();
+    if (viewBlock) viewBlock.hidden = false;
+    if (showArchivedBtn) {
+      showArchivedBtn.classList.remove('is-active');
+      showArchivedBtn.setAttribute('aria-pressed', 'false');
+    }
 
     // deck language options
     if (deckLang) {
@@ -335,11 +391,13 @@ document.addEventListener("DOMContentLoaded", () => {
     state.libraryPath = null;
     state.data = null;
     state.slideLookup = null;
+    state.showArchived = false;
     browse.innerHTML = '';
     if (browseEmpty) browseEmpty.style.display = '';
     if (libChip) libChip.hidden = true;
     if (langBlock) langBlock.hidden = true;
     if (secBlock) secBlock.hidden = true;
+    if (viewBlock) viewBlock.hidden = true;
 
     tray.setLibrary(null);
     tray.setSrcdocProvider((rec, index) => {

@@ -9,6 +9,7 @@ import conftest_helpers as H
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUILDER_LIB = os.path.join(HERE, "fixtures", "builder-lib")
 ENGINE_SRC = os.path.join(BUILDER_LIB, "assemble.py")
+ARCHIVE_SRC = os.path.join(BUILDER_LIB, "archive.py")
 
 
 def set_fake_folder(base, path_or_none):
@@ -32,6 +33,8 @@ def make_temp_library():
     # Ensure the vendored engine is fresh
     engine_dst = os.path.join(dst, "assemble.py")
     shutil.copy(ENGINE_SRC, engine_dst)
+    if os.path.exists(ARCHIVE_SRC):
+        shutil.copy(ARCHIVE_SRC, os.path.join(dst, "archive.py"))
     return dst
 
 

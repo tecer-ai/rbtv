@@ -201,6 +201,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif path == "/api/assemble":
                 status, resp = builder_api.handle_assemble(payload)
                 self._send_json(status, resp)
+            elif path == "/api/archive":
+                status, resp = builder_api.handle_archive(payload)
+                self._send_json(status, resp)
+            elif path == "/api/unarchive":
+                status, resp = builder_api.handle_unarchive(payload)
+                self._send_json(status, resp)
+            elif path == "/api/archive-list":
+                status, resp = builder_api.handle_archive_list(payload)
+                self._send_json(status, resp)
             elif path == "/api/deck-load":
                 status, resp = deck_api.handle_deck_load(payload)
                 if status == 200 and resp.get("dir"):

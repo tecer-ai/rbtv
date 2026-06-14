@@ -77,12 +77,12 @@ def handle_dialog_folder():
 # ---------------------------------------------------------------------------
 # Engine subprocess helper (ADX-2)
 # ---------------------------------------------------------------------------
-def _run_engine(library_path, args):
+def _run_engine(library_path, args, engine="assemble.py"):
     """Run the library's vendored engine; return (returncode, stdout, stderr)."""
-    engine = os.path.join(library_path, "assemble.py")
-    if not os.path.isfile(engine):
-        return (None, "", f"no assemble.py in library: {library_path}")
-    proc = subprocess.run([sys.executable, engine, *args],
+    engine_path = os.path.join(library_path, engine)
+    if not os.path.isfile(engine_path):
+        return (None, "", f"no {engine} in library: {library_path}")
+    proc = subprocess.run([sys.executable, engine_path, *args],
                           capture_output=True, text=True, encoding="utf-8",
                           cwd=library_path)
     return (proc.returncode, proc.stdout, proc.stderr)
@@ -144,3 +144,50 @@ def handle_assemble(payload):
     except Exception:
         return (500, {"error": f"engine did not return JSON: {err or eout[:200]}"})
     return (200, envelope)  # engine ok:false passes through
+
+
+# ---------------------------------------------------------------------------
+# Archive handlers — thin passthrough to the library's vendored archive.py
+# ---------------------------------------------------------------------------
+def handle_archive(payload):
+    path = payload.get("path")
+    slide_id = payload.get("slide_id")
+    if not path or not slide_id:
+        return (500, {"error": "Missing 'path' or 'slide_id'"})
+    rc, out, err = _run_engine(path, [slide_id, "--json"], engine="archive.py")
+    if rc is None:
+        return (500, {"error": err})
+    try:
+        envelope = json.loads(out)
+    except Exception:
+        return (500, {"error": f"archive tool did not return JSON: {err or out[:200]}"})
+    return (200, envelope)
+
+
+def handle_unarchive(payload):
+    path = payload.get("path")
+    slide_id = payload.get("slide_id")
+    if not path or not slide_id:
+        return (500, {"error": "Missing 'path' or 'slide_id'"})
+    rc, out, err = _run_engine(path, ["--unarchive", slide_id, "--json"], engine="archive.py")
+    if rc is None:
+        return (500, {"error": err})
+    try:
+        envelope = json.loads(out)
+    except Exception:
+        return (500, {"error": f"archive tool did not return JSON: {err or out[:200]}"})
+    return (200, envelope)
+
+
+def handle_archive_list(payload):
+    path = payload.get("path")
+    if not path:
+        return (500, {"error": "Missing 'path'"})
+    rc, out, err = _run_engine(path, ["--list", "--json"], engine="archive.py")
+    if rc is None:
+        return (500, {"error": err})
+    try:
+        envelope = json.loads(out)
+    except Exception:
+        return (500, {"error": f"archive tool did not return JSON: {err or out[:200]}"})
+    return (200, envelope)
