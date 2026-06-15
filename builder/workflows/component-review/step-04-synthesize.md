@@ -1,6 +1,6 @@
 ---
 name: 'step-04-synthesize'
-description: 'Build the four-branch problem tree, verdict hypotheses, rank fix directions, finalize the diagnosis.'
+description: 'Build the five-branch problem tree, verdict hypotheses, rank fix directions, finalize the diagnosis.'
 nextStepFile: null
 workflowFile: './workflow.md'
 dataFile: './data/efficiency-patterns.md'
@@ -30,7 +30,7 @@ Convert discoveries into a decision-ready diagnosis: tree, verdicts, and priorit
 
 ### 1. Build the Problem Tree
 
-Root: "Why does {component} cost tokens that don't buy quality?" Branches: the four cost loci (LOAD / DECIDE / RECORD / COORDINATE). Leaves: pattern instances, each citing D#. Each branch carries its counter-evidence line(s) — "(KEEP: …)" — where the earned-content hunt found them. Validate MECE at each level: no leaf in two branches (file by fix locus); no discovery unmapped.
+Root: "Why does {component} cost tokens that don't buy quality?" Branches: the five cost loci (LOAD / DECIDE / THINK / RECORD / COORDINATE). Leaves: pattern instances, each citing D#. Each branch carries its counter-evidence line(s) — "(KEEP: …)" — where the earned-content hunt found them. Validate MECE at each level: no leaf in two branches (file by fix locus); no discovery unmapped.
 
 ### 2. Verdict the Hypotheses
 

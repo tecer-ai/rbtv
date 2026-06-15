@@ -7,7 +7,10 @@ Usage:
 PATH may be a file or a directory (directories are walked recursively).
 Emits markdown tables to stdout:
   1. Per-file metrics: lines, words, imperative count, conditional lines,
-     cross-file references.
+     arbitration operators, longest structure-free prose run, open-deliberation
+     cues, and cross-file references. The four middle columns (conditional /
+     arbitration / prose-run / open-delib) are DIRECTIONAL cognitive-load proxies
+     for the THINK-locus review — a measured starting point, never a verdict.
   2. Duplicated blocks: contiguous runs of 12-word shingles shared between
      file pairs, with approximate duplicated word mass.
 
@@ -27,6 +30,35 @@ MIN_SHARED_RUNS = 1  # report a pair if it shares at least one run
 IMPERATIVE_RE = re.compile(r"\b(MUST|NEVER|ALWAYS|STOP)\b")  # case-sensitive
 CONDITIONAL_RE = re.compile(r"(^|\s)(if|when)\s", re.IGNORECASE)
 CROSSREF_RE = re.compile(r"[\w\-./{}]+\.(?:md|py|yaml|yml|xml|csv|json)\b")
+# Cognitive-load proxies (directional, for the THINK locus — judged, not verdicted):
+ARBITRATION_RE = re.compile(
+    r"\b(except|unless|wins over|overrides?|takes precedence|precedence"
+    r"|supersedes?|rather than|instead of)\b", re.IGNORECASE)
+OPEN_DELIB_RE = re.compile(
+    r"\b(consider|think about|reason about|use your judgment|use judgment"
+    r"|as appropriate|as needed|all the ways|figure out|determine the best"
+    r"|decide how best|weigh whether)\b", re.IGNORECASE)
+STRUCTURE_RE = re.compile(r"^(#|\||>|-|\*|\d+[.)]\s|---|```)")
+
+
+def longest_prose_run(lines):
+    """Longest run of consecutive non-blank lines that are not headings,
+    tables, lists, blockquotes, rules, or fenced code — a lost-in-the-middle
+    proxy for a directive buried in a wall of prose."""
+    in_code = False
+    run = best = 0
+    for ln in lines:
+        s = ln.strip()
+        if s.startswith("```"):
+            in_code = not in_code
+            run = 0
+            continue
+        if in_code or not s or STRUCTURE_RE.match(s):
+            run = 0
+            continue
+        run += 1
+        best = max(best, run)
+    return best
 
 
 def collect_files(paths):
@@ -53,6 +85,9 @@ def file_metrics(path, text):
     words = [w for w in re.split(r"\s+", text) if w]
     imperatives = len(IMPERATIVE_RE.findall(text))
     conditionals = sum(1 for ln in lines if CONDITIONAL_RE.search(ln))
+    arbitration = len(ARBITRATION_RE.findall(text))
+    open_delib = len(OPEN_DELIB_RE.findall(text))
+    prose_run = longest_prose_run(lines)
     self_name = os.path.basename(path)
     refs = [m for m in CROSSREF_RE.findall(text)]
     crossrefs = sum(1 for m in CROSSREF_RE.finditer(text)
@@ -62,6 +97,9 @@ def file_metrics(path, text):
         "words": len(words),
         "imperatives": imperatives,
         "conditionals": conditionals,
+        "arbitration": arbitration,
+        "prose_run": prose_run,
+        "open_delib": open_delib,
         "crossrefs": crossrefs,
     }
 
@@ -115,18 +153,25 @@ def main(argv):
     base = os.path.commonpath(files) if len(files) > 1 else os.path.dirname(files[0])
 
     print("## Per-File Metrics\n")
-    print("| File | Lines | Words | Imperatives | Conditional lines | Cross-file refs |")
-    print("|------|------:|------:|------------:|------------------:|----------------:|")
+    print("| File | Lines | Words | Imperatives | Conditional lines "
+          "| Arbitration ops | Max prose run | Open-delib | Cross-file refs |")
+    print("|------|------:|------:|------------:|------------------:"
+          "|----------------:|--------------:|-----------:|----------------:|")
     totals = defaultdict(int)
+    max_prose = 0
     for f in files:
         m = metrics[f]
         rel = os.path.relpath(f, base)
         print(f"| {rel} | {m['lines']} | {m['words']} | {m['imperatives']} "
-              f"| {m['conditionals']} | {m['crossrefs']} |")
+              f"| {m['conditionals']} | {m['arbitration']} | {m['prose_run']} "
+              f"| {m['open_delib']} | {m['crossrefs']} |")
         for k, v in m.items():
             totals[k] += v
+        max_prose = max(max_prose, m['prose_run'])
     print(f"| **TOTAL ({len(files)} files)** | **{totals['lines']}** | **{totals['words']}** "
-          f"| **{totals['imperatives']}** | **{totals['conditionals']}** | **{totals['crossrefs']}** |")
+          f"| **{totals['imperatives']}** | **{totals['conditionals']}** "
+          f"| **{totals['arbitration']}** | **{max_prose} (max)** "
+          f"| **{totals['open_delib']}** | **{totals['crossrefs']}** |")
 
     words_by_file = {f: normalize_words(texts[f]) for f in files}
     shingle_sets = {f: set(shingles_of(words_by_file[f])) for f in files}

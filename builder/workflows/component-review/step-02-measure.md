@@ -42,7 +42,7 @@ Compare the script's TOTAL row file count against Step 1's enumerated tree. A mi
 
 ### 3. Append the Baseline
 
-Append both tables to the diagnosis document under `## Measured Baseline`, plus a 3-line reading: the heaviest files by words, the top duplication pair, and the densest file by imperatives-per-words. No interpretation beyond those three lines — interpretation is Step 3's job, with evidence.
+Append both tables to the diagnosis document under `## Measured Baseline`, plus a 4-line reading: the heaviest files by words, the top duplication pair, the densest file by imperatives-per-words, and the highest cognitive-load file by the proxy columns (conditional + arbitration + open-delib density, or the longest max-prose-run). No interpretation beyond those four lines — interpretation is Step 3's job, with evidence; the load proxies are directional figures, never verdicts.
 
 ### 4. Present Menu
 

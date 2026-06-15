@@ -39,13 +39,13 @@ python {rbtv_path}/builder/workflows/component-review/scripts/measure-component.
 
 Python unavailable → per file: `wc -l`, `wc -w`; mark the duplication table `NOT MEASURED (no python)`.
 
-### 3. Evaluate the Seven Gate Checks
+### 3. Evaluate the Eight Gate Checks
 
-Evaluate each Create-Time Gate row against the new files, using the measured tables as evidence for checks 1 (duplicated blocks), 5, and 6 (size limits per `./data/component-patterns.md`).
+Evaluate each Create-Time Gate row against the new files, using the measured tables as evidence for checks 1 (duplicated blocks), 5, 6 (size limits per `./data/component-patterns.md`), and 8 (the cognitive-load proxy columns — conditional / arbitration / max prose run / open-delib). Check 8's proxies are directional: a high score the build can justify as earned (well-sequenced, irreducible judgment) is owner-accepted, not auto-failed.
 
 ### 4. Present the Gate Report
 
-No violations → present the measured table + one line: "Efficiency gate: clean (7/7)."
+No violations → present the measured table + one line: "Efficiency gate: clean (8/8)."
 
 Violations → present:
 
@@ -70,5 +70,5 @@ Terminal step — no next step file. On **[D] Done**, the build is complete; res
 
 ---
 
-✅ **SUCCESS:** every new file measured, 7 checks evaluated with evidence, violations fixed or owner-accepted on record.
+✅ **SUCCESS:** every new file measured, 8 checks evaluated with evidence, violations fixed or owner-accepted on record.
 ❌ **FAILURE:** skipping the gate for "small" components; loading the full taxonomy instead of the gate section; passing a violation without an acceptance record.

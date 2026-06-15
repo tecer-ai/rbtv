@@ -33,8 +33,8 @@ Gather lane-by-lane evidence through read-only sub-agents so the conductor's con
 
 | Target size (from Measured Baseline) | Lanes |
 |--------------------------------------|-------|
-| ≤ 5 files or ≤ 3,000 words | 2 lanes: LOAD+DECIDE, RECORD+COORDINATE — earned-content hunting folded into both |
-| Larger | 4 locus lanes (LOAD, DECIDE, RECORD, COORDINATE) + 1 earned-content lane |
+| ≤ 5 files or ≤ 3,000 words | 2 lanes: LOAD+DECIDE+THINK, RECORD+COORDINATE — earned-content hunting folded into both |
+| Larger | 5 locus lanes (LOAD, DECIDE, THINK, RECORD, COORDINATE) + 1 earned-content lane |
 | Owner hypotheses exist (H1..Hn) | +1 hypothesis-test lane, whatever the size |
 
 Present the chosen lane plan to the owner in one line each, then dispatch without waiting (the owner interrupts if the plan is wrong).
@@ -46,7 +46,7 @@ Every lane prompt MUST contain, in this order:
 1. **Read-only mandate:** "You must NEVER create, write, edit, move, or delete any file. Your reply text is the deliverable. Local files only."
 2. **Absolute target paths** from the diagnosis document's `target_paths`, plus the workspace root.
 3. **Tooling caveat:** "Glob may return false negatives — verify any absence with Bash ls/find or Grep. All counts via wc/grep, never estimated."
-4. **The lane's pattern table** — paste the relevant locus section(s) from `./data/efficiency-patterns.md` verbatim into the prompt.
+4. **The lane's pattern table** — paste the relevant locus section(s) from `./data/efficiency-patterns.md` verbatim into the prompt. For any lane covering THINK, also paste that lane's per-file cognitive-load proxy columns (Conditional / Arbitration / Max prose run / Open-delib) from the Measured Baseline as the lane's starting point — directional figures the investigator confirms against the files (real load vs. earned), never a verdict.
 5. **The mission:** find instances of the lane's patterns in the target; for each, cite file path + evidence + measured cost; AND mark earned content as KEEP rows (content whose removal would re-open a failure — name the failure).
 6. **Anti-flattery clause:** "Report facts and measured costs. Do not flatter the hypothesis that this component is wasteful — disconfirming evidence is equally valuable."
 7. **Return shape:** executive summary (3–6 bullets with totals) → evidence table (`pattern | file | evidence | measured cost`) → KEEP rows (`content | failure it guards`).

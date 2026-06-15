@@ -17,19 +17,19 @@ The RBTV-native module — for building RBTV itself. Install it in workspaces wh
   - Input: component type, description of what it should do, target system (RBTV or workspace-native)
   - Output: correctly placed and structured component file(s) with compliant naming and size
 - **Draft refinement**: at the scaffold step the workflow runs a prompt-refinement pass (`data/prompt-refinement-checklist.md`) over the drafted instructions before finalizing them — surfacing hidden assumptions, vague wording, missing context, missing constraints, and unforced clarifications so the component's text holds up when executed literally.
-- **Efficiency gate**: every build ends at `step-05-efficiency-gate.md` — the new files are measured (`component-review/scripts/measure-component.py`) and checked against the Create-Time Gate in `component-review/data/efficiency-patterns.md` (single authority, determinism, discrete triggers, named consumers, event-scoped load, size limits, light path). Violations are fixed or explicitly owner-accepted, never silently shipped.
+- **Efficiency gate**: every build ends at `step-05-efficiency-gate.md` — the new files are measured (`component-review/scripts/measure-component.py`) and checked against the Create-Time Gate in `component-review/data/efficiency-patterns.md` (single authority, determinism, discrete triggers, named consumers, event-scoped load, size limits, light path, bounded reasoning load). Violations are fixed or explicitly owner-accepted, never silently shipped.
 - **Example**: "I need a skill that runs our weekly competitor scan" → Claude identifies the right component type, drafts the structure, confirms placement, writes the files.
 
 ---
 
 ### `component-review` workflow (review mode of `rbtv-create-component`)
 
-- **What**: Token-efficiency diagnosis of an existing component — any RBTV module, or any component in a workspace with a CLAUDE.md. Four steps: intake (target + owner's felt-waste hypotheses), measure (deterministic baseline via `scripts/measure-component.py` — words, imperative/conditional density, cross-file loads, duplicated blocks), investigate (read-only sonnet sub-agents, one lane per cost locus), synthesize (problem tree + hypothesis verdicts + ranked format fixes).
+- **What**: Token-efficiency diagnosis of an existing component — any RBTV module, or any component in a workspace with a CLAUDE.md. Four steps: intake (target + owner's felt-waste hypotheses), measure (deterministic baseline via `scripts/measure-component.py` — words, imperative/conditional/arbitration density, longest prose run, open-deliberation cues, cross-file loads, duplicated blocks), investigate (read-only sonnet sub-agents, one lane per cost locus), synthesize (problem tree + hypothesis verdicts + ranked format fixes).
 - **When to use**: A component feels expensive to run — agents seem to read or reason too much to execute it — and you want measured evidence of where the cost lives before trimming. The owner's hypotheses are tested, not assumed: felt waste and measured waste routinely diverge.
 - **How to invoke**: "Review {component} for token efficiency" / "diagnose why {component} is expensive" — routes through the `rbtv-create-component` skill's Review mode.
 - **Inputs / outputs**:
   - Input: the target component (name or path; installed loaders are resolved to source)
-  - Output: an efficiency-diagnosis document — measured baseline, discoveries with KEEP counter-evidence rows, LOAD/DECIDE/RECORD/COORDINATE problem tree, verdicts, prioritized fixes sized for planning handoff
+  - Output: an efficiency-diagnosis document — measured baseline, discoveries with KEEP counter-evidence rows, LOAD/DECIDE/THINK/RECORD/COORDINATE problem tree, verdicts, prioritized fixes sized for planning handoff
 - **Core constraint**: the quality floor — protections keep their value; only their delivery format is on trial. The taxonomy lives in `component-review/data/efficiency-patterns.md`, the single source consumed by both this workflow and the create-flow gate.
 
 ---

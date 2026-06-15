@@ -1,15 +1,16 @@
 # Efficiency Patterns
 
-Token-waste pattern taxonomy for component diagnosis and design-time prevention. Two consumers: the component-review workflow (diagnostic lens, steps 01–04) and component-creation step-05 (the Create-Time Gate section at the end). Patterns are classified by COST LOCUS — where in the agent loop the waste is paid.
+Token-cost pattern taxonomy — visible footprint and invisible reasoning load — for component diagnosis and design-time prevention. Two consumers: the component-review workflow (diagnostic lens, steps 01–04) and component-creation step-05 (the Create-Time Gate section at the end). Patterns are classified by COST LOCUS — where in the agent loop the cost is paid: LOAD/RECORD/COORDINATE bill input footprint; DECIDE/THINK bill reasoning the owner never sees as context.
 
 ---
 
-## The Four Cost Loci
+## The Five Cost Loci
 
 | Locus | The question it asks |
 |-------|---------------------|
 | **LOAD** | Is material loaded that the session or task doesn't need, or loaded in a more expensive form than needed? |
-| **DECIDE** | Is judgment spent where a deterministic structure could decide? |
+| **DECIDE** | Is *eliminable* judgment spent where a deterministic structure could decide it instead? |
+| **THINK** | Is the agent forced to hold or unwind more *irreducible* reasoning at once than the task requires — judgment shaped to maximize, not minimize, what must be juggled? |
 | **RECORD** | Is more written than is ever consumed, or written more expensively than needed? |
 | **COORDINATE** | Do component seams force re-derivation or mismatch repair? |
 
@@ -36,6 +37,19 @@ A waste item is filed under the locus where its FIX lives, not where its symptom
 | Dual authority | A workflow or step restating behavior an always-on rule already mandates — or two files each claiming to own the same decision | Delete the restatement; exactly one file owns the behavior, all others reference it |
 | Judgment-fired trigger | A trigger relying on agent self-assessment at an unmeasurable moment ("when context fills", "when appropriate") — these under-fire precisely when the agent is busiest | Anchor to a discrete observable moment: a mandatory checklist row inside an existing procedure, or a measurable threshold |
 | Cross-trigger single-source over-merge | A clause appears in 2 files BUT the two sites fire on different triggers; naive dedup would silence one trigger | Single-source the *statement*, keep a one-line trigger stub at each site that cross-references the canonical home — do NOT collapse to one site if a trigger would lose coverage |
+
+## THINK Patterns
+
+**Boundary with DECIDE:** DECIDE removes *eliminable* judgment — replace it with a table or script so no thinking is spent. THINK shapes *irreducible* judgment that must stay — sequence, scaffold, and hoist it so the agent holds less at once. Test: a lookup can decide it → DECIDE; a human-like judgment must stay but is badly shaped → THINK.
+
+**Measured starting point, judged outcome:** the proxy columns (`Arbitration ops`, `Conditional lines`, `Max prose run`, `Open-delib`) from `../scripts/measure-component.py` flag *candidate* load — directional evidence, never a verdict. High proxies can be earned: a genuinely complex, well-sequenced decision scores high yet wastes nothing. Mark earned load KEEP with the failure its complexity guards, exactly as the other loci do. A cut that lowers a proxy by un-sequencing real judgment is Goodhart waste, not a fix.
+
+| Pattern | Detection heuristic | Fix direction |
+|---------|--------------------|---------------|
+| Simultaneity overload | A step makes the agent weigh many interacting considerations in one pass (high arbitration + conditional density) where the judgment is real — no lookup can collapse it | Sequence the considerations into ordered sub-steps resolved one at a time; never require all held at once |
+| Buried directive | The decisive instruction or the HALT sits inside a long structure-free run (high max-prose-run), far from the step head and the menu — where attention is weakest | Hoist the decisive directive to the step's head or foot, adjacent to the menu/HALT |
+| Unscaffolded deliberation | An open directive ("consider all the ways…", "reason about…", "use judgment") with no enumerated frame following it (open-delib count > 0, no checklist or dimension list after it) | Supply the frame — the dimensions, checklist, or candidate set the deliberation must cover — so the reasoning trace stays bounded |
+| Re-derived reasoning state | A step makes the agent reconstruct the judgment context it needs (which mode, what was already decided, what is in scope) because the step never restates the minimal frame — distinct from COORDINATE's re-derived *constant* (a deterministic value); this is judgment-framing context | State the minimal reasoning frame (the 1–3 governing facts) at the step head, so the agent reasons from given state, not reconstructed state |
 
 ## RECORD Patterns
 
@@ -83,11 +97,13 @@ Consumed by `component-creation/step-05-efficiency-gate.md`. Run against every f
 | 5 | Event-scoped load | Detail loads JIT at the moment of use; always-on text is no larger than the trigger needed to find it |
 | 6 | Size limits | Every file is within the limits in `../../component-creation/data/component-patterns.md` |
 | 7 | Light path | If the component prescribes per-task ceremony, a trivial-case light path exists with explicit qualifying criteria |
+| 8 | Bounded reasoning load | Every step requiring irreducible judgment bounds it: an enumerated frame for any open deliberation (no unscaffolded "consider all…"), the decisive directive hoisted adjacent to the menu/HALT (not buried mid-prose), and interacting constraints sequenced rather than all-held-at-once. Proxy columns within norm, or the load named earned and owner-accepted |
 
 ---
 
 ## Quick Reference
 
-- File waste by FIX locus: LOAD / DECIDE / RECORD / COORDINATE.
+- File waste by FIX locus: LOAD / DECIDE / THINK / RECORD / COORDINATE.
 - Measured figures only; hypotheses tested; KEEP rows mandatory; read-only sonnet investigators.
-- Create-Time Gate: 7 checks, fail = fix or owner-accepted, never silent.
+- Cognitive load (THINK) flagged by directional proxies (arbitration, conditionals, max prose run, open-deliberation), then judged — earned load gets a KEEP row, never an auto-cut.
+- Create-Time Gate: 8 checks, fail = fix or owner-accepted, never silent.

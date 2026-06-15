@@ -49,6 +49,7 @@ An agentic system has five layers, each a directory of text files:
 
 4. **Is it REFERENCE DATA that agents or workflows consult?**
    - YES → **KNOWLEDGE** (CSV, Markdown, or YAML)
+     - *single-owner data co-locates with its owner (nested `data/`); data SHARED across components MAY use a top-level content-named folder (e.g. `standards/`) — never a generic `knowledge/` bucket.*
    - NO → Continue to #5
 
 5. **Is it SETTINGS that multiple components need?**
@@ -128,6 +129,7 @@ An agentic system has five layers, each a directory of text files:
 | 6 | Configuration over hardcoding | Use path variables ({rbtv_path}, output resolution, etc.), never absolute paths or hardcoded folder names |
 | 7 | Thin loaders | Skills, commands, and entry points contain zero logic — always delegate to workflows, tasks, or agents |
 | 8 | State in frontmatter | Output documents track stepsCompleted |
+| 9 | Shape necessary reasoning | Judgment the agent can't avoid is paid in output tokens and dilutes its attention as the reasoning trace grows; sequence interacting constraints, scaffold open deliberation with an enumerated frame, and hoist the decisive directive next to the menu/HALT so the agent holds less at once |
 
 ---
 
@@ -172,6 +174,7 @@ Before building a workflow, answer these 4 questions:
 | Hardcoded catalog lists | Drift and maintenance burden | Reference manifests (tools-manifest.csv, etc.) |
 | No state tracking | Can't resume sessions | Frontmatter in output documents |
 | Skipping adversarial review | Rubber-stamped output | Build in mandatory challenge mechanisms |
+| Wall-of-prose judgment step | Critical directive buried mid-prose; agent attends over a long trace and drifts | Hoist the directive to the step head/foot; sequence interacting constraints instead of all-at-once; scaffold open deliberation with an enumerated frame |
 
 ---
 

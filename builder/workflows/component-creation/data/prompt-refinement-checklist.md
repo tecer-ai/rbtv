@@ -1,12 +1,12 @@
 # Prompt-Refinement Checklist
 
-Reference data for the create-component workflow. A pre-ship refinement pass for a component's drafted instructions — the markdown the agent will execute literally. Run every pass below on the draft BEFORE the component ships; each pass closes a different instruction-quality failure mode (hidden assumptions, vague wording, missing context, missing constraints, unforced clarification).
+Reference data for the create-component workflow. A pre-ship refinement pass for a component's drafted instructions — the markdown the agent will execute literally. Run every pass below on the draft BEFORE the component ships; each pass closes a different instruction-quality failure mode (hidden assumptions, vague wording, missing context, missing constraints, unforced clarification, excessive executive load).
 
 A component's text IS its runtime: the executing agent follows the words literally, with none of the drafting conversation in context. These passes harden the words against that reading.
 
 ## How to Run This Pass
 
-Apply each of the five passes to the drafted component file. For each, perform the listed action ON the draft, then apply the fix to the file. A pass with no findings is recorded as clean; a pass with findings rewrites the draft before the next pass runs.
+Apply each of the six passes to the drafted component file. For each, perform the listed action ON the draft, then apply the fix to the file. A pass with no findings is recorded as clean; a pass with findings rewrites the draft before the next pass runs.
 
 | # | Pass | Closes |
 |---|------|--------|
@@ -15,6 +15,7 @@ Apply each of the five passes to the drafted component file. For each, perform t
 | 3 | Expert-Reframe Pass | Missing context, constraints, and output shape a domain expert would state |
 | 4 | Constraint Injector | Outputs that drift because nothing bounds them |
 | 5 | Clarification Gate | Gaps that should halt-and-ask rather than be silently filled |
+| 6 | Executive-Load Pass | Irreducible judgment the agent must hold all-at-once, buried directives, unscaffolded deliberation |
 
 ## 1. Assumption Exposer
 
@@ -82,9 +83,22 @@ Find every point where the draft would force the executing agent to guess on som
 
 Fix: high-impact gaps halt and ask; low-impact gaps state the assumption inline and proceed. A silent guess on an owner-only decision is the defect this gate exists to prevent.
 
+## 6. Executive-Load Pass
+
+Find every step where the agent must reason, and minimize what it holds at once. Reasoning the agent can't avoid is paid in output tokens the owner never sees as context, and a long, unscaffolded trace dilutes attention and propagates an early error through everything after it. This pass shapes irreducible judgment; the Anti-Vague Pass (2) removes ambiguity load — they are different cuts.
+
+| Check | Action |
+|-------|--------|
+| Unscaffolded deliberation | An open directive ("consider all the ways…", "reason about…", "use judgment") gets an enumerated frame — the dimensions, checklist, or candidate set the thinking must cover — so the reasoning trace stays bounded |
+| Buried directive | The decisive instruction and the HALT move to the step's head or foot, adjacent to the menu — never mid-prose where attention is weakest |
+| Simultaneity | Interacting constraints the agent must weigh at once are sequenced into ordered sub-steps; if a lookup can decide them instead, that is a DECIDE fix (table/script), not this pass |
+| Re-derived frame | The 1–3 governing facts the step needs to reason (mode, prior decisions, scope) are restated at the step head, not left for the agent to reconstruct |
+
+Fix: a step that requires judgment bounds it — framed, hoisted, sequenced — so the agent spends reasoning on the task, not on holding the step's own structure in mind.
+
 ## Ship Gate
 
-The draft ships only when all five passes are clean or their findings are fixed in the file:
+The draft ships only when all six passes are clean or their findings are fixed in the file:
 
 | Pass | Clean condition |
 |------|-----------------|
@@ -93,5 +107,6 @@ The draft ships only when all five passes are clean or their findings are fixed 
 | Expert-Reframe | Trigger, scope boundary, and output format are all explicit |
 | Constraint Injector | The component's bounds (size, thin-loader, self-containment, halt) are stated in the file |
 | Clarification Gate | Every owner-only decision halts-and-asks rather than guessing |
+| Executive-Load Pass | Every judgment step is framed, the decisive directive is hoisted, and no unscaffolded "consider all…" survives |
 
 A draft that fails any row is not ready — fix the file and rerun that pass.
