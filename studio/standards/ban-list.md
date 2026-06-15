@@ -22,7 +22,7 @@ Each entry below carries: the **banned attractor**, **why it reads as slop**, an
 
 ---
 
-## A. Model Default Attractors (H4 — the training-mean look)
+## A. Model Default Attractors (the training-mean look)
 
 These four are the model's unguided defaults — what the model produces when no art direction constrains it. They must be banned by name at the art-direction beat.
 

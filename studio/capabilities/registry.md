@@ -125,6 +125,6 @@ Every row in this registry carries these six fields. A worker can invoke a capab
 | **status** | `built` (discrete row added at the capability wave — architecture §1.3/§7 list it as a distinct v1-shipped capability) |
 | **entry point** | `studio/capabilities/load-references.md` (procedural capability — the agent reads it fully and executes its steps; no CLI) |
 | **inputs** | The workspace reference-set path (`{reference_set}/`, resolved at runtime per `rbtv-output-resolution`); layer definitions per `studio/standards/reference-set-contract.md` |
-| **outputs** | All four reference layers (tokens · exemplars · subtle-refs · taste file) loaded into working context, each present-and-annotated per the contract; HALT naming the missing layer on any absence — it loads, never authors or corrects reference content (D4) |
+| **outputs** | All four reference layers (tokens · exemplars · subtle-refs · taste file) loaded into working context, each present-and-annotated per the contract; HALT naming the missing layer on any absence — it loads, never authors or corrects reference content |
 | **spec / source pointer** | `studio/capabilities/load-references.md` · `studio/standards/reference-set-contract.md` (contract authority) |
 

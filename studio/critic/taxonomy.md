@@ -108,6 +108,6 @@ For each item: the critic determines, per artifact, the **direction and degree**
 
 ## What this taxonomy is NOT
 
-- **NOT aesthetic.** Distinctiveness, taste, "does it feel world-class" are NOT taxonomy items — they route to the critic's advisory-to-human section, never scored, never compared as a verdict (critic-spec Behavior row 3; D1).
+- **NOT aesthetic.** Distinctiveness, taste, "does it feel world-class" are NOT taxonomy items — they route to the critic's advisory-to-human section, never scored, never compared as a verdict (critic-spec Behavior row 3).
 - **NOT a gate.** No item produces a pass/fail. A taxonomy citation is a comparative observation, never a stop condition (critic-spec Out of Scope).
 - **NOT fresh-eyes.** Fresh-eyes runs the flaw-checklist on ONE deck for a punch-list with no taxonomy/comparison; this taxonomy powers the critic's COMPARATIVE pass. Both exist; neither replaces the other.

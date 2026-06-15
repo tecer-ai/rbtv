@@ -6,7 +6,7 @@ nextStepFile: null
 
 # Beat 04 — Human Gate (Designer)
 
-**Beat 4 of 4** — Prev: HTML generation (Designer). This is the irreducible HUMAN final gate (D1): no automated critic gates aesthetics in v1. Terminal beat — on full accept the loop completes; on a bounce-cap trip it escalates back to beat 1 (message-lock).
+**Beat 4 of 4** — Prev: HTML generation (Designer). This is the irreducible HUMAN final gate: no automated critic gates aesthetics in v1. Terminal beat — on full accept the loop completes; on a bounce-cap trip it escalates back to beat 1 (message-lock).
 
 ---
 
@@ -22,7 +22,7 @@ This beat implements `deck-loop-spec.md` behavior rows 7–8 and 10, and its bou
 
 - READ this complete file before taking any action. Follow the MANDATORY SEQUENCE exactly.
 - You are The Designer (Vivian). Resume from design-state + the reference set + the content spec ALONE — zero conversation context (deck-loop-spec ⑨; schema §2).
-- The owner is the irreducible aesthetic and final gate (D1). NEVER substitute agent judgment for the owner's accept/bounce. A resuming agent reading `who_acts_next: owner` surfaces the decision — it never acts past it (schema §3.3).
+- The owner is the irreducible aesthetic and final gate. NEVER substitute agent judgment for the owner's accept/bounce. A resuming agent reading `who_acts_next: owner` surfaces the decision — it never acts past it (schema §3.3).
 - Render HEADED via the local-server pattern (a visible browser, real geometry + real owner gestures). NEVER headless, NEVER `file://`, NEVER synthetic `dispatchEvent` (this is the fidelity floor the done-gate exercises at).
 - A bounce patches ONLY the flagged slide — all other slides stay BYTE-IDENTICAL (deck-loop-spec ④/⑦). The patch is surgical (beat 3 sub-beat 3B loop); never regenerate the deck to fix one slide.
 - You fix VISUALS. A bounce that demands a MESSAGE change is drift — route it back to the Strategist (`/rbtv-strategist`), never edit the message yourself (mining map DP-4, ML-3).
@@ -34,7 +34,7 @@ This beat implements `deck-loop-spec.md` behavior rows 7–8 and 10, and its bou
 ### 1. Headed render for owner review
 
 1. Start the local HTTP server (browser-automation infra); open the full deck in a VISIBLE browser at full-screen. Confirm the geometry is sane (slide canvas aspect held, no overflow/collapsed boxes) before the owner looks. Set design-state `beat_status: awaiting-owner`, `who_acts_next: owner`, `next_action` naming the review.
-2. **OPTIONAL critic hook (default OFF — never gates).** If design-state frontmatter carries `critic: on` (default `off` / absent = skip; same toggle as beat-03 §3A), invoke `{rbtv_path}/studio/critic/critic.md` on the full deck (single-artifact shape: a taxonomy flaw pass; no preference fabricated) BEFORE the owner reviews, and ATTACH its critique file alongside the deck as advisory input for the owner. The critic NEVER blocks, auto-accepts, or auto-bounces a slide; the human gate below proceeds REGARDLESS of critic content — the owner's accept/bounce is the irreducible final gate (D1). When `critic: off` or absent, skip this hook entirely. This hook does NOT touch the fresh-eyes pass (beat-03 §3C), which already ran.
+2. **OPTIONAL critic hook (default OFF — never gates).** If design-state frontmatter carries `critic: on` (default `off` / absent = skip; same toggle as beat-03 §3A), invoke `{rbtv_path}/studio/critic/critic.md` on the full deck (single-artifact shape: a taxonomy flaw pass; no preference fabricated) BEFORE the owner reviews, and ATTACH its critique file alongside the deck as advisory input for the owner. The critic NEVER blocks, auto-accepts, or auto-bounces a slide; the human gate below proceeds REGARDLESS of critic content — the owner's accept/bounce is the irreducible final gate. When `critic: off` or absent, skip this hook entirely. This hook does NOT touch the fresh-eyes pass (beat-03 §3C), which already ran.
 3. The owner reviews slide-by-slide and, per slide, ACCEPTS or BOUNCES with a note.
 
 ### 2. Capture accept / bounce into design-state
@@ -45,7 +45,7 @@ This beat implements `deck-loop-spec.md` behavior rows 7–8 and 10, and its bou
 
 ### 3. Bounce-cap → message-level rethink
 
-1. The bounce cap is a **tunable parameter, default ≈3 per slide.** When any slide's `bounce_count` reaches the cap, STOP polishing that slide — three bounces have exhausted the design lane; the problem is likely the MESSAGE, not the pixels (H8; deck-loop-spec ⑧).
+1. The bounce cap is a **tunable parameter, default ≈3 per slide.** When any slide's `bounce_count` reaches the cap, STOP polishing that slide — three bounces have exhausted the design lane; the problem is likely the MESSAGE, not the pixels (deck-loop-spec ⑧).
 2. Record a `## Bounce Log` "CAP TRIPPED" entry for the slide; write the Designer→Strategist reverse-switch cursor in design-state (`active_beat: beat-01-message-lock`, `beat_status: not-started`, `who_acts_next: Strategist`, `next_action`: rethink the message for slide {n}, `last_updated`) per schema §3.2.
 3. ALSO append the escalation to the run's `decisions.md` — it is forward-affecting (deck-loop-spec Edge Cases; schema §1.2). Then hand off to the Strategist (beat 1) with the bounced slide reset.
 

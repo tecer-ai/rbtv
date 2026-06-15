@@ -25,7 +25,7 @@ This beat implements `deck-loop-spec.md` behavior rows 3·0, 4, 5, 6, 7, 10. Rea
 - Read `artifact`/`mode` from design-state FIRST (workflow.md fork rules); adapt the row noun (slide/page/screen). v1 ships the `deck` branch.
 - Every artifact conforms to the chosen direction mini-brief AND the winning trio contract, and obeys the ban-list (`{rbtv_path}/studio/standards/ban-list.md`). A banned attractor is a defect.
 - Charts are HAND-AUTHORED inline SVG/CSS — NO charting-library dependency. A library import in any slide is a defect.
-- HTML-native output ONLY: full-screen browser deck + print-to-PDF CSS, mandatory `@media print` block (mining map G-2, P-1/P-3). NO PPTX affordance — any PPTX path is a defect (D7).
+- HTML-native output ONLY: full-screen browser deck + print-to-PDF CSS, mandatory `@media print` block (mining map G-2, P-1/P-3). NO PPTX affordance — any PPTX path is a defect.
 - Render for review via the local-server pattern from `{rbtv_path}/studio/workflows/browser-automation/` (a local HTTP server). Direct `file://` opening is BLOCKED — never use it.
 - Imagery is OPTIONAL and owner-gated — never auto-inserted. Any image is real-provenance only and comes via the image-gen capability (`{rbtv_path}/studio/capabilities/image-gen/`) and the craft guide (`{rbtv_path}/studio/capabilities/image-gen/image-craft.md`). A deck with no generated imagery is a valid outcome.
 
@@ -49,13 +49,13 @@ The owner gate is the safety net: even if Select mis-picks, the owner sees the o
 
 ## SUB-BEAT 3A — Template Trio (pairwise → visual contract)
 
-Implements deck-loop-spec row 4 (H5). SKIPPED when the owner picked **[L] Assemble from library** at 3·0 (the library's `theme.css` is the deck's design system on that path). Runs as written for the bespoke path ([B] or no library).
+Implements deck-loop-spec row 4. SKIPPED when the owner picked **[L] Assemble from library** at 3·0 (the library's `theme.css` is the deck's design system on that path). Runs as written for the bespoke path ([B] or no library).
 
 1. Under the owner-picked direction (design-state `art_direction_brief`), generate **2 variants each** of three slide types — **cover · content slide · chart slide** — = six trio artifacts. Each variant honors all six direction axes (type pairing · palette within tokens · grid principle · signature motif · chart style · cover treatment) and the ban-list.
 2. The **chart-slide** variants are hand-authored inline SVG/CSS with an action-title (the takeaway, not an axis name) — NO charting library (mining map PR-5, AD-3).
 3. **Render HEADED** via the local-server pattern (a visible browser, real geometry) — never headless, never `file://`.
-4. Present the variants **PAIRWISE** to the owner: A-vs-B per slide type (comparative judgment is where the owner is reliable — D1; mining map DP-2). HALT for the owner's three picks (set design-state `beat_status: awaiting-owner`, `who_acts_next: owner`).
-5. Record the winning trio as the deck's **visual contract** in design-state: write it to `{output_folder}/artifacts/art-direction/trio-winning.md`, set the `trio_contract` frontmatter path. Every subsequent slide conforms to it (H5).
+4. Present the variants **PAIRWISE** to the owner: A-vs-B per slide type (comparative judgment is where the owner is reliable; mining map DP-2). HALT for the owner's three picks (set design-state `beat_status: awaiting-owner`, `who_acts_next: owner`).
+5. Record the winning trio as the deck's **visual contract** in design-state: write it to `{output_folder}/artifacts/art-direction/trio-winning.md`, set the `trio_contract` frontmatter path. Every subsequent slide conforms to it.
 6. **Edge cases (deck-loop-spec):** both variants of a slide type rejected → new variants under the SAME direction. The direction itself is the problem → re-run the pick as beat 2, recorded as a bounce against the DIRECTION, not a slide.
 
 **OPTIONAL critic hook (default OFF — never gates).** If design-state frontmatter carries `critic: on` (the toggle; default `off` / absent = skip), then BEFORE presenting the trio pairwise (step 4): invoke `{rbtv_path}/studio/critic/critic.md` on the two variants of each slide type (comparison shape — variants are an ideal pairwise input). ATTACH its critique to the owner's pairwise-pick packet as advisory input. The owner's pick proceeds REGARDLESS of critic content — the critic NEVER selects the variant, NEVER blocks or auto-confirms a pick (critic-spec Behavior row 5; never-gates pin). The critic is DISTINCT from the fresh-eyes pass (§3C) and does not replace it. When `critic: off` or absent, skip this hook entirely — the default loop is unchanged.
@@ -77,7 +77,7 @@ Implements deck-loop-spec rows 5, 7, 10.
 
 ## SUB-BEAT 3C — Fresh-Eyes Pass (before the owner looks)
 
-Implements deck-loop-spec row 6 (H6). **BOUNDARY (verbatim, H6): this is a prompt-file review in a fresh session — NO scoring, NO gating, NO taxonomy dataset.** Those are the v1.1 critic (`studio/critic/critic.md`); building any of them here is a defect. The optional critic hook (§3A) and this fresh-eyes pass are DISTINCT, always-separate mechanisms — fresh-eyes ALWAYS runs (single-deck punch-list, no taxonomy/comparison); the critic is OPT-IN (`critic: on`) and comparative. The critic NEVER replaces, merges into, or weakens fresh-eyes, regardless of the toggle.
+Implements deck-loop-spec row 6. **BOUNDARY (verbatim): this is a prompt-file review in a fresh session — NO scoring, NO gating, NO taxonomy dataset.** Those are the v1.1 critic (`studio/critic/critic.md`); building any of them here is a defect. The optional critic hook (§3A) and this fresh-eyes pass are DISTINCT, always-separate mechanisms — fresh-eyes ALWAYS runs (single-deck punch-list, no taxonomy/comparison); the critic is OPT-IN (`critic: on`) and comparative. The critic NEVER replaces, merges into, or weakens fresh-eyes, regardless of the toggle.
 
 1. A **fresh-context** agent (zero generation context — it did NOT build the deck) loads ONLY: the chosen direction mini-brief (`art_direction_brief`) + the flaw checklist (`{rbtv_path}/studio/standards/flaw-checklist.md`) + the rendered deck. Freshness is mandatory — the builder's eyes cannot run this pass.
 2. It reviews the deck **HEADED** (visible browser, real geometry) against the two anchors: every flaw-checklist item AND every clause of the chosen mini-brief.

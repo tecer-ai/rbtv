@@ -7,7 +7,7 @@ status: active
 
 # load-references
 
-> v1's only shipped capability. Loads the project's reference set from the workspace path and halts on any missing or unannotated layer per the contract. This capability LOADS — it never authors or corrects reference content (D4).
+> v1's only shipped capability. Loads the project's reference set from the workspace path and halts on any missing or unannotated layer per the contract. This capability LOADS — it never authors or corrects reference content.
 
 **Workspace path:** `{reference_set}/` — the workspace's reference-set directory, resolved at runtime per `rbtv-output-resolution`; never hardcoded in the module.  
 **Contract authority:** `studio/standards/reference-set-contract.md` — read it for layer definitions, file names, annotated-check logic, and all on-absence behavior.

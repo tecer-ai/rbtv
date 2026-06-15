@@ -12,7 +12,7 @@ nextStepFile: ../beats/beat-03-generate.md
 
 ## BEAT GOAL
 
-On the loaded reference set, produce **≥2–3 genuinely distinct direction mini-briefs**, present them with the one the Designer believes in named, and record the owner-influenced pick in design-state as the run's chosen direction. This is the distinctiveness gate (H3/H4): the explicit art-direction beat that forces divergent, taste-anchored, ban-list-clean directions before any slide is built.
+On the loaded reference set, produce **≥2–3 genuinely distinct direction mini-briefs**, present them with the one the Designer believes in named, and record the owner-influenced pick in design-state as the run's chosen direction. This is the distinctiveness gate: the explicit art-direction beat that forces divergent, taste-anchored, ban-list-clean directions before any slide is built.
 
 This beat implements `deck-loop-spec.md` behavior row 3 and its Edge Cases. Read that spec's row 3 + Edge Cases for the behavioral floor — this file never restates them.
 
@@ -36,7 +36,7 @@ This beat implements `deck-loop-spec.md` behavior row 3 and its Edge Cases. Read
 
 1. Read design-state at the path the dispatch hands you; load its frontmatter cursor and confirm `who_acts_next` names the Designer and `active_beat: beat-02-art-direction`. Read the content spec at `content_spec` (the message you are dressing).
 2. Load the reference set at the `reference_set` path (the four layers: tokens · `exemplars/` · taste file · chart exemplar) per the reference-set contract `{rbtv_path}/studio/standards/reference-set-contract.md`. If ANY layer is absent, HALT to the owner naming the exact missing layer — never proceed on training-mean defaults (deck-loop-spec Edge Cases).
-3. **Taste file absent or unannotated → HALT to the owner.** Never substitute model taste silently (deck-loop-spec Edge Cases; H3). The taste file (3–5 admirable-principle bullets per exemplar) is the ground every mini-brief cites.
+3. **Taste file absent or unannotated → HALT to the owner.** Never substitute model taste silently (deck-loop-spec Edge Cases). The taste file (3–5 admirable-principle bullets per exemplar) is the ground every mini-brief cites.
 
 ### 2. Produce ≥2–3 genuinely distinct direction mini-briefs
 
@@ -61,7 +61,7 @@ Row 7 is ADDITIVE and OPTIONAL — the six axes above stay mandatory. Any imager
 
 ### 3. Owner-influenced pick → record in design-state
 
-1. Present the ≥2–3 mini-briefs to the owner and HALT for the pick (the owner is the irreducible aesthetic gate — D1). Set design-state `beat_status: awaiting-owner`, `who_acts_next: owner`, `next_action` naming the pick decision.
+1. Present the ≥2–3 mini-briefs to the owner and HALT for the pick (the owner is the irreducible aesthetic gate). Set design-state `beat_status: awaiting-owner`, `who_acts_next: owner`, `next_action` naming the pick decision.
 2. On the owner's pick: write the chosen mini-brief to `{output_folder}/artifacts/art-direction/brief-{x}.md`; set design-state `art_direction_brief` (path), `art_direction_pick_rationale` (the owner's terms + what was rejected and why), and the `## Art Direction` body section (the at-a-glance pin) per the schema. Advance the cursor: `active_beat: beat-03-generate`, `beat_status: not-started`, `who_acts_next: Designer`, `next_action` (run the template trio under the chosen direction), `last_updated`.
 
 ### 4. Present Menu

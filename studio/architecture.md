@@ -1,8 +1,8 @@
 # Studio Module — Architecture
 
-> The blueprint studio builders build against. Maps the five subsystems (Process · Roles · Tools · Standards · Memory) to concrete studio components with landing paths, names every entry surface with its user-invocable-vs-internal verdict, fixes the file layout under `studio/`, and defines the exact Strategist→Designer content-spec contract. Behavior specs in `./` (deck path: `{rbtv_path}/studio/deck-loop-spec.md`) own the *what*; this doc owns the *where* and the *shape*. Site/app sections are deliberately lean (D8) and get adapted when the forks are concretized.
+> The blueprint studio builders build against. Maps the five subsystems (Process · Roles · Tools · Standards · Memory) to concrete studio components with landing paths, names every entry surface with its user-invocable-vs-internal verdict, fixes the file layout under `studio/`, and defines the exact Strategist→Designer content-spec contract. Behavior specs in `./` (deck path: `{rbtv_path}/studio/deck-loop-spec.md`) own the *what*; this doc owns the *where* and the *shape*. Site/app sections are deliberately lean and get adapted when the forks are concretized.
 
-**Scope frame (binding):** the plan `decisions.md` is the authority on scope, dispositions, and constraints — this doc never restates it, it lands the architecture those decisions imply. The deck path is concrete; site + app are sketched. The v1.1 critic, 5 deferred capabilities, and improve-existing mode are named as roadmap anchors only, never built here.
+**Scope frame (binding):** The deck path is concrete; site + app are sketched. The v1.1 critic, 5 deferred capabilities, and improve-existing mode are named as roadmap anchors only, never built here.
 
 ---
 
@@ -12,9 +12,9 @@
 |------|-------|
 | Module folder | `studio/` (rename of `html/`; hypresent + slide-library rode along content-untouched) |
 | What it is | One resumable, phase-first HTML **design + communication** pipeline; artifact (deck / site / app-UI) is a PARAMETER each phase adapts to, never a top-level branch |
-| Output substrate | HTML-native for every artifact — full-screen browser + print-to-PDF (D7). No PPTX, ever |
+| Output substrate | HTML-native for every artifact — full-screen browser + print-to-PDF. No PPTX, ever |
 | Two worker classes | **Strategist** (discover → narrative → content-spec: *what to say, what each datum must communicate*) hands a spec to the **Designer** (art-direction → layout → visual: *making it awesome and distinct*) |
-| Quality model | Reference-anchored + **HUMAN final gate** (D1); input-side anti-slop mechanics are the load-bearing novelty; automated critic is v1.1 (D2), never gates aesthetics |
+| Quality model | Reference-anchored + **HUMAN final gate**; input-side anti-slop mechanics are the load-bearing novelty; automated critic is v1.1, never gates aesthetics |
 | Resident, untouched | `studio/hypresent/**` and `studio/slide-library/**` — parent-path rename ONLY; this build writes nothing inside them (see §6) |
 
 ---
@@ -33,7 +33,7 @@ The deck path is the proven instance of the spine; site/app are forks adapted wh
 | Beat 1 — message-lock (Strategist) | `studio/workflows/studio-loop/beats/beat-01-message-lock.md` | CREATE | Produces the content spec (§5). Zero design decisions. Strategist craft mined from office `pitch/` steps 01–06 |
 | Beat 2 — references + art-direction | `studio/workflows/studio-loop/beats/beat-02-art-direction.md` | CREATE | ≥2–3 distinct direction mini-briefs on the loaded reference set; owner-picked. Obeys ban-list |
 | Beat 3 — HTML generation | `studio/workflows/studio-loop/beats/beat-03-generate.md` | CREATE | Template trio (pairwise) → slice-by-slice via fresh contexts → fresh-eyes pass. Chart mechanism resolved at the chart spike |
-| Beat 4 — human gate | `studio/workflows/studio-loop/beats/beat-04-human-gate.md` | CREATE | Headed-browser accept/bounce; surgical patch; bounce-cap ≈3/slide → message rethink (H8) |
+| Beat 4 — human gate | `studio/workflows/studio-loop/beats/beat-04-human-gate.md` | CREATE | Headed-browser accept/bounce; surgical patch; bounce-cap ≈3/slide → message rethink |
 | Artifact/mode fork rules | folded into `workflow.md` frontmatter + beat conditionals | CREATE | `artifact` (deck/site/app) + `mode` (blank-slate; audit deferred) as parameters, keyed like the office pitch `{pitch_type}` conditional pattern |
 | **Site path** | `studio/workflows/studio-loop/forks/site.md` | BUILT | Same spine; multi-page; leans on images/animation. Runs in `site-marketing` Strategist mode |
 | **App path** | `studio/workflows/studio-loop/forks/app.md` | BUILT | Discovery forks to goal→user-flow; output = plain HTML UI + UX companion docs for a coding agent to wire. Runs in `app-product` Strategist mode |
@@ -53,7 +53,7 @@ One Strategist (audience modes), one Designer. Art-direction is the Designer's o
 
 ### 1.3 TOOLS — one shared capability layer (workers invoke on demand)
 
-v1 ships reference-LOADING only; the other capabilities are roadmap. The module ENFORCES references, never ships them (D4).
+v1 ships reference-LOADING only; the other capabilities are roadmap. The module ENFORCES references, never ships them.
 
 | Component | Landing path | Disposition | Notes |
 |-----------|--------------|-------------|-------|
@@ -62,17 +62,17 @@ v1 ships reference-LOADING only; the other capabilities are roadmap. The module 
 | extract-tokens (from live site) | `studio/workflows/design-extraction/` + `studio/commands/design-extractor.md` | REUSE → re-registered, aligned | Existing token output shape: `design-extraction/templates/design-tokens.json` |
 | image→JSON | `studio/workflows/vision-to-json/` + `studio/commands/vision-to-json.md` | REUSE → re-registered, aligned | Forensic image→strict-JSON + regeneration prompts |
 | browser-automation (render/screenshot/QA infra) | `studio/workflows/browser-automation/` + `studio/skills/playwright-cli/SKILL.md` | REUSE AS-IS | Powers fresh-eyes rendering, headed-review screenshots, done-gate evidence. Local HTTP server pattern — `file://` is blocked |
-| extract-subtle-refs (motion/interaction) · image-gen (multi-provider, Gemini-first) | `studio/capabilities/` (roadmap stubs) | ROADMAP (D10) | Source-pluggable image-gen interface; named, not built in v1 |
+| extract-subtle-refs (motion/interaction) · image-gen (multi-provider, Gemini-first) | `studio/capabilities/` (roadmap stubs) | ROADMAP | Source-pluggable image-gen interface; named, not built in v1 |
 
 ### 1.4 STANDARDS — make "world-class AND distinct" a testable gate
 
-The module enforces the standard; the reference set + taste file are workspace-owned (D4). v1 = input-side mechanics + human gate; critic = v1.1.
+The module enforces the standard; the reference set + taste file are workspace-owned. v1 = input-side mechanics + human gate; critic = v1.1.
 
 | Component | Landing path | Disposition | Notes |
 |-----------|--------------|-------------|-------|
-| **Standards bundle** (ban-list, flaw checklist, craft rules) | `studio/standards/` | CREATE — MINED from `deck-design/data/*` | `ban-list.md` (default attractors, H4) · `flaw-checklist.md` (~10-item fresh-eyes checklist, H6) · `craft-rules.md` (design/data-integrity/print rules) |
+| **Standards bundle** (ban-list, flaw checklist, craft rules) | `studio/standards/` | CREATE — MINED from `deck-design/data/*` | `ban-list.md` (default attractors) · `flaw-checklist.md` (~10-item fresh-eyes checklist) · `craft-rules.md` (design/data-integrity/print rules) |
 | Mining sources | `studio/workflows/deck-design/data/{html-patterns,html-components,pitch-deck-rules}.md` | MINED into the Standards bundle; retire with `deck-design` | Living corrections → ban-list + flaw checklist + craft rules |
-| Reference-set CONTRACT (what the workspace must supply) | documented in `studio/capabilities/load-references.md` + `studio/standards/reference-set-contract.md` | CREATE | tokens file (color/type/spacing/motion) + `exemplars/` screenshots + **taste file** (3–5 admirable-principle bullets per exemplar, H3) + a chart exemplar. Workspace path: `{reference_set}/` (resolved at runtime per `rbtv-output-resolution`) |
+| Reference-set CONTRACT (what the workspace must supply) | documented in `studio/capabilities/load-references.md` + `studio/standards/reference-set-contract.md` | CREATE | tokens file (color/type/spacing/motion) + `exemplars/` screenshots + **taste file** (3–5 admirable-principle bullets per exemplar) + a chart exemplar. Workspace path: `{reference_set}/` (resolved at runtime per `rbtv-output-resolution`) |
 | Distinctiveness/anti-slop rule(s) | `studio/standards/anti-slop.md` (module-internal standard, not a `.claude/` rule) | CREATE | Encodes: explicit art-direction beat · divergent reference use (principles, not copy) · ≥2–3 forced-distinct mini-briefs · pairwise trio · fresh-eyes pass |
 | Design done-gate (deck) | governed by `deck-loop-spec.md` Test Plan + the always-on `rbtv-done-gate` rule | (no new file) | Evidence root resolved per `rbtv-done-gate` at run time |
 | **Critic** (comparative · taxonomy-driven · structural-auto/aesthetic-HUMAN · per-project) | `studio/critic/` + `critic-spec.md` | ROADMAP — built post-v1 (`v1.1`); evaluator pinned `claude:fable` at the critic checkpoint | NEVER gates aesthetics. Named here as the v1.1 anchor only |
@@ -99,9 +99,9 @@ The studio module **was NOT initially in this vault's install set**. `rbtv.json`
 
 ### 2.2 The decision
 
-**Decision (original): keep studio MODULE-INTERNAL for v1; the deck loop is entered through the already-installed `/rbtv-pitcher` (office) retargeted at the install wiring step.** The rationale was to minimise install-set churn and ride on the proof before adding standalone front doors (D8).
+**Decision (original): keep studio MODULE-INTERNAL for v1; the deck loop is entered through the already-installed `/rbtv-pitcher` (office) retargeted at the install wiring step.** The rationale was to minimise install-set churn and ride on the proof before adding standalone front doors.
 
-**Decision superseded (2026-06-10): studio added to the install set.** The owner approved the flip at the install checkpoint; the install executed that day. Four surfaces are now live: `rbtv-designing` + `rbtv-playwright-cli` skills; `/rbtv-design-extractor` + `/rbtv-vision-to-json` commands. The Strategist and the studio loop beats remain loop-internal BY DESIGN — reached via `/rbtv-pitcher`, not as standalone commands. The proof-gating clause no longer applies; the install decision was executed without requiring the deck proof (D7 struck the deck proof from the plan).
+**Decision superseded (2026-06-10): studio added to the install set.** The owner approved the flip at the install checkpoint; the install executed that day. Four surfaces are now live: `rbtv-designing` + `rbtv-playwright-cli` skills; `/rbtv-design-extractor` + `/rbtv-vision-to-json` commands. The Strategist and the studio loop beats remain loop-internal BY DESIGN — reached via `/rbtv-pitcher`, not as standalone commands. The proof-gating clause no longer applies; the install decision was executed without requiring the deck proof.
 
 **Decision superseded again (2026-06-10): the loop entry moved into studio and was renamed.** The owner moved the entry command out of office and renamed it `/rbtv-pitcher` → `/rbtv-strategist`; the command (`studio/commands/strategist.md`, manifest `studio` module) now opens the Strategist directly. This executes the "optional standalone loader" noted as a post-v1 decision in §2.3 — the Strategist is no longer office-entered or loop-internal-only; it has its own studio command. The dated prose below records the prior `/rbtv-pitcher` (office) state as historical fact and is left unchanged.
 
@@ -154,11 +154,11 @@ studio/
 │   ├── load-references.md               ✚   v1's only shipped capability (ref-set contract)
 │   └── (roadmap stubs: extract-subtle-refs, image-gen)   ROADMAP (named, not built)
 ├── standards/                           ✚ CREATE — mined from deck-design/data/*
-│   ├── ban-list.md                      ✚   default-attractor ban-list (H4)
-│   ├── flaw-checklist.md                ✚   ~10-item fresh-eyes checklist (H6)
+│   ├── ban-list.md                      ✚   default-attractor ban-list
+│   ├── flaw-checklist.md                ✚   ~10-item fresh-eyes checklist
 │   ├── craft-rules.md                   ✚   design/data-integrity/print rules
 │   ├── anti-slop.md                     ✚   distinctiveness mechanics standard
-│   └── reference-set-contract.md        ✚   what the workspace must supply (D4)
+│   └── reference-set-contract.md        ✚   what the workspace must supply
 ├── state/                               ✚ CREATE
 │   └── design-state-schema.md           ✚   design-state payload schema
 ├── critic/                                ROADMAP — built post-v1 (v1.1); critic-spec.md anchor
@@ -182,13 +182,13 @@ studio/
 
 ## 4. The Reference Set (workspace-owned, module-enforced)
 
-The module LOADS and ENFORCES; it never authors or ships references (D4). Located at the workspace reference-set path `{reference_set}/` — resolved at runtime per `rbtv-output-resolution`. The reference-set contract (`studio/standards/reference-set-contract.md`) prescribes the four required layers:
+The module LOADS and ENFORCES; it never authors or ships references. Located at the workspace reference-set path `{reference_set}/` — resolved at runtime per `rbtv-output-resolution`. The reference-set contract (`studio/standards/reference-set-contract.md`) prescribes the four required layers:
 
 | Layer | Content | On absence |
 |-------|---------|-----------|
 | Tokens file | color / type / spacing / motion (shape: `design-extraction/templates/design-tokens.json`) | HALT with named missing layer — never proceed on training-mean defaults |
 | `exemplars/` | world-class exemplar screenshots | HALT |
-| **Taste file** | 3–5 admirable-principle bullets per exemplar (H3 format) | Art-direction beat HALTS to owner; never substitutes model taste silently (the halt clears once the owner annotates the file) |
+| **Taste file** | 3–5 admirable-principle bullets per exemplar | Art-direction beat HALTS to owner; never substitutes model taste silently (the halt clears once the owner annotates the file) |
 | Chart exemplar | one reference chart slide | HALT (chart beat blocked) |
 
 ---
@@ -233,7 +233,7 @@ design_state: ./design-state.md   # back-pointer; design lives THERE, never here
 - **Blocking note:** {if any datum lacks an owner-supplied source → this slide is BLOCKED; flag, never fabricate (deck-loop-spec ②)}
 
 ## Open Data Gaps
-{Every claim still missing an owner-supplied source — the loop halts these slides until filled (D5).}
+{Every claim still missing an owner-supplied source — the loop halts these slides until filled.}
 ```
 
 ### 5.2 Floor-completeness checklist (a content spec is INCOMPLETE if any fails)

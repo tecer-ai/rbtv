@@ -7,7 +7,7 @@ status: active
 
 # Reference-Set Contract
 
-> Defines the four layers the workspace MUST supply before any design beat runs. The studio module LOADS and ENFORCES this contract; it NEVER authors or ships reference content (D4). Workspace path: `{reference_set}/` (defined below).
+> Defines the four layers the workspace MUST supply before any design beat runs. The studio module LOADS and ENFORCES this contract; it NEVER authors or ships reference content. Workspace path: `{reference_set}/` (defined below).
 
 ---
 

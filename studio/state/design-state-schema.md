@@ -51,7 +51,7 @@ schema_version: 1
 
 # ── Group 1: Project meta ─────────────────────────────
 project: '{project_name}'              # human-readable project name
-owner: '{owner}'                       # the human final gate (D1)
+owner: '{owner}'                       # the human final gate
 reference_set: '{vault-root-relative path to the workspace reference set}'
                                        # e.g. {reference_set}/  (resolved per rbtv-output-resolution)
                                        # the FOUR-layer set the run loads (tokens · exemplars · taste · chart exemplar)
@@ -77,7 +77,7 @@ content_spec: ./content-spec.md        # the Strategist→Designer contract (arc
 art_direction_brief: '{path to the picked mini-brief}'   # e.g. ./art-direction/brief-b.md
 art_direction_pick_rationale: 'Owner picked B: editorial serif + restrained palette best carries the
                                "credible challenger" thesis; rejected A (too playful) and C (too corporate).'
-trio_contract: ./art-direction/trio-winning.md           # the pairwise-picked template trio = the deck's visual contract (H5)
+trio_contract: ./art-direction/trio-winning.md           # the pairwise-picked template trio = the deck's visual contract
 
 last_updated: '{YYYY-MM-DDTHH:MMZ}'    # set on every overwrite — the freshness stamp a resumer checks
 ---
@@ -98,7 +98,7 @@ last_updated: '{YYYY-MM-DDTHH:MMZ}'    # set on every overwrite — the freshnes
 
 ## Slide Status
 > One row per slide (or page / screen for site / app). Group 6 (HTML status) + Group 7 (accept/bounce + COUNT).
-> `bounce_count` is the field the **H8 ≈3-per-slide cap reads** (deck-loop-spec ⑧).
+> `bounce_count` is the field the **≈3-per-slide cap reads** (deck-loop-spec ⑧).
 
 | # | Slide title | HTML status        | Owner verdict | bounce_count | Last bounce note (ref) |
 |---|-------------|--------------------|---------------|-------------|------------------------|
@@ -113,7 +113,7 @@ and `blocked` (a claim lacks an owner-supplied source; the slide halts, never fa
 
 **`bounce_count` discipline:** increment by exactly 1 each time the owner bounces THIS slide (group 7). When any
 slide's `bounce_count` reaches ≈3, the loop STOPS polishing it and escalates to a message-level rethink — back to
-beat 1 (H8 / deck-loop-spec ⑧). The escalation is recorded in `## Bounce Log` below AND in the run's `decisions.md`
+beat 1 (deck-loop-spec ⑧). The escalation is recorded in `## Bounce Log` below AND in the run's `decisions.md`
 (deck-loop-spec Edge Cases). The cap is tunable from v1 runs.
 
 ## Bounce Log
@@ -125,7 +125,7 @@ beat 1 (H8 / deck-loop-spec ⑧). The escalation is recorded in `## Bounce Log` 
 - **Slide {n} — CAP TRIPPED (bounce 3, {YYYY-MM-DD}):** escalated to message-level rethink (beat 1); logged to `decisions.md`.
 
 ## Fresh-Eyes Punch-List
-> Group 8. The output of the fresh-eyes pass (beat 3, H6): a fresh-context review of the full pass against the
+> Group 8. The output of the fresh-eyes pass (beat 3): a fresh-context review of the full pass against the
 > chosen mini-brief + the ~10-item flaw checklist, BEFORE the owner ever looks. This is NOT the v1.1 critic —
 > no scoring, no gating, no taxonomy (deck-loop-spec ⑥). One punch-list per full pass.
 
@@ -188,13 +188,13 @@ The two worker classes (architecture §1.2): the **Strategist** (discover → na
 
 | Gate | Requirement |
 |------|-------------|
-| **When it fires** | A slide's `bounce_count` reaches ≈3 (H8 / deck-loop-spec ⑧): the loop stops polishing and kicks the message back to beat 1 for a rethink. |
+| **When it fires** | A slide's `bounce_count` reaches ≈3 (deck-loop-spec ⑧): the loop stops polishing and kicks the message back to beat 1 for a rethink. |
 | **What the Designer WRITES at the switch** | `## Bounce Log` "CAP TRIPPED" entry for the slide; frontmatter `active_beat: beat-01-message-lock`, `beat_status: not-started`, **`who_acts_next: Strategist`**, `next_action` (e.g. "Rethink the message for slide {n} — 3 bounces exhausted the design lane"), `last_updated`. The escalation is ALSO appended to the run's `decisions.md` (forward-affecting; deck-loop-spec Edge Cases). |
 | **What the incoming Strategist READS** | This file (the cursor + `## Bounce Log` for WHY the message failed), the `content_spec` (to revise), the run's `decisions.md`. It revises the content spec, then hands back to the Designer via §3.1 with the bounced slide reset. |
 
 ### 3.3 Owner as `who_acts_next`
 
-When a beat reaches a human checkpoint — art-direction pick (beat 2), trio pairwise pick (beat 2), headed accept/bounce (beat 4) — set `beat_status: awaiting-owner` and `who_acts_next: owner`, with `next_action` naming the exact decision the owner must make. The human is the irreducible final gate (D1); a resuming agent that reads `who_acts_next: owner` knows to surface the decision, not to act past it.
+When a beat reaches a human checkpoint — art-direction pick (beat 2), trio pairwise pick (beat 2), headed accept/bounce (beat 4) — set `beat_status: awaiting-owner` and `who_acts_next: owner`, with `next_action` naming the exact decision the owner must make. The human is the irreducible final gate; a resuming agent that reads `who_acts_next: owner` knows to surface the decision, not to act past it.
 
 ---
 

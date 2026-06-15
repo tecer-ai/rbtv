@@ -142,6 +142,6 @@ Print-safety for decks: a deck image MUST survive print-to-PDF. Work within the 
 
 ## Real-provenance + logo discipline
 
-Imagery comes via the image-gen capability (`{rbtv_path}/studio/capabilities/image-gen/`) OR owner-supplied assets. NEVER fabricate stock-lookalike photos passed as real photos of real things, people, or places (D4 imagery ruling). A slide needing an image whose asset is absent HALTS to the owner naming the missing asset — never an invented "real" photo. (The image-gen capability's FIXTURE provider is the quota-independent path — the contract may invoke the capability without assuming live image-gen quota.)
+Imagery comes via the image-gen capability (`{rbtv_path}/studio/capabilities/image-gen/`) OR owner-supplied assets. NEVER fabricate stock-lookalike photos passed as real photos of real things, people, or places. A slide needing an image whose asset is absent HALTS to the owner naming the missing asset — never an invented "real" photo. (The image-gen capability's FIXTURE provider is the quota-independent path — the contract may invoke the capability without assuming live image-gen quota.)
 
 NEVER recolor a client's logo to fit a generated image or its surrounding panel — follow the ban-list logo rule (E-6) at `{rbtv_path}/studio/standards/ban-list.md`.
