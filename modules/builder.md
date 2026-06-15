@@ -46,3 +46,5 @@ The RBTV-native module — for building RBTV itself. Install it in workspaces wh
 ## How They Fit Together
 
 `rbtv-create-component` places and structures new components module-first; the `source-of-truth` rule keeps every subsequent edit pointed at the repo. Together they make the repo's hard rule (every component change updates README + `modules/` + `module-manifest.json` in the same change) executable by agents.
+
+**Data file note:** `builder/workflows/component-creation/data/component-patterns.md` records the placement standard for reference data — shared cross-cutting data (e.g. `standards/`) lives in a top-level content-named folder; single-owner data nests in its owning component (co-located). This convention was blessed as of 2026-06-15 (studio-standardization D3) and `rbtv-architecture.md` carries an echo of it.

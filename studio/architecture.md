@@ -177,6 +177,7 @@ studio/
 - Workflow step/beat files follow the office/deck micro-file convention: self-contained, read-fully-before-acting, sequential, halt-at-menu.
 - `studio/standards/` holds **module-internal** standards (mined data + checklists), NOT `.claude/` rules. The always-on `.claude/` rules (`rbtv-done-gate`, etc.) are not duplicated here.
 - `hypresent/` and `slide-library/` are residents — no file under either is created, modified, or deleted by any studio-build task. A `✎`/`✗` under either tree in any worker diff = defect.
+- `standards/` is the module's shared cross-cutting reference data; `critic/` and `capabilities/` are content-named component folders (procedure/capabilities + co-located data) — per the Content-named folders convention in `component-patterns.md`.
 
 ---
 
@@ -253,7 +254,7 @@ design_state: ./design-state.md   # back-pointer; design lives THERE, never here
 
 | Resident | What it is | This build's relation |
 |----------|-----------|----------------------|
-| `studio/hypresent/` | The slide-presentation/builder app (its own server, app, tests, multi-version plans) | UNTOUCHED — rode along on the `html/`→`studio/` parent rename. No studio-build task writes inside it. A parallel session is active under `hypresent/docs/plan/builder-open-deck/` — stay out |
+| `studio/hypresent/` | The slide-presentation/builder app (its own server, app, tests, multi-version plans) | UNTOUCHED — rode along on the `html/`→`studio/` parent rename. No studio-build task writes inside it. Its build-history under `docs/plan/` was archived out to the vault's build-history. |
 | `studio/slide-library/` | Library + engine that organizes slides so hypresent works (wired to hypresent) | UNTOUCHED — parent-rename only; proved untouchable (rename-only git status + slide-library pytest baseline) |
 
 The studio loop does NOT *require* hypresent or slide-library; the deck path renders via the `browser-automation` infra (local HTTP server + headed browser), independent of the hypresent app. Beat 3 MAY *optionally* reuse a spec-compliant slide library found in the working repo when one fits the deck (owner-gated; see beat-03 § 3·0) — but never requires one and never writes into the convention's `studio/slide-library/`.

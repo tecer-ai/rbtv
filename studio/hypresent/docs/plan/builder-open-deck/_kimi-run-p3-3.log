@@ -1,6 +1,0 @@
-Error code: 429 - {'error': {'message': "You've reached your usage limit for th
-is period. Your quota will be refreshed in the next period. Upgrade to get more
-: https://www.kimi.com/code/console?from=limit-upgrade", 'type': 'rate_limit_re
-ached_error'}}
-
-To resume this session: kimi -r de845bd5-b615-4eaa-98bd-a59ae1456d2a

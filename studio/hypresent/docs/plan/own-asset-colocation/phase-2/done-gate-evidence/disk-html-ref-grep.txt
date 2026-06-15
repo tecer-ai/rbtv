@@ -1,5 +1,0 @@
-Saved file: C:\Users\henri\AppData\Local\Temp\tmpkcy_k8xp\saved-own-assets.html
-
-Grep for 'logo-1.png' and 'own-tecer.png':
-L1349: <img id="own-img-blue" src="assets/own-tecer.png" alt="own-tecer" style="position:absolute;opacity:0.01;width:1px;height:1px;">
-L1350: <img id="own-img-collision" src="assets/logo-1.png" alt="own-logo" style="position:absolute;opacity:0.01;width:1px;height:1px;">

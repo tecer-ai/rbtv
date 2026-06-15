@@ -1,9 +1,0 @@
-status: landed
-
-landed: Fixes 4, 5, and 6 applied only in `app/js/main.js`, `app/js/shell/file-controls.js`, and `app/js/builder/builder-main.js`. No commit or push run.
-
-validation: Ran `git --no-pager diff -- app/js/main.js app/js/shell/file-controls.js app/js/builder/builder-main.js`; EXIT 0. Diff confirms inline reply input added, floating Reply button removed, saved status calls cleared, and silent-save handoff logic added. Targeted searches also found no remaining `setStatus("Saved", "success")` or `const replyBtn`.
-
-concerns: The diff includes pre-existing dirty changes in the same three files, so validation output is not limited to my edits. Git also reported LF-to-CRLF warnings.
-
-open_questions: none

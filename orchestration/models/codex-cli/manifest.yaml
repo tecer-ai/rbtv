@@ -8,7 +8,7 @@
 # Evidence boundary: the full headless worker contract IS NOW VALIDATED — 2026-06-11, hypresent
 # ui-bugfix run: codex 0.137.0 / gpt-5.5 default ran ~10 bounded-code dispatches end-to-end (exit 0,
 # each conductor-reconciled vs disk, no out-of-allowlist writes; stdin-hang guard fixed in rbtv@1733b17).
-# Evidence: studio/hypresent/docs/plan/ui-bugfix-2026-06-11/{run-log.md, evidence/fix-*-return.txt} +
+# Evidence: studio/hypresent/docs/plan/ui-bugfix-2026-06-11/{run-log.md, evidence/fix-*-return.txt} (archived to the vault's build-history) +
 # 2-areas/rbtv/coding/done-gate-evidence/rbtv/2026-06-11-worker-tier-benchmark.md. Residual: only the
 # `default` variant (gpt-5.5, effort medium) was exercised; the high-reasoning (effort=high) and
 # low-reasoning (effort=low) variants share the CLI contract but were not separately run. Exit taxonomy

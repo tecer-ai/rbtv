@@ -2,7 +2,7 @@
 
 A local, browser-based WYSIWYG editor for AI-generated HTML. hypresent opens an existing HTML file from disk, lets you edit it visually (text, formatting, flow-aware resize, transform-based move, recolor, and embedded comments), and saves a new standalone HTML file with zero editor chrome — the document's own CSS, JavaScript, and assets are preserved untouched.
 
-It is robust on conforming files and degrades gracefully on any HTML; it was verified end-to-end against two fixtures spanning the structural extremes — a zero-JS flex/grid slide deck (the deck fixture) and a JS-driven scrolling report (the report fixture). See [`docs/fixture-profiles.md`](docs/fixture-profiles.md).
+It is robust on conforming files and degrades gracefully on any HTML; it was verified end-to-end against two fixtures spanning the structural extremes — a zero-JS flex/grid slide deck (the deck fixture) and a JS-driven scrolling report (the report fixture). See `docs/fixture-profiles.md` (archived to the vault's build-history).
 
 ## Requirements
 
@@ -87,12 +87,12 @@ The builder never duplicates engine behavior: the library's vendored engine is t
 
 ## Documentation index
 
-- **Specs** (`docs/spec/`): [`01-architecture.md`](docs/spec/01-architecture.md), [`02-html-convention.md`](docs/spec/02-html-convention.md), [`03-module-map.md`](docs/spec/03-module-map.md), [`04-implementation-plan.md`](docs/spec/04-implementation-plan.md), [`05-verification-plan.md`](docs/spec/05-verification-plan.md), and the pre-build [`review-log.md`](docs/spec/review-log.md).
-- **Decisions:** [`docs/decision-log.md`](docs/decision-log.md) (locked product decisions D1–D6 + architecture choices A1–A12).
-- **Plan:** [`docs/plan/hypresent-v1/`](docs/plan/hypresent-v1/) (shape, execution index, per-task files).
-- **Build log:** [`docs/build-log.md`](docs/build-log.md) (one entry per task: what was built, files, how verified).
-- **Verification:** [`docs/verification/foundation-smoke/result.md`](docs/verification/foundation-smoke/result.md), [`docs/verification/cp1/result.md`](docs/verification/cp1/result.md), [`docs/verification/cp2/result.md`](docs/verification/cp2/result.md) (includes the final GREEN re-verify).
-- **Learnings:** [`docs/learnings.md`](docs/learnings.md).
+- **Specs** (`docs/spec/`): `01-architecture.md`, `02-html-convention.md`, `03-module-map.md`, `04-implementation-plan.md`, `05-verification-plan.md`, and the pre-build `review-log.md` (the full spec set is archived to the vault's build-history).
+- **Decisions:** `docs/decision-log.md` (archived to the vault's build-history) (locked product decisions D1–D6 + architecture choices A1–A12).
+- **Plan:** `docs/plan/hypresent-v1/` (archived to the vault's build-history) (shape, execution index, per-task files).
+- **Build log:** `docs/build-log.md` (archived to the vault's build-history) (one entry per task: what was built, files, how verified).
+- **Verification:** `docs/verification/foundation-smoke/result.md`, `docs/verification/cp1/result.md`, `docs/verification/cp2/result.md` (archived to the vault's build-history; includes the final GREEN re-verify).
+- **Learnings:** `docs/learnings.md` (archived to the vault's build-history).
 
 ## Known limitations
 

@@ -1,7 +1,0 @@
-OPEN: [{"i": 0, "uid": "1", "slideId": "deck-section-0"}, {"i": 1, "uid": "2", "slideId": "deck-section-1"}, {"i": 2, "uid": "3", "slideId": "deck-section-2"}, {"i": 3, "uid": "4", "slideId": "deck-section-3"}]
-AFTER REORDER: [{"i": 0, "uid": "1", "slideId": "deck-section-0"}, {"i": 1, "uid": "2", "slideId": "deck-section-1"}, {"i": 2, "uid": "3", "slideId": "deck-section-2"}, {"i": 3, "uid": "4", "slideId": "deck-section-3"}]
-REMOVE click target snapshot: pos2 uid=3 slideId=deck-section-2
-AFTER REMOVE: [{"i": 0, "uid": "1", "slideId": "deck-section-0"}, {"i": 1, "uid": "2", "slideId": "deck-section-1"}, {"i": 2, "uid": "4", "slideId": "deck-section-3"}, {"i": 3, "uid": "5", "slideId": "deck-section-4"}]
-DUP click target snapshot: pos0 uid=1 slideId=deck-section-0
-AFTER DUP: [{"i": 0, "uid": "1", "slideId": "deck-section-0"}, {"i": 1, "uid": "11", "slideId": "deck-section-0"}, {"i": 2, "uid": "2", "slideId": "deck-section-1"}, {"i": 3, "uid": "4", "slideId": "deck-section-3"}, {"i": 4, "uid": "5", "slideId": "deck-section-4"}]
-PAYLOAD items indices: [0, 0, 1, 3, 4, 5, 6, 7, 8, 9, "-"]

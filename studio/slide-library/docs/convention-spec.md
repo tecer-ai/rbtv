@@ -1,4 +1,5 @@
 # RBTV Slide-Library Convention — v1 (Normative Specification)
+> LIVING — consumed by slide-library/README.md + beat-03 + vivian.md
 
 **Status:** v1 draft for orchestrator ratification. Convention version `1.0`.
 **Audience:** the RBTV assembly engine, the hypresent builder GUI, and any cold agent pointed at a library. This document is the single normative contract all three code against.

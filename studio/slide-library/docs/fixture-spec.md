@@ -1,4 +1,5 @@
 # Fixture Library Spec — `fixture-library` (executor-ready)
+> LIVING — consumed by slide-library/README.md
 
 **Purpose:** a small synthetic, RBTV-generic slide library that exercises EVERY feature of the RBTV slide-library convention v1 (`convention-spec.md`). Workstream 2 builds and verifies the engine against THIS fixture before touching any real library.
 

@@ -1,4 +1,0 @@
-second_save_sha256 : 40523b4f851a17d4587dc894204fd8a0d644bec516ea68e13d97765c9b99c759
-frozen_save1_sha256: 40523b4f851a17d4587dc894204fd8a0d644bec516ea68e13d97765c9b99c759
-byte_identical     : True
-byte_len_each      : 94922 94922

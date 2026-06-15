@@ -1,5 +1,0 @@
-out_dir: C:\Users\henri\AppData\Local\Temp\tmpkcy_k8xp
-assets/ contents:
-  logo-1.png  (69 bytes)
-  logo.png  (69 bytes)
-  own-tecer.png  (69 bytes)

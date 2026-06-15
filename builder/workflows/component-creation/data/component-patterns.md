@@ -33,6 +33,22 @@ The repo is module-first: every component lives under its owning module folder (
 | `{module}/rules/` | Behavior rules (copied to target on install) | `{behavior}.md` |
 | `{module}/subagents/` | Claude Code dispatchable subagents | `{name}.md` |
 
+**Content-named folders (beyond the type-folders).** A module MAY carry top-level
+folders named by their CONTENT (not a component type), as siblings of the
+type-folders above, in two cases:
+
+1. Shared reference data consulted by multiple components (e.g. `standards/`).
+   Single-owner data instead co-locates inside its owning component (a `data/`
+   subfolder, per Co-located data).
+2. A cohesive capability/procedure + its co-located data with no type-folder home —
+   a runnable script + its usage doc, or a module-internal procedure + the
+   reference data it consults.
+
+No generic `knowledge/`/`data/` module bucket is introduced — each folder is named
+for what it holds. The Thin Loader Invariant is unchanged: logic never lives in
+`skills/`; these folders hold the logic/data that has no `skills/`, `workflows/`,
+or XML-`tasks/` home.
+
 ## Rule Design Compliance
 
 Rule files have additional design requirements beyond naming and sizing. Read `{rbtv_path}/builder/workflows/component-creation/data/rule-design-guide.md` for enforcement types, required design elements, anti-gaming design, and the rule template.

@@ -1,5 +1,0 @@
-status: DOUBT_ESCALATED
-landed: No files modified.
-validation: SKIPPED_COUNT: 1; pytest skipped per dispatch: sandbox cannot execute repo Python.
-concerns: The dispatch requires a builder status-bar warning, but the only current status message construction is in `app/js/builder/builder-main.js`, which is outside the allowlist. `app/js/builder/deck-save.js` only returns save data; it cannot cleanly append the visible status fragment without an indirect DOM hack or changing an out-of-allowlist file.
-open_questions: Should the allowlist include `studio/hypresent/app/js/builder/builder-main.js`, or should the UI requirement be reduced to returning `assetsMissing` from `deck-save.js` for a later allowed UI patch?

@@ -1,9 +1,0 @@
-status: landed_with_concerns
-
-landed: Replaced the two pill-toggle handlers in `app/js/main.js` and `app/js/builder/builder-main.js`. No commit or push was run.
-
-validation: Ran `git --no-pager diff -- app/js/main.js app/js/builder/builder-main.js; "EXIT:$LASTEXITCODE"`. Output included the requested two handler replacements, and `EXIT:0`. It also included unrelated existing hunks in the same two files, plus LF-to-CRLF warnings from Git.
-
-concerns: The validation requirement said the diff should show only the two handler replacements. The working tree diff does not meet that because unrelated changes were already present in the same files. I did not revert or alter those unrelated changes.
-
-open_questions: None.

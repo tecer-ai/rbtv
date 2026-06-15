@@ -1,9 +1,0 @@
-=== tests/test_recompose.py ===
-..........................                                               [100%]
-26 passed in 1.27s
-EXIT_CODE=0
-
-=== tests/test_deck_api.py ===
-...................                                                      [100%]
-19 passed in 3.09s
-EXIT_CODE=0
