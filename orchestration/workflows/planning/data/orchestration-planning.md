@@ -76,3 +76,17 @@ allowlist:
 ```
 
 **Orchestration pre-resolution shape:** `executor`/`reviewer`/`allowlist` are the standing pre-resolution frontmatter the planner emits for an orchestrated DEEP plan (and the LIGHT critical subset). `executor.{model, variant, carrier}` is the router pin (resolved by calling `route.py`, never reasoned with the user); `reviewer.{model, variant}` is the reviewer-floor pin; `allowlist.{create, modify, delete}` is the file-operation allowlist (✚/✎/✗ — also restated in the body per the task-file contract). When the executor pin names a model that ships a per-model contract delta, the model-specific frontmatter keys + body sections are DERIVED from that delta via the dispatch-scaffold in skeleton mode — see § Worker-Contract Frontmatter for a Pinned Executor (step-04 body). A plain (non-orchestrated) plan omits all three blocks.
+
+---
+
+## Create-Coverage Validation (step-04 §8d body)
+
+**Orchestrated plans only.** Before plan handoff, reconcile what the plan DECLARES it will create against what the task allowlists ACTUALLY create — so a file intended-but-unscoped surfaces here at plan time, not at a wave boundary during execution.
+
+1. Build `INTENDED_CREATE` — every file the plan declares it will create:
+   - deliverables.md rows whose artifact is a newly-created file, AND
+   - every create-annotation carried by any design/architecture doc the plan references (a file marked create-for-`taskN`, e.g. `✚ CREATE (taskN)`), when such a doc exists.
+2. Build `ALLOWLIST_CREATE` — the union of every task's `allowlist.create`.
+3. Assert `INTENDED_CREATE ⊆ ALLOWLIST_CREATE`. Any file in `INTENDED_CREATE` absent from `ALLOWLIST_CREATE` is a **coverage gap** — a validation error surfaced before handoff, never deferred to execution.
+4. For each create-annotation that names a SPECIFIC task (`✚ CREATE (taskN)`), assert that task's OWN `allowlist.create` includes the file — not merely some task's.
+5. Reconcile every gap before the plan is handed off: add the file to the owning task's allowlist, or add/re-scope the task that creates it.

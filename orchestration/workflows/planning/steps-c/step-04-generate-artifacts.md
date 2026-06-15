@@ -215,6 +215,10 @@ Search all files inside the plan folder for path violations:
 - No file contains an absolute or root-relative path referencing the plan folder itself
 - All intra-plan references use `./` or `../` relative paths
 
+**8d. Create-allowlist coverage (orchestrated plans only):**
+
+When the plan is `orchestrated: true`, READ `../data/orchestration-planning.md` § Create-Coverage Validation (step-04 §8d body) and execute it — it reconciles every file the plan declares it will create against the union of task create-allowlists, surfacing any uncovered file as a coverage gap before plan handoff. A plain (non-orchestrated) plan carries no allowlists and skips this check.
+
 **If ANY validation fails**, fix the issue before proceeding.
 
 ### 9. Present Completion Summary
