@@ -789,6 +789,49 @@ The chain NEVER blocks — rule 4 always yields. The output is a DRAFT: the migr
 
 ---
 
+## 10. The Deck Authoring Standard (export-compatible generated decks)
+
+§§ 1–9 govern a slide *library* (the curated source a deck is assembled FROM). This section governs the reverse direction: the **deck authoring standard** — the metadata an AI-generated deck carries so it can later be DECOMPOSED back into library fragments + manifest rows with no manual cleanup. A deck is a website- or pitch-style HTML presentation the studio/designer generation flow produces; the standard is the DEFAULT generation behavior, baked into how the deck is generated, NOT an after-the-fact checklist applied later. The decompose engine that reads this metadata is a SEPARATE consumer from the assembly engine of §§ 1–9.
+
+### 10.1 The export-metadata attribute set (MUST)
+
+Every top-level slide in a generated deck is a `<section class="slide …">` carrying the eight `data-hyp-*` export-metadata attributes below. They extend the existing `data-hyp-*` editability-hint family (`data-hyp-hook`, `data-hyp-region`, `data-hyp-text`, `data-hyp-resize`, `data-hyp-move`, `data-hyp-decorative`, plus the `id="hyp-*"` JSON islands — the hypresent HTML convention, hints H1–H9) and follow its naming rule: every attribute is `data-hyp-*`, lowercase, hyphen-separated.
+
+These attributes are **non-rendered** — they change nothing a viewer sees in a browser; they exist solely as export metadata the decompose engine reads. They ride on the `<section>` element itself (NOT in a `<head>`/`<style>`/`<script>` block) so they survive intact when the deck is decomposed into a bare-`<section>` library fragment — see § 10.4.
+
+Each attribute fills exactly one manifest column from the § 2.2 ten-column slide schema:
+
+| # | Attribute | Fills manifest column (§ 2.2) | Value rule |
+|---|-----------|-------------------------------|------------|
+| 1 | `data-hyp-slide-id` | `id` (column 1) | Kebab-case slug suggested from the slide's role/title. A SUGGESTED id only — export MAY dedupe or validate it against the target library (which enforces the § 2.2 uniqueness and kebab-case rules at write time). |
+| 2 | `data-hyp-section` | `section` (column 3) | The deck section the slide belongs to, repeated per slide. Export maps it to a section DECLARED in the target library's `library.json` `sections`; an undeclared value is never written through as-is (an undeclared `section` would break re-assembly per § 2.2 / § 2.5). |
+| 3 | `data-hyp-title` | `title` (column 4) | Short human label, ≤ ~8 words (the § 2.2 `title` rule). |
+| 4 | `data-hyp-audience` | `audience` (column 5) | One of `prospect` / `client` / `investor` / `general` (the § 2.2 advisory set). Sentinel `general` when unspecified — emitted, never omitted. |
+| 5 | `data-hyp-lang` | `lang` (column 6) | Lowercase ISO-639-1-style token (`pt`, `en`) per § 2.2. MAY be omitted on a slide that inherits the deck root `lang`; a per-slide value overrides the root for that slide. |
+| 6 | `data-hyp-summary` | `summary` (column 8) | 1–2 sentence description distinguishing the slide from its siblings (the § 2.2 `summary` rule). |
+| 7 | `data-hyp-kind` | `kind` (column 7) | `ready` or `template` (the § 2.2 enum), matched case-sensitively. |
+| 8 | `data-hyp-provenance` | `provenance` (column 10) | Origin marker, or omitted. The ONLY optional-omittable attribute (its manifest column carries the `-` sentinel when absent). |
+
+The manifest `file` (column 2) and `assets` (column 9) columns are NOT carried as deck attributes — they are export-derived (they depend on what the export writes to disk), so the deck carries no `data-hyp-file` / `data-hyp-assets`. **Missing-value rule:** when a semantic value cannot be inferred, the attribute is emitted with its sentinel default (`data-hyp-audience="general"`) rather than omitted — export expects the attribute present. `data-hyp-provenance` is the sole exception (omittable). A purely decorative, non-slide section (a full-bleed background wrapper that is not itself a slide) carries NO export-metadata attributes and is marked `data-hyp-decorative="true"` (hint H7) so export skips it.
+
+### 10.2 The 1280×720 aspect rule (MUST)
+
+Every slide in a generated deck is sized **1280×720** (e.g. `.slide { width: 1280px; height: 720px }`, or the deck's equivalent fixed slide box). A fixed slide size is what makes slide-snapping and clean decomposition deterministic — without it the export cannot reliably cut a deck into uniform fragments.
+
+### 10.3 The one-page-per-slide print requirement (MUST)
+
+A generated deck carries the one-page-per-slide `@media print` block mandated by ban-list **G-2** (`standards/ban-list.md` item G-2 — the canonical print rule; it is NOT restated here). The deck's print block sets its `@page` size to **`1280px 720px; margin: 0`**, which **REPLACES** G-2's `@page { size: landscape }` for decks (one `@page` rule, not two). G-2's other print properties — `-webkit-print-color-adjust: exact` and `.slide { page-break-inside: avoid }` — are kept unchanged, so print-preview yields exactly one slide per page at the fixed 1280×720 size.
+
+### 10.4 The fragment-invariant tie-in (why attributes, not a block)
+
+The export-metadata attributes live on the `<section>` element specifically because a library fragment is a bare `<section class="slide …">` ONLY — it NEVER contains `<head>`, `<style>`, `<script>`, `<html>`, or `<body>` (the fragment invariant, § 6.3, enforced as validation check 12 in § 8). A `<script>`/`<head>` metadata block would therefore be STRIPPED when the deck is decomposed into a fragment, losing all metadata; attributes on the `<section>` survive the decomposition intact and arrive in the library fragment unchanged. This is why § 10.1 mandates attributes on the `<section>` rather than any embedded block.
+
+### 10.5 The dashboard / non-deck escape (MUST)
+
+Generated HTML that is neither a website nor a pitch deck — a dashboard or app — is EXEMPT from this entire section: it carries NO export-metadata attributes, is NOT snapped to 1280×720, and carries NO `@media print` block. The standard applies ONLY to website/pitch-style decks. For a borderline output, the standard is APPLIED rather than skipped (a deck wrongly tagged exempt is worse than a dashboard carrying a few unused attributes); the generating flow states which path it took.
+
+---
+
 ## Amendments (ADX)
 
 > Append-only. Orchestrator rulings during execution land here as `ADX-N`. Executors cite "per ADX-N". Each entry: `ADX-N — {date} — {fork or topic} — {ruling}`.
