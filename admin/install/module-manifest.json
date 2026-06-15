@@ -156,6 +156,12 @@
         "target": ".claude/skills/rbtv-designing/SKILL.md",
         "bake": ["rbtv_path"],
         "description": "UI/UX design workflow with iterative screenshot refinement"
+      },
+      {
+        "source_template": "studio/skills/hypresent-comments/SKILL.md",
+        "target": ".claude/skills/rbtv-hypresent-comments/SKILL.md",
+        "bake": ["rbtv_path"],
+        "description": "Resolve hypresent review comments without deleting them — implement, reply inline, never resolve the human's thread"
       }
     ],
     "commands": [

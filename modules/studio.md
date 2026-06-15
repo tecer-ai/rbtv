@@ -54,9 +54,18 @@ Two artifact branches extend the loop for sites and apps. Each is a single file 
 
 ---
 
+### `rbtv-hypresent-comments` (Comment Resolution Protocol)
+
+- **What**: The MANDATORY protocol ANY agent follows when it implements, answers, or resolves hypresent review comments on an HTML artifact — edit a NEW versioned copy (never overwrite), reply inline under the agent's own `{agent-name} ({role} agent)` identity stating what changed, remove only the `data-hyp-agent` tag (never orphan the thread), re-anchor a kept comment on slide/element delete, and NEVER resolve or delete the human's thread (only the owner resolves). The thread is the human's audit record. Extracted from Vivian's studio loop (2026-06-15) so any agent — not just the Designer — follows it.
+- **When to use**: Any time an agent acts on hypresent comments — a human gate, an agent-tagged instruction block, or a direct owner request. Vivian (the Designer) is wired to it directly; any other agent auto-matches the skill by description.
+- **How to invoke**: `rbtv-hypresent-comments` (skill, not a slash command). Backed by `studio/workflows/hypresent-comments/comment-implementation.md`.
+- **What it produces**: A new versioned artifact with each requested change applied and an inline agent reply on every implemented comment thread, all threads left unresolved for the owner.
+
+---
+
 ### Standards bundle (`studio/standards/`)
 
-- **What**: The module-internal standards that make "world-class AND distinct" a testable gate — `ban-list.md` (the default-attractor + mined-correction catalogue every art-direction brief and every slide must obey), `flaw-checklist.md` (the structural checklist the fresh-eyes pass runs against the rendered deck), `ux-companion-docs-contract.md` (the per-screen document format for the app fork's coding-agent handoff), and `comment-implementation.md` (the MANDATORY protocol Vivian follows when implementing review comments — versioned copy, reply under "Vivian (designer agent)", never resolve/delete the human's threads, re-anchor on slide/element delete).
+- **What**: The module-internal standards that make "world-class AND distinct" a testable gate — `ban-list.md` (the default-attractor + mined-correction catalogue every art-direction brief and every slide must obey), `flaw-checklist.md` (the structural checklist the fresh-eyes pass runs against the rendered deck), `ux-companion-docs-contract.md` (the per-screen document format for the app fork's coding-agent handoff).
 - **When to use**: The art-direction beat checks every mini-brief against the ban-list; the fresh-eyes pass (beat 3) reviews against the flaw checklist + the chosen mini-brief. The app fork's UX beat (forks/app.md §C) emits docs in the `ux-companion-docs-contract.md` format; the Designer keeps each screen's HTML in sync with its companion doc.
 - **`ux-companion-docs-contract.md`** — the per-screen companion doc format that travels with each app-path HTML screen. Five required fields: screen goal (one job, traced to the goals beat) · flow position (from/to transitions) · states (empty/loading/error/success, each named) · interactions (every control accounted for) · acceptance notes (owner-observable wired-correctly criteria). Self-sufficiency bar: a fresh coding agent wires the real app from the package (HTML screens + companion docs + flow map) alone, without the designer.
 
