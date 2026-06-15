@@ -195,7 +195,9 @@ def _prompt_custom_components(
         "\nCustomize individual components?",
         default=False,
     ):
-        return set()
+        # Declining customization means "keep my prior choices", not "reset to
+        # all components" — preserve the exclusions we were handed.
+        return set(previous_excluded)
 
     excluded: set[str] = set()
 
