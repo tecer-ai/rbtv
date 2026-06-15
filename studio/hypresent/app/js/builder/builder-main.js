@@ -9,10 +9,13 @@ import { buildDeckSrcdoc } from './previews.js';
 import { pickDestination, assembleDeck, buildOutPath } from './assemble.js';
 import { saveDeck } from './deck-save.js';
 import { confirmSaveOverwrite } from '/app/js/shell/confirm-modal.js';
+import { createDeckSelection } from './deck-select.js';
+import { exportDeckSlides } from './deck-export.js';
 
 const state = { libraryPath: null, data: null, tray: null, slideLookup: null, deck: null, canSave: false, showArchived: false };
 let destFolder = null;
 let accentChosen = false;
+let exportLibPath = null; // target library for Export-to-library
 
 document.addEventListener("DOMContentLoaded", () => {
   const browse = document.getElementById("browse-groups");
@@ -59,6 +62,16 @@ document.addEventListener("DOMContentLoaded", () => {
   const saveOverwriteBtn = document.getElementById('save-overwrite-btn');
   const switchToEditorBtn = document.getElementById('switch-to-editor-btn');
 
+  // Export-to-library pane elements
+  const deckExportPane = document.getElementById('deck-export-pane');
+  const exportSelCount = document.getElementById('export-sel-count');
+  const exportSelAllBtn = document.getElementById('export-sel-all-btn');
+  const exportSelNoneBtn = document.getElementById('export-sel-none-btn');
+  const exportPickLibBtn = document.getElementById('export-pick-lib-btn');
+  const exportTargetPath = document.getElementById('export-target-path');
+  const exportCtaBtn = document.getElementById('export-cta-btn');
+  const exportResult = document.getElementById('export-result');
+
   function setStatus(msg, type = '') {
     if (!builderStatus) return;
     builderStatus.textContent = msg;
@@ -81,6 +94,158 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
   state.tray = tray;
+
+  // ── Export-to-library: selection manager ─────────────────────────────
+  function updateExportCtaState(selUids) {
+    const hasSelection = selUids.size > 0;
+    const hasLib = !!exportLibPath;
+    if (exportCtaBtn) exportCtaBtn.disabled = !(hasSelection && hasLib);
+    if (exportSelCount) exportSelCount.textContent = selUids.size + (selUids.size === 1 ? ' selected' : ' selected');
+  }
+
+  const deckSelection = createDeckSelection({
+    listEl: trayList,
+    onSelectionChange: updateExportCtaState,
+  });
+
+  // ── Export-to-library: All / None buttons ────────────────────────────
+  if (exportSelAllBtn) exportSelAllBtn.addEventListener('click', () => deckSelection.selectAll());
+  if (exportSelNoneBtn) exportSelNoneBtn.addEventListener('click', () => deckSelection.clearAll());
+
+  // ── Export-to-library: choose target library ─────────────────────────
+  if (exportPickLibBtn) {
+    exportPickLibBtn.addEventListener('click', async () => {
+      // Reuse the same pickAndLoadLibrary flow — the user selects a folder and we
+      // capture the path (we don't need to load slide data for export target).
+      let result;
+      try {
+        result = await pickAndLoadLibrary();
+      } catch (err) {
+        setStatus('Library pick failed: ' + err.message, 'error');
+        return;
+      }
+      if (!result) return; // cancelled
+      if (result.ok === false) {
+        setStatus('Invalid library selected for export target.', 'error');
+        return;
+      }
+      exportLibPath = result.path;
+      if (exportTargetPath) {
+        exportTargetPath.textContent = result.path;
+        exportTargetPath.title = result.path;
+        exportTargetPath.classList.add('has-path');
+      }
+      // Re-evaluate CTA state
+      updateExportCtaState(deckSelection.getSelectedUids());
+    });
+  }
+
+  // ── Export-to-library: show result/concerns ──────────────────────────
+  function showExportResult(data, err) {
+    if (!exportResult) return;
+    exportResult.hidden = false;
+    exportResult.innerHTML = '';
+    exportResult.className = 'export-result';
+
+    if (err) {
+      exportResult.classList.add('is-err');
+      exportResult.textContent = 'Export failed: ' + err.message;
+      return;
+    }
+
+    // Empty-selection server response
+    if (data.message && !data.exported) {
+      exportResult.classList.add('is-warn');
+      exportResult.textContent = data.message;
+      return;
+    }
+
+    const exported = data.exported || 0;
+    const concerns = data.concerns || [];
+    const assetsSkipped = data.assets_skipped || [];
+    const hasIssues = concerns.length > 0 || assetsSkipped.length > 0;
+
+    exportResult.classList.add(hasIssues ? 'is-warn' : 'is-ok');
+
+    const summary = document.createElement('b');
+    summary.textContent = exported + ' slide' + (exported === 1 ? '' : 's') + ' exported — tagged to-review.';
+    exportResult.appendChild(summary);
+
+    if (concerns.length > 0) {
+      const heading = document.createElement('div');
+      heading.style.marginTop = '6px';
+      heading.style.fontWeight = '700';
+      heading.textContent = 'Concerns (review before using):';
+      exportResult.appendChild(heading);
+      const ul = document.createElement('ul');
+      concerns.forEach(c => {
+        const li = document.createElement('li');
+        li.textContent = typeof c === 'string' ? c : JSON.stringify(c);
+        ul.appendChild(li);
+      });
+      exportResult.appendChild(ul);
+    }
+
+    if (assetsSkipped.length > 0) {
+      const heading = document.createElement('div');
+      heading.style.marginTop = '6px';
+      heading.style.fontWeight = '700';
+      heading.textContent = 'Assets skipped (not found or collision):';
+      exportResult.appendChild(heading);
+      const ul = document.createElement('ul');
+      assetsSkipped.forEach(a => {
+        const li = document.createElement('li');
+        li.textContent = typeof a === 'string' ? a : JSON.stringify(a);
+        ul.appendChild(li);
+      });
+      exportResult.appendChild(ul);
+    }
+  }
+
+  // ── Export-to-library: CTA handler ───────────────────────────────────
+  if (exportCtaBtn) {
+    exportCtaBtn.addEventListener('click', async () => {
+      if (!state.deck || !state.deck.path) {
+        setStatus('No deck loaded.', 'error');
+        return;
+      }
+      const selectedIds = deckSelection.getSelectedSlideIds();
+      if (selectedIds.length === 0) {
+        // Empty-selection guard: no request sent, clear message shown
+        if (exportResult) {
+          exportResult.hidden = false;
+          exportResult.className = 'export-result is-warn';
+          exportResult.textContent = 'No slides selected — select at least one slide to export.';
+        }
+        return;
+      }
+      if (!exportLibPath) {
+        setStatus('Choose a target library first.', 'error');
+        return;
+      }
+
+      exportCtaBtn.disabled = true;
+      setStatus('Exporting…');
+      if (exportResult) exportResult.hidden = true;
+
+      try {
+        const data = await exportDeckSlides({
+          deckPath: state.deck.path,
+          selectedIds,
+          libraryPath: exportLibPath,
+        });
+        showExportResult(data, null);
+        const exported = data.exported || 0;
+        setStatus('Exported ' + exported + ' slide' + (exported === 1 ? '' : 's') + '.', 'success');
+      } catch (err) {
+        showExportResult(null, err);
+        setStatus('Export failed.', 'error');
+      } finally {
+        // Re-evaluate disabled state (selection unchanged, lib still set)
+        updateExportCtaState(deckSelection.getSelectedUids());
+      }
+    });
+  }
 
   // ── mode-switch guard: leaving for the Editor discards the tray ───────
   const navEditorLink = document.getElementById('nav-editor');
@@ -375,9 +540,19 @@ document.addEventListener("DOMContentLoaded", () => {
       sections: deckResult.sections
     };
 
-    // Switch to deck mode: hide assemble, show save pane
+    // Switch to deck mode: hide assemble, show save pane + export pane
     if (assembleBtn) assembleBtn.closest('.assemble').hidden = true;
     if (deckSavePane) deckSavePane.hidden = false;
+    if (deckExportPane) deckExportPane.hidden = false;
+
+    // Reset export state for the newly loaded deck
+    deckSelection.clearAll();
+    deckSelection.enable();
+    exportLibPath = null;
+    if (exportTargetPath) { exportTargetPath.textContent = 'No library chosen'; exportTargetPath.title = ''; exportTargetPath.classList.remove('has-path'); }
+    if (exportResult) exportResult.hidden = true;
+    if (exportCtaBtn) exportCtaBtn.disabled = true;
+    if (exportSelCount) exportSelCount.textContent = '0 selected';
 
     if (deckChip && deckChipName) {
       deckChipName.textContent = deckResult.name;

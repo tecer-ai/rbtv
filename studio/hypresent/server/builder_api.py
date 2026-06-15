@@ -3,12 +3,22 @@
 Handlers shell out to the slide-library engine; the server never parses manifests.
 """
 
+import filecmp
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import threading
+
+# ---------------------------------------------------------------------------
+# Decompose engine import (headless, stdlib only)
+# ---------------------------------------------------------------------------
+try:
+    from . import decompose
+except ImportError:
+    import decompose
 
 # ---------------------------------------------------------------------------
 # Folder dialog (build-spec S-B9.1) — mirror the live file-dialog idiom
@@ -144,6 +154,295 @@ def handle_assemble(payload):
     except Exception:
         return (500, {"error": f"engine did not return JSON: {err or eout[:200]}"})
     return (200, envelope)  # engine ok:false passes through
+
+
+# ---------------------------------------------------------------------------
+# Manifest id reader (mirrors engine/assemble.py parse_manifest scoping)
+# ---------------------------------------------------------------------------
+def _parse_manifest_ids(manifest_path):
+    """Collect existing slide ids from a library manifest's ## Slides table.
+
+    Mirrors the consuming engine (engine/assemble.py _find_section_rows +
+    _split_row): find the "## Slides" heading, read pipe rows until the next
+    "## " heading, drop the header + separator rows, and take each data row's
+    first cell. Returns a set (empty on any read/parse failure — best-effort).
+    """
+    ids: set[str] = set()
+    try:
+        if not (manifest_path.exists() and manifest_path.is_file()):
+            return ids
+        lines = manifest_path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return ids
+
+    in_slides = False
+    rows: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            if stripped == "## Slides":
+                in_slides = True
+            elif in_slides:
+                break
+            continue
+        if in_slides and "|" in line:
+            rows.append(line)
+
+    # rows[0] = header, rows[1] = separator; data starts at rows[2].
+    for line in rows[2:]:
+        cells = line.strip().split("|")
+        if cells and cells[0].strip() == "":
+            cells = cells[1:]
+        if cells and cells[-1].strip() == "":
+            cells = cells[:-1]
+        if cells:
+            first = cells[0].strip()
+            if first:
+                ids.add(first)
+    return ids
+
+
+def _append_rows_to_slides_table(manifest_path, new_lines):
+    """Insert new manifest rows at the end of the ## Slides table.
+
+    The ## Slides table ends at the first blank line or the next "## " heading
+    after its data rows. Rows are inserted immediately after the last existing
+    pipe row in that section so assemble.py's parse_manifest (which reads only
+    rows under "## Slides") sees them. Returns "" on success, or an error
+    string if the manifest has no "## Slides" section.
+    """
+    text = manifest_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    slides_start = None
+    for i, line in enumerate(lines):
+        if line.strip() == "## Slides":
+            slides_start = i
+            break
+    if slides_start is None:
+        return "manifest.md has no '## Slides' section — cannot place exported rows"
+
+    # Find the last pipe (table) row within the ## Slides section.
+    last_row_idx = None
+    for i in range(slides_start + 1, len(lines)):
+        stripped = lines[i].strip()
+        if stripped.startswith("## "):
+            break
+        if "|" in lines[i]:
+            last_row_idx = i
+    if last_row_idx is None:
+        return "manifest.md '## Slides' section has no table — cannot place exported rows"
+
+    insert_at = last_row_idx + 1
+    new_lines_block = [ln.rstrip("\n") for ln in new_lines]
+    merged = lines[:insert_at] + new_lines_block + lines[insert_at:]
+
+    out = "\n".join(merged)
+    if text.endswith("\n"):
+        out += "\n"
+    manifest_path.write_text(out, encoding="utf-8")
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Deck-mode selected-id normalization (synthetic key -> engine-resolvable index)
+# ---------------------------------------------------------------------------
+_DECK_SECTION_PREFIX = "deck-section-"
+
+
+def _normalize_deck_selected_id(sid):
+    """Map a deck-mode synthetic key "deck-section-{idx}" to the numeric index
+    string "{idx}" that decompose_deck resolves via its str(index) fallback.
+
+    Strips the prefix ONLY when the remainder is a pure non-negative integer, so
+    a real data-hyp-slide-id or a plain numeric id passes through unchanged.
+    Non-string inputs are returned as-is (the engine handles malformed ids).
+    """
+    if not isinstance(sid, str):
+        return sid
+    if sid.startswith(_DECK_SECTION_PREFIX):
+        suffix = sid[len(_DECK_SECTION_PREFIX):]
+        if suffix.isdigit():
+            return suffix
+    return sid
+
+
+# ---------------------------------------------------------------------------
+# handle_deck_export — export selected slides to a target library via decompose.py
+# ---------------------------------------------------------------------------
+def handle_deck_export(payload):
+    """Export selected deck slides into a target library.
+
+    Payload:
+        {
+            "deck_path": str,      # absolute path to the deck HTML file
+            "selected_ids": list[str],  # slide ids to export
+            "library_path": str,   # absolute path to the target library directory
+        }
+
+    Returns (status_int, response_dict).
+    """
+    deck_path = payload.get("deck_path")
+    selected_ids = payload.get("selected_ids")
+    library_path = payload.get("library_path")
+
+    if not deck_path or selected_ids is None or not library_path:
+        return (500, {"error": "Missing 'deck_path', 'selected_ids', or 'library_path'"})
+
+    if not isinstance(selected_ids, list):
+        return (500, {"error": "'selected_ids' must be a list"})
+
+    # Row 7 — empty selection is a clear no-op.
+    if not selected_ids:
+        return (200, {"ok": True, "message": "No slides selected — nothing exported."})
+
+    # Deck-mode synthetic-key normalization.
+    # In deck-mode the editor tray identifies each slide by the synthetic key
+    # "deck-section-{idx}" (builder-main.js deck-open + tray.js rebase), where
+    # {idx} is the slide's 0-based position in the deck's on-disk raw <section>
+    # order. The decompose engine resolves a selected id ONLY as a
+    # data-hyp-slide-id value or as a numeric str(index) fallback — it does not
+    # know the "deck-section-" prefix. The editor serializer strips
+    # data-hyp-slide-id on save, so the tray cannot read the real slide id and
+    # always sends the synthetic key. Translate it here (the only producer of
+    # synthetic keys) to the engine-resolvable numeric index, conservatively:
+    # strip ONLY an exact "deck-section-" prefix that leaves a pure integer, so
+    # real slide ids and plain numeric ids pass through untouched.
+    selected_ids = [_normalize_deck_selected_id(sid) for sid in selected_ids]
+
+    # 1. Read RAW on-disk deck HTML (data-hyp-* intact).
+    deck_file = pathlib.Path(deck_path)
+    if not deck_file.exists() or not deck_file.is_file():
+        return (500, {"error": f"Deck file not found: {deck_path}"})
+    try:
+        deck_html = deck_file.read_text(encoding="utf-8")
+    except Exception as exc:
+        return (500, {"error": f"Failed to read deck: {exc}"})
+
+    # 2. Load target library.json.
+    try:
+        library_json = decompose.load_library_json(library_path)
+    except Exception as exc:
+        return (500, {"error": f"Failed to load library.json: {exc}"})
+
+    # 3. Enforce never-overwrite-ready: read existing manifest ids.
+    # Parse the ## Slides table the SAME way the consuming assemble.py does
+    # (engine/assemble.py _find_section_rows + _split_row): scope to the
+    # "## Slides" heading, skip the header + separator rows structurally, and
+    # take the first cell of each data row. A substring match on "id" is NOT
+    # used — every data row's file cell contains "slides/" (sl-id-es), which
+    # would skip every real row and miss the ids it must dedupe against.
+    manifest_path = pathlib.Path(library_path) / "manifest.md"
+    existing_ids: set[str] = _parse_manifest_ids(manifest_path)
+
+    # 4. Compute deck_assets_dir (deck's own assets/ dir).
+    deck_assets_dir = str(deck_file.parent / "assets")
+    if not os.path.isdir(deck_assets_dir):
+        deck_assets_dir = None
+
+    # Call decompose engine.
+    try:
+        result = decompose.decompose_deck(
+            deck_html=deck_html,
+            selected_ids=selected_ids,
+            library_json=library_json,
+            deck_assets_dir=deck_assets_dir,
+            existing_library_ids=existing_ids,
+        )
+    except decompose.DecomposeError as exc:
+        return (500, {"error": str(exc)})
+    except Exception as exc:
+        return (500, {"error": f"Decompose engine failed: {exc}"})
+
+    # 5. Write fragments, append manifest rows, copy assets.
+    lib_root = pathlib.Path(library_path).resolve()
+    slides_dir = lib_root / "slides"
+    assets_dir = lib_root / "assets"
+    slides_dir.mkdir(parents=True, exist_ok=True)
+    assets_dir.mkdir(parents=True, exist_ok=True)
+
+    written_fragments: list[str] = []
+    written_rows: list[str] = []
+    copied_assets: list[str] = []
+    skipped_assets: list[str] = []
+    asset_clobber_concerns: list[str] = []
+    new_manifest_lines: list[str] = []
+
+    for export in result.exports:
+        row = export.row
+        fragment_path = slides_dir / f"{row.id}.html"
+        try:
+            fragment_path.write_text(export.fragment_html, encoding="utf-8")
+            written_fragments.append(row.id)
+        except Exception as exc:
+            return (500, {"error": f"Failed to write fragment {row.id}: {exc}"})
+
+        # Collect the manifest row; written into the ## Slides table below.
+        new_manifest_lines.append(decompose.row_to_markdown(row))
+        written_rows.append(row.id)
+
+        # Copy assets (skip missing, do not abort).
+        for asset_path in export.asset_paths:
+            if not os.path.isfile(asset_path):
+                skipped_assets.append(os.path.basename(asset_path))
+                continue
+            base = os.path.basename(asset_path)
+            dst = assets_dir / base
+            # Never silently clobber a curated library asset of the same name
+            # from a different deck. Identical bytes → harmless no-op (re-export
+            # of the same asset); differing bytes → skip + flag for human review.
+            if dst.exists():
+                try:
+                    same = filecmp.cmp(asset_path, str(dst), shallow=False)
+                except Exception:
+                    same = False
+                if not same:
+                    asset_clobber_concerns.append(
+                        f"Asset {base!r} already exists in the target library with "
+                        f"different content; kept the existing curated asset and skipped "
+                        f"the deck's copy. Resolve the name collision manually if the deck "
+                        f"asset is the intended one."
+                    )
+                    skipped_assets.append(base)
+                    continue
+                # identical — already present, count as copied (idempotent)
+                copied_assets.append(base)
+                continue
+            try:
+                shutil.copy2(asset_path, dst)
+                copied_assets.append(base)
+            except Exception:
+                skipped_assets.append(base)
+
+    # Insert the new rows at the END of the ## Slides table (NOT the end of the
+    # file). assemble.py's parse_manifest reads slide rows ONLY under the
+    # "## Slides" heading; a row appended past "## Assets" is invisible at
+    # re-assembly (the round-trip silently loses the exported slide) and would
+    # be mis-read as an asset row.
+    if new_manifest_lines:
+        try:
+            err = _append_rows_to_slides_table(manifest_path, new_manifest_lines)
+        except Exception as exc:
+            return (500, {"error": f"Failed to append manifest rows: {exc}"})
+        if err:
+            return (500, {"error": err})
+
+    # Build response.
+    response: dict = {
+        "ok": True,
+        "exported": len(result.exports),
+        "fragments": written_fragments,
+        "manifest_rows": written_rows,
+    }
+    all_concerns = list(result.concerns) + asset_clobber_concerns
+    if all_concerns:
+        response["concerns"] = all_concerns
+    if copied_assets:
+        response["assets_copied"] = copied_assets
+    if skipped_assets:
+        response["assets_skipped"] = skipped_assets
+
+    return (200, response)
 
 
 # ---------------------------------------------------------------------------

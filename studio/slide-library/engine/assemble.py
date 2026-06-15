@@ -19,6 +19,8 @@ MANIFEST_COLUMNS = [
     "id", "file", "section", "title", "audience",
     "lang", "kind", "summary", "assets", "provenance",
 ]
+STATUS_COLUMN = "status"
+STATUS_VALUES = ("to-review", "ready")
 
 TOKEN_RE = re.compile(r"\{\{[^}]+\}\}")
 SLIDE_NUMBER_RE = re.compile(r'(<div class="slide-number">)\{\{N\}\}(</div>)')
@@ -89,7 +91,7 @@ def parse_manifest(md_path):
     if not slide_rows:
         die("## Slides section has no table rows")
     header_cells = _split_row(slide_rows[0][1])
-    if header_cells != MANIFEST_COLUMNS:
+    if header_cells != MANIFEST_COLUMNS and header_cells != MANIFEST_COLUMNS + [STATUS_COLUMN]:
         die(f"Manifest header mismatch at line {slide_rows[0][0]}")
     data = []
     for line_num, line in slide_rows[2:]:
@@ -270,14 +272,21 @@ def validate_library(library_data, manifest_rows, assets_table_files, base_html,
         line_num = row["line_num"]
         cells = row["cells"]
 
-        if len(cells) != 10:
+        if len(cells) not in (10, 11):
             id_hint = cells[0] if cells else f"line {line_num}"
             errors.append(
-                f"Row {id_hint}: expected 10 columns, got {len(cells)}"
+                f"Row {id_hint}: expected 10 or 11 columns, got {len(cells)}"
             )
             continue
 
-        id_, file_, section, title, audience, lang, kind, summary, assets, provenance = cells
+        id_, file_, section, title, audience, lang, kind, summary, assets, provenance = cells[:10]
+        status_raw = cells[10].strip() if len(cells) == 11 else ""
+        status = status_raw if status_raw else "ready"
+        if status not in STATUS_VALUES:
+            errors.append(
+                f"Row {id_}: invalid status '{status_raw}' — "
+                f"must be one of {STATUS_VALUES}"
+            )
 
         # Empty required cells
         required = {
@@ -378,7 +387,7 @@ def assemble_deck(manifest_rows, slide_ids, lang, title, accent, theme_css,
     by_id = {}
     for row in manifest_rows:
         cells = row["cells"]
-        if len(cells) == 10:
+        if len(cells) in (10, 11):
             by_id[cells[0]] = cells
 
     fragments = []
@@ -388,7 +397,7 @@ def assemble_deck(manifest_rows, slide_ids, lang, title, accent, theme_css,
         if sid not in by_id:
             die(f"Slide id not found in manifest: {sid}")
         row = by_id[sid]
-        id_, file_, section, title_, audience, lang_, kind, summary, assets, provenance = row
+        id_, file_, section, title_, audience, lang_, kind, summary, assets, provenance = row[:10]
 
         frag_path = LIBRARY / file_
         if not frag_path.exists():
@@ -531,13 +540,13 @@ def generate_catalog(manifest_rows, library_data, base_html, theme_css):
     by_id = {}
     for row in manifest_rows:
         cells = row["cells"]
-        if len(cells) == 10:
+        if len(cells) in (10, 11):
             by_id[cells[0]] = cells
 
     section_map = {s: [] for s in sections}
     for row in manifest_rows:
         cells = row["cells"]
-        if len(cells) == 10:
+        if len(cells) in (10, 11):
             sec = cells[2]
             if sec in section_map:
                 section_map[sec].append(cells)
@@ -545,7 +554,7 @@ def generate_catalog(manifest_rows, library_data, base_html, theme_css):
     fragments = []
     for sec in sections:
         for cells in section_map[sec]:
-            id_, file_, section, title, audience, lang, kind, summary, assets, provenance = cells
+            id_, file_, section, title, audience, lang, kind, summary, assets, provenance = cells[:10]
             label = f"{id_} · {kind} · {audience} · {lang} · {summary}"
             frag_path = LIBRARY / file_
             if frag_path.exists():
@@ -707,8 +716,10 @@ def main():
                 slides = []
                 for row in manifest_rows:
                     cells = row["cells"]
-                    if len(cells) == 10:
-                        id_, file_, section, title, audience, lang, kind, summary, assets, provenance = cells
+                    if len(cells) in (10, 11):
+                        id_, file_, section, title, audience, lang, kind, summary, assets, provenance = cells[:10]
+                        status_raw = cells[10].strip() if len(cells) == 11 else ""
+                        status = status_raw if status_raw else "ready"
                         asset_list = []
                         if assets and assets != "-":
                             asset_list = [
@@ -726,6 +737,7 @@ def main():
                             "summary": summary,
                             "assets": asset_list,
                             "provenance": provenance,
+                            "status": status,
                         })
                 catalog_presets = []
                 for p in presets:

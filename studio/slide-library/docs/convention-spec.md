@@ -112,15 +112,15 @@ The verbatim row inside the fenced `text` block is what makes `--unarchive` loss
 
 ### 2.1 Format and parse rules
 
-- The `## Slides` table's first row is the header and MUST be exactly the 10 columns below, in this order. An engine MUST `die()` on header mismatch. **Heading and header matching are CASE-SENSITIVE** (per RV-4): the section heading MUST be exactly `## Slides` (likewise `## Assets`, `## Presets`, `## As-built log`), and the column header cells MUST match the § 2.2 names exactly. A library author's `## SLIDES` or `Id` column is INVALID. (Divergence from tecer, which lower-cases the heading match — § 8.1.)
+- The `## Slides` table's first row is the header and MUST be exactly the 10 columns below (in this order), OR the 10 columns followed by the optional `status` column as an 11th. An engine MUST `die()` on header mismatch. **Heading and header matching are CASE-SENSITIVE** (per RV-4): the section heading MUST be exactly `## Slides` (likewise `## Assets`, `## Presets`, `## As-built log`), and the column header cells MUST match the § 2.2 names exactly. A library author's `## SLIDES` or `Id` column is INVALID. (Divergence from tecer, which lower-cases the heading match — § 8.1.)
 - The separator row is identified POSITIONALLY: it is the SECOND physical table row, immediately after the header — never identified by content (per RV-13). The engine skips exactly that one row and treats every later `|`-row as data. (Divergence from tecer's content-based `set(...) <= set("-: ")` guard, which would silently skip a degenerate all-dash data row — § 8.1.)
-- Every subsequent `|`-delimited row is a fragment. A row whose cell count ≠ 10 is a loud failure (no output). An engine MUST `die()` with the line number.
+- Every subsequent `|`-delimited row is a fragment. A row whose cell count is neither 10 nor 11 is a loud failure (no output). An engine MUST `die()` with the line number. A 10-cell row is a legacy row whose `status` defaults to `ready`; an 11-cell row carries an explicit `status` value. Rows of different widths (10 and 11) MAY be mixed in the same manifest — each row is evaluated independently.
 - **A literal `|` is FORBIDDEN inside any cell** (per RV-2). The parser splits on `|` BEFORE any unescaping, so an in-cell pipe either over-counts the row (→ `die()`) or silently shifts columns. Backslash-escaping (`\|`) is NOT supported for v1 — a cell containing `\|` is still invalid. On a pipe-induced cell-count mismatch the engine MUST `die()` naming the offending row's `id` if recoverable, else the line number.
 - Cells are trimmed of surrounding whitespace. Cells are single physical lines — no embedded newlines (rows are one line each); the engine MUST NOT add multi-line cell handling.
-- **All enum-like values are lowercase and matched CASE-SENSITIVELY (exact string)** against their declarations (per RV-4): `kind` ∈ {`ready`, `template`}; `lang` is a lowercase ISO-639-1-style token (`pt`, `en`); `section` MUST exactly match a `library.json` `sections` entry. A miscased or unknown value (`Template`, `EN`, `Opening`) is INVALID — the engine rejects it (§ 2.5). Migration lowercases tecer's values (§ 9.2).
+- **All enum-like values are lowercase and matched CASE-SENSITIVELY (exact string)** against their declarations (per RV-4): `kind` ∈ {`ready`, `template`}; `status` ∈ {`to-review`, `ready`}; `lang` is a lowercase ISO-639-1-style token (`pt`, `en`); `section` MUST exactly match a `library.json` `sections` entry. A miscased or unknown value (`Template`, `EN`, `Opening`) is INVALID — the engine rejects it (§ 2.5). Migration lowercases tecer's values (§ 9.2).
 - Parsing requires only stdlib string operations — NEVER a YAML/TOML/CSV library.
 
-### 2.2 The 10-column slide schema
+### 2.2 The slide schema (10 required columns + 1 optional)
 
 | # | Column | Required | Values / rule |
 |---|--------|----------|---------------|
@@ -130,10 +130,11 @@ The verbatim row inside the fenced `text` block is what makes `--unarchive` loss
 | 4 | `title` | MUST | Short human label (≤ ~8 words) for the GUI browse card and catalog. Distinct from the document `{{TITLE}}` and from `summary`. |
 | 5 | `audience` | SHOULD | Advisory hint: `prospect` / `client` / `investor` / `general` (or library-defined). Sentinel `general` when unspecified. NEVER a hard selection filter — a slide tagged one audience MAY be used for another. |
 | 6 | `lang` | MUST | Language code, RECOMMENDED ISO 639-1 (`pt`, `en`). The GUI language filter keys on this. |
-| 7 | `kind` | MUST | `ready` (no tokens, ships verbatim) or `template` (has `{{TOKEN}}` slots needing a creative pass). The single most decision-bearing field. |
+| 7 | `kind` | MUST | `ready` (no tokens, ships verbatim) or `template` (has `{{TOKEN}}` slots needing a creative pass). The single most decision-bearing field. Distinct from `status` — `kind` records the slide's TYPE; `status` records the slide's review lifecycle. |
 | 8 | `summary` | MUST | 1-2 sentence description; MUST disambiguate the fragment from its siblings. Free text; MAY contain commas. |
 | 9 | `assets` | MUST | Comma-separated asset entries, or `-` for none. Resolution rules in § 2.4. |
 | 10 | `provenance` | SHOULD | Origin marker `{source} ({date})`, or `-`. For `template` fragments it doubles as the exemplar pointer to read before filling tokens. |
+| 11 | `status` | OPTIONAL | Review-lifecycle tag: `to-review` or `ready` (exact lowercase). **Missing or blank → treated as `ready`.** A value outside {`to-review`, `ready`} is INVALID — the engine rejects it. Distinct from `kind` (which records slide TYPE). Slides exported from a deck land as `to-review`; curated slides are `ready`. Existing 10-column libraries assemble unchanged — this column is additive and backward-compatible. |
 
 ### 2.3 The assets table
 
@@ -162,12 +163,12 @@ Rules:
 ### 2.5 What makes a library INVALID (manifest-related)
 
 An engine MUST reject (loud, no output) a library where any of the following holds:
-- `manifest.md` header row ≠ the 10 columns in § 2.2, or the section heading case ≠ `## Slides` / `## Assets` (per RV-4).
-- Any slide row has ≠ 10 cells.
+- `manifest.md` header row is neither the 10 columns in § 2.2 nor those 10 columns followed by `status` as an 11th, or the section heading case ≠ `## Slides` / `## Assets` (per RV-4).
+- Any slide row has fewer than 10 or more than 11 cells.
 - Any cell contains a literal `|` (including `\|`) (per RV-2) — die naming the row id or line.
 - Any MUST cell is empty after trim (per RV-14). The non-empty-required set is: `id`, `file`, `section`, `title`, `lang`, `kind`, `summary`. (`audience` and `assets` use the `general` / `-` sentinels respectively; `provenance` MAY be `-`.) An empty `id` is especially rejected — it would become the dict key `''` and silently shadow.
 - Any `id` is duplicated.
-- Any `kind` value ∉ {`ready`, `template`} (exact lowercase), or any `lang` not a lowercase token, or any `section` not declared in `library.json` `sections` — all matched case-sensitively (per RV-4).
+- Any `kind` value ∉ {`ready`, `template`} (exact lowercase), any `status` cell present and non-blank with a value ∉ {`to-review`, `ready`} (exact lowercase), any `lang` not a lowercase token, or any `section` not declared in `library.json` `sections` — all matched case-sensitively (per RV-4).
 - Any `file` references a non-existent fragment.
 - Any referenced asset cannot be resolved (§ 2.4) at assembly time for the requested composition.
 - A fragment file contains any of `<head`, `<style`, `<script`, `<html`, `<body` (substring scan of the raw fragment — the full § 6.3 invariant set, per RV-8).

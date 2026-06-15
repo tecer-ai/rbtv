@@ -135,6 +135,8 @@ Single source of truth for all slide fragments and presentation assets.
 
 > The `@root/partner-mark.png` entry resolves from `extra_asset_root` (`../shared-brand`) and intentionally has NO `## Assets` row (the assets table inventories library-root assets only). This exercises extra-root resolution.
 
+> **`status` column (convention-spec § 2.2 column 11):** the optional `status` column (`to-review`|`ready`, default `ready` when absent) is NOT added to this fixture manifest. The fixture stays 10-column to exercise the back-compat guarantee: a 10-column library MUST assemble byte-identically after the engine change. The 11-column path and the `status` parse/validation rules are exercised by dedicated engine tests (see `engine/tests/`).
+
 ---
 
 ## C. `presets.md`

@@ -6,6 +6,67 @@
   <title>hypresent — builder</title>
   <link rel="stylesheet" href="/app/css/shell.css">
   <link rel="stylesheet" href="/app/css/builder.css">
+  <style>
+    /* ── Export-to-library: selection + pane styles ────────────────────── */
+    /* Checkbox prepended to tray rows in deck-export mode */
+    .export-cb {
+      width: 15px; height: 15px; flex: none; margin: 0; cursor: pointer;
+      accent-color: var(--accent);
+    }
+    /* Expand tray-row grid to accommodate leading checkbox */
+    .tray-list .tray-row:has(.export-cb) {
+      grid-template-columns: 15px 14px 18px 92px 1fr 24px;
+    }
+    /* Selected slide highlight */
+    .tray-row.is-export-selected {
+      background: var(--accent-wash); border-color: var(--accent);
+    }
+    .tray-row.is-export-selected .tray-pos { color: var(--accent-deep); }
+    /* Export pane container */
+    #deck-export-pane {
+      border-top: 1px solid var(--line); padding: 13px 18px 15px;
+      background: var(--paper); display: flex; flex-direction: column; gap: 10px;
+    }
+    .export-pane-head {
+      display: flex; align-items: center; gap: 7px;
+      font-size: 12px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+      color: var(--ink-mut);
+    }
+    .export-pane-head svg { width: 14px; height: 14px; flex: none; color: var(--accent); }
+    .export-sel-row { display: flex; align-items: center; gap: 7px; }
+    .export-sel-count { flex: 1; font-size: 12.5px; font-weight: 600; color: var(--ink-mut); }
+    .export-sel-all, .export-sel-none {
+      padding: 3px 9px; height: 26px; font-size: 12px; font-weight: 700; border-radius: 5px;
+    }
+    .export-target-row { display: flex; align-items: center; gap: 8px; }
+    .export-target-path {
+      flex: 1; font-size: 12px; color: var(--ink-faint); height: 32px; padding: 0 10px;
+      display: flex; align-items: center;
+      border: 1px dashed var(--line-2); border-radius: var(--r-ctrl);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .export-target-path.has-path { color: var(--ink-mut); border-style: solid; }
+    .export-cta {
+      height: 38px; border-radius: 8px; background: var(--accent); color: #fff;
+      font-size: 13.5px; font-weight: 700;
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      transition: background .14s ease, opacity .14s ease;
+    }
+    .export-cta svg { width: 14px; height: 14px; }
+    .export-cta:hover:not(:disabled) { background: var(--accent-deep); }
+    .export-cta:disabled { opacity: .4; cursor: default; }
+    /* Result / concerns banner */
+    .export-result {
+      font-size: 12.5px; line-height: 1.5; padding: 9px 11px; border-radius: 7px;
+      border: 1px solid var(--line); background: var(--white);
+    }
+    .export-result.is-ok { border-color: var(--ok); background: var(--ok-wash); color: var(--ok); }
+    .export-result.is-warn { border-color: var(--accent); background: var(--accent-wash); color: var(--accent-deep); }
+    .export-result.is-err { border-color: #b00020; background: #fff0f0; color: #b00020; }
+    .export-result b { font-weight: 700; }
+    .export-result ul { margin: 5px 0 0 16px; }
+    .export-result ul li { margin-top: 2px; }
+  </style>
 </head>
 <body>
   <header class="topbar">
@@ -149,6 +210,28 @@
             Overwrite
           </button>
         </div>
+      </div>
+
+      <!-- deck-mode export-to-library pane (shown when deck is loaded) -->
+      <div id="deck-export-pane" hidden>
+        <div class="export-pane-head">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 11v6"/><path d="M9 14l3 3 3-3"/></svg>
+          <span>Export to library</span>
+        </div>
+        <div class="export-sel-row">
+          <span id="export-sel-count" class="export-sel-count">0 selected</span>
+          <button type="button" class="tb-btn export-sel-all" id="export-sel-all-btn">All</button>
+          <button type="button" class="tb-btn export-sel-none" id="export-sel-none-btn">None</button>
+        </div>
+        <div class="export-target-row">
+          <span class="export-target-path" id="export-target-path">No library chosen</span>
+          <button type="button" class="tb-btn" id="export-pick-lib-btn">Choose…</button>
+        </div>
+        <button type="button" class="export-cta" id="export-cta-btn" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 11v6"/><path d="M9 14l3 3 3-3"/></svg>
+          Export selected slides
+        </button>
+        <div id="export-result" class="export-result" hidden></div>
       </div>
 
       <p class="assemble-note">Assets are copied to <b>assets/</b> next to the deck.<br>The finished deck opens in the <b>Editor</b> to fill <code>{{TOKENS}}</code>.</p>

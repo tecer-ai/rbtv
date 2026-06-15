@@ -100,7 +100,7 @@ class TestEngineNegatives(unittest.TestCase):
         )
 
     def test_negative_04_delete_one_cell(self):
-        """Rule 4 — Delete one cell from a slide row (→9 cells) → ERROR expected 10."""
+        """Rule 4 — Delete one cell from a slide row (→9 cells) → ERROR expected 10 or 11."""
         tmp_lib = self._make_temp_library()
         manifest_path = os.path.join(tmp_lib, "manifest.md")
         text = self._read_file(manifest_path)
@@ -118,7 +118,7 @@ class TestEngineNegatives(unittest.TestCase):
         envelope = json.loads(stdout)
         self.assertFalse(envelope["ok"])
         self.assertTrue(
-            any(re.search(r"expected 10 columns|expected 10 cells|line \d+", e) for e in envelope["errors"]),
+            any(re.search(r"expected 10 or 11 columns|line \d+", e) for e in envelope["errors"]),
             f"errors={envelope['errors']}"
         )
 
@@ -137,7 +137,7 @@ class TestEngineNegatives(unittest.TestCase):
         envelope = json.loads(stdout)
         self.assertFalse(envelope["ok"])
         self.assertTrue(
-            any(re.search(r"pipe.*cover-nimbus\.en|line \d+|expected 10 columns", e, re.IGNORECASE) for e in envelope["errors"]),
+            any(re.search(r"pipe.*cover-nimbus\.en|line \d+|expected 10 or 11 columns|invalid status", e, re.IGNORECASE) for e in envelope["errors"]),
             f"errors={envelope['errors']}"
         )
 
