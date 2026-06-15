@@ -54,8 +54,8 @@ One line per ELECTED model package, always in the core so routing can recall wha
 The availability line below is written by the installer (`install.py`) at install time from this workspace's election — the first line names the ELECTED (routable) packages, the second the present-but-not-elected ones (the installer replaces only the content BETWEEN the `ORCH:AVAILABILITY` markers; they are preserved so re-install is idempotent). It is a human recall surface: `rbtv.json` `model_packages` is the authority `route.py` actually reads, so routing stays correct even if this shared line lags (in a multi-workspace repo the last install wins the line). On any line-vs-folder mismatch the ELECTION wins — the extra folder packages are catalog, not routable; the routing card §1 logs the reconciliation.
 
 <!-- ORCH:AVAILABILITY:BEGIN -->
-> **Model packages installed:** claude (native, from Claude Code), codex (CLI)
-> **Not elected:** claude-code (CLI), deepseek (API), gemini (API), kimi-code (CLI), manus (API), qwen-code (CLI)
+> **Model packages installed:** claude (native, from Claude Code), codex (CLI), kimi-code (CLI)
+> **Not elected:** claude-code (CLI), deepseek (API), gemini (API), manus (API), qwen-code (CLI)
 <!-- ORCH:AVAILABILITY:END -->
 
 Per-model capability lines — a STATIC reference roster of the model packages this skill can carry, NOT a list of what is elected here. A line's presence in this table says nothing about routability: routability is decided ONLY by the workspace election (`rbtv.json` `model_packages`, reflected in the baked block above); the live `models/` folder is the catalog the elected packages are drawn from, not the routable set. Routing reads the elected package's manifest for the full field set — these lines are the at-a-glance recall, not the routing inputs:
