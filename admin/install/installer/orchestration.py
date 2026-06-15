@@ -511,6 +511,217 @@ def sync_permission_rules(
     )
 
 
+# The rbtv-managed hook entry is identified by this stable sentinel so a later
+# unwire (p2-2) removes ONLY it and never touches hand-added entries.
+_HOOK_SENTINEL = "rbtv:context-monitor"
+
+# Path to the hook script, relative to the RBTV repo root.
+_CONTEXT_MONITOR_RELATIVE = Path("orchestration") / "hooks" / "context-monitor.py"
+
+# Stable command-path signature of the rbtv hook (the rbtv-owned script the entry
+# always invokes). Used as a HARNESS-ROBUST fallback identifier: Claude Code owns
+# settings.local.json at runtime and may re-serialize it (it persists /config,
+# /model, /effort, permission-prompt edits), with no documented guarantee that an
+# unknown top-level entry key (`__rbtv__`) survives that round-trip. So identity
+# keys on EITHER the sentinel (fast path, present when preserved) OR this intrinsic
+# script signature (survives even if the sentinel is stripped) — so neither this
+# wire's idempotency nor p2-2's unwire can orphan an entry whose key was dropped.
+_HOOK_COMMAND_SIGNATURE = _CONTEXT_MONITOR_RELATIVE.as_posix()
+
+
+def _entry_commands(entry: dict) -> list[str]:
+    """Every ``command`` string inside a PostToolUse matcher entry's ``hooks`` list.
+
+    Tolerates a malformed-but-parseable entry (missing/empty/oddly-typed ``hooks``)
+    without raising — returns ``[]`` so the caller's membership test is simply False.
+    """
+    if not isinstance(entry, dict):
+        return []
+    hooks = entry.get("hooks")
+    if not isinstance(hooks, list):
+        return []
+    out: list[str] = []
+    for h in hooks:
+        if isinstance(h, dict):
+            cmd = h.get("command")
+            if isinstance(cmd, str):
+                out.append(cmd)
+    return out
+
+
+def _is_rbtv_hook_entry(entry: dict) -> bool:
+    """True when a PostToolUse entry is the rbtv-managed one.
+
+    Matches on EITHER the injected sentinel key (fast path) OR the intrinsic rbtv
+    script-path signature in any of its commands (harness-robust: survives the
+    sentinel being stripped on a settings re-serialize). A foreign hook invoking an
+    unrelated command matches neither and is left untouched.
+    """
+    if not isinstance(entry, dict):
+        return False
+    if entry.get("__rbtv__") == _HOOK_SENTINEL:
+        return True
+    return any(_HOOK_COMMAND_SIGNATURE in cmd for cmd in _entry_commands(entry))
+
+
+def sync_hook_entry(
+    target_root: Path, rbtv_relative: Path
+) -> tuple[bool, str]:
+    """Wire the context-monitor PostToolUse hook into `.claude/settings.local.json`.
+
+    Mirrors the `sync_permission_rules()` read→merge→write pattern:
+    - Reads the settings file (or starts from {}).
+    - Removes any existing rbtv-managed hook entry (identified by `_HOOK_SENTINEL`).
+    - Inserts exactly one fresh entry at the end of the PostToolUse list.
+    - Writes back, preserving every unrelated key.
+
+    The hook ``command`` is built from Claude Code's ``$CLAUDE_PROJECT_DIR`` hook
+    variable (the project root, resolved per-machine when the hook runs) joined with
+    ``rbtv_relative`` (the per-user relative path to the RBTV install, baked at install
+    time) — so it resolves from ANY working directory and on ANY machine, never a
+    hardcoded absolute path. (A bare relative command broke when Claude Code ran the
+    hook from a non-project-root CWD.)
+
+    Idempotent: re-running replaces any stale entry with the current resolved path.
+    Fails soft (returns False + message) on a malformed settings file.
+
+    Scope: WIRE only. The unwire/removal path is p2-2's job.
+    """
+    settings_path = target_root / ".claude" / "settings.local.json"
+
+    # Resolve the script path relative to target_root using rbtv_relative.
+    # The command string uses forward slashes and quotes the path to handle spaces.
+    script_posix = (rbtv_relative / _CONTEXT_MONITOR_RELATIVE).as_posix()
+    command_str = f'python "$CLAUDE_PROJECT_DIR/{script_posix}"'
+
+    # The entry the installer owns, identifiable by _HOOK_SENTINEL.
+    rbtv_entry: dict = {
+        "__rbtv__": _HOOK_SENTINEL,
+        "matcher": "",
+        "hooks": [{"type": "command", "command": command_str}],
+    }
+
+    settings: dict = {}
+    if settings_path.is_file():
+        try:
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            return False, (
+                f"hook sync skipped: could not parse "
+                f"{settings_path.as_posix()} ({exc}) — fix the file and re-run"
+            )
+        if not isinstance(settings, dict):
+            return False, (
+                f"hook sync skipped: {settings_path.as_posix()} is not a "
+                "JSON object — fix the file and re-run"
+            )
+
+    hooks = settings.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        return False, (
+            f"hook sync skipped: 'hooks' in "
+            f"{settings_path.as_posix()} is not an object — fix the file and re-run"
+        )
+    post_tool_use = hooks.setdefault("PostToolUse", [])
+    if not isinstance(post_tool_use, list):
+        return False, (
+            f"hook sync skipped: 'hooks.PostToolUse' in "
+            f"{settings_path.as_posix()} is not a list — fix the file and re-run"
+        )
+
+    # Remove any existing rbtv-managed entry (idempotent: stale path gets replaced).
+    # Identity is sentinel-OR-script-signature so an entry whose injected key the
+    # harness dropped is still recognized (and replaced, not duplicated).
+    without_rbtv = [e for e in post_tool_use if not _is_rbtv_hook_entry(e)]
+    already_current = (
+        len(without_rbtv) == len(post_tool_use) - 1
+        and any(
+            _is_rbtv_hook_entry(e) and command_str in _entry_commands(e)
+            for e in post_tool_use
+        )
+    )
+    if already_current:
+        return False, (
+            f"hook sync: PostToolUse entry already current "
+            f"({settings_path.relative_to(target_root).as_posix()})"
+        )
+
+    hooks["PostToolUse"] = without_rbtv + [rbtv_entry]
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        json.dumps(settings, indent=2) + "\n", encoding="utf-8"
+    )
+    verb = "updated" if len(without_rbtv) < len(post_tool_use) else "added"
+    return True, (
+        f"hook sync: {verb} rbtv PostToolUse entry in "
+        f"{settings_path.relative_to(target_root).as_posix()}"
+    )
+
+
+def remove_hook_entry(target_root: Path) -> tuple[bool, str]:
+    """Unwire the rbtv-managed context-monitor PostToolUse hook from `.claude/settings.local.json`.
+
+    Mirrors the `sync_hook_entry()` read→merge→write pattern but REMOVES
+    rather than inserts:
+    - Reads the settings file (or returns a no-op success when absent).
+    - Drops every entry where `_is_rbtv_hook_entry` is True (sentinel OR command
+      signature — ADX-1: never key-only).
+    - Writes back, preserving every unrelated key (foreign hooks, permissions, …).
+
+    No-op success when:
+    - The settings file does not exist.
+    - The ``hooks`` key or ``PostToolUse`` list is absent.
+    - No rbtv-managed entry is present (already-unwired / idempotent).
+
+    Fails soft (returns False + message) on a malformed settings file.
+
+    Scope: UNWIRE only (p2-2). The wire path lives in `sync_hook_entry`.
+    """
+    settings_path = target_root / ".claude" / "settings.local.json"
+
+    if not settings_path.is_file():
+        return False, "hook unwire: no settings file — nothing to remove"
+
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return False, (
+            f"hook unwire skipped: could not parse "
+            f"{settings_path.as_posix()} ({exc}) — fix the file and re-run"
+        )
+    if not isinstance(settings, dict):
+        return False, (
+            f"hook unwire skipped: {settings_path.as_posix()} is not a "
+            "JSON object — fix the file and re-run"
+        )
+
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        return False, "hook unwire: no hooks object — nothing to remove"
+
+    post_tool_use = hooks.get("PostToolUse")
+    if not isinstance(post_tool_use, list):
+        return False, "hook unwire: no PostToolUse list — nothing to remove"
+
+    without_rbtv = [e for e in post_tool_use if not _is_rbtv_hook_entry(e)]
+    if len(without_rbtv) == len(post_tool_use):
+        return False, (
+            f"hook unwire: no rbtv PostToolUse entry found — already absent "
+            f"({settings_path.relative_to(target_root).as_posix()})"
+        )
+
+    hooks["PostToolUse"] = without_rbtv
+    settings_path.write_text(
+        json.dumps(settings, indent=2) + "\n", encoding="utf-8"
+    )
+    n_removed = len(post_tool_use) - len(without_rbtv)
+    return True, (
+        f"hook unwire: removed {n_removed} rbtv PostToolUse "
+        f"{'entry' if n_removed == 1 else 'entries'} from "
+        f"{settings_path.relative_to(target_root).as_posix()}"
+    )
+
+
 def check_manual_render(rbtv_root: Path) -> tuple[str, str]:
     """Run the render-freshness check (render-manuals.py --check).
 

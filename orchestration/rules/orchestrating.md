@@ -4,6 +4,21 @@
 
 This is the discoverability layer for `rbtv-orchestrating`. The skill owns HOW to orchestrate; this rule owns WHEN you must reach for it.
 
+## Decide up front — plain task only
+
+When a plain task (not a plan execution, not a dispatched task) arrives, decide BEFORE any other action whether to hand the work out or do it yourself.
+
+| Hand it out (orchestrate) when | Do it yourself when |
+|--------------------------------|---------------------|
+| It splits into independent pieces | It is small / quick — dispatch overhead exceeds doing it |
+| A piece suits a cheaper or specialized worker better | It leans heavily on THIS conversation's history and the user's preferences |
+| It is long enough that doing it all solo would fill context before the end | It is tightly coupled or exploratory — no self-contained task can be written yet |
+| You can describe the piece completely in a self-contained task artifact | It needs live back-and-forth with the user while it runs |
+
+Lean toward distributing when the work fits — orchestration is under-used, not over-used.
+
+**Plain-task-vs-plan gate:** this up-front decision does NOT re-fire when executing a plan or a dispatched task — the plan's `orchestrated:` flag (Intake Trigger #2) already carries that decision.
+
 ## Intake Triggers — fires on ANY
 
 Scan the task at the moment it arrives. If ANY single row matches, the Action below is mandatory — one match is enough.
@@ -23,7 +38,7 @@ Re-check continuously during execution. Crossing ANY threshold below means STOP 
 
 | # | Escalation trigger | Crossed when |
 |---|--------------------|--------------|
-| 1 | Context filling while work remains | Context use has passed ~70% of the window — or the harness has surfaced a compaction / auto-compact warning — while more than one further dispatch of work remains. Observable trigger, not a subjective "feels full". |
+| 1 | Context filling while work remains | The up-front decision (above) is the PRIMARY switch — if you chose to work solo, revisit that decision first. This escalation fires when the harness has surfaced a compaction / auto-compact warning while more than one further dispatch of work remains. |
 | 2 | About to dispatch the 3rd sub-agent for the same goal | You are reaching for a third sub-agent in service of one goal — ad-hoc dispatch has become orchestration |
 | 3 | Cross-repo coordination emerges | The work has grown to span more than one repository and the pieces must be coordinated |
 
@@ -61,4 +76,4 @@ If you catch ANY of these thoughts, you are rationalizing past a fired trigger. 
 
 ## Scope
 
-This rule governs WHEN to reach for `rbtv-orchestrating`. It does not govern how the skill orchestrates (the skill's core protocol and cards own that), nor does it fire when the only matching condition is a counter-list item. It does not apply once `rbtv-orchestrating` is already running — its intake card owns every decision from that point.
+This rule governs WHEN to reach for `rbtv-orchestrating`. It does not govern how the skill orchestrates (the skill's core protocol and cards own that), nor does it fire when the only matching condition is a counter-list item. It does not apply once `rbtv-orchestrating` is already running — its intake card owns every decision from that point. Obey any injected context-refresh advisory at the next safe checkpoint.

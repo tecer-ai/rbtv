@@ -38,8 +38,10 @@ from .orchestration import (
     discover_model_displays,
     discover_model_packages,
     normalize_model_variants,
+    remove_hook_entry,
     resolve_selected_packages,
     resolve_selection_from_entry_ids,
+    sync_hook_entry,
     sync_permission_rules,
 )
 from .state import find_state_upward, read_state, update_mirror_state, write_state
@@ -983,6 +985,11 @@ def main(argv: list[str] | None = None) -> int:
 
     removed = clear_previous_install(ctx.target_root)
     print(f"\nRemoved {len(removed)} previously-installed rbtv-* files.")
+    # Remove the rbtv-managed hook entry on every install (cleanup/uninstall path,
+    # spec row 4). If orchestration is elected the hook is re-wired below; if not,
+    # it stays absent (spec row 2). Idempotent: a no-op when already absent.
+    _, hook_unwire_msg = remove_hook_entry(ctx.target_root)
+    print(f"  {hook_unwire_msg}")
 
     installed_paths: list[str] = []
     skipped_count = 0
@@ -1063,6 +1070,11 @@ def main(argv: list[str] | None = None) -> int:
                 ctx.target_root, rbtv_root, mp_installed, mp_absent
             )
             print(f"  {perm_msg}")
+        # Wire the context-monitor PostToolUse hook (p2-1). Runs for any
+        # orchestration-elected install regardless of model-package selection,
+        # because the hook is module-scoped (not package-scoped).
+        _, hook_msg = sync_hook_entry(ctx.target_root, ctx.rbtv_relative)
+        print(f"  {hook_msg}")
         # Render-freshness check is advisory (WARN, never abort) — matches the
         # plugin-prereq convention. A stale manual degrades gracefully (manuals
         # are read JIT from the source repo; the routing card trusts the live

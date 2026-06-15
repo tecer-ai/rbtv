@@ -256,6 +256,19 @@
           "description": "Manus agentic-web worker (probe-pending) — autonomous server-side browser/tool loop; per-task cost; raw-dump return only (no JSON envelope, no code cold-verify); runs via the shared models/_api/run.py runner"
         }
       ]
+    },
+    "hooks": {
+      "description": "PostToolUse hook(s) the orchestration install wires into the workspace's .claude/settings.local.json when the orchestration module is elected — read in-place from the RBTV source, never copied into .claude/. The wiring is performed in code by admin/install/installer/orchestration.py (sync_hook_entry on election, remove_hook_entry on de-election/cleanup), which identifies the rbtv-managed entry by sentinel (__rbtv__ == 'rbtv:context-monitor') OR command-path-signature (a command containing 'orchestration/hooks/context-monitor.py'), never a key alone — so the entry survives a Claude Code settings round-trip; hand-added hooks are preserved. This block is a component-inventory record; the wiring constants live in orchestration.py, not here.",
+      "source_dir": "orchestration/hooks",
+      "entries": [
+        {
+          "name": "context-monitor",
+          "script": "orchestration/hooks/context-monitor.py",
+          "event": "PostToolUse",
+          "sentinel": "rbtv:context-monitor",
+          "description": "Reads real context-window usage from the session transcript and emits a tiered refresh advisory during an orchestration run (self-detected from the transcript); silent in plain sessions and below 30%. Window configured via RBTV_CONTEXT_WINDOW (default 1000000). Feeds the real percentage into the state card's phase-boundary refresh checkpoint."
+        }
+      ]
     }
   },
   "builder": {
