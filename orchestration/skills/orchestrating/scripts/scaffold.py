@@ -534,8 +534,17 @@ def _parse_instruction_headings(instructions: str) -> dict[str, str]:
         else:
             sections[current_heading] = text
 
+    in_fence = False
     for line in instructions.splitlines():
-        m = re.match(r'^#{1,3}\s+(.+)$', line)
+        stripped = line.lstrip()
+        is_fence = stripped.startswith("```") or stripped.startswith("~~~")
+        # A heading counts ONLY outside a fenced code block. Fence delimiter lines
+        # and everything between them are content, never section headings — an
+        # inlined spec/example with `## Goal` inside a fence must not be promoted
+        # to a real section (mirrors is_preauthored_brief's fence-tracking).
+        m = None if (in_fence or is_fence) else re.match(r'^#{1,3}\s+(.+)$', line)
+        if is_fence:
+            in_fence = not in_fence
         if m:
             heading_name = m.group(1).strip()
             if heading_name in task_specific:

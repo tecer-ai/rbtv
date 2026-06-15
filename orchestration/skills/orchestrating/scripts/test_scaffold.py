@@ -557,6 +557,46 @@ class TestCriterion7Instructions:
         finally:
             _rmtree(out_dir)
 
+    def test_loose_fenced_heading_not_promoted(self):
+        """Regression: in the skeleton-merge path, a `## Heading` INSIDE a fenced
+        code block must NOT be promoted to a real section — the fenced example
+        stays intact under its real section and the model section is not mis-filled
+        with fenced content."""
+        out_dir = _scratch_dir()
+        try:
+            instr = (
+                "## Goal\n"
+                "Build the parser. Example brief it must handle:\n"
+                "```\n"
+                "## Context Snapshot\n"
+                "FENCED-SAMPLE-CONTENT do not promote\n"
+                "```\n"
+                "## Implementation Requirements\n"
+                "- Track code fences.\n"
+            )
+            _run_scaffold(
+                "--model", "kimi-code-cli",
+                "--output-folder", str(out_dir),
+                "--filename", "fenced.task.md",
+                "--instructions", instr,
+            )
+            content = _read(out_dir / "fenced.task.md")
+
+            # The fenced sample is preserved (not consumed as a section delimiter).
+            assert "FENCED-SAMPLE-CONTENT do not promote" in content
+            # The model's Context Snapshot section is a placeholder — the fenced
+            # `## Context Snapshot` was NOT promoted to fill it.
+            assert "## Context Snapshot\n\n<conductor fills this section>" in content
+            # The fenced sample lives in the Goal region, BEFORE the model
+            # Context Snapshot section (proving it was not relocated/promoted).
+            assert content.find("FENCED-SAMPLE-CONTENT") < content.find(
+                "## Context Snapshot\n\n<conductor fills this section>"
+            )
+            # The real matched heading still routed correctly.
+            assert "- Track code fences." in content
+        finally:
+            _rmtree(out_dir)
+
     def test_instructions_unmatched_heading_routes_to_goal(self):
         """FIX 4 (ADX-13): content under an UNMATCHED heading — even one that
         appears AFTER a matched section — lands in Goal (it renders BEFORE the
