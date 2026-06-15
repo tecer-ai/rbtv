@@ -2,6 +2,18 @@
 
 The MANDATORY protocol ANY agent follows whenever it IMPLEMENTS hypresent review comments or makes comment-driven changes to an HTML artifact — regardless of entry path (a human gate, an agent-tagged instruction block, or a direct owner request). The comment thread is the HUMAN's record; the agent never closes it.
 
+## Locate the Comments First
+
+Comments live in TWO fixed places in EVERY hypresent-saved file — identical whether the file is a deck or a self-contained page. Read both before acting. NEVER grep to discover the format.
+
+| Source | Where in the file | Holds |
+|--------|-------------------|-------|
+| Agent-instruction block | First child of `<head>` — an HTML comment delimited `===== HYPRESENT AGENT INSTRUCTIONS =====` … `===== END HYPRESENT AGENT INSTRUCTIONS =====` | ONLY agent-tagged, unresolved threads. Each entry carries `[agent:N]`, `target: [data-hyp-agent~="N"]`, `context`, `instruction`, any `reply:` lines, `author`, `date`. |
+| Comment island | Near the end of `<body>` — `<script type="application/json" id="hyp-comments">…</script>` | EVERY thread — including untagged and resolved — with full `anchor`, `body`, `replies`, and `resolved` state. |
+
+1. Read the file's first ~60 lines: the agent block lists every agent-tagged change with its copy-pasteable `[data-hyp-agent~="N"]` target selector.
+2. Parse the `#hyp-comments` island for the complete thread set. Untagged comments appear ONLY there, never in the block — reading the block alone misses them.
+
 ## Four Invariants
 
 | # | Invariant | Rule |

@@ -268,6 +268,9 @@ class TestR14AgentStamping(unittest.TestCase):
         # Reply-don't-resolve convention (comment-implementation protocol): the
         # preamble instructs a reply under the agent name and forbids closing the thread.
         self.assertIn("do NOT delete the comment thread", block)
+        # Island pointer (decision 2): the block tells readers the full thread set
+        # (untagged + resolved) lives in the #hyp-comments JSON island.
+        self.assertIn('id="hyp-comments"', block)
 
     # ---- E-R14-6: Stamping idempotence across multiple saves ----
     def test_e_r14_6_stamping_idempotence(self):

@@ -696,6 +696,9 @@ export function buildAgentBlock() {
     "This block is auto-generated from agent-tagged review comments in this file. Each entry describes a change an AI coding agent should make to the element identified by its anchor."
   );
   lines.push(
+    "This block lists ONLY agent-tagged, unresolved threads. The COMPLETE set of comment threads — including ones NOT tagged for agents and resolved ones, with full replies and anchors — is in the JSON island <script type=\"application/json\" id=\"hyp-comments\"> near the end of <body>; read it for full context."
+  );
+  lines.push(
     "Do not edit this block manually — it is regenerated on every save and removed when no agent comments remain."
   );
   lines.push(
