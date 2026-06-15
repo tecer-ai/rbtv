@@ -616,6 +616,139 @@ def build_complete_output(
 
 
 # ---------------------------------------------------------------------------
+# Pre-authored-brief detection + complete-mode preserve path.
+#
+# When --instructions is itself a COMPLETE, pre-authored task file (its own
+# frontmatter and/or its own multi-section structure under an H1 title), the
+# conductor wants the brief PRESERVED VERBATIM with the derived boilerplate
+# INSERTED around it — not re-emitted over the fixed model skeleton. Slotting a
+# pre-authored brief into the skeleton mangles it three ways: duplicated
+# frontmatter (the brief's own `---` block dumped into Goal beneath a second,
+# skeleton `---` block), unfilled `<conductor fills this section>` placeholders
+# for every model section the brief named differently, and header-match
+# duplication (headings inside the brief's fenced code blocks mis-parsed as real
+# sections). This path avoids all three by never parsing the brief's body.
+# ---------------------------------------------------------------------------
+
+def _extract_frontmatter(text: str) -> tuple[str | None, str]:
+    """Split a leading YAML frontmatter block off the text.
+
+    Returns (frontmatter_inner, body) when the text's FIRST line is `---` and a
+    closing `---` line follows; otherwise (None, text). frontmatter_inner is the
+    content BETWEEN the fences (no fence lines); body is everything after the
+    closing fence.
+    """
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None, text
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            fm_inner = "\n".join(lines[1:i])
+            body = "\n".join(lines[i + 1:])
+            return fm_inner, body
+    return None, text  # no closing fence — not a frontmatter block
+
+
+def _top_level_fm_keys(fm_inner: str) -> set[str]:
+    """Top-level (column-0) YAML keys in a frontmatter block — nested/indented
+    keys (e.g. allowlist children) are intentionally ignored."""
+    keys: set[str] = set()
+    for line in fm_inner.splitlines():
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*):", line)
+        if m:
+            keys.add(m.group(1))
+    return keys
+
+
+def is_preauthored_brief(text: str) -> bool:
+    """True when --instructions is a complete pre-authored task file rather than
+    loose section content.
+
+    Signal: the text carries its OWN leading frontmatter block, OR it contains an
+    H1 heading (`# `) outside fenced code blocks. A complete task file always has
+    a `# Task …` title and/or frontmatter; loose instructions are prose or `##`
+    section fragments matching model body sections. This discriminator keeps loose
+    instructions on the skeleton-merge path (the existing contract) while routing
+    real briefs to verbatim preservation.
+    """
+    fm_inner, _ = _extract_frontmatter(text)
+    if fm_inner is not None:
+        return True
+    in_fence = False
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if re.match(r"^#\s+\S", line):
+            return True
+    return False
+
+
+def build_preauthored_output(
+    model: str,
+    header: str,
+    fm_keys: list[str],
+    brief: str,
+    launch_flags: str,
+) -> str:
+    """Preserve a pre-authored brief VERBATIM and INSERT the derived boilerplate.
+
+    Frontmatter reconciliation: when the brief carries its own frontmatter, the
+    required model keys MISSING from it are appended into that single block (the
+    brief's own keys/values are never overwritten or duplicated); when the brief
+    has none, the model frontmatter skeleton is prepended. The brief body is then
+    emitted unchanged, followed by the launch-flag note, the pre-dispatch hook
+    note, and the composed run-binding header.
+    """
+    fm_inner, body = _extract_frontmatter(brief)
+
+    if fm_inner is not None:
+        existing = _top_level_fm_keys(fm_inner)
+        fm_lines = ["---"]
+        if fm_inner:
+            fm_lines.extend(fm_inner.splitlines())
+        for key in fm_keys:
+            if key in existing:
+                continue
+            val = _placeholder_value(key)
+            if "\n" in val:
+                fm_lines.append(f"{key}:{val}")
+            else:
+                fm_lines.append(f"{key}: {val}")
+        fm_lines.append("---")
+        parts = ["\n".join(fm_lines)]
+        body_text = body
+    else:
+        parts = [generate_frontmatter_skeleton(fm_keys)]
+        body_text = brief
+
+    parts.append("")
+    parts.append(body_text.strip("\n"))
+    parts.append("")
+
+    if launch_flags:
+        parts.append(launch_flags)
+        parts.append("")
+
+    parts.append("## Pre-Dispatch Hook")
+    parts.append("")
+    parts.append(
+        "A named pre-dispatch hook slot exists (`pre_dispatch_hook` in scaffold.py) — "
+        "default no-op, always passes. Review 5 supplies the verify-or-supply body.\n"
+    )
+    parts.append("")
+    parts.append("---")
+    parts.append("")
+    parts.append("## Run-Binding Header (derived from dispatch-wrapper card + model delta)")
+    parts.append("")
+    parts.append(header)
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # Explain mode.
 # ---------------------------------------------------------------------------
 
@@ -772,9 +905,16 @@ def main(argv: list[str] | None = None) -> int:
         else:
             instructions = args.instructions
 
-        content = build_complete_output(
-            args.model, header, fm_keys, body_headers, instructions, launch_flags,
-        )
+        if is_preauthored_brief(instructions):
+            # The instructions ARE a complete task file — preserve verbatim and
+            # insert the derived boilerplate (never re-emit a skeleton over it).
+            content = build_preauthored_output(
+                args.model, header, fm_keys, instructions, launch_flags,
+            )
+        else:
+            content = build_complete_output(
+                args.model, header, fm_keys, body_headers, instructions, launch_flags,
+            )
     else:
         # Skeleton mode.
         content = build_skeleton_output(

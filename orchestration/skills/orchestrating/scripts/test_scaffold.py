@@ -924,6 +924,217 @@ class TestModelDirConfinementLever:
 
 
 # ---------------------------------------------------------------------------
+# Criterion 11 — Pre-authored multi-section brief preserved, never mangled.
+#
+# Regression for the complete-mode mangling bug (rbtv-tasks: "Fix scaffold.py
+# complete-mode mangling of pre-authored multi-section task files"). When
+# --instructions IS a complete task file, the three observed symptoms — dup
+# frontmatter, unfilled `<conductor fills this section>` placeholders, and
+# header-match duplication of code-fenced headings — must all be absent, while
+# loose instructions still take the skeleton-merge path.
+# ---------------------------------------------------------------------------
+
+# A pre-authored brief WITH its own frontmatter + non-model section names
+# (p3-1-shaped). The old skeleton-merge dumped this frontmatter into Goal under
+# a SECOND skeleton frontmatter block and placeholder-stubbed every model section.
+PREAUTHORED_FM_BRIEF = textwrap.dedent('''\
+    ---
+    task_id: p3-1
+    status: pending
+    executor: { model: claude-code-native, variant: sonnet }
+    reviewer: { model: claude, variant: opus }
+    allowlist:
+      create: []
+      modify:
+        - orchestration/rules/orchestrating.md
+    ---
+
+    # Task p3-1: Edit orchestrating.md
+
+    ## Goal
+    Apply three surgical edits to the rule.
+
+    ## Context Files
+    | File | Purpose |
+    |------|---------|
+    | design.md | the source |
+
+    ## Execution Flow
+    ### Phase: Understand
+    1. Read the context files.
+
+    ## Output Requirements
+    The edited rule.
+    ''')
+
+# A pre-authored brief WITH an H1 title + an inlined spec whose markdown headings
+# sit INSIDE a code fence (p1-2-shaped). The old parser promoted the fenced
+# `## Goal` / `## Context Snapshot` / `## Test Plan` to real sections (header-match
+# duplication) and pulled fenced content into the model's Context Snapshot.
+PREAUTHORED_CODEFENCE_BRIEF = textwrap.dedent('''\
+    **Step 0 — read your rules first.**
+
+    # Task p1-2: CREATE the context-monitor script
+
+    ## Goal
+    CREATE the PostToolUse context-monitor script per the inlined spec.
+
+    ## Allowed Paths (create ONLY these)
+    - orchestration/hooks/context-monitor.py
+
+    ### [INLINED] spec — build exactly to it
+    ```
+    # Spec — Context Monitor
+
+    ## Goal
+    The owner runs an orchestration session.
+
+    ## Context Snapshot
+    Everything inlined so the worker needs no exploration.
+
+    ## Test Plan
+    | # | Criterion |
+    |---|-----------|
+    | 1 | fires at a tier |
+    ```
+
+    ## Validation
+    Run pytest.
+    ''')
+
+
+def _load_scaffold_module():
+    """Import scaffold.py as a module to unit-test its pure helpers."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("scaffold_under_test", str(SCAFFOLD))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestCriterion11PreauthoredBrief:
+    def test_discriminator_classifies_briefs_vs_loose(self):
+        """is_preauthored_brief: True for own-frontmatter and H1-title briefs;
+        False for loose prose and `##`-only section fragments (incl. the
+        unmatched-heading case the skeleton path must still own)."""
+        m = _load_scaffold_module()
+        # Pre-authored → True.
+        assert m.is_preauthored_brief(PREAUTHORED_FM_BRIEF) is True
+        assert m.is_preauthored_brief(PREAUTHORED_CODEFENCE_BRIEF) is True
+        # Loose / fragment → False (these are the existing Criterion-7 inputs).
+        assert m.is_preauthored_brief(
+            "Build a dispatch scaffold for model kimi that passes all tests."
+        ) is False
+        assert m.is_preauthored_brief(
+            "## Goal\nBuild it.\n\n## Implementation Requirements\n- Do X.\n"
+        ) is False
+        assert m.is_preauthored_brief(
+            "## Goal\nBuild it.\n\n## Nonexistent Section\nOrphan content.\n"
+        ) is False
+
+    def test_frontmatter_brief_preserved_no_dup_no_placeholder(self):
+        """Symptoms 1+2 gone: a single frontmatter block (brief's own keys intact,
+        missing model keys merged in), brief sections preserved verbatim, zero
+        `<conductor fills this section>` placeholders."""
+        out_dir = _scratch_dir()
+        try:
+            brief_file = out_dir / "brief.md"
+            brief_file.write_text(PREAUTHORED_FM_BRIEF, encoding="utf-8")
+            _run_scaffold(
+                "--model", "kimi-code-cli",
+                "--output-folder", str(out_dir),
+                "--filename", "pa-fm.task.md",
+                "--instructions", str(brief_file),
+            )
+            content = _read(out_dir / "pa-fm.task.md")
+
+            # NO unfilled placeholders (symptom 2).
+            assert "conductor fills this section" not in content
+
+            # Exactly ONE frontmatter block, and it is the brief's own (symptom 1).
+            assert content.startswith("---")
+            assert content.count("task_id: p3-1") == 1
+            fm_match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
+            assert fm_match, "leading frontmatter block must exist"
+            fm_block = fm_match.group(1)
+            assert "task_id: p3-1" in fm_block
+            # Brief's own key/value preserved, not overwritten.
+            assert "executor: { model: claude-code-native, variant: sonnet }" in fm_block
+            # A required model key the brief lacked was MERGED into the same block.
+            assert re.search(r"(?m)^commit_policy:", fm_block)
+            assert re.search(r"(?m)^doubt_policy:", fm_block)
+            # The brief's frontmatter is NOT re-dumped into the body.
+            assert content.index("task_id: p3-1") < content.index("# Task p3-1")
+
+            # Brief's own (non-model) sections preserved verbatim.
+            assert "## Context Files" in content
+            assert "## Execution Flow" in content
+            assert "### Phase: Understand" in content
+            assert "1. Read the context files." in content
+            assert "## Output Requirements" in content
+
+            # Derived boilerplate still inserted (symptom 3 inverse: value-add kept).
+            assert "## Run-Binding Header" in content
+            assert "## Pre-Dispatch Hook" in content
+            assert "## 2. The binding addendum" in content
+        finally:
+            _rmtree(out_dir)
+
+    def test_codefence_brief_preserved_verbatim(self):
+        """Symptom 3 gone: a brief whose inlined spec carries markdown headings
+        inside a code fence is preserved VERBATIM — fenced headings are not
+        promoted to real sections, and no placeholder is injected."""
+        out_dir = _scratch_dir()
+        try:
+            brief_file = out_dir / "brief.md"
+            brief_file.write_text(PREAUTHORED_CODEFENCE_BRIEF, encoding="utf-8")
+            _run_scaffold(
+                "--model", "kimi-code-cli",
+                "--output-folder", str(out_dir),
+                "--filename", "pa-cf.task.md",
+                "--instructions", str(brief_file),
+            )
+            content = _read(out_dir / "pa-cf.task.md")
+
+            # Scaffold supplies the frontmatter skeleton (brief had none).
+            assert content.startswith("---")
+            # No unfilled placeholders.
+            assert "conductor fills this section" not in content
+            # The brief body is preserved as a contiguous verbatim block — the
+            # fenced spec stays inside its fence, headings not re-parsed.
+            assert PREAUTHORED_CODEFENCE_BRIEF.strip() in content
+            # The fenced `## Context Snapshot` was NOT promoted into a second
+            # real section (it appears exactly once — inside the fence).
+            assert content.count("## Context Snapshot") == 1
+            # Derived boilerplate still appended.
+            assert "## Run-Binding Header" in content
+            assert "## Pre-Dispatch Hook" in content
+        finally:
+            _rmtree(out_dir)
+
+    def test_loose_instructions_still_skeleton(self):
+        """Regression guard: loose instructions still take the skeleton-merge
+        path — all model body sections emitted, instr merged into Goal."""
+        out_dir = _scratch_dir()
+        try:
+            instr = "Implement the router per spec."
+            _run_scaffold(
+                "--model", "kimi-code-cli",
+                "--output-folder", str(out_dir),
+                "--filename", "loose.task.md",
+                "--instructions", instr,
+            )
+            content = _read(out_dir / "loose.task.md")
+            assert instr in content
+            # Skeleton path emits all model sections (some as placeholders).
+            assert "## Context Snapshot" in content
+            assert "## Return Format" in content
+            assert "conductor fills this section" in content
+        finally:
+            _rmtree(out_dir)
+
+
+# ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
 
