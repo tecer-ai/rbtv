@@ -120,7 +120,17 @@ For development dispatches inside an orchestration, builder-graded sheets are IN
 
 ## Integrity Tripwire
 
-Evidence rows MUST cite captures created during this task's exercise. The first sheet caught dishonest — a claimed gesture not performed, a fabricated result, a recycled capture — permanently escalates the workspace to independent verification: from then on, a separate verifier re-exercises every contract before done.
+Evidence rows MUST cite captures created during this task's exercise. Split by severity:
+
+**Permanence-grade triggers** — the first occurrence permanently escalates the workspace to independent verification: from then on a separate verifier re-exercises every contract before done.
+- A claimed gesture not performed
+- A fabricated result
+- A capture provably recycled from a DIFFERENT exercise — byte-identical to a capture from a different criterion, a different task, or a prior run, where deterministic rendering is NOT the explanation
+
+**Criterion-unaccepted trigger** — unaccepts that one row and requires independent re-exercise of that criterion; does NOT trigger the permanence clause by itself.
+- A capture that does not DEPICT the claimed measurement: it MUST contain the element or output the verdict describes; a different element captured in the same session does not qualify
+
+Byte-identicality alone is not proof of recycling — a deterministic render saved twice produces identical bytes innocently. Permanence-grade recycling requires that deterministic rendering be ruled out as the explanation; absent that, a non-depicting capture is criterion-unaccepted, not fabrication.
 
 ## Anti-Patterns
 
