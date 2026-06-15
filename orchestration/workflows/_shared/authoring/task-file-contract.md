@@ -39,6 +39,8 @@ Every file action uses an explicit verb. Format: `[VERB] [path] [with/to/contain
 | DELETE | Remove a file |
 | MOVE | Relocate or rename a file |
 
+**MOVE/rename reference completeness.** A MOVE or rename task MUST author its reference-discovery step to find EVERY form a reference to the moved artifact can take in its ecosystem — never only the path form. Enumerate at minimum: **path form** (the old path), **name/symbol form** (the bare identifier in reference contexts — import symbols, `<old>-` prefixes, "the `<old>` X" prose), and **link/import form** (relative links, import statements, config keys). Acceptance MUST confirm every enumerated form returns zero functional hits after the edit. A path-only discovery grep is malformed for a rename task — name-form and broken-link references slip through it. *(Markdown-doc example: a module rename greps `<old>/`, then `the <old> module` / `[<old> module]` / `<old>-module`, then `(./<old>.md)` / `modules/<old>.md`.)*
+
 ## 4. File allowlist
 
 Every task carries an explicit allowlist of the files it may create / modify / delete (`✚ create` · `✎ modify` · `✗ delete`). This is the dispatcher's post-run enforcement contract: it diffs the worker's actual changes against the allowlist. Out-of-allowlist ≠ wrong, but it ≠ silent — it means orchestrator review required (`learnings-kimi-worker.md` §4). Repeat the allowlist in human-readable body form even when machine-readable frontmatter also carries it.
@@ -56,6 +58,18 @@ Size the context a task loads; split when it will not fit.
 ## 6. Acceptance criteria
 
 Acceptance criteria are ALWAYS owner-observable or worker-runnable outcomes — never an internal assertion the worker cannot exercise. Each criterion states the gesture and the visible result: "when done, running `X` produces `Y`" or "the owner opens `Z` and sees `W`". A task whose only "criterion" is "works" or "looks right" is malformed.
+
+### 6a. Runnable-probe authoring discipline
+
+When a task authors machine-runnable probes (verification checklists, acceptance greps, validation commands), the contract REQUIRES all three — a probe authored but never run is presumed broken:
+
+| Requirement | Rule |
+|-------------|------|
+| **Spot-run every probe before close** | Every authored probe is RUN against the current corpus before the task closes. An un-run suite poisons every downstream checkpoint that consumes it (one run shipped 35 probes; 13 false-failed as written while the corpus was intact). |
+| **Alternation carries its engine flag** | A regex-alternation probe (`a|b`) carries the flag that activates alternation (`grep -E`), and the artifact documents its probe-execution conventions in a header the consuming agent reads first. |
+| **Patterns copied from the corpus, never recalled** | Every literal pattern is copy-pasted from the actual file text — casing and wording verified against the file, never typed from memory (`Failure modes` vs `Failure Modes`, `dual` vs `deferred capture` each false-failed on recall). |
+
+This moves upstream the discipline the reviewer-side catch-net enforces at review time (verification card §2c, "re-run any count claim"): authoring-time spot-running stops a broken probe before it reaches a single checkpoint.
 
 ## 7. Return contract
 

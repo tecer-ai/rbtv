@@ -146,6 +146,7 @@ ONE round of clarifying questions before the user goes AFK — the validated pil
 | Research before asking | Resolve what can be resolved without the user first — read files, check the workspace, dispatch a doc-reader or web-capable worker for open facts. Bring to the user ONLY what genuinely needs human executive decision. |
 | Multiple choice with recommendations | Pose each question as options (a / b / c …) with a recommended option and its reasoning — never an open prompt. |
 | One round | This is the only pre-AFK round. Batch every question into it. After it, the run proceeds without interrupting the user except at genuine halts (the halt taxonomy governs those, not new question rounds). |
+| Pre-authorize unattended CLI execution | If the run will dispatch CLI workers while the user is AFK, pre-authorize their execution permissions in THIS round — and surface that a permissions-dialog grant alone may NOT lift the harness's unattended-execution boundary, so a conversational authorization may also be needed. (Harness-specific signatures live in the model deltas, not here.) |
 | Pace if dense | If the round carries many questions, lead with a one-line map of what is being asked, then group the questions — do not dump them all undifferentiated. |
 
 ---

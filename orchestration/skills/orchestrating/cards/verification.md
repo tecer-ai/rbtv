@@ -102,6 +102,8 @@ The reviewer is NOT dispatched blind. The conductor composes a **pre-flagged rev
 
 A review brief MUST carry, in addition to the suspect areas: the contract / spec the work is reviewed against, the reconciled disk state (not the worker's claim), and — when the return arrived via an `(orchestrator-recovered)` commit — the recovery mandate (re-validate every Implementation Requirement against as-shipped code, re-check behavior contracts against as-shipped behavior, be EXTRA willing to fix in place, because the worker never printed its own concerns).
 
+**Standing pre-flag (every brief).** Reject any criterion graded by count alone where the criterion names content, order, or identity — the proof obligation is the dispatch-wrapper §2 content/order/identity row (a count is necessary, never sufficient; a count-preserving silent slide-drop passed every count check while dropping real data).
+
 ### 2c. The reviewer's job — review AND fix in place
 
 | Step | Reviewer requirement |
