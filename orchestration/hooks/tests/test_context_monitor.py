@@ -137,7 +137,7 @@ class TestFiresAtTier:
         data = json.loads(stdout)
         assert data["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
         advisory = data["hookSpecificOutput"]["additionalContext"]
-        assert "Context at 32%, recommend refresh" in advisory
+        assert "Context window 32% full (68% free) — recommend refresh" in advisory
 
 
 class TestSilentBelowTier:
@@ -350,7 +350,7 @@ class TestTierProgression:
         assert stdout != ""
         data = json.loads(stdout)
         # Advisory reports the REAL percentage (50), not the tier number
-        assert "Context at 50%, recommend refresh" in data["hookSpecificOutput"]["additionalContext"]
+        assert "Context window 50% full (50% free) — recommend refresh" in data["hookSpecificOutput"]["additionalContext"]
         # Note-file records tier 50 (the highest crossed), not 30
         assert _read_tier_file(session_id) == "50"
 
@@ -367,7 +367,7 @@ class TestTierProgression:
             str(transcript), session_id, env={"RBTV_CONTEXT_WINDOW": "200000"}
         )
         assert exit_code == 0
-        assert "Context at 32%" in stdout
+        assert "Context window 32% full" in stdout
         assert _read_tier_file(session_id) == "30"
 
         # Then: usage climbs to ~50% (100,000) — must fire again, record 50
@@ -379,7 +379,7 @@ class TestTierProgression:
         assert exit_code2 == 0
         assert stdout2 != ""
         data = json.loads(stdout2)
-        assert "Context at 50%" in data["hookSpecificOutput"]["additionalContext"]
+        assert "Context window 50% full" in data["hookSpecificOutput"]["additionalContext"]
         assert _read_tier_file(session_id) == "50"
 
         # Re-run at the same 50% — silent (tier 50 already recorded)
@@ -406,7 +406,7 @@ class TestTierProgression:
             )
             assert exit_code == 0, f"tier {pct}: expected exit 0"
             assert stdout != "", f"tier {pct}: expected an advisory on first crossing"
-            assert f"Context at {pct}%" in stdout, f"tier {pct}: wrong percentage in advisory"
+            assert f"Context window {pct}% full" in stdout, f"tier {pct}: wrong percentage in advisory"
             assert _read_tier_file(session_id) == str(pct), f"tier {pct}: note-file not recorded"
 
             # Immediate re-run at same tier is silent (no repeat)
@@ -434,6 +434,6 @@ class TestTierProgression:
         assert stdout != ""
         data = json.loads(stdout)
         # Advisory still reports the real 99%
-        assert "Context at 99%" in data["hookSpecificOutput"]["additionalContext"]
+        assert "Context window 99% full" in data["hookSpecificOutput"]["additionalContext"]
         # But the recorded tier is capped at 95
         assert _read_tier_file(session_id) == "95"

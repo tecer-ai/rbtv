@@ -82,7 +82,7 @@ def _build_advisory(usage_pct: float) -> str:
     """Build the advisory text for the conductor."""
     n = int(usage_pct)
     return (
-        f"Context at {n}%, recommend refresh. "
+        f"Context window {n}% full ({100 - n}% free) — recommend refresh. "
         "Bring the spine (state-capsule + run-log) current, "
         "finish the in-flight worker, then surface to the OWNER. "
         "Refresh is OWNER-GATED — do not start a new dispatch until the owner responds. "
