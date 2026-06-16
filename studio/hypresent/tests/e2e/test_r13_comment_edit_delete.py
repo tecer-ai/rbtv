@@ -139,7 +139,7 @@ class R13CommentEditDeleteTests(unittest.TestCase):
         btn.click()
         self.page.wait_for_timeout(200)
 
-    # ---- E-R13-1: Edit root comment body ----
+    # ---- E-R13-1: Edit root comment body (inline, in the right pane) ----
     def test_e_r13_1_edit_root_comment_body(self):
         self._select("p-lead")
         self._add_comment("original")
@@ -148,7 +148,7 @@ class R13CommentEditDeleteTests(unittest.TestCase):
         id0 = threads[0]["id"]
 
         self._click_row_action(id0, "Edit")
-        ta = self.page.locator(".hyp-comment-composer textarea, .hyp-composer-textarea").first
+        ta = self.page.locator("#comment-threads .comment-inline-textarea").first
         self.assertEqual(ta.input_value(), "original")
         ta.fill("edited body")
         self.page.keyboard.press("Control+Enter")
@@ -169,7 +169,7 @@ class R13CommentEditDeleteTests(unittest.TestCase):
         id0 = self._read_island()[0]["id"]
 
         self._click_row_action(id0, "Edit")
-        ta = self.page.locator(".hyp-comment-composer textarea, .hyp-composer-textarea").first
+        ta = self.page.locator("#comment-threads .comment-inline-textarea").first
         ta.fill("edited body")
         self.page.keyboard.press("Control+Enter")
         self.page.wait_for_timeout(300)
@@ -258,7 +258,7 @@ class R13CommentEditDeleteTests(unittest.TestCase):
         self._add_reply("r1")
 
         self._click_reply_action(id0, 0, "Edit")
-        ta = self.page.locator(".hyp-comment-composer textarea, .hyp-composer-textarea").first
+        ta = self.page.locator("#comment-threads .comment-reply .comment-inline-textarea").first
         self.assertEqual(ta.input_value(), "r1")
         ta.fill("r1-edited")
         self.page.keyboard.press("Control+Enter")
@@ -269,20 +269,29 @@ class R13CommentEditDeleteTests(unittest.TestCase):
         self.assertEqual(reply["body"], "r1-edited")
         self.assertTrue(reply.get("editedAt"))
 
-    # ---- E-R13-7: Edit composer stays in-viewport on a low anchor; no For-agents checkbox ----
-    def test_e_r13_7_edit_composer_viewport_and_no_agent_checkbox(self):
+    # ---- E-R13-7: Edit happens INLINE in the right comments pane (not over the doc); no For-agents checkbox ----
+    def test_e_r13_7_edit_inline_in_right_pane_no_agent_checkbox(self):
         self._select("li-2")
         self._add_comment("x")
         id0 = self._read_island()[0]["id"]
 
         self._click_row_action(id0, "Edit")
-        composer = self.page.locator(".hyp-comment-composer").first
-        self.assertTrue(composer.count() > 0)
-        bottom = composer.evaluate("el => el.getBoundingClientRect().bottom")
-        height = self.page.evaluate("() => window.innerHeight")
-        self.assertLessEqual(bottom, height)
-        cb_count = self.page.locator(".hyp-comment-composer .hyp-composer-agent, .hyp-comment-composer input[type=checkbox]").count()
-        self.assertEqual(cb_count, 0)
+
+        # The inline editor exists inside the comments pane...
+        ta = self.page.locator("#comment-threads .comment-inline-textarea").first
+        self.assertTrue(ta.count() > 0)
+        in_panel = ta.evaluate("el => !!el.closest('#shell-panel')")
+        self.assertTrue(in_panel, "inline edit textarea must live inside the right comments pane")
+
+        # ...and the inline editor's box is within the right panel's box (not over the canvas/iframe).
+        ta_box = ta.evaluate("el => { const r = el.getBoundingClientRect(); return {left:r.left, right:r.right}; }")
+        panel_box = self.page.locator("#shell-panel").evaluate("el => { const r = el.getBoundingClientRect(); return {left:r.left, right:r.right}; }")
+        self.assertGreaterEqual(ta_box["left"] + 1, panel_box["left"], "editor must not overlap the document canvas")
+        self.assertLessEqual(ta_box["right"], panel_box["right"] + 1)
+
+        # No anchored popover, and no For-agents checkbox in the inline editor.
+        self.assertEqual(self.page.locator(".hyp-comment-composer").count(), 0)
+        self.assertEqual(self.page.locator("#comment-threads .comment-inline-edit input[type=checkbox]").count(), 0)
 
     # ---- E-R13-8: Agent-block reflects an edited agent-tagged comment ----
     def test_e_r13_8_agent_block_reflects_edited_comment(self):
@@ -299,7 +308,7 @@ class R13CommentEditDeleteTests(unittest.TestCase):
         self.assertIn("instruction: do X", html1)
 
         self._click_row_action(id0, "Edit")
-        ta = self.page.locator(".hyp-comment-composer textarea, .hyp-composer-textarea").first
+        ta = self.page.locator("#comment-threads .comment-inline-textarea").first
         ta.fill("do Y")
         self.page.keyboard.press("Control+Enter")
         self.page.wait_for_timeout(300)

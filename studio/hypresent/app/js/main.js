@@ -172,18 +172,13 @@ function createThreadEl(thread, isUnanchored = false) {
       rEditBtn.textContent = "Edit";
       rEditBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        openComposer({
-          rect: thread.rect || null,
-          mode: "edit",
-          initialText: r.body,
-          onSubmit: async (text) => {
-            try {
-              await bridge.command("edit-reply", { commentId: thread.id, replyIndex: i, body: text });
-              await refreshCommentPanel();
-            } catch (err) {
-              console.error("Edit reply failed:", err.message);
-            }
-          },
+        startInlineEdit(rBody, r.body, async (text) => {
+          try {
+            await bridge.command("edit-reply", { commentId: thread.id, replyIndex: i, body: text });
+            await refreshCommentPanel();
+          } catch (err) {
+            console.error("Edit reply failed:", err.message);
+          }
         });
       });
       rActions.appendChild(rEditBtn);
@@ -233,18 +228,13 @@ function createThreadEl(thread, isUnanchored = false) {
   editBtn.textContent = "Edit";
   editBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    openComposer({
-      rect: thread.rect || null,
-      mode: "edit",
-      initialText: thread.body,
-      onSubmit: async (text) => {
-        try {
-          await bridge.command("edit-comment", { commentId: thread.id, body: text });
-          await refreshCommentPanel();
-        } catch (err) {
-          console.error("Edit failed:", err.message);
-        }
-      },
+    startInlineEdit(body, thread.body, async (text) => {
+      try {
+        await bridge.command("edit-comment", { commentId: thread.id, body: text });
+        await refreshCommentPanel();
+      } catch (err) {
+        console.error("Edit failed:", err.message);
+      }
     });
   });
   actions.appendChild(editBtn);
@@ -387,6 +377,103 @@ async function refreshCommentPanel() {
   }
 }
 
+// Open the anchored composer for a NEW comment on the current selection.
+// agentDefault=true pre-checks "For agents" (Ctrl+Shift+M path). Shared by the
+// toolbar button, the keyboard shortcuts, and the iframe-origin shortcut events.
+async function openCommentFlow(agentDefault = false) {
+  if (!bridge) return;
+  let sel;
+  try {
+    sel = await bridge.command("get-selection");
+  } catch (err) {
+    console.error("Get selection failed:", err.message);
+    return;
+  }
+  if (!sel || !sel.hypId) {
+    alert("Select an element first to add a comment.");
+    return;
+  }
+  const author = getAuthorName();
+  openComposer({
+    rect: sel.rect || null,
+    mode: "new",
+    agentDefault,
+    onSubmit: async (text, agentInstruction) => {
+      try {
+        await bridge.command("add-comment", {
+          hypId: sel.hypId,
+          body: text,
+          author,
+          agentInstruction,
+        });
+        await refreshCommentPanel();
+      } catch (err) {
+        console.error("Add comment failed:", err.message);
+      }
+    },
+  });
+}
+
+// Edit a comment/reply body INLINE inside the right comments pane (not over the
+// document). `anchorEl` is the .comment-body / .comment-reply-body element being
+// edited; it is hidden and an editor is inserted right after it. onSave(text) runs
+// the bridge edit command; both Save and Cancel re-render the panel afterward.
+function startInlineEdit(anchorEl, currentText, onSave) {
+  // Guard against a second editor on the same body.
+  if (anchorEl.nextElementSibling && anchorEl.nextElementSibling.classList.contains("comment-inline-edit")) {
+    anchorEl.nextElementSibling.querySelector("textarea")?.focus();
+    return;
+  }
+
+  const editor = document.createElement("div");
+  editor.className = "comment-inline-edit";
+  editor.addEventListener("click", (e) => e.stopPropagation());
+
+  const ta = document.createElement("textarea");
+  ta.className = "comment-inline-textarea";
+  ta.rows = 3;
+  ta.value = currentText;
+
+  const acts = document.createElement("div");
+  acts.className = "comment-inline-actions";
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.className = "comment-inline-save";
+  saveBtn.textContent = "Save";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "comment-inline-cancel";
+  cancelBtn.textContent = "Cancel";
+  acts.appendChild(saveBtn);
+  acts.appendChild(cancelBtn);
+
+  editor.appendChild(ta);
+  editor.appendChild(acts);
+
+  anchorEl.style.display = "none";
+  anchorEl.insertAdjacentElement("afterend", editor);
+
+  function commit() {
+    const text = ta.value.trim();
+    if (!text) { refreshCommentPanel(); return; } // empty → discard edit, restore view
+    onSave(text);                                  // onSave runs the bridge command + refresh
+  }
+
+  saveBtn.addEventListener("click", (e) => { e.stopPropagation(); commit(); });
+  cancelBtn.addEventListener("click", (e) => { e.stopPropagation(); refreshCommentPanel(); });
+  ta.addEventListener("click", (e) => e.stopPropagation());
+  ta.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Escape") { e.preventDefault(); refreshCommentPanel(); return; }
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commit(); return; }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commit(); return; }
+    // Shift+Enter → newline (default)
+  });
+
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+}
+
 function ensureBridge(iframe) {
   if (bridge) bridge.destroy();
   bridge = createBridge(iframe);
@@ -451,7 +538,10 @@ function ensureBridge(iframe) {
 
   bridge.on("shortcut", (payload) => {
     const action = payload && payload.action;
-    if (action === "comment") document.getElementById("comment-btn")?.click();
+    if (action === "comment") openCommentFlow(false);
+    else if (action === "comment-agent") openCommentFlow(true);
+    else if (action === "save") document.getElementById("save-btn")?.click();
+    else if (action === "save-as") document.getElementById("save-as-btn")?.click();
     else if (action === "show-shortcuts") { if (shortcutsHelp) shortcutsHelp.open(); }
   });
 
@@ -758,38 +848,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Wire toolbar comment button → anchored composer popover (F5)
   const commentBtn = document.getElementById("comment-btn");
   if (commentBtn) {
-    commentBtn.addEventListener("click", async () => {
-      if (!bridge) return;
-      let sel;
-      try {
-        sel = await bridge.command("get-selection");
-      } catch (err) {
-        console.error("Get selection failed:", err.message);
-        return;
-      }
-      if (!sel || !sel.hypId) {
-        alert("Select an element first to add a comment.");
-        return;
-      }
-      const author = getAuthorName();
-      openComposer({
-        rect: sel.rect || null,
-        mode: "new",
-        onSubmit: async (text, agentInstruction) => {
-          try {
-            await bridge.command("add-comment", {
-              hypId: sel.hypId,
-              body: text,
-              author,
-              agentInstruction,
-            });
-            await refreshCommentPanel();
-          } catch (err) {
-            console.error("Add comment failed:", err.message);
-          }
-        },
-      });
-    });
+    commentBtn.addEventListener("click", () => openCommentFlow(false));
   }
 
   // Wire Undo / Redo buttons (topbar icon buttons)
@@ -825,8 +884,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const inField = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA");
     const k = e.key.toLowerCase();
     if (k === "/") { e.preventDefault(); shortcutsHelp.open(); return; }
+    // Save / Save As — global (fire even while a field/composer is focused).
+    if (k === "q" && e.shiftKey) { e.preventDefault(); document.getElementById("save-btn")?.click(); return; }
+    if (k === "q" && !e.shiftKey) { e.preventDefault(); document.getElementById("save-as-btn")?.click(); return; }
     if (inField) return;
-    if (!e.altKey && k === "m") { e.preventDefault(); document.getElementById("comment-btn")?.click(); return; }
+    if (!e.altKey && k === "m" && e.shiftKey) { e.preventDefault(); openCommentFlow(true); return; }
+    if (!e.altKey && k === "m" && !e.shiftKey) { e.preventDefault(); openCommentFlow(false); return; }
     if (e.key === "Delete") { e.preventDefault(); document.getElementById("delete-btn")?.click(); return; }
     if (!e.altKey && k === "b") { e.preventDefault(); if (bridge) bridge.command("format", { op: "bold" }).catch(() => {}); return; }
     if (!e.altKey && k === "i") { e.preventDefault(); if (bridge) bridge.command("format", { op: "italic" }).catch(() => {}); return; }

@@ -47,11 +47,12 @@ class CheatsheetTests(unittest.TestCase):
         self._open_overlay()
         self._assert_overlay_open()
         headings = self.page.locator(".shortcuts-group-heading")
-        self.assertEqual(headings.count(), 3, "should have three group headings")
+        self.assertEqual(headings.count(), 4, "should have four group headings")
         texts = [h.text_content() for h in headings.all()]
         self.assertIn("Text", texts)
         self.assertIn("Components", texts)
         self.assertIn("Editing", texts)
+        self.assertIn("File", texts)
 
     def test_escape_closes_overlay(self):
         self._open_overlay()

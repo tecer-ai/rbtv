@@ -283,6 +283,24 @@ input, select, textarea { font: inherit; color: inherit; }
 .comment-action-btn--mut { color: var(--ink-mut); }
 .comment-action-btn--mut:hover { background: var(--paper-2); }
 
+/* inline comment/reply edit (in the right pane, not over the document) */
+.comment-inline-edit { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; cursor: default; }
+.comment-inline-textarea {
+  width: 100%; font-size: 12.5px; line-height: 1.5; padding: 7px 9px;
+  border: 1px solid var(--line-2); border-radius: var(--r-ctrl);
+  background: var(--white); color: var(--ink); resize: vertical;
+  font-family: var(--font-ui);
+}
+.comment-inline-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.comment-inline-save, .comment-inline-cancel {
+  height: 26px; padding: 0 11px; font-size: 12px; font-weight: 600;
+  border: 1px solid var(--line-2); border-radius: var(--r-ctrl);
+  background: var(--white); cursor: pointer;
+}
+.comment-inline-cancel:hover { background: var(--paper-2); }
+.comment-inline-save { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.comment-inline-save:hover { background: var(--accent-deep); border-color: var(--accent-deep); }
+
 .comment-agent-toggle {
   margin-left: auto;
   position: relative; /* contain the absolutely-positioned hidden checkbox so it adds no page height */

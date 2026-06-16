@@ -41,9 +41,17 @@ export function createShortcutsHelp() {
         heading: "Editing",
         rows: [
           { keys: ["Ctrl", "M"], label: "Comment" },
+          { keys: ["Ctrl", "Shift", "M"], label: "Comment for agents" },
           { keys: ["Ctrl", "Z"], label: "Undo" },
           { keys: ["Ctrl", "Shift", "Z"], label: "Redo" },
           { keys: ["Ctrl", "/"], label: "Show shortcuts" },
+        ],
+      },
+      {
+        heading: "File",
+        rows: [
+          { keys: ["Ctrl", "Shift", "Q"], label: "Save" },
+          { keys: ["Ctrl", "Q"], label: "Save As" },
         ],
       },
     ];

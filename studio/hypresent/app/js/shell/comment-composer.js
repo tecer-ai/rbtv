@@ -5,12 +5,13 @@
  * Replaces window.prompt for new comments and replies (U7).
  *
  * Public contract:
- *   openComposer({ rect, mode, commentId, initialText, onSubmit }) -> { close }
- *     rect       : {left, top, width, height} in iframe-viewport coords (from a comment event)
- *     mode       : 'new' | 'reply' | 'edit'
- *     commentId  : required when mode === 'reply' or mode === 'edit'
- *     initialText: pre-filled textarea content for edit mode (default '')
- *     onSubmit   : (text:string, agentInstruction:boolean) => void  (called on save)
+ *   openComposer({ rect, mode, commentId, initialText, agentDefault, onSubmit }) -> { close }
+ *     rect        : {left, top, width, height} in iframe-viewport coords (from a comment event)
+ *     mode        : 'new' | 'reply' | 'edit'
+ *     commentId   : required when mode === 'reply' or mode === 'edit'
+ *     initialText : pre-filled textarea content for edit mode (default '')
+ *     agentDefault: when true (mode 'new'), the "For agents" checkbox starts checked
+ *     onSubmit    : (text:string, agentInstruction:boolean) => void  (called on save)
  *   Keys: Esc=cancel, Ctrl/Cmd+Enter=save, Enter=newline.
  */
 
@@ -24,7 +25,7 @@ function closeActive() {
 
 let onDocKeyForActive = null;
 
-export function openComposer({ rect, mode = "new", commentId = null, initialText = "", onSubmit }) {
+export function openComposer({ rect, mode = "new", commentId = null, initialText = "", agentDefault = false, onSubmit }) {
   closeActive();
 
   const pop = document.createElement("div");
@@ -62,6 +63,7 @@ export function openComposer({ rect, mode = "new", commentId = null, initialText
     label.className = "hyp-composer-agent";
     agentCheckbox = document.createElement("input");
     agentCheckbox.type = "checkbox";
+    if (agentDefault) agentCheckbox.checked = true;
     label.appendChild(agentCheckbox);
     label.appendChild(document.createTextNode(" For agents"));
     pop.appendChild(label);

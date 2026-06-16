@@ -26,10 +26,31 @@ export function initShortcuts(handlers) {
       return;
     }
 
+    // Comment for agents (Ctrl+Shift+M) — checked BEFORE plain Comment so Shift wins
+    if ((e.key === "m" || e.key === "M") && !e.altKey && e.shiftKey) {
+      e.preventDefault();
+      handlers.requestAgentComment();
+      return;
+    }
+
     // Comment
     if ((e.key === "m" || e.key === "M") && !e.altKey && !e.shiftKey) {
       e.preventDefault();
       handlers.requestComment();
+      return;
+    }
+
+    // Save (Ctrl+Shift+Q) — checked BEFORE Save As so Shift wins
+    if ((e.key === "q" || e.key === "Q") && !e.altKey && e.shiftKey) {
+      e.preventDefault();
+      handlers.requestSave();
+      return;
+    }
+
+    // Save As (Ctrl+Q)
+    if ((e.key === "q" || e.key === "Q") && !e.altKey && !e.shiftKey) {
+      e.preventDefault();
+      handlers.requestSaveAs();
       return;
     }
 
