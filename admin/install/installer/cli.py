@@ -448,6 +448,7 @@ def _resolve_env_file(
         "Path to your env file with API keys for model workers "
         "(optional — blank to skip / keep current)",
         default=existing_value or "",
+        allow_empty=True,
     ).strip()
     return entered or None
 
@@ -487,6 +488,7 @@ def _resolve_model_plans_file(
         "Path to your model plans YAML with per-model context caps and $/M-token "
         "reference data (optional — blank to skip / keep current)",
         default=existing_value or "",
+        allow_empty=True,
     ).strip()
     return entered or None
 
