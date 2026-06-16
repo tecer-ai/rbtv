@@ -5,7 +5,7 @@ description: Commit local changes with correct file-op hygiene, remote sync, and
 
 # Git Commit
 
-Commit local changes with correct file-op hygiene, remote sync, and conflict handling.
+The agent supplies the judgment — which files belong together, what each message says — and the deterministic script `commit.py` owns every git mechanic in ONE invocation per commit: remote sync, the staging gate, the commit, and the optional push. The agent NEVER runs the stage / sync / commit git commands by hand.
 
 ## When to Use
 
@@ -16,70 +16,43 @@ Commit local changes with correct file-op hygiene, remote sync, and conflict han
 
 ## Procedure
 
-Execute in order. Never skip steps.
-
-### 1. Analyze Changes
+### 1. Analyze and plan (agent judgment)
 
 1. `git -C "{repo}" status` — identify staged, unstaged, untracked
-2. `git -C "{repo}" diff` — review unstaged
-3. `git -C "{repo}" diff --cached` — review staged
-4. Cluster the changes by concern — files serving the same feature, fix, or content batch form one cluster
+2. `git -C "{repo}" diff` and `git -C "{repo}" diff --cached` — review the changes
+3. Cluster the changes by concern — files serving the same feature, fix, or content batch form one cluster:
+   - One commit per cluster. Default is a single commit — split ONLY when clusters are genuinely unrelated.
+   - Relatedness decides, never size: a large related batch is ONE commit; two unrelated files are TWO commits.
+   - NEVER bundle unrelated clusters into one umbrella commit.
+4. File-op hygiene: for a move or rename, run `git -C "{repo}" mv {old} {new}` FIRST, then pass BOTH `{old}` and `{new}` as files for that cluster. A deletion needs only the deleted path passed.
+5. Draft one commit message per cluster (see Commit Message Style). Present the full plan — clusters, files, messages — in a SINGLE confirmation. Wait for user confirmation before proceeding.
 
-**Commit scoping:**
+### 2. Commit each cluster via the script
 
-- One commit per cluster. Default is a single commit — split ONLY when clusters are genuinely unrelated
-- Relatedness decides, never size: a large related batch is ONE commit; two unrelated files are TWO commits
-- NEVER bundle unrelated clusters into one umbrella commit
+Resolve `{rbtv_path}` from `rbtv.json` at the workspace root. For each confirmed cluster, in plan order, run the script with the working directory INSIDE `{repo}` (the script locates the repo root itself):
 
-Draft one commit message per cluster. Present the full commit plan (clusters, files, messages) in a single confirmation. Wait for user confirmation before proceeding.
+```
+python "{rbtv_path}/core/workflows/commit/commit.py" -m "<message>" -f <file> [-f <file> ...] [--push]
+```
 
-### 2. Fetch and Check Remote
+- Pass each file with its own `-f`, repo-root-relative. List every path the cluster touches (including both sides of a rename).
+- Add `--push` ONLY if the user asked to push.
+- The script unstages everything, stages ONLY the listed files (so a parallel session's staged file is never committed — its changes stay in the working tree), syncs the remote commit-first (a clean auto-merge is silent), commits, and pushes when `--push` is given. Exit 0 with a `committed <hash>` line = done.
 
-1. `git -C "{repo}" fetch`
-2. `git -C "{repo}" rev-parse --abbrev-ref @{u}` — check upstream
-   - No upstream → after commit, push with `-u`
-3. If upstream exists: `git -C "{repo}" rev-list HEAD..@{u} --count`
-   - Count 0 → Step 3
-   - Count >0 → Step 4
+### 3. On a non-zero exit — the script made NO commit
 
-### 3. Commit (No Remote Changes)
+Read the script's error and act:
 
-For each planned commit, in plan order:
+| Error | Meaning | Action |
+|-------|---------|--------|
+| `no changes to commit: <files>` | A listed file was unchanged | Fix the file list, retry the script for that cluster |
+| `merge conflict pulling remote changes in: <files>` | The remote diverged and conflicts with this cluster | Read and follow `{rbtv_path}/core/workflows/commit/merge-conflict.md` |
 
-1. `git -C "{repo}" diff --cached --name-only` — list pre-staged files. Re-run this check IMMEDIATELY before EACH commit of a multi-commit plan — parallel sessions stage files between your commits, and an earlier clean check proves nothing about the current index (observed 2026-06-07: a sibling session's 6 staged files rode into a commit whose check had passed one commit earlier). `git commit` commits the ENTIRE index, not just what you staged. Any pre-staged file outside the current cluster: unstage it (`git -C "{repo}" restore --staged {file}`), or — only with user confirmation — let it ride and disclose it in the commit message. NEVER commit foreign staged files silently.
-2. Stage that cluster's files: `git -C "{repo}" add {files}` — explicit FILE paths only. NEVER `git add -A`. NEVER stage a directory in a shared repo: a parallel session can drop a foreign file into it between plan and stage, and it rides into the commit undisclosed.
-3. Gate the commit: `git -C "{repo}" diff --cached --name-only` MUST list EXACTLY the cluster's files, and the result MUST gate the commit programmatically — in a scripted sequence, abort unless the staged list equals the plan. An unconditional check→stage→commit chain is FORBIDDEN: a check whose output cannot stop the commit is theater. Mismatch → unstage the foreign files and re-run this gate; NEVER commit on a mismatched index.
-4. Commit with that cluster's confirmed message
-
-Push only if user requested it.
-
-### 4. Commit (Remote Changes Exist)
-
-1. `git -C "{repo}" status --porcelain`
-   - Clean → skip stash, go to pull
-   - Dirty → `git -C "{repo}" stash`
-2. `git -C "{repo}" pull`
-3. If stashed: `git -C "{repo}" stash pop`
-
-**Stash pop succeeds:**
-
-1. If project has a test command (check `CLAUDE.md` or `package.json`), run tests. Fail → stop, notify user.
-2. Stage and commit each planned cluster in plan order (per Step 3)
-3. Push only if user requested it
-
-**Stash pop fails (conflict):**
-
-1. STOP — do NOT commit
-2. `git -C "{repo}" diff --name-only --diff-filter=U` — list conflicts
-3. Present every conflicting file to user. Ask how to resolve each.
-4. Execute user's resolution
-5. `git -C "{repo}" stash drop`
-6. If project has a test command, run tests. Fail → stop, notify user.
-7. Stage and commit each planned cluster in plan order (per Step 3)
-8. Push only if user requested it
+NEVER move to the next cluster until the current one has committed.
 
 ## Commit Message Style
 
 - Follow conventional commits
 - Summarize the "why", not the "what" — the diff shows the what
 - Keep first line under 72 characters
+- NEVER add a `Co-Authored-By` trailer, a `Generated with Claude Code` line, or any other AI-attribution line to the commit message or its trailer

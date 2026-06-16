@@ -12,7 +12,7 @@ The core module is always installed — it's the foundation every other RBTV mod
 
 #### `rbtv-commit`
 
-- **What**: A guided git commit workflow that analyzes your diff, clusters changes by concern (one commit per cluster — unrelated changes never share an umbrella commit), drafts a conventional commit message per cluster, checks for remote changes before committing, handles stash/conflict scenarios, stages specific files (never `git add -A`), and checks the index for pre-staged foreign files before each commit (unstage or disclose — never commit them silently).
+- **What**: A guided git commit workflow that analyzes your diff and clusters changes by concern (one commit per cluster — unrelated changes never share an umbrella commit), then drafts a conventional commit message per cluster. You do the judgment; a deterministic script (`commit.py`) then runs every git mechanic in one shot per commit — it unstages everything and stages only that cluster's files (so a parallel session's staged file is never swept in — its changes stay in your working tree), syncs the remote, commits, and optionally pushes. It fails loudly and makes no commit on a real merge conflict.
 - **When to use**: Any time you want to commit changes. Also triggers automatically when a task finishes and you say something like "done, save this."
 - **How to invoke**: Say "commit", "commita", or "salva no git". The skill also fires when you say "done, commit this" after completing a task.
 - **What it produces**: One or more scoped commits in the current repo, with the commit plan confirmed by you before anything is staged. Push happens only if you ask for it.
@@ -23,7 +23,7 @@ The core module is always installed — it's the foundation every other RBTV mod
   > User: "looks good"
   > Agent stages specific files, commits, and reports the commit hash. Does not push unless asked.
 
-  If remote commits exist that you don't have locally, the skill fetches first, stashes your work, pulls, and pops — surfacing conflicts for you to resolve before touching the commit step.
+  If remote commits exist that you don't have locally, the script commits your cluster locally first, then pulls — a clean auto-merge is handled silently. A real conflict aborts the merge and undoes the local commit (your changes are left staged, nothing lost), and the script surfaces the conflicting files for you to resolve before retrying.
 
 **Commit message style:** `rbtv-commit` follows [conventional commits](https://www.conventionalcommits.org/): first line under 72 characters, message explains the *why* (the diff already shows the what).
 
