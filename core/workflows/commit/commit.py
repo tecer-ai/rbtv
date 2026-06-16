@@ -115,8 +115,13 @@ def main():
     committed = git(["rev-parse", "--short", "HEAD"], root).stdout.strip()  # MY commit, before any sync merge
     if behind and before:
         sync_after_commit(root, before)
+    # Read the files back from the commit OBJECT (not the input list) so the output
+    # is ground truth the caller can trust without re-running `git show`.
+    in_commit = [ln for ln in git(
+        ["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", committed], root
+    ).stdout.splitlines() if ln]
     print(f"committed {committed}: {args.message.splitlines()[0]}")
-    print("files: " + ", ".join(requested))
+    print(f"files in commit ({len(in_commit)}): " + ", ".join(in_commit))
     merged = git(["rev-parse", "--short", "HEAD"], root).stdout.strip()
     if merged != committed:
         print(f"synced remote: merge commit {merged} created on top of {committed}")

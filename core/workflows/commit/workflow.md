@@ -37,7 +37,8 @@ python "{rbtv_path}/core/workflows/commit/commit.py" -m "<message>" -f <file> [-
 
 - Pass each file with its own `-f`, repo-root-relative. List every path the cluster touches (including both sides of a rename).
 - Add `--push` ONLY if the user asked to push.
-- The script unstages everything, stages ONLY the listed files (so a parallel session's staged file is never committed — its changes stay in the working tree), syncs the remote commit-first (a clean auto-merge is silent), commits, and pushes when `--push` is given. Exit 0 with a `committed <hash>` line = done.
+- The script unstages everything, stages ONLY the listed files (so a parallel session's staged file is never committed — its changes stay in the working tree), syncs the remote commit-first (a clean auto-merge is silent), commits, and pushes when `--push` is given.
+- On exit 0 the script prints `committed <hash>`, then `files in commit (<n>): …` read back from the commit OBJECT, and a `synced remote: merge commit …` line if a sync merge was created. The staging gate guarantees the committed files equal exactly the files you listed — it aborts otherwise. TRUST this output: do NOT run `git show`, `git log`, or any other command to re-verify the commit's contents. The script IS the verification.
 
 ### 3. On a non-zero exit — the script made NO commit
 
