@@ -18,8 +18,8 @@ The agent supplies the judgment — which files belong together, what each messa
 
 ### 1. Analyze and plan (agent judgment)
 
-1. `git -C "{repo}" status` — identify staged, unstaged, untracked
-2. `git -C "{repo}" diff` and `git -C "{repo}" diff --cached` — review the changes
+1. `git -C "{repo}" status` — see which files changed (modified, new, deleted). Staged-vs-unstaged does not matter here: the script re-stages from scratch.
+2. `git -C "{repo}" diff` — review the changes
 3. Cluster the changes by concern — files serving the same feature, fix, or content batch form one cluster:
    - One commit per cluster. Default is a single commit — split ONLY when clusters are genuinely unrelated.
    - Relatedness decides, never size: a large related batch is ONE commit; two unrelated files are TWO commits.
