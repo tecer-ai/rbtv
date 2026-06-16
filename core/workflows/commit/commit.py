@@ -112,11 +112,14 @@ def main():
     # --- commit (capturing the undo target first), then sync the remote on top ---
     before = git(["rev-parse", "HEAD"], root, check=False).stdout.strip()
     git(["commit", "-m", args.message], root)
+    committed = git(["rev-parse", "--short", "HEAD"], root).stdout.strip()  # MY commit, before any sync merge
     if behind and before:
         sync_after_commit(root, before)
-    head = git(["rev-parse", "--short", "HEAD"], root).stdout.strip()
-    print(f"committed {head}: {args.message.splitlines()[0]}")
+    print(f"committed {committed}: {args.message.splitlines()[0]}")
     print("files: " + ", ".join(requested))
+    merged = git(["rev-parse", "--short", "HEAD"], root).stdout.strip()
+    if merged != committed:
+        print(f"synced remote: merge commit {merged} created on top of {committed}")
 
     # --- push ---
     if args.push:
