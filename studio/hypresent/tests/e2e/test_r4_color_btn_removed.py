@@ -56,6 +56,7 @@ class R4ColorBtnRemovedTests(unittest.TestCase):
             "the color popover container must still render",
         )
         # at least one token row eventually renders (fixture has :root color tokens)
+        H.expand_colors(self.page)
         self.page.wait_for_selector(".hyp-token-row", timeout=5000)
         self.assertGreater(
             len(self.page.query_selector_all(".hyp-token-row")), 0,

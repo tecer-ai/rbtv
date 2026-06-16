@@ -32,7 +32,23 @@ export function createColorPopover({ bridge, panelEl }) {
         display: flex;
         flex-direction: column;
       }
-      .hyp-color-panel > div { padding: 16px 18px 18px; border-bottom: 1px solid var(--line); }
+      .hyp-colors-toggle {
+        display: flex; align-items: center; gap: 7px;
+        width: 100%;
+        padding: 14px 18px;
+        background: none; border: none; border-bottom: 1px solid var(--line);
+        cursor: pointer; text-align: left;
+        font: inherit; font-size: 11px; font-weight: 700; letter-spacing: .09em;
+        text-transform: uppercase; color: var(--ink-mut);
+      }
+      .hyp-colors-toggle:hover { background: var(--paper-2); }
+      .hyp-colors-chevron {
+        width: 13px; height: 13px; flex: none;
+        transition: transform .15s ease;
+      }
+      .hyp-colors-toggle[aria-expanded="true"] .hyp-colors-chevron { transform: rotate(90deg); }
+      .hyp-colors-collapse[hidden] { display: none; }
+      .hyp-colors-collapse > div { padding: 16px 18px 18px; border-bottom: 1px solid var(--line); }
       .hyp-color-header {
         display: flex; align-items: center; gap: 7px;
         font-size: 11px; font-weight: 700; letter-spacing: .09em;
@@ -108,16 +124,22 @@ export function createColorPopover({ bridge, panelEl }) {
       .hyp-token-copied { color: var(--ok) !important; opacity: 1 !important; }
     </style>
     <div class="hyp-color-panel">
-      <div>
-        <div class="hyp-color-header">Palette Tokens<span class="hyp-token-info" title="Changing a palette token recolors every element using that color across the whole document.">i</span></div>
-        <div class="hyp-token-list">
-          <p class="hyp-no-selection">Open a file to see palette tokens</p>
+      <button type="button" class="hyp-colors-toggle" aria-expanded="false" aria-controls="hyp-colors-body">
+        <svg class="hyp-colors-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+        <span>Colors</span>
+      </button>
+      <div class="hyp-colors-collapse" id="hyp-colors-body" hidden>
+        <div>
+          <div class="hyp-color-header">Palette Tokens<span class="hyp-token-info" title="Changing a palette token recolors every element using that color across the whole document.">i</span></div>
+          <div class="hyp-token-list">
+            <p class="hyp-no-selection">Open a file to see palette tokens</p>
+          </div>
         </div>
-      </div>
-      <div class="hyp-element-section">
-        <div class="hyp-color-header">Selected Element</div>
-        <div class="hyp-element-body">
-          <p class="hyp-no-selection">No element selected</p>
+        <div class="hyp-element-section">
+          <div class="hyp-color-header">Selected Element</div>
+          <div class="hyp-element-body">
+            <p class="hyp-no-selection">No element selected</p>
+          </div>
         </div>
       </div>
     </div>
@@ -125,6 +147,15 @@ export function createColorPopover({ bridge, panelEl }) {
 
   const tokenListEl = container.querySelector(".hyp-token-list");
   const elementBodyEl = container.querySelector(".hyp-element-body");
+
+  // Collapsible color section — collapsed by default.
+  const collapseToggle = container.querySelector(".hyp-colors-toggle");
+  const collapseBody = container.querySelector(".hyp-colors-collapse");
+  collapseToggle.addEventListener("click", () => {
+    const expanded = collapseToggle.getAttribute("aria-expanded") === "true";
+    collapseToggle.setAttribute("aria-expanded", expanded ? "false" : "true");
+    collapseBody.hidden = expanded;
+  });
 
   function renderTokens(tokens) {
     tokenListEl.innerHTML = "";

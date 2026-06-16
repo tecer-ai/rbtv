@@ -87,6 +87,14 @@ def open_via_dialog_ui(page, base, file_path):
     wait_runtime_ready(page)
 
 
+def expand_colors(page, timeout=5000):
+    """Expand the collapsible color section (collapsed by default) so the palette
+    token list and per-element color rows become visible/clickable."""
+    toggle = page.wait_for_selector(".hyp-colors-toggle", timeout=timeout)
+    if toggle.get_attribute("aria-expanded") != "true":
+        toggle.click()
+
+
 def wait_runtime_ready(page, timeout=15000):
     """Wait until the iframe document has the runtime (window.hyp) loaded."""
     page.wait_for_function(

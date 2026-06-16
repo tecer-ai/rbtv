@@ -30,6 +30,7 @@ class R5TokenTooltipTests(unittest.TestCase):
         self.copy = H.copy_fixture()
         self.page.goto(self.base + "/app/")
         H.open_via_dialog_ui(self.page, self.base, self.copy)
+        H.expand_colors(self.page)
         self.page.wait_for_selector(".hyp-token-row", timeout=5000)
 
     def tearDown(self):
