@@ -12,16 +12,33 @@ evidence_status: <validated | probe-pending>   # package-level; per-variant over
 variants:
   - variant: <variant id, unique within model, e.g. default | thinking | fast>
 
-    # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: <non-reasoning | mid | top>   # non-reasoning=bounded/mechanical only; mid=partially-bounded w/ halt; top=judgment-dense
+    # --- capability + cost scores + sizing (routing §2, §8) — scale: schema §0 (integer 1–7, comparable across all models) ---
+    reasoning: <int 1–7>                          # 1=weakest … 7=strongest; GATE keeps reasoning ≥ the boundedness band's floor, RANK uses the raw score
+    coding: <int 1–7>                             # 1=weakest … 7=strongest; GATE keeps coding ≥ the code leaf's floor; the SAME score orders code survivors at RANK (no sub-rank)
+    cost: <int 1–7>                               # board-derived (AA Blended Price → fixed bins, D11); 7=priciest, 1=cheapest; BUDGET filter + cost-ascending primary RANK key (cheapest-capable first); 7 ranks last, never auto-picked on a tie; scale = schema §0
+    axis_evidence:                                # per-axis source + confidence for the two CAPABILITY scores above (schema §0a) — every score MUST trace here
+      reasoning: { source: <board column, e.g. aa-gpqa-hle>, confidence: <high | medium | low> }
+      coding:    { source: <board column, e.g. aa-terminal-bench-scicode>, confidence: <high | medium | low> }
+    cost_evidence: { source: <AA blended price + bin, e.g. "aa-blended($2.31)→bin5">, confidence: <high | medium | low | n/a> }   # schema §0a; n/a + explicit tag for an owner-hardcoded cost with no board backing
     context_window: <int tokens — usable input budget; sizes inlined context before split>
     max_output: <int tokens — max single-turn output>
 
-    # --- budget + capability gates (routing §2, §6) ---
-    cost_class: <cheapest | low | mid | high | premium>     # budget filter + cheapest-capable tiebreaker
-    code_competence: <none | bounded | strong>    # none=not a code executor; picks kimi-vs-codex
+    # --- role eligibility (routing §2, §6) ---
     web_access: <true | false>                    # research-leaf gate
     # multimodal: [image]                         # OPTIONAL — non-text inputs accepted; omit if text-only
+
+    # --- role eligibility (routing §2 GATE, independent of capability — schema §2b for the `other` audit note) ---
+    # routable_for: [web-research]                # OPTIONAL — allow-list of leaf-kind ROLES. OMIT ⇒ eligible for ALL leaves (default).
+    #                                             #   PRESENT ⇒ eligible ONLY for the listed roles (GATE drops it elsewhere).
+    #                                             #   CLOSED vocabulary: bounded-code | unbounded-code | reasoning | web-research | text-synthesis | other.
+    #                                             #   `other` is the catch-all (route.py audit-logs every `other` routing — schema §2b). Use for narrow specialists, e.g. manus-api → [web-research].
+
+    # --- reasoning / effort modes (routing §2 post-pin effort=f(boundedness) — schema §0a) ---
+    # reasoning_modes:                            # OPTIONAL — available thinking depths + how to set them; read AFTER the pin, never a selection input.
+    #                                             #   Single-mode workers carry depths: [] (the effort step is a no-op). OMIT only if truly unknown.
+    #   depths: [<level>, ...]                    # discrete effort levels low→high; [] or one entry = single-mode. e.g. [low, medium, high, xhigh, max]
+    #   invocation: "<flag/param that sets a depth, e.g. --effort {level}>"   # "none" for single-mode
+    #   carrier: "<where/how settable, e.g. CLI-only via claude -p | in-session (not settable) | API thinkingBudget param>"
 
     # --- parallelism + resume (routing §8, §4) ---
     parallel_safe: <true | false>                 # concurrent instances under disjoint allowlists

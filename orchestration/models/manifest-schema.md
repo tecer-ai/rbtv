@@ -20,6 +20,68 @@ Manifests are **YAML**, not JSON. Rationale:
 
 ---
 
+## 0. Rating scales (the anti-drift vocabulary)
+
+The two capability axes (`reasoning`, `coding`) AND `cost` each use ONE comparable **integer 1–7 score**. This is the single source of truth for the rating vocabulary — `route.py` (`TIER_VALUES` / `COST_ORDER`), every manifest, `test_route.py`, the routing card, and the matrix reference all read these orderings. No file restates the vocabulary; they comply with it.
+
+The 1–7 scores are **comparable across all models** — every value is derived from ONE external methodology (the Artificial Analysis leaderboard: AA Intelligence Index + per-axis sub-tests for capability; the AA Blended Price column with fixed bins for cost), so a `reasoning: 5` on one model means the same strength as a `reasoning: 5` on another, and a `cost: 5` means the same price bracket on any model. For the two CAPABILITY axes (`reasoning`, `coding`) `1` = weakest, `7` = strongest. For `cost`, **`7` = priciest, `1` = cheapest** (so cost-ascending RANK = cheapest-capable first). The external, re-derivable source mitigates the "scores rot" fragility that a hand-tuned scale would carry. Each value carries an evidence tag (the board column it came from) + a confidence marker (see §0a).
+
+| Axis | Scale | Ordering used by |
+|------|-------|------------------|
+| `reasoning` | integer `1` (weakest) → `7` (strongest) | GATE (`≥ floor`) + RANK |
+| `coding` | integer `1` (weakest) → `7` (strongest) | GATE (`≥ floor`, gates code leaves) + RANK (orders code-task survivors directly) |
+| `cost` | integer `1` (cheapest) → `7` (priciest); board-blended-price bins | RANK (cost-ascending, primary key — cheapest-capable first; `7` ranks LAST, never auto-picked on a cost tie) + BUDGET filter |
+
+**Scale-migration mapping (from the pre-2026-06-15 vocabulary — the one-time breaking change).** Old capability band strings (`non-reasoning` / `mid` / `top`; `none` / `bounded` / `strong`; `lowest` / `low` / `medium` / `high`) are DEFECTS once migration lands — they must not survive anywhere functional; capability axes are now integers. The old cost tier strings (`cheapest` / `low` / `mid` / `high` / `premium`) are LIKEWISE defects once migration lands — `cost` is now a board-derived integer 1–7 (D11), not a tier.
+
+| Axis | Old vocabulary | New value | Migration rule |
+|------|----------------|-----------|----------------|
+| `reasoning` | band `non-reasoning · mid · top` / `lowest · low · medium · high` | integer `1`–`7` | Re-derived from the AA board's reasoning sub-tests (GPQA / HLE) — NOT a band-to-int lookup. The band gate becomes a numeric-floor gate (`score ≥ floor`). |
+| `coding` | band `none · bounded · strong` / `lowest · low · medium · high` | integer `1`–`7` | Re-derived from the AA board's coding sub-tests (Terminal-Bench Hard / SciCode). The single `coding` score now serves BOTH the gate AND the fine ordering (the AA board is one independent methodology, so a separate self-reported-vs-independent sub-rank is redundant — `coding_subrank` is REMOVED). |
+| `cost` | tier `cheapest` · `low` · `mid` · `high` · `premium` (was `cost_class`) | integer `1`–`7` (`7` = priciest, `1` = cheapest) | Re-derived from the AA board's "Blended Price (USD/1M Tokens)" column via fixed price bins (D11) — NOT a tier-to-int lookup. The field is RENAMED `cost_class` → `cost`. The old 5 tier words are DEFECTS once migration lands (like the capability bands). The priciest bin `7` still ranks LAST on a cost tie (never auto-picked), exactly as `premium` did. |
+
+---
+
+## 0a. Capability-axis value shape (1–7 + evidence + confidence) and `reasoning_modes`
+
+**The three 1–7 scored axes (`reasoning`, `coding`, `cost`)** each carry a bare integer 1–7 PLUS an evidence + confidence tag. The score is the routing input; the tag records where the number came from and how firm it is. Capability scores pair with a sibling `axis_evidence` map keyed by the axis name; `cost` pairs with a sibling `cost_evidence` map:
+
+```yaml
+reasoning: 6                   # integer 1–7 (the GATE + RANK input)
+coding: 5
+cost: 5                        # integer 1–7 (7 = priciest, 1 = cheapest); BUDGET filter + cost-ascending RANK key
+axis_evidence:                 # per-axis source + confidence for the two CAPABILITY scores above
+  reasoning: { source: aa-gpqa-hle, confidence: high }     # source = the AA board column(s); confidence: high | medium | low
+  coding:    { source: aa-terminal-bench-scicode, confidence: high }
+cost_evidence: { source: "aa-blended($2.31)→bin5", confidence: high }   # the AA Blended Price + the bin it maps to
+```
+
+Rules: every capability score MUST trace to its `axis_evidence` entry, and `cost` MUST trace to its `cost_evidence` entry (`source` names the board column / price + bin; `confidence` ∈ `high · medium · low`, or `n/a` for an owner-hardcoded value). A score with no evidence entry is malformed (explicit-unknown, never imputed). An owner-hardcoded cost with no board backing carries `confidence: n/a` and is tagged so explicitly (e.g. Manus).
+
+**`reasoning_modes`** — available thinking depths + how to set them, read post-pin:
+
+```yaml
+reasoning_modes:
+  depths: [low, medium, high, xhigh, max]   # discrete effort levels, low→high. [] or a single entry = single-mode.
+  invocation: "--effort {level}"            # flag/param that sets a depth; "none" for single-mode.
+  carrier: "CLI-only via claude -p"         # where/how settable, e.g. in-session (not settable) | API thinkingBudget param
+```
+
+Per-worker-class examples (the shape is identical; only the values differ):
+
+| Worker | `depths` | `invocation` | `carrier` |
+|--------|----------|--------------|-----------|
+| `claude-code-cli` (5 Claude effort levels) | `[low, medium, high, xhigh, max]` | `"--effort {level}"` | `"CLI-only via claude -p"` |
+| `claude-code-native` (Agent-tool, single-mode) | `[]` | `"none"` | `"in-session — effort not settable"` |
+| `codex-cli` (GPT effort) | `[low, medium, high]` | `"model_reasoning_effort {level}"` | `"CLI config flag"` |
+| `kimi-code-cli` (2 modes) | `[no-think, think]` | `"--thinking / --no-thinking"` | `"CLI flag"` |
+| `gemini-api` (budget) | `[off, on]` | `"thinkingBudget (0 = off)"` | `"API param"` |
+| `deepseek-api` (toggle, may be inert on v4) | `[off, on]` | `"thinking param"` | `"API param — verify non-inert"` |
+
+`depths` entries are free strings naming the effort levels as that family labels them (Claude's `low…max`, kimi's `no-think`/`think`, an API's `off`/`on`); the post-pin `effort = f(boundedness)` step maps the boundedness band onto whichever depths the chosen variant exposes (single-mode ⇒ no-op).
+
+---
+
 ## 1. Schema structure
 
 A manifest is one YAML document with four top-level keys (plus one optional installer-consumed key):
@@ -32,7 +94,7 @@ A manifest is one YAML document with four top-level keys (plus one optional inst
 | `permission_rules` | list (optional) | The literal Claude Code permission-allowlist strings a conductor session needs to spawn this CLI worker in-session (e.g. `"Bash(qwen:*)"`, `"PowerShell(qwen:*)"` — PREFIX rules, hence the start-with-binary dispatch shaping in `dispatch-wrapper.md` §1). **Installer-consumed, NOT a routing input** (same §3 exemption as `display`): on install, an ELECTED package's strings are ensured present in the target's `.claude/settings.local.json` `permissions.allow`; a present-but-NOT-elected package's strings are removed. Only these exact strings are ever touched — hand-added entries survive. Omit for packages a session never shell-spawns (API workers, the native Agent-tool carrier). Must be TOP-LEVEL (column 0) — the installer's line-scan reader ignores nested keys. |
 | `variants` | list | One entry per routable `(model, variant)` pair. Routing routes on these — never on a bare model name. A model with a single operating profile still declares one variant. |
 
-Every routing input below the model level lives **inside a variant** — because routing routes on `(model, variant)`, and two variants of the same model can differ in reasoning tier, cost class, or context window (e.g. a `--thinking` vs `--no-thinking` profile, or two configured models).
+Every routing input below the model level lives **inside a variant** — because routing routes on `(model, variant)`, and two variants of the same model can differ in reasoning score, cost score, or context window (e.g. a `--thinking` vs `--no-thinking` profile, or two configured models).
 
 ---
 
@@ -44,11 +106,13 @@ Each entry in `variants` carries the fields below. Required fields MUST be prese
 |-------|----------|------|---------|
 | `variant` | yes | string | The variant id, unique within the model (e.g. `default`, `thinking`, `fast`). The `(model, variant)` pair is the routing key. |
 | `display` | no | string | Per-variant human-facing label for the installer's backend-election rows — a CONFIGURABLE package (see `configurable_model`) surfaces each variant as a separately-electable row labeled with this. **Installer-consumed, NOT a routing input** — `route.py` ignores it (same §3 exemption as the package-level `display`). Falls back to the variant id when absent. |
-| `reasoning_tier` | yes | enum | `non-reasoning` · `mid` · `top`. The boundedness-tree input: which boundedness band this variant can serve. `non-reasoning` = bounded code/mechanical only; `mid` = partially-bounded with `doubt_policy: halt`; `top` = judgment-dense. |
+| `reasoning` | yes | int 1–7 | Comparable reasoning score, `1` (weakest) → `7` (strongest) (§0 scale). The boundedness-tree input + GATE key: the GATE keeps variants whose `reasoning ≥` the task's required numeric floor; RANK uses the raw score. Carries an `axis_evidence.reasoning` source + confidence tag (§0a). |
 | `context_window` | yes | int (tokens) | Usable input budget. Sizes how much inlined task context fits before a task must be split. |
 | `max_output` | yes | int (tokens) | Max tokens the worker can emit in one turn. Flags work whose single-turn output would exceed it. |
-| `cost_class` | yes | enum | `cheapest` · `low` · `mid` · `high` · `premium`. The budget-filter input and the "cheapest capable" tiebreaker in the boundedness tree. `premium` ranks ABOVE `high` (reserved for premium-priced top-tier models — e.g. Fable 5 at ~2× opus pricing); cost-ascending selectors rank it LAST, so a `premium` variant is never auto-picked on a cost tie — it is reached via pinned roles. |
-| `code_competence` | yes | enum | `none` · `bounded` · `strong`. Whether this variant executes code, and how well — picks kimi-vs-codex and gates code leaves. `none` = not a code executor (route code elsewhere). |
+| `cost` | yes | int 1–7 | Comparable cost score, `1` (cheapest) → `7` (priciest) (§0 scale; board-derived from the AA "Blended Price (USD/1M Tokens)" column via fixed bins, D11). The budget-filter input AND the cost-ascending primary RANK key ("cheapest capable" first). Carries a `cost_evidence` source + confidence tag (§0a). `7` (priciest) ranks LAST, so a `7` variant is never auto-picked on a cost tie — it is reached via pinned roles. |
+| `coding` | yes | int 1–7 | Comparable coding score, `1` (weakest) → `7` (strongest) (§0 scale). The GATE keeps variants whose `coding ≥` the code leaf's required floor; the SAME score orders code-task survivors directly at RANK (no separate sub-rank — the AA board is one independent methodology). Carries an `axis_evidence.coding` source + confidence tag (§0a). |
+| `routable_for` | no | list | Allow-list of leaf-kind ROLES this variant may serve — a role-eligibility GATE **independent of capability**. ABSENT/omitted ⇒ eligible for ALL leaves (back-compat — the default). PRESENT ⇒ eligible ONLY for the listed roles; the GATE drops it from every other leaf. CLOSED role vocabulary: `bounded-code` · `unbounded-code` · `reasoning` · `web-research` · `text-synthesis` · `other` (new roles may be added later). An unknown leaf-kind string is treated as not-matching (variant dropped for that leaf), never a crash. The `other` role is the catch-all for a task that fits no first-class role — `route.py` MUST record the specific task instructions/arguments whenever it routes a task via `other` (see §2b, the `other`-routing audit note). **Code-eligibility is gated on `routable_for` membership (`bounded-code` / `unbounded-code`), INDEPENDENT of the `coding` score:** a non-executor may carry an honest `coding` integer yet be ineligible for code roles because its `routable_for` omits the two code roles — the GATE drops it from code leaves regardless of its coding score (so an honest score never silently re-enables an ineligible route). Use `routable_for` for narrow specialists (e.g. `manus-api` → `routable_for: [web-research]`): great at one job, weak elsewhere, must not be pulled into general leaves its score alone would admit. |
+| `reasoning_modes` | no | map | Structured axis of this variant's available thinking depths + how to set them. Read AFTER the pin to set `effort = f(boundedness)` (fully-bounded→`low`; partially-bounded→`medium`; unbounded/judgment-dense→`high`/`max`); NEVER a selection input. Sub-fields: `depths` (list of the discrete effort levels this variant exposes, low→high; `[]` or a single entry = single-mode), `invocation` (the flag/param that sets a depth, e.g. `--effort {level}`, or `none` for single-mode), `carrier` (where/how the depth is settable — e.g. `CLI-only via claude -p`, `in-session (not settable)`, `API thinkingBudget param`). Accommodates API workers, CLI workers, AND `claude-code-cli` (Claude's 5 effort levels). A single-mode worker (Haiku, Agent-tool Claude, an inert-toggle model) carries `depths: []` / a single depth → the effort step is a no-op. See §0a for the shape. |
 | `web_access` | yes | bool | Whether the variant can reach the web natively. The research-leaf gate (route a research brief only to a `web_access: true` worker). |
 | `multimodal` | no | list | Input modalities beyond text the variant accepts (e.g. `[image]`). Omitted = text-only. Gates a task that must feed an image to the worker. |
 | `parallel_safe` | yes | bool | Whether multiple instances can run concurrently in the same work-dir under disjoint allowlists. The batching/parallel-wave input. |
@@ -105,9 +169,17 @@ The four required fields `headless`, `tool_surface`, `confinement`, and `swarm_s
 
 ---
 
+## 2b. The `other`-routing audit note (catch-all contract)
+
+`routable_for` is a CLOSED role vocabulary (§2). `other` is its catch-all: the role a task carries when it fits no first-class role (`bounded-code` · `unbounded-code` · `reasoning` · `web-research` · `text-synthesis`). This is the schema contract `route.py` MUST honor (the behavior lands in `route.py` at p2-1):
+
+**Whenever `route.py` routes a task via the `other` role, it MUST record the specific task instructions/arguments of that routing** (an audit-trail entry: the task profile / dispatch arguments that landed on `other`). This surfaces every catch-all routing so under-served task types accumulate visibly and get promoted to a first-class role — containing the risk that a closed vocabulary silently under-routes. A first-class role is never audit-logged this way; only `other` carries the obligation.
+
+---
+
 **Field-count discipline:** every field above is consumed by a routing-card question in §3. If a future edit adds a field, it MUST add the matching consumer row in §3 or it does not belong in the schema (validated-evidence-only applies to schema bloat).
 
-**Variant field-count discipline:** a provider mode that changes NO routing-relevant field does NOT get its own variant entry. Author a variant only when at least one field in §2 differs from the existing variant(s) for the same model (e.g., `reasoning_tier`, `context_window`, `cost_class`, `web_access`, `code_competence`). Identical-routing modes collapse into one variant — duplicating a row that routes identically is schema bloat.
+**Variant field-count discipline:** a provider mode that changes NO routing-relevant field does NOT get its own variant entry. Author a variant only when at least one field in §2 differs from the existing variant(s) for the same model (e.g., `reasoning`, `context_window`, `cost`, `web_access`, `coding`). Identical-routing modes collapse into one variant — duplicating a row that routes identically is schema bloat.
 
 ---
 
@@ -118,11 +190,13 @@ The proof that no field is bloat: each maps to a question the routing card (`{rb
 | Field | Routing-card question it answers | Card location |
 |-------|----------------------------------|---------------|
 | `model` / `variant` | "Which `(model, variant)` pair receives this task?" | §1, §2 (routes on pairs) |
-| `reasoning_tier` | "Does this variant's reasoning match the task's boundedness band?" | §2 (boundedness tree) |
+| `reasoning` | "Is this variant's reasoning score ≥ the task's required floor for its boundedness band?" | §2 (boundedness tree, GATE = score ≥ floor) |
 | `context_window` | "Will the task's inlined context fit, or must it be split?" | §8 (batch sizing) + task-file contract §5 |
 | `max_output` | "Can the worker emit this task's output in one turn?" | §8 (batch sizing) |
-| `cost_class` | "Is this the cheapest capable variant? Does the budget map allow it?" | §2 (BUDGET filter, cheapest-capable) |
-| `code_competence` | "Can this variant execute the code work? kimi or codex?" | §2 (code leaves), §4 (kimi-vs-codex) |
+| `cost` | "Is this the cheapest capable variant (cost-ascending RANK)? Does the budget map allow it?" | §2 (BUDGET filter, cheapest-capable) |
+| `coding` | "Is this variant's coding score ≥ the code leaf's floor — and how does it rank against the other code survivors?" | §2 (code leaves, GATE = score ≥ floor + RANK orders survivors directly), §4 (kimi-vs-codex) |
+| `routable_for` | "Is this variant allowed to serve THIS leaf-kind role, or is it role-restricted off it?" | §2 (GATE — role-eligibility allow-list, independent of capability), §2b (`other` catch-all audit log), §6 (narrow-specialist web-research leaf) |
+| `reasoning_modes` | "The worker is pinned — which effort level do I set from the task's boundedness, via which flag/carrier?" | §2 (post-pin effort = f(boundedness)), §4 (carrier resolution — the effort flag) |
 | `web_access` | "Can this worker reach the web for the research leaf?" | §6 (research leaf) |
 | `multimodal` | "Can the worker accept the image/non-text input this task feeds it?" | §2 (capability gate) |
 | `parallel_safe` | "Can I run these in a parallel wave with disjoint allowlists?" | §8 (parallelism, worktree isolation) |
