@@ -279,6 +279,7 @@ def text_input(
     prompt: str,
     *,
     default: str = "",
+    allow_empty: bool = False,
     validator: Callable[[str], str | None] | None = None,
 ) -> str:
     _ensure_ansi()
@@ -292,6 +293,8 @@ def text_input(
         if not value and default:
             value = default
         if not value:
+            if allow_empty:
+                return ""
             print(f"  {YELLOW}Value required.{RESET}")
             continue
         if validator:
