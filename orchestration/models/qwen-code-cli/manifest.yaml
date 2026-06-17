@@ -45,7 +45,7 @@ variants:
       reasoning: { source: "aa-ii(50);gpqa(41);hle(26)", confidence: high }
       coding:    { source: "aa-tbh(44)", confidence: high }
     cost_evidence: { source: "aa-blended($0.43)→bin2", confidence: high }
-    context_window: 1048576         # 1M native (qwen3.6-plus); the configured ModelStudio backend
+    context_window: 1000000         # 1,000,000 — Alibaba Model Studio docs state "1M" for Qwen3.6 (canonical 1000000, not 1048576); verified 2026-06-17. All Qwen3.6 tiers share 1M (no premium tier above)
     max_output: 65536               # qwen3.6-plus single-turn cap (research §3); smaller than the DeepSeek backends (384K) — the routing distinction for large-output code tasks
 
     # --- role eligibility (routing §2, §6) ---
@@ -134,7 +134,7 @@ variants:
       reasoning: { source: "aa-ii(46-47,DSV4Flash);gpqa(42-45)", confidence: medium }
       coding:    { source: "aa-tbh(36-39)", confidence: medium }
     cost_evidence: { source: "aa-blended($0.06,DSV4Flash)→bin1", confidence: medium }
-    context_window: 1048576         # 1M (research §3 [3])
+    context_window: 1000000         # 1,000,000 — DeepSeek V4 official ("one million", default across all official services); V4-Flash and V4-Pro share the same input window. Verified 2026-06-17
     max_output: 384000              # 384K max (research §3 [3]) — 6× the qwen3.6-plus backend; the large-output code distinction
 
     # --- role eligibility ---
@@ -211,7 +211,7 @@ variants:
       reasoning: { source: "aa-ii(50-52,DSV4Pro);gpqa(46-50)", confidence: high }
       coding:    { source: "aa-tbh(42-46)", confidence: high }
     cost_evidence: { source: "aa-blended($0.18,DSV4Pro)→bin1", confidence: high }
-    context_window: 1048576         # 1M (research §3 [3])
+    context_window: 1000000         # 1,000,000 — DeepSeek V4 official ("one million", default across all official services); V4-Flash and V4-Pro share the same input window. Verified 2026-06-17
     max_output: 384000              # 384K max (research §3 [3])
 
     # --- role eligibility ---
@@ -279,7 +279,7 @@ variants:
 
   - variant: glm-5.1   # -m glm-5.1 — Z.AI (Zhipu) GLM-5.1 via ModelStudio US; fleet diversity: a non-DeepSeek, non-Qwen agentic-coding backend
     display: "GLM 5.1"   # installer backend-election label (per-variant; installer-consumed, NOT a routing input — schema §2)
-    # Differs from `deepseek-pro` on: cost (3 vs 1), context_window (204800 — smaller). Kept routable per the owner's explicit "GLM access" intent (model diversity for the code fleet).
+    # Differs from `deepseek-pro` on: cost (3 vs 1), context_window (200000 — smaller). Kept routable per the owner's explicit "GLM access" intent (model diversity for the code fleet).
 
     # --- capability + cost scores + sizing ---
     reasoning: 5                           # AA II 51 ("GLM-5.1" reasoning row) — strong reasoner; GPQA 44; HLE 28
@@ -289,7 +289,7 @@ variants:
       reasoning: { source: "aa-ii(51);gpqa(44);hle(28)", confidence: high }
       coding:    { source: "aa-tbh(43)", confidence: high }
     cost_evidence: { source: "aa-blended($0.90)→bin3", confidence: high }
-    context_window: 204800          # 204,800 (research §3 [6][8]) — the smaller-context backend; the routing distinction. Below the 1M DeepSeek/Qwen backends
+    context_window: 200000          # 200,000 — z.ai official GLM-5.1 docs ("200K"); the smaller-context backend (no 1M tier — that is the successor GLM-5.2, a different model). Verified 2026-06-17. Below the 1M DeepSeek/Qwen backends
     max_output: 131072              # 131,072 max (65,536 default) (research §3 [6])
 
     # --- role eligibility ---
@@ -341,7 +341,7 @@ variants:
       note: "served backend set by --auth-type openai -m glm-5.1 on ModelStudio US under DASHSCOPE_API_KEY"
     failure_modes:
       - "same qwen CLI failure modes as `qwen3.6-plus` — see the qwen3.6-plus variant"
-      - "smaller context (204,800) than the DeepSeek/Qwen backends — split large-context tasks or route them to a 1M backend"
+      - "smaller context (200,000) than the DeepSeek/Qwen backends — split large-context tasks or route them to a 1M backend"
       - "DASHSCOPE_API_KEY must resolve; PRE-PROVISIONED in qwen's ~/.qwen/settings.json → resolves in ANY session (conductor/unattended dispatches authenticate directly; bound spend with budget/--max-wall-time)"
       - "reasoning_modes.depths UNKNOWN — per-backend thinking depth is not exposed through the qwen-code CLI (G1 CLOSED as accepted limitation)"
 

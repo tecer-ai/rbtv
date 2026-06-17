@@ -40,7 +40,7 @@ variants:
     # values below are CONSERVATIVE probe-pending placeholders chosen ONLY so the routing card can
     # parse the field and size inlined task context; they are NOT published Manus specs and MUST be
     # re-verified (or removed as a sizing input) before any pilot. Do NOT treat them as authoritative.
-    context_window: 128000         # PROBE-PENDING placeholder — no published Manus context limit; the prompt is inlined into the task `description`. Re-verify against Manus API docs before sizing.
+    context_window: 128000         # Conservative floor — Manus publishes NO native context window of its own (verified 2026-06-17); it delegates context to whichever frontier base model it runs ("128K or more") and offloads to the file system. 128K is a sizing floor, NOT a published spec; do not size large inlined contexts on it.
     max_output: 128000             # PROBE-PENDING placeholder — Manus returns an arbitrary agent task result (raw-dumped as one file), not a token-capped single turn. Re-verify before sizing.
 
     # --- role eligibility (routing §2 GATE, independent of capability — D13) ---

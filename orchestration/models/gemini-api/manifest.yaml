@@ -42,7 +42,7 @@ variants:
       reasoning: { source: "aa-ii(55);gpqa(53);hle(41)", confidence: high }
       coding:    { source: "aa-tbh(41)", confidence: high }   # D13 honest score from the AA board TBH column
     cost_evidence: { source: "aa-blended($1.31)→bin4", confidence: high }
-    context_window: 1000000         # 1M tokens per Google Gemini Flash class; re-verify against provider docs before pilot
+    context_window: 1048576         # 1,048,576 — official Google "Token limits" table for the Gemini 3.x Flash class (verified 2026-06-17); output limit 65,536
     max_output: 8192                # conservative estimate — re-verify against provider docs before pilot; routing-matrix §4 does not specify
 
     # --- role eligibility (routing §2 GATE, independent of capability — D13) ---
@@ -120,7 +120,7 @@ variants:
       reasoning: { source: "aa-ii(34);gpqa(42);hle(16)", confidence: medium }   # medium: II is firm but at the bottom edge; cross-checks confirm
       coding:    { source: "aa-tbh(24)", confidence: high }   # D13 honest score from the AA board TBH column
     cost_evidence: { source: "aa-blended($0.22)→bin2", confidence: high }
-    context_window: 1000000         # 1M tokens per Google Gemini Flash class; re-verify against provider docs before pilot
+    context_window: 1048576         # 1,048,576 — official Google "Token limits" table for the Gemini 3.x Flash class (verified 2026-06-17); output limit 65,536
     max_output: 8192                # conservative estimate — re-verify against provider docs before pilot; routing-matrix §4 does not specify
 
     # --- role eligibility (routing §2 GATE, independent of capability — D13) ---

@@ -19,7 +19,7 @@
 # SCHEMA MIGRATION (2026-06-16, p2-m-cli): old band/tier fields replaced by integer 1–7 per manifest-schema.md §0/D11.
 # D6 COLLAPSE applied: 6 per-effort variants → 2 per-model variants (gpt-5.5, gpt-5.4).
 # The effort ladder (low/medium/high) lives in reasoning_modes as the post-pin dial, NOT separate variant rows.
-# D14: gpt-5.5 context_window = 1M true ceiling (the per-user cap is applied at runtime from model-plans.yaml).
+# gpt-5.5 context_window = 400K (Codex CLI surface default; supersedes the earlier D14 1M-ceiling figure — see the gpt-5.5 variant note). The per-user cap is applied at runtime from model-plans.yaml.
 # The exact invocation shape (commands, flags, sandbox/approval grammar, resume) is in ./manual.md
 # (rendered from ./delta.md by ../render-manuals.py) — this manifest points to it, never duplicates it.
 
@@ -43,7 +43,7 @@ variants:
       reasoning: { source: "aa-ii(57-60,model);gpqa(53-56)", confidence: high }
       coding:    { source: "aa-tbh(58-61,model)", confidence: high }
     cost_evidence: { source: "aa-blended($4.35)→bin7", confidence: high }
-    context_window: 1000000         # true 1M ceiling (D14: the per-user cap is applied at runtime from model-plans.yaml at p4-3, NOT here); re-confirm against the configured model on the target machine
+    context_window: 400000          # Codex CLI surface default for gpt-5.5 (this worker runs -m gpt-5.5 via codex exec). Bare OpenAI API default is 1.05M, but the Codex surface defaults to 400K (>272K bills 2x input) — 400K is the worker-accurate window (supersedes the earlier D14 1M-ceiling figure). Source: OpenAI gpt-5.5 docs, verified 2026-06-17. Per-user cap still applied at runtime from model-plans.yaml.
     max_output: 128000              # gpt-5.5 family single-turn output ceiling (~128K); model/provider-determined, not exposed in local codex config
 
     # --- role eligibility (routing §2, §6) ---
@@ -130,7 +130,7 @@ variants:
       reasoning: { source: "aa-ii(38-49,mini/nano-proxy);gpqa(44-50);arena-hp(1490,base,near-frontier)", confidence: medium }
       coding:    { source: "owner-sourced(GPT-5.5 minus 1; base 5.4 absent from board)", confidence: low }
     cost_evidence: { source: "owner-supplied base price in $2.50/out $15.00 → blended (in+out)/8 = $2.19 → bin5", confidence: high }
-    context_window: 272000          # assumed same as the gpt-5.5 family pending confirmation — gpt-5.4's exact input budget is NOT separately confirmed; re-confirm before routing large inlined context
+    context_window: 272000          # gpt-5.4 native default = 272K (verified 2026-06-17, OpenAI gpt-5.4 docs; the 1M figure there is an experimental opt-in, NOT native). NOT the same as gpt-5.5's 400K Codex-surface window. >272K bills 2x input.
     max_output: 128000              # assumed same single-turn output ceiling pending confirmation
 
     # --- role eligibility ---
