@@ -1040,7 +1040,7 @@ _PINNED_FLOORS = {
         "floor_reasoning": 7,
     },
     "commit": {
-        "description": "Agent-tool Claude sonnet floor",
+        "description": "Agent-tool Claude sonnet floor; strongest-available-reasoner fallback when no Claude is available",
         "floor_variant": "sonnet",
         "floor_models": ("claude-code-native",),
         "floor_carrier": "agent-tool",
@@ -1063,12 +1063,14 @@ def _apply_pinned_role_floor(
         no_available_variants / zero_candidates exits) and there is therefore no valid `chosen`.
         In that case the pin's OWN floor is computed directly over `original_entries` (the FULL
         pre-scope enumeration), with plan-caps AND availability applied so an unavailable worker
-        never enters the floor — each pin keeps its own scoping (debug: any reasoning-7 code-
-        eligible executor; reviewer/commit: Claude-only), so a Claude-only pin still finds nothing
-        and route() returns the error when Claude is unavailable. Returns the floor-survivor pick,
-        or None when the floor finds no worker (route() then returns the original error). The
-        passed `chosen` is a non-routable sentinel (carries model/variant for the explain log
-        only) and is NEVER returned in this mode.
+        never enters the floor. Each pin keeps its OWN scoping: debug admits any reasoning-7 code-
+        eligible executor; reviewer / conductor / final-plan-reviewer stay Claude-only, so a
+        Claude-only pin still finds nothing and route() returns the error when Claude is unavailable;
+        commit is the EXCEPTION — when no Claude sonnet is available it falls back to the strongest
+        available reasoner (reasoning-descending, cost ignored) rather than erroring. Returns the
+        floor-survivor (or commit fallback) pick, or None when nothing is available at all (route()
+        then returns the original error). The passed `chosen` is a non-routable sentinel (carries
+        model/variant for the explain log only) and is NEVER returned in this mode.
     """
     pinned_role = profile.get("pinned_role")
     if not pinned_role or pinned_role not in _PINNED_FLOORS:
@@ -1215,8 +1217,10 @@ def _apply_pinned_role_floor(
         # Find cheapest Claude sonnet
         scoped_entries = list(original_entries)
         scoped = _scope_eligible_set(scoped_entries, profile, explain_log)
-        # empty_pipeline: drop unavailable variants so the Claude-only commit floor finds nothing
-        # when Claude is unavailable (returns the error, never a non-Claude fallback).
+        # empty_pipeline: drop unavailable variants so the Claude-sonnet floor only raises to an
+        # AVAILABLE Claude sonnet (an unavailable sonnet never satisfies the floor). When no Claude
+        # sonnet is available, the strongest-reasoner fallback below handles the commit pin — it no
+        # longer errors (the commit pin's Claude-excluded fallback, distinct from reviewer/conductor).
         if empty_pipeline:
             scoped = [
                 e for e in scoped
@@ -1233,6 +1237,41 @@ def _apply_pinned_role_floor(
                 "raised_pick": f"{raised['model']}:{raised['variant']}",
             })
             return raised
+
+        # Claude-excluded fallback (commit-specific): no AVAILABLE agent-tool Claude sonnet/opus
+        # exists for the commit pin. Per routing.md §3 the commit pin must NOT keep the cheapest
+        # non-Claude `chosen` (the cost-ascending pick) and must NOT error — commit-message/hygiene
+        # quality outweighs cost here, so fall back to the STRONGEST AVAILABLE REASONER (highest
+        # `reasoning` integer, cost ignored). Scanned over the FULL enumeration (original_entries) so
+        # the fallback escapes the band's Claude-only scope; plan-caps + availability applied so an
+        # unavailable worker never enters; haiku excluded (the commit floor is never-haiku). Fires
+        # for BOTH the normal and the empty-pipeline path — commit is the ONLY Claude-floor pin with
+        # a non-Claude fallback (reviewer / conductor / final-plan-reviewer stay Claude-only-or-error).
+        fallback_pool = _apply_plan_caps(list(original_entries), plans, explain_log)
+        fallback_pool = [
+            e for e in fallback_pool
+            if e["variant"] != "haiku"
+            and _is_variant_available(e["raw_variant"], e["model_dir"], rbtv_cfg, vault_root)
+        ]
+        if fallback_pool:
+            # Rank by reasoning DESCENDING (cost ignored for the primary choice). _rank yields the
+            # house total order (cost-ascending + evidence + capability + carrier + name); a STABLE
+            # re-sort by -reasoning lifts the strongest reasoner to the top while that house order
+            # breaks ties among equal-reasoning workers deterministically.
+            house_ranked = _rank(fallback_pool, profile, explain_log)
+            strongest = sorted(house_ranked, key=lambda e: -e["reasoning"])[0]
+            explain_log.append({
+                "stage": "pin", "action": "floor_raised_strongest_reasoner",
+                "role": pinned_role,
+                "original_pick": f"{chosen['model']}:{chosen['variant']}",
+                "raised_pick": f"{strongest['model']}:{strongest['variant']}",
+                "note": (
+                    "no available agent-tool Claude sonnet -- commit pin falls back to the "
+                    "strongest available reasoner (reasoning-descending, cost ignored), never the "
+                    "cheapest non-Claude worker and never an error (routing.md §3)"
+                ),
+            })
+            return strongest
 
     explain_log.append({
         "stage": "pin", "action": "floor_not_found",

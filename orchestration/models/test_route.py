@@ -761,12 +761,14 @@ class TestPinnedRoleFloors:
             f"pin fallback), got {result['model']}:{result['variant']}"
         )
 
-    def test_claude_only_pin_errors_when_claude_excluded(self):
-        """p4-0b guard (the critical correctness constraint): the empty-pipeline pin fallback is
-        governed by EACH pin's own floor. A Claude-only pin (reviewer / commit) whose pipeline
-        empties because Claude is unavailable must STILL return the error — it must NEVER fall back
-        to a non-Claude worker via the new fallback path. Only the debug pin (reasoning-7 code-
-        eligible, de-carrier-locked) reaches a non-Claude executor."""
+    def test_reviewer_pin_errors_when_claude_excluded(self):
+        """The empty-pipeline pin fallback is governed by EACH pin's own floor. The reviewer pin is
+        Claude-only (sonnet+, never haiku): when its pipeline empties because Claude is unavailable it
+        must STILL return the error — it must NEVER fall back to a non-Claude worker. (Conductor and
+        final-plan-reviewer are likewise Claude-only, scoped to opus by band rather than a pinned_role.)
+        Only the debug pin (reasoning-7 code-eligible, de-carrier-locked) and the commit pin (its own
+        strongest-reasoner fallback — see test_commit_pin_falls_to_strongest_reasoner_when_claude_excluded)
+        reach a non-Claude executor."""
         import route
         cfg = route._load_rbtv_json(VAULT_ROOT)
         # Confine BOTH Claude packages to NO backends → no Claude variant enumerates at all.
@@ -792,25 +794,49 @@ class TestPinnedRoleFloors:
             f"to a non-Claude worker — got {rev.get('verdict')} {rev.get('model')}:{rev.get('variant')}"
         )
 
-        # Commit: Agent-tool Claude sonnet floor; Claude gone → must error, not a non-Claude pick.
-        # Use the UNBOUNDED band so the normal pipeline EMPTIES when Claude is excluded (the band
-        # scopes to top-tier Claude), exercising the empty-pipeline pin fallback. (On a non-empty
-        # pipeline the commit pin's pre-existing floor_not_found path keeps the cheapest non-Claude
-        # `chosen` — out of scope for p4-0b; flagged separately in the dispatch concerns.)
-        commit_profile = _profile(
-            boundedness="unbounded",
-            task_type="code",
-            inlined_context_size=10000,
-            pinned_role="commit",
-        )
-        com = route.route(
-            dict(commit_profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True,
-            elected_variants=no_claude,
-        )
-        assert com.get("error") is not None and com.get("verdict") != "route", (
-            f"Commit pin with Claude excluded MUST error (Claude-only floor), never fall back "
-            f"to a non-Claude worker — got {com.get('verdict')} {com.get('model')}:{com.get('variant')}"
-        )
+    def test_commit_pin_falls_to_strongest_reasoner_when_claude_excluded(self):
+        """Commit-pin Claude-excluded fallback (orch-improve): when no agent-tool Claude sonnet is
+        available, the commit pin must NOT keep the cheapest non-Claude pick (kimi, cost-ascending)
+        and must NOT error — it falls back to the STRONGEST AVAILABLE REASONER (reasoning-descending,
+        cost ignored). Over a {codex-cli, kimi-code-cli} corpus that is codex-cli:gpt-5.5 (reasoning 7)
+        over kimi (reasoning 6).
+
+        Both paths must resolve identically: the NORMAL (fully-bounded) path, where the commit pin's
+        old floor_not_found kept the cheapest non-Claude `chosen` (the bug), AND the EMPTY-pipeline
+        (unbounded) path, where the band scopes to the now-absent Claude and the p4-0b patch errored.
+
+        Election is confined to {codex-cli, kimi-code-cli} (Claude not elected → excluded; API workers
+        not elected → no env-key dependency), so the strongest available reasoner is deterministic."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        no_claude_corpus = ["codex-cli", "kimi-code-cli"]
+
+        for band, path in (("fully-bounded", "normal"), ("unbounded", "empty-pipeline")):
+            profile = _profile(
+                boundedness=band,
+                task_type="code",
+                inlined_context_size=10000,
+                pinned_role="commit",
+            )
+            result = route.route(
+                dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True,
+                elected=no_claude_corpus,
+            )
+            assert "error" not in result, (
+                f"Commit pin + Claude excluded ({path} path) must NOT error — got {result.get('error')}"
+            )
+            assert result["verdict"] == "route"
+            # Strongest available reasoner = codex-cli:gpt-5.5 (reasoning 7), NOT kimi (reasoning 6).
+            assert result["model"] == "codex-cli" and result["variant"] == "gpt-5.5", (
+                f"Commit pin + Claude excluded ({path} path) must fall back to the strongest reasoner "
+                f"codex-cli:gpt-5.5, got {result['model']}:{result['variant']}"
+            )
+            assert result["model"] != "kimi-code-cli", "must NOT keep the cheapest non-Claude pick (kimi)"
+            # The explain trace must show the commit pin's strongest-reasoner fallback fired.
+            pin_steps = [s for s in result.get("explain", []) if s.get("stage") == "pin"]
+            assert any(s.get("action") == "floor_raised_strongest_reasoner" for s in pin_steps), (
+                f"Expected a commit-pin floor_raised_strongest_reasoner step ({path} path), got: {pin_steps}"
+            )
 
     def test_reviewer_floor_reads_executor_reasoning_integer(self):
         """Spec D8/D15: the reviewer pin reads executor_reasoning as a 1-7 INTEGER,
