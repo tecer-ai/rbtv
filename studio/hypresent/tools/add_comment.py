@@ -149,6 +149,12 @@ def main():
             timeout=20000,
         )
 
+        # Snapshot original page visibility. Paged decks hide inactive screens via
+        # [hidden]; commenting reveals the target's screen, so we restore this exact
+        # state before saving — a reveal must never leak into the saved file.
+        sections_hidden = _doc_eval(
+            page, "return [...doc.querySelectorAll('section')].map(s => s.hasAttribute('hidden'));")
+
         # Selector must resolve to exactly one element inside the deck.
         count = _doc_eval(page, f"return doc.querySelectorAll({json.dumps(args.selector)}).length;")
         if count == 0:
@@ -159,10 +165,28 @@ def main():
         # Count rendered comment markers BEFORE — the visible in-document indicators.
         markers_before = _doc_eval(page, "return doc.querySelectorAll('.hyp-comment-marker').length;")
 
-        # Select the target element (real gesture), then open the composer.
-        frame = page.frame_locator("iframe.doc-frame")
-        frame.locator(args.selector).first.click()
-        page.wait_for_timeout(150)
+        # Resolve the target to its selectable unit (nearest data-hyp-id ancestor-or-self),
+        # then select it through the runtime's OWN 'select' command. That command runs
+        # revealPagedAncestors first — navigating to a hidden/inactive screen via the deck's
+        # own nav — so a Playwright actionability click (which times out on hidden elements)
+        # is never needed. Works for visible elements too (reveal is a no-op).
+        hyp_id = _doc_eval(page, f"""
+            let el = doc.querySelector({json.dumps(args.selector)});
+            while (el && !el.getAttribute('data-hyp-id')) el = el.parentElement;
+            return el ? el.getAttribute('data-hyp-id') : null;
+        """)
+        if not hyp_id:
+            _fail(f"target is not commentable — no editable (data-hyp-id) element at or above {args.selector!r}.")
+        page.evaluate(
+            """(hypId) => {
+                const f = document.querySelector('iframe.doc-frame');
+                f.contentWindow.postMessage(
+                    { source: 'hyp', kind: 'command', type: 'select', payload: { hypId }, id: 'tool-select' },
+                    location.origin);
+            }""",
+            hyp_id,
+        )
+        page.wait_for_timeout(450)   # reveal (page nav) + select + scroll-into-view
         page.click("#comment-btn")
         composer = page.wait_for_selector(".hyp-composer-textarea", timeout=5000)
         if composer is None:
@@ -188,6 +212,17 @@ def main():
         if markers_after <= markers_before:
             _fail("the comment was created but rendered NO marker (loaded unanchored / invisible). "
                   "Pick a more specific element selector.")
+
+        # Restore original page visibility before serializing, so commenting on a
+        # hidden screen never changes which screen the saved deck opens on.
+        _doc_eval(
+            page,
+            "const want = " + json.dumps(sections_hidden) + ";"
+            " const secs = doc.querySelectorAll('section');"
+            " secs.forEach((s, i) => { if (want[i]) s.setAttribute('hidden', '');"
+            " else s.removeAttribute('hidden'); });"
+            " return true;",
+        )
 
         # Save through the app's own handler.
         if out != src:

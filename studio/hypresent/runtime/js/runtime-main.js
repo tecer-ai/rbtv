@@ -28,6 +28,74 @@ import { pasteFloat as doPasteFloat, pasteIntoLayout as doPasteLayout } from "./
 
 let activeTool = "edit";
 
+// --- Paged-document navigation -------------------------------------------
+// Multi-page documents (dashboards, tabbed views) keep inactive pages in the
+// DOM but hidden via the `hidden` attribute. scrollIntoView is a no-op on an
+// element inside a display:none subtree, so navigating to a comment whose
+// anchor lives on an inactive page does nothing. revealPagedAncestors makes
+// the anchor's hidden ancestors visible BEFORE scrolling.
+
+function classTokens(el) {
+  return (el.getAttribute("class") || "")
+    .trim()
+    .split(/\s+/)
+    .filter((c) => c && !c.startsWith("hyp-"));
+}
+
+function sharesClass(aTokens, bTokens) {
+  return aTokens.some((t) => bTokens.includes(t));
+}
+
+// Try the document's OWN navigation: a control (e.g. a nav link) whose target
+// hash points at this page. Clicking it runs the document's handler, which
+// updates page visibility AND its own nav state (active highlight) correctly.
+// Returns true only if the page is no longer hidden afterward.
+function tryDocumentNav(page) {
+  if (!page.id) return false;
+  let control = null;
+  try {
+    control = document.querySelector(
+      `a[href="#${CSS.escape(page.id)}"], [data-target="#${CSS.escape(page.id)}"]`
+    );
+  } catch (_e) {
+    control = null;
+  }
+  if (!control) return false;
+  control.click();
+  return !page.hasAttribute("hidden");
+}
+
+// Fallback: directly un-hide the page, re-hiding the sibling page(s) that were
+// visible (same tag + a shared class token) so only one page shows.
+function revealByAttribute(page) {
+  const parent = page.parentElement;
+  if (parent) {
+    const pageTokens = classTokens(page);
+    for (const sib of parent.children) {
+      if (sib === page || sib.nodeType !== 1) continue;
+      if (sib.tagName !== page.tagName) continue;
+      if (sib.hasAttribute("hidden")) continue;
+      if (sharesClass(pageTokens, classTokens(sib))) sib.setAttribute("hidden", "");
+    }
+  }
+  page.removeAttribute("hidden");
+}
+
+function revealPagedAncestors(el) {
+  const hidden = [];
+  let cur = el;
+  while (cur && cur !== document.documentElement) {
+    if (cur.nodeType === 1 && cur.hasAttribute("hidden")) hidden.push(cur);
+    cur = cur.parentElement;
+  }
+  // Outermost first, so an outer nav click can resolve inner pages too.
+  for (let i = hidden.length - 1; i >= 0; i--) {
+    const page = hidden[i];
+    if (!page.hasAttribute("hidden")) continue; // already revealed
+    if (!tryDocumentNav(page)) revealByAttribute(page);
+  }
+}
+
 function boot() {
   // 1. Build registry: tag editable elements with data-hyp-id
   tag();
@@ -67,8 +135,12 @@ function boot() {
 
   register("select", (payload) => {
     if (payload && payload.hypId) {
-      select(payload.hypId);
       const el = byId(payload.hypId);
+      // Reveal the anchor's page BEFORE selecting/scrolling, so a comment on an
+      // inactive page of a multi-page document navigates there instead of
+      // silently failing (scrollIntoView no-ops inside a hidden subtree).
+      if (el) revealPagedAncestors(el);
+      select(payload.hypId);
       if (el && el.scrollIntoView) {
         el.scrollIntoView({ behavior: "smooth", block: "center" });
       }

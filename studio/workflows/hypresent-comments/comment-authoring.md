@@ -41,7 +41,7 @@ python {rbtv_path}/studio/hypresent/tools/add_comment.py \
 | `--agent` | Include ONLY when a coding agent should act on the comment (adds the agent-instruction tag + head block). Omit for a human-facing note or question. |
 | `--out` | Optional. Write to a NEW file instead of overwriting `--file`. Use this when you were handed a file to annotate (version, never overwrite). |
 
-The tool selects the element, adds the comment through the real comment UI (the runtime computes the anchor), confirms a visible marker rendered, and saves a valid file. On success it prints `ok`, the new `comment_id`, the computed `anchor`, and `marker_rendered: true`. A non-unique selector, a non-commentable element, or an unanchored result each fails LOUDLY with a clear message — fix the selector and re-run.
+The tool selects the element, adds the comment through the real comment UI (the runtime computes the anchor), confirms a visible marker rendered, and saves a valid file. It handles elements inside hidden / inactive screens of a multi-screen deck automatically (it navigates to the screen before commenting and restores the original screen visibility on save) — so target the exact element regardless of which screen is currently shown. On success it prints `ok`, the new `comment_id`, the computed `anchor`, and `marker_rendered: true`. A non-unique selector, a non-commentable element, or an unanchored result each fails LOUDLY with a clear message — fix the selector and re-run.
 
 ## Pin precisely — one comment per element
 

@@ -278,6 +278,15 @@ function writeIsland() {
 // --- Markers ---
 
 function positionMarker(marker, el) {
+  // A matched anchor can still be unrendered — inside a display:none subtree
+  // (e.g. an inactive page of a multi-page document). getBoundingClientRect is
+  // all-zeros there, which would park the marker in the top-left corner. Hide
+  // the marker instead; it reappears when its page becomes visible.
+  if (el.getClientRects().length === 0) {
+    marker.style.display = "none";
+    return;
+  }
+  marker.style.display = "flex";
   const rect = el.getBoundingClientRect();
   const sx = window.scrollX || window.pageXOffset || 0;
   const sy = window.scrollY || window.pageYOffset || 0;
@@ -389,6 +398,18 @@ function updateAllMarkers() {
 
 window.addEventListener("resize", updateAllMarkers);
 window.addEventListener("scroll", updateAllMarkers, { passive: true });
+
+// Multi-page documents show/hide pages by toggling the `hidden` attribute,
+// which fires no scroll/resize event. Without this, a marker stays suppressed
+// (or stale) after its page is switched in. Refresh markers on hidden-toggles.
+if (typeof MutationObserver !== "undefined") {
+  const hiddenObserver = new MutationObserver(() => updateAllMarkers());
+  hiddenObserver.observe(document.documentElement, {
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["hidden"],
+  });
+}
 
 function reanchorAll() {
   for (const [, marker] of markers) {
