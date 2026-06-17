@@ -193,10 +193,10 @@ bounded-code done-gate the same day (evidence:
 |---------|---------|----------------------------------|--------------|----------|
 | `default` | _(none)_ → `qwen3.6-plus` | mid · 1M · 65,536 · low | The native home backend; no `-m` needed; default bounded code/agentic | validated (2026-06-09 pilot) |
 | `deepseek-flash` | `deepseek-v4-flash` | mid · 1M · 384K · low | Cheapest bulk code; single-turn output may exceed ~64K (6× the default cap) | **validated** (bounded-code done-gate 2026-06-10) |
-| `deepseek-pro` | `deepseek-v4-pro` | top · 1M · 384K · mid | Deeper reasoning within the code fleet, mid cost sanctioned (reasoning_tier `top` is spec-derived → `doubt_policy: halt`) | **validated** (bounded-code done-gate 2026-06-10 follow-up; judgment-light pilot → reasoning_tier `top` stays spec-derived) |
+| `deepseek-pro` | `deepseek-v4-pro` | top · 1M · 384K · mid | Deeper reasoning within the code fleet, mid cost sanctioned (`reasoning: 5` is spec-derived → `doubt_policy: halt`) | **validated** (bounded-code done-gate 2026-06-10 follow-up; judgment-light pilot → `reasoning: 5` stays spec-derived) |
 | `glm` | `glm-5.1` | mid · 204,800 · 131,072 · mid | Fleet diversity (non-DeepSeek, non-Qwen agentic); task fits ~200K context | **validated** (bounded-code done-gate 2026-06-10 follow-up) |
 
-`cost_class` values are reference-provider-derived; ModelStudio US per-backend billing is unconfirmed
+`cost` (1–7) values above are reference-provider-derived; ModelStudio US per-backend billing is unconfirmed
 (research Q2 — owner-console-only) and may re-rank `glm` vs `deepseek-pro`. A `sandbox` variant (`--sandbox`)
 remains possible if a container backend is confirmed on the host — not shipped until verified.
 

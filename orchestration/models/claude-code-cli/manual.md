@@ -190,6 +190,24 @@ The claude-code-cli manifest declares two routable variants — route on `(claud
 
 `--model <alias|fullname>` is honored — the JSON `modelUsage` key names the ACTUAL model + its real context window (probe H3: `--model sonnet` → `modelUsage.claude-sonnet-4-6`, ctx 2e5). **The DEFAULT model is user-config-dependent**: on the probe machine the default was `claude-opus-4-8[1m]` (1M ctx, probe H2) — NOT sonnet, and NOT a constant to assume. ALWAYS pass `--model` explicitly for a deterministic dispatch; read the live `modelUsage` to confirm. **haiku is NOT a routable variant** (vault routing floors at sonnet absent a user-approved delegation map naming haiku — routing card §7).
 
+### Effort invocation — the post-pin reasoning dial (opus and sonnet; haiku is a no-op)
+
+Claude CLI exposes a **5-level effort ladder** (`low | medium | high | xhigh | max`) via the `--effort <level>` flag. This is the post-pin reasoning dial: effort is set AFTER the variant is pinned (`effort = f(boundedness)`), stored in the manifest's `reasoning_modes`, and is a CLI-only surface (`claude -p`) — the Agent-tool carrier (`claude-code-native`) is single-mode (effort not settable in-session). **Haiku is a no-op single-mode** even on the CLI — pass no `--effort` flag for a haiku dispatch.
+
+| Effort | Flag | When (boundedness) |
+|--------|------|-------------------|
+| `low` | `--effort low` | Fully-bounded mechanical work (the cheapest thinking budget) |
+| `medium` | `--effort medium` | Partially-bounded work with `doubt_policy: halt` |
+| `high` | `--effort high` | Unbounded or judgment-dense work |
+| `xhigh` | `--effort xhigh` | Extended thinking; higher spend |
+| `max` | `--effort max` | Maximum reasoning budget; use for the highest-stakes unbounded leaves |
+
+Example (opus, high effort, unattended write):
+
+```bash
+claude -p "<task_prompt>" --model opus --effort high --output-format json --permission-mode acceptEdits < /dev/null
+```
+
 ### Permission modes — unattended writes
 
 | Mode | Effect | Use |

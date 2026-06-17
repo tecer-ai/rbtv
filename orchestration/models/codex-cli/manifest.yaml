@@ -1,4 +1,4 @@
-# Codex capability manifest — the routing card's data interface for the codex package.
+# Codex capability manifest — the routing card's data interface for the codex-cli package.
 # Schema + field meanings + routing-card consumers: ../manifest-schema.md
 # Sources: live `codex --help` / `codex exec --help` / `codex --version` (Codex CLI 0.137.0,
 #          verified on this machine 2026-06-07) + `~/.codex/config.toml` (model = gpt-5.5,
@@ -8,117 +8,62 @@
 # Evidence boundary: the full headless worker contract IS NOW VALIDATED — 2026-06-11, hypresent
 # ui-bugfix run: codex 0.137.0 / gpt-5.5 default ran ~10 bounded-code dispatches end-to-end (exit 0,
 # each conductor-reconciled vs disk, no out-of-allowlist writes; stdin-hang guard fixed in rbtv@1733b17).
-# Evidence: studio/hypresent/docs/plan/ui-bugfix-2026-06-11/{run-log.md, evidence/fix-*-return.txt} (archived to the vault's build-history) +
-# 2-areas/rbtv/coding/done-gate-evidence/rbtv/2026-06-11-worker-tier-benchmark.md. Residual: only the
-# `default` variant (gpt-5.5, effort medium) was exercised; the high-reasoning (effort=high) and
-# low-reasoning (effort=low) variants share the CLI contract but were not separately run. Exit taxonomy
-# + resume-in-loop remain UNPILOTED.
-# gpt-5.4 access: owner-confirmed 2026-06-11. The 2026-06-11 reasoning-test battery
-# (2-areas/rbtv/orchestration/reasoning-test-2026-06-11/) probed gpt-5.4 LIVE through this same codex
-# 0.137.0 — `codex exec -m gpt-5.4 -c model_reasoning_effort=<low|medium|high>`, 18 calls (3 efforts × 6
-# questions), exit 0, all three efforts served, correct output. That battery was CONDUCT-ONLY (no
-# grading): it proves gpt-5.4 RUNS at every effort, NOT its judgment tier — so every gpt-5.4 variant
-# carries `evidence_status: probe-pending` (CLI worker contract shared-and-validated; the gpt-5.4-specific
-# reasoning_tier/cost mappings are effort-ladder inferences, UNGRADED). gpt-5.4's exact context window /
-# pricing are NOT separately confirmed — re-confirm before routing large context or on a spend-sensitive run.
+# Evidence: studio/hypresent/docs/plan/ui-bugfix-2026-06-11/{run-log.md, evidence/fix-*-return.txt}
+# (archived to the vault's build-history) +
+# 2-areas/rbtv/coding/done-gate-evidence/rbtv/2026-06-11-worker-tier-benchmark.md.
+# gpt-5.4 access: owner-confirmed 2026-06-11. The 2026-06-11 reasoning-test battery probed gpt-5.4
+# LIVE (3 efforts × 6 questions, all exit 0, all efforts served). CLI contract shared-and-validated.
+# Capability values (reasoning/coding/cost integers + evidence) transcribed from:
+#   value-derivation.md (2026-06-16 ratified table, R2 final) — board source AA leaderboard.
+#
+# SCHEMA MIGRATION (2026-06-16, p2-m-cli): old band/tier fields replaced by integer 1–7 per manifest-schema.md §0/D11.
+# D6 COLLAPSE applied: 6 per-effort variants → 2 per-model variants (gpt-5.5, gpt-5.4).
+# The effort ladder (low/medium/high) lives in reasoning_modes as the post-pin dial, NOT separate variant rows.
+# D14: gpt-5.5 context_window = 1M true ceiling (the per-user cap is applied at runtime from model-plans.yaml).
 # The exact invocation shape (commands, flags, sandbox/approval grammar, resume) is in ./manual.md
 # (rendered from ./delta.md by ../render-manuals.py) — this manifest points to it, never duplicates it.
 
 model: codex-cli
 display: "codex (CLI)"
-evidence_status: validated   # full headless worker contract VALIDATED 2026-06-11 (hypresent ui-bugfix: ~10 bounded-code dispatches via codex 0.137.0 / gpt-5.5 default, all exit 0, disk-reconciled). Only `default` (effort medium) exercised — high-reasoning (effort=high) shares the contract but is unexercised; exit/retry taxonomy + resume-in-loop still UNPILOTED. Evidence: 2-areas/rbtv/coding/done-gate-evidence/rbtv/2026-06-11-worker-tier-benchmark.md
-permission_rules:            # installer-managed allowlist entries in the target's .claude/settings.local.json (D17) — added when this package is elected, removed when deselected; schema: ../manifest-schema.md
+evidence_status: validated   # full headless worker contract VALIDATED 2026-06-11 (hypresent ui-bugfix: ~10 bounded-code dispatches via codex 0.137.0 / gpt-5.5 default, all exit 0, disk-reconciled). Only `default` (effort medium) exercised — high/low efforts share the contract but are unexercised; exit/retry taxonomy + resume-in-loop still UNPILOTED. Evidence: 2-areas/rbtv/coding/done-gate-evidence/rbtv/2026-06-11-worker-tier-benchmark.md
+permission_rules:            # installer-managed allowlist entries in the target's .claude/settings.local.json — added when this package is elected, removed when deselected; schema: ../manifest-schema.md
   - "Bash(codex:*)"
   - "PowerShell(codex:*)"
 
+# configurable_model: codex-cli runs a configured GPT model (OPENAI_MODEL / -m flag); result attribution names the configured id.
+
 variants:
-  - variant: low-reasoning   # -c model_reasoning_effort="low" (configured gpt-5.5): the cheaper, lower-effort end of the bounded-code band
-    evidence_status: probe-pending   # per-variant override: the CLI worker contract is validated, but effort=low was NOT separately exercised (only gpt-5.5/medium `default` ran the 2026-06-11 done-gate)
+  - variant: gpt-5.5   # configured model = gpt-5.5; all efforts (low/medium/high) are ONE model row per D6 collapse — effort is the post-pin dial in reasoning_modes
 
-    # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: mid             # low reasoning effort on the configured gpt-5.5 — still a reasoning model, dialed down for the cheaper end of partially-bounded code/analysis; doubt_policy: halt. The low<medium<high tier/cost ladder for effort is an inference, UNGRADED (probe-pending)
-    context_window: 272000          # same configured gpt-5.5 family input budget (~272K); re-confirm against the configured model before routing large inlined context
-    max_output: 128000              # same gpt-5.5 family single-turn output ceiling (~128K)
-
-    # --- budget + capability gates (routing §2, §6) ---
-    cost_class: low                 # low reasoning effort → fewer reasoning tokens → lower per-dispatch spend than the medium `default`; below `default` (mid) on the effort cost-ladder
-    code_competence: strong         # same code-specialized executor as the other codex variants
-    web_access: true                # same `--search` native web tool
-
-    # --- parallelism + resume (routing §8, §4) ---
-    parallel_safe: true
-    resume_support: session-id
-
-    # --- non-interactive run (routing §4 → dispatch-wrapper) ---
-    headless:
-      flags: "exec -c approval_policy=\"never\" -c model_reasoning_effort=\"low\""   # exec + mandatory no-approval + the low-effort config override (exact 0.137.0 grammar — `-c approval_policy=\"never\"` — is in ./manual.md; this field is recall, the manual is authoritative)
-      auto_approves_tools: true
-      prompt_transport: either
-
-    # --- auth pre-flight (routing §1 → halt-recovery USER-EXECUTED-ONLY) ---
-    auth:
-      required: true
-      method: cli-login
-      interactive: true
-
-    rate_budget_notes: "low reasoning effort → lower latency + per-dispatch spend than default; same UNPILOTED exit/retry semantics — reconcile disk on any non-zero exit, never blind-retry"
-
-    # --- tool surface + confinement (routing §2, §4, §8) ---
-    tool_surface:
-      native: [shell, file, web]
-      mcp: true
-      agent_file: false
-    confinement:
-      workspace_scope: "-C/--cd (work-dir) + --add-dir"
-      tool_restriction: "--sandbox + --ask-for-approval; workspace .rules via execpolicy"
-      write_enforcement: git-diff-vs-allowlist
-
-    # --- invocation + failures (routing §4, §2) ---
-    invocation_pointer: ./manual.md
-    manual_path: ./manual.md
-    delta_path: ./delta.md
-    specialty: "cheapest-effort codex — the low-reasoning-effort configured-gpt-5.5 variant for the bounded end of separate-process sandboxed code execution, when full medium-effort spend is not warranted"   # within-tier tiebreaker only
-    failure_modes:
-      - "headless stalls waiting for approval unless --ask-for-approval never is passed"
-      - "refuses to run outside a git repo — pass --skip-git-repo-check when the work-dir is not a repo"
-      - "sandbox reliability as the SOLE confinement is UNPILOTED — back it with the post-run git diff vs allowlist"
-      - "non-zero exit retry taxonomy is UNPILOTED — reconcile disk + recover-or-surface, never blind-retry"
-
-    # --- guidance file (routing §4 pre-dispatch check) ---
-    guidance_file:
-      convention: AGENTS.md
-      mirror_entry: codex-mirror
-
-    # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
-    swarm_support:
-      subagents: false
-      nesting: none
-      default: disabled
-
-    os_quirks:
-      windows: "config [windows] sandbox = elevated; pipe the prompt via stdin for non-trivial prompts; check $LASTEXITCODE (taxonomy UNPILOTED); stdin handling on Windows UNPILOTED; **workspace-write SPAWNS subprocesses on Windows — git/node (incl. node -e)/pwsh/cmd/where.exe all run (TESTED 2026-06-14, two probes, [windows] sandbox=elevated); the boundary is codex's APPROVAL ROUTER, not a spawn-capability limit** — only python/python -c is approval-declined ('approval required by policy, AskForApproval=Never'), node 'spawn setup refresh' no longer reproduces, file edits work; SPLIT (codex edits only; conductor runs validation as an exit-probe) or route to kimi-code-cli ONLY for python/pytest-validated or live-call (real/network API) leaves, NOT every capability-run; danger-full-access does NOT change the python decline (approval router orthogonal to sandbox mode, TESTED 2026-06-13); live-call/network WORKS under workspace-write with -c sandbox_workspace_write.network_access=true (TESTED 2026-06-14: node fetch returned HTTP 200; without the flag the same fetch fails and git/HTTPS is egress-refused) via an AUTO-APPROVED client (node — python stays approval-declined); danger-full-access NOT required for a live call (codex-cli 0.137.0, Windows 11)"
-
-  - variant: default   # machine config: model = gpt-5.5, model_reasoning_effort = medium; the mid-tier partially-bounded profile
-
-    # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: mid             # partially-bounded code/analysis with doubt_policy: halt. code_competence corroborated by published benchmark (GPT-5.5: SWE-bench Pro 58.6, Terminal-Bench 2.0 82.7% SOTA) AND today's live run; reasoning_tier HELD at mid (SWE measures code, not judgment — judgment-dense effort=high mapping still UNPILOTED)
-    context_window: 272000          # gpt-5.5 family input budget (~272K); NOT separately discoverable from local codex config — re-confirm against the configured model before routing large inlined context
+    # --- capability + cost scores + sizing (routing §2, §8) — scale: schema §0 (integer 1–7, comparable across all models) ---
+    reasoning: 7                           # AA II 57-60 (frontier cluster; owner correction: GPT-5.5 → Opus-class, 7); GPQA 53-56; HLE 41-44
+    coding: 7                              # Terminal-Bench Hard 58-61 (top agentic-coding cluster, ties Fable territory)
+    cost: 7                                # board blended price $4.35/1M → bin 7 (priciest; ranks LAST on a cost tie, never auto-picked)
+    axis_evidence:
+      reasoning: { source: "aa-ii(57-60,model);gpqa(53-56)", confidence: high }
+      coding:    { source: "aa-tbh(58-61,model)", confidence: high }
+    cost_evidence: { source: "aa-blended($4.35)→bin7", confidence: high }
+    context_window: 1000000         # true 1M ceiling (D14: the per-user cap is applied at runtime from model-plans.yaml at p4-3, NOT here); re-confirm against the configured model on the target machine
     max_output: 128000              # gpt-5.5 family single-turn output ceiling (~128K); model/provider-determined, not exposed in local codex config
 
-    # --- budget + capability gates (routing §2, §6) ---
-    cost_class: mid                 # frontier OpenAI model via ChatGPT/API auth; mid-tier spend, above the cheap bounded-code workers
-    code_competence: strong         # Codex is a code-specialized agent (codex exec edits the work-dir under sandbox); strong code executor
-    web_access: true                # `--search` enables the native Responses web_search tool (no per-call approval) — research-leaf capable when launched with --search
-    # multimodal: [image]           # -i/--image attaches image(s) to the prompt — OMITTED until the image path is probe-validated (no validated image dispatch in the corpus)
+    # --- role eligibility (routing §2, §6) ---
+    web_access: true                # `--search` enables the native Responses web_search tool — research-leaf capable when launched with --search
+    # multimodal: [image]           # -i/--image attaches image(s) to the prompt — OMITTED until the image path is probe-validated
+
+    # --- reasoning / effort modes (routing §2 post-pin effort=f(boundedness) — schema §0a) ---
+    reasoning_modes:
+      depths: [low, medium, high]   # gpt-5.5 low/medium/high model_reasoning_effort (post-pin dial; effort set AFTER the capability pin)
+      invocation: "model_reasoning_effort {level}"
+      carrier: "CLI config flag"
 
     # --- parallelism + resume (routing §8, §4) ---
-    parallel_safe: true             # independent codex exec processes are separate OS processes (B4D isolation property) — runnable concurrently under disjoint allowlists; concurrent-wave behavior on this machine is UNPILOTED, verify on first parallel use
+    parallel_safe: true             # independent codex exec processes are separate OS processes (B4D isolation property) — runnable concurrently under disjoint allowlists
     resume_support: session-id      # `codex exec resume <SESSION_ID>` / `--last`; resume reliability inside a dispatch loop is UNPILOTED
 
     # --- non-interactive run (routing §4 → dispatch-wrapper) ---
     headless:
-      flags: "exec -c approval_policy=\"never\""   # `codex exec` (alias `codex e`) runs non-interactively; `-c approval_policy="never"` is MANDATORY headless (any other policy stalls for human approval; codex 0.137.0 removed the `--ask-for-approval` flag from `exec`)
-      auto_approves_tools: true     # with --ask-for-approval never the model executes shell commands without per-call human approval (bounded by --sandbox); confinement is the sandbox + post-run diff, not an interactive gate
+      flags: "exec -c approval_policy=\"never\""   # `codex exec` runs non-interactively; `-c approval_policy="never"` is MANDATORY headless (any other policy stalls for human approval; codex 0.137.0 removed the `--ask-for-approval` flag from `exec`). Add `-c model_reasoning_effort="<level>"` post-pin per reasoning_modes
+      auto_approves_tools: true     # with approval_policy never the model executes shell commands without per-call human approval (bounded by --sandbox); confinement is the sandbox + post-run diff, not an interactive gate
       prompt_transport: either      # prompt as CLI arg OR via stdin (use `-` as prompt, or pipe; piped stdin + prompt arg → stdin appended as <stdin> block); stdin default for large prompts / Windows ARG_MAX ~32 KB
 
     # --- auth pre-flight (routing §1 → halt-recovery USER-EXECUTED-ONLY) ---
@@ -127,7 +72,7 @@ variants:
       method: cli-login             # `codex login` (ChatGPT sign-in, interactive) OR `printenv OPENAI_API_KEY | codex login --with-api-key`; this machine: "Logged in using ChatGPT"
       interactive: true             # first-time ChatGPT browser login is interactive (USER-EXECUTED-ONLY); api-key path is non-interactive but still owner-provisioned
 
-    rate_budget_notes: "frontier OpenAI model — mid-tier per-dispatch spend; non-zero exit retry semantics (rate-limit/throttle vs non-retryable) are UNPILOTED on this machine, unlike kimi's documented exit-75 — on any non-zero exit reconcile disk + recover-or-surface, never blind-retry; --ignore-user-config for a spend-predictable clean run"
+    rate_budget_notes: "priciest codex variant (cost 7, $4.35/1M blended) — frontier OpenAI model; ranks LAST on a cost tie (never auto-picked via cost-ascending selector). Non-zero exit retry semantics (rate-limit/throttle vs non-retryable) are UNPILOTED on this machine — on any non-zero exit reconcile disk + recover-or-surface, never blind-retry; --ignore-user-config for a spend-predictable clean run"
 
     # --- tool surface + confinement (routing §2, §4, §8) ---
     tool_surface:
@@ -137,15 +82,18 @@ variants:
     confinement:
       workspace_scope: "-C/--cd (work-dir) + --add-dir for extra writable dirs"   # primary scoping; --skip-git-repo-check only when the work-dir is not a git repo
       tool_restriction: "--sandbox (read-only | workspace-write | danger-full-access) + --ask-for-approval; workspace .rules via execpolicy (--ignore-rules to skip)"
-      write_enforcement: git-diff-vs-allowlist   # the sandbox is real but its reliability as the sole boundary for this orchestrator is UNPILOTED — back it with post-run git diff of every changed path vs the allowlist; out-of-allowlist = halt + surface, never auto-revert
+      write_enforcement: git-diff-vs-allowlist   # the sandbox is real but its reliability as the sole boundary for this orchestrator is UNPILOTED — back it with post-run git diff of every changed path vs the allowlist
 
     # --- invocation + failures (routing §4, §2) ---
-    invocation_pointer: ./manual.md   # rendered dispatch manual (../render-manuals.py) — the exact command shape
-    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/codex-cli/manual.md
+    invocation_pointer: ./manual.md
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/codex-cli/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/codex-cli/delta.md
-    specialty: "separate-process sandboxed code execution — a code-specialized agent that edits the work-dir under an OS sandbox in its own process (live-proven context isolation); native --search web for code-with-research"   # within-tier tiebreaker only; boundedness-first stays the master cut
+    specialty: "separate-process sandboxed code execution — frontier GPT-5.5 code-specialized agent (cost 7; reached via pins not cost-ascending selector); native --search web for code-with-research; top coding score 7 of the roster"   # within-tier tiebreaker only; boundedness-first stays the master cut
+    configurable_model:
+      is_configurable: true          # the actual model the harness runs is set by config/env (OPENAI_MODEL / -m flag), not baked into the package
+      note: "served model set by -m gpt-5.5 (or machine config default); each variant is one configured GPT model, effort is the post-pin reasoning_modes dial"
     failure_modes:
-      - "headless stalls waiting for approval unless --ask-for-approval never is passed (any other value blocks a non-interactive run)"
+      - "headless stalls waiting for approval unless approval_policy=never is passed (any other value blocks a non-interactive run)"
       - "refuses to run outside a git repo — pass --skip-git-repo-check when the work-dir is not a repo"
       - "first-run per-project trust prompt (config [projects] trust_level) — USER-EXECUTED-ONLY pre-flight; pre-trust or run codex once interactively in the workspace, never clear it programmatically"
       - "interactive ChatGPT login (codex login) is USER-EXECUTED-ONLY — halt + ask the owner; api-key via stdin is the non-interactive alternative"
@@ -168,18 +116,31 @@ variants:
     os_quirks:
       windows: "config [windows] sandbox = elevated; PowerShell ~32 KB single-arg ceiling — pipe the prompt via stdin (trailing `-`) for any non-trivial prompt; check $LASTEXITCODE for non-zero (taxonomy UNPILOTED — reconcile disk, do not blind-retry); stdin handling on Windows is UNPILOTED, verify on first dispatch; **workspace-write SPAWNS subprocesses on Windows — git/node (incl. node -e)/pwsh/cmd/where.exe all run (TESTED 2026-06-14, two probes, [windows] sandbox=elevated); the boundary is codex's APPROVAL ROUTER, not a spawn-capability limit** — only python/python -c is approval-declined ('approval required by policy, AskForApproval=Never'), node 'spawn setup refresh' no longer reproduces, file edits work; SPLIT (codex edits only; conductor runs validation as an exit-probe) or route to kimi-code-cli ONLY for python/pytest-validated or live-call (real/network API) leaves, NOT every capability-run; danger-full-access does NOT change the python decline (approval router orthogonal to sandbox mode, TESTED 2026-06-13); live-call/network WORKS under workspace-write with -c sandbox_workspace_write.network_access=true (TESTED 2026-06-14: node fetch returned HTTP 200; without the flag the same fetch fails and git/HTTPS is egress-refused) via an AUTO-APPROVED client (node — python stays approval-declined); danger-full-access NOT required for a live call (codex-cli 0.137.0, Windows 11)"
 
-  - variant: high-reasoning   # -c model_reasoning_effort="high": judgment-denser work that still routes to codex
-    evidence_status: probe-pending   # per-variant override: the CLI worker contract is validated, but effort=high was NOT separately exercised (only gpt-5.5/medium `default` ran the 2026-06-11 done-gate) — same posture as low-reasoning; the effort=high judgment-tier mapping stays UNPILOTED
+  - variant: gpt-5.4   # -m gpt-5.4; ONE model row per D6 collapse — effort (low/medium/high) is the post-pin dial in reasoning_modes
+    # reasoning 6 via Hard-Prompts gap-fill (base 5.4 near-frontier, Elo 1490 ≈ GPT-5.5 1492; confidence low→medium per D9).
+    # coding 6 via owner judgment (p1 re-review c3: "one below GPT-5.5's coding 7"; confidence low, iterable D5 — no board coding row for base 5.4).
+    # cost 5 via AA blended-price formula on owner-supplied prices: (2.50+15.00)/8 = $2.19 → bin 5 (G4-COST RESOLVED).
+    evidence_status: validated      # gpt-5.4 ran exit-0 at all three efforts in the 2026-06-11 reasoning-test battery (18 calls); full bounded-code validated through the shared codex CLI contract. Capability integers are owner-ratified (reasoning gap-filled from Hard-Prompts, coding owner-sourced — both iterable D5)
 
-    # --- boundedness + sizing ---
-    reasoning_tier: top             # higher reasoning effort for judgment-dense work routed to codex; still a separate-process external-CLI worker, reviewer floors at Opus
-    context_window: 272000          # same configured model family
-    max_output: 128000              # same provider-determined ceiling
+    # --- capability + cost scores + sizing ---
+    reasoning: 6                           # base GPT-5.4 absent from AA board — reasoning gap-filled from arena Hard-Prompts (base 5.4 near-frontier Elo 1490 ≈ GPT-5.5 1492); confidence medium (D9)
+    coding: 6                              # owner-sourced ("one below GPT-5.5's coding 7"; base 5.4 has NO board coding row — G4-R2); confidence low, iterable
+    cost: 5                                # owner-supplied base prices: in $2.50/out $15.00/1M → AA blended formula (in+out)/8 = $2.19 → bin 5 ($2.00-2.99); G4-COST RESOLVED
+    axis_evidence:
+      reasoning: { source: "aa-ii(38-49,mini/nano-proxy);gpqa(44-50);arena-hp(1490,base,near-frontier)", confidence: medium }
+      coding:    { source: "owner-sourced(GPT-5.5 minus 1; base 5.4 absent from board)", confidence: low }
+    cost_evidence: { source: "owner-supplied base price in $2.50/out $15.00 → blended (in+out)/8 = $2.19 → bin5", confidence: high }
+    context_window: 272000          # assumed same as the gpt-5.5 family pending confirmation — gpt-5.4's exact input budget is NOT separately confirmed; re-confirm before routing large inlined context
+    max_output: 128000              # assumed same single-turn output ceiling pending confirmation
 
-    # --- budget + capability gates ---
-    cost_class: high                # high reasoning effort → higher latency + spend than the default variant
-    code_competence: strong         # same code-specialized executor
-    web_access: true                # same --search web tool
+    # --- role eligibility ---
+    web_access: true                # same `--search` native web tool as gpt-5.5
+
+    # --- reasoning / effort modes ---
+    reasoning_modes:
+      depths: [low, medium, high]   # gpt-5.4 low/medium/high model_reasoning_effort (post-pin dial; same effort grammar as gpt-5.5 via codex CLI)
+      invocation: "-m gpt-5.4 -c model_reasoning_effort {level}"
+      carrier: "CLI config flag"
 
     # --- parallelism + resume ---
     parallel_safe: true
@@ -187,7 +148,7 @@ variants:
 
     # --- non-interactive run ---
     headless:
-      flags: "exec -c approval_policy=\"never\" -c model_reasoning_effort=\"high\""   # exec + mandatory no-approval + the high-effort config override
+      flags: "exec -c approval_policy=\"never\" -m gpt-5.4"   # exec + mandatory no-approval + the gpt-5.4 model pin; add -c model_reasoning_effort="<level>" post-pin per reasoning_modes
       auto_approves_tools: true
       prompt_transport: either
 
@@ -197,7 +158,7 @@ variants:
       method: cli-login
       interactive: true
 
-    rate_budget_notes: "high reasoning effort → notably higher latency + per-dispatch spend than default; same UNPILOTED exit/retry semantics — reconcile disk on any non-zero exit, never blind-retry"
+    rate_budget_notes: "cost 5 ($2.19/1M blended, owner-supplied prices; $2.00-2.99 bin); prior-gen frontier model — per-dispatch spend below gpt-5.5 (cost 7). Same UNPILOTED exit/retry semantics — reconcile disk on any non-zero exit, never blind-retry. Cost was a low-confidence mini-proxy prior to G4-COST resolution; now real owner-supplied data"
 
     # --- tool surface + confinement ---
     tool_surface:
@@ -210,15 +171,20 @@ variants:
       write_enforcement: git-diff-vs-allowlist
 
     # --- invocation + failures ---
-    invocation_pointer: ./manual.md   # same rendered manual; the high-effort override is documented there
+    invocation_pointer: ./manual.md
     manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/codex-cli/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/codex-cli/delta.md
-    specialty: "judgment-denser code analysis as a separate process — the high-reasoning-effort codex variant for harder code reasoning that still runs sandboxed in its own process (reviewer still floors at opus)"   # within-tier tiebreaker only
+    specialty: "prior-gen GPT-5.4 codex — separate-process sandboxed code execution at cost 5 (vs gpt-5.5 cost 7); model-diversity alternative for code tasks where the frontier spend is not warranted; reasoning/coding both 6 (owner-ratified)"   # within-tier tiebreaker only
+    configurable_model:
+      is_configurable: true          # served model is configured via -m gpt-5.4; result attribution names the configured id
+      note: "served model set by -m gpt-5.4 override; effort is the post-pin reasoning_modes dial via -c model_reasoning_effort=<level>"
     failure_modes:
-      - "headless stalls waiting for approval unless --ask-for-approval never is passed"
+      - "headless stalls waiting for approval unless approval_policy=never is passed"
       - "refuses to run outside a git repo — pass --skip-git-repo-check when the work-dir is not a repo"
       - "sandbox reliability as the SOLE confinement is UNPILOTED — back it with the post-run git diff vs allowlist"
       - "non-zero exit retry taxonomy is UNPILOTED — reconcile disk + recover-or-surface, never blind-retry"
+      - "gpt-5.4 reasoning/coding are owner-ratified (reasoning: Hard-Prompts gap-fill confidence medium; coding: owner-sourced confidence low) — both iterable D5; re-confirm against a graded run if the routing placement is consequential"
+      - "context window NOT separately confirmed for base gpt-5.4 — re-confirm before routing large inlined context"
 
     # --- guidance file ---
     guidance_file:
@@ -226,217 +192,6 @@ variants:
       mirror_entry: codex-mirror
 
     # --- swarm / sub-conducting ---
-    swarm_support:
-      subagents: false
-      nesting: none
-      default: disabled
-
-    os_quirks:
-      windows: "config [windows] sandbox = elevated; pipe the prompt via stdin for non-trivial prompts; check $LASTEXITCODE (taxonomy UNPILOTED); stdin handling on Windows UNPILOTED; **workspace-write SPAWNS subprocesses on Windows — git/node (incl. node -e)/pwsh/cmd/where.exe all run (TESTED 2026-06-14, two probes, [windows] sandbox=elevated); the boundary is codex's APPROVAL ROUTER, not a spawn-capability limit** — only python/python -c is approval-declined ('approval required by policy, AskForApproval=Never'), node 'spawn setup refresh' no longer reproduces, file edits work; SPLIT (codex edits only; conductor runs validation as an exit-probe) or route to kimi-code-cli ONLY for python/pytest-validated or live-call (real/network API) leaves, NOT every capability-run; danger-full-access does NOT change the python decline (approval router orthogonal to sandbox mode, TESTED 2026-06-13); live-call/network WORKS under workspace-write with -c sandbox_workspace_write.network_access=true (TESTED 2026-06-14: node fetch returned HTTP 200; without the flag the same fetch fails and git/HTTPS is egress-refused) via an AUTO-APPROVED client (node — python stays approval-declined); danger-full-access NOT required for a live call (codex-cli 0.137.0, Windows 11)"
-
-  # --- gpt-5.4 variants (model-pinned via `-m gpt-5.4`, overriding the machine-config gpt-5.5) ---
-  # Owner confirmed gpt-5.4 access 2026-06-11. Live-probed at all three efforts through codex 0.137.0
-  # in the 2026-06-11 reasoning-test battery (exit 0, correct output) — but that run was conduct-only
-  # (UNGRADED), so all three gpt-5.4 variants are evidence_status: probe-pending and their reasoning_tier
-  # / cost_class are effort-ladder inferences mirroring the gpt-5.5 variants. gpt-5.4 (prior-gen) is taken
-  # as the cheaper end of the codex cost-ladder at the lowest effort; its exact window/pricing are
-  # unconfirmed (re-confirm before routing large context or on a spend-sensitive run). The cost_class
-  # ladder is what keeps each gpt-5.4 variant routing-distinct from its gpt-5.5 counterpart under the
-  # schema's variant field-count discipline (gpt-5.4 medium/high also differ from gpt-5.5 default/high
-  # by evidence_status: probe-pending vs validated).
-  - variant: gpt-5.4-low   # -m gpt-5.4 -c model_reasoning_effort="low": the cheapest prior-gen codex variant for the bounded end
-    evidence_status: probe-pending   # gpt-5.4 ran exit-0 at effort low in the 2026-06-11 battery, but UNGRADED — judgment tier unproven
-
-    # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: mid             # low effort on gpt-5.4 — still a reasoning model dialed down for cheap bounded-code/analysis; doubt_policy: halt. UNGRADED effort-ladder inference (probe-pending)
-    context_window: 272000          # assumed same as the gpt-5.5 family pending confirmation — gpt-5.4's exact input budget is NOT separately confirmed; re-confirm before routing large inlined context
-    max_output: 128000              # assumed same single-turn output ceiling pending confirmation
-
-    # --- budget + capability gates (routing §2, §6) ---
-    cost_class: cheapest            # lowest effort on the prior-gen model → cheapest codex variant on the effort+generation cost-ladder; reference-derived (gpt-5.4 full pricing NOT separately confirmed), one notch below gpt-5.5 low-reasoning to stay routing-distinct
-    code_competence: strong         # same Codex code-specialized executor (gpt-5.4 is a frontier coder driveable by codex exec)
-    web_access: true                # same `--search` native web tool
-
-    # --- parallelism + resume (routing §8, §4) ---
-    parallel_safe: true
-    resume_support: session-id
-
-    # --- non-interactive run (routing §4 → dispatch-wrapper) ---
-    headless:
-      flags: "exec -c approval_policy=\"never\" -m gpt-5.4 -c model_reasoning_effort=\"low\""   # exec + mandatory no-approval + the gpt-5.4 model pin + low-effort override (exact 0.137.0 grammar — `-c approval_policy=\"never\"` — is in ./manual.md; this field is recall, the manual is authoritative)
-      auto_approves_tools: true
-      prompt_transport: either
-
-    # --- auth pre-flight (routing §1 → halt-recovery USER-EXECUTED-ONLY) ---
-    auth:
-      required: true
-      method: cli-login
-      interactive: true
-
-    rate_budget_notes: "prior-gen frontier model at low effort — lowest codex per-dispatch spend; same UNPILOTED exit/retry semantics — reconcile disk on any non-zero exit, never blind-retry; gpt-5.4 pricing unconfirmed — verify on a spend-sensitive run"
-
-    # --- tool surface + confinement (routing §2, §4, §8) ---
-    tool_surface:
-      native: [shell, file, web]
-      mcp: true
-      agent_file: false
-    confinement:
-      workspace_scope: "-C/--cd (work-dir) + --add-dir"
-      tool_restriction: "--sandbox + --ask-for-approval; workspace .rules via execpolicy"
-      write_enforcement: git-diff-vs-allowlist
-
-    # --- invocation + failures (routing §4, §2) ---
-    invocation_pointer: ./manual.md
-    manual_path: ./manual.md
-    delta_path: ./delta.md
-    specialty: "cheapest codex — prior-gen gpt-5.4 at low reasoning effort for the bounded end of separate-process sandboxed code execution, when the configured gpt-5.5 spend is not warranted (probe-pending — verify before relying)"   # within-tier tiebreaker only
-    failure_modes:
-      - "headless stalls waiting for approval unless --ask-for-approval never is passed"
-      - "refuses to run outside a git repo — pass --skip-git-repo-check when the work-dir is not a repo"
-      - "sandbox reliability as the SOLE confinement is UNPILOTED — back it with the post-run git diff vs allowlist"
-      - "non-zero exit retry taxonomy is UNPILOTED — reconcile disk + recover-or-surface, never blind-retry"
-      - "gpt-5.4 reasoning_tier/cost are UNGRADED effort-ladder inferences — verify against a graded run before trusting the routing placement"
-
-    # --- guidance file (routing §4 pre-dispatch check) ---
-    guidance_file:
-      convention: AGENTS.md
-      mirror_entry: codex-mirror
-
-    # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
-    swarm_support:
-      subagents: false
-      nesting: none
-      default: disabled
-
-    os_quirks:
-      windows: "config [windows] sandbox = elevated; pipe the prompt via stdin for non-trivial prompts; check $LASTEXITCODE (taxonomy UNPILOTED); stdin handling on Windows UNPILOTED; **workspace-write SPAWNS subprocesses on Windows — git/node (incl. node -e)/pwsh/cmd/where.exe all run (TESTED 2026-06-14, two probes, [windows] sandbox=elevated); the boundary is codex's APPROVAL ROUTER, not a spawn-capability limit** — only python/python -c is approval-declined ('approval required by policy, AskForApproval=Never'), node 'spawn setup refresh' no longer reproduces, file edits work; SPLIT (codex edits only; conductor runs validation as an exit-probe) or route to kimi-code-cli ONLY for python/pytest-validated or live-call (real/network API) leaves, NOT every capability-run; danger-full-access does NOT change the python decline (approval router orthogonal to sandbox mode, TESTED 2026-06-13); live-call/network WORKS under workspace-write with -c sandbox_workspace_write.network_access=true (TESTED 2026-06-14: node fetch returned HTTP 200; without the flag the same fetch fails and git/HTTPS is egress-refused) via an AUTO-APPROVED client (node — python stays approval-declined); danger-full-access NOT required for a live call (codex-cli 0.137.0, Windows 11)"
-
-  - variant: gpt-5.4   # -m gpt-5.4 -c model_reasoning_effort="medium": the prior-gen counterpart to the gpt-5.5 `default`
-    evidence_status: probe-pending   # gpt-5.4 ran exit-0 at effort medium in the 2026-06-11 battery, but UNGRADED — judgment tier unproven (vs gpt-5.5 `default` which is validated)
-
-    # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: mid             # medium effort on gpt-5.4 — partially-bounded code/analysis with doubt_policy: halt; mirrors gpt-5.5 `default`. UNGRADED (probe-pending)
-    context_window: 272000          # assumed same as the gpt-5.5 family pending confirmation; re-confirm before routing large inlined context
-    max_output: 128000              # assumed same single-turn output ceiling pending confirmation
-
-    # --- budget + capability gates (routing §2, §6) ---
-    cost_class: mid                 # mirrors gpt-5.5 `default` cost band (no confirmed evidence gpt-5.4 is cheaper at medium effort) — distinct from `default` by evidence_status (probe-pending vs validated)
-    code_competence: strong         # same Codex code-specialized executor
-    web_access: true                # same `--search` native web tool
-
-    # --- parallelism + resume (routing §8, §4) ---
-    parallel_safe: true
-    resume_support: session-id
-
-    # --- non-interactive run (routing §4 → dispatch-wrapper) ---
-    headless:
-      flags: "exec -c approval_policy=\"never\" -m gpt-5.4 -c model_reasoning_effort=\"medium\""   # exec + no-approval + gpt-5.4 pin + medium-effort override (exact 0.137.0 grammar in ./manual.md; field is recall)
-      auto_approves_tools: true
-      prompt_transport: either
-
-    # --- auth pre-flight (routing §1 → halt-recovery USER-EXECUTED-ONLY) ---
-    auth:
-      required: true
-      method: cli-login
-      interactive: true
-
-    rate_budget_notes: "prior-gen frontier model at medium effort — mid-tier per-dispatch spend; same UNPILOTED exit/retry semantics — reconcile disk on any non-zero exit, never blind-retry; gpt-5.4 pricing unconfirmed"
-
-    # --- tool surface + confinement (routing §2, §4, §8) ---
-    tool_surface:
-      native: [shell, file, web]
-      mcp: true
-      agent_file: false
-    confinement:
-      workspace_scope: "-C/--cd (work-dir) + --add-dir"
-      tool_restriction: "--sandbox + --ask-for-approval; workspace .rules via execpolicy"
-      write_enforcement: git-diff-vs-allowlist
-
-    # --- invocation + failures (routing §4, §2) ---
-    invocation_pointer: ./manual.md
-    manual_path: ./manual.md
-    delta_path: ./delta.md
-    specialty: "prior-gen codex — gpt-5.4 at medium effort, the model-diversity alternative to the configured gpt-5.5 `default` for separate-process sandboxed code execution (probe-pending — verify before relying)"   # within-tier tiebreaker only
-    failure_modes:
-      - "headless stalls waiting for approval unless --ask-for-approval never is passed"
-      - "refuses to run outside a git repo — pass --skip-git-repo-check when the work-dir is not a repo"
-      - "sandbox reliability as the SOLE confinement is UNPILOTED — back it with the post-run git diff vs allowlist"
-      - "non-zero exit retry taxonomy is UNPILOTED — reconcile disk + recover-or-surface, never blind-retry"
-      - "gpt-5.4 reasoning_tier/cost are UNGRADED effort-ladder inferences — verify against a graded run before trusting the routing placement"
-
-    # --- guidance file (routing §4 pre-dispatch check) ---
-    guidance_file:
-      convention: AGENTS.md
-      mirror_entry: codex-mirror
-
-    # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
-    swarm_support:
-      subagents: false
-      nesting: none
-      default: disabled
-
-    os_quirks:
-      windows: "config [windows] sandbox = elevated; pipe the prompt via stdin for non-trivial prompts; check $LASTEXITCODE (taxonomy UNPILOTED); stdin handling on Windows UNPILOTED; **workspace-write SPAWNS subprocesses on Windows — git/node (incl. node -e)/pwsh/cmd/where.exe all run (TESTED 2026-06-14, two probes, [windows] sandbox=elevated); the boundary is codex's APPROVAL ROUTER, not a spawn-capability limit** — only python/python -c is approval-declined ('approval required by policy, AskForApproval=Never'), node 'spawn setup refresh' no longer reproduces, file edits work; SPLIT (codex edits only; conductor runs validation as an exit-probe) or route to kimi-code-cli ONLY for python/pytest-validated or live-call (real/network API) leaves, NOT every capability-run; danger-full-access does NOT change the python decline (approval router orthogonal to sandbox mode, TESTED 2026-06-13); live-call/network WORKS under workspace-write with -c sandbox_workspace_write.network_access=true (TESTED 2026-06-14: node fetch returned HTTP 200; without the flag the same fetch fails and git/HTTPS is egress-refused) via an AUTO-APPROVED client (node — python stays approval-declined); danger-full-access NOT required for a live call (codex-cli 0.137.0, Windows 11)"
-
-  - variant: gpt-5.4-high   # -m gpt-5.4 -c model_reasoning_effort="high": the prior-gen counterpart to the gpt-5.5 `high-reasoning`
-    evidence_status: probe-pending   # gpt-5.4 ran exit-0 at effort high in the 2026-06-11 battery, but UNGRADED — judgment tier unproven
-
-    # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: top             # high effort on gpt-5.4 — judgment-denser code work routed to codex; reviewer still floors at Opus. UNGRADED effort-ladder inference (probe-pending)
-    context_window: 272000          # assumed same as the gpt-5.5 family pending confirmation; re-confirm before routing large inlined context
-    max_output: 128000              # assumed same single-turn output ceiling pending confirmation
-
-    # --- budget + capability gates (routing §2, §6) ---
-    cost_class: high                # high reasoning effort → higher latency + spend; mirrors gpt-5.5 `high-reasoning` band — distinct from it by evidence_status (probe-pending vs validated)
-    code_competence: strong         # same Codex code-specialized executor
-    web_access: true                # same `--search` native web tool
-
-    # --- parallelism + resume (routing §8, §4) ---
-    parallel_safe: true
-    resume_support: session-id
-
-    # --- non-interactive run (routing §4 → dispatch-wrapper) ---
-    headless:
-      flags: "exec -c approval_policy=\"never\" -m gpt-5.4 -c model_reasoning_effort=\"high\""   # exec + no-approval + gpt-5.4 pin + high-effort override (exact 0.137.0 grammar in ./manual.md; field is recall)
-      auto_approves_tools: true
-      prompt_transport: either
-
-    # --- auth pre-flight (routing §1 → halt-recovery USER-EXECUTED-ONLY) ---
-    auth:
-      required: true
-      method: cli-login
-      interactive: true
-
-    rate_budget_notes: "prior-gen frontier model at high effort — notably higher latency + per-dispatch spend; same UNPILOTED exit/retry semantics — reconcile disk on any non-zero exit, never blind-retry; gpt-5.4 pricing unconfirmed"
-
-    # --- tool surface + confinement (routing §2, §4, §8) ---
-    tool_surface:
-      native: [shell, file, web]
-      mcp: true
-      agent_file: false
-    confinement:
-      workspace_scope: "-C/--cd (work-dir) + --add-dir"
-      tool_restriction: "--sandbox + --ask-for-approval; workspace .rules via execpolicy"
-      write_enforcement: git-diff-vs-allowlist
-
-    # --- invocation + failures (routing §4, §2) ---
-    invocation_pointer: ./manual.md
-    manual_path: ./manual.md
-    delta_path: ./delta.md
-    specialty: "prior-gen judgment-dense codex — gpt-5.4 at high effort for harder code reasoning as a separate process (reviewer still floors at opus; probe-pending — verify before relying)"   # within-tier tiebreaker only
-    failure_modes:
-      - "headless stalls waiting for approval unless --ask-for-approval never is passed"
-      - "refuses to run outside a git repo — pass --skip-git-repo-check when the work-dir is not a repo"
-      - "sandbox reliability as the SOLE confinement is UNPILOTED — back it with the post-run git diff vs allowlist"
-      - "non-zero exit retry taxonomy is UNPILOTED — reconcile disk + recover-or-surface, never blind-retry"
-      - "gpt-5.4 reasoning_tier/cost are UNGRADED effort-ladder inferences — verify against a graded run before trusting the routing placement"
-
-    # --- guidance file (routing §4 pre-dispatch check) ---
-    guidance_file:
-      convention: AGENTS.md
-      mirror_entry: codex-mirror
-
-    # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
     swarm_support:
       subagents: false
       nesting: none

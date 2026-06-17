@@ -169,10 +169,10 @@ Route on the `(gemini, variant)` pair from the manifest; translate to a `--model
 
 | RBTV variant | Routing profile | Gemini API model id |
 |--------------|-----------------|---------------------|
-| `3.5-flash` | `cost_class: mid`, `reasoning_tier: top` — best intelligence; judgment-dense tasks | `gemini-3.5-flash` — live-confirmed 2026-06-09 (D-exec-15) |
-| `3.1-flash-lite` | `cost_class: cheapest`, `reasoning_tier: mid` — volume processing; cost-critical tasks | `gemini-3.1-flash-lite` — live-confirmed 2026-06-09 (D-exec-15) |
+| `3.5-flash` | `reasoning: 6`, `coding: 3`, `cost: 4` — best intelligence; judgment-dense reasoning/text-synthesis tasks | `gemini-3.5-flash` — live-confirmed 2026-06-09 (D-exec-15) |
+| `3.1-flash-lite` | `reasoning: 2`, `coding: 1`, `cost: 2` — volume processing; cost-critical tasks | `gemini-3.1-flash-lite` — live-confirmed 2026-06-09 (D-exec-15) |
 
-Both variants share identical `headless`, `tool_surface`, `confinement`, and `swarm_support` values and both carry `web_access: true`. They differ on `reasoning_tier` and `cost_class`, which is the routing-relevant distinction required by the schema's variant field-count discipline.
+Both variants share identical `headless`, `tool_surface`, `confinement`, and `swarm_support` values and both carry `web_access: true`. They differ on `reasoning` and `coding` integers, which is the routing-relevant distinction required by the schema's variant field-count discipline.
 
 ### Grounding (shipped)
 

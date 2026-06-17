@@ -3,11 +3,21 @@
 # Sources: routing-matrix-reference.md §7 (Manus — autonomy/browser, RESTful, per-task cost,
 #          up to 5-min timeout); Manus API docs: https://api.manus.ai/docs;
 #          the built client orchestration/models/_api/clients/manus.py (structured_output: False).
+#          value-derivation.md (owner-sourced values; D13 routable_for: [web-research])
 # This is an AGENTIC-WEB worker (autonomous-agent task API — submit a task, poll, retrieve the
 # agent's output; the agent runs its OWN browser/tool loop SERVER-SIDE). It is NOT a chat worker
 # and NOT a CLI/Agent-tool worker.
 # The four CLI-shaped fields (headless, tool_surface, confinement, swarm_support) are filled
 # with the repurposed AGENTIC-WEB values per manifest-schema.md §2a (third block).
+#
+# OWNER-SOURCED VALUES: Manus has ZERO rows on the AA leaderboard (verified: no "Manus"/"GAIA"
+# string in the board file). All capability values (reasoning 1, coding 1, cost 1) are
+# OWNER-SOURCED, not board-derived — tagged source: owner-sourced(not-on-board), confidence: low
+# for reasoning/coding; cost is owner-hardcoded with no board backing (confidence n/a).
+# D13: routable_for: [web-research] — Manus is dropped from every non-web-research leaf. The
+# floor capability scores (1/1) never drive general selection; the routable_for gate does the work.
+# cost: 1 hardcoded by owner (p1 re-review c1; supersedes the D11 hardcode 2).
+#
 # The exact invocation shape is in ./manual.md (pointed to by invocation_pointer).
 
 model: manus-api
@@ -17,8 +27,14 @@ evidence_status: validated   # piloted live 2026-06-09 against Manus API v2; cli
 variants:
   - variant: manus-autonomous   # the single Manus operating profile — autonomous server-side agent run
 
-    # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: top            # autonomous multi-step agent work (navigate/click/fill/synthesize) is judgment-dense, not bounded-mechanical; never route bounded code here
+    # --- capability + cost scores + sizing (routing §2, §8) — scale: schema §0 (integer 1–7) ---
+    reasoning: 1                          # OWNER-SOURCED floor — Manus not on the AA board; prior owner correction: reasoning "lowest" → floor 1 on the 1–7 scale; tagged low confidence; routable_for gate means this score never drives general selection
+    coding: 1                             # OWNER-SOURCED floor — Manus not on the AA board; no agentic-coding capability in our dispatch sense (the agent runs its own server-side loop); code-ineligibility enforced via routable_for
+    cost: 1                               # OWNER-HARDCODED — no board backing (Manus absent from AA board); owner-SET at p1 re-review c1 (supersedes D11 hardcode 2); tagged n/a confidence; billed per-task, not per-token (see rate_budget_notes)
+    axis_evidence:
+      reasoning: { source: "owner-sourced(not-on-board)", confidence: low }
+      coding:    { source: "owner-sourced(not-on-board)", confidence: low }
+    cost_evidence: { source: "owner-hardcoded; no board backing", confidence: "n/a" }   # owner-SET, no board price row; per-task billing model (not per-token blended price); explicit owner-hardcoded tag per schema §0a
     # CONTEXT-WINDOW CAVEAT: Manus is an autonomous AGENT, not a chat model — neither the routing
     # matrix §7 nor the client documents a token context window or single-turn output cap. The two
     # values below are CONSERVATIVE probe-pending placeholders chosen ONLY so the routing card can
@@ -27,10 +43,15 @@ variants:
     context_window: 128000         # PROBE-PENDING placeholder — no published Manus context limit; the prompt is inlined into the task `description`. Re-verify against Manus API docs before sizing.
     max_output: 128000             # PROBE-PENDING placeholder — Manus returns an arbitrary agent task result (raw-dumped as one file), not a token-capped single turn. Re-verify before sizing.
 
-    # --- budget + capability gates (routing §2, §6) ---
-    cost_class: high               # billed PER TASK (routing-matrix §7), not per token — an autonomous agent run is the most expensive worker class; apply only where autonomy/browser is required
-    code_competence: none          # NOT a code executor in our sense — Manus runs its own server-side tool loop; we get the agent's task output, never a code artifact to cold-verify. Route code work to kimi/codex.
+    # --- role eligibility (routing §2 GATE, independent of capability — D13) ---
     web_access: true               # the agent autonomously navigates a real browser server-side — this is its DEFINING capability and gates the autonomous-web leaf
+    routable_for: [web-research]   # D13 + owner decision: ONLY web-research. Manus is dropped from every other leaf (reasoning, text-synthesis, bounded-code, unbounded-code, other). The floor capability scores never drive general selection — routable_for is the gate.
+
+    # --- reasoning / effort modes (schema §0a) ---
+    reasoning_modes:
+      depths: []                   # single-mode — Manus runs its own server-side agentic loop; no client-set effort dial
+      invocation: "none"           # no effort flag — the agent's loop is autonomous and server-side
+      carrier: "server-side autonomous loop — no effort dial"
 
     # --- parallelism + resume (routing §8, §4) ---
     parallel_safe: true            # each dispatch is an independent task submitted to the Manus API under a disjoint --output-folder; concurrent task submissions are safe (no shared local work-dir)
@@ -68,7 +89,7 @@ variants:
     invocation_pointer: ./manual.md   # rendered dispatch manual for the exact command shape
     manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/manus-api/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/manus-api/delta.md
-    specialty: "autonomous server-side browser automation — the agentic-web worker that navigates / clicks / fills / synthesizes across pages on its OWN (multi-step, not a single grounded lookup); per-task cost, minutes-scale, raw-dump return"   # within-tier tiebreaker only; boundedness-first stays the master cut
+    specialty: "autonomous server-side browser automation — the agentic-web worker that navigates / clicks / fills / synthesizes across pages on its OWN (multi-step, not a single grounded lookup); per-task cost, minutes-scale, raw-dump return; routable ONLY for web-research (D13)"   # within-tier tiebreaker only; boundedness-first stays the master cut
     failure_modes:
       - "context_window / max_output are PROBE-PENDING placeholders, not published Manus specs — re-verify (or drop as a sizing input) before any pilot; do not size large inlined contexts on these numbers"
       - "per-task billing — a runaway or expensive autonomous run costs a whole task fee, not incremental tokens; confirm the task is worth an agent run before dispatch"
@@ -81,6 +102,7 @@ variants:
       - "non-strict structured_output_schema → HTTP 400 invalid_argument at task.create, free (no task created, no spend); schema MUST be strict-mode: every object carries additionalProperties: false AND required listing all properties, root must be type: object, max nesting depth 5; forbidden keywords: pattern, format, minLength/maxLength, minimum/maximum/exclusiveMinimum/exclusiveMaximum/multipleOf, minItems/maxItems/uniqueItems, allOf/oneOf/not, if/then/else — live-confirmed 2026-06-10 (reference: open.manus.ai/docs/v2/structured-output)"
       - "no session resumption — a halted dispatch must be re-dispatched fresh; never attempt --session / --continue"
       - "API key absent in env + env_file → package unavailable for the dispatch; router degrades, does not halt the run"
+      - "routable_for: [web-research] ONLY (D13) — dispatching Manus for reasoning/text-synthesis/code is a routing violation; the floor capability scores (1/1) must never be read as a signal that Manus can serve those roles"
 
     # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
     # Repurposed AGENTIC-WEB values per manifest-schema.md §2a (third block):

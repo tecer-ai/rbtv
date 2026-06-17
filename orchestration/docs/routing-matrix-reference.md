@@ -1,114 +1,100 @@
-> **Reference data — NOT a router.** This is a within-tier TIEBREAKER the conductor may consult; it is NEVER the master routing cut (boundedness-first stays the cut, per `cards/routing.md`). Model ids and prices are 2026 estimates harvested from a prior research doc — **re-verify against provider docs before relying on any specific id/price.** EXCEPTION: the **DeepSeek (§2)** and **Gemini (§4)** ids + prices were **live-confirmed 2026-06-09** (p6-1 orchestrated pilot, two independent paid workers — D-exec-15); see each section's note.
+> **Reference data — NOT a router.** This is a within-tier tiebreaker the conductor may consult; it is NEVER the master routing cut (boundedness-first stays the cut, per `cards/routing.md`). Capability scores (`reasoning`/`coding`/`cost`) are integers 1–7 derived from the Artificial Analysis leaderboard (AA board) — see `value-derivation.md` for the full methodology and per-model evidence. `routable_for` is an eligibility allow-list (absent = eligible for all leaves). Model ids and prices are 2026 figures from the AA board and provider docs — **re-verify against provider docs before relying on any specific id/price.** EXCEPTION: the **DeepSeek (§2)** and **Gemini (§4)** ids + prices were **live-confirmed 2026-06-09** (p6-1 orchestrated pilot, two independent paid workers — D-exec-15); see each section's note.
 
 # AI Provider Routing Matrix — Reference
 
 ## 1. Anthropic Claude
 
-| Model | Context | Max Output | Price (input/output) | Thinking | Knowledge Cutoff |
-|-------|---------|------------|----------------------|----------|------------------|
-| Claude Opus 4.8 | 1M tokens | 128k | $5/$25 per MTok | Adaptive | Jan 2026 |
-| Claude Sonnet 4.6 | 1M tokens | 64k | $3/$15 per MTok | Extended | Aug 2025 |
-| Claude Haiku 4.5 | 200k tokens | 64k | $1/$5 per MTok | Extended | Feb 2025 |
+| Model | reasoning | coding | cost | Context | Max Output | Price (AA blended) | reasoning_modes | evidence_status |
+|-------|:---------:|:------:|:----:|---------|------------|---------------------|-----------------|-----------------|
+| Claude Opus 4.8 | 7 | 6 | 6 | 1M tokens | 128k | $3.85/MTok | single-mode (effort not settable via Agent-tool) | validated |
+| Claude Sonnet 4.6 | 6 | 5 | 5 | 1M tokens | 64k | $2.31/MTok | single-mode (effort not settable via Agent-tool) | validated |
+| Claude Haiku 4.5 | 3 | 2 | 3 | 200k tokens | 64k | $0.77/MTok | single-mode no-op | validated |
 
-**Capability:** Opus 4.8 = deepest reasoning + long agentic; Sonnet 4.6 = balanced; Haiku 4.5 = fast/cheap volume.
+> **CLI carrier (`claude-code-cli`):** same capability integers; adds the 5-level effort ladder (`low|medium|high|xhigh|max` via `--effort`) for opus and sonnet. Haiku is a no-op single-mode even on the CLI. `cost` integers identical (board market price, no subscription discount — D11).
 
-## 2. DeepSeek
+**Capability:** Opus = frontier reasoning + strong agentic coding; Sonnet = strong reasoning (Hard-Prompts cross-check raises it above the AA-II bin-5 anchor); Haiku = fast/cheap volume tasks. No `routable_for` restriction — all three eligible for all leaves. `reasoning` source: AA Intelligence Index + GPQA/HLE cross-checks + Hard-Prompts (Sonnet). `coding` source: AA Terminal-Bench Hard.
 
-| Model | Context | Max Output | Price (input/output) | Thinking Mode | Features |
-|-------|---------|------------|----------------------|---------------|----------|
-| deepseek-v4-pro | 1M tokens | 384k | $0.435/$0.87 per MTok | Yes | Tool calls, JSON |
-| deepseek-v4-flash | 1M tokens | 384k | $0.14/$0.28 per MTok | Yes (default) | Tool calls, JSON |
+## 2. DeepSeek (API)
 
-**Capability:** V4-Pro = max reasoning quality; V4-Flash = best cost/benefit. Both: Thinking Mode + Tool Calling + JSON output.
+| Variant | reasoning | coding | cost | reasoning_modes | routable_for | Price (AA blended) | evidence_status |
+|---------|:---------:|:------:|:----:|-----------------|--------------|---------------------|-----------------|
+| v4-flash | 4 | 3 | 1 | `[off, on]` via `thinking` param | `[reasoning, text-synthesis, other]` | $0.06/MTok | validated |
+| v4-pro | 5 | 4 | 1 | `[off, on]` via `thinking` param | `[reasoning, text-synthesis, other]` | $0.18/MTok | validated |
 
 > **Live-confirmed 2026-06-09** (p6-1 pilot, D-exec-15): the ids + prices above are current. The legacy `deepseek-chat`/`deepseek-reasoner` compatibility aliases are **removed 2026-07-24 15:59 UTC** — dispatch `deepseek-v4-flash`/`deepseek-v4-pro`, never the aliases.
 
+**Capability:** API chat text-worker (OpenAI-compatible, JSON mode) — stateless text synthesis only; executes NO code in this dispatch. `coding` is the honest AA Terminal-Bench Hard board score (D13 capability-vs-eligibility split) — code-ineligibility is carried by `routable_for` (omits `bounded-code`/`unbounded-code`), never by the coding integer. `routable_for: [reasoning, text-synthesis, other]` — no native web. V4-Flash = cheapest text worker; V4-Pro = cheapest top-reasoning-tier text.
+
 ## 3. Kimi (Moonshot AI)
 
-| Model | Context | Multimodal | Thinking | Agent Mode | API |
-|-------|---------|------------|----------|------------|-----|
-| kimi-k2.6 | 256k tokens | Text + Image | Yes | Yes | OpenAI-compatible |
-| kimi-k2.5 | 256k tokens | Text + Image | Yes | Yes | OpenAI-compatible |
+| Variant | reasoning | coding | cost | Context | reasoning_modes | routable_for | Price (AA blended) | evidence_status |
+|---------|:---------:|:------:|:----:|---------|-----------------|--------------|---------------------|-----------------|
+| kimi | 6 | 4 | 3 | 256k tokens | `[no-think, think]` via `--thinking`/`--no-thinking` | (all leaves) | $0.70/MTok | validated |
 
-**Capability:** 256k context; multimodal (text+image); Thinking + Agent Mode; OpenAI-compatible API. (Note: kimi runs as a CLI code-executor in this workspace.)
+**Capability:** CLI code-executor — writes/edits files, runs scripts, commits locally; validated bounded-code executor. Resume via session id. 256k context; multimodal (text+image); thinking toggle. `reasoning` 6: AA Intelligence Index 54 (top open-weight, GPQA 53). `coding` 4: Terminal-Bench Hard 44. No `routable_for` restriction. Note: kimi runs as a CLI code-executor in this workspace — NOT a chat API worker.
 
-## 4. Gemini (Google)
+## 4. Gemini (Google API)
 
-| Model | Price (input/output) | Thinking | Search Grounding | Batch API |
-|-------|----------------------|----------|------------------|-----------|
-| Gemini 3.5 Flash | $1.50/$9.00 per MTok | Yes | Yes | 50% discount |
-| Gemini 3.1 Pro | $2.00/$12.00 per MTok | Yes | Yes | 50% discount |
-| Gemini 3.1 Flash-Lite | $0.25/$1.50 per MTok | Yes | Yes | 50% discount |
-
-**Capability:** Thinking tokens (in output price); Search Grounding (real-time web); Batch API 50% off. 3.5 Flash = smartest; 3.1 Flash-Lite = cheapest.
+| Variant | reasoning | coding | cost | reasoning_modes | routable_for | Price (AA blended) | evidence_status |
+|---------|:---------:|:------:|:----:|-----------------|--------------|---------------------|-----------------|
+| 3.5-flash | 6 | 3 | 4 | `[off, on]` via `thinkingBudget` (0=off) | `[reasoning, text-synthesis, web-research, other]` | $1.31/MTok | validated |
+| 3.1-flash-lite | 2 | 1 | 2 | `[off, on]` via `thinkingBudget` (0=off) | `[reasoning, text-synthesis, web-research, other]` | $0.22/MTok | validated |
 
 > **Live-confirmed 2026-06-09** (p6-1 pilot, D-exec-15): the prices above are current and the model names ARE the live Gemini API ids (the `gemini-api` manifest's `3.5-flash` / `3.1-flash-lite` variants map to `gemini-3.5-flash` / `gemini-3.1-flash-lite`).
 
-## 5. OpenAI
+**Capability:** API chat text-worker — carries native web access (search grounding; dispatch `--grounded` for the light-grounding web-research leaf). `coding` is the honest AA Terminal-Bench Hard score (D13); code-ineligibility carried by `routable_for` (omits `bounded-code`/`unbounded-code`; `web-research` included — Gemini's native grounding qualifies it for the research leaf). 3.5 Flash = highest reasoning (AA II 55, GPQA 53); 3.1 Flash-Lite = cheapest (AA II 34). The ONLY `web_access: true` API chat worker.
 
-| Model | Context | Specialty | Coding | Agentic |
-|-------|---------|-----------|--------|---------|
-| GPT-5.5 | ~200k | General | Advanced | Yes |
-| GPT-5.4 | ~200k | Prior-gen general | Advanced | Yes |
-| GPT-5.4 mini | ~200k | Light | Good | Yes |
-| GPT-5.4 nano | ~200k | Ultra-light | Basic | Yes |
+## 5. OpenAI (codex-cli)
 
-**Capability:** GPT-5.5 = top reasoning + coding; GPT-5.4 = prior-gen frontier (owner-confirmed access 2026-06-11); mini/nano = lighter/cheaper.
+> **ONE row per MODEL** — effort levels (`low|medium|high` via `model_reasoning_effort`) are the post-pin dial stored in `reasoning_modes`, NOT separate rows (D6). `routable_for` absent = eligible for all leaves.
 
-> **Note:** Routed via the `codex` CLI (code execution) in this workspace — NOT built as an API chat worker (dropped per build decision D1). The `codex-cli` package wires SIX routable `(model, effort)` variants: gpt-5.5 `low-reasoning`/`default`/`high-reasoning` and gpt-5.4 `gpt-5.4-low`/`gpt-5.4`/`gpt-5.4-high` (`-m gpt-5.4`). Only gpt-5.5/medium `default` is `validated`; the rest are `probe-pending` (gpt-5.4 live-probed at all 3 efforts exit-0 in the 2026-06-11 reasoning battery, but UNGRADED — its reasoning_tier/cost are effort-ladder inferences; context/pricing unconfirmed). Context ~200k here is the reference figure; the manifest carries 272k for the gpt-5.5 family pending re-confirmation.
+| Variant | reasoning | coding | cost | reasoning_modes | routable_for | Price (AA blended) | evidence_status |
+|---------|:---------:|:------:|:----:|-----------------|--------------|---------------------|-----------------|
+| gpt-5.5 | 7 | 7 | 7 | `[low, medium, high]` via `model_reasoning_effort` | (all leaves) | $4.35/MTok | validated |
+| gpt-5.4 | 6 | 6 | 5 | `[low, medium, high]` via `-m gpt-5.4 -c model_reasoning_effort` | (all leaves) | $2.19/MTok (owner-supplied) | validated |
 
-## 6. Cohere
+**Capability:** CLI code-executor (`codex exec`) — separate-process execution, writes/edits files, runs commands, sandboxed. `reasoning` 7 / `coding` 7 for GPT-5.5: AA II 57–60 + Terminal-Bench Hard 58–61 — frontier on both axes. `reasoning` 6 / `coding` 6 for GPT-5.4: reasoning raised via Hard-Prompts cross-check (Elo 1490 ≈ GPT-5.5's 1492 — near-frontier, D9); coding is owner-sourced "one below GPT-5.5's 7" (base 5.4 absent from board, D13/p1 re-review c3). `cost` 7 for GPT-5.5 (priciest — ranks last on cost tie); `cost` 5 for GPT-5.4 (blended $2.19 from owner-supplied prices via AA formula). GPT-5.5 manifest `context_window`: 1M tokens (capped per-plan at 200k in `model-plans.yaml`).
 
-| Model | Vision | Native RAG | Tool Calling | Reranking |
-|-------|--------|------------|--------------|-----------|
-| Command A+ | Yes | Yes | Yes | Integrated |
-| Command R | No | Yes | Yes | Integrated |
+> **Note:** Routed via the `codex-cli` package (code execution) in this workspace — NOT built as an API chat worker. Each model's effort levels are the post-pin dial in `reasoning_modes`; only the MODEL-level capability is a routing input.
 
-**Capability:** Command A+ = vision + native RAG + reranking; Command R = lighter RAG.
+## 6. Manus (API)
 
-## 7. Manus
+| Variant | reasoning | coding | cost | reasoning_modes | routable_for | evidence_status |
+|---------|:---------:|:------:|:----:|-----------------|--------------|-----------------|
+| manus-autonomous | 1 | 1 | 1 | `[]` none — server-side autonomous loop | `[web-research]` | validated |
 
-| Aspect | Description |
-|--------|-------------|
-| Autonomy | Browser navigation, clicks, interactions |
-| API | RESTful |
-| Timeout | Up to 5 minutes |
-| Cost | Per task |
-| Integration | Multiple tools and APIs |
+**Capability:** Autonomous web-research agent — browser navigation, clicks, form-fill, full multi-step workflows; RESTful task API; per-task cost; ~5-min timeout. `routable_for: [web-research]` ONLY — dropped from every non-web-research leaf (D13). Values are owner-sourced (Manus not on the AA board); `cost: 1` is owner-hardcoded (no board backing). Complement to LLMs for autonomous browser work, not a general-purpose substitute.
 
-**Capability:** real autonomy — browser navigation, clicks, form-fill, full workflows; RESTful task API; per-task cost; ~5-min timeout. Complement to LLMs, not a substitute.
+## 7. Qwen Code CLI (multi-backend, ModelStudio US)
 
-## 8. Qwen Code CLI (multi-backend, ModelStudio US)
+The `qwen-code-cli` package is a **CLI code-executor** that runs FOUR configured backends via ModelStudio US (OpenAI-compatible; `--auth-type openai -m <id>`, omit `-m` → `qwen3.6-plus`). ONE row per MODEL (D6). Per-backend thinking depth is NOT controllable through the qwen-code CLI (G1 — closed as a known CLI limitation, p1 re-review c6); `reasoning_modes.depths: UNKNOWN` is accepted-as-final.
 
-The `qwen-code-cli` package is a **CLI code-executor** that runs FOUR configured backends via ModelStudio US (OpenAI-compatible; `--auth-type openai -m <id>`, omit `-m` → `qwen3.6-plus`). It routes on `(qwen-code-cli, variant)` — each backend modeled only where a routing-field differs (field-count discipline):
+| Variant | reasoning | coding | cost | Backend id | Context | Max Output | Price in/out (reference) | evidence_status |
+|---------|:---------:|:------:|:----:|-----------|---------|-----------|--------------------------|-----------------|
+| `qwen3.6-plus` | 5 | 4 | 2 | qwen3.6-plus | 1M | 65,536 | $0.28/$1.65 (0–256K band) | validated |
+| `deepseek-flash` | 4 | 3 | 1 | deepseek-v4-flash | 1M | 384k | $0.14/$0.28 | validated |
+| `deepseek-pro` | 5 | 4 | 1 | deepseek-v4-pro | 1M | 384k | $0.435/$0.87 | validated |
+| `glm` | 5 | 4 | 3 | glm-5.1 | 204,800 | 131,072 | ~$0.98/$3.08 | validated |
 
-| Variant | Backend id | Context | Max Output | Price in/out (reference) | reasoning_tier · evidence |
-|---------|-----------|---------|-----------|--------------------------|----------------------------|
-| `default` | qwen3.6-plus | 1M | 65,536 | $0.28/$1.65 (0–256K band) | mid · validated |
-| `deepseek-flash` | deepseek-v4-flash | 1M | 384k | $0.14/$0.28 | mid · validated (bounded-code done-gate) |
-| `deepseek-pro` | deepseek-v4-pro | 1M | 384k | $0.435/$0.87 | top (spec-derived) · validated (bounded-code done-gate, 2026-06-10 follow-up) |
-| `glm` | glm-5.1 | 204,800 | 131,072 | ~$0.98/$3.08 | mid · validated (bounded-code done-gate, 2026-06-10 follow-up) |
-
-**Capability:** a tool-using CLI code-executor (NOT a chat worker) — writes/edits files, runs shells/tests, native `--worktree` isolation; `web_access: false` (route web research elsewhere). `deepseek-flash` = the validated cheap workhorse; `deepseek-pro` = deeper reasoning at ~3× cost; `default` (qwen3.6-plus) = the native Qwen flagship (no `-m`); `glm` = model diversity. ModelStudio-US billing unconfirmed — prices are reference-provider-derived (Note: qwen runs as a CLI code-executor in this workspace, like kimi). Validated 2026-06-10 (key pre-provisioned in qwen's own `~/.qwen/settings.json` — resolves in ANY session, conductor/unattended included; bound spend with budget/`--max-wall-time`; the earlier "owner-run only" reading was corrected 2026-06-11).
+**Capability:** CLI code-executor (NOT a chat worker) — writes/edits files, runs shells/tests, native `--worktree` isolation; `web_access: false` (route web research elsewhere). No `routable_for` restriction — all backends eligible for all leaves (they execute code). `reasoning`/`coding` sourced from AA II and Terminal-Bench Hard per backend. `cost` sourced from AA Blended Price. `deepseek-flash` = validated cheap workhorse (same DeepSeek V4 Flash model as `deepseek-api`, different ROLE — code executor vs text worker); `deepseek-pro` = deeper reasoning at ~3× cost; `qwen3.6-plus` = native Qwen flagship; `glm` = model diversity. ModelStudio-US billing unconfirmed — prices are reference-provider-derived (validated 2026-06-10; key pre-provisioned in `~/.qwen/settings.json` — resolves in ANY session including conductor/unattended).
 
 ## Quick-Decision Matrix
 
-| Need | Provider | Model | Reason |
-|------|----------|-------|--------|
-| Maximum reasoning | Anthropic | Opus 4.8 | Adaptive Thinking |
-| Cost/benefit | Anthropic | Sonnet 4.6 | Ideal balance |
-| High volume | Anthropic | Haiku 4.5 | Most economical |
-| Logical reasoning | DeepSeek | V4-Pro | Thinking Mode |
-| Optimized cost | DeepSeek | V4-Flash | Very cheap |
-| Giant context | Kimi | K2.6 | 256k tokens |
-| Vision + context | Kimi | K2.6 | Native multimodal |
-| Volume processing | Gemini | 3.1 Flash-Lite | Very cheap |
-| Integrated search | Gemini | 3.5 Flash | Search Grounding |
-| Corporate RAG | Cohere | Command A+ | Native RAG |
-| Autonomy | Manus | API | Browser automation |
-| Bounded code, cheapest CLI | Qwen Code CLI | deepseek-flash | $0.14/$0.28, validated, 384k out |
-| Bounded code, deeper reasoning | Qwen Code CLI | deepseek-pro | reasoning_tier top (spec), mid cost |
-| Code-fleet model diversity | Qwen Code CLI | glm / default | non-DeepSeek option (glm) or native Qwen (default) |
+| Need | Package | Variant | Reason |
+|------|---------|---------|--------|
+| Maximum reasoning + coding | codex-cli | gpt-5.5 | reasoning 7 / coding 7 — frontier both axes |
+| Deep reasoning, lower cost | claude-code-native | opus | reasoning 7 / coding 6 / cost 6 |
+| Strong reasoning, balanced | claude-code-native | sonnet | reasoning 6 / coding 5 / cost 5 |
+| Top open-weight reasoning | kimi-code-cli | kimi | reasoning 6 / coding 4 / cost 3 |
+| Cheapest text synthesis | deepseek-api | v4-flash | reasoning 4 / cost 1; routable_for text only |
+| Top-reasoning text synthesis | deepseek-api | v4-pro | reasoning 5 / cost 1; routable_for text only |
+| Web-grounded lookup (light) | gemini-api | 3.5-flash | reasoning 6 / cost 4; native search grounding |
+| Web-grounded cheapest | gemini-api | 3.1-flash-lite | reasoning 2 / cost 2; cheapest web-capable text |
+| Autonomous multi-step browser | manus-api | manus-autonomous | routable_for: [web-research] only; per-task cost |
+| Bounded code, cheapest CLI | qwen-code-cli | deepseek-flash | reasoning 4 / coding 3 / cost 1; 384k output |
+| Bounded code, deeper reasoning | qwen-code-cli | deepseek-pro | reasoning 5 / coding 4 / cost 1 |
+| Code-fleet model diversity | qwen-code-cli | glm / qwen3.6-plus | non-DeepSeek options |
+| High volume, cheapest Claude | claude-code-native | haiku | reasoning 3 / coding 2 / cost 3 |
 
 ## Overlap Disambiguation — within-tier "use X when / use Y when"
 
@@ -118,10 +104,10 @@ These rows resolve the specific worker overlaps the owner cares about. They are 
 
 | Use… | When |
 |------|------|
-| **DeepSeek API** (`deepseek-api:v4-flash` / `v4-pro`) | The leaf is **text synthesis / logic over inlined sources** — no code execution. DeepSeek carries `code_competence: none`, so the §2a `code_competence ≥ needed` filter already removes it from every code leaf; it wins on a TEXT leaf as the cheapest capable. Cheapest text worker (v4-flash); cheapest top-reasoning-tier text (v4-pro). |
-| **codex CLI** (gpt-5.5 `low-reasoning`/`default`/`high-reasoning` + gpt-5.4 `gpt-5.4-low`/`gpt-5.4`/`gpt-5.4-high`) | The leaf **executes code** — edits a work-dir, runs commands, needs a sandboxed separate process. codex is a code-specialized agent (`code_competence: strong`); DeepSeek cannot do this leaf at all. Within the codex variants, pick by effort/cost (low→cheapest, high→top tier) and generation (gpt-5.4 = prior-gen, all probe-pending); only gpt-5.5/medium `default` is validated. |
+| **DeepSeek API** (`deepseek-api:v4-flash` / `v4-pro`) | The leaf is **text synthesis / logic over inlined sources** — no code execution. `routable_for: [reasoning, text-synthesis, other]` (omits code roles) — the `routable_for` gate already removes it from every code leaf; it wins on a TEXT leaf as the cheapest capable. Cheapest text worker (v4-flash); cheapest top-reasoning-tier text (v4-pro). |
+| **codex-cli** (`gpt-5.5` / `gpt-5.4`, effort set post-pin from `reasoning_modes`) | The leaf **executes code** — edits a work-dir, runs commands, needs a sandboxed separate process. codex-cli is a code-executing agent (no `routable_for` restriction); DeepSeek-API cannot receive a code leaf (its `routable_for` omits `bounded-code`/`unbounded-code`). Within the codex variants, pick by capability (gpt-5.5 = 7/7, gpt-5.5 = pricier cost 7; gpt-5.4 = 6/6 cost 5). |
 
-Boundary: the cut is **text-synthesis vs code-execution**, enforced mechanically by `code_competence` — never route code to DeepSeek, never route pure text-synthesis to a costlier code-executing process when a text worker suffices. (api-workers-build D2: DeepSeek stays the API text worker; the code/agentic role is a CLI worker.)
+Boundary: the cut is **text-synthesis vs code-execution**, enforced by `routable_for` — never route code to DeepSeek-API, never route pure text-synthesis to a costlier code-executing process when a text worker suffices.
 
 ### qwen-code-cli (DeepSeek/GLM backend) vs DeepSeek-API
 
@@ -129,20 +115,20 @@ The qwen CLI can run DeepSeek V4 models too (`-m deepseek-v4-flash`/`-m deepseek
 
 | Use… | When |
 |------|------|
-| **qwen-code-cli** (`deepseek-flash` / `deepseek-pro` / `glm` / `default`) | The leaf **executes code or agentic work** — writes/edits files, runs shells/tests, uses the `agent`/MCP tools, `--worktree` isolation, post-run allowlist diff. The qwen CLI carries DeepSeek (and GLM, and native Qwen) as a TOOL-USING code executor. `code_competence: strong`. |
-| **DeepSeek API** (`deepseek-api:v4-flash` / `v4-pro`) | The leaf is **stateless text synthesis** — summarize/classify/rewrite/JSON over inlined sources, no filesystem or tool loop. `code_competence: none` — the §2a filter removes it from every code leaf. Cheapest text worker. |
+| **qwen-code-cli** (`deepseek-flash` / `deepseek-pro` / `glm` / `qwen3.6-plus`) | The leaf **executes code or agentic work** — writes/edits files, runs shells/tests, uses the `agent`/MCP tools, `--worktree` isolation, post-run allowlist diff. The qwen CLI carries DeepSeek (and GLM, and native Qwen) as a TOOL-USING code executor. No `routable_for` restriction. |
+| **DeepSeek API** (`deepseek-api:v4-flash` / `v4-pro`) | The leaf is **stateless text synthesis** — summarize/classify/rewrite/JSON over inlined sources, no filesystem or tool loop. `routable_for: [reasoning, text-synthesis, other]` — the gate removes it from every code leaf. Cheapest text worker. |
 
-Boundary: **does the task touch the filesystem or run tools? → qwen-code-cli (DeepSeek backend). Pure text in → text out? → deepseek-api.** Same underlying DeepSeek V4 models, two different ROLES. (The CLI-code vs API-text cut of "DeepSeek-API vs codex-CLI" above, applied to the qwen CLI's DeepSeek backends. Within the qwen code fleet, pick the variant per §8: flash = cheap workhorse, pro = deeper reasoning, default = native Qwen, glm = diversity.)
+Boundary: **does the task touch the filesystem or run tools? → qwen-code-cli (DeepSeek backend). Pure text in → text out? → deepseek-api.** Same underlying DeepSeek V4 models, two different ROLES.
 
 ### Gemini-grounding vs rbtv-web-searching vs manus
 
 | Use… | When |
 |------|------|
-| **Gemini** (`gemini:3.5-flash` / `3.1-flash-lite`) | A **single grounded lookup** — one search-grounded call, light not rigorous. The ONLY `web_access: true` API chat worker. (Grounding is SHIPPED — dispatch with `--grounded`; p5-3 runner pass-through + p5-4 leaf routing both landed; a grounded call returns a raw dump, no `return.json`.) |
-| **`rbtv-web-searching`** (Agent-tool path) | **Rigorous multi-source research** — source evaluation, citations, cross-checking across many sources. The in-session web path, always available even when no web-capable model package is installed (routing §6 degrade). NEVER an API chat worker for this tier. |
-| **Manus** (`manus:manus-autonomous`) | **Autonomous multi-step browser work** — the agent must navigate, click, fill, and synthesize across pages on its OWN (multi-step data collection), not a single lookup. Per-task cost, minutes-scale latency, raw-dump return. |
+| **Gemini** (`gemini-api:3.5-flash` / `3.1-flash-lite`) | A **single grounded lookup** — one search-grounded call, light not rigorous. The ONLY `web_access: true` API chat worker with `web-research` in `routable_for`. (Grounding is shipped — dispatch with `--grounded`.) |
+| **`rbtv-web-searching`** (Agent-tool path) | **Rigorous multi-source research** — source evaluation, citations, cross-checking across many sources. The in-session web path, always available even when no web-capable model package is installed (routing §6 degrade). NEVER an API chat worker for this use. |
+| **Manus** (`manus-api:manus-autonomous`) | **Autonomous multi-step browser work** — the agent must navigate, click, fill, and synthesize across pages on its OWN (multi-step data collection), not a single lookup. `routable_for: [web-research]` ONLY. Per-task cost, minutes-scale latency, raw-dump return. |
 
-Boundary: **single grounded call (Gemini) → rigorous cited multi-source (rbtv-web-searching) → autonomous multi-step browser agent (Manus)** — three distinct web tiers differing in autonomy, rigor, and cost (routing §6). Match the tier the task needs; do not pay Manus's per-task autonomy for a single lookup, and do not ask Gemini's single grounded call to do rigorous multi-source research.
+Boundary: **single grounded call (Gemini) → rigorous cited multi-source (rbtv-web-searching) → autonomous multi-step browser agent (Manus)** — three distinct web escalation levels differing in autonomy, rigor, and cost (routing §6). Match the level the task needs; do not pay Manus's per-task autonomy for a single lookup, and do not ask Gemini's single grounded call to do rigorous multi-source research.
 
 ### claude-code-cli (process) vs Agent-tool Claude
 
@@ -160,6 +146,6 @@ Boundary: **default to Agent-tool Claude; escalate to claude-code-cli ONLY for a
 - Kimi: https://platform.kimi.ai/docs/models , https://platform.kimi.ai/docs/api
 - Gemini: https://ai.google.dev/gemini-api/docs/models , https://ai.google.dev/gemini-api/docs/pricing
 - OpenAI: https://platform.openai.com/docs/models
-- Cohere: https://docs.cohere.com/docs/models , https://docs.cohere.com/docs/rag
 - Qwen: https://dashscope.aliyuncs.com/docs
 - Manus: https://open.manus.ai/docs/v2/ (the v2 API the client targets — `_api/clients/manus.py` base_url `https://api.manus.ai/v2`, D-exec-13)
+- Value derivation methodology: `2-areas/rbtv/model-benchmarking/5b-routing-build/value-derivation.md`

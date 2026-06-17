@@ -2,6 +2,7 @@
 # Schema + field meanings + routing-card consumers: ../manifest-schema.md
 # Sources: routing-matrix-reference.md §4 (variant ids + prices live-confirmed 2026-06-09, p6-1 pilot, D-exec-15);
 #          Google Gemini API docs: https://ai.google.dev/gemini-api/docs
+#          value-derivation.md (AA-board derived integers; D13 capability-vs-eligibility split)
 # This is an API chat worker (stateless HTTP call — no filesystem access, no tool execution loop).
 # The four CLI-shaped fields (headless, tool_surface, confinement, swarm_support) are filled
 # with the repurposed API-worker values per manifest-schema.md §2a.
@@ -12,6 +13,14 @@
 # light-grounding web-research leaf, which routes to Gemini (routing §6, p5-3 runner pass-through + p5-4
 # leaf routing both shipped). A grounded dispatch is mutually exclusive with JSON-envelope mode —
 # it returns DONE_WITH_NOTES + raw-output.md, no return.json.
+#
+# D13 CAPABILITY-VS-ELIGIBILITY SPLIT: gemini-api executes NO code in our dispatch (API chat worker,
+# non-executor). The coding integer is the HONEST AA board TBH score — 3.5-flash 3 (TBH 41),
+# 3.1-flash-lite 1 (TBH 24). Code-ineligibility is expressed SEPARATELY via routable_for (no
+# bounded-code / unbounded-code roles). Native web grounding → web-research IS in routable_for
+# (tool_surface.native: [web] is what gates the web-research leaf for API workers, per schema §2a).
+# route.py gates code on routable_for membership, NEVER on the coding integer.
+#
 # The exact invocation shape is in ./manual.md (pointed to by invocation_pointer).
 
 model: gemini-api
@@ -25,15 +34,26 @@ variants:
     # API model id (`gemini-3.5-flash`, id + price live-confirmed 2026-06-09, p6-1 pilot, D-exec-15), passed
     # to the runner via --model at dispatch time.
 
-    # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: top             # benchmark-corroborated (was routing-matrix estimate): Gemini 3.5 Flash 78% SWE-V (Google) ≈ Sonnet, frontier reasoning with Thinking Tokens (2026-06-11); judgment-dense tasks
+    # --- capability + cost scores + sizing (routing §2, §8) — scale: schema §0 (integer 1–7) ---
+    reasoning: 6                          # AA Intelligence Index 55 (Gemini 3.5 Flash); above Sonnet's 52; GPQA 53, HLE 41; top cluster
+    coding: 3                             # Terminal-Bench Hard 41 (HONEST board score per D13 → bin 3); code-ineligibility via routable_for, NOT this score
+    cost: 4                               # AA Blended Price $1.31 → bin 4 (upper-mid)
+    axis_evidence:
+      reasoning: { source: "aa-ii(55);gpqa(53);hle(41)", confidence: high }
+      coding:    { source: "aa-tbh(41)", confidence: high }   # D13 honest score from the AA board TBH column
+    cost_evidence: { source: "aa-blended($1.31)→bin4", confidence: high }
     context_window: 1000000         # 1M tokens per Google Gemini Flash class; re-verify against provider docs before pilot
     max_output: 8192                # conservative estimate — re-verify against provider docs before pilot; routing-matrix §4 does not specify
 
-    # --- budget + capability gates (routing §2, §6) ---
-    cost_class: mid                 # $1.50/$9.00 per MTok input/output (routing-matrix §4) — mid-tier price; pays for frontier reasoning
-    code_competence: none           # API chat worker — not a code executor; route code work to kimi/codex
+    # --- role eligibility (routing §2 GATE, independent of capability — D13) ---
     web_access: true                # search grounding available — the ONLY web-capable chat worker in the routing table
+    routable_for: [reasoning, text-synthesis, web-research, other]   # D13: bare-API chat worker → omits bounded-code + unbounded-code; native web grounding → web-research IS included (tool_surface.native: [web] gates the research leaf per schema §2a)
+
+    # --- reasoning / effort modes (schema §0a) ---
+    reasoning_modes:
+      depths: ["off", "on"]          # thinkingBudget: 0 = off (default); non-zero = on (extended thinking)
+      invocation: "thinkingBudget (0 = off)"
+      carrier: "API param"
 
     # --- parallelism + resume (routing §8, §4) ---
     parallel_safe: true             # stateless HTTP API; multiple concurrent calls are safe under disjoint output folders
@@ -70,7 +90,7 @@ variants:
     invocation_pointer: ./manual.md   # rendered dispatch manual for the exact command shape
     manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/gemini-api/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/gemini-api/delta.md
-    specialty: "web research via search grounding — the ONLY web-capable API chat worker (light single-call grounded lookup, NOT rigorous multi-source); frontier reasoning with Thinking Tokens; grounding shipped and routable via --grounded (routing §6 light-grounding leaf)"   # within-tier tiebreaker only; boundedness-first stays the master cut
+    specialty: "web research via search grounding — the ONLY web-capable API chat worker (light single-call grounded lookup, NOT rigorous multi-source); strong reasoner with Thinking Tokens; grounding shipped and routable via --grounded (routing §6 light-grounding leaf); code-ineligible (routable_for excludes code roles per D13)"   # within-tier tiebreaker only; boundedness-first stays the master cut
     failure_modes:
       - "variant names are the live Gemini API ids (gemini-3.5-flash / gemini-3.1-flash-lite), id + price-confirmed 2026-06-09 (D-exec-15); re-verify only after a provider model refresh"
       - "grounded dispatch (--grounded) is mutually exclusive with JSON-envelope mode: gemini.py swaps responseMimeType:application/json for the google_search tool, so a grounded call returns DONE_WITH_NOTES + raw-output.md and NO return.json — the conductor must expect the raw-dump return surface, not the standard five-field envelope"
@@ -78,6 +98,7 @@ variants:
       - "API key absent in env + env_file → package unavailable for the dispatch; router degrades, does not halt the run"
       - "max_output is a conservative probe-pending estimate — re-verify against provider docs before sizing batches"
       - "Batch API (50% discount) not supported by run.py in this version — must dispatch via standard API"
+      - "code-ineligible: routable_for omits bounded-code + unbounded-code (D13) — route.py gates code on routable_for, not on the coding score; dispatching a code leaf here is a routing violation"
 
     # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
     # Repurposed API-worker values per manifest-schema.md §2a:
@@ -91,15 +112,26 @@ variants:
     # MODEL-ID NOTE: same as 3.5-flash above — "3.1-flash-lite" is the RBTV routing label and IS the live
     # Gemini API model id (`gemini-3.1-flash-lite`, id + price live-confirmed 2026-06-09, p6-1 pilot, D-exec-15).
 
-    # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: mid             # confirmed mid (was routing-matrix estimate): Gemini 3.1 Flash-Lite GPQA Diamond 86.9 — above Haiku, below the Flash tier; cost-optimized with Thinking support; partially-bounded with doubt_policy: halt (2026-06-11)
+    # --- capability + cost scores + sizing (routing §2, §8) — scale: schema §0 (integer 1–7) ---
+    reasoning: 2                          # AA Intelligence Index 34 (Gemini 3.1 Flash-Lite); below the bin-3 floor of 37; real reasoner at bottom of roster; GPQA 42, HLE 16
+    coding: 1                             # Terminal-Bench Hard 24 (HONEST board score per D13 → bin 1); weakest agentic coding; code-ineligibility via routable_for
+    cost: 2                               # AA Blended Price $0.22 → bin 2 (low)
+    axis_evidence:
+      reasoning: { source: "aa-ii(34);gpqa(42);hle(16)", confidence: medium }   # medium: II is firm but at the bottom edge; cross-checks confirm
+      coding:    { source: "aa-tbh(24)", confidence: high }   # D13 honest score from the AA board TBH column
+    cost_evidence: { source: "aa-blended($0.22)→bin2", confidence: high }
     context_window: 1000000         # 1M tokens per Google Gemini Flash class; re-verify against provider docs before pilot
     max_output: 8192                # conservative estimate — re-verify against provider docs before pilot; routing-matrix §4 does not specify
 
-    # --- budget + capability gates (routing §2, §6) ---
-    cost_class: cheapest            # $0.25/$1.50 per MTok input/output (routing-matrix §4) — cheapest Gemini variant; the cost-floor pick
-    code_competence: none           # API chat worker — not a code executor
+    # --- role eligibility (routing §2 GATE, independent of capability — D13) ---
     web_access: true                # search grounding available — same web capability as 3.5-flash
+    routable_for: [reasoning, text-synthesis, web-research, other]   # D13: same as 3.5-flash — code-ineligible, has native web → web-research included
+
+    # --- reasoning / effort modes (schema §0a) ---
+    reasoning_modes:
+      depths: ["off", "on"]          # thinkingBudget: 0 = off / non-zero = on
+      invocation: "thinkingBudget (0 = off)"
+      carrier: "API param"
 
     # --- parallelism + resume (routing §8, §4) ---
     parallel_safe: true             # stateless HTTP API; concurrent calls safe under disjoint output folders
@@ -135,7 +167,7 @@ variants:
     invocation_pointer: ./manual.md
     manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/gemini-api/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/gemini-api/delta.md
-    specialty: "cheapest web-grounded / volume processing — the cost-floor grounded Gemini variant for high-volume or cost-critical grounded lookups; same search-grounding web capability as 3.5-flash, lower per-token cost"   # within-tier tiebreaker only
+    specialty: "cheapest web-grounded / volume processing — the cost-floor grounded Gemini variant for high-volume or cost-critical grounded lookups; same search-grounding web capability as 3.5-flash, lower per-token cost; code-ineligible (routable_for excludes code roles per D13)"   # within-tier tiebreaker only
     failure_modes:
       - "variant names are the live Gemini API ids (gemini-3.5-flash / gemini-3.1-flash-lite), id + price-confirmed 2026-06-09 (D-exec-15); re-verify only after a provider model refresh"
       - "grounded dispatch (--grounded) is mutually exclusive with JSON-envelope mode: gemini.py swaps responseMimeType:application/json for the google_search tool, so a grounded call returns DONE_WITH_NOTES + raw-output.md and NO return.json — the conductor must expect the raw-dump return surface, not the standard five-field envelope"
@@ -143,6 +175,7 @@ variants:
       - "API key absent → package unavailable; router degrades"
       - "max_output is a conservative probe-pending estimate — re-verify before sizing batches"
       - "Batch API (50% discount) not supported by run.py in this version"
+      - "code-ineligible: routable_for omits bounded-code + unbounded-code (D13) — route.py gates code on routable_for, not on the coding score; dispatching a code leaf here is a routing violation"
 
     # --- swarm / sub-conducting ---
     # Repurposed API-worker values per manifest-schema.md §2a:

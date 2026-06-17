@@ -85,8 +85,8 @@ The claude manifest declares two routable variants — route on `(claude, varian
 
 | Variant | Tier | When |
 |---------|------|------|
-| `opus` | `reasoning_tier: top`, `cost_class: high` | Judgment-dense work and cross-artifact coherence; the unbounded leaf of the boundedness tree; the external-CLI **code-review reviewer floor** (reviewer for kimi/codex code is Opus — route it here). Max-reasoning Claude. |
-| `sonnet` | `reasoning_tier: mid`, `cost_class: mid` | Partially-bounded work with `doubt_policy: halt`, and zero-context verification personas (recon, research, cold-verify, commits). The default routable Agent-tool Claude variant; the carrier for the commit worker (an Agent-tool sonnet invoking `rbtv-commit`). |
+| `opus` | `reasoning: 7`, `coding: 6`, `cost: 6` | Judgment-dense work and cross-artifact coherence; the unbounded leaf of the boundedness tree; the external-CLI **code-review reviewer floor** (reviewer for kimi/codex code is Opus — route it here). Max-reasoning Claude. |
+| `sonnet` | `reasoning: 6`, `coding: 5`, `cost: 5` | Partially-bounded work with `doubt_policy: halt`, and zero-context verification personas (recon, research, cold-verify, commits). The default routable Agent-tool Claude variant; the carrier for the commit worker (an Agent-tool sonnet invoking `rbtv-commit`). |
 
 **haiku is NOT a routable variant** (vault routing floors at sonnet absent a user-approved delegation map naming haiku — routing card §7 Haiku-clause). The cheapest NON-HAIKU Claude tier this package ships is `sonnet`; route a mechanical Agent-tool batch there unless an approved delegation map names haiku.
 

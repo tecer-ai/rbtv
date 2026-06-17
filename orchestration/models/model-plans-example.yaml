@@ -1,29 +1,23 @@
 # model-plans-example.yaml
 # Tracked example — fictional values demonstrating the schema shape.
+# Cap-only (D14): the only per-model field is context_window. Cost lives in the
+# model manifests as a board-derived 1-7 integer (D11), never here.
 # The pointer in rbtv.json may target ANY path; rbtv NEVER hardcodes .user/.
-# Replace with real plan data at p2-checkpoint.
+# The installer fills context_window from a per-model plan-size preset pick-list.
 ---
 plans:
   - model: codex-cli
     plan_name: basic
     context_window: 200000
-    cost_usd_per_m_in: 0.15
-    cost_usd_per_m_out: 0.60
 
   - model: claude-code-native
     plan_name: pro
     context_window: 200000
-    cost_usd_per_m_in: 3.00
-    cost_usd_per_m_out: 15.00
 
   - model: kimi-code-cli
     plan_name: free
     context_window: 128000
-    cost_usd_per_m_in: 0.00
-    cost_usd_per_m_out: 0.00
 
   - model: qwen-code-cli
     plan_name: developer
     context_window: 256000
-    cost_usd_per_m_in: 0.40
-    cost_usd_per_m_out: 1.20

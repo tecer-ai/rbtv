@@ -34,15 +34,19 @@ from .manifest import Module, load_manifest
 from .orchestration import (
     bake_availability_line,
     build_electable_entries,
+    build_plan_size_presets,
     check_manual_render,
     discover_model_displays,
     discover_model_packages,
     normalize_model_variants,
+    read_manifest_context_ceiling,
+    read_model_plan_caps,
     remove_hook_entry,
     resolve_selected_packages,
     resolve_selection_from_entry_ids,
     sync_hook_entry,
     sync_permission_rules,
+    write_model_plan_caps,
 )
 from .state import find_state_upward, read_state, update_mirror_state, write_state
 
@@ -491,6 +495,97 @@ def _resolve_model_plans_file(
         allow_empty=True,
     ).strip()
     return entered or None
+
+
+def _prompt_plan_size(
+    label: str, presets: list[tuple[str, int | None]], prior: int | None
+) -> int | None:
+    """Pick-list (numbered menu) for ONE model's plan size (D14 — never a raw token entry).
+
+    Prints each preset as a numbered choice; the option matching `prior` (a re-installed
+    workspace's previously-chosen cap, or None for first install) is marked the default and
+    is chosen on a bare Enter — re-confirming the prior value, never wiping it. Returns the
+    chosen context_window (int) or None ("no cap"). Out-of-range / non-numeric input
+    re-prompts.
+    """
+    from .tui import text_input
+
+    # The default index: the preset whose value equals `prior`; else the "No cap" row.
+    default_index = 0
+    for i, (_, val) in enumerate(presets):
+        if val == prior:
+            default_index = i
+            break
+
+    print(f"\n  Plan size for {label}:")
+    for i, (preset_label, _) in enumerate(presets):
+        marker = "  (current)" if i == default_index else ""
+        print(f"    {i + 1}) {preset_label}{marker}")
+
+    def _validate(value: str) -> str | None:
+        if not value.isdigit():
+            return "Enter the NUMBER of a choice above."
+        n = int(value)
+        if not (1 <= n <= len(presets)):
+            return f"Choose 1–{len(presets)}."
+        return None
+
+    chosen = text_input(
+        "  Choose a plan size by number",
+        default=str(default_index + 1),
+        validator=_validate,
+    )
+    return presets[int(chosen) - 1][1]
+
+
+def _resolve_model_plan_caps(
+    rbtv_root: Path,
+    target_root: Path,
+    model_plans_file: str | None,
+    installed_packages: list[str],
+    non_interactive: bool,
+    used_modules_flag: bool,
+) -> tuple[bool, str] | None:
+    """Offer per-model plan-size PRESETS and write the chosen caps to model-plans.yaml (D14).
+
+    For each elected package, the owner picks a plan size from a numbered menu (never a raw
+    token number); the chosen `context_window` is written cap-only to the file pointed at by
+    `model_plans_file`. A previously-chosen cap is read back from that file and offered as the
+    pre-selected default — re-confirmed on reinstall, never silently wiped.
+
+    Returns the write (changed, message), or None when the step does not apply:
+      - no model_plans_file pointer (nothing to write into),
+      - no elected packages,
+      - the scripted path (non-interactive / --modules): the existing caps are PRESERVED
+        verbatim (no prompts), so a CI re-install never wipes a hand-/installer-set cap.
+    """
+    if not model_plans_file or not installed_packages:
+        return None
+
+    plans_path = (target_root / model_plans_file).resolve()
+    prior_caps = read_model_plan_caps(plans_path)
+    displays = discover_model_displays(rbtv_root)
+
+    # Scripted path: preserve every prior cap verbatim, prompt for nothing. A package
+    # with no prior cap stays uncapped. Re-confirms by re-writing the same values, so a
+    # stale cost row in an old file is dropped (the file is rebuilt cap-only).
+    if non_interactive or used_modules_flag:
+        caps: dict[str, int | None] = {
+            pkg: prior_caps.get(pkg) for pkg in installed_packages
+        }
+        return write_model_plan_caps(plans_path, caps, displays)
+
+    print(
+        "\n  Set each model's plan size (the context-window cap your subscription "
+        "enforces).\n  Pick a size from the menu — a current value is re-confirmed on Enter."
+    )
+    caps = {}
+    for pkg in installed_packages:
+        ceiling = read_manifest_context_ceiling(rbtv_root, pkg)
+        presets = build_plan_size_presets(ceiling)
+        label = displays.get(pkg, pkg)
+        caps[pkg] = _prompt_plan_size(label, presets, prior_caps.get(pkg))
+    return write_model_plan_caps(plans_path, caps, displays)
 
 
 def _import_mirror_driver(rbtv_root: Path):
@@ -1077,6 +1172,27 @@ def main(argv: list[str] | None = None) -> int:
         # because the hook is module-scoped (not package-scoped).
         _, hook_msg = sync_hook_entry(ctx.target_root, ctx.rbtv_relative)
         print(f"  {hook_msg}")
+        # Per-model plan-size presets → write the chosen context-window caps into
+        # model-plans.yaml (D14, p4-3). The effective pointer is the freshly-resolved
+        # value or the carried-forward one from rbtv.json. A prior cap is re-confirmed
+        # (offered as the default), never silently wiped. Only context_window is
+        # written — cost is board-derived in the manifests (D11). Advisory: a None
+        # result means the step did not apply (no pointer / no elected packages).
+        effective_plans_file = model_plans_file_value
+        if effective_plans_file is None and existing_state is not None:
+            recorded = existing_state.get("model_plans_file")
+            if isinstance(recorded, str):
+                effective_plans_file = recorded
+        plan_caps_result = _resolve_model_plan_caps(
+            rbtv_root=rbtv_root,
+            target_root=ctx.target_root,
+            model_plans_file=effective_plans_file,
+            installed_packages=mp_installed,
+            non_interactive=args.non_interactive,
+            used_modules_flag=bool(args.modules),
+        )
+        if plan_caps_result is not None:
+            print(f"  {plan_caps_result[1]}")
         # Render-freshness check is advisory (WARN, never abort) — matches the
         # plugin-prereq convention. A stale manual degrades gracefully (manuals
         # are read JIT from the source repo; the routing card trusts the live

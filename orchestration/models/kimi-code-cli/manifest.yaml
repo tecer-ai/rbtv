@@ -1,31 +1,48 @@
-# Kimi capability manifest — the routing card's data interface for the kimi package.
+# Kimi capability manifest — the routing card's data interface for the kimi-code-cli package.
 # Schema + field meanings + routing-card consumers: ../manifest-schema.md
 # Sources: kimi-cli-reference.md (Kimi CLI 1.41.0, verified 2026-06-03) + rbtv-kimi-code-orchestration.md
 #          (the validated kimi contract) + the live ~/.kimi/config.toml on this machine (2026-06-07).
 # The most-validated worker: 3 hypresent sessions + 2 inni phases (~66 dispatches).
+# Capability values (reasoning/coding/cost integers + evidence) transcribed from:
+#   value-derivation.md (2026-06-16 ratified table, R2 final) — board source AA leaderboard.
+#
+# SCHEMA MIGRATION (2026-06-16, p2-m-cli): old band/tier fields replaced by integer 1–7 per manifest-schema.md §0/D11.
+# D6 COLLAPSE applied: 2 per-effort variants (default/no-thinking) → 1 per-model variant (kimi).
+# The think/no-think modes live in reasoning_modes as the post-pin dial, NOT separate variant rows.
+# Capability (reasoning 6 / coding 4 / cost 3) is the model integer — the effort dial is post-pin only.
 # The exact invocation shape (commands, flags, exit codes, resume, recovery) is in ./manual.md
 # (rendered from ./delta.md by ../render-manuals.py) — this manifest points to it, never duplicates it.
 
 model: kimi-code-cli
 display: "kimi-code (CLI)"
 evidence_status: validated   # 3 hypresent sessions + 2 inni phases (~66 dispatches); the validated bounded-code executor
-permission_rules:            # installer-managed allowlist entries in the target's .claude/settings.local.json (D17) — added when this package is elected, removed when deselected; schema: ../manifest-schema.md
+permission_rules:            # installer-managed allowlist entries in the target's .claude/settings.local.json — added when this package is elected, removed when deselected; schema: ../manifest-schema.md
   - "Bash(kimi:*)"
   - "PowerShell(kimi:*)"
 
 variants:
-  - variant: default   # built-in `default` agent, thinking ON (live config default_thinking = true); the validated bounded-code profile
+  - variant: kimi   # Kimi K2.6 — ONE model row (D6 collapse); the think/no-think modes are the post-pin effort dial in reasoning_modes
 
-    # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: non-reasoning   # RBTV operating model treats Kimi as a non-reasoning executor (kimi-cli-reference §12, M1) — pre-resolve every decision at planning time; thinking-on does NOT lift it to a judgment worker
+    # --- capability + cost scores + sizing (routing §2, §8) — scale: schema §0 (integer 1–7, comparable across all models) ---
+    reasoning: 6                           # AA II 54 (top open-weight model, top-cluster); GPQA 53; HLE 36 — notable upgrade from the band scaffold's "medium" (clears the 6 floor of 54)
+    coding: 4                              # Terminal-Bench Hard 44 — bounded agentic coder; the design's intended "bounded, not strong" placement on TBH
+    cost: 3                                # board blended price $0.70/1M → bin 3 (mid); the cost-saving code worker external to the Claude budget
+    axis_evidence:
+      reasoning: { source: "aa-ii(54);gpqa(53);hle(36)", confidence: high }
+      coding:    { source: "aa-tbh(44)", confidence: high }
+    cost_evidence: { source: "aa-blended($0.70)→bin3", confidence: high }
     context_window: 262144          # live-confirmed against ~/.kimi/config.toml max_context_size = 262144 (256K) on 2026-06-07; RBTV operates a ~250K inlined-fact budget (§11, M1)
     max_output: 65536               # model/provider-determined; NOT exposed in local kimi config (no max_output/max_tokens key) — value from the design budget, not separately discoverable on this machine
 
-    # --- budget + capability gates (routing §2, §6) ---
-    cost_class: low                 # cheap bounded-code executor (learnings — Kimi engineering external to the Claude budget; positioned as the cost-saving code worker)
-    code_competence: bounded        # the validated bounded-code executor (default for bounded code, routing §4)
+    # --- role eligibility (routing §2, §6) ---
     web_access: true                # `default` agent includes web tools (SearchWeb, FetchURL) — strippable via agent-file exclude_tools
     multimodal: [image, video]      # live configured model (kimi-for-coding / Kimi-k2.6) carries capabilities ["image_in","thinking","video_in"]; image input still FAILS if a future model config lacks image_in (failure_modes)
+
+    # --- reasoning / effort modes (routing §2 post-pin effort=f(boundedness) — schema §0a) ---
+    reasoning_modes:
+      depths: [no-think, think]     # Kimi K2.6: think ON = thinking mode, no-think = lower-latency; ONE model, TWO effort modes (post-pin dial)
+      invocation: "--thinking / --no-thinking"
+      carrier: "CLI flag"
 
     # --- parallelism + resume (routing §8, §4) ---
     parallel_safe: true             # multiple independent workers run concurrently under disjoint allowlists (validated 3-/4-/6-wide); Kimi's own subagents also run in parallel
@@ -33,7 +50,7 @@ variants:
 
     # --- non-interactive run (routing §4 → dispatch-wrapper) ---
     headless:
-      flags: --quiet                # alias for --print --output-format text --final-message-only → prints ONLY the final message
+      flags: --quiet                # alias for --print --output-format text --final-message-only → prints ONLY the final message; add --no-thinking for the no-think depth post-pin
       auto_approves_tools: true     # --print/--quiet implicitly enable --afk: every tool call auto-approved, AskUserQuestion auto-dismissed, NO native allowlist (kimi-cli-reference §2 warning)
       prompt_transport: either      # --prompt/-p CLI arg OR stdin pipe (cat prompt.md | kimi --print --input-format text --final-message-only); stdin is the default for prompts ≥30 KB / autonomous mode (Windows ARG_MAX ~32 KB)
 
@@ -56,10 +73,10 @@ variants:
       write_enforcement: git-diff-vs-allowlist   # NO native path allowlist — post-run git diff of every changed path vs the task allowlist is the ONLY reliable enforcement; out-of-allowlist = halt + surface, never auto-revert
 
     # --- invocation + failures (routing §4, §2) ---
-    invocation_pointer: ./manual.md   # rendered dispatch manual (../render-manuals.py) — the exact command shape
-    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/kimi-code-cli/manual.md
+    invocation_pointer: ./manual.md
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/kimi-code-cli/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/kimi-code-cli/delta.md
-    specialty: "the validated bounded-code executor — the cost-saving code worker (external to the Claude budget), most-piloted (~66 dispatches); spec-backed bounded code with local commit + session-id resume"   # within-tier tiebreaker only; boundedness-first stays the master cut
+    specialty: "the validated bounded-code executor — the cost-saving code worker (external to the Claude budget), most-piloted (~66 dispatches); spec-backed bounded code with local commit + session-id resume; reasoning 6 (notable AA upgrade from band)"   # within-tier tiebreaker only; boundedness-first stays the master cut
     failure_modes:
       - "headless (--print/--quiet/--afk/--yolo) auto-approves every tool call — no interactive gate, no native allowlist; enforce scope externally"
       - "no native path allowlist — out-of-scope writes caught ONLY by post-run diff; always diff every changed path vs the allowlist"
@@ -83,69 +100,3 @@ variants:
 
     os_quirks:
       windows: "PowerShell or Git Bash; pipe the prompt via stdin for prompts ≥~32 KB (ARG_MAX ceiling) — Git Bash/MSYS2 and PowerShell both cap a single arg ~32 KB; check $LASTEXITCODE for 0/1/75 retry logic"
-
-  - variant: no-thinking   # --no-thinking: lower-latency profile for fully-bounded mechanical work where step-by-step reasoning adds no value
-    evidence_status: validated   # same CLI + same validated contract; only the --thinking toggle differs from `default`
-
-    # --- boundedness + sizing ---
-    reasoning_tier: non-reasoning   # still a non-reasoning executor; --no-thinking just drops the visible thinking stream — never route judgment-dense work here
-    context_window: 262144          # same configured model (max_context_size = 262144)
-    max_output: 65536               # same provider-determined ceiling
-
-    # --- budget + capability gates ---
-    cost_class: cheapest            # cheapest kimi profile — no thinking tokens emitted; the cost-floor pick for trivially-bounded mechanical batches
-    code_competence: bounded        # same executor competence
-    web_access: true                # same `default` agent web tools
-
-    # --- parallelism + resume ---
-    parallel_safe: true
-    resume_support: session-id
-
-    # --- non-interactive run ---
-    headless:
-      flags: --quiet --no-thinking  # --quiet plus the explicit --no-thinking toggle (config default_thinking = true, so it must be set per-dispatch)
-      auto_approves_tools: true
-      prompt_transport: either
-
-    # --- auth pre-flight ---
-    auth:
-      required: true
-      method: cli-login
-      interactive: true
-
-    rate_budget_notes: "same exit-code semantics as the default variant (75 retryable, 1 non-retryable); no thinking tokens → marginally lower spend per dispatch"
-
-    # --- tool surface + confinement ---
-    tool_surface:
-      native: [shell, file, search, web, plan]
-      mcp: true
-      agent_file: true
-    confinement:
-      workspace_scope: "--work-dir (repo root) + --add-dir for extra dirs"
-      tool_restriction: "agent-file tools / exclude_tools"
-      write_enforcement: git-diff-vs-allowlist
-
-    # --- invocation + failures ---
-    invocation_pointer: ./manual.md   # same rendered manual; the no-thinking flag is documented there
-    manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/kimi-code-cli/manual.md
-    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/kimi-code-cli/delta.md
-    specialty: "cheapest fully-bounded mechanical code execution — the cost-floor kimi profile (no thinking tokens) for trivially-bounded batches where step-by-step reasoning adds no value"   # within-tier tiebreaker only
-    failure_modes:
-      - "headless auto-approves every tool call — no native allowlist; enforce scope externally"
-      - "no native path allowlist — always diff every changed path vs the allowlist"
-      - "cd does not persist between shell calls — set --work-dir, never rely on cd chaining"
-      - "exit 75 on the final return turn — recover via the exit-75 protocol, never blind-retry"
-
-    # --- guidance file ---
-    guidance_file:
-      convention: AGENTS.md
-      mirror_entry: kimi-mirror
-
-    # --- swarm / sub-conducting ---
-    swarm_support:
-      subagents: true
-      nesting: one-level
-      default: disabled
-
-    os_quirks:
-      windows: "pipe the prompt via stdin for prompts ≥~32 KB; check $LASTEXITCODE for 0/1/75 retry logic"

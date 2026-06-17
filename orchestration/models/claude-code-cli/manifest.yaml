@@ -1,15 +1,16 @@
 # Claude-cli capability manifest — the routing card's data interface for the claude-code-cli package.
 # Schema + field meanings + routing-card consumers: ../manifest-schema.md
-# Sources (every value traces to one of these — zero assumption-authored fields):
-#   - p3-6 in-house probe: 1-projects/rbtv-evolution/coding/done-gate-evidence/rbtv/2026-06-07-claude-cli-probe.md
-#     (+ sibling capture folder 2026-06-07-claude-cli-probe/; capture filenames cited in ./delta.md).
-#     Probe environment: Windows 11, Claude Code 2.1.168. Verdict HELD — the D7 nesting override is validated in-house.
-#   - claude --help (probe capture helper-help.txt) — flag source of truth for the installed build.
-#   - Claude sub-agent learnings: 1-projects/rbtv-evolution/orchestration/learnings/learnings-claude-subagents.md
-#     (the opus/sonnet/haiku role→tier mapping the variants below encode).
-#   - Corroboration: 3-resources/knowledge-base/raw/medium/2026-06-06-building-a-production-agent-harness-*.md
-#     (headless Claude via --permission-mode bypassPermissions; writes-outside-scope auto-reverted via git diff;
-#      `git push`/operation exit code is ground truth, never the model's prose; session resume by UUID; worktree isolation).
+# Sources: p3-6 in-house probe: 1-projects/rbtv-evolution/coding/done-gate-evidence/rbtv/2026-06-07-claude-cli-probe.md
+#   (+ sibling capture folder 2026-06-07-claude-cli-probe/; capture filenames cited in ./delta.md).
+#   Probe environment: Windows 11, Claude Code 2.1.168. Verdict HELD — the D7 nesting override is validated in-house.
+#   claude --help (probe capture helper-help.txt) — flag source of truth for the installed build.
+#   Claude sub-agent learnings: 1-projects/rbtv-evolution/orchestration/learnings/learnings-claude-subagents.md
+#   (the opus/sonnet/haiku role→tier mapping the variants below encode).
+#   Corroboration: 3-resources/knowledge-base/raw/medium/2026-06-06-building-a-production-agent-harness-*.md
+#   (headless Claude via --permission-mode bypassPermissions; writes-outside-scope auto-reverted via git diff;
+#    `git push`/operation exit code is ground truth, never the model's prose; session resume by UUID; worktree isolation).
+# Capability values (reasoning/coding/cost integers + evidence) transcribed from:
+#   value-derivation.md (2026-06-16 ratified table, R2 final) — board source AA leaderboard.
 # The exact invocation shape (commands, flags, exit codes, resume, the unique native-CLAUDE.md property) is in ./manual.md
 # (rendered from ./delta.md by ../render-manuals.py) — this manifest points to it, never duplicates it.
 #
@@ -18,79 +19,93 @@
 # workspace's OWN CLAUDE.md IS the guidance file, there is NO mirror: `guidance_file` records the native convention but
 # omits `mirror_entry` (no mirror-config.yaml ships — see ./delta.md "Workspace rooting" and ../../../shape.md mirror ruling).
 # Same Claude budget as the conductor — selecting claude-code-cli is NOT cost arbitrage (no cheaper-provider saving like kimi).
+#
+# SCHEMA MIGRATION (2026-06-16, p2-m-cli): old band/tier fields replaced by integer 1–7 per manifest-schema.md §0/D11.
+# Fable REMOVED from roster (US-gov restricted; owner re-adds later). Haiku ADDED per value-derivation.md.
+# reasoning_modes axis stores effort ladder (5 levels for opus/sonnet; [] for haiku single-mode).
 
 model: claude-code-cli
 display: "claude-code (CLI)"
 evidence_status: validated   # the invocation contract (launch from a helper, JSON envelope, --model, acceptEdits, native CLAUDE.md load, --resume, exit semantics) is in-house probe-HELD (p3-6). The first real ORCHESTRATED sub-conductor dispatch through this manual is the p5-2 smoke probe — facets beyond the probe matrix (a full task-bearing dispatch, deep recovery) are exercised there.
-permission_rules:            # installer-managed allowlist entries in the target's .claude/settings.local.json (D17) — added when this package is elected, removed when deselected; schema: ../manifest-schema.md
+permission_rules:            # installer-managed allowlist entries in the target's .claude/settings.local.json — added when this package is elected, removed when deselected; schema: ../manifest-schema.md
   - "Bash(claude:*)"
   - "PowerShell(claude:*)"
 
 variants:
-  - variant: opus   # the judgment-dense / sub-conductor profile — max-reasoning Claude as a CLI worker (the learnings keystone tier)
+  - variant: opus   # the judgment-dense / sub-conductor profile — max-reasoning Claude as a CLI worker
 
-    # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: top             # opus is the max-reasoning Claude (learnings §1: opus = the keystone, used where cross-artifact coherence or judgment-under-ambiguity is the deliverable); the judgment-dense / sub-conductor tier
+    # --- capability + cost scores + sizing (routing §2, §8) — scale: schema §0 (integer 1–7, comparable across all models) ---
+    reasoning: 7                           # AA II 61 (#2 globally on-board); GPQA 53; HLE 46 — frontier
+    coding: 6                              # Terminal-Bench Hard 58 — strong agentic coder (SciCode cross-check 62 noted in value-derivation native table; cli coding evidence is TBH-only per value-derivation cli table)
+    cost: 6                                # board blended price $3.85/1M → bin 6 (premium); subscription@board-price,no-discount (D11)
+    axis_evidence:
+      reasoning: { source: "aa-ii(61);gpqa(53);hle(46)", confidence: high }
+      coding:    { source: "aa-tbh(58)", confidence: high }
+    cost_evidence: { source: "aa-blended($3.85)→bin6; subscription@board-price,no-discount", confidence: high }
     context_window: 1000000         # probe-observed: the DEFAULT model on this machine was claude-opus-4-8[1m], JSON modelUsage.contextWindow = 1e6 (1M ctx); user-config-dependent — re-confirm via a JSON probe on the target machine, NOT a constant
     max_output: 64000               # claude-opus-4-8[1m] single-turn output ceiling (model/provider-determined); JSON modelUsage.maxOutputTokens reports the live value per dispatch — read it there rather than assuming
 
-    # --- budget + capability gates (routing §2, §6) ---
-    cost_class: high                # opus is the costliest tier; probe Opus calls ≈ $0.22/call (JSON total_cost_usd). NOTE: same Claude budget as the conductor — choosing claude-code-cli buys a PROCESS BOUNDARY (sub-conductor / native workspace rules), NOT a cheaper provider; there is no cost arbitrage here (contrast kimi/codex)
-    code_competence: strong         # full Claude Code tool surface (Edit/Write/Bash/etc.) — a strong code executor and reviewer; reviewer floor for external-CLI code is Opus, which this variant IS
+    # --- role eligibility (routing §2, §6) ---
     web_access: true                # Claude Code carries native web tools (WebSearch/WebFetch) + the rbtv-web-searching skill when run in an rbtv workspace; research-leaf capable
     # multimodal: [image]           # Claude accepts image input in interactive use; OMITTED — no image dispatch was probed in p3-6 (validated-evidence-only; add only after an image-path probe)
 
+    # --- reasoning / effort modes (routing §2 post-pin effort=f(boundedness) — schema §0a) ---
+    reasoning_modes:
+      depths: [low, medium, high, xhigh, max]   # Claude's 5 effort levels, measurable per [prep] §13
+      invocation: "--effort {level}"
+      carrier: "CLI-only via claude -p"
+
     # --- parallelism + resume (routing §8, §4) ---
-    parallel_safe: true             # independent `claude -p` invocations are separate OS subprocesses — runnable concurrently under disjoint allowlists / separate worktrees (corroboration: the harness runs concurrent Claude Code subprocesses, one per worktree). Concurrent-wave behavior was not stress-probed in p3-6 — verify on first parallel use; isolate parallel code workers in worktrees
-    resume_support: session-id      # probe H7: a JSON run emits session_id; `claude -p --resume <session_id> "<next>"` restored the prior turn (recalled the earlier string). --fork-session forks instead of continuing; --session-id <uuid> pins an id; --no-session-persistence disables save
+    parallel_safe: true             # independent `claude -p` invocations are separate OS subprocesses — runnable concurrently under disjoint allowlists / separate worktrees
+    resume_support: session-id      # probe H7: a JSON run emits session_id; `claude -p --resume <session_id> "<next>"` restored the prior turn
 
     # --- non-interactive run (routing §4 → dispatch-wrapper) ---
     headless:
-      flags: "-p --output-format json"   # -p / --print = non-interactive print-and-exit (probe: all H rows); --output-format json yields the parseable envelope (result, session_id, total_cost_usd, modelUsage.{contextWindow,maxOutputTokens}, permission_denials[], is_error, num_turns, duration_ms). text is the default bare-text format
-      auto_approves_tools: false    # claude -p does NOT auto-approve every tool by default — permission MODE governs it. For unattended writes pass --permission-mode acceptEdits (probe H4-accept; the explicit/portable guarantee). GUARDRAIL: the probe's no-flag negative control ALSO wrote (H4-default) — the workspace default permission mode already permitted writes; do NOT assume default = read-only. Specify the mode explicitly; never rely on bypassPermissions for confinement
-      prompt_transport: arg         # the prompt is the -p argument (probe: all H rows). stdin MUST be redirected ($null | / < NUL / < /dev/null) or the CLI waits 3s then warns "no stdin data received in 3s" (probe C1 vs C2/H-rows) — see os_quirks.windows. A large prompt is written to a prompt file and passed as the arg (header+payload reuse surface, dispatch-wrapper §1)
+      flags: "-p --output-format json"   # -p / --print = non-interactive print-and-exit; --output-format json yields the parseable envelope
+      auto_approves_tools: false    # claude -p does NOT auto-approve every tool by default — permission MODE governs it. For unattended writes pass --permission-mode acceptEdits. GUARDRAIL: the probe's no-flag negative control ALSO wrote (H4-default) — the workspace default permission mode already permitted writes; do NOT assume default = read-only. Specify the mode explicitly
+      prompt_transport: arg         # the prompt is the -p argument (probe: all H rows). stdin MUST be redirected ($null | / < NUL / < /dev/null) or the CLI waits 3s then warns "no stdin data received in 3s" — see os_quirks.windows
 
     # --- auth pre-flight (routing §1 → halt-recovery USER-EXECUTED-ONLY) ---
     auth:
       required: true
-      method: cli-login             # Claude Code CLI is already authenticated on a machine running this orchestration (the conductor IS Claude Code) — same login. No separate provisioning when dispatching on the same machine/user
-      interactive: false            # on a machine where Claude Code already runs, no fresh interactive auth is needed for `claude -p` (the probe ran 8 API dispatches in-helper with no login step). A brand-new machine needs a one-time interactive `claude` login (USER-EXECUTED-ONLY) — but that is the conductor's own setup, not a per-dispatch pre-flight
+      method: cli-login             # Claude Code CLI is already authenticated on a machine running this orchestration — same login. No separate provisioning when dispatching on the same machine/user
+      interactive: false            # on a machine where Claude Code already runs, no fresh interactive auth is needed for `claude -p`
 
-    rate_budget_notes: "same Claude account/budget as the conductor — NOT a cost saving (no cheaper-provider arbitrage; contrast kimi/codex). Per-call cost from JSON total_cost_usd (probe: Opus ≈ $0.22, Sonnet ≈ $0.04-0.17, cache-creation-dominated on a cold first turn). Budget guards available, not probed: --max-budget-usd <amount> and --fallback-model <model> (both print-mode, per --help) — relevant when an autonomous dispatch must cap spend. Invalid flag → exit 1 BEFORE any API spend (probe H6), so a malformed dispatch wastes nothing"
+    rate_budget_notes: "same Claude account/budget as the conductor — NOT a cost saving (no cheaper-provider arbitrage; contrast kimi/codex). Per-call cost from JSON total_cost_usd (probe: Opus ≈ $0.22, cache-creation-dominated on a cold first turn). Budget guards available, not probed: --max-budget-usd <amount> and --fallback-model <model> — relevant when an autonomous dispatch must cap spend. Invalid flag → exit 1 BEFORE any API spend (probe H6)"
 
     # --- tool surface + confinement (routing §2, §4, §8) ---
     tool_surface:
-      native: [shell, file, web]    # full Claude Code tool surface: Bash (shell), Read/Edit/Write (file), WebSearch/WebFetch (web), plus Glob/Grep/Task etc. --allowedTools / --disallowedTools scope the set (corroboration: the harness ran Claude with --disallowedTools Bash to prevent git races in read-only pipelines)
-      mcp: true                     # Claude Code loads MCP servers (--mcp-config / the workspace .mcp.json); the conductor's MCP catalog is available to a same-workspace dispatch
-      agent_file: false             # no per-dispatch agent-file tool spec like kimi's --agent-file. The tool set is governed by --allowedTools/--disallowedTools + --permission-mode (+ the natively-loaded workspace CLAUDE.md rules), not an agent file
+      native: [shell, file, web]    # full Claude Code tool surface: Bash (shell), Read/Edit/Write (file), WebSearch/WebFetch (web), plus Glob/Grep/Task etc.
+      mcp: true                     # Claude Code loads MCP servers (--mcp-config / the workspace .mcp.json)
+      agent_file: false             # no per-dispatch agent-file tool spec like kimi's --agent-file. Tool set governed by --allowedTools/--disallowedTools + --permission-mode
     confinement:
-      workspace_scope: "cwd (run FROM the target workspace root) + --add-dir <dir> for extra dirs"   # primary scoping; cwd doubles as the CLAUDE.md auto-load root (see guidance_file). --add-dir grants tool access beyond cwd (probe contract; confirmed in --help, not separately exercised)
+      workspace_scope: "cwd (run FROM the target workspace root) + --add-dir <dir> for extra dirs"
       tool_restriction: "--allowedTools / --disallowedTools (allow/deny tool families) + --permission-mode; NO agent-file"
-      write_enforcement: git-diff-vs-allowlist   # confinement is the orchestrator's job: --permission-mode acceptEdits AUTHORIZES writes but does not BOUND them to an allowlist — back every dispatch with the post-run git diff --name-only vs the task allowlist (corroboration: the harness auto-reverts writes outside case_dir via post-run git diff). Out-of-allowlist = halt + surface, never auto-revert
+      write_enforcement: git-diff-vs-allowlist   # confinement is the orchestrator's job: --permission-mode acceptEdits AUTHORIZES writes but does not BOUND them to an allowlist — back every dispatch with the post-run git diff --name-only vs the task allowlist
 
     # --- invocation + failures (routing §4, §2) ---
-    invocation_pointer: ./manual.md   # rendered dispatch manual (../render-manuals.py) — the exact command shape
-    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/claude-code-cli/manual.md
+    invocation_pointer: ./manual.md
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/claude-code-cli/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/claude-code-cli/delta.md
     specialty: "process-boundary sub-conductor with native workspace-rule loading — the Claude carrier that itself drives CLI workers (clears the nesting wall as a separate process) and natively auto-loads the cwd CLAUDE.md/rules"   # within-tier tiebreaker only; boundedness-first stays the master cut
     failure_modes:
       - "stdin not redirected → 3s stdin-wait + a 'no stdin data received in 3s' warning that pollutes text stdout (probe C1); ALWAYS redirect stdin ($null | / < NUL / < /dev/null)"
       - "default permission mode is NOT guaranteed read-only — the probe's no-flag write control still wrote the file (H4-default); pass --permission-mode acceptEdits explicitly for an intended unattended write, and NEVER rely on the default for confinement"
       - "--permission-mode authorizes but does not BOUND writes to an allowlist — back every dispatch with post-run git diff --name-only vs the allowlist (the only reliable write confinement; confinement is the orchestrator's job)"
-      - "nesting depth: a claude -p worker is a sub-conductor at depth 2 (conductor → claude -p). It can shell out again, but the depth cap ≤2 FORBIDS relying on deeper Agent-tool nesting — do not design a claude -p worker to dispatch its own Agent-tool sub-agents (the 4× documented nesting wall blocks that anyway)"
-      - "final-turn drop on a CLI worker is possible (the generic CLI-worker lossy-return class) — the JSON envelope or message is a HINT; reconcile landed/validation against git status / git log + cited evidence files on disk. exit 0 + is_error:false is ground truth, not the prose (corroboration: the harness trusts the operation's exit code, never Claude's claim of success)"
+      - "nesting depth: a claude -p worker is a sub-conductor at depth 2 (conductor → claude -p). It can shell out again, but the depth cap ≤2 FORBIDS relying on deeper Agent-tool nesting — do not design a claude -p worker to dispatch its own Agent-tool sub-agents"
+      - "final-turn drop on a CLI worker is possible (the generic CLI-worker lossy-return class) — the JSON envelope or message is a HINT; reconcile landed/validation against git status / git log + cited evidence files on disk. exit 0 + is_error:false is ground truth, not the prose"
       - "--bare DISABLES CLAUDE.md auto-discovery (per --help) — never pass it when the worker needs the workspace rules; it is the opposite of the native-rooting property claude-code-cli is selected for"
 
     # --- guidance file (routing §4 pre-dispatch check) ---
     guidance_file:
-      convention: CLAUDE.md         # CLI-Claude NATIVELY auto-loads the cwd workspace CLAUDE.md (and its rules/skills) and obeys it — probe H5-pos returned the planted codeword, H5-neg (no file) did not. This is the property that distinguishes claude-code-cli from Agent-tool helpers and the other CLI workers
-      # mirror_entry: OMITTED — NO mirror for claude-code-cli. The workspace's OWN CLAUDE.md IS the guidance file; it is loaded natively, not generated. Mirroring CLAUDE.md→CLAUDE.md would be a self-copy where the file exists (and would CLOBBER the user's real CLAUDE.md with a DO-NOT-EDIT banner) and circular where it is absent. The pre-dispatch guidance-file check VERIFIES the target workspace has a CLAUDE.md and that cwd/--add-dir points at it; when absent it inlines the needed rules into the prompt or roots cwd at a CLAUDE.md-bearing dir — it never offers a mirror. No mirror-config.yaml ships in this package. (Ruling: ../../../shape.md mirror Decision, 2026-06-07.)
+      convention: CLAUDE.md         # CLI-Claude NATIVELY auto-loads the cwd workspace CLAUDE.md (and its rules/skills) and obeys it — probe H5-pos returned the planted codeword, H5-neg (no file) did not
+      # mirror_entry: OMITTED — NO mirror for claude-code-cli. The workspace's OWN CLAUDE.md IS the guidance file; it is loaded natively, not generated.
 
     # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
     swarm_support:
-      subagents: true               # Claude Code has the Task (Agent) tool — a claude -p worker CAN launch its own Agent-tool sub-agents in principle. But the 4× documented nesting wall blocks a sub-agent from spawning further sub-agents, and the depth cap ≤2 forbids relying on it. A claude -p worker IS a sub-conductor (the process-boundary escape D7 sanctions); it sub-conducts via further CLI subprocesses, not via deeper Agent nesting
+      subagents: true               # Claude Code has the Task (Agent) tool — a claude -p worker CAN launch its own Agent-tool sub-agents in principle. But the 4× documented nesting wall blocks a sub-agent from spawning further sub-agents, and the depth cap ≤2 forbids relying on it
       nesting: one-level            # depth cap ≤2: conductor → claude -p (one process boundary, probe-exercised). The claude -p worker must NOT be designed to nest Agent-tool sub-agents beneath itself
-      default: disabled             # safe default: dispatch claude -p as a leaf/sub-conductor worker, not as a fan-out parent. Enable sub-conducting only deliberately, within the depth cap
+      default: disabled             # safe default: dispatch claude -p as a leaf/sub-conductor worker, not as a fan-out parent
 
     os_quirks:
       windows: "MANDATORY stdin redirect: `$null | claude -p ...` (PowerShell) or `< NUL` (cmd) or `< /dev/null` (bash) — without it the CLI waits 3s then warns 'no stdin data received in 3s, proceeding without it' (probe C1), wasting latency and polluting text stdout (probe environment: Windows 11, Claude Code 2.1.168). Trust $LASTEXITCODE: 0 = success (is_error:false), 1 = arg-parse/usage error fast (0.4s) BEFORE any API spend (probe H6). Probe-observed durations 0.4-10.1s; no hang was engineered"
@@ -98,15 +113,25 @@ variants:
   - variant: sonnet   # the mid-tier / zero-context-verification profile — the default routable Claude-cli variant
     evidence_status: validated   # --model sonnet was probe-HELD (H3): JSON modelUsage named claude-sonnet-4-6, flag honored; same CLI contract as opus, only the model differs
 
-    # --- boundedness + sizing ---
-    reasoning_tier: mid             # sonnet for partially-bounded work with doubt_policy: halt, and for zero-context verification personas (learnings §1/S3.6: sonnet everywhere coherence-under-ambiguity is NOT the deliverable — recon, research, review, cold-verify, commits)
+    # --- capability + cost scores + sizing ---
+    reasoning: 6                           # AA II 52 (bin 5 anchor) raised to 6 by Hard-Prompts cross-check (arena HP #2 of roster, Elo 1503) per D9
+    coding: 5                              # Terminal-Bench Hard 53 — capable agentic coder
+    cost: 5                                # board blended price $2.31/1M → bin 5; subscription@board-price,no-discount (D11)
+    axis_evidence:
+      reasoning: { source: "aa-ii(52);gpqa(47);hle(30);arena-hp(1503,#2)", confidence: high }
+      coding:    { source: "aa-tbh(53)", confidence: high }
+    cost_evidence: { source: "aa-blended($2.31)→bin5; subscription@board-price,no-discount", confidence: high }
     context_window: 200000          # probe H3: --model sonnet → JSON modelUsage.claude-sonnet-4-6 contextWindow = 2e5 (200K)
-    max_output: 32000               # probe H3: --model sonnet → JSON modelUsage.claude-sonnet-4-6 maxOutputTokens = 32000 (NOT 64000 — that is the opus ceiling); read JSON modelUsage.maxOutputTokens per dispatch for the live value
+    max_output: 32000               # probe H3: --model sonnet → JSON modelUsage.claude-sonnet-4-6 maxOutputTokens = 32000 (NOT 64000 — that is the opus ceiling)
 
-    # --- budget + capability gates ---
-    cost_class: mid                 # sonnet is mid-tier Claude spend — probe Sonnet calls ≈ $0.04-0.17 (cache-creation-dominated cold). Still the SAME Claude budget as the conductor (no cross-provider arbitrage)
-    code_competence: strong         # same full Claude Code tool surface; a strong code executor. NOTE: for external-CLI CODE review the reviewer floors at OPUS — route code review to the opus variant, not this one (learnings §1 reviewer pin; routing pinned roles)
-    web_access: true                # same native web tools + rbtv-web-searching; research-leaf capable (learnings §1: web research ran on sonnet)
+    # --- role eligibility ---
+    web_access: true                # same native web tools + rbtv-web-searching; research-leaf capable
+
+    # --- reasoning / effort modes ---
+    reasoning_modes:
+      depths: [low, medium, high, xhigh, max]   # Claude's 5 effort levels (same ladder as opus; settable via claude -p --effort)
+      invocation: "--effort {level}"
+      carrier: "CLI-only via claude -p"
 
     # --- parallelism + resume ---
     parallel_safe: true
@@ -137,7 +162,7 @@ variants:
       write_enforcement: git-diff-vs-allowlist   # back every dispatch with the post-run git diff vs allowlist; --permission-mode authorizes but does not bound writes
 
     # --- invocation + failures ---
-    invocation_pointer: ./manual.md   # same rendered manual; the --model sonnet selection is documented there
+    invocation_pointer: ./manual.md
     manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/claude-code-cli/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/claude-code-cli/delta.md
     specialty: "process-worker verification with native workspace rules — cold-verify / recon as a claude -p process that natively auto-loads the cwd CLAUDE.md (the cheaper claude-code-cli tier; sub-conducting still floors at opus where judgment-dense)"   # within-tier tiebreaker only
@@ -162,92 +187,81 @@ variants:
     os_quirks:
       windows: "MANDATORY stdin redirect ($null | / < NUL / < /dev/null); trust $LASTEXITCODE (0 success, 1 arg-parse error before any spend)"
 
-  # NOTE ON fable — declared below as the conductor / final-plan-review variant (the premium top-tier profile).
-  # fable SHARES opus's reasoning_tier (top) — the variant distinction is carried by cost_class (premium) +
-  # specialty (conductor / final-plan reviewer) + max_output, per the variant field-count discipline
-  # (../manifest-schema.md §2 "Variant field-count discipline": a variant must differ in ≥1 routing-relevant field).
+  - variant: haiku   # the single-mode cheapest Claude CLI tier — validated bounded-code executor (no effort ladder)
+    # ADDED to the roster per value-derivation.md (owner re-review c7 — haiku tested + works; evidence_status: validated).
+    # Haiku is a NO-OP single-mode on the CLI: claude-haiku-4-5 does not expose the effort ladder.
+    # reasoning_modes: depths: [] reflects this — the effort step is a no-op for this variant.
 
-  - variant: fable   # the senior-conductor / final-plan-review profile — premium top-tier Claude (Fable 5) as a CLI worker
-    # ⚠ UNAVAILABLE (probe 2026-06-14): headless `claude -p --model claude-fable-5` returns "Claude Fable 5 is currently
-    # unavailable — Fable Mythos access" (access-gated rollout). NOT dispatchable until access is granted. Variant RETAINED
-    # (owner 2026-06-14: keep + mark unavailable); the routing §3 conductor / final-plan-reviewer pins fall back to opus
-    # meanwhile. Restore on a successful probe by setting `available: true` below (or removing the field).
-    # ENFORCED by route.py: the `available: false` field below makes `_is_variant_available()` drop this variant
-    # regardless of auth method (cli-login), so no pin/selector can resolve to it while Fable is access-gated.
-    available: false                 # functional availability override (../manifest-schema.md §2) — drops fable from routing while Fable 5 is access-gated
-    evidence_status: probe-pending   # claude-fable-5 was NOT in the p3-6 probe matrix (which observed claude-opus-4-8[1m] / claude-sonnet-4-6). The CLI contract (flags, --model, JSON envelope, exit semantics) is the same as opus — only the model id differs — but the fable model id itself is docs-authored here, not yet probe-confirmed on the target machine. Re-confirm via a JSON probe (modelUsage.{contextWindow,maxOutputTokens}) on first dispatch
+    # --- capability + cost scores + sizing ---
+    reasoning: 3                           # AA II 37 (board "Claude 4.5 Haiku") — weak-but-real reasoner
+    coding: 2                              # Terminal-Bench Hard 27 — weak agentic coder
+    cost: 3                                # board blended price $0.77/1M → bin 3; subscription@board-price,no-discount (D11)
+    axis_evidence:
+      reasoning: { source: "aa-ii(37);gpqa(43);hle(10)", confidence: high }
+      coding:    { source: "aa-tbh(27)", confidence: high }
+    cost_evidence: { source: "aa-blended($0.77)→bin3; subscription@board-price,no-discount", confidence: high }
+    context_window: 200000          # claude-haiku-4-5 context window (re-confirm via JSON modelUsage on target machine)
+    max_output: 32000               # claude-haiku-4-5 Claude-Code-observed single-turn worker cap (matches the probe-verified sibling sonnet @32000; the raw model API max is 64000 but this field records the carrier-observed cap — read JSON modelUsage.maxOutputTokens per dispatch)
 
-    # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: top             # fable shares opus's max-reasoning ceiling (top) — same unbounded / judgment-dense leaf as a peer of opus. The variant distinction is NOT the tier: it is cost_class (premium) + specialty (conductor / final-plan reviewer) + max_output, per ../manifest-schema.md §2 variant field-count discipline
-    context_window: 1000000         # claude-fable-5 1M-context tier; user/config-dependent — re-confirm via a JSON probe (modelUsage.contextWindow) on the target machine, NOT a constant to assume
-    max_output: 128000              # claude-fable-5 single-turn output ceiling (docs cap; model/provider-determined); JSON modelUsage.maxOutputTokens reports the live value per dispatch — read it there rather than assuming. HIGHER than opus's 64000 (one of the routing-relevant fields distinguishing fable from opus)
+    # --- role eligibility ---
+    web_access: true                # Claude Code carries native web tools — same as opus/sonnet; haiku inherits the full claude-code-cli tool surface
 
-    # --- budget + capability gates (routing §2, §6) ---
-    cost_class: premium             # fable is premium-priced: ~2× opus ($10/$50 vs $5/$25 per MTok input/output). premium ranks ABOVE high, so cost-ascending selection NEVER auto-picks fable on a cost tie — it is reachable ONLY via the conductor / final-plan-reviewer pins (those pins land at p3-1, not here). Still the SAME Claude budget as the conductor (no cross-provider arbitrage); choosing claude-code-cli buys a PROCESS BOUNDARY (sub-conductor / native workspace rules), not a cheaper provider
-    code_competence: strong         # full Claude Code tool surface (Edit/Write/Bash/etc.) — a strong code executor and reviewer; reviewer floor for external-CLI code is Opus, which fable (a top-tier peer) also satisfies
-    web_access: true                # Claude Code carries native web tools (WebSearch/WebFetch) + the rbtv-web-searching skill when run in an rbtv workspace; research-leaf capable
-    # multimodal: [image]           # Claude accepts image input in interactive use; OMITTED — no image dispatch was probed (validated-evidence-only; add only after an image-path probe)
+    # --- reasoning / effort modes ---
+    reasoning_modes:
+      depths: []                    # Haiku is a single-mode no-op on the CLI — no effort ladder exposed (claude-haiku-4-5 = single-mode); the effort step is a no-op
+      invocation: "none"
+      carrier: "CLI-only via claude -p — Haiku single-mode (no effort dial)"
 
-    # --- parallelism + resume (routing §8, §4) ---
-    parallel_safe: true             # independent `claude -p` invocations are separate OS subprocesses — runnable concurrently under disjoint allowlists / separate worktrees. Concurrent-wave behavior for fable not stress-probed — verify on first parallel use; isolate parallel code workers in worktrees
-    resume_support: session-id      # same CLI contract as opus: a JSON run emits session_id; `claude -p --resume <session_id> "<next>"` continues the prior turn. --fork-session forks; --session-id <uuid> pins an id; --no-session-persistence disables save
+    # --- parallelism + resume ---
+    parallel_safe: true
+    resume_support: session-id
 
-    # --- non-interactive run (routing §4 → dispatch-wrapper) ---
+    # --- non-interactive run ---
     headless:
-      flags: "-p --model claude-fable-5 --output-format json"   # -p / --print = non-interactive print-and-exit; explicit --model claude-fable-5 (confirm via JSON modelUsage the actual model the flag honored) + json envelope (result, session_id, total_cost_usd, modelUsage.{contextWindow,maxOutputTokens}, permission_denials[], is_error, num_turns, duration_ms)
-      auto_approves_tools: false    # claude -p does NOT auto-approve every tool by default — permission MODE governs it. For unattended writes pass --permission-mode acceptEdits; the default permission mode is NOT guaranteed read-only — specify the mode explicitly, never rely on bypassPermissions for confinement
-      prompt_transport: arg         # the prompt is the -p argument; stdin MUST be redirected ($null | / < NUL / < /dev/null) or the CLI waits 3s then warns "no stdin data received in 3s" — see os_quirks.windows. A large prompt is written to a prompt file and passed as the arg
+      flags: "-p --model haiku --output-format json"   # explicit --model haiku; same -p + json envelope as opus/sonnet
+      auto_approves_tools: false    # same permission-MODE semantics as opus/sonnet; pass --permission-mode acceptEdits for unattended writes
+      prompt_transport: arg         # same: prompt as the -p arg, stdin MUST be redirected
 
-    # --- auth pre-flight (routing §1 → halt-recovery USER-EXECUTED-ONLY) ---
+    # --- auth pre-flight ---
     auth:
       required: true
-      method: cli-login             # Claude Code CLI is already authenticated on a machine running this orchestration (the conductor IS Claude Code) — same login. No separate provisioning when dispatching on the same machine/user
-      interactive: false            # on a machine where Claude Code already runs, no fresh interactive auth is needed for `claude -p`. A brand-new machine needs a one-time interactive `claude` login (USER-EXECUTED-ONLY) — the conductor's own setup, not a per-dispatch pre-flight
+      method: cli-login
+      interactive: false
 
-    rate_budget_notes: "premium Claude spend — ~2× opus ($10/$50 vs $5/$25 per MTok) — on the SAME Claude account/budget as the conductor; NOT a cheaper-provider saving (contrast kimi/codex). Per-call cost from JSON total_cost_usd. Budget guards available: --max-budget-usd <amount> and --fallback-model <model> (both print-mode) — relevant when an autonomous dispatch must cap spend. Invalid flag → exit 1 BEFORE any API spend, so a malformed dispatch wastes nothing. premium cost_class makes the spend visible to the budget filter, but fable is reached via pins, not the cost-ascending selector"
+    rate_budget_notes: "cheapest Claude tier on this package (cost 3 → $0.77/1M blended @ board price, no subscription discount per D11). Same Claude account/budget as the conductor. Invalid flag → exit 1 before any spend. Same --max-budget-usd / --fallback-model guards as opus/sonnet"
 
-    # --- tool surface + confinement (routing §2, §4, §8) ---
+    # --- tool surface + confinement ---
     tool_surface:
-      native: [shell, file, web]    # full Claude Code tool surface: Bash (shell), Read/Edit/Write (file), WebSearch/WebFetch (web), plus Glob/Grep/Task etc. --allowedTools / --disallowedTools scope the set
-      mcp: true                     # Claude Code loads MCP servers (--mcp-config / the workspace .mcp.json); the conductor's MCP catalog is available to a same-workspace dispatch
-      agent_file: false             # no per-dispatch agent-file tool spec like kimi's --agent-file. The tool set is governed by --allowedTools/--disallowedTools + --permission-mode (+ the natively-loaded workspace CLAUDE.md rules), not an agent file
+      native: [shell, file, web]
+      mcp: true
+      agent_file: false
     confinement:
-      workspace_scope: "cwd (run FROM the target workspace root) + --add-dir <dir> for extra dirs"   # primary scoping; cwd doubles as the CLAUDE.md auto-load root (see guidance_file). --add-dir grants tool access beyond cwd
-      tool_restriction: "--allowedTools / --disallowedTools (allow/deny tool families) + --permission-mode; NO agent-file"
-      write_enforcement: git-diff-vs-allowlist   # confinement is the orchestrator's job: --permission-mode acceptEdits AUTHORIZES writes but does not BOUND them to an allowlist — back every dispatch with the post-run git diff --name-only vs the task allowlist. Out-of-allowlist = halt + surface, never auto-revert
+      workspace_scope: "cwd (run FROM the target workspace root) + --add-dir <dir>"
+      tool_restriction: "--allowedTools / --disallowedTools + --permission-mode; NO agent-file"
+      write_enforcement: git-diff-vs-allowlist
 
-    # --- invocation + failures (routing §4, §2) ---
-    invocation_pointer: ./manual.md   # rendered dispatch manual (../render-manuals.py) — the exact command shape
-    manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/claude-code-cli/manual.md
+    # --- invocation + failures ---
+    invocation_pointer: ./manual.md
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/claude-code-cli/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/claude-code-cli/delta.md
-    specialty: "premium process-boundary sub-conductor with native workspace-rule loading — the Fable 5 carrier the variant orchestration pins as conductor and mandatory final-plan reviewer, itself able to drive CLI workers (clears the nesting wall as a separate process) and natively auto-load the cwd CLAUDE.md/rules. The conductor/reviewer PIN itself lands at the routing card (p3-1), not here"   # within-tier tiebreaker only (fable vs opus, both top-tier); boundedness-first stays the master cut
+    specialty: "cheapest Claude CLI tier — haiku single-mode for fully-bounded mechanical batches within the Claude carrier (no effort dial; coding floor 2 — route mechanical, not reasoning-dense work here)"   # within-tier tiebreaker only
     failure_modes:
-      - "stdin not redirected → 3s stdin-wait + a 'no stdin data received in 3s' warning that pollutes text stdout; ALWAYS redirect stdin ($null | / < NUL / < /dev/null)"
-      - "default permission mode is NOT guaranteed read-only — pass --permission-mode acceptEdits explicitly for an intended unattended write, and NEVER rely on the default for confinement"
-      - "--permission-mode authorizes but does not BOUND writes to an allowlist — back every dispatch with post-run git diff --name-only vs the allowlist (the only reliable write confinement; confinement is the orchestrator's job)"
-      - "nesting depth: a claude -p worker is a sub-conductor at depth 2 (conductor → claude -p). It can shell out again, but the depth cap ≤2 FORBIDS relying on deeper Agent-tool nesting — do not design a claude -p worker to dispatch its own Agent-tool sub-agents"
-      - "final-turn drop on a CLI worker is possible (the generic CLI-worker lossy-return class) — the JSON envelope or message is a HINT; reconcile landed/validation against git status / git log + cited evidence files on disk. exit 0 + is_error:false is ground truth, not the prose"
-      - "--bare DISABLES CLAUDE.md auto-discovery (per --help) — never pass it when the worker needs the workspace rules; it is the opposite of the native-rooting property claude-code-cli is selected for"
-      - "model-id NOT probe-confirmed — claude-fable-5 was authored from docs, not observed in the p3-6 probe matrix. The --model flag is honored only if the id is valid on the target build; confirm via JSON modelUsage on first dispatch, and treat a model-not-found exit as a config gap, not a code bug"
-      - "premium-cost surprise: fable is ~2× opus spend. NEVER route to fable on a cost tie — premium cost_class ranks LAST in cost-ascending selection precisely so the selector cannot auto-pick it; reach fable ONLY via the conductor / final-plan-reviewer pins"
+      - "stdin not redirected → 3s wait + warning polluting text stdout; ALWAYS redirect stdin"
+      - "default permission mode is NOT guaranteed read-only — pass --permission-mode acceptEdits explicitly for an intended write"
+      - "--permission-mode authorizes but does not BOUND writes — back with post-run git diff vs allowlist"
+      - "single-mode no-op — no effort dial; --effort flag is a no-op on claude-haiku-4-5; do not route reasoning-dense or judgment-dense work here"
+      - "final-turn drop possible — JSON/message is a HINT; reconcile against git status / git log + disk; exit 0 is ground truth"
 
-    # --- guidance file (routing §4 pre-dispatch check) ---
+    # --- guidance file ---
     guidance_file:
-      convention: CLAUDE.md         # CLI-Claude NATIVELY auto-loads the cwd workspace CLAUDE.md (and its rules/skills) and obeys it — the property that distinguishes claude-code-cli from Agent-tool helpers and the other CLI workers
-      # mirror_entry: OMITTED — NO mirror for claude-code-cli. The workspace's OWN CLAUDE.md IS the guidance file; it is loaded natively, not generated. The pre-dispatch guidance-file check VERIFIES the target workspace has a CLAUDE.md and that cwd/--add-dir points at it; when absent it inlines the needed rules into the prompt or roots cwd at a CLAUDE.md-bearing dir — it never offers a mirror. No mirror-config.yaml ships in this package
+      convention: CLAUDE.md         # same native cwd CLAUDE.md auto-load
+      # mirror_entry: OMITTED — no mirror (see the opus variant's note and ../../../shape.md mirror ruling)
 
-    # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
+    # --- swarm / sub-conducting ---
     swarm_support:
-      subagents: true               # Claude Code has the Task (Agent) tool — a claude -p fable worker CAN launch its own Agent-tool sub-agents in principle. But the 4× documented nesting wall blocks a sub-agent from spawning further sub-agents, and the depth cap ≤2 forbids relying on it. A claude -p worker IS a sub-conductor (the process-boundary escape); it sub-conducts via further CLI subprocesses, not via deeper Agent nesting
-      nesting: one-level             # depth cap ≤2: conductor → claude -p (one process boundary). The claude -p worker must NOT be designed to nest Agent-tool sub-agents beneath itself
-      default: disabled             # safe default: dispatch claude -p as a leaf/sub-conductor worker, not as a fan-out parent. Enable sub-conducting only deliberately, within the depth cap
+      subagents: true               # haiku has the Task (Agent) tool in principle; same depth-cap constraint as opus/sonnet
+      nesting: one-level
+      default: disabled
 
     os_quirks:
-      windows: "MANDATORY stdin redirect: `$null | claude -p ...` (PowerShell) or `< NUL` (cmd) or `< /dev/null` (bash) — without it the CLI waits 3s then warns 'no stdin data received in 3s, proceeding without it', wasting latency and polluting text stdout. Trust $LASTEXITCODE: 0 = success (is_error:false), 1 = arg-parse/usage error fast BEFORE any API spend"
-
-  # NOTE ON haiku — DELIBERATELY NOT A VARIANT.
-  # Claude Code can run --model haiku, but vault routing policy FLOORS at sonnet: haiku is routable ONLY for mechanical
-  # batches under a user-approved delegation map that names haiku (routing card §7 / shape "Haiku-clause canonical wording").
-  # Absent such an approved map, haiku is never routed and every pinned role floors at sonnet — so this package ships no
-  # haiku variant. If a future delegation map approves haiku for specific mechanical batches, add a haiku variant THEN
-  # (reasoning_tier: non-reasoning, cost_class: cheapest, mechanical-only), not before. (D4; learnings §1: "Never haiku".)
+      windows: "MANDATORY stdin redirect ($null | / < NUL / < /dev/null); trust $LASTEXITCODE (0 success, 1 arg-parse error before any spend)"

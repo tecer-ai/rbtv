@@ -79,7 +79,7 @@ Manus declares ONE variant — `manus-autonomous` — because it has a single op
 
 | RBTV variant | Routing profile | Manus selector |
 |--------------|-----------------|----------------|
-| `manus-autonomous` | `cost_class: high` (per-task), `reasoning_tier: top`, `web_access: true`, `code_competence: none` — the autonomous-web leaf; never the code path | `--model manus-autonomous` (no alternate API id) |
+| `manus-autonomous` | `reasoning: 1`, `coding: 1`, `cost: 1` (per-task), `web_access: true`, `routable_for: [web-research]` — the autonomous-web leaf; never the code path | `--model manus-autonomous` (no alternate API id) |
 
 ### Exit handling
 

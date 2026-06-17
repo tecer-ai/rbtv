@@ -3,6 +3,12 @@
 Exercises route.py over the REAL manifests on disk (CWD = rbtv repo).
 Fixtures only for key-presence toggles via env manipulation.
 Stdlib + pytest only.
+
+Migration note (p2-2): adapted from the band/tier test suite to the GATE→RANK→PIN
+integer 1–7 design. Old vocabulary (reasoning_tier, code_competence, cost_class,
+coding_subrank, judgment, TIE-BREAK stage, band words) was removed. Synthetic
+manifests and all assertions now use integer fields (reasoning, coding, cost).
+fable is ABSENT from the real corpus (D15) — assertions updated accordingly.
 """
 
 import json
@@ -84,8 +90,11 @@ class TestReferenceProfiles:
     for 3 reference profiles (fully-bounded code, partially-bounded, unbounded)."""
 
     def test_fully_bounded_code(self):
-        """Fully-bounded code → cheapest capable non-haiku code-competent pair.
-        Kimi no-thinking (cheapest, bounded code) should win."""
+        """Fully-bounded code → cheapest capable non-haiku code-eligible pair.
+        Kimi (cost 3, coding 4) should win over qwen deepseek-flash (cost 1, coding 3)
+        because cost-ascending picks cheapest first — but deepseek-flash has lower cost (1 < 3).
+        However deepseek-flash routes via qwen-code-cli which requires QWEN_API_KEY;
+        absent the key it is dropped. With the full corpus (no key), kimi wins."""
         profile = _profile(
             boundedness="fully-bounded",
             task_type="code",
@@ -94,14 +103,14 @@ class TestReferenceProfiles:
         exit_code, result = _run_route(profile, explain=True)
         assert exit_code == 0, f"Non-zero exit: {result}"
         assert result["verdict"] == "route"
-        # Kimi no-thinking is cheapest with bounded code_competence
+        # kimi-code-cli is the cheapest available code executor absent the qwen API key
         assert result["model"] == "kimi-code-cli"
-        assert result["variant"] == "no-thinking"
+        assert result["variant"] == "kimi"
         assert result["carrier"] == "cli-process"
 
     def test_partially_bounded(self):
-        """Partially-bounded → mid-tier Claude (scoped to Claude mid-tier before §2a).
-        Claude sonnet (mid cost_class) should win."""
+        """Partially-bounded → scoped to Claude mid-tier (reasoning >= 6).
+        Claude sonnet (reasoning 6, cost 5) should win."""
         profile = _profile(
             boundedness="partially-bounded",
             task_type="text",
@@ -112,11 +121,11 @@ class TestReferenceProfiles:
         assert result["verdict"] == "route"
         # Scoped to Claude mid-tier: sonnet is the mid-tier Claude
         assert result["model"] in ("claude-code-native", "claude-code-cli")
-        assert result["reasoning_tier" if "reasoning_tier" in result else "variant"] == "sonnet" or result["variant"] == "sonnet"
+        assert result["variant"] == "sonnet"
 
     def test_unbounded(self):
         """Unbounded (judgment-dense) → top-tier Claude (keystone).
-        Claude opus (top tier, high cost) should win — never a cheaper non-Claude."""
+        Claude opus (reasoning 7, top tier) should win — never a cheaper non-Claude."""
         profile = _profile(
             boundedness="unbounded",
             task_type="text",
@@ -125,7 +134,7 @@ class TestReferenceProfiles:
         exit_code, result = _run_route(profile, explain=True)
         assert exit_code == 0, f"Non-zero exit: {result}"
         assert result["verdict"] == "route"
-        # Scoped to top-tier Claude: opus is the cheapest top-tier Claude
+        # Scoped to top-tier Claude: opus is the top-tier Claude
         assert result["model"] in ("claude-code-native", "claude-code-cli")
         assert result["variant"] == "opus"
         # Carrier: Claude top-tier default = agent-tool
@@ -188,7 +197,7 @@ class TestApiKeyAvailability:
     WITH its key present, then re-run with the key absent."""
 
     def test_api_key_toggle(self):
-        # Qwen is an api-key worker with low cost_class
+        # Qwen is an api-key worker with low cost (cost 2 for qwen3.6-plus)
         # First run: key present (set env var)
         profile = _profile(
             boundedness="fully-bounded",
@@ -490,7 +499,7 @@ class TestStakesTierUp:
         exit_code, result = _run_route(profile, explain=True)
         assert exit_code == 0
         assert result["verdict"] == "route"
-        # Without stakes: kimi:no-thinking. With tier-up (→ partially-bounded): claude sonnet.
+        # Without stakes: kimi:kimi. With tier-up (→ partially-bounded): claude sonnet.
         assert result["model"] in ("claude-code-native", "claude-code-cli"), (
             f"Stakes tier-up should raise to Claude mid-tier, got {result['model']}:{result['variant']}"
         )
@@ -547,7 +556,7 @@ class TestStakesTierUp:
         exit_code, result = _run_route(profile, explain=True)
         assert exit_code == 0
         # The tier-up picks the cheapest-capable at the RAISED band (partially-bounded → Claude mid),
-        # which is more expensive than the original band's kimi:no-thinking — stakes escalation changes the verdict.
+        # which is more expensive than the original band's kimi:kimi — stakes escalation changes the verdict.
         explain = result.get("explain", [])
         tier_up_result = next((s for s in explain if s.get("stage") == "stakes" and s.get("action") == "tier_up_result"), None)
         assert tier_up_result is not None
@@ -560,24 +569,33 @@ class TestPinnedRoleFloors:
     """ADX-14 item 2 + 3: pinned-role floors raise the pick when below floor."""
 
     def test_reviewer_floor_raise(self):
-        """A fully-bounded code task picks kimi:no-thinking (cheapest). With pinned_role=reviewer
-        and executor_tier=non-reasoning, the reviewer floor (≥ executor+1, floor sonnet)
-        raises the pick to claude:sonnet (cheapest mid-tier Claude)."""
+        """A fully-bounded code task picks kimi:kimi (cheapest, reasoning=6). With pinned_role=reviewer
+        and executor_reasoning=6 (sonnet-class), the required reviewer floor is max(6+1=7, 6)=7.
+        Kimi has reasoning=6, which is BELOW 7, so the floor raises the pick to claude:opus.
+
+        The profile must pass executor_reasoning as an INTEGER (the 1-7 scale), not
+        the old executor_tier band string. route.py reads executor_reasoning directly.
+
+        Note: executor_reasoning=3 does NOT trigger a raise because max(3+1=4, floor=6)=6
+        and kimi.reasoning=6 already meets 6 (floor_already_met path in route.py).
+        We need executor_reasoning=6 so required=max(7,6)=7 exceeds kimi's reasoning=6."""
         profile = _profile(
             boundedness="fully-bounded",
             task_type="code",
             inlined_context_size=10000,
             pinned_role="reviewer",
-            executor_tier="non-reasoning",
+            executor_reasoning=6,  # sonnet-class; required = max(7, 6) = 7 → opus
         )
         exit_code, result = _run_route(profile, explain=True)
         assert exit_code == 0
         assert result["verdict"] == "route"
-        # Reviewer floor: ≥ non-reasoning+1 = mid, floor sonnet → cheapest mid-tier Claude
+        # Reviewer floor: max(executor+1=7, floor=6)=7 → requires reasoning>=7 → claude:opus
         assert result["model"] in ("claude-code-native", "claude-code-cli"), (
-            f"Reviewer floor should raise to Claude mid-tier, got {result['model']}:{result['variant']}"
+            f"Reviewer floor should raise to Claude (opus), got {result['model']}:{result['variant']}"
         )
-        assert result["reasoning_tier" if "reasoning_tier" in result else "variant"] in ("sonnet", "mid") or result.get("variant") == "sonnet"
+        assert result["variant"] == "opus", (
+            f"Reviewer floor with executor_reasoning=6 should raise to opus (required=7), got {result['variant']}"
+        )
         # Explain must show floor_raised
         explain = result.get("explain", [])
         pin_steps = [s for s in explain if s.get("stage") == "pin"]
@@ -586,7 +604,7 @@ class TestPinnedRoleFloors:
         )
 
     def test_commit_pin_floor(self):
-        """A fully-bounded code task picks kimi:no-thinking. With pinned_role=commit,
+        """A fully-bounded code task picks kimi:kimi. With pinned_role=commit,
         the floor is Agent-tool Claude sonnet — the pick must raise to claude:sonnet."""
         profile = _profile(
             boundedness="fully-bounded",
@@ -608,11 +626,15 @@ class TestPinnedRoleFloors:
             f"Commit carrier should be agent-tool, got {result['carrier']}"
         )
 
-    def test_debug_pin_floor_is_top_tier_claude(self):
-        """A fully-bounded code task picks kimi:no-thinking. With pinned_role=debug, the floor
-        is top-tier CLAUDE (opus) — routing.md §3 forbids letting a CLI/API worker root-cause.
-        The pick MUST raise to claude:opus, NEVER to a cheaper top-tier non-Claude reasoner
-        (e.g. deepseek:v4-pro, which is reasoning_tier=top, cost_class=low)."""
+    def test_debug_pin_floor_is_top_tier_executor(self):
+        """D17: the debug pinned-role floor admits ANY code-eligible executor with reasoning >= 7
+        (de-carrier-locked) — opus AND codex-cli:gpt-5.5 — NOT just Claude. Three guards:
+        (a) the DEFAULT debug pick is STILL claude-code-native:opus (opus cost 6 < gpt-5.5 cost 7,
+            so cost-ascending rank keeps opus the default — observable behavior unchanged);
+        (b) codex-cli:gpt-5.5 is now ELIGIBLE for the debug floor (it appears in the floor-survivor
+            set ranked inside the pin stage, AND wins debug when opus is excluded);
+        (c) a reasoning-6 worker (kimi/sonnet/gpt-5.4) stays BARRED from the debug floor — when opus
+            is gone, debug falls to gpt-5.5, NOT to a cheaper reasoning-6 worker."""
         profile = _profile(
             boundedness="fully-bounded",
             task_type="code",
@@ -622,16 +644,11 @@ class TestPinnedRoleFloors:
         exit_code, result = _run_route(profile, explain=True)
         assert exit_code == 0
         assert result["verdict"] == "route"
-        # Debug floor must be a Claude carrier, not a top-tier non-Claude (the floor violation
-        # this test guards: deepseek:v4-pro would win a tier-only floor on cost_class).
-        assert result["model"] in ("claude-code-native", "claude-code-cli"), (
-            f"Debug floor must be top-tier Claude, got {result['model']}:{result['variant']} "
-            "(a CLI/API worker must NEVER root-cause — routing.md §3)"
+        # (a) Default pick UNCHANGED — opus still wins on cost.
+        assert result["model"] == "claude-code-native" and result["variant"] == "opus", (
+            f"Default debug pick must stay claude-code-native:opus, got {result['model']}:{result['variant']}"
         )
-        assert result["variant"] == "opus", (
-            f"Debug floor should be opus (top-tier Claude), got {result['variant']}"
-        )
-        # Explain must show floor_raised from the cheap pick to the Claude opus floor.
+        # Explain must show floor_raised from the cheap pick to the opus floor.
         explain = result.get("explain", [])
         pin_steps = [s for s in explain if s.get("stage") == "pin"]
         raised = [s for s in pin_steps if s.get("action") == "floor_raised"]
@@ -640,10 +657,188 @@ class TestPinnedRoleFloors:
             f"Debug raise should land on claude-code-native:opus, got {raised[0].get('raised_pick')}"
         )
 
+        # (b) gpt-5.5 ELIGIBLE: the debug floor-survivor set (the rank logged inside the pin stage,
+        # i.e. AFTER the pin check_floor entry) must contain codex-cli:gpt-5.5 — a reasoning-7
+        # code-eligible executor that the old Claude-only floor wrongly excluded.
+        seen_pin = False
+        floor_survivor_set = None
+        for s in explain:
+            if s.get("stage") == "pin" and s.get("action") == "check_floor":
+                seen_pin = True
+            if seen_pin and s.get("stage") == "rank" and s.get("action") == "ranked":
+                floor_survivor_set = {(r["model"], r["variant"]) for r in s["order"]}
+                break
+        assert floor_survivor_set is not None, "Expected a pin-stage rank (debug floor-survivor set)"
+        assert ("codex-cli", "gpt-5.5") in floor_survivor_set, (
+            f"codex-cli:gpt-5.5 must be ELIGIBLE for the debug floor (D17), got {sorted(floor_survivor_set)}"
+        )
+        # (c) a reasoning-6 worker must NOT be in the debug floor-survivor set.
+        for barred in (("kimi-code-cli", "kimi"), ("claude-code-native", "sonnet"), ("codex-cli", "gpt-5.4")):
+            assert barred not in floor_survivor_set, (
+                f"reasoning-6 worker {barred} must stay BARRED from the debug floor, got {sorted(floor_survivor_set)}"
+            )
+
+    def test_debug_pin_falls_to_gpt55_when_opus_excluded(self):
+        """D17 eligibility proof: with both Claude packages confined to non-opus backends
+        (opus unavailable), the debug floor falls to codex-cli:gpt-5.5 — the surviving
+        reasoning-7 code-eligible executor — NOT to a reasoning-6 worker (kimi/sonnet/gpt-5.4).
+        Under the OLD Claude-only floor this would have failed (gpt-5.5 was barred)."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+            pinned_role="debug",
+        )
+        # Confine both Claude packages to non-opus backends → opus drops from enumeration.
+        elected_variants = {
+            "claude-code-native": ["sonnet", "haiku"],
+            "claude-code-cli": ["sonnet", "haiku"],
+        }
+        result = route.route(
+            dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True,
+            elected_variants=elected_variants,
+        )
+        assert result["verdict"] == "route"
+        assert result["model"] == "codex-cli" and result["variant"] == "gpt-5.5", (
+            f"With opus excluded, debug must fall to codex-cli:gpt-5.5 (reasoning 7), "
+            f"NOT a reasoning-6 worker — got {result['model']}:{result['variant']}"
+        )
+
+    def test_unbounded_debug_opus_available_picks_opus(self):
+        """p4-0b guard (default unchanged): an UNBOUNDED debug task with opus AVAILABLE still
+        routes to claude-code-native:opus. The unbounded band scopes to top-tier Claude, so opus
+        is both the band pick and the debug-floor default (opus cost 6 < gpt-5.5 cost 7)."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        profile = _profile(
+            boundedness="unbounded",
+            task_type="code",
+            inlined_context_size=10000,
+            pinned_role="debug",
+        )
+        result = route.route(dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True)
+        assert result["verdict"] == "route"
+        assert result["model"] == "claude-code-native" and result["variant"] == "opus", (
+            f"Unbounded debug with opus available must stay claude-code-native:opus, "
+            f"got {result['model']}:{result['variant']}"
+        )
+
+    def test_unbounded_debug_opus_excluded_falls_to_gpt55(self):
+        """p4-0b FIX: an UNBOUNDED debug task with opus UNAVAILABLE must route to
+        codex-cli:gpt-5.5 — NOT return the error `no_available_variants`.
+
+        The bug: on the unbounded band, _scope_eligible_set scopes to top-tier Claude (opus);
+        with opus dropped by availability, route() returned no_available_variants BEFORE the
+        pinned-role floor (which would admit gpt-5.5 over the full enumeration) ran. The fix makes
+        the empty-pipeline exit pin-aware. The fully-bounded twin already passed pre-fix; this
+        unbounded twin is the one that was broken."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        profile = _profile(
+            boundedness="unbounded",
+            task_type="code",
+            inlined_context_size=10000,
+            pinned_role="debug",
+        )
+        # Confine both Claude packages to non-opus backends → opus drops from enumeration → the
+        # unbounded band's scoped pipeline empties.
+        elected_variants = {
+            "claude-code-native": ["sonnet", "haiku"],
+            "claude-code-cli": ["sonnet", "haiku"],
+        }
+        result = route.route(
+            dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True,
+            elected_variants=elected_variants,
+        )
+        assert "error" not in result, (
+            f"Unbounded debug with opus excluded must NOT error — got error={result.get('error')}"
+        )
+        assert result["verdict"] == "route"
+        assert result["model"] == "codex-cli" and result["variant"] == "gpt-5.5", (
+            f"Unbounded debug with opus excluded must fall to codex-cli:gpt-5.5 (the empty-pipeline "
+            f"pin fallback), got {result['model']}:{result['variant']}"
+        )
+
+    def test_claude_only_pin_errors_when_claude_excluded(self):
+        """p4-0b guard (the critical correctness constraint): the empty-pipeline pin fallback is
+        governed by EACH pin's own floor. A Claude-only pin (reviewer / commit) whose pipeline
+        empties because Claude is unavailable must STILL return the error — it must NEVER fall back
+        to a non-Claude worker via the new fallback path. Only the debug pin (reasoning-7 code-
+        eligible, de-carrier-locked) reaches a non-Claude executor."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        # Confine BOTH Claude packages to NO backends → no Claude variant enumerates at all.
+        no_claude = {
+            "claude-code-native": [],
+            "claude-code-cli": [],
+        }
+
+        # Reviewer: Claude-only floor (sonnet+); Claude gone → must error, not a non-Claude pick.
+        reviewer_profile = _profile(
+            boundedness="unbounded",
+            task_type="code",
+            inlined_context_size=10000,
+            pinned_role="reviewer",
+            executor_reasoning=7,
+        )
+        rev = route.route(
+            dict(reviewer_profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True,
+            elected_variants=no_claude,
+        )
+        assert rev.get("error") is not None and rev.get("verdict") != "route", (
+            f"Reviewer pin with Claude excluded MUST error (Claude-only floor), never fall back "
+            f"to a non-Claude worker — got {rev.get('verdict')} {rev.get('model')}:{rev.get('variant')}"
+        )
+
+        # Commit: Agent-tool Claude sonnet floor; Claude gone → must error, not a non-Claude pick.
+        # Use the UNBOUNDED band so the normal pipeline EMPTIES when Claude is excluded (the band
+        # scopes to top-tier Claude), exercising the empty-pipeline pin fallback. (On a non-empty
+        # pipeline the commit pin's pre-existing floor_not_found path keeps the cheapest non-Claude
+        # `chosen` — out of scope for p4-0b; flagged separately in the dispatch concerns.)
+        commit_profile = _profile(
+            boundedness="unbounded",
+            task_type="code",
+            inlined_context_size=10000,
+            pinned_role="commit",
+        )
+        com = route.route(
+            dict(commit_profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True,
+            elected_variants=no_claude,
+        )
+        assert com.get("error") is not None and com.get("verdict") != "route", (
+            f"Commit pin with Claude excluded MUST error (Claude-only floor), never fall back "
+            f"to a non-Claude worker — got {com.get('verdict')} {com.get('model')}:{com.get('variant')}"
+        )
+
+    def test_reviewer_floor_reads_executor_reasoning_integer(self):
+        """Spec D8/D15: the reviewer pin reads executor_reasoning as a 1-7 INTEGER,
+        NOT the old executor_tier band string. Pass executor_reasoning=6 (sonnet-class)
+        — the required floor is max(6+1, 6) = 7 (opus), so the pick should raise to opus."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        # executor_reasoning=6 → required = min(6+1, 7)=7, floored at REASONING_FLOOR_BY_BAND['partially-bounded']=6
+        # → max(7, 6) = 7 → requires opus-class (reasoning 7)
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+            pinned_role="reviewer",
+            executor_reasoning=6,  # sonnet-class; reviewer must be >= 7 (opus)
+        )
+        exit_code, result = _run_route(profile, explain=True)
+        assert exit_code == 0
+        assert result["verdict"] == "route"
+        assert result["variant"] == "opus", (
+            f"executor_reasoning=6 → reviewer floor should raise to opus (reasoning 7), got {result['variant']}"
+        )
+
     def test_reviewer_external_cli_code_resolves_to_opus(self):
         """ADX-16 item 3: a reviewer-role profile with reviews_external_cli_code=true
         resolves to claude:opus against the real manifests (routing.md §3: 'Opus reviews ALL
-        external-CLI code'). When false/absent, the normal floor applies (sonnet for executor_tier=non-reasoning)."""
+        external-CLI code'). When false/absent, the normal floor applies (sonnet for
+        executor_reasoning=3, which is below the sonnet floor of 6 — floor_raised to sonnet)."""
         # True → opus
         profile_opus = _profile(
             boundedness="fully-bounded",
@@ -671,19 +866,30 @@ class TestPinnedRoleFloors:
         )
         assert "opus" in external_cli_step.get("raised_pick", "")
 
-        # False/absent → normal floor (sonnet for executor_tier=non-reasoning)
+        # False/absent with low executor: kimi (reasoning=6) meets the reviewer floor (required=max(3+1=4,6)=6).
+        # floor_already_met path fires → kimi stays (no raise). executor_reasoning=3 (haiku-class).
         profile_normal = _profile(
             boundedness="fully-bounded",
             task_type="code",
             inlined_context_size=10000,
             pinned_role="reviewer",
-            executor_tier="non-reasoning",
+            executor_reasoning=3,  # haiku-class integer; required=max(4,6)=6; kimi.reasoning=6 → floor met
         )
         exit_code, result_normal = _run_route(profile_normal, explain=True)
         assert exit_code == 0
-        # Normal floor: sonnet (mid-tier Claude), NOT opus
-        assert result_normal["variant"] == "sonnet", (
-            f"Reviewer without external_cli_code should floor at sonnet, got {result_normal['variant']}"
+        # Normal floor: max(3+1=4, floor=6) = 6 → kimi (reasoning 6) already meets it → kimi stays
+        assert result_normal["model"] == "kimi-code-cli", (
+            f"Reviewer without external_cli_code + executor_reasoning=3: kimi (reasoning=6) meets floor=6, "
+            f"should stay, got {result_normal['model']}:{result_normal['variant']}"
+        )
+        assert result_normal["variant"] == "kimi", (
+            f"kimi should stay when floor is already met, got {result_normal['variant']}"
+        )
+        # Explain should show floor_already_met (not floor_raised)
+        explain_normal = result_normal.get("explain", [])
+        pin_steps_normal = [s for s in explain_normal if s.get("stage") == "pin"]
+        assert any(s.get("action") == "floor_already_met" for s in pin_steps_normal), (
+            f"Expected floor_already_met for executor_reasoning=3 (kimi meets floor=6), got: {pin_steps_normal}"
         )
 
 
@@ -752,22 +958,22 @@ class TestEnvFileResolution:
 # SYNTHETIC scratch models/ corpus on disk with a haiku variant and route.route() over it
 # end-to-end. The real manifests under orchestration/models/*/manifest.yaml are NEVER
 # edited — their no-haiku policy stands.
+#
+# NOTE: The real manifests DO carry haiku variants (claude-code-native + claude-code-cli
+# both have haiku at reasoning=3, coding=2, cost=3). The "no haiku" note above refers to
+# the DELEGATION MAP policy — haiku is present but excluded by default per the S7 guard.
+# The synthetic corpus below uses integer 1-7 fields per the migrated schema.
 
-# Synthetic claude package: opus (top/high) + sonnet (mid/mid) + haiku (non-reasoning/
-# cheapest). The haiku variant follows the shape the real claude/manifest.yaml documents
-# for a FUTURE delegation-map-approved haiku: reasoning_tier non-reasoning, cost_class
-# cheapest, code_competence strong (an Agent-tool Claude sub-agent inherits the full tool
-# surface). cost_class cheapest makes haiku the cost-ascending winner WHEN admitted.
 _SYNTH_CLAUDE_MANIFEST = """model: claude-code-native
 evidence_status: validated
 
 variants:
   - variant: opus
-    reasoning_tier: top
+    reasoning: 7
     context_window: 1000000
     max_output: 64000
-    cost_class: high
-    code_competence: strong
+    cost: 6
+    coding: 6
     web_access: false
     parallel_safe: true
     resume_support: none
@@ -777,11 +983,11 @@ variants:
       interactive: false
 
   - variant: sonnet
-    reasoning_tier: mid
+    reasoning: 6
     context_window: 1000000
     max_output: 32000
-    cost_class: mid
-    code_competence: strong
+    cost: 5
+    coding: 5
     web_access: false
     parallel_safe: true
     resume_support: none
@@ -791,11 +997,11 @@ variants:
       interactive: false
 
   - variant: haiku
-    reasoning_tier: non-reasoning
+    reasoning: 3
     context_window: 200000
     max_output: 8000
-    cost_class: cheapest
-    code_competence: strong
+    cost: 3
+    coding: 2
     web_access: false
     parallel_safe: true
     resume_support: none
@@ -833,7 +1039,7 @@ class TestHaikuGuard:
     def test_haiku_excluded_when_flag_absent(self, tmp_path):
         """S7 (a): fixture haiku present + flag absent → haiku NEVER in the eligible set nor
         the verdict. A fully-bounded code task over the synth corpus must NOT pick haiku
-        (the cheapest variant) — it picks the cheapest non-haiku capable instead (sonnet)."""
+        (the cheapest variant by cost 3) — it picks the cheapest non-haiku capable instead (sonnet)."""
         import route
         rbtv_root = _build_synth_corpus(tmp_path)
         profile = _profile(
@@ -843,8 +1049,8 @@ class TestHaikuGuard:
         )
         result = route.route(dict(profile), rbtv_root, tmp_path, {}, {}, explain=True)
         assert result["verdict"] == "route", f"unexpected verdict: {result}"
-        # haiku is the cheapest, code-competent variant — absent the flag it must be excluded,
-        # so the cheapest NON-haiku code-competent variant (sonnet) wins.
+        # haiku has cost 3 — sonnet has cost 5 but haiku must be excluded by the S7 guard,
+        # so the cheapest NON-haiku code-capable variant (sonnet) wins.
         assert result["variant"] != "haiku", (
             f"S7 violation: haiku picked with no delegation_map_allows_haiku flag, got {result['variant']}"
         )
@@ -867,7 +1073,7 @@ class TestHaikuGuard:
 
     def test_haiku_admitted_and_wins_when_flag_true(self, tmp_path):
         """S7 (b): flag true + fully-bounded mechanical → haiku eligible AND wins on cheapest.
-        With delegation_map_allows_haiku=true the cheapest code-competent variant (haiku) wins."""
+        With delegation_map_allows_haiku=true the cheapest code-capable variant (haiku, cost 3) wins."""
         import route
         rbtv_root = _build_synth_corpus(tmp_path)
         profile = _profile(
@@ -893,7 +1099,7 @@ class TestHaikuGuard:
         assert not haiku_excludes, "flag true: haiku must NOT be excluded"
 
     def test_pinned_reviewer_never_haiku_even_under_flag(self, tmp_path):
-        """S7 (c): flag true + a pinned reviewer role → resolved reviewer ≥ sonnet, never haiku.
+        """S7 (c): flag true + a pinned reviewer role → resolved reviewer >= sonnet, never haiku.
         Pinned-role floors are sonnet regardless — haiku is never a pinned-role pick even when
         the flag is set."""
         import route
@@ -904,17 +1110,17 @@ class TestHaikuGuard:
             inlined_context_size=10000,
             delegation_map_allows_haiku=True,
             pinned_role="reviewer",
-            executor_tier="non-reasoning",
+            executor_reasoning=3,  # haiku-class integer; floor at sonnet (6)
         )
         result = route.route(dict(profile), rbtv_root, tmp_path, {}, {}, explain=True)
         assert result["verdict"] == "route", f"unexpected verdict: {result}"
         # Even with the flag admitting haiku for the cost-ranked pick, the reviewer floor
-        # (≥ executor+1, floor sonnet, never haiku) raises the result to sonnet.
+        # (>= executor+1, floor sonnet, never haiku) raises the result to sonnet.
         assert result["variant"] != "haiku", (
             f"S7 violation: reviewer pin resolved to haiku under the flag, got {result['variant']}"
         )
         assert result["variant"] in ("sonnet", "opus"), (
-            f"reviewer floor should land ≥ sonnet, got {result['variant']}"
+            f"reviewer floor should land >= sonnet, got {result['variant']}"
         )
 
     def test_exclude_haiku_unit(self):
@@ -932,9 +1138,10 @@ class TestHaikuGuard:
         kept_flag = route._exclude_haiku(list(entries), {"delegation_map_allows_haiku": True}, [])
         assert sorted(e["variant"] for e in kept_flag) == ["haiku", "opus", "sonnet"]
 
-    def test_real_corpus_unaffected_no_haiku_present(self):
-        """Zero-regression spot-check: the REAL manifests ship no haiku, so a fully-bounded
-        code task over the live corpus is byte-identical whether the flag is set or not."""
+    def test_real_corpus_unaffected_no_haiku_wins(self):
+        """Zero-regression spot-check: a fully-bounded code task over the live corpus picks
+        kimi:kimi (no haiku available absent QWEN_API_KEY and no haiku passes the S7 guard
+        even if present). The flag must not change the verdict on the real corpus."""
         import route
         cfg = route._load_rbtv_json(VAULT_ROOT)
         base = _profile(boundedness="fully-bounded", task_type="code", inlined_context_size=10000)
@@ -943,7 +1150,8 @@ class TestHaikuGuard:
             dict(base, delegation_map_allows_haiku=True), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=False
         )
         assert v_no_flag == v_flag, (
-            "real corpus has no haiku, so the flag must not change the verdict: "
+            "real corpus: the delegation_map_allows_haiku flag must not change the verdict "
+            f"when haiku either isn't present or isn't the cheapest non-excluded: "
             f"{v_no_flag} vs {v_flag}"
         )
         assert v_no_flag["model"] == "kimi-code-cli", f"real-corpus baseline changed: {v_no_flag}"
@@ -955,16 +1163,17 @@ class TestHaikuGuard:
 
 # Synthetic package manifest for the confinement tests.
 # A single "synthetic-only" variant that should never appear in the real corpus.
+# Uses integer 1-7 fields per the migrated schema.
 _SYNTH_ONLY_MANIFEST = """model: synthetic-only
 evidence_status: validated
 
 variants:
   - variant: cheapest-synth
-    reasoning_tier: non-reasoning
+    reasoning: 1
     context_window: 500000
     max_output: 8000
-    cost_class: cheapest
-    code_competence: strong
+    cost: 1
+    coding: 4
     web_access: false
     parallel_safe: true
     resume_support: none
@@ -997,7 +1206,7 @@ class TestModelsDir:
     def test_flagged_routes_from_scratch_catalog(self, tmp_path):
         """--models-dir <scratch> routes from the scratch catalog only.
 
-        The synthetic-only variant (cheapest, code-competent) wins the
+        The synthetic-only variant (cheapest, code-capable) wins the
         fully-bounded code profile; real catalog packages do not appear.
         """
         scratch_rbtv_root = _build_synth_only_corpus(tmp_path)
@@ -1109,7 +1318,7 @@ class TestModelsDir:
     def test_cli_flag_absent_same_as_pre_change(self):
         """Full-corpus baseline via the CLI: _run_route (elect=False) passes --models-dir at the
         live catalog, which bypasses the workspace election and routes the FULL real corpus —
-        the pre-election behavior, where kimi:no-thinking wins a fully-bounded code task. The
+        the pre-election behavior, where kimi:kimi wins a fully-bounded code task. The
         election-active default path is covered by TestElection.
         """
         profile = _profile(
@@ -1221,10 +1430,10 @@ class TestVariantElection:
     election from an explicit install file (the test/what-if seam).
     """
 
-    QWEN_ALL = ["default", "deepseek-flash", "deepseek-pro", "glm"]
+    QWEN_ALL = ["qwen3.6-plus", "deepseek-flash", "deepseek-pro", "glm-5.1"]
 
     def test_variant_subset_confines_enumeration(self):
-        """elected_variants confines qwen to its DeepSeek backends; default + glm are
+        """elected_variants confines qwen to its DeepSeek backends; qwen3.6-plus + glm-5.1 are
         skipped at enumerate with a 'model_variants' reason."""
         import route
         cfg = route._load_rbtv_json(VAULT_ROOT)
@@ -1241,7 +1450,7 @@ class TestVariantElection:
             if s.get("stage") == "enumerate" and s.get("action") == "skip"
             and "model_variants" in s.get("reason", "")
         }
-        assert {"default", "glm"} <= skipped, f"expected default+glm skipped, got {skipped}"
+        assert {"qwen3.6-plus", "glm-5.1"} <= skipped, f"expected qwen3.6-plus+glm-5.1 skipped, got {skipped}"
 
     def test_variant_election_none_enumerates_all(self):
         """elected_variants=None → every qwen backend enumerates (back-compat)."""
@@ -1264,11 +1473,11 @@ class TestVariantElection:
         entries = route._enumerate_models(
             RBTV_ROOT, VAULT_ROOT, cfg, log,
             elected=["qwen-code-cli", "kimi-code-cli"],
-            elected_variants={"qwen-code-cli": ["glm"]},
+            elected_variants={"qwen-code-cli": ["glm-5.1"]},
         )
         qwen = sorted(e["variant"] for e in entries if e["model"] == "qwen-code-cli")
         kimi = [e for e in entries if e["model"] == "kimi-code-cli"]
-        assert qwen == ["glm"], qwen
+        assert qwen == ["glm-5.1"], qwen
         assert kimi, "kimi (no model_variants entry) should keep its variants"
 
     def test_route_resolves_within_elected_backend(self):
@@ -1296,8 +1505,8 @@ class TestVariantElection:
 
     def test_rbtv_json_seam_routes_scratch_election(self, tmp_path):
         """The --rbtv-json seam: a scratch install electing only qwen's DeepSeek backends routes
-        a code task to a DeepSeek-via-qwen backend, default+glm skipped at enumerate — WITHOUT
-        touching live config. QWEN_API_KEY supplied via the scratch env_file."""
+        a code task to a DeepSeek-via-qwen backend, qwen3.6-plus+glm-5.1 skipped at enumerate —
+        WITHOUT touching live config. QWEN_API_KEY supplied via the scratch env_file."""
         env_file = tmp_path / ".env"
         env_file.write_text("QWEN_API_KEY=test-fake-not-real\n", encoding="utf-8")
         rbtv_json = tmp_path / "rbtv.json"
@@ -1321,7 +1530,7 @@ class TestVariantElection:
             if s.get("stage") == "enumerate" and s.get("action") == "skip"
             and "model_variants" in s.get("reason", "")
         }
-        assert {"default", "glm"} <= skipped, f"expected default+glm skipped, got {skipped}"
+        assert {"qwen3.6-plus", "glm-5.1"} <= skipped, f"expected qwen3.6-plus+glm-5.1 skipped, got {skipped}"
 
 
 # ---------------------------------------------------------------------------
@@ -1329,23 +1538,24 @@ class TestVariantElection:
 # ---------------------------------------------------------------------------
 # A variant marked `available: false` in its manifest is dropped at the availability stage
 # REGARDLESS of auth method — the general override for a cli-login/none-auth model the provider
-# has taken offline (e.g. Fable 5 during an access-gated rollout), which the api-key probe cannot
+# has taken offline (e.g. during an access-gated rollout), which the api-key probe cannot
 # detect. Default (absent field / true) leaves the auth-based checks in charge.
 
 # Synthetic two-variant corpus: 'offline' is the CHEAPEST capable variant but marked
 # available: false; 'online' is the next-cheapest and available. Absent the drop, 'offline'
 # would win on cost — so a verdict of 'online' proves the unavailable variant was dropped.
+# Uses integer 1-7 fields per the migrated schema.
 _SYNTH_AVAIL_MANIFEST = """model: scratch-avail
 evidence_status: validated
 
 variants:
   - variant: offline
     available: false
-    reasoning_tier: non-reasoning
+    reasoning: 1
     context_window: 500000
     max_output: 8000
-    cost_class: cheapest
-    code_competence: strong
+    cost: 1
+    coding: 4
     web_access: false
     parallel_safe: true
     resume_support: none
@@ -1355,11 +1565,11 @@ variants:
       interactive: false
 
   - variant: online
-    reasoning_tier: non-reasoning
+    reasoning: 1
     context_window: 500000
     max_output: 8000
-    cost_class: low
-    code_competence: strong
+    cost: 2
+    coding: 4
     web_access: false
     parallel_safe: true
     resume_support: none
@@ -1417,7 +1627,7 @@ class TestAvailableField:
         assert result["verdict"] == "route", result
         assert result["variant"] == "online", (
             f"available: false variant not dropped — got {result['variant']} "
-            "(offline is cheapest; it should be dropped and online should win)"
+            "(offline is cheapest cost 1; it should be dropped and online cost 2 should win)"
         )
         drops = [
             s for s in result.get("explain", [])
@@ -1429,29 +1639,551 @@ class TestAvailableField:
             f"drop reason should cite the explicit mark, got {drops[0].get('reason')}"
         )
 
-    def test_real_fable_variants_dropped_while_marked_unavailable(self):
-        """The real claude-code-{cli,native} fable variants carry available: false (Fable 5
-        access-gated, 2026-06-14). Over the real corpus an unbounded leaf must drop fable at
-        availability and still resolve to opus. Auto-skips once fable is restored (field flipped),
-        so the test is not brittle to a future re-enable."""
+    def test_real_fable_variant_absent_from_corpus(self):
+        """D15: the `fable` variant has been REMOVED (not merely marked available: false) from
+        both claude-code-cli and claude-code-native. Asserts the variant is ABSENT from the
+        manifests entirely — route.py will never even enumerate it.
+
+        This replaces the old test_real_fable_variants_dropped_while_marked_unavailable:
+        fable is not 'unavailable' — it is not in the roster at all."""
         import route
+        # Check claude-code-native
+        native_manifest = RBTV_ROOT / "orchestration" / "models" / "claude-code-native" / "manifest.yaml"
+        native = route._load_manifest(native_manifest)
+        fable_native = [v for v in native.get("variants", []) if v.get("variant") == "fable"]
+        assert not fable_native, (
+            f"D15 violation: fable variant found in claude-code-native manifest — it should be ABSENT, "
+            f"not available: false. Got: {fable_native}"
+        )
+
+        # Check claude-code-cli
         cli_manifest = RBTV_ROOT / "orchestration" / "models" / "claude-code-cli" / "manifest.yaml"
         cli = route._load_manifest(cli_manifest)
-        fable_cli = next((v for v in cli.get("variants", []) if v.get("variant") == "fable"), None)
-        if fable_cli is None or fable_cli.get("available") is not False:
-            pytest.skip("fable not marked available: false — functional-drop case not active")
-        cfg = route._load_rbtv_json(VAULT_ROOT)
-        profile = _profile(boundedness="unbounded", task_type="text", inlined_context_size=10000)
-        result = route.route(dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True, elected=None)
-        assert result["verdict"] == "route", result
-        fable_drops = [
-            s for s in result.get("explain", [])
-            if s.get("stage") == "availability" and s.get("action") == "drop"
-            and s.get("variant") == "fable"
-        ]
-        assert fable_drops, (
-            f"fable marked available: false must drop at availability: {result.get('explain')}"
+        fable_cli = [v for v in cli.get("variants", []) if v.get("variant") == "fable"]
+        assert not fable_cli, (
+            f"D15 violation: fable variant found in claude-code-cli manifest — it should be ABSENT. "
+            f"Got: {fable_cli}"
         )
-        assert result["variant"] == "opus", (
-            f"unbounded should still resolve to opus after fable drops, got {result['variant']}"
+
+
+# ---------------------------------------------------------------------------
+# GATE floor: integer 1-7 numeric floor gates (reasoning + coding)
+# ---------------------------------------------------------------------------
+
+class TestGateFloors:
+    """The GATE drops variants with reasoning < floor or coding < floor (integers 1-7).
+
+    Floor values are read from route.py's REASONING_FLOOR_BY_BAND / CODING_FLOOR_BY_BAND
+    constants rather than hardcoded to avoid silent rot if the owner adjusts floors at
+    p2-checkpoint.
+    """
+
+    def test_reasoning_floor_drops_low_reasoning_variants(self, tmp_path):
+        """A synthetic corpus with two variants: one at reasoning 1 (below the fully-bounded
+        floor), one at reasoning 4 (above). The floor-failing variant must be dropped at GATE."""
+        import route
+
+        floor = route.REASONING_FLOOR_BY_BAND["fully-bounded"]  # currently 1
+        # Build a corpus where one variant is BELOW the floor and one is ABOVE.
+        # Since the fully-bounded floor is 1, use reasoning=0 for below (invalid but
+        # tests the gate) and reasoning=4 for above. If the floor changes, the test adapts.
+        below = max(0, floor - 1)  # below the floor (0 if floor is 1)
+        above = floor + 3          # clearly above
+
+        manifest_text = f"""model: synth-gate
+evidence_status: validated
+
+variants:
+  - variant: below-floor
+    reasoning: {below}
+    context_window: 500000
+    max_output: 8000
+    cost: 1
+    coding: 4
+    web_access: false
+    parallel_safe: true
+    resume_support: none
+    auth:
+      required: false
+      method: none
+      interactive: false
+
+  - variant: above-floor
+    reasoning: {above}
+    context_window: 500000
+    max_output: 8000
+    cost: 2
+    coding: 4
+    web_access: false
+    parallel_safe: true
+    resume_support: none
+    auth:
+      required: false
+      method: none
+      interactive: false
+"""
+        models = tmp_path / "orchestration" / "models" / "synth-gate"
+        models.mkdir(parents=True)
+        (models / "manifest.yaml").write_text(manifest_text, encoding="utf-8")
+
+        if floor <= 0:
+            # If the floor is 0 or below, the test is vacuous (every variant passes).
+            # Skip rather than give a false-green.
+            pytest.skip(f"fully-bounded reasoning floor is {floor} — cannot test drop below it with valid integers")
+
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="text",
+            inlined_context_size=1000,
+        )
+        result = route.route(dict(profile), tmp_path, tmp_path, {}, {}, explain=True)
+        assert result["verdict"] == "route", f"unexpected: {result}"
+        assert result["variant"] == "above-floor", (
+            f"below-floor variant should be dropped by reasoning GATE (floor={floor}), got {result['variant']}"
+        )
+        # Confirm the drop trace
+        drops = [
+            s for s in result.get("explain", [])
+            if s.get("stage") == "filter" and s.get("action") == "drop"
+            and s.get("variant") == "below-floor"
+        ]
+        assert drops, f"expected a filter drop for below-floor: {result.get('explain')}"
+
+    def test_coding_floor_drops_low_coding_on_code_leaf(self, tmp_path):
+        """A code-leaf profile: a variant with coding below the fully-bounded coding floor
+        must be dropped at GATE; one above the floor survives."""
+        import route
+
+        coding_floor = route.CODING_FLOOR_BY_BAND["fully-bounded"]  # currently 1
+        below = max(0, coding_floor - 1)
+        above = coding_floor + 3
+
+        manifest_text = f"""model: synth-coding-gate
+evidence_status: validated
+
+variants:
+  - variant: coding-below
+    reasoning: 4
+    context_window: 500000
+    max_output: 8000
+    cost: 1
+    coding: {below}
+    web_access: false
+    parallel_safe: true
+    resume_support: none
+    auth:
+      required: false
+      method: none
+      interactive: false
+
+  - variant: coding-above
+    reasoning: 4
+    context_window: 500000
+    max_output: 8000
+    cost: 2
+    coding: {above}
+    web_access: false
+    parallel_safe: true
+    resume_support: none
+    auth:
+      required: false
+      method: none
+      interactive: false
+"""
+        models = tmp_path / "orchestration" / "models" / "synth-coding-gate"
+        models.mkdir(parents=True)
+        (models / "manifest.yaml").write_text(manifest_text, encoding="utf-8")
+
+        if coding_floor <= 0:
+            pytest.skip(f"fully-bounded coding floor is {coding_floor} — cannot test drop below it with valid integers")
+
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=1000,
+        )
+        result = route.route(dict(profile), tmp_path, tmp_path, {}, {}, explain=True)
+        assert result["verdict"] == "route", f"unexpected: {result}"
+        assert result["variant"] == "coding-above", (
+            f"coding-below should be dropped by coding GATE (floor={coding_floor}), got {result['variant']}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# routable_for code-eligibility gate (D13)
+# ---------------------------------------------------------------------------
+
+class TestRoutableForCodeEligibility:
+    """D13: a variant with a non-empty routable_for that omits bounded-code/unbounded-code
+    is dropped from code leaves regardless of its honest coding integer.
+
+    Uses the REAL corpus: deepseek-api and gemini-api both have routable_for that omits
+    the code roles, and both carry honest (non-trivial) coding scores (3-4). They must be
+    dropped from code leaves and the explain trace must show the routable_for drop reason."""
+
+    def test_deepseek_api_dropped_from_code_leaf(self):
+        """deepseek-api variants carry coding 3 or 4 (honest board scores, D13) but their
+        routable_for omits bounded-code/unbounded-code. They must be dropped from code leaves."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+        )
+        result = route.route(
+            dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True, elected=None
+        )
+        assert result["verdict"] == "route"
+        # deepseek-api must NOT win a code leaf
+        assert result["model"] != "deepseek-api", (
+            f"D13 violation: deepseek-api (non-executor) routed to a code leaf: {result}"
+        )
+        # Confirm deepseek-api is dropped at filter with routable_for reason
+        explain = result.get("explain", [])
+        deepseek_drops = [
+            s for s in explain
+            if s.get("stage") == "filter" and s.get("action") == "drop"
+            and s.get("model") == "deepseek-api"
+        ]
+        assert deepseek_drops, (
+            f"Expected deepseek-api dropped at filter for code leaf, got no drop in trace. "
+            f"Filter drops: {[s for s in explain if s.get('stage') == 'filter' and s.get('action') == 'drop']}"
+        )
+        assert any("routable_for" in str(d.get("reasons", "")) for d in deepseek_drops), (
+            f"deepseek-api drop should cite routable_for, got: {deepseek_drops}"
+        )
+
+    def test_gemini_api_dropped_from_code_leaf(self):
+        """gemini-api variants carry coding 1 or 3 (honest board scores, D13) but their
+        routable_for omits bounded-code/unbounded-code. They must be dropped from code leaves."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+        )
+        result = route.route(
+            dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True, elected=None
+        )
+        assert result["verdict"] == "route"
+        assert result["model"] != "gemini-api", (
+            f"D13 violation: gemini-api (non-executor) routed to a code leaf: {result}"
+        )
+        # Confirm gemini-api is dropped at filter
+        explain = result.get("explain", [])
+        gemini_drops = [
+            s for s in explain
+            if s.get("stage") == "filter" and s.get("action") == "drop"
+            and s.get("model") == "gemini-api"
+        ]
+        assert gemini_drops, (
+            f"Expected gemini-api dropped at filter for code leaf, got no drop: "
+            f"{[s for s in explain if s.get('stage') == 'filter']}"
+        )
+
+    def test_non_executor_eligible_for_text_leaf(self):
+        """Complementary: deepseek-api IS eligible for text-synthesis leaves (routable_for
+        includes text-synthesis). With the DEEPSEEK_API_KEY present it should NOT be dropped
+        from a text leaf at the routable_for gate (may be dropped for availability absent key)."""
+        import route
+        # Build a synthetic corpus with just a deepseek-api variant so we can control
+        # availability cleanly (inject the key in env).
+        # We use the real corpus but inject the key to ensure availability.
+        old = os.environ.get("DEEPSEEK_API_KEY")
+        try:
+            os.environ["DEEPSEEK_API_KEY"] = "test-fake-not-real"
+            cfg = route._load_rbtv_json(VAULT_ROOT)
+            profile = _profile(
+                boundedness="fully-bounded",
+                task_type="text",
+                inlined_context_size=10000,
+            )
+            result = route.route(
+                dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True,
+                elected=["deepseek-api"],
+            )
+            assert result["verdict"] == "route", (
+                f"deepseek-api should be eligible for text-synthesis leaf: {result}"
+            )
+            assert result["model"] == "deepseek-api", (
+                f"deepseek-api should win when it is the only elected worker: {result}"
+            )
+            # Confirm deepseek-api was NOT dropped for routable_for on a text leaf
+            explain = result.get("explain", [])
+            rf_drops = [
+                s for s in explain
+                if s.get("stage") == "filter" and s.get("action") == "drop"
+                and s.get("model") == "deepseek-api"
+                and "routable_for" in str(s.get("reasons", ""))
+            ]
+            assert not rf_drops, (
+                f"deepseek-api must not be dropped by routable_for on a text-synthesis leaf: {rf_drops}"
+            )
+        finally:
+            if old is None:
+                os.environ.pop("DEEPSEEK_API_KEY", None)
+            else:
+                os.environ["DEEPSEEK_API_KEY"] = old
+
+    def test_manus_api_dropped_from_non_web_leaf(self):
+        """manus-api has routable_for: [web-research] — it must be dropped from code and
+        text-synthesis leaves."""
+        import route
+        old = os.environ.get("MANUS_API_KEY")
+        try:
+            os.environ["MANUS_API_KEY"] = "test-fake-not-real"
+            cfg = route._load_rbtv_json(VAULT_ROOT)
+            profile = _profile(
+                boundedness="fully-bounded",
+                task_type="code",
+                inlined_context_size=10000,
+            )
+            result = route.route(
+                dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True, elected=None
+            )
+            assert result["verdict"] == "route"
+            assert result["model"] != "manus-api", (
+                f"manus-api must not route to a code leaf (routable_for=[web-research]): {result}"
+            )
+            # Confirm it was dropped for routable_for
+            explain = result.get("explain", [])
+            manus_drops = [
+                s for s in explain
+                if s.get("stage") == "filter" and s.get("action") == "drop"
+                and s.get("model") == "manus-api"
+                and "routable_for" in str(s.get("reasons", ""))
+            ]
+            assert manus_drops, (
+                f"manus-api should be dropped at filter for a non-web-research leaf: {explain}"
+            )
+        finally:
+            if old is None:
+                os.environ.pop("MANUS_API_KEY", None)
+            else:
+                os.environ["MANUS_API_KEY"] = old
+
+
+# ---------------------------------------------------------------------------
+# D4: other-routing audit fires ONLY when leaf_role == other
+# ---------------------------------------------------------------------------
+
+class TestOtherRoutingAudit:
+    """D4: route.py records the other-routing audit trail ONLY when leaf_role == other.
+    The dispatch-side profile builder sets leaf_role explicitly — route.py never self-emits other."""
+
+    def test_other_routing_audit_fires_when_leaf_role_other(self):
+        """Profile with leaf_role=other → verdict includes other_routing_audit with the
+        task instructions and the chosen (model, variant)."""
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="text",
+            inlined_context_size=10000,
+            leaf_role="other",
+            task_instructions="Write a haiku about routing tables",
+        )
+        exit_code, result = _run_route(profile, explain=False)
+        assert exit_code == 0
+        assert result["verdict"] == "route"
+        assert "other_routing_audit" in result, (
+            f"leaf_role=other must produce other_routing_audit, got: {result}"
+        )
+        audit = result["other_routing_audit"]
+        assert audit.get("role") == "other"
+        assert "routed_to" in audit
+        assert audit.get("task_instructions") == "Write a haiku about routing tables", (
+            f"audit must record the task instructions: {audit}"
+        )
+
+    def test_other_routing_audit_absent_for_non_other_leaf(self):
+        """Profile without leaf_role=other → verdict does NOT include other_routing_audit.
+        The audit is ONLY emitted for the other catch-all role."""
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+        )
+        exit_code, result = _run_route(profile, explain=False)
+        assert exit_code == 0
+        assert result["verdict"] == "route"
+        assert "other_routing_audit" not in result, (
+            f"other_routing_audit must NOT appear for a non-other leaf: {result}"
+        )
+
+    def test_other_routing_audit_absent_for_text_synthesis_leaf(self):
+        """text-synthesis leaf (the default text route) → no other_routing_audit."""
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="text",
+            inlined_context_size=10000,
+        )
+        exit_code, result = _run_route(profile, explain=False)
+        assert exit_code == 0
+        assert result["verdict"] == "route"
+        assert "other_routing_audit" not in result, (
+            f"other_routing_audit must NOT appear for text-synthesis leaf: {result}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Effort = f(boundedness): post-pin effort dial (spec row 6)
+# ---------------------------------------------------------------------------
+
+class TestEffortPostPin:
+    """Effort is set AFTER the model is pinned (post-pin dial), from the chosen variant's
+    reasoning_modes.depths. Single-mode workers return no effort field (no-op).
+    CLI multi-mode workers return an effort string keyed from the band."""
+
+    def test_fully_bounded_code_effort_no_op_on_kimi(self):
+        """kimi-code-cli:kimi has depths [no-think, think] — a two-mode worker.
+        Fully-bounded → effort should be 'no-think' (the low-effort/cheaper mode)."""
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+        )
+        exit_code, result = _run_route(profile, explain=True)
+        assert exit_code == 0
+        assert result["model"] == "kimi-code-cli"
+        # kimi has two depths [no-think, think]; fully-bounded → low effort → no-think
+        # Per route.py _resolve_effort: fully-bounded preferred=["low"]; no "low" in kimi's
+        # depths → falls back to depths[0] = "no-think"
+        assert result.get("effort") == "no-think", (
+            f"kimi:kimi fully-bounded should resolve effort='no-think', got {result.get('effort')}"
+        )
+
+    def test_claude_native_opus_is_single_mode_no_effort(self):
+        """claude-code-native:opus has depths=[] (single-mode). The effort field must be
+        absent from the verdict (no-op, not 'None' or 'null')."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="text",
+            inlined_context_size=10000,
+            pinned_role="debug",  # forces claude-code-native:opus
+        )
+        result = route.route(dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True)
+        assert result["verdict"] == "route"
+        assert result["model"] == "claude-code-native"
+        assert result["variant"] == "opus"
+        # Single-mode: effort field must be absent (not None, not "none")
+        assert "effort" not in result, (
+            f"claude-code-native:opus is single-mode; 'effort' must be absent, got {result.get('effort')}"
+        )
+
+    def test_partially_bounded_effort_on_claude_cli_sonnet(self):
+        """claude-code-cli:sonnet has depths [low, medium, high, xhigh, max].
+        Partially-bounded → effort should be 'medium'."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        profile = _profile(
+            boundedness="partially-bounded",
+            task_type="text",
+            inlined_context_size=10000,
+        )
+        result = route.route(
+            dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True,
+            elected=["claude-code-cli"],
+        )
+        assert result["verdict"] == "route"
+        assert result["model"] == "claude-code-cli"
+        assert result["variant"] == "sonnet"
+        # partially-bounded → preferred = ["medium"]
+        assert result.get("effort") == "medium", (
+            f"claude-code-cli:sonnet partially-bounded should resolve effort='medium', got {result.get('effort')}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# RANK: cost-ascending + coding-orders-code-survivors (spec Behavior rows 4+5)
+# ---------------------------------------------------------------------------
+
+class TestRankOrder:
+    """The RANK step orders survivors cost-ascending (integer 1-7, cheapest first).
+    On a code leaf, coding 1-7 orders code-task survivors when cost ties.
+    7 ranks LAST (never auto-picked on a cost tie)."""
+
+    def test_cost_ascending_rank_cost_7_never_auto_picked(self):
+        """gpt-5.5 (codex-cli) has cost=7 — it should never win a fully-bounded code task
+        by cost-ascending rank. With QWEN_API_KEY absent the cheapest available code worker
+        is kimi (cost 3), not codex (cost 7), even though codex has higher coding (7 vs 4)."""
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+        )
+        # Elect kimi and codex only (no qwen API key needed)
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        result = route.route(
+            dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True,
+            elected=["kimi-code-cli", "codex-cli"],
+        )
+        assert result["verdict"] == "route"
+        # kimi (cost 3) ranks before codex (cost 7) — cost-ascending
+        assert result["model"] == "kimi-code-cli", (
+            f"cost-ascending: kimi (cost 3) should beat codex (cost 7), got {result['model']}:{result['variant']}"
+        )
+
+    def test_coding_orders_code_survivors_on_cost_tie(self, tmp_path):
+        """On a code leaf with two survivors of EQUAL cost, the higher coding score ranks first.
+        Uses a synthetic corpus with two variants at the same cost but different coding scores."""
+        import route
+
+        manifest_text = """model: synth-rank
+evidence_status: validated
+
+variants:
+  - variant: low-coding
+    reasoning: 5
+    context_window: 500000
+    max_output: 8000
+    cost: 2
+    coding: 3
+    web_access: false
+    parallel_safe: true
+    resume_support: none
+    auth:
+      required: false
+      method: none
+      interactive: false
+
+  - variant: high-coding
+    reasoning: 5
+    context_window: 500000
+    max_output: 8000
+    cost: 2
+    coding: 5
+    web_access: false
+    parallel_safe: true
+    resume_support: none
+    auth:
+      required: false
+      method: none
+      interactive: false
+"""
+        models = tmp_path / "orchestration" / "models" / "synth-rank"
+        models.mkdir(parents=True)
+        (models / "manifest.yaml").write_text(manifest_text, encoding="utf-8")
+
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=1000,
+        )
+        result = route.route(dict(profile), tmp_path, tmp_path, {}, {}, explain=True)
+        assert result["verdict"] == "route"
+        # Both have cost 2; higher coding (5) ranks first on a code leaf
+        assert result["variant"] == "high-coding", (
+            f"on a code leaf with cost tie, higher coding (5) should rank first, got {result['variant']}"
+        )
+        # Confirm rank trace shows the order
+        explain = result.get("explain", [])
+        rank_steps = [s for s in explain if s.get("stage") == "rank"]
+        assert rank_steps, "Expected a rank step in explain trace"
+        rank_order = [r["variant"] for s in rank_steps for r in s.get("order", [])]
+        assert rank_order.index("high-coding") < rank_order.index("low-coding"), (
+            f"high-coding should rank before low-coding, got order: {rank_order}"
         )

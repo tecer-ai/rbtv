@@ -2,9 +2,18 @@
 # Schema + field meanings + routing-card consumers: ../manifest-schema.md
 # Sources: routing-matrix-reference.md §2 (ids + prices live-confirmed 2026-06-09, p6-1 pilot, D-exec-15);
 #          DeepSeek API docs: https://api-docs.deepseek.com
+#          value-derivation.md (AA-board derived integers; D13 capability-vs-eligibility split)
 # This is an API chat worker (stateless HTTP call — no filesystem access, no tool execution loop).
 # The four CLI-shaped fields (headless, tool_surface, confinement, swarm_support) are filled
 # with the repurposed API-worker values per manifest-schema.md §2a.
+#
+# D13 CAPABILITY-VS-ELIGIBILITY SPLIT: deepseek-api executes NO code in our dispatch (API chat worker,
+# non-executor). The coding integer is the HONEST AA board TBH score — v4-flash 3 (TBH 36–39),
+# v4-pro 4 (TBH 42–46) — same scores as the qwen-wrapped twins. Code-ineligibility is expressed
+# SEPARATELY via routable_for (no bounded-code / unbounded-code roles). route.py gates code on
+# routable_for membership, NEVER on the coding integer (an honest score must not silently re-enable
+# an ineligible route). No native web grounding → web-research NOT in routable_for.
+#
 # The exact invocation shape is in ./manual.md (pointed to by invocation_pointer).
 
 model: deepseek-api
@@ -19,15 +28,26 @@ variants:
     # runner via --model at dispatch time. DEPRECATION: the legacy `deepseek-chat`/`deepseek-reasoner`
     # compatibility aliases are REMOVED 2026-07-24 15:59 UTC — never dispatch them; use the v4 ids.
 
-    # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: mid            # HELD at mid + doubt_policy: halt. ⚑ UNDER-RATED per published benchmark (DeepSeek V4-Flash: 79.0% SWE-V ≈ Sonnet 79.6, AA Intelligence Index 1388) — a judgment-pilot candidate, but NOT bumped: SWE measures code, not judgment, and no judgment-dense pilot run (re-sourced from routing-matrix estimate → benchmark, 2026-06-11)
+    # --- capability + cost scores + sizing (routing §2, §8) — scale: schema §0 (integer 1–7) ---
+    reasoning: 4                          # AA Intelligence Index 46–47 (DeepSeek V4 Flash Max/High rows); mid reasoner
+    coding: 3                             # Terminal-Bench Hard 36–39 (HONEST board score per D13 — mirrors qwen deepseek-flash twin); limited agentic coder; code-ineligibility via routable_for, NOT this score
+    cost: 1                               # AA Blended Price $0.06 (DSV4Flash) → bin 1 (cheapest)
+    axis_evidence:
+      reasoning: { source: "aa-ii(46-47);gpqa(42-45)", confidence: medium }
+      coding:    { source: "aa-tbh(36-39)", confidence: medium }   # medium: board rows for bare model, close proxy for API dispatch; D13 honest score
+    cost_evidence: { source: "aa-blended($0.06,DSV4Flash)→bin1", confidence: medium }
     context_window: 1000000        # 1M tokens per routing-matrix §2; re-verify against provider docs before pilot
     max_output: 384000             # 384k per routing-matrix §2; re-verify against provider docs before pilot
 
-    # --- budget + capability gates (routing §2, §6) ---
-    cost_class: cheapest           # $0.14/$0.28 per MTok input/output (routing-matrix §2) — cheapest DeepSeek variant; the cost-floor pick
-    code_competence: none          # API chat worker — not a code executor; route code work to kimi/codex
+    # --- role eligibility (routing §2 GATE, independent of capability — D13) ---
     web_access: false              # no native web grounding; cannot satisfy the research leaf
+    routable_for: [reasoning, text-synthesis, other]   # D13: bare-API chat worker, no code executor → omits bounded-code + unbounded-code; no native web → omits web-research. route.py gates code on this list, NEVER on the coding integer
+
+    # --- reasoning / effort modes (schema §0a) ---
+    reasoning_modes:
+      depths: ["off", "on"]         # thinking toggle: off (default) / on (extended thinking); G2 CLOSED — owner accepts as working (p1 re-review c6)
+      invocation: "thinking param" # API param that enables thinking; set at dispatch via extra_params
+      carrier: "API param"
 
     # --- parallelism + resume (routing §8, §4) ---
     parallel_safe: true            # stateless HTTP API; multiple concurrent calls are safe under disjoint output folders
@@ -63,12 +83,13 @@ variants:
     invocation_pointer: ./manual.md   # rendered dispatch manual for the exact command shape
     manual_path: ./manual.md          # canonical planning-emittable manual-path constant (pinnable into task frontmatter; never re-derived) — resolves to models/deepseek-api/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/deepseek-api/delta.md
-    specialty: "cheapest text synthesis — the cost-floor API text worker (Thinking Mode, OpenAI-compatible JSON) for partially-bounded text synthesis / mechanical text transforms; never code (code_competence: none)"   # within-tier tiebreaker only; boundedness-first stays the master cut
+    specialty: "cheapest text synthesis and reasoning — the cost-floor API text worker (Thinking Mode, OpenAI-compatible JSON) for partially-bounded text synthesis / mechanical text transforms; code-ineligible (routable_for excludes code roles per D13)"   # within-tier tiebreaker only; boundedness-first stays the master cut
     failure_modes:
       - "legacy deepseek-chat/deepseek-reasoner aliases removed 2026-07-24 15:59 UTC — dispatch deepseek-v4-flash/deepseek-v4-pro (ids + prices live-confirmed 2026-06-09, D-exec-15)"
       - "no session resumption — a halted dispatch must be re-dispatched fresh; no partial-resume path"
       - "API key absent in env + env_file → package unavailable for the dispatch; router degrades, does not halt"
       - "thinking mode behavior (token cost, output format) may differ from routing-matrix estimate — probe before sizing batches"
+      - "code-ineligible: routable_for omits bounded-code + unbounded-code (D13) — route.py gates code on routable_for, not on the coding score; dispatching a code leaf here is a routing violation"
 
     # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
     # Repurposed API-worker values per manifest-schema.md §2a:
@@ -82,15 +103,26 @@ variants:
     # MODEL-ID NOTE: same as v4-flash above — "v4-pro" is the RBTV routing label; the live DeepSeek API
     # model id is `deepseek-v4-pro` (id + price live-confirmed 2026-06-09, p6-1 pilot, D-exec-15).
 
-    # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: top            # benchmark-corroborated (was routing-matrix estimate): DeepSeek V4-Pro 80.6% SWE-V (≥ Sonnet 79.6) + Artificial Analysis #2 open-weight reasoning model (2026-06-11). Judgment-dense tasks.
+    # --- capability + cost scores + sizing (routing §2, §8) — scale: schema §0 (integer 1–7) ---
+    reasoning: 5                          # AA Intelligence Index 50–52 (DeepSeek V4 Pro Max/High); top open-weight tier
+    coding: 4                             # Terminal-Bench Hard 42–46 (HONEST board score per D13 — mirrors qwen deepseek-pro twin); bounded agentic coder; code-ineligibility via routable_for, NOT this score
+    cost: 1                               # AA Blended Price $0.18 (DSV4Pro) → bin 1 (cheapest)
+    axis_evidence:
+      reasoning: { source: "aa-ii(50-52);gpqa(46-50)", confidence: high }
+      coding:    { source: "aa-tbh(42-46)", confidence: high }   # D13 honest score; same backend as qwen deepseek-pro
+    cost_evidence: { source: "aa-blended($0.18,DSV4Pro)→bin1", confidence: high }
     context_window: 1000000        # 1M tokens per routing-matrix §2; re-verify against provider docs before pilot
     max_output: 384000             # 384k per routing-matrix §2; re-verify against provider docs before pilot
 
-    # --- budget + capability gates (routing §2, §6) ---
-    cost_class: low                # $0.435/$0.87 per MTok input/output (routing-matrix §2) — higher than v4-flash but still low absolute; pays for top reasoning tier
-    code_competence: none          # API chat worker — not a code executor
+    # --- role eligibility (routing §2 GATE, independent of capability — D13) ---
     web_access: false              # no native web grounding
+    routable_for: [reasoning, text-synthesis, other]   # D13: same as v4-flash — code-ineligible, no native web
+
+    # --- reasoning / effort modes (schema §0a) ---
+    reasoning_modes:
+      depths: ["off", "on"]         # thinking toggle; G2 CLOSED — owner accepts as working (p1 re-review c6)
+      invocation: "thinking param"
+      carrier: "API param"
 
     # --- parallelism + resume (routing §8, §4) ---
     parallel_safe: true            # stateless HTTP API; concurrent calls safe under disjoint output folders
@@ -126,12 +158,13 @@ variants:
     invocation_pointer: ./manual.md
     manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/deepseek-api/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/deepseek-api/delta.md
-    specialty: "cheapest top-reasoning-tier text synthesis — max-reasoning DeepSeek (Thinking Mode) at low absolute cost for judgment-dense TEXT/logic synthesis; never code (code_competence: none)"   # within-tier tiebreaker only
+    specialty: "cheapest top-reasoning-tier text synthesis — max-reasoning DeepSeek (Thinking Mode) at lowest absolute cost for reasoning/text synthesis; code-ineligible (routable_for excludes code roles per D13)"   # within-tier tiebreaker only
     failure_modes:
       - "legacy deepseek-chat/deepseek-reasoner aliases removed 2026-07-24 15:59 UTC — dispatch deepseek-v4-flash/deepseek-v4-pro (ids + prices live-confirmed 2026-06-09, D-exec-15)"
       - "no session resumption — re-dispatch fresh after halt"
       - "API key absent → package unavailable; router degrades"
       - "top reasoning tier carries higher token cost — confirm budget before batching"
+      - "code-ineligible: routable_for omits bounded-code + unbounded-code (D13) — route.py gates code on routable_for, not on the coding score; dispatching a code leaf here is a routing violation"
 
     # --- swarm / sub-conducting ---
     # Repurposed API-worker values per manifest-schema.md §2a:

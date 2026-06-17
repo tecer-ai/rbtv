@@ -1,6 +1,6 @@
 # Model Plans Schema
 
-> **Purpose:** Defines the shape of the plan-overlay file pointed to by the `model_plans_file` field in `rbtv.json`. The router script (p2-4) reads this file to apply per-model context-window caps and surface reference-only `$/M-token` data. ONLY fields the router spec or the intake budget question consume — field-count discipline (no speculative fields).
+> **Purpose:** Defines the shape of the plan-overlay file pointed to by the `model_plans_file` field in `rbtv.json`. The router script reads this file to apply per-model context-window caps. **Cap-only (D14):** the only per-model field is `context_window`. Cost is board-derived (an integer 1–7) in the model manifests (D11), NOT here — the router never reads cost from this file. Field-count discipline: no speculative fields.
 
 ---
 
@@ -11,30 +11,27 @@ The file is a YAML list of plan entries. Each entry represents one `(model, plan
 ```yaml
 plans:
   - model: <package-id>          # Required. Must match an installed model package folder name
-                                 # under orchestration/models/ (e.g. "codex", "claude", "qwen").
-    plan_name: <string>          # Required. Human-readable plan/subscription name (e.g. "basic", "pro", "team").
+                                 # under orchestration/models/ (e.g. "codex-cli", "claude-code-native").
+    plan_name: <string>          # Optional. Human-readable plan/subscription name (e.g. "basic", "pro", "team").
     context_window: <int>        # Optional. Effective context-window cap the plan enforces (tokens).
                                  # When present, the router uses min(manifest context_window, this cap)
                                  # as the effective window for Stage-2 filtering (router spec S4).
                                  # Absent = use the manifest context_window unchanged.
-    cost_usd_per_m_in: <float>   # Optional. $/M input tokens — reference data ONLY (router spec S5).
-                                 # The router surfaces this as passthrough in --explain; NEVER computes spend.
-    cost_usd_per_m_out: <float>  # Optional. $/M output tokens — reference data ONLY (router spec S5).
 ```
+
+The installer fills `context_window` from a per-model plan-size **preset pick-list** (D14) — the owner picks a plan size from a menu, never types a raw token number. A previously-chosen value is re-confirmed (offered as the default) on reinstall, never silently wiped.
 
 ## Field inventory (router-consumed)
 
 | Field | Consumed by | Purpose |
 |-------|-------------|---------|
-| `model` | Router (enumerate + match) | Keys the plan entry to the installed model package |
+| `model` | Router (enumerate + match) | Keys the plan entry to the installed model package; must equal the package's manifest `model:` id |
 | `plan_name` | Router (--explain trace) | Human-readable label in the trace |
 | `context_window` | Router (S4 effective window) | Caps the manifest's context_window for Stage-2 filtering |
-| `cost_usd_per_m_in` | Router (S5 reference passthrough) | Flows into --explain/verdict as human-budget reference |
-| `cost_usd_per_m_out` | Router (S5 reference passthrough) | Flows into --explain/verdict as human-budget reference |
 
-## Invariant 6
+## Cost is not in this file (D14)
 
-`cost_usd_per_m_in` and `cost_usd_per_m_out` are **reference-only data**. The router script never multiplies them by token counts, never projects run spend, and never uses them for ranking (ranking is `cost_class` only — router spec S1 Stage 3). Dollar figures pass through the script untouched.
+Cost is a board-derived integer 1–7 on each variant in the model manifests (D11) — the router reads `cost` from there for gate/rank, NEVER from this plan-overlay file. The retired `cost_usd_per_m_in` / `cost_usd_per_m_out` reference rows are dropped: the router never multiplied them by token counts and never ranked on them, so they carried no routing signal.
 
 ## Graceful skip
 

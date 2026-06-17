@@ -196,6 +196,181 @@ def read_provider_label(rbtv_root: Path, pkg: str) -> str:
     return base or display
 
 
+def read_manifest_context_ceiling(rbtv_root: Path, pkg: str) -> int | None:
+    """Return a package's largest manifest `context_window` (its true ceiling, in tokens).
+
+    Scans every `context_window: <int>` line under the package manifest and returns
+    the MAX (a package's variants may differ; the ceiling is the most permissive). The
+    per-user plan cap (model-plans.yaml) caps AT this ceiling — a preset above it has no
+    effect (route.py uses min(manifest, cap)). Returns None when no integer value is
+    found. Line scan, no YAML parse — matches read_model_display's stdlib-only posture.
+    """
+    manifest = rbtv_root / MODELS_RELATIVE / pkg / PACKAGE_MARKER_FILE
+    best: int | None = None
+    try:
+        for line in manifest.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("context_window:"):
+                raw = _scalar_value(stripped[len("context_window:"):])
+                try:
+                    val = int(raw)
+                except (TypeError, ValueError):
+                    continue
+                if best is None or val > best:
+                    best = val
+    except OSError:
+        pass
+    return best
+
+
+# Standard per-model plan-size presets (tokens) offered by the installer's cap
+# pick-list (D14). The owner picks a plan SIZE from this menu — never types a raw
+# token number. Each label names the size in K/M for readability; the value is the
+# context_window cap written to model-plans.yaml. A preset above a package's manifest
+# ceiling is omitted from that package's menu (it would never bind — route.py caps at
+# the manifest window). "No cap" writes no context_window (the manifest window stands).
+PLAN_SIZE_PRESETS: list[tuple[str, int | None]] = [
+    ("No cap (use the model's full context window)", None),
+    ("128K tokens", 128000),
+    ("200K tokens", 200000),
+    ("256K tokens", 256000),
+    ("512K tokens", 512000),
+    ("1M tokens", 1000000),
+]
+
+
+def build_plan_size_presets(ceiling: int | None) -> list[tuple[str, int | None]]:
+    """Return the plan-size presets offered for a package, given its manifest ceiling.
+
+    Drops any numeric preset ABOVE the ceiling (it could never bind — route.py applies
+    min(manifest_window, cap)), always keeping the "No cap" option. When the ceiling is
+    unknown (None), returns the full ladder. Order preserves PLAN_SIZE_PRESETS.
+    """
+    if ceiling is None:
+        return list(PLAN_SIZE_PRESETS)
+    return [
+        (label, val)
+        for label, val in PLAN_SIZE_PRESETS
+        if val is None or val <= ceiling
+    ]
+
+
+def read_model_plan_caps(plans_path: Path) -> dict[str, int]:
+    """Read the existing model-plans.yaml → {package_id: context_window} (cap-only, D14).
+
+    Returns only entries that carry an integer `context_window`. Used to RE-CONFIRM a
+    previously-chosen cap on reinstall (the prior value is pre-selected in the pick-list,
+    never silently wiped). Absent/unreadable file or no caps => empty dict. Stdlib-only
+    line scan over the `plans:` list — mirrors route.py's _parse_plans_yaml shape but
+    keeps only the cap field. Tolerates inline (`- model: codex-cli`) and continuation
+    forms.
+    """
+    caps: dict[str, int] = {}
+    current_model: str | None = None
+    current_cap: int | None = None
+
+    def _flush() -> None:
+        if current_model and current_cap is not None:
+            caps[current_model] = current_cap
+
+    if not plans_path.is_file():
+        return caps
+    try:
+        text = plans_path.read_text(encoding="utf-8")
+    except OSError:
+        return caps
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#") or stripped == "---":
+            continue
+        if stripped == "plans:" or stripped.rstrip(":") == "plans":
+            continue
+        if stripped.startswith("-"):
+            _flush()
+            current_model = None
+            current_cap = None
+            inline = stripped[1:].strip()
+            if inline and ":" in inline:
+                key, _, val = inline.partition(":")
+                if key.strip() == "model":
+                    current_model = _scalar_value(val) or None
+                elif key.strip() == "context_window":
+                    try:
+                        current_cap = int(_scalar_value(val))
+                    except (TypeError, ValueError):
+                        current_cap = None
+            continue
+        if ":" in stripped:
+            key, _, val = stripped.partition(":")
+            key = key.strip()
+            if key == "model":
+                current_model = _scalar_value(val) or None
+            elif key == "context_window":
+                try:
+                    current_cap = int(_scalar_value(val))
+                except (TypeError, ValueError):
+                    current_cap = None
+    _flush()
+    return caps
+
+
+def write_model_plan_caps(
+    plans_path: Path,
+    caps: dict[str, int | None],
+    displays: dict[str, str] | None = None,
+) -> tuple[bool, str]:
+    """Write the cap-only model-plans.yaml from {package_id: context_window | None} (D14).
+
+    One `plans:` entry per package in `caps`, in the order given. A package mapped to an
+    integer writes `context_window: <int>`; a package mapped to None writes NO
+    context_window (the manifest window stands — the router applies no cap). The file is
+    rewritten cap-only — the retired cost rows (cost_usd_per_m_*) are never emitted (D11).
+    `displays` supplies a per-package comment label (the manifest display) when present.
+
+    Returns (changed, message). Idempotent: an unchanged file is not rewritten. Creates
+    the parent directory if needed. The package id MUST equal the manifest `model:` id so
+    route.py's _apply_plan_caps (keyed on that id) actually binds the cap.
+    """
+    displays = displays or {}
+    lines = [
+        "# model-plans.yaml — per-model subscription-plan context-window caps (cap-only, D14).",
+        "# Read by the router script (route.py) for effective context-window caps.",
+        "# Cost is NOT here: it is a board-derived 1-7 integer in the model manifests (D11).",
+        "# Filled by the installer from a per-model plan-size preset pick-list; a prior",
+        "# choice is re-confirmed (offered as the default) on reinstall, never wiped.",
+        "---",
+        "plans:",
+    ]
+    for pkg, cap in caps.items():
+        label = displays.get(pkg)
+        comment = f"  # {label}" if label else ""
+        lines.append(f"  - model: {pkg}{comment}")
+        if cap is not None:
+            lines.append(f"    context_window: {int(cap)}")
+        else:
+            lines.append("    # context_window: (no cap — the model's full window applies)")
+        lines.append("")
+    # Drop the trailing blank separator line, keep a single trailing newline.
+    while lines and lines[-1] == "":
+        lines.pop()
+    new_text = "\n".join(lines) + "\n"
+
+    existing = ""
+    if plans_path.is_file():
+        try:
+            existing = plans_path.read_text(encoding="utf-8")
+        except OSError:
+            existing = ""
+    if existing == new_text:
+        return False, f"model plans: caps already current ({plans_path.as_posix()})"
+
+    plans_path.parent.mkdir(parents=True, exist_ok=True)
+    plans_path.write_text(new_text, encoding="utf-8")
+    set_caps = [f"{p}={c}" for p, c in caps.items() if c is not None]
+    detail = ", ".join(set_caps) if set_caps else "no caps set"
+    return True, f"model plans: wrote caps to {plans_path.as_posix()} ({detail})"
+
+
 def build_electable_entries(rbtv_root: Path) -> list[dict[str, str | None]]:
     """The ordered list of independently-electable worker rows the installer offers.
 

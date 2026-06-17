@@ -159,10 +159,10 @@ Route on the `(deepseek, variant)` pair from the manifest; translate to a `--mod
 
 | RBTV variant | Routing profile | DeepSeek API model id |
 |--------------|-----------------|----------------------|
-| `v4-flash` | `cost_class: cheapest`, `reasoning_tier: mid` — best cost/benefit; partially-bounded tasks | `deepseek-v4-flash` — live-confirmed 2026-06-09 (D-exec-15) |
-| `v4-pro` | `cost_class: low`, `reasoning_tier: top` — max reasoning quality; judgment-dense tasks | `deepseek-v4-pro` — live-confirmed 2026-06-09 (D-exec-15) |
+| `v4-flash` | `reasoning: 4`, `coding: 3`, `cost: 1` — best cost/benefit; partially-bounded reasoning/text-synthesis tasks | `deepseek-v4-flash` — live-confirmed 2026-06-09 (D-exec-15) |
+| `v4-pro` | `reasoning: 5`, `coding: 4`, `cost: 1` — max reasoning quality; judgment-dense reasoning/text-synthesis tasks | `deepseek-v4-pro` — live-confirmed 2026-06-09 (D-exec-15) |
 
-Both variants share identical `headless`, `tool_surface`, `confinement`, and `swarm_support` values — they differ ONLY on `reasoning_tier` and `cost_class`, which is the routing-relevant distinction required by the schema's variant field-count discipline.
+Both variants share identical `headless`, `tool_surface`, `confinement`, and `swarm_support` values — they differ ONLY on `reasoning` and `coding` integers, which is the routing-relevant distinction required by the schema's variant field-count discipline.
 
 ### Exit handling
 

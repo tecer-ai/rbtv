@@ -3,11 +3,17 @@
 
 Reads a structured task-profile JSON on stdin or via --profile, resolves against
 the live manifests on disk, and emits one machine-readable verdict:
-  route {model, variant, carrier}
+  route {model, variant, carrier, effort?, other_routing_audit?}
   self_execute
   halt_seam {seam: <name>}
 
-With --explain, also prints the enumerate→filter→rank trace.
+Decision flow: GATE -> RANK -> PIN over the comparable integer 1-7 axes
+(reasoning / coding / cost) plus the routable_for role-eligibility gate, then
+effort = f(boundedness) set AFTER the pin from the chosen variant's reasoning_modes.
+See manifest-schema.md (the field source of truth) and
+../../../2-areas/rbtv/model-benchmarking/5b-routing-build/specs/routing-rebuild-spec.md.
+
+With --explain, also prints the enumerate->filter->rank trace.
 Stdlib only. No network, clock, or randomness.
 """
 
@@ -21,9 +27,44 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-COST_ORDER = ["cheapest", "low", "mid", "high", "premium"]
+# Capability + cost are now comparable INTEGERS 1-7 (manifest-schema.md §0), so there is
+# no value-lookup table for them anymore (the old TIER_VALUES / COST_ORDER are removed):
+# reasoning/coding are compared directly (7 = strongest); cost is compared directly and
+# ranked ASCENDING (1 = cheapest, ranked first; 7 = priciest, ranked last / never auto-picked).
 EVIDENCE_ORDER = ["validated", "probe-pending"]
-TIER_VALUES = {"non-reasoning": 0, "mid": 1, "top": 2}
+
+# GATE reasoning floors per boundedness band (1-7 scale; designed at p2-1 for utilization
+# diversity — a LOW floor on fully-bounded leaves lets many models qualify, so the
+# cost-ascending RANK then picks the cheapest-capable and cheap models actually get used).
+# The boundedness master cut (_scope_eligible_set) is the binding constraint for
+# partially-/unbounded leaves (it scopes to Claude sonnet / opus); these floors are the
+# numeric expression of the same band ordering and the floor used by the pinned-role logic.
+REASONING_FLOOR_BY_BAND = {
+    "fully-bounded": 1,       # every real reasoner qualifies -> cheapest-capable wins bounded work
+    "partially-bounded": 6,   # sonnet-class and up (sonnet reasoning = 6); excludes haiku
+    "unbounded": 7,           # top-tier only (opus reasoning = 7)
+}
+
+# GATE coding floors per boundedness band, applied ONLY to code leaves. Same diversity
+# logic: a low floor on fully-bounded code lets the cheap code executors qualify.
+CODING_FLOOR_BY_BAND = {
+    "fully-bounded": 1,       # any code-eligible executor qualifies -> cheapest-capable wins
+    "partially-bounded": 4,   # bounded-agentic-coder and up
+    "unbounded": 5,           # capable-agentic-coder and up
+}
+
+# The two code-leaf roles (manifest-schema.md §2 closed routable_for vocabulary). A variant
+# with a NON-EMPTY routable_for that omits BOTH of these is code-ineligible regardless of its
+# coding score (D13: never let an honest coding score re-enable an ineligible code route).
+CODE_ROLES = {"bounded-code", "unbounded-code"}
+
+# Closed routable_for role vocabulary (manifest-schema.md §2; `judgment` removed per D12).
+# Informational — an unknown role string the profile requests is treated as not-matching
+# (the variant is dropped for that leaf), never a crash.
+ROLE_VOCABULARY = {
+    "bounded-code", "unbounded-code", "reasoning",
+    "web-research", "text-synthesis", "other",
+}
 
 REQUIRED_PROFILE_FIELDS = [
     "boundedness",
@@ -32,8 +73,8 @@ REQUIRED_PROFILE_FIELDS = [
 ]
 
 REQUIRED_VARIANT_FIELDS = [
-    "variant", "reasoning_tier", "context_window", "cost_class",
-    "code_competence", "web_access",
+    "variant", "reasoning", "context_window", "cost",
+    "coding", "web_access",
 ]
 
 SKIP_DIRS = {"_api", "_fixture", "mirror"}
@@ -69,9 +110,10 @@ def _load_rbtv_json(vault_root: Path) -> dict:
 def _load_model_plans(vault_root: Path, rbtv_cfg: dict) -> dict:
     """Load the model-plans YAML if the pointer exists and the file is readable.
 
-    Returns a {model: {context_window, cost_usd_per_m_in, cost_usd_per_m_out, plan_name}}
-    map keyed by package id — the shape _apply_plan_caps consumes. Graceful skip
-    (empty dict) on absent pointer, unreadable file, or unparseable content.
+    Returns a {model: {context_window, ...}} map keyed by package id — the shape
+    _apply_plan_caps consumes (route.py only reads context_window from this file; per D14
+    the file is cap-only). Graceful skip (empty dict) on absent pointer, unreadable file,
+    or unparseable content. Read-path UNCHANGED per D14 (the cap stays in model-plans.yaml).
     """
     plans_file = rbtv_cfg.get("model_plans_file")
     if not plans_file:
@@ -144,6 +186,9 @@ def _yaml_value(s: str):
     # Strip inline comment
     if " #" in s:
         s = s[:s.index(" #")].strip()
+    # Inline list, e.g. [bounded-code, reasoning] or []
+    if s.startswith("[") and s.endswith("]"):
+        return _parse_inline_list(s)
     # Quoted strings
     if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
         return s[1:-1]
@@ -164,6 +209,112 @@ def _yaml_value(s: str):
     return s
 
 
+def _parse_inline_list(s: str) -> list:
+    """Parse a YAML inline (flow) list, e.g. `[bounded-code, reasoning]` -> [...].
+
+    Grown at p2-1 so the manifest parser handles the new inline-list fields:
+    routable_for (e.g. [web-research]) and reasoning_modes.depths (e.g. [low, medium, high]).
+    Stdlib only. `[]` -> []. Each element is run through _yaml_value (minus the list branch)
+    so quoted/typed elements convert; unquoted role/depth strings stay strings.
+    """
+    inner = s[1:-1].strip()
+    if not inner:
+        return []
+    items = []
+    for raw in inner.split(","):
+        item = raw.strip()
+        if not item:
+            continue
+        # Strip quotes on individual elements
+        if (item.startswith('"') and item.endswith('"')) or (item.startswith("'") and item.endswith("'")):
+            items.append(item[1:-1])
+            continue
+        # Try numeric, else keep as bare string (role names, depth labels)
+        try:
+            items.append(int(item))
+            continue
+        except ValueError:
+            pass
+        try:
+            items.append(float(item))
+            continue
+        except ValueError:
+            pass
+        items.append(item)
+    return items
+
+
+def _split_flow_items(inner: str) -> list:
+    """Split a flow collection's inner text on top-level commas only.
+
+    Respects nesting (`[...]`, `{...}`) and quotes (`"..."`, `'...'`) so a comma
+    inside a nested list, nested map, or quoted scalar does NOT split the item.
+    e.g. `depths: [low, high], invocation: "a, b"` -> two items, not four.
+    """
+    items = []
+    buf = []
+    depth = 0
+    quote = ""
+    for ch in inner:
+        if quote:
+            buf.append(ch)
+            if ch == quote:
+                quote = ""
+            continue
+        if ch in ('"', "'"):
+            quote = ch
+            buf.append(ch)
+            continue
+        if ch in ("[", "{"):
+            depth += 1
+            buf.append(ch)
+            continue
+        if ch in ("]", "}"):
+            depth = max(0, depth - 1)
+            buf.append(ch)
+            continue
+        if ch == "," and depth == 0:
+            items.append("".join(buf).strip())
+            buf = []
+            continue
+        buf.append(ch)
+    tail = "".join(buf).strip()
+    if tail:
+        items.append(tail)
+    return items
+
+
+def _parse_inline_map(s: str) -> dict:
+    """Parse a YAML inline (flow) map, e.g. `{method: none, required: false}` -> {...}.
+
+    Grown at p2-1 review so the manifest parser NEVER stores a flow-map carried on a
+    map-key (e.g. `auth: {method: none}`, `reasoning_modes: {depths: [low, high]}`) as a
+    RAW STRING — a raw string later gets `.get()`'d (e.g. _get_auth_method) and crashes
+    (manifest-schema.md §4 + spec Edge Cases require LOG + degrade, never raise). Each
+    value runs through _yaml_value, so nested inline lists (`depths: [low, high]`), quoted
+    strings, bools, and numbers convert. `{}` -> {}. A malformed/non-flow-map input that
+    cannot be split into `key: value` pairs degrades to {} (no crash). Stdlib only.
+    """
+    inner = s.strip()
+    if inner.startswith("{") and inner.endswith("}"):
+        inner = inner[1:-1].strip()
+    if not inner:
+        return {}
+    out: dict = {}
+    for pair in _split_flow_items(inner):
+        if ":" not in pair:
+            # Not a key: value pair — skip it rather than crash (degrade, never raise).
+            continue
+        key, _, val = pair.partition(":")
+        key = key.strip()
+        # Strip quotes on the key
+        if (key.startswith('"') and key.endswith('"')) or (key.startswith("'") and key.endswith("'")):
+            key = key[1:-1]
+        if key:
+            out[key] = _yaml_value(val.strip())
+    return out
+
+
 def _load_manifest(manifest_path: Path) -> dict:
     """Parse a manifest YAML file (minimal parser, stdlib only)."""
     try:
@@ -177,20 +328,22 @@ def _parse_manifest_yaml(path: Path) -> dict:
     result: dict = {"variants": []}
     current_variant: dict = {}
     in_variants = False
-    current_map_key: str = ""  # e.g. "headless", "auth", "tool_surface"
+    current_map_key: str = ""  # e.g. "headless", "auth", "tool_surface", "reasoning_modes"
     current_map_value: dict = {}
 
     MAP_KEYS = {
         "headless", "auth", "tool_surface", "confinement",
         "swarm_support", "configurable_model", "guidance_file", "os_quirks",
+        "reasoning_modes", "axis_evidence",
     }
     SCALAR_KEYS = {
         "specialty", "failure_modes", "invocation_pointer",
         "manual_path", "delta_path", "rate_budget_notes",
-        "reasoning_tier", "context_window", "max_output",
-        "cost_class", "code_competence", "web_access",
+        "reasoning", "context_window", "max_output",
+        "cost", "coding", "web_access",
         "multimodal", "parallel_safe", "resume_support",
         "evidence_status", "variant", "available",
+        "routable_for", "display", "cost_evidence",
     }
     ALL_VARIANT_KEYS = MAP_KEYS | SCALAR_KEYS
 
@@ -247,7 +400,9 @@ def _parse_manifest_yaml(path: Path) -> dict:
                     continue
 
                 if current_variant:
-                    # Indented sub-keys of a map (e.g. "      required: false" under "auth:")
+                    # Indented sub-keys of a map (e.g. "      required: false" under "auth:",
+                    # or "      depths: [low, high]" under "reasoning_modes:"). The inline-list
+                    # value parses via _yaml_value (e.g. depths -> [low, high]).
                     if current_map_key and indent >= 6 and ":" in stripped:
                         sub_key, _, sub_val = stripped.partition(":")
                         sub_key = sub_key.strip()
@@ -256,20 +411,33 @@ def _parse_manifest_yaml(path: Path) -> dict:
                             current_map_value[sub_key] = _yaml_value(sub_val)
                         continue
 
-                    # Variant-level keys (indent 4, e.g. "    auth:")
+                    # Variant-level keys (indent 4, e.g. "    auth:" or "    routable_for: [...]")
                     if indent == 4 and ":" in stripped:
                         _flush_map()  # flush any previous map
                         key, _, val = stripped.partition(":")
                         key = key.strip()
                         val = val.strip()
-                        if key in MAP_KEYS:
+                        if key in MAP_KEYS and not val:
+                            # A map header with no inline value — collect its indented sub-keys.
                             current_map_key = key
                             current_map_value = {}
-                            # If there's an inline value, set it
-                            if val and key not in MAP_KEYS:
-                                current_variant[key] = _yaml_value(val)
-                                current_map_key = ""
+                        elif key in MAP_KEYS:
+                            # A map-key carrying an INLINE value (e.g. `auth: {method: none}`,
+                            # `reasoning_modes: {depths: [low, high]}`). It MUST become a dict —
+                            # storing it as a raw string makes _get_auth_method (and any later
+                            # .get() on the map) crash (manifest-schema.md §4 + spec Edge Cases:
+                            # LOG + degrade, never raise). Parse a flow-map to a dict; any other
+                            # unexpected inline value degrades to {} (the old no-crash behavior).
+                            if val.startswith("{") and val.endswith("}"):
+                                current_variant[key] = _parse_inline_map(val)
+                            else:
+                                current_variant[key] = {}
                         elif key in SCALAR_KEYS:
+                            # Scalars and inline-list values (routable_for: [..]) — _yaml_value
+                            # handles the list form. cost_evidence is a SCALAR_KEY that may carry
+                            # a flow map ({source: .., confidence: ..}); it is not a routing input
+                            # (route.py reads only the bare scores), so its exact stored shape is
+                            # immaterial downstream — _yaml_value's string is harmless here.
                             current_variant[key] = _yaml_value(val)
                         elif key in ALL_VARIANT_KEYS:
                             # Treat as scalar with empty value
@@ -318,7 +486,13 @@ def _check_api_key_present(model_name: str, rbtv_cfg: dict, vault_root: Path) ->
 
 
 def _get_auth_method(variant: dict) -> str:
-    return variant.get("auth", {}).get("method", "none")
+    # Defense-in-depth: a manifest must NEVER crash route.py (manifest-schema.md §4 + spec
+    # Edge Cases). The parser now coerces a map-key's inline value to a dict, but a malformed
+    # manifest could still leave `auth` a non-dict — treat any non-dict auth as method "none".
+    auth = variant.get("auth")
+    if not isinstance(auth, dict):
+        return "none"
+    return auth.get("method", "none")
 
 
 def _is_variant_available(variant: dict, model_name: str, rbtv_cfg: dict, vault_root: Path) -> bool:
@@ -352,6 +526,76 @@ def _unavailable_reason(variant: dict) -> str:
     if variant.get("available") is False:
         return "marked available: false in manifest"
     return "api-key absent in both OS env and env_file"
+
+
+# ---------------------------------------------------------------------------
+# Profile → requirement helpers
+# ---------------------------------------------------------------------------
+
+def _leaf_role(profile: dict) -> str:
+    """Resolve the leaf-kind ROLE the task requests (the routable_for GATE key).
+
+    Order: an explicit `leaf_role` on the profile wins; otherwise derive from task_type
+    (code -> bounded-code / unbounded-code by boundedness; web -> web-research; else
+    text-synthesis). A profile may also set `leaf_role: other` to force the catch-all
+    (audit-logged). The closed vocabulary lives in ROLE_VOCABULARY; an unknown string the
+    profile supplies is honored verbatim and simply matches no variant's routable_for.
+    """
+    explicit = profile.get("leaf_role")
+    if explicit:
+        return explicit
+    task_type = profile.get("task_type", "text")
+    if task_type == "code":
+        band = profile.get("boundedness", "fully-bounded")
+        return "unbounded-code" if band == "unbounded" else "bounded-code"
+    if profile.get("needs_web", False):
+        return "web-research"
+    return "text-synthesis"
+
+
+def _reasoning_floor(profile: dict) -> int:
+    """The minimum reasoning integer needed for this profile's boundedness band (1-7)."""
+    explicit = profile.get("needed_reasoning_floor")
+    if explicit is not None:
+        return int(explicit)
+    band = profile.get("boundedness", "fully-bounded")
+    return REASONING_FLOOR_BY_BAND.get(band, REASONING_FLOOR_BY_BAND["fully-bounded"])
+
+
+def _coding_floor(profile: dict) -> int:
+    """The minimum coding integer needed for a code leaf in this band (1-7).
+
+    Returns 0 for a non-code leaf (no coding floor applies). 0 is below the 1-7 scale, so
+    every variant passes — the coding GATE is inert on text leaves.
+    """
+    if profile.get("task_type", "text") != "code":
+        return 0
+    explicit = profile.get("needed_coding_floor")
+    if explicit is not None:
+        return int(explicit)
+    band = profile.get("boundedness", "fully-bounded")
+    return CODING_FLOOR_BY_BAND.get(band, CODING_FLOOR_BY_BAND["fully-bounded"])
+
+
+def _routable_for_allows(variant_entry: dict, leaf_role: str) -> bool:
+    """The routable_for role-eligibility GATE (D12/D13; manifest-schema.md §2).
+
+    Rules:
+      - routable_for ABSENT or empty -> eligible for ALL leaves (back-compat default).
+      - PRESENT -> eligible ONLY if leaf_role is in the list; dropped from every other leaf.
+      - An unknown leaf_role string is treated as not-matching (variant dropped), never a crash.
+      - CODE-ELIGIBILITY (D13): a code leaf (leaf_role in CODE_ROLES) requires routable_for
+        MEMBERSHIP of a code role when routable_for is non-empty — an honest coding score never
+        re-enables an ineligible code route (a non-executor with routable_for omitting the code
+        roles is dropped from code leaves regardless of its coding integer). Absent/empty
+        routable_for stays code-eligible (back-compat).
+    """
+    rf = variant_entry.get("routable_for")
+    # Normalize: a malformed scalar/None/"" all read as "absent" (eligible for all).
+    if not rf or not isinstance(rf, list):
+        return True
+    # Non-empty allow-list: the requested role must be a member.
+    return leaf_role in rf
 
 
 # ---------------------------------------------------------------------------
@@ -426,11 +670,13 @@ def _enumerate_models(rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, explain
                 "model": model_name,
                 "model_dir": d.name,
                 "variant": v["variant"],
-                "reasoning_tier": v["reasoning_tier"],
+                "reasoning": int(v["reasoning"]),
                 "context_window": int(v["context_window"]),
-                "cost_class": v["cost_class"],
-                "code_competence": v["code_competence"],
+                "cost": int(v["cost"]),
+                "coding": int(v["coding"]),
                 "web_access": bool(v.get("web_access", False)),
+                "routable_for": v.get("routable_for") if isinstance(v.get("routable_for"), list) else None,
+                "reasoning_modes": v.get("reasoning_modes") if isinstance(v.get("reasoning_modes"), dict) else {},
                 "evidence_status": variant_evidence,
                 "auth_method": _get_auth_method(v),
                 "specialty": v.get("specialty", ""),
@@ -443,7 +689,11 @@ def _enumerate_models(rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, explain
 
 
 def _apply_plan_caps(entries: list, plans: dict, explain_log: list) -> list:
-    """Apply plan-overlay context window caps from the plans file."""
+    """Apply plan-overlay context window caps from the plans file.
+
+    Read-path UNCHANGED per D14 — the per-user context cap stays in model-plans.yaml,
+    read via the model_plans_file pointer in rbtv.json. p2-1 does NOT touch this.
+    """
     if not plans:
         return entries
     for entry in entries:
@@ -465,21 +715,29 @@ def _apply_plan_caps(entries: list, plans: dict, explain_log: list) -> list:
 
 
 def _filter(entries: list, profile: dict, explain_log: list) -> list:
-    """Stage 2: filter to variants meeting the leaf's hard requirements."""
-    needed_tier = profile.get("needed_reasoning_tier", _boundedness_to_tier(profile))
-    needed_code = profile.get("needed_code_competence", _task_type_to_code_level(profile))
+    """Stage 2: GATE — drop any variant failing a hard requirement.
+
+    GATE (manifest-schema.md §0 + spec § Decision flow):
+      - reasoning >= the boundedness band's numeric floor
+      - context_window >= inlined_context_size (AFTER plan cap)
+      - web_access when the leaf needs web
+      - coding >= the code leaf's numeric floor (code leaves only; floor 0 = inert on text)
+      - routable_for allows this leaf-kind role (role-eligibility, independent of capability;
+        D13 code-eligibility is enforced inside _routable_for_allows for code leaves)
+    """
+    reasoning_floor = _reasoning_floor(profile)
+    coding_floor = _coding_floor(profile)
     needs_web = profile.get("needs_web", False)
     inlined_size = profile.get("inlined_context_size", 0)
+    leaf_role = _leaf_role(profile)
 
     survivors = []
     for e in entries:
         reasons_dropped = []
 
-        # reasoning_tier check
-        tier_val = TIER_VALUES.get(e["reasoning_tier"], -1)
-        needed_val = TIER_VALUES.get(needed_tier, 0)
-        if tier_val < needed_val:
-            reasons_dropped.append(f"reasoning_tier {e['reasoning_tier']} < needed {needed_tier}")
+        # reasoning floor check (integer 1-7 direct compare)
+        if e["reasoning"] < reasoning_floor:
+            reasons_dropped.append(f"reasoning {e['reasoning']} < floor {reasoning_floor}")
 
         # context_window check
         if e["context_window"] < inlined_size:
@@ -489,12 +747,15 @@ def _filter(entries: list, profile: dict, explain_log: list) -> list:
         if needs_web and not e["web_access"]:
             reasons_dropped.append("needs web but web_access=false")
 
-        # code_competence check
-        code_levels = {"none": 0, "bounded": 1, "strong": 2}
-        e_code = code_levels.get(e["code_competence"], 0)
-        n_code = code_levels.get(needed_code, 0)
-        if e_code < n_code:
-            reasons_dropped.append(f"code_competence {e['code_competence']} < needed {needed_code}")
+        # coding floor check (integer 1-7 direct compare; floor 0 on text leaves -> inert)
+        if coding_floor and e["coding"] < coding_floor:
+            reasons_dropped.append(f"coding {e['coding']} < floor {coding_floor}")
+
+        # routable_for role-eligibility GATE (independent of capability; D13 for code leaves)
+        if not _routable_for_allows(e, leaf_role):
+            reasons_dropped.append(
+                f"routable_for {e.get('routable_for')} does not allow leaf role '{leaf_role}'"
+            )
 
         if reasons_dropped:
             explain_log.append({
@@ -504,50 +765,38 @@ def _filter(entries: list, profile: dict, explain_log: list) -> list:
         else:
             survivors.append(e)
 
-    explain_log.append({"stage": "filter", "action": "complete", "survivors": len(survivors)})
+    explain_log.append({"stage": "filter", "action": "complete", "survivors": len(survivors), "leaf_role": leaf_role})
     return survivors
 
 
-def _boundedness_to_tier(profile: dict) -> str:
-    """Map boundedness band to the minimum reasoning tier needed."""
-    band = profile.get("boundedness", "fully-bounded")
-    if band == "fully-bounded":
-        return "non-reasoning"
-    elif band == "partially-bounded":
-        return "mid"
-    else:  # unbounded
-        return "top"
-
-
-def _task_type_to_code_level(profile: dict) -> str:
-    """Map task_type to required code_competence."""
-    tt = profile.get("task_type", "text")
-    if tt == "code":
-        return "bounded"
-    return "none"
-
-
 def _rank(entries: list, profile: dict, explain_log: list) -> list:
-    """Stage 3: rank survivors by the total order."""
+    """Stage 3: RANK survivors by the total order.
+
+    Order: cost ASCENDING (integer 1-7, cheapest=1 first; priciest=7 last, never auto-picked)
+    -> evidence_status (validated before probe-pending) -> capability score (the coding 1-7
+    orders code-task survivors directly; no separate sub-rank step). The carrier tiebreak
+    (claude-code-native before claude-code-cli) and the model/variant name tiebreak close it.
+    """
+    is_code = profile.get("task_type", "text") == "code"
+
     def _sort_key(e):
-        cost_idx = COST_ORDER.index(e["cost_class"]) if e["cost_class"] in COST_ORDER else 99
+        cost_idx = e["cost"]  # integer 1-7, ascending (cheapest first)
         evidence_idx = EVIDENCE_ORDER.index(e["evidence_status"]) if e["evidence_status"] in EVIDENCE_ORDER else 99
-        tier_val = TIER_VALUES.get(e["reasoning_tier"], 99)
-        # For closest-not-over: we want the lowest tier that meets the requirement
-        # Since we already filtered, all survivors meet the requirement.
-        # closest-not-over = lowest tier value among survivors
-        # Carrier tiebreak: among otherwise-tied top-tier Claude, the agent-tool
-        # carrier (claude-code-native) is the default — rank the process carrier
-        # (claude-code-cli) AFTER it. This preserves the pre-rename order, where the
-        # old ids `claude` < `claude-cli` made agent-tool Claude the default pick;
-        # the rename to claude-code-{cli,native} would otherwise flip that order.
-        return (cost_idx, evidence_idx, tier_val, e["model"] == "claude-code-cli", e["model"], e["variant"])
+        # Capability score: on a code leaf the coding 1-7 orders survivors directly (higher
+        # first); otherwise reasoning. Negated so HIGHER capability sorts EARLIER (ascending sort).
+        capability = e["coding"] if is_code else e["reasoning"]
+        cap_rank = -capability
+        # Carrier tiebreak: among otherwise-tied Claude, the agent-tool carrier
+        # (claude-code-native) is the default — rank the process carrier (claude-code-cli)
+        # AFTER it. Preserves the pre-rename order where `claude` < `claude-cli`.
+        return (cost_idx, evidence_idx, cap_rank, e["model"] == "claude-code-cli", e["model"], e["variant"])
 
     ranked = sorted(entries, key=_sort_key)
     explain_log.append({
         "stage": "rank", "action": "ranked",
-        "order": [{"model": e["model"], "variant": e["variant"], "cost_class": e["cost_class"],
-                   "evidence_status": e["evidence_status"], "reasoning_tier": e["reasoning_tier"]} for e in ranked],
+        "order": [{"model": e["model"], "variant": e["variant"], "cost": e["cost"],
+                   "evidence_status": e["evidence_status"], "reasoning": e["reasoning"],
+                   "coding": e["coding"]} for e in ranked],
     })
     return ranked
 
@@ -587,24 +836,37 @@ def _exclude_haiku(entries: list, profile: dict, explain_log: list) -> list:
 
 
 def _scope_eligible_set(entries: list, profile: dict, explain_log: list) -> list:
-    """Scope the enumerated set per boundedness band before Stage 2-3 (S2 keystone)."""
+    """Scope the enumerated set per boundedness band before Stage 2-3 (S2 keystone).
+
+    UNCHANGED behavior (D14): the boundedness master cut — partially-bounded scopes to the
+    Claude mid-tier (sonnet), unbounded scopes to top-tier Claude (opus). Re-expressed in the
+    new 1-7 vocab: sonnet's reasoning = 6 (the partially-bounded floor), opus's reasoning = 7
+    (the unbounded floor), so the scope keys on the same numeric reasoning floors that the
+    band defines (REASONING_FLOOR_BY_BAND) over the Claude packages — selecting exactly the
+    same variants the old reasoning_tier=="mid"/"top" scope did.
+    """
     band = profile.get("boundedness", "fully-bounded")
+    claude_pkgs = ("claude-code-native", "claude-code-cli")
     if band == "fully-bounded":
         # No scoping — all variants eligible
         return entries
     elif band == "partially-bounded":
-        # Scope to Claude mid-tier variants
-        scoped = [e for e in entries if e["model"] in ("claude-code-native", "claude-code-cli") and e["reasoning_tier"] == "mid"]
+        # Scope to Claude sonnet-class variants (reasoning >= the partially-bounded floor = 6)
+        floor = REASONING_FLOOR_BY_BAND["partially-bounded"]
+        scoped = [e for e in entries if e["model"] in claude_pkgs and e["reasoning"] >= floor]
         explain_log.append({
             "stage": "scope", "action": "partially-bounded",
-            "scoped_to": "Claude mid-tier variants", "before": len(entries), "after": len(scoped),
+            "scoped_to": f"Claude variants with reasoning >= {floor} (sonnet-class)",
+            "before": len(entries), "after": len(scoped),
         })
         return scoped
-    else:  # unbounded — keystone: scope to top-tier Claude variants
-        scoped = [e for e in entries if e["model"] in ("claude-code-native", "claude-code-cli") and e["reasoning_tier"] == "top"]
+    else:  # unbounded — keystone: scope to top-tier Claude variants (opus, reasoning >= 7)
+        floor = REASONING_FLOOR_BY_BAND["unbounded"]
+        scoped = [e for e in entries if e["model"] in claude_pkgs and e["reasoning"] >= floor]
         explain_log.append({
             "stage": "scope", "action": "unbounded",
-            "scoped_to": "top-tier Claude variants (keystone)", "before": len(entries), "after": len(scoped),
+            "scoped_to": f"top-tier Claude variants with reasoning >= {floor} (opus, keystone)",
+            "before": len(entries), "after": len(scoped),
         })
         return scoped
 
@@ -622,6 +884,56 @@ def _resolve_carrier(entry: dict, profile: dict) -> str:
         return "agent-tool"
     # API chat workers (deepseek, gemini, manus, etc.)
     return "api"
+
+
+def _resolve_effort(entry: dict, profile: dict, explain_log: list) -> str | None:
+    """Spec row 6 / step 5: AFTER the pin, set effort = f(boundedness) for the chosen variant.
+
+    Read from the chosen variant's reasoning_modes.depths:
+      fully-bounded -> low; partially-bounded -> medium; unbounded -> high (or max where exposed).
+    A single-mode worker (depths empty or a single entry — Haiku, Agent-tool Claude, Manus,
+    inert toggles) is a NO-OP: returns None (route normally, no effort dial). The chosen target
+    depth label must actually exist in the variant's depths; if the family does not expose it,
+    the nearest-available is not invented — the configured target is returned only when present,
+    else the highest available depth is used as the band-appropriate ceiling.
+    """
+    band = profile.get("boundedness", "fully-bounded")
+    modes = entry.get("reasoning_modes") or {}
+    depths = modes.get("depths")
+    if not isinstance(depths, list) or len(depths) <= 1:
+        # Single-mode worker (or no reasoning_modes) — effort is a no-op.
+        explain_log.append({
+            "stage": "effort", "action": "no_op",
+            "model": entry["model"], "variant": entry["variant"],
+            "reason": "single-mode worker (depths empty or one entry) -- no effort dial",
+        })
+        return None
+
+    # Map band -> preferred target label (with the 'max'/'high' fallback for unbounded).
+    if band == "fully-bounded":
+        preferred = ["low"]
+    elif band == "partially-bounded":
+        preferred = ["medium"]
+    else:  # unbounded / judgment-dense
+        preferred = ["max", "high"]  # prefer max where the family exposes it, else high
+
+    chosen_effort = None
+    for label in preferred:
+        if label in depths:
+            chosen_effort = label
+            break
+    if chosen_effort is None:
+        # The family labels its depths differently (e.g. kimi no-think/think, API off/on).
+        # Use the lowest depth for fully-bounded, the highest otherwise — the band-appropriate
+        # end of whatever ladder the family exposes, without inventing a label.
+        chosen_effort = depths[0] if band == "fully-bounded" else depths[-1]
+
+    explain_log.append({
+        "stage": "effort", "action": "set",
+        "model": entry["model"], "variant": entry["variant"],
+        "band": band, "effort": chosen_effort, "available_depths": depths,
+    })
+    return chosen_effort
 
 
 def _raise_band_one_level(band: str) -> str:
@@ -690,8 +1002,8 @@ def _apply_stakes_tier_up(
         return chosen
 
     # S7: exclude haiku before the raised-band re-rank as well — a rank never picks haiku
-    # absent the delegation-map flag (in practice the raised band's tier filter already drops
-    # the non-reasoning haiku, but the guard holds wherever a rank decides a worker).
+    # absent the delegation-map flag (in practice the raised band's reasoning floor already
+    # drops the low-reasoning haiku, but the guard holds wherever a rank decides a worker).
     survivors = _exclude_haiku(survivors, raised_profile, explain_log)
     if not survivors:
         explain_log.append({
@@ -713,19 +1025,19 @@ def _apply_stakes_tier_up(
     return raised_chosen
 
 
-# Pinned-role floor definitions per spec Behavior row 10 / routing.md §3
+# Pinned-role floor definitions per spec Behavior row 10 / routing.md §3.
+# floor_reasoning is the new 1-7 numeric floor (sonnet=6, opus=7) replacing the old band words.
 _PINNED_FLOORS = {
     "reviewer": {
-        "description": "≥ executor tier + 1, floor sonnet, never haiku",
+        "description": "≥ executor reasoning + 1, floor sonnet (reasoning 6), never haiku",
         "floor_variant": "sonnet",
         "floor_models": ("claude-code-native", "claude-code-cli"),
-        "floor_tier": "mid",
+        "floor_reasoning": 6,
     },
     "debug": {
-        "description": "Top-tier Claude (opus) — never a CLI/API worker (routing.md §3: never let a CLI worker root-cause)",
+        "description": "Any code-eligible executor with reasoning >= 7 (D17: opus + codex-cli:gpt-5.5); opus is the default on cost",
         "floor_variant": "opus",
-        "floor_models": ("claude-code-native", "claude-code-cli"),
-        "floor_tier": "top",
+        "floor_reasoning": 7,
     },
     "commit": {
         "description": "Agent-tool Claude sonnet floor",
@@ -739,11 +1051,24 @@ _PINNED_FLOORS = {
 def _apply_pinned_role_floor(
     chosen: dict, profile: dict, original_entries: list,
     rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plans: dict, explain_log: list,
-) -> dict:
+    empty_pipeline: bool = False,
+) -> dict | None:
     """Behavior row 10 / S1 Stage 4: enforce pinned-role floors AFTER the cheapest pick.
 
     Raises the result to the floor when the pick lands below it.
     vault_root: vault root for env_file resolution (used by availability checks in re-scoping).
+    Floors re-expressed in the 1-7 reasoning vocab (sonnet=6, opus=7) — behavior UNCHANGED.
+
+    empty_pipeline: True when the normal band-scoped pipeline yielded NO candidate (the route()
+        no_available_variants / zero_candidates exits) and there is therefore no valid `chosen`.
+        In that case the pin's OWN floor is computed directly over `original_entries` (the FULL
+        pre-scope enumeration), with plan-caps AND availability applied so an unavailable worker
+        never enters the floor — each pin keeps its own scoping (debug: any reasoning-7 code-
+        eligible executor; reviewer/commit: Claude-only), so a Claude-only pin still finds nothing
+        and route() returns the error when Claude is unavailable. Returns the floor-survivor pick,
+        or None when the floor finds no worker (route() then returns the original error). The
+        passed `chosen` is a non-routable sentinel (carries model/variant for the explain log
+        only) and is NEVER returned in this mode.
     """
     pinned_role = profile.get("pinned_role")
     if not pinned_role or pinned_role not in _PINNED_FLOORS:
@@ -754,6 +1079,7 @@ def _apply_pinned_role_floor(
         "stage": "pin", "action": "check_floor", "role": pinned_role,
         "current_pick": f"{chosen['model']}:{chosen['variant']}",
         "floor": floor_def["description"],
+        **({"note": "empty band-scoped pipeline -- computing pin floor over full enumeration"} if empty_pipeline else {}),
     })
 
     if pinned_role == "reviewer":
@@ -764,6 +1090,14 @@ def _apply_pinned_role_floor(
                 if e["model"] in ("claude-code-native", "claude-code-cli")
                 and e["variant"] == "opus"
             ]
+            # In the empty-pipeline path the FULL enumeration has NOT been availability-filtered,
+            # so an unavailable opus must not enter the floor (the Claude-only pin must still error
+            # when opus is gone).
+            if empty_pipeline:
+                external_cli_opus = [
+                    e for e in external_cli_opus
+                    if _is_variant_available(e["raw_variant"], e["model_dir"], rbtv_cfg, vault_root)
+                ]
             if external_cli_opus:
                 opus_ranked = _rank(external_cli_opus, profile, explain_log)
                 raised = opus_ranked[0]
@@ -780,36 +1114,41 @@ def _apply_pinned_role_floor(
                 "role": pinned_role,
                 "reason": "reviews_external_cli_code=true but no opus variant found -- keeping original pick",
             })
-            return chosen
+            return None if empty_pipeline else chosen
 
-        # Reviewer ≥ executor tier + 1, floor sonnet, never haiku
-        executor_tier = profile.get("executor_tier", "non-reasoning")
-        executor_idx = TIER_VALUES.get(executor_tier, 0)
-        required_idx = min(executor_idx + 1, 2)  # cap at top
-        # Floor at sonnet (mid) — reviewer is a Claude-specific floor per routing.md §3
-        required_idx = max(required_idx, TIER_VALUES.get("mid", 1))
+        # Reviewer >= executor reasoning + 1, floor sonnet (reasoning 6), never haiku.
+        # executor_reasoning is the executor's 1-7 reasoning score (profile-supplied; defaults
+        # to 1, the floor of the scale).
+        executor_reasoning = int(profile.get("executor_reasoning", profile.get("executor_tier_reasoning", 1)))
+        required_reasoning = min(executor_reasoning + 1, 7)  # cap at the top of the scale
+        # Floor at sonnet (reasoning 6) — reviewer is a Claude-specific floor per routing.md §3
+        required_reasoning = max(required_reasoning, floor_def["floor_reasoning"])
 
-        chosen_tier_idx = TIER_VALUES.get(chosen["reasoning_tier"], 0)
-        if chosen_tier_idx >= required_idx:
+        # empty_pipeline: no valid `chosen` to compare — go straight to the floor recompute.
+        if not empty_pipeline and chosen["reasoning"] >= required_reasoning:
             explain_log.append({
                 "stage": "pin", "action": "floor_already_met",
-                "role": pinned_role, "reason": f"current tier {chosen['reasoning_tier']} ≥ required idx {required_idx}",
+                "role": pinned_role, "reason": f"current reasoning {chosen['reasoning']} >= required {required_reasoning}",
             })
             return chosen
 
-        # Need to raise: reviewer floors at Claude mid+ (routing.md §3)
+        # Need to raise: reviewer floors at Claude sonnet+ (routing.md §3)
         scoped_entries = list(original_entries)
         # Scope to Claude variants for reviewer pin
         claude_entries = [e for e in scoped_entries if e["model"] in ("claude-code-native", "claude-code-cli")]
         scoped = _scope_eligible_set(claude_entries, profile, explain_log)
         scoped = _apply_plan_caps(scoped, plans, explain_log)
+        # empty_pipeline: the full enumeration is pre-availability — drop unavailable Claude so the
+        # Claude-only floor finds nothing when Claude is unavailable (returns the error, never a
+        # non-Claude fallback).
+        if empty_pipeline:
+            scoped = [
+                e for e in scoped
+                if _is_variant_available(e["raw_variant"], e["model_dir"], rbtv_cfg, vault_root)
+            ]
 
-        # Filter to Claude variants meeting the floor tier
-        floor_survivors = []
-        for e in scoped:
-            e_idx = TIER_VALUES.get(e["reasoning_tier"], 0)
-            if e_idx >= required_idx:
-                floor_survivors.append(e)
+        # Filter to Claude variants meeting the floor reasoning
+        floor_survivors = [e for e in scoped if e["reasoning"] >= required_reasoning]
 
         if floor_survivors:
             floor_ranked = _rank(floor_survivors, profile, explain_log)
@@ -823,19 +1162,35 @@ def _apply_pinned_role_floor(
             return raised
 
     elif pinned_role == "debug":
-        # Top-tier CLAUDE (opus) — routing.md §3: debug floors at opus and NEVER lets a
-        # CLI/API worker root-cause. A top-tier non-Claude (e.g. deepseek:v4-pro) does NOT
-        # satisfy this floor; require BOTH top-tier AND Claude membership.
-        if chosen["model"] in ("claude-code-native", "claude-code-cli") and chosen["reasoning_tier"] == "top":
+        # Reasoning-7 code-eligible executor (D17: de-carrier-locked). The debug floor admits
+        # ANY elected, available, code-eligible executor with reasoning >= 7 — opus AND
+        # codex-cli:gpt-5.5, never a reasoning-6 worker (sonnet/kimi/gpt-5.4) or a non-code
+        # API worker. Opus stays the default on cost (cost 6 < gpt-5.5 cost 7), so the
+        # observable default is unchanged; gpt-5.5 wins only when opus is unavailable/capped.
+        floor_reasoning = floor_def["floor_reasoning"]
+        # Code-eligibility key: the leaf role the profile requests (a code role for a code task);
+        # _routable_for_allows drops non-executors (deepseek/gemini/manus) from code leaves.
+        leaf_role = _leaf_role(profile)
+        # empty_pipeline: no valid `chosen` to accept — go straight to the floor recompute.
+        if not empty_pipeline and _routable_for_allows(chosen, leaf_role) and chosen["reasoning"] >= floor_reasoning:
             explain_log.append({
                 "stage": "pin", "action": "floor_already_met",
-                "role": pinned_role, "reason": f"already top-tier Claude: {chosen['model']}:{chosen['variant']}",
+                "role": pinned_role,
+                "reason": f"already reasoning-7 code-eligible executor: {chosen['model']}:{chosen['variant']}",
             })
             return chosen
-        # Find cheapest top-tier CLAUDE variant
-        scoped_entries = [e for e in original_entries if e["model"] in ("claude-code-native", "claude-code-cli")]
-        scoped = _apply_plan_caps(scoped_entries, plans, explain_log)
-        top_survivors = [e for e in scoped if e["reasoning_tier"] == "top"]
+        # Find the cheapest reasoning-7 code-eligible executor (available + plan caps applied;
+        # ranked cheapest). Availability is re-checked here because original_entries is the FULL
+        # pre-scope enumeration (an unavailable worker NEVER enters the debug floor — D17).
+        scoped = _apply_plan_caps(list(original_entries), plans, explain_log)
+        scoped = [
+            e for e in scoped
+            if _is_variant_available(e["raw_variant"], e["model_dir"], rbtv_cfg, vault_root)
+        ]
+        top_survivors = [
+            e for e in scoped
+            if e["reasoning"] >= floor_reasoning and _routable_for_allows(e, leaf_role)
+        ]
         if top_survivors:
             top_ranked = _rank(top_survivors, profile, explain_log)
             raised = top_ranked[0]
@@ -848,16 +1203,25 @@ def _apply_pinned_role_floor(
             return raised
 
     elif pinned_role == "commit":
-        # Agent-tool Claude sonnet floor
-        if chosen["model"] in ("claude-code-native",) and chosen.get("reasoning_tier") in ("mid", "top"):
+        # Agent-tool Claude sonnet floor (reasoning >= 6 = sonnet or opus, never haiku).
+        sonnet_floor = _PINNED_FLOORS["reviewer"]["floor_reasoning"]  # 6
+        # empty_pipeline: no valid `chosen` to accept — go straight to the floor recompute.
+        if not empty_pipeline and chosen["model"] in ("claude-code-native",) and chosen["reasoning"] >= sonnet_floor:
             explain_log.append({
                 "stage": "pin", "action": "floor_already_met",
-                "role": pinned_role, "reason": f"already Claude mid/top: {chosen['model']}:{chosen['variant']}",
+                "role": pinned_role, "reason": f"already Claude sonnet/opus: {chosen['model']}:{chosen['variant']}",
             })
             return chosen
         # Find cheapest Claude sonnet
         scoped_entries = list(original_entries)
         scoped = _scope_eligible_set(scoped_entries, profile, explain_log)
+        # empty_pipeline: drop unavailable variants so the Claude-only commit floor finds nothing
+        # when Claude is unavailable (returns the error, never a non-Claude fallback).
+        if empty_pipeline:
+            scoped = [
+                e for e in scoped
+                if _is_variant_available(e["raw_variant"], e["model_dir"], rbtv_cfg, vault_root)
+            ]
         sonnet_variants = [e for e in scoped if e["model"] in ("claude-code-native",) and e["variant"] == "sonnet"]
         if sonnet_variants:
             sonnet_ranked = _rank(sonnet_variants, profile, explain_log)
@@ -874,7 +1238,8 @@ def _apply_pinned_role_floor(
         "stage": "pin", "action": "floor_not_found",
         "role": pinned_role, "reason": "no variant met the floor -- keeping original pick",
     })
-    return chosen
+    # empty_pipeline: nothing to keep — signal "no pin survivor" so route() returns the error.
+    return None if empty_pipeline else chosen
 
 
 def _apply_pins_and_stakes(
@@ -932,6 +1297,34 @@ def _validate_profile(profile: dict) -> list[str]:
     return errors
 
 
+def _build_other_routing_audit(profile: dict, chosen: dict, leaf_role: str) -> dict:
+    """Schema §2b / D4 / spec row 3: the `other`-routing audit-trail entry.
+
+    Whenever a task routes via the `other` catch-all role, route.py MUST record the specific
+    task instructions/arguments of that routing so under-served task types surface and get
+    promoted to first-class roles. Only `other` carries this obligation. The audit captures the
+    routed (model, variant) plus the task-identifying fields the profile carries (instructions/
+    arguments/description/task_id where present), so the catch-all routing is reconstructable.
+    """
+    instructions = (
+        profile.get("task_instructions")
+        or profile.get("instructions")
+        or profile.get("arguments")
+        or profile.get("task_arguments")
+        or profile.get("description")
+    )
+    return {
+        "role": "other",
+        "routed_to": f"{chosen['model']}:{chosen['variant']}",
+        "task_instructions": instructions,
+        "task_id": profile.get("task_id"),
+        "note": (
+            "routed via the `other` catch-all role -- recorded so under-served task types "
+            "surface and get promoted to a first-class role (schema §2b)"
+        ),
+    }
+
+
 def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plans: dict, explain: bool = False, elected: list | None = None, elected_variants: dict | None = None) -> dict:
     """Main routing function. Returns a verdict dict.
 
@@ -972,9 +1365,60 @@ def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plan
     # Preserve the FULL enumerated set (pre-scope) for the pins/stakes layer. Stakes tier-up
     # and the pinned-role floors must re-scope at the RAISED band over the full enumeration —
     # not over this band's leftovers. Passing the band-scoped set here would empty the raised-band
-    # re-scope (e.g. partially-bounded scoped to Claude mid-tier → stakes raise to top-tier Claude
-    # finds zero in a mid-tier-only set), silently masking the escalation.
+    # re-scope (e.g. partially-bounded scoped to Claude sonnet → stakes raise to top-tier Claude
+    # finds zero in a sonnet-only set), silently masking the escalation.
     all_entries = list(entries)
+
+    def _build_route_verdict(chosen: dict) -> dict:
+        """Construct the route verdict (carrier + effort + `other` audit) from a chosen worker.
+
+        Shared by the normal RANK→PIN path and the empty-pipeline pinned-role fallback so both
+        emit an identical verdict shape (carrier, post-pin effort, `other`-routing audit).
+        """
+        carrier = _resolve_carrier(chosen, profile)
+        effort = _resolve_effort(chosen, profile, explain_log)
+        verdict = {
+            "verdict": "route",
+            "model": chosen["model"],
+            "variant": chosen["variant"],
+            "carrier": carrier,
+        }
+        if effort is not None:
+            verdict["effort"] = effort
+        leaf_role = _leaf_role(profile)
+        if leaf_role == "other":
+            verdict["other_routing_audit"] = _build_other_routing_audit(profile, chosen, leaf_role)
+        if explain:
+            verdict["explain"] = explain_log
+        return verdict
+
+    def _pin_fallback_or_error(error_verdict: dict) -> dict:
+        """Empty-pipeline pinned-role fallback (the defect fix).
+
+        The normal band-scoped pipeline emptied (no_available_variants / zero_candidates). Before
+        returning the error, if a pinned_role is set, run that pin's OWN floor over the FULL
+        enumeration (all_entries) — plan-caps + availability applied inside the floor — so a pin
+        that COULD reach a worker beyond the empty band (debug → codex-cli:gpt-5.5 when opus is
+        unavailable) still routes. Each pin keeps its own scoping (reviewer/commit stay Claude-only
+        and still find nothing → return the error, NEVER a non-Claude fallback). No pin survivor →
+        return the original error unchanged.
+        """
+        if not profile.get("pinned_role"):
+            if explain:
+                error_verdict = {**error_verdict, "explain": explain_log}
+            return error_verdict
+        # Sentinel `chosen`: non-routable; carries model/variant for the explain log only and is
+        # never returned (empty_pipeline=True forces the floor recompute and a None-on-miss).
+        sentinel = {"model": "<none>", "variant": "<empty-pipeline>", "reasoning": -1}
+        pinned = _apply_pinned_role_floor(
+            sentinel, profile, all_entries, rbtv_root, vault_root, rbtv_cfg, plans, explain_log,
+            empty_pipeline=True,
+        )
+        if pinned is not None:
+            return _build_route_verdict(pinned)
+        if explain:
+            error_verdict = {**error_verdict, "explain": explain_log}
+        return error_verdict
 
     # Scope eligible set per boundedness band (S2 keystone)
     entries = _scope_eligible_set(entries, profile, explain_log)
@@ -994,29 +1438,29 @@ def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plan
             })
 
     if not available:
-        return {"error": "no_available_variants", "details": "All variants dropped due to availability (api-key absent)"}
+        return _pin_fallback_or_error({"error": "no_available_variants", "details": "All variants dropped due to availability (api-key absent)"})
 
-    # Stage 2: filter
+    # Stage 2: GATE (filter)
     survivors = _filter(available, profile, explain_log)
     if not survivors:
-        return {
+        return _pin_fallback_or_error({
             "error": "zero_candidates",
             "details": "No installed+available variant meets the leaf's hard requirements",
             "failed_requirements": [log for log in explain_log if log.get("action") == "drop"]
-        }
+        })
 
     # S7: exclude haiku variants from the eligible set BEFORE Stage-3 ranking (unless the
     # delegation-map flag admits them). Default-excludes so a future cheapest haiku is never
     # auto-picked by cost-ascending ranking absent an approved delegation map (routing.md §7).
     survivors = _exclude_haiku(survivors, profile, explain_log)
     if not survivors:
-        return {
+        return _pin_fallback_or_error({
             "error": "zero_candidates",
             "details": "No installed+available non-haiku variant meets the leaf's hard requirements (haiku excluded per routing.md §7; set delegation_map_allows_haiku to admit haiku for a mechanical batch)",
             "failed_requirements": [log for log in explain_log if log.get("action") in ("drop", "exclude")]
-        }
+        })
 
-    # Stage 3: rank
+    # Stage 3: RANK
     ranked = _rank(survivors, profile, explain_log)
     chosen = ranked[0]
 
@@ -1028,12 +1472,22 @@ def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plan
     # Resolve carrier
     carrier = _resolve_carrier(chosen, profile)
 
+    # Step 5: set effort = f(boundedness) from the chosen variant's reasoning_modes (post-pin).
+    effort = _resolve_effort(chosen, profile, explain_log)
+
     verdict = {
         "verdict": "route",
         "model": chosen["model"],
         "variant": chosen["variant"],
         "carrier": carrier,
     }
+    if effort is not None:
+        verdict["effort"] = effort
+
+    # Schema §2b / D4: when the routed leaf is the `other` catch-all role, record the audit trail.
+    leaf_role = _leaf_role(profile)
+    if leaf_role == "other":
+        verdict["other_routing_audit"] = _build_other_routing_audit(profile, chosen, leaf_role)
 
     if explain:
         verdict["explain"] = explain_log

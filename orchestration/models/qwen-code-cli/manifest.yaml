@@ -5,20 +5,23 @@
 #         from the installed `qwen --help`). Multi-model backend mechanism + verified per-backend specs:
 #         1-projects/rbtv-evolution/orchestration/qwen-multi-model/qwen-multi-model-research.md (2026-06-10).
 # Evidence boundary: the CLI install + headless contract + flag-parsing are locally verified. The full
-#         authenticated turn (exit-0, JSON output shape, tool-calling, attribution) IS NOW VALIDATED —
-#         2026-06-10 (validation runs issued via `!`; auth is pre-provisioned in qwen's own ~/.qwen/settings.json
-#         `env` block and resolves in ANY session — conductor/unattended included, see auth notes below): all four ModelStudio US
-#         backends (qwen3.6-plus, deepseek-v4-flash, deepseek-v4-pro, glm-5.1) reply-probed exit-0 with
-#         init.model echoing the id, and `deepseek-v4-flash` passed a full bounded-code done-gate
-#         (write+test through the compatible-mode shim, conductor-reconciled on disk). Evidence:
+#         authenticated turn IS VALIDATED — 2026-06-10 (all four ModelStudio US backends reply-probed exit-0;
+#         `deepseek-v4-flash` passed a full bounded-code done-gate; deepseek-v4-pro + glm-5.1 2026-06-10
+#         follow-up pilots, conductor-reconciled on disk). Evidence:
 #         1-projects/rbtv-evolution/coding/done-gate-evidence/rbtv/2026-06-10-qwen-multi-model.md.
+# Capability values (reasoning/coding/cost integers + evidence) transcribed from:
+#   value-derivation.md (2026-06-16 ratified table, R2 final) — board source AA leaderboard.
+#
+# SCHEMA MIGRATION (2026-06-16, p2-m-cli): old band/tier fields replaced by integer 1–7 per manifest-schema.md §0/D11.
+# 4 backends unchanged in count. reasoning_modes UNKNOWN for ALL backends (G1 CLOSED as accepted CLI limitation —
+# per-backend thinking depth is NOT exposed/controllable through the qwen-code CLI; do NOT invent depths).
 # The exact invocation shape (commands, flags, approval grammar, exit codes, resume, per-backend `-m`) is
 # in ./manual.md (rendered from ./delta.md by ../render-manuals.py) — this manifest points to it.
 
 model: qwen-code-cli
 display: "qwen-code (CLI)"
-evidence_status: validated   # auth verified + all four ModelStudio US backends served; ALL FOUR now carry full bounded-code proof — default (qwen3.6-plus) + deepseek-v4-flash 2026-06-10, deepseek-v4-pro + glm-5.1 2026-06-10 follow-up pilots (per-variant overrides below graduated probe-pending→validated).
-permission_rules:            # installer-managed allowlist entries in the target's .claude/settings.local.json (D17) — added when this package is elected, removed when deselected; schema: ../manifest-schema.md
+evidence_status: validated   # auth verified + all four ModelStudio US backends served; ALL FOUR carry full bounded-code proof — default (qwen3.6-plus) + deepseek-v4-flash 2026-06-10, deepseek-v4-pro + glm-5.1 2026-06-10 follow-up pilots (per-variant overrides below graduated probe-pending→validated).
+permission_rules:            # installer-managed allowlist entries in the target's .claude/settings.local.json — added when this package is elected, removed when deselected; schema: ../manifest-schema.md
   - "Bash(qwen:*)"
   - "PowerShell(qwen:*)"
 
@@ -26,108 +29,143 @@ permission_rules:            # installer-managed allowlist entries in the target
 # The owner runs qwen against four configured backends via ~/.qwen/settings.json `modelProviders.openai`
 # (all on https://dashscope-us.aliyuncs.com/compatible-mode/v1 under DASHSCOPE_API_KEY). Per-dispatch
 # selection adds ONE flag to the canonical invocation: `--auth-type openai -m <id>` (omitting -m falls back
-# to the configured model.name = qwen3.6-plus). Each backend below is a routable variant ONLY where a
-# routing-relevant field differs (variant field-count discipline, manifest-schema §107). All four share the
-# qwen CLI contract (exit codes, confinement, resume, tool surface) — only the routing fields differ.
+# to the configured model.name = qwen3.6-plus). Each backend below is a routable variant where at least one
+# routing-relevant field differs (variant field-count discipline, manifest-schema §2).
+# All four share the qwen CLI contract (exit codes, confinement, resume, tool surface) — only the routing fields differ.
 
 variants:
-  - variant: default   # qwen3.6-plus — the configured model.name (no -m needed); native Apr-2026 flagship coder. The home backend.
+  - variant: qwen3.6-plus   # native Apr-2026 flagship coder — the configured model.name (no -m needed); the home backend
     display: "Qwen3.6 Plus"   # installer backend-election label (per-variant; installer-consumed, NOT a routing input — schema §2)
 
-    # --- boundedness + sizing (routing §2, §8) ---
-    reasoning_tier: mid             # HELD at mid + doubt_policy: halt. ⚑ UNDER-RATED per published benchmark (Qwen3.6-Plus 78.8% SWE-V, independent: HF/Willison/Register ≈ Sonnet 79.6) — judgment-pilot candidate, NOT bumped (SWE measures code; code_competence already strong; judgment unpiloted). Re-sourced from spec → benchmark 2026-06-11
-    context_window: 1048576         # 1M native (qwen3.6-plus); the configured ModelStudio backend. Earlier 131072 figure was the local-setup docs EXAMPLE, not this backend (research §3)
-    max_output: 65536               # qwen3.6-plus single-turn cap (research §3). Smaller than the DeepSeek backends (384K) — the routing distinction for large-output code tasks
-    cost_class: low                 # DashScope tiered: $0.28/$1.65 per 1M (0–256K band) (research §3 [4][5]). ModelStudio-US billing unconfirmed (research Q2) — reference-derived
+    # --- capability + cost scores + sizing (routing §2, §8) — scale: schema §0 (integer 1–7, comparable across all models) ---
+    reasoning: 5                           # AA II 50 ("Qwen3.6 Plus") — strong reasoner; GPQA 41; HLE 26
+    coding: 4                              # Terminal-Bench Hard 44 — bounded agentic coder
+    cost: 2                                # board blended price $0.43/1M → bin 2 (low)
+    axis_evidence:
+      reasoning: { source: "aa-ii(50);gpqa(41);hle(26)", confidence: high }
+      coding:    { source: "aa-tbh(44)", confidence: high }
+    cost_evidence: { source: "aa-blended($0.43)→bin2", confidence: high }
+    context_window: 1048576         # 1M native (qwen3.6-plus); the configured ModelStudio backend
+    max_output: 65536               # qwen3.6-plus single-turn cap (research §3); smaller than the DeepSeek backends (384K) — the routing distinction for large-output code tasks
 
-    # --- budget + capability gates (routing §2, §6) ---
-    code_competence: strong         # purpose-built coding agent — shell/file/edit tools + built-in PR-review (report §15)
-    web_access: false               # NO guaranteed native web-search tool — tool/MCP-dependent; provision via MCP if a research leaf needs web, else false. (qwen is NOT the web research-leaf executor — codex/claude-cli are; core-protocol roster corrected 2026-06-10, D-exec-11)
-    # multimodal omitted — qwen3.6-plus image input is gateway-documented but CLI-path-unverified (research §3) → omit until exercised
+    # --- role eligibility (routing §2, §6) ---
+    web_access: false               # NO guaranteed native web-search tool — tool/MCP-dependent; provision via MCP if a research leaf needs web, else false
+    # multimodal omitted — qwen3.6-plus image input is gateway-documented but CLI-path-unverified → omit until exercised
+
+    # --- reasoning / effort modes (routing §2 post-pin effort=f(boundedness) — schema §0a) ---
+    # G1 CLOSED — per-backend thinking depth is NOT exposed/controllable through the qwen-code CLI (p1 re-review c6; accepted limitation)
+    reasoning_modes:
+      depths: []                    # UNKNOWN — qwen-code CLI does not expose per-backend thinking depth control (G1 CLOSED as accepted CLI limitation; do NOT impute depths)
+      invocation: "none"
+      carrier: "CLI — per-backend thinking depth NOT controllable through qwen-code CLI (G1 CLOSED; accepted limitation)"
 
     # --- parallelism + resume (routing §8, §4) ---
-    parallel_safe: true             # --worktree gives native per-session git-worktree isolation (<repoRoot>/.qwen/worktrees/<slug>/); concurrent instances under disjoint dirs supported (report §7/§15)
-    resume_support: continue        # --continue / --resume <id> / --session-id / --fork-session; ALL require chat recording on (default) (report §15)
+    parallel_safe: true             # --worktree gives native per-session git-worktree isolation; concurrent instances under disjoint dirs supported
+    resume_support: continue        # --continue / --resume <id> / --session-id / --fork-session; ALL require chat recording on (default)
 
     # --- non-interactive run (routing §4 → dispatch-wrapper) ---
     headless:
-      flags: "<positional-prompt> --output-format json --approval-mode <auto|auto-edit|yolo>"   # positional prompt canonical on 0.17.1 (-p deprecated-but-functional); headless = prompt non-interactively WITHOUT -i (report §2/§5/§15)
-      auto_approves_tools: true     # true under --yolo/--approval-mode yolo (probe-confirmed host-privilege warning, no sandbox); headless `auto` DENIES writes (live-proven p2-3) (report §2/§15)
-      prompt_transport: either      # positional arg OR stdin pipe — a positional/-p prompt is appended to stdin content (report §5/§15)
+      flags: "<positional-prompt> --output-format json --approval-mode yolo"   # positional prompt canonical on 0.17.1 (-p deprecated-but-functional); --output-format json for structured return; --approval-mode yolo auto-approves writes
+      auto_approves_tools: true     # true under --yolo/--approval-mode yolo (probe-confirmed host-privilege warning, no sandbox); headless `auto` DENIES writes (live-proven p2-3) — use yolo for headless write work
+      prompt_transport: either      # positional arg OR stdin pipe — a positional/-p prompt is appended to stdin content
 
     # --- auth pre-flight (routing §1) ---
     auth:
-      required: true                # unauthenticated `qwen -p` exits 1 "No auth type is selected" — verified locally (report §8/§15)
-      method: api-key               # openai/anthropic/gemini env+keys; here: --auth-type openai + DASHSCOPE_API_KEY (ModelStudio US). cli-login (qwen-oauth) free tier discontinued 2026-04-15
-      interactive: false            # api-key path: availability = the key resolves (DASHSCOPE_API_KEY); no human gesture per dispatch (schema §4 api-key note). The key is PRE-PROVISIONED in qwen's own ~/.qwen/settings.json `env` block → it resolves in ANY session (conductor/unattended included), so live dispatches authenticate directly — NOT owner-run-only (corrected 2026-06-11, C2). SECURITY: any run can spend ModelStudio credit — bound with budget/--max-wall-time
+      required: true                # unauthenticated `qwen -p` exits 1 "No auth type is selected" — verified locally
+      method: api-key               # --auth-type openai + DASHSCOPE_API_KEY (ModelStudio US); cli-login (qwen-oauth) free tier discontinued 2026-04-15
+      interactive: false            # api-key path: availability = the key resolves (DASHSCOPE_API_KEY); key PRE-PROVISIONED in qwen's own ~/.qwen/settings.json `env` block → resolves in ANY session (conductor/unattended dispatches authenticate directly). SECURITY: any run can spend ModelStudio credit — bound with budget/--max-wall-time
 
     rate_budget_notes: "NO retryable-throttle exit code (unlike kimi 75) — set QWEN_CODE_UNATTENDED_RETRY=1 for in-process 429/529 backoff (cap 5 min, 30s stderr heartbeat); bound with --max-wall-time → exit 55. Budget overruns: --max-session-turns → exit 53; --max-wall-time/--max-tool-calls → exit 55. exit 1 = non-retryable (auth/config/usage) → halt + surface. Auth via --auth-type openai + DASHSCOPE_API_KEY (ModelStudio US)."
 
     # --- tool surface + confinement (routing §2, §4, §8) ---
     tool_surface:
-      native: [shell, file, edit, agent]   # shell/file/edit + the `agent` tool (subagent dispatch); built-in PR-review; extensions add more (report §12/§15)
-      mcp: true                     # qwen mcp add/list/reconnect, --mcp-config <json|file>, --allowed-mcp-server-names (report §9/§15)
-      agent_file: true              # --system-prompt/--append-system-prompt per-run; tool restriction via --allowed-tools/--exclude-tools/--core-tools; guidance via QWEN.md/AGENTS.md (report §15)
+      native: [shell, file, edit, agent]   # shell/file/edit + the `agent` tool (subagent dispatch); built-in PR-review; extensions add more
+      mcp: true                     # qwen mcp add/list/reconnect, --mcp-config <json|file>, --allowed-mcp-server-names
+      agent_file: true              # --system-prompt/--append-system-prompt per-run; tool restriction via --allowed-tools/--exclude-tools/--core-tools; guidance via QWEN.md/AGENTS.md
     confinement:
-      workspace_scope: "CWD root + --include-directories/--add-dir (additive; NO single --work-dir flag); --worktree for isolation"   # report §7/§15
-      tool_restriction: "--exclude-tools / --allowed-tools / --core-tools; --approval-mode graded gate; --sandbox container (backend-unverified on Windows)"   # report §7/§15
-      write_enforcement: git-diff-vs-allowlist   # headless --yolo auto-approves all at host privilege, no sandbox — post-run git diff of every changed path vs the task allowlist is the reliable check (report §7/§15)
+      workspace_scope: "CWD root + --include-directories/--add-dir (additive; NO single --work-dir flag); --worktree for isolation"
+      tool_restriction: "--exclude-tools / --allowed-tools / --core-tools; --approval-mode graded gate; --sandbox container (backend-unverified on Windows)"
+      write_enforcement: git-diff-vs-allowlist   # headless --yolo auto-approves all at host privilege, no sandbox — post-run git diff of every changed path vs the task allowlist is the reliable check
 
     # --- invocation + failures (routing §4, §2) ---
-    invocation_pointer: ./manual.md   # rendered dispatch manual (../render-manuals.py) — the exact command shape
+    invocation_pointer: ./manual.md
     manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/qwen-code-cli/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/qwen-code-cli/delta.md
-    specialty: "bounded code/agentic via the native Qwen3.6 flagship — purpose-built coding agent (shell/file/edit + built-in PR-review) with native --worktree isolation; the no-`-m` home backend (text synthesis → DeepSeek API worker)"   # within-tier tiebreaker only; boundedness-first stays the master cut
-    # --- configurable model (ADX-2 / D6 / Brief B Part 2 — qwen serves a CONFIGURABLE backend set, not a fixed identity) ---
+    specialty: "bounded code/agentic via the native Qwen3.6 flagship — purpose-built coding agent (shell/file/edit + built-in PR-review) with native --worktree isolation; the no-`-m` home backend; cost 2 (cheapest non-DeepSeek backend)"   # within-tier tiebreaker only; boundedness-first stays the master cut
     configurable_model:
       provider_label: "qwen-code (DashScope US)"   # installer backend-election provider-path label (installer-consumed; not a routing input)
-      is_configurable: true          # the model the qwen CLI runs is CONFIGURATION, not a fixed package identity — the owner runs qwen against four ModelStudio US backends (native Qwen3.6 PLUS deepseek-v4-flash/pro and glm-5.1); the served model is set per-run via -m, modeled as the four variants here
-      note: "served backend set by --auth-type openai + -m <id> (qwen3.6-plus | deepseek-v4-flash | deepseek-v4-pro | glm-5.1), all on ModelStudio US under DASHSCOPE_API_KEY; availability/attribution resolve the CONFIGURED id at dispatch (init.model echoes it), never assume from the package name. Per-backend variants modeled 2026-06-10 (Brief B Part 2 — was deferred, now DONE)"
+      is_configurable: true          # the model the qwen CLI runs is CONFIGURATION, not a fixed package identity
+      note: "served backend set by --auth-type openai + -m <id> (qwen3.6-plus | deepseek-v4-flash | deepseek-v4-pro | glm-5.1), all on ModelStudio US under DASHSCOPE_API_KEY; availability/attribution resolve the CONFIGURED id at dispatch (init.model echoes it), never assume from the package name"
     failure_modes:
       - "headless --yolo/--approval-mode yolo auto-approves ALL tool calls at host privilege — NO sandbox unless --sandbox (container backend unverified on Windows); enforce scope externally + post-run diff"
       - "headless --approval-mode auto DENIES every write/edit/shell call (read-only in practice) — use yolo/-y for headless write work (live-proven p2-3)"
-      - "unauthenticated run exits 1 (No auth type is selected) — DASHSCOPE_API_KEY must resolve; it is PRE-PROVISIONED in qwen's own ~/.qwen/settings.json `env` block and resolves on EVERY qwen invocation by this user, so conductor/unattended dispatches authenticate directly (proven C2 2026-06-10). SECURITY: any run can spend ModelStudio credit — bound with budget/--max-wall-time. If settings.json ever loses the key/auth, HALT and ask the owner to re-provision — the conductor never self-provisions, reads, or prints it"
+      - "unauthenticated run exits 1 (No auth type is selected) — DASHSCOPE_API_KEY must resolve; it is PRE-PROVISIONED in qwen's own ~/.qwen/settings.json `env` block and resolves on EVERY qwen invocation by this user (proven C2 2026-06-10). SECURITY: any run can spend ModelStudio credit — bound with budget/--max-wall-time. If settings.json ever loses the key/auth, HALT and ask the owner to re-provision"
       - "NO retryable-throttle exit code — use QWEN_CODE_UNATTENDED_RETRY=1 for in-process 429/529 backoff; bound with --max-wall-time"
       - "budget overrun → exit 53 (--max-session-turns) or 55 (--max-wall-time/--max-tool-calls) — re-scope or raise caps, NOT a transient retry"
       - "--approval-mode default STALLS a headless run waiting for approval — always set auto/auto-edit/yolo non-interactively"
       - "--continue/--resume/--session-id/--fork-session need chat recording ON (default) — do NOT pass --chat-recording false on a resumable dispatch"
       - "cd does not persist between shell calls — pass the workspace via CWD + --add-dir, never rely on cd chaining"
-      - "--json-file <path> does NOT materialize headless on the RBTV qwen fork — CONFIRMED across 3 runs 2026-06-10 (flash, deepseek-v4-pro, glm-5.1; absolute path, file absent every time). Do NOT rely on it for a durable return — capture stdout JSON (--output-format json), or use --json-schema (untested here); reconcile the return against disk regardless"
+      - "--json-file <path> does NOT materialize headless on the RBTV qwen fork — CONFIRMED across 3 runs 2026-06-10. Do NOT rely on it for a durable return — capture stdout JSON (--output-format json); reconcile the return against disk regardless"
+      - "reasoning_modes.depths UNKNOWN — per-backend thinking depth is not exposed through the qwen-code CLI (G1 CLOSED as accepted limitation); do not assume effort can be controlled per-dispatch"
 
     # --- guidance file (routing §4 pre-dispatch check) ---
     guidance_file:
-      convention: QWEN.md           # Qwen natively loads QWEN.md (project + ~/.qwen/QWEN.md, hierarchical, @import syntax); AGENTS.md supported via the context.fileName setting (report §11/§15)
+      convention: QWEN.md           # Qwen natively loads QWEN.md (project + ~/.qwen/QWEN.md, hierarchical, @import syntax); AGENTS.md supported via the context.fileName setting
       mirror_entry: qwen-mirror      # resolves to: python orchestration/models/mirror/mirror.py --config orchestration/models/qwen-code-cli/mirror-config.yaml --target <workspace>
 
     # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
     swarm_support:
-      subagents: true               # `agent` tool — the worker can dispatch its own sub-tasks (--max-tool-calls docs: "agent tool dispatch = 1; inner calls exempt") (report §12/§15)
+      subagents: true               # `agent` tool — the worker can dispatch its own sub-tasks
       nesting: one-level            # treat as one-level (sub-tasks do not recurse) — matches kimi + D7 depth cap ≤2
-      default: disabled             # safe default posture for bounded dispatches; enable ONLY for independent slices with disjoint allowlists (report §12)
+      default: disabled             # safe default posture for bounded dispatches; enable ONLY for independent slices with disjoint allowlists
 
     os_quirks:
-      windows: "positional prompt AND stdin pipe both work (Get-Content file | qwen \"...\"); config root %USERPROFILE%\\.qwen\\; --sandbox needs Docker/Podman (unverified here); exit codes 0/1/53/55/130 propagate to $LASTEXITCODE"   # report §14/§15
+      windows: "positional prompt AND stdin pipe both work (Get-Content file | qwen \"...\"); config root %USERPROFILE%\\.qwen\\; --sandbox needs Docker/Podman (unverified here); exit codes 0/1/53/55/130 propagate to $LASTEXITCODE"
 
-  - variant: deepseek-flash   # -m deepseek-v4-flash — DeepSeek V4 efficiency tier (284B MoE, 13B active) via ModelStudio US. The cheapest large-output code executor.
+  - variant: deepseek-flash   # -m deepseek-v4-flash — DeepSeek V4 efficiency tier (284B MoE, 13B active) via ModelStudio US; the cheapest large-output code executor
     display: "DeepSeek V4 Flash"   # installer backend-election label (per-variant; installer-consumed, NOT a routing input — schema §2)
-    # Differs from `default` on: max_output (384K vs 65536 — large-output code), and provider/specialty. Shares the qwen CLI contract.
-    reasoning_tier: mid             # HELD at mid + doubt_policy: halt. ⚑ UNDER-RATED per published benchmark (DeepSeek V4-Flash 79.0% SWE-V ≈ Sonnet, AA index 1388) — judgment-pilot candidate, NOT bumped (code metric, not judgment). Re-sourced from spec → benchmark 2026-06-11
+    # Differs from `qwen3.6-plus` on: reasoning (4 vs 5), cost (1 vs 2), max_output (384K vs 65536 — large-output code). Shares the qwen CLI contract.
+
+    # --- capability + cost scores + sizing ---
+    reasoning: 4                           # AA II 46-47 ("DeepSeek V4 Flash Max/High") — mid reasoner; GPQA 42-45; confidence medium (the qwen-code CLI runs this DeepSeek backend; board rows are for the bare model, a close proxy)
+    coding: 3                              # Terminal-Bench Hard 36-39 — limited agentic coder; confidence medium
+    cost: 1                                # board blended price $0.06/1M → bin 1 (cheapest)
+    axis_evidence:
+      reasoning: { source: "aa-ii(46-47,DSV4Flash);gpqa(42-45)", confidence: medium }
+      coding:    { source: "aa-tbh(36-39)", confidence: medium }
+    cost_evidence: { source: "aa-blended($0.06,DSV4Flash)→bin1", confidence: medium }
     context_window: 1048576         # 1M (research §3 [3])
-    max_output: 384000              # 384K max (research §3 [3]) — 6× the default backend; the large-output code distinction
-    cost_class: low                 # $0.14/$0.28 per 1M first-party (research §3 [3]) — the cheapest backend. ModelStudio-US billing unconfirmed (research Q2) — reference-derived
-    code_competence: strong         # full bounded-code done-gate PASS 2026-06-10 (write+test through the shim, disk-reconciled)
-    web_access: false               # same as default — no native web; route research elsewhere
-    parallel_safe: true             # qwen CLI --worktree isolation (backend-independent)
-    resume_support: continue        # qwen CLI resume (backend-independent)
+    max_output: 384000              # 384K max (research §3 [3]) — 6× the qwen3.6-plus backend; the large-output code distinction
+
+    # --- role eligibility ---
+    web_access: false               # same as qwen3.6-plus — no native web; route research elsewhere
+
+    # --- reasoning / effort modes ---
+    # G1 CLOSED — per-backend thinking depth is NOT exposed/controllable through the qwen-code CLI
+    reasoning_modes:
+      depths: []                    # UNKNOWN — qwen-code CLI does not expose per-backend thinking depth control (G1 CLOSED as accepted CLI limitation)
+      invocation: "none"
+      carrier: "CLI — per-backend thinking depth NOT controllable through qwen-code CLI (G1 CLOSED; accepted limitation)"
+
+    # --- parallelism + resume ---
+    parallel_safe: true
+    resume_support: continue
+
+    # --- non-interactive run ---
     headless:
       flags: "<positional-prompt> --auth-type openai -m deepseek-v4-flash --output-format json --approval-mode yolo"   # adds --auth-type openai -m <id> to the canonical invocation
       auto_approves_tools: true
       prompt_transport: either
+
+    # --- auth pre-flight ---
     auth:
       required: true
       method: api-key               # --auth-type openai + DASHSCOPE_API_KEY (ModelStudio US)
-      interactive: false            # availability = key resolves; key PRE-PROVISIONED in qwen's ~/.qwen/settings.json → resolves in ANY session (conductor/unattended dispatches authenticate directly; bound spend with budget/--max-wall-time)
-    rate_budget_notes: "QWEN_CODE_UNATTENDED_RETRY=1 for 429/529; bound with --max-wall-time. No retryable-throttle exit code. (Same qwen CLI budget grammar as default.)"
+      interactive: false            # availability = key resolves; key PRE-PROVISIONED in qwen's ~/.qwen/settings.json → resolves in ANY session
+
+    rate_budget_notes: "QWEN_CODE_UNATTENDED_RETRY=1 for 429/529; bound with --max-wall-time. No retryable-throttle exit code. (Same qwen CLI budget grammar as qwen3.6-plus.)"
+
+    # --- tool surface + confinement ---
     tool_surface:
       native: [shell, file, edit, agent]   # qwen CLI tool surface (backend-independent); tool-calling through the ModelStudio US shim proven 2026-06-10
       mcp: true
@@ -136,38 +174,75 @@ variants:
       workspace_scope: "CWD root + --include-directories/--add-dir; --worktree for isolation"
       tool_restriction: "--exclude-tools / --allowed-tools / --core-tools; --approval-mode graded gate"
       write_enforcement: git-diff-vs-allowlist
+
+    # --- invocation + failures ---
     invocation_pointer: ./manual.md
     manual_path: ./manual.md
     delta_path: ./delta.md
-    specialty: "cheapest large-output bounded code via DeepSeek V4 Flash — the validated bulk code executor (full done-gate 2026-06-10); pick over `default` when single-turn output may exceed ~64K tokens"
+    specialty: "cheapest large-output bounded code via DeepSeek V4 Flash — the validated bulk code executor (full done-gate 2026-06-10); pick over `qwen3.6-plus` when single-turn output may exceed ~64K tokens; cost 1 (roster floor)"
+    configurable_model:
+      is_configurable: true
+      note: "served backend set by --auth-type openai -m deepseek-v4-flash on ModelStudio US under DASHSCOPE_API_KEY"
     failure_modes:
-      - "same qwen CLI failure modes as `default` (headless yolo host-privilege, auto denies writes, exit 1 auth gate, exit 53/55 budgets, cd non-persistence) — see the default variant"
+      - "same qwen CLI failure modes as `qwen3.6-plus` (headless yolo host-privilege, auto denies writes, exit 1 auth gate, exit 53/55 budgets, cd non-persistence) — see the qwen3.6-plus variant"
       - "DASHSCOPE_API_KEY must resolve; PRE-PROVISIONED in qwen's ~/.qwen/settings.json → resolves in ANY session (conductor/unattended dispatches authenticate directly; bound spend with budget/--max-wall-time)"
+      - "reasoning_modes.depths UNKNOWN — per-backend thinking depth is not exposed through the qwen-code CLI (G1 CLOSED as accepted limitation)"
+
+    # --- guidance file ---
+    guidance_file:
+      convention: QWEN.md
+      mirror_entry: qwen-mirror
+
+    # --- swarm / sub-conducting ---
     swarm_support:
       subagents: true
       nesting: one-level
       default: disabled
 
-  - variant: deepseek-pro   # -m deepseek-v4-pro — DeepSeek V4 flagship (1.6T MoE, 49B active) via ModelStudio US. The heavier-reasoning code/agentic backend.
+  - variant: deepseek-pro   # -m deepseek-v4-pro — DeepSeek V4 flagship (1.6T MoE, 49B active) via ModelStudio US; the heavier-reasoning code/agentic backend
     display: "DeepSeek V4 Pro"   # installer backend-election label (per-variant; installer-consumed, NOT a routing input — schema §2)
-    # Differs from `deepseek-flash` on: reasoning_tier (top) and cost_class (mid). The fleet's top-reasoning qwen-carrier backend.
-    reasoning_tier: top             # benchmark-corroborated (was spec-derived): DeepSeek V4-Pro 80.6% SWE-V (≥ Sonnet) + Artificial Analysis #2 open-weight reasoning (2026-06-11). Bounded-code execution validated; judgment-dense work still NOT piloted here → keep doubt_policy: halt + opus reviewer floor until a judgment pilot. The field that makes `pro` non-dominated vs `flash`
+    # Differs from `deepseek-flash` on: reasoning (5 vs 4), cost (1 vs 1 — same bin, but board prices differ: $0.18 vs $0.06). Non-dominated because reasoning is higher.
+
+    # --- capability + cost scores + sizing ---
+    reasoning: 5                           # AA II 50-52 ("DeepSeek V4 Pro Max/High") — strong reasoner; GPQA 46-50
+    coding: 4                              # Terminal-Bench Hard 42-46 — bounded agentic coder
+    cost: 1                                # board blended price $0.18/1M → bin 1 (cheapest); same bin as deepseek-flash ($0.06) but different board price
+    axis_evidence:
+      reasoning: { source: "aa-ii(50-52,DSV4Pro);gpqa(46-50)", confidence: high }
+      coding:    { source: "aa-tbh(42-46)", confidence: high }
+    cost_evidence: { source: "aa-blended($0.18,DSV4Pro)→bin1", confidence: high }
     context_window: 1048576         # 1M (research §3 [3])
     max_output: 384000              # 384K max (research §3 [3])
-    cost_class: mid                 # $0.435/$0.87 per 1M first-party (research §3 [3]) — ~3× flash. ModelStudio-US billing reference-derived — owner ELECTED to leave it reference-derived 2026-06-10 (research Q2 closed owner-accepted, no console read)
-    code_competence: strong         # DeepSeek V4 flagship coder; bounded-code done-gate PASS 2026-06-10 follow-up (write_file×2 + run_shell_command×1 through the ModelStudio US shim, conductor-reconciled on disk, independent pytest 3 passed)
+
+    # --- role eligibility ---
     web_access: false
+
+    # --- reasoning / effort modes ---
+    # G1 CLOSED — per-backend thinking depth is NOT exposed/controllable through the qwen-code CLI
+    reasoning_modes:
+      depths: []                    # UNKNOWN — qwen-code CLI does not expose per-backend thinking depth control (G1 CLOSED as accepted CLI limitation)
+      invocation: "none"
+      carrier: "CLI — per-backend thinking depth NOT controllable through qwen-code CLI (G1 CLOSED; accepted limitation)"
+
+    # --- parallelism + resume ---
     parallel_safe: true
     resume_support: continue
+
+    # --- non-interactive run ---
     headless:
       flags: "<positional-prompt> --auth-type openai -m deepseek-v4-pro --output-format json --approval-mode yolo"
       auto_approves_tools: true
       prompt_transport: either
+
+    # --- auth pre-flight ---
     auth:
       required: true
       method: api-key
       interactive: false
-    rate_budget_notes: "QWEN_CODE_UNATTENDED_RETRY=1 for 429/529; bound with --max-wall-time. (Same qwen CLI budget grammar as default.)"
+
+    rate_budget_notes: "QWEN_CODE_UNATTENDED_RETRY=1 for 429/529; bound with --max-wall-time. (Same qwen CLI budget grammar as qwen3.6-plus.)"
+
+    # --- tool surface + confinement ---
     tool_surface:
       native: [shell, file, edit, agent]
       mcp: true
@@ -176,40 +251,76 @@ variants:
       workspace_scope: "CWD root + --include-directories/--add-dir; --worktree for isolation"
       tool_restriction: "--exclude-tools / --allowed-tools / --core-tools; --approval-mode graded gate"
       write_enforcement: git-diff-vs-allowlist
+
+    # --- invocation + failures ---
     invocation_pointer: ./manual.md
     manual_path: ./manual.md
     delta_path: ./delta.md
-    specialty: "heavier-reasoning bounded code/agentic via DeepSeek V4 Pro — pick over flash/default within the code fleet when the task needs deeper reasoning and the mid cost is sanctioned (reasoning_tier top is spec-derived, doubt_policy: halt until piloted)"
-    evidence_status: validated      # bounded-code execution VALIDATED 2026-06-10 follow-up pilot (judgment-LIGHT factorial write+test, done-gate PASS). reasoning_tier: top remains SPEC-derived — the pilot was judgment-light so it did NOT confirm top-tier judgment; keep doubt_policy: halt + opus reviewer floor until a judgment-dense pilot. Evidence: 1-projects/rbtv-evolution/coding/done-gate-evidence/rbtv/2026-06-10-qwen-multi-model-followup.md
+    specialty: "heavier-reasoning bounded code/agentic via DeepSeek V4 Pro — reasoning 5 vs deepseek-flash's 4; same cost bin 1 but higher board price ($0.18 vs $0.06); bounded-code done-gate PASS 2026-06-10"
+    evidence_status: validated      # bounded-code execution VALIDATED 2026-06-10 follow-up pilot (judgment-LIGHT factorial write+test, done-gate PASS). Evidence: 1-projects/rbtv-evolution/coding/done-gate-evidence/rbtv/2026-06-10-qwen-multi-model-followup.md
+    configurable_model:
+      is_configurable: true
+      note: "served backend set by --auth-type openai -m deepseek-v4-pro on ModelStudio US under DASHSCOPE_API_KEY"
     failure_modes:
-      - "same qwen CLI failure modes as `default` — see the default variant"
-      - "reasoning_tier: top is SPEC-derived, not pilot-validated here (the 2026-06-10 bounded-code pilot was judgment-light) — do not route judgment-dense work without the doubt_policy: halt + opus reviewer floor"
+      - "same qwen CLI failure modes as `qwen3.6-plus` — see the qwen3.6-plus variant"
       - "DASHSCOPE_API_KEY must resolve; PRE-PROVISIONED in qwen's ~/.qwen/settings.json → resolves in ANY session (conductor/unattended dispatches authenticate directly; bound spend with budget/--max-wall-time)"
+      - "reasoning_modes.depths UNKNOWN — per-backend thinking depth is not exposed through the qwen-code CLI (G1 CLOSED as accepted limitation)"
+
+    # --- guidance file ---
+    guidance_file:
+      convention: QWEN.md
+      mirror_entry: qwen-mirror
+
+    # --- swarm / sub-conducting ---
     swarm_support:
       subagents: true
       nesting: one-level
       default: disabled
 
-  - variant: glm   # -m glm-5.1 — Z.AI (Zhipu) GLM-5.1 via ModelStudio US. Fleet diversity: a non-DeepSeek, non-Qwen agentic-coding backend.
+  - variant: glm-5.1   # -m glm-5.1 — Z.AI (Zhipu) GLM-5.1 via ModelStudio US; fleet diversity: a non-DeepSeek, non-Qwen agentic-coding backend
     display: "GLM 5.1"   # installer backend-election label (per-variant; installer-consumed, NOT a routing input — schema §2)
-    # Differs from the others on: context_window (204800 — smaller). Kept routable per the owner's explicit "GLM access" intent (model diversity for the code fleet).
-    reasoning_tier: mid             # HELD at mid + doubt_policy: halt. ⚑ STRONGLY UNDER-RATED per published benchmark (GLM-5.1: 58.4 SWE-bench Pro — #1 open-weight, BEATS Opus 4.6 at 57.3) — top judgment-pilot candidate, NOT bumped (SWE-Pro is code/agentic, not judgment; code_competence already strong). Re-sourced from spec → benchmark 2026-06-11
+    # Differs from `deepseek-pro` on: cost (3 vs 1), context_window (204800 — smaller). Kept routable per the owner's explicit "GLM access" intent (model diversity for the code fleet).
+
+    # --- capability + cost scores + sizing ---
+    reasoning: 5                           # AA II 51 ("GLM-5.1" reasoning row) — strong reasoner; GPQA 44; HLE 28
+    coding: 4                              # Terminal-Bench Hard 43 — bounded agentic coder
+    cost: 3                                # board blended price $0.90/1M → bin 3 (mid)
+    axis_evidence:
+      reasoning: { source: "aa-ii(51);gpqa(44);hle(28)", confidence: high }
+      coding:    { source: "aa-tbh(43)", confidence: high }
+    cost_evidence: { source: "aa-blended($0.90)→bin3", confidence: high }
     context_window: 204800          # 204,800 (research §3 [6][8]) — the smaller-context backend; the routing distinction. Below the 1M DeepSeek/Qwen backends
     max_output: 131072              # 131,072 max (65,536 default) (research §3 [6])
-    cost_class: mid                 # ~$0.98/$3.08 per 1M OpenRouter reference (research §3 [6]). ModelStudio-US billing reference-derived — owner ELECTED to leave it reference-derived 2026-06-10 (research Q2 closed owner-accepted, no console read); the glm-vs-pro re-rank stays OPEN but is not blocking — re-rank only if a future console read shows glm materially cheaper than pro
-    code_competence: strong         # Z.AI agentic coding model; bounded-code done-gate PASS 2026-06-10 follow-up (write_file×2 + run_shell_command×1 through the ModelStudio US shim — proves tool-calling on a non-DeepSeek non-Qwen backend; conductor-reconciled on disk, independent pytest 3 passed)
+
+    # --- role eligibility ---
     web_access: false
+
+    # --- reasoning / effort modes ---
+    # G1 CLOSED — per-backend thinking depth is NOT exposed/controllable through the qwen-code CLI
+    reasoning_modes:
+      depths: []                    # UNKNOWN — qwen-code CLI does not expose per-backend thinking depth control (G1 CLOSED as accepted CLI limitation)
+      invocation: "none"
+      carrier: "CLI — per-backend thinking depth NOT controllable through qwen-code CLI (G1 CLOSED; accepted limitation)"
+
+    # --- parallelism + resume ---
     parallel_safe: true
     resume_support: continue
+
+    # --- non-interactive run ---
     headless:
       flags: "<positional-prompt> --auth-type openai -m glm-5.1 --output-format json --approval-mode yolo"
       auto_approves_tools: true
       prompt_transport: either
+
+    # --- auth pre-flight ---
     auth:
       required: true
       method: api-key
       interactive: false
-    rate_budget_notes: "QWEN_CODE_UNATTENDED_RETRY=1 for 429/529; bound with --max-wall-time. (Same qwen CLI budget grammar as default.)"
+
+    rate_budget_notes: "QWEN_CODE_UNATTENDED_RETRY=1 for 429/529; bound with --max-wall-time. (Same qwen CLI budget grammar as qwen3.6-plus.)"
+
+    # --- tool surface + confinement ---
     tool_surface:
       native: [shell, file, edit, agent]
       mcp: true
@@ -218,15 +329,28 @@ variants:
       workspace_scope: "CWD root + --include-directories/--add-dir; --worktree for isolation"
       tool_restriction: "--exclude-tools / --allowed-tools / --core-tools; --approval-mode graded gate"
       write_enforcement: git-diff-vs-allowlist
+
+    # --- invocation + failures ---
     invocation_pointer: ./manual.md
     manual_path: ./manual.md
     delta_path: ./delta.md
-    specialty: "fleet diversity — a non-DeepSeek non-Qwen agentic-coding backend (Z.AI GLM-5.1); pick when model diversity is wanted and the task fits ~200K context"
-    evidence_status: validated      # bounded-code execution VALIDATED 2026-06-10 follow-up pilot (factorial write+test, done-gate PASS — tool-calling proven through the shim on a non-DeepSeek non-Qwen backend). cost_class stays reference-derived (owner-elected, research Q2 owner-accepted). Evidence: 1-projects/rbtv-evolution/coding/done-gate-evidence/rbtv/2026-06-10-qwen-multi-model-followup.md
+    specialty: "fleet diversity — a non-DeepSeek non-Qwen agentic-coding backend (Z.AI GLM-5.1); reasoning 5 / coding 4 / cost 3; pick when model diversity is wanted and the task fits ~200K context"
+    evidence_status: validated      # bounded-code execution VALIDATED 2026-06-10 follow-up pilot (factorial write+test, done-gate PASS — tool-calling proven through the shim on a non-DeepSeek non-Qwen backend). Evidence: 1-projects/rbtv-evolution/coding/done-gate-evidence/rbtv/2026-06-10-qwen-multi-model-followup.md
+    configurable_model:
+      is_configurable: true
+      note: "served backend set by --auth-type openai -m glm-5.1 on ModelStudio US under DASHSCOPE_API_KEY"
     failure_modes:
-      - "same qwen CLI failure modes as `default` — see the default variant"
+      - "same qwen CLI failure modes as `qwen3.6-plus` — see the qwen3.6-plus variant"
       - "smaller context (204,800) than the DeepSeek/Qwen backends — split large-context tasks or route them to a 1M backend"
       - "DASHSCOPE_API_KEY must resolve; PRE-PROVISIONED in qwen's ~/.qwen/settings.json → resolves in ANY session (conductor/unattended dispatches authenticate directly; bound spend with budget/--max-wall-time)"
+      - "reasoning_modes.depths UNKNOWN — per-backend thinking depth is not exposed through the qwen-code CLI (G1 CLOSED as accepted limitation)"
+
+    # --- guidance file ---
+    guidance_file:
+      convention: QWEN.md
+      mirror_entry: qwen-mirror
+
+    # --- swarm / sub-conducting ---
     swarm_support:
       subagents: true
       nesting: one-level
