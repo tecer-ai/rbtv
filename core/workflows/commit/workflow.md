@@ -32,10 +32,11 @@ The agent supplies the judgment — which files belong together, what each messa
 Resolve `{rbtv_path}` from `rbtv.json` at the workspace root. For each confirmed cluster, in plan order, run the script with the working directory INSIDE `{repo}` (the script locates the repo root itself):
 
 ```
-python "{rbtv_path}/core/workflows/commit/commit.py" -m "<message>" -f <file> [-f <file> ...] [--push]
+python "{rbtv_path}/core/workflows/commit/commit.py" -m "<message>" -f <path> [-f <path> ...] [--push]
 ```
 
-- Pass each file with its own `-f`, repo-root-relative. List every path the cluster touches (including both sides of a rename).
+- Pass each path with its own `-f`, repo-root-relative. List every path the cluster touches (including both sides of a rename).
+- A `-f` path may be a FILE or a DIRECTORY. A directory includes every changed file beneath it — use it when a cluster touches more files than fit on one command line (a long explicit `-f` list overflows the OS argument limit at a few hundred files). CAUTION: a directory commits whatever currently lives under it, so a parallel session's file dropped there rides along — prefer explicit file paths when the cluster must be exact.
 - Add `--push` ONLY if the user asked to push.
 - The script unstages everything, stages ONLY the listed files (so a parallel session's staged file is never committed — its changes stay in the working tree), syncs the remote commit-first (a clean auto-merge is silent), commits, and pushes when `--push` is given.
 - On exit 0 the script prints `committed <hash>`, then `files in commit (<n>): …` read back from the commit OBJECT, and a `synced remote: merge commit …` line if a sync merge was created. The staging gate guarantees the committed files equal exactly the files you listed — it aborts otherwise. TRUST this output: do NOT run `git show`, `git log`, or any other command to re-verify the commit's contents. The script IS the verification.
@@ -46,7 +47,7 @@ Read the script's error and act:
 
 | Error | Meaning | Action |
 |-------|---------|--------|
-| `no changes to commit: <files>` | A listed file was unchanged | Fix the file list, retry the script for that cluster |
+| `no changes to commit: <paths>` | A listed file/directory had no changes | Fix the path list, retry the script for that cluster |
 | `merge conflict pulling remote changes in: <files>` | The remote diverged and conflicts with this cluster | Read and follow `{rbtv_path}/core/workflows/commit/merge-conflict.md` |
 
 NEVER move to the next cluster until the current one has committed.

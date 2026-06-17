@@ -23,8 +23,15 @@ stash. Other uncommitted work in the tree is untouched throughout.
 
 Paths are repo-root-relative. A rename is two paths (old + new) — pass both.
 
+A path may be a FILE or a DIRECTORY. A directory includes every changed file
+beneath it (added, modified, deleted) — use it when a cluster touches more files
+than fit on a command line. The staging gate stays exact: only changes UNDER a
+listed path are committed, but a directory sweeps in whatever currently lives
+there, including a parallel session's files — prefer explicit file paths when
+precision matters.
+
 Usage:
-    python commit.py -m "feat: ..." -f path/a -f path/b [--push]
+    python commit.py -m "feat: ..." -f path/a -f dir/b [--push]
 """
 import argparse
 import subprocess
@@ -69,7 +76,8 @@ def main():
     p = argparse.ArgumentParser(description="Deterministic git commit (rbtv-commit). Run from inside the repo.")
     p.add_argument("-m", "--message", required=True, help="Commit message for this cluster.")
     p.add_argument("-f", "--file", dest="files", action="append", required=True,
-                   help="A repo-root-relative file to include. Repeat for each file.")
+                   help="A repo-root-relative file OR directory to include (a directory "
+                        "includes every changed file beneath it). Repeat for each path.")
     p.add_argument("--push", action="store_true", help="Push after a successful commit.")
     args = p.parse_args()
 
@@ -80,9 +88,14 @@ def main():
 
     requested = []
     for f in args.files:
-        if f not in requested:
+        f = f.rstrip("/")  # a trailing slash names the same path
+        if f and f not in requested:
             requested.append(f)
-    requested_set = set(requested)
+
+    def covers(path, staged_file):
+        """A requested path covers a staged file when it IS that file, or is a
+        parent directory of it."""
+        return staged_file == path or staged_file.startswith(path + "/")
 
     # --- fetch + learn whether the remote is ahead (sync happens after commit) ---
     no_upstream = True
@@ -102,12 +115,15 @@ def main():
     # --no-renames so a staged rename reads as delete(old) + add(new) — both requested
     # paths then appear, instead of git collapsing them into a single destination name.
     staged = {line for line in git(["diff", "--cached", "--name-only", "--no-renames"], root).stdout.splitlines() if line}
-    missing = requested_set - staged
-    if missing:
-        fail("these requested files have no changes to commit: " + ", ".join(sorted(missing)))
-    foreign = staged - requested_set
+    # A directory path is satisfied when it covers >=1 staged file; an exact file
+    # path when it equals one. Either way: no covered change → nothing to commit.
+    unmatched = [p for p in requested if not any(covers(p, s) for s in staged)]
+    if unmatched:
+        fail("these requested paths have no changes to commit: " + ", ".join(sorted(unmatched)))
+    # A staged file under NO requested path must never ride along.
+    foreign = sorted(s for s in staged if not any(covers(p, s) for p in requested))
     if foreign:
-        fail("staged index does not match requested files (unexpected): " + ", ".join(sorted(foreign)))
+        fail("staged index does not match requested paths (unexpected): " + ", ".join(foreign))
 
     # --- commit (capturing the undo target first), then sync the remote on top ---
     before = git(["rev-parse", "HEAD"], root, check=False).stdout.strip()
