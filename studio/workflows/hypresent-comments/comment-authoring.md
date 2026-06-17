@@ -1,93 +1,61 @@
 # Comment Authoring Protocol
 
-The MANDATORY protocol ANY agent follows to CREATE a new hypresent comment from scratch — its own review note, question, or an instruction for a coding agent — by raw-editing the HTML file with no hypresent app running. Authoring a comment NEVER touches existing threads; acting on existing comments (reply, resolve, implement) is the separate Comment Implementation Protocol.
+The MANDATORY protocol ANY agent follows to CREATE a new hypresent review comment from scratch — its own review note, question, or an instruction for a coding agent. You author a comment by invoking ONE tool with a CSS selector and the comment text. The tool drives the real hypresent runtime to compute the anchor and write a valid file. You NEVER hand-edit comment data, compute an anchor, or read runtime code.
 
-## Where a Comment Lives
+> **A hypresent comment is NOT an HTML comment.** A raw HTML comment — `<!-- … -->` — is INVISIBLE in hypresent: no marker, no thread, no anchor, and the owner never sees it in the review UI. NEVER leave a review note, change request, or instruction as `<!-- … -->`.
 
-A hypresent comment is ONE thread object inside the `#hyp-comments` JSON island — `<script type="application/json" id="hyp-comments">[ … ]</script>` near the end of `<body>`. That island is the COMPLETE, authoritative record of every thread. Creating a comment = appending one valid thread object to that array (plus, for an agent-instruction, one attribute on the target element).
+## Confirm Intent First — MANDATORY
 
-NEVER hand-write the head `===== HYPRESENT AGENT INSTRUCTIONS =====` block — it is auto-generated from the island on the next hypresent save and removed when no agent-tagged threads remain.
+"Add a comment" is ambiguous. Before authoring ANYTHING, CONFIRM with the user which kind they want — the two are different things with different visibility:
 
-## Thread Object Schema
+| Kind | What it is | Visible where |
+|------|-----------|---------------|
+| Hypresent review comment | An anchored thread in the deck's comment data — THIS protocol | In the hypresent review UI (marker + thread); the owner can reply/resolve |
+| Raw HTML comment (`<!-- … -->`) | A plain markup comment in the source | ONLY in the raw file source — INVISIBLE in hypresent |
 
-| Field | Value |
-|-------|-------|
-| `id` | String. The next integer ABOVE the highest existing `id` in the island (`"1"` if the island is empty). |
-| `anchor` | Object `{hook, path, nativeId, contentHash, siblingIndex}` — see Build the Anchor. COMPUTE it; never fabricate. |
-| `contextText` | `normalizeText(targetElement.textContent).slice(0, 80)` — the first 80 chars of the element's collapsed text. |
-| `author` | The agent's OWN identity in the form `{agent-name} ({role} agent)` — e.g. `Vivian (designer agent)`. |
-| `createdAt` | Current time as ISO-8601, e.g. `2026-06-16T21:09:12.352Z`. |
-| `body` | The comment text — your note, question, or instruction. |
-| `resolved` | `false`. Only the human owner resolves. |
-| `replies` | `[]`. |
-| `agentInstruction` | `true` ONLY if a coding agent should act on this comment; `false` for a human-facing note or question. |
+Ask the user, and proceed with this protocol ONLY on a hypresent answer:
 
-Omit `editedAt` on a new comment.
+> Do you want a **hypresent review comment** (shows up in the review UI for you to resolve) or a **plain HTML source comment** (`<!-- … -->`, only visible in the raw file)?
 
-## Build the Anchor — COMPUTE, never fabricate
+If the user wants a raw HTML comment, this protocol does NOT apply — add the `<!-- … -->` directly and stop here. Proceed below ONLY for a hypresent comment.
 
-The anchor is how the runtime re-finds the element. A wrong `contentHash` makes the comment load `unanchored` — no marker renders and the owner never sees it. Every field is an exact function of the target element. Compute each deterministically — run the runtime's own helpers over the parsed DOM, or replicate them in a script. NEVER eyeball them.
+## How to Author — invoke the tool
 
-| Field | Rule |
-|-------|------|
-| `hook` | The element's `data-hyp-hook` attribute, or `null` if absent. |
-| `nativeId` | The `id` of the nearest ancestor-or-self whose `id` does NOT start with `hyp-`; `null` if none exists. |
-| `path` | Segments from the base down to the element, joined by `/`. Base = the `nativeId` element, or the document root if `nativeId` is `null`. Each segment is `{tag}:{nth}` — `tag` lowercased, `nth` = 1-based position among same-TAG siblings. Empty string if the element IS the base. |
-| `contentHash` | `fnv1a32( normalizeText(textContent).slice(0, 32) )` — see Reference functions. |
-| `siblingIndex` | 0-based index of the element among its siblings of the SAME tag AND same primary class signature (class tokens, excluding any `hyp-…` token). `0` if it has no parent. |
+Run ONE command (works from any directory):
 
-### Reference functions (replicate exactly)
-
-```js
-normalizeText(s) { return (s || "").replace(/\s+/g, " ").trim(); }
-
-fnv1a32(input) {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < input.length; i++) {
-    h ^= input.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0).toString(16).padStart(8, "0");
-}
-// contentHash = fnv1a32( normalizeText(el.textContent).slice(0, 32) )
+```
+python {rbtv_path}/studio/hypresent/tools/add_comment.py \
+  --file <deck.html> \
+  --selector "<unique CSS selector for the element to comment on>" \
+  --body "<the comment text>" \
+  --author "{agent-name} ({role} agent)" \
+  [--agent] [--out <new.html>]
 ```
 
-These are the live runtime's functions (`studio/hypresent/runtime/js/comments.js`). Reusing its exported `buildAnchorKey(el)` over the parsed DOM is the most reliable path.
+| Arg | Meaning |
+|-----|---------|
+| `--file` | The HTML deck. MUST be a conforming hypresent deck — built from `<section>` slides. |
+| `--selector` | A CSS selector matching EXACTLY ONE element — the element the comment is about. If it matches 0 or >1, the tool refuses; make it more specific (scope by a section id, e.g. `#screen-overview .screen-title`). |
+| `--body` | The comment text — your note, question, or instruction. |
+| `--author` | Your OWN identity, `{agent-name} ({role} agent)` — so the owner can tell agent comments from human ones. |
+| `--agent` | Include ONLY when a coding agent should act on the comment (adds the agent-instruction tag + head block). Omit for a human-facing note or question. |
+| `--out` | Optional. Write to a NEW file instead of overwriting `--file`. Use this when you were handed a file to annotate (version, never overwrite). |
 
-## Procedure
+The tool selects the element, adds the comment through the real comment UI (the runtime computes the anchor), confirms a visible marker rendered, and saves a valid file. On success it prints `ok`, the new `comment_id`, the computed `anchor`, and `marker_rendered: true`. A non-unique selector, a non-commentable element, or an unanchored result each fails LOUDLY with a clear message — fix the selector and re-run.
 
-1. Pick the target element the comment is about.
-2. Compute the `anchor` and `contextText` per above — by computation, never by eye.
-3. Read the island; find the highest existing `id`; set the new `id` to that + 1 (`"1"` if empty).
-4. Assemble the thread object (schema above) with `resolved: false`, `replies: []`, and `createdAt` = now.
-5. Append the object to the island array. Keep the JSON valid — do NOT reformat or touch any other thread.
-6. If `agentInstruction` is `true`: add the token `data-hyp-agent="{id}"` to the target element (space-separate it into an existing `data-hyp-agent` attribute if one is present). The head instruction block regenerates from this on the next hypresent save.
+## Pin precisely — one comment per element
 
-## Invariants
+| Rule | Detail |
+|------|--------|
+| Pin to the EXACT element | Choose `--selector` for the smallest, most-specific element the comment is about — the heading, the cell, the button, the paragraph — NEVER a broad ancestor (a whole `<section>`, a big wrapper). The marker and thread MUST sit on exactly what the feedback concerns, so the owner sees each comment on the right thing and resolves it in place. If the precise element needs a scoped selector to be unique, scope it (e.g. `#screen-overview .screen-title`) — do NOT retreat to a broader element just to satisfy uniqueness. |
+| One element, one comment | NEVER bundle feedback about different elements into a single comment. Each distinct element — and each distinct point — gets its OWN `add_comment.py` run with its OWN `--selector`. To comment on N elements, invoke the tool N times. |
 
-| # | Invariant | Rule |
-|---|-----------|------|
-| 1 | Append only | Add your thread; NEVER edit, reorder, resolve, or delete an existing thread — that is the Comment Implementation Protocol's job. |
-| 2 | Compute the anchor | A fabricated `contentHash`/`path` loads the comment `unanchored` and invisible. Compute every anchor field. |
-| 3 | Unique id | The new `id` is strictly above every existing `id` in the island. |
-| 4 | Own identity | `author` is the agent's `{agent-name} ({role} agent)` identity — so the owner can tell agent-authored comments from human ones. |
-| 5 | Version, never overwrite | If you were handed a file to annotate, write the change to a NEW `-vN` copy (highest existing version + 1); the original stays byte-untouched. |
-| 6 | Island is the record | The `#hyp-comments` island is authoritative. Do NOT hand-write the head agent block — it regenerates from the island on the next hypresent save. |
+## Never do these
 
-## Example
-
-A human-facing note on a `<div class="ftitle">…</div>` inside `<div id="flags">`, appended as the island's 9th thread:
-
-```json
-{
-  "id": "9",
-  "anchor": { "hook": null, "path": "div:1/div:13/div:2", "nativeId": "flags", "contentHash": "1a2b3c4d", "siblingIndex": 0 },
-  "contextText": "Manus pricing now confirmed against the leaderboard",
-  "author": "Vivian (designer agent)",
-  "createdAt": "2026-06-16T22:14:08.001Z",
-  "body": "Cross-checked Manus price against the published leaderboard — it matches. Flagging for your sign-off.",
-  "resolved": false,
-  "replies": [],
-  "agentInstruction": false
-}
-```
+| Never | Why |
+|-------|-----|
+| Hand-edit the `#hyp-comments` island or write an anchor yourself | The anchor is computed by the runtime; a hand-written one loads `unanchored` (invisible). A hand-written island can also be unparseable, hiding ALL comments. The tool exists so you never do this. |
+| Pin a comment to a broad ancestor, or pack notes about several elements into one comment | The owner can't tell which element each point refers to, and resolving one point can't resolve the others. Pin to the exact element; one element per comment. |
+| Read `comments.js` or any runtime file to "understand how it works" | You do not need to. Pass a selector + text to the tool — it owns all of the apparatus. |
+| Leave a review note as a raw HTML comment (`<!-- … -->`) | Invisible in hypresent — no marker, no thread. |
+| Proceed when the tool cannot run (file is not a `<section>` deck, or Playwright is unavailable) | STOP and tell the user. Do NOT fall back to hand-editing — that reintroduces the invisibility and parse risks the tool removes. |
