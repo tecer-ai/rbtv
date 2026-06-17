@@ -8,6 +8,3 @@ AGENTS.md
 
 __pycache__/
 *.py[cod]
-
-# Hypresent sample deck + any derived/edited versions (local fixture, never committed)
-studio/hypresent/tecer-gsmm-introduction*.html
