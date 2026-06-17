@@ -29,11 +29,13 @@ The agent supplies the judgment — which files belong together, what each messa
 
 ### 2. Commit each cluster via the script
 
-Resolve `{rbtv_path}` from `rbtv.json` at the workspace root. For each confirmed cluster, in plan order, run the script with the working directory INSIDE `{repo}` (the script locates the repo root itself):
+Resolve `{rbtv_path}` from `rbtv.json` (at the WORKSPACE root) to an ABSOLUTE path BEFORE invoking — its value is recorded relative to the workspace root, NOT to `{repo}`. The script runs with the working directory INSIDE `{repo}` (which is often a repo nested below the workspace root; the script locates the repo root itself), so a bare relative `{rbtv_path}/core/...` resolves against the repo's cwd and fails. Build the absolute path by joining the workspace root (the directory that contains `rbtv.json`) with `rbtv_path`, then invoke `commit.py` by that absolute path. NEVER build the path relative to the current working directory, and NEVER open `rbtv.json` by a cwd-relative path from inside `{repo}` (it lives at the workspace root, not the repo root). For each confirmed cluster, in plan order:
 
 ```
 python "{rbtv_path}/core/workflows/commit/commit.py" -m "<message>" -f <path> [-f <path> ...] [--push]
 ```
+
+(`{rbtv_path}` above is the ABSOLUTE workspace-root-anchored path resolved here. The `-f` paths, by contrast, stay repo-root-relative — the script's cwd is inside `{repo}`.)
 
 - Pass each path with its own `-f`, repo-root-relative. List every path the cluster touches (including both sides of a rename).
 - A `-f` path may be a FILE or a DIRECTORY. A directory includes every changed file beneath it — use it when a cluster touches more files than fit on one command line (a long explicit `-f` list overflows the OS argument limit at a few hundred files). CAUTION: a directory commits whatever currently lives under it, so a parallel session's file dropped there rides along — prefer explicit file paths when the cluster must be exact.
