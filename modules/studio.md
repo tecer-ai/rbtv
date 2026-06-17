@@ -54,12 +54,15 @@ Two artifact branches extend the loop for sites and apps. Each is a single file 
 
 ---
 
-### `rbtv-hypresent-comments` (Comment Resolution Protocol)
+### `rbtv-hypresent-comments` (Comment Resolution + Authoring Protocols)
 
-- **What**: The MANDATORY protocol ANY agent follows when it implements, answers, or resolves hypresent review comments on an HTML artifact — edit a NEW versioned copy (never overwrite), reply inline under the agent's own `{agent-name} ({role} agent)` identity stating what changed, remove only the `data-hyp-agent` tag (never orphan the thread), re-anchor a kept comment on slide/element delete, and NEVER resolve or delete the human's thread (only the owner resolves). The thread is the human's audit record. Extracted from Vivian's studio loop (2026-06-15) so any agent — not just the Designer — follows it.
-- **When to use**: Any time an agent acts on hypresent comments — a human gate, an agent-tagged instruction block, or a direct owner request. Vivian (the Designer) is wired to it directly; any other agent auto-matches the skill by description.
-- **How to invoke**: `rbtv-hypresent-comments` (skill, not a slash command). Backed by `studio/workflows/hypresent-comments/comment-implementation.md`.
-- **What it produces**: A new versioned artifact with each requested change applied and an inline agent reply on every implemented comment thread, all threads left unresolved for the owner.
+- **What**: The MANDATORY protocol ANY agent follows when it acts on hypresent review comments on an HTML artifact. The skill is a thin router over two self-contained, mutually-exclusive procedures (an agent loads only the branch its task needs):
+  - **Respond** (`comment-implementation.md`) — implement/answer/resolve EXISTING comments: edit a NEW versioned copy (never overwrite), reply inline under the agent's own `{agent-name} ({role} agent)` identity stating what changed, remove only the `data-hyp-agent` tag (never orphan the thread), re-anchor a kept comment on slide/element delete, and NEVER resolve or delete the human's thread (only the owner resolves).
+  - **Author** (`comment-authoring.md`) — CREATE a new comment from scratch by raw-editing the file: append a complete thread object to the `#hyp-comments` island with a computed (never fabricated) anchor, signed under the agent's own identity, `resolved:false`, `agentInstruction` only when a coding agent should act on it. The island is the authoritative record; the head agent block regenerates from it on the next hypresent save.
+  - The thread is the human's audit record. Extracted from Vivian's studio loop (2026-06-15) so any agent — not just the Designer — follows it.
+- **When to use**: Any time an agent acts on hypresent comments — responding to a human gate / agent-tagged instruction block / direct owner request, OR leaving its own review note or instruction. Vivian (the Designer) is wired to it directly; any other agent auto-matches the skill by description.
+- **How to invoke**: `rbtv-hypresent-comments` (skill, not a slash command). Backed by `studio/workflows/hypresent-comments/comment-implementation.md` (respond) and `studio/workflows/hypresent-comments/comment-authoring.md` (author).
+- **What it produces**: Either a new versioned artifact with each requested change applied and an inline agent reply on every implemented thread (respond), or the same artifact with a new agent-authored thread appended to the comment island (author) — in both cases threads are left unresolved for the owner.
 
 ---
 
