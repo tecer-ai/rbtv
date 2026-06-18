@@ -27,6 +27,7 @@ This beat implements `deck-loop-spec.md` behavior rows 1–2. Read that spec's r
 - NEVER fabricate, infer, or research a number. Every external-facing claim carries an OWNER-SUPPLIED source. A claim missing a source BLOCKS its slide — flag it, never invent it (deck-loop-spec ②; mining map D-4, ML-5). This beat never researches.
 - A prior deck, if supplied, is CONTENT INPUT ONLY — never a restyling base or a structure to inherit.
 - Story drives design: the message is locked BEFORE any HTML exists. Generating design before message-lock is a failure condition (mining map ML-1).
+- Author the copy clean of AI writing tells. Every slide title, datum value, and note avoids the patterns in `{rbtv_path}/writing/workflows/writing/data/ai-anti-patterns.md`, especially the surface categories that apply to deck copy: generic phrasing, edge erosion, list-ification, and the em-dash crutch (prefer commas, periods, colons, parentheses). The locked message reads as a person wrote it, not a model.
 
 ---
 

@@ -12,6 +12,16 @@ The module also owns **deck→library export** — an in-app capability in hypre
 
 ---
 
+## Dependencies
+
+The studio (design) module depends on the **writing** module for one shared standard:
+
+- **`writing/workflows/writing/data/ai-anti-patterns.md`** (AI writing anti-patterns). The canonical catalogue of AI-tell writing patterns: generic phrasing, edge erosion, list-ification, the em-dash crutch, and the rest. **Wired in 2026-06-17:** the Strategist's message-lock (`studio/workflows/studio-loop/beats/beat-01-message-lock.md`) authors content-spec copy clean of these tells, and the Designer's fresh-eyes pass (`beat-03-generate.md` §3C) audits the rendered deck copy against it alongside the flaw-checklist. Deck copy is prose-light, so the surface categories apply most; the narrative-essay categories (premature resolution, emotional flattening) are advisory there.
+
+This is a **source-file dependency** within the rbtv repo: the studio beats reference the writing doc by `{rbtv_path}/writing/...` path (live on `git pull`). It is present whenever rbtv is present, independent of whether the writing module's commands are installed in `.claude/`.
+
+---
+
 ## Components
 
 ### Studio Loop — the phase spine (`studio/workflows/studio-loop/`)

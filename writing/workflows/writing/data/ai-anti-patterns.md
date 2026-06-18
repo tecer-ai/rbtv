@@ -96,6 +96,17 @@ AI summarizes what it just said. The ending restates rather than extends.
 |-----|------|
 | "In summary, AI writing tools offer both opportunities and challenges. As we've seen, the key is maintaining authenticity while leveraging efficiency." | "I started this essay thinking I was writing about AI. I'm ending it thinking about what I was afraid to say without it." |
 
+### 9. Punctuation Tells (the em-dash crutch)
+
+AI reaches for the em-dash ("—") as an all-purpose connector and stacks dash-joined phrases ("X — Y — Z"). The frequency and the mechanical join are the tell; vary the punctuation instead.
+
+**Detection:** Count em-dashes used as sentence connectors. Repeated "X — Y" joins in one passage, or more than roughly one per several paragraphs, = flag. A single deliberate em-dash for genuine effect is fine; the crutch is the pattern. Reach for a comma, a period, a colon, or parentheses.
+
+| Bad | Good |
+|-----|------|
+| "The system works — and it scales — but only when the data is clean." | "The system works, and it scales. But only when the data is clean." |
+| "Operating AI is a craft — the harness around the model — that separates value from theater." | "Operating AI is a craft. The harness around the model is what separates value from theater." |
+
 ---
 
 ## Usage in Workflow
@@ -105,3 +116,5 @@ AI summarizes what it just said. The ending restates rather than extends.
 **Step 10 (Critical Review):** The AI-Pattern Audit critic loads this file and scans the complete essay against all 8 categories. Each finding includes the offending passage and a human-sounding alternative.
 
 **Step 11 (Synthesis):** During the "What do you notice?" ritual, newly discovered anti-patterns specific to this writer are added to the persistent style guide's Anti-Patterns section.
+
+**Studio deck pipeline (wired 2026-06-17):** The Strategist's message-lock (`studio/workflows/studio-loop/beats/beat-01-message-lock.md`) authors content-spec copy clean of these tells, and the Designer's fresh-eyes pass (`studio/workflows/studio-loop/beats/beat-03-generate.md` §3C) audits the rendered deck copy against this file alongside the flaw-checklist. Deck copy is prose-light, so the surface categories apply most (generic phrasing, edge erosion, list-ification, punctuation tells); the narrative-essay categories (premature resolution, emotional flattening) are advisory there.
