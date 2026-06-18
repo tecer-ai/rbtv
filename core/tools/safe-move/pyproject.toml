@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "safe-move"
+version = "0.1.0"
+description = "Stateless, git-aware move/rename assistant with reference discovery."
+requires-python = ">=3.9"
+
+[project.scripts]
+safe-move = "safe_move.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["safe_move*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
