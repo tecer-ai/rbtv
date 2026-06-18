@@ -14,6 +14,12 @@
         "target": ".claude/skills/rbtv-web-searching/SKILL.md",
         "bake": ["rbtv_path"],
         "description": "Multi-source web research with extraction and synthesis"
+      },
+      {
+        "source_template": "core/skills/safe-move/SKILL.md",
+        "target": ".claude/skills/rbtv-safe-move/SKILL.md",
+        "bake": ["rbtv_path"],
+        "description": "Move/rename a file or folder in one git-aware operation that finds and fixes every reference — markdown links, wikilinks, frontmatter, config paths, and structural code imports (ast-grep, never regex). Stateless two-call consult→act with a drift-safe hash handshake; thin loader → safe-move-guide.md. The engine is a runnable Python package read in place from core/tools/safe-move (NOT installed into .claude/; see this module's tools inventory)."
       }
     ],
     "commands": [
@@ -97,7 +103,21 @@
         "mode": "copy",
         "description": "Pre-dispatch gate for Agent tool calls — name matching skills explicitly in sub-agent prompts"
       }
-    ]
+    ],
+    "tools": {
+      "description": "Runnable tool packages shipped in the RBTV source and run in place from {rbtv_path} — NOT installed into .claude/. The installer ignores this inventory key (admin/install/installer/manifest.py reads only skills/commands/rules/subagents per module), exactly like orchestration's model_packages/hooks; agents discover and invoke a tool via its owning skill loader. This block is a component-inventory record kept per the 'keep docs in sync' hard rule.",
+      "source_dir": "core/tools",
+      "entries": [
+        {
+          "name": "safe-move",
+          "package": "core/tools/safe-move",
+          "entry_point": "python -m safe_move",
+          "skill": "rbtv-safe-move",
+          "runtime_prereq": "ast-grep located via npx (powers code-reference matching; degrades gracefully with a code-backend-unavailable warning when absent — non-code references still work)",
+          "description": "Stateless, git-aware move/rename assistant with structural reference discovery. Two calls: consult (find + classify + risk-grade every reference, change nothing) then act (perform the git-aware move and auto-apply the safe fixes, surface the risky ones). Drift-safe via a per-reference hash handshake. Code references matched structurally via ast-grep, never regex."
+        }
+      ]
+    }
   },
   "office": {
     "description": "Daily knowledge work — document export, legal advisory, meeting prep and summarization, client emails, and the problem-reframing + idea-sparring persona.",
