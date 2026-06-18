@@ -41,6 +41,7 @@ from .orchestration import (
     normalize_model_variants,
     read_manifest_context_ceiling,
     read_model_plan_caps,
+    read_model_plan_models,
     remove_hook_entry,
     resolve_selected_packages,
     resolve_selection_from_entry_ids,
@@ -575,16 +576,50 @@ def _resolve_model_plan_caps(
         }
         return write_model_plan_caps(plans_path, caps, displays)
 
+    # Skip per-model re-prompting when nothing about the size choice has changed.
+    # A package PRESENT in the plans file was already sized by the owner (including
+    # those set to "no cap", which prior_caps omits) — read_model_plan_models reports
+    # presence. A package ABSENT from the file is genuinely new and still needs one menu.
+    prior_models = set(read_model_plan_models(plans_path))
+    new_packages = [pkg for pkg in installed_packages if pkg not in prior_models]
+
+    from .tui import confirm
+
+    if not prior_models:
+        # First-ever sizing (no saved file): prompt every model, no "new model" note.
+        prompt_set = set(installed_packages)
+    elif not new_packages:
+        # Every elected model was sized before — one yes/no instead of a menu per model.
+        if confirm(
+            "\n  Keep your saved context-window sizes for all models "
+            "(answer No to change them)?",
+            default=True,
+        ):
+            caps = {pkg: prior_caps.get(pkg) for pkg in installed_packages}
+            return write_model_plan_caps(plans_path, caps, displays)
+        prompt_set = set(installed_packages)
+    else:
+        # New model(s) elected — ask only for those; keep the rest's saved sizes.
+        new_labels = ", ".join(displays.get(p, p) for p in new_packages)
+        print(
+            f"\n  New model(s) added: {new_labels}. Setting the context-window size "
+            "only for those — your other models keep their saved sizes."
+        )
+        prompt_set = set(new_packages)
+
     print(
         "\n  Set each model's plan size (the context-window cap your subscription "
         "enforces).\n  Pick a size from the menu — a current value is re-confirmed on Enter."
     )
     caps = {}
     for pkg in installed_packages:
-        ceiling = read_manifest_context_ceiling(rbtv_root, pkg)
-        presets = build_plan_size_presets(ceiling)
-        label = displays.get(pkg, pkg)
-        caps[pkg] = _prompt_plan_size(label, presets, prior_caps.get(pkg))
+        if pkg in prompt_set:
+            ceiling = read_manifest_context_ceiling(rbtv_root, pkg)
+            presets = build_plan_size_presets(ceiling)
+            label = displays.get(pkg, pkg)
+            caps[pkg] = _prompt_plan_size(label, presets, prior_caps.get(pkg))
+        else:
+            caps[pkg] = prior_caps.get(pkg)
     return write_model_plan_caps(plans_path, caps, displays)
 
 

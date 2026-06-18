@@ -314,6 +314,41 @@ def read_model_plan_caps(plans_path: Path) -> dict[str, int]:
     return caps
 
 
+def read_model_plan_models(plans_path: Path) -> list[str]:
+    """Read the existing model-plans.yaml → ordered list of every package id present.
+
+    Unlike read_model_plan_caps (which keeps only entries carrying an integer
+    `context_window`), this returns EVERY `- model:` entry — including packages set to
+    "no cap" (no `context_window` line). Used to tell a PREVIOUSLY-CONFIGURED package
+    (present in the file, regardless of its cap) from a genuinely NEW one (absent), so the
+    installer can skip re-prompting models the owner already sized. Absent/unreadable file
+    => empty list. Stdlib-only line scan mirroring read_model_plan_caps' posture.
+    """
+    models: list[str] = []
+    if not plans_path.is_file():
+        return models
+    try:
+        text = plans_path.read_text(encoding="utf-8")
+    except OSError:
+        return models
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#") or stripped == "---":
+            continue
+        if stripped == "plans:" or stripped.rstrip(":") == "plans":
+            continue
+        model_id: str | None = None
+        if stripped.startswith("-"):
+            inline = stripped[1:].strip()
+            if inline.startswith("model:"):
+                model_id = _scalar_value(inline[len("model:"):]) or None
+        elif stripped.startswith("model:"):
+            model_id = _scalar_value(stripped[len("model:"):]) or None
+        if model_id and model_id not in models:
+            models.append(model_id)
+    return models
+
+
 def write_model_plan_caps(
     plans_path: Path,
     caps: dict[str, int | None],
