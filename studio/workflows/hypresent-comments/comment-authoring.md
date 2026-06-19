@@ -43,6 +43,16 @@ python {rbtv_path}/studio/hypresent/tools/add_comment.py \
 
 The tool selects the element, adds the comment through the real comment UI (the runtime computes the anchor), confirms a visible marker rendered, and saves a valid file. It handles elements inside hidden / inactive screens of a multi-screen deck automatically (it navigates to the screen before commenting and restores the original screen visibility on save) — so target the exact element regardless of which screen is currently shown. On success it prints `ok`, the new `comment_id`, the computed `anchor`, and `marker_rendered: true`. A non-unique selector, a non-commentable element, or an unanchored result each fails LOUDLY with a clear message — fix the selector and re-run.
 
+## Find the target without reading the whole deck
+
+A large deck is expensive to read in full just to pick the element and craft a unique `--selector`. Generate a token-reduced read view first:
+
+```
+python {rbtv_path}/studio/hypresent/tools/dehydrate.py --file <deck.html>
+```
+
+It writes `<deck>.lean.html` — the deck with its visual layer (CSS, inline SVG, fonts, vendor JS) stripped, every `id`/`class`/section kept, led by a digest of existing comments. Read the lean view, pick the element, and craft `--selector` from it: any selector that resolves in the lean view resolves in the real deck, so `add_comment.py` anchors it unchanged. When the comment is ABOUT a visual property (color, type, spacing, layout), first read the full styling of the target — the lean view omits visual state.
+
 ## Pin precisely — one comment per element
 
 | Rule | Detail |
