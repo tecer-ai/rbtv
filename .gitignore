@@ -8,3 +8,8 @@ AGENTS.md
 
 __pycache__/
 *.py[cod]
+
+# Done-gate evidence (proof-of-work sheets + captures) — local only, never shipped.
+# Matched at ANY depth: rbtv-done-gate writes to docs/done-gate-evidence/ at a repo
+# root by default, but sub-app docs dirs (e.g. studio/hypresent/docs/) have also held it.
+**/done-gate-evidence/
