@@ -2,6 +2,8 @@
 
 The MANDATORY protocol ANY agent follows whenever it IMPLEMENTS hypresent review comments or makes comment-driven changes to an HTML artifact — regardless of entry path (a human gate, an agent-tagged instruction block, or a direct owner request). The comment thread is the HUMAN's record; the agent never closes it.
 
+Every comment is anchored to ONE element, but it is read and applied against the WHOLE deck: reconcile the pass as a set, weigh each change's ripple across all slides, propagate what is entailed, and surface the rest for the owner — never blindly execute a comment on its hooked element alone.
+
 ## Locate the Comments First
 
 Comments live in TWO fixed places in EVERY hypresent-saved file — identical whether the file is a deck or a self-contained page. Read both before acting. NEVER grep to discover the format.
@@ -13,6 +15,30 @@ Comments live in TWO fixed places in EVERY hypresent-saved file — identical wh
 
 1. Read the file's first ~60 lines: the agent block lists every agent-tagged change with its copy-pasteable `[data-hyp-agent~="N"]` target selector.
 2. Parse the `#hyp-comments` island for the complete thread set. Untagged comments appear ONLY there, never in the block — reading the block alone misses them.
+
+## Read the deck cheaply — the lean view
+
+Reading a large deck in full to reconcile the pass and assess deck-wide impact is expensive. Generate a token-reduced read view:
+
+```
+python {rbtv_path}/studio/hypresent/tools/dehydrate.py --file <deck.html>
+```
+
+It writes `<deck>.lean.html` — both comment stores preserved (a readable digest + the `#hyp-comments` island + the agent-instruction block), the visual layer (CSS, inline SVG, fonts, vendor JS) stripped, every `id`/`class`/section kept. Use it to read the comment set and to scan every slide for ripple. It is a READ surface only — never edit it, never save it back into hypresent.
+
+**Design changes are the exception — read the full file.** When a comment requests a visual change (color, type, size, spacing, layout, image), read the FULL deck (or the full markup + CSS of the target element) before applying it. The lean view deletes exactly the visual state the change operates on; applying a design comment from the lean view alone is blind.
+
+## Reconcile the Pass First
+
+Before applying ANY comment, read the full set you located above as ONE batch — do NOT start the per-comment loop on first sight of a comment. A deck is a single artifact; comments that each look fine alone can contradict or depend on one another.
+
+| Across the whole pass, check | Action |
+|------------------------------|--------|
+| Two comments conflict on the same element or fact (one says "make this the hero metric", another "cut it") | Apply NEITHER side. Reply on BOTH threads naming the conflict, leave both unresolved, and let the owner decide. |
+| One comment depends on another ("renumber the slides" after another comment deletes one) | Order them — prerequisite first, dependent after — and note the order in each reply. |
+| Several comments touch the same element or the same repeated fact | Apply them as one coherent edit to that element; never let a later comment silently overwrite an earlier applied change. |
+
+Produce the ordered, conflict-resolved plan before the first edit. A conflict is surfaced for the owner, never resolved by the agent.
 
 ## Four Invariants
 
@@ -34,12 +60,23 @@ The file handed to the agent is **v1**. Each edit pass writes a NEW file; the or
 
 Rule: scan the folder, take the highest `-vN` suffix (treating an unsuffixed original as v1), write `-v{N+1}`. Apply ALL of this pass's comment changes inside that one new file. Save via the hypresent Save-As path (`/api/deck-save` or `handle_save_as`) — the comment island (`#hyp-comments`) travels with the copy.
 
+## Assess Deck-Wide Impact
+
+A comment is anchored to ONE element, but its change can ripple across the deck. Before applying each comment, search the whole deck — read every `<section>` slide plus the TOC/agenda, headers/footers, charts, and appendix — for other occurrences of, or dependents on, what the comment changes. Split each ripple and handle the two kinds differently.
+
+| Ripple kind | What it is | Action |
+|-------------|-----------|--------|
+| **Entailed** | The deck becomes factually wrong, broken, or self-contradictory if it is NOT applied. Bounded to: the SAME fact/figure/label/name/date repeated verbatim elsewhere; a total/subtotal/percentage computed from a changed number; slide numbering after an insert/delete; the TOC or agenda entry for a renamed/added/deleted/reordered slide; an explicit in-deck cross-reference ("see slide 7"). | APPLY it as part of executing the comment, and DISCLOSE every off-anchor element you touched (Per-Comment Procedure step 2). |
+| **Discretionary** | An improvement the change merely implies — consistency or polish the comment did NOT ask for. Anything NOT on the Entailed list. Examples: rewording sibling headlines to match a new one; restyling other slides to match a one-slide color/font tweak; reordering slides for flow. | Do NOT apply. SURFACE it only when this change leaves a visible inconsistency elsewhere (a now-mismatched sibling, a style that no longer matches) — never speculative polish unrelated to this change. The owner decides. |
+
+When unsure which kind a ripple is, treat it as Discretionary and surface it — never auto-apply a change the bounded Entailed list does not cover. Surface by authoring one anchored comment per affected element via the Authoring Protocol (`{rbtv_path}/studio/workflows/hypresent-comments/comment-authoring.md`), signed `{agent-name} ({role} agent)`; name each in the reply.
+
 ## Per-Comment Procedure
 
-For EACH comment the agent implements, in the new versioned copy:
+For EACH comment, taken in the order set by Reconcile the Pass First, in the new versioned copy:
 
-1. Apply the requested change to the artifact.
-2. Add a reply to that comment thread with author EXACTLY the agent's own identity in the form `{agent-name} ({role} agent)` — e.g. the designer agent Vivian signs `Vivian (designer agent)` — stating concisely what was changed and where.
+1. **Assess deck-wide impact** (section above): find the ripple, then apply the requested change to the hooked element together with every **Entailed** ripple it carries.
+2. Add a reply to that comment thread with author EXACTLY the agent's own identity in the form `{agent-name} ({role} agent)` — e.g. the designer agent Vivian signs `Vivian (designer agent)` — stating concisely: what changed at the anchor; every off-anchor element an Entailed ripple touched and why; and each **Discretionary** ripple surfaced (naming its element). State explicitly when a change had no deck-wide ripple.
 3. If the comment was agent-tagged: remove the `data-hyp-agent` token for that id from the (new) target element. This drops the entry from the regenerated `HYPRESENT AGENT INSTRUCTIONS` block on save — it does NOT touch the thread.
 4. Leave the thread UNRESOLVED. The human owner reviews the agent's reply and resolves (or reopens) it.
 
@@ -70,3 +107,7 @@ The runtime resolves a kept comment to its element on every move via `reanchorAf
 | Removing a thread instead of just its `data-hyp-agent` tag | Breaks Invariant 3 — destroys the human-facing record. |
 | A kept comment left orphaned after a slide/element delete | Breaks Invariant 4 — the request and the agent's reply silently disappear. |
 | Replying under an author that is not the agent's own `{agent-name} ({role} agent)` identity | The owner can no longer tell agent actions from human notes. |
+| Applying a comment but leaving the same fact contradictory elsewhere in the deck | Skips an Entailed ripple (Assess Deck-Wide Impact) — the deck is left self-contradictory. |
+| Auto-applying a Discretionary ripple — rewording or restyling slides that carried no comment | Silent scope creep — discretionary changes are surfaced for the owner, never applied unasked. |
+| Applying two conflicting comments instead of surfacing the conflict | Skips Reconcile the Pass First — the owner never gets to choose between contradictory requests. |
+| A reply that omits the off-anchor elements an Entailed ripple changed | Breaks auditability — the owner cannot see everything the agent altered. |
