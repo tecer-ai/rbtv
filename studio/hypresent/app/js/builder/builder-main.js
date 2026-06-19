@@ -44,6 +44,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const builderStatus = document.getElementById('builder-status');
   const presetSelect = document.getElementById('preset-select');
   const trayCount = document.getElementById('tray-count');
+  const savePresetBtn = document.getElementById('save-preset-btn');
   const assembleBtn = document.getElementById('assemble-btn');
   const deckFilename = document.getElementById('deck-filename');
   const deckLang = document.getElementById('deck-lang');
@@ -91,6 +92,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (saveNewBtn) saveNewBtn.disabled = !state.canSave;
       if (saveOverwriteBtn) saveOverwriteBtn.disabled = !state.canSave;
       if (switchToEditorBtn) switchToEditorBtn.disabled = !state.canSave;
+      // "Save as preset" is available when a library is loaded and the tray has ≥1 library slide
+      if (savePresetBtn) savePresetBtn.disabled = !(state.libraryPath && order.length > 0);
     }
   });
   state.tray = tray;
@@ -673,6 +676,89 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (preset.lang && deckLang) {
         deckLang.value = preset.lang;
+      }
+    });
+  }
+
+  // ── save as preset ────────────────────────────────────────────────────
+  function refreshPresetDropdown(presets) {
+    if (!presetSelect) return;
+    // Preserve the currently-selected value so a re-select after save works.
+    const current = presetSelect.value;
+    presetSelect.innerHTML = '';
+    const noneOpt = document.createElement('option');
+    noneOpt.value = '';
+    noneOpt.textContent = '(none — from scratch)';
+    presetSelect.appendChild(noneOpt);
+    (presets || []).forEach(preset => {
+      const opt = document.createElement('option');
+      opt.value = preset.preset;
+      opt.textContent = preset.title || preset.preset;
+      presetSelect.appendChild(opt);
+    });
+    // Restore selection if still present.
+    if (current && presetSelect.querySelector(`option[value="${CSS.escape(current)}"]`)) {
+      presetSelect.value = current;
+    }
+  }
+
+  if (savePresetBtn) {
+    savePresetBtn.addEventListener('click', async () => {
+      if (!state.libraryPath || !state.data) {
+        setStatus('Load a library first.', 'error');
+        return;
+      }
+      const slides = tray.getOrder();
+      if (slides.length === 0) {
+        setStatus('Tray is empty — add slides before saving a preset.', 'error');
+        return;
+      }
+      const lang = (deckLang && deckLang.value) ? deckLang.value : '';
+      // Prompt for the preset name (composition-only; scope decided 2026-06-18).
+      const name = window.prompt('Preset name (no spaces, use hyphens):');
+      if (!name || !name.trim()) return; // cancelled or blank
+      const trimmedName = name.trim();
+
+      savePresetBtn.disabled = true;
+      setStatus('Saving preset…');
+      try {
+        const res = await fetch('/api/preset-save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            library_path: state.libraryPath,
+            name: trimmedName,
+            lang,
+            slides,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          setStatus('Preset save failed: ' + (data.error || `HTTP ${res.status}`), 'error');
+          return;
+        }
+        // Reload library data so state.data.presets is fresh, then refresh dropdown.
+        const reloaded = await (async () => {
+          const r = await fetch('/api/library-load', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: state.libraryPath }),
+          });
+          return r.ok ? r.json() : null;
+        })();
+        if (reloaded && reloaded.catalog_data) {
+          state.data = reloaded.catalog_data;
+          state.slideLookup = new Map((state.data.slides || []).map(s => [s.id, s]));
+          refreshPresetDropdown(state.data.presets);
+          // Select the newly saved preset in the dropdown.
+          if (presetSelect) presetSelect.value = trimmedName;
+        }
+        setStatus('Preset "' + trimmedName + '" saved.', 'success');
+      } catch (err) {
+        setStatus('Preset save failed: ' + err.message, 'error');
+      } finally {
+        // Re-evaluate disabled state (tray unchanged).
+        if (savePresetBtn) savePresetBtn.disabled = !(state.libraryPath && tray.getOrder().length > 0);
       }
     });
   }

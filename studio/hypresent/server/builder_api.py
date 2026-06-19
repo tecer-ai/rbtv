@@ -568,3 +568,98 @@ def handle_archive_list(payload):
     except Exception:
         return (500, {"error": f"archive tool did not return JSON: {err or out[:200]}"})
     return (200, envelope)
+
+
+# ---------------------------------------------------------------------------
+# handle_preset_save — append a new composition-only preset to presets.md
+# ---------------------------------------------------------------------------
+def handle_preset_save(payload):
+    """Append a new named preset block to the library's presets.md.
+
+    Payload:
+        {
+            "library_path": str,   # absolute path to the slide library directory
+            "name": str,           # preset name (used as the ### heading + preset: key)
+            "lang": str,           # current deck language (e.g. "en")
+            "slides": [str, ...],  # ordered slide-id list from the tray
+        }
+
+    Writes a block of the form:
+
+        ### {name}
+
+        ```yaml
+        preset: {name}
+        lang: {lang}
+        slides: [{slide1}, {slide2}, ...]
+        ```
+
+    to the library's presets.md (creating it with a "## Presets" header if absent).
+
+    Composition-only scope (owner-decided 2026-06-18): captures slide order + lang;
+    title/audience/accent are NOT written (the owner fills those manually if desired).
+
+    Returns (200, {"ok": True, "name": name}) on success.
+    """
+    library_path = payload.get("library_path")
+    name = payload.get("name", "").strip()
+    lang = payload.get("lang", "").strip()
+    slides = payload.get("slides")
+
+    if not library_path:
+        return (500, {"error": "Missing 'library_path'"})
+    if not name:
+        return (400, {"error": "Preset name must not be empty"})
+    if not isinstance(slides, list):
+        return (400, {"error": "'slides' must be a list"})
+
+    lib_root = pathlib.Path(library_path).resolve()
+    if not lib_root.is_dir():
+        return (500, {"error": f"Library path is not a directory: {library_path}"})
+
+    presets_path = lib_root / "presets.md"
+
+    # Read existing content (or start fresh).
+    if presets_path.exists():
+        try:
+            text = presets_path.read_text(encoding="utf-8")
+        except Exception as exc:
+            return (500, {"error": f"Failed to read presets.md: {exc}"})
+    else:
+        text = ""
+
+    # Guard: duplicate name check.
+    heading = f"### {name}"
+    for line in text.splitlines():
+        if line.strip() == heading:
+            return (409, {"error": f"A preset named '{name}' already exists"})
+
+    # Build the new block.
+    slides_yaml = "[" + ", ".join(slides) + "]" if slides else "[]"
+    block = (
+        f"\n### {name}\n"
+        f"\n"
+        f"```yaml\n"
+        f"preset: {name}\n"
+        f"lang: {lang}\n"
+        f"slides: {slides_yaml}\n"
+        f"```\n"
+    )
+
+    # Ensure the file has a "## Presets" section.
+    if "## Presets" not in text:
+        if text and not text.endswith("\n"):
+            text += "\n"
+        text += "\n## Presets\n"
+
+    # Append the block.
+    if not text.endswith("\n"):
+        text += "\n"
+    text += block
+
+    try:
+        presets_path.write_text(text, encoding="utf-8")
+    except Exception as exc:
+        return (500, {"error": f"Failed to write presets.md: {exc}"})
+
+    return (200, {"ok": True, "name": name})

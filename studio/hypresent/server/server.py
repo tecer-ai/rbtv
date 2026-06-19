@@ -216,6 +216,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif path == "/api/deck-export":
                 status, resp = builder_api.handle_deck_export(payload)
                 self._send_json(status, resp)
+            elif path == "/api/preset-save":
+                status, resp = builder_api.handle_preset_save(payload)
+                self._send_json(status, resp)
             elif path == "/api/deck-load":
                 status, resp = deck_api.handle_deck_load(payload)
                 if status == 200 and resp.get("dir"):
