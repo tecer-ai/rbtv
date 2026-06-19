@@ -36,6 +36,7 @@ from .orchestration import (
     build_electable_entries,
     build_plan_size_presets,
     check_manual_render,
+    clobbered_variants,
     discover_model_displays,
     discover_model_packages,
     normalize_model_variants,
@@ -539,6 +540,49 @@ def _prompt_plan_size(
     return presets[int(chosen) - 1][1]
 
 
+def _format_tokens(n: int) -> str:
+    """Render a token count compactly: 1000000 -> '1M', 200000 -> '200K', else the int."""
+    if n % 1_000_000 == 0:
+        return f"{n // 1_000_000}M"
+    if n % 1_000 == 0:
+        return f"{n // 1_000}K"
+    return str(n)
+
+
+def _warn_if_cap_clobbers(
+    rbtv_root: Path, pkg: str, cap: int | None, label: str
+) -> None:
+    """WARN when a chosen plan-size ``cap`` shrinks a higher-window variant of ``pkg`` below its
+    native context window — the multi-model clobber (D14).
+
+    A single per-package cap applies to EVERY variant (route.py ``min(window, cap)``); when a
+    package's variants have different native windows (e.g. claude-code-native: opus 1M,
+    sonnet/haiku 200K), a sub-largest cap silently shrinks the bigger variant. This names the
+    clobbered variant(s) so the owner can tell a deliberate uniform-subscription ceiling from an
+    accidental foot-gun. ADVISORY only — the cap is still applied (the subscription may genuinely
+    enforce it); it never blocks. No-op when nothing is clobbered (cap None, or at/above every
+    native window). Printed to stderr, matching the installer's WARNING convention.
+    """
+    clobbered = clobbered_variants(rbtv_root, pkg, cap)
+    if not clobbered:
+        return
+    cap_label = _format_tokens(cap)  # type: ignore[arg-type]  # cap is int here (clobbered non-empty)
+    print(
+        f"\n  WARNING — {cap_label} is below {label}'s largest native context window. A single "
+        "plan-size cap applies to EVERY model in this package, so it shrinks these below their "
+        "native size:",
+        file=sys.stderr,
+    )
+    for v_label, win in clobbered:
+        print(f"    - {v_label}: {_format_tokens(win)} -> {cap_label}", file=sys.stderr)
+    print(
+        "  The other models keep their native window. If your subscription genuinely caps every "
+        f"model at {cap_label}, keep this; otherwise choose \"No cap\" (or a size at or above the "
+        "largest window) to preserve the bigger model's full context.",
+        file=sys.stderr,
+    )
+
+
 def _resolve_model_plan_caps(
     rbtv_root: Path,
     target_root: Path,
@@ -618,6 +662,7 @@ def _resolve_model_plan_caps(
             presets = build_plan_size_presets(ceiling)
             label = displays.get(pkg, pkg)
             caps[pkg] = _prompt_plan_size(label, presets, prior_caps.get(pkg))
+            _warn_if_cap_clobbers(rbtv_root, pkg, caps[pkg], label)
         else:
             caps[pkg] = prior_caps.get(pkg)
     return write_model_plan_caps(plans_path, caps, displays)

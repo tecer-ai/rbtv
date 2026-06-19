@@ -174,6 +174,63 @@ def read_variant_displays(rbtv_root: Path, pkg: str) -> list[tuple[str, str]]:
     return pairs
 
 
+def read_variant_windows(rbtv_root: Path, pkg: str) -> list[tuple[str, int]]:
+    """Return a package's variants as ordered ``(variant_label, context_window)`` pairs.
+
+    For each ``- variant:`` block under ``variants:``, pairs the variant's ``display:``
+    (falling back to the variant id) with its integer ``context_window:`` (the FIRST one
+    after the variant header). Variants declaring no integer ``context_window`` are skipped.
+    Order follows the manifest. Line scan, no YAML parse — mirrors read_variant_displays.
+
+    Backs the plan-cap clobber warning (clobbered_variants): a package whose variants carry
+    DIFFERENT windows (e.g. claude-code-native: opus 1M, sonnet/haiku 200K) is exactly where a
+    single per-package cap silently shrinks the bigger variant below its native window.
+    """
+    manifest = rbtv_root / MODELS_RELATIVE / pkg / PACKAGE_MARKER_FILE
+    pairs: list[tuple[str, int]] = []
+    current_id: str | None = None
+    current_display: str | None = None
+    current_window: int | None = None
+    in_variants = False
+
+    def _commit(cid: str | None, cdisp: str | None, cwin: int | None) -> None:
+        if cid is not None and cwin is not None:
+            pairs.append((cdisp or cid, cwin))
+
+    try:
+        for line in manifest.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not in_variants:
+                if stripped == "variants:":
+                    in_variants = True
+                continue
+            if stripped.startswith("- variant:"):
+                _commit(current_id, current_display, current_window)
+                current_id = _scalar_value(stripped[len("- variant:"):])
+                current_display = None
+                current_window = None
+            elif (
+                current_id is not None
+                and current_display is None
+                and stripped.startswith("display:")
+            ):
+                current_display = _scalar_value(stripped[len("display:"):])
+            elif (
+                current_id is not None
+                and current_window is None
+                and stripped.startswith("context_window:")
+            ):
+                raw = _scalar_value(stripped[len("context_window:"):])
+                try:
+                    current_window = int(raw)
+                except (TypeError, ValueError):
+                    current_window = None
+    except OSError:
+        return []
+    _commit(current_id, current_display, current_window)
+    return pairs
+
+
 def read_provider_label(rbtv_root: Path, pkg: str) -> str:
     """Return a configurable package's provider-path label for backend election rows.
 
@@ -252,6 +309,29 @@ def build_plan_size_presets(ceiling: int | None) -> list[tuple[str, int | None]]
         (label, val)
         for label, val in PLAN_SIZE_PRESETS
         if val is None or val <= ceiling
+    ]
+
+
+def clobbered_variants(
+    rbtv_root: Path, pkg: str, cap: int | None
+) -> list[tuple[str, int]]:
+    """The package variants a chosen plan-size ``cap`` would shrink below their native
+    context window — every variant whose manifest ``context_window`` EXCEEDS ``cap``.
+
+    Empty when ``cap`` is None ("no cap") or no variant's window exceeds it (a cap at or
+    above the largest native window — no clobber). A NON-EMPTY result is the multi-model
+    foot-gun: route.py applies one per-package cap as ``min(window, cap)`` to EVERY variant, so
+    a sub-largest cap silently shrinks the bigger variant (e.g. cap 200K on claude-code-native
+    clobbers opus's 1M while sonnet/haiku, native 200K, are untouched). The installer WARNS,
+    naming these variants, so the owner tells a deliberate uniform-subscription ceiling from an
+    accidental clobber. Order follows the manifest (read_variant_windows).
+    """
+    if cap is None:
+        return []
+    return [
+        (label, win)
+        for label, win in read_variant_windows(rbtv_root, pkg)
+        if win > cap
     ]
 
 

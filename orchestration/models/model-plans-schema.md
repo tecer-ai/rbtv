@@ -21,6 +21,8 @@ plans:
 
 The installer fills `context_window` from a per-model plan-size **preset pick-list** (D14) — the owner picks a plan size from a menu, never types a raw token number. A previously-chosen value is re-confirmed (offered as the default) on reinstall, never silently wiped.
 
+**Multi-model clobber warning.** One per-package cap is applied to EVERY variant (router `min(manifest window, cap)`). When a package's variants carry different native windows (e.g. `claude-code-native`: opus 1M, sonnet/haiku 200K), a cap below the largest silently shrinks the bigger variant. The installer therefore WARNS at pick time when a chosen size is below the package's largest native window, naming the clobbered variant(s) — advisory only, the cap is still applied (a genuine uniform subscription ceiling stays legitimate).
+
 ## Field inventory (router-consumed)
 
 | Field | Consumed by | Purpose |
