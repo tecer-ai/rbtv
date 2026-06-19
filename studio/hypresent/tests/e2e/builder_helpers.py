@@ -130,7 +130,7 @@ def make_overcap_library(min_slides=30):
 def pick_library_ui(page, base, lib_path):
     """Set fake folder dialog to lib_path, click Pick library, wait for browse-groups children."""
     set_fake_folder(base, lib_path)
-    page.click("#pick-library-btn")
+    page.click("#open-library-btn")
     page.wait_for_function(
         """() => {
             const el = document.getElementById('browse-groups');

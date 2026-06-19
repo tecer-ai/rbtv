@@ -48,7 +48,8 @@ class PB5AssembleHandoffTests(unittest.TestCase):
         self.page.fill("#deck-filename", name)
 
     def _trigger_assemble(self):
-        self.page.click("#assemble-btn")
+        # Compose now runs through the unified "New file…" button (build-new mode).
+        self.page.click("#save-new-btn")
 
     # ── PB5-1 ──────────────────────────────────────────────────────────────
     def test_assemble_produces_deck_file(self):

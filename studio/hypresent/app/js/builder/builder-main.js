@@ -26,10 +26,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const browsePane = document.getElementById('builder-browse');
   const browseEmpty = document.getElementById('browse-empty');
   const libraryName = document.getElementById('library-name');
-  const libPath = document.getElementById('lib-path');
   const libMeta = document.getElementById('lib-meta');
   const libEmpty = document.getElementById('lib-empty');
-  const pickBtn = document.getElementById('pick-library-btn');
+  const openLibraryBtn = document.getElementById('open-library-btn');
   const browsePickBtn = document.getElementById('browse-pick-btn');
   const libChip = document.getElementById('lib-chip');
   const libChipName = document.getElementById('lib-chip-name');
@@ -45,7 +44,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const presetSelect = document.getElementById('preset-select');
   const trayCount = document.getElementById('tray-count');
   const savePresetBtn = document.getElementById('save-preset-btn');
-  const assembleBtn = document.getElementById('assemble-btn');
+  const assembleBlock = document.querySelector('.assemble');
   const deckFilename = document.getElementById('deck-filename');
   const deckLang = document.getElementById('deck-lang');
   const deckTitle = document.getElementById('deck-title');
@@ -58,9 +57,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const deckChip = document.getElementById('deck-chip');
   const deckChipName = document.getElementById('deck-chip-name');
   const deckChipChange = document.getElementById('deck-chip-change');
-  const deckSavePane = document.getElementById('deck-save-pane');
   const saveNewBtn = document.getElementById('save-new-btn');
   const saveOverwriteBtn = document.getElementById('save-overwrite-btn');
+  const saveCue = document.getElementById('save-cue');
   const switchToEditorBtn = document.getElementById('switch-to-editor-btn');
 
   // Export-to-library pane elements
@@ -85,18 +84,37 @@ document.addEventListener("DOMContentLoaded", () => {
       const order = tray.getOrder();
       const items = tray.getItems();
       const total = items.length;
-      if (assembleBtn) assembleBtn.disabled = order.length === 0;
       if (trayCount) trayCount.textContent = total + (total === 1 ? ' slide' : ' slides');
       markTrayState(order);
-      state.canSave = state.deck && total > 0;
-      if (saveNewBtn) saveNewBtn.disabled = !state.canSave;
-      if (saveOverwriteBtn) saveOverwriteBtn.disabled = !state.canSave;
+      updateSaveButtons();
       if (switchToEditorBtn) switchToEditorBtn.disabled = !state.canSave;
       // "Save as preset" is available when a library is loaded and the tray has ≥1 library slide
       if (savePresetBtn) savePresetBtn.disabled = !(state.libraryPath && order.length > 0);
     }
   });
   state.tray = tray;
+
+  // Unified save area ("New file…" + "Overwrite") serves both modes:
+  //  • compose (no deck loaded): "New file…" composes a brand-new deck from library
+  //    slides; "Overwrite" is faded (nothing to overwrite yet) and the cue shows.
+  //  • existing-deck (a deck is open): both buttons save the open deck.
+  function updateSaveButtons() {
+    const order = tray.getOrder();
+    const total = tray.getItems().length;
+    state.canSave = !!state.deck && total > 0;
+    if (!state.deck) {
+      if (saveNewBtn) saveNewBtn.disabled = order.length === 0;
+      if (saveOverwriteBtn) saveOverwriteBtn.disabled = true;
+      if (saveCue) saveCue.hidden = false;
+    } else {
+      if (saveNewBtn) saveNewBtn.disabled = !state.canSave;
+      if (saveOverwriteBtn) saveOverwriteBtn.disabled = !state.canSave;
+      if (saveCue) saveCue.hidden = true;
+    }
+  }
+  // Initial paint: the page boots in compose mode (no deck), so render the save area's
+  // compose state — faded "Overwrite" + cue — before the first tray change fires.
+  updateSaveButtons();
 
   // ── Export-to-library: selection manager ─────────────────────────────
   function updateExportCtaState(selUids) {
@@ -438,7 +456,6 @@ document.addEventListener("DOMContentLoaded", () => {
       invalidBlock.appendChild(errorList);
       browse.appendChild(invalidBlock);
       if (libraryName) libraryName.textContent = 'Library';
-      if (libPath) { libPath.hidden = true; }
       if (libMeta) { libMeta.hidden = true; }
       if (libEmpty) { libEmpty.hidden = false; }
       if (libChip) libChip.hidden = true;
@@ -453,27 +470,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const name = result.data.name || result.path.split(/[\\/]/).pop() || 'library';
     const slides = result.data.slides || [];
-    const sections = (result.data.sections || []).filter(sec => slides.some(s => s.section === sec));
     const langs = [...new Set(slides.map(s => s.lang).filter(Boolean))];
 
-    // lib card
+    // lib card — display-only: name + slide count (pick action lives in the topbar)
     if (libraryName) libraryName.textContent = name;
-    if (libPath) { libPath.textContent = result.path; libPath.title = result.path; libPath.hidden = false; }
     if (libMeta) {
-      libMeta.innerHTML = '';
-      const parts = [slides.length + ' slides', sections.length + ' sections', 'valid ✓'];
-      parts.forEach((txt, i) => {
-        if (i > 0) {
-          const dot = document.createElement('span');
-          dot.className = 'dot';
-          libMeta.appendChild(dot);
-        }
-        libMeta.appendChild(document.createTextNode(txt));
-      });
+      libMeta.textContent = slides.length + (slides.length === 1 ? ' slide' : ' slides');
       libMeta.hidden = false;
     }
     if (libEmpty) libEmpty.hidden = true;
-    if (pickBtn) pickBtn.textContent = 'Change library…';
 
     // topbar chip
     if (libChip && libChipName && libChipMeta) {
@@ -539,7 +544,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  [pickBtn, browsePickBtn, libChipChange].forEach(btn => {
+  [openLibraryBtn, browsePickBtn, libChipChange].forEach(btn => {
     if (btn) btn.addEventListener('click', handlePickLibrary);
   });
 
@@ -553,10 +558,12 @@ document.addEventListener("DOMContentLoaded", () => {
       sections: deckResult.sections
     };
 
-    // Switch to deck mode: hide assemble, show save pane + export pane
-    if (assembleBtn) assembleBtn.closest('.assemble').hidden = true;
-    if (deckSavePane) deckSavePane.hidden = false;
+    // Switch to deck mode: hide the compose inputs and show the export pane. The unified
+    // save area stays visible in both modes; updateSaveButtons() flips its two buttons
+    // (here state.deck is set, so both become active save controls).
+    if (assembleBlock) assembleBlock.hidden = true;
     if (deckExportPane) deckExportPane.hidden = false;
+    updateSaveButtons();
 
     // Reset export state for the newly loaded deck
     deckSelection.clearAll();
@@ -789,57 +796,58 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // ── assemble ──────────────────────────────────────────────────────────
-  if (assembleBtn) {
-    assembleBtn.addEventListener('click', async () => {
-      if (!state.libraryPath) {
-        setStatus('No library loaded.');
-        return;
+  // ── compose a brand-new deck (build-new mode "New file…") ─────────────
+  // Same operation the retired "Assemble presentation" CTA performed: the server
+  // composes the deck from the library's slide fragments, copies assets, and the
+  // finished deck opens in the editor.
+  async function composeNewDeck() {
+    if (!state.libraryPath) {
+      setStatus('No library loaded.');
+      return;
+    }
+    const slides = tray.getOrder();
+    if (slides.length === 0) {
+      setStatus('Tray is empty.');
+      return;
+    }
+    if (!destFolder) {
+      setStatus('Choose a destination folder.');
+      return;
+    }
+    const filename = deckFilename ? deckFilename.value : '';
+    if (!filename) {
+      setStatus('Enter a deck name.');
+      return;
+    }
+    const outPath = buildOutPath(destFolder, filename);
+    const lang = deckLang && deckLang.value ? deckLang.value : document.documentElement.lang;
+    const title = deckTitle && deckTitle.value.trim() ? deckTitle.value.trim() : undefined;
+    const accent = accentChosen && accentInput ? accentInput.value : undefined;
+    try {
+      const result = await assembleDeck({
+        libraryPath: state.libraryPath,
+        slides,
+        outPath,
+        lang,
+        title,
+        accent
+      });
+      if (result.ok) {
+        const parts = [
+          'Assembled: ' + result.output,
+          'Assets: ' + (result.assetsCopied || []).length,
+          'Unfilled tokens: ' + (result.unfilledTokens || []).length,
+          result.asBuilt ? 'As-built entry recorded.' : ''
+        ];
+        setStatus(parts.filter(Boolean).join(' | '), 'success');
+        window.location.href = '/app/?file=' + encodeURIComponent(result.output);
+      } else {
+        const errs = (result.errors || []).join('; ') || 'Assembly failed.';
+        setStatus(errs, 'error');
       }
-      const slides = tray.getOrder();
-      if (slides.length === 0) {
-        setStatus('Tray is empty.');
-        return;
-      }
-      if (!destFolder) {
-        setStatus('Choose a destination folder.');
-        return;
-      }
-      const filename = deckFilename ? deckFilename.value : '';
-      if (!filename) {
-        setStatus('Enter a deck name.');
-        return;
-      }
-      const outPath = buildOutPath(destFolder, filename);
-      const lang = deckLang && deckLang.value ? deckLang.value : document.documentElement.lang;
-      const title = deckTitle && deckTitle.value.trim() ? deckTitle.value.trim() : undefined;
-      const accent = accentChosen && accentInput ? accentInput.value : undefined;
-      try {
-        const result = await assembleDeck({
-          libraryPath: state.libraryPath,
-          slides,
-          outPath,
-          lang,
-          title,
-          accent
-        });
-        if (result.ok) {
-          const parts = [
-            'Assembled: ' + result.output,
-            'Assets: ' + (result.assetsCopied || []).length,
-            'Unfilled tokens: ' + (result.unfilledTokens || []).length,
-            result.asBuilt ? 'As-built entry recorded.' : ''
-          ];
-          setStatus(parts.filter(Boolean).join(' | '), 'success');
-          window.location.href = '/app/?file=' + encodeURIComponent(result.output);
-        } else {
-          const errs = (result.errors || []).join('; ') || 'Assembly failed.';
-          setStatus(errs, 'error');
-        }
-      } catch (err) {
-        setStatus('Assemble failed: ' + err.message, 'error');
-      }
-    });
+    } catch (err) {
+      setStatus('Assemble failed: ' + err.message, 'error');
+    }
   }
 
   // ── deck save ───────────────────────────────────────────────────────────
@@ -901,11 +909,19 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  // Unified save buttons dispatch by mode: with a deck open they save the deck; in
+  // compose mode "New file…" composes a brand-new deck and "Overwrite" is disabled.
   if (saveNewBtn) {
-    saveNewBtn.addEventListener('click', () => doSave('new-file'));
+    saveNewBtn.addEventListener('click', () => {
+      if (state.deck) doSave('new-file');
+      else composeNewDeck();
+    });
   }
   if (saveOverwriteBtn) {
-    saveOverwriteBtn.addEventListener('click', () => doSave('overwrite'));
+    saveOverwriteBtn.addEventListener('click', () => {
+      if (state.deck) doSave('overwrite');
+      // compose mode: disabled — nothing to overwrite yet
+    });
   }
 
   // ── Switch to editor (bridge) ──────────────────────────────────────────

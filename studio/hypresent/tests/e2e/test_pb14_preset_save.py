@@ -51,7 +51,7 @@ class PB14PresetSaveTests(unittest.TestCase):
     def _load_library(self):
         """Set fake folder to scratch lib, click Pick library, wait for browse."""
         B.set_fake_folder(self.base, self.lib_dir)
-        self.page.click("#pick-library-btn")
+        self.page.click("#open-library-btn")
         self.page.wait_for_function(
             """() => {
                 const el = document.getElementById('browse-groups');

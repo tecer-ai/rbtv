@@ -119,16 +119,15 @@ class PB12BridgeTests(unittest.TestCase):
             timeout=10000,
         )
 
-        # "Open in builder" enables only when the runtime emits 'ready' (serialize()
-        # will answer) — NOT merely when the doc chip appears. On the dialog-open
-        # (#open-btn) path the runtime <script> is injected into the iframe AFTER
-        # open resolves, so the doc chip can show while the runtime is still booting.
-        # Under suite load that boot lags; clicking on the bridge-exists-but-not-ready
-        # window made serialize() time out → no crossing → the old flake. Gate the
-        # click on the button becoming enabled — the product's true readiness signal.
+        # The Builder tab only saves-then-switches once the runtime emits 'ready'
+        # (serialize() will answer) — NOT merely when the doc chip appears. On the
+        # dialog-open (#open-btn) path the runtime <script> is injected into the iframe
+        # AFTER open resolves, so the doc chip can show while the runtime is still
+        # booting. Under suite load that boot lags; a click in the bridge-exists-but-
+        # not-ready window would fall through to plain navigation → no crossing. Gate on
+        # window.__hypBuilderCrossReady — the product's true readiness signal.
         self.page.wait_for_function(
-            "() => { const b = document.getElementById('open-in-builder-btn'); "
-            "return b && !b.disabled; }",
+            "() => window.__hypBuilderCrossReady === true",
             timeout=10000,
         )
 
@@ -138,8 +137,8 @@ class PB12BridgeTests(unittest.TestCase):
         crossing_path = os.path.join(crossing_dir, "crossed-to-builder.html")
         H.set_fake_dialog(self.base, crossing_path)
 
-        # Click "Open in builder"
-        self.page.click("#open-in-builder-btn")
+        # Cross to the builder via the Builder tab (saves-then-switches)
+        self.page.click("#nav-builder")
         self.page.wait_for_selector(".hyp-modal-scrim", timeout=8000)
         self.page.locator(".hyp-modal-scrim button", has_text="Save As").click()
 
@@ -207,20 +206,19 @@ class PB12BridgeTests(unittest.TestCase):
             "() => !document.getElementById('doc-chip').hidden",
             timeout=10000,
         )
-        # Wait for the button to be ENABLED (runtime ready) before clicking. Without
-        # this, a click during the bridge-exists-but-runtime-not-ready window lands on
-        # a disabled button and no-ops — the test would then "pass" because nothing
-        # happened, NOT because the dialog was cancelled (a false pass masking the very
-        # crossing this row must exercise). Gating on enabled forces the click to reach
-        # the real handler, where the cancelled save-as dialog is what halts navigation.
+        # Wait for runtime readiness before clicking. Without this, a click during the
+        # bridge-exists-but-runtime-not-ready window falls through to plain navigation —
+        # the test would then "pass" because it navigated, NOT because the dialog was
+        # cancelled (a false pass masking the very crossing this row must exercise).
+        # Gating on readiness forces the click to reach the save-then-switch handler,
+        # where the cancelled save-as dialog is what halts navigation.
         self.page.wait_for_function(
-            "() => { const b = document.getElementById('open-in-builder-btn'); "
-            "return b && !b.disabled; }",
+            "() => window.__hypBuilderCrossReady === true",
             timeout=10000,
         )
         initial_url = self.page.url
 
-        self.page.click("#open-in-builder-btn")
+        self.page.click("#nav-builder")
         self.page.wait_for_selector(".hyp-modal-scrim", timeout=8000)
         self.page.keyboard.press("Escape")
         self.page.wait_for_selector(".hyp-modal-scrim", state="detached", timeout=5000)
@@ -270,13 +268,12 @@ class PB12BridgeTests(unittest.TestCase):
         self.assertIn("/app/?file=", self.page.url)
 
         # The editor's ?file= arrival opens the doc and builds the bridge
-        # ASYNChronously, then enables "Open in builder". Clicking before that
-        # completes finds bridge=null → no crossing (correct product behavior) and
-        # the next navigation wait times out. Gate on the button becoming enabled —
-        # the arrival handler enables it only after openFile + ensureBridge resolve.
+        # ASYNChronously, then flips the readiness flag. Clicking before that completes
+        # finds the runtime not ready → plain navigation, no crossing, and the next
+        # navigation wait times out. Gate on readiness — the arrival handler sets the
+        # flag only after openFile + ensureBridge resolve.
         self.page.wait_for_function(
-            "() => { const b = document.getElementById('open-in-builder-btn'); "
-            "return b && !b.disabled; }",
+            "() => window.__hypBuilderCrossReady === true",
             timeout=10000,
         )
 
@@ -285,7 +282,7 @@ class PB12BridgeTests(unittest.TestCase):
         self.addCleanup(lambda: shutil.rmtree(crossing_dir, ignore_errors=True))
         builder_path = os.path.join(crossing_dir, "reopened-in-builder.html")
         H.set_fake_dialog(self.base, builder_path)
-        self.page.click("#open-in-builder-btn")
+        self.page.click("#nav-builder")
         self.page.wait_for_selector(".hyp-modal-scrim", timeout=8000)
         self.page.locator(".hyp-modal-scrim button", has_text="Save As").click()
 

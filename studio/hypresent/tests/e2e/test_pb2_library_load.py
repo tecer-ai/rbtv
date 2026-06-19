@@ -104,7 +104,7 @@ class PB2LibraryLoadTests(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(broken, "assemble.py")), "assemble.py must be present")
 
         B.set_fake_folder(self.base, broken)
-        self.page.click("#pick-library-btn")
+        self.page.click("#open-library-btn")
         self.page.wait_for_selector(".builder-invalid", timeout=5000)
 
         errors = self.page.locator(".builder-invalid li").all_text_contents()

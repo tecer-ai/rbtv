@@ -310,6 +310,21 @@
   cursor: grabbing; opacity: .95;
 }
 
+/* ════════════ TRAY SAVE (unified save area — top of tray, both modes) ════════════ */
+.tray-save {
+  flex: none; border-bottom: 1px solid var(--line);
+  padding: 14px 18px 13px; background: var(--paper);
+  display: flex; flex-direction: column; gap: 7px;
+}
+.tray-save .ts-row { display: flex; gap: 8px; }
+.tray-save .ts-row .tb-btn {
+  flex: 1; height: 42px; border-radius: 8px;
+  font-size: 14px; font-weight: 700; justify-content: center;
+}
+.tray-save .ts-row .tb-btn:disabled { opacity: .45; cursor: default; }
+.tray-save .ts-row .tb-btn:disabled:hover { background: var(--white); border-color: var(--line-2); }
+.tray-save .ts-cue { font-size: 11px; color: var(--ink-faint); text-align: center; line-height: 1.4; }
+
 /* ════════════ ASSEMBLE PANEL ════════════ */
 .assemble { border-top: 1px solid var(--line); padding: 14px 18px 16px; background: var(--paper); display: flex; flex-direction: column; gap: 11px; flex: none; }
 .as-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }

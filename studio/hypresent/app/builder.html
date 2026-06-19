@@ -85,7 +85,14 @@
 
     <div class="topbar-ctx" id="ctx-builder">
       <span id="builder-status" class="shell-status"></span>
-      <button type="button" class="tb-btn" id="open-deck-btn">Open deck…</button>
+      <button type="button" class="tb-btn" id="open-deck-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Open deck…
+      </button>
+      <button type="button" class="tb-btn" id="open-library-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        Open library…
+      </button>
       <div class="deck-chip" id="deck-chip" hidden>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
         <b id="deck-chip-name"></b>
@@ -109,10 +116,8 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2Z"/></svg>
           <span class="lc-name" id="library-name">Library</span>
         </div>
-        <div class="lc-path" id="lib-path" hidden></div>
         <div class="lc-meta" id="lib-meta" hidden></div>
         <p class="lc-empty" id="lib-empty">Pick a slide library to begin.</p>
-        <button type="button" class="lc-change" id="pick-library-btn">Pick library…</button>
       </div>
 
       <div class="rail-block" id="lang-block" hidden>
@@ -146,6 +151,21 @@
 
     <!-- right: assembly tray -->
     <aside class="builder-tray" id="builder-tray-pane" aria-label="Presentation tray">
+      <!-- unified save controls: present in both modes (compose = build-new, deck = existing) -->
+      <div class="tray-save" id="tray-save-pane">
+        <div class="ts-row">
+          <button type="button" class="tb-btn" id="save-new-btn" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            New file…
+          </button>
+          <button type="button" class="tb-btn" id="save-overwrite-btn" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            Overwrite
+          </button>
+        </div>
+        <p class="ts-cue" id="save-cue" hidden>Nothing to overwrite yet — “New file…” creates the deck.</p>
+      </div>
+
       <div class="tray-head">
         <div class="th-row">
           <h2>Presentation</h2>
@@ -192,24 +212,6 @@
             <span class="dest-text builder-dest-path" id="dest-path">No destination chosen</span>
           </span>
           <button type="button" class="tb-btn" id="pick-dest-btn">Choose…</button>
-        </div>
-        <button type="button" class="assemble-cta" id="assemble-btn" disabled>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
-          Assemble presentation
-        </button>
-      </div>
-
-      <!-- deck-mode save controls (hidden in assemble mode) -->
-      <div id="deck-save-pane" hidden style="border-top:1px solid var(--line);padding:14px 18px 16px;background:var(--paper);display:flex;flex-direction:column;gap:11px;">
-        <div style="display:flex;gap:8px;">
-          <button type="button" class="tb-btn" id="save-new-btn" disabled style="flex:1;height:42px;border-radius:8px;font-size:14px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:8px;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width:15px;height:15px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            New file…
-          </button>
-          <button type="button" class="tb-btn" id="save-overwrite-btn" disabled style="flex:1;height:42px;border-radius:8px;font-size:14px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:8px;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width:15px;height:15px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-            Overwrite
-          </button>
         </div>
       </div>
 

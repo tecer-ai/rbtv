@@ -41,10 +41,10 @@ class PB6StateTests(unittest.TestCase):
         tray_rows = self.page.eval_on_selector_all(".tray-row", "els=>els.length")
         self.assertEqual(tray_rows, 0, "tray should be empty initially")
 
-        assemble_btn = self.page.locator("#assemble-btn")
+        assemble_btn = self.page.locator("#save-new-btn")
         self.assertTrue(
             assemble_btn.is_disabled(),
-            "assemble button must be disabled when tray is empty"
+            "compose 'New file…' button must be disabled when tray is empty"
         )
 
     # ── PB6-2 ──────────────────────────────────────────────────────────────
@@ -88,7 +88,7 @@ class PB6StateTests(unittest.TestCase):
         self.page.wait_for_timeout(100)
 
         self.page.fill("#deck-filename", "fail-deck")
-        self.page.click("#assemble-btn")
+        self.page.click("#save-new-btn")
         self.page.wait_for_timeout(500)
 
         status = self.page.locator(".shell-status")
@@ -120,7 +120,7 @@ class PB6StateTests(unittest.TestCase):
 
         self.page.goto(self.base + "/app/builder.html")
         B.set_fake_folder(self.base, lib)
-        self.page.click("#pick-library-btn")
+        self.page.click("#open-library-btn")
         self.page.wait_for_timeout(500)
 
         invalid = self.page.locator(".builder-invalid")

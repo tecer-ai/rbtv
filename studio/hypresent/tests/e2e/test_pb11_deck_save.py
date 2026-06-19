@@ -528,13 +528,17 @@ class PB11DeckSaveTests(unittest.TestCase):
         deck_path = self._copy_deck()
         self._open_deck(deck_path)
 
-        # Save pane should be visible (not hidden)
-        save_pane_hidden = self.page.get_attribute("#deck-save-pane", "hidden")
-        self.assertIsNone(save_pane_hidden, "save pane should be visible in deck mode")
+        # Unified save area is visible (it is present in both modes)
+        save_pane_hidden = self.page.get_attribute("#tray-save-pane", "hidden")
+        self.assertIsNone(save_pane_hidden, "save area should be visible in deck mode")
 
-        # Assemble button's parent (.assemble) should be hidden
+        # Overwrite must be active (enabled) in deck mode
+        overwrite_disabled = self.page.get_attribute("#save-overwrite-btn", "disabled")
+        self.assertIsNone(overwrite_disabled, "Overwrite must be enabled in deck mode")
+
+        # Compose inputs (.assemble) should be hidden in deck mode
         assemble_hidden = self.page.get_attribute(".assemble", "hidden")
-        self.assertIsNotNone(assemble_hidden, "assemble panel should be hidden in deck mode")
+        self.assertIsNotNone(assemble_hidden, "compose inputs should be hidden in deck mode")
 
     # ── PB11-7: root deck is NEVER written to ─────────────────────────────
     def test_root_deck_never_written(self):

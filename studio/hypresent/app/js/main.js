@@ -1,12 +1,15 @@
 import Coloris from "/app/js/vendor/coloris.min.js";
 import { createBridge } from "/app/js/bridge/bridge-parent.js";
-import { openViaDialog, openFile, setupOpenInBuilder } from "/app/js/shell/file-controls.js";
+import { openViaDialog, openFile } from "/app/js/shell/file-controls.js";
 import { createColorPopover } from "/app/js/shell/color-popover.js";
 import { openComposer } from "/app/js/shell/comment-composer.js";
 import { createShortcutsHelp } from "/app/js/shell/shortcuts-help.js";
+import { confirmSaveOverwrite } from "/app/js/shell/confirm-modal.js";
 import { dialogSaveAs, save } from "/app/js/api-client.js";
 
 let bridge = null;
+let builderCrossReady = false;   // runtime live enough to serialize → the Builder tab may
+                                 // save-then-switch. Reset per bridge; set on runtime 'ready'.
 let isDirty = false;
 let docDirty = false;       // authoritative "unsaved edits?" flag — mirrors the Saved/Unsaved
                             // chip via setDocState (the single choke point) and is read by the
@@ -484,20 +487,22 @@ function startInlineEdit(anchorEl, currentText, onSave) {
 function ensureBridge(iframe) {
   if (bridge) bridge.destroy();
   bridge = createBridge(iframe);
-  // New bridge: the runtime in the freshly (re)loaded iframe has NOT booted yet,
-  // so serialize() will not answer until it emits 'ready'. Keep "Open in builder"
-  // disabled until then — enabling on bridge-object-existence alone lets a click
-  // race ahead of the runtime and silently no-op (the suite-load flake).
-  const oib = document.getElementById("open-in-builder-btn");
-  if (oib) oib.disabled = true;
+  // New bridge: the runtime in the freshly (re)loaded iframe has NOT booted yet, so
+  // serialize() will not answer until it emits 'ready'. Hold the Builder-tab crossing
+  // until then — crossing on bridge-object-existence alone lets a click race ahead of
+  // the runtime and silently no-op (the suite-load flake). Mirror the flag onto window
+  // so tests can wait on the true readiness signal.
+  builderCrossReady = false;
+  window.__hypBuilderCrossReady = false;
   bridge.on("ready", async (payload) => {
     console.info("runtime ready");
     historyCursor = -1;
     savedCursor = -1;
-    // Runtime is now live and serialize() will answer → the crossing can never
-    // hit an unready runtime. Enable the button on the TRUE readiness signal,
-    // identically for both open paths (dialog open and ?file= handoff arrival).
-    if (oib) oib.disabled = false;
+    // Runtime is now live and serialize() will answer → the crossing can never hit an
+    // unready runtime. Open the gate on the TRUE readiness signal, identically for both
+    // open paths (dialog open and ?file= handoff arrival).
+    builderCrossReady = true;
+    window.__hypBuilderCrossReady = true;
     await refreshCommentPanel();
   });
 
@@ -597,14 +602,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const navBuilderLink = document.getElementById("nav-builder");
   if (navBuilderLink) {
     navBuilderLink.addEventListener("click", (e) => {
-      // Route the pill switch through the same save + confirm-overwrite modal as the
-      // "Open in builder" button, so switching never silently discards unsaved work.
-      const oib = document.getElementById("open-in-builder-btn");
-      if (oib && !oib.disabled) {
-        e.preventDefault();
-        oib.click();
-      }
-      // else: no document open → allow the plain navigation
+      // When a document is open AND the runtime is ready, save (with a confirm-overwrite
+      // prompt) before switching — the save-first safety the removed "Open in builder"
+      // button used to carry. Otherwise fall through to plain navigation (nothing to lose).
+      if (!bridge || !builderCrossReady) return;
+      e.preventDefault();
+      saveThenSwitchToBuilder();
     });
   }
 
@@ -613,8 +616,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // navigated away. The browser shows its own generic "Leave site? Changes you made
   // may not be saved" dialog — we only opt in by preventing default + setting
   // returnValue. A clean document (freshly opened or just saved) never prompts.
-  // Intentional in-app navigation (the "Open in builder" switch, which saves first)
-  // sets window.__hypSuppressUnloadPrompt to skip this prompt.
+  // Intentional in-app navigation (the Builder-tab save-then-switch crossing, which
+  // saves first) sets window.__hypSuppressUnloadPrompt to skip this prompt.
   window.addEventListener("beforeunload", (e) => {
     if (window.__hypSuppressUnloadPrompt) return;
     if (!docDirty) return;
@@ -634,9 +637,9 @@ document.addEventListener("DOMContentLoaded", () => {
         setStatus("");
         setDocChip(result.name || "");
         setDocState(false);
-        // "Open in builder" is enabled by the bridge 'ready' handler once the
-        // runtime can serialize — NOT here. Enabling on open would re-introduce
-        // the enable-before-ready window the click handler races against.
+        // The Builder-tab crossing is gated by the runtime-ready flag set in the
+        // bridge 'ready' handler — NOT here. Opening the gate on open would re-introduce
+        // the ready-before-serialize window the crossing races against.
       } catch (err) {
         console.error("Open failed:", err.message);
         setStatus("Open failed: " + err.message, "error");
@@ -663,8 +666,8 @@ document.addEventListener("DOMContentLoaded", () => {
         setStatus("");
         setDocChip((result && result.name) || fileParam.split(/[\\/]/).pop() || "", fileParam);
         setDocState(false);
-        // Enabled by the bridge 'ready' handler, not here — see the dialog-open
-        // path above. Same readiness gate on both crossings into the builder.
+        // Readiness flag is set by the bridge 'ready' handler, not here — see the
+        // dialog-open path above. Same readiness gate on both crossings into the builder.
       } catch (err) {
         console.error("Handoff open failed:", err.message);
         setStatus("Open failed: " + err.message, "error");
@@ -688,14 +691,39 @@ document.addEventListener("DOMContentLoaded", () => {
     return result.html;
   }
 
-  // Wire "Open in builder" button (bridge crossing: editor → builder).
-  // Enable/disable is now driven entirely by runtime readiness in ensureBridge's
-  // 'ready' handler (true gate the click depends on), not by open-success here.
-  setupOpenInBuilder({
-    getSerializeDoc: () => serializeDoc,
-    getStatusSetter: () => setStatus,
-    getBridge: () => bridge,
-  });
+  // Save-then-switch crossing (editor → builder), invoked by the Builder tab. Saves the
+  // current document (confirm-overwrite when a file is open; Save As for a never-saved
+  // deck), then navigates to the builder with ?file=. Suppresses the unsaved-changes
+  // close-guard for this intentional in-app navigation. The caller gates on readiness.
+  async function saveThenSwitchToBuilder() {
+    if (!bridge) { setStatus("No document open.", "error"); return; }
+    const html = await serializeDoc();
+    if (html == null) return; // serialization failed — status already set
+    try {
+      const docChip = document.getElementById("doc-chip");
+      const docNameEl = document.getElementById("doc-name");
+      const hasOpenFile = !!(docChip && !docChip.hidden && docNameEl && docNameEl.textContent);
+      let result;
+      if (hasOpenFile) {
+        const choice = await confirmSaveOverwrite(docNameEl.textContent);
+        if (choice === "cancel") return;                  // stay in the editor
+        if (choice === "proceed") {
+          result = await save(html);                      // overwrite the opened file
+          if (result && result.no_open_file) result = await dialogSaveAs(html);
+        } else {
+          result = await dialogSaveAs(html);              // Save As — keep the original
+        }
+      } else {
+        result = await dialogSaveAs(html);                // never-saved deck → pick a path
+      }
+      if (result && result.cancelled) return;
+      if (!result || !result.ok) { setStatus("Save failed.", "error"); return; }
+      window.__hypSuppressUnloadPrompt = true;
+      window.location.href = "/app/builder.html?file=" + encodeURIComponent(result.path);
+    } catch (err) {
+      setStatus("Save failed: " + err.message, "error");
+    }
+  }
 
   const saveBtn = document.querySelector("#save-btn");
   if (saveBtn) {
