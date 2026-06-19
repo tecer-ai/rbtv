@@ -38,6 +38,15 @@ def _add_shared_options(parser: argparse.ArgumentParser) -> None:
         help="Descend into --exclude paths instead of skipping them.",
     )
     parser.add_argument(
+        "--include-nested-repos",
+        action="store_true",
+        default=False,
+        help=(
+            "Descend into nested git repositories under the scope root "
+            "(default: skip them). Use to find cross-repo references."
+        ),
+    )
+    parser.add_argument(
         "--generated",
         metavar="<glob>",
         action="append",
@@ -87,6 +96,7 @@ def _run_consult(args: argparse.Namespace) -> int:
             exclude=args.exclude,
             read_only=args.read_only,
             include_archive=args.include_archive,
+            descend_nested_repos=args.include_nested_repos,
             generated=args.generated,
         )
     except (ConsultError, ScopeError) as exc:
@@ -106,6 +116,7 @@ def _run_act(args: argparse.Namespace) -> int:
             exclude=args.exclude,
             read_only=args.read_only,
             include_archive=args.include_archive,
+            descend_nested_repos=args.include_nested_repos,
             generated=args.generated,
             apply=args.apply,
         )

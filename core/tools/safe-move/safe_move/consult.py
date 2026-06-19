@@ -24,6 +24,7 @@ def build_consult_result(
     exclude: list[str] | tuple[str, ...] = (),
     read_only: list[str] | tuple[str, ...] = (),
     include_archive: bool = False,
+    descend_nested_repos: bool = False,
     generated: list[str] | tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Return the contract-shaped consult JSON object."""
@@ -43,6 +44,7 @@ def build_consult_result(
             read_only=read_only,
             generated=generated,
             include_archive=include_archive,
+            descend_nested_repos=descend_nested_repos,
             warnings=walk_warnings,
         )
     )
@@ -62,6 +64,7 @@ def build_consult_result(
             old_rel, new_rel, operation, root, walked, provider
         )
         folder_cascade = None
+        warnings.extend(_basename_collision_warnings(old_rel, walked))
     warnings.extend(candidate_warnings)
     warnings.extend(_non_utf8_warnings(provider))
 
@@ -89,6 +92,17 @@ def build_consult_result(
                 "file": None,
                 "ref_id": None,
             }
+        )
+
+    # A parallel session may move or delete ``old`` between the initial existence
+    # check above and here (a documented concurrent-move race — root CLAUDE.md
+    # § Parallel sessions). The scan can complete with degraded/empty results in
+    # that window; re-check before emitting so a vanished source fails cleanly
+    # (the CLI turns ConsultError into a clean stderr line + exit 1) instead of
+    # printing a partial/garbage envelope.
+    if not old_abs.exists():
+        raise ConsultError(
+            f"old path no longer exists (changed during scan): {old}"
         )
 
     return {
@@ -218,6 +232,16 @@ def _build_file_references(
     all_candidates.sort(key=lambda c: (c.file, c.line, c.match))
     candidate_warnings.extend(code_warnings)
 
+    # Literal old-path sweep: surface bare-prose / command-embedded occurrences
+    # of the exact old path that the syntax-specific matchers miss, deduped
+    # against everything already found above.
+    all_candidates.extend(
+        matchers.find_literal_path_candidates(
+            old_rel, walked, scope_root, all_candidates, provider=provider
+        )
+    )
+    all_candidates.sort(key=lambda c: (c.file, c.line, c.match))
+
     for index, candidate in enumerate(all_candidates, 1):
         ref_id = f"ref-{index:04d}"
         if candidate.syntax == "code-import":
@@ -267,13 +291,35 @@ def _build_folder_references(
             rel = path.relative_to(old_abs).as_posix()
             sub_targets.append((f"{old_rel}/{rel}", f"{new_rel}/{rel}"))
 
+    from safe_move.move import nested_repos
+
+    nested = nested_repos(old_abs)
+
+    # The haystack for a folder move extends the broad-scope walk with the moved
+    # folder's OWN files under skip-named dirs (``build/`` / ``dist/`` /
+    # ``target/``): those records are hand-authored content being relocated, so
+    # EVERY matcher — the structured ones (markdown / wikilink / frontmatter /
+    # config / code-import) AND the literal sweep below — must see them, even
+    # though the broad walk skips such dirs everywhere else in the scope. Gated
+    # to the moved tree only; nested-repo subtrees stay excluded (they do not
+    # move with the folder).
+    walked_paths = {wf.path for wf in walked}
+    moved_tree_extra = [
+        wf
+        for wf in scope.iter_subtree_text_files(
+            old_abs, scope_root, skip_subtrees=nested
+        )
+        if wf.path not in walked_paths
+    ]
+    folder_haystack = list(walked) + moved_tree_extra
+
     # Scan the haystack ONCE, then match each sub-target against it in memory.
     sub_olds = [sub_old for sub_old, _ in sub_targets]
     non_code_by_target = matchers.find_candidates_multi(
-        sub_olds, walked, scope_root, provider=provider
+        sub_olds, folder_haystack, scope_root, provider=provider
     )
     code_sites, code_warnings = code_matcher.scan_code_references(
-        walked, scope_root, provider=provider
+        folder_haystack, scope_root, provider=provider
     )
 
     seen: set[tuple[str, int, int, str]] = set()
@@ -335,6 +381,36 @@ def _build_folder_references(
                 ref_class = classify.CLASS_SURFACE
             collected.append((candidate, sub_old, sub_new, proposed, ref_class))
 
+    nested_set = set(nested)
+
+    def _is_under_nested_repo(path: Path) -> bool:
+        return any(
+            path == nested_path or nested_path in path.parents
+            for nested_path in nested_set
+        )
+
+    # Literal old-path sweep for the folder path itself. One search for the
+    # folder's old path catches every self-referential occurrence — the folder
+    # path AND every contained-file sub-path (which all start with it) — written
+    # as bare prose, inside a command span, or in a config header, that the
+    # syntax-specific matchers above missed. Deduped against the collected
+    # candidates; always surfaced (never auto). The act layer rewrites only the
+    # matched folder-path span, preserving any ``/sub/file.md`` suffix. It runs
+    # over ``folder_haystack`` (the broad walk plus the moved tree's skip-dir
+    # files) — the same haystack the structured matchers above used, so a moved
+    # ``build/`` file's references are deduped across both rather than counted
+    # only as crude literals.
+    folder_op = classify.classify_operation(old_rel, new_rel)
+    for literal in matchers.find_literal_path_candidates(
+        old_rel,
+        folder_haystack,
+        scope_root,
+        [item[0] for item in collected],
+        provider=provider,
+    ):
+        literal_class = classify.classify(literal, folder_op, scope_root=scope_root)
+        collected.append((literal, old_rel, new_rel, new_rel, literal_class))
+
     collected.sort(key=lambda item: (item[0].file, item[0].line, item[0].match))
 
     references: list[dict[str, Any]] = []
@@ -348,17 +424,6 @@ def _build_folder_references(
             folder_path_refs.append(ref_id)
         else:
             contained_file_refs.append(ref_id)
-
-    from safe_move.move import nested_repos
-
-    nested = nested_repos(old_abs)
-    nested_set = set(nested)
-
-    def _is_under_nested_repo(path: Path) -> bool:
-        return any(
-            path == nested_path or nested_path in path.parents
-            for nested_path in nested_set
-        )
 
     if nested:
         candidate_warnings.append(
@@ -406,6 +471,44 @@ def _maybe_warn_index_cascade(
                 "ref_id": None,
             }
         )
+
+
+def _basename_collision_warnings(
+    old_rel: str, walked: list[scope.WalkedFile]
+) -> list[dict[str, Any]]:
+    """Warn when ``old``'s basename/stem collides with another in-scope file.
+
+    Under such a collision a bare ``[[name]]`` wikilink is ambiguous — it may
+    resolve to the OTHER file — so it is surfaced (via ``resolves_to`` > 1) rather
+    than auto-applied. This warning names the colliding files so the caller does
+    not bulk-apply bare-name rewrites that would corrupt links to the other file.
+    """
+    old_name = Path(old_rel).name.lower()
+    old_stem = Path(old_rel).stem.lower()
+    colliding = sorted(
+        wf.path
+        for wf in walked
+        if wf.path != old_rel
+        and (
+            Path(wf.path).name.lower() == old_name
+            or Path(wf.path).stem.lower() == old_stem
+        )
+    )
+    if not colliding:
+        return []
+    return [
+        {
+            "kind": "basename-collision",
+            "message": (
+                f"the moved file's basename collides with {len(colliding)} other "
+                f"in-scope file(s) of the same name/stem: {', '.join(colliding)}. "
+                f"Bare-name wikilinks ([[{Path(old_rel).stem}]]) are surfaced "
+                "(never auto-applied) because they may target a different file."
+            ),
+            "file": old_rel,
+            "ref_id": None,
+        }
+    ]
 
 
 def compute_git_move_method(

@@ -75,6 +75,9 @@ def test_consult_emits_exact_contract_shape_with_warnings_and_git_method(repo_bu
         scope_root=fix.repo,
         read_only=["readonly/**"],
         generated=["generated/**"],
+        # Opt into the nested 'foreign' repo so this contract test still
+        # exercises cross-project surfacing (skipped by default).
+        descend_nested_repos=True,
     )
 
     assert set(result) == TOP_LEVEL_KEYS

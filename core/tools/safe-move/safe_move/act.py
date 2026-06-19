@@ -49,6 +49,7 @@ def run_act(
     exclude: list[str] | tuple[str, ...] = (),
     read_only: list[str] | tuple[str, ...] = (),
     include_archive: bool = False,
+    descend_nested_repos: bool = False,
     generated: list[str] | tuple[str, ...] = (),
 ) -> ActResult:
     """Re-derive current refs, move, apply verified requested ids, and return a log."""
@@ -68,6 +69,7 @@ def run_act(
         exclude=exclude,
         read_only=read_only,
         include_archive=include_archive,
+        descend_nested_repos=descend_nested_repos,
         generated=generated,
     )
     result.warnings.extend(consult_result["warnings"])

@@ -13,12 +13,13 @@ from __future__ import annotations
 import bisect
 import os
 import re
+import string
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from safe_move.scope import ContentProvider, WalkedFile, read_text_safe
+from safe_move.scope import ContentProvider, WalkedFile, git_toplevel, read_text_safe
 
 
 class MatchError(Exception):
@@ -178,12 +179,18 @@ def _decode_markdown_path(raw: str) -> tuple[str, str, str | None]:
 
 
 def _resolve_target(
-    target: str, file_dir: str, scope_root: Path
+    target: str, file_dir: str, scope_root: Path, workspace_root: Path | None = None
 ) -> list[str]:
-    """Return normalized POSIX paths (relative to scope root) that ``target`` could name.
+    """Return POSIX paths that ``target`` could name (scope-relative; absolute if out of scope).
 
-    Both scope-root-relative and file-directory-relative resolutions are tried.
-    Paths that escape ``scope_root`` are discarded.
+    Scope-root-relative and file-directory-relative resolutions are tried; a path
+    that escapes ``scope_root`` is discarded UNLESS ``workspace_root`` is given and
+    differs from ``scope_root`` (the scan is a SUBTREE of the workspace). Then the
+    target is ALSO resolved against the workspace root and returned in ABSOLUTE
+    POSIX form — so a reference written relative to the wider workspace/vault root
+    still matches an out-of-scope ``old`` (which ``_normalize_old`` also expresses
+    absolutely). Disabled (zero extra work) when ``workspace_root`` is None or
+    equals ``scope_root`` — the common case where the scan root IS the workspace.
 
     ``scope_root`` MUST already be resolved (callers resolve it once per run).
     Resolution is LEXICAL and PURE-STRING (``os.path`` only, no ``pathlib``):
@@ -222,6 +229,21 @@ def _resolve_target(
             candidates.add(".")
         elif joined.startswith(prefix):
             candidates.add(joined[len(prefix):].replace(os.sep, "/"))
+
+    # Workspace-root-relative resolution — only when the scan is a subtree of the
+    # workspace. A reference written relative to the workspace/vault root resolves
+    # there (not against the narrower scan root) and may land OUTSIDE the scan
+    # scope, so it is returned in absolute POSIX form to match an out-of-scope
+    # ``old``. (Inline-code paths are the caller that passes ``workspace_root``;
+    # they are always surfaced, never auto-applied.)
+    if workspace_root is not None:
+        ws_str = str(workspace_root)
+        if ws_str != root_str:
+            try:
+                ws_joined = os.path.normpath(os.path.join(ws_str, target))
+                candidates.add(ws_joined.replace(os.sep, "/"))
+            except (ValueError, OSError):
+                pass
 
     return sorted(candidates)
 
@@ -309,6 +331,9 @@ class _WikilinkSite:
     alias: str | None
     offset: int
     resolves_to: int
+    # Scope/workspace path resolutions for a PATH-QUALIFIED target ([[dir/name]]);
+    # empty for a bare-name target (which matches by basename instead).
+    resolved: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -413,9 +438,21 @@ def _resolves_to(target: str, resolves_index: dict[str, int]) -> int:
 
 
 def _extract_wikilink_sites(
-    content: str, resolves_index: dict[str, int]
+    content: str,
+    resolves_index: dict[str, int],
+    file_dir: str = "",
+    scope_root: Path | None = None,
+    workspace_root: Path | None = None,
 ) -> list[_WikilinkSite]:
-    """Return every wikilink occurrence in ``content`` (target-independent)."""
+    """Return every wikilink occurrence in ``content`` (target-independent).
+
+    A PATH-QUALIFIED target (one containing ``/`` — e.g. an Obsidian vault-root-
+    relative link ``[[dir/name|alias]]``) is ALSO resolved to scope paths (with and
+    without an implied ``.md``) so the single-pass matcher can match it by PATH
+    rather than by bare basename; ``resolved`` stays empty for a bare-name target.
+    Path resolution is skipped unless ``scope_root`` is provided (the legacy
+    single-target ``match_wikilinks`` wrapper passes none and matches by basename).
+    """
     sites: list[_WikilinkSite] = []
     line_starts: list[int] | None = None
     for m in _WIKILINK_RE.finditer(content):
@@ -426,6 +463,17 @@ def _extract_wikilink_sites(
             line_starts = _build_line_starts(content)
         fragment_raw = m.group("fragment")
         line_no, line_start, context = _locate(content, line_starts, m.start(), m.end())
+        resolved: tuple[str, ...] = ()
+        if "/" in target and scope_root is not None:
+            res = set(_resolve_target(target, file_dir, scope_root, workspace_root))
+            if not Path(target).suffix:
+                # Obsidian path-qualified wikilinks usually omit the .md extension.
+                res.update(
+                    _resolve_target(
+                        target + ".md", file_dir, scope_root, workspace_root
+                    )
+                )
+            resolved = tuple(sorted(res))
         sites.append(
             _WikilinkSite(
                 line_no=line_no,
@@ -436,6 +484,7 @@ def _extract_wikilink_sites(
                 alias=m.group("alias"),
                 offset=m.start() - line_start,
                 resolves_to=_resolves_to(target, resolves_index),
+                resolved=resolved,
             )
         )
     return sites
@@ -506,7 +555,7 @@ def _extract_frontmatter_sites(
 
 
 def _extract_inline_code_sites(
-    content: str, file_dir: str, scope_root: Path
+    content: str, file_dir: str, scope_root: Path, workspace_root: Path | None = None
 ) -> list[_InlineCodeSite]:
     """Return every inline-code span in ``content`` that holds a path-like value.
 
@@ -537,7 +586,9 @@ def _extract_inline_code_sites(
                 match=path,
                 target=path,
                 offset=m.start("code") + lead - line_start,
-                resolved=tuple(_resolve_target(path, file_dir, scope_root)),
+                resolved=tuple(
+                    _resolve_target(path, file_dir, scope_root, workspace_root)
+                ),
             )
         )
     return sites
@@ -858,6 +909,99 @@ def match_inline_code_paths(
 
 
 # ---------------------------------------------------------------------------
+# Literal old-path sweep
+#
+# A target-dependent sweep for the EXACT old path string, wherever it appears —
+# bare prose, inside a command span, a config header, anything. It is the
+# catch-all for self-referential references the syntax-specific matchers miss
+# (e.g. a folder that names its own old path in a `/<cmd> … <path>` line, or a
+# path written in a plain sentence). Every hit is always ``surface`` (never
+# auto): a literal text match is a hint for the agent, not a safe rewrite.
+# ---------------------------------------------------------------------------
+
+# Characters that can appear inside a path token. A literal occurrence of the
+# old path is a genuine path reference only when it is bounded by non-path
+# characters (so ``a/b`` does not match inside ``a/b-other`` or ``xa/b``).
+_PATH_NAME_CHARS = frozenset(string.ascii_letters + string.digits + "-_.~")
+
+
+def _candidate_spans_by_loc(
+    candidates: Iterable[Candidate],
+) -> dict[tuple[str, int], list[tuple[int, int]]]:
+    """Index existing candidates' column spans by ``(file, line)`` for dedup."""
+    index: dict[tuple[str, int], list[tuple[int, int]]] = {}
+    for c in candidates:
+        index.setdefault((c.file, c.line), []).append(
+            (c.offset, c.offset + len(c.match))
+        )
+    return index
+
+
+def _span_overlaps(spans: Iterable[tuple[int, int]], start: int, end: int) -> bool:
+    """Return True when ``[start, end)`` overlaps any span in ``spans``."""
+    return any(a < end and start < b for a, b in spans)
+
+
+def find_literal_path_candidates(
+    old_rel: str,
+    walked_files: Iterable[WalkedFile],
+    scope_root: str | Path,
+    existing: Iterable[Candidate] = (),
+    *,
+    provider: ContentProvider | None = None,
+) -> list[Candidate]:
+    """Surface literal occurrences of the old path that the matchers missed.
+
+    Searches every scoped file for the EXACT ``old_rel`` string and emits a
+    ``literal-path`` candidate for each occurrence that (a) is bounded by
+    non-path characters on the left and by a ``/`` or a non-path character on
+    the right — so a folder path matches both itself and the prefix of any
+    contained-file path, but never a longer sibling name — and (b) does not
+    overlap a span already reported by another matcher (dedup, so a markdown
+    link / inline-code / frontmatter / config hit is not double-counted).
+
+    ``old_rel`` MUST be scope-root-relative and POSIX (as ``_normalize_old``
+    returns). The sweep only runs for a path-shaped target (one containing a
+    ``/`` or carrying a file extension); a bare top-level name like ``foo`` is
+    too generic to search literally and is left to the basename matchers.
+    """
+    if "/" not in old_rel and not Path(old_rel).suffix:
+        return []
+
+    spans_by_loc = _candidate_spans_by_loc(existing)
+    needle = old_rel
+    nlen = len(needle)
+    out: list[Candidate] = []
+
+    for wf in walked_files:
+        content = provider.get(wf) if provider is not None else read_text_safe(wf.abs_path)
+        if content is None or needle not in content:
+            continue
+        line_starts = _build_line_starts(content)
+        start = content.find(needle)
+        while start != -1:
+            end = start + nlen
+            before = content[start - 1] if start > 0 else ""
+            after = content[end] if end < len(content) else ""
+            left_ok = start == 0 or (before not in _PATH_NAME_CHARS and before != "/")
+            right_ok = end >= len(content) or after == "/" or after not in _PATH_NAME_CHARS
+            if left_ok and right_ok:
+                line_no, line_start, context = _locate(content, line_starts, start, end)
+                offset = start - line_start
+                if not _span_overlaps(
+                    spans_by_loc.get((wf.path, line_no), ()), offset, offset + nlen
+                ):
+                    out.append(
+                        _build_candidate(
+                            wf, line_no, context, "literal-path", needle, needle,
+                            None, None, "plain", 1, offset,
+                        )
+                    )
+            start = content.find(needle, start + 1)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
 
@@ -893,6 +1037,11 @@ def find_candidates_multi(
     """
     _ = note_fields  # frontmatter ignores the key allowlist (D5); kept for API.
     scope_root_path = Path(scope_root).expanduser().resolve()
+    # The workspace (vault) root anchors references written relative to it. When
+    # the scan is scoped to a SUBTREE (scope_root != git top level), a vault-root-
+    # relative inline-code path must resolve against the workspace root, not the
+    # narrower scan root. None / equal-to-scope (the common case) disables it.
+    workspace_root = git_toplevel(scope_root_path)
     old_rels = [_normalize_old(old, scope_root_path) for old in olds]
     files = list(walked_files)
     basenames = _basename_set(files)
@@ -925,7 +1074,9 @@ def find_candidates_multi(
         if content is None:
             continue
         file_dir = str(Path(wf.path).parent)
-        wl_sites = _extract_wikilink_sites(content, resolves_index)
+        wl_sites = _extract_wikilink_sites(
+            content, resolves_index, file_dir, scope_root_path, workspace_root
+        )
         md_sites = _extract_markdown_sites(content, file_dir, scope_root_path)
         fm_sites = _extract_frontmatter_sites(
             content, file_dir, scope_root_path, resolves_index
@@ -936,7 +1087,9 @@ def find_candidates_multi(
             else []
         )
         ic_sites = (
-            _extract_inline_code_sites(content, file_dir, scope_root_path)
+            _extract_inline_code_sites(
+                content, file_dir, scope_root_path, workspace_root
+            )
             if Path(wf.path).suffix.lower() in MARKDOWN_EXTENSIONS
             else []
         )
@@ -944,8 +1097,18 @@ def find_candidates_multi(
         # per-target list order — and thus the post-sort order — is identical to
         # the single-target find_candidates path.
         for s in wl_sites:
-            for index in by_basename.get(s.target.lower(), ()):
-                results[index].append(_wikilink_candidate(wf, s))
+            if s.resolved:
+                # Path-qualified wikilink ([[dir/name|alias]]): match by resolved
+                # PATH (like a markdown link), not by bare basename. Closes the
+                # miss where a path-qualified link to the moved file was undetected.
+                wl_matched: set[int] = set()
+                for r in s.resolved:
+                    wl_matched.update(by_path.get(r.lower(), ()))
+                for index in wl_matched:
+                    results[index].append(_wikilink_candidate(wf, s))
+            else:
+                for index in by_basename.get(s.target.lower(), ()):
+                    results[index].append(_wikilink_candidate(wf, s))
         for s in md_sites:
             matched: set[int] = set()
             for r in s.resolved:

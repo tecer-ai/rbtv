@@ -12,6 +12,7 @@ CONSULT_FLAGS = [
     "--exclude",
     "--read-only",
     "--include-archive",
+    "--include-nested-repos",
     "--generated",
 ]
 ACT_FLAGS = CONSULT_FLAGS + ["--apply"]
@@ -53,6 +54,7 @@ def test_consult_parser_accepts_full_arg_set():
             "--read-only",
             "protected",
             "--include-archive",
+            "--include-nested-repos",
             "--generated",
             "generated.txt",
         ]
@@ -65,6 +67,13 @@ def test_consult_parser_accepts_full_arg_set():
     assert args.read_only == ["protected"]
     assert args.generated == ["generated.txt"]
     assert args.include_archive is True
+    assert args.include_nested_repos is True
+
+
+def test_consult_parser_defaults_skip_nested_repos():
+    parser = build_parser()
+    args = parser.parse_args(["consult", "old/path", "new/path"])
+    assert args.include_nested_repos is False
 
 
 def test_act_parser_requires_apply():

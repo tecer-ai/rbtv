@@ -76,12 +76,28 @@ def _rel(path: Path, root: Path) -> str:
 
 
 def git_toplevel(cwd: Path) -> Path | None:
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-    )
+    # A concurrent move can delete ``cwd`` (e.g. the folder being moved) between
+    # an earlier existence check and this probe; passing a non-existent directory
+    # as the subprocess ``cwd`` raises ``NotADirectoryError``/``FileNotFoundError``
+    # (Windows WinError 267). Treat an absent ``cwd`` as "no repository" rather
+    # than letting a raw traceback escape the read-only consult.
+    cwd = Path(cwd)
+    if not cwd.is_dir():
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        # ``cwd`` vanished between the is_dir() check and process spawn (a TOCTOU
+        # race with a concurrent move). Only swallow when that is what happened,
+        # so a genuinely missing ``git`` executable still surfaces as before.
+        if not cwd.is_dir():
+            return None
+        raise
     if result.returncode != 0:
         return None
     return Path(result.stdout.strip()).resolve()
@@ -198,14 +214,23 @@ def walk_scope(
     read_only: Iterable[str] = (),
     generated: Iterable[str] = (),
     include_archive: bool = False,
+    descend_nested_repos: bool = False,
     warnings: list[WalkWarning] | None = None,
 ) -> Iterable[WalkedFile]:
     """Yield text files under ``scope_root`` with scope tags attached.
 
     Skips ``.git``, dependency/build directories, binary files, and generated
-    lockfiles. Honors ``--exclude`` unless ``include_archive`` is set. Detects
-    nested git repositories and tags their files with the foreign top-level
-    path. Tags ``read_only`` and ``generated`` matches for later classification.
+    lockfiles. Honors ``--exclude`` unless ``include_archive`` is set.
+
+    A nested git repository (a sub-directory that is its own git top level) is
+    NOT descended into by default: its files are a separate project with their
+    own history and references, and reading them is a surprising, often unsafe
+    default (sensitive sibling repos, slow scans). Pass
+    ``descend_nested_repos=True`` to walk them as before, tagging each contained
+    file with the foreign top-level path as its ``boundary`` so the classifier
+    surfaces (never auto-applies) cross-repo references.
+
+    Tags ``read_only`` and ``generated`` matches for later classification.
 
     Non-fatal issues (permission denied, unreadable files) are appended to
     ``warnings`` rather than crashing the walk.
@@ -228,8 +253,52 @@ def walk_scope(
         read_only_patterns,
         generated_patterns,
         include_archive,
+        descend_nested_repos,
         warnings,
     )
+
+
+def iter_subtree_text_files(
+    subtree: str | Path,
+    scope_root: str | Path,
+    *,
+    skip_subtrees: Iterable[Path] = (),
+) -> Iterable[WalkedFile]:
+    """Yield text files under ``subtree`` ignoring ``SKIP_DIR_NAMES`` (except ``.git``).
+
+    Used to scan a MOVED folder's OWN files for self-references: a project's
+    ``build/`` / ``dist/`` / ``target/`` records are hand-authored content being
+    relocated, not regenerated artifacts, so the skip-dir heuristic (correct for
+    the broad scope) must not hide them from the self-reference sweep. Still
+    skips ``.git`` internals, the nested-repo subtrees in ``skip_subtrees``,
+    binaries, and generated lockfiles. Paths are relative to ``scope_root``;
+    scope tags are neutral (``read_only`` / ``generated`` / ``boundary`` unset) —
+    the sweep that consumes these only surfaces matches, never auto-applies.
+    """
+    root = Path(scope_root).expanduser().resolve()
+    base = Path(subtree).expanduser().resolve()
+    skip = {Path(p).resolve() for p in skip_subtrees}
+    for path in sorted(base.rglob("*")):
+        if path.is_symlink() or not path.is_file():
+            continue
+        if ".git" in path.parts:
+            continue
+        if any(path == s or s in path.parents for s in skip):
+            continue
+        if path.name.lower() in LOCKFILE_NAMES:
+            continue
+        try:
+            if is_binary(path):
+                continue
+        except OSError:
+            continue
+        yield WalkedFile(
+            path=_rel(path, root),
+            abs_path=path,
+            read_only=False,
+            generated=False,
+            boundary=None,
+        )
 
 
 def _walk_dir(
@@ -240,6 +309,7 @@ def _walk_dir(
     read_only_patterns: list[str],
     generated_patterns: list[str],
     include_archive: bool,
+    descend_nested_repos: bool,
     warnings: list[WalkWarning],
 ) -> Iterable[WalkedFile]:
     try:
@@ -276,6 +346,11 @@ def _walk_dir(
             if (abspath / ".git").exists():
                 top = git_toplevel(abspath)
                 if top is not None and top != root:
+                    # A nested git repository. By default it is a walk boundary:
+                    # do NOT descend into a separate repo's files. Only descend
+                    # (tagging the foreign top level) when explicitly opted in.
+                    if not descend_nested_repos:
+                        continue
                     dir_boundary = top
 
             yield from _walk_dir(
@@ -286,6 +361,7 @@ def _walk_dir(
                 read_only_patterns,
                 generated_patterns,
                 include_archive,
+                descend_nested_repos,
                 warnings,
             )
         else:

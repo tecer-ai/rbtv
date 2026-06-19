@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import re
 import urllib.parse
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from safe_move.classify import (
     OPERATION_MOVE,
@@ -68,6 +68,8 @@ def compute_proposed(
         return _propose_config_path(candidate, old_rel, new_rel, operation, scope_root_path)
     if candidate.syntax == "inline-code-path":
         return _propose_inline_code_path(candidate, old_rel, new_rel, scope_root_path)
+    if candidate.syntax == "literal-path":
+        return _propose_literal_path(candidate, old_rel, new_rel)
 
     # Unknown syntax — cannot compute a deterministic replacement.
     return None
@@ -84,7 +86,14 @@ def _propose_wikilink(candidate: Candidate, new_rel: str, operation: str) -> str
     Pure move leaves the basename unchanged, so ``proposed == match``.
     Rename/both swap in the new basename, preserving extension form, leading
     embed ``!``, fragment, and alias.
+
+    A PATH-QUALIFIED wikilink (``[[dir/name|alias]]``) is handled separately: its
+    whole path changes even on a pure move, so the new path is recomputed (the
+    reference is surfaced, never auto-applied — see the classifier).
     """
+    if "/" in candidate.target:
+        return _propose_path_qualified_wikilink(candidate, new_rel)
+
     if operation == OPERATION_MOVE:
         return candidate.match
 
@@ -92,6 +101,29 @@ def _propose_wikilink(candidate: Candidate, new_rel: str, operation: str) -> str
 
     prefix = "!" if candidate.match.startswith("!") else ""
     inner = new_name
+    if candidate.fragment:
+        inner += candidate.fragment
+    if candidate.alias is not None:
+        inner += f"|{candidate.alias}"
+
+    return f"{prefix}[[{inner}]]"
+
+
+def _propose_path_qualified_wikilink(candidate: Candidate, new_rel: str) -> str:
+    """Compute the replacement for a path-qualified wikilink ``[[dir/name|alias]]``.
+
+    The new path is expressed the way the original was written — vault-root-
+    relative, extensionless unless the original carried an extension — preserving
+    the embed ``!``, fragment, and alias. (The classifier surfaces these, so the
+    value is a hint the caller MAY apply, never an automatic rewrite.)
+    """
+    if Path(candidate.target).suffix:
+        new_path = new_rel
+    else:
+        new_path = str(PurePosixPath(new_rel).with_suffix(""))
+
+    prefix = "!" if candidate.match.startswith("!") else ""
+    inner = new_path
     if candidate.fragment:
         inner += candidate.fragment
     if candidate.alias is not None:
@@ -295,6 +327,25 @@ def _propose_inline_code_path(
     if form is None:
         return None
     return _compute_path_value(form, file_dir, new_rel, scope_root)
+
+
+# ---------------------------------------------------------------------------
+# Literal-path replacement
+# ---------------------------------------------------------------------------
+
+
+def _propose_literal_path(candidate: Candidate, old_rel: str, new_rel: str) -> str | None:
+    """Compute the replacement for a literal old-path occurrence.
+
+    ``candidate.match`` is the exact ``old_rel`` string at its position; the act
+    layer rewrites only that span, so any trailing sub-path (a contained file
+    under a moved folder) is preserved verbatim. The replacement is therefore
+    just ``new_rel``. Returns ``None`` only if the match is not the old path
+    (it always is, by construction), leaving the reference surfaced unrewritten.
+    """
+    if candidate.match != old_rel:
+        return None
+    return new_rel
 
 
 # ---------------------------------------------------------------------------

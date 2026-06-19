@@ -173,13 +173,18 @@ def test_cross_repo_round_trip_uses_mv_warns_and_surfaces_boundary_refs(repo_bui
     subprocess.run(["git", "init"], cwd=source.repo / "foreign", check=True, capture_output=True)
     new_path = destination.repo / "incoming" / "old.md"
 
-    consulted = build_consult_result("docs/old.md", str(new_path), scope_root=source.repo)
+    # Opt into the nested 'foreign' repo so the cross-repo reference is found
+    # (nested repos are skipped by default).
+    consulted = build_consult_result(
+        "docs/old.md", str(new_path), scope_root=source.repo, descend_nested_repos=True
+    )
     boundary_refs = _refs_for_file(consulted, "foreign/ref.md")
 
     result = run_act(
         "docs/old.md",
         str(new_path),
         scope_root=source.repo,
+        descend_nested_repos=True,
         apply=_apply_string(_auto_refs(consulted)),
     )
     log = format_action_log(result)

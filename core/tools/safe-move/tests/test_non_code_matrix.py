@@ -31,6 +31,7 @@ def analyze(
     read_only: tuple[str, ...] = (),
     generated: tuple[str, ...] = (),
     include_archive: bool = False,
+    descend_nested_repos: bool = False,
 ) -> list[AnalyzedRow]:
     """Run the read-side safe-move pipeline for one synthetic fixture."""
     root = fix.repo
@@ -41,6 +42,7 @@ def analyze(
             read_only=read_only,
             generated=generated,
             include_archive=include_archive,
+            descend_nested_repos=descend_nested_repos,
         )
     )
     candidates = find_candidates(old, walked, root)
@@ -370,13 +372,18 @@ def test_nested_git_repo_reference_surfaces_and_is_never_auto(repo_builder):
     )
     subprocess.run(["git", "init"], cwd=fix.repo / "foreign", check=True, capture_output=True)
 
-    rows = analyze(fix, "old.md", "new.md")
+    # Nested repos are skipped by default, so the cross-repo reference must be
+    # opted into via descend_nested_repos; it is then surfaced, never auto.
+    rows = analyze(fix, "old.md", "new.md", descend_nested_repos=True)
 
     assert len(rows) == 1
     assert rows[0][0].file == "foreign/page.md"
     assert rows[0][0].boundary == (fix.repo / "foreign").resolve()
     assert rows[0][1] == CLASS_SURFACE
     assert rows[0][1] != CLASS_AUTO
+
+    # Default scope (no opt-in) does NOT read the nested repo at all.
+    assert analyze(fix, "old.md", "new.md") == []
 
 
 def test_case_only_difference_matches_without_overmatching_neighbors(repo_builder):

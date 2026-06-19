@@ -285,6 +285,12 @@ def classify(candidate: Candidate, operation: str, *, scope_root: Path | str | N
     if candidate.syntax == "footnote-citation":
         return CLASS_SURFACE
 
+    # 3b. Path-qualified wikilinks ([[dir/name|alias]]) carry an explicit path; the
+    # correct rewrite form (vault-root vs file-relative, .md handling) is surfaced
+    # for the agent rather than auto-applied. A bare [[name]] is unaffected.
+    if candidate.syntax == "wikilink" and "/" in candidate.target:
+        return CLASS_SURFACE
+
     # 4. Match-safety gate.
     if _match_is_ambiguous(candidate):
         return CLASS_SURFACE

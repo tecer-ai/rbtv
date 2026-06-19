@@ -111,16 +111,8 @@ def test_walk_excludes_skipped_unless_include_archive(repo_builder):
     assert _paths(included) == {"archive/old.md", "docs/readme.md"}
 
 
-def test_walk_tags_nested_repo_as_boundary(repo_builder):
-    """Files inside a nested git repo carry that repo top-level as boundary."""
-    fx = repo_builder(
-        "nested_repo",
-        {
-            "main.md": "hello\n",
-            "sub/README.md": "nested\n",
-        },
-        tracked=["main.md"],
-    )
+def _seed_nested_repo(fx, repo_builder):
+    """Init a nested git repo under ``sub/`` of a fixture and return its path."""
     sub = fx.repo / "sub"
     subprocess.run(["git", "init"], cwd=sub, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=sub, check=True)
@@ -132,8 +124,41 @@ def test_walk_tags_nested_repo_as_boundary(repo_builder):
         check=True,
         capture_output=True,
     )
+    return sub
+
+
+def test_walk_skips_nested_repo_by_default(repo_builder):
+    """A nested git repo is NOT descended into by default (safe, fast default)."""
+    fx = repo_builder(
+        "nested_repo_default",
+        {
+            "main.md": "hello\n",
+            "sub/README.md": "nested\n",
+        },
+        tracked=["main.md"],
+    )
+    _seed_nested_repo(fx, repo_builder)
 
     walked = list(walk_scope(fx.repo))
+    paths = _paths(walked)
+    assert "main.md" in paths
+    assert "sub/README.md" not in paths
+    assert not any(p.startswith("sub/") for p in paths)
+
+
+def test_walk_descends_nested_repo_as_boundary_when_opted_in(repo_builder):
+    """With descend_nested_repos, nested-repo files carry the foreign top-level."""
+    fx = repo_builder(
+        "nested_repo_optin",
+        {
+            "main.md": "hello\n",
+            "sub/README.md": "nested\n",
+        },
+        tracked=["main.md"],
+    )
+    sub = _seed_nested_repo(fx, repo_builder)
+
+    walked = list(walk_scope(fx.repo, descend_nested_repos=True))
     by_path = {w.path: w for w in walked}
     assert "main.md" in by_path
     assert "sub/README.md" in by_path
