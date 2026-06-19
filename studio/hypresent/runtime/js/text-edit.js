@@ -21,6 +21,7 @@ import { push } from "./history.js";
 import { suspend as suspendInteraction, resume as resumeInteraction } from "./interaction.js";
 import { clearFontState } from "./text-format.js";
 import { emit } from "./bridge-iframe.js";
+import { refreshAnchorsForElement } from "./comments.js";
 
 // --- Constants ---
 
@@ -143,7 +144,11 @@ function commit() {
   if (el) {
     const afterHtml = el.innerHTML;
     if (afterHtml !== beforeHtml) {
-      const cmd = text(activeHypId, beforeHtml, afterHtml);
+      // Editing the element's text changes its content hash; refresh any comment
+      // thread anchored to it so its data-hyp-agent stamp survives the next save.
+      // Passed as the command's onApply so it also fires on undo/redo (which
+      // change the text too) — keeping the anchor in sync with the shown content.
+      const cmd = text(activeHypId, beforeHtml, afterHtml, refreshAnchorsForElement);
       push(cmd);
     }
 

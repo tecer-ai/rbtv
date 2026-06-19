@@ -49,16 +49,26 @@ function applyStyleMap(el, map) {
 /**
  * Text edit command: replaces innerHTML.
  * The caller captures beforeHtml at edit-start and afterHtml at commit.
+ * Optional onApply(el) runs after EVERY content change (do/undo/redo) so a
+ * caller can keep content-derived state in sync — e.g. refresh a comment
+ * anchor's content hash so its data-hyp-agent stamp survives the next save.
+ * Symmetry matters: undo/redo change the element's text too, so the hash must
+ * be re-derived on undo/redo, not only on the forward edit.
  */
-export function text(hypId, beforeHtml, afterHtml) {
+export function text(hypId, beforeHtml, afterHtml, onApply) {
+  function applied() {
+    if (typeof onApply === "function") onApply(getElement(hypId));
+  }
   return {
     do() {
       const el = getElement(hypId);
       el.innerHTML = afterHtml;
+      applied();
     },
     undo() {
       const el = getElement(hypId);
       el.innerHTML = beforeHtml;
+      applied();
     },
     label: "text",
   };

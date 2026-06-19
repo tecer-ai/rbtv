@@ -770,6 +770,39 @@ export function reanchorAfterMove() {
   reanchorAll();
 }
 
+// Refresh the stored anchor for every thread anchored to a SPECIFIC element
+// after that element's text was edited in place (text-edit.js commit). Editing
+// an element's text changes computeContentHash(el), so the thread's stored
+// anchor.contentHash goes stale; matchAnchorHighConfidence (used at save to
+// build the agent stamp map) then fails the hash check and the element loses
+// its data-hyp-agent token — silently orphaning the comment thread.
+//
+// Resolution is by STRUCTURAL identity, NOT by re-resolving the stale anchor:
+// a text edit changes only the hash, never the element's path/sibling position,
+// so we path-walk each thread's anchor (hash-independent) to its structural
+// target and, when that target is the edited element, rebuild the anchor from
+// the element's CURRENT content via buildAnchorKey. Threads anchored elsewhere
+// are untouched, so a non-stamped element gains no spurious stamp.
+export function refreshAnchorsForElement(el) {
+  if (!el) return;
+  let changed = false;
+  for (const t of threadStore) {
+    const base = t.anchor && t.anchor.nativeId
+      ? document.getElementById(t.anchor.nativeId)
+      : document.documentElement;
+    if (!base) continue;
+    const target = walkPath(base, t.anchor ? t.anchor.path : null);
+    if (target === el) {
+      t.anchor = buildAnchorKey(el);   // regenerate hash (+ path/siblingIndex) from current content
+      changed = true;
+    }
+  }
+  if (changed) {
+    writeIsland();
+    reanchorAll();
+  }
+}
+
 export function threads() {
   const order = documentOrderedIds();
   return threadStore.map((t) => {
