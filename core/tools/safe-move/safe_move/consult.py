@@ -313,13 +313,29 @@ def _build_folder_references(
     # to the moved tree only; nested-repo subtrees stay excluded (they do not
     # move with the folder).
     walked_paths = {wf.path for wf in walked}
-    moved_tree_extra = [
-        wf
-        for wf in scope.iter_subtree_text_files(
-            old_abs, scope_root, skip_subtrees=nested
-        )
-        if wf.path not in walked_paths
-    ]
+    # The moved folder normally sits INSIDE the scan scope, so its own files are
+    # expressed scope-relative and swept for self-references. When it sits OUTSIDE
+    # --scope-root (a subtree scope that does not contain ``old``) those files
+    # cannot be expressed scope-relative: the self-ref sweep is skipped (mirroring
+    # a single-file out-of-scope move, which likewise never scans the moved
+    # target's own content) and a ``moved-folder-out-of-scope`` warning is emitted
+    # below. In-scope references TO the moved folder are still found via ``walked``
+    # and surfaced cross-root with a workspace-root-relative proposed.
+    try:
+        old_abs.relative_to(scope_root)
+        old_under_scope = True
+    except ValueError:
+        old_under_scope = False
+    if old_under_scope:
+        moved_tree_extra = [
+            wf
+            for wf in scope.iter_subtree_text_files(
+                old_abs, scope_root, skip_subtrees=nested
+            )
+            if wf.path not in walked_paths
+        ]
+    else:
+        moved_tree_extra = []
     folder_haystack = list(walked) + moved_tree_extra
 
     # Scan the haystack ONCE, then match each sub-target against it in memory.
@@ -449,8 +465,28 @@ def _build_folder_references(
             }
         )
 
+    if not old_under_scope:
+        candidate_warnings.append(
+            {
+                "kind": "moved-folder-out-of-scope",
+                "message": (
+                    "the moved folder is outside --scope-root; its own files were "
+                    "not scanned for self-references. In-scope references to it are "
+                    "still surfaced. Re-run without --scope-root (or with a "
+                    "--scope-root that contains the moved folder) to also catch "
+                    "self-references inside the moved tree."
+                ),
+                "file": _display_path(old_abs, scope_root),
+                "ref_id": None,
+            }
+        )
+
+    # ``old_abs`` may sit OUTSIDE ``scope_root`` (a subtree scope that does not
+    # contain the moved folder); express each moved file scope-relative when it is
+    # under the scope and as an absolute POSIX path otherwise, mirroring
+    # ``_display_path`` — a bare ``relative_to(scope_root)`` would raise here.
     moved_files = [
-        path.relative_to(scope_root).as_posix()
+        _display_path(path, scope_root)
         for path in sorted(old_abs.rglob("*"))
         if path.is_file() and not _is_under_nested_repo(path)
     ]
