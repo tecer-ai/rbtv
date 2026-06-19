@@ -22,12 +22,15 @@ from datetime import datetime
 from pathlib import Path
 
 # ── Constants ──
-# Mirror assemble.py's manifest contract (case-sensitive headings, 10 columns).
+# Mirror assemble.py's manifest contract (case-sensitive headings). The manifest
+# is accepted with the base 10 columns OR with the trailing optional `status`
+# column (11 columns) — assemble.py reads both, so archive.py must too.
 SLIDES_HEADING = "## Slides"
 MANIFEST_COLUMNS = [
     "id", "file", "section", "title", "audience",
     "lang", "kind", "summary", "assets", "provenance",
 ]
+STATUS_COLUMN = "status"
 
 JSON_MODE = False
 
@@ -77,7 +80,8 @@ def _slides_section_bounds(lines):
     if len(row_indices) < 2:
         die("'## Slides' section has no header + separator rows")
     header_idx = row_indices[0]
-    if _split_row(lines[header_idx]) != MANIFEST_COLUMNS:
+    header_cells = _split_row(lines[header_idx])
+    if header_cells != MANIFEST_COLUMNS and header_cells != MANIFEST_COLUMNS + [STATUS_COLUMN]:
         die(f"manifest.md header mismatch at line {header_idx + 1}")
     return header_idx, row_indices[1], row_indices[-1], row_indices
 
