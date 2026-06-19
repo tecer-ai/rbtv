@@ -19,6 +19,7 @@ Stdlib only. No network, clock, or randomness.
 
 import argparse
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -79,6 +80,13 @@ REQUIRED_VARIANT_FIELDS = [
 
 SKIP_DIRS = {"_api", "_fixture", "mirror"}
 
+# Footprint-aware routing (spec Behavior 4): the window-utilization cap is read from rbtv.json
+# (`window_utilization_cap`). When absent or malformed (non-numeric, or outside the open-closed
+# range (0, 1]) the router falls back to this default and logs it. A worker passes the footprint
+# GATE only if its effective window holds the known input at no more than `cap` utilization, i.e.
+# effective_window >= ceil(known_input_size / cap). At the default 0.20 that is window >= 5×input.
+DEFAULT_WINDOW_UTILIZATION_CAP = 0.20
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -105,6 +113,35 @@ def _load_rbtv_json(vault_root: Path) -> dict:
             return json.load(f)
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+def _resolve_window_cap(rbtv_cfg: dict, explain_log: list) -> float:
+    """Resolve the window-utilization cap from rbtv.json (spec Behavior 4).
+
+    Reads `window_utilization_cap`. Absent → default 0.20. A value that is non-numeric, or
+    numeric but outside the open-closed interval (0, 1], → fall back to 0.20 and log a one-line
+    note (never crash). The cap is a single workspace-global value, NOT a per-task profile field.
+    Booleans are rejected (a bool is an int subclass in Python but is never a valid cap).
+    """
+    raw = rbtv_cfg.get("window_utilization_cap")
+    if raw is None:
+        return DEFAULT_WINDOW_UTILIZATION_CAP
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        explain_log.append({
+            "stage": "footprint", "action": "cap_invalid",
+            "value": raw, "fallback": DEFAULT_WINDOW_UTILIZATION_CAP,
+            "reason": "window_utilization_cap not a number -- using default",
+        })
+        return DEFAULT_WINDOW_UTILIZATION_CAP
+    cap = float(raw)
+    if not (0.0 < cap <= 1.0):
+        explain_log.append({
+            "stage": "footprint", "action": "cap_invalid",
+            "value": raw, "fallback": DEFAULT_WINDOW_UTILIZATION_CAP,
+            "reason": "window_utilization_cap outside (0, 1] -- using default",
+        })
+        return DEFAULT_WINDOW_UTILIZATION_CAP
+    return cap
 
 
 def _load_model_plans(vault_root: Path, rbtv_cfg: dict) -> dict:
@@ -714,21 +751,33 @@ def _apply_plan_caps(entries: list, plans: dict, explain_log: list) -> list:
     return entries
 
 
-def _filter(entries: list, profile: dict, explain_log: list) -> list:
+def _filter(entries: list, profile: dict, explain_log: list, cap: float = DEFAULT_WINDOW_UTILIZATION_CAP, skip_window: bool = False) -> list:
     """Stage 2: GATE — drop any variant failing a hard requirement.
 
     GATE (manifest-schema.md §0 + spec § Decision flow):
       - reasoning >= the boundedness band's numeric floor
-      - context_window >= inlined_context_size (AFTER plan cap)
+      - context_window window check (AFTER plan cap) — one of two forms:
+          * profile carries `known_input_size` (footprint-aware GATE, spec Behavior 1-4):
+            effective_window >= ceil(known_input_size / cap)  (a worker fits only if the
+            known input is at most `cap` of its window — default cap 0.20 ⇒ window >= 5×input).
+            This REPLACES the inlined_context_size check for that worker (the known input ⊇ the
+            inlined prompt, so the utilization cap is the stricter bound).
+          * no `known_input_size` (back-compat): context_window >= inlined_context_size — the
+            window check byte-identical to pre-footprint behavior; cap is inert.
       - web_access when the leaf needs web
       - coding >= the code leaf's numeric floor (code leaves only; floor 0 = inert on text)
       - routable_for allows this leaf-kind role (role-eligibility, independent of capability;
         D13 code-eligibility is enforced inside _routable_for_allows for code leaves)
+
+    skip_window: when True the window check is bypassed entirely (used by the footprint fallback,
+    which keeps every NON-window gate but deliberately admits over-cap workers so the biggest-
+    capable worker is reachable as the last resort — spec Behavior 5).
     """
     reasoning_floor = _reasoning_floor(profile)
     coding_floor = _coding_floor(profile)
     needs_web = profile.get("needs_web", False)
     inlined_size = profile.get("inlined_context_size", 0)
+    known_input_size = profile.get("known_input_size")  # optional (.get) — NOT in REQUIRED_PROFILE_FIELDS
     leaf_role = _leaf_role(profile)
 
     survivors = []
@@ -739,9 +788,22 @@ def _filter(entries: list, profile: dict, explain_log: list) -> list:
         if e["reasoning"] < reasoning_floor:
             reasons_dropped.append(f"reasoning {e['reasoning']} < floor {reasoning_floor}")
 
-        # context_window check
-        if e["context_window"] < inlined_size:
-            reasons_dropped.append(f"context_window {e['context_window']} < inlined_size {inlined_size}")
+        # context_window check (skipped entirely for the footprint fallback)
+        if not skip_window:
+            if known_input_size is not None:
+                # Footprint-aware GATE (spec Behavior 3): the known input must fit within `cap`
+                # of the effective window. min_window = ceil(known_input_size / cap). This is the
+                # utilization cap and REPLACES the inlined_size check for this worker.
+                min_window = math.ceil(int(known_input_size) / cap)
+                if e["context_window"] < min_window:
+                    reasons_dropped.append(
+                        f"context_window {e['context_window']} < {min_window} "
+                        f"(known_input_size {known_input_size} > {cap:g}x window -- utilization cap)"
+                    )
+            else:
+                # Back-compat window check: byte-identical to pre-footprint behavior.
+                if e["context_window"] < inlined_size:
+                    reasons_dropped.append(f"context_window {e['context_window']} < inlined_size {inlined_size}")
 
         # web_access check
         if needs_web and not e["web_access"]:
@@ -949,11 +1011,14 @@ def _raise_band_one_level(band: str) -> str:
 def _apply_stakes_tier_up(
     chosen: dict, profile: dict, original_entries: list,
     rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plans: dict, explain_log: list,
+    cap: float = DEFAULT_WINDOW_UTILIZATION_CAP,
 ) -> dict:
     """Behavior row 9 / S1 Stage 4: raise band one level, RE-RESOLVE, return the raised pick.
 
     The profile carries an already-assessed `stakes_tier` field. When it signals tier-up,
     we raise the band, re-scope, re-filter, re-rank — deterministically, no clock/randomness.
+    cap: the window-utilization cap, threaded into the re-filter so a tier-up on a profile carrying
+        known_input_size sizes against the same utilization cap (spec Behavior 8).
     """
     band = profile.get("boundedness", "fully-bounded")
     raised_band = _raise_band_one_level(band)
@@ -992,8 +1057,8 @@ def _apply_stakes_tier_up(
         })
         return chosen
 
-    # Re-filter at the raised requirement
-    survivors = _filter(available, raised_profile, explain_log)
+    # Re-filter at the raised requirement (same utilization cap as the primary GATE — Behavior 8)
+    survivors = _filter(available, raised_profile, explain_log, cap=cap)
     if not survivors:
         explain_log.append({
             "stage": "stakes", "action": "no_survivors_after_tier_up",
@@ -1284,19 +1349,22 @@ def _apply_pinned_role_floor(
 def _apply_pins_and_stakes(
     chosen: dict, profile: dict, original_entries: list,
     rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plans: dict, explain_log: list,
+    cap: float = DEFAULT_WINDOW_UTILIZATION_CAP,
 ) -> dict:
     """S1 Stage 4 / S3: apply stakes tier-up and pinned-role floors AFTER the cheapest pick.
 
     Stakes tier-up raises the band and RE-RESOLVES the selection (re-filter + re-rank).
     Pinned-role floors raise the result when the pick lands below the floor.
     vault_root: vault root for env_file resolution (used by _apply_stakes_tier_up availability).
+    cap: the window-utilization cap, threaded into the stakes tier-up re-filter so a re-resolution
+        on a profile carrying known_input_size sizes against the same cap (spec Behavior 8).
     """
     result = chosen
 
     # Stakes tier-up (Behavior row 9)
     if profile.get("stakes_tier") == "tier_up":
         result = _apply_stakes_tier_up(
-            result, profile, original_entries, rbtv_root, vault_root, rbtv_cfg, plans, explain_log,
+            result, profile, original_entries, rbtv_root, vault_root, rbtv_cfg, plans, explain_log, cap=cap,
         )
 
     # Pinned-role floors (Behavior row 10)
@@ -1364,6 +1432,95 @@ def _build_other_routing_audit(profile: dict, chosen: dict, leaf_role: str) -> d
     }
 
 
+def _apply_footprint_fallback(
+    profile: dict, all_entries: list, cap: float,
+    rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plans: dict, explain_log: list,
+) -> dict | None:
+    """Footprint fallback (spec Behavior 5-7): the deliberate biggest-capable last resort.
+
+    Fires ONLY when the profile carries `known_input_size` AND the normal post-_filter survivor
+    set is EMPTY — i.e. no worker's window holds the known input within the utilization cap. This
+    is a DIRECT biggest-capable pick (NOT a reuse of _apply_stakes_tier_up — that routine raises
+    the boundedness band one level and, from fully-bounded, lands on Sonnet/200k, never reaching
+    Opus/1M for a bounded big job; see decisions.md Collaborative Decisions #1 + the 2026-06-19
+    correction).
+
+    Mechanism:
+      - Work over the FULL enumeration (`all_entries`), escaping the boundedness scope so the
+        largest-window worker (Opus/1M) is reachable even for a fully-bounded leaf.
+      - Apply plan-caps + availability (an unavailable / capped worker never enters the pick).
+      - Keep workers passing EVERY non-window gate (reasoning floor, coding floor, web,
+        routable_for) via _filter(..., skip_window=True) — the window check (and so the cap) is
+        deliberately bypassed; this is the accepted over-cap end-of-line.
+      - Exclude haiku (the fallback is never a haiku pick, mirroring the normal pipeline).
+      - Pick the worker with the LARGEST effective context_window; ties broken deterministically
+        by the house RANK order (_rank).
+
+    Returns the chosen entry, or None when NO worker passes the non-window gates (e.g. a code/web
+    leaf where only small workers are eligible and none survives) — route() then proceeds to its
+    existing zero_candidates path UNCHANGED (spec Behavior 7).
+    """
+    explain_log.append({
+        "stage": "footprint", "action": "fallback_fired",
+        "known_input_size": profile.get("known_input_size"), "cap": cap,
+        "note": (
+            "no worker holds the known input within the utilization cap -- selecting the "
+            "biggest-capable worker over the full enumeration (deliberate over-cap last resort)"
+        ),
+    })
+
+    # Full enumeration → plan caps → availability (escape the boundedness scope).
+    pool = _apply_plan_caps(list(all_entries), plans, explain_log)
+    available = []
+    for e in pool:
+        if _is_variant_available(e["raw_variant"], e["model_dir"], rbtv_cfg, vault_root):
+            available.append(e)
+        else:
+            explain_log.append({
+                "stage": "availability", "action": "drop", "model": e["model"],
+                "variant": e["variant"], "reason": _unavailable_reason(e["raw_variant"]),
+                "context": "footprint-fallback",
+            })
+    if not available:
+        explain_log.append({
+            "stage": "footprint", "action": "fallback_no_available",
+            "note": "no available variant in the full enumeration -- fallback yields nothing",
+        })
+        return None
+
+    # Keep every NON-window gate (window check bypassed via skip_window) — reasoning/coding/web/
+    # routable_for still bind, so a code leaf still excludes non-executors, a web leaf still
+    # requires web_access, etc. (spec Behavior 5 + the web/role Edge Cases).
+    survivors = _filter(available, profile, explain_log, cap=cap, skip_window=True)
+    if not survivors:
+        explain_log.append({
+            "stage": "footprint", "action": "fallback_no_survivors",
+            "note": "no worker passes the non-window gates -- fallback yields nothing (route() -> zero_candidates)",
+        })
+        return None
+
+    # Exclude haiku (the fallback is never a haiku pick — mirrors the normal pipeline).
+    survivors = _exclude_haiku(survivors, profile, explain_log)
+    if not survivors:
+        explain_log.append({
+            "stage": "footprint", "action": "fallback_no_survivors",
+            "note": "no non-haiku worker passes the non-window gates -- fallback yields nothing",
+        })
+        return None
+
+    # Pick the LARGEST effective context_window; deterministic tie-break via the house RANK order.
+    max_window = max(e["context_window"] for e in survivors)
+    biggest = [e for e in survivors if e["context_window"] == max_window]
+    chosen = _rank(biggest, profile, explain_log)[0]
+    explain_log.append({
+        "stage": "footprint", "action": "fallback_pick",
+        "model": chosen["model"], "variant": chosen["variant"],
+        "effective_window": chosen["context_window"],
+        "note": "biggest-capable worker by effective context_window (ties broken by house RANK)",
+    })
+    return chosen
+
+
 def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plans: dict, explain: bool = False, elected: list | None = None, elected_variants: dict | None = None) -> dict:
     """Main routing function. Returns a verdict dict.
 
@@ -1407,6 +1564,11 @@ def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plan
     # re-scope (e.g. partially-bounded scoped to Claude sonnet → stakes raise to top-tier Claude
     # finds zero in a sonnet-only set), silently masking the escalation.
     all_entries = list(entries)
+
+    # Footprint-aware routing (spec Behavior 4): resolve the window-utilization cap once from
+    # rbtv.json. Threaded into _filter (the footprint GATE) and the stakes tier-up re-filter, and
+    # used by the footprint fallback. A single workspace-global value (default 0.20).
+    cap = _resolve_window_cap(rbtv_cfg, explain_log)
 
     def _build_route_verdict(chosen: dict) -> dict:
         """Construct the route verdict (carrier + effort + `other` audit) from a chosen worker.
@@ -1479,9 +1641,26 @@ def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plan
     if not available:
         return _pin_fallback_or_error({"error": "no_available_variants", "details": "All variants dropped due to availability (api-key absent)"})
 
-    # Stage 2: GATE (filter)
-    survivors = _filter(available, profile, explain_log)
+    # Stage 2: GATE (filter) — cap threaded so the footprint window check uses the resolved cap.
+    survivors = _filter(available, profile, explain_log, cap=cap)
     if not survivors:
+        # Footprint fallback (spec Behavior 5-7): when the profile carries `known_input_size` and
+        # NO worker's window holds it within the cap, route to the biggest-capable worker over the
+        # full enumeration (the deliberate over-cap last resort) BEFORE the zero_candidates error.
+        # Absent `known_input_size` this branch never fires (back-compat — byte-identical to today).
+        if profile.get("known_input_size") is not None:
+            fb_chosen = _apply_footprint_fallback(
+                profile, all_entries, cap, rbtv_root, vault_root, rbtv_cfg, plans, explain_log,
+            )
+            if fb_chosen is not None:
+                # Pinned roles still win where applicable (they only raise). Apply the pinned-role
+                # floor to the fallback pick (spec Behavior 6); in practice the biggest worker is
+                # already top-window/top-reasoning Opus, so the floor is a no-op for most pins.
+                fb_chosen = _apply_pinned_role_floor(
+                    fb_chosen, profile, all_entries, rbtv_root, vault_root, rbtv_cfg, plans, explain_log,
+                )
+                if fb_chosen is not None:
+                    return _build_route_verdict(fb_chosen)
         return _pin_fallback_or_error({
             "error": "zero_candidates",
             "details": "No installed+available variant meets the leaf's hard requirements",
@@ -1504,8 +1683,9 @@ def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plan
     chosen = ranked[0]
 
     # Apply pins/stakes over the FULL enumeration (re-resolution re-scopes at the raised band).
+    # cap threaded so a stakes tier-up's re-filter sizes against the same utilization cap (Behavior 8).
     chosen = _apply_pins_and_stakes(
-        chosen, profile, all_entries, rbtv_root, vault_root, rbtv_cfg, plans, explain_log,
+        chosen, profile, all_entries, rbtv_root, vault_root, rbtv_cfg, plans, explain_log, cap=cap,
     )
 
     # Resolve carrier

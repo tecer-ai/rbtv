@@ -47,6 +47,17 @@ If step-02 set `orchestrated: true` with **DEEP** mode, resolve the pre-resoluti
 
 **Pin the per-task executor by CALLING the router — never reason it WITH the user.** The executor `(model, variant)` is a deterministic pure function of the task's profile, NOT a judgment pick. For EACH task: assemble its JSON task profile (`boundedness`, `task_type`, `inlined_context_size`, plus the optional fields the leaf needs — `stakes`/`stakes_tier`, `cross_strategy`, `needs_process_boundary`, `reviews_external_cli_code`, `delegation_map_allows_haiku`) and call `route.py` — the SAME router the conductor calls at run time, so plan-time and run-time routing can never disagree (locked: ONE script, NO LLM middleman). The router CLI, profile field set, and verdict shapes are in the routing card (`{rbtv_path}/orchestration/skills/orchestrating/cards/routing.md` §2a) — call it as that card names; do NOT restate the algorithm here. Record the returned `(model, variant)` as the task's `executor` pin; the reviewer pin (router-derivable too — floor sonnet, ≥ executor+1) lands the same way. A `halt_seam` verdict (`stakes` or `cross-strategy`) is a genuine judgment seam — resolve it WITH the user, as today, then re-run; never let the script decide it.
 
+**Emit `known_input_size` for known-corpus tasks.** When a task's required read-set is an enumerable `[FULL READ]` allowlist (every file to be read is named up front — a known corpus), the planner MUST measure that read-set and emit `known_input_size` in the task-profile JSON alongside `inlined_context_size`, so the router GATE (`{rbtv_path}/orchestration/skills/orchestrating/cards/routing.md` §2a) receives the total known input and can size the worker correctly.
+
+Measurement procedure (MUST follow exactly):
+
+1. For each file in the named read-set, run: `python {rbtv_path}/orchestration/workflows/source-mining/scripts/slice.py --inspect --source <file>` — the first output line prints `total_chars: <N>`. Sum `total_chars` across all files.
+2. Add the dispatch-prompt character count to that sum.
+3. Convert to tokens: `known_input_size = ceil(total_chars / 3)` — divide by 3, round UP (ceiling). The result MUST be a clean positive integer.
+4. Emit `known_input_size` in the task-profile JSON at the same location as `inlined_context_size`. The router reads it via `.get` (it is optional, not a required field).
+
+An **open-ended** task — one whose read-set is NOT enumerable up front — MUST NOT emit `known_input_size`. The existing boundedness scope already routes open-ended tasks to the largest worker; there is no `footprint_class` sentinel.
+
 **LIGHT** mode resolves only the critical subset the user chooses; the rest stay model-bound-at-routing-time. The router call is available in LIGHT for any task the user elects to pre-pin. A plain (non-orchestrated) plan — or a workspace without the orchestration module installed — skips this step and the router call entirely; the task is authored to the generic contract and bound to a worker at routing time. HALT discipline is mode-independent in every case.
 
 ---

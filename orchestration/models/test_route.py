@@ -2213,3 +2213,307 @@ variants:
         assert rank_order.index("high-coding") < rank_order.index("low-coding"), (
             f"high-coding should rank before low-coding, got order: {rank_order}"
         )
+
+
+# ---------------------------------------------------------------------------
+# p1-1: Footprint-aware routing (size-the-worker GATE + biggest-capable fallback)
+# ---------------------------------------------------------------------------
+# Spec: footprint-routing-spec.md (token-efficiency-refactor plan). The optional profile field
+# `known_input_size` (tokens) turns the window check into a utilization cap: a worker passes only
+# if effective_window >= ceil(known_input_size / cap) (default cap 0.20 ⇒ window >= 5×input). When
+# NO worker clears the cap the footprint fallback routes to the biggest-capable worker over the
+# full enumeration (the deliberate over-cap last resort). A profile with NO known_input_size routes
+# byte-identically to today. Live-catalog windows: Opus 1,000,000 · Codex 258,000 · Kimi 262,144 ·
+# Sonnet 200,000. _run_route() passes --models-dir (election bypassed) so the full roster is reached.
+
+class TestFootprintRouting:
+    """p1-1 spec Test Plan #1-#5: the footprint-aware GATE + biggest-capable fallback."""
+
+    def test_bounded_300k_routes_to_biggest_capable_opus(self):
+        """Test #1: a >300k-token bounded single-unit task never routes to a sub-1M worker — the
+        footprint fallback picks claude-code-native:opus (1M), NOT kimi/codex/sonnet. The trace
+        shows the window-cap drops + the footprint fallback to biggest-capable."""
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=5000,
+            known_input_size=320000,
+        )
+        exit_code, result = _run_route(profile, explain=True)
+        assert exit_code == 0, f"Non-zero exit: {result}"
+        assert result["verdict"] == "route"
+        assert result["model"] == "claude-code-native" and result["variant"] == "opus", (
+            f"bounded 320k must route to the biggest-capable worker (opus/1M), "
+            f"got {result['model']}:{result['variant']}"
+        )
+        # NOT a sub-1M worker.
+        assert result["model"] not in ("kimi-code-cli", "codex-cli"), "must not route to a sub-1M worker"
+        assert result["variant"] != "sonnet", "must not route to sonnet (200k)"
+        # Trace: a footprint fallback fired and picked opus.
+        explain = result.get("explain", [])
+        fb_fired = [s for s in explain if s.get("stage") == "footprint" and s.get("action") == "fallback_fired"]
+        fb_pick = [s for s in explain if s.get("stage") == "footprint" and s.get("action") == "fallback_pick"]
+        assert fb_fired, f"expected a footprint fallback_fired trace row, got: {explain}"
+        assert fb_pick and fb_pick[0]["effective_window"] == 1000000, (
+            f"footprint fallback should pick the 1M-window worker, got {fb_pick}"
+        )
+
+    def test_explain_shows_known_input_driving_gate_drop(self):
+        """Test #2: the --explain drop reasons name known_input_size, the cap (0.20), and the
+        computed minimum window — distinct from any inlined_context_size message."""
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=5000,
+            known_input_size=320000,
+        )
+        exit_code, result = _run_route(profile, explain=True)
+        assert exit_code == 0
+        explain = result.get("explain", [])
+        # Kimi (262144) drops with a footprint-cap reason naming known_input_size + the min window.
+        kimi_drops = [
+            s for s in explain
+            if s.get("stage") == "filter" and s.get("action") == "drop" and s.get("model") == "kimi-code-cli"
+        ]
+        assert kimi_drops, "expected a kimi GATE-drop row"
+        reasons = " ".join(kimi_drops[0]["reasons"])
+        assert "known_input_size 320000" in reasons, f"drop reason must name known_input_size: {reasons}"
+        # ceil(320000 / 0.20) = 1,600,000 is the computed min window.
+        assert "1600000" in reasons, f"drop reason must name the computed min window 1600000: {reasons}"
+        assert "0.2" in reasons, f"drop reason must name the cap 0.2: {reasons}"
+        # The footprint message is DISTINCT from the inlined_size message form.
+        assert "inlined_size" not in reasons, (
+            f"footprint drop must not use the inlined_size message form: {reasons}"
+        )
+
+    def test_back_compat_no_known_input_routes_identically(self):
+        """Test #3 (back-compat — SACRED): a profile with NO known_input_size routes byte-identically
+        to today. The cap branch and the fallback never fire when the field is absent. Asserted two
+        ways: (a) the with-field-absent verdict equals the explicit pre-change baseline pair, and
+        (b) the field-absent run carries NO footprint-stage trace rows at all."""
+        # (a) The unchanged-path verdict over the full corpus is kimi:kimi (the pre-footprint baseline).
+        profile_no_field = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+        )
+        exit_code, result = _run_route(profile_no_field, explain=True)
+        assert exit_code == 0
+        assert (result["model"], result["variant"], result["carrier"]) == (
+            "kimi-code-cli", "kimi", "cli-process",
+        ), f"back-compat broken: no-known_input_size verdict changed to {result['model']}:{result['variant']}"
+        # (b) No footprint machinery runs when the field is absent.
+        explain = result.get("explain", [])
+        footprint_rows = [s for s in explain if s.get("stage") == "footprint"]
+        assert footprint_rows == [], (
+            f"footprint stage must be inert when known_input_size is absent, got: {footprint_rows}"
+        )
+        # And the GATE used the inlined_size message form, never the cap form.
+        all_drop_reasons = " ".join(
+            r for s in explain if s.get("action") == "drop" for r in s.get("reasons", [])
+        )
+        assert "utilization cap" not in all_drop_reasons, (
+            "the utilization-cap GATE must not fire when known_input_size is absent"
+        )
+
+    def test_cap_boundary_200000_via_gate_200001_via_fallback(self):
+        """Test #4: cap boundary behaves exactly. 200000 clears the normal GATE (Opus, no fallback);
+        200001 drops Opus at the GATE (needs ceil(200001/0.20)=1,000,005) then falls back to Opus."""
+        # 200000 → ceil(200000/0.20) = 1,000,000; Opus (1M) PASSES the normal GATE. No fallback.
+        p_at = _profile(
+            boundedness="fully-bounded", task_type="code",
+            inlined_context_size=5000, known_input_size=200000,
+        )
+        exit_code, r_at = _run_route(p_at, explain=True)
+        assert exit_code == 0
+        assert r_at["model"] == "claude-code-native" and r_at["variant"] == "opus", (
+            f"200000 must route to opus via the normal GATE, got {r_at['model']}:{r_at['variant']}"
+        )
+        fb_at = [s for s in r_at.get("explain", []) if s.get("stage") == "footprint" and s.get("action", "").startswith("fallback")]
+        assert not fb_at, f"200000 must NOT trigger the footprint fallback (Opus clears the GATE): {fb_at}"
+
+        # 200001 → ceil(200001/0.20) = 1,000,005; Opus (1M) DROPS at the GATE → fallback → Opus.
+        p_over = _profile(
+            boundedness="fully-bounded", task_type="code",
+            inlined_context_size=5000, known_input_size=200001,
+        )
+        exit_code, r_over = _run_route(p_over, explain=True)
+        assert exit_code == 0
+        assert r_over["model"] == "claude-code-native" and r_over["variant"] == "opus", (
+            f"200001 must route to opus via the fallback, got {r_over['model']}:{r_over['variant']}"
+        )
+        fb_over = [s for s in r_over.get("explain", []) if s.get("stage") == "footprint" and s.get("action") == "fallback_pick"]
+        assert fb_over, "200001 must trigger the footprint fallback (Opus needs 1,000,005, has 1,000,000)"
+        # The opus GATE-drop names the 1,000,005 min window.
+        opus_drops = [
+            s for s in r_over.get("explain", [])
+            if s.get("stage") == "filter" and s.get("action") == "drop"
+            and s.get("model") == "claude-code-native" and s.get("variant") == "opus"
+        ]
+        assert opus_drops and "1000005" in " ".join(opus_drops[0]["reasons"]), (
+            f"opus GATE-drop at 200001 must name min window 1000005, got {opus_drops}"
+        )
+
+    def test_cap_is_configurable_without_code_change(self):
+        """Test #5: the cap is configurable without a code change. With window_utilization_cap=0.5,
+        the GATE uses 2× (300000→600000) not 5×, so Opus (1M) clears the GATE and no fallback fires;
+        under the default 0.20 the SAME input needs 1.5M, Opus fails, and the fallback fires. Exercised
+        through route.route() with the cap read from rbtv_cfg (the real _resolve_window_cap path)."""
+        import route
+        cfg_default = route._load_rbtv_json(VAULT_ROOT)  # no window_utilization_cap key → 0.20
+        cfg_half = dict(cfg_default, window_utilization_cap=0.5)
+        profile = _profile(
+            boundedness="fully-bounded", task_type="code",
+            inlined_context_size=5000, known_input_size=300000,
+        )
+        # Default cap 0.20: ceil(300000/0.20)=1,500,000 > Opus 1M → fallback fires.
+        r_default = route.route(dict(profile), RBTV_ROOT, VAULT_ROOT, cfg_default, {}, explain=True)
+        fb_default = [s for s in r_default.get("explain", []) if s.get("stage") == "footprint" and s.get("action", "").startswith("fallback")]
+        assert fb_default, "default cap 0.20: 300k needs 1.5M, no worker clears → fallback must fire"
+        assert r_default["model"] == "claude-code-native" and r_default["variant"] == "opus"
+
+        # Cap 0.5: ceil(300000/0.5)=600,000 <= Opus 1M → Opus clears the GATE, NO fallback.
+        r_half = route.route(dict(profile), RBTV_ROOT, VAULT_ROOT, cfg_half, {}, explain=True)
+        fb_half = [s for s in r_half.get("explain", []) if s.get("stage") == "footprint" and s.get("action", "").startswith("fallback")]
+        assert not fb_half, f"cap 0.5: 300k needs only 600k, Opus clears the GATE → no fallback: {fb_half}"
+        assert r_half["model"] == "claude-code-native" and r_half["variant"] == "opus"
+        # The drop math for a sub-600k worker reflects the 0.5 cap (kimi 262144 < 600000).
+        kimi_drops = [
+            s for s in r_half.get("explain", [])
+            if s.get("stage") == "filter" and s.get("action") == "drop" and s.get("model") == "kimi-code-cli"
+        ]
+        assert kimi_drops and "600000" in " ".join(kimi_drops[0]["reasons"]), (
+            f"cap 0.5 GATE math must use 600000 (=300000/0.5), got {kimi_drops}"
+        )
+
+    def test_cap_resolution_default_and_malformed(self):
+        """Test #4 cap-resolution unit (spec Behavior 4 + Edge Cases): absent key → 0.20; a value
+        outside (0,1], a non-numeric value, and a bool all → 0.20 + a logged cap_invalid note; a
+        valid in-range value is honored. Never crashes."""
+        import route
+        # Absent → default, no log.
+        log = []
+        assert route._resolve_window_cap({}, log) == 0.20 and log == []
+        # Valid in-range → honored, no log.
+        log = []
+        assert route._resolve_window_cap({"window_utilization_cap": 0.35}, log) == 0.35 and log == []
+        # cap == 1.0 is the inclusive upper bound → honored.
+        log = []
+        assert route._resolve_window_cap({"window_utilization_cap": 1.0}, log) == 1.0
+        # Out of range / zero / negative / non-numeric / bool → default + logged. (None is the
+        # 'absent' case — tested above via {} — so it is NOT in this malformed set.)
+        for bad in (2.5, 0, 0.0, -0.1, "lots", True, False):
+            log = []
+            got = route._resolve_window_cap({"window_utilization_cap": bad}, log)
+            assert got == 0.20, f"malformed cap {bad!r} must fall back to 0.20, got {got}"
+            assert any(s.get("action") == "cap_invalid" for s in log), (
+                f"malformed cap {bad!r} must log a cap_invalid note, got {log}"
+            )
+
+    def test_known_input_zero_routes_normally(self):
+        """Spec Edge Case: known_input_size=0 → ceil(0/cap)=0, every worker passes the cap (a
+        0-token known input fits anything). Must not crash; routes like the no-field path (kimi)."""
+        profile = _profile(
+            boundedness="fully-bounded", task_type="code",
+            inlined_context_size=10000, known_input_size=0,
+        )
+        exit_code, result = _run_route(profile, explain=True)
+        assert exit_code == 0
+        assert result["verdict"] == "route"
+        assert result["model"] == "kimi-code-cli" and result["variant"] == "kimi", (
+            f"known_input_size=0 must route normally (kimi), got {result['model']}:{result['variant']}"
+        )
+        # No fallback (every worker cleared the cap at min_window 0).
+        fb = [s for s in result.get("explain", []) if s.get("stage") == "footprint" and s.get("action", "").startswith("fallback")]
+        assert not fb, f"known_input_size=0 must not trigger the fallback: {fb}"
+
+    def test_fallback_respects_web_gate_returns_zero_candidates(self):
+        """Spec Behavior 7 + Edge Case: the fallback respects the non-window gates. A needs_web code
+        leaf where no web-capable worker is eligible → the fallback finds NO eligible worker and
+        returns None → route() proceeds to its existing zero_candidates error (UNCHANGED)."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        # needs_web=True + a code task: the live elected/available code executors are web_access:false.
+        # With known_input_size present and every window-passing worker already barred by the web gate,
+        # the fallback (which keeps the web gate) also finds nothing → zero_candidates.
+        profile = _profile(
+            boundedness="fully-bounded", task_type="code",
+            inlined_context_size=5000, known_input_size=320000, needs_web=True,
+        )
+        # Route over the live election (claude-code-native only) — opus/sonnet are web_access:false,
+        # so the web gate empties the survivor set AND the fallback set.
+        result = route.route(dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True, elected=["claude-code-native"])
+        assert result.get("verdict") != "route", (
+            f"a needs_web code leaf with no web-capable worker must NOT route, got {result}"
+        )
+        assert result.get("error") == "zero_candidates", (
+            f"expected zero_candidates (the fallback honors the web gate), got {result.get('error')}"
+        )
+
+    def test_fallback_picks_biggest_window_across_families_text_leaf(self, tmp_path):
+        """Spec Behavior 5 (biggest-capable = LARGEST effective context_window, not Claude-by-name).
+        On a TEXT leaf the code-role GATE does NOT bar non-code workers, so a non-Claude worker with a
+        WINDOW LARGER than Opus must win the fallback. Proven on a deterministic synthetic corpus (both
+        auth: none → no api-key dependency): a 1.2M-window text worker beats a 1M-window opus when no
+        worker clears the cap. Guards against a 'fallback always = opus' regression — the live code-leaf
+        tests can't catch it because the code gate removes every >1M API worker, leaving opus uniquely
+        biggest. This exercises the window-max selection across model families directly."""
+        import route
+        big_text = tmp_path / "orchestration" / "models" / "bigtext-api"
+        big_text.mkdir(parents=True)
+        (big_text / "manifest.yaml").write_text(
+            "model: bigtext-api\n"
+            "evidence_status: validated\n\n"
+            "variants:\n"
+            "  - variant: huge\n"
+            "    reasoning: 6\n"
+            "    context_window: 1200000\n"   # LARGER than opus 1M
+            "    max_output: 64000\n"
+            "    cost: 2\n"
+            "    coding: 1\n"
+            "    web_access: false\n"
+            "    routable_for: [text-synthesis, reasoning]\n"  # text-eligible, code-INELIGIBLE
+            "    auth:\n"
+            "      required: false\n"
+            "      method: none\n"
+            "      interactive: false\n",
+            encoding="utf-8",
+        )
+        opus = tmp_path / "orchestration" / "models" / "claude-code-native"
+        opus.mkdir(parents=True)
+        (opus / "manifest.yaml").write_text(
+            "model: claude-code-native\n"
+            "evidence_status: validated\n\n"
+            "variants:\n"
+            "  - variant: opus\n"
+            "    reasoning: 7\n"
+            "    context_window: 1000000\n"
+            "    max_output: 64000\n"
+            "    cost: 6\n"
+            "    coding: 6\n"
+            "    web_access: false\n"
+            "    auth:\n"
+            "      required: false\n"
+            "      method: none\n"
+            "      interactive: false\n",
+            encoding="utf-8",
+        )
+        # Fully-bounded TEXT leaf; cap 0.20 ⇒ min_window = ceil(900000/0.20) = 4,500,000. Neither
+        # worker clears it → fallback. Biggest effective window = bigtext 1.2M > opus 1M.
+        profile = _profile(
+            boundedness="fully-bounded", task_type="text",
+            inlined_context_size=5000, known_input_size=900000,
+        )
+        result = route.route(dict(profile), tmp_path, tmp_path, {}, {}, explain=True)
+        assert result["verdict"] == "route"
+        assert result["model"] == "bigtext-api" and result["variant"] == "huge", (
+            f"text-leaf fallback must pick the LARGEST-window worker across families "
+            f"(bigtext 1.2M > opus 1M), got {result['model']}:{result['variant']}"
+        )
+        fb_pick = [
+            s for s in result.get("explain", [])
+            if s.get("stage") == "footprint" and s.get("action") == "fallback_pick"
+        ]
+        assert fb_pick and fb_pick[0]["effective_window"] == 1200000, (
+            f"fallback_pick must report the 1.2M window as biggest-capable, got {fb_pick}"
+        )
