@@ -41,12 +41,22 @@ def compute_proposed(
     operation: str,
     *,
     scope_root: Path | str | None = None,
+    workspace_root: Path | str | None = None,
 ) -> str | None:
     """Return the operation-aware replacement for ``candidate.match``.
 
     Returns the same string as ``match`` when no edit is needed (pure-move
     wikilinks).  Returns ``None`` when a single correct replacement cannot be
     computed deterministically.
+
+    ``workspace_root`` is the wider workspace/vault root (the git top level) when
+    the scan is scoped to a SUBTREE of it. It anchors a reference written
+    relative to that wider root — for an inline-code path whose moved target
+    (``old``) sits OUTSIDE ``scope_root``, ``old`` is expressed absolutely and no
+    scope-relative resolution can match it, so the replacement is computed in the
+    workspace-root-relative form the reference was written in. ``None`` / equal to
+    ``scope_root`` (the common case where the scan root IS the workspace) is a
+    no-op and preserves the prior scope-only behaviour.
     """
     if operation not in VALID_OPERATIONS:
         raise ReplacementError(f"invalid operation: {operation!r}")
@@ -55,6 +65,11 @@ def compute_proposed(
         return None
 
     scope_root_path = Path(scope_root).expanduser().resolve()
+    workspace_root_path = (
+        Path(workspace_root).expanduser().resolve()
+        if workspace_root is not None
+        else None
+    )
     old_rel = _normalize_old(old, scope_root_path)
     new_rel = _normalize_old(new, scope_root_path)
 
@@ -67,7 +82,9 @@ def compute_proposed(
     if candidate.syntax == "config-path":
         return _propose_config_path(candidate, old_rel, new_rel, operation, scope_root_path)
     if candidate.syntax == "inline-code-path":
-        return _propose_inline_code_path(candidate, old_rel, new_rel, scope_root_path)
+        return _propose_inline_code_path(
+            candidate, old_rel, new_rel, scope_root_path, workspace_root_path
+        )
     if candidate.syntax == "literal-path":
         return _propose_literal_path(candidate, old_rel, new_rel)
 
@@ -309,24 +326,27 @@ def _propose_inline_code_path(
     old_rel: str,
     new_rel: str,
     scope_root: Path,
+    workspace_root: Path | None = None,
 ) -> str | None:
     """Compute the replacement for an inline-code path reference.
 
     ``candidate.match`` is the bare path inside the backticks (the backticks
     themselves are preserved by the act layer, which rewrites only the path).
-    The path keeps its resolution form — scope-root-relative or relative to the
-    referring file's directory — so the rewrite matches how the reference was
-    originally written. Returns ``None`` when the form is genuinely ambiguous,
-    leaving the reference surfaced with no proposed rewrite.
+    The path keeps its resolution form — scope-root-relative, relative to the
+    referring file's directory, or workspace-root-relative (when the scan is a
+    subtree and the moved target sits outside ``scope_root``) — so the rewrite
+    matches how the reference was originally written. Returns ``None`` when the
+    form is genuinely ambiguous, leaving the reference surfaced with no proposed
+    rewrite.
     """
     target = candidate.match.strip()
     if "/" not in target:
         return None
     file_dir = str(Path(candidate.file).parent)
-    form = _resolve_form(target, file_dir, scope_root, old_rel)
+    form = _resolve_form(target, file_dir, scope_root, old_rel, workspace_root)
     if form is None:
         return None
-    return _compute_path_value(form, file_dir, new_rel, scope_root)
+    return _compute_path_value(form, file_dir, new_rel, scope_root, workspace_root)
 
 
 # ---------------------------------------------------------------------------
@@ -366,12 +386,23 @@ def _resolve_form(
     file_dir: str,
     scope_root: Path,
     old_rel: str,
+    workspace_root: Path | None = None,
 ) -> str | None:
-    """Determine whether ``target`` matched ``old_rel`` as scope-root-relative or file-relative.
+    """Determine the resolution form by which ``target`` matched ``old_rel``.
 
-    Returns ``"scope-root"``, ``"file-dir"``, or ``None`` when genuinely
-    ambiguous or neither resolution matches.  When the referring file sits at
-    the scope root the two forms coincide, so scope-root-relative is preferred.
+    Returns ``"scope-root"``, ``"file-dir"``, ``"workspace-root"``, or ``None``
+    when genuinely ambiguous or neither resolution matches.  When the referring
+    file sits at the scope root the scope/file forms coincide, so scope-root-
+    relative is preferred.
+
+    ``workspace-root`` only applies when ``workspace_root`` is given, differs from
+    ``scope_root``, and ``old_rel`` is an ABSOLUTE path (an ``old`` outside the
+    scan scope — the form ``_normalize_old`` returns for an out-of-scope target).
+    In that case ``target`` is resolved against the workspace root and matched
+    against the absolute ``old_rel``. The match is rejected (``None``) when a
+    file-relative interpretation of ``target`` ALSO resolves to a DIFFERENT
+    EXISTING file — the ambiguity guard the caller relies on to leave the
+    rewrite empty rather than guess.
     """
     root = scope_root.expanduser().resolve()
 
@@ -389,7 +420,62 @@ def _resolve_form(
         return "scope-root"
     if file_matches:
         return "file-dir"
+
+    if workspace_root is not None:
+        ws_form = _resolve_workspace_form(
+            target, file_dir, root, old_rel, workspace_root
+        )
+        if ws_form is not None:
+            return ws_form
     return None
+
+
+def _resolve_workspace_form(
+    target: str,
+    file_dir: str,
+    scope_root: Path,
+    old_rel: str,
+    workspace_root: Path,
+) -> str | None:
+    """Return ``"workspace-root"`` when ``target`` matched an out-of-scope ``old``.
+
+    Active only when ``workspace_root`` differs from ``scope_root`` and ``old_rel``
+    is absolute (``old`` outside the scan scope). ``target`` is resolved against
+    the workspace root; a match against the absolute ``old_rel`` selects the
+    workspace-root form. Rejected (``None``) when a file-relative interpretation
+    of ``target`` resolves to a DIFFERENT existing file (the ambiguity guard).
+    """
+    ws_root = workspace_root.expanduser().resolve()
+    if ws_root == scope_root:
+        return None
+    # ``old_rel`` is workspace-anchored only when it is absolute (out of scope).
+    if not Path(old_rel).is_absolute():
+        return None
+
+    ws_resolved = _resolve_abs(target, ws_root)
+    if ws_resolved is None or not _case_equal(ws_resolved, old_rel):
+        return None
+
+    # Ambiguity guard: if reading ``target`` relative to the referring file's
+    # directory points at a DIFFERENT real file, the form is ambiguous — leave
+    # the rewrite empty rather than guess.
+    file_resolved_abs = _resolve_abs(target, scope_root / file_dir)
+    if (
+        file_resolved_abs is not None
+        and not _case_equal(file_resolved_abs, ws_resolved)
+        and Path(file_resolved_abs).exists()
+    ):
+        return None
+
+    return "workspace-root"
+
+
+def _resolve_abs(target: str, base: Path) -> str | None:
+    """Return the absolute POSIX path ``target`` names under ``base``, or None."""
+    try:
+        return (base / target).resolve().as_posix()
+    except (OSError, ValueError, RuntimeError):
+        return None
 
 
 def _resolve_path(target: str, base: Path, scope_root: Path) -> str | None:
@@ -409,6 +495,7 @@ def _compute_path_value(
     file_dir: str,
     new_rel: str,
     scope_root: Path,
+    workspace_root: Path | None = None,
 ) -> str | None:
     """Compute the new path string in the requested resolution form."""
     root = scope_root.expanduser().resolve()
@@ -419,6 +506,20 @@ def _compute_path_value(
 
     if form == "file-dir":
         return _compute_relative_path(file_dir, new_rel, scope_root)
+
+    if form == "workspace-root":
+        if workspace_root is None:
+            return None
+        ws_root = workspace_root.expanduser().resolve()
+        # Express ``new`` in the same workspace-root-relative form the reference
+        # was written in. ``new`` is expected under the workspace root (the move
+        # target); a ``new`` outside it cannot be written workspace-relative, so
+        # the rewrite is left empty (None) rather than emitting a ``../`` path
+        # for a surfaced inline-code hint.
+        try:
+            return new_abs.relative_to(ws_root).as_posix()
+        except ValueError:
+            return None
 
     return None
 

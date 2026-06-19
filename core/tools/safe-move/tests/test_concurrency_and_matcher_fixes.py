@@ -144,6 +144,52 @@ def test_inline_code_path_outside_scope_root_is_surfaced(repo_builder):
         (r["file"], r["syntax"], r["class"]) for r in consulted["references"]
     ] == [("proj/tasks.md", "inline-code-path", classify.CLASS_SURFACE)]
 
+    # The surfaced cross-root ref now carries a NON-EMPTY, correct proposed: the
+    # new path expressed in the SAME vault-root-relative inline-code form the
+    # reference was written in (the replace.py half of the 700a0c2 fix). Still a
+    # surface-class hint the caller may --apply — inline-code is never auto.
+    (ref,) = consulted["references"]
+    assert ref["proposed"] == "1-projects/proj/plan.md"
+
+
+def test_inline_code_path_outside_scope_root_ambiguous_proposed_is_empty(repo_builder):
+    """A cross-root inline-code ref whose file-relative reading hits a DIFFERENT
+    real file is surfaced but left with an EMPTY proposed (the ambiguity guard).
+
+    The same backtick path resolves two ways: workspace-root-relative it names the
+    moved (out-of-scope) `old`; file-relative it names a different, real in-scope
+    file. With two valid readings landing on different real files, safe-move must
+    NOT guess a rewrite — it surfaces the ref with proposed='' (zero false
+    positives).
+    """
+    files = {
+        # `old`: out-of-scope, at workspace-relative path data/x.md.
+        "data/x.md": "OLD target\n",
+        "projects/proj/proj.md": "# proj\n",
+        # A DIFFERENT real file reachable file-relative from the referring file:
+        # referring file projects/sub/notes.md -> file_dir projects/sub, so the
+        # backtick `data/x.md` read file-relative is projects/sub/data/x.md.
+        "projects/sub/data/x.md": "DIFFERENT real file\n",
+        "projects/sub/notes.md": "ambiguous ref: `data/x.md` here\n",
+    }
+    fix = repo_builder("rootrel-inline-ambiguous", files, tracked=list(files))
+
+    consulted = build_consult_result(
+        str(fix.repo / "data" / "x.md"),
+        str(fix.repo / "projects" / "proj" / "x.md"),
+        scope_root=str(fix.repo / "projects"),
+    )
+
+    # The ref is still SURFACED (the matcher resolves it against the workspace
+    # root and matches `old`)…
+    assert [
+        (r["file"], r["syntax"], r["class"]) for r in consulted["references"]
+    ] == [("sub/notes.md", "inline-code-path", classify.CLASS_SURFACE)]
+    # …but with NO proposed rewrite, because the file-relative reading points at a
+    # different real file — the ambiguity guard leaves it empty rather than guess.
+    (ref,) = consulted["references"]
+    assert ref["proposed"] == ""
+
 
 # ---------------------------------------------------------------------------
 # Task B — wikilink basename collision (over-match bare, miss path-qualified)

@@ -52,16 +52,22 @@ def build_consult_result(
     # One provider shared across the non-code and code scans so each scoped file
     # is read exactly once per run (folder moves no longer re-read per sub-target).
     provider = scope.ContentProvider()
+    # The workspace (vault) root anchors references written relative to it. When
+    # the scan is scoped to a SUBTREE (workspace_root != scope_root), a vault-root-
+    # relative inline-code path whose moved target sits OUTSIDE the scope is
+    # rewritten in that wider form; None / equal-to-scope (the common case)
+    # leaves the prior scope-only rewrite behaviour unchanged.
+    workspace_root = scope.git_toplevel(root)
     nested: list[Path] = []
     if old_abs.is_dir():
         references, folder_cascade, candidate_warnings, nested = _build_folder_references(
-            old_rel, new_rel, old_abs, root, walked, provider
+            old_rel, new_rel, old_abs, root, walked, provider, workspace_root
         )
         _maybe_warn_index_cascade(old_abs, new_rel, root, warnings)
     else:
         operation = classify.classify_operation(old_rel, new_rel)
         references, candidate_warnings = _build_file_references(
-            old_rel, new_rel, operation, root, walked, provider
+            old_rel, new_rel, operation, root, walked, provider, workspace_root
         )
         folder_cascade = None
         warnings.extend(_basename_collision_warnings(old_rel, walked))
@@ -218,6 +224,7 @@ def _build_file_references(
     scope_root: Path,
     walked: list[scope.WalkedFile],
     provider: scope.ContentProvider,
+    workspace_root: Path | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Discover and classify references for a single-file target."""
     references: list[dict[str, Any]] = []
@@ -259,6 +266,7 @@ def _build_file_references(
                 new_rel,
                 operation,
                 scope_root=scope_root,
+                workspace_root=workspace_root,
             )
             ref_class = classify.classify(candidate, operation, scope_root=scope_root)
         if proposed is None or proposed == "":
@@ -276,6 +284,7 @@ def _build_folder_references(
     scope_root: Path,
     walked: list[scope.WalkedFile],
     provider: scope.ContentProvider,
+    workspace_root: Path | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, list[str]], list[dict[str, Any]], list[Path]]:
     """Discover and classify references for a folder target.
 
@@ -372,6 +381,7 @@ def _build_folder_references(
                     sub_new,
                     sub_op,
                     scope_root=scope_root,
+                    workspace_root=workspace_root,
                 )
                 ref_class = classify.classify(
                     class_candidate, sub_op, scope_root=scope_root
