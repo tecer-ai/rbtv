@@ -32,6 +32,12 @@ It writes `<deck>.lean.html` — both comment stores preserved (a readable diges
 
 **Design changes are the exception — read the full file.** When a comment requests a visual change (color, type, size, spacing, layout, image), read the FULL deck (or the full markup + CSS of the target element) before applying it. The lean view deletes exactly the visual state the change operates on; applying a design comment from the lean view alone is blind.
 
+## Read the narrative source of truth — the content-spec (audit-route only)
+
+Before reconciling the pass, check the artifact's folder (the same folder you scan for the version suffix) for a `content-spec[-vN].md`. If one exists, you were dispatched via the studio-loop audit route (`{rbtv_path}/studio/workflows/studio-loop/workflow.md` § Two-phase surgical revision): a Strategist (PHASE 1) already reconciled the comments into a revised narrative and wrote it there. Read the HIGHEST version (an unsuffixed original is v1) — it is the narrative source of truth for this pass. Implement the comments to REALIZE that narrative; where the content-spec and a comment speak to the same point, the content-spec is the narrative authority and the comment locates the element-level edit. NEVER re-derive or override the narrative the content-spec fixes.
+
+When NO `content-spec[-vN].md` exists — a direct invocation (human gate, agent-instruction block, or owner request) — there is no Strategist hand-off; proceed from the comments alone.
+
 ## Reconcile the Pass First
 
 Before applying ANY comment, read the full set you located above as ONE batch — do NOT start the per-comment loop on first sight of a comment. A deck is a single artifact; comments that each look fine alone can contradict or depend on one another.
