@@ -145,8 +145,9 @@ def assemble(slide_ids, out_path, lang=None, title=None, accent=None, client_log
                 shutil.copy2(src, dst)
                 assets_copied.append(asset)
 
-    # Update as-built.md
-    as_built_path = os.path.join(HERE, "as-built.md")
+    # Update as-built.md — write into the OUTPUT dir, never the (tracked) library
+    # dir, so assembling from a git-tracked fixture library never dirties the tree.
+    as_built_path = os.path.join(out_dir, "as-built.md")
     entry = f"- {os.path.basename(out_path)} ({', '.join(slide_ids)})\n"
     if os.path.exists(as_built_path):
         with open(as_built_path, "a", encoding="utf-8") as f:
