@@ -116,6 +116,84 @@ def handle_library_load(payload):
 
 
 # ---------------------------------------------------------------------------
+# handle_library_validate_target — lightweight validation for an EXPORT TARGET
+# ---------------------------------------------------------------------------
+def handle_library_validate_target(payload):
+    """Validate a folder as an export-TARGET library WITHOUT running its engine.
+
+    The Export-to-library "Choose…" picker needs only the target folder PATH,
+    validated against what the export actually requires (handle_deck_export):
+      1. library.json exists and parses (decompose.load_library_json reads it);
+      2. manifest.md exists and has a "## Slides" section with a table
+         (exported rows are appended there via _append_rows_to_slides_table).
+
+    It deliberately does NOT run the target's vendored assemble.py engine: the
+    export pipeline never invokes it, so requiring it here wrongly rejects valid
+    export targets that do not vendor the engine binary. The left-rail browse
+    picker still uses the full catalog load (handle_library_load) — it genuinely
+    needs the parsed slide catalog to render the grid.
+
+    Returns (200, {"ok": True, "path": path}) on success, or
+            (200, {"ok": False, "errors": [...]}) listing every defect.
+    The GUI shows ok:false as an invalid-target message; HTTP stays 200 so the
+    client treats it as a clean rejection, never a thrown network error.
+    """
+    path = payload.get("path")
+    if not path:
+        return (500, {"error": "Missing 'path'"})
+
+    root = pathlib.Path(path)
+    errors: list[str] = []
+
+    if not root.is_dir():
+        return (200, {"ok": False, "errors": [f"Not a folder: {path}"]})
+
+    # 1. library.json must exist and parse.
+    library_json_path = root / "library.json"
+    if not library_json_path.is_file():
+        errors.append("library.json not found — not a slide library.")
+    else:
+        try:
+            json.loads(library_json_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            errors.append(f"library.json is not valid JSON: {exc}")
+
+    # 2. manifest.md must exist and carry a "## Slides" table (where exported
+    #    rows are appended). Reuse the same structural scan the export append uses.
+    manifest_path = root / "manifest.md"
+    if not manifest_path.is_file():
+        errors.append("manifest.md not found — nowhere to record exported slides.")
+    else:
+        try:
+            lines = manifest_path.read_text(encoding="utf-8").splitlines()
+        except Exception as exc:
+            errors.append(f"manifest.md could not be read: {exc}")
+            lines = []
+        slides_start = None
+        for i, line in enumerate(lines):
+            if line.strip() == "## Slides":
+                slides_start = i
+                break
+        if slides_start is None:
+            errors.append("manifest.md has no '## Slides' section — cannot place exported rows.")
+        else:
+            has_table_row = False
+            for line in lines[slides_start + 1:]:
+                stripped = line.strip()
+                if stripped.startswith("## "):
+                    break
+                if "|" in line:
+                    has_table_row = True
+                    break
+            if not has_table_row:
+                errors.append("manifest.md '## Slides' section has no table — cannot place exported rows.")
+
+    if errors:
+        return (200, {"ok": False, "errors": errors})
+    return (200, {"ok": True, "path": path})
+
+
+# ---------------------------------------------------------------------------
 # handle_library_asset (build-spec S-B9.3) — serve theme.css / slides/{id}.html
 # ---------------------------------------------------------------------------
 def handle_library_asset(payload):

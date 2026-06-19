@@ -195,6 +195,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif payload.get("path"):
                     set_lib_root(None)
                 self._send_json(status, resp)
+            elif path == "/api/library-validate-target":
+                status, resp = builder_api.handle_library_validate_target(payload)
+                self._send_json(status, resp)
             elif path == "/api/library-asset":
                 status, resp = builder_api.handle_library_asset(payload)
                 self._send_json(status, resp)

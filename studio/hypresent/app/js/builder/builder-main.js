@@ -1,5 +1,5 @@
 // builder-main.js — prez-builder entry: rail + browse + tray + assemble wiring.
-import { pickAndLoadLibrary, loadLibraryByPath } from './library-load.js';
+import { pickAndLoadLibrary, loadLibraryByPath, pickLibraryFolderForExport } from './library-load.js';
 import { pickAndLoadDeck, loadDeckByPath } from './deck-load.js';
 import { renderBrowse, renderArchived, applyLangFilter, markTrayState } from './browse-pane.js';
 import { archiveSlide, unarchiveSlide, listArchived } from './archive-actions.js';
@@ -115,18 +115,25 @@ document.addEventListener("DOMContentLoaded", () => {
   // ── Export-to-library: choose target library ─────────────────────────
   if (exportPickLibBtn) {
     exportPickLibBtn.addEventListener('click', async () => {
-      // Reuse the same pickAndLoadLibrary flow — the user selects a folder and we
-      // capture the path (we don't need to load slide data for export target).
+      // Pick the target folder and validate it as an EXPORT TARGET only. This
+      // does NOT load the slide catalog (pickAndLoadLibrary runs the picked
+      // library's vendored assemble.py engine, which wrongly rejects any valid
+      // target that does not vendor that engine binary). The export pipeline
+      // (/api/deck-export) requires only library.json + a "## Slides" manifest,
+      // which is exactly what pickLibraryFolderForExport validates.
       let result;
       try {
-        result = await pickAndLoadLibrary();
+        result = await pickLibraryFolderForExport();
       } catch (err) {
         setStatus('Library pick failed: ' + err.message, 'error');
         return;
       }
       if (!result) return; // cancelled
       if (result.ok === false) {
-        setStatus('Invalid library selected for export target.', 'error');
+        const detail = (result.errors && result.errors.length)
+          ? result.errors.join(' ')
+          : 'folder is not a valid slide library.';
+        setStatus('Invalid export target: ' + detail, 'error');
         return;
       }
       exportLibPath = result.path;
@@ -135,6 +142,8 @@ document.addEventListener("DOMContentLoaded", () => {
         exportTargetPath.title = result.path;
         exportTargetPath.classList.add('has-path');
       }
+      // Clear any prior error/status now that a valid target is set.
+      setStatus('Export target set: ' + result.path, 'success');
       // Re-evaluate CTA state
       updateExportCtaState(deckSelection.getSelectedUids());
     });
