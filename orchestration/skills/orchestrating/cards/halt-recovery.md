@@ -108,6 +108,8 @@ The death pattern: a CLI worker's tool-loop completes and writes the work produc
 
 **The hang variant** (worker never exits): the conductor kills the dispatch, then runs the SAME disk-state evaluation (steps 1–4) and decides between recover-commit (work is complete) and re-dispatch a fresh worker (work is partial/absent). Same judgment-tier carve-out applies.
 
+**Rest ≠ death — verify a genuine stall before killing or L2-recovering an async worker.** A background/async worker that fires a notification when it "comes to rest" (between turns, or after backgrounding a long op) is NOT thereby dead or hung. An intermediate progress message — anything other than a final, parseable five-field return — signals it may still be progressing. Before treating such a worker as a death (L2) or killing an apparently-hung one, VERIFY a genuine stall: re-check the work-target's disk state across an INTERVAL (still changing → still working) and/or await the next notification — a single stale snapshot is not evidence of a park (disk = truth, read over TIME, not once). Treat it as death/hang only when disk is quiescent AND no structured return is coming. Stopping a still-progressing worker on a stale snapshot is wasted work; where the harness exposes no resume-message channel and the worker IS genuinely parked, "resume" for an Agent-tool worker is a fresh re-dispatch from the verified disk state (§2 transport split).
+
 **What L2 does NOT cover:** a worker that crashed BEFORE writing files (→ L1 deterministic retry or `BLOCKED`); out-of-allowlist edits found at step 3 (→ halt + surface); anything requiring a decision (→ L3).
 
 ---
