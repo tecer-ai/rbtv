@@ -493,6 +493,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (rec && !tray.has(id)) tray.add(rec);
       },
       isAdded: (id) => tray.has(id),
+      onArchive,
     });
     state.showArchived = false;
     renderLiveGrid();

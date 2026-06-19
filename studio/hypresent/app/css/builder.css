@@ -398,6 +398,7 @@
 .slide-stage-bar button:disabled { opacity: .4; cursor: default; }
 .slide-stage-bar .ss-add { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 .slide-stage-bar .ss-add.is-added { background: var(--accent); border-color: var(--accent); }
+.slide-stage-bar .ss-archive svg { width: 14px; height: 14px; vertical-align: middle; }
 .slide-stage-bar .ss-close { margin-left: 4px; }
 .slide-stage-body {
   flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;

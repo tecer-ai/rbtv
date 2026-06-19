@@ -4,7 +4,7 @@ import { getSlideSrcdoc } from './previews.js';
 
 export function createSlideStage(opts) {
   opts = opts || {};
-  const { container, getLibraryPath, getSlideRecord, onAdd, isAdded } = opts;
+  const { container, getLibraryPath, getSlideRecord, onAdd, isAdded, onArchive } = opts;
   if (!container) return { open() {}, close() {} };
 
   let currentId = null;
@@ -14,6 +14,7 @@ export function createSlideStage(opts) {
   let prevBtn = null;
   let nextBtn = null;
   let addBtn = null;
+  let archiveBtn = null;
   let titleEl = null;
   let errorEl = null;
 
@@ -55,6 +56,20 @@ export function createSlideStage(opts) {
       }
     });
     bar.appendChild(addBtn);
+
+    archiveBtn = document.createElement('button');
+    archiveBtn.type = 'button';
+    archiveBtn.className = 'ss-archive';
+    archiveBtn.setAttribute('aria-label', 'Archive slide');
+    archiveBtn.title = 'Archive';
+    archiveBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg> Archive';
+    archiveBtn.addEventListener('click', async () => {
+      if (!currentId || typeof onArchive !== 'function') return;
+      const idToArchive = currentId;
+      close();
+      await onArchive(idToArchive);
+    });
+    bar.appendChild(archiveBtn);
 
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
