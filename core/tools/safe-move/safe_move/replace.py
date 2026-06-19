@@ -395,14 +395,15 @@ def _resolve_form(
     file sits at the scope root the scope/file forms coincide, so scope-root-
     relative is preferred.
 
-    ``workspace-root`` only applies when ``workspace_root`` is given, differs from
-    ``scope_root``, and ``old_rel`` is an ABSOLUTE path (an ``old`` outside the
-    scan scope — the form ``_normalize_old`` returns for an out-of-scope target).
-    In that case ``target`` is resolved against the workspace root and matched
-    against the absolute ``old_rel``. The match is rejected (``None``) when a
-    file-relative interpretation of ``target`` ALSO resolves to a DIFFERENT
-    EXISTING file — the ambiguity guard the caller relies on to leave the
-    rewrite empty rather than guess.
+    ``workspace-root`` applies when ``workspace_root`` is given and differs from
+    ``scope_root`` — regardless of whether ``old`` sits OUTSIDE the scan scope
+    (``old_rel`` absolute, the form ``_normalize_old`` returns for an out-of-scope
+    target) or INSIDE it (``old_rel`` scope-relative). In either case ``target`` is
+    resolved against the workspace root and matched against ``old`` expressed in
+    absolute form. The match is rejected (``None``) when a file-relative
+    interpretation of ``target`` ALSO resolves to a DIFFERENT EXISTING file — the
+    ambiguity guard the caller relies on to leave the rewrite empty rather than
+    guess.
     """
     root = scope_root.expanduser().resolve()
 
@@ -448,12 +449,19 @@ def _resolve_workspace_form(
     ws_root = workspace_root.expanduser().resolve()
     if ws_root == scope_root:
         return None
-    # ``old_rel`` is workspace-anchored only when it is absolute (out of scope).
-    if not Path(old_rel).is_absolute():
-        return None
+    # Express ``old`` in absolute POSIX form for the workspace-anchored compare:
+    # an absolute ``old_rel`` is already that form (``old`` OUTSIDE the scan
+    # scope); a scope-relative ``old_rel`` is resolved under ``scope_root``
+    # (``old`` INSIDE the scan scope, written workspace-root-relative).
+    old_path = Path(old_rel)
+    old_abs = (
+        old_path.as_posix()
+        if old_path.is_absolute()
+        else (scope_root / old_rel).resolve().as_posix()
+    )
 
     ws_resolved = _resolve_abs(target, ws_root)
-    if ws_resolved is None or not _case_equal(ws_resolved, old_rel):
+    if ws_resolved is None or not _case_equal(ws_resolved, old_abs):
         return None
 
     # Ambiguity guard: if reading ``target`` relative to the referring file's

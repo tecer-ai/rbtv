@@ -192,6 +192,101 @@ def test_inline_code_path_outside_scope_root_ambiguous_proposed_is_empty(repo_bu
 
 
 # ---------------------------------------------------------------------------
+# Task C2 — vault-root-relative inline-code paths with a SUBTREE scope that
+# CONTAINS ``old`` (the in-scope twin of Task C). The moved target is INSIDE
+# --scope-root but the reference is written WORKSPACE-ROOT-relative. Previously
+# DROPPED entirely (references: []): the matcher resolved the path against the
+# workspace root in ABSOLUTE form, which never equalled the RELATIVE in-scope
+# ``old_rel`` -> silently missed. Now the in-scope resolution is also expressed
+# scope-relative so it matches, and the proposed is the workspace-root-relative
+# form (identical to the default-scope result).
+# ---------------------------------------------------------------------------
+
+
+def test_inline_code_path_inside_scope_root_is_surfaced(repo_builder):
+    files = {
+        # Moved target — INSIDE the subtree scope (1-projects/proj).
+        "1-projects/proj/done-gate/evidence.md": "evidence\n",
+        "1-projects/proj/proj.md": "# proj\n",
+        # TRUE ref: a WORKSPACE-ROOT-relative inline-code path to `old`, in a file
+        # that is ALSO inside the subtree scope. Previously dropped because the
+        # workspace resolution was absolute while in-scope `old_rel` is relative.
+        "1-projects/proj/tasks.md":
+            "see `1-projects/proj/done-gate/evidence.md` here\n",
+        # DECOY: an inline-code path to a DIFFERENT real in-scope file. It must
+        # NOT be reported as a reference to `old` (zero false positives).
+        "1-projects/proj/sibling.md": "x\n",
+        "1-projects/proj/notes.md": "also `proj/sibling.md` (a different file)\n",
+    }
+    fix = repo_builder("rootrel-inline-inscope", files, tracked=list(files))
+
+    old = fix.repo / "1-projects" / "proj" / "done-gate" / "evidence.md"
+    new = fix.repo / "1-projects" / "proj" / "build" / "done-gate" / "evidence.md"
+
+    # Subtree scope CONTAINS both `old` and the referring file.
+    consulted = build_consult_result(
+        str(old), str(new), scope_root=str(fix.repo / "1-projects" / "proj")
+    )
+
+    # Exactly the workspace-root-relative reference is surfaced — nothing else
+    # (the decoy resolves to a different real file and is not matched). Files are
+    # reported relative to the scan root (1-projects/proj).
+    assert [
+        (r["file"], r["syntax"], r["class"]) for r in consulted["references"]
+    ] == [("tasks.md", "inline-code-path", classify.CLASS_SURFACE)]
+
+    # The surfaced in-scope ref carries a NON-EMPTY proposed in the SAME
+    # workspace-root-relative inline-code form the reference was written in…
+    (ref,) = consulted["references"]
+    assert ref["proposed"] == "1-projects/proj/build/done-gate/evidence.md"
+
+    # …and that proposed MATCHES the default-scope (no --scope-root) result for
+    # the same move — the contract's identical-to-default-scope guarantee.
+    default = build_consult_result(str(old), str(new))
+    default_inline = [
+        r for r in default["references"] if r["syntax"] == "inline-code-path"
+    ]
+    assert len(default_inline) == 1
+    assert default_inline[0]["proposed"] == ref["proposed"]
+
+
+def test_inline_code_path_inside_scope_root_ambiguous_proposed_is_empty(repo_builder):
+    """A workspace-root-relative inline-code ref to an IN-SCOPE ``old`` whose
+    file-relative reading hits a DIFFERENT real in-scope file is surfaced but
+    left with an EMPTY proposed (the in-scope twin of the ambiguity guard).
+    """
+    files = {
+        # `old`: IN-SCOPE, at workspace-relative path projects/proj/data/x.md.
+        "projects/proj/data/x.md": "OLD target\n",
+        "projects/proj/proj.md": "# proj\n",
+        # A DIFFERENT real file reachable file-relative from the referring file:
+        # referring file projects/sub/notes.md -> file_dir projects/sub, so the
+        # backtick `projects/proj/data/x.md` read file-relative is
+        # projects/sub/projects/proj/data/x.md. Make THAT exist too.
+        "projects/sub/projects/proj/data/x.md": "DIFFERENT real file\n",
+        "projects/sub/notes.md": "ambiguous ref: `projects/proj/data/x.md` here\n",
+    }
+    fix = repo_builder("rootrel-inline-inscope-ambiguous", files, tracked=list(files))
+
+    consulted = build_consult_result(
+        str(fix.repo / "projects" / "proj" / "data" / "x.md"),
+        str(fix.repo / "projects" / "proj" / "data" / "x-renamed.md"),
+        scope_root=str(fix.repo / "projects"),
+    )
+
+    # The ref is still SURFACED (resolved against the workspace root, matches
+    # `old`)…
+    assert [
+        (r["file"], r["syntax"], r["class"]) for r in consulted["references"]
+    ] == [("sub/notes.md", "inline-code-path", classify.CLASS_SURFACE)]
+    # …but with NO proposed rewrite — the file-relative reading points at a
+    # different real file, so the ambiguity guard leaves it empty rather than
+    # guess.
+    (ref,) = consulted["references"]
+    assert ref["proposed"] == ""
+
+
+# ---------------------------------------------------------------------------
 # Task B — wikilink basename collision (over-match bare, miss path-qualified)
 # ---------------------------------------------------------------------------
 

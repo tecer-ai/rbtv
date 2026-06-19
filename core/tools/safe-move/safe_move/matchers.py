@@ -232,16 +232,25 @@ def _resolve_target(
 
     # Workspace-root-relative resolution — only when the scan is a subtree of the
     # workspace. A reference written relative to the workspace/vault root resolves
-    # there (not against the narrower scan root) and may land OUTSIDE the scan
-    # scope, so it is returned in absolute POSIX form to match an out-of-scope
-    # ``old``. (Inline-code paths are the caller that passes ``workspace_root``;
-    # they are always surfaced, never auto-applied.)
+    # there (not against the narrower scan root). It is returned in absolute POSIX
+    # form to match an OUT-OF-SCOPE ``old`` (which ``_normalize_old`` expresses
+    # absolutely); when the same resolution lands INSIDE the scan scope it is ALSO
+    # returned in scope-root-relative form so it matches an IN-SCOPE ``old`` (which
+    # ``_normalize_old`` expresses scope-relative) — otherwise a workspace-root-
+    # relative reference to an in-scope target is silently dropped. (Inline-code
+    # paths are the caller that passes ``workspace_root``; they are always
+    # surfaced, never auto-applied.)
     if workspace_root is not None:
         ws_str = str(workspace_root)
         if ws_str != root_str:
             try:
                 ws_joined = os.path.normpath(os.path.join(ws_str, target))
-                candidates.add(ws_joined.replace(os.sep, "/"))
+                if ws_joined == root_str:
+                    candidates.add(".")
+                elif ws_joined.startswith(prefix):
+                    candidates.add(ws_joined[len(prefix):].replace(os.sep, "/"))
+                else:
+                    candidates.add(ws_joined.replace(os.sep, "/"))
             except (ValueError, OSError):
                 pass
 
