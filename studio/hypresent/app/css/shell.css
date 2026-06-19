@@ -241,9 +241,35 @@ input, select, textarea { font: inherit; color: inherit; }
   text-transform: uppercase; color: var(--ink-mut);
 }
 
-/* Threads list scrolls inside the panel — header + composer stay fixed,
-   and the list never grows the shell past the viewport (no window scroll). */
-.comment-threads { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+/* Two collapsible groups (Anchored / Unanchored) share the panel's list area.
+   Header + composer stay fixed; each group's body scrolls inside its own slot,
+   sized by applyCommentGroupSizing() in main.js (busy group borrows the idle
+   group's space; both capped at half only when both would overflow). */
+.comment-groups {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.comment-group { display: flex; flex-direction: column; min-height: 0; flex: 0 1 auto; }
+.comment-group-header {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; padding: 6px 2px; margin: 0;
+  background: none; border: none; cursor: pointer;
+  font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--ink-mut);
+}
+.comment-group[data-group="unanchored"] .comment-group-header { color: var(--accent-deep); }
+.comment-group-caret {
+  width: 13px; height: 13px; flex: none;
+  transform: rotate(90deg); transition: transform .15s ease;
+}
+.comment-group.collapsed .comment-group-caret { transform: rotate(0deg); }
+.comment-group-count {
+  margin-left: auto; font-size: 10.5px; font-weight: 700;
+  min-width: 18px; text-align: center; padding: 1px 6px; border-radius: 999px;
+  background: var(--paper-2); color: var(--ink-mut); letter-spacing: 0;
+}
+.comment-group-body { min-height: 0; overflow-y: auto; }
+.comment-group.collapsed .comment-group-body { display: none; }
 
 .comment-thread {
   border: 1px solid var(--line); border-radius: var(--r-card);
@@ -314,10 +340,6 @@ input, select, textarea { font: inherit; color: inherit; }
 .comment-agent-toggle input { position: absolute; opacity: 0; pointer-events: none; }
 .comment-agent-toggle:has(input:checked) {
   background: var(--ink); border-color: var(--ink); color: var(--paper);
-}
-.comment-unanchored-header {
-  font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
-  color: var(--accent-deep); margin: 10px 0 8px;
 }
 .resolved-line { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--ok); margin-bottom: 8px; }
 .resolved-line svg { width: 14px; height: 14px; }

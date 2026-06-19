@@ -88,8 +88,24 @@
         <div class="comment-panel-header">
           <h3>Comments</h3>
         </div>
-        <div class="comment-threads" id="comment-threads"></div>
-        <div class="comment-unanchored" id="comment-unanchored"></div>
+        <div class="comment-groups" id="comment-groups">
+          <section class="comment-group" data-group="anchored">
+            <button type="button" class="comment-group-header" data-group="anchored" aria-expanded="true">
+              <svg class="comment-group-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+              <span class="comment-group-label">Anchored</span>
+              <span class="comment-group-count" data-group="anchored">0</span>
+            </button>
+            <div class="comment-group-body" id="comment-threads"></div>
+          </section>
+          <section class="comment-group" data-group="unanchored">
+            <button type="button" class="comment-group-header" data-group="unanchored" aria-expanded="false">
+              <svg class="comment-group-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+              <span class="comment-group-label">Unanchored</span>
+              <span class="comment-group-count" data-group="unanchored">0</span>
+            </button>
+            <div class="comment-group-body" id="comment-unanchored"></div>
+          </section>
+        </div>
         <div class="composer">
           <input type="text" id="composer-input" placeholder="Add a comment…" aria-label="Add a comment">
           <button type="button" class="send" id="composer-send" aria-label="Post comment">

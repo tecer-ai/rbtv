@@ -7,7 +7,8 @@
  *
  * Strip-only contract (A8/A11):
  *   • Remove every element whose id or any class token is "hyp-" prefixed.
- *   • Remove every data-hyp-* attribute from all surviving elements.
+ *   • Remove every data-hyp-* attribute from all surviving elements, EXCEPT the
+ *     two durable review tags data-hyp-agent and data-hyp-cid (both persist).
  *   • Remove every "hyp-" prefixed class token from class attributes.
  *   • Remove the injected edit-runtime <script type="module"> tag(s).
  *   • Remove editor-added contenteditable; best-effort restore original state.
@@ -175,10 +176,16 @@ function stripClone(clone) {
   while (cleanWalker.nextNode()) {
     const el = cleanWalker.currentNode;
 
-    // Remove all remaining data-hyp-* attributes except data-hyp-agent
+    // Remove all remaining data-hyp-* attributes except the two durable review
+    // tags: data-hyp-agent (agent-instruction stamps) and data-hyp-cid (the
+    // per-comment anchor that lets a thread survive later out-of-band edits).
     const attrs = Array.from(el.attributes);
     for (const attr of attrs) {
-      if (attr.name.startsWith("data-hyp-") && attr.name !== "data-hyp-agent") {
+      if (
+        attr.name.startsWith("data-hyp-") &&
+        attr.name !== "data-hyp-agent" &&
+        attr.name !== "data-hyp-cid"
+      ) {
         el.removeAttribute(attr.name);
       }
     }

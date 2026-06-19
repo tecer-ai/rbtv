@@ -24,6 +24,58 @@ let threadStore = [];
 let nextId = 1;
 const markers = new Map(); // commentId -> marker element
 
+// --- Durable comment anchor (data-hyp-cid) ---
+//
+// A content-hash + structural-path anchor breaks whenever the deck is rewritten
+// out-of-band (the designer agent edits slide text/structure on disk), silently
+// detaching the comment. data-hyp-cid is a per-comment token stamped on the
+// commented element, persisted to disk on save (serializer keeps it, like
+// data-hyp-agent), and PREFERRED by matchAnchor. It survives in-place text edits
+// and moves of the same element; it is lost only if that element is deleted or
+// replaced wholesale — at which point the thread legitimately becomes unanchored.
+const CID_ATTR = "data-hyp-cid";
+
+function stampCid(el, id) {
+  if (!el) return;
+  const tokens = (el.getAttribute(CID_ATTR) || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!tokens.includes(String(id))) {
+    tokens.push(String(id));
+    el.setAttribute(CID_ATTR, tokens.join(" "));
+  }
+}
+
+function unstampCid(el, id) {
+  if (!el) return;
+  const kept = (el.getAttribute(CID_ATTR) || "")
+    .trim()
+    .split(/\s+/)
+    .filter((t) => t && t !== String(id));
+  if (kept.length) el.setAttribute(CID_ATTR, kept.join(" "));
+  else el.removeAttribute(CID_ATTR);
+}
+
+function matchByCid(id) {
+  if (id == null) return null;
+  const found = document.querySelectorAll(`[${CID_ATTR}~="${CSS.escape(String(id))}"]`);
+  return found.length === 1 ? found[0] : null;
+}
+
+// Refresh a thread's stored quote to the element's CURRENT text. Called whenever
+// a thread is (re)anchored to an element, so the panel quote never drifts from
+// the text the dot actually sits on. Returns true if the quote changed.
+function syncContextText(thread, el) {
+  if (!thread || !el) return false;
+  const next = normalizeText(el.textContent).slice(0, 80);
+  if (next && next !== thread.contextText) {
+    thread.contextText = next;
+    return true;
+  }
+  return false;
+}
+
 // --- Helpers: text / hash ---
 
 function normalizeText(str) {
@@ -178,7 +230,12 @@ export function buildAnchorKey(el) {
 
 // --- Anchor key: match ---
 
-export function matchAnchor(anchor) {
+export function matchAnchor(anchor, cid) {
+  // 0. Durable comment id — survives in-place text edits + moves of the same
+  // element. Highest confidence; takes precedence over content/structure signals.
+  const byCid = matchByCid(cid);
+  if (byCid) return byCid;
+
   // 1. Hook match (unique only)
   if (anchor.hook) {
     const matches = document.querySelectorAll(
@@ -299,7 +356,7 @@ function documentOrderedIds() {
   const arr = [];
   for (const t of threadStore) {
     if (t.resolved === true) continue;
-    const el = matchAnchor(t.anchor);
+    const el = matchAnchor(t.anchor, t.id);
     if (el) arr.push({ id: t.id, el });
   }
   arr.sort((a, b) => {
@@ -386,7 +443,7 @@ function updateAllMarkers() {
   for (const [commentId, marker] of markers) {
     const thread = threadStore.find((t) => t.id === commentId);
     if (!thread) continue;
-    const el = matchAnchor(thread.anchor);
+    const el = matchAnchor(thread.anchor, thread.id);
     if (el) {
       marker.style.display = "flex";
       positionMarker(marker, el);
@@ -418,8 +475,9 @@ function reanchorAll() {
   markers.clear();
 
   for (const thread of threadStore) {
-    const el = matchAnchor(thread.anchor);
+    const el = matchAnchor(thread.anchor, thread.id);
     if (el) {
+      stampCid(el, thread.id); // keep the durable tag on the live element (idempotent)
       renderMarkerFor(thread, el);
     }
   }
@@ -436,6 +494,18 @@ export function load(islandJson) {
   }
   nextId =
     threadStore.reduce((max, t) => Math.max(max, parseInt(t.id, 10) || 0), 0) + 1;
+  // Reconcile threads loaded from disk: stamp the durable tag on each resolved
+  // element (migrates files saved before data-hyp-cid existed) and refresh each
+  // quote to the element's current text so the panel never shows a stale snippet.
+  let changed = false;
+  for (const t of threadStore) {
+    const el = matchAnchor(t.anchor, t.id);
+    if (el) {
+      stampCid(el, t.id);
+      if (syncContextText(t, el)) changed = true;
+    }
+  }
+  if (changed) writeIsland();
   reanchorAll();
 }
 
@@ -477,8 +547,9 @@ export function add(hypId, body, author, agentInstruction = false) {
 
   const doFn = () => {
     threadStore.push(thread);
+    stampCid(el, id); // durable anchor so the comment survives later text edits
     writeIsland();
-    const resolvedEl = matchAnchor(anchor);
+    const resolvedEl = matchAnchor(anchor, id);
     renderMarkerFor(thread, resolvedEl);
     renumberMarkers();
     emit("dirty-changed", { dirty: true });
@@ -488,6 +559,7 @@ export function add(hypId, body, author, agentInstruction = false) {
     const idx = threadStore.findIndex((t) => t.id === id);
     if (idx !== -1) {
       threadStore.splice(idx, 1);
+      unstampCid(el, id);
       writeIsland();
       removeMarker(id);
       emit("dirty-changed", { dirty: true });
@@ -600,6 +672,8 @@ export function deleteComment(commentId) {
   if (idx === -1) throw new Error("delete-comment: thread not found");
   const saved = threadStore[idx];
   const doFn = () => {
+    const el = matchAnchor(saved.anchor, commentId);
+    if (el) unstampCid(el, commentId); // drop the durable tag from the element
     removeMarker(commentId);
     threadStore.splice(idx, 1);
     writeIsland();
@@ -609,7 +683,7 @@ export function deleteComment(commentId) {
   const undoFn = () => {
     threadStore.splice(idx, 0, saved);
     writeIsland();
-    reanchorAll();
+    reanchorAll(); // re-stamps the durable tag on the restored thread's element
     emit("dirty-changed", { dirty: true });
   };
   historyPush(makeCommentCommand("delete-comment", doFn, undoFn));
@@ -665,7 +739,11 @@ export function deleteReply(commentId, replyIndex) {
 
 // THE single escape function for the agent block (R06): HTML comments cannot
 // contain '-->'. Every interpolated value MUST pass through this.
-function matchAnchorHighConfidence(anchor) {
+function matchAnchorHighConfidence(anchor, cid) {
+  // 0. Durable comment id — a stable unique token; counts as high confidence.
+  const byCid = matchByCid(cid);
+  if (byCid) return byCid;
+
   // 1. Hook match (unique only)
   if (anchor.hook) {
     const matches = document.querySelectorAll(
@@ -693,7 +771,7 @@ export function agentStampMap() {
   const map = new Map();
   for (const t of threadStore) {
     if (!(t.agentInstruction === true && t.resolved !== true)) continue;
-    const el = matchAnchorHighConfidence(t.anchor);
+    const el = matchAnchorHighConfidence(t.anchor, t.id);
     if (!el) continue;
     if (!map.has(el)) map.set(el, []);
     map.get(el).push(t.id);
@@ -729,7 +807,7 @@ export function buildAgentBlock() {
     lines.push("");
     lines.push(`[agent:${escapeAgentBlock(t.id)}]`);
     const ctx = escapeAgentBlock((t.contextText || "").slice(0, 80));
-    const el = matchAnchor(t.anchor);
+    const el = matchAnchor(t.anchor, t.id);
     let tagAndClasses;
     if (el) {
       const tag = el.tagName.toLowerCase();
@@ -760,9 +838,11 @@ export function buildAgentBlock() {
 export function reanchorAfterMove() {
   // Recompute anchors for ALL threads after a DOM move (R14).
   for (const t of threadStore) {
-    const el = matchAnchor(t.anchor);          // multi-signal resolution (partial-match fallbacks)
+    const el = matchAnchor(t.anchor, t.id);          // multi-signal resolution (partial-match fallbacks)
     if (el) {
+      stampCid(el, t.id);                      // durable tag rides with the element
       t.anchor = buildAnchorKey(el);           // regenerate path + siblingIndex from CURRENT position
+      syncContextText(t, el);                  // keep the quote in step with the moved element
     }
     // else: unresolved → keep the old anchor; the thread shows as unanchored, never deleted.
   }
@@ -793,7 +873,9 @@ export function refreshAnchorsForElement(el) {
     if (!base) continue;
     const target = walkPath(base, t.anchor ? t.anchor.path : null);
     if (target === el) {
+      stampCid(el, t.id);              // durable tag, so a later reload still resolves this thread
       t.anchor = buildAnchorKey(el);   // regenerate hash (+ path/siblingIndex) from current content
+      syncContextText(t, el);          // refresh the quote to the edited text
       changed = true;
     }
   }
@@ -806,7 +888,7 @@ export function refreshAnchorsForElement(el) {
 export function threads() {
   const order = documentOrderedIds();
   return threadStore.map((t) => {
-    const el = matchAnchor(t.anchor);
+    const el = matchAnchor(t.anchor, t.id);
     const hypId = el ? idOf(el) : null;
     const rect = el ? domRectToPlain(el.getBoundingClientRect()) : null;
     return {
@@ -822,7 +904,7 @@ export function threads() {
 export function anchorRect(commentId) {
   const thread = threadStore.find((t) => t.id === commentId);
   if (!thread) return null;
-  const el = matchAnchor(thread.anchor);
+  const el = matchAnchor(thread.anchor, thread.id);
   if (!el) return null;
   return domRectToPlain(el.getBoundingClientRect());
 }

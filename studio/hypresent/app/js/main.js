@@ -342,6 +342,10 @@ function createThreadEl(thread, isUnanchored = false) {
   return div;
 }
 
+// Per-session collapse state for the two comment groups.
+// Default: Anchored expanded, Unanchored collapsed.
+const commentGroupCollapsed = { anchored: false, unanchored: true };
+
 function renderCommentPanel(threads) {
   const container = document.getElementById("comment-threads");
   const unanchoredContainer = document.getElementById("comment-unanchored");
@@ -358,17 +362,99 @@ function renderCommentPanel(threads) {
   for (const thread of anchored) {
     container.appendChild(createThreadEl(thread, false));
   }
-
-  if (unanchored.length > 0 && unanchoredContainer) {
-    const header = document.createElement("div");
-    header.className = "comment-unanchored-header";
-    header.textContent = "Unanchored";
-    unanchoredContainer.appendChild(header);
+  if (unanchoredContainer) {
     for (const thread of unanchored) {
       unanchoredContainer.appendChild(createThreadEl(thread, true));
     }
   }
+
+  updateCommentGroup("anchored", anchored.length);
+  updateCommentGroup("unanchored", unanchored.length);
+  applyCommentGroupSizing();
 }
+
+// Sync one group's header (count, collapsed class, aria) and hide it entirely
+// when empty so the other group takes the whole list area.
+function updateCommentGroup(group, count) {
+  const section = document.querySelector(`.comment-group[data-group="${group}"]`);
+  if (!section) return;
+  section.style.display = count > 0 ? "" : "none";
+  const countEl = section.querySelector(`.comment-group-count[data-group="${group}"]`);
+  if (countEl) countEl.textContent = String(count);
+  const collapsed = commentGroupCollapsed[group];
+  section.classList.toggle("collapsed", collapsed);
+  const header = section.querySelector(".comment-group-header");
+  if (header) header.setAttribute("aria-expanded", String(!collapsed));
+}
+
+// Size the two group bodies: each sizes to its content; when both are expanded
+// and would overflow, the busy group borrows the idle group's unused space,
+// capped so neither exceeds half the list area (→ 50/50 only when both overflow).
+function applyCommentGroupSizing() {
+  const wrap = document.getElementById("comment-groups");
+  if (!wrap) return;
+  const groups = ["anchored", "unanchored"]
+    .map((g) => ({
+      sec: document.querySelector(`.comment-group[data-group="${g}"]`),
+      body: document.getElementById(g === "anchored" ? "comment-threads" : "comment-unanchored"),
+    }))
+    .filter((x) => x.sec && x.body && x.sec.style.display !== "none");
+
+  // Reset to natural height so scrollHeight reflects true content height.
+  for (const x of groups) x.body.style.maxHeight = "none";
+
+  const open = groups.filter((x) => !x.sec.classList.contains("collapsed"));
+  if (open.length === 0) return;
+
+  let headersH = 0;
+  for (const x of groups) {
+    const header = x.sec.querySelector(".comment-group-header");
+    headersH += header ? header.offsetHeight : 0;
+  }
+  const avail = wrap.clientHeight - headersH;
+  if (avail <= 0) return;
+
+  if (open.length === 1) {
+    open[0].body.style.maxHeight = avail + "px";
+    return;
+  }
+  const half = avail / 2;
+  const n0 = open[0].body.scrollHeight;
+  const n1 = open[1].body.scrollHeight;
+  let h0, h1;
+  if (n0 + n1 <= avail) { h0 = n0; h1 = n1; }            // both fit
+  else if (n0 <= half) { h0 = n0; h1 = avail - n0; }     // group 0 small → group 1 borrows
+  else if (n1 <= half) { h1 = n1; h0 = avail - n1; }     // group 1 small → group 0 borrows
+  else { h0 = half; h1 = half; }                          // both overflow → 50/50
+  open[0].body.style.maxHeight = Math.floor(h0) + "px";
+  open[1].body.style.maxHeight = Math.floor(h1) + "px";
+}
+
+// Collapse/expand a group on header click, then re-size both.
+function toggleCommentGroup(group) {
+  if (!(group in commentGroupCollapsed)) return;
+  commentGroupCollapsed[group] = !commentGroupCollapsed[group];
+  const section = document.querySelector(`.comment-group[data-group="${group}"]`);
+  if (section) {
+    const collapsed = commentGroupCollapsed[group];
+    section.classList.toggle("collapsed", collapsed);
+    const header = section.querySelector(".comment-group-header");
+    if (header) header.setAttribute("aria-expanded", String(!collapsed));
+  }
+  applyCommentGroupSizing();
+}
+
+// One-time wiring: header clicks toggle collapse; window resize re-sizes groups.
+(function wireCommentGroups() {
+  const wrap = document.getElementById("comment-groups");
+  if (wrap) {
+    wrap.addEventListener("click", (e) => {
+      const header = e.target.closest(".comment-group-header");
+      if (header) toggleCommentGroup(header.getAttribute("data-group"));
+    });
+  }
+  window.addEventListener("resize", applyCommentGroupSizing);
+})();
 
 let _commentRefreshInFlight = false;
 let _commentRefreshQueued = false;

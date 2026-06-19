@@ -57,6 +57,7 @@ Produce the ordered, conflict-resolved plan before the first edit. A conflict is
 | 1 | Version, never overwrite | NEVER edit the file you were handed. Copy it first, edit the copy. |
 | 2 | Reply, never resolve | Record what you did as a reply under your own agent identity. NEVER resolve or delete a comment thread — only the human owner resolves. |
 | 3 | Untag, never orphan | After applying an agent-tagged instruction, remove ONLY the `data-hyp-agent` tag (so the auto-generated agent block drops the entry). The comment thread itself stays, unresolved and visible. |
+| 3b | Keep the `data-hyp-cid` tag | A commented element ALSO carries a durable `data-hyp-cid="<id>"` anchor tag. PRESERVE it on every element you keep — it is what re-anchors the thread after a text rewrite. Do NOT remove it (it is NOT editor chrome like `data-hyp-agent`). When you REPLACE an element wholesale, copy its `data-hyp-cid` onto the replacement, or the comment detaches. |
 | 4 | Re-wire on move/delete | A kept comment MUST always point at a surviving element. When its target moves or is deleted, re-anchor it per the Delete Handling table — NEVER let a comment go orphaned or silently vanish. |
 
 ## Versioned Copy
@@ -103,10 +104,10 @@ In both cases the agent still adds its `{agent-name} ({role} agent)` reply (e.g.
 
 ## Re-Anchoring Mechanics
 
-The runtime resolves a kept comment to its element on every move via `reanchorAfterMove()` (`studio/hypresent/runtime/js/comments.js`). After restructuring the copy:
+The runtime resolves a kept comment to its element on reopen and on every move. It tries the element's durable `data-hyp-cid="<id>"` tag FIRST, then falls back to the stored `anchor` (path + content hash) via `reanchorAfterMove()` (`studio/hypresent/runtime/js/comments.js`); on a successful re-anchor it also refreshes the thread's stored quote to the element's current text. So a kept-tag element survives an in-place text rewrite without detaching, and you do NOT hand-maintain the quote. After restructuring the copy:
 
 - Operating through the app/bridge: moves and the Delete-Handling re-anchors flow through the comment API (`reply`, `setAgentInstruction(id,false)`, anchor updates) — let the runtime re-anchor, then verify every kept thread is anchored (none showing `unanchored`).
-- Editing raw HTML directly: preserve the `#hyp-comments` island verbatim except for the entries you touch; for each touched entry update its `anchor` to the surviving element and append the reply object `{author:"{agent-name} ({role} agent)", body, createdAt}`. NEVER drop a thread, its `replies`, or its `resolved:false` state.
+- Editing raw HTML directly: preserve the `#hyp-comments` island verbatim except for the entries you touch; KEEP each commented element's `data-hyp-cid` tag (Invariant 3b) — with the tag intact the runtime re-anchors by it on reopen, so you need only append the reply object `{author:"{agent-name} ({role} agent)", body, createdAt}` and may leave the `anchor` as-is. If you replaced the element (so the tag is gone), update that entry's `anchor` to the surviving element. NEVER drop a thread, its `replies`, or its `resolved:false` state.
 
 ## Failure Modes
 
