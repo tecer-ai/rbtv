@@ -14,6 +14,26 @@ Read `{rbtv_path}/studio/deck-loop-spec.md` for the behavior floor and `{rbtv_pa
 
 ---
 
+## Intake Routing Gate (run FIRST, before beat 1)
+
+Before entering any beat, classify the request against the table below. A request that hands an EXISTING built artifact plus comments/targeted fixes is NOT a blank-slate run — routing it into beat-01 discards the existing structure and locks a fresh narrative (the 2026-06-18 mis-route: 17 targeted fixes became a 9-slide ground-up rebuild, deleted by the owner). The signal MUST be detected here and routed, never silently run as blank-slate.
+
+| Signal | `mode` | Route |
+|--------|--------|-------|
+| Brief + verified numbers, NO existing artifact to revise (a prior deck supplied as content input ONLY is still this row) | `blank-slate` | Beat 1 → 4 as written. |
+| An EXISTING artifact file (a built deck/site/app `.html`) + review comments OR targeted fixes to apply on it (owner says "apply these comments", "implement this feedback", "address the review notes", "make these edits to the deck") | `audit` | TWO-PHASE SURGICAL REVISION below. |
+
+**Two-phase surgical revision (`mode: audit`):**
+
+`mode: audit` is the improve-existing path and is DEFERRED — no audit beat is built in v1. On detecting the signal you MUST HALT with `audit mode deferred — blank-slate only in v1` AND route the owner to the two-phase surgical flow (the route is built; the wired-into-beats audit mode is not):
+
+- **PHASE 1 — Strategist (message/narrative, surgical).** Revise the message working FROM the existing artifact and its comments. This is NOT blank-slate beat-01: the existing structure is the base, NOT content input to discard. Read the existing artifact and its comments (deck comments live in the file's `#hyp-comments` island + agent-instruction block per `{rbtv_path}/studio/workflows/hypresent-comments/comment-implementation.md` § Locate the Comments First). Change ONLY the narrative the comments call for; preserve every un-commented slide/page/screen, its order, and its frame. Produce NO HTML. If the existing structure has no comments and no narrative change is implied, Phase 1 is a no-op — go straight to Phase 2.
+- **PHASE 2 — Designer (implementation).** The Designer (`rbtv-designing` — Vivian) implements the revision into a versioned copy via `{rbtv_path}/studio/workflows/hypresent-comments/comment-implementation.md` (the surgical comment-implementation workflow — version-never-overwrite, change only flagged elements + entailed ripples, preserve all other structure).
+
+NEVER skip Phase 1 by routing straight to the Designer (the narrative revision is the Strategist's, and the Designer never re-derives it). NEVER improvise a blank-slate build on this signal. If the owner genuinely wants a from-scratch rebuild of an existing artifact, that is a `blank-slate` run — confirm it EXPLICITLY with the owner first (the default on an existing-artifact + comments signal is always surgical).
+
+---
+
 ## The Four Beats (sequential — each beat ends at a menu and HALTS)
 
 | Beat | File | Worker | Produces |
@@ -41,7 +61,7 @@ The spine is artifact-general. Each beat reads two parameters from the active de
 
 - A beat reads `artifact`/`mode` from design-state FIRST; it NEVER hardcodes `deck`. The deck behavior is the `artifact: deck` branch of each beat's conditional, not the beat's only behavior.
 - `artifact: site` or `app` → the beat follows the built fork (`forks/site.md` or `forks/app.md`). If a beat reads an artifact value with no matching fork file present, it HALTS and surfaces "artifact fork file missing — check `forks/`" rather than improvising.
-- `mode: audit` → not built in v1; a beat that reads `mode: audit` HALTS with "audit mode deferred — blank-slate only in v1." No beat improvises an audit flow.
+- `mode: audit` → the improve-existing path; the wired-into-beats audit mode is not built in v1. A beat that reads `mode: audit` HALTS with "audit mode deferred — blank-slate only in v1" and routes to the two-phase surgical revision (§ Intake Routing Gate) — it NEVER improvises a blank-slate build and NEVER skips the Strategist's Phase 1 by going straight to the Designer.
 - The artifact noun shift (`slide` → `page` for site, `slide` → `screen` for app) is design-state-schema-handled (schema §4); beats use the resolved noun, never a hardcoded "slide" in artifact-general logic.
 
 ---

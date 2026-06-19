@@ -4,6 +4,10 @@ The MANDATORY protocol ANY agent follows whenever it IMPLEMENTS hypresent review
 
 Every comment is anchored to ONE element, but it is read and applied against the WHOLE deck: reconcile the pass as a set, weigh each change's ripple across all slides, propagate what is entailed, and surface the rest for the owner — never blindly execute a comment on its hooked element alone.
 
+## Surgical by default — NEVER a rebuild
+
+**The default for an existing artifact with targeted comments is SURGICAL and structure-preserving.** Change ONLY the flagged element each comment names, plus its **Entailed** ripples (Assess Deck-Wide Impact). PRESERVE every un-commented slide/page/screen — its content, its order, and its frame stay byte-identical except where an Entailed ripple touches them. NEVER restructure the narrative, rebuild slides from scratch, or "improve" un-commented slides — that is the 2026-06-18 mis-route (17 targeted fixes turned into a 9-slide ground-up rebuild, owner-deleted). If a from-scratch rebuild is genuinely wanted, that is a blank-slate run, not a comment pass — STOP and confirm it explicitly with the owner before touching anything; never assume the destructive reading.
+
 ## Locate the Comments First
 
 Comments live in TWO fixed places in EVERY hypresent-saved file — identical whether the file is a deck or a self-contained page. Read both before acting. NEVER grep to discover the format.
