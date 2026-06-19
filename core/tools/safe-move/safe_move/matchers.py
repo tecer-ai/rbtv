@@ -93,6 +93,55 @@ CONFIG_EXTENSIONS = frozenset(
 # its cross-references as backtick-wrapped paths.
 MARKDOWN_EXTENSIONS = frozenset({".md", ".markdown"})
 
+# File extensions that make a separator-free token recognisably a FILE name (so a
+# bare ``report.md`` in prose or inline code is treated as a reference, while a
+# bare word like ``npx`` — no extension — is not). This mirrors the frontmatter
+# matcher's extension rule (a value carrying a file extension is a file) into the
+# inline-code and prose matchers. Restricted to a known set so a non-file token
+# (a version like ``1.2.3``, an abbreviation like ``e.g``) is never a candidate;
+# the unique-basename gate in ``find_candidates_multi`` is the primary guard, this
+# set is the secondary one.
+KNOWN_FILE_EXTENSIONS = frozenset(
+    {
+        ".md",
+        ".markdown",
+        ".html",
+        ".htm",
+        ".txt",
+        ".rst",
+        ".pdf",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".ini",
+        ".cfg",
+        ".conf",
+        ".csv",
+        ".tsv",
+        ".xml",
+        ".sql",
+        ".py",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".jsx",
+        ".sh",
+        ".ps1",
+        ".rb",
+        ".go",
+        ".rs",
+        ".css",
+        ".scss",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".svg",
+        ".webp",
+    }
+)
+
 # Wikilink: optional leading "!" (embed), target, optional #fragment, optional |alias.
 _WIKILINK_RE = re.compile(
     r"!?(?P<open>\[\[)"
@@ -130,6 +179,12 @@ _GENERIC_EQ_RE = re.compile(r"^\s*[^#;\s][^=]*=\s*(.+)$")
 # Restricted to single-line spans; fenced code blocks use their own delimiters
 # and are not matched here.
 _INLINE_CODE_RE = re.compile(r"`(?P<code>[^`\r\n]+)`")
+
+# A bare filename token in prose: a run of path-name characters carrying at least
+# one dot-extension and NO path separator (separators are the path matchers' job).
+# Greedy, so it captures the maximal token (``a.b.c.md`` whole); the extension and
+# token boundaries are validated by ``_extract_bare_filename_sites``.
+_PROSE_FILENAME_RE = re.compile(r"[A-Za-z0-9_~-]+(?:\.[A-Za-z0-9_~-]+)+")
 
 
 def _rel(path: Path, root: Path) -> str:
@@ -380,6 +435,16 @@ class _InlineCodeSite:
 
 
 @dataclass(frozen=True, slots=True)
+class _BareFilenameSite:
+    line_no: int
+    context: str
+    match: str  # the bare filename token, e.g. "report.md"
+    offset: int
+    # "inline-code-basename" (inside backticks) or "prose-filename" (plain prose).
+    syntax: str
+
+
+@dataclass(frozen=True, slots=True)
 class _ConfigSite:
     line_no: int
     context: str
@@ -603,6 +668,160 @@ def _extract_inline_code_sites(
     return sites
 
 
+def _merge_intervals(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Return ``spans`` sorted and merged into non-overlapping intervals."""
+    if not spans:
+        return []
+    spans.sort()
+    merged = [spans[0]]
+    for start, end in spans[1:]:
+        last_start, last_end = merged[-1]
+        if start <= last_end:
+            merged[-1] = (last_start, max(last_end, end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _interval_covers(
+    starts: list[int], intervals: list[tuple[int, int]], start: int, end: int
+) -> bool:
+    """Return True when ``[start, end)`` overlaps any merged interval."""
+    if not intervals:
+        return False
+    idx = bisect.bisect_right(starts, start) - 1
+    for j in (idx, idx + 1):
+        if 0 <= j < len(intervals):
+            a, b = intervals[j]
+            if a < end and start < b:
+                return True
+    return False
+
+
+def _frontmatter_end(content: str) -> int:
+    """Return the offset just past the closing ``---`` of a YAML frontmatter block.
+
+    Returns 0 when the content has no leading frontmatter block. Used to mask the
+    frontmatter region from the prose-filename scan (frontmatter values are the
+    frontmatter matcher's job).
+    """
+    if not content.startswith("---"):
+        return 0
+    first_nl = content.find("\n")
+    if first_nl == -1 or content[:first_nl].strip() != "---":
+        return 0
+    idx = first_nl + 1
+    while idx < len(content):
+        nl = content.find("\n", idx)
+        line = content[idx : nl if nl != -1 else len(content)]
+        if line.strip() == "---":
+            return (nl + 1) if nl != -1 else len(content)
+        if nl == -1:
+            break
+        idx = nl + 1
+    return 0
+
+
+def _extract_bare_filename_sites(content: str) -> list[_BareFilenameSite]:
+    """Return bare-filename references (no path separator) in markdown content.
+
+    Two forms are recognised, BOTH matched later by UNIQUE basename — the caller
+    (``find_candidates_multi``) only keeps a site whose basename resolves to
+    exactly one scope file, reusing the basename-collision guard built for
+    wikilinks:
+
+    * ``inline-code-basename`` — a backtick span ``\\`name.ext\\``` whose content
+      is a bare filename carrying a known extension (a span WITH a ``/`` is the
+      inline-code-PATH matcher's job, not this one).
+    * ``prose-filename`` — a bare ``name.ext`` token in plain prose, OUTSIDE any
+      inline-code span, wikilink, or markdown link (those regions are masked so a
+      filename inside them is not double-counted with their own matcher).
+
+    A separator-free token with no KNOWN file extension (a bare word like ``npx``,
+    a version like ``1.2.3``) is ignored, so commands and ordinary words are never
+    mistaken for files. This mirrors the frontmatter extension rule into the
+    inline-code and prose matchers.
+    """
+    sites: list[_BareFilenameSite] = []
+    line_starts: list[int] | None = None
+    masked: list[tuple[int, int]] = []
+
+    # Inline-code spans: emit bare-filename sites for separator-free spans AND
+    # record every span as masked (so a filename inside backticks is never also
+    # counted as a prose token).
+    for m in _INLINE_CODE_RE.finditer(content):
+        masked.append((m.start(), m.end()))
+        inner = m.group("code")
+        token = inner.strip()
+        if "/" in token or "\\" in token:
+            continue
+        if Path(token).suffix.lower() not in KNOWN_FILE_EXTENSIONS:
+            continue
+        if line_starts is None:
+            line_starts = _build_line_starts(content)
+        lead = len(inner) - len(inner.lstrip())
+        line_no, line_start, context = _locate(
+            content, line_starts, m.start("code"), m.end("code")
+        )
+        sites.append(
+            _BareFilenameSite(
+                line_no=line_no,
+                context=context,
+                match=token,
+                offset=m.start("code") + lead - line_start,
+                syntax="inline-code-basename",
+            )
+        )
+
+    # Wikilink + markdown-link spans: masked so their inner filenames are not
+    # double-counted as prose tokens.
+    for m in _WIKILINK_RE.finditer(content):
+        masked.append((m.start(), m.end()))
+    for m in _MARKDOWN_LINK_RE.finditer(content):
+        masked.append((m.start(), m.end()))
+    # Frontmatter block: handled by the frontmatter matcher, masked here so a
+    # value there is not also counted as a prose filename.
+    fm_end = _frontmatter_end(content)
+    if fm_end:
+        masked.append((0, fm_end))
+
+    intervals = _merge_intervals(masked)
+    interval_starts = [iv[0] for iv in intervals]
+
+    # Prose filename tokens OUTSIDE any masked region.
+    for m in _PROSE_FILENAME_RE.finditer(content):
+        start, end = m.start(), m.end()
+        if _interval_covers(interval_starts, intervals, start, end):
+            continue
+        token = m.group(0)
+        if Path(token).suffix.lower() not in KNOWN_FILE_EXTENSIONS:
+            continue
+        # Boundary guard: reject a token that is part of a longer path (preceded by
+        # a separator or a path-name char) so a bare ``b.md`` inside ``a/b.md`` is
+        # left to the path matchers. ``after`` only needs the separator check — the
+        # greedy regex already guarantees the next char is not a path-name char
+        # (a trailing ``.`` is sentence punctuation and safe to accept).
+        before = content[start - 1] if start > 0 else ""
+        after = content[end] if end < len(content) else ""
+        if before in _PATH_NAME_CHARS or before in "/\\":
+            continue
+        if after in "/\\":
+            continue
+        if line_starts is None:
+            line_starts = _build_line_starts(content)
+        line_no, line_start, context = _locate(content, line_starts, start, end)
+        sites.append(
+            _BareFilenameSite(
+                line_no=line_no,
+                context=context,
+                match=token,
+                offset=start - line_start,
+                syntax="prose-filename",
+            )
+        )
+    return sites
+
+
 def _extract_config_sites(
     path: Path, content: str, file_dir: str, scope_root: Path
 ) -> list[_ConfigSite]:
@@ -658,6 +877,13 @@ def _config_candidate(wf: WalkedFile, s: _ConfigSite) -> Candidate:
 def _inline_code_candidate(wf: WalkedFile, s: _InlineCodeSite) -> Candidate:
     return _build_candidate(
         wf, s.line_no, s.context, "inline-code-path", s.match, s.target,
+        None, None, "plain", 1, s.offset,
+    )
+
+
+def _bare_filename_candidate(wf: WalkedFile, s: _BareFilenameSite) -> Candidate:
+    return _build_candidate(
+        wf, s.line_no, s.context, s.syntax, s.match, s.match,
         None, None, "plain", 1, s.offset,
     )
 
@@ -1095,13 +1321,15 @@ def find_candidates_multi(
             if Path(wf.path).suffix.lower() in CONFIG_EXTENSIONS
             else []
         )
+        is_markdown = Path(wf.path).suffix.lower() in MARKDOWN_EXTENSIONS
         ic_sites = (
             _extract_inline_code_sites(
                 content, file_dir, scope_root_path, workspace_root
             )
-            if Path(wf.path).suffix.lower() in MARKDOWN_EXTENSIONS
+            if is_markdown
             else []
         )
+        bare_sites = _extract_bare_filename_sites(content) if is_markdown else []
         # Process sites in (wikilink, markdown, frontmatter, config) order so the
         # per-target list order — and thus the post-sort order — is identical to
         # the single-target find_candidates path.
@@ -1153,6 +1381,16 @@ def find_candidates_multi(
                 matched.update(by_path.get(r.lower(), ()))
             for index in matched:
                 results[index].append(_inline_code_candidate(wf, s))
+        # Bare filename references (no separator), matched by UNIQUE basename only:
+        # the token names exactly one scope file (``resolves_index == 1`` — the
+        # basename-collision guard) AND that file is a moved target. A colliding
+        # basename (count > 1) is left unmatched, as before.
+        for s in bare_sites:
+            bn = s.match.lower()
+            if resolves_index.get(bn, 0) != 1:
+                continue
+            for index in by_basename.get(bn, ()):
+                results[index].append(_bare_filename_candidate(wf, s))
 
     # Stable ordering: file, line, match text (matches find_candidates).
     for out in results:

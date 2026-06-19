@@ -85,6 +85,8 @@ def compute_proposed(
         return _propose_inline_code_path(
             candidate, old_rel, new_rel, scope_root_path, workspace_root_path
         )
+    if candidate.syntax in ("inline-code-basename", "prose-filename"):
+        return _propose_bare_filename(candidate, new_rel, operation)
     if candidate.syntax == "literal-path":
         return _propose_literal_path(candidate, old_rel, new_rel)
 
@@ -347,6 +349,27 @@ def _propose_inline_code_path(
     if form is None:
         return None
     return _compute_path_value(form, file_dir, new_rel, scope_root, workspace_root)
+
+
+# ---------------------------------------------------------------------------
+# Bare-filename replacement (inline-code-basename / prose-filename)
+# ---------------------------------------------------------------------------
+
+
+def _propose_bare_filename(
+    candidate: Candidate, new_rel: str, operation: str
+) -> str | None:
+    """Compute the replacement for a bare-filename reference (no path separator).
+
+    A bare filename carries no directory, so only its basename can change. A pure
+    move (directory change, same name) leaves the basename — and thus the
+    reference — unchanged, so ``proposed == match`` (no edit). A rename/both swaps
+    in the new basename. The reference is always surfaced (never auto), so this is
+    an ``--apply``-able hint, not an automatic rewrite.
+    """
+    if operation == OPERATION_MOVE:
+        return candidate.match
+    return _new_basename_or_stem(candidate.match, new_rel)
 
 
 # ---------------------------------------------------------------------------
