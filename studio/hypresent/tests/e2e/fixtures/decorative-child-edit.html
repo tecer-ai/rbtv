@@ -1,0 +1,25 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+  body { margin: 0; font-family: sans-serif; }
+  .slide { padding: 60px; }
+  .row { display: flex; flex-wrap: wrap; gap: 16px; }
+  .node { position: relative; background: #fed7aa; padding: 24px 32px;
+          border-radius: 8px; min-width: 160px; }
+  .dot { position: absolute; top: 6px; right: 6px; width: 10px; height: 10px;
+         border-radius: 50%; background: #2563eb; }
+  .inner { background: #fff; padding: 8px; margin-top: 8px; }
+</style></head><body>
+  <section class="slide">
+    <div class="row">
+      <!-- text + empty decorative <div> child (the dot bug) -->
+      <div class="node" id="node-dot" data-hyp-agent="2">Arguments <div class="dot"></div></div>
+      <!-- text + <br> child (the <br> bug) -->
+      <div class="node" id="node-br">Restrictions<br></div>
+      <!-- text + explicitly-decorative empty child -->
+      <div class="node" id="node-decorative">Modes <span data-hyp-decorative="true"></span></div>
+      <!-- control: text, no block child (always was editable) -->
+      <div class="node" id="node-plain">Agents harness</div>
+      <!-- text + NON-empty block child (must stay NOT editable) -->
+      <div class="node" id="node-container">Header text <div class="inner">nested content here</div></div>
+    </div>
+  </section>
+</body></html>

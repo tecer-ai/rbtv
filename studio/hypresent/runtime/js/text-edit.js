@@ -62,6 +62,17 @@ function isInsideSvg(el) {
   return false;
 }
 
+// A child does NOT disqualify its parent from inline text editing when it is
+// inline-flow, empty (a connector dot, a <br>, any decorative empty node), or
+// explicitly marked decorative. Only a NON-empty non-inline child (a real
+// nested container) still blocks inline editing of the parent.
+function blocksInlineEdit(child) {
+  if (INLINE_TAGS.has(child.tagName.toLowerCase())) return false;
+  if (child.getAttribute("data-hyp-decorative") === "true") return false;
+  if (child.textContent.trim() === "") return false;
+  return true;
+}
+
 function canEditText(el) {
   const tag = el.tagName.toLowerCase();
 
@@ -82,7 +93,7 @@ function canEditText(el) {
   if (EXCLUDED_TAGS.has(tag)) return false;
 
   for (const child of el.children) {
-    if (!INLINE_TAGS.has(child.tagName.toLowerCase())) {
+    if (blocksInlineEdit(child)) {
       return false;
     }
   }
