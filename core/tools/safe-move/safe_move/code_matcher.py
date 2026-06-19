@@ -7,10 +7,12 @@ flow through the same consult record pipeline as non-code references.
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -137,9 +139,114 @@ _CODE_EXTENSIONS: tuple[str, ...] = tuple(
 _INDEX_FILES: tuple[str, ...] = tuple(f"index{ext}" for ext in _CODE_EXTENSIONS)
 
 
+#: Pinned ast-grep package + version. The package is resolved once per run to a
+#: directly-runnable binary; the version is verified before any direct binary is
+#: trusted, so a different ast-grep on PATH can never silently change matching.
+_AST_GREP_PKG: str = "@ast-grep/cli@0.43.0"
+_AST_GREP_VERSION: str = "0.43.0"
+
+#: Subprocess timeouts (seconds) for the once-per-run resolution probes.
+_DISCOVERY_TIMEOUT: int = 120
+_VERSION_TIMEOUT: int = 30
+
+
 def _find_npx() -> str | None:
     """Return the path to an ``npx`` executable on PATH, or ``None``."""
     return shutil.which("npx")
+
+
+def _binary_is_pinned(prefix: list[str]) -> bool:
+    """Return True when ``prefix`` runs and reports the pinned ast-grep version.
+
+    Guards every direct-binary fast path: a binary is trusted only when
+    ``<prefix> --version`` exits 0 and names ``_AST_GREP_VERSION``, so a
+    different ast-grep on PATH or a broken cache entry is never used (it falls
+    back to the pinned npx path instead).
+    """
+    try:
+        result = subprocess.run(
+            list(prefix) + ["--version"],
+            capture_output=True,
+            text=True,
+            timeout=_VERSION_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0 and _AST_GREP_VERSION in (result.stdout or "")
+
+
+def _resolve_cached_binary(npx: str) -> str | None:
+    """Resolve the directly-runnable ast-grep binary npx caches for the pin.
+
+    Asks npx ONCE where it puts the pinned package's ``.bin`` directory (the
+    first runnable ``ast-grep`` on the child PATH npx prepends), then prefers the
+    platform-native executable — avoiding the per-call cmd.exe shim on Windows —
+    and falls back to the ``.bin`` entry. Returns an absolute path, or ``None``
+    when discovery fails (the caller then keeps the per-call npx path).
+    """
+    try:
+        proc = subprocess.run(
+            [
+                npx,
+                "--yes",
+                "-p",
+                _AST_GREP_PKG,
+                "node",
+                "-e",
+                "process.stdout.write(process.env.PATH)",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=_DISCOVERY_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    child_path = proc.stdout.strip()
+    shim = shutil.which("ast-grep", path=child_path) or shutil.which(
+        "sg", path=child_path
+    )
+    if not shim:
+        return None
+    node_modules = os.path.dirname(os.path.dirname(shim))
+    native_name = "ast-grep.exe" if os.name == "nt" else "ast-grep"
+    for cand in sorted(
+        glob.glob(os.path.join(node_modules, "@ast-grep", "cli-*", native_name))
+    ):
+        if os.path.isfile(cand):
+            return cand
+    return shim
+
+
+def _resolve_ast_grep_prefix() -> list[str] | None:
+    """Resolve, ONCE per run, the command prefix used to invoke ast-grep.
+
+    Returns a list whose elements precede the ``run …`` arguments. The ladder
+    prefers a directly-runnable, pin-verified binary so the scan pays no npx
+    package-resolution cold-start per call:
+
+    1. A pinned ``ast-grep``/``sg`` already on PATH (e.g. a global install).
+    2. The pinned binary npx already caches (resolved + verified once).
+    3. Per-call ``npx`` (today's behavior) when no direct binary is trusted.
+
+    Returns ``None`` only when npx itself is unavailable — the caller then emits
+    the ``code-backend-unavailable`` warning.
+    """
+    for name in ("ast-grep", "sg"):
+        binary = shutil.which(name)
+        if binary and _binary_is_pinned([binary]):
+            return [binary]
+
+    npx = _find_npx()
+    if npx is None:
+        return None
+
+    cached = _resolve_cached_binary(npx)
+    if cached and _binary_is_pinned([cached]):
+        return [cached]
+
+    return [npx, "--yes", "-p", _AST_GREP_PKG, "ast-grep"]
 
 
 class CodeMatchError(Exception):
@@ -147,18 +254,17 @@ class CodeMatchError(Exception):
 
 
 def _ast_grep_command(
-    npx: str,
+    prefix: list[str],
     lang: str,
     pattern: str,
     file_paths: Iterable[Path],
 ) -> list[str]:
-    """Return the frozen ast-grep invocation for a language/pattern over paths."""
-    return [
-        npx,
-        "--yes",
-        "-p",
-        "@ast-grep/cli@0.43.0",
-        "ast-grep",
+    """Return the ast-grep invocation for a language/pattern over paths.
+
+    ``prefix`` is the once-per-run resolved invocation head from
+    ``_resolve_ast_grep_prefix`` — a direct binary, or the per-call npx fallback.
+    """
+    return list(prefix) + [
         "run",
         "--lang",
         lang,
@@ -176,7 +282,7 @@ def _strip_quotes(text: str) -> str:
 
 
 def _run_ast_grep(
-    npx: str,
+    prefix: list[str],
     file_paths: list[Path],
     lang: str,
     patterns: list[str],
@@ -191,7 +297,7 @@ def _run_ast_grep(
     """
     matches: list[dict[str, Any]] = []
     for pattern in patterns:
-        cmd = _ast_grep_command(npx, lang, pattern, file_paths)
+        cmd = _ast_grep_command(prefix, lang, pattern, file_paths)
         try:
             result = subprocess.run(
                 cmd,
@@ -556,14 +662,19 @@ def scan_code_references(
     if provider is None:
         provider = ContentProvider()
 
-    npx = _find_npx()
-    if npx is None:
+    prefix = _resolve_ast_grep_prefix()
+    if os.environ.get("SAFE_MOVE_AST_GREP_TRACE"):
+        summary = "unavailable" if prefix is None else " ".join(prefix)
+        print(f"[safe-move] ast-grep backend: {summary}", file=sys.stderr)
+    if prefix is None:
         warnings.append(
             {
                 "kind": "code-backend-unavailable",
                 "message": (
-                    "structural code matching is unavailable: npx was not found. "
-                    "Install Node.js/npm to enable ast-grep code discovery."
+                    "structural code matching is unavailable: no ast-grep binary "
+                    "on PATH and npx was not found. Install Node.js/npm (or run "
+                    "`npm i -g @ast-grep/cli@0.43.0`) to enable ast-grep code "
+                    "discovery."
                 ),
                 "file": None,
                 "ref_id": None,
@@ -606,7 +717,7 @@ def scan_code_references(
         for chunk in _chunk_paths(paths):
             if static_patterns:
                 for match in _run_ast_grep(
-                    npx, chunk, lang, static_patterns, kind="static"
+                    prefix, chunk, lang, static_patterns, kind="static"
                 ):
                     site = _site_from_match(
                         match, abs_lookup, provider, scope_root_path, lang
@@ -615,7 +726,7 @@ def scan_code_references(
                         sites.append(site)
             if dynamic_patterns:
                 for match in _run_ast_grep(
-                    npx, chunk, lang, dynamic_patterns, kind="dynamic"
+                    prefix, chunk, lang, dynamic_patterns, kind="dynamic"
                 ):
                     site = _site_from_match(
                         match, abs_lookup, provider, scope_root_path, lang

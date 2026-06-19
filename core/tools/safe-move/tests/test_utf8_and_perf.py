@@ -98,7 +98,7 @@ def test_folder_consult_invokes_ast_grep_once_per_language_not_per_file(
                 args=cmd, returncode=0, stdout="[]", stderr=""
             )
 
-    monkeypatch.setattr(cm, "_find_npx", lambda: "npx")
+    monkeypatch.setattr(cm, "_resolve_ast_grep_prefix", lambda: ["ast-grep"])
     monkeypatch.setattr(cm, "subprocess", FakeSubprocess())
 
     build_consult_result("pkg", "renamed", scope_root=fix.repo)

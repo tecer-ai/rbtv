@@ -356,7 +356,7 @@ def test_code_matcher_batches_ast_grep_by_language(tmp_path, monkeypatch):
                 args=cmd, returncode=0, stdout="[]", stderr=""
             )
 
-    monkeypatch.setattr(cm, "_find_npx", lambda: "npx")
+    monkeypatch.setattr(cm, "_resolve_ast_grep_prefix", lambda: ["ast-grep"])
     monkeypatch.setattr(cm, "subprocess", FakeSubprocess())
 
     candidates, warnings = cm.find_code_candidates(
@@ -372,3 +372,92 @@ def test_code_matcher_batches_ast_grep_by_language(tmp_path, monkeypatch):
     max_expected = (num_static + num_dynamic) * 2
     assert len(calls) <= max_expected
     assert len(calls) < num_files  # per-file engine would be num_files * (static+dynamic)
+
+
+# ---------------------------------------------------------------------------
+# Backend resolution: a directly-runnable, pin-verified binary is preferred,
+# the per-call npx path is the fallback, and absence degrades gracefully.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_prefix_prefers_pinned_path_binary(monkeypatch):
+    """A pinned ast-grep already on PATH is used directly — no npx prefix."""
+    import safe_move.code_matcher as cm
+
+    monkeypatch.setattr(
+        cm.shutil,
+        "which",
+        lambda name, path=None: "/usr/bin/ast-grep" if name == "ast-grep" else None,
+    )
+    monkeypatch.setattr(cm, "_binary_is_pinned", lambda prefix: True)
+
+    assert cm._resolve_ast_grep_prefix() == ["/usr/bin/ast-grep"]
+
+
+def test_resolve_prefix_rejects_unpinned_path_binary(monkeypatch):
+    """A wrong-version ast-grep on PATH is never used; falls back to pinned npx."""
+    import safe_move.code_matcher as cm
+
+    monkeypatch.setattr(
+        cm.shutil,
+        "which",
+        lambda name, path=None: "/usr/bin/ast-grep"
+        if name in ("ast-grep", "sg")
+        else None,
+    )
+    monkeypatch.setattr(cm, "_binary_is_pinned", lambda prefix: False)
+    monkeypatch.setattr(cm, "_find_npx", lambda: "/usr/bin/npx")
+    monkeypatch.setattr(cm, "_resolve_cached_binary", lambda npx: None)
+
+    assert cm._resolve_ast_grep_prefix() == [
+        "/usr/bin/npx",
+        "--yes",
+        "-p",
+        cm._AST_GREP_PKG,
+        "ast-grep",
+    ]
+
+
+def test_resolve_prefix_uses_cached_binary_when_pinned(monkeypatch):
+    """With nothing on PATH, the pinned binary npx caches is used directly."""
+    import safe_move.code_matcher as cm
+
+    monkeypatch.setattr(cm.shutil, "which", lambda name, path=None: None)
+    monkeypatch.setattr(cm, "_find_npx", lambda: "/usr/bin/npx")
+    monkeypatch.setattr(cm, "_resolve_cached_binary", lambda npx: "/cache/.bin/ast-grep")
+    monkeypatch.setattr(cm, "_binary_is_pinned", lambda prefix: True)
+
+    assert cm._resolve_ast_grep_prefix() == ["/cache/.bin/ast-grep"]
+
+
+def test_resolve_prefix_none_when_no_backend(monkeypatch):
+    """No PATH binary and no npx → None (caller emits the unavailable warning)."""
+    import safe_move.code_matcher as cm
+
+    monkeypatch.setattr(cm.shutil, "which", lambda name, path=None: None)
+    monkeypatch.setattr(cm, "_find_npx", lambda: None)
+
+    assert cm._resolve_ast_grep_prefix() is None
+
+
+def test_scan_emits_backend_unavailable_when_unresolved(repo_builder, monkeypatch):
+    """No ast-grep backend resolves → the consult warns, does not crash, and
+    non-code references are still discovered (graceful degradation)."""
+    import safe_move.code_matcher as cm
+
+    monkeypatch.setattr(cm, "_resolve_ast_grep_prefix", lambda: None)
+    fix = repo_builder(
+        "code-backend-unavailable",
+        {
+            "src/foo.ts": "export const x = 1;\n",
+            "src/a.ts": "import { x } from './foo';\n",
+            "note.md": "See [foo](src/foo.ts).\n",
+        },
+        tracked=["src/foo.ts", "src/a.ts", "note.md"],
+    )
+
+    result = build_consult_result("src/foo.ts", "src/bar.ts", scope_root=fix.repo)
+
+    assert any(w["kind"] == "code-backend-unavailable" for w in result["warnings"])
+    assert _code_refs(result) == []
+    assert any(r["file"] == "note.md" for r in result["references"])
