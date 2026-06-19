@@ -5,6 +5,7 @@ import { getSlideSrcdoc } from './previews.js';
 const GRIP_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/><circle cx="9" cy="12" r="1.7"/><circle cx="15" cy="12" r="1.7"/><circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></svg>';
 const X_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 const DUPLICATE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+const CHEVRON_DOWN_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
 
 const BLANK_SRCDOC = '<!DOCTYPE html><html><head><style>body{margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#f8f9fa;color:#adb5bd;font-family:sans-serif;font-size:14px;}</style></head><body><span>Blank slide</span></body></html>';
 
@@ -88,6 +89,15 @@ export function createTray({ listEl, onChange }) {
       title.appendChild(document.createTextNode(rec.title || rec.id));
       li.appendChild(title);
 
+      // ── Expand toggle button ──────────────────────────────────────────
+      const expandBtn = document.createElement('button');
+      expandBtn.type = 'button';
+      expandBtn.className = 'tray-expand-btn';
+      expandBtn.setAttribute('aria-label', 'Preview ' + (rec.title || rec.id));
+      expandBtn.setAttribute('aria-expanded', 'false');
+      expandBtn.innerHTML = CHEVRON_DOWN_SVG;
+      li.appendChild(expandBtn);
+
       const removeBtn = document.createElement('button');
       removeBtn.type = 'button';
       removeBtn.className = 'tray-remove';
@@ -95,6 +105,43 @@ export function createTray({ listEl, onChange }) {
       removeBtn.innerHTML = X_SVG;
       removeBtn.addEventListener('click', () => removeByUid(rec.uid));
       li.appendChild(removeBtn);
+
+      // ── Expand panel (spans all columns, visible when .is-expanded) ───
+      const expandPanel = document.createElement('div');
+      expandPanel.className = 'tray-expand-panel';
+
+      const expandPreview = document.createElement('div');
+      expandPreview.className = 'tray-expand-preview';
+      const expandIframe = document.createElement('iframe');
+      expandIframe.setAttribute('tabindex', '-1');
+      expandPreview.appendChild(expandIframe);
+      expandPanel.appendChild(expandPreview);
+      li.appendChild(expandPanel);
+
+      expandBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isExpanded = li.classList.toggle('is-expanded');
+        expandBtn.setAttribute('aria-expanded', String(isExpanded));
+        if (isExpanded && !expandIframe.srcdoc) {
+          // Load the preview srcdoc lazily on first expand — reuse the same
+          // srcdoc the thumbnail uses (same provider chain as thumb iframe).
+          if (rec.kind === 'blank') {
+            expandIframe.srcdoc = BLANK_SRCDOC;
+          } else if (srcdocProvider) {
+            srcdocProvider(rec, index)
+              .then(srcdoc => { expandIframe.srcdoc = srcdoc; })
+              .catch(() => {});
+          } else if (rec.libraryPath) {
+            getSlideSrcdoc(rec.libraryPath, rec.id)
+              .then(srcdoc => { expandIframe.srcdoc = srcdoc; })
+              .catch(() => {});
+          } else if (libraryPath) {
+            getSlideSrcdoc(libraryPath, rec.id)
+              .then(srcdoc => { expandIframe.srcdoc = srcdoc; })
+              .catch(() => {});
+          }
+        }
+      });
 
       listEl.appendChild(li);
     });
