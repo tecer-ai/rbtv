@@ -1,0 +1,15 @@
+{
+  "C1": {
+    "dialog": "beforeunload",
+    "thread_present": true,
+    "chip": "Unsaved"
+  },
+  "C2": {
+    "dialog": null,
+    "page_closed": true
+  },
+  "C3": {
+    "dialog": null,
+    "page_closed": true
+  }
+}

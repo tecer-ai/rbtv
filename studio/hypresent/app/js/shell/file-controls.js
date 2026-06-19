@@ -75,6 +75,9 @@ export function setupOpenInBuilder({ getSerializeDoc, getStatusSetter, getBridge
         getStatusSetter()('Save failed.', 'error');
         return;
       }
+      // Already saved above; this is an intentional in-app switch, so suppress the
+      // editor's unsaved-changes close-guard (main.js) for this navigation.
+      window.__hypSuppressUnloadPrompt = true;
       window.location.href = '/app/builder.html?file=' + encodeURIComponent(result.path);
     } catch (err) {
       getStatusSetter()('Save failed: ' + err.message, 'error');

@@ -8,6 +8,11 @@ import { dialogSaveAs, save } from "/app/js/api-client.js";
 
 let bridge = null;
 let isDirty = false;
+let docDirty = false;       // authoritative "unsaved edits?" flag — mirrors the Saved/Unsaved
+                            // chip via setDocState (the single choke point) and is read by the
+                            // beforeunload close-guard. Kept separate from isDirty, which only
+                            // tracks 'dirty-changed' events + the title and is NOT updated on the
+                            // history-driven edit path.
 let isEditingNow = false;   // R3 edit-guard: cached from runtime 'edit-state' events
 let shortcutsHelp = null;
 let lastSelection = null;   // cached from runtime 'selection-changed' (for the panel composer)
@@ -42,6 +47,8 @@ function setDocChip(name, fullPath) {
 }
 
 function setDocState(dirty) {
+  docDirty = !!dirty;        // mirror into the close-guard flag BEFORE the early return,
+                             // so the guard never reads a stale value when the chip is absent
   const stateEl = document.getElementById("doc-state");
   if (!stateEl) return;
   stateEl.textContent = dirty ? "Unsaved" : "Saved";
@@ -600,6 +607,20 @@ document.addEventListener("DOMContentLoaded", () => {
       // else: no document open → allow the plain navigation
     });
   }
+
+  // Unsaved-changes close-guard: when the open document has unsaved edits, ask the
+  // browser to confirm before the tab is closed (Ctrl+W / window X), refreshed, or
+  // navigated away. The browser shows its own generic "Leave site? Changes you made
+  // may not be saved" dialog — we only opt in by preventing default + setting
+  // returnValue. A clean document (freshly opened or just saved) never prompts.
+  // Intentional in-app navigation (the "Open in builder" switch, which saves first)
+  // sets window.__hypSuppressUnloadPrompt to skip this prompt.
+  window.addEventListener("beforeunload", (e) => {
+    if (window.__hypSuppressUnloadPrompt) return;
+    if (!docDirty) return;
+    e.preventDefault();
+    e.returnValue = "";   // Chrome requires returnValue to be set to raise the prompt
+  });
 
   const openBtn = document.querySelector("#open-btn");
   if (!openBtn) {
