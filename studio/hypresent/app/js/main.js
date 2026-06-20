@@ -218,7 +218,7 @@ function createThreadEl(thread, isUnanchored = false) {
 
   const resolveBtn = document.createElement("button");
   resolveBtn.className = "comment-action-btn comment-action-btn--mut";
-  resolveBtn.textContent = thread.resolved ? "Reopen" : "Resolve";
+  resolveBtn.textContent = thread.resolved ? "Reopen" : "Close";
   resolveBtn.addEventListener("click", async (e) => {
     e.stopPropagation();
     try {
@@ -346,7 +346,21 @@ function createThreadEl(thread, isUnanchored = false) {
 // Default: Anchored expanded, Unanchored collapsed.
 const commentGroupCollapsed = { anchored: false, unanchored: true };
 
+// Per-session status filter (All / Open / Closed). Open = unresolved,
+// Closed = resolved — the only status the comment system tracks. Resets on
+// reload, like the collapse state above. Applied to BOTH groups.
+let commentStatusFilter = "all";
+// Last threads rendered, so a filter change re-renders without a bridge read.
+let _lastCommentThreads = [];
+
+function statusMatchesFilter(thread) {
+  if (commentStatusFilter === "open") return !thread.resolved;
+  if (commentStatusFilter === "closed") return !!thread.resolved;
+  return true;
+}
+
 function renderCommentPanel(threads) {
+  _lastCommentThreads = threads;
   const container = document.getElementById("comment-threads");
   const unanchoredContainer = document.getElementById("comment-unanchored");
   if (!container) return;
@@ -356,8 +370,9 @@ function renderCommentPanel(threads) {
 
   const anchored = threads
     .filter((t) => !t.unanchored)
+    .filter(statusMatchesFilter)
     .sort((a, b) => (a.number || 0) - (b.number || 0));
-  const unanchored = threads.filter((t) => t.unanchored);
+  const unanchored = threads.filter((t) => t.unanchored).filter(statusMatchesFilter);
 
   for (const thread of anchored) {
     container.appendChild(createThreadEl(thread, false));
@@ -454,6 +469,14 @@ function toggleCommentGroup(group) {
     });
   }
   window.addEventListener("resize", applyCommentGroupSizing);
+
+  const filterSel = document.getElementById("comment-filter");
+  if (filterSel) {
+    filterSel.addEventListener("change", () => {
+      commentStatusFilter = filterSel.value;
+      renderCommentPanel(_lastCommentThreads);
+    });
+  }
 })();
 
 let _commentRefreshInFlight = false;

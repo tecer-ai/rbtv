@@ -229,8 +229,8 @@ class F5CommentTests(unittest.TestCase):
         html1 = self._save_as_and_read(out1)
         self.assertIn("HYPRESENT AGENT INSTRUCTIONS", html1)
 
-        # resolve the thread (Reply is now an inline input, so Resolve is the first action button)
-        self.page.locator("#comment-threads .comment-action-btn", has_text="Resolve").first.click()
+        # close the thread (Reply is now an inline input, so Close is the first action button)
+        self.page.locator("#comment-threads .comment-action-btn", has_text="Close").first.click()
         self.page.wait_for_timeout(300)
 
         out2 = os.path.join(os.path.dirname(self.copy), "out_f5_11b.html")
