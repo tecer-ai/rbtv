@@ -209,7 +209,7 @@ qwen "<task>" --auth-type openai -m glm-5.1           --output-format json --app
 qwen "<task>"                                          --output-format json --approval-mode yolo --max-wall-time 10m   # default → qwen3.6-plus
 ```
 
-**Disambiguation — qwen-via-DeepSeek (this package) vs the DeepSeek API worker (`deepseek-api`):** they run the SAME DeepSeek V4 models but are different ROLES (CLI code/agentic vs stateless text), never interchangeable. The full "use X when / use Y when" rule — and the within-fleet pick (flash vs pro vs default vs glm) — live in the routing-matrix reference: `orchestration/docs/routing-matrix-reference.md` §8 + § "qwen-code-cli (DeepSeek/GLM backend) vs DeepSeek-API". Rule of thumb: **touches the filesystem or runs tools → qwen-via-DeepSeek; pure text in → text out → `deepseek-api`.**
+**Disambiguation — qwen-via-DeepSeek (this package) vs the DeepSeek API worker (`deepseek-api`):** they run the SAME DeepSeek V4 models but are different ROLES (CLI code/agentic vs stateless text), never interchangeable. The full "use X when / use Y when" rule — and the within-fleet pick (flash vs pro vs default vs glm) — live in `orchestration/docs/routing-system.md` Part II — Overlap Disambiguation ("qwen-code-cli vs DeepSeek-API"). Rule of thumb: **touches the filesystem or runs tools → qwen-via-DeepSeek; pure text in → text out → `deepseek-api`.**
 
 ### Context window + output sizing
 

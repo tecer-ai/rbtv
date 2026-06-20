@@ -195,4 +195,124 @@ The suite covers the reference profiles (fully/partially/unbounded), the bounded
 4. **Render** the manual: `python orchestration/models/render-manuals.py`, then confirm `--check` exits 0.
 5. **Add/extend tests** in `test_route.py` for any new routing behavior.
 6. **Run the suite:** `python -m pytest orchestration/models/test_route.py` — all green.
-7. **Keep docs in sync** (repo hard rule): update `modules/orchestration.md`, the matrix reference if a routable variant changed, and `admin/install/module-manifest.json` if a package was added/removed/renamed.
+7. **Keep docs in sync** (repo hard rule): update `modules/orchestration.md`, the per-model reference tables in Part II below if a routable variant changed, and `admin/install/module-manifest.json` if a package was added/removed/renamed.
+
+---
+
+# Part II — Per-Model Reference Data
+
+> **Reference data, NOT a router.** These are the per-model values the router reads and the conductor consults as a **within-tier tiebreaker** — never the master cut (boundedness-first stays the cut, per `skills/orchestrating/cards/routing.md`). Capability scores (`reasoning`/`coding`) and `cost` are integers 1–7 derived from one external methodology (the Artificial Analysis leaderboard — Intelligence Index + per-axis sub-tests for capability, Blended Price binned for cost). `routable_for` is an eligibility allow-list (absent ⇒ eligible for all leaves). **Model ids and prices are 2026 figures — re-verify against provider docs before relying on any specific id or price.** The DeepSeek and Gemini ids + prices were live-confirmed 2026-06-09.
+
+## Anthropic Claude
+
+| Model | reasoning | coding | cost | Context | Max Output | Price (blended) | reasoning_modes | evidence_status |
+|-------|:---------:|:------:|:----:|---------|------------|------------------|-----------------|-----------------|
+| Claude Opus 4.8 | 7 | 6 | 6 | 1M tokens | 128k | $3.85/MTok | single-mode (effort not settable via Agent-tool) | validated |
+| Claude Sonnet 4.6 | 6 | 5 | 5 | 1M tokens | 64k | $2.31/MTok | single-mode (effort not settable via Agent-tool) | validated |
+| Claude Haiku 4.5 | 3 | 2 | 3 | 200k tokens | 64k | $0.77/MTok | single-mode no-op | validated |
+
+**CLI carrier (`claude-code-cli`):** same capability integers; adds the 5-level effort ladder (`low|medium|high|xhigh|max` via `--effort`) for opus and sonnet. Haiku is a no-op single-mode even on the CLI. `cost` integers identical (board market price, no subscription discount).
+
+**Capability:** Opus = frontier reasoning + strong agentic coding; Sonnet = strong reasoning; Haiku = fast/cheap volume tasks. No `routable_for` restriction — all three eligible for all leaves. `reasoning` source: Intelligence Index + GPQA/HLE cross-checks. `coding` source: Terminal-Bench Hard.
+
+## DeepSeek (API)
+
+| Variant | reasoning | coding | cost | reasoning_modes | routable_for | Price (blended) | evidence_status |
+|---------|:---------:|:------:|:----:|-----------------|--------------|------------------|-----------------|
+| v4-flash | 4 | 3 | 1 | `[off, on]` via `thinking` param | `[reasoning, text-synthesis, other]` | $0.06/MTok | validated |
+| v4-pro | 5 | 4 | 1 | `[off, on]` via `thinking` param | `[reasoning, text-synthesis, other]` | $0.18/MTok | validated |
+
+Ids + prices live-confirmed 2026-06-09. The legacy `deepseek-chat`/`deepseek-reasoner` compatibility aliases are removed — dispatch `deepseek-v4-flash`/`deepseek-v4-pro`, never the aliases.
+
+**Capability:** API chat text-worker (OpenAI-compatible, JSON mode) — stateless text synthesis only; executes NO code in this dispatch. `coding` is the honest board score; code-ineligibility is carried by `routable_for` (omits the code roles), never by the coding integer. No native web. V4-Flash = cheapest text worker; V4-Pro = cheapest top-reasoning-tier text.
+
+## Kimi (Moonshot AI)
+
+| Variant | reasoning | coding | cost | Context | reasoning_modes | routable_for | Price (blended) | evidence_status |
+|---------|:---------:|:------:|:----:|---------|-----------------|--------------|------------------|-----------------|
+| kimi | 6 | 4 | 3 | 256k tokens | `[no-think, think]` via `--thinking`/`--no-thinking` | (all leaves) | $0.70/MTok | validated |
+
+**Capability:** CLI code-executor — writes/edits files, runs scripts, commits locally; validated bounded-code executor. Resume via session id. 256k context; multimodal (text+image); thinking toggle. No `routable_for` restriction. Runs as a CLI code-executor in this workspace — NOT a chat API worker.
+
+## Gemini (Google API)
+
+| Variant | reasoning | coding | cost | reasoning_modes | routable_for | Price (blended) | evidence_status |
+|---------|:---------:|:------:|:----:|-----------------|--------------|------------------|-----------------|
+| 3.5-flash | 6 | 3 | 4 | `[off, on]` via `thinkingBudget` (0=off) | `[reasoning, text-synthesis, web-research, other]` | $1.31/MTok | validated |
+| 3.1-flash-lite | 2 | 1 | 2 | `[off, on]` via `thinkingBudget` (0=off) | `[reasoning, text-synthesis, web-research, other]` | $0.22/MTok | validated |
+
+Prices live-confirmed 2026-06-09; the manifest's `3.5-flash` / `3.1-flash-lite` variants map to `gemini-3.5-flash` / `gemini-3.1-flash-lite`.
+
+**Capability:** API chat text-worker — carries native web access (search grounding; dispatch `--grounded` for the light-grounding web-research leaf). `coding` is the honest board score; code-ineligibility carried by `routable_for` (omits the code roles; `web-research` included — native grounding qualifies it for the research leaf). The ONLY `web_access: true` API chat worker.
+
+## OpenAI (codex-cli)
+
+> **ONE row per MODEL** — effort levels (`low|medium|high` via `model_reasoning_effort`) are the post-pin dial stored in `reasoning_modes`, NOT separate rows. `routable_for` absent = eligible for all leaves.
+
+| Variant | reasoning | coding | cost | reasoning_modes | routable_for | Price (blended) | evidence_status |
+|---------|:---------:|:------:|:----:|-----------------|--------------|------------------|-----------------|
+| gpt-5.5 | 7 | 7 | 7 | `[low, medium, high]` via `model_reasoning_effort` | (all leaves) | $4.35/MTok | validated |
+| gpt-5.4 | 6 | 6 | 5 | `[low, medium, high]` via `-m gpt-5.4 -c model_reasoning_effort` | (all leaves) | $2.19/MTok | validated |
+
+**Capability:** CLI code-executor (`codex exec`) — separate-process execution, writes/edits files, runs commands, sandboxed. GPT-5.5: frontier on both axes. GPT-5.4: near-frontier reasoning; coding one below GPT-5.5. `cost` 7 for GPT-5.5 (priciest — ranks last on a cost tie); `cost` 5 for GPT-5.4. GPT-5.5 manifest `context_window`: 1M tokens (capped per-deployment via the plan-caps file). Routed via the `codex-cli` package (code execution) — NOT an API chat worker.
+
+## Manus (API)
+
+| Variant | reasoning | coding | cost | reasoning_modes | routable_for | evidence_status |
+|---------|:---------:|:------:|:----:|-----------------|--------------|-----------------|
+| manus-autonomous | 1 | 1 | 1 | `[]` none — server-side autonomous loop | `[web-research]` | validated |
+
+**Capability:** Autonomous web-research agent — browser navigation, clicks, form-fill, full multi-step workflows; RESTful task API; per-task cost; ~5-min timeout. `routable_for: [web-research]` ONLY — dropped from every non-web-research leaf. Values are owner-sourced (not on the board); `cost: 1` is hardcoded (no board backing). Complement to LLMs for autonomous browser work, not a general-purpose substitute.
+
+## Qwen Code CLI (multi-backend)
+
+The `qwen-code-cli` package is a **CLI code-executor** running FOUR configured backends (OpenAI-compatible; `--auth-type openai -m <id>`, omit `-m` → `qwen3.6-plus`). ONE row per MODEL. Per-backend thinking depth is NOT controllable through the qwen-code CLI (`reasoning_modes.depths: UNKNOWN`, accepted-as-final).
+
+| Variant | reasoning | coding | cost | Backend id | Context | Max Output | Price in/out | evidence_status |
+|---------|:---------:|:------:|:----:|-----------|---------|-----------|---------------|-----------------|
+| `qwen3.6-plus` | 5 | 4 | 2 | qwen3.6-plus | 1M | 65,536 | $0.28/$1.65 (0–256K band) | validated |
+| `deepseek-flash` | 4 | 3 | 1 | deepseek-v4-flash | 1M | 384k | $0.14/$0.28 | validated |
+| `deepseek-pro` | 5 | 4 | 1 | deepseek-v4-pro | 1M | 384k | $0.435/$0.87 | validated |
+| `glm` | 5 | 4 | 3 | glm-5.1 | 204,800 | 131,072 | ~$0.98/$3.08 | validated |
+
+**Capability:** CLI code-executor (NOT a chat worker) — writes/edits files, runs shells/tests, native `--worktree` isolation; `web_access: false` (route web research elsewhere). No `routable_for` restriction — all backends eligible for all leaves (they execute code). `deepseek-flash` = cheap workhorse (same DeepSeek V4 Flash model as `deepseek-api`, different ROLE — code executor vs text worker); `deepseek-pro` = deeper reasoning; `qwen3.6-plus` = native Qwen flagship; `glm` = model diversity.
+
+## Quick-Decision Matrix
+
+| Need | Package | Variant | Reason |
+|------|---------|---------|--------|
+| Maximum reasoning + coding | codex-cli | gpt-5.5 | reasoning 7 / coding 7 — frontier both axes |
+| Deep reasoning, lower cost | claude-code-native | opus | reasoning 7 / coding 6 / cost 6 |
+| Strong reasoning, balanced | claude-code-native | sonnet | reasoning 6 / coding 5 / cost 5 |
+| Top open-weight reasoning | kimi-code-cli | kimi | reasoning 6 / coding 4 / cost 3 |
+| Cheapest text synthesis | deepseek-api | v4-flash | reasoning 4 / cost 1; routable_for text only |
+| Top-reasoning text synthesis | deepseek-api | v4-pro | reasoning 5 / cost 1; routable_for text only |
+| Web-grounded lookup (light) | gemini-api | 3.5-flash | reasoning 6 / cost 4; native search grounding |
+| Web-grounded cheapest | gemini-api | 3.1-flash-lite | reasoning 2 / cost 2; cheapest web-capable text |
+| Autonomous multi-step browser | manus-api | manus-autonomous | routable_for: [web-research] only; per-task cost |
+| Bounded code, cheapest CLI | qwen-code-cli | deepseek-flash | reasoning 4 / coding 3 / cost 1; 384k output |
+| Bounded code, deeper reasoning | qwen-code-cli | deepseek-pro | reasoning 5 / coding 4 / cost 1 |
+| Code-fleet model diversity | qwen-code-cli | glm / qwen3.6-plus | non-DeepSeek options |
+| High volume, cheapest Claude | claude-code-native | haiku | reasoning 3 / coding 2 / cost 3 |
+
+## Overlap Disambiguation — within-tier "use X / use Y"
+
+These rows resolve specific worker overlaps. They are **within-tier tiebreakers only** — boundedness-first stays the master cut; consult a row only to break a tie between workers the boundedness tree already placed in the same tier. Each variant's positive "best at" line lives in its manifest `specialty` field; these rows state the BOUNDARY between two overlapping choices.
+
+**DeepSeek-API vs codex-cli** — the cut is **text-synthesis vs code-execution**, enforced by `routable_for`. Route a TEXT leaf (synthesis/logic over inlined sources, no execution) to `deepseek-api` (cheapest capable text; its `routable_for` omits code roles). Route a leaf that **executes code** to `codex-cli` (sandboxed separate process); DeepSeek-API cannot receive a code leaf. Never route code to DeepSeek-API; never route pure text-synthesis to a costlier code-executing process when a text worker suffices.
+
+**qwen-code-cli (DeepSeek/GLM backend) vs DeepSeek-API** — the qwen CLI can run the SAME DeepSeek V4 models, but as a different ROLE. **Does the task touch the filesystem or run tools? → qwen-code-cli (DeepSeek backend)** (tool-using code executor, no `routable_for` restriction). **Pure text in → text out? → deepseek-api** (stateless text synthesis; gate removes it from every code leaf).
+
+**Gemini-grounding vs `rbtv-web-searching` vs Manus** — three web escalation levels by autonomy/rigor/cost. **Single grounded lookup → Gemini** (`--grounded`; the only `web_access: true` API chat worker). **Rigorous cited multi-source research → `rbtv-web-searching`** (the in-session path, always available even with no web-capable model installed; never an API chat worker for this). **Autonomous multi-step browser work → Manus** (`routable_for: [web-research]` only; per-task cost, minutes-scale). Match the level the task needs.
+
+**claude-code-cli (process) vs Agent-tool Claude** — **default to Agent-tool Claude** (`claude-code-native:opus`/`sonnet`) — in-session sub-agent, no process overhead; does NOT natively load workspace rules (the parent inlines them) and CANNOT spawn sub-agents (the nesting wall). **Escalate to `claude-code-cli`** ONLY for a process boundary (the worker must itself drive CLI workers — sub-conducting) or native workspace-rule loading (a `claude -p` process auto-loads the cwd rules). Both are distinct `(model, variant)` pairs — never collapsed; same Claude budget either way (not cost arbitrage).
+
+## Source Citations
+
+- Anthropic: https://platform.claude.com/docs/en/about-claude/models/overview
+- DeepSeek: https://api-docs.deepseek.com/quick_start/pricing , https://api-docs.deepseek.com/guides/thinking_mode
+- Kimi: https://platform.kimi.ai/docs/models , https://platform.kimi.ai/docs/api
+- Gemini: https://ai.google.dev/gemini-api/docs/models , https://ai.google.dev/gemini-api/docs/pricing
+- OpenAI: https://platform.openai.com/docs/models
+- Qwen: https://dashscope.aliyuncs.com/docs
+- Manus: https://open.manus.ai/docs/v2/

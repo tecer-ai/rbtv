@@ -166,6 +166,7 @@
     <a href="#render">Render</a>
     <a href="#tests">Tests</a>
     <a href="#add">Add a model</a>
+    <a href="#refdata">Reference data</a>
   </div>
 </nav>
 
@@ -407,10 +408,72 @@ python orchestration/models/render-manuals.py <b>--check</b>     <span class="cm
   </div>
 </section>
 
+<!-- REFERENCE DATA -->
+<section id="refdata">
+  <div class="wrap">
+    <div class="eyebrow reveal">Part II</div>
+    <h2 class="reveal">Per-model reference data</h2>
+    <p class="lede reveal" style="margin-bottom:20px">The values the router reads, and the conductor consults as a <b>within-tier tiebreaker</b> — never the master cut. Capability (<code>reasoning</code>/<code>coding</code>) and <code>cost</code> are integers 1–7 from one external methodology (the Artificial Analysis leaderboard).</p>
+    <div class="callout note reveal"><span class="ic">i</span><span><b>Reference, not a router.</b> <code>routable_for</code> absent ⇒ eligible for all leaves. Model ids and prices are 2026 figures — <b>re-verify against provider docs before relying on any id or price</b>. DeepSeek &amp; Gemini ids/prices live-confirmed 2026-06-09.</span></div>
+
+    <div class="tbl-wrap reveal" style="margin-top:18px">
+      <table>
+        <thead><tr><th>Model</th><th>Pkg / variant</th><th>reasoning</th><th>coding</th><th>cost</th><th>Context</th><th>routable_for</th></tr></thead>
+        <tbody>
+          <tr><td><b>Claude Opus 4.8</b></td><td><code>claude-code-native:opus</code></td><td class="num">7</td><td class="num">6</td><td class="num">6</td><td>1M</td><td class="muted">all leaves</td></tr>
+          <tr><td><b>Claude Sonnet 4.6</b></td><td><code>claude-code-native:sonnet</code></td><td class="num">6</td><td class="num">5</td><td class="num">5</td><td>1M</td><td class="muted">all leaves</td></tr>
+          <tr><td><b>Claude Haiku 4.5</b></td><td><code>claude-code-native:haiku</code></td><td class="num">3</td><td class="num">2</td><td class="num">3</td><td>200k</td><td class="muted">all leaves</td></tr>
+          <tr><td><b>GPT-5.5</b></td><td><code>codex-cli:gpt-5.5</code></td><td class="num">7</td><td class="num">7</td><td class="num">7</td><td>1M*</td><td class="muted">all leaves</td></tr>
+          <tr><td><b>GPT-5.4</b></td><td><code>codex-cli:gpt-5.4</code></td><td class="num">6</td><td class="num">6</td><td class="num">5</td><td>—</td><td class="muted">all leaves</td></tr>
+          <tr><td><b>Kimi K2.6</b></td><td><code>kimi-code-cli:kimi</code></td><td class="num">6</td><td class="num">4</td><td class="num">3</td><td>256k</td><td class="muted">all leaves</td></tr>
+          <tr><td><b>DeepSeek V4-Flash</b></td><td><code>deepseek-api:v4-flash</code></td><td class="num">4</td><td class="num">3</td><td class="num">1</td><td>—</td><td><span class="pill amber">text only</span></td></tr>
+          <tr><td><b>DeepSeek V4-Pro</b></td><td><code>deepseek-api:v4-pro</code></td><td class="num">5</td><td class="num">4</td><td class="num">1</td><td>—</td><td><span class="pill amber">text only</span></td></tr>
+          <tr><td><b>Gemini 3.5 Flash</b></td><td><code>gemini-api:3.5-flash</code></td><td class="num">6</td><td class="num">3</td><td class="num">4</td><td>—</td><td><span class="pill teal">text + web</span></td></tr>
+          <tr><td><b>Gemini 3.1 Flash-Lite</b></td><td><code>gemini-api:3.1-flash-lite</code></td><td class="num">2</td><td class="num">1</td><td class="num">2</td><td>—</td><td><span class="pill teal">text + web</span></td></tr>
+          <tr><td><b>Manus</b></td><td><code>manus-api:manus-autonomous</code></td><td class="num">1</td><td class="num">1</td><td class="num">1</td><td>—</td><td><span class="pill coral">web-research only</span></td></tr>
+          <tr><td><b>qwen3.6-plus</b></td><td><code>qwen-code-cli:qwen3.6-plus</code></td><td class="num">5</td><td class="num">4</td><td class="num">2</td><td>1M</td><td class="muted">all leaves</td></tr>
+          <tr><td><b>DeepSeek-Flash (CLI)</b></td><td><code>qwen-code-cli:deepseek-flash</code></td><td class="num">4</td><td class="num">3</td><td class="num">1</td><td>1M</td><td class="muted">all leaves</td></tr>
+          <tr><td><b>DeepSeek-Pro (CLI)</b></td><td><code>qwen-code-cli:deepseek-pro</code></td><td class="num">5</td><td class="num">4</td><td class="num">1</td><td>1M</td><td class="muted">all leaves</td></tr>
+          <tr><td><b>GLM-5.1</b></td><td><code>qwen-code-cli:glm</code></td><td class="num">5</td><td class="num">4</td><td class="num">3</td><td>205k</td><td class="muted">all leaves</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted reveal" style="font-size:13px;margin-top:10px">reasoning/coding: 1 weakest → 7 strongest · cost: 1 cheapest → 7 priciest (bin 7 ranks last). <code>claude-code-cli</code> mirrors the Claude integers and adds the 5-level <code>--effort</code> ladder. * GPT-5.5 manifest window is 1M, capped per-deployment via the plan-caps file. Prices &amp; full per-variant notes: <code>routing-system.md</code> Part II.</p>
+
+    <h3 class="reveal" style="margin-top:40px">Quick-decision matrix</h3>
+    <div class="tbl-wrap reveal" style="margin-top:8px">
+      <table>
+        <thead><tr><th>Need</th><th>Pick</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Maximum reasoning + coding</td><td><code>codex-cli:gpt-5.5</code></td><td>7 / 7 — frontier both axes</td></tr>
+          <tr><td>Deep reasoning, lower cost</td><td><code>claude-code-native:opus</code></td><td>reasoning 7 / cost 6</td></tr>
+          <tr><td>Strong reasoning, balanced</td><td><code>claude-code-native:sonnet</code></td><td>6 / 5 / 5</td></tr>
+          <tr><td>Top open-weight reasoning</td><td><code>kimi-code-cli:kimi</code></td><td>reasoning 6 / cost 3</td></tr>
+          <tr><td>Cheapest text synthesis</td><td><code>deepseek-api:v4-flash</code></td><td>cost 1; text-only</td></tr>
+          <tr><td>Light web-grounded lookup</td><td><code>gemini-api:3.5-flash</code></td><td>native search grounding</td></tr>
+          <tr><td>Autonomous multi-step browser</td><td><code>manus-api</code></td><td>web-research only; per-task cost</td></tr>
+          <tr><td>Bounded code, cheapest CLI</td><td><code>qwen-code-cli:deepseek-flash</code></td><td>cost 1; 384k output</td></tr>
+          <tr><td>High volume, cheapest Claude</td><td><code>claude-code-native:haiku</code></td><td>cost 3 (needs the haiku flag)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="reveal" style="margin-top:40px">Overlap disambiguation</h3>
+    <p class="muted reveal" style="font-size:13.5px;margin-bottom:14px">Within-tier tiebreakers only — consult a card to break a tie between workers the boundedness tree already placed in the same tier.</p>
+    <div class="grid g2 reveal">
+      <article class="card"><span class="k">DeepSeek-API vs codex-cli</span><p>The cut is <b>text-synthesis vs code-execution</b>, enforced by <code>routable_for</code>. Text leaf → <code>deepseek-api</code> (cheapest capable text). Executes code → <code>codex-cli</code>; DeepSeek-API can't receive a code leaf.</p></article>
+      <article class="card"><span class="k">qwen-DeepSeek vs DeepSeek-API</span><p>Same DeepSeek V4 models, different ROLE. <b>Touches the filesystem / runs tools → <code>qwen-code-cli</code></b> (code executor). <b>Pure text in → text out → <code>deepseek-api</code></b>.</p></article>
+      <article class="card"><span class="k">Gemini vs web-searching vs Manus</span><p>Three web levels. Single grounded lookup → <b>Gemini</b> (<code>--grounded</code>). Rigorous cited multi-source → <b><code>rbtv-web-searching</code></b> (in-session, always available). Autonomous multi-step browser → <b>Manus</b>.</p></article>
+      <article class="card"><span class="k">claude-code-cli vs Agent-tool Claude</span><p><b>Default to Agent-tool Claude</b> (no process overhead; can't spawn sub-agents — the nesting wall). <b>Escalate to <code>claude-code-cli</code></b> only for a process boundary (sub-conducting) or native workspace-rule loading. Same Claude budget — not cost arbitrage.</p></article>
+    </div>
+    <p class="muted reveal" style="font-size:12.5px;margin-top:18px">Sources: provider docs (Anthropic, DeepSeek, Kimi, Gemini, OpenAI, Qwen, Manus) — full citation list in <code>routing-system.md</code> Part II.</p>
+  </div>
+</section>
+
 <footer>
   <div class="wrap">
     <div class="src">
-      <b>Companion docs.</b> Per-model values &amp; prices → <code>docs/routing-matrix-reference.md</code>. Field definitions → <code>models/manifest-schema.md</code>. Algorithm authority → <code>skills/orchestrating/cards/routing.md</code> §2a.
+      <b>Companion docs.</b> Field definitions → <code>models/manifest-schema.md</code>. Algorithm authority → <code>skills/orchestrating/cards/routing.md</code> §2a.
       <span class="pathpill">orchestration/docs/routing-system.md — the machine-readable twin of this page</span>
     </div>
     <div class="src" style="text-align:right">

@@ -4,7 +4,7 @@ Per-model delta for the **gemini** API chat worker — a stateless HTTP-call wor
 
 The render script (`../render-manuals.py`) composes the generic wrapper (`{rbtv_path}/orchestration/skills/orchestrating/cards/dispatch-wrapper.md`) with the sections below into `./manual.md`. Edit gemini behavior HERE; never in the rendered manual.
 
-**Model-id caveat (applies everywhere a model id appears):** `3.5-flash` and `3.1-flash-lite` are RBTV routing labels sourced from `routing-matrix-reference.md` (2026 estimates). The actual Google Gemini API model id is passed to the runner via `--model` at dispatch time and MUST be re-verified against Google's live API docs (`https://ai.google.dev/gemini-api/docs/models`) before the pilot. Never treat a routing label as an authoritative API id.
+**Model-id caveat (applies everywhere a model id appears):** `3.5-flash` and `3.1-flash-lite` are RBTV routing labels sourced from `routing-system.md` Part II — Gemini (2026 estimates). The actual Google Gemini API model id is passed to the runner via `--model` at dispatch time and MUST be re-verified against Google's live API docs (`https://ai.google.dev/gemini-api/docs/models`) before the pilot. Never treat a routing label as an authoritative API id.
 
 **Gemini distinguishing trait — search grounding (shipped and routable):** Gemini is the ONLY web-capable chat worker in the routing table, and search grounding (Google Search integration) is wired end-to-end. The shared `_api/run.py` runner exposes a generic `--grounded` flag (which sets `extra_params["grounding"]=True`) plus an `--extra-params` JSON pass-through; the Gemini client (`_api/clients/gemini.py`) reads `extra_params["grounding"]` and swaps `responseMimeType: application/json` for the `google_search` tool. Both the p5-3 runner pass-through and the p5-4 web-research-leaf routing shipped, and grounding was first live-fired 2026-06-09 (p6-1 pilot). Gemini IS routable as the light-grounding web-research leaf today (routing §6). A grounded dispatch is **mutually exclusive with JSON-envelope mode** — see the Grounding section below for the raw-dump return surface it produces.
 
@@ -37,7 +37,7 @@ The conductor treats `return.json` as the primary return signal. Reconcile it ag
 <!-- RENDER:DELTA-END model-transport-note -->
 
 <!-- RENDER:DELTA invocation -->
-The Gemini API dispatch manual — the exact runner invocation, variant selection, exit handling, and the gemini task contract. Sourced from `routing-matrix-reference.md` §4 (2026 estimates) + Google Gemini API docs.
+The Gemini API dispatch manual — the exact runner invocation, variant selection, exit handling, and the gemini task contract. Sourced from `routing-system.md` Part II — Gemini (2026 estimates) + Google Gemini API docs.
 
 **Variant ids + pricing were live-confirmed 2026-06-09 (p6-1 pilot, D-exec-15); re-verify context limits and any post-refresh pricing against `https://ai.google.dev/gemini-api/docs`.** This manual is `validated`.
 

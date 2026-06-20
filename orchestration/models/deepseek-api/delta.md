@@ -29,7 +29,7 @@ The conductor treats `return.json` as the primary return signal. Reconcile it ag
 <!-- RENDER:DELTA-END model-transport-note -->
 
 <!-- RENDER:DELTA invocation -->
-The DeepSeek API dispatch manual — the exact runner invocation, variant selection, exit handling, and the deepseek task contract. Sourced from `routing-matrix-reference.md` §2 (ids + prices live-confirmed 2026-06-09) + DeepSeek API docs.
+The DeepSeek API dispatch manual — the exact runner invocation, variant selection, exit handling, and the deepseek task contract. Sourced from `routing-system.md` Part II — DeepSeek (ids + prices live-confirmed 2026-06-09) + DeepSeek API docs.
 
 **Model ids + pricing were live-confirmed 2026-06-09 (p6-1 pilot, D-exec-15); re-verify context limits and any post-refresh pricing against `https://api-docs.deepseek.com`.** This manual is `validated`. **The legacy `deepseek-chat`/`deepseek-reasoner` aliases are removed 2026-07-24 15:59 UTC — dispatch `deepseek-v4-flash`/`deepseek-v4-pro`.**
 

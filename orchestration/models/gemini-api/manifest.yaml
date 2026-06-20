@@ -1,6 +1,6 @@
 # Gemini capability manifest — the routing card's data interface for the gemini package.
 # Schema + field meanings + routing-card consumers: ../manifest-schema.md
-# Sources: routing-matrix-reference.md §4 (variant ids + prices live-confirmed 2026-06-09, p6-1 pilot, D-exec-15);
+# Sources: routing-system.md Part II — Gemini (variant ids + prices live-confirmed 2026-06-09);
 #          Google Gemini API docs: https://ai.google.dev/gemini-api/docs
 #          value-derivation.md (AA-board derived integers; D13 capability-vs-eligibility split)
 # This is an API chat worker (stateless HTTP call — no filesystem access, no tool execution loop).

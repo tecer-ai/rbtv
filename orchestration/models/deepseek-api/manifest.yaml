@@ -1,6 +1,6 @@
 # DeepSeek capability manifest — the routing card's data interface for the deepseek package.
 # Schema + field meanings + routing-card consumers: ../manifest-schema.md
-# Sources: routing-matrix-reference.md §2 (ids + prices live-confirmed 2026-06-09, p6-1 pilot, D-exec-15);
+# Sources: routing-system.md Part II — DeepSeek (ids + prices live-confirmed 2026-06-09);
 #          DeepSeek API docs: https://api-docs.deepseek.com
 #          value-derivation.md (AA-board derived integers; D13 capability-vs-eligibility split)
 # This is an API chat worker (stateless HTTP call — no filesystem access, no tool execution loop).

@@ -1,6 +1,6 @@
 # Manus capability manifest — the routing card's data interface for the manus package.
 # Schema + field meanings + routing-card consumers: ../manifest-schema.md
-# Sources: routing-matrix-reference.md §7 (Manus — autonomy/browser, RESTful, per-task cost,
+# Sources: routing-system.md Part II — Manus (autonomy/browser, RESTful, per-task cost,
 #          up to 5-min timeout); Manus API docs: https://api.manus.ai/docs;
 #          the built client orchestration/models/_api/clients/manus.py (structured_output: False).
 #          value-derivation.md (owner-sourced values; D13 routable_for: [web-research])

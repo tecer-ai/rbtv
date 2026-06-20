@@ -42,7 +42,7 @@ The conductor treats `return.json` as the primary return signal and reconciles i
 <!-- RENDER:DELTA-END model-transport-note -->
 
 <!-- RENDER:DELTA invocation -->
-The Manus API dispatch manual — the exact runner invocation, the single profile, exit/halt handling, and the manus task contract. Sourced from `routing-matrix-reference.md` §7 + Manus API docs + the built client (`_api/clients/manus.py`).
+The Manus API dispatch manual — the exact runner invocation, the single profile, exit/halt handling, and the manus task contract. Sourced from `routing-system.md` Part II — Manus + Manus API docs + the built client (`_api/clients/manus.py`).
 
 This manual is validated against Manus API v2 (piloted live 2026-06-09). Pricing: ~$0.01/credit, ~150 credits/task ≈ ~$1.50/task. `context_window`/`max_output` in the manifest are unverified placeholders — Manus publishes no token limits; do not size large inlined contexts on them. Reference: `https://api.manus.ai/docs`.
 

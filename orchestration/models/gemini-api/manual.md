@@ -128,7 +128,7 @@ The conductor treats `return.json` as the primary return signal. Reconcile it ag
 
 ## Invocation — the exact command shape
 
-The Gemini API dispatch manual — the exact runner invocation, variant selection, exit handling, and the gemini task contract. Sourced from `routing-matrix-reference.md` §4 (2026 estimates) + Google Gemini API docs.
+The Gemini API dispatch manual — the exact runner invocation, variant selection, exit handling, and the gemini task contract. Sourced from `routing-system.md` Part II — Gemini (2026 estimates) + Google Gemini API docs.
 
 **Variant ids + pricing were live-confirmed 2026-06-09 (p6-1 pilot, D-exec-15); re-verify context limits and any post-refresh pricing against `https://ai.google.dev/gemini-api/docs`.** This manual is `validated`.
 
