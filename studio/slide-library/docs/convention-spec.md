@@ -39,6 +39,7 @@ A spec-compliant library is a single folder containing the following. **Required
 ├── as-built.md              REQUIRED  append-only assembly log; engine writes here (§ 4)
 ├── base.html                REQUIRED  document skeleton with the 5 markers (§ 6)
 ├── theme.css                REQUIRED  the single design system, inlined at assembly (§ 6)
+├── themes/                  OPTIONAL  alternate theme CSS files (§ 6.6)
 ├── assemble.py              REQUIRED  the vendored engine (§ 1.1)
 ├── archive.py              OPTIONAL  the vendored archive tool — archive/restore superseded fragments (§ 1.3)
 ├── slides/                  REQUIRED  flat directory of {id}.html fragments (§ 2)
@@ -52,7 +53,7 @@ A spec-compliant library is a single folder containing the following. **Required
 
 ### 1.1 The vendored engine (per F3 — ratify before building)
 
-The engine's canonical source lives ONCE, centrally, in the RBTV repo at `html/slide-library/engine/assemble.py`. **A spec-compliant library MUST contain a copy of the engine at `{library}/assemble.py`.** This satisfies the cold-agent contract literally: the assembly tool travels inside the folder.
+The engine's canonical source lives ONCE, centrally, in the RBTV repo at `studio/slide-library/engine/assemble.py`. **A spec-compliant library MUST contain a copy of the engine at `{library}/assemble.py`.** This satisfies the cold-agent contract literally: the assembly tool travels inside the folder.
 
 To prevent silent drift, the library's `library.json` records `engine_version` and the engine stamps the same version internally. On every run the engine MUST compare its own stamp against the `engine_version` in the `library.json` it reads and warn (not fail) on mismatch. The convention provides a documented re-vendor command (engine implementation — workstream 2) that copies the central engine over the library's copy and bumps the stamp.
 
@@ -614,6 +615,60 @@ When resolving the document language, the engine MUST apply this precedence by m
 
 ---
 
+### 6.6 Multi-theme support (OPTIONAL)
+
+A library MAY declare alternate themes in a `themes/` folder. All themes are interchangeable skins over the same slide HTML, so every theme MUST implement the same shared class contract. Single-theme libraries (no `themes[]`) are unchanged; all multi-theme additions are OPTIONAL.
+
+**`library.json` fields**
+
+| Key | Required | Meaning |
+|-----|----------|---------|
+| `themes` | OPTIONAL | List of theme objects: `{ "name": "...", "file": "themes/....css", "label": "...", "contract_version": "..." }`. |
+| `default_theme` | OPTIONAL | Name of the theme used by default. Defaults to `"default"` (`theme.css`). |
+
+**Layout**
+
+- `theme.css` remains REQUIRED and is the default theme (named `default`).
+- `themes/{name}.css` holds each alternate theme.
+
+**Shared class contract**
+
+The contract is LIBRARY-SCOPED: each library owns the selector + token vocabulary its fragments use. For the RBTV fixture library the v1 contract includes:
+- Tokens: `--bg`, `--bg-soft`, `--fg`, `--fg-invert`, `--muted`, `--brand`, `--client-accent`
+- Selectors: `@page`, `body`, `.slide`, `.slide--soft`, `.slide--dark`, `.slide--cover`, `.slide--closing`, `.dark-bg-overlay`, `.slide-header`, `.kicker`, `.slide-title`, `.slide-subtitle`, `.slide-body`, `.grid-3`, `.card`, `.card-icon`, `.card-title`, `.card-body`, `.aside-note`, `.dark-callout`, `.cover-logos`, `.cover-mark`, `.cover-logos-sep`, `.cover-client`, `.cover-title`, `.cover-subtitle`, `.cover-date`, `.divider-statement`, `.sources-line`, `.partner-mark`, `.closing-statement`, `.closing-contacts`, `.closing-wordmark`, `.slide-number`
+
+Every theme file (`theme.css` and each `themes/*.css`) MUST define every contract selector and token. The engine lints presence only (values may differ). The lint fires only when `themes[]` is declared, protecting existing single-theme libraries.
+
+**Engine flags**
+
+- `--theme {name}` selects a theme. `default` resolves to `theme.css`; any other name resolves to its `themes[]` entry or `themes/{name}.css`.
+- `--library-ref {path}` is passed through verbatim and stamped into the deck as `data-theme-library` (a repo-root-relative reference supplied by the caller).
+- `--check-themes` runs library validation + the contract lint without assembling.
+
+**`base.html` markers (additive)**
+
+A library MAY add these markers; they are filled by the engine when present and left unchanged when absent (back-compat):
+
+| Marker | Filled with |
+|--------|-------------|
+| `{{THEME_NAME}}` | selected theme name |
+| `{{THEME_CONTRACT}}` | the theme's `contract_version` |
+| `{{THEME_LIBRARY}}` | the `--library-ref` value |
+
+The recommended stamped skeleton:
+
+```html
+<html lang="{{LANG}}" data-theme="{{THEME_NAME}}" data-theme-contract="{{THEME_CONTRACT}}" data-theme-library="{{THEME_LIBRARY}}">
+...
+<style data-theme="{{THEME_NAME}}" data-theme-contract="{{THEME_CONTRACT}}">
+/* {{THEME_CSS}} */
+</style>
+```
+
+The deck carries native `data-*` attributes so the serialized output survives an editor open→save unchanged.
+
+---
+
 ## 7. Convention Versioning (`library.json`)
 
 `library.json` is a REQUIRED stdlib-`json` file at the library root. It carries the version contract and library configuration.
@@ -628,6 +683,8 @@ When resolving the document language, the engine MUST apply this precedence by m
 | `default_lang` | MUST | Fallback document language (§ 6.5). |
 | `sections` | MUST | ORDERED list of section names. The manifest `section` column MUST reference one of these. Defines GUI grouping order and catalog order. |
 | `extra_asset_root` | MUST (MAY be `null`) | Path, library-relative, for `@root/...` asset resolution (§ 2.4), or `null` if unused. |
+| `themes` | OPTIONAL | List of alternate theme objects: `{ "name": "...", "file": "themes/....css", "label": "...", "contract_version": "..." }`. Absent ⇒ single-theme library (§ 6.6). |
+| `default_theme` | OPTIONAL | Name of the theme used by default. Defaults to `"default"` (`theme.css`) (§ 6.6). |
 
 ### 7.2 Compatibility check (MUST)
 
@@ -690,6 +747,7 @@ The single, mechanically-decidable list of every validation rule the engine enfo
 | 22 | Engine stamp drift | engine stamp == `library.json` `engine_version` | WARNING | § 1.1, § 7.2 |
 | 23 | As-built round-trip | `parse(write(entry)) == entry` for every emitted entry | ERROR (DT5/migration gate) | § 4.1 |
 | 24 | `--check` token report | output file scanned for residual `{{TOKEN}}` | reports (exit 1 if any) | § 6.3 |
+| 25 | Theme contract lint | every theme file defines every selector/token in the library's shared contract | ERROR | § 6.6 |
 
 Note: the live tecer engine implements NONE of the purity scan (check 12), the `library.json` checks (20-22), or the round-trip check (23) — those are new engine work (§ 8.1).
 
@@ -838,7 +896,7 @@ Generated HTML that is neither a website nor a pitch deck — a dashboard or app
 
 > Append-only. Orchestrator rulings during execution land here as `ADX-N`. Executors cite "per ADX-N". Each entry: `ADX-N — {date} — {fork or topic} — {ruling}`.
 
-- **ADX-1 — 2026-06-06 — Ratification round (contract-author-notes.md forks).** F1, F2, F4, F5, F6, F6a, F7, F8, F8a, F8b, F9, F10, F10a: ALL RATIFIED as authored. **F3 RATIFIED as (a)-hybrid**: engine vendored at `{library}/assemble.py` (required artifact), `engine_version` stamp in `library.json`, documented re-vendor command; canonical source `html/slide-library/engine/assemble.py`. Assumptions A1–A5 accepted (A1: DT4 read literally; A4: DT5 bar = structural + visual parity, byte-exact non-goal).
+- **ADX-1 — 2026-06-06 — Ratification round (contract-author-notes.md forks).** F1, F2, F4, F5, F6, F6a, F7, F8, F8a, F8b, F9, F10, F10a: ALL RATIFIED as authored. **F3 RATIFIED as (a)-hybrid**: engine vendored at `{library}/assemble.py` (required artifact), `engine_version` stamp in `library.json`, documented re-vendor command; canonical source `studio/slide-library/engine/assemble.py`. Assumptions A1–A5 accepted (A1: DT4 read literally; A4: DT5 bar = structural + visual parity, byte-exact non-goal).
 - **ADX-2 — 2026-06-06 — GUI engine face (cross-workstream ruling).** The hypresent builder page consumes the TARGET LIBRARY's own vendored engine via subprocess — never a separate central code path — using a machine-readable output mode whose exact form workstream 2 designs. Version-stamp mismatch warnings surface in the GUI. Rationale: one behavior source per library; the GUI is a gesture layer over the same contract the cold agent uses.
 - **ADX-3 — 2026-06-06 — Tecer cross-root asset.** Migration vendors the single cross-root PNG (`brand/logo/tecer-logo-white-transparent.png`) into the library's `assets/` and drops `@root` usage for tecer. The convention KEEPS `@root` + `extra_asset_root` for generality.
 - **ADX-4 — 2026-06-07 — Replay mode (`--no-log`).** The engine gains a `--no-log` flag: a VERIFICATION/REPLAY mode that performs the full assembly but suppresses the § 4 as-built append. The § 4 MUST ("append one entry on every successful assembly") binds every PRODUCTION assembly — GUI flow, cold-agent flow — and those flows NEVER pass `--no-log`. Legitimate uses are exactly: DT5/§ 4.4 reproduction runs (re-assembling a known deck to compare — recording the replay would pollute the log it validates) and automated test/verification harnesses (which additionally run on TEMP COPIES of libraries, never on committed/live ones). `CLAUDE.md` does NOT advertise the flag. In `--json` mode with `--no-log`, the envelope's `as_built_entry` field carries the entry that WOULD have been written, marked `"logged": false`.

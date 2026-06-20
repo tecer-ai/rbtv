@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 # ── Constants ──
-ENGINE_VERSION = "1.0"
+ENGINE_VERSION = "1.1"
 SUPPORTED_CONVENTION_MAJOR = 1
 ENGINE_TARGET_MINOR = 0
 MANIFEST_COLUMNS = [
@@ -24,6 +24,34 @@ STATUS_VALUES = ("to-review", "ready")
 
 TOKEN_RE = re.compile(r"\{\{[^}]+\}\}")
 SLIDE_NUMBER_RE = re.compile(r'(<div class="slide-number">)\{\{N\}\}(</div>)')
+
+# Shared class contract for multi-theme libraries (library-scoped, v1).
+# Every theme in a library that declares themes[] MUST define every selector
+# and :root token in this set. Presence-check only.
+CONTRACT_V1 = frozenset({
+    # Tokens
+    "--bg", "--bg-soft", "--fg", "--fg-invert", "--muted", "--brand",
+    "--client-accent",
+    # Page / base
+    "@page", "body",
+    # Slide + variants
+    ".slide", ".slide--soft", ".slide--dark", ".slide--cover", ".slide--closing",
+    ".dark-bg-overlay",
+    # Header
+    ".slide-header", ".kicker", ".slide-title", ".slide-subtitle",
+    # Body / grid / cards
+    ".slide-body", ".grid-3", ".card", ".card-icon", ".card-title", ".card-body",
+    # Asides
+    ".aside-note", ".dark-callout",
+    # Cover
+    ".cover-logos", ".cover-mark", ".cover-logos-sep", ".cover-client",
+    ".cover-title", ".cover-subtitle", ".cover-date",
+    # Divider / proof / closing
+    ".divider-statement", ".sources-line", ".partner-mark",
+    ".closing-statement", ".closing-contacts", ".closing-wordmark",
+    # Chrome
+    ".slide-number",
+})
 
 LIBRARY = Path(__file__).resolve().parent
 
@@ -82,6 +110,79 @@ def die(message):
 
 def warn(message):
     print("WARNING: " + message, file=sys.stderr)
+
+
+def parse_css_members(css_text):
+    """Return the set of defined selector heads and :root custom properties."""
+    cleaned = re.sub(r"/\*.*?\*/", "", css_text, flags=re.DOTALL)
+    members = set()
+
+    # :root custom properties
+    for root_block in re.finditer(r":root\s*\{([^}]*)\}", cleaned, re.DOTALL):
+        for token_match in re.finditer(r"--([A-Za-z0-9_-]+)\s*:", root_block.group(1)):
+            members.add(f"--{token_match.group(1)}")
+
+    # Selector heads: extract the text preceding each top-level '{'.
+    selector_groups = []
+    depth = 0
+    last = 0
+    for i, ch in enumerate(cleaned):
+        if ch == "{":
+            if depth == 0:
+                selector_groups.append(cleaned[last:i])
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                last = i + 1
+
+    for selector_group in selector_groups:
+        selector_group = selector_group.strip()
+        if not selector_group:
+            continue
+        if selector_group.startswith("@"):
+            if selector_group.startswith("@page"):
+                members.add("@page")
+            continue
+        for selector in selector_group.split(","):
+            selector = selector.strip()
+            if not selector or selector == "*":
+                continue
+            for cls in re.finditer(r"\.([A-Za-z0-9_-]+)", selector):
+                members.add(f".{cls.group(1)}")
+            type_match = re.match(r"([A-Za-z][A-Za-z0-9]*)", selector)
+            if type_match:
+                members.add(type_match.group(1))
+
+    return members
+
+
+def lint_themes_contract(library_data):
+    """Return contract-lint errors for theme.css + every themes[].file."""
+    errors = []
+    themes = library_data.get("themes", [])
+    if not themes:
+        return errors
+
+    theme_entries = [("default", LIBRARY / "theme.css")]
+    for t in themes:
+        name = t.get("name")
+        file_ = t.get("file", f"themes/{name}.css")
+        theme_entries.append((name, LIBRARY / file_))
+
+    for theme_name, theme_path in theme_entries:
+        if not theme_path.exists():
+            errors.append(f"Theme '{theme_name}' file not found: {theme_path}")
+            continue
+        css = theme_path.read_text(encoding="utf-8")
+        members = parse_css_members(css)
+        missing = sorted(CONTRACT_V1 - members)
+        if missing:
+            errors.append(
+                f"Theme '{theme_name}' fails the shared class contract v1 — "
+                f"missing: {', '.join(missing)}"
+            )
+    return errors
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -295,6 +396,9 @@ def validate_library(library_data, manifest_rows, assets_table_files, base_html,
 
     sections = library_data.get("sections", [])
     extra_asset_root = library_data.get("extra_asset_root")
+
+    # Contract lint: only for libraries that declare a non-empty themes[]
+    errors.extend(lint_themes_contract(library_data))
 
     # base.html markers
     for marker in (
@@ -658,6 +762,7 @@ def main():
     parser.add_argument("--no-log", action="store_true")
     parser.add_argument("--theme", type=str)
     parser.add_argument("--library-ref", type=str)
+    parser.add_argument("--check-themes", action="store_true")
     parser.allow_abbrev = False
     args = parser.parse_args()
 
@@ -669,13 +774,14 @@ def main():
         ("check", args.check),
         ("catalog", args.catalog),
         ("catalog-data", args.catalog_data),
+        ("check-themes", args.check_themes),
     ]
     active_modes = [(n, v) for n, v in modes if v is not None and v is not False]
 
     if len(active_modes) != 1:
         die(
             "Exactly one mode required: --preset, --slides, "
-            "--check, --catalog, --catalog-data"
+            "--check, --catalog, --catalog-data, --check-themes"
         )
 
     mode_name, mode_val = active_modes[0]
@@ -733,7 +839,7 @@ def main():
         # when theme.css is absent (theme.css stays REQUIRED).
         _, _default_theme_path, _ = resolve_theme(library_data, "default")
 
-        if mode_name in ("check", "catalog-data"):
+        if mode_name in ("check", "catalog-data", "check-themes"):
             errors, warnings = validate_library(
                 library_data,
                 manifest_rows,
@@ -822,6 +928,16 @@ def main():
         )
         theme_css = theme_path.read_text(encoding="utf-8")
         library_ref = args.library_ref or ""
+
+        # Contract guard for multi-theme libraries
+        if library_data.get("themes"):
+            members = parse_css_members(theme_css)
+            missing = sorted(CONTRACT_V1 - members)
+            if missing:
+                die(
+                    f"Chosen theme '{theme_name}' fails the shared class contract v1 — "
+                    f"missing: {', '.join(missing)}"
+                )
 
         # Determine requested slide ids for per-composition asset checks
         requested_slide_ids = None

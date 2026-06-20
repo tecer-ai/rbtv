@@ -178,7 +178,7 @@ class TestEngineDT5(unittest.TestCase):
 
         with open(lib_json, "r", encoding="utf-8") as f:
             data = json.load(f)
-        self.assertEqual(data.get("engine_version"), "1.0")
+        self.assertEqual(data.get("engine_version"), "1.1")
 
     def test_install_engine_missing_library_json(self):
         """Missing target library.json → exit 1."""
