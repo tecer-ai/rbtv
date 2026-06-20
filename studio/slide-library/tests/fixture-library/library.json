@@ -3,6 +3,7 @@
   "engine_version": "1.0",
   "name": "fixture-library",
   "default_lang": "en",
+  "default_theme": "default",
   "sections": [
     "opening",
     "intro",
@@ -11,5 +12,13 @@
     "proof",
     "closing"
   ],
-  "extra_asset_root": "../shared-brand"
+  "extra_asset_root": "../shared-brand",
+  "themes": [
+    {
+      "name": "graphite",
+      "file": "themes/graphite.css",
+      "label": "Graphite",
+      "contract_version": "1.0"
+    }
+  ]
 }

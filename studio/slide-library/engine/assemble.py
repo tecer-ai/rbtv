@@ -27,6 +27,45 @@ SLIDE_NUMBER_RE = re.compile(r'(<div class="slide-number">)\{\{N\}\}(</div>)')
 
 LIBRARY = Path(__file__).resolve().parent
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Theme resolution
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def resolve_theme(library_data, requested_theme=None):
+    """Resolve a theme name to its file path and contract version."""
+    theme_name = (
+        requested_theme
+        if requested_theme is not None
+        else library_data.get("default_theme", "default")
+    )
+
+    if theme_name == "default":
+        theme_path = LIBRARY / "theme.css"
+        if not theme_path.exists():
+            die("theme.css not found")
+        theme_contract = library_data.get("contract_version", "1.0")
+        return theme_name, theme_path, theme_contract
+
+    entry = None
+    for t in library_data.get("themes", []):
+        if t.get("name") == theme_name:
+            entry = t
+            break
+
+    if entry is not None:
+        theme_file = entry.get("file", f"themes/{theme_name}.css")
+        theme_contract = entry.get("contract_version", "1.0")
+    else:
+        theme_file = f"themes/{theme_name}.css"
+        theme_contract = "1.0"
+
+    theme_path = LIBRARY / theme_file
+    if not theme_path.exists():
+        die(f"Theme not found: '{theme_name}' (tried {theme_path})")
+
+    return theme_name, theme_path, theme_contract
+
 JSON_MODE = False
 
 
@@ -383,7 +422,8 @@ def validate_library(library_data, manifest_rows, assets_table_files, base_html,
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def assemble_deck(manifest_rows, slide_ids, lang, title, accent, theme_css,
-                  base_html, client_logo=None, extra_asset_root=None):
+                  base_html, client_logo=None, extra_asset_root=None,
+                  theme_name="default", theme_contract="1.0", library_ref=""):
     by_id = {}
     for row in manifest_rows:
         cells = row["cells"]
@@ -453,6 +493,10 @@ def assemble_deck(manifest_rows, slide_ids, lang, title, accent, theme_css,
         )
     doc = doc.replace("/* {{THEME_CSS}} */", theme_css)
     doc = doc.replace("<!-- {{SLIDES}} -->", slides_html)
+
+    doc = doc.replace("{{THEME_NAME}}", theme_name)
+    doc = doc.replace("{{THEME_CONTRACT}}", theme_contract)
+    doc = doc.replace("{{THEME_LIBRARY}}", library_ref)
 
     return doc, asset_plan
 
@@ -533,7 +577,8 @@ def append_as_built(entry):
 # Catalog
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def generate_catalog(manifest_rows, library_data, base_html, theme_css):
+def generate_catalog(manifest_rows, library_data, base_html, theme_css,
+                     theme_name="default", theme_contract="1.0", library_ref=""):
     sections = library_data.get("sections", [])
     default_lang = library_data.get("default_lang", "en")
 
@@ -585,6 +630,10 @@ def generate_catalog(manifest_rows, library_data, base_html, theme_css):
     doc = doc.replace("/* {{THEME_CSS}} */", theme_css)
     doc = doc.replace("<!-- {{SLIDES}} -->", slides_html)
 
+    doc = doc.replace("{{THEME_NAME}}", theme_name)
+    doc = doc.replace("{{THEME_CONTRACT}}", theme_contract)
+    doc = doc.replace("{{THEME_LIBRARY}}", library_ref)
+
     return doc
 
 
@@ -607,6 +656,8 @@ def main():
     parser.add_argument("--client-logo", type=str)
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--no-log", action="store_true")
+    parser.add_argument("--theme", type=str)
+    parser.add_argument("--library-ref", type=str)
     parser.allow_abbrev = False
     args = parser.parse_args()
 
@@ -667,11 +718,6 @@ def main():
             die("base.html not found")
         base_html = base_html_path.read_text(encoding="utf-8")
 
-        theme_css_path = LIBRARY / "theme.css"
-        if not theme_css_path.exists():
-            die("theme.css not found")
-        theme_css = theme_css_path.read_text(encoding="utf-8")
-
         manifest_rows = parse_manifest(manifest_path)
         assets_table_files = parse_assets_table(manifest_path)
         presets = (
@@ -679,6 +725,9 @@ def main():
             if (LIBRARY / "presets.md").exists()
             else []
         )
+
+        # Back-compat: the default theme file must exist for every mode.
+        _, default_theme_path, _ = resolve_theme(library_data, None)
 
         if mode_name in ("check", "catalog-data"):
             errors, warnings = validate_library(
@@ -755,11 +804,20 @@ def main():
                     "slides": slides,
                     "presets": catalog_presets,
                     "extra_asset_root": library_data.get("extra_asset_root"),
+                    "themes": library_data.get("themes", []),
+                    "default_theme": library_data.get("default_theme", "default"),
                 }
 
             if args.json:
                 print(json.dumps(envelope))
             sys.exit(0)
+
+        # Resolve theme for catalog / assemble modes
+        theme_name, theme_path, theme_contract = resolve_theme(
+            library_data, args.theme
+        )
+        theme_css = theme_path.read_text(encoding="utf-8")
+        library_ref = args.library_ref or ""
 
         # Determine requested slide ids for per-composition asset checks
         requested_slide_ids = None
@@ -791,7 +849,10 @@ def main():
 
         if mode_name == "catalog":
             doc = generate_catalog(
-                manifest_rows, library_data, base_html, theme_css
+                manifest_rows, library_data, base_html, theme_css,
+                theme_name=theme_name,
+                theme_contract=theme_contract,
+                library_ref=library_ref,
             )
             out = LIBRARY / "catalog.html"
             out.write_text(doc, encoding="utf-8")
@@ -842,6 +903,9 @@ def main():
             base_html,
             client_logo=args.client_logo,
             extra_asset_root=extra_asset_root,
+            theme_name=theme_name,
+            theme_contract=theme_contract,
+            library_ref=library_ref,
         )
 
         out = Path(args.out)
