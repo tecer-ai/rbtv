@@ -11,6 +11,7 @@
  *   move(hypId, before, after) → command
  *   colorToken(name, value) → command
  *   colorElement(hypId, prop, value) → command
+ *   theme(styleEl, before, after) → command
  *   comment(label, doFn, undoFn) → command
  *
  * Pure: applies nothing itself. history.push(cmd) runs cmd.do().
@@ -240,6 +241,40 @@ export function colorElement(hypId, prop, value) {
       }
     },
     label: "color-element",
+  };
+}
+
+/**
+ * Theme command: swaps the marked deck theme CSS and native data-* stamp.
+ * The caller captures exact pre-state, including whether each attribute existed.
+ */
+export function theme(styleEl, before, after) {
+  function restoreAttr(el, name, entry) {
+    if (entry && entry.present) {
+      el.setAttribute(name, entry.value);
+    } else {
+      el.removeAttribute(name);
+    }
+  }
+
+  function applyState(state) {
+    const root = document.documentElement;
+    styleEl.textContent = state.css;
+    restoreAttr(styleEl, "data-theme", state.style.theme);
+    restoreAttr(styleEl, "data-theme-contract", state.style.contract);
+    restoreAttr(root, "data-theme", state.html.theme);
+    restoreAttr(root, "data-theme-contract", state.html.contract);
+    restoreAttr(root, "data-theme-library", state.html.library);
+  }
+
+  return {
+    do() {
+      applyState(after);
+    },
+    undo() {
+      applyState(before);
+    },
+    label: "theme",
   };
 }
 

@@ -4,7 +4,7 @@ import { select, clear, current, onSelectionChange } from "./selection.js";
 import { undo, redo, state, push as historyPush } from "./history.js";
 import { serialize } from "./serializer.js";
 import { apply as applyFormat, snapshotSelection as formatSnapshot, applyAlign } from "./text-format.js";
-import { resize as makeResizeCommand, move as makeMoveCommand, deleteElement as makeDeleteCommand, align as makeAlignCommand } from "./commands.js";
+import { resize as makeResizeCommand, move as makeMoveCommand, deleteElement as makeDeleteCommand, align as makeAlignCommand, theme as makeThemeCommand } from "./commands.js";
 import { mount as interactionMount, unmount as interactionUnmount, remount as interactionRemount, isActive as interactionIsActive } from "./interaction.js";
 import { readPalette, applyToken, applyElement, readElementColors } from "./color.js";
 import {
@@ -94,6 +94,43 @@ function revealPagedAncestors(el) {
     if (!page.hasAttribute("hidden")) continue; // already revealed
     if (!tryDocumentNav(page)) revealByAttribute(page);
   }
+}
+
+function attrSnapshot(el, name) {
+  return {
+    present: el.hasAttribute(name),
+    value: el.getAttribute(name) ?? "",
+  };
+}
+
+function themeStampState(styleEl) {
+  const root = document.documentElement;
+  return {
+    css: styleEl ? styleEl.textContent : "",
+    style: {
+      theme: styleEl ? attrSnapshot(styleEl, "data-theme") : { present: false, value: "" },
+      contract: styleEl ? attrSnapshot(styleEl, "data-theme-contract") : { present: false, value: "" },
+    },
+    html: {
+      theme: attrSnapshot(root, "data-theme"),
+      contract: attrSnapshot(root, "data-theme-contract"),
+      library: attrSnapshot(root, "data-theme-library"),
+    },
+  };
+}
+
+function setAttrSnapshot(value) {
+  return {
+    present: true,
+    value: value == null ? "" : String(value),
+  };
+}
+
+function contractMajor(version) {
+  if (typeof version !== "string" || version.trim() === "") return null;
+  const first = version.trim().split(".")[0];
+  if (!/^\d+$/.test(first)) return null;
+  return Number.parseInt(first, 10);
 }
 
 function boot() {
@@ -253,6 +290,49 @@ function boot() {
     return { undoToken: true };
   });
 
+  register("apply-theme", (payload) => {
+    if (
+      !payload ||
+      typeof payload.themeCss !== "string" ||
+      typeof payload.themeName !== "string" ||
+      typeof payload.themeContract !== "string"
+    ) {
+      throw new Error("apply-theme: missing themeCss, themeName, or themeContract");
+    }
+    const styleEl = document.querySelector("style[data-theme]");
+    if (!styleEl) {
+      return { ok: false, legacy: true, reason: "deck has no theme stamp; adopt a theme first" };
+    }
+    const root = document.documentElement;
+    const deckMajor = contractMajor(root.getAttribute("data-theme-contract"));
+    const themeMajor = contractMajor(payload.themeContract);
+    if (deckMajor !== null && themeMajor !== null && deckMajor !== themeMajor) {
+      return {
+        ok: false,
+        blocked: true,
+        reason: `contract major mismatch: deck v${deckMajor} vs theme v${themeMajor}`,
+      };
+    }
+
+    const before = themeStampState(styleEl);
+    const after = {
+      css: payload.themeCss,
+      style: {
+        theme: setAttrSnapshot(payload.themeName),
+        contract: setAttrSnapshot(payload.themeContract),
+      },
+      html: {
+        theme: setAttrSnapshot(payload.themeName),
+        contract: setAttrSnapshot(payload.themeContract),
+        library: payload.libraryRef === undefined
+          ? before.html.library
+          : setAttrSnapshot(payload.libraryRef),
+      },
+    };
+    historyPush(makeThemeCommand(styleEl, before, after));
+    return { ok: true, applied: { theme: payload.themeName, contract: payload.themeContract } };
+  });
+
   register("palette-read", () => {
     return readPalette();
   });
@@ -380,6 +460,15 @@ function boot() {
     copy: () => { const info = current(); if (!info || !info.hypId) return false; const el = byId(info.hypId); if (!el) return false; clipboardCopy(el); return true; },
     pasteFloat: (x, y) => doPasteFloat(x, y),
     pasteLayout: (x, y) => doPasteLayout(x, y),
+  });
+
+  const themeStyle = document.querySelector("style[data-theme]");
+  const root = document.documentElement;
+  emit("theme-stamp", {
+    theme: root.getAttribute("data-theme"),
+    contract: root.getAttribute("data-theme-contract"),
+    library: root.getAttribute("data-theme-library"),
+    hasStamp: Boolean(themeStyle && root.hasAttribute("data-theme")),
   });
 
   // 3. Emit ready so the parent shell enables controls

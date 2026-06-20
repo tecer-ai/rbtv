@@ -7,6 +7,7 @@ import filecmp
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -249,6 +250,179 @@ def handle_library_asset(payload):
     if not target.is_file():
         return (404, {"error": f"Not found: {name}"})
     return (200, {"content": target.read_text(encoding="utf-8")})
+
+
+# ---------------------------------------------------------------------------
+# Theme asset URL extraction (copy-on-need, §7)
+# ---------------------------------------------------------------------------
+_URL_RE = re.compile(r'url\(\s*(["\']?)([^"\')]+)\1\s*\)', re.IGNORECASE)
+
+
+def _collect_css_asset_basenames(css_text):
+    """Return unique basenames referenced by url(...) in *css_text*.
+
+    Ignores data: URIs and absolute http(s) URLs. Paths are normalized with
+    forward slashes before basename extraction so backslash URLs behave.
+    """
+    basenames = []
+    seen = set()
+    for _, url in _URL_RE.findall(css_text):
+        url = url.strip()
+        if not url or url.lower().startswith(("data:", "http://", "https://")):
+            continue
+        base = os.path.basename(url.replace("\\", "/"))
+        if not base or base in seen:
+            continue
+        seen.add(base)
+        basenames.append(base)
+    return basenames
+
+
+# ---------------------------------------------------------------------------
+# handle_resolve_library (editor support, §5.G)
+# ---------------------------------------------------------------------------
+def handle_resolve_library(payload):
+    """Resolve a deck's repo-root-relative library reference to its themes.
+
+    Payload:
+        {
+            "deck_path": str,    # absolute path to the open deck file
+            "library_ref": str,  # the deck's data-theme-library value
+        }
+
+    Returns (status_int, response_dict).
+    """
+    deck_path = payload.get("deck_path")
+    library_ref = payload.get("library_ref") or ""
+    if not library_ref:
+        return (200, {"resolved": False, "reason": "no library reference stamped"})
+    if not deck_path:
+        return (500, {"error": "Missing 'deck_path'"})
+
+    repo_root = _repo_root(os.path.dirname(deck_path))
+    if repo_root is None:
+        return (200, {"resolved": False, "reason": "deck not in a repo"})
+
+    candidate = os.path.normpath(os.path.join(repo_root, library_ref))
+    library_json_path = os.path.join(candidate, "library.json")
+    if not os.path.isdir(candidate) or not os.path.isfile(library_json_path):
+        return (200, {"resolved": False, "reason": f"library not found at {candidate}"})
+
+    try:
+        with open(library_json_path, "r", encoding="utf-8") as f:
+            library_data = json.load(f)
+    except Exception as exc:
+        return (200, {"resolved": False, "reason": f"library.json unreadable: {exc}"})
+
+    contract_version = library_data.get("contract_version", "1.0")
+    themes = [
+        {
+            "name": "default",
+            "label": "Default",
+            "contract_version": contract_version,
+        }
+    ]
+    for theme in library_data.get("themes", []):
+        themes.append(
+            {
+                "name": theme.get("name"),
+                "label": theme.get("label", theme.get("name", "")),
+                "contract_version": theme.get("contract_version", contract_version),
+            }
+        )
+
+    return (
+        200,
+        {
+            "resolved": True,
+            "library_path": candidate,
+            "themes": themes,
+            "default_theme": library_data.get("default_theme", "default"),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# handle_copy_theme_assets (editor support, §5.G)
+# ---------------------------------------------------------------------------
+def handle_copy_theme_assets(payload):
+    """Copy a theme's referenced background assets into the deck's assets/.
+
+    Payload:
+        {
+            "deck_path": str,     # absolute path to the deck HTML file
+            "library_path": str,  # absolute path to the resolved library
+            "theme_name": str,    # theme name to copy assets for
+        }
+
+    Returns (status_int, response_dict) with {"copied": [...], "missing": [...]}.
+    Assets already present beside the deck are never overwritten.
+    """
+    deck_path = payload.get("deck_path")
+    library_path = payload.get("library_path")
+    theme_name = payload.get("theme_name")
+    if not deck_path or not library_path or not theme_name:
+        return (500, {"error": "Missing 'deck_path', 'library_path', or 'theme_name'"})
+
+    library_root = os.path.abspath(library_path)
+    library_json_path = os.path.join(library_root, "library.json")
+    library_data = {}
+    if os.path.isfile(library_json_path):
+        try:
+            with open(library_json_path, "r", encoding="utf-8") as f:
+                library_data = json.load(f)
+        except Exception:
+            pass
+
+    if theme_name == "default":
+        theme_file = "theme.css"
+    else:
+        theme_file = f"themes/{theme_name}.css"
+        for theme in library_data.get("themes", []):
+            if theme.get("name") == theme_name:
+                theme_file = theme.get("file", theme_file)
+                break
+
+    theme_css_path = os.path.join(library_root, theme_file)
+    if not os.path.isfile(theme_css_path):
+        return (200, {"copied": [], "missing": [], "error": "theme css not found"})
+
+    try:
+        css_text = pathlib.Path(theme_css_path).read_text(encoding="utf-8")
+    except Exception as exc:
+        return (500, {"error": f"Failed to read theme css: {exc}"})
+
+    basenames = _collect_css_asset_basenames(css_text)
+    deck_assets_dir = os.path.join(os.path.dirname(os.path.abspath(deck_path)), "assets")
+    os.makedirs(deck_assets_dir, exist_ok=True)
+
+    extra_root = None
+    extra_asset_root = library_data.get("extra_asset_root")
+    if extra_asset_root:
+        extra_root = os.path.normpath(os.path.join(library_root, extra_asset_root))
+
+    copied = []
+    missing = []
+    for base in basenames:
+        if os.path.sep in base or "/" in base or base == ".." or base.endswith("."):
+            missing.append(base)
+            continue
+        dst = os.path.join(deck_assets_dir, base)
+        if os.path.isfile(dst):
+            continue
+        src = os.path.join(library_root, "assets", base)
+        if not os.path.isfile(src) and extra_root:
+            src = os.path.join(extra_root, base)
+        if os.path.isfile(src):
+            try:
+                shutil.copy2(src, dst)
+                copied.append(base)
+            except Exception:
+                missing.append(base)
+        else:
+            missing.append(base)
+
+    return (200, {"copied": copied, "missing": missing})
 
 
 # ---------------------------------------------------------------------------

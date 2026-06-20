@@ -201,6 +201,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif path == "/api/library-asset":
                 status, resp = builder_api.handle_library_asset(payload)
                 self._send_json(status, resp)
+            elif path == "/api/resolve-library":
+                status, resp = builder_api.handle_resolve_library(payload)
+                self._send_json(status, resp)
+            elif path == "/api/copy-theme-assets":
+                status, resp = builder_api.handle_copy_theme_assets(payload)
+                self._send_json(status, resp)
             elif path == "/api/assemble":
                 status, resp = builder_api.handle_assemble(payload)
                 self._send_json(status, resp)
