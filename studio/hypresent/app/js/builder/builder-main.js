@@ -5,14 +5,14 @@ import { renderBrowse, renderArchived, applyLangFilter, markTrayState } from './
 import { archiveSlide, unarchiveSlide, listArchived } from './archive-actions.js';
 import { createSlideStage } from './slide-stage.js';
 import { createTray } from './tray.js';
-import { buildDeckSrcdoc } from './previews.js';
+import { buildDeckSrcdoc, setPreviewTheme } from './previews.js';
 import { pickDestination, assembleDeck, buildOutPath } from './assemble.js';
 import { saveDeck } from './deck-save.js';
 import { confirmSaveOverwrite } from '/app/js/shell/confirm-modal.js';
 import { createDeckSelection } from './deck-select.js';
 import { exportDeckSlides } from './deck-export.js';
 
-const state = { libraryPath: null, data: null, tray: null, slideLookup: null, deck: null, canSave: false, showArchived: false };
+const state = { libraryPath: null, data: null, tray: null, slideLookup: null, deck: null, canSave: false, showArchived: false, currentTheme: 'default' };
 let destFolder = null;
 let accentChosen = false;
 let exportLibPath = null; // target library for Export-to-library
@@ -36,6 +36,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const libChipChange = document.getElementById('lib-chip-change');
   const langBlock = document.getElementById('lang-block');
   const langSeg = document.getElementById('lang-seg');
+  const themeBlock = document.getElementById('theme-block');
+  const themeSelect = document.getElementById('theme-select');
   const secBlock = document.getElementById('sec-block');
   const secNav = document.getElementById('sec-nav');
   const viewBlock = document.getElementById('view-block');
@@ -316,6 +318,47 @@ document.addEventListener("DOMContentLoaded", () => {
     if (langBlock) langBlock.hidden = langs.length === 0;
   }
 
+  function normaliseThemeEntry(entry) {
+    if (!entry || !entry.name) return null;
+    return {
+      name: String(entry.name),
+      label: entry.label ? String(entry.label) : String(entry.name)
+    };
+  }
+
+  function buildThemeSelect(data) {
+    if (!themeSelect) return 'default';
+    themeSelect.innerHTML = '';
+
+    const themeEntries = (data && Array.isArray(data.themes) ? data.themes : [])
+      .map(normaliseThemeEntry)
+      .filter(Boolean);
+    const defaultTheme = (data && data.default_theme) ? String(data.default_theme) : 'default';
+    const defaultEntry = themeEntries.find(entry => entry.name === 'default');
+
+    const options = [{ name: 'default', label: defaultEntry ? defaultEntry.label : 'Default' }];
+    themeEntries.forEach(entry => {
+      if (entry.name !== 'default' && !options.some(opt => opt.name === entry.name)) {
+        options.push(entry);
+      }
+    });
+    if (!options.some(opt => opt.name === defaultTheme)) {
+      options.push({ name: defaultTheme, label: defaultTheme });
+    }
+
+    options.forEach(entry => {
+      const opt = document.createElement('option');
+      opt.value = entry.name;
+      opt.textContent = entry.label || entry.name;
+      themeSelect.appendChild(opt);
+    });
+    themeSelect.value = defaultTheme;
+    if (themeBlock) themeBlock.hidden = false;
+    state.currentTheme = defaultTheme;
+    setPreviewTheme(defaultTheme);
+    return defaultTheme;
+  }
+
   // ── left rail: sections nav + scroll spy ─────────────────────────────
   function buildSectionsNav(data) {
     if (!secNav) return;
@@ -378,6 +421,12 @@ document.addEventListener("DOMContentLoaded", () => {
     renderBrowse(state.data, { onTag, libraryPath: state.libraryPath, onExpand, onArchive });
     buildSectionsNav(state.data);
     markTrayState(tray.getOrder());
+  }
+
+  function rerenderThemePreviews() {
+    if (state.stage) state.stage.close();
+    renderCurrentMode();
+    tray.render();
   }
 
   async function reloadLibraryState() {
@@ -460,6 +509,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (libEmpty) { libEmpty.hidden = false; }
       if (libChip) libChip.hidden = true;
       if (langBlock) langBlock.hidden = true;
+      if (themeBlock) themeBlock.hidden = true;
       if (secBlock) secBlock.hidden = true;
       return;
     }
@@ -488,6 +538,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     buildLangSeg(langs);
+    buildThemeSelect(result.data);
     state.slideLookup = new Map(slides.map(s => [s.id, s]));
 
     // close any open stage from a previous library, then (re)create
@@ -592,7 +643,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (libChip) libChip.hidden = true;
     if (langBlock) langBlock.hidden = true;
     if (secBlock) secBlock.hidden = true;
+    if (themeBlock) themeBlock.hidden = true;
     if (viewBlock) viewBlock.hidden = true;
+    state.currentTheme = 'default';
+    setPreviewTheme('default');
 
     tray.setLibrary(null);
     tray.setSrcdocProvider((rec, index) => {
@@ -830,7 +884,8 @@ document.addEventListener("DOMContentLoaded", () => {
         outPath,
         lang,
         title,
-        accent
+        accent,
+        theme: state.currentTheme
       });
       if (result.ok) {
         const parts = [
@@ -921,6 +976,14 @@ document.addEventListener("DOMContentLoaded", () => {
     saveOverwriteBtn.addEventListener('click', () => {
       if (state.deck) doSave('overwrite');
       // compose mode: disabled — nothing to overwrite yet
+    });
+  }
+
+  if (themeSelect) {
+    themeSelect.addEventListener('change', () => {
+      state.currentTheme = themeSelect.value || 'default';
+      setPreviewTheme(state.currentTheme);
+      rerenderThemePreviews();
     });
   }
 

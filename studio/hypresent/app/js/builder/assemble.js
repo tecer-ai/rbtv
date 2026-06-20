@@ -5,12 +5,13 @@ export async function pickDestination() {
   return data.path || null;
 }
 
-export async function assembleDeck({ libraryPath, slides, outPath, lang, title, accent, client_logo }) {
+export async function assembleDeck({ libraryPath, slides, outPath, lang, title, accent, client_logo, theme }) {
   const body = { path: libraryPath, slides, out: outPath };
   body.lang = lang;
   if (title !== undefined) body.title = title;
   if (accent !== undefined) body.accent = accent;
   if (client_logo !== undefined) body.client_logo = client_logo;
+  if (theme !== undefined) body.theme = theme;
 
   const res = await fetch('/api/assemble', {
     method: 'POST',

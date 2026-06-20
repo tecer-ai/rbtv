@@ -99,6 +99,44 @@ def _run_engine(library_path, args, engine="assemble.py"):
 
 
 # ---------------------------------------------------------------------------
+# Theme/library-ref helpers (multi-theme assembly, §5.E/F)
+# ---------------------------------------------------------------------------
+def _repo_root(start_path):
+    """Walk up from start_path to the nearest ancestor containing a .git entry.
+
+    start_path may be a file or directory. Returns the absolute path of the
+    ancestor directory, or None if no .git ancestor is found before the root.
+    """
+    current = os.path.abspath(start_path)
+    if os.path.isfile(current):
+        current = os.path.dirname(current)
+    while True:
+        if os.path.exists(os.path.join(current, ".git")):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            return None
+        current = parent
+
+
+def _library_ref(library_path, out_path):
+    """Compute a repo-root-relative reference from the deck to the library.
+
+    Returns a forward-slash normalized relative path, or "" when the deck is
+    not in a repo or the library lives outside that repo root.
+    """
+    repo_root = _repo_root(os.path.dirname(out_path))
+    if repo_root is None:
+        return ""
+    library_abs = os.path.abspath(library_path)
+    repo_root_abs = os.path.abspath(repo_root)
+    ref = os.path.relpath(library_abs, repo_root_abs).replace("\\", "/")
+    if ref.startswith(".."):
+        return ""
+    return ref
+
+
+# ---------------------------------------------------------------------------
 # handle_library_load (build-spec S-B9.2) — passthrough of the engine envelope
 # ---------------------------------------------------------------------------
 def handle_library_load(payload):
@@ -224,6 +262,11 @@ def handle_assemble(payload):
     for flag, key in (("--lang","lang"),("--title","title"),("--accent","accent"),("--client-logo","client_logo")):
         if payload.get(key):
             args += [flag, payload[key]]
+    if payload.get("theme"):
+        args += ["--theme", payload["theme"]]
+    ref = _library_ref(path, out)
+    if ref:
+        args += ["--library-ref", ref]
     rc, eout, err = _run_engine(path, args)
     if rc is None:
         return (500, {"error": err})

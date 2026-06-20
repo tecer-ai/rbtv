@@ -2,23 +2,26 @@
 
 const MOUNT_CAP = 24;
 
-// caches are keyed by library path so "Change library" never serves stale assets
-const themePromises = new Map();   // libraryPath -> Promise<string>
-const srcdocPromises = new Map();  // `${libraryPath}|${slideId}` -> Promise<string>
+// caches are keyed by library path + theme so "Change library" or "Change
+// theme" never serves stale assets
+const themePromises = new Map();   // `${libraryPath}|${theme}` -> Promise<string>
+const srcdocPromises = new Map();  // `${libraryPath}|${theme}|${slideId}` -> Promise<string>
 
 function fetchTheme(libraryPath) {
-  if (themePromises.has(libraryPath)) return themePromises.get(libraryPath);
+  const key = libraryPath + '|' + _previewTheme;
+  if (themePromises.has(key)) return themePromises.get(key);
+  const name = _previewTheme === 'default' ? 'theme.css' : 'themes/' + _previewTheme + '.css';
   const p = fetch('/api/library-asset', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path: libraryPath, name: 'theme.css' })
+    body: JSON.stringify({ path: libraryPath, name })
   })
     .then(r => {
-      if (!r.ok) throw new Error('theme.css fetch failed: ' + r.status);
+      if (!r.ok) throw new Error(name + ' fetch failed: ' + r.status);
       return r.json();
     })
     .then(data => data.content || '');
-  themePromises.set(libraryPath, p);
+  themePromises.set(key, p);
   return p;
 }
 
@@ -27,9 +30,14 @@ function fetchTheme(libraryPath) {
 // of the builder page's own /app/ origin.
 const _docBase = window.location.origin + '/doc/';
 let _libraryBase = window.location.origin + '/lib/';
+let _previewTheme = 'default';
 
 export function setLibraryBase(base) {
   _libraryBase = base || (window.location.origin + '/lib/');
+}
+
+export function setPreviewTheme(name) {
+  _previewTheme = name || 'default';
 }
 
 export function buildSrcdoc(theme, fragment) {
@@ -42,7 +50,7 @@ export function buildDeckSrcdoc(head, fragment) {
 
 // Cached full srcdoc for one slide — shared by browse previews and tray thumbnails.
 export function getSlideSrcdoc(libraryPath, slideId) {
-  const key = libraryPath + '|' + slideId;
+  const key = libraryPath + '|' + _previewTheme + '|' + slideId;
   if (srcdocPromises.has(key)) return srcdocPromises.get(key);
   const p = Promise.all([
     fetchTheme(libraryPath),
