@@ -726,8 +726,12 @@ def main():
             else []
         )
 
-        # Back-compat: the default theme file must exist for every mode.
-        _, default_theme_path, _ = resolve_theme(library_data, None)
+        # Back-compat: theme.css (the required default) must exist for every
+        # mode, exactly as the original unconditional load enforced. Resolve the
+        # literal "default" rather than library_data's configured default_theme,
+        # so a library whose default_theme names an alternate still dies loudly
+        # when theme.css is absent (theme.css stays REQUIRED).
+        _, _default_theme_path, _ = resolve_theme(library_data, "default")
 
         if mode_name in ("check", "catalog-data"):
             errors, warnings = validate_library(
