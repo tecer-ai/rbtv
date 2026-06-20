@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Routing System — Developer Reference</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..900;1,9..144,400..700&family=Hanken+Grotesk:wght@300..800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0d12; --bg-2:#0f1219; --panel:#141925; --panel-2:#1a2030;
+    --hair:#262d3d; --hair-bright:#39435a;
+    --ink:#edeae1; --ink-2:#b8c0cf; --ink-3:#8b95a7;
+    --amber:#ffb454; --amber-soft:#ffcd8a; --amber-deep:#d98a2b;
+    --teal:#5fd3bc; --teal-deep:#2f9e88; --coral:#ff7b8a; --violet:#9d8cff;
+    --r-sm:8px; --r:14px; --r-lg:22px;
+    --shadow:0 18px 50px -20px rgba(0,0,0,.7);
+    --maxw:1080px;
+    --serif:"Fraunces", Georgia, serif;
+    --sans:"Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+    --mono:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg); color:var(--ink); font-family:var(--sans);
+    font-weight:400; line-height:1.6; font-size:17px; -webkit-font-smoothing:antialiased; overflow-x:hidden;
+    background-image:
+      radial-gradient(1100px 600px at 82% -8%, rgba(255,180,84,.10), transparent 60%),
+      radial-gradient(900px 600px at -10% 12%, rgba(95,211,188,.07), transparent 55%);
+    background-attachment:fixed;
+  }
+  ::selection{background:var(--amber);color:#1a1207}
+  .progress{position:fixed;top:0;left:0;height:3px;width:0;z-index:100;background:linear-gradient(90deg,var(--teal),var(--amber));box-shadow:0 0 12px rgba(255,180,84,.5)}
+
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px}
+  section{padding:74px 0;position:relative;border-top:1px solid var(--hair)}
+  .eyebrow{font-family:var(--mono);font-size:12.5px;letter-spacing:.3em;text-transform:uppercase;color:var(--amber);font-weight:500;display:flex;align-items:center;gap:12px;margin-bottom:20px}
+  .eyebrow::before{content:"";width:34px;height:1px;background:linear-gradient(90deg,var(--amber),transparent)}
+  h2{font-family:var(--serif);font-weight:560;font-size:clamp(28px,4.4vw,46px);line-height:1.05;letter-spacing:-.02em;margin-bottom:16px}
+  h3{font-family:var(--serif);font-weight:560;font-size:23px;letter-spacing:-.01em;margin-bottom:10px}
+  p.lede{font-size:19px;color:var(--ink-2);max-width:70ch;font-weight:350}
+  p{max-width:78ch}
+  .muted{color:var(--ink-3)}
+  code,.mono{font-family:var(--mono);font-size:.85em}
+  .chip{font-family:var(--mono);font-size:.8em;background:var(--panel-2);border:1px solid var(--hair);border-radius:6px;padding:1px 7px;color:var(--amber-soft);white-space:nowrap}
+  a{color:var(--teal)}
+
+  /* nav */
+  .topnav{position:sticky;top:0;z-index:50;background:rgba(11,13,18,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--hair)}
+  .topnav .wrap{display:flex;align-items:center;gap:8px;height:54px;overflow-x:auto}
+  .topnav .bk{font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap;margin-right:auto}
+  .topnav .bk b{color:var(--amber)}
+  .topnav a{font-family:var(--mono);font-size:12px;color:var(--ink-2);text-decoration:none;padding:6px 10px;border-radius:7px;white-space:nowrap}
+  .topnav a:hover{color:var(--ink);background:var(--panel)}
+
+  /* hero */
+  .hero{padding:92px 0 64px;display:flex;flex-direction:column;justify-content:center}
+  .hero-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:48px;align-items:center}
+  .hero h1{font-family:var(--serif);font-weight:600;font-size:clamp(40px,6.4vw,76px);line-height:.98;letter-spacing:-.035em;margin:16px 0 20px}
+  .hero h1 .em{font-style:italic;font-weight:500;color:var(--amber);background:linear-gradient(180deg,var(--amber-soft),var(--amber-deep));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .hero .sub{font-size:20px;color:var(--ink-2);max-width:56ch;font-weight:350}
+  .tagrow{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px}
+  .tag{font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);border:1px solid var(--hair-bright);border-radius:100px;padding:7px 13px;background:rgba(255,255,255,.015)}
+  .tag b{color:var(--teal);font-weight:500}
+
+  .diagram{background:linear-gradient(170deg,var(--panel),var(--bg-2));border:1px solid var(--hair);border-radius:var(--r-lg);padding:24px 22px 20px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .diagram::before{content:"route.py · GATE → RANK → PIN";position:absolute;top:13px;right:16px;font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;color:var(--ink-3)}
+  .diagram h4{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);margin-bottom:16px;font-weight:500}
+  .flow{display:flex;flex-direction:column;gap:9px}
+  .node{display:flex;align-items:center;gap:12px;border:1px solid var(--hair);border-radius:var(--r-sm);padding:10px 13px;background:var(--panel-2)}
+  .node .lbl{font-family:var(--mono);font-size:12px;color:var(--ink)}
+  .node .meta{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .dot.g{background:var(--teal)} .dot.r{background:var(--amber)} .dot.p{background:var(--violet)} .dot.x{background:var(--ink-3)}
+  .node.win{border-color:var(--teal-deep);box-shadow:0 0 0 1px var(--teal-deep)}
+
+  /* generic blocks */
+  .grid{display:grid;gap:16px}
+  .g2{grid-template-columns:repeat(2,1fr)} .g3{grid-template-columns:repeat(3,1fr)}
+  .card{background:var(--panel);border:1px solid var(--hair);border-radius:var(--r);padding:20px;transition:transform .35s cubic-bezier(.2,.8,.2,1),border-color .35s}
+  .card:hover{transform:translateY(-3px);border-color:var(--hair-bright)}
+  .card .k{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--teal);margin-bottom:8px;display:block}
+  .card p{font-size:14px;color:var(--ink-2)}
+  .card h3{font-size:18px}
+
+  /* table */
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--hair);border-radius:var(--r-lg);background:var(--panel);margin-top:8px}
+  table{width:100%;border-collapse:collapse;font-size:14px;min-width:560px}
+  th{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:13px 16px;border-bottom:1px solid var(--hair-bright);font-weight:500;white-space:nowrap}
+  td{padding:12px 16px;border-bottom:1px solid var(--hair);color:var(--ink-2);vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  tbody tr:hover td{background:var(--panel-2)}
+  td b{color:var(--ink)}
+  .num{font-family:var(--mono);text-align:center;color:var(--ink)}
+  .pill{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;padding:3px 9px;border-radius:100px;text-transform:uppercase;font-weight:700}
+  .pill.teal{background:rgba(95,211,188,.15);color:var(--teal)} .pill.amber{background:rgba(255,180,84,.15);color:var(--amber)} .pill.coral{background:rgba(255,123,138,.16);color:var(--coral)}
+
+  /* funnel */
+  .funnel{display:flex;flex-direction:column;gap:0;margin-top:8px}
+  .fstage{display:grid;grid-template-columns:44px 1fr;gap:18px;position:relative;padding-bottom:16px}
+  .fstage:not(:last-child)::before{content:"";position:absolute;left:21px;top:44px;bottom:-4px;width:2px;background:var(--hair-bright)}
+  .fstage .fn{width:44px;height:44px;border-radius:50%;border:1px solid var(--hair-bright);background:var(--panel);display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-size:18px;font-weight:600;color:var(--amber);flex:none;z-index:1}
+  .fstage .fbody{background:var(--panel);border:1px solid var(--hair);border-radius:var(--r);padding:15px 18px}
+  .fstage .fop{font-size:15.5px;font-weight:600;color:var(--ink)}
+  .fstage .fop .fcount{font-family:var(--mono);font-size:12px;color:var(--ink-3);font-weight:400}
+  .fstage .fcol{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--teal);margin:5px 0 8px}
+  .fstage .fdetail{font-size:13.5px;color:var(--ink-2);line-height:1.5}
+  .fdrop{color:var(--coral)} .fkeep{color:var(--teal);font-weight:600}
+  .fstage.fwin .fbody{border-color:var(--teal-deep);box-shadow:0 0 0 1px var(--teal-deep)}
+  .fstage.fwin .fn{border-color:var(--teal);color:var(--teal)}
+
+  /* code block */
+  .codeblk{background:#080a0e;border:1px solid var(--hair);border-radius:var(--r);padding:16px 18px;font-family:var(--mono);font-size:13px;color:var(--ink-2);overflow-x:auto;line-height:1.7;margin-top:6px}
+  .codeblk .cm{color:var(--ink-3)} .codeblk .ok{color:var(--teal)} .codeblk .warn{color:var(--coral)} .codeblk b{color:var(--amber-soft);font-weight:500}
+
+  /* callout */
+  .callout{display:flex;gap:13px;background:rgba(255,123,138,.08);border:1px solid rgba(255,123,138,.3);border-radius:var(--r);padding:16px 18px;margin-top:16px;font-size:14px;color:#ffc7cd;line-height:1.55}
+  .callout.note{background:rgba(157,140,255,.07);border-color:rgba(157,140,255,.25);color:#cfc6ff}
+  .callout.good{background:rgba(95,211,188,.08);border-color:rgba(95,211,188,.28);color:#bff0e5}
+  .callout .ic{font-family:var(--mono);font-weight:700;flex:none}
+  .callout b{color:#fff}
+
+  /* layout tree */
+  .tree{font-family:var(--mono);font-size:13px;line-height:1.85;color:var(--ink-2);background:#080a0e;border:1px solid var(--hair);border-radius:var(--r);padding:18px 20px;overflow-x:auto}
+  .tree .d{color:var(--amber-soft)} .tree .gen{color:var(--coral)} .tree .c{color:var(--ink-3)}
+
+  /* steps */
+  .steps{counter-reset:s;display:flex;flex-direction:column;gap:10px;margin-top:8px}
+  .step{display:grid;grid-template-columns:34px 1fr;gap:15px;align-items:start;background:var(--panel);border:1px solid var(--hair);border-radius:var(--r);padding:15px 18px}
+  .step::before{counter-increment:s;content:counter(s);font-family:var(--serif);font-size:18px;font-weight:600;color:var(--amber);background:var(--panel-2);border:1px solid var(--hair-bright);border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center}
+  .step .st{font-size:14.5px;color:var(--ink-2)} .step .st b{color:var(--ink)}
+
+  footer{border-top:1px solid var(--hair);padding:40px 0 64px}
+  footer .wrap{display:flex;flex-wrap:wrap;gap:20px;justify-content:space-between;align-items:flex-start}
+  footer .src{font-size:13px;color:var(--ink-3);max-width:64ch}
+  footer .src b{color:var(--ink-2)}
+  .pathpill{font-family:var(--mono);font-size:12px;color:var(--amber-soft);background:var(--panel);border:1px solid var(--hair);border-radius:8px;padding:8px 13px;display:inline-block;margin-top:8px}
+
+  @media (prefers-reduced-motion: no-preference){
+    html.js .reveal{opacity:0;transform:translateY(24px);transition:opacity .7s ease,transform .7s cubic-bezier(.2,.8,.2,1)}
+    html.js .reveal.in{opacity:1;transform:none}
+  }
+  @media (max-width:880px){
+    .hero-grid{grid-template-columns:1fr;gap:34px}
+    .g2,.g3{grid-template-columns:1fr}
+    section{padding:54px 0}
+  }
+  @media (max-width:560px){ body{font-size:16px} .wrap{padding:0 18px} }
+</style>
+<script>document.documentElement.classList.add('js')</script>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+
+<nav class="topnav">
+  <div class="wrap">
+    <span class="bk"><b>RBTV</b> · orchestration · routing</span>
+    <a href="#flow">Flow</a>
+    <a href="#gate">Gate</a>
+    <a href="#rank">Rank</a>
+    <a href="#pin">Pin</a>
+    <a href="#example">Worked example</a>
+    <a href="#layout">Layout</a>
+    <a href="#render">Render</a>
+    <a href="#tests">Tests</a>
+    <a href="#add">Add a model</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div class="reveal in">
+      <div class="eyebrow">Developer reference</div>
+      <h1>How the router picks <span class="em">which model</span> gets a task.</h1>
+      <p class="sub">A deterministic, stdlib-only selector. Give it a task profile; it returns one <span class="chip">(model, variant, carrier)</span> pick — by gating on capability floors, ranking cheapest-capable first, then raising the floor for pinned roles. Same script at plan time and run time, so the two can never disagree.</p>
+      <div class="tagrow">
+        <span class="tag"><b>GATE</b> → RANK → PIN</span>
+        <span class="tag">integer <b>1–7</b> axes</span>
+        <span class="tag">election-driven</span>
+        <span class="tag">stdlib only</span>
+      </div>
+    </div>
+    <aside class="diagram reveal in" aria-label="Router pipeline">
+      <h4>The pipeline, top to bottom</h4>
+      <div class="flow">
+        <div class="node"><span class="dot x"></span><span class="lbl">enumerate elected packages</span><span class="meta">rbtv.json</span></div>
+        <div class="node"><span class="dot x"></span><span class="lbl">scope by boundedness</span><span class="meta">master cut</span></div>
+        <div class="node"><span class="dot x"></span><span class="lbl">plan caps + availability</span><span class="meta">window, keys</span></div>
+        <div class="node"><span class="dot g"></span><span class="lbl">GATE — hard pass/fail</span><span class="meta">floors + role</span></div>
+        <div class="node"><span class="dot r"></span><span class="lbl">RANK — cost ascending</span><span class="meta">cheapest first</span></div>
+        <div class="node win"><span class="dot p"></span><span class="lbl">PIN — raise the floor</span><span class="meta">→ the pick</span></div>
+      </div>
+    </aside>
+  </div>
+</header>
+
+<!-- SCOPE NOTE -->
+<section style="border-top:0;padding-top:0">
+  <div class="wrap">
+    <div class="callout note reveal"><span class="ic">i</span><span><b>What this covers vs. what it doesn't.</b> This page explains the routing <i>mechanism</i>. The per-model capability <i>values</i> (each variant's reasoning/coding/cost integers, prices, evidence) live in <span class="chip">docs/routing-matrix-reference.md</span>; the field definitions live in <span class="chip">models/manifest-schema.md</span>. The routing card (<span class="chip">skills/orchestrating/cards/routing.md</span> §2a) is the algorithm authority; <span class="chip">models/route.py</span> is the executable selector it calls — the card wins on any divergence.</span></div>
+  </div>
+</section>
+
+<!-- FLOW -->
+<section id="flow">
+  <div class="wrap">
+    <div class="eyebrow reveal">The full flow</div>
+    <h2 class="reveal">Eight ordered stages</h2>
+    <p class="lede reveal" style="margin-bottom:30px">The three headline stages are <b>GATE → RANK → PIN</b>. The rest prepare the candidate set and finish the pick. <span class="chip">route()</span> returns one of <span class="chip">route</span>, <span class="chip">self_execute</span>, or <span class="chip">halt_seam</span>.</p>
+    <div class="tbl-wrap reveal">
+      <table>
+        <thead><tr><th>#</th><th>Stage</th><th>Function</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td class="num">0</td><td><b>Enumerate</b></td><td><code>_enumerate_models()</code></td><td>Walk <code>models/{model}/manifest.yaml</code>; keep only elected packages/variants; skip infra dirs (<code>_api</code>, <code>_fixture</code>, <code>mirror</code>) and malformed manifests.</td></tr>
+          <tr><td class="num">1</td><td><b>Scope</b></td><td><code>_scope_eligible_set()</code></td><td>The boundedness master cut — restrict candidates by how fully the task is specified.</td></tr>
+          <tr><td class="num">2</td><td><b>Plan caps</b></td><td><code>_apply_plan_caps()</code></td><td>Lower each variant's <code>context_window</code> to the per-deployment cap.</td></tr>
+          <tr><td class="num">3</td><td><b>Availability</b></td><td><code>_is_variant_available()</code></td><td>Drop <code>available: false</code> variants and those whose API key is absent (OS env, then <code>env_file</code>).</td></tr>
+          <tr><td class="num">4</td><td><span class="pill teal">Gate</span></td><td><code>_filter()</code></td><td>Hard pass/fail on every routing requirement.</td></tr>
+          <tr><td class="num">5</td><td><b>Haiku guard</b></td><td><code>_exclude_haiku()</code></td><td>Drop <code>haiku</code> before ranking unless <code>delegation_map_allows_haiku: true</code>.</td></tr>
+          <tr><td class="num">6</td><td><span class="pill amber">Rank</span></td><td><code>_rank()</code></td><td>Cost-ascending total order over the survivors.</td></tr>
+          <tr><td class="num">7</td><td><span class="pill coral">Pin</span></td><td><code>_apply_pins_and_stakes()</code></td><td>Raise the pick to a pinned-role floor; apply stakes tier-up. Never lowers.</td></tr>
+          <tr><td class="num">8</td><td><b>Effort</b></td><td><code>_resolve_effort()</code></td><td>Set <code>low/medium/high/max</code> from the variant's <code>reasoning_modes.depths</code> + boundedness. CLI carriers only.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout note reveal"><span class="ic">↳</span><span><b>Footprint fallback.</b> Between GATE and the zero-candidates error, if the profile carries a <code>known_input_size</code> and no worker's capped window holds it, <code>_apply_footprint_fallback()</code> re-runs every non-window gate over the full roster and picks the largest-window non-Haiku survivor — still raised to any pinned floor.</span></div>
+  </div>
+</section>
+
+<!-- GATE -->
+<section id="gate">
+  <div class="wrap">
+    <div class="eyebrow reveal">Stage 4 · GATE</div>
+    <h2 class="reveal">Boundedness, floors, and role-eligibility</h2>
+    <p class="lede reveal" style="margin-bottom:26px"><b>Boundedness</b> — how fully the task is spelled out — is the first thing the router reads. It scopes the candidate set <i>and</i> sets the reasoning floor and effort.</p>
+
+    <div class="tbl-wrap reveal">
+      <table>
+        <thead><tr><th>Band</th><th>Scope</th><th>Reasoning floor</th><th>Coding floor</th><th>Effort</th></tr></thead>
+        <tbody>
+          <tr><td><span class="pill teal">fully-bounded</span><br><span class="muted" style="font-size:12.5px">every edge written in</span></td><td>all eligible variants</td><td class="num">1</td><td class="num">1</td><td>low</td></tr>
+          <tr><td><span class="pill amber">partially-bounded</span><br><span class="muted" style="font-size:12.5px">shape clear, some calls open</span></td><td>Claude mid-tier and up (reasoning ≥ 6)</td><td class="num">6</td><td class="num">4</td><td>medium</td></tr>
+          <tr><td><span class="pill coral">unbounded</span><br><span class="muted" style="font-size:12.5px">judgment is the deliverable</span></td><td>Claude top-tier only (reasoning ≥ 7)</td><td class="num">7</td><td class="num">5</td><td>high / max</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted reveal" style="font-size:13.5px;margin-top:12px">Floors are byte-for-byte integer compares against the 1–7 axes — no value-lookup table. Constants: <code>REASONING_FLOOR_BY_BAND</code>, <code>CODING_FLOOR_BY_BAND</code>.</p>
+
+    <div class="grid g3 reveal" style="margin-top:30px">
+      <article class="card"><span class="k">reasoning / coding</span><p><b>1 = weakest, 7 = strongest.</b> Used as <code>score ≥ floor</code> at GATE and as the capability tiebreak at RANK.</p></article>
+      <article class="card"><span class="k">cost</span><p><b>1 = cheapest, 7 = priciest.</b> The primary RANK key, ascending — so cheapest-capable wins. Bin <code>7</code> ranks last and is never auto-picked on a tie.</p></article>
+      <article class="card"><span class="k">why integers, not 0–100</span><p>Re-derived from one external methodology so they stay comparable across models and don't rot. A coarse floor-gate, not a fine ladder.</p></article>
+    </div>
+
+    <h3 class="reveal" style="margin-top:38px">Role-eligibility is independent of the coding score</h3>
+    <p class="reveal" style="margin-top:6px;color:var(--ink-2);font-size:15px"><code>routable_for</code> is an allow-list over a closed role vocabulary: <span class="chip">bounded-code</span> <span class="chip">unbounded-code</span> <span class="chip">reasoning</span> <span class="chip">web-research</span> <span class="chip">text-synthesis</span> <span class="chip">other</span>.</p>
+    <div class="grid g2 reveal" style="margin-top:16px">
+      <article class="card"><span class="k">the rule</span><p><b>Absent/empty</b> → eligible for every leaf (back-compat). <b>Present</b> → eligible only for the listed roles. Code leaves are gated on <code>routable_for</code> <i>membership</i> of a code role — never on the coding integer.</p></article>
+      <article class="card"><span class="k">the consequence</span><p>An API chat worker can carry an honest coding score of 3–4 yet <b>never receive a code leaf</b>, because its <code>routable_for</code> omits the code roles. An honest score never re-enables an ineligible route. Unknown role string → not-matching, never a crash.</p></article>
+    </div>
+    <div class="callout note reveal"><span class="ic">⊕</span><span>Routing via the <code>other</code> catch-all records the task's instructions (<code>_build_other_routing_audit()</code>) so under-served task types surface for promotion to a first-class role.</span></div>
+  </div>
+</section>
+
+<!-- RANK -->
+<section id="rank">
+  <div class="wrap">
+    <div class="eyebrow reveal">Stage 6 · RANK</div>
+    <h2 class="reveal">Cheapest-capable, deterministically</h2>
+    <p class="lede reveal" style="margin-bottom:24px"><code>_rank()</code> imposes a total order over the survivors. Cost is the primary key, ascending — so two equal-cost code survivors are ordered directly by their <code>coding</code> integer; there is no separate sub-rank step.</p>
+    <div class="codeblk reveal">
+<span class="cm"># _rank() sort key — all ascending</span>
+( <b>cost</b>,                 <span class="cm"># 1–7, cheapest first; bin 7 ranks last</span>
+  <b>evidence_status</b>,      <span class="cm"># validated before probe-pending</span>
+  <b>-capability</b>,          <span class="cm"># reasoning on text, coding on code (higher first)</span>
+  <b>carrier_pref</b>,         <span class="cm"># Agent-tool Claude before the CLI-process carrier</span>
+  <b>model</b>, <b>variant</b> )        <span class="cm"># final deterministic tiebreak</span>
+    </div>
+  </div>
+</section>
+
+<!-- PIN -->
+<section id="pin">
+  <div class="wrap">
+    <div class="eyebrow reveal">Stage 7 · PIN</div>
+    <h2 class="reveal">Floors that raise, never lower</h2>
+    <p class="lede reveal" style="margin-bottom:24px">Pins apply after ranking. Defined in <code>_PINNED_FLOORS</code>, applied by <code>_apply_pinned_role_floor()</code>.</p>
+    <div class="tbl-wrap reveal">
+      <table>
+        <thead><tr><th>Pinned role</th><th>Floor</th></tr></thead>
+        <tbody>
+          <tr><td><b>reviewer</b></td><td>≥ executor reasoning + 1, floor Sonnet (reasoning 6), never Haiku. <code>reviews_external_cli_code: true</code> forces Opus.</td></tr>
+          <tr><td><b>debug</b></td><td>any code-eligible executor with reasoning ≥ 7.</td></tr>
+          <tr><td><b>commit</b></td><td>Agent-tool Claude Sonnet; if no Claude is available, the strongest-reasoner across all elected packages (excluding Haiku), cost ignored.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="grid g2 reveal" style="margin-top:20px">
+      <article class="card"><span class="k">stakes tier-up</span><p>A profile with <code>stakes_tier: tier_up</code> raises the boundedness band one level and re-resolves (re-scope, re-filter, re-rank) over the full enumeration.</p></article>
+      <article class="card"><span class="k">empty-pipeline fallback</span><p>When the band-scoped pipeline yields zero candidates but a <code>pinned_role</code> is set, the pin's floor computation runs over the full pre-scope roster before returning an error — so e.g. a reviewer can still be filled.</p></article>
+    </div>
+  </div>
+</section>
+
+<!-- WORKED EXAMPLE -->
+<section id="example">
+  <div class="wrap">
+    <div class="eyebrow reveal">Putting it together</div>
+    <h2 class="reveal">A profile funnels to one pick</h2>
+    <p class="lede reveal" style="margin-bottom:26px">A partially-bounded code task — &ldquo;build an endpoint from a spec, two edge-case decisions left open.&rdquo; Watch the roster narrow.</p>
+    <div class="funnel reveal">
+      <div class="fstage"><div class="fn">1</div><div class="fbody"><div class="fop">Profile → requirements</div><div class="fcol">task profile</div><div class="fdetail">Partially-bounded → reasoning floor <b>6</b>, effort <b>medium</b>. It's code → needs a <b>code-eligible</b> executor (a code role in <code>routable_for</code>). Not web. Fits context.</div></div></div>
+      <div class="fstage"><div class="fn">2</div><div class="fbody"><div class="fop">SCOPE + GATE — reasoning ≥ 6</div><div class="fcol">boundedness · reasoning</div><div class="fdetail"><span class="fdrop">✗ drops the sub-6 reasoners</span> — the band scopes to mid-tier and up, and the floor enforces it.</div></div></div>
+      <div class="fstage"><div class="fn">3</div><div class="fbody"><div class="fop">GATE — must be code-eligible</div><div class="fcol">coding floor · routable_for</div><div class="fdetail"><span class="fdrop">✗ drops the text-only API workers</span> — they omit the code roles in <code>routable_for</code>, so an honest coding score can't admit them.</div></div></div>
+      <div class="fstage"><div class="fn">4</div><div class="fbody"><div class="fop">GATE — context fits (after plan cap)</div><div class="fcol">context_window vs cap</div><div class="fdetail">A capped window must still hold the task; a worker whose effective window is too small drops here.</div></div></div>
+      <div class="fstage"><div class="fn">5</div><div class="fbody"><div class="fop">RANK — cheapest capable first</div><div class="fcol">cost (1–7)</div><div class="fdetail">The task needs only <i>medium</i> reasoning, so the cheapest qualifying coders rise to the top of the cost ladder.</div></div></div>
+      <div class="fstage fwin"><div class="fn">✓</div><div class="fbody"><div class="fop">PIN raises the floor → final pick</div><div class="fcol">pins + effort</div><div class="fdetail"><b>A cheap qualifying executor @ medium effort.</b> Because it's external-CLI code, the reviewer floors at Opus. The cheap worker builds; a strong reviewer checks — made mechanical.</div></div></div>
+    </div>
+    <p class="muted reveal" style="margin-top:18px;font-size:13.5px">Change the profile and the same eight stages run: a fully-bounded mechanical job needs only reasoning 1, so a cheap executor survives and wins on cost; an unbounded design task demands reasoning 7, so only the top tier passes. The manifests never change — the <i>requirements</i> do.</p>
+  </div>
+</section>
+
+<!-- LAYOUT -->
+<section id="layout">
+  <div class="wrap">
+    <div class="eyebrow reveal">On disk</div>
+    <h2 class="reveal">Package layout &amp; election</h2>
+    <div class="tree reveal">
+orchestration/models/
+  <span class="d">{model}/</span>
+    manifest.yaml   <span class="c"># capability + routing inputs (the only routing source)</span>
+    delta.md        <span class="c"># model-specific render source</span>
+    <span class="gen">manual.md</span>       <span class="c"># GENERATED dispatch manual — never hand-edit</span>
+  manifest-schema.md / manifest-template.yaml      <span class="c"># the schema + skeleton</span>
+  model-plans-schema.md / model-plans-example.yaml
+  route.py / test_route.py / render-manuals.py
+  <span class="c">_api/  _fixture/  mirror/   # infra dirs — never enumerated</span>
+    </div>
+    <div class="grid g2 reveal" style="margin-top:22px">
+      <article class="card"><span class="k">election is authoritative</span><p><code>route.py</code> enumerates only the packages in <code>rbtv.json → model_packages</code>, and (for a multi-backend package) only the backends in <code>model_variants</code>. Anything absent is skipped at enumeration. A <code>--models-dir</code> override disables the election filter.</p></article>
+      <article class="card"><span class="k">the availability block is recall-only</span><p>The <code>&lt;!-- ORCH:AVAILABILITY --&gt;</code> block in <code>skills/orchestrating/core-protocol.md</code> is installer-written (last-install-wins) — it tells the skill what is routable. It is <b>not</b> a routing input; <code>route.py</code> reads election from <code>rbtv.json</code>.</p></article>
+    </div>
+  </div>
+</section>
+
+<!-- RENDER -->
+<section id="render">
+  <div class="wrap">
+    <div class="eyebrow reveal">Generated manuals</div>
+    <h2 class="reveal">The render pipeline</h2>
+    <p class="lede reveal" style="margin-bottom:22px">A model's dispatch <b>manual</b> is composed — never hand-written — from the shared wrapper template plus the model's <code>delta.md</code>, via an HTML-comment marker grammar (<code>RENDER:BEGIN/END</code>, <code>RENDER:INSERT</code>, <code>RENDER:DELTA</code>). Rendering is deterministic (write-if-changed, no timestamps).</p>
+    <div class="codeblk reveal">
+<span class="cm"># from repo root</span>
+python orchestration/models/render-manuals.py            <span class="cm"># regenerate all manuals</span>
+python orchestration/models/render-manuals.py <b>--check</b>     <span class="cm"># report drift, write nothing</span>
+<span class="ok">→ exit 0</span> when every manual is fresh · <span class="warn">exit 1</span> when any is stale
+    </div>
+    <div class="callout reveal"><span class="ic">✗</span><span><b>Never edit <code>manual.md</code> directly</b> — it is overwritten on the next render. To change cross-model behavior edit the wrapper template (<code>skills/orchestrating/cards/dispatch-wrapper.md</code>); to change model-specific behavior edit that model's <code>delta.md</code>; then re-render. <code>--check</code> must exit 0.</span></div>
+  </div>
+</section>
+
+<!-- TESTS -->
+<section id="tests">
+  <div class="wrap">
+    <div class="eyebrow reveal">Verification</div>
+    <h2 class="reveal">Running the tests</h2>
+    <div class="codeblk reveal">
+<span class="cm"># canonical — from the repo root</span>
+<span class="ok">python -m pytest orchestration/models/test_route.py</span>
+    </div>
+    <div class="callout reveal"><span class="ic">!</span><span><b>Gotcha — <code>python orchestration/models/test_route.py</code> collects ZERO tests</b> and exits 0 with no output. The tests take pytest fixtures (<code>tmp_path</code>) and the file has no <code>if __name__ == "__main__"</code> block, so running it as a plain script just loads the test classes without invoking anything. Always run it through <code>pytest</code>. <span style="color:#fff">This silent no-op is the gap this document exists to close.</span></span></div>
+    <p class="reveal" style="margin-top:18px;color:var(--ink-2);font-size:14.5px">The suite covers: the reference profiles (fully / partially / unbounded), the boundedness keystone, determinism, API-key availability, plan caps (parse · apply · graceful skip), halt seams, self-execute, the <code>--explain</code> trace, failure modes, stakes &amp; pinned-role floors, the Haiku guard, and a live-corpus enumeration.</p>
+  </div>
+</section>
+
+<!-- PLAN CAPS -->
+<section id="caps">
+  <div class="wrap">
+    <div class="eyebrow reveal">Per-deployment limits</div>
+    <h2 class="reveal">Plan-size context caps</h2>
+    <p class="lede reveal" style="margin-bottom:18px">A deployment can cap a model's usable context below its true ceiling (e.g. a subscription tier). The cap file is <b>cap-only</b> — <code>context_window</code> per model, nothing else; cost stays board-derived in the manifests.</p>
+    <div class="grid g3 reveal">
+      <article class="card"><span class="k">the pointer</span><p><code>rbtv.json → model_plans_file</code> points at the cap file. Shape &amp; fields: <code>model-plans-schema.md</code>; example: <code>model-plans-example.yaml</code>.</p></article>
+      <article class="card"><span class="k">the application</span><p><code>_apply_plan_caps()</code> sets each variant's effective window to <code>min(manifest window, plan cap)</code> — downward only.</p></article>
+      <article class="card"><span class="k">never required</span><p>If the pointer is absent or the file is unreadable/unparseable, routing proceeds on the manifest windows unchanged.</p></article>
+    </div>
+  </div>
+</section>
+
+<!-- ADD A MODEL -->
+<section id="add">
+  <div class="wrap">
+    <div class="eyebrow reveal">Procedure</div>
+    <h2 class="reveal">Add or migrate a model</h2>
+    <div class="steps reveal">
+      <div class="step"><div class="st"><b>Elect</b> the package — add it to <code>model_packages</code> in <code>rbtv.json</code> (installer picker or <code>--model-packages</code>). For a multi-backend package, set its <code>model_variants</code> subset.</div></div>
+      <div class="step"><div class="st"><b>Author</b> <code>models/{model}/manifest.yaml</code> from <code>manifest-template.yaml</code>, filling every required field with an evidence-traceable value per <code>manifest-schema.md</code>. Set the 1–7 axes from the same external methodology as the other models — keep them comparable.</div></div>
+      <div class="step"><div class="st"><b>Write</b> <code>delta.md</code> with the model's dispatch specifics, including the required <code>invocation</code> section.</div></div>
+      <div class="step"><div class="st"><b>Render</b> the manual: <code>python orchestration/models/render-manuals.py</code>, then confirm <code>--check</code> exits 0.</div></div>
+      <div class="step"><div class="st"><b>Add/extend tests</b> in <code>test_route.py</code> for any new routing behavior.</div></div>
+      <div class="step"><div class="st"><b>Run the suite:</b> <code>python -m pytest orchestration/models/test_route.py</code> — all green.</div></div>
+      <div class="step"><div class="st"><b>Keep docs in sync</b> (repo hard rule): update <code>modules/orchestration.md</code>, the matrix reference if a routable variant changed, and <code>admin/install/module-manifest.json</code> if a package was added/removed/renamed.</div></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="src">
+      <b>Companion docs.</b> Per-model values &amp; prices → <code>docs/routing-matrix-reference.md</code>. Field definitions → <code>models/manifest-schema.md</code>. Algorithm authority → <code>skills/orchestrating/cards/routing.md</code> §2a.
+      <span class="pathpill">orchestration/docs/routing-system.md — the machine-readable twin of this page</span>
+    </div>
+    <div class="src" style="text-align:right">
+      RBTV · orchestration module<br>
+      <span class="muted" style="font-size:12px">Developer reference for <code>route.py</code></span>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  var prog = document.getElementById('progress');
+  function onScroll(){ var h=document.documentElement; var max=h.scrollHeight-h.clientHeight; prog.style.width=(max>0?(h.scrollTop/max*100):0)+'%'; }
+  document.addEventListener('scroll', onScroll, {passive:true}); onScroll();
+  if(!('IntersectionObserver' in window)){
+    document.querySelectorAll('.reveal').forEach(function(el){ el.classList.add('in'); });
+  } else {
+    var io=new IntersectionObserver(function(es){ es.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target);} }); },{threshold:.12,rootMargin:'0px 0px -8% 0px'});
+    document.querySelectorAll('.reveal').forEach(function(el){ io.observe(el); });
+  }
+})();
+</script>
+</body>
+</html>
