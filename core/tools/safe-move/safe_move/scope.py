@@ -103,6 +103,53 @@ def git_toplevel(cwd: Path) -> Path | None:
     return Path(result.stdout.strip()).resolve()
 
 
+def gitignored_paths(scope_root: Path) -> frozenset[Path]:
+    """Return gitignored paths under ``scope_root`` according to git."""
+    root = Path(scope_root).expanduser().resolve()
+    try:
+        top = git_toplevel(root)
+    except OSError:
+        return frozenset()
+    if top is None:
+        return frozenset()
+
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "ls-files",
+                "-z",
+                "-o",
+                "-i",
+                "--exclude-standard",
+                "--directory",
+            ],
+            cwd=top,
+            capture_output=True,
+            text=False,
+        )
+    except OSError:
+        return frozenset()
+    if result.returncode != 0:
+        return frozenset()
+
+    ignored: set[Path] = set()
+    for raw_entry in result.stdout.split(b"\x00"):
+        if not raw_entry:
+            continue
+        rel_entry = os.fsdecode(raw_entry).rstrip("/")
+        if not rel_entry:
+            continue
+        abs_entry = (top / Path(*rel_entry.split("/"))).resolve()
+        if abs_entry == root or root in abs_entry.parents:
+            ignored.add(abs_entry)
+    return frozenset(ignored)
+
+
+def _is_gitignored(path: Path, ignored_paths: frozenset[Path]) -> bool:
+    return path in ignored_paths or any(parent in ignored_paths for parent in path.parents)
+
+
 def _match_glob(relpath: str, pattern: str) -> bool:
     """Return True if ``pattern`` matches ``relpath`` or any ancestor directory."""
     if fnmatch.fnmatch(relpath, pattern):
@@ -242,6 +289,7 @@ def walk_scope(
     exclude_patterns = list(exclude)
     read_only_patterns = list(read_only)
     generated_patterns = list(generated)
+    ignored_paths = gitignored_paths(root)
     if warnings is None:
         warnings = []
 
@@ -255,6 +303,7 @@ def walk_scope(
         include_archive,
         descend_nested_repos,
         warnings,
+        ignored_paths,
     )
 
 
@@ -278,12 +327,42 @@ def iter_subtree_text_files(
     root = Path(scope_root).expanduser().resolve()
     base = Path(subtree).expanduser().resolve()
     skip = {Path(p).resolve() for p in skip_subtrees}
-    for path in sorted(base.rglob("*")):
-        if path.is_symlink() or not path.is_file():
+    ignored_paths = gitignored_paths(root)
+    yield from _walk_subtree_text_files(base, root, skip, ignored_paths)
+
+
+def _walk_subtree_text_files(
+    dirpath: Path,
+    root: Path,
+    skip_subtrees: set[Path],
+    ignored_paths: frozenset[Path],
+) -> Iterable[WalkedFile]:
+    try:
+        entries = sorted(os.scandir(dirpath), key=lambda e: e.name)
+    except OSError:
+        return
+
+    for entry in entries:
+        if entry.is_symlink():
             continue
+
+        path = Path(entry.path).resolve()
         if ".git" in path.parts:
             continue
-        if any(path == s or s in path.parents for s in skip):
+        if _is_gitignored(path, ignored_paths):
+            continue
+        if any(path == s or s in path.parents for s in skip_subtrees):
+            continue
+
+        if entry.is_dir(follow_symlinks=False):
+            yield from _walk_subtree_text_files(
+                path,
+                root,
+                skip_subtrees,
+                ignored_paths,
+            )
+            continue
+        if not entry.is_file(follow_symlinks=False):
             continue
         if path.name.lower() in LOCKFILE_NAMES:
             continue
@@ -311,6 +390,7 @@ def _walk_dir(
     include_archive: bool,
     descend_nested_repos: bool,
     warnings: list[WalkWarning],
+    ignored_paths: frozenset[Path] = frozenset(),
 ) -> Iterable[WalkedFile]:
     try:
         entries = sorted(os.scandir(dirpath), key=lambda e: e.name)
@@ -330,8 +410,10 @@ def _walk_dir(
         if entry.is_symlink():
             continue
 
-        abspath = Path(entry.path)
+        abspath = Path(entry.path).resolve()
         relpath = _rel(abspath, root)
+        if _is_gitignored(abspath, ignored_paths):
+            continue
 
         if entry.is_dir(follow_symlinks=False):
             name = entry.name
@@ -363,6 +445,7 @@ def _walk_dir(
                 include_archive,
                 descend_nested_repos,
                 warnings,
+                ignored_paths,
             )
         else:
             if entry.name.lower() in LOCKFILE_NAMES:
