@@ -306,7 +306,7 @@ def _replace_context_matches(
     refs: list[dict[str, Any]],
     edit_file: str,
 ) -> str:
-    spans: list[tuple[int, int, dict[str, Any]]] = []
+    spans_by_site: dict[tuple[int, int], list[tuple[int, int, dict[str, Any]]]] = {}
     for ref in refs:
         offset = ref.get("offset", 0)
         if offset > len(context):
@@ -315,9 +315,26 @@ def _replace_context_matches(
         if start == -1:
             raise _ApplySiteError(ref["id"], f"match vanished for {ref['id']} in {edit_file}")
         end = start + len(ref["match"])
-        spans.append((start, end, ref))
+        span = (start, end, ref)
+        spans_by_site.setdefault((start, end), []).append(span)
 
-    ordered = sorted(spans, key=lambda item: (item[0], item[1]))
+    collapsed_spans: list[tuple[int, int, dict[str, Any]]] = []
+    for site_spans in spans_by_site.values():
+        first = site_spans[0][2]
+        conflict = next(
+            (span[2] for span in site_spans[1:] if span[2]["proposed"] != first["proposed"]),
+            None,
+        )
+        if conflict is not None:
+            raise _ApplySiteError(
+                first["id"],
+                "DOUBT_ESCALATED overlapping matches "
+                f"for {first['id']} ({first['match']!r}) and "
+                f"{conflict['id']} ({conflict['match']!r}) in {edit_file}"
+            )
+        collapsed_spans.append(site_spans[0])
+
+    ordered = sorted(collapsed_spans, key=lambda item: (item[0], item[1]))
     for previous, current in zip(ordered, ordered[1:]):
         if previous[1] > current[0]:
             first = previous[2]
@@ -330,7 +347,7 @@ def _replace_context_matches(
             )
 
     new_context = context
-    for start, end, ref in sorted(spans, key=lambda item: item[0], reverse=True):
+    for start, end, ref in sorted(collapsed_spans, key=lambda item: item[0], reverse=True):
         new_context = new_context[:start] + ref["proposed"] + new_context[end:]
     return new_context
 
