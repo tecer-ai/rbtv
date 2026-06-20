@@ -264,15 +264,6 @@ class TestOffLimits:
         )
         assert classify(c, OPERATION_RENAME) != CLASS_AUTO
 
-    def test_footnote_citation_is_surface(self):
-        c = cand(
-            syntax="footnote-citation",
-            target="old.md",
-            resolves_to=1,
-        )
-        assert classify(c, OPERATION_RENAME) == CLASS_SURFACE
-
-
 # ---------------------------------------------------------------------------
 # Match-safety — ambiguous targets surface
 # ---------------------------------------------------------------------------
@@ -422,14 +413,6 @@ class TestAutoEligibility:
                 syntax="wikilink",
                 target="old",
                 resolves_to=2,
-            ),
-        ),
-        (
-            "footnote citation",
-            cand(
-                syntax="footnote-citation",
-                target="old",
-                resolves_to=1,
             ),
         ),
     ],

@@ -603,15 +603,6 @@ def _is_dynamic_import(candidate: matchers.Candidate) -> bool:
 
 def _warnings_for_candidate(candidate: matchers.Candidate, ref_id: str) -> list[dict[str, Any]]:
     warnings: list[dict[str, Any]] = []
-    if candidate.syntax == "footnote-citation":
-        warnings.append(
-            {
-                "kind": "governed-handoff",
-                "message": "governed reference surfaced for caller hand-off",
-                "file": candidate.file,
-                "ref_id": ref_id,
-            }
-        )
     if candidate.boundary is not None:
         warnings.append(
             {

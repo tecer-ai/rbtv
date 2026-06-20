@@ -39,7 +39,6 @@ NON_CODE_SYNTAXES = frozenset(
         "markdown-link",
         "frontmatter-field",
         "config-path",
-        "footnote-citation",
     }
 )
 
@@ -253,7 +252,7 @@ def _code_replacement_is_certain(candidate: Candidate) -> bool:
 
 def _auto_eligible_syntax(syntax: str) -> bool:
     """Return True for syntaxes that may ever be ``auto`` in the non-code phase."""
-    return syntax in NON_CODE_SYNTAXES and syntax != "footnote-citation"
+    return syntax in NON_CODE_SYNTAXES
 
 
 def classify(candidate: Candidate, operation: str, *, scope_root: Path | str | None = None) -> str:
@@ -281,11 +280,7 @@ def classify(candidate: Candidate, operation: str, *, scope_root: Path | str | N
     if _off_limits(candidate):
         return CLASS_SURFACE
 
-    # 3. Governed surfaces — hand off, never auto.
-    if candidate.syntax == "footnote-citation":
-        return CLASS_SURFACE
-
-    # 3b. Path-qualified wikilinks ([[dir/name|alias]]) carry an explicit path; the
+    # 3. Path-qualified wikilinks ([[dir/name|alias]]) carry an explicit path; the
     # correct rewrite form (vault-root vs file-relative, .md handling) is surfaced
     # for the agent rather than auto-applied. A bare [[name]] is unaffected.
     if candidate.syntax == "wikilink" and "/" in candidate.target:
