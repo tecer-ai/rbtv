@@ -351,37 +351,17 @@ function positionMarker(marker, el) {
   marker.style.left = `${rect.right + sx - 8}px`;
 }
 
-// --- Numbering (document order; resolved excluded so unresolved number 1..N) ---
-function documentOrderedIds() {
-  const arr = [];
-  for (const t of threadStore) {
-    if (t.resolved === true) continue;
-    const el = matchAnchor(t.anchor, t.id);
-    if (el) arr.push({ id: t.id, el });
-  }
-  arr.sort((a, b) => {
-    const p = a.el.compareDocumentPosition(b.el);
-    if (p & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
-    if (p & Node.DOCUMENT_POSITION_PRECEDING) return 1;
-    return 0;
-  });
-  return arr.map((x) => x.id);
-}
-
-function commentNumber(commentId, order) {
-  const list = order || documentOrderedIds();
-  const i = list.indexOf(commentId);
-  return i >= 0 ? i + 1 : null;
-}
-
+// --- Numbering (STABLE: a comment's immutable creation id IS its visible
+// number). Using the id means resolving a comment or inserting an
+// earlier-in-document comment never renumbers any other comment, and the number
+// the human sees equals the `[agent:<id>]` token buildAgentBlock() emits — so a
+// human and an AI agent referring to "comment N" stay in agreement. (Ids are
+// monotonic via nextId++ and never reused; gaps after a delete are expected.) ---
 function renumberMarkers() {
-  const order = documentOrderedIds();
   for (const [commentId, marker] of markers) {
     const t = threadStore.find((x) => x.id === commentId);
     if (!t) continue;
-    if (t.resolved) { marker.textContent = "✓"; continue; }
-    const n = commentNumber(commentId, order);
-    marker.textContent = n != null ? String(n) : "";
+    marker.textContent = t.resolved ? "✓" : String(t.id);
   }
 }
 
@@ -886,7 +866,6 @@ export function refreshAnchorsForElement(el) {
 }
 
 export function threads() {
-  const order = documentOrderedIds();
   return threadStore.map((t) => {
     const el = matchAnchor(t.anchor, t.id);
     const hypId = el ? idOf(el) : null;
@@ -896,7 +875,7 @@ export function threads() {
       unanchored: !el,
       hypId,
       rect,
-      number: commentNumber(t.id, order),
+      number: Number(t.id),   // stable creation id = visible number (see renumberMarkers)
     };
   });
 }

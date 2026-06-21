@@ -86,19 +86,16 @@ function getAuthorName() {
 }
 
 function formatTime(iso) {
-  // Relative time ("2h ago"); falls back to a locale date for older items.
+  // Absolute, always-visible date + time of day, e.g. "Jun 20, 2026, 3:42 PM".
+  // (Replaces the former relative "2h ago" label so a human and an AI agent
+  // reviewing the same deck see the exact moment each comment/reply was made.)
   try {
-    const then = new Date(iso).getTime();
-    if (Number.isNaN(then)) return iso;
-    const mins = Math.round((Date.now() - then) / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return mins + "m ago";
-    const hours = Math.round(mins / 60);
-    if (hours < 24) return hours + "h ago";
-    const days = Math.round(hours / 24);
-    if (days === 1) return "yesterday";
-    if (days < 7) return days + "d ago";
-    return new Date(iso).toLocaleDateString();
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString(undefined, {
+      year: "numeric", month: "short", day: "numeric",
+      hour: "numeric", minute: "2-digit",
+    });
   } catch {
     return iso;
   }
@@ -316,16 +313,28 @@ function createThreadEl(thread, isUnanchored = false) {
   if (!isUnanchored && !thread.resolved) {
     const replyForm = document.createElement("div");
     replyForm.className = "comment-reply-form";
-    const replyInput = document.createElement("input");
-    replyInput.type = "text";
+    // Multi-line reply box: a textarea that auto-grows from 1 line up to 3 lines
+    // (then scrolls) so a reply shows up to three lines instead of a cramped one.
+    const replyInput = document.createElement("textarea");
     replyInput.className = "comment-reply-input";
     replyInput.placeholder = "Reply…";
+    replyInput.rows = 1;
+    const REPLY_MAX_H = 76;   // ~3 lines at 12.5px/1.5 line-height + padding
     replyInput.style.cssText =
-      "width:100%; margin-top:10px; height:32px; padding:0 12px; border:1px solid var(--line-2); border-radius:999px; background:var(--white); font-size:12.5px; color:var(--ink);";
+      "width:100%; margin-top:10px; min-height:32px; max-height:" + REPLY_MAX_H + "px;" +
+      " padding:7px 12px; border:1px solid var(--line-2); border-radius:16px;" +
+      " background:var(--white); font-size:12.5px; line-height:1.5; color:var(--ink);" +
+      " font-family:var(--font-ui); resize:none; overflow-y:auto; box-sizing:border-box;";
+    const autoGrowReply = () => {
+      replyInput.style.height = "auto";
+      replyInput.style.height = Math.min(replyInput.scrollHeight, REPLY_MAX_H) + "px";
+    };
+    replyInput.addEventListener("input", autoGrowReply);
     replyInput.addEventListener("click", (e) => e.stopPropagation());
     replyInput.addEventListener("keydown", async (e) => {
       e.stopPropagation();
-      if (e.key === "Enter") {
+      // Enter submits the reply; Shift+Enter inserts a newline (multi-line reply).
+      if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         const text = replyInput.value.trim();
         if (!text) return;
