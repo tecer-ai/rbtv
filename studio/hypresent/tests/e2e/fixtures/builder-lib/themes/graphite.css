@@ -1,0 +1,69 @@
+/* builder-lib graphite theme */
+:root {
+  --bg: #111318;
+  --bg-soft: #202630;
+  --fg: #F5F7FA;
+  --fg-invert: #111318;
+  --muted: #8B95A5;
+  --brand: #6AA6FF;
+  --client-accent: #79D4C8;
+}
+
+@page { size: 1280px 720px; margin: 0; }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  color: var(--fg);
+  background: #151922;
+}
+
+.slide {
+  position: relative;
+  width: 1280px;
+  height: 720px;
+  padding: 72px 96px;
+  background: #F5F7FA;
+  color: #171B22;
+  overflow: hidden;
+  page-break-after: always;
+}
+
+.slide--soft { background: var(--bg-soft); color: var(--fg); }
+.slide--dark { background: var(--bg); color: var(--fg); }
+.slide--cover { background: var(--bg) url('assets/cover-bg.jpg') center/cover no-repeat; color: var(--fg); display: flex; flex-direction: column; justify-content: center; }
+.slide--closing { background: #171B22; color: var(--fg); }
+.dark-bg-overlay { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.34); }
+.slide-header { display: grid; gap: 12px; margin-bottom: 32px; }
+.kicker { color: var(--brand); font-size: 14px; font-weight: 700; text-transform: uppercase; }
+.slide-title { font-size: 44px; font-weight: 800; line-height: 1.05; }
+.slide-subtitle { color: var(--muted); font-size: 22px; line-height: 1.35; }
+.slide-body { font-size: 24px; line-height: 1.45; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.card { background: #FFFFFF; border: 1px solid #D8DEE8; border-radius: 8px; padding: 24px; }
+.card-icon { color: var(--brand); font-size: 24px; }
+.card-title { font-size: 22px; font-weight: 800; margin-bottom: 8px; }
+.card-body { color: #354052; font-size: 18px; line-height: 1.4; }
+.aside-note { border-left: 4px solid var(--client-accent); color: #354052; padding-left: 16px; }
+.dark-callout { background: #202630; color: var(--fg); border-radius: 8px; padding: 24px; }
+.cover-logos { display: flex; align-items: center; gap: 20px; margin-bottom: 48px; }
+.cover-mark { max-height: 44px; }
+.cover-logos-sep { width: 1px; height: 36px; background: rgba(255, 255, 255, 0.35); }
+.cover-client { max-height: 44px; }
+.cover-title { font-size: 56px; font-weight: 900; }
+.cover-subtitle { font-size: 22px; opacity: 0.84; margin-top: 16px; }
+.cover-date { font-size: 18px; opacity: 0.68; margin-top: 24px; }
+.divider-statement { font-size: 42px; font-weight: 800; line-height: 1.12; }
+.sources-line { position: absolute; left: 96px; bottom: 28px; color: var(--muted); font-size: 12px; }
+.partner-mark { max-height: 40px; }
+.closing-statement { font-size: 40px; font-weight: 800; line-height: 1.15; }
+.closing-contacts { display: grid; gap: 8px; margin-top: 32px; color: var(--muted); }
+.closing-wordmark { position: absolute; left: 96px; bottom: 40px; color: var(--fg); font-weight: 800; }
+.slide-number {
+  position: absolute;
+  bottom: 28px;
+  right: 32px;
+  font-size: 14px;
+  color: #687386;
+}

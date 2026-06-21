@@ -190,6 +190,94 @@ class TestEngineThemes(unittest.TestCase):
         envelope = json.loads(stdout)
         self.assertTrue(envelope["ok"])
 
+    def test_back_compat_single_theme_default_output_matches_multi_theme_default(self):
+        """Removing themes[] leaves default assembly output byte-for-byte unchanged."""
+        multi_theme_lib = self._make_temp_library()
+        single_theme_lib = self._make_temp_library(strip_themes=True)
+
+        for tmp_lib in (multi_theme_lib, single_theme_lib):
+            out_path = os.path.join(tmp_lib, "same-default.html")
+            client_logo_path = os.path.join(os.path.dirname(tmp_lib), "shared-brand", "partner-mark.png")
+            rc, stdout, stderr = self._run_engine(tmp_lib, [
+                "--preset", "nimbus-intro-en",
+                "--out", out_path,
+                "--client-logo", client_logo_path,
+                "--no-log",
+                "--json",
+            ])
+            self.assertEqual(rc, 0, f"Default assemble failed: {stdout} {stderr}")
+            self.assertTrue(json.loads(stdout)["ok"])
+
+        multi_text = self._read_file(os.path.join(multi_theme_lib, "same-default.html"))
+        single_text = self._read_file(os.path.join(single_theme_lib, "same-default.html"))
+        self.assertEqual(single_text, multi_text)
+        self.assertIn('data-theme="default"', single_text)
+        self.assertIn('data-theme-contract="1.0"', single_text)
+        self.assertRegex(single_text, r"<style[^>]*data-theme=\"default\"")
+
+    def test_back_compat_old_unmarked_style_assembles_unswitchable_default(self):
+        """An old base.html with an unmarked style block still assembles."""
+        tmp_lib = self._make_temp_library(strip_themes=True)
+        base_path = os.path.join(tmp_lib, "base.html")
+        old_base = """<!DOCTYPE html>
+<html lang="{{LANG}}">
+<head>
+<meta charset="UTF-8">
+<title>{{TITLE}}</title>
+<style>
+/* {{ACCENT_CSS}} */
+/* {{THEME_CSS}} */
+</style>
+</head>
+<body>
+<!-- {{SLIDES}} -->
+</body>
+</html>
+"""
+        with open(base_path, "w", encoding="utf-8") as f:
+            f.write(old_base)
+
+        out_path = os.path.join(tmp_lib, "legacy-unmarked.html")
+        client_logo_path = os.path.join(os.path.dirname(tmp_lib), "shared-brand", "partner-mark.png")
+        rc, stdout, stderr = self._run_engine(tmp_lib, [
+            "--preset", "nimbus-intro-en",
+            "--out", out_path,
+            "--client-logo", client_logo_path,
+            "--json",
+        ])
+        self.assertEqual(rc, 0, f"Assemble failed: {stdout} {stderr}")
+        self.assertTrue(json.loads(stdout)["ok"])
+
+        deck_text = self._read_file(out_path)
+        self.assertIn("<style>", deck_text)
+        self.assertIn("--bg:", deck_text)
+        self.assertIn(".slide--cover", deck_text)
+        self.assertNotIn("data-theme=", deck_text)
+        self.assertNotIn("{{THEME_NAME}}", deck_text)
+
+    def test_named_theme_assemble_stamps_requested_theme_and_contract(self):
+        """--theme graphite stamps the requested theme identity on html and style."""
+        tmp_lib = self._make_temp_library()
+        out_path = os.path.join(tmp_lib, "named-graphite.html")
+        client_logo_path = os.path.join(os.path.dirname(tmp_lib), "shared-brand", "partner-mark.png")
+        rc, stdout, stderr = self._run_engine(tmp_lib, [
+            "--theme", "graphite",
+            "--preset", "nimbus-intro-en",
+            "--out", out_path,
+            "--client-logo", client_logo_path,
+            "--library-ref", "libs/nimbus",
+            "--json",
+        ])
+        self.assertEqual(rc, 0, f"Expected exit 0, got {rc}. stdout={stdout}, stderr={stderr}")
+        self.assertTrue(json.loads(stdout)["ok"])
+
+        deck_text = self._read_file(out_path)
+        self.assertRegex(deck_text, r'<html[^>]*data-theme="graphite"')
+        self.assertRegex(deck_text, r'<html[^>]*data-theme-contract="1.0"')
+        self.assertRegex(deck_text, r'<style[^>]*data-theme="graphite"')
+        self.assertRegex(deck_text, r'<style[^>]*data-theme-contract="1.0"')
+        self.assertIn('data-theme-library="libs/nimbus"', deck_text)
+
     # ═══════════════════════════════════════════════════════════════════════════
     # §2.4  No stray theme markers
     # ═══════════════════════════════════════════════════════════════════════════

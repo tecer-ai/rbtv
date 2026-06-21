@@ -224,3 +224,86 @@ def test_export_registers_theme_and_flags_contract_lint_failure(tmp_path):
             "contract_version": "1.0",
         }
     ]
+
+
+def test_export_preserves_existing_library_fields_and_appends_theme(tmp_path):
+    existing_theme_css = ".slide { color: existing; }\n"
+    lib = _make_library(
+        tmp_path,
+        themes=[
+            {
+                "name": "graphite",
+                "file": "themes/graphite.css",
+                "label": "Graphite",
+                "contract_version": "1.0",
+            }
+        ],
+        theme_files={"themes/graphite.css": existing_theme_css},
+    )
+    original = {
+        "convention_version": "1.0",
+        "engine_version": "1.1",
+        "name": "Export Theme Test",
+        "sections": ["general", "appendix"],
+        "default_lang": "pt",
+        "themes": [
+            {
+                "name": "graphite",
+                "file": "themes/graphite.css",
+                "label": "Graphite",
+                "contract_version": "1.0",
+            }
+        ],
+        "default_theme": "graphite",
+        "extra_field": {"kept": ["byte", "value", "intact"]},
+    }
+    (lib / "library.json").write_text(
+        json.dumps(original, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    deck = _make_deck(tmp_path, theme_name="nimbus", contract="1.0")
+
+    status, resp = _export(deck, lib)
+
+    assert status == 200
+    assert resp["ok"] is True
+    assert resp["theme"]["status"] == "registered"
+
+    library_json = json.loads((lib / "library.json").read_text(encoding="utf-8"))
+    for key in (
+        "convention_version",
+        "engine_version",
+        "name",
+        "sections",
+        "default_lang",
+        "default_theme",
+        "extra_field",
+    ):
+        assert library_json[key] == original[key]
+    assert library_json["themes"] == original["themes"] + [
+        {
+            "name": "nimbus",
+            "file": "themes/nimbus.css",
+            "label": "nimbus",
+            "contract_version": "1.0",
+        }
+    ]
+    assert (lib / "themes" / "graphite.css").read_text(encoding="utf-8") == existing_theme_css
+
+
+def test_export_implicit_default_theme_skips_registration(tmp_path):
+    lib = _make_library(tmp_path)
+    before = json.loads((lib / "library.json").read_text(encoding="utf-8"))
+    deck = _make_deck(tmp_path, theme_name="default", contract="1.0")
+
+    status, resp = _export(deck, lib)
+
+    assert status == 200
+    assert resp["ok"] is True
+    assert resp["theme"] == {
+        "status": "skipped",
+        "reason": "already_present",
+        "name": "default",
+    }
+    assert not (lib / "themes").exists()
+    assert json.loads((lib / "library.json").read_text(encoding="utf-8")) == before

@@ -7,5 +7,14 @@
     "opening",
     "body",
     "closing"
+  ],
+  "default_theme": "default",
+  "themes": [
+    {
+      "name": "graphite",
+      "file": "themes/graphite.css",
+      "label": "Graphite",
+      "contract_version": "1.0"
+    }
   ]
 }
