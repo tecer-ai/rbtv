@@ -936,6 +936,41 @@ The export-metadata attributes live on the `<section>` element specifically beca
 
 Generated HTML that is neither a website nor a pitch deck — a dashboard or app — is EXEMPT from this entire section: it carries NO export-metadata attributes, is NOT snapped to 1280×720, and carries NO `@media print` block. The standard applies ONLY to website/pitch-style decks. For a borderline output, the standard is APPLIED rather than skipped (a deck wrongly tagged exempt is worse than a dashboard carrying a few unused attributes); the generating flow states which path it took.
 
+### 10.6 The role-token skin standard (MUST)
+
+§§ 10.1–10.5 make a generated deck *decomposable* (metadata + fixed size + print). This subsection makes it *re-skinnable*: every deck the designer flow authors writes its skin as design-role tokens, so the deck drops into a role-token library and is theme-switchable with no manual rework. It is the DEFAULT authoring behaviour — baked into generation, never an after-the-fact tokenization pass — and it is UNCONDITIONAL: the flow authors role-token decks; it does NOT detect or branch on a "library kind." (Dashboards/apps stay exempt per § 10.5.)
+
+A conformant deck carries TWO `<style>` blocks in `<head>` plus a stamped `<html>`:
+
+| Part | Content | On theme switch |
+|------|---------|-----------------|
+| **Block A** | plain `<style>` (NO `data-theme`): the shared `.slide` base (the § 10.2 fixed 1280×720 box + `@media screen` staging + the § 10.3 `@media print`/`@page` block) AND every component rule, with EVERY skin property written as `var(--role)`. ZERO literal skin values. | STAYS — it is contract, not skin |
+| **Block B** | `<style data-theme="{theme}" data-theme-contract="2.0">`: a `:root{ … }` defining every role, holding THIS deck's actual palette / type / depth / geometry VALUES — the deck's distinct look lives here. | SWAPPED — replacing it re-skins every slide |
+| `<html>` stamp | `data-theme="{theme}" data-theme-contract="2.0" data-theme-library="{library-ref}"` (native `data-*`, survives an editor open→save). | — |
+
+`data-theme-contract="2.0"` is the fixed identifier the engine validates the role set against — a stamp literal, NOT a behavioural switch.
+
+**The role vocabulary.** The authoritative role-NAME set is the engine's `ROLE_CONTRACT_V2` frozenset (`{rbtv_path}/studio/slide-library/engine/assemble.py`): Block B MUST define every role in it, and Block A MAY reference ONLY those roles plus the per-deck-injected `--client-accent`. The names are frozen there; the table below gives each role's design meaning:
+
+| Group | Roles | Meaning |
+|-------|-------|---------|
+| Field | `--field`, `--field-2`, `--stage` | slide background · inset field · off-slide staging field |
+| Ink | `--ink-1` … `--ink-4` | foreground text ramp, brightest → faintest |
+| Accent | `--accent`, `--accent-ink`, `--accent-ink-soft`, `--accent-soft`, `--accent-soft-2`, `--accent-border`, `--edge-accent` | brand mark/rule · accent-as-text · soft fills · border · card edge |
+| Highlight | `--highlight` | data / attention color |
+| Surface | `--surface`, `--surface-2`, `--hairline`, `--hairline-strong` | card/panel fills · divider borders |
+| Depth | `--shadow-panel`, `--shadow-card` | panel shadow · card shadow (often `none`) |
+| Texture | `--texture`, `--texture-hero`, `--scrim`, `--scrim-hero` | background-image roles · legibility scrims |
+| Data | `--positive`, `--positive-glow`, `--negative` | semantic up/down colors |
+| Type | `--font-display`, `--font-body`, `--font-mono` | the three type roles |
+| Shape | `--radius`, `--radius-lg`, `--hairline-w` | corner radii · hairline width |
+
+**Layout is never tokenized.** Size, grid, flex, padding, position, font-size, line-height, letter-spacing, and corner-radius literals are COPIED VERBATIM — they are structure, not skin, and the lint never flags them. ONLY the skin properties (the § 6.7 set: `color`, `background*`, `border*`, `box-shadow`, `fill`, `stroke`, `outline*`) become `var(--role)`. Literal skin values appear in exactly ONE place: Block B's `:root` definitions.
+
+**Role-vocabulary-exceeded escape (MUST).** When a direction genuinely cannot be expressed in the role set — it needs a skin dimension no role covers (e.g. a second distinct accent family) — the flow HALTS to the owner naming the missing role; extending the role set is a contract/engine change. NEVER emit a literal skin value to fill the gap, and NEVER distort the design to fit — both defeat the standard.
+
+**Verification (deterministic).** A conformant deck passes BOTH engine lints, run from the target library: `assemble.py --check-themes --json` → `ok:true` (the library's themes satisfy the role set) AND `assemble.py --lint-no-literal <deck>` → exit 0 (Block A + inline styles carry zero literal/undefined-token skin values). The generation flow runs `--lint-no-literal` on the deck as a self-check BEFORE the owner review — a non-zero exit is a defect to fix, never to surface.
+
 ---
 
 ## Amendments (ADX)

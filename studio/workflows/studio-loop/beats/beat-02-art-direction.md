@@ -55,6 +55,8 @@ This beat implements `deck-loop-spec.md` behavior row 3 and its Edge Cases. Read
 
 Row 7 is ADDITIVE and OPTIONAL — the six axes above stay mandatory. Any imagery direction a lane proposes surfaces WITH the mini-briefs for the owner pick, never inserted unasked.
 
+**Role-token mapping (§ 10.6).** Every deck the loop produces is a role-token deck — a lane's palette (axis 2) and type (axis 1) become role-token VALUES (the engine's `ROLE_CONTRACT_V2` set) when the winning contract is recorded (beat 3 § 3A step 5). Compose each lane within that role vocabulary. If a lane genuinely needs a skin dimension no role covers (e.g. a second distinct accent family), surface it to the owner HERE at direction time — the § 10.6 role-vocabulary-exceeded escape — far cheaper than hitting it at slice time.
+
 3. For EACH mini-brief, CITE the taste file: name which admirable principles (per exemplar) the lane USES and which it deliberately BREAKS, and why the break serves THIS deck's thesis. A mini-brief with no taste citation is incomplete.
 4. Run each mini-brief through the ban-list (`{rbtv_path}/studio/standards/ban-list.md`): confirm NO banned attractor (purple-blue gradient, rounded-card-grid-of-three, default-font look, emoji icons, and every mined correction) is present. A brief carrying a banned attractor FAILS — regenerate it clean.
 5. Push past the safe choice: when one lane is the obvious pick, name it as such and propose a more daring alternative alongside it (mining map DP-3). Name the lane you believe in and why — never hide it (mining map DP-2).
@@ -91,7 +93,7 @@ ONLY when **[X] Exit** is selected: confirm exit; design-state is saved.
 
 ✅ **SUCCESS:**
 - Reference set loaded; any missing layer HALTED with its exact name; taste file present and cited.
-- ≥2–3 genuinely distinct mini-briefs, each covering all six axes, each citing taste-file principles used/broken, ALL ban-list-clean. The optional imagery treatment (row 7) MAY be present on a lane — owner-gated and real-provenance when it is.
+- ≥2–3 genuinely distinct mini-briefs, each covering all six axes, each citing taste-file principles used/broken, ALL ban-list-clean. Each lane's palette + type sit within the role-token vocabulary (§ 10.6), or a role-vocabulary-exceeded escape was surfaced to the owner. The optional imagery treatment (row 7) MAY be present on a lane — owner-gated and real-provenance when it is.
 - The Designer named the believed-in lane and offered a daring alternative to the safe choice.
 - Owner pick recorded in design-state (`art_direction_brief` + rationale + `## Art Direction`); cursor advanced to beat 3.
 
