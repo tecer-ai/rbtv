@@ -155,7 +155,8 @@ class TestEngineDT5(unittest.TestCase):
     # ═══════════════════════════════════════════════════════════════════════════
 
     def test_install_engine(self):
-        """install-engine copies assemble.py and syncs engine_version to 1.0."""
+        """install-engine copies assemble.py and syncs engine_version to the
+        engine's current ENGINE_VERSION."""
         if not os.path.exists(INSTALL_ENGINE):
             self.skipTest("install-engine.py not present (PB-T5 has not landed)")
         tmp_lib = self._make_temp_library()
@@ -176,9 +177,16 @@ class TestEngineDT5(unittest.TestCase):
             source_bytes = f.read()
         self.assertEqual(target_bytes, source_bytes, "assemble.py bytes differ")
 
+        # Read the engine's own version stamp rather than hardcoding it, so a
+        # version bump does not break this back-compat test.
+        with open(ENGINE, "r", encoding="utf-8") as f:
+            engine_src = f.read()
+        engine_version = re.search(
+            r'ENGINE_VERSION\s*=\s*"([^"]+)"', engine_src
+        ).group(1)
         with open(lib_json, "r", encoding="utf-8") as f:
             data = json.load(f)
-        self.assertEqual(data.get("engine_version"), "1.1")
+        self.assertEqual(data.get("engine_version"), engine_version)
 
     def test_install_engine_missing_library_json(self):
         """Missing target library.json → exit 1."""

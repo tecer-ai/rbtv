@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 # ── Constants ──
-ENGINE_VERSION = "1.1"
+ENGINE_VERSION = "1.2"
 SUPPORTED_CONVENTION_MAJOR = 1
 ENGINE_TARGET_MINOR = 0
 MANIFEST_COLUMNS = [
@@ -52,6 +52,58 @@ CONTRACT_V1 = frozenset({
     # Chrome
     ".slide-number",
 })
+
+# Role-token contract for multi-theme libraries (library-scoped, v2).
+# v2 themes are PURE SKINS: they define only design-role :root tokens (no
+# structural selectors). A theme that declares contract_version "2.0" MUST
+# define every token in this set; a v2 theme that also leaks a structural
+# selector (a `.class`, an element rule) draws a warning (not an error).
+# Presence-check only — token VALUES are free to differ between themes. The
+# names below are generic design ROLES (no instance palette): field/stage are
+# page surfaces, ink-1..4 are foreground ramps, accent* the brand family,
+# surface* the card/panel layers, hairline* the borders, texture/scrim the
+# overlays, positive/negative the semantic colors, font-* the type roles, and
+# radius*/hairline-w the shape roles.
+ROLE_CONTRACT_V2 = frozenset({
+    "--field",
+    "--field-2",
+    "--stage",
+    "--ink-1",
+    "--ink-2",
+    "--ink-3",
+    "--ink-4",
+    "--accent",
+    "--accent-ink",
+    "--accent-ink-soft",
+    "--accent-soft",
+    "--accent-soft-2",
+    "--accent-border",
+    "--highlight",
+    "--surface",
+    "--surface-2",
+    "--hairline",
+    "--hairline-strong",
+    "--edge-accent",
+    "--shadow-panel",
+    "--shadow-card",
+    "--texture",
+    "--texture-hero",
+    "--scrim",
+    "--scrim-hero",
+    "--positive",
+    "--positive-glow",
+    "--negative",
+    "--font-display",
+    "--font-body",
+    "--font-mono",
+    "--radius",
+    "--radius-lg",
+    "--hairline-w",
+})
+
+# Tokens an assembly injects per-deck (never declared by a theme). They are
+# always legitimate in a skin property and MUST never be flagged as undefined.
+INJECTED_TOKENS = frozenset({"--client-accent"})
 
 LIBRARY = Path(__file__).resolve().parent
 
@@ -157,31 +209,260 @@ def parse_css_members(css_text):
     return members
 
 
+def contract_required_members(contract_version):
+    """Resolve a contract_version to its required-member set + a human label.
+
+    Returns (members, label). An unknown version returns (None, None) so the
+    caller can raise a loud error naming the offending version."""
+    if contract_version == "1.0":
+        return CONTRACT_V1, "shared class contract v1"
+    if contract_version == "2.0":
+        return ROLE_CONTRACT_V2, "role-token contract v2"
+    return None, None
+
+
 def lint_themes_contract(library_data):
-    """Return contract-lint errors for theme.css + every themes[].file."""
+    """Return (errors, warnings) for theme.css + every themes[].file.
+
+    Each theme is validated against ITS OWN contract_version: the default theme
+    (theme.css) uses the library's top-level contract_version (default "1.0");
+    each themes[] entry uses its own contract_version (default "1.0"). A v2
+    role-only theme that leaks a structural selector draws a warning."""
     errors = []
+    warnings = []
     themes = library_data.get("themes", [])
     if not themes:
-        return errors
+        return errors, warnings
 
-    theme_entries = [("default", LIBRARY / "theme.css")]
+    theme_entries = [
+        ("default", LIBRARY / "theme.css",
+         library_data.get("contract_version", "1.0"))
+    ]
     for t in themes:
         name = t.get("name")
         file_ = t.get("file", f"themes/{name}.css")
-        theme_entries.append((name, LIBRARY / file_))
+        theme_entries.append((name, LIBRARY / file_, t.get("contract_version", "1.0")))
 
-    for theme_name, theme_path in theme_entries:
+    for theme_name, theme_path, contract_version in theme_entries:
         if not theme_path.exists():
             errors.append(f"Theme '{theme_name}' file not found: {theme_path}")
             continue
         css = theme_path.read_text(encoding="utf-8")
         members = parse_css_members(css)
-        missing = sorted(CONTRACT_V1 - members)
+        required, contract_label = contract_required_members(contract_version)
+        if required is None:
+            errors.append(
+                f"Theme '{theme_name}' declares unknown contract_version: "
+                f"{contract_version}"
+            )
+            continue
+        if contract_version == "2.0":
+            leaked = sorted(m for m in members if not m.startswith("--"))
+            if leaked:
+                warnings.append(
+                    f"Theme '{theme_name}' is contract 2.0 (role-only) but "
+                    f"includes structural CSS members: {', '.join(leaked)}"
+                )
+        missing = sorted(required - members)
         if missing:
             errors.append(
-                f"Theme '{theme_name}' fails the shared class contract v1 — "
+                f"Theme '{theme_name}' fails the {contract_label} — "
                 f"missing: {', '.join(missing)}"
             )
+    return errors, warnings
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# No-literal-skin lint
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Skin properties paint the deck's visual identity — a literal value here defeats
+# re-skinnability (a theme swap cannot reach a hardcoded color). border-* shorthand
+# variants are covered by the `border-` prefix test in _skin_property.
+SKIN_PROPERTIES = frozenset({
+    "color",
+    "background",
+    "background-color",
+    "background-image",
+    "border",
+    "border-color",
+    "border-top",
+    "border-right",
+    "border-bottom",
+    "border-left",
+    "box-shadow",
+    "fill",
+    "stroke",
+    "outline",
+    "outline-color",
+})
+COLOR_FUNCTION_RE = re.compile(r"\b(?:rgb|rgba|hsl|hsla)\s*\(", re.IGNORECASE)
+HEX_COLOR_RE = re.compile(r"#[0-9a-fA-F]{3,8}\b")
+# CSS named colors are literal skin values too (e.g. `color:white`). They defeat
+# re-skinnability exactly like a hex does, so a skin property whose value names a
+# color verbatim is flagged. The allowed CSS-wide keywords (transparent/inherit/
+# currentColor/none/unset/initial/revert) are NOT colors and are exempted in
+# _literal_skin_reason; they are deliberately absent from this set. Matched as
+# whole words only, AFTER var()/url() spans are blanked, so a custom property or
+# asset path that merely contains a color word never false-trips.
+NAMED_COLORS = frozenset({
+    "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure", "beige",
+    "bisque", "black", "blanchedalmond", "blue", "blueviolet", "brown",
+    "burlywood", "cadetblue", "chartreuse", "chocolate", "coral",
+    "cornflowerblue", "cornsilk", "crimson", "cyan", "darkblue", "darkcyan",
+    "darkgoldenrod", "darkgray", "darkgreen", "darkgrey", "darkkhaki",
+    "darkmagenta", "darkolivegreen", "darkorange", "darkorchid", "darkred",
+    "darksalmon", "darkseagreen", "darkslateblue", "darkslategray",
+    "darkslategrey", "darkturquoise", "darkviolet", "deeppink", "deepskyblue",
+    "dimgray", "dimgrey", "dodgerblue", "firebrick", "floralwhite",
+    "forestgreen", "fuchsia", "gainsboro", "ghostwhite", "gold", "goldenrod",
+    "gray", "green", "greenyellow", "grey", "honeydew", "hotpink", "indianred",
+    "indigo", "ivory", "khaki", "lavender", "lavenderblush", "lawngreen",
+    "lemonchiffon", "lightblue", "lightcoral", "lightcyan",
+    "lightgoldenrodyellow", "lightgray", "lightgreen", "lightgrey",
+    "lightpink", "lightsalmon", "lightseagreen", "lightskyblue",
+    "lightslategray", "lightslategrey", "lightsteelblue", "lightyellow",
+    "lime", "limegreen", "linen", "magenta", "maroon", "mediumaquamarine",
+    "mediumblue", "mediumorchid", "mediumpurple", "mediumseagreen",
+    "mediumslateblue", "mediumspringgreen", "mediumturquoise",
+    "mediumvioletred", "midnightblue", "mintcream", "mistyrose", "moccasin",
+    "navajowhite", "navy", "oldlace", "olive", "olivedrab", "orange",
+    "orangered", "orchid", "palegoldenrod", "palegreen", "paleturquoise",
+    "palevioletred", "papayawhip", "peachpuff", "peru", "pink", "plum",
+    "powderblue", "purple", "rebeccapurple", "red", "rosybrown", "royalblue",
+    "saddlebrown", "salmon", "sandybrown", "seagreen", "seashell", "sienna",
+    "silver", "skyblue", "slateblue", "slategray", "slategrey", "snow",
+    "springgreen", "steelblue", "tan", "teal", "thistle", "tomato",
+    "turquoise", "violet", "wheat", "white", "whitesmoke", "yellow",
+    "yellowgreen",
+})
+VAR_OR_URL_SPAN_RE = re.compile(r"(?:var|url)\s*\([^)]*\)", re.IGNORECASE)
+WORD_RE = re.compile(r"[A-Za-z][A-Za-z-]*")
+# var(--token) reference — group(1) is the token name (with leading --).
+VAR_TOKEN_RE = re.compile(r"var\(\s*(--[A-Za-z0-9_-]+)")
+STYLE_BLOCK_RE = re.compile(r"<style\b[^>]*>(.*?)</style>", re.DOTALL | re.IGNORECASE)
+INLINE_STYLE_RE = re.compile(
+    r"\sstyle\s*=\s*([\"'])(.*?)\1", re.DOTALL | re.IGNORECASE
+)
+
+
+def _preserve_newlines_blank(match):
+    text = match.group(0)
+    return "".join("\n" if ch == "\n" else " " for ch in text)
+
+
+def _strip_root_and_comments(css_text):
+    """Blank out :root{...} blocks and /* */ comments (newlines preserved) so the
+    declaration scan never flags literal token DEFINITIONS inside :root."""
+    no_root = re.sub(
+        r":root\s*\{([^}]*)\}",
+        _preserve_newlines_blank,
+        css_text,
+        flags=re.DOTALL,
+    )
+    return re.sub(r"/\*.*?\*/", _preserve_newlines_blank, no_root, flags=re.DOTALL)
+
+
+def _skin_property(prop):
+    prop = prop.strip().lower()
+    return prop in SKIN_PROPERTIES or prop.startswith("border-")
+
+
+def _color_function_has_bare_literal(value):
+    """True if any rgb/rgba/hsl/hsla(...) call in value carries no var() — i.e. it
+    spells out bare numeric channels rather than referencing a token."""
+    for match in COLOR_FUNCTION_RE.finditer(value):
+        depth = 0
+        end = len(value)
+        for i in range(match.end() - 1, len(value)):
+            ch = value[i]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        if "var(" not in value[match.start():end]:
+            return True
+    return False
+
+
+def _literal_skin_reason(value, inline=False, prop="", allowed_tokens=None):
+    """Return a reason string when value is a literal/undefined-token skin value,
+    else None. allowed_tokens is the legitimate var() role set; a var(--X) used in
+    a skin property whose --X is NOT in that set is flagged 'undefined role token'.
+    A None allowed_tokens disables the undefined-token check (any var() passes)."""
+    stripped = value.strip()
+    lower = stripped.lower()
+    if lower in {"transparent", "inherit", "currentcolor", "none", "unset",
+                 "initial", "revert"}:
+        return None
+    if inline and prop == "background-image" and "url(" in lower and "var(" not in lower:
+        return "literal inline background image"
+    # Undefined / old role token: any var(--X) where --X is not a known role.
+    # GENERIC — derived from the active contract, never a hardcoded palette.
+    if allowed_tokens is not None:
+        for token in VAR_TOKEN_RE.findall(stripped):
+            if token not in allowed_tokens:
+                return f"undefined role token {token}"
+    if HEX_COLOR_RE.search(stripped):
+        return "literal hex color"
+    if _color_function_has_bare_literal(stripped):
+        return "literal color function"
+    # Named CSS colors (color:white) are literal skin values; flag them after
+    # blanking var()/url() spans so a custom property or asset path containing a
+    # color word is never matched.
+    outside = VAR_OR_URL_SPAN_RE.sub(" ", stripped)
+    for word in WORD_RE.findall(outside):
+        if word.lower() in NAMED_COLORS:
+            return "literal named color"
+    return None
+
+
+def _lint_css_declarations(css_text, base_line=1, inline=False, allowed_tokens=None):
+    errors = []
+    scanned = _strip_root_and_comments(css_text) if not inline else css_text
+    for match in re.finditer(r"([A-Za-z-]+)\s*:\s*([^;{}]+)", scanned):
+        prop = match.group(1).strip().lower()
+        value = match.group(2).strip()
+        if not _skin_property(prop):
+            continue
+        reason = _literal_skin_reason(
+            value, inline=inline, prop=prop, allowed_tokens=allowed_tokens
+        )
+        if reason:
+            line = base_line + scanned[:match.start()].count("\n")
+            errors.append(f"approx-line {line}  {prop}: {value} ({reason})")
+    return errors
+
+
+def lint_no_literal_skin(text, is_html, allowed_tokens=None):
+    """Scan text for literal skin values in skin properties.
+
+    is_html → scan every <style>...</style> block and inline style="..." attribute;
+    otherwise scan the whole text as a CSS file. allowed_tokens (the active role
+    set ∪ injected tokens) enables the GENERIC undefined-role-token check; when
+    None, var() references are not checked for definedness."""
+    errors = []
+    if is_html:
+        for block in STYLE_BLOCK_RE.finditer(text):
+            base_line = 1 + text[:block.start(1)].count("\n")
+            errors.extend(_lint_css_declarations(
+                block.group(1), base_line=base_line, allowed_tokens=allowed_tokens
+            ))
+        for inline in INLINE_STYLE_RE.finditer(text):
+            base_line = 1 + text[:inline.start(2)].count("\n")
+            errors.extend(
+                _lint_css_declarations(
+                    inline.group(2),
+                    base_line=base_line,
+                    inline=True,
+                    allowed_tokens=allowed_tokens,
+                )
+            )
+    else:
+        errors.extend(_lint_css_declarations(text, allowed_tokens=allowed_tokens))
     return errors
 
 
@@ -398,7 +679,9 @@ def validate_library(library_data, manifest_rows, assets_table_files, base_html,
     extra_asset_root = library_data.get("extra_asset_root")
 
     # Contract lint: only for libraries that declare a non-empty themes[]
-    errors.extend(lint_themes_contract(library_data))
+    contract_errors, contract_warnings = lint_themes_contract(library_data)
+    errors.extend(contract_errors)
+    warnings.extend(contract_warnings)
 
     # base.html markers
     for marker in (
@@ -763,6 +1046,7 @@ def main():
     parser.add_argument("--theme", type=str)
     parser.add_argument("--library-ref", type=str)
     parser.add_argument("--check-themes", action="store_true")
+    parser.add_argument("--lint-no-literal", type=str, metavar="FILE")
     parser.allow_abbrev = False
     args = parser.parse_args()
 
@@ -775,13 +1059,15 @@ def main():
         ("catalog", args.catalog),
         ("catalog-data", args.catalog_data),
         ("check-themes", args.check_themes),
+        ("lint-no-literal", args.lint_no_literal),
     ]
     active_modes = [(n, v) for n, v in modes if v is not None and v is not False]
 
     if len(active_modes) != 1:
         die(
             "Exactly one mode required: --preset, --slides, "
-            "--check, --catalog, --catalog-data, --check-themes"
+            "--check, --catalog, --catalog-data, --check-themes, "
+            "--lint-no-literal"
         )
 
     mode_name, mode_val = active_modes[0]
@@ -838,6 +1124,42 @@ def main():
         # so a library whose default_theme names an alternate still dies loudly
         # when theme.css is absent (theme.css stays REQUIRED).
         _, _default_theme_path, _ = resolve_theme(library_data, "default")
+
+        if mode_name == "lint-no-literal":
+            lint_path = Path(mode_val)
+            if not lint_path.exists():
+                die(f"Lint file not found: {mode_val}")
+            text = lint_path.read_text(encoding="utf-8")
+            is_html = lint_path.suffix.lower() == ".html" or "<style" in text.lower()
+            # Derive the legitimate-token allowlist GENERICALLY from the library's
+            # role contracts — the union of every declared theme's contract role
+            # set (default theme via top-level contract_version, each themes[]
+            # entry via its own) plus the per-deck injected tokens. A var(--X) in a
+            # skin property is flagged ONLY when --X is in no contract and is not
+            # injected — never against a hardcoded palette blocklist.
+            allowed_tokens = set(INJECTED_TOKENS)
+            contract_versions = {library_data.get("contract_version", "1.0")}
+            for t in library_data.get("themes", []):
+                contract_versions.add(t.get("contract_version", "1.0"))
+            for cv in contract_versions:
+                members, _label = contract_required_members(cv)
+                if members:
+                    allowed_tokens |= members
+            errors = lint_no_literal_skin(text, is_html, allowed_tokens=allowed_tokens)
+            if errors:
+                envelope["ok"] = False
+                envelope["errors"] = errors
+                if args.json:
+                    print(json.dumps(envelope, ensure_ascii=False))
+                else:
+                    for err in errors:
+                        print(f"ERROR: {err}", file=sys.stderr)
+                sys.exit(1)
+            if args.json:
+                print(json.dumps(envelope, ensure_ascii=False))
+            else:
+                print("OK: no literal skin values found")
+            sys.exit(0)
 
         if mode_name in ("check", "catalog-data", "check-themes"):
             errors, warnings = validate_library(
@@ -929,13 +1251,20 @@ def main():
         theme_css = theme_path.read_text(encoding="utf-8")
         library_ref = args.library_ref or ""
 
-        # Contract guard for multi-theme libraries
+        # Contract guard for multi-theme libraries — scoped by the chosen theme's
+        # own contract_version (resolved in resolve_theme above).
         if library_data.get("themes"):
             members = parse_css_members(theme_css)
-            missing = sorted(CONTRACT_V1 - members)
+            required, contract_label = contract_required_members(theme_contract)
+            if required is None:
+                die(
+                    f"Chosen theme '{theme_name}' declares unknown "
+                    f"contract_version: {theme_contract}"
+                )
+            missing = sorted(required - members)
             if missing:
                 die(
-                    f"Chosen theme '{theme_name}' fails the shared class contract v1 — "
+                    f"Chosen theme '{theme_name}' fails the {contract_label} — "
                     f"missing: {', '.join(missing)}"
                 )
 

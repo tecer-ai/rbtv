@@ -669,6 +669,49 @@ The deck carries native `data-*` attributes so the serialized output survives an
 
 ---
 
+### 6.7 Multi-contract themes (OPTIONAL, engine v1.2+)
+
+A multi-theme library MAY mix two theme-contract kinds. Each theme declares its own `contract_version`; the engine validates each theme against ITS OWN contract, so a single library can carry both kinds at once.
+
+| `contract_version` | Kind | A theme MUST define | Engine required-set |
+|--------------------|------|---------------------|---------------------|
+| `"1.0"` (default) | **legacy class contract** | every selector AND token the library's fragments use (`.slide`, `.card`, `--bg`, …) — structural + tokens together | the library's shared class contract (§ 6.6) |
+| `"2.0"` | **role-token contract** (pure skin) | every design-ROLE `:root` token (`--field`, `--ink-1`, `--accent`, `--surface`, `--font-display`, …) and NO structural selectors | the engine's `ROLE_CONTRACT_V2` role set |
+
+**Where `contract_version` is read.** The default theme (`theme.css`) uses the library's TOP-LEVEL `contract_version` (absent ⇒ `"1.0"`). Each `themes[]` entry uses ITS OWN `contract_version` field (absent ⇒ `"1.0"`). An unknown `contract_version` is a LOUD error naming the offending value.
+
+**v1.0 legacy-class vs v2.0 role-token.** A `1.0` theme is a full design system (it owns both the component classes AND the tokens). A `2.0` theme is a PURE SKIN: it defines only design-role tokens and relies on the library's shared structural CSS for layout. A `2.0` theme that also defines a structural selector (a `.class`, an element rule) draws a WARNING (not an error) — it is leaking structure into a role-only skin.
+
+**The two lints.** Both fire only when the library declares a non-empty `themes[]`; single-theme libraries are untouched.
+
+1. **Theme contract lint** (`--check-themes`, also run inside `--check` / assembly): every theme file defines every member its `contract_version` requires. Missing member ⇒ ERROR naming the member + contract. v2 structural-selector leak ⇒ WARNING.
+2. **No-literal-skin lint** (`--lint-no-literal FILE`): scans a CSS file or an assembled HTML deck (its `<style>` blocks + inline `style="…"`) and flags a LITERAL skin value in any skin property (`color`, `background*`, `border*`, `box-shadow`, `fill`, `stroke`, `outline*`). Flags: bare hex (`#1a2b3c`), `rgb()`/`hsl()` with bare numeric channels, a CSS named color (`white`), an inline `style="background-image:url(...)"`, and a `var(--X)` whose `--X` is NOT a defined role. Allows: `var(--definedRole)`, `color-mix(... var() ...)`, the CSS-wide keywords `transparent`/`inherit`/`currentColor`/`none`/`unset`/`initial`/`revert`, `url(var(--texture))`, the injected `--client-accent`, and any literal inside a `:root { … }` block (those are token DEFINITIONS). The undefined-role-token check is GENERIC: the allowlist is derived at runtime from the union of every declared theme's contract role set ∪ the per-deck injected tokens — NEVER a hardcoded palette blocklist.
+
+**Why the undefined-token check is generic.** A literal-skin scan that hardcoded a list of retired palette names would only ever catch ONE library's old tokens. Deriving the legitimate set from the active contract instead flags ANY token outside the role vocabulary in any library — stronger and instance-independent.
+
+**Example `library.json` mixing contracts**
+
+```json
+{
+  "convention_version": "1.0",
+  "engine_version": "1.2",
+  "name": "demo-library",
+  "default_lang": "en",
+  "default_theme": "default",
+  "contract_version": "1.0",
+  "sections": ["opening", "intro", "closing"],
+  "extra_asset_root": null,
+  "themes": [
+    { "name": "graphite", "file": "themes/graphite.css", "label": "Graphite", "contract_version": "1.0" },
+    { "name": "atlas",    "file": "themes/atlas.css",    "label": "Atlas",    "contract_version": "2.0" }
+  ]
+}
+```
+
+Here `theme.css` and `graphite` are validated against the shared class contract (§ 6.6); `atlas` is validated against the role-token set. Each is held only to its own contract.
+
+---
+
 ## 7. Convention Versioning (`library.json`)
 
 `library.json` is a REQUIRED stdlib-`json` file at the library root. It carries the version contract and library configuration.
@@ -685,6 +728,7 @@ The deck carries native `data-*` attributes so the serialized output survives an
 | `extra_asset_root` | MUST (MAY be `null`) | Path, library-relative, for `@root/...` asset resolution (§ 2.4), or `null` if unused. |
 | `themes` | OPTIONAL | List of alternate theme objects: `{ "name": "...", "file": "themes/....css", "label": "...", "contract_version": "..." }`. Absent ⇒ single-theme library (§ 6.6). |
 | `default_theme` | OPTIONAL | Name of the theme used by default. Defaults to `"default"` (`theme.css`) (§ 6.6). |
+| `contract_version` | OPTIONAL | The theme-contract kind the DEFAULT theme (`theme.css`) targets: `"1.0"` (legacy class contract) or `"2.0"` (role-token contract). Defaults to `"1.0"`. Each `themes[]` entry carries its own `contract_version` independently (§ 6.7). |
 
 ### 7.2 Compatibility check (MUST)
 
@@ -747,7 +791,9 @@ The single, mechanically-decidable list of every validation rule the engine enfo
 | 22 | Engine stamp drift | engine stamp == `library.json` `engine_version` | WARNING | § 1.1, § 7.2 |
 | 23 | As-built round-trip | `parse(write(entry)) == entry` for every emitted entry | ERROR (DT5/migration gate) | § 4.1 |
 | 24 | `--check` token report | output file scanned for residual `{{TOKEN}}` | reports (exit 1 if any) | § 6.3 |
-| 25 | Theme contract lint | every theme file defines every selector/token in the library's shared contract | ERROR | § 6.6 |
+| 25 | Theme contract lint | every theme file defines every member required by ITS OWN `contract_version` (1.0 ⇒ shared class contract; 2.0 ⇒ role-token set); unknown `contract_version` ⇒ ERROR | ERROR | § 6.6, § 6.7 |
+| 26 | v2 structural-selector leak | a `contract_version: 2.0` (role-only) theme that defines a structural selector | WARNING | § 6.7 |
+| 27 | No-literal-skin lint (`--lint-no-literal`) | a skin property in a CSS/HTML file carries a literal value (hex / bare `rgb`-`hsl` / named color / inline `url()`) or a `var(--X)` outside the active role set ∪ injected tokens; `:root` literals exempt | reports (exit 1 if any) | § 6.7 |
 
 Note: the live tecer engine implements NONE of the purity scan (check 12), the `library.json` checks (20-22), or the round-trip check (23) — those are new engine work (§ 8.1).
 
