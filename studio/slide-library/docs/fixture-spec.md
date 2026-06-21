@@ -16,12 +16,12 @@
 | ≥3 sections, declared + ordered | `library.json` `sections`: 6 sections (opening, intro, diagnosis, product, proof, closing) |
 | Both languages | `pt` and `en` slides present |
 | A bilingual pair (same concept, two langs) | `cover-nimbus.pt` + `cover-nimbus.en` |
-| `ready` kind | `intro-pillars`, `how-nimbus-works`, `nimbus-divider`, `closing-nimbus` |
+| `ready` kind | `intro-pillars`, `how-nimbus-works`, `nimbus-divider`, `closing-nimbus`, `role-intro` |
 | `template` kind | `cover-nimbus.pt`, `cover-nimbus.en`, `problem-cards`, `proof-metrics`, `pricing-options` |
 | Asset from library root (bare filename) | `cover-bg.jpg`, `bg-dark.jpg`, `closing-bg.jpg`, `nimbus-mark.png` |
 | Asset from the extra root (`@root/...`) | `proof-metrics` references `@root/partner-mark.png` |
 | `extra_asset_root` declared | `library.json` `extra_asset_root: "../shared-brand"` |
-| Slide with NO assets (`-`) | `intro-pillars`, `problem-cards`, `pricing-options` |
+| Slide with NO assets (`-`) | `intro-pillars`, `problem-cards`, `pricing-options`, `role-intro` |
 | Multi-asset slide | `closing-nimbus` (3 assets) |
 | Token-dense template | `problem-cards` (10 tokens) and `proof-metrics` (10 tokens) |
 | Token authoring comments (fill-spec) | every token in every template slide is comment-annotated |
@@ -35,8 +35,14 @@
 | Variant classes | `slide--cover`, `slide--dark`, `slide--closing`, `slide--soft`, plain `slide` |
 | Self-description (DT4 interface) | `CLAUDE.md` |
 | `AGENTS.md` mirror for Codex | `AGENTS.md` |
+| Role-token (2.0) theme | `themes/azure.css` — pure `:root` skin tokens covering all 34 roles in `ROLE_CONTRACT_V2` |
+| `contract_version "2.0"` theme entry in `library.json` | `azure` entry in `themes[]` |
+| Role-tokenized fragment (2.0 lint-clean) | `role-intro` — all skin properties written `var(--role)` |
+| Block A structural CSS (`var(--role)` in all skin props) | `base.html` `<style data-block="A">` block |
+| `--check-themes` validates 2.0 theme | `azure` passes presence check of all `ROLE_CONTRACT_V2` tokens |
+| `--lint-no-literal` EXIT 0 on 2.0 assembled deck | deck assembled with `--theme azure` is lint-clean |
 
-The fixture has **9 fragments across 6 sections, 2 languages, 4 ready + 5 template** (the 9th fragment, `nimbus-divider`, is a plain-`slide` ready divider exercising the no-header variant, and is the 4th `ready` fragment). Two assets live in the library; one lives in the extra root.
+The fixture has **10 fragments across 6 sections, 2 languages, 5 ready + 5 template** (the 10th fragment, `role-intro`, is a role-token (2.0) ready intro slide and is the 5th `ready` fragment). Two assets live in the library; one lives in the extra root.
 
 ---
 
@@ -51,8 +57,11 @@ fixture-library/
 ├── manifest.md
 ├── presets.md
 ├── as-built.md
-├── base.html
+├── base.html                 (includes Block A — structural CSS written var(--role))
 ├── theme.css
+├── themes/
+│   ├── graphite.css          (contract_version 1.0)
+│   └── azure.css             (contract_version 2.0 — role-token theme)
 ├── slides/
 │   ├── cover-nimbus.pt.html
 │   ├── cover-nimbus.en.html
@@ -62,7 +71,8 @@ fixture-library/
 │   ├── nimbus-divider.html
 │   ├── proof-metrics.html
 │   ├── pricing-options.html
-│   └── closing-nimbus.html
+│   ├── closing-nimbus.html
+│   └── role-intro.html       (role-token (2.0) ready fragment — all skin props var(--role))
 └── assets/
     ├── cover-bg.jpg          (placeholder image — § F)
     ├── bg-dark.jpg           (placeholder image — § F)
@@ -95,9 +105,25 @@ Create `fixture-library/library.json` with exactly:
     "proof",
     "closing"
   ],
-  "extra_asset_root": "../shared-brand"
+  "extra_asset_root": "../shared-brand",
+  "themes": [
+    {
+      "name": "graphite",
+      "file": "themes/graphite.css",
+      "label": "Graphite",
+      "contract_version": "1.0"
+    },
+    {
+      "name": "azure",
+      "file": "themes/azure.css",
+      "label": "Azure",
+      "contract_version": "2.0"
+    }
+  ]
 }
 ```
+
+> The `azure` theme entry (added 2026-06-21) exercises `contract_version "2.0"` (role-token contract). See § J for the 2.0 theme CSS and the role-tokenized fragment.
 
 ---
 
@@ -123,6 +149,7 @@ Single source of truth for all slide fragments and presentation assets.
 | proof-metrics | slides/proof-metrics.html | proof | Proof metrics | general | en | template | Three metric cards plus a partner mark and a sources line; metrics filled per deck. | @root/partner-mark.png | fixture (2026-06-06) |
 | pricing-options | slides/pricing-options.html | product | Pricing options | prospect | en | template | Three pricing options plus a two-ways-to-buy column; filled per deck. | - | fixture (2026-06-06) |
 | closing-nimbus | slides/closing-nimbus.html | closing | Closing | general | en | ready | Lean closing statement plus a contact row and wordmark; multi-asset, ships verbatim. | closing-bg.jpg, nimbus-mark.png, bg-dark.jpg | fixture (2026-06-06) |
+| role-intro | slides/role-intro.html | intro | Role-token intro | general | en | ready | Role-token (2.0) ready intro slide; all skin properties use var(--role) — exercises the 2.0 lint-clean path. | - | fixture (2026-06-21) |
 
 ## Assets
 
@@ -658,17 +685,19 @@ Create each file VERBATIM. Tokens, HTML comments, variant classes, and the prese
 
 After creating every file, verify (stdlib Python or shell):
 
-1. `library.json` parses as JSON and has all 6 required keys.
-2. `manifest.md` `## Slides` has exactly 9 data rows, each with exactly 10 `|`-cells.
-3. Every `file` value in the manifest exists under `slides/` (9 files).
+1. `library.json` parses as JSON and has all required keys (including `themes` with 2 entries: `graphite` 1.0 and `azure` 2.0).
+2. `manifest.md` `## Slides` has exactly 10 data rows, each with exactly 10 `|`-cells.
+3. Every `file` value in the manifest exists under `slides/` (10 files, including `role-intro.html`).
 4. Every bare asset filename in any `assets` cell exists under `assets/` (`cover-bg.jpg`, `bg-dark.jpg`, `closing-bg.jpg`, `nimbus-mark.png`).
 5. `../shared-brand/partner-mark.png` exists.
 6. `presets.md` contains 2 fenced `yaml` blocks; `as-built.md` contains 1.
 7. No fragment in `slides/` contains the strings `<head`, `<style`, `<script`, `<html`, or `<body` (the full convention-spec § 6.3 / § 8 check-12 purity set).
-8. Both covers (`cover-nimbus.pt.html`, `cover-nimbus.en.html`) contain NO `slide-number` div; all 7 other fragments contain exactly one.
+8. Both covers (`cover-nimbus.pt.html`, `cover-nimbus.en.html`) contain NO `slide-number` div; all 8 other fragments contain exactly one.
 9. Section headings are EXACT case (per RV-4): `manifest.md` has `## Slides` and `## Assets` (not `## slides`); `presets.md` has `## Presets`; `as-built.md` has `## As-built log`.
 10. The manifest data rows carry NO literal `|` inside any cell (per RV-2), and every required cell (`id,file,section,title,lang,kind,summary`) is non-empty (per RV-14); every `kind` is exactly `ready` or `template` and every `lang` is lowercase (per RV-4).
 11. **Round-trip (per RV-1):** parsing the seed as-built entry and both presets under the library-YAML subset (convention-spec § 4.1) yields: seed `deviations` == none (the `-` scalar, NOT `[]`/`['']`), `engine_version` == `1.0` (quotes stripped), `slides` a 7-id list; both presets' `slides` parse to 7 ids each (the wrapped `nimbus-intro-en` list and the single-line `nimbus-intro-pt` list). This confirms what the engine writes it can read back.
+12. **2.0 role-token check:** `themes/azure.css` exists and defines all 34 `:root` custom properties in `ROLE_CONTRACT_V2`. `library.json` `themes[]` has an entry with `"name": "azure"` and `"contract_version": "2.0"`. `slides/role-intro.html` exists and contains only `var(--role)` skin values in its inline styles.
+13. **Engine validation:** `python assemble.py --check-themes` exits 0 with no errors. An assembly under `--theme azure` exits 0. `python assemble.py --lint-no-literal <azure-deck>` exits 0 with "OK: no literal skin values found".
 
 These checks confirm the fixture is structurally valid BEFORE the engine exists. The engine workstream then runs the engine against this fixture as its first verification gate.
 
@@ -705,7 +734,7 @@ The fixture on disk STAYS a single VALID library. This matrix is the negative-te
 | 23 | (round-trip) Hand-write an as-built entry with `deviations: [modified: x]` (`:` in flow elem) | ERROR | round-trip / parse failure on the `:`-in-flow-element |
 | 24 | `--check` the un-filled seed reproduction (templates unfilled) | reports (exit 1) | lists `{{TOKEN}}`s ; exit 1 |
 
-Rule 3 (positional separator skip) is a parse step, not a die()-able rule — it is covered by self-check § H step 2 (exactly 9 data rows parsed). The version-mismatch (rules 20-22), `@root`-without-root (14), and `{client-logo}`-without-flag (15) cases close the F-4 "no negative fixtures" gap the review identified.
+Rule 3 (positional separator skip) is a parse step, not a die()-able rule — it is covered by self-check § H step 2 (exactly 10 data rows parsed). The version-mismatch (rules 20-22), `@root`-without-root (14), and `{client-logo}`-without-flag (15) cases close the F-4 "no negative fixtures" gap the review identified.
 
 ---
 
@@ -826,3 +855,48 @@ These remain your responsibility; the engine does not enforce them:
 ```markdown
 Read `CLAUDE.md` in this folder — it is the self-contained agent guide for this slide library.
 ```
+
+---
+
+## J. Role-token (2.0) additions (added 2026-06-21)
+
+This section specifies the 2.0 role-token coverage added to exercise the engine's 2.0 path: `--check-themes` per-theme presence validation, the `ROLE_CONTRACT_V2` required-token set, and `--lint-no-literal` in a 2.0 scenario.
+
+### J.1 `themes/azure.css`
+
+Create `fixture-library/themes/azure.css` as a PURE SKIN file: `:root` custom properties ONLY covering every token in `ROLE_CONTRACT_V2`. No structural selectors. `contract_version "2.0"` declared via the `library.json` themes entry (§ J.3).
+
+The 34 required roles (from `engine/assemble.py` `ROLE_CONTRACT_V2`): `--field`, `--field-2`, `--stage`, `--ink-1`, `--ink-2`, `--ink-3`, `--ink-4`, `--accent`, `--accent-ink`, `--accent-ink-soft`, `--accent-soft`, `--accent-soft-2`, `--accent-border`, `--highlight`, `--surface`, `--surface-2`, `--hairline`, `--hairline-strong`, `--edge-accent`, `--shadow-panel`, `--shadow-card`, `--texture`, `--texture-hero`, `--scrim`, `--scrim-hero`, `--positive`, `--positive-glow`, `--negative`, `--font-display`, `--font-body`, `--font-mono`, `--radius`, `--radius-lg`, `--hairline-w`.
+
+The on-disk file uses an Azure-family palette (blues and cool grays) with all 34 roles defined.
+
+> A v2 theme MUST define every role in `ROLE_CONTRACT_V2`; it MUST NOT include structural selectors (`.class`, element rules). The engine's `lint_themes_contract` warns (not errors) when structural selectors appear in a v2 theme.
+
+### J.2 `slides/role-intro.html`  (ready, intro, en, numbered, no assets, role-tokenized)
+
+A `ready` fragment that uses `var(--role)` tokens in all inline skin properties. It demonstrates the lint-clean path: when assembled under `--theme azure`, the deck carries no literal skin values and `--lint-no-literal` exits 0.
+
+Manifest row (appended to the existing rows):
+
+```
+| role-intro | slides/role-intro.html | intro | Role-token intro | general | en | ready | Role-token (2.0) ready intro slide; all skin properties use var(--role) — exercises the 2.0 lint-clean path. | - | fixture (2026-06-21) |
+```
+
+### J.3 `library.json` themes[] entry
+
+Add a second entry to `themes[]` in `library.json`:
+
+```json
+{
+  "name": "azure",
+  "file": "themes/azure.css",
+  "label": "Azure",
+  "contract_version": "2.0"
+}
+```
+
+### J.4 Block A in `base.html`
+
+A `<style data-block="A">` block is added to `base.html` (after the `/* {{THEME_CSS}} */` style block) containing structural CSS written exclusively with `var(--role)` in all skin properties. This enables lint-clean 2.0 deck assembly without touching the theme CSS or the fragments. The Block A selectors scope to `.role-token` compound class so they do not conflict with the existing 1.0 structural rules.
+
+> The Block A block is present in ALL assembled decks (1.0 and 2.0). In 1.0 decks it is inert (no element carries `.role-token`). In 2.0 decks it provides the structural skin layer. The 1.0 path is unaffected.

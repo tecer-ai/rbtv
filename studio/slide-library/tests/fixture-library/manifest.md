@@ -15,6 +15,7 @@ Single source of truth for all slide fragments and presentation assets.
 | proof-metrics | slides/proof-metrics.html | proof | Proof metrics | general | en | template | Three metric cards plus a partner mark and a sources line; metrics filled per deck. | @root/partner-mark.png | fixture (2026-06-06) |
 | pricing-options | slides/pricing-options.html | product | Pricing options | prospect | en | template | Three pricing options plus a two-ways-to-buy column; filled per deck. | - | fixture (2026-06-06) |
 | closing-nimbus | slides/closing-nimbus.html | closing | Closing | general | en | ready | Lean closing statement plus a contact row and wordmark; multi-asset, ships verbatim. | closing-bg.jpg, nimbus-mark.png, bg-dark.jpg | fixture (2026-06-06) |
+| role-intro | slides/role-intro.html | intro | Role-token intro | general | en | ready | Role-token (2.0) ready intro slide; all skin properties use var(--role) — exercises the 2.0 lint-clean path. | - | fixture (2026-06-21) |
 
 ## Assets
 

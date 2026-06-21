@@ -1,0 +1,61 @@
+/* fixture-library themes/azure.css — role-token (contract 2.0) theme for engine tests */
+/* Pure skin: only :root custom properties — no structural selectors. */
+:root {
+  /* Page surfaces */
+  --field:              #FFFFFF;
+  --field-2:            #F0F4F8;
+  --stage:              #0A1628;
+
+  /* Foreground ramps */
+  --ink-1:              #0D1B2A;
+  --ink-2:              #2C3E50;
+  --ink-3:              #5A6A7A;
+  --ink-4:              #8A9AAA;
+
+  /* Accent family */
+  --accent:             #1A6EBF;
+  --accent-ink:         #FFFFFF;
+  --accent-ink-soft:    rgba(255,255,255,0.85);
+  --accent-soft:        #D6E8FB;
+  --accent-soft-2:      #EBF4FD;
+  --accent-border:      #A3C9EE;
+
+  /* Highlight */
+  --highlight:          #FFD166;
+
+  /* Card / panel surfaces */
+  --surface:            #FFFFFF;
+  --surface-2:          #F5F8FC;
+
+  /* Borders */
+  --hairline:           rgba(0,0,0,0.10);
+  --hairline-strong:    rgba(0,0,0,0.22);
+
+  /* Edge accent */
+  --edge-accent:        #1A6EBF;
+
+  /* Shadows */
+  --shadow-panel:       0 2px 12px rgba(0,0,0,0.10);
+  --shadow-card:        0 1px 6px  rgba(0,0,0,0.07);
+
+  /* Overlays */
+  --texture:            rgba(0,0,0,0.03);
+  --texture-hero:       rgba(0,0,0,0.40);
+  --scrim:              rgba(10,22,40,0.55);
+  --scrim-hero:         rgba(10,22,40,0.75);
+
+  /* Semantic */
+  --positive:           #22A06B;
+  --positive-glow:      rgba(34,160,107,0.20);
+  --negative:           #D93025;
+
+  /* Typography roles */
+  --font-display:       "Segoe UI", system-ui, sans-serif;
+  --font-body:          "Segoe UI", system-ui, sans-serif;
+  --font-mono:          "Consolas", "Courier New", monospace;
+
+  /* Shape roles */
+  --radius:             8px;
+  --radius-lg:          16px;
+  --hairline-w:         1px;
+}

@@ -10,6 +10,43 @@
 <style data-theme="{{THEME_NAME}}" data-theme-contract="{{THEME_CONTRACT}}">
 /* {{THEME_CSS}} */
 </style>
+<!-- Block A: structural rules written var(--role) so role-token (2.0) assembled decks are lint-clean -->
+<style data-block="A">
+/* Base page surface */
+body.role-token { background: var(--field); color: var(--ink-1); font-family: var(--font-body); }
+
+/* Slide surface variants (role-token path) */
+.slide.role-token { background: var(--field); color: var(--ink-1); }
+.slide.role-token.slide--soft { background: var(--field-2); }
+.slide.role-token.slide--dark { background: var(--stage); color: var(--accent-ink); }
+.slide.role-token.slide--cover { background: var(--stage); color: var(--accent-ink); }
+.slide.role-token.slide--closing { background: var(--stage); color: var(--accent-ink); }
+
+/* Kicker / header */
+.role-token .kicker { color: var(--accent); }
+.role-token .slide-subtitle { color: var(--ink-3); }
+
+/* Card role-token overrides */
+.role-token .card { background: var(--surface); border: var(--hairline-w) solid var(--hairline); }
+.role-token .card-icon { color: var(--accent); }
+.role-token .card-body { color: var(--ink-3); }
+
+/* Aside / callout */
+.role-token .aside-note { color: var(--ink-4); }
+
+/* Divider statement */
+.role-token .divider-statement { color: var(--accent-ink); }
+
+/* Slide number */
+.role-token .slide-number { color: var(--ink-4); }
+.role-token .slide--dark .slide-number,
+.role-token .slide--cover .slide-number,
+.role-token .slide--closing .slide-number { color: var(--accent-ink-soft); }
+
+/* Positive / negative semantic */
+.role-token .positive { color: var(--positive); }
+.role-token .negative { color: var(--negative); }
+</style>
 </head>
 <body>
 <!-- {{SLIDES}} -->
