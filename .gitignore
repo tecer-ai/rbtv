@@ -13,3 +13,7 @@ __pycache__/
 # Matched at ANY depth: rbtv-done-gate writes to docs/done-gate-evidence/ at a repo
 # root by default, but sub-app docs dirs (e.g. studio/hypresent/docs/) have also held it.
 **/done-gate-evidence/
+
+# Real-deck test fixtures (large local decks for hypresent e2e/unit suites) — local only,
+# substitutable per machine, never shipped (a real client deck must not enter repo history).
+tecer-gsmm-introduction*.html
