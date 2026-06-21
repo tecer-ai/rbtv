@@ -128,14 +128,16 @@ class ThemeSwitchE2ETests(unittest.TestCase):
         self.page.goto(self.base + "/app/")
         H.open_via_dialog_ui(self.page, self.base, deck_path)
 
-    def _wait_themes(self):
+    def _wait_themes(self, required=("default", "graphite")):
+        required_json = json.dumps(list(required))
         self.page.wait_for_function(
-            """() => {
+            f"""() => {{
                 const select = document.getElementById('theme-select');
                 if (!select || select.disabled) return false;
                 const values = Array.from(select.options).map((option) => option.value);
-                return values.includes('default') && values.includes('graphite');
-            }""",
+                const required = {required_json};
+                return required.every((name) => values.includes(name));
+            }}""",
             timeout=10000,
         )
 
@@ -218,7 +220,9 @@ class ThemeSwitchE2ETests(unittest.TestCase):
             timeout=10000,
         )
 
-    def test_contract_incompatible_theme_is_blocked(self):
+    def test_incompatible_major_theme_hidden_from_switch_list(self):
+        """A theme whose contract major differs from the deck's is hidden from the
+        theme-select — it must not appear as a clickable option at all."""
         library = self._copy_library()
         library_json_path = os.path.join(library, "library.json")
         with open(library_json_path, encoding="utf-8") as f:
@@ -226,26 +230,38 @@ class ThemeSwitchE2ETests(unittest.TestCase):
         for theme in data["themes"]:
             if theme["name"] == "graphite":
                 theme["contract_version"] = "2.0"
+        # A theme with a blank contract is NOT blocked by the runtime apply-theme
+        # guard (which only blocks when both majors are non-null and differ), so
+        # the switch-list filter must keep it visible — same compatibility notion.
+        data["themes"].append(
+            {"name": "blankcontract", "file": "themes/blankcontract.css",
+             "label": "Blank", "contract_version": ""}
+        )
         with open(library_json_path, "w", encoding="utf-8") as f:
             json.dump(data, f)
 
+        # Deck is built with contract 1.0; graphite is now 2.0 → incompatible major.
         deck_path, _library_ref = self._make_deck(library)
         self._open_editor(deck_path)
-        self._wait_themes()
+        # Wait for the library to resolve and the select to be enabled with the
+        # compatible themes; only 'default' (1.0) should appear — graphite must not.
+        self._wait_themes(required=("default",))
 
-        before = self._live_theme()
-        self.page.locator("#theme-select").select_option("graphite")
-        self.page.wait_for_function(
-            """() => {
-                const message = document.getElementById('theme-message');
-                return message && !message.hidden && /contract major mismatch/.test(message.textContent);
-            }""",
-            timeout=10000,
+        # Graphite must not be in the option list at all.
+        option_values = self.page.evaluate(
+            """() => Array.from(document.getElementById('theme-select').options).map((o) => o.value)"""
         )
-        after = self._live_theme()
-        self.assertEqual(after["htmlTheme"], before["htmlTheme"])
-        self.assertEqual(after["styleTheme"], before["styleTheme"])
-        self.assertNotIn(GRAPHITE_MARKER, after["css"])
+        self.assertNotIn("graphite", option_values, "graphite (v2.0) must not appear in a v1.0 deck's theme list")
+        self.assertIn("default", option_values, "default (v1.0) must remain in the theme list")
+        self.assertIn(
+            "blankcontract", option_values,
+            "a blank-contract theme is not blocked by the runtime guard, so it must stay visible",
+        )
+
+        # Deck theme and CSS must be unchanged (graphite never applied).
+        live = self._live_theme()
+        self.assertEqual(live["htmlTheme"], "default")
+        self.assertNotIn(GRAPHITE_MARKER, live["css"])
 
 
 if __name__ == "__main__":

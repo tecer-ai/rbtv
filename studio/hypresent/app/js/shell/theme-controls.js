@@ -1,5 +1,14 @@
 import { copyThemeAssets, libraryAsset, resolveLibrary } from "/app/js/api-client.js";
 
+// Mirror of runtime-main.js contractMajor — must stay in sync with the runtime guard.
+// Returns the integer major (e.g. "2.0" → 2, "1.0" → 1) or null for blank/invalid.
+function contractMajor(version) {
+  if (typeof version !== "string" || version.trim() === "") return null;
+  const first = version.trim().split(".")[0];
+  if (!/^\d+$/.test(first)) return null;
+  return Number.parseInt(first, 10);
+}
+
 export function createThemeControls({
   bridge,
   els,
@@ -87,8 +96,19 @@ export function createThemeControls({
   function renderThemes(currentTheme) {
     resetSelect();
     const themes = Array.isArray(state.themes) ? state.themes : [];
-    for (const theme of themes) {
-      if (!theme || !theme.name) continue;
+    const deckMajor = contractMajor(state.stamp && state.stamp.contract ? state.stamp.contract : "");
+    const compatibleThemes = themes.filter((theme) => {
+      if (!theme || !theme.name) return false;
+      // When the deck has no contract (legacy/null), show all themes unchanged.
+      if (deckMajor === null) return true;
+      const themeMajor = contractMajor(theme.contract_version || "");
+      // Mirror the runtime apply-theme guard exactly: it blocks ONLY when BOTH
+      // the deck and theme majors are non-null AND differ. A theme with no/blank
+      // contract (themeMajor === null) is NOT blocked by the runtime, so the
+      // filter must keep it visible — hiding it would diverge from the guard.
+      return themeMajor === null || themeMajor === deckMajor;
+    });
+    for (const theme of compatibleThemes) {
       const option = document.createElement("option");
       option.value = theme.name;
       option.textContent = theme.name === "default" ? "[default]" : (theme.label || theme.name);
@@ -96,12 +116,12 @@ export function createThemeControls({
       els.select.appendChild(option);
     }
     const wanted = currentTheme || "default";
-    if (themes.some((theme) => theme && theme.name === wanted)) {
+    if (compatibleThemes.some((theme) => theme && theme.name === wanted)) {
       els.select.value = wanted;
-    } else if (themes.length > 0) {
-      els.select.value = themes[0].name;
+    } else if (compatibleThemes.length > 0) {
+      els.select.value = compatibleThemes[0].name;
     }
-    setDisabled(themes.length === 0);
+    setDisabled(compatibleThemes.length === 0);
   }
 
   function markLegacy() {
