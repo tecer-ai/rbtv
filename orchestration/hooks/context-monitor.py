@@ -83,10 +83,12 @@ def _build_advisory(usage_pct: float) -> str:
     n = int(usage_pct)
     return (
         f"Context window {n}% full ({100 - n}% free) — recommend refresh. "
-        "Bring the spine (state-capsule + run-log) current, "
-        "finish the in-flight worker, then surface to the OWNER. "
-        "Refresh is OWNER-GATED — do not start a new dispatch until the owner responds. "
-        "Defer action to the next reconciled worker return."
+        "Do NOT overthink or deliberate over whether to halt. "
+        "Keep working to the NEXT natural checkpoint (a finished worker return or a completed step) — do not stop mid-step. "
+        "At that checkpoint bring the spine (state-capsule + run-log) and any state docs current so a fresh agent can resume from them alone. "
+        "If this is a full-auto / AFK orchestrated run, just continue — do NOT interrupt the owner. "
+        "Otherwise surface a one-line refresh proposal to the owner ONCE and keep working until they respond; "
+        "do not re-propose at later tiers. Propose, never agonize over halting."
     )
 
 
