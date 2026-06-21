@@ -17,8 +17,10 @@ and the slide is flagged.
 This module is importable headless — no HTTP, no Flask, no server dependency.
 """
 
+import importlib.util
 import json
 import os
+import pathlib
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -678,3 +680,172 @@ def load_library_json(library_dir: str) -> dict:
     path = os.path.join(library_dir, "library.json")
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+def write_library_json(library_dir: str, library_json: dict) -> None:
+    """Write library.json, preserving fields through a normal JSON round-trip."""
+    path = os.path.join(library_dir, "library.json")
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(library_json, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+
+class _ThemeExtractor(HTMLParser):
+    """Extract deck-level theme stamp and matching <style data-theme> CSS."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.html_attrs: dict[str, str] = {}
+        self.styles: list[dict[str, str]] = []
+        self._capture_attrs: dict[str, str] | None = None
+        self._capture_chunks: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attr_map = {k: (v or "") for k, v in attrs}
+        if tag.lower() == "html" and not self.html_attrs:
+            self.html_attrs = attr_map
+        if tag.lower() == "style" and "data-theme" in attr_map:
+            self._capture_attrs = attr_map
+            self._capture_chunks = []
+
+    def handle_data(self, data: str) -> None:
+        if self._capture_attrs is not None:
+            self._capture_chunks.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() == "style" and self._capture_attrs is not None:
+            self.styles.append(
+                {
+                    "name": self._capture_attrs.get("data-theme", ""),
+                    "contract_version": self._capture_attrs.get(
+                        "data-theme-contract", ""
+                    ),
+                    "css": "".join(self._capture_chunks),
+                }
+            )
+            self._capture_attrs = None
+            self._capture_chunks = []
+
+
+def extract_deck_theme(deck_html: str) -> dict:
+    """Return the stamped deck theme identity and CSS, if present."""
+    parser = _ThemeExtractor()
+    parser.feed(deck_html)
+    html_name = parser.html_attrs.get("data-theme", "").strip()
+    html_contract = parser.html_attrs.get("data-theme-contract", "").strip()
+
+    for style in parser.styles:
+        style_name = style.get("name", "").strip()
+        if style_name and (not html_name or style_name == html_name):
+            return {
+                "name": style_name,
+                "contract_version": (
+                    style.get("contract_version", "").strip()
+                    or html_contract
+                    or "1.0"
+                ),
+                "css": style.get("css", "").strip(),
+            }
+
+    if html_name:
+        return {
+            "name": html_name,
+            "contract_version": html_contract or "1.0",
+            "css": "",
+        }
+
+    return {"name": "", "contract_version": "", "css": ""}
+
+
+_THEME_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_ASSEMBLE_TOOLS = None
+
+
+def _load_assemble_contract_tools():
+    """Import the slide-library engine contract helpers by file path."""
+    global _ASSEMBLE_TOOLS
+    if _ASSEMBLE_TOOLS is not None:
+        return _ASSEMBLE_TOOLS
+
+    engine_path = (
+        pathlib.Path(__file__).resolve().parents[3]
+        / "studio"
+        / "slide-library"
+        / "engine"
+        / "assemble.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "rbtv_slide_library_assemble_contract", engine_path
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not import assemble.py from {engine_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _ASSEMBLE_TOOLS = (module.CONTRACT_V1, module.parse_css_members)
+    return _ASSEMBLE_TOOLS
+
+
+def lint_theme_css_against_contract(css_text: str) -> list[str]:
+    """Return shared-contract lint warnings for a theme CSS string."""
+    contract, parse_css_members = _load_assemble_contract_tools()
+    members = parse_css_members(css_text)
+    missing = sorted(contract - members)
+    if not missing:
+        return []
+    return [
+        "Theme fails the shared class contract v1 — missing: "
+        + ", ".join(missing)
+    ]
+
+
+def register_deck_theme(library_dir: str, library_json: dict, deck_html: str) -> dict:
+    """Register a stamped deck theme into a target library when absent."""
+    theme = extract_deck_theme(deck_html)
+    name = theme["name"]
+    if not name:
+        return {"status": "skipped", "reason": "no_stamp"}
+
+    if name == "default":
+        return {"status": "skipped", "reason": "already_present", "name": name}
+
+    for existing in library_json.get("themes", []):
+        if existing.get("name") == name:
+            return {"status": "skipped", "reason": "already_present", "name": name}
+
+    if not _THEME_NAME_RE.match(name):
+        return {
+            "status": "skipped",
+            "reason": "invalid_theme_name",
+            "name": name,
+        }
+
+    css_text = theme.get("css", "").strip()
+    if not css_text:
+        return {
+            "status": "skipped",
+            "reason": "theme_css_not_found",
+            "name": name,
+        }
+
+    rel_file = f"themes/{name}.css"
+    theme_path = pathlib.Path(library_dir) / rel_file
+    theme_path.parent.mkdir(parents=True, exist_ok=True)
+    theme_path.write_text(css_text + "\n", encoding="utf-8")
+
+    entry = {
+        "name": name,
+        "file": rel_file,
+        "label": name,
+        "contract_version": theme.get("contract_version") or "1.0",
+    }
+    themes = library_json.setdefault("themes", [])
+    themes.append(entry)
+    write_library_json(library_dir, library_json)
+
+    return {
+        "status": "registered",
+        "name": name,
+        "file": rel_file,
+        "contract_version": entry["contract_version"],
+        "lint_warnings": lint_theme_css_against_contract(css_text),
+    }

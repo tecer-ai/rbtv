@@ -722,12 +722,21 @@ def handle_deck_export(payload):
         if err:
             return (500, {"error": err})
 
+    # 6. Register the deck's stamped theme into the target library, when new.
+    try:
+        theme_result = decompose.register_deck_theme(
+            library_path, library_json, deck_html
+        )
+    except Exception as exc:
+        return (500, {"error": f"Failed to register deck theme: {exc}"})
+
     # Build response.
     response: dict = {
         "ok": True,
         "exported": len(result.exports),
         "fragments": written_fragments,
         "manifest_rows": written_rows,
+        "theme": theme_result,
     }
     all_concerns = list(result.concerns) + asset_clobber_concerns
     if all_concerns:
