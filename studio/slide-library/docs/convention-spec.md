@@ -518,11 +518,53 @@ These remain your responsibility; the engine does not enforce them:
   corrected generic fact), propose it back: update `slides/{id}.html` + its manifest row +
   regenerate the catalog, and note it in your as-built entry's `upstream` field. Client-
   specific copy is NEVER upstreamed.
+
+## 7. Retiring a superseded slide (archive)
+
+When a slide is permanently replaced, retire it with the archive tool instead of deleting it —
+NEVER hand-delete a fragment or hand-edit its manifest row (see convention § 1.3):
+
+```bash
+python archive.py <id> --reason "why" --superseded-by <new-id>   # retire: moves slides/<id>.html → archive/<id>.html, drops its manifest row
+python archive.py --unarchive <id>                               # restore it losslessly (row + fragment come back unchanged)
+python archive.py --list                                         # show what is currently archived
+```
+
+`archive/` is a holding zone the engine NEVER reads — an archived slide vanishes from every
+assembled deck and the catalog, but stays restorable. The archive log `archive/archive.md`
+records each retirement (and the verbatim original row, so restore is exact). Assets in
+`assets/` are left in place when a slide is archived. `archive.py` is vendored alongside
+`assemble.py`; if absent, re-vendor it from the RBTV engine (`install-engine.py`).
+
+## 8. Adding new slides to this library — author + export (NEVER hand-extract)
+
+New slides enter this library by **authoring a deck to the deck-authoring standard and
+exporting it** — the inverse of assembly. NEVER hand-create a fragment in `slides/` or
+hand-add a `manifest.md` row.
+
+1. **Author the deck to the deck-authoring standard (convention §§ 10–10.6).** The designer
+   agent (`rbtv-designing`) produces conformant decks by default: every `<section class="slide …">`
+   carries the full `data-hyp-*` export-metadata set (`data-hyp-slide-id`, `-section`, `-title`,
+   `-audience`, `-lang`, `-kind`, `-summary`, `-provenance`), slides are sized **1280×720** (§ 10.2),
+   and the deck carries an `@page { size: 1280px 720px; margin: 0 }` print block (§ 10.3).
+   `data-hyp-section` MUST be one of the sections in `library.json`. Critically, the deck's CSS
+   MUST use the **role-token skin standard (§ 10.6)**: all skin properties as `var(--role)` in
+   Block A; a `:root` token block (Block B, `data-theme-contract="2.0"`) carrying the palette.
+   This makes the exported fragments immediately re-skinnable in the library.
+2. **Export through hypresent.** In the hypresent builder, open the deck, multi-select the slides
+   to library-ify, and Export to this library folder. (Headless: `POST /api/deck-export` with
+   `{deck_path, selected_ids, library_path}` to the running hypresent server.)
+3. **What the export does, deterministically:** for each selected slide it writes a chrome-stripped
+   pure fragment to `slides/{id}.html`, appends an 11-column `manifest.md` row under `## Slides`
+   with `status=to-review`, and copies referenced `assets/` into this library's `assets/` (never
+   clobbering a curated asset of different content). Existing `ready` slides are never overwritten.
+4. **Curate, then promote.** Review each `to-review` row + fragment; when satisfied, flip its
+   `status` to `ready`. Run `python assemble.py --catalog` to refresh `catalog.html`.
 ````
 
 ### 5.2 Why every section is required
 
-The cold agent has no external instructions. Section 1 orients it; section 2 makes the manifest legible; section 3 is the selection logic; section 4 is the exact mechanical invocation (the single most important section — without it the agent cannot assemble); section 5 is the creative-pass contract; section 6 carries the governance that stays judgment (lifted from the proven informal convention's human-judgment classification). Omitting any section breaks DT4.
+The cold agent has no external instructions. Section 1 orients it; section 2 makes the manifest legible; section 3 is the selection logic; section 4 is the exact mechanical invocation (the single most important section — without it the agent cannot assemble); section 5 is the creative-pass contract; section 6 carries the governance that stays judgment (lifted from the proven informal convention's human-judgment classification); section 7 is the archive/retire workflow (without it an agent hand-deletes rather than using `archive.py`); section 8 is the author+export ingest path (without it an agent hand-creates fragments, bypassing the hypresent export contract and the §10.6 role-token standard). Omitting any section breaks DT4.
 
 ### 5.3 `AGENTS.md` mirror
 
