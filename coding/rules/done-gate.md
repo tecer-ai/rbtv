@@ -1,6 +1,6 @@
 # Done Gate
 
-An agent MUST NOT declare a coding task done until it has exercised every contracted criterion the way the owner will use the feature and exhibited the evidence — nothing else buys done. Evidence is **weight-graded**: a disk evidence sheet for Full-tier work, the same rows inline in the done message for Light-tier (the protocol owns the tier split). This trigger layer is always-on; the gate mechanics load on fire (Load Gate).
+An agent MUST NOT declare a coding task done until it has exercised every contracted criterion the way the owner will use the feature and exhibited the evidence — nothing else buys done. Evidence is recorded **INLINE in the done message by default**, persisting NO files; a disk evidence sheet is written ONLY when the owner explicitly requests one (the protocol owns the format). This trigger layer is always-on; the gate mechanics load on fire (Load Gate).
 
 ## Activation
 
@@ -9,7 +9,7 @@ Fires at TWO moments on every gated coding task:
 | Moment | When | Action |
 |--------|------|--------|
 | Contract | A coding task starts — feature, bug fix, behavior change | Load the protocol; run Contract (owner-confirmed criteria + per-criterion Drivability Check) BEFORE Build |
-| Exercise + Exhibit | A done-claim is about to be made | Exercise each criterion at the Fidelity Floor; fill the evidence sheet |
+| Exercise + Exhibit | A done-claim is about to be made | Exercise each criterion at the Fidelity Floor; record the evidence inline in the done message (disk sheet only on explicit owner request) |
 
 ## Scope — what is gated
 
@@ -23,7 +23,7 @@ Default-ON for every coding task. **Does NOT apply to:**
 
 ## The Lock
 
-No exercised evidence — the sheet (Full tier) or the inline rows (Light tier) — → done is UNDECLARABLE. A `failed` row → back to Build, then re-exercise. `unexercisable` and `held-surprising` rows → done declarable ONLY with those rows surfaced explicitly in the done message; the owner decides acceptance, never the agent.
+No exercised evidence — the inline rows (or the disk sheet, when the owner requested one) — → done is UNDECLARABLE. A `failed` row → back to Build, then re-exercise. `unexercisable` and `held-surprising` rows → done declarable ONLY with those rows surfaced explicitly in the done message; the owner decides acceptance, never the agent.
 
 ## Load Gate — MANDATORY
 
