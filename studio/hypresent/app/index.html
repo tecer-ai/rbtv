@@ -33,6 +33,15 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
         Open…
       </button>
+      <div class="theme-switcher" id="theme-switcher" hidden>
+        <label class="theme-label" for="theme-select">Theme</label>
+        <select class="theme-select" id="theme-select" aria-label="Theme" disabled>
+          <option value="">Theme</option>
+        </select>
+        <span class="theme-library" id="theme-library" hidden></span>
+        <button type="button" class="theme-library-pick" id="theme-library-pick" hidden>Pick library</button>
+        <span class="theme-message" id="theme-message" hidden></span>
+      </div>
       <button type="button" class="tb-btn tb-btn--primary" id="save-btn">Save</button>
       <button type="button" class="tb-btn" id="save-as-btn">Save As…</button>
       <span class="tb-sep" aria-hidden="true"></span>

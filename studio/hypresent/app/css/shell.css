@@ -115,6 +115,43 @@ input, select, textarea { font: inherit; color: inherit; }
 .doc-chip .doc-state.is-dirty { color: var(--ink-mut); }
 .doc-chip .doc-state.is-dirty::before { background: var(--line-2); }
 
+.theme-switcher {
+  display: inline-flex; align-items: center; gap: 7px;
+  min-width: 0; flex: none;
+}
+.theme-label {
+  font-size: 11px; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--ink-mut);
+}
+.theme-select {
+  height: 32px; min-width: 118px; max-width: 180px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--line-2); border-radius: var(--r-ctrl);
+  background: var(--white); color: var(--ink);
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+.theme-select:disabled { color: var(--ink-faint); cursor: default; background: var(--paper-2); }
+.theme-library {
+  max-width: 180px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; color: var(--ink-mut);
+}
+.theme-library-pick {
+  height: 28px; padding: 0 9px;
+  border: 1px solid var(--line-2); border-radius: var(--r-ctrl);
+  background: var(--white); color: var(--accent-deep);
+  font-size: 12px; font-weight: 700;
+}
+.theme-library-pick:hover { background: var(--accent-wash); }
+.theme-message {
+  max-width: 260px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; color: var(--ink-mut);
+}
+.theme-message.warning { color: var(--accent-deep); }
+.theme-message.error { color: var(--accent-deep); font-weight: 700; }
+
 .lib-chip, .deck-chip {
   display: flex; align-items: center; gap: 8px;
   padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px;

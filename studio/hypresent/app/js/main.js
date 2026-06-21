@@ -5,6 +5,7 @@ import { createColorPopover } from "/app/js/shell/color-popover.js";
 import { openComposer } from "/app/js/shell/comment-composer.js";
 import { createShortcutsHelp } from "/app/js/shell/shortcuts-help.js";
 import { confirmSaveOverwrite } from "/app/js/shell/confirm-modal.js";
+import { createThemeControls } from "/app/js/shell/theme-controls.js";
 import { dialogSaveAs, save } from "/app/js/api-client.js";
 
 let bridge = null;
@@ -27,6 +28,8 @@ let savedCursor = -1;       // history position at the last save — chip shows 
 
 let undoBtn = null;
 let redoBtn = null;
+let currentDeckPath = "";
+let themeControls = null;
 
 const AUTHOR_KEY = "hypresent-comment-author";
 
@@ -47,6 +50,16 @@ function setDocChip(name, fullPath) {
   chip.hidden = false;
   const empty = document.getElementById("canvas-empty");
   if (empty) empty.hidden = true;
+}
+
+function joinPath(dir, name) {
+  if (!dir || !name) return "";
+  const sep = dir.includes("\\") ? "\\" : "/";
+  return dir.replace(/[\\/]+$/, "") + sep + name;
+}
+
+function setCurrentDeckPath(path) {
+  currentDeckPath = path || "";
 }
 
 function setDocState(dirty) {
@@ -615,6 +628,10 @@ function ensureBridge(iframe) {
     await refreshCommentPanel();
   });
 
+  bridge.on("theme-stamp", (payload) => {
+    if (themeControls) themeControls.handleThemeStamp(payload);
+  });
+
   bridge.on("selection-changed", (payload) => {
     lastSelection = payload && payload.hypId ? payload : null;
     if (window.__hypUpdateAlignButtons) {
@@ -689,6 +706,24 @@ document.addEventListener("DOMContentLoaded", () => {
   console.info("Moveable available:", typeof window.Moveable === "function");
   console.info("Coloris available:", typeof Coloris);
 
+  themeControls = createThemeControls({
+    bridge: () => bridge,
+    getDeckPath: () => currentDeckPath,
+    setStatus,
+    markDirty: () => {
+      isDirty = true;
+      document.title = "hypresent *";
+      setDocState(true);
+    },
+    els: {
+      container: document.getElementById("theme-switcher"),
+      select: document.getElementById("theme-select"),
+      library: document.getElementById("theme-library"),
+      pickLibrary: document.getElementById("theme-library-pick"),
+      message: document.getElementById("theme-message"),
+    },
+  });
+
   // Initialize Coloris once. Dynamic inputs are wrapped later via Coloris.wrap().
   try {
     Coloris.init();
@@ -742,9 +777,11 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         const result = await openViaDialog(iframe);
         if (!result) return; // cancelled
+        setCurrentDeckPath(joinPath(result.dir, result.name));
+        if (themeControls) themeControls.resetForOpen();
         ensureBridge(iframe);
         setStatus("");
-        setDocChip(result.name || "");
+        setDocChip(result.name || "", currentDeckPath);
         setDocState(false);
         // The Builder-tab crossing is gated by the runtime-ready flag set in the
         // bridge 'ready' handler — NOT here. Opening the gate on open would re-introduce
@@ -771,6 +808,8 @@ document.addEventListener("DOMContentLoaded", () => {
     (async () => {
       try {
         const result = await openFile(fileParam, iframe);
+        setCurrentDeckPath(fileParam);
+        if (themeControls) themeControls.resetForOpen();
         ensureBridge(iframe);
         setStatus("");
         setDocChip((result && result.name) || fileParam.split(/[\\/]/).pop() || "", fileParam);
@@ -849,6 +888,7 @@ document.addEventListener("DOMContentLoaded", () => {
           savedCursor = historyCursor;
           setDocState(false);
           setDocChip((sa.path || "").split(/[\\/]/).pop() || "", sa.path || "");
+          setCurrentDeckPath(sa.path || "");
           setStatus("");
           return;
         }
@@ -874,6 +914,7 @@ document.addEventListener("DOMContentLoaded", () => {
         savedCursor = historyCursor;
         setDocState(false);
         setDocChip((data.path || "").split(/[\\/]/).pop() || "", data.path || "");
+        setCurrentDeckPath(data.path || "");
         setStatus("");
       } catch (err) {
         setStatus("Save failed: " + err.message, "error");
