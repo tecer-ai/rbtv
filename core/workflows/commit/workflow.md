@@ -29,6 +29,8 @@ The agent supplies the judgment — which files belong together, what each messa
 
 ### 2. Commit each cluster via the script
 
+**Run the script with the working directory INSIDE `{repo}`** — `cd "{repo}"` first (or pass it as the command's cwd). The script locates the repo root from its own cwd; invoking it from the workspace root (or any other repo) makes it operate on the WRONG repo and report `no changes to commit` for paths that plainly changed. The `-f` paths are repo-root-relative, so they only resolve correctly from inside `{repo}`.
+
 Resolve `{rbtv_path}` from `rbtv.json` (at the WORKSPACE root) to an ABSOLUTE path BEFORE invoking — its value is recorded relative to the workspace root, NOT to `{repo}`. The script runs with the working directory INSIDE `{repo}` (which is often a repo nested below the workspace root; the script locates the repo root itself), so a bare relative `{rbtv_path}/core/...` resolves against the repo's cwd and fails. Build the absolute path by joining the workspace root (the directory that contains `rbtv.json`) with `rbtv_path`, then invoke `commit.py` by that absolute path. NEVER build the path relative to the current working directory, and NEVER open `rbtv.json` by a cwd-relative path from inside `{repo}` (it lives at the workspace root, not the repo root). For each confirmed cluster, in plan order:
 
 ```

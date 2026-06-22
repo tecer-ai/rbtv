@@ -44,8 +44,13 @@ def fail(msg, code=1):
     sys.exit(code)
 
 
+# Decode git output as UTF-8 (git emits UTF-8 path bytes regardless of the OS
+# locale). Without this, text=True uses the locale codec — cp1252 on Windows —
+# so a non-ASCII path read from git never matches the same path from argv
+# (already proper Unicode), breaking the staging gate's exact comparison.
 def git(args, root, check=True, capture=True):
-    res = subprocess.run(["git", *args], cwd=root, text=True, capture_output=capture)
+    res = subprocess.run(["git", *args], cwd=root, text=True, capture_output=capture,
+                         encoding="utf-8", errors="surrogateescape")
     if check and res.returncode != 0:
         out = (res.stderr or res.stdout or "").strip()
         fail(f"git {' '.join(args)} failed: {out}")
@@ -53,7 +58,8 @@ def git(args, root, check=True, capture=True):
 
 
 def git_ok(args, root):
-    return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True).returncode == 0
+    return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True,
+                          encoding="utf-8", errors="surrogateescape").returncode == 0
 
 
 def sync_after_commit(root, before):
@@ -82,7 +88,8 @@ def main():
     p.add_argument("--push", action="store_true", help="Push after a successful commit.")
     args = p.parse_args()
 
-    res = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    res = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True,
+                         encoding="utf-8", errors="surrogateescape")
     if res.returncode != 0:
         fail("not inside a git repository (run this from within the target repo).")
     root = res.stdout.strip()
@@ -125,7 +132,11 @@ def main():
 
     # --no-renames so a staged rename reads as delete(old) + add(new) — both requested
     # paths then appear, instead of git collapsing them into a single destination name.
-    staged = {line for line in git(["diff", "--cached", "--name-only", "--no-renames"], root).stdout.splitlines() if line}
+    # -z: NUL-separated, UNQUOTED paths. Without it git quote-escapes any path
+    # with non-ASCII bytes (default core.quotepath=true), so a staged file like
+    # "Relatório.pdf" reads back escaped and never matches the raw requested
+    # path — a spurious foreign/unmatched mismatch. -z sidesteps quoting entirely.
+    staged = {p for p in git(["diff", "--cached", "--name-only", "--no-renames", "-z"], root).stdout.split("\0") if p}
     # A directory path is satisfied when it covers >=1 staged file; an exact file
     # path when it equals one. Either way: no covered change → nothing to commit.
     unmatched = [p for p in requested if not any(covers(p, s) for s in staged)]
@@ -145,8 +156,8 @@ def main():
     # Read the files back from the commit OBJECT (not the input list) so the output
     # is ground truth the caller can trust without re-running `git show`.
     in_commit = [ln for ln in git(
-        ["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", committed], root
-    ).stdout.splitlines() if ln]
+        ["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", "-z", committed], root
+    ).stdout.split("\0") if ln]
     print(f"committed {committed}: {args.message.splitlines()[0]}")
     print(f"files in commit ({len(in_commit)}): " + ", ".join(in_commit))
     merged = git(["rev-parse", "--short", "HEAD"], root).stdout.strip()
