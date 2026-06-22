@@ -1,0 +1,9 @@
+/* builder-lib themes/skin.css — role-token (contract 2.0) pure-skin theme. */
+/* Pure skin: only :root token overrides, NO structural selectors. Exists so the */
+/* builder-preview regression test has a 2.0 theme that blanks every slide unless */
+/* the base theme.css is layered underneath it (see test_builder_preview_theme.py). */
+:root {
+  --bg:             #1B2A4A;
+  --fg:             #E74C3C;
+  --client-accent:  #E91E63;
+}

@@ -7,11 +7,8 @@ const MOUNT_CAP = 24;
 const themePromises = new Map();   // `${libraryPath}|${theme}` -> Promise<string>
 const srcdocPromises = new Map();  // `${libraryPath}|${theme}|${slideId}` -> Promise<string>
 
-function fetchTheme(libraryPath) {
-  const key = libraryPath + '|' + _previewTheme;
-  if (themePromises.has(key)) return themePromises.get(key);
-  const name = _previewTheme === 'default' ? 'theme.css' : 'themes/' + _previewTheme + '.css';
-  const p = fetch('/api/library-asset', {
+function fetchAsset(libraryPath, name) {
+  return fetch('/api/library-asset', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path: libraryPath, name })
@@ -21,6 +18,25 @@ function fetchTheme(libraryPath) {
       return r.json();
     })
     .then(data => data.content || '');
+}
+
+// Resolves to the ORDERED css layers for the active preview theme:
+//   'default'  -> [ theme.css ]                     (base only)
+//   named      -> [ theme.css, themes/{name}.css ]  (base THEN the named overlay)
+// A named theme is pure skin BY DESIGN (convention-spec §6.7: role :root tokens
+// only, NO structural selectors), so it MUST layer on top of the base theme.css
+// that carries the layout — exactly as an assembled deck layers base.html's
+// inlined theme.css + the separate <style data-theme> overlay. Injecting the
+// overlay alone strips all layout and blanks every slide.
+function fetchTheme(libraryPath) {
+  const key = libraryPath + '|' + _previewTheme;
+  if (themePromises.has(key)) return themePromises.get(key);
+  const p = _previewTheme === 'default'
+    ? fetchAsset(libraryPath, 'theme.css').then(base => [base])
+    : Promise.all([
+        fetchAsset(libraryPath, 'theme.css'),
+        fetchAsset(libraryPath, 'themes/' + _previewTheme + '.css'),
+      ]);
   themePromises.set(key, p);
   return p;
 }
@@ -40,8 +56,13 @@ export function setPreviewTheme(name) {
   _previewTheme = name || 'default';
 }
 
+// `theme` is either a single css string or an ordered array of css layers.
+// Each layer becomes its own <style> block, in order, so a base + named overlay
+// cascade exactly like an assembled deck's inlined base + <style data-theme>.
 export function buildSrcdoc(theme, fragment) {
-  return `<!DOCTYPE html><html><head><base href="${_libraryBase}"><style>${theme}</style></head><body>${fragment}</body></html>`;
+  const layers = Array.isArray(theme) ? theme : [theme];
+  const styles = layers.map(css => `<style>${css}</style>`).join('');
+  return `<!DOCTYPE html><html><head><base href="${_libraryBase}">${styles}</head><body>${fragment}</body></html>`;
 }
 
 export function buildDeckSrcdoc(head, fragment) {

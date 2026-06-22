@@ -15,6 +15,12 @@
       "file": "themes/graphite.css",
       "label": "Graphite",
       "contract_version": "1.0"
+    },
+    {
+      "name": "skin",
+      "file": "themes/skin.css",
+      "label": "Skin (role-token)",
+      "contract_version": "2.0"
     }
   ]
 }
