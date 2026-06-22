@@ -161,7 +161,10 @@ class BuilderPreviewAssetsTests(unittest.TestCase):
         self.assertGreater(len(rows), 0, "tray must have at least one row")
 
         for i, row in enumerate(rows):
-            iframe = row.locator("iframe")
+            # Target the thumbnail iframe specifically — each row now also
+            # carries a lazy-load expand-panel preview iframe (.tray-expand-preview),
+            # so a bare row.locator("iframe") matches 2 and trips strict mode.
+            iframe = row.locator(".t-thumb iframe")
             # Wait for srcdoc to be populated
             self.page.wait_for_function(
                 "(el) => el.srcdoc && el.srcdoc.includes('<base')",
@@ -201,9 +204,10 @@ class BuilderPreviewAssetsTests(unittest.TestCase):
         rows = self.page.locator(".tray-row").all()
         self.assertGreater(len(rows), 0, "deck must have tray rows")
 
-        # The first section has #test-asset-img — find it in the first tray iframe.
+        # The first section has #test-asset-img — find it in the first tray's
+        # thumbnail iframe (.t-thumb iframe; the row also has an expand-panel iframe).
         first_row = rows[0]
-        iframe = first_row.locator("iframe")
+        iframe = first_row.locator(".t-thumb iframe")
 
         # Wait for srcdoc to be populated with the section content.
         self.page.wait_for_function(
@@ -247,7 +251,7 @@ class BuilderPreviewAssetsTests(unittest.TestCase):
         self.assertGreater(len(rows), 0, "deck must have tray rows")
 
         first_row = rows[0]
-        iframe = first_row.locator("iframe")
+        iframe = first_row.locator(".t-thumb iframe")
 
         self.page.wait_for_function(
             "(el) => el.srcdoc && el.srcdoc.includes('missing-asset-img')",
@@ -335,7 +339,7 @@ class BuilderDeckLoadDocRootTests(unittest.TestCase):
         self.assertGreater(len(rows), 0, "deck must have tray rows")
 
         first_row = rows[0]
-        iframe = first_row.locator("iframe")
+        iframe = first_row.locator(".t-thumb iframe")
 
         # Wait for srcdoc to be populated with the section content.
         self.page.wait_for_function(
