@@ -44,7 +44,7 @@ TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z$")
 @pytest.fixture(scope="function")
 def plan_dir(tmp_path):
     """Copy the real-corpus fixture into a temp dir so each test is isolated."""
-    dest = tmp_path / "api-workers-build"
+    dest = tmp_path / "demo-build"
     shutil.copytree(FIXTURE_SRC, dest)
     return str(dest)
 
@@ -134,7 +134,7 @@ class TestConductorScope:
         assert rc == 0, f"stderr: {stderr}"
 
         # Plan file: checkbox → [x]
-        plan_file = os.path.join(plan_dir, "api-workers-build-plan.md")
+        plan_file = os.path.join(plan_dir, "demo-build-plan.md")
         plan_content = read_file(plan_file)
         assert "- [x] `p1-1`" in plan_content, f"Checkbox not set to [x] in plan file"
 
@@ -270,7 +270,7 @@ class TestComposedRow:
 
     def _hashes(self, plan_dir):
         return {
-            "plan": file_hash(os.path.join(plan_dir, "api-workers-build-plan.md")),
+            "plan": file_hash(os.path.join(plan_dir, "demo-build-plan.md")),
             "del": file_hash(os.path.join(plan_dir, "deliverables.md")),
             "rl": file_hash(os.path.join(plan_dir, "run-log.md")),
             "cap": file_hash(os.path.join(plan_dir, "state-capsule.md")),
@@ -330,7 +330,7 @@ class TestWorkerScope:
         assert rc == 0
 
         # Plan checkbox → [~]
-        plan_file = os.path.join(plan_dir, "api-workers-build-plan.md")
+        plan_file = os.path.join(plan_dir, "demo-build-plan.md")
         plan_content = read_file(plan_file)
         assert "- [~] `p1-3`" in plan_content
 
@@ -410,7 +410,7 @@ class TestIdempotency:
     def test_byte_identical_after_re_run(self, plan_dir):
         """After two identical runs, file hashes are the same."""
         files_to_check = [
-            os.path.join(plan_dir, "api-workers-build-plan.md"),
+            os.path.join(plan_dir, "demo-build-plan.md"),
             os.path.join(plan_dir, "phase-1", "p1-5.task.md"),
             os.path.join(plan_dir, "deliverables.md"),
             os.path.join(plan_dir, "run-log.md"),
@@ -453,7 +453,7 @@ class TestDeferred:
         assert rc == 0
 
         # Plan checkbox → ⏸
-        plan_file = os.path.join(plan_dir, "api-workers-build-plan.md")
+        plan_file = os.path.join(plan_dir, "demo-build-plan.md")
         plan_content = read_file(plan_file)
         assert "- [⏸] `p2-1`" in plan_content
 
@@ -485,7 +485,7 @@ class TestMissingTask:
     def test_no_files_written_on_missing_task(self, plan_dir):
         """When a target fails to resolve, NOTHING is written."""
         hashes_before = {
-            "plan": file_hash(os.path.join(plan_dir, "api-workers-build-plan.md")),
+            "plan": file_hash(os.path.join(plan_dir, "demo-build-plan.md")),
             "del": file_hash(os.path.join(plan_dir, "deliverables.md")),
         }
 
@@ -497,7 +497,7 @@ class TestMissingTask:
         )
 
         hashes_after = {
-            "plan": file_hash(os.path.join(plan_dir, "api-workers-build-plan.md")),
+            "plan": file_hash(os.path.join(plan_dir, "demo-build-plan.md")),
             "del": file_hash(os.path.join(plan_dir, "deliverables.md")),
         }
         assert hashes_before == hashes_after, "Files were modified despite error"
@@ -550,7 +550,7 @@ class TestExplain:
     def test_explain_no_writing(self, plan_dir):
         """--explain prints preview and exits 0 without writing."""
         hashes_before = {
-            "plan": file_hash(os.path.join(plan_dir, "api-workers-build-plan.md")),
+            "plan": file_hash(os.path.join(plan_dir, "demo-build-plan.md")),
             "task": file_hash(os.path.join(plan_dir, "phase-1", "p1-1.task.md")),
             "del": file_hash(os.path.join(plan_dir, "deliverables.md")),
         }
@@ -565,7 +565,7 @@ class TestExplain:
         assert "EXPLAIN MODE" in stdout
 
         hashes_after = {
-            "plan": file_hash(os.path.join(plan_dir, "api-workers-build-plan.md")),
+            "plan": file_hash(os.path.join(plan_dir, "demo-build-plan.md")),
             "task": file_hash(os.path.join(plan_dir, "phase-1", "p1-1.task.md")),
             "del": file_hash(os.path.join(plan_dir, "deliverables.md")),
         }
@@ -610,7 +610,7 @@ class TestAmbiguity:
 @pytest.fixture(scope="function")
 def active_plan_dir(tmp_path):
     """Copy the active-run fixture (non-terminal capsule, open checkboxes) into a temp dir."""
-    dest = tmp_path / "api-workers-build-active"
+    dest = tmp_path / "demo-build-active"
     shutil.copytree(ACTIVE_FIXTURE_SRC, dest)
     return str(dest)
 
@@ -678,7 +678,7 @@ class TestResumePointContract:
 
     def _all_target_hashes(self, plan_dir):
         return {
-            "plan": file_hash(os.path.join(plan_dir, "api-workers-build-plan.md")),
+            "plan": file_hash(os.path.join(plan_dir, "demo-build-plan.md")),
             "task": file_hash(os.path.join(plan_dir, "phase-3", "p3-1.task.md")),
             "del": file_hash(os.path.join(plan_dir, "deliverables.md")),
             "rl": file_hash(os.path.join(plan_dir, "run-log.md")),
@@ -790,7 +790,7 @@ class TestMidFlightFailure:
         args = conductor_args("p3-1")
 
         # Pre-capture hashes
-        plan_path = os.path.join(active_plan_dir, "api-workers-build-plan.md")
+        plan_path = os.path.join(active_plan_dir, "demo-build-plan.md")
         task_path = os.path.join(active_plan_dir, "phase-3", "p3-1.task.md")
         del_path = os.path.join(active_plan_dir, "deliverables.md")
         rl_path = os.path.join(active_plan_dir, "run-log.md")
@@ -853,7 +853,7 @@ class TestCapsuleStructureGuard:
 
     def _all_target_hashes(self, plan_dir):
         return {
-            "plan": file_hash(os.path.join(plan_dir, "api-workers-build-plan.md")),
+            "plan": file_hash(os.path.join(plan_dir, "demo-build-plan.md")),
             "task": file_hash(os.path.join(plan_dir, "phase-3", "p3-1.task.md")),
             "del": file_hash(os.path.join(plan_dir, "deliverables.md")),
             "rl": file_hash(os.path.join(plan_dir, "run-log.md")),
@@ -1055,7 +1055,7 @@ class TestNoTaskFile:
 
     def _surface_hashes(self, plan_dir):
         return {
-            "plan": file_hash(os.path.join(plan_dir, "api-workers-build-plan.md")),
+            "plan": file_hash(os.path.join(plan_dir, "demo-build-plan.md")),
             "del": file_hash(os.path.join(plan_dir, "deliverables.md")),
             "rl": file_hash(os.path.join(plan_dir, "run-log.md")),
             "cap": file_hash(os.path.join(plan_dir, "state-capsule.md")),
@@ -1077,7 +1077,7 @@ class TestNoTaskFile:
         assert "task_frontmatter: skipped (no task file)" in stdout
 
         # Plan checkbox → [~]
-        plan_content = read_file(os.path.join(active_plan_dir, "api-workers-build-plan.md"))
+        plan_content = read_file(os.path.join(active_plan_dir, "demo-build-plan.md"))
         assert "- [~] `p3-1`" in plan_content
         # Deliverables → in-progress
         del_content = read_file(os.path.join(active_plan_dir, "deliverables.md"))
@@ -1105,7 +1105,7 @@ class TestNoTaskFile:
         )
         assert rc == 0, f"stderr: {stderr}"
         assert "task_frontmatter: skipped (no task file)" in stdout
-        plan_content = read_file(os.path.join(active_plan_dir, "api-workers-build-plan.md"))
+        plan_content = read_file(os.path.join(active_plan_dir, "demo-build-plan.md"))
         assert "- [x] `p3-1`" in plan_content
 
     def test_missing_task_file_without_flag_still_errors(self, active_plan_dir):
@@ -1170,7 +1170,7 @@ class TestLineEndingPreservation:
         # Check only the files stamp.py touches (_dispatch/*.out are faithful
         # corpus artifacts with native CRLF and are NOT stamp targets).
         targets = [
-            os.path.join(active_plan_dir, "api-workers-build-plan.md"),
+            os.path.join(active_plan_dir, "demo-build-plan.md"),
             os.path.join(active_plan_dir, "phase-3", "p3-2.task.md"),
             os.path.join(active_plan_dir, "deliverables.md"),
             os.path.join(active_plan_dir, "run-log.md"),
