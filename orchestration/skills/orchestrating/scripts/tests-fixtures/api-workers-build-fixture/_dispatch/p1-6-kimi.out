@@ -1,5 +1,0 @@
-- **status:** DONE
-- **landed:** `orchestration/docs/routing-matrix-reference.md` created (NO commit — conductor commits)
-- **validation:** Checked: (a) verbatim reference-data header present at top, (b) all 8 per-provider sections present with model tables translated to English, (c) OpenAI codex-CLI note present in OpenAI section, (d) Quick-Decision Matrix translated and present, (e) source citation URLs preserved; SKIPPED_COUNT = 0
-- **concerns:** None — mechanical harvest only, no data invented or re-ranked.
-- **open_questions:** None

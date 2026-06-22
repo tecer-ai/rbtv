@@ -1,8 +1,0 @@
-status: success
-landed: manus.py
-validation: |
-  1. `python -c "import ast,io; ast.parse(io.open('orchestration/models/_api/clients/manus.py',encoding='utf-8').read()); print('AST_OK')"` → EXIT 0, WALL_MS=75, SKIPPED_COUNT=0
-  2. Static self-check (grep markers) → `V2_OK`, EXIT 0, WALL_MS=12, SKIPPED_COUNT=0
-  3. Base-conformance (`def chat(messages: List[Message], options: Optional[RequestOptions] = None) -> Response`) → `BASE_CONFORMS_OK`, EXIT 0, WALL_MS=13, SKIPPED_COUNT=0
-concerns: None
-open_questions: None

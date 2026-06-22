@@ -32,8 +32,8 @@ import pytest
 # Fixtures
 # ---------------------------------------------------------------------------
 
-FIXTURE_SRC = Path(__file__).parent / "tests-fixtures" / "api-workers-build-fixture"
-ACTIVE_FIXTURE_SRC = Path(__file__).parent / "tests-fixtures" / "api-workers-build-active-fixture"
+FIXTURE_SRC = Path(__file__).parent / "tests-fixtures" / "synthetic-build-fixture"
+ACTIVE_FIXTURE_SRC = Path(__file__).parent / "tests-fixtures" / "synthetic-build-active-fixture"
 SCRIPT = Path(__file__).parent / "stamp.py"
 
 STAMP_PY = str(SCRIPT)
