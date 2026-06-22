@@ -57,7 +57,13 @@ def run_act(
     result = ActResult()
 
     root = scope.resolve_scope_root(old, scope_root)
-    old_rel = _normalize_path_for_scope(old, root)
+    # ``old`` may sit OUTSIDE ``root`` (a --scope-root subtree that does not
+    # contain it). ``consult`` already tolerates this (matchers._normalize_old
+    # falls back to the absolute path), surfacing in-scope refs + a
+    # ``moved-folder-out-of-scope`` warning. ``act`` must agree rather than
+    # hard-erroring on ``relative_to`` — so ``old`` gets the same external
+    # fallback ``new`` already uses.
+    old_rel = _normalize_path_for_scope(old, root, allow_external=True)
     new_rel = _normalize_path_for_scope(new, root, allow_external=True)
     old_abs = (root / old_rel).resolve()
     new_abs = (root / new_rel).resolve()
