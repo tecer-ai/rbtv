@@ -34,6 +34,7 @@ Usage:
     python commit.py -m "feat: ..." -f path/a -f dir/b [--push]
 """
 import argparse
+import os
 import subprocess
 import sys
 
@@ -110,7 +111,17 @@ def main():
     # --- clean staging gate: unstage all, then stage ONLY the requested files ---
     git(["reset", "-q"], root)
     for f in requested:
-        git(["add", "-A", "--", f], root)
+        if os.path.exists(os.path.join(root, f)):
+            git(["add", "-A", "--", f], root)
+        else:
+            # A move/deletion SOURCE: the path is gone from the working tree, so
+            # `git add -A -- <gone-path>` errors ("pathspec did not match any
+            # files") and never stages the deletion. Stage the index removal
+            # instead. --cached: the working-tree copy is already gone; -r:
+            # cover a whole directory; --ignore-unmatch: a path neither on disk
+            # nor tracked stages nothing (caught by the unmatched gate below)
+            # rather than erroring here.
+            git(["rm", "-r", "--cached", "--ignore-unmatch", "--", f], root)
 
     # --no-renames so a staged rename reads as delete(old) + add(new) — both requested
     # paths then appear, instead of git collapsing them into a single destination name.
