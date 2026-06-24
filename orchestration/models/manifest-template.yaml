@@ -6,7 +6,7 @@
 # Replace every <...>. Delete OPTIONAL blocks that do not apply. Keep the comments.
 
 model: <package id — must equal the models/{model}/ folder name, e.g. kimi-code-cli>
-display: "<human-facing label shown in the installer picker + availability line — carrier + runtime, e.g. kimi-code (CLI) | claude (native, from Claude Code) | gemini (API)>"
+display: "<human-facing label shown in the installer picker (worker pick-menu + --list-model-packages) — carrier + runtime, e.g. kimi-code (CLI) | claude (native, from Claude Code) | gemini (API)>"
 evidence_status: <validated | probe-pending>   # package-level; per-variant override allowed below
 
 variants:

@@ -8,7 +8,8 @@ rbtv.json records:
   - installed_files: sorted list of all files written by the installer
   - excluded_components: target paths the user chose to skip (optional)
   - model_packages: orchestration model packages elected for this workspace
-    (optional — drives the availability line baked into the orchestrating core)
+    (optional — the single election authority route.py reads; the orchestrating skill
+    recalls it on demand via route.py --availability, never baked into the shared repo)
   - model_variants: per-package backend-subset election for CONFIGURABLE packages
     (optional). Shape: {package_id: [variant_id, ...]}. Present ONLY when a proper
     subset of a configurable package's native backends is elected (e.g.

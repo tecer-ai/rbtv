@@ -725,6 +725,53 @@ def _enumerate_models(rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, explain
     return entries
 
 
+def _present_package_dirs(models_dir: Path) -> list:
+    """Return the sorted names of present package dirs under models_dir.
+
+    "Present package dir" = a directory holding a manifest.yaml, EXCLUDING `_`-prefixed
+    dirs and the SKIP_DIRS infra/fixture dirs — i.e. exactly the dirs `_enumerate_models`
+    walks. This mirrors `_enumerate_models`'s dir-level skip rules (SKIP_DIRS + `_`-prefix +
+    manifest.yaml presence); it is the package-presence predicate WITHOUT the variant/field
+    parsing or explain-log side effects, so `--availability` can report election over disk
+    presence. Kept separate (not folded into `_enumerate_models`) so enumerate's per-dir skip
+    trace rows are preserved unchanged.
+    """
+    if not models_dir.exists():
+        return []
+    names = []
+    for d in sorted(models_dir.iterdir()):
+        if not d.is_dir() or d.name in SKIP_DIRS or d.name.startswith("_"):
+            continue
+        if not (d / "manifest.yaml").exists():
+            continue
+        names.append(d.name)
+    return names
+
+
+def build_availability(rbtv_root: Path, rbtv_cfg: dict) -> dict:
+    """Compute the elected / not-elected package-id partition for `--availability`.
+
+    elected = `rbtv.json` `model_packages` (the workspace election authority) INTERSECTED with
+    the package dirs actually present on disk; ids only, sorted alphabetically. When
+    `model_packages` is absent/None (election filter off — mirrors route.py's `elected=None ⇒
+    no filter` semantics) ALL present packages are elected.
+    not_elected = present package dirs MINUS elected; ids only, sorted alphabetically.
+
+    Reports ELECTION only — NOT availability-now (api-key resolution / per-dispatch checks),
+    which route.py decides at routing time.
+    """
+    models_dir = rbtv_root / "orchestration" / "models"
+    present = _present_package_dirs(models_dir)
+    present_set = set(present)
+    elected_cfg = rbtv_cfg.get("model_packages")
+    if elected_cfg is None:
+        elected = sorted(present_set)
+    else:
+        elected = sorted(present_set & set(elected_cfg))
+    not_elected = sorted(present_set - set(elected))
+    return {"elected": elected, "not_elected": not_elected}
+
+
 def _apply_plan_caps(entries: list, plans: dict, explain_log: list) -> list:
     """Apply plan-overlay context window caps from the plans file.
 
@@ -1723,6 +1770,17 @@ def main():
     parser.add_argument("--profile", type=str, help="Path to task profile JSON file (default: stdin)")
     parser.add_argument("--explain", action="store_true", help="Print the enumerate→filter→rank trace")
     parser.add_argument(
+        "--availability", action="store_true",
+        help=(
+            "Profile-free recall mode. Print the ELECTED vs NOT-ELECTED model-package ids as "
+            "JSON {\"elected\":[ids],\"not_elected\":[ids]} (sorted) and exit 0, reading NO task "
+            "profile and NO stdin. elected = rbtv.json `model_packages` ∩ packages present on "
+            "disk (all-present when model_packages is absent/None); not_elected = present − "
+            "elected. Honors --rbtv-json / --models-dir; ignores --explain. Reports ELECTION "
+            "only — NOT availability-now (api-key/per-dispatch checks route.py makes at routing time)."
+        ),
+    )
+    parser.add_argument(
         "--models-dir", type=str, default=None,
         help=(
             "Override the catalog root (the orchestration/models/ directory). "
@@ -1744,21 +1802,10 @@ def main():
     )
     args = parser.parse_args()
 
-    # Load profile
-    if args.profile:
-        try:
-            with open(args.profile, encoding="utf-8") as f:
-                profile = json.load(f)
-        except (OSError, json.JSONDecodeError) as e:
-            print(json.dumps({"error": "profile_load_failed", "details": str(e)}), file=sys.stderr)
-            sys.exit(1)
-    else:
-        try:
-            profile = json.load(sys.stdin)
-        except json.JSONDecodeError as e:
-            print(json.dumps({"error": "profile_parse_failed", "details": str(e)}), file=sys.stderr)
-            sys.exit(1)
-
+    # Resolve paths / cfg / election FIRST — this block is profile-independent. It is hoisted
+    # above the profile load so --availability (a profile-free recall mode) can branch and exit
+    # before any stdin/profile is read. The verdict path below is byte-identical to before: it
+    # still loads the profile, then routes against these same resolved inputs.
     # Resolve paths
     vault_root = _resolve_vault_root()
     rbtv_root = vault_root  # rbtv is at vault root level in 3-resources/tools/rbtv
@@ -1805,6 +1852,28 @@ def main():
     # from exactly that catalog). Absent model_packages -> None -> no filter (back-compat).
     elected = None if args.models_dir else rbtv_cfg.get("model_packages")
     elected_variants = None if args.models_dir else rbtv_cfg.get("model_variants")
+
+    # --availability: profile-free recall mode. Branch BEFORE the profile load — print the
+    # elected/not-elected package ids (over the inputs resolved above; honors --rbtv-json /
+    # --models-dir, ignores --explain) and exit. Reads no profile and no stdin.
+    if args.availability:
+        print(json.dumps(build_availability(rbtv_root, rbtv_cfg), indent=2, ensure_ascii=False))
+        sys.exit(0)
+
+    # Load profile (verdict path only — reached when --availability is not set).
+    if args.profile:
+        try:
+            with open(args.profile, encoding="utf-8") as f:
+                profile = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            print(json.dumps({"error": "profile_load_failed", "details": str(e)}), file=sys.stderr)
+            sys.exit(1)
+    else:
+        try:
+            profile = json.load(sys.stdin)
+        except json.JSONDecodeError as e:
+            print(json.dumps({"error": "profile_parse_failed", "details": str(e)}), file=sys.stderr)
+            sys.exit(1)
 
     # Route
     result = route(profile, rbtv_root, vault_root, rbtv_cfg, plans, explain=args.explain, elected=elected, elected_variants=elected_variants)

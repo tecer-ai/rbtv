@@ -8,23 +8,10 @@ exactly like the cards. "Installing a model package" therefore means TWO things:
 
   1. Recording which packages the workspace elects (persisted in rbtv.json), so a
      re-install remembers the selection — the per-model conditional install flag.
-  2. Baking the resulting availability line into the skill-loaded core
-     (`core-protocol.md`) between the `ORCH:AVAILABILITY` markers, so the
-     always-loaded capability summary names what is present and what is absent in
-     THIS workspace.
 
 Plus a render-freshness check: the rendered manuals are generated from the
 dispatch-wrapper template + each delta; this verifies they are not stale relative
 to their sources (it calls `render-manuals.py --check`).
-
-Single-shared-source caveat: the `ORCH:AVAILABILITY` markers live in the repo's
-`core-protocol.md`, which every workspace's installed SKILL.md loads BY REFERENCE
-(it is not copied per workspace). The bake writes the line into that one shared
-file. When a single RBTV source repo serves multiple workspaces, the LAST install
-wins the availability line. The markers are preserved so re-install is idempotent.
-This is the same single-source property the cards and rendered manuals already
-have (one repo, N workspaces by reference); per-workspace divergence is out of
-D18's scope.
 
 No external dependencies — Python 3.11+ only (the manifest read is a single line
 scan, not a YAML parse).
@@ -32,34 +19,18 @@ scan, not a YAML parse).
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
 
 # Where the model packages live, relative to the RBTV repo root.
 MODELS_RELATIVE = Path("orchestration") / "models"
-# The skill-loaded core that carries the availability marker region.
-CORE_PROTOCOL_RELATIVE = (
-    Path("orchestration") / "skills" / "orchestrating" / "core-protocol.md"
-)
 # The render script whose --check reports manual drift.
 RENDER_SCRIPT_RELATIVE = MODELS_RELATIVE / "render-manuals.py"
 
 # A directory under orchestration/models/ is a MODEL PACKAGE iff it carries a
 # manifest.yaml. Infra dirs (_fixture, mirror) are not packages and are skipped.
 PACKAGE_MARKER_FILE = "manifest.yaml"
-
-# Availability marker region (namespace ORCH:, distinct from the render script's
-# RENDER: namespace). Decision recorded in shape.md (p2-7 core-protocol). The
-# installer replaces ONLY the content BETWEEN these markers; the markers
-# themselves are preserved so re-install is idempotent.
-AVAILABILITY_BEGIN = "<!-- ORCH:AVAILABILITY:BEGIN -->"
-AVAILABILITY_END = "<!-- ORCH:AVAILABILITY:END -->"
-_AVAILABILITY_RE = re.compile(
-    re.escape(AVAILABILITY_BEGIN) + r".*?" + re.escape(AVAILABILITY_END),
-    re.DOTALL,
-)
 
 
 def discover_model_packages(rbtv_root: Path) -> list[str]:
@@ -603,7 +574,7 @@ def resolve_selected_packages(
       names that do not exist are returned as `unknown` (caller warns).
 
     `installed` = elected AND present; `absent` = present but NOT elected (so the
-    core's availability line can name them as absent in this workspace).
+    permission reconcile can drop a non-elected package's rules in this workspace).
     """
     if requested is None:
         return list(available), [], []
@@ -612,75 +583,6 @@ def resolve_selected_packages(
     absent = [m for m in available if m not in requested_set]
     unknown = [m for m in requested_set if m not in available]
     return installed, absent, unknown
-
-
-def _availability_block(
-    installed: list[str], absent: list[str], displays: dict[str, str] | None = None
-) -> str:
-    """The two-line availability block written between the ORCH markers.
-
-    Names render as their human-facing display labels (manifest `display:`) when a
-    `displays` map is supplied, falling back to the folder name otherwise. The first line is
-    the workspace's ELECTED packages (routable here); the second is packages present in the
-    repo but NOT elected (rbtv.json `model_packages`) — routing (`route.py`) skips them, so
-    they are not routable in this workspace (election-authoritative), even though they ship in
-    the catalog folder.
-    Format matches the marker region's fallback shape (two blockquote lines):
-        > **Model packages installed:** a, b
-        > **Not elected:** c, d
-    """
-    displays = displays or {}
-    def _fmt(names: list[str]) -> str:
-        return ", ".join(displays.get(n, n) for n in names) if names else "_(none)_"
-    installed_text = _fmt(installed)
-    absent_text = _fmt(absent)
-    return (
-        f"{AVAILABILITY_BEGIN}\n"
-        f"> **Model packages installed:** {installed_text}\n"
-        f"> **Not elected:** {absent_text}\n"
-        f"{AVAILABILITY_END}"
-    )
-
-
-def bake_availability_line(
-    rbtv_root: Path, installed: list[str], absent: list[str]
-) -> tuple[bool, str]:
-    """Replace the content between the ORCH:AVAILABILITY markers in core-protocol.md.
-
-    Returns (changed, message). Idempotent: the markers are preserved and an
-    unchanged line rewrites nothing. Fails soft (returns False + a message) when
-    the core file or the markers are absent — never raises, so an install of a
-    workspace without the orchestration skill core still completes.
-    """
-    core_path = rbtv_root / CORE_PROTOCOL_RELATIVE
-    if not core_path.is_file():
-        return False, f"availability bake skipped: {CORE_PROTOCOL_RELATIVE.as_posix()} not found"
-
-    text = core_path.read_text(encoding="utf-8")
-    if AVAILABILITY_BEGIN not in text or AVAILABILITY_END not in text:
-        return False, (
-            f"availability bake skipped: ORCH:AVAILABILITY markers not found in "
-            f"{CORE_PROTOCOL_RELATIVE.as_posix()}"
-        )
-
-    new_block = _availability_block(installed, absent, discover_model_displays(rbtv_root))
-    new_text, n = _AVAILABILITY_RE.subn(new_block, text)
-    if n == 0:
-        # Markers present individually but not as an ordered pair — leave untouched.
-        return False, (
-            f"availability bake skipped: ORCH:AVAILABILITY:BEGIN/END not a matched "
-            f"pair in {CORE_PROTOCOL_RELATIVE.as_posix()}"
-        )
-    if new_text == text:
-        return False, (
-            f"availability line already current "
-            f"(installed: {', '.join(installed) or 'none'}; absent: {', '.join(absent) or 'none'})"
-        )
-    core_path.write_text(new_text, encoding="utf-8")
-    return True, (
-        f"availability line baked into {CORE_PROTOCOL_RELATIVE.as_posix()} "
-        f"(installed: {', '.join(installed) or 'none'}; absent: {', '.join(absent) or 'none'})"
-    )
 
 
 def read_permission_rules(rbtv_root: Path, pkg: str) -> list[str]:

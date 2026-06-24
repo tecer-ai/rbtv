@@ -2517,3 +2517,169 @@ class TestFootprintRouting:
         assert fb_pick and fb_pick[0]["effective_window"] == 1200000, (
             f"fallback_pick must report the 1.2M window as biggest-capable, got {fb_pick}"
         )
+
+
+# ---------------------------------------------------------------------------
+# --availability: profile-free election recall (elected / not_elected package ids)
+# ---------------------------------------------------------------------------
+
+_AVAIL_MINIMAL_MANIFEST = """model: {name}
+evidence_status: validated
+
+variants:
+  - variant: only
+    reasoning: 1
+    context_window: 200000
+    max_output: 8000
+    cost: 1
+    coding: 1
+    web_access: false
+    parallel_safe: true
+    resume_support: none
+    auth:
+      required: false
+      method: none
+      interactive: false
+"""
+
+
+def _build_avail_corpus(tmp_path: Path) -> Path:
+    """Create a scratch rbtv_root whose orchestration/models/ holds a mix of dirs:
+      - alpha, beta, gamma        → real packages (manifest.yaml present)
+      - _api                      → SKIP_DIRS infra dir (with a manifest) — must be excluded
+      - _scratch                  → `_`-prefixed dir (with a manifest) — must be excluded
+      - nomanifest                → directory WITHOUT manifest.yaml — must be excluded
+    Returns the scratch rbtv_root; models_dir = scratch_rbtv_root / orchestration / models.
+    """
+    models = tmp_path / "orchestration" / "models"
+    for name in ("alpha", "beta", "gamma", "_api", "_scratch"):
+        d = models / name
+        d.mkdir(parents=True)
+        (d / "manifest.yaml").write_text(
+            _AVAIL_MINIMAL_MANIFEST.format(name=name), encoding="utf-8"
+        )
+    (models / "nomanifest").mkdir(parents=True)  # dir present, no manifest.yaml
+    return tmp_path
+
+
+class TestAvailability:
+    """`route.py --availability`: profile-free recall of the elected vs not-elected package
+    ids. elected = rbtv.json `model_packages` ∩ present-on-disk (all-present when absent/None);
+    not_elected = present − elected; both ids-only and sorted. Reports ELECTION only — not
+    availability-now. Mirrors the file's conventions (subprocess via --rbtv-json scratch
+    election; unit calls via `import route`; synthetic corpora via tmp_path)."""
+
+    def test_present_package_dirs_excludes_infra_and_manifestless(self, tmp_path):
+        """(d) `_present_package_dirs` returns only real package dirs (manifest.yaml present),
+        excluding `_`-prefixed dirs, SKIP_DIRS infra dirs, and dirs without a manifest —
+        the SAME skip rules `_enumerate_models` applies. Sorted."""
+        import route
+        rbtv_root = _build_avail_corpus(tmp_path)
+        models_dir = rbtv_root / "orchestration" / "models"
+        present = route._present_package_dirs(models_dir)
+        assert present == ["alpha", "beta", "gamma"], (
+            f"present should exclude _api/_scratch (infra/_-prefix) and nomanifest, sorted; got {present}"
+        )
+
+    def test_build_availability_partitions_elected_vs_not_elected(self, tmp_path):
+        """(a)+(b) build_availability partitions present packages into elected/not_elected by
+        the rbtv.json election, ids only, both sorted. Elected drawn from model_packages ∩ present."""
+        import route
+        rbtv_root = _build_avail_corpus(tmp_path)
+        cfg = {"model_packages": ["gamma", "alpha"]}  # deliberately unsorted; both present
+        result = route.build_availability(rbtv_root, cfg)
+        assert result == {"elected": ["alpha", "gamma"], "not_elected": ["beta"]}, result
+        # ids only — no display labels / dicts leaked in
+        assert all(isinstance(x, str) for x in result["elected"] + result["not_elected"])
+
+    def test_build_availability_drops_elected_not_present(self, tmp_path):
+        """An elected id with no package dir on disk is filtered OUT of elected (election ∩
+        present), and never appears in not_elected (which is present − elected)."""
+        import route
+        rbtv_root = _build_avail_corpus(tmp_path)
+        cfg = {"model_packages": ["alpha", "ghost-not-on-disk"]}
+        result = route.build_availability(rbtv_root, cfg)
+        assert result["elected"] == ["alpha"], result
+        assert "ghost-not-on-disk" not in result["not_elected"], result
+        assert result["not_elected"] == ["beta", "gamma"], result
+
+    def test_model_packages_absent_all_present_elected(self, tmp_path):
+        """(c) model_packages absent/None ⇒ election filter off ⇒ ALL present packages elected,
+        not_elected == [] (mirrors route.py's elected=None ⇒ no filter)."""
+        import route
+        rbtv_root = _build_avail_corpus(tmp_path)
+        for cfg in ({}, {"model_packages": None}):
+            result = route.build_availability(rbtv_root, cfg)
+            assert result == {"elected": ["alpha", "beta", "gamma"], "not_elected": []}, (cfg, result)
+
+    def test_cli_rbtv_json_scratch_election(self, tmp_path):
+        """(a) end-to-end CLI: `--availability --rbtv-json <scratch>` over a scratch election
+        prints {elected,not_elected} as JSON, exit 0, reading NO stdin (closed). The scratch
+        rbtv.json elects a subset of the present synthetic packages."""
+        rbtv_root = _build_avail_corpus(tmp_path)
+        models_dir = rbtv_root / "orchestration" / "models"
+        rbtv_json = tmp_path / "rbtv.json"
+        rbtv_json.write_text(json.dumps({"model_packages": ["beta"]}), encoding="utf-8")
+        # --models-dir points the catalog at the scratch corpus; --rbtv-json supplies the election.
+        cmd = [
+            sys.executable, str(ROUTE_PY),
+            "--availability", "--rbtv-json", str(rbtv_json),
+            "--models-dir", str(models_dir),
+        ]
+        proc = subprocess.run(
+            cmd, input="", capture_output=True, text=True, env=os.environ.copy()
+        )
+        assert proc.returncode == 0, f"{proc.stdout}\n{proc.stderr}"
+        result = json.loads(proc.stdout)
+        # Under --models-dir the catalog is the scratch corpus; election comes from --rbtv-json.
+        assert result == {"elected": ["beta"], "not_elected": ["alpha", "gamma"]}, result
+
+    def test_cli_ignores_explain_and_reads_no_stdin(self, tmp_path):
+        """(e) --availability with --explain present and stdin CLOSED still exits 0 with valid
+        availability JSON (no profile read, --explain ignored) — proving the verdict path is
+        untouched and the branch fires before any stdin/profile load."""
+        rbtv_root = _build_avail_corpus(tmp_path)
+        models_dir = rbtv_root / "orchestration" / "models"
+        rbtv_json = tmp_path / "rbtv.json"
+        rbtv_json.write_text(json.dumps({"model_packages": ["alpha", "beta", "gamma"]}), encoding="utf-8")
+        cmd = [
+            sys.executable, str(ROUTE_PY),
+            "--availability", "--explain",
+            "--rbtv-json", str(rbtv_json), "--models-dir", str(models_dir),
+        ]
+        proc = subprocess.run(
+            cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, env=os.environ.copy()
+        )
+        assert proc.returncode == 0, f"{proc.stdout}\n{proc.stderr}"
+        result = json.loads(proc.stdout)
+        assert set(result.keys()) == {"elected", "not_elected"}, result
+        assert result == {"elected": ["alpha", "beta", "gamma"], "not_elected": []}, result
+        # --explain must NOT have leaked a trace into the availability output.
+        assert "explain" not in result, result
+
+    def test_verdict_path_still_works_without_availability(self):
+        """(e, twin) Sanity that hoisting the path block did not break the verdict path: a normal
+        profile run over the full corpus (election bypassed via --models-dir) still routes."""
+        profile = _profile(boundedness="fully-bounded", task_type="code", inlined_context_size=10000)
+        exit_code, result = _run_route(profile, explain=False)
+        assert exit_code == 0, f"verdict path broke after --availability hoist: {result}"
+        assert result["verdict"] == "route", result
+
+    def test_unit_partition_over_real_corpus(self):
+        """(f) Unit partition over the REAL corpus: build_availability's elected ∪ not_elected
+        equals _present_package_dirs of the live models/ dir, the two are disjoint, elected ⊆
+        the live rbtv.json election, and both are sorted ids."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        models_dir = RBTV_ROOT / "orchestration" / "models"
+        present = set(route._present_package_dirs(models_dir))
+        result = route.build_availability(RBTV_ROOT, cfg)
+        elected, not_elected = result["elected"], result["not_elected"]
+        assert set(elected) | set(not_elected) == present, (elected, not_elected, sorted(present))
+        assert set(elected).isdisjoint(not_elected), (elected, not_elected)
+        assert elected == sorted(elected) and not_elected == sorted(not_elected)
+        election = cfg.get("model_packages")
+        if election is not None:
+            assert set(elected) <= set(election), (elected, election)
+        else:
+            assert not_elected == [], not_elected

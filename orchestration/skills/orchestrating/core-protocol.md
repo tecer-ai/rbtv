@@ -47,18 +47,13 @@ Reading the table: most situations map to a card; a CLI dispatch additionally ma
 
 ---
 
-## Capability summary — the model packages elected here
+## Capability summary — what is routable here
 
-One line per ELECTED model package, always in the core so routing can recall what is routable WITHOUT opening a manual (the full manual is read JIT at the first dispatch to that model in the current session). Routability is election-authoritative: a package routes here iff the owner ELECTED it in `rbtv.json` `model_packages` — `route.py` reads that election and enumerates only the elected packages, never the raw folder. The live `{rbtv_path}/orchestration/models/` folder is the shippable CATALOG (every package the repo ships — an election-independent superset); folder presence is a necessary guard (you cannot dispatch a package whose files are absent), NOT the routable set.
+Routability is election-authoritative: a package routes here iff the owner ELECTED it in `rbtv.json` `model_packages` (at the workspace root) — `route.py` reads that election and enumerates only the elected packages, never the raw folder. The live `{rbtv_path}/orchestration/models/` folder is the shippable CATALOG (every package the repo ships — an election-independent superset); folder presence is a necessary guard (you cannot dispatch a package whose files are absent), NOT the routable set.
 
-The availability line below is written by the installer (`install.py`) at install time from this workspace's election — the first line names the ELECTED (routable) packages, the second the present-but-not-elected ones (the installer replaces only the content BETWEEN the `ORCH:AVAILABILITY` markers; they are preserved so re-install is idempotent). It is a human recall surface: `rbtv.json` `model_packages` is the authority `route.py` actually reads, so routing stays correct even if this shared line lags (in a multi-workspace repo the last install wins the line). On any line-vs-folder mismatch the ELECTION wins — the extra folder packages are catalog, not routable; the routing card §1 logs the reconciliation.
+`rbtv.json` `model_packages` is the single authority; nothing about the elected set is baked into this shared file. The conductor recalls the elected set on demand by running `python {rbtv_path}/orchestration/models/route.py --availability` (`{rbtv_path}` resolves from `rbtv.json`), which prints `{"elected": [<ids>], "not_elected": [<ids>]}` — the elected (routable) package ids and the present-but-not-elected ones. This recall reports ELECTION only; AVAILABILITY-NOW (api-key resolution, package-folder presence at dispatch time) is a SEPARATE per-dispatch decision `route.py` makes at routing time, NOT what `--availability` reports (routing card §1).
 
-<!-- ORCH:AVAILABILITY:BEGIN -->
-> **Model packages installed:** claude (native, from Claude Code), codex (CLI), deepseek (API), gemini (API), kimi-code (CLI), qwen-code (CLI)
-> **Not elected:** claude-code (CLI), manus (API)
-<!-- ORCH:AVAILABILITY:END -->
-
-Per-model capability lines — a STATIC reference roster of the model packages this skill can carry, NOT a list of what is elected here. A line's presence in this table says nothing about routability: routability is decided ONLY by the workspace election (`rbtv.json` `model_packages`, reflected in the baked block above); the live `models/` folder is the catalog the elected packages are drawn from, not the routable set. Routing reads the elected package's manifest for the full field set — these lines are the at-a-glance recall, not the routing inputs:
+Per-model capability lines — a STATIC reference roster of the model packages this skill can carry, NOT a list of what is elected here. A line's presence in this table says nothing about routability: routability is decided ONLY by the workspace election (`rbtv.json` `model_packages`, recalled via `python {rbtv_path}/orchestration/models/route.py --availability`); the live `models/` folder is the catalog the elected packages are drawn from, not the routable set. Routing reads the elected package's manifest for the full field set — these lines are the at-a-glance recall, not the routing inputs:
 
 | Model package | reasoning / coding / cost (1–7; 7=strongest/priciest) | routable_for | One-line capability (recall only — manifest is authoritative) |
 |---------------|-------------------------------------------------------|--------------|----------------------------------------------------------------|
@@ -71,7 +66,7 @@ Per-model capability lines — a STATIC reference roster of the model packages t
 | **gemini-api** | 3.5-flash 6/3/4 · 3.1-flash-lite 2/1/2 | `[reasoning, text-synthesis, web-research, other]` | API chat text-worker — carries native web access (search grounding, shipped: dispatch `--grounded` for the light-grounding web-research leaf); `routable_for` omits code roles (D13); the only web-capable chat worker. |
 | **manus-api** | manus-autonomous 1/1/1 | `[web-research]` | Autonomous web-research agent — browser navigation, clicks, full multi-step workflows; server-side agentic loop (no client-set effort dial); per-task cost. Values owner-sourced (not on AA board); `cost: 1` owner-hardcoded. Eligible ONLY for `web-research` leaves. |
 
-A line here is recall, not permission: routing routes only on `(model, variant)` pairs from an ELECTED package's manifest, and the lines for non-elected packages are simply not in play this run. `rbtv.json` `model_packages` (reflected in the baked block above) is the single source for what is ELECTED — and therefore routable — in this workspace.
+A line here is recall, not permission: routing routes only on `(model, variant)` pairs from an ELECTED package's manifest, and the lines for non-elected packages are simply not in play this run. `rbtv.json` `model_packages` (recalled via `python {rbtv_path}/orchestration/models/route.py --availability`) is the single source for what is ELECTED — and therefore routable — in this workspace.
 
 ---
 

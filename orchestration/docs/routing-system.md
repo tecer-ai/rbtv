@@ -141,7 +141,7 @@ orchestration/models/
 
 **Election is authoritative.** `route.py` enumerates only the packages listed in `rbtv.json` → `model_packages`, and (for a configurable package such as a multi-backend CLI) only the backends listed in `model_variants`. A package or backend absent from those lists is skipped at enumeration. When the lists are absent (e.g. a `--models-dir` override) no election filter applies.
 
-The `<!-- ORCH:AVAILABILITY:BEGIN/END -->` block in `orchestration/skills/orchestrating/core-protocol.md` is an installer-written **recall surface only** (last-install-wins) — it tells the skill what is routable; it is not a routing input. `route.py` reads election from `rbtv.json`, not from that block.
+The orchestrating skill recalls the elected (and therefore routable) set on demand by running `python {rbtv_path}/orchestration/models/route.py --availability`, which prints `{elected:[ids], not_elected:[ids]}` from `rbtv.json` `model_packages` filtered to packages present on disk — a **recall surface only**, not a routing input. Nothing is baked into the shared repo, so the recall cannot go stale. `route.py` reads election from `rbtv.json` for routing too; the `--availability` flag just exposes that election for the conductor to read.
 
 ---
 

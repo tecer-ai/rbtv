@@ -32,7 +32,6 @@ from .generator import (
 )
 from .manifest import Module, load_manifest
 from .orchestration import (
-    bake_availability_line,
     build_electable_entries,
     build_plan_size_presets,
     check_manual_render,
@@ -350,7 +349,7 @@ def _resolve_model_packages(
     backends — this workspace elects.
 
     Returns (installed, absent, persisted_packages, persisted_variants):
-      - installed / absent feed the availability-line bake (package granularity),
+      - installed / absent feed the permission-allowlist reconcile (package granularity),
       - persisted_packages is written to rbtv.json `model_packages` (None => key omitted:
         the orchestration module is not installed so packages do not apply),
       - persisted_variants is written to rbtv.json `model_variants` (None => key omitted:
@@ -1228,7 +1227,7 @@ def main(argv: list[str] | None = None) -> int:
     if stale_count:
         print(f"  ({stale_count} stale component(s) retired — not installed)")
 
-    # --- Orchestration: availability-line bake + render-freshness check (D18) -
+    # --- Orchestration: permission sync + hook wire + plan caps + render check (D18) -
 
     # model_mirror block to persist in write_state. None => preserve any prior
     # block (write_state carries it forward from disk). Set to the driver-written
@@ -1237,8 +1236,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if ORCHESTRATION_MODULE in chosen_modules:
         if mp_installed or mp_absent:
-            changed, msg = bake_availability_line(rbtv_root, mp_installed, mp_absent)
-            print(f"\n  {msg}")
             # Permission allowlist reconcile (D17): elected CLI packages get
             # their manifest-declared entries in the target's
             # .claude/settings.local.json; non-elected packages' entries are
@@ -1275,8 +1272,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {plan_caps_result[1]}")
         # Render-freshness check is advisory (WARN, never abort) — matches the
         # plugin-prereq convention. A stale manual degrades gracefully (manuals
-        # are read JIT from the source repo; the routing card trusts the live
-        # folder over any baked line).
+        # are read JIT from the source repo; the routing card reads the live
+        # folder, not a stored copy).
         status, render_msg = check_manual_render(rbtv_root)
         if status in ("stale", "error"):
             print(f"\n  WARNING — {render_msg}", file=sys.stderr)
