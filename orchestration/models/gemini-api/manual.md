@@ -121,7 +121,7 @@ The `_api/run.py` runner makes the API call and writes its results into `--outpu
 
 The conductor treats `return.json` as the primary return signal. Reconcile it against the envelope files on disk — on any disagreement between `return.json` and the on-disk files, disk wins. A missing `return.json` (runner crashed) means the dispatch status is `BLOCKED`; no recovery path exists for API workers (re-dispatch fresh).
 
-**Grounded mode — `--grounded` passed:** a grounded dispatch does NOT produce a standard `return.json` envelope, because grounding is **mutually exclusive with JSON-envelope mode** in the client (`gemini.py`: setting `grounding` swaps `responseMimeType: application/json` for the `google_search` tool). A grounded call returns `DONE_WITH_NOTES` + a `raw-output.md` raw dump and NO `return.json`. The conductor distinguishes the two modes by whether it passed `--grounded`: if it did, it expects the raw-dump surface and parses `raw-output.md`, not a five-field envelope.
+**Grounded mode — `--grounded` passed:** a grounded dispatch is a **raw-dump research path**. The runner asks the model for clean Markdown (NOT the `{files:...}` envelope) and writes the answer verbatim to `raw-output.md`, returning `status: DONE_WITH_NOTES` with `landed: ["raw-output.md"]`. `return.json` IS still written (every runner exit writes it) — read it for `status`/`concerns`, and read `raw-output.md` for the answer. The runner emits NO model-named envelope file in grounded mode. (At the API level, grounding is mutually exclusive with `responseMimeType: application/json` — `gemini.py` swaps it for the `google_search` tool — so the structured-JSON envelope is unavailable in grounded mode; the runner therefore skips envelope parsing entirely.) Grounded calls also run with a larger `maxOutputTokens` default than the JSON-envelope path: 3.x-flash extended thinking is billed against `maxOutputTokens`, so too small a budget starves the visible answer (the 2026-06-24 empty/truncated-output fix).
 <!-- The model package delta names this worker's exact return surface (e.g., the CLI's final-message flag, the evidence-file convention) here. The fields above never change. -->
 
 ---
@@ -160,7 +160,7 @@ python orchestration/models/_api/run.py `
 | `--model <id>` | yes | Actual Gemini API model id — re-verify against provider docs; NOT the RBTV routing label |
 | `--prompt-file <f>` | yes | Path to the prompt file written by the conductor (the composed header + payload) |
 | `--output-folder <d>` | yes | Directory the runner writes results into; created by the runner if absent |
-| `--grounded` | no | Enables Google Search grounding (`extra_params["grounding"]=True`). Switches the call out of JSON-envelope mode → raw-dump return (`DONE_WITH_NOTES` + `raw-output.md`, no `return.json`). Use ONLY for the light-grounding web-research leaf. |
+| `--grounded` | no | Enables Google Search grounding (`extra_params["grounding"]=True`). Switches the call to the raw-dump research path → answer in `raw-output.md` (`DONE_WITH_NOTES`, `landed:[raw-output.md]`; `return.json` is still written). Use ONLY for the light-grounding web-research leaf. |
 | `--extra-params <json>` | no | Advanced JSON pass-through merged into `extra_params`. Rarely needed; `--grounded` is the supported grounding switch. |
 
 ### Variant selection
@@ -181,9 +181,9 @@ Search grounding is **wired end-to-end and dispatchable** via `--grounded`. Gemi
 | Dispatch type | When to use | Return surface |
 |---------------|-------------|----------------|
 | Default JSON-envelope (no `--grounded`) | Text generation, reasoning, summarization, structured output over inlined context | Standard: `return.json` + envelope files |
-| Grounded (`--grounded`, web-research leaf) | A single light grounded lookup — one search-grounded call, NOT rigorous multi-source research | Raw-dump — `DONE_WITH_NOTES` + `raw-output.md`, NO `return.json` (grounding is mutually exclusive with JSON-envelope mode in the client) |
+| Grounded (`--grounded`, web-research leaf) | A single light grounded lookup — one search-grounded call, NOT rigorous multi-source research | Raw-dump — answer (clean Markdown) in `raw-output.md` (`DONE_WITH_NOTES`, `landed:[raw-output.md]`); `return.json` still written, no envelope file |
 
-The two modes are mutually exclusive on a single call: `--grounded` swaps `responseMimeType: application/json` for the `google_search` tool. For rigorous multi-source research (source evaluation, citations, cross-checking), route to the `rbtv-web-searching` Agent-tool path instead — Gemini grounding is light single-call only.
+The two modes are mutually exclusive on a single call: `--grounded` swaps `responseMimeType: application/json` for the `google_search` tool, so the runner skips the `{files:...}` envelope and dumps the answer raw. Grounded calls use a larger `maxOutputTokens` default than the JSON-envelope path because 3.x-flash extended thinking is billed against `maxOutputTokens` — too small a budget starves the visible answer (the 2026-06-24 fix). For rigorous multi-source research (source evaluation, citations, cross-checking), route to the `rbtv-web-searching` Agent-tool path instead — Gemini grounding is light single-call only.
 
 ### Exit handling
 
@@ -202,7 +202,8 @@ HTTP-level retries (429, 5xx) are the runner's responsibility — the conductor 
 |---------|-------------|
 | Stale model id dispatched | Always re-verify `--model <id>` against live Google docs before pilot; routing labels are NOT API ids |
 | API key absent | Pre-flight key-resolution check; degrade gracefully, never halt the run |
-| Grounded dispatch expected to return `return.json` | A `--grounded` call returns `DONE_WITH_NOTES` + `raw-output.md`, NO `return.json` (grounding ⊕ JSON-envelope mode). Expect the raw-dump surface; do NOT treat the missing `return.json` as a runner crash |
+| Grounded answer — where it lands | A `--grounded` call writes the answer to `raw-output.md` (`DONE_WITH_NOTES`, `landed:[raw-output.md]`); `return.json` IS also written (read it for status/concerns). The runner emits NO model-named envelope file in grounded mode — read `raw-output.md`, not an envelope |
+| Grounded `raw-output.md` truncated or empty | The thinking budget consumed `maxOutputTokens` (3.x-flash bills extended thinking against it). The client's grounded default (`_GROUNDED_MAX_OUTPUT_TOKENS` in `gemini.py`) covers thinking + a full light-grounding answer; raise that constant if an unusually long grounded answer is ever needed |
 | Rigorous multi-source research routed to Gemini | Gemini grounding is LIGHT single-call only — route rigorous multi-source research (source evaluation, citations, cross-checking) to the `rbtv-web-searching` Agent-tool path, not Gemini |
 | Missing `return.json` after runner exits 0 | Runner bug or output-folder permission issue; treat as `BLOCKED`, re-dispatch fresh |
 | No session resumption | A halted dispatch must be re-dispatched fresh with the resolution inlined; never attempt `--session` / `--continue` |
@@ -220,7 +221,7 @@ executor: gemini
 variant: 3.5-flash | 3.1-flash-lite
 output_folder: <path relative to the dispatch root — runner writes here>
 doubt_policy: halt
-grounded: true | false   # optional; default false. true → conductor passes --grounded (light grounded lookup, raw-dump return, no return.json). Set ONLY for the light-grounding web-research leaf.
+grounded: true | false   # optional; default false. true → conductor passes --grounded (light grounded lookup; raw-dump return — answer in raw-output.md, return.json still written). Set ONLY for the light-grounding web-research leaf.
 ```
 
 **Required body sections:** Goal (one bounded deliverable) · Context Snapshot (ALL context inlined — the worker cannot read the workspace) · Output Requirements (exact format the runner should write into `--output-folder`) · Return Format (five-field return schema in `return.json`).
@@ -247,7 +248,8 @@ python orchestration/models/_api/run.py `
 
 ```powershell
 # Grounded dispatch — single light grounded lookup (web-research leaf).
-# Returns DONE_WITH_NOTES + raw-output.md (NO return.json — grounding ⊕ JSON-envelope mode):
+# Returns the answer in raw-output.md (DONE_WITH_NOTES); return.json is also written.
+# Grounded = raw-dump: the runner asks for clean Markdown and parses no {files:...} envelope:
 python orchestration/models/_api/run.py `
   --provider gemini `
   --model <gemini-3.5-flash-api-id> `

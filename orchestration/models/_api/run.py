@@ -206,6 +206,11 @@ def main() -> None:
         extra_params.update(parsed)
     extra_params_arg: Optional[Dict[str, Any]] = extra_params or None
 
+    # Effective grounding flag — set by --grounded OR by --extra-params {"grounding":true}.
+    # Grounded dispatches are a raw-dump research path (gemini-api manual): no JSON
+    # envelope is requested and the answer is written verbatim to raw-output.md.
+    grounded = bool(extra_params.get("grounding"))
+
     # --- dynamic client resolution ---
     try:
         mod = importlib.import_module(f"clients.{args.provider}")
@@ -253,16 +258,31 @@ def main() -> None:
         prompt_text += f"\n\n--- TARGET FILE: {target_path} ---\n{target_content}"
 
     # --- build messages ---
-    system_msg = Message(
-        role="system",
-        content=(
-            'Respond ONLY with a single JSON object of the exact shape: '
-            '{"files": [{"path": "<relative path>", "content": "<file text>"}], '
-            '"concerns": [], "open_questions": []}. '
-            'Each file you want written goes in "files". Use relative paths only. '
-            'Do not wrap the JSON in markdown fences.'
-        ),
-    )
+    # Grounded mode is a raw-dump research path: the runner writes the model's answer
+    # verbatim to raw-output.md and parses NO {files:...} envelope. Asking for the JSON
+    # envelope there makes the model waste its (thinking-shared) output budget wrapping
+    # the answer in JSON and bifurcates the return surface, so grounded mode gets a
+    # plain markdown-answer instruction instead.
+    if grounded:
+        system_msg = Message(
+            role="system",
+            content=(
+                "Answer the user's request thoroughly using web search grounding. "
+                "Write the answer in clean Markdown prose. Do NOT wrap your answer in "
+                "a JSON object or code fences."
+            ),
+        )
+    else:
+        system_msg = Message(
+            role="system",
+            content=(
+                'Respond ONLY with a single JSON object of the exact shape: '
+                '{"files": [{"path": "<relative path>", "content": "<file text>"}], '
+                '"concerns": [], "open_questions": []}. '
+                'Each file you want written goes in "files". Use relative paths only. '
+                'Do not wrap the JSON in markdown fences.'
+            ),
+        )
     user_msg = Message(role="user", content=prompt_text)
     messages = [system_msg, user_msg]
 
@@ -312,7 +332,10 @@ def main() -> None:
     os.makedirs(args.output_folder, exist_ok=True)
 
     envelope_valid = False
-    if client.structured_output:
+    # Grounded dispatches bypass envelope parsing entirely — the answer is written raw
+    # to raw-output.md per the documented grounded return surface, never parsed as a
+    # {files:...} envelope (which the grounded system prompt never requested).
+    if client.structured_output and not grounded:
         try:
             env = json.loads(response.content)
             validation["json_parsed"] = True
@@ -345,10 +368,16 @@ def main() -> None:
         raw_path.write_text(response.content or "", encoding="utf-8")
         landed = ["raw-output.md"]
         concerns = concerns or []
-        concerns.append(
-            "model did not return the {files:...} envelope — "
-            "raw response dumped to raw-output.md"
-        )
+        if grounded:
+            concerns.append(
+                "grounded dispatch — raw model answer written to raw-output.md "
+                "(grounded mode parses no {files:...} envelope)"
+            )
+        else:
+            concerns.append(
+                "model did not return the {files:...} envelope — "
+                "raw response dumped to raw-output.md"
+            )
         status = "DONE_WITH_NOTES"
 
     # truncation check
