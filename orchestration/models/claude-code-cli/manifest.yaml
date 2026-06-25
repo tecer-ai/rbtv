@@ -26,7 +26,7 @@
 
 model: claude-code-cli
 display: "claude-code (CLI)"
-evidence_status: validated   # the invocation contract (launch from a helper, JSON envelope, --model, acceptEdits, native CLAUDE.md load, --resume, exit semantics) is in-house probe-HELD (p3-6). The first real ORCHESTRATED sub-conductor dispatch through this manual is the p5-2 smoke probe — facets beyond the probe matrix (a full task-bearing dispatch, deep recovery) are exercised there.
+evidence_status: validated   # the invocation contract (launch from a helper, JSON envelope, --model, acceptEdits, native CLAUDE.md load, --resume, exit semantics) is in-house probe-HELD (p3-6). The first real ORCHESTRATED sub-conductor dispatch through this manual was the p5-2 smoke probe. A full task-bearing dispatch + the --effort max profile are now VALIDATED IN PRODUCTION (2026-06-25, rbtv-sb component-review finalize: 10× `claude -p --model opus --effort max --permission-mode acceptEdits` review dispatches, every one is_error:false / exit 0, each a complete multi-section deliverable, ≈$2.9-4/call). Deep recovery (halt/resume/repair) remains unexercised.
 permission_rules:            # installer-managed allowlist entries in the target's .claude/settings.local.json — added when this package is elected, removed when deselected; schema: ../manifest-schema.md
   - "Bash(claude:*)"
   - "PowerShell(claude:*)"
