@@ -183,13 +183,21 @@ class F5CommentTests(unittest.TestCase):
         self.assertLess(agent_idx, link_idx)
         self.assertLess(agent_idx, style_idx)
 
-    def test_non_agent_does_not_emit_block(self):          # E-F5-8
+    def test_non_agent_emits_notice_block(self):           # E-F5-8
+        # An untagged-only file still carries a head block — a NOTICE (no
+        # per-comment [agent:] entries) telling reading agents to ignore the
+        # comment content but keep every thread anchored.
         self._open_composer()
         self._type_and_submit("just a note")
 
         out = os.path.join(os.path.dirname(self.copy), "out_f5_8.html")
         html = self._save_as_and_read(out)
-        self.assertNotIn("HYPRESENT AGENT INSTRUCTIONS", html)
+        self.assertIn("===== HYPRESENT AGENT INSTRUCTIONS =====", html)
+        self.assertIn("Comments NOT tagged for agents are human review notes", html)
+        self.assertIn("NONE is tagged for agents", html)
+        # No actionable entries in a notice block.
+        self.assertNotIn("[agent:", html)
+        self.assertNotIn("instruction:", html)
 
     def test_agent_block_escapes_body(self):               # E-F5-9
         self._open_composer()
@@ -221,13 +229,14 @@ class F5CommentTests(unittest.TestCase):
         html = self._save_as_and_read(out)
         self.assertIn("reply: also bold it — Tester", html)
 
-    def test_resolved_agent_thread_removes_block(self):    # E-F5-11
+    def test_resolved_agent_thread_drops_to_notice(self):  # E-F5-11
         self._open_composer()
         self._type_and_submit("Replace bullets", agent=True)
 
         out1 = os.path.join(os.path.dirname(self.copy), "out_f5_11a.html")
         html1 = self._save_as_and_read(out1)
         self.assertIn("HYPRESENT AGENT INSTRUCTIONS", html1)
+        self.assertIn("[agent:", html1)
 
         # close the thread (Reply is now an inline input, so Close is the first action button)
         self.page.locator("#comment-threads .comment-action-btn", has_text="Close").first.click()
@@ -235,7 +244,11 @@ class F5CommentTests(unittest.TestCase):
 
         out2 = os.path.join(os.path.dirname(self.copy), "out_f5_11b.html")
         html2 = self._save_as_and_read(out2)
-        self.assertNotIn("HYPRESENT AGENT INSTRUCTIONS", html2)
+        # The resolved thread still persists in the island, so the head block
+        # remains — but drops to a NOTICE: the actionable [agent:] entry is gone.
+        self.assertIn("===== HYPRESENT AGENT INSTRUCTIONS =====", html2)
+        self.assertNotIn("[agent:", html2)
+        self.assertIn("Comments NOT tagged for agents are human review notes", html2)
 
     def test_round_trip_reopens_agent_thread(self):        # E-F5-12
         self._open_composer()

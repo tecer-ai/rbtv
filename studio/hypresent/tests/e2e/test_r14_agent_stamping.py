@@ -271,6 +271,9 @@ class TestR14AgentStamping(unittest.TestCase):
         # Island pointer (decision 2): the block tells readers the full thread set
         # (untagged + resolved) lives in the #hyp-comments JSON island.
         self.assertIn('id="hyp-comments"', block)
+        # Absolute-gate rule: even with an agent thread present, the full block
+        # carries the untagged-comment contract for any non-tagged threads.
+        self.assertIn("Comments NOT tagged for agents are human review notes", block)
 
     # ---- E-R14-6: Stamping idempotence across multiple saves ----
     def test_e_r14_6_stamping_idempotence(self):
@@ -383,6 +386,27 @@ class TestR14AgentStamping(unittest.TestCase):
         self.assertEqual(result["t0"], "p-arch")
         self.assertEqual(result["n1"], 1)
         self.assertEqual(result["t1"], "li-2")
+
+    # ---- E-R14-9: Untagged-only file emits a notice block (no entries) ----
+    def test_e_r14_9_untagged_only_emits_notice(self):
+        self._select("p-lead")
+        self._add_comment("just a human note", agent=False)
+        threads = self._read_island()
+        self.assertEqual(len(threads), 1)
+        self.assertNotEqual(threads[0].get("agentInstruction"), True)
+
+        out = self._save_to_temp("-r14-9.html")
+        text = self._read_text(out)
+        block = self._extract_head_block(text)
+
+        # The head block is present as a NOTICE: it carries the gate rule and the
+        # "none tagged" preamble, but no actionable [agent:] entry or stamp.
+        self.assertNotEqual(block, "")
+        self.assertIn("NONE is tagged for agents", block)
+        self.assertIn("Comments NOT tagged for agents are human review notes", block)
+        self.assertNotIn("[agent:", block)
+        self.assertNotIn("instruction:", block)
+        self.assertNotIn("data-hyp-agent", text)
 
 
 if __name__ == "__main__":
