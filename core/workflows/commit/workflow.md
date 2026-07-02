@@ -39,6 +39,9 @@ python "{rbtv_path}/core/workflows/commit/commit.py" -m "<message>" -f <path> [-
 
 (`{rbtv_path}` above is the ABSOLUTE workspace-root-anchored path resolved here. The `-f` paths, by contrast, stay repo-root-relative — the script's cwd is inside `{repo}`.)
 
+- **Message passing — pick by shape:**
+  - **Single-line message** → inline `-m "<message>"`.
+  - **Multi-line message (body, bullet list, blank lines)** → NEVER inline it. Write the full message to a scratch file with the **Write tool** (e.g. the session scratchpad `commit-msg.txt`), then pass `-F "<abs-path-to-file>"` instead of `-m`. The Write tool stores the text verbatim, so the shell never quotes a multi-line string. **NEVER build a multi-line message with a shell heredoc or here-string** (`<<EOF`, PowerShell `@'...'@`) — the two shells' syntaxes differ and pasting one into the other silently corrupts the message (stray `@`/`EOF` markers land in the commit). `-m` and `-F` are mutually exclusive; give exactly one.
 - Pass each path with its own `-f`, repo-root-relative. List every path the cluster touches (including both sides of a rename).
 - A `-f` path may be a FILE or a DIRECTORY. A directory includes every changed file beneath it — use it when a cluster touches more files than fit on one command line (a long explicit `-f` list overflows the OS argument limit at a few hundred files). CAUTION: a directory commits whatever currently lives under it, so a parallel session's file dropped there rides along — prefer explicit file paths when the cluster must be exact.
 - Add `--push` ONLY if the user asked to push.

@@ -30,8 +30,16 @@ listed path are committed, but a directory sweeps in whatever currently lives
 there, including a parallel session's files — prefer explicit file paths when
 precision matters.
 
+The message is supplied EITHER inline (`-m`) for a simple single-line message, OR
+from a file (`-F/--message-file`). Prefer `-F` for any multi-line message: write
+the message to a file with your editor/Write tool and pass its path, so the shell
+never has to quote a multi-line string — this sidesteps the here-string / heredoc
+quoting footguns (e.g. PowerShell `@'...'@` syntax pasted into a POSIX shell) that
+silently corrupt the message. Exactly one of `-m` / `-F` must be given.
+
 Usage:
     python commit.py -m "feat: ..." -f path/a -f dir/b [--push]
+    python commit.py -F msg.txt    -f path/a -f dir/b [--push]
 """
 import argparse
 import os
@@ -81,12 +89,32 @@ def sync_after_commit(root, before):
 
 def main():
     p = argparse.ArgumentParser(description="Deterministic git commit (rbtv-commit). Run from inside the repo.")
-    p.add_argument("-m", "--message", required=True, help="Commit message for this cluster.")
+    p.add_argument("-m", "--message", help="Inline commit message (single-line / simple). "
+                   "Mutually exclusive with -F.")
+    p.add_argument("-F", "--message-file", dest="message_file",
+                   help="Path to a UTF-8 file holding the commit message. Preferred for any "
+                        "multi-line message: write the file with your Write tool so the shell "
+                        "never quotes the message (no here-string / heredoc footguns). "
+                        "Mutually exclusive with -m.")
     p.add_argument("-f", "--file", dest="files", action="append", required=True,
                    help="A repo-root-relative file OR directory to include (a directory "
                         "includes every changed file beneath it). Repeat for each path.")
     p.add_argument("--push", action="store_true", help="Push after a successful commit.")
     args = p.parse_args()
+
+    # Exactly one message source. Reading from a file is the shell-quoting-proof path.
+    if bool(args.message) == bool(args.message_file):
+        fail("provide exactly one of -m/--message or -F/--message-file.")
+    if args.message_file:
+        try:
+            with open(args.message_file, encoding="utf-8") as fh:
+                message = fh.read()
+        except OSError as e:
+            fail(f"cannot read --message-file {args.message_file!r}: {e}")
+    else:
+        message = args.message
+    if not message.strip():
+        fail("commit message is empty.")
 
     res = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True,
                          encoding="utf-8", errors="surrogateescape")
@@ -149,7 +177,7 @@ def main():
 
     # --- commit (capturing the undo target first), then sync the remote on top ---
     before = git(["rev-parse", "HEAD"], root, check=False).stdout.strip()
-    git(["commit", "-m", args.message], root)
+    git(["commit", "-m", message], root)
     committed = git(["rev-parse", "--short", "HEAD"], root).stdout.strip()  # MY commit, before any sync merge
     if behind and before:
         sync_after_commit(root, before)
@@ -158,7 +186,7 @@ def main():
     in_commit = [ln for ln in git(
         ["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", "-z", committed], root
     ).stdout.split("\0") if ln]
-    print(f"committed {committed}: {args.message.splitlines()[0]}")
+    print(f"committed {committed}: {message.splitlines()[0]}")
     print(f"files in commit ({len(in_commit)}): " + ", ".join(in_commit))
     merged = git(["rev-parse", "--short", "HEAD"], root).stdout.strip()
     if merged != committed:

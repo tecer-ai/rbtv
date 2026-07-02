@@ -28,6 +28,11 @@ def run_commit(repo, files, message="test commit"):
     return subprocess.run(argv, cwd=repo, text=True, capture_output=True)
 
 
+def commit_message(repo, ref="HEAD"):
+    """The full commit message recorded in `ref`."""
+    return git(["log", "-1", "--format=%B", ref], repo)
+
+
 def commit_files(repo, ref="HEAD"):
     """The set of paths recorded in `ref`'s commit object."""
     out = git(["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", ref], repo)
@@ -103,6 +108,47 @@ def test_bogus_path_fails_loud(repo):
     res = run_commit(repo, ["real.md", "ghost-dir"], "with ghost")
     assert res.returncode != 0
     assert "no changes to commit" in (res.stderr + res.stdout)
+
+
+def test_message_file_multiline(repo, tmp_path):
+    """A multi-line message supplied via -F/--message-file is committed verbatim —
+    the shell-quoting-proof path. Special chars (@, backticks, ->) survive intact."""
+    write(repo, "file.md", "content\n")
+    msg = (
+        "docs: move 4 tasks -> Phase-6 backlog\n"
+        "\n"
+        "- item with `backticks` and @literal chars\n"
+        "- second bullet\n"
+    )
+    msg_file = tmp_path / "commit-msg.txt"
+    msg_file.write_text(msg, encoding="utf-8")
+
+    argv = [sys.executable, COMMIT_PY, "-F", str(msg_file), "-f", "file.md"]
+    res = subprocess.run(argv, cwd=repo, text=True, capture_output=True)
+    assert res.returncode == 0, f"{res.stderr}\n{res.stdout}"
+    assert commit_files(repo) == {"file.md"}
+    # Committed message equals the file content (git strips only the trailing newline).
+    assert commit_message(repo).strip() == msg.strip()
+
+
+def test_message_and_message_file_mutually_exclusive(repo, tmp_path):
+    """Giving both -m and -F is a loud error and makes no commit."""
+    write(repo, "file.md", "content\n")
+    msg_file = tmp_path / "m.txt"
+    msg_file.write_text("from file\n", encoding="utf-8")
+    argv = [sys.executable, COMMIT_PY, "-m", "inline", "-F", str(msg_file), "-f", "file.md"]
+    res = subprocess.run(argv, cwd=repo, text=True, capture_output=True)
+    assert res.returncode != 0
+    assert "exactly one of" in (res.stderr + res.stdout)
+
+
+def test_no_message_fails_loud(repo):
+    """Neither -m nor -F is a loud error."""
+    write(repo, "file.md", "content\n")
+    argv = [sys.executable, COMMIT_PY, "-f", "file.md"]
+    res = subprocess.run(argv, cwd=repo, text=True, capture_output=True)
+    assert res.returncode != 0
+    assert "exactly one of" in (res.stderr + res.stdout)
 
 
 def test_move_excludes_parallel_staged_file(repo):
