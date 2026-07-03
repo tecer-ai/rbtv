@@ -1186,3 +1186,77 @@ class TestLineEndingPreservation:
         assert not bad_files, (
             f"Stamp targets containing CRLF after transition: {bad_files}"
         )
+
+
+class TestFreshRunLogFirstEvent:
+    """The run's FIRST conductor-scope stamp lands on a run-log freshly
+    instantiated from run-log-template.md, whose Event Log table has only the
+    header + divider (no data rows). Regression: append_run_log_event used to
+    raise 'Event Log table has no rows to append after', forcing the state-card
+    §7 manual fallback on every new run (poc-1-build, 2026-07-02). The first
+    event must now append directly after the divider and exit 0."""
+
+    def _empty_the_event_log(self, plan_dir):
+        """Strip every Event Log data row, leaving only the header + divider —
+        the fresh-instantiation shape the template ships."""
+        rl_path = os.path.join(plan_dir, "run-log.md")
+        content = read_file(rl_path)
+        lines = content.splitlines()
+        start = lines.index("## Event Log") + 1
+        end = next((i for i in range(start, len(lines))
+                    if lines[i].startswith("## ")), len(lines))
+        kept = []
+        for i in range(start, end):
+            stripped = lines[i].strip()
+            is_data_row = (
+                stripped.startswith("|")
+                and not stripped.startswith("| Timestamp")
+                and not stripped.startswith("|---")
+            )
+            if not is_data_row:
+                kept.append(lines[i])
+        new_lines = lines[:start] + kept + lines[end:]
+        # newline="" — preserve the fixture's LF endings (stamp.py's contract).
+        with open(rl_path, "w", encoding="utf-8", newline="") as f:
+            f.write("\n".join(new_lines) + "\n")
+        return rl_path
+
+    def test_first_event_appends_after_divider(self, plan_dir):
+        rl_path = self._empty_the_event_log(plan_dir)
+        # Precondition: no data rows remain.
+        assert event_log_rows(read_file(rl_path)) == []
+
+        rc, stdout, stderr = run_stamp(
+            plan_dir,
+            *conductor_args("p1-1", event_type="recovery",
+                            outcome="first event on a fresh run-log"),
+        )
+        assert rc == 0, f"stderr: {stderr}"
+        assert "run_log_event: changed" in stdout
+
+        after_lines = read_file(rl_path).splitlines()
+        # The composed row is the single Event Log data row, and it sits
+        # immediately after the divider.
+        divider_idx = next(i for i, ln in enumerate(after_lines)
+                           if ln.strip().startswith("|---"))
+        first_row = after_lines[divider_idx + 1]
+        cells = [c.strip() for c in first_row.split("|")]
+        assert len(cells) == 7, f"First row is not a 5-col table row: {first_row!r}"
+        assert cells[2] == "recovery" and cells[3] == "p1-1"
+        assert cells[5] == "first event on a fresh run-log"
+
+        rows = event_log_rows(read_file(rl_path))
+        assert len(rows) == 1, f"Expected exactly one appended row, got {len(rows)}"
+
+    def test_first_event_dedup_holds_on_re_run(self, plan_dir):
+        """Idempotency is unchanged on the fresh-run-log path: an identical
+        re-stamp of the first event is a no-op (no second row)."""
+        rl_path = self._empty_the_event_log(plan_dir)
+        args = conductor_args("p1-1", event_type="recovery",
+                              outcome="first event on a fresh run-log")
+        run_stamp(plan_dir, *args)
+        rc, stdout, stderr = run_stamp(plan_dir, *args)
+        assert rc == 0, f"stderr: {stderr}"
+        assert "run_log_event: unchanged" in stdout
+        rows = event_log_rows(read_file(rl_path))
+        assert len(rows) == 1, f"Re-run duplicated the first event: {len(rows)} rows"

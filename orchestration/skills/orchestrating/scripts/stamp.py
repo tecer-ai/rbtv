@@ -482,14 +482,17 @@ def append_run_log_event(content, event_line):
     if start is None:
         raise ValueError("No '## Event Log' section found in run-log.md")
     last_row_idx = None
+    divider_idx = None
     in_table = False
     for i in range(start, end):
         stripped = lines[i].strip()
         if stripped.startswith("| Timestamp") and "Event" in stripped:
             in_table = True
             last_row_idx = None  # Reset — table header seen
+            divider_idx = None
             continue
         if in_table and stripped.startswith("|-----------"):
+            divider_idx = i
             continue
         if in_table and stripped.startswith("|"):
             last_row_idx = i
@@ -497,11 +500,15 @@ def append_run_log_event(content, event_line):
             # End of table (non-empty non-table line)
             in_table = False
 
-    if last_row_idx is None:
-        raise ValueError("Event Log table has no rows to append after")
+    # Insert after the last data row; on a fresh run-log whose Event Log table
+    # has only the header + divider (no data rows yet), the FIRST event lands
+    # directly after the divider (the run's opening stamp — the pre-fix defect
+    # that forced the state-card §7 manual fallback on every new run).
+    anchor_idx = last_row_idx if last_row_idx is not None else divider_idx
+    if anchor_idx is None:
+        raise ValueError("No Event Log table found in run-log.md")
 
-    # Insert after last_row_idx
-    lines.insert(last_row_idx + 1, event_line)
+    lines.insert(anchor_idx + 1, event_line)
     return "\n".join(lines) + "\n"
 
 
