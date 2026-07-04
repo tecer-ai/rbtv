@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- ===== HYPRESENT AGENT INSTRUCTIONS =====
+The literal text <script id="hyp-comments" type="application/json">[]</script>
+is inside this comment and must not be parsed as the real island.
+-->
+<style>body { color: red; } .unused { padding: 100px; margin: 100px; border: 10px solid red; box-shadow: 0 0 80px rgba(0,0,0,.4); transform: translate3d(10px,20px,0); background: linear-gradient(45deg, red, blue, green); } .unused2 { padding: 120px; margin: 120px; border: 12px solid blue; box-shadow: 0 0 90px rgba(0,0,0,.5); transform: rotate(3deg); background: repeating-linear-gradient(90deg, red 0 10px, blue 10px 20px); }</style>
+<style>.noise-a{padding:200px;margin:200px;border:20px solid red;box-shadow:0 0 200px rgba(0,0,0,.5);background:linear-gradient(10deg,red,orange,yellow,green,blue,purple);transform:translate3d(40px,50px,0) rotate(4deg);filter:blur(1px) saturate(1.4);}.noise-b{padding:210px;margin:210px;border:21px solid blue;box-shadow:0 0 210px rgba(0,0,0,.6);background:repeating-linear-gradient(90deg,red 0 10px,blue 10px 20px,green 20px 30px);transform:translate3d(50px,60px,0) rotate(5deg);filter:contrast(1.2) saturate(1.5);}.noise-c{padding:220px;margin:220px;border:22px solid green;box-shadow:0 0 220px rgba(0,0,0,.7);background:radial-gradient(circle,white,black,cyan,magenta);transform:translate3d(60px,70px,0) rotate(6deg);clip-path:polygon(0 0,100% 0,80% 100%,10% 90%);}</style>
+<script>window.noise = true;</script>
+</head>
+<body>
+<main id="slide-root" class="deck" data-hyp-agent="deck" data-hyp-hook="root" style="color:red">
+<section id="slide-1" class="slide" data-hyp-cid="c-basic" data-hyp-hook="slide">
+<h1>Basic Fixture</h1>
+<p id="p1" class="copy" data-hyp-cid="c-basic">Hello <a href="https://example.test" onclick="bad()">world</a></p>
+</section>
+</main>
+<script id="hyp-comments" type="application/json">
+[
+  {
+    "id": "c-basic",
+    "anchor": {
+      "hook": "slide",
+      "path": "section:1/p:1",
+      "nativeId": "slide-root",
+      "contentHash": "hash-basic",
+      "siblingIndex": 0
+    },
+    "contextText": "Hello world",
+    "author": "Reviewer",
+    "createdAt": "2026-07-04T10:00:00Z",
+    "editedAt": "2026-07-04T10:05:00Z",
+    "body": "Check this copy.",
+    "resolved": false,
+    "replies": [
+      {
+        "author": "Agent",
+        "body": "Acknowledged.",
+        "createdAt": "2026-07-04T10:06:00Z"
+      }
+    ],
+    "agentInstruction": "Apply only if copy changes."
+  }
+]
+</script>
+</body>
+</html>
