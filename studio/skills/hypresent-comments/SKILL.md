@@ -16,11 +16,11 @@ description: "Add, review, answer, implement, resolve, annotate, read, search, o
 
 ## Query or strip a deck — run the CLI directly
 
-These intents need NO procedure file — run the browser-free subcommand and answer. Grepping or reading the raw deck HTML is the FALLBACK, never the default.
+These intents need NO procedure file — run the browser-free subcommand and answer. Grepping or reading the raw deck HTML is the FALLBACK, never the default. `{rbtv_path}` resolves from `rbtv.json` and is recorded relative to the workspace root: run every `hypresent.py` command with the shell's CWD at the workspace root, or expand the script path and `--file` to absolute paths first.
 
 | Your task | Run |
 |-----------|-----|
-| READ / inspect the comment set, a thread, or an element; ask what a deck / section / slide / comment SAYS | `python {rbtv_path}/studio/hypresent/tools/hypresent.py read --file <deck.html>` (add `--comment <id>` + `--self`/`--parent`/`--sibling` for one thread's element, or `--selector "<css>"` for a one-off element read) |
+| READ / inspect the comment set, a thread, or an element; ask what a deck / section / slide / comment SAYS | `python {rbtv_path}/studio/hypresent/tools/hypresent.py read --file <deck.html>` (add `--comment <id>` + any combination of `--self`/`--parent`/`--sibling` for one thread's element context, or `--selector "<css>"` for a one-off element read) |
 | SEARCH / locate content in a deck | `python {rbtv_path}/studio/hypresent/tools/hypresent.py search --file <deck.html> --query "<term>"` |
 | STRIP / remove / delete comments — DESTRUCTIVE, owner-directed ONLY | `python {rbtv_path}/studio/hypresent/tools/hypresent.py delete-comment --file <deck.html> (--comment-id <id> | --all) [--out <new.html>]` |
 

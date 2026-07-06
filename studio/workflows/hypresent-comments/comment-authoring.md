@@ -21,18 +21,18 @@ If the user wants a raw HTML comment, this protocol does NOT apply — add the `
 
 ## Inspect the deck FIRST — read / search
 
-To see the existing comment set, a specific thread, an element, or to locate content before authoring, run the browser-free reader FIRST — it answers without loading the whole deck:
+To see the existing comment set, a specific thread, an element, or to locate content before authoring, run the browser-free reader FIRST — it answers without loading the whole deck. `{rbtv_path}` resolves from `rbtv.json` and is recorded relative to the workspace root: run EVERY `hypresent.py` command in this protocol with the shell's CWD at the workspace root, or expand the script path and `--file` to absolute paths first — a bare relative invocation from any other directory fails to find the script.
 
 ```
 python {rbtv_path}/studio/hypresent/tools/hypresent.py read --file <deck.html> --selector "<css>"
 python {rbtv_path}/studio/hypresent/tools/hypresent.py search --file <deck.html> --query "<term>"
 ```
 
-`read` prints the comment threads (default), or an element by `--selector "<css>"`, or one thread's element by `--comment <id>` with `--self`/`--parent`/`--sibling`; `search` finds page text and returns located snippets. Grepping or reading the raw deck HTML — or generating a lean view for a mere question — is the FALLBACK, not the default. Generate a lean view (below) only for a whole-deck scan or a token-reduced full read.
+`read` prints the comment threads (default), or an element by `--selector "<css>"`, or one thread's element by `--comment <id>` with any combination of `--self`/`--parent`/`--sibling` (one call returns the union of the requested contexts); `search` finds page text and returns located snippets. Grepping or reading the raw deck HTML — or generating a lean view for a mere question — is the FALLBACK, not the default. Generate a lean view (below) only for a whole-deck scan or a token-reduced full read.
 
 ## How to Author — invoke the tool
 
-Run ONE command (works from any directory):
+Run ONE command (CWD at the workspace root, per the Inspect section above):
 
 ```
 python {rbtv_path}/studio/hypresent/tools/hypresent.py add-comment \

@@ -243,8 +243,14 @@ def render_human(payload: dict[str, Any], include_line_numbers: bool = False) ->
         return payload["text"] or "corpus: empty"
     if kind == "doc":
         return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    if kind == "element-set":
+        return "\n\n".join(
+            render_human(context, include_line_numbers) for context in payload["contexts"]
+        )
     if kind in {"element", "selector"}:
         label = payload.get("comment_id") or payload.get("selector")
+        if payload.get("relation"):
+            label = f"{label} [{payload['relation']}]"
         lines = [f"{kind}: {payload.get('status')} {label}".rstrip()]
         if payload.get("anomaly"):
             lines.append(f"anomaly: {payload['anomaly']}")

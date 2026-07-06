@@ -16,7 +16,7 @@ Every comment that is NOT agent-tagged is a human review note. IGNORE its conten
 
 ## Inspect FIRST — read / search before grepping
 
-To see the comment set, a specific thread, an element, or to locate content, run the browser-free reader FIRST — never grep the raw deck HTML for a mere question:
+To see the comment set, a specific thread, an element, or to locate content, run the browser-free reader FIRST — never grep the raw deck HTML for a mere question. `{rbtv_path}` resolves from `rbtv.json` and is recorded relative to the workspace root: run EVERY `hypresent.py` command in this protocol with the shell's CWD at the workspace root, or expand the script path and `--file` to absolute paths first — a bare relative invocation from any other directory fails to find the script.
 
 ```
 python {rbtv_path}/studio/hypresent/tools/hypresent.py read --file <deck.html> --comment <id> --self
@@ -24,7 +24,7 @@ python {rbtv_path}/studio/hypresent/tools/hypresent.py read --file <deck.html> -
 python {rbtv_path}/studio/hypresent/tools/hypresent.py search --file <deck.html> --query "<term>"
 ```
 
-`read` (default mode `comments`) prints threads — filter with `--state open|resolved` and `--agent with|without`, or target one thread with `--comment <id>` plus `--self`/`--parent`/`--sibling`; `--mode corpus` prints page text, `--mode doc` prints both. `search` finds page text and returns located snippets. All answer without loading the whole deck. Reading the raw deck HTML — or generating a lean view for a mere question — is the FALLBACK, not the default; the lean view (below) remains right for whole-deck ripple scans and token-reduced full reads.
+`read` (default mode `comments`) prints threads — filter with `--state open|resolved` and `--agent with|without`, or target one thread with `--comment <id>` plus any combination of `--self`/`--parent`/`--sibling` (one call returns the union of the requested contexts); `--mode corpus` prints page text, `--mode doc` prints both. `search` finds page text and returns located snippets. All answer without loading the whole deck. Reading the raw deck HTML — or generating a lean view for a mere question — is the FALLBACK, not the default; the lean view (below) remains right for whole-deck ripple scans and token-reduced full reads.
 
 ## Locate the Comments First
 

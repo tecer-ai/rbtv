@@ -243,11 +243,23 @@ def run_read(args: argparse.Namespace) -> int:
         if args.selector:
             payload = query.read_selector(args.selector, include_line_numbers=args.line_numbers)
         elif args.comment:
-            relation = "self" if args.self else "parent" if args.parent else "sibling" if args.sibling else ""
-            if relation:
+            relations = [name for name in ("self", "parent", "sibling") if getattr(args, name)]
+            if len(relations) == 1:
                 payload = query.read_comment_element(
-                    args.comment, relation, include_line_numbers=args.line_numbers
+                    args.comment, relations[0], include_line_numbers=args.line_numbers
                 )
+            elif relations:
+                payload = {
+                    "kind": "element-set",
+                    "comment_id": args.comment,
+                    "relations": relations,
+                    "contexts": [
+                        query.read_comment_element(
+                            args.comment, relation, include_line_numbers=args.line_numbers
+                        )
+                        for relation in relations
+                    ],
+                }
             else:
                 payload = query.read_thread(args.comment)
         elif args.mode == "corpus":
@@ -345,8 +357,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Read saved-deck comments or page elements without a browser.",
         description=(
             "Read a saved hypresent HTML file. Default mode is comments. "
-            "Use --comment for one thread, --self/--parent/--sibling for its "
-            "data-hyp-cid element context, or --selector for a one-off CSS selector."
+            "Use --comment for one thread, --self/--parent/--sibling (combinable "
+            "in one call) for its data-hyp-cid element context, or --selector for "
+            "a one-off CSS selector."
         ),
     )
     read_parser.add_argument("--file", required=True, help="Saved hypresent HTML file.")
@@ -369,21 +382,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Thread agentInstruction filter for comments/doc modes. Default: any.",
     )
     read_parser.add_argument("--comment", help="Read one comment thread by id.")
-    relation = read_parser.add_mutually_exclusive_group()
-    relation.add_argument(
+    read_parser.add_argument(
         "--self",
         action="store_true",
-        help="With --comment, print element(s) whose data-hyp-cid token matches the comment id.",
+        help=(
+            "With --comment, print element(s) whose data-hyp-cid token matches the "
+            "comment id. Combinable with --parent/--sibling: one call returns the "
+            "union of the requested contexts."
+        ),
     )
-    relation.add_argument(
+    read_parser.add_argument(
         "--parent",
         action="store_true",
-        help="With --comment, print parent element(s) of matching data-hyp-cid element(s).",
+        help="With --comment, print parent element(s) of matching data-hyp-cid element(s). Combinable with --self/--sibling.",
     )
-    relation.add_argument(
+    read_parser.add_argument(
         "--sibling",
         action="store_true",
-        help="With --comment, print sibling element(s) of matching data-hyp-cid element(s).",
+        help="With --comment, print sibling element(s) of matching data-hyp-cid element(s). Combinable with --self/--parent.",
     )
     read_parser.add_argument(
         "--selector",

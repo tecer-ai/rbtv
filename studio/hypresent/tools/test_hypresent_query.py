@@ -65,6 +65,32 @@ def test_read_parent_and_siblings_return_adjacent_nested_context(capsys):
     assert {"inner-before", "inner-after"} <= sibling_ids
 
 
+def test_read_combined_relation_flags_return_union_of_contexts_in_one_call(capsys):
+    hypresent = load_hypresent()
+    path = str(fixture_path("query-nested.html"))
+
+    code = hypresent.main(
+        ["read", "--file", path, "--comment", "c-nested", "--self", "--parent", "--sibling", "--json"]
+    )
+    assert code == 0
+    payload = json_stdout(capsys)
+    assert payload["kind"] == "element-set"
+    assert payload["comment_id"] == "c-nested"
+    assert payload["relations"] == ["self", "parent", "sibling"]
+    contexts = {context["relation"]: context for context in payload["contexts"]}
+    assert set(contexts) == {"self", "parent", "sibling"}
+    assert "c-nested" in contexts["self"]["matches"][0]["attrs"]["data-hyp-cid"].split()
+    assert contexts["parent"]["matches"][0]["attrs"]["id"] == "card-a"
+    sibling_ids = {match["attrs"]["id"] for match in contexts["sibling"]["matches"]}
+    assert {"inner-before", "inner-after"} <= sibling_ids
+
+    # Human rendering of the combined payload labels each relation block.
+    assert hypresent.main(["read", "--file", path, "--comment", "c-nested", "--self", "--parent"]) == 0
+    human = capsys.readouterr().out
+    assert "element: ok c-nested [self]" in human
+    assert "element: ok c-nested [parent]" in human
+
+
 def test_read_unanchored_thread_reports_explicitly_and_exits_zero(capsys):
     hypresent = load_hypresent()
     code = hypresent.main(
