@@ -83,6 +83,13 @@ The builder never duplicates engine behavior: the library's vendored engine is t
 | `runtime/js/color.js` | Token + per-element + inline-style recolor (D6) |
 | `runtime/js/comments.js` | Comment store, anchor key, JSON-island read/write (D4) |
 | `runtime/js/serializer.js` | Clone → strip chrome → re-embed island → guard → standalone HTML |
+| `tools/hypresent.py` | Consolidated AX CLI: `dehydrate`, `read`, `search`, `add-comment`, and `reply` |
+| `tools/comment_store.py` | Lossless comment digest read/write helpers for lean views |
+| `tools/deck_query.py` | Browser-free saved-deck read/search helpers |
+| `tools/deck_session.py` | Real-runtime browser session used by write verbs |
+| `tools/test_hypresent_*.py` | CLI contract tests |
+| `tools/fixtures/` | Autonomous test and runbook fixtures |
+| `tools/verify.md` | Tester-runnable verification runbook for every CLI subcommand |
 | `docs/` | Specs, plan, decision log, build log, verification results |
 
 ## Documentation index

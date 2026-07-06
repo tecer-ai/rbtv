@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from bs4 import BeautifulSoup
 
 TOOLS_DIR = Path(__file__).parent
 FIXTURE = TOOLS_DIR / "fixtures" / "write-deck.html"
@@ -13,6 +14,19 @@ FIXTURE = TOOLS_DIR / "fixtures" / "write-deck.html"
 
 def playwright_available():
     return importlib.util.find_spec("playwright") is not None
+
+
+def load_island(path):
+    """Parse the saved #hyp-comments island into its thread list.
+
+    Parsing (not substring-matching) is required: the runtime serializes the
+    island COMPACT, and a raw extraction would false-positive on the
+    agent-instruction head comment that mentions the island tag.
+    """
+    soup = BeautifulSoup(path.read_text(encoding="utf-8"), "lxml")
+    tag = soup.find("script", id="hyp-comments")
+    assert tag is not None, "saved deck has no #hyp-comments island"
+    return json.loads(tag.string)
 
 
 def copy_fixture(tmp_path, name):
@@ -27,30 +41,13 @@ def run_cmd(*args):
         cwd=TOOLS_DIR.parent,
         text=True,
         capture_output=True,
+        encoding="utf-8",
         timeout=30,
     )
 
 
 def parse_json(stdout):
     return json.loads(stdout)
-
-
-def normalize_add_comment(payload):
-    normalized = dict(payload)
-    normalized["file"] = "<file>"
-    normalized["comment_id"] = "<generated>"
-    anchor = dict(normalized["anchor"])
-    for key in ("contentHash", "path", "siblingIndex"):
-        if key in anchor:
-            anchor[key] = "<generated>"
-    normalized["anchor"] = anchor
-    return normalized
-
-
-def normalize_reply(payload):
-    normalized = dict(payload)
-    normalized["file"] = "<file>"
-    return normalized
 
 
 def assert_success(proc):
@@ -61,22 +58,9 @@ def assert_success(proc):
 
 
 @pytest.mark.skipif(not playwright_available(), reason="playwright is absent; write verbs exit 3 by contract")
-def test_add_comment_matches_legacy_fields_and_saves_runtime_island(tmp_path):
-    legacy_file = copy_fixture(tmp_path, "legacy-add.html")
+def test_add_comment_returns_contract_fields_and_saves_runtime_island(tmp_path):
     cli_file = copy_fixture(tmp_path, "cli-add.html")
 
-    legacy = run_cmd(
-        "tools/add_comment.py",
-        "--file",
-        legacy_file,
-        "--selector",
-        "#target-copy",
-        "--body",
-        "Tighten this copy.",
-        "--author",
-        "Vivian",
-        "--agent",
-    )
     new = run_cmd(
         "tools/hypresent.py",
         "add-comment",
@@ -91,7 +75,6 @@ def test_add_comment_matches_legacy_fields_and_saves_runtime_island(tmp_path):
         "--agent",
     )
 
-    legacy_payload = assert_success(legacy)
     new_payload = assert_success(new)
     assert set(new_payload) == {
         "ok",
@@ -104,27 +87,28 @@ def test_add_comment_matches_legacy_fields_and_saves_runtime_island(tmp_path):
         "marker_rendered",
         "contextText",
     }
-    assert normalize_add_comment(new_payload) == normalize_add_comment(legacy_payload)
-    assert 'id="hyp-comments"' in cli_file.read_text(encoding="utf-8")
+    assert new_payload["file"] == str(cli_file.resolve())
+    assert new_payload["comment_id"] == "1"
+    assert new_payload["author"] == "Vivian"
+    assert new_payload["agentInstruction"] is True
+    assert new_payload["anchored"] is True
+    assert new_payload["marker_rendered"] is True
+    assert new_payload["contextText"] == "Target copy for a new comment."
+    assert new_payload["anchor"]["nativeId"] == "target-copy"
+    assert new_payload["anchor"]["hook"] is None
+    saved = cli_file.read_text(encoding="utf-8")
+    assert 'id="hyp-comments"' in saved
+    threads = load_island(cli_file)
+    thread = next(t for t in threads if t["id"] == "1")
+    assert thread["body"] == "Tighten this copy."
+    assert thread["author"] == "Vivian"
+    assert thread["agentInstruction"] is True
 
 
 @pytest.mark.skipif(not playwright_available(), reason="playwright is absent; write verbs exit 3 by contract")
-def test_reply_matches_legacy_fields_and_saves_runtime_island(tmp_path):
-    legacy_file = copy_fixture(tmp_path, "legacy-reply.html")
+def test_reply_returns_contract_fields_and_saves_runtime_island(tmp_path):
     cli_file = copy_fixture(tmp_path, "cli-reply.html")
 
-    legacy = run_cmd(
-        "tools/reply_comment.py",
-        "--file",
-        legacy_file,
-        "--comment-id",
-        "c-existing",
-        "--reply",
-        "Working on it.",
-        "--author",
-        "Agent",
-        "--set-agent",
-    )
     new = run_cmd(
         "tools/hypresent.py",
         "reply",
@@ -139,7 +123,6 @@ def test_reply_matches_legacy_fields_and_saves_runtime_island(tmp_path):
         "--set-agent",
     )
 
-    legacy_payload = assert_success(legacy)
     new_payload = assert_success(new)
     assert set(new_payload) == {
         "ok",
@@ -152,55 +135,58 @@ def test_reply_matches_legacy_fields_and_saves_runtime_island(tmp_path):
         "replies_count",
         "thread_count",
     }
-    assert normalize_reply(new_payload) == normalize_reply(legacy_payload)
-    assert 'id="hyp-comments"' in cli_file.read_text(encoding="utf-8")
+    assert new_payload == {
+        "ok": True,
+        "file": str(cli_file.resolve()),
+        "comment_id": "c-existing",
+        "reply_added": True,
+        "reply_author": "Agent",
+        "reply_body": "Working on it.",
+        "agent_instruction": True,
+        "replies_count": 1,
+        "thread_count": 1,
+    }
+    saved = cli_file.read_text(encoding="utf-8")
+    assert 'id="hyp-comments"' in saved
+    threads = load_island(cli_file)
+    thread = next(t for t in threads if t["id"] == "c-existing")
+    assert thread["agentInstruction"] is True
+    reply = thread["replies"][-1]
+    assert reply["author"] == "Agent"
+    assert reply["body"] == "Working on it."
 
 
 @pytest.mark.skipif(not playwright_available(), reason="playwright is absent; write verbs exit 3 by contract")
 @pytest.mark.parametrize(
-    ("legacy_args", "new_args", "cause"),
+    ("new_args", "cause"),
     [
         (
-            ["tools/add_comment.py", "--selector", ".dupe", "--body", "Body", "--author", "Agent"],
             ["tools/hypresent.py", "add-comment", "--selector", ".dupe", "--body", "Body", "--author", "Agent"],
             "selector matched 2 elements",
         ),
         (
-            ["tools/reply_comment.py", "--comment-id", "missing", "--reply", "Body"],
             ["tools/hypresent.py", "reply", "--comment-id", "missing", "--reply", "Body"],
             "no comment thread with id",
         ),
     ],
 )
-def test_failure_class_matches_legacy_for_browser_failures(tmp_path, legacy_args, new_args, cause):
-    legacy_file = copy_fixture(tmp_path, "legacy-fail.html")
+def test_browser_failures_return_exit_2_and_contract_prefix(tmp_path, new_args, cause):
     cli_file = copy_fixture(tmp_path, "cli-fail.html")
-    legacy = run_cmd(*legacy_args[:1], "--file", legacy_file, *legacy_args[1:])
     new = run_cmd(*new_args[:2], "--file", cli_file, *new_args[2:])
 
-    assert legacy.returncode == 2
     assert new.returncode == 2
-    assert cause in legacy.stderr
-    assert cause in new.stderr
+    # The dev server logs HTTP requests to stderr before the error line, so the
+    # contract prefix begins the ERROR line, not stderr[0]. Locate that line.
+    prefix = f"hypresent {new_args[1]}: ERROR —"
+    error_line = next((ln for ln in new.stderr.splitlines() if ln.startswith(prefix)), None)
+    assert error_line is not None, new.stderr
+    assert cause in error_line
 
 
-def test_failure_class_matches_legacy_for_non_conforming_deck(tmp_path):
-    bad_legacy = tmp_path / "legacy-bad.html"
+def test_non_conforming_deck_returns_exit_2_and_contract_prefix(tmp_path):
     bad_new = tmp_path / "new-bad.html"
-    bad_legacy.write_text("<html><body><p>No slides.</p></body></html>", encoding="utf-8")
     bad_new.write_text("<html><body><p>No slides.</p></body></html>", encoding="utf-8")
 
-    legacy = run_cmd(
-        "tools/add_comment.py",
-        "--file",
-        bad_legacy,
-        "--selector",
-        "p",
-        "--body",
-        "Body",
-        "--author",
-        "Agent",
-    )
     new = run_cmd(
         "tools/hypresent.py",
         "add-comment",
@@ -214,9 +200,8 @@ def test_failure_class_matches_legacy_for_non_conforming_deck(tmp_path):
         "Agent",
     )
 
-    assert legacy.returncode == 2
     assert new.returncode == 2
-    assert "no <section> slides found" in legacy.stderr
+    assert new.stderr.startswith("hypresent add-comment: ERROR —")
     assert "no <section> slides found" in new.stderr
 
 

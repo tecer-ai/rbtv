@@ -24,7 +24,7 @@ If the user wants a raw HTML comment, this protocol does NOT apply — add the `
 Run ONE command (works from any directory):
 
 ```
-python {rbtv_path}/studio/hypresent/tools/add_comment.py \
+python {rbtv_path}/studio/hypresent/tools/hypresent.py add-comment \
   --file <deck.html> \
   --selector "<unique CSS selector for the element to comment on>" \
   --body "<the comment text>" \
@@ -41,24 +41,24 @@ python {rbtv_path}/studio/hypresent/tools/add_comment.py \
 | `--agent` | The action gate. Include ONLY when a coding agent should act on the comment (adds the agent-instruction tag + head block). Omit for a human-facing note or question — a comment authored WITHOUT `--agent` is informational only: agents IGNORE its content (never act on it) but always preserve it and keep it anchored. To make a comment actionable by an agent, you MUST pass `--agent`. |
 | `--out` | Optional. Write to a NEW file instead of overwriting `--file`. Use this when you were handed a file to annotate (version, never overwrite). |
 
-The tool selects the element, adds the comment through the real comment UI (the runtime computes the anchor), confirms a visible marker rendered, and saves a valid file. It handles elements inside hidden / inactive screens of a multi-screen deck automatically (it navigates to the screen before commenting and restores the original screen visibility on save) — so target the exact element regardless of which screen is currently shown. On success it prints `ok`, the new `comment_id`, the computed `anchor`, and `marker_rendered: true`. A non-unique selector, a non-commentable element, or an unanchored result each fails LOUDLY with a clear message — fix the selector and re-run.
+The tool selects the element, adds the comment through the real comment UI (the runtime computes the anchor), confirms a visible marker rendered, and saves a valid file. It handles elements inside hidden / inactive screens of a multi-screen deck automatically (it navigates to the screen before commenting and restores the original screen visibility on save) — so target the exact element regardless of which screen is currently shown. On success it prints `ok`, the new `comment_id`, the computed `anchor`, and `marker_rendered: true`. A non-unique selector, a non-commentable element, or an unanchored result each fails LOUDLY with a clear message — fix the selector and re-run. The retired wrapper's `add_comment: ERROR —` prefix is now `hypresent add-comment: ERROR —`; consumers grepping the old prefix must update.
 
 ## Find the target without reading the whole deck
 
 A large deck is expensive to read in full just to pick the element and craft a unique `--selector`. Generate a token-reduced read view first:
 
 ```
-python {rbtv_path}/studio/hypresent/tools/dehydrate.py --file <deck.html>
+python {rbtv_path}/studio/hypresent/tools/hypresent.py dehydrate --file <deck.html>
 ```
 
-It writes `<deck>.lean.html` — the deck with its visual layer (CSS, inline SVG, fonts, vendor JS) stripped, every `id`/`class`/section kept, led by a digest of existing comments. Read the lean view, pick the element, and craft `--selector` from it: any selector that resolves in the lean view resolves in the real deck, so `add_comment.py` anchors it unchanged. When the comment is ABOUT a visual property (color, type, spacing, layout), first read the full styling of the target — the lean view omits visual state.
+It writes `<deck>.lean.html` — the deck with its visual layer (CSS, inline SVG, fonts, vendor JS) stripped, every `id`/`class`/section kept, led by a lossless digest of existing comments. The lean view does not carry the raw `#hyp-comments` island unless the sanctioned never-grow fallback emits the source verbatim and reports `fallback: true`. Read the lean view, pick the element, and craft `--selector` from it: any selector that resolves in the lean view resolves in the real deck, so `hypresent.py add-comment` anchors it unchanged. When the comment is ABOUT a visual property (color, type, spacing, layout), first read the full styling of the target — the lean view omits visual state. Use `python {rbtv_path}/studio/hypresent/tools/hypresent.py read --file <deck.html> --selector "<css>"` for an ephemeral read of elements not already tagged by a comment; commented elements resolve by literal `data-hyp-cid`.
 
 ## Pin precisely — one comment per element
 
 | Rule | Detail |
 |------|--------|
 | Pin to the EXACT element | Choose `--selector` for the smallest, most-specific element the comment is about — the heading, the cell, the button, the paragraph — NEVER a broad ancestor (a whole `<section>`, a big wrapper). The marker and thread MUST sit on exactly what the feedback concerns, so the owner sees each comment on the right thing and resolves it in place. If the precise element needs a scoped selector to be unique, scope it (e.g. `#screen-overview .screen-title`) — do NOT retreat to a broader element just to satisfy uniqueness. |
-| One element, one comment | NEVER bundle feedback about different elements into a single comment. Each distinct element — and each distinct point — gets its OWN `add_comment.py` run with its OWN `--selector`. To comment on N elements, invoke the tool N times. |
+| One element, one comment | NEVER bundle feedback about different elements into a single comment. Each distinct element — and each distinct point — gets its OWN `hypresent.py add-comment` run with its OWN `--selector`. To comment on N elements, invoke the tool N times. |
 
 ## Never do these
 
