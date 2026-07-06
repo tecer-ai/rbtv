@@ -179,6 +179,40 @@ def test_cli_out_override_and_json(tmp_path, capsys):
     assert payload["out"] == str(out)
 
 
+def test_fallback_output_is_byte_identical_to_crlf_source(tmp_path, capsys):
+    # Fallback path (composing would grow) must emit the source VERBATIM at the
+    # byte level. A CRLF source is the trap: text-mode read/write would silently
+    # translate newlines and change the on-disk bytes. Mirror tiny.html (which
+    # the existing test proves falls back) but author it with CRLF endings.
+    hypresent = load_hypresent()
+    source = tmp_path / "crlf.html"
+    source.write_bytes(b"<html><body>x</body></html>\r\n")
+    out = tmp_path / "crlf.lean.html"
+    code = hypresent.main(
+        ["dehydrate", "--file", str(source), "--out", str(out), "--json"]
+    )
+    assert code == 0
+    stats = json.loads(capsys.readouterr().out)
+    assert stats["fallback"] is True
+    assert out.read_bytes() == source.read_bytes()
+
+
+def test_ondisk_output_never_grows_and_matches_reported_lean_bytes(tmp_path, capsys):
+    # Non-fallback path: the on-disk output must never exceed the source in
+    # bytes, and the reported lean_bytes stat must match the actual disk size.
+    hypresent = load_hypresent()
+    source = TOOLS_DIR / "fixtures" / "basic.html"
+    out = tmp_path / "basic.lean.html"
+    code = hypresent.main(
+        ["dehydrate", "--file", str(source), "--out", str(out), "--json"]
+    )
+    assert code == 0
+    stats = json.loads(capsys.readouterr().out)
+    assert stats["fallback"] is False
+    assert len(out.read_bytes()) <= len(source.read_bytes())
+    assert len(out.read_bytes()) == stats["lean_bytes"]
+
+
 def test_file_not_found_returns_nonzero(capsys):
     hypresent = load_hypresent()
     code = hypresent.main(["dehydrate", "--file", "does-not-exist.html"])

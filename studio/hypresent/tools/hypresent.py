@@ -193,7 +193,8 @@ def run_dehydrate(args: argparse.Namespace) -> int:
         return 2
     out = Path(args.out) if args.out else default_out_path(source)
     try:
-        src_text = source.read_text(encoding="utf-8")
+        with source.open(encoding="utf-8", newline="") as f:
+            src_text = f.read()
         lean, stats = dehydrate(src_text)
     except DehydrateError as exc:
         message = str(exc)
@@ -201,7 +202,7 @@ def run_dehydrate(args: argparse.Namespace) -> int:
         print(f"hypresent dehydrate: error: {message}", file=sys.stderr)
         return code
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(lean, encoding="utf-8")
+    out.write_text(lean, encoding="utf-8", newline="")
     summary = {
         "ok": True,
         "file": os.fspath(source),
