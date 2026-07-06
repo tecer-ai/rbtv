@@ -774,6 +774,13 @@ def sync_hook_entry(
     hardcoded absolute path. (A bare relative command broke when Claude Code ran the
     hook from a non-project-root CWD.)
 
+    The interpreter is ``sys.executable`` (the Python running THIS install), captured
+    as an absolute path — never a bare ``python`` / ``python3`` name. That name is not
+    portable: macOS ships ``python3`` and no ``python``; Windows commonly ships
+    ``python`` (or the ``py`` launcher) and no ``python3``. Baking the interpreter that
+    provably exists on this machine (the installer is running under it) makes the hook
+    correct on every OS. Re-install re-captures it, so a moved/upgraded Python self-heals.
+
     Idempotent: re-running replaces any stale entry with the current resolved path.
     Fails soft (returns False + message) on a malformed settings file.
 
@@ -784,7 +791,11 @@ def sync_hook_entry(
     # Resolve the script path relative to target_root using rbtv_relative.
     # The command string uses forward slashes and quotes the path to handle spaces.
     script_posix = (rbtv_relative / _CONTEXT_MONITOR_RELATIVE).as_posix()
-    command_str = f'python "$CLAUDE_PROJECT_DIR/{script_posix}"'
+    # Interpreter = the Python running this install (guaranteed to exist here).
+    # Forward-slash + quote it so absolute paths with spaces / Windows drive letters
+    # survive being embedded in the shell command string.
+    interpreter = Path(sys.executable).as_posix()
+    command_str = f'"{interpreter}" "$CLAUDE_PROJECT_DIR/{script_posix}"'
 
     # The entry the installer owns, identifiable by _HOOK_SENTINEL.
     rbtv_entry: dict = {
