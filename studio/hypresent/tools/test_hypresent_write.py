@@ -175,8 +175,6 @@ def test_browser_failures_return_exit_2_and_contract_prefix(tmp_path, new_args, 
     new = run_cmd(*new_args[:2], "--file", cli_file, *new_args[2:])
 
     assert new.returncode == 2
-    # The dev server logs HTTP requests to stderr before the error line, so the
-    # contract prefix begins the ERROR line, not stderr[0]. Locate that line.
     prefix = f"hypresent {new_args[1]}: ERROR —"
     error_line = next((ln for ln in new.stderr.splitlines() if ln.startswith(prefix)), None)
     assert error_line is not None, new.stderr
@@ -251,3 +249,43 @@ def test_new_helper_definitions_have_single_session_site():
     assert session_source.count("def post_json") == 1
     assert session_source.count("def set_fake_dialog") == 1
     assert session_source.count("def doc_eval") == 1
+
+
+@pytest.mark.skipif(not playwright_available(), reason="playwright is absent; write verbs exit 3 by contract")
+def test_write_verb_output_is_agent_clean(tmp_path):
+    """Output contract: stdout carries ONLY the JSON result; stderr is empty on
+    success and exactly the one ERROR line on failure — no server log noise."""
+    cli_file = copy_fixture(tmp_path, "clean-out.html")
+
+    ok = run_cmd(
+        "tools/hypresent.py",
+        "add-comment",
+        "--file",
+        cli_file,
+        "--selector",
+        "#target-copy",
+        "--body",
+        "Clean output.",
+        "--author",
+        "Agent",
+    )
+    assert ok.returncode == 0
+    json.loads(ok.stdout)  # stdout is pure JSON, parseable as-is
+    assert ok.stderr.strip() == ""
+
+    fail = run_cmd(
+        "tools/hypresent.py",
+        "add-comment",
+        "--file",
+        cli_file,
+        "--selector",
+        ".dupe",
+        "--body",
+        "Body",
+        "--author",
+        "Agent",
+    )
+    assert fail.returncode == 2
+    lines = [ln for ln in fail.stderr.splitlines() if ln.strip()]
+    assert len(lines) == 1, fail.stderr
+    assert lines[0].startswith("hypresent add-comment: ERROR —")

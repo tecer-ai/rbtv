@@ -33,10 +33,14 @@ def free_port() -> int:
 def start_server(port: int) -> tuple[subprocess.Popen[Any], str]:
     env = dict(os.environ)
     env["HYP_TEST_DIALOG"] = "1"
+    # Server logs stay out of the CLI's output contract: stdout carries only
+    # the verb's JSON result, stderr only the verb's error line.
     proc = subprocess.Popen(
         [sys.executable, "server/server.py", "127.0.0.1", str(port)],
         cwd=REPO,
         env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     base = f"http://127.0.0.1:{port}"
     deadline = time.time() + 8
