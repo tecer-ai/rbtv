@@ -201,7 +201,7 @@ class DeckSession:
             " return true;"
         )
 
-    def save(self) -> None:
+    def save(self, require_island: bool = True) -> None:
         if self.out != self.src:
             set_fake_dialog(self.require_base(), os.fspath(self.out))
             self.page.click("#save-as-btn")
@@ -212,7 +212,11 @@ class DeckSession:
             timeout=8000,
         )
         saved = self.out.read_text(encoding="utf-8")
-        if 'id="hyp-comments"' not in saved:
+        # When the store is empty the serializer suppresses the island entirely
+        # (serializer.js: zero threads → no re-embed). A delete that removes the
+        # last thread saves a valid island-free file, so the caller waives the
+        # island check for that case (require_island=False).
+        if require_island and 'id="hyp-comments"' not in saved:
             raise DeckSessionError("save completed but the saved file has no #hyp-comments island.")
 
     def add_comment(self, selector: str, body: str, agent: bool) -> dict[str, Any]:
@@ -359,6 +363,42 @@ class DeckSession:
             "thread_count": len(comments),
         }
 
+    def delete(self, comment_id: str | None, delete_all: bool) -> dict[str, Any]:
+        comments = self.read_comments()
+        if delete_all:
+            target_ids = [str(t.get("id")) for t in comments if t.get("id") is not None]
+        else:
+            if find_thread(comments, comment_id) is None:
+                available = (
+                    ", ".join(str(t.get("id")) for t in comments if t.get("id") is not None)
+                    or "(none)"
+                )
+                raise DeckSessionError(
+                    f"comment id not found: {comment_id}; available ids: {available}"
+                )
+            target_ids = [str(comment_id)]
+
+        deleted_ids: list[str] = []
+        for cid in target_ids:
+            self.post_command("delete-comment", {"commentId": cid})
+            confirmed = self.wait_and_confirm(
+                lambda next_comments, _cid=cid: find_thread(next_comments, _cid) is None
+            )
+            if confirmed is None:
+                raise DeckSessionError(f"delete-comment command was not confirmed for thread {cid!r}")
+            comments = confirmed
+            deleted_ids.append(cid)
+
+        remaining = self.read_comments()
+        self.save(require_island=len(remaining) > 0)
+        return {
+            "ok": True,
+            "file": os.fspath(self.out),
+            "deleted_ids": deleted_ids,
+            "deleted_count": len(deleted_ids),
+            "thread_count": len(remaining),
+        }
+
 
 def add_comment(
     file: str,
@@ -391,3 +431,16 @@ def reply(
     out_path = Path(out).resolve() if out else src
     with DeckSession(src, out_path, author) as session:
         return session.reply(comment_id, reply_body, set_agent, clear_agent)
+
+
+def delete_comment(
+    file: str,
+    comment_id: str | None,
+    delete_all: bool,
+    out: str | None,
+) -> dict[str, Any]:
+    src = Path(file).resolve()
+    precheck_deck(src)
+    out_path = Path(out).resolve() if out else src
+    with DeckSession(src, out_path, "Agent") as session:
+        return session.delete(comment_id, delete_all)

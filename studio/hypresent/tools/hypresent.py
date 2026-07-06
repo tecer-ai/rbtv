@@ -27,7 +27,7 @@ try:
         extract_digest_threads,
     )
     from deck_query import DeckQuery, DeckQueryDependencyError, DeckQueryError, render_human
-    from deck_session import DeckSessionError, add_comment, reply
+    from deck_session import DeckSessionError, add_comment, delete_comment, reply
 except ImportError:  # pragma: no cover - supports package-style imports later.
     from .comment_store import (  # type: ignore
         AGENT_SENTINEL,
@@ -44,7 +44,7 @@ except ImportError:  # pragma: no cover - supports package-style imports later.
         DeckQueryError,
         render_human,
     )
-    from .deck_session import DeckSessionError, add_comment, reply  # type: ignore
+    from .deck_session import DeckSessionError, add_comment, delete_comment, reply  # type: ignore
 
 KEEP_ATTRS = {
     "id",
@@ -306,6 +306,16 @@ def run_reply(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_delete_comment(args: argparse.Namespace) -> int:
+    try:
+        payload = delete_comment(args.file, args.comment_id, args.all, args.out)
+    except DeckSessionError as exc:
+        print(f"hypresent delete-comment: ERROR — {exc}", file=sys.stderr)
+        return exc.code
+    print(json.dumps(payload, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hypresent.py",
@@ -455,6 +465,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional output path. Default: save in place and overwrite --file.",
     )
     reply_parser.set_defaults(func=run_reply)
+
+    delete_parser = subparsers.add_parser(
+        "delete-comment",
+        help="DESTRUCTIVE: delete one comment thread or every thread through the real runtime.",
+        description=(
+            "DESTRUCTIVE: permanently delete one comment thread (--comment-id) or "
+            "EVERY thread (--all) from a hypresent deck by driving the real runtime "
+            "and saving through the app's own save handler. PROTOCOL: deletion is "
+            "owner-directed ONLY — an agent NEVER deletes or resolves a human's "
+            "threads on its own initiative; act only on an explicit owner request. "
+            "Removing the last thread saves a valid island-free file (deleted_ids "
+            "reflects what was removed; thread_count is the REMAINING thread count)."
+        ),
+    )
+    delete_parser.add_argument("--file", required=True, help="Path to the HTML deck.")
+    delete_group = delete_parser.add_mutually_exclusive_group(required=True)
+    delete_group.add_argument("--comment-id", default=None, help="Delete one comment thread by id.")
+    delete_group.add_argument(
+        "--all",
+        action="store_true",
+        help="Delete EVERY comment thread in the deck. DESTRUCTIVE and owner-directed only.",
+    )
+    delete_parser.add_argument(
+        "--out",
+        default=None,
+        help="Optional output path. Default: save in place and overwrite --file.",
+    )
+    delete_parser.set_defaults(func=run_delete_comment)
     return parser
 
 

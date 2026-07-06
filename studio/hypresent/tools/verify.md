@@ -13,6 +13,9 @@
 New-Item -ItemType Directory -Force studio/hypresent/tools/.tmp-verify
 Copy-Item studio/hypresent/tools/fixtures/write-deck.html studio/hypresent/tools/.tmp-verify/write-add.html
 Copy-Item studio/hypresent/tools/fixtures/write-deck.html studio/hypresent/tools/.tmp-verify/write-reply.html
+Copy-Item studio/hypresent/tools/fixtures/write-deck.html studio/hypresent/tools/.tmp-verify/write-delete-one.html
+Copy-Item studio/hypresent/tools/fixtures/write-deck.html studio/hypresent/tools/.tmp-verify/write-delete-all.html
+Copy-Item studio/hypresent/tools/fixtures/write-deck.html studio/hypresent/tools/.tmp-verify/write-delete-missing.html
 ```
 
 ## Dehydrate
@@ -58,6 +61,18 @@ Copy-Item studio/hypresent/tools/fixtures/write-deck.html studio/hypresent/tools
 | `python studio/hypresent/tools/hypresent.py reply --file studio/hypresent/tools/.tmp-verify/write-reply.html --comment-id c-existing --reply "Working on it." --author "Agent" --set-agent` | Exit 0 after a multi-second browser run. JSON field set is exactly `ok, file, comment_id, reply_added, reply_author, reply_body, agent_instruction, replies_count, thread_count`; values include `ok: true`, `comment_id: "c-existing"`, `reply_added: true`, `reply_author: "Agent"`, `reply_body: "Working on it."`, `agent_instruction: true`, `replies_count: 1`, and `thread_count: 1`. Saved file contains `id="hyp-comments"`. | Real-runtime reply write, agent flag update, saved-island proof, direct contract fields. |
 | `python studio/hypresent/tools/hypresent.py reply --file studio/hypresent/tools/.tmp-verify/write-reply.html --comment-id missing --reply "Body"` | Exit 2. stderr starts `hypresent reply: ERROR —` and includes `no comment thread with id`. | Reply failure mode and new error prefix. |
 
+## Delete Comment
+
+DESTRUCTIVE verb — deletion is owner-directed ONLY; an agent never deletes or resolves a human's threads on its own initiative. On the `write-deck.html` fixture `c-existing` is the only thread, so removing it (single or `--all`) leaves zero threads and the serializer saves a valid island-free file (`thread_count: 0`).
+
+| Command | Expected output | Proves |
+|---|---|---|
+| `python studio/hypresent/tools/hypresent.py delete-comment --file studio/hypresent/tools/.tmp-verify/write-delete-one.html --comment-id c-existing` | Exit 0 after a multi-second browser run. JSON field set is exactly `ok, file, deleted_ids, deleted_count, thread_count`; values include `ok: true`, `deleted_ids: ["c-existing"]`, `deleted_count: 1`, `thread_count: 0`. Saved file no longer carries the `c-existing` thread (the last thread removed → no `#hyp-comments` island, which is a valid island-free save). | Real-runtime single-thread delete through the bus command + island-free save contract. |
+| `python studio/hypresent/tools/hypresent.py delete-comment --file studio/hypresent/tools/.tmp-verify/write-delete-all.html --all` | Exit 0 after a multi-second browser run. JSON has the same field set with `deleted_ids: ["c-existing"]`, `deleted_count: 1`, `thread_count: 0`. Every thread is gone from the saved file. | `--all` deletes every thread and reports the remaining count. |
+| `python studio/hypresent/tools/hypresent.py delete-comment --file studio/hypresent/tools/.tmp-verify/write-delete-missing.html --comment-id nope` | Exit 2. stderr is exactly one line: `hypresent delete-comment: ERROR — comment id not found: nope; available ids: c-existing`. Deck unchanged. | Unknown-id failure mode lists available ids (read's convention) and never mutates. |
+
+Argument contract (no browser): `--comment-id` and `--all` are mutually exclusive and exactly one is required — passing both or neither exits 2 via argparse before any server/browser work.
+
 ## Missing Playwright Contract
 
 | Command | Expected output | Proves |
@@ -69,4 +84,4 @@ Copy-Item studio/hypresent/tools/fixtures/write-deck.html studio/hypresent/tools
 
 | Command | Expected output | Proves |
 |---|---|---|
-| `python -m pytest studio/hypresent/tools/ -v` | Exit 0 with 37 passing tests when Playwright is installed. If Playwright is absent, write-verb browser rows are skipped by contract and the conductor must run the installed-Playwright leg separately. | All dehydrate, read/search, and write-verb contracts are covered. |
+| `python -m pytest studio/hypresent/tools/ -v` | Exit 0 with 46 passing tests when Playwright is installed. If Playwright is absent, write-verb browser rows are skipped by contract and the conductor must run the installed-Playwright leg separately. | All dehydrate, read/search, and write-verb (add/reply/delete) contracts are covered. |
