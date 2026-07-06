@@ -27,6 +27,7 @@ try:
         extract_digest_threads,
     )
     from deck_query import DeckQuery, DeckQueryDependencyError, DeckQueryError, render_human
+    from deck_session import DeckSessionError, add_comment, reply
 except ImportError:  # pragma: no cover - supports package-style imports later.
     from .comment_store import (  # type: ignore
         AGENT_SENTINEL,
@@ -43,6 +44,7 @@ except ImportError:  # pragma: no cover - supports package-style imports later.
         DeckQueryError,
         render_human,
     )
+    from .deck_session import DeckSessionError, add_comment, reply  # type: ignore
 
 KEEP_ATTRS = {
     "id",
@@ -275,6 +277,34 @@ def run_search(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_add_comment(args: argparse.Namespace) -> int:
+    try:
+        payload = add_comment(args.file, args.selector, args.body, args.author, args.agent, args.out)
+    except DeckSessionError as exc:
+        print(f"hypresent add-comment: ERROR — {exc}", file=sys.stderr)
+        return exc.code
+    print(json.dumps(payload, indent=2))
+    return 0
+
+
+def run_reply(args: argparse.Namespace) -> int:
+    try:
+        payload = reply(
+            args.file,
+            args.comment_id,
+            args.reply,
+            args.author,
+            args.set_agent,
+            args.clear_agent,
+            args.out,
+        )
+    except DeckSessionError as exc:
+        print(f"hypresent reply: ERROR — {exc}", file=sys.stderr)
+        return exc.code
+    print(json.dumps(payload, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hypresent.py",
@@ -373,6 +403,57 @@ def build_parser() -> argparse.ArgumentParser:
     )
     search_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     search_parser.set_defaults(func=run_search)
+
+    add_parser = subparsers.add_parser(
+        "add-comment",
+        help="Add a review comment through the real hypresent runtime.",
+        description="Add a hypresent review comment by driving the real app and saving through its save handler.",
+    )
+    add_parser.add_argument("--file", required=True, help="Path to the HTML deck to comment on.")
+    add_parser.add_argument(
+        "--selector",
+        required=True,
+        help="CSS selector for the target element; it must match exactly one deck element.",
+    )
+    add_parser.add_argument("--body", required=True, help="Comment body text.")
+    add_parser.add_argument(
+        "--author",
+        default="Agent",
+        help="Comment author identity. Default: Agent.",
+    )
+    add_parser.add_argument(
+        "--agent",
+        action="store_true",
+        help="Mark the comment as an agent instruction. Default: false.",
+    )
+    add_parser.add_argument(
+        "--out",
+        default=None,
+        help="Optional output path. Default: save in place and overwrite --file.",
+    )
+    add_parser.set_defaults(func=run_add_comment)
+
+    reply_parser = subparsers.add_parser(
+        "reply",
+        help="Reply to a comment thread or toggle its agent-instruction flag.",
+        description=(
+            "Reply to an existing hypresent comment thread and/or set or clear "
+            "its agent-instruction flag through the real runtime."
+        ),
+    )
+    reply_parser.add_argument("--file", required=True, help="Path to the HTML deck.")
+    reply_parser.add_argument("--comment-id", required=True, help="Existing comment thread id.")
+    reply_parser.add_argument("--reply", default=None, help="Reply body text to append to the thread.")
+    reply_parser.add_argument("--author", default="Agent", help="Author identity for the reply. Default: Agent.")
+    agent_group = reply_parser.add_mutually_exclusive_group()
+    agent_group.add_argument("--set-agent", action="store_true", help="Tag the thread as an agent instruction.")
+    agent_group.add_argument("--clear-agent", action="store_true", help="Remove the agent-instruction tag.")
+    reply_parser.add_argument(
+        "--out",
+        default=None,
+        help="Optional output path. Default: save in place and overwrite --file.",
+    )
+    reply_parser.set_defaults(func=run_reply)
     return parser
 
 

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hypresent Write Fixture</title>
+<style>
+body { margin: 0; font-family: sans-serif; }
+section { min-height: 240px; padding: 32px; }
+.note { color: #263238; }
+</style>
+</head>
+<body>
+<section id="slide-one" class="slide" data-hyp-id="slide-one">
+<h1 id="title-one" data-hyp-id="title-one">Write Fixture</h1>
+<p id="target-copy" class="note" data-hyp-id="target-copy">Target copy for a new comment.</p>
+<p class="dupe" data-hyp-id="dupe-one">Duplicate selector target A.</p>
+<p class="dupe" data-hyp-id="dupe-two">Duplicate selector target B.</p>
+</section>
+<section id="slide-two" class="slide" data-hyp-id="slide-two" hidden>
+<h2 id="hidden-heading" data-hyp-id="hidden-heading">Hidden Slide</h2>
+<p id="hidden-copy" data-hyp-id="hidden-copy">Hidden comment target.</p>
+</section>
+<script id="hyp-comments" type="application/json">
+[
+  {
+    "id": "c-existing",
+    "anchor": {
+      "hook": null,
+      "path": "section:1/p:1",
+      "nativeId": "target-copy",
+      "contentHash": "fixture-hash",
+      "siblingIndex": 0
+    },
+    "contextText": "Target copy for a new comment.",
+    "author": "Reviewer",
+    "createdAt": "2026-07-06T10:00:00.000Z",
+    "editedAt": null,
+    "body": "Existing thread.",
+    "resolved": false,
+    "replies": [],
+    "agentInstruction": false
+  }
+]
+</script>
+</body>
+</html>
