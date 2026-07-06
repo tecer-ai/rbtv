@@ -26,6 +26,7 @@ try:
         canonical_json,
         extract_digest_threads,
     )
+    from deck_query import DeckQuery, DeckQueryDependencyError, DeckQueryError, render_human
 except ImportError:  # pragma: no cover - supports package-style imports later.
     from .comment_store import (  # type: ignore
         AGENT_SENTINEL,
@@ -35,6 +36,12 @@ except ImportError:  # pragma: no cover - supports package-style imports later.
         CommentStoreError,
         canonical_json,
         extract_digest_threads,
+    )
+    from .deck_query import (  # type: ignore
+        DeckQuery,
+        DeckQueryDependencyError,
+        DeckQueryError,
+        render_human,
     )
 
 KEEP_ATTRS = {
@@ -214,6 +221,60 @@ def run_dehydrate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_query(args: argparse.Namespace, command: str) -> tuple[DeckQuery | None, int]:
+    try:
+        return DeckQuery(Path(args.file)), 0
+    except DeckQueryDependencyError as exc:
+        print(f"hypresent {command}: error: {exc}", file=sys.stderr)
+        return None, 3
+    except DeckQueryError as exc:
+        print(f"hypresent {command}: error: {exc}", file=sys.stderr)
+        return None, 2
+
+
+def run_read(args: argparse.Namespace) -> int:
+    query, error_code = _load_query(args, "read")
+    if query is None:
+        return error_code
+    try:
+        if args.selector:
+            payload = query.read_selector(args.selector, include_line_numbers=args.line_numbers)
+        elif args.comment:
+            relation = "self" if args.self else "parent" if args.parent else "sibling" if args.sibling else ""
+            if relation:
+                payload = query.read_comment_element(
+                    args.comment, relation, include_line_numbers=args.line_numbers
+                )
+            else:
+                payload = query.read_thread(args.comment)
+        elif args.mode == "corpus":
+            payload = query.read_corpus()
+        elif args.mode == "doc":
+            payload = query.read_doc(state=args.state, agent=args.agent)
+        else:
+            payload = query.read_comments(state=args.state, agent=args.agent)
+    except DeckQueryError as exc:
+        print(f"hypresent read: error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    else:
+        print(render_human(payload, include_line_numbers=args.line_numbers))
+    return 0
+
+
+def run_search(args: argparse.Namespace) -> int:
+    query, error_code = _load_query(args, "search")
+    if query is None:
+        return error_code
+    payload = query.search(args.query, case_sensitive=args.case_sensitive)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    else:
+        print(render_human(payload, include_line_numbers=True))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hypresent.py",
@@ -237,6 +298,81 @@ def build_parser() -> argparse.ArgumentParser:
     dehydrate_parser.add_argument("--out", help="Output path. Default: <file>.lean.html.")
     dehydrate_parser.add_argument("--json", action="store_true", help="Print JSON stats.")
     dehydrate_parser.set_defaults(func=run_dehydrate)
+
+    read_parser = subparsers.add_parser(
+        "read",
+        help="Read saved-deck comments or page elements without a browser.",
+        description=(
+            "Read a saved hypresent HTML file. Default mode is comments. "
+            "Use --comment for one thread, --self/--parent/--sibling for its "
+            "data-hyp-cid element context, or --selector for a one-off CSS selector."
+        ),
+    )
+    read_parser.add_argument("--file", required=True, help="Saved hypresent HTML file.")
+    read_parser.add_argument(
+        "--mode",
+        choices=["comments", "corpus", "doc"],
+        default="comments",
+        help="Read mode. Default: comments. comments prints threads; corpus prints page text only; doc prints both.",
+    )
+    read_parser.add_argument(
+        "--state",
+        choices=["all", "open", "resolved"],
+        default="all",
+        help="Thread state filter for comments/doc modes. Default: all.",
+    )
+    read_parser.add_argument(
+        "--agent",
+        choices=["any", "with", "without"],
+        default="any",
+        help="Thread agentInstruction filter for comments/doc modes. Default: any.",
+    )
+    read_parser.add_argument("--comment", help="Read one comment thread by id.")
+    relation = read_parser.add_mutually_exclusive_group()
+    relation.add_argument(
+        "--self",
+        action="store_true",
+        help="With --comment, print element(s) whose data-hyp-cid token matches the comment id.",
+    )
+    relation.add_argument(
+        "--parent",
+        action="store_true",
+        help="With --comment, print parent element(s) of matching data-hyp-cid element(s).",
+    )
+    relation.add_argument(
+        "--sibling",
+        action="store_true",
+        help="With --comment, print sibling element(s) of matching data-hyp-cid element(s).",
+    )
+    read_parser.add_argument(
+        "--selector",
+        help="CSS selector for stateless element reads not tied to a comment. Zero matches exit 0.",
+    )
+    read_parser.add_argument(
+        "--line-numbers",
+        action="store_true",
+        help="Include source line numbers when available. Default: omitted from human labels.",
+    )
+    read_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    read_parser.set_defaults(func=run_read)
+
+    search_parser = subparsers.add_parser(
+        "search",
+        help="Plain term search over saved-deck page text without a browser.",
+        description=(
+            "Search page text in a saved hypresent HTML file. Search is "
+            "case-insensitive by default and returns snippets with location context."
+        ),
+    )
+    search_parser.add_argument("--file", required=True, help="Saved hypresent HTML file.")
+    search_parser.add_argument("--query", required=True, help="Plain text term to find.")
+    search_parser.add_argument(
+        "--case-sensitive",
+        action="store_true",
+        help="Make search case-sensitive. Default: false, search is case-insensitive.",
+    )
+    search_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    search_parser.set_defaults(func=run_search)
     return parser
 
 

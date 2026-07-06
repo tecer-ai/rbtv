@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Query fixture</title>
+<style>.unused { color: red; }</style>
+</head>
+<body>
+<main id="deck-root" class="deck shell" data-hyp-agent="deck">
+<section id="slide-a" class="slide primary">
+<p id="before" class="copy lead">Before sibling text.</p>
+<div id="card-a" class="card focus">
+<span id="inner-before" class="label">Inner before.</span>
+<p id="target-a" class="copy target" data-hyp-cid="c-nested">Alpha target phrase lives here.</p>
+<span id="inner-after" class="label">Inner after.</span>
+</div>
+<p id="after" class="copy tail">After sibling text.</p>
+<aside id="selector-only" class="note standalone">Selector only term appears here.</aside>
+<p id="multi-one" class="copy anomaly" data-hyp-cid="c-multi">Duplicate alpha first.</p>
+<p id="multi-two" class="copy anomaly" data-hyp-cid="c-multi">Duplicate alpha second.</p>
+</section>
+<section id="slide-b" class="slide secondary">
+<p id="search-one" class="copy">Needle appears once.</p>
+<p id="search-two" class="copy">needle appears twice with Needle.</p>
+</section>
+</main>
+<script id="hyp-comments" type="application/json">
+[
+  {
+    "id": "c-nested",
+    "anchor": {
+      "hook": "copy",
+      "path": "section:1/div:1/p:1",
+      "nativeId": "deck-root",
+      "contentHash": "hash-nested",
+      "siblingIndex": 1
+    },
+    "contextText": "Alpha target phrase lives here.",
+    "author": "Reviewer",
+    "createdAt": "2026-07-06T10:00:00Z",
+    "editedAt": null,
+    "body": "Open agent instruction.",
+    "resolved": false,
+    "replies": [
+      {
+        "author": "Agent",
+        "body": "Working on it.",
+        "createdAt": "2026-07-06T10:05:00Z"
+      }
+    ],
+    "agentInstruction": "Follow up."
+  },
+  {
+    "id": "c-resolved",
+    "anchor": {
+      "hook": "slide",
+      "path": "section:2/p:1",
+      "nativeId": "deck-root",
+      "contentHash": "hash-resolved",
+      "siblingIndex": 0
+    },
+    "contextText": "Needle appears once.",
+    "author": "Reviewer",
+    "createdAt": "2026-07-06T11:00:00Z",
+    "editedAt": null,
+    "body": "Resolved no agent instruction.",
+    "resolved": true,
+    "replies": [],
+    "agentInstruction": false
+  },
+  {
+    "id": "c-multi",
+    "anchor": {
+      "hook": "copy",
+      "path": "section:1/p:4",
+      "nativeId": "deck-root",
+      "contentHash": "hash-multi",
+      "siblingIndex": 4
+    },
+    "contextText": "Duplicate alpha first.",
+    "author": "Reviewer",
+    "createdAt": "2026-07-06T12:00:00Z",
+    "editedAt": null,
+    "body": "Duplicate cid.",
+    "resolved": false,
+    "replies": [],
+    "agentInstruction": false
+  },
+  {
+    "id": "c-missing",
+    "anchor": {
+      "hook": "copy",
+      "path": "section:1/p:99",
+      "nativeId": "deck-root",
+      "contentHash": "hash-missing",
+      "siblingIndex": 99
+    },
+    "contextText": "Deleted element.",
+    "author": "Reviewer",
+    "createdAt": "2026-07-06T13:00:00Z",
+    "editedAt": null,
+    "body": "Element was deleted.",
+    "resolved": false,
+    "replies": [],
+    "agentInstruction": false
+  }
+]
+</script>
+</body>
+</html>
