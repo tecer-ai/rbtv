@@ -19,6 +19,17 @@ Ask the user, and proceed with this protocol ONLY on a hypresent answer:
 
 If the user wants a raw HTML comment, this protocol does NOT apply — add the `<!-- … -->` directly and stop here. Proceed below ONLY for a hypresent comment.
 
+## Inspect the deck FIRST — read / search
+
+To see the existing comment set, a specific thread, an element, or to locate content before authoring, run the browser-free reader FIRST — it answers without loading the whole deck:
+
+```
+python {rbtv_path}/studio/hypresent/tools/hypresent.py read --file <deck.html> --selector "<css>"
+python {rbtv_path}/studio/hypresent/tools/hypresent.py search --file <deck.html> --query "<term>"
+```
+
+`read` prints the comment threads (default), or an element by `--selector "<css>"`, or one thread's element by `--comment <id>` with `--self`/`--parent`/`--sibling`; `search` finds page text and returns located snippets. Grepping or reading the raw deck HTML — or generating a lean view for a mere question — is the FALLBACK, not the default. Generate a lean view (below) only for a whole-deck scan or a token-reduced full read.
+
 ## How to Author — invoke the tool
 
 Run ONE command (works from any directory):

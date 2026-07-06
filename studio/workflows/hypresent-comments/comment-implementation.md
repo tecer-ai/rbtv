@@ -14,6 +14,18 @@ Every comment that is NOT agent-tagged is a human review note. IGNORE its conten
 
 **The default for an existing artifact with targeted comments is SURGICAL and structure-preserving.** Change ONLY the flagged element each comment names, plus its **Entailed** ripples (Assess Deck-Wide Impact). PRESERVE every un-commented slide/page/screen — its content, its order, and its frame stay byte-identical except where an Entailed ripple touches them. NEVER restructure the narrative, rebuild slides from scratch, or "improve" un-commented slides — that is the 2026-06-18 mis-route (17 targeted fixes turned into a 9-slide ground-up rebuild, owner-deleted). If a from-scratch rebuild is genuinely wanted, that is a blank-slate run, not a comment pass — STOP and confirm it explicitly with the owner before touching anything; never assume the destructive reading.
 
+## Inspect FIRST — read / search before grepping
+
+To see the comment set, a specific thread, an element, or to locate content, run the browser-free reader FIRST — never grep the raw deck HTML for a mere question:
+
+```
+python {rbtv_path}/studio/hypresent/tools/hypresent.py read --file <deck.html> --comment <id> --self
+python {rbtv_path}/studio/hypresent/tools/hypresent.py read --file <deck.html> --selector "<css>"
+python {rbtv_path}/studio/hypresent/tools/hypresent.py search --file <deck.html> --query "<term>"
+```
+
+`read` (default mode `comments`) prints threads — filter with `--state open|resolved` and `--agent with|without`, or target one thread with `--comment <id>` plus `--self`/`--parent`/`--sibling`; `--mode corpus` prints page text, `--mode doc` prints both. `search` finds page text and returns located snippets. All answer without loading the whole deck. Reading the raw deck HTML — or generating a lean view for a mere question — is the FALLBACK, not the default; the lean view (below) remains right for whole-deck ripple scans and token-reduced full reads.
+
 ## Locate the Comments First
 
 Comments live in TWO fixed places in EVERY hypresent-saved file — identical whether the file is a deck or a self-contained page. Read both before acting. NEVER grep to discover the format.
