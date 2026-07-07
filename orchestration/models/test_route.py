@@ -8,7 +8,7 @@ Migration note (p2-2): adapted from the band/tier test suite to the GATE→RANK�
 integer 1–7 design. Old vocabulary (reasoning_tier, code_competence, cost_class,
 coding_subrank, judgment, TIE-BREAK stage, band words) was removed. Synthetic
 manifests and all assertions now use integer fields (reasoning, coding, cost).
-fable is ABSENT from the real corpus (D15) — assertions updated accordingly.
+fable is PRESENT in the real corpus (re-added 2026-07-07, superseding D15) — assertions updated accordingly.
 """
 
 import json
@@ -1665,30 +1665,58 @@ class TestAvailableField:
             f"drop reason should cite the explicit mark, got {drops[0].get('reason')}"
         )
 
-    def test_real_fable_variant_absent_from_corpus(self):
-        """D15: the `fable` variant has been REMOVED (not merely marked available: false) from
-        both claude-code-cli and claude-code-native. Asserts the variant is ABSENT from the
-        manifests entirely — route.py will never even enumerate it.
+    def test_real_fable_variant_present_in_corpus(self):
+        """Re-add (2026-07-07, access reopened — superseding D15): the `fable` variant is back
+        in both claude-code-cli and claude-code-native, with `available: true` and
+        reasoning/coding/cost all at 7. Asserts the variant IS present and correctly scored in
+        both real manifests — route.py will enumerate it as the senior-most, premium-tier
+        candidate.
 
-        This replaces the old test_real_fable_variants_dropped_while_marked_unavailable:
-        fable is not 'unavailable' — it is not in the roster at all."""
+        This replaces the old test_real_fable_variant_absent_from_corpus: fable is no longer
+        absent — it is back in the roster, available, at the ceiling on every axis."""
         import route
         # Check claude-code-native
         native_manifest = RBTV_ROOT / "orchestration" / "models" / "claude-code-native" / "manifest.yaml"
         native = route._load_manifest(native_manifest)
         fable_native = [v for v in native.get("variants", []) if v.get("variant") == "fable"]
-        assert not fable_native, (
-            f"D15 violation: fable variant found in claude-code-native manifest — it should be ABSENT, "
-            f"not available: false. Got: {fable_native}"
+        assert fable_native, (
+            f"fable variant missing from claude-code-native manifest — it should be PRESENT "
+            f"(re-added 2026-07-07, superseding D15). Got variants: "
+            f"{[v.get('variant') for v in native.get('variants', [])]}"
+        )
+        assert fable_native[0].get("available") is True, (
+            f"fable variant in claude-code-native should be available: true, got: {fable_native[0]}"
+        )
+        assert fable_native[0].get("reasoning") == 7, (
+            f"fable variant in claude-code-native should have reasoning: 7, got: {fable_native[0]}"
+        )
+        assert fable_native[0].get("coding") == 7, (
+            f"fable variant in claude-code-native should have coding: 7, got: {fable_native[0]}"
+        )
+        assert fable_native[0].get("cost") == 7, (
+            f"fable variant in claude-code-native should have cost: 7, got: {fable_native[0]}"
         )
 
         # Check claude-code-cli
         cli_manifest = RBTV_ROOT / "orchestration" / "models" / "claude-code-cli" / "manifest.yaml"
         cli = route._load_manifest(cli_manifest)
         fable_cli = [v for v in cli.get("variants", []) if v.get("variant") == "fable"]
-        assert not fable_cli, (
-            f"D15 violation: fable variant found in claude-code-cli manifest — it should be ABSENT. "
-            f"Got: {fable_cli}"
+        assert fable_cli, (
+            f"fable variant missing from claude-code-cli manifest — it should be PRESENT "
+            f"(re-added 2026-07-07, superseding D15). Got variants: "
+            f"{[v.get('variant') for v in cli.get('variants', [])]}"
+        )
+        assert fable_cli[0].get("available") is True, (
+            f"fable variant in claude-code-cli should be available: true, got: {fable_cli[0]}"
+        )
+        assert fable_cli[0].get("reasoning") == 7, (
+            f"fable variant in claude-code-cli should have reasoning: 7, got: {fable_cli[0]}"
+        )
+        assert fable_cli[0].get("coding") == 7, (
+            f"fable variant in claude-code-cli should have coding: 7, got: {fable_cli[0]}"
+        )
+        assert fable_cli[0].get("cost") == 7, (
+            f"fable variant in claude-code-cli should have cost: 7, got: {fable_cli[0]}"
         )
 
 
