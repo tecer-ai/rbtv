@@ -181,18 +181,19 @@ The five return fields (§3) live inside `result`. Capture the envelope to a fil
 
 ### Model selection → variants
 
-The claude-code-cli manifest declares two routable variants — route on `(claude-code-cli, variant)`:
+The claude-code-cli manifest declares three routable variants — route on `(claude-code-cli, variant)`:
 
 | Variant | Flag | When |
 |---------|------|------|
+| `fable` | `--model fable` | Senior-most Claude; the conductor / final-plan-reviewer pin target; premium cost. |
 | `opus` | `--model opus` (or full name `claude-opus-4-8`) | Judgment-dense work and the **sub-conductor** role; the external-CLI **code-review reviewer floor** (reviewer for kimi/codex code is Opus — route it here). Max-reasoning Claude. |
 | `sonnet` | `--model sonnet` | Partially-bounded work with `doubt_policy: halt`, and zero-context verification personas (recon, research, cold-verify, commits). Mid-tier; the default routable Claude-cli variant. |
 
 `--model <alias|fullname>` is honored — the JSON `modelUsage` key names the ACTUAL model + its real context window (probe H3: `--model sonnet` → `modelUsage.claude-sonnet-4-6`, ctx 2e5). **The DEFAULT model is user-config-dependent**: on the probe machine the default was `claude-opus-4-8[1m]` (1M ctx, probe H2) — NOT sonnet, and NOT a constant to assume. ALWAYS pass `--model` explicitly for a deterministic dispatch; read the live `modelUsage` to confirm. **haiku is NOT a routable variant** (vault routing floors at sonnet absent a user-approved delegation map naming haiku — routing card §7).
 
-### Effort invocation — the post-pin reasoning dial (opus and sonnet; haiku is a no-op)
+### Effort invocation — the post-pin reasoning dial (fable, opus, and sonnet; haiku is a no-op)
 
-Claude CLI exposes a **5-level effort ladder** (`low | medium | high | xhigh | max`) via the `--effort <level>` flag. This is the post-pin reasoning dial: effort is set AFTER the variant is pinned (`effort = f(boundedness)`), stored in the manifest's `reasoning_modes`, and is a CLI-only surface (`claude -p`) — the Agent-tool carrier (`claude-code-native`) is single-mode (effort not settable in-session). **Haiku is a no-op single-mode** even on the CLI — pass no `--effort` flag for a haiku dispatch.
+Claude CLI exposes a **5-level effort ladder** (`low | medium | high | xhigh | max`) via the `--effort <level>` flag. This is the post-pin reasoning dial: effort is set AFTER the variant is pinned (`effort = f(boundedness)`), stored in the manifest's `reasoning_modes`, and is a CLI-only surface (`claude -p`) — the Agent-tool carrier (`claude-code-native`) is single-mode (effort not settable in-session). The ladder applies to fable, opus, and sonnet (probe 2026-07-07: `--model fable` accepted both `--effort low` and `--effort max`, evidence below). **Haiku is a no-op single-mode** even on the CLI — pass no `--effort` flag for a haiku dispatch.
 
 | Effort | Flag | When (boundedness) |
 |--------|------|-------------------|

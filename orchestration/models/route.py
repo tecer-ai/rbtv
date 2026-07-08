@@ -1147,7 +1147,7 @@ _PINNED_FLOORS = {
         "floor_reasoning": 6,
     },
     "debug": {
-        "description": "Any code-eligible executor with reasoning >= 7 (D17: opus + codex-cli:gpt-5.5); opus is the default on cost",
+        "description": "Any code-eligible executor with reasoning >= 7 (D17: fable + opus + codex-cli:gpt-5.5); opus is the default on cost",
         "floor_variant": "opus",
         "floor_reasoning": 7,
     },
@@ -1277,8 +1277,8 @@ def _apply_pinned_role_floor(
 
     elif pinned_role == "debug":
         # Reasoning-7 code-eligible executor (D17: de-carrier-locked). The debug floor admits
-        # ANY elected, available, code-eligible executor with reasoning >= 7 — opus AND
-        # codex-cli:gpt-5.5, never a reasoning-6 worker (sonnet/kimi/gpt-5.4) or a non-code
+        # ANY elected, available, code-eligible executor with reasoning >= 7 — fable, opus,
+        # AND codex-cli:gpt-5.5, never a reasoning-6 worker (sonnet/kimi/gpt-5.4) or a non-code
         # API worker. Opus stays the default on cost (cost 6 < gpt-5.5 cost 7), so the
         # observable default is unchanged; gpt-5.5 wins only when opus is unavailable/capped.
         floor_reasoning = floor_def["floor_reasoning"]
@@ -1599,6 +1599,20 @@ def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plan
         if explain:
             verdict["explain"] = [{"stage": "halt_seam", "seam": seam, "note": f"judgment seam '{seam}' unresolved -- halting"}]
         return verdict
+
+    # Card fidelity (routing.md §2a/§3): `reviews_external_cli_code: true` IS the reviewer
+    # role — the card lists it as a standalone profile field that floors the pick at opus
+    # ("Opus reviews ALL external-CLI code"), so it must fire even when the profile omits
+    # `pinned_role`. Normalize: flag set + no pinned_role → pinned_role="reviewer" (an
+    # explicit different pinned_role is honored unchanged — never overwritten).
+    if profile.get("reviews_external_cli_code") and not profile.get("pinned_role"):
+        profile = dict(profile)
+        profile["pinned_role"] = "reviewer"
+        explain_log.append({
+            "stage": "pin", "action": "role_implied",
+            "role": "reviewer",
+            "note": "reviews_external_cli_code=true implies the reviewer role (routing.md §3 opus pin) -- pinned_role set to reviewer",
+        })
 
     # Stage 1: enumerate (rbtv_root = models/ folder; vault_root = env_file resolution)
     entries = _enumerate_models(rbtv_root, vault_root, rbtv_cfg, explain_log, elected=elected, elected_variants=elected_variants)

@@ -40,7 +40,7 @@ variants:
     # Supersedes the D15 drop (2026-06-17, access-gated) recorded in ../../skills/orchestrating/cards/routing.md §3.
     # Placed ABOVE opus — it is the senior-most variant in this package.
     available: true                  # explicit re-enable (../manifest-schema.md §2) — the variant carried `available: false` while access-gated (2026-06-14→17) and was then REMOVED outright by D15; re-added now that access has reopened, with an explicit true (not just an absent field) to document the re-add decision in place
-    evidence_status: probe-pending   # claude-fable-5 was NOT in the p3-6 probe matrix (opus/sonnet/haiku only) and has not been CLI-dispatched since re-add; the CLI contract (flags, --model, JSON envelope, exit semantics) is presumed identical to opus — only the model id differs — but is not yet probe-confirmed on THIS carrier. Re-confirm via a JSON probe (modelUsage.{contextWindow,maxOutputTokens}) on first CLI dispatch. Contrast ../claude-code-native/manifest.yaml, whose fable variant IS validated — the 2026-07-07 live dispatch was on that carrier, not this one
+    evidence_status: validated   # invocation contract + effort ladder CLI-confirmed 2026-07-07 via two trivial effort-dial dispatches (is_error:false, modelUsage.claude-fable-5); full task-bearing CLI dispatch still unexercised
 
     # --- capability + cost scores + sizing (routing §2, §8) — scale: schema §0 (integer 1–7, comparable across all models) ---
     reasoning: 7                           # owner-approved (conductor decision, this run) — Fable 5 is not on the AA leaderboard; no board-derived score exists. Set at the ceiling, matching opus's frontier reasoning score

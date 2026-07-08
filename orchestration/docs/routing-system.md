@@ -207,13 +207,14 @@ The suite covers the reference profiles (fully/partially/unbounded), the bounded
 
 | Model | reasoning | coding | cost | Context | Max Output | Price (blended) | reasoning_modes | evidence_status |
 |-------|:---------:|:------:|:----:|---------|------------|------------------|-----------------|-----------------|
+| Claude Fable 5 | 7 | 7 | 7 | 1M tokens | 128k | n/a (not on the AA board — owner-approved ceiling; premium tier, cost 7 ranks last on cost-ascending rank) | single-mode (effort not settable via Agent-tool) | validated (both carriers; CLI = effort-dial probe 2026-07-07, task-bearing dispatch unexercised) |
 | Claude Opus 4.8 | 7 | 6 | 6 | 1M tokens | 128k | $3.85/MTok | single-mode (effort not settable via Agent-tool) | validated |
 | Claude Sonnet 4.6 | 6 | 5 | 5 | 1M tokens | 64k | $2.31/MTok | single-mode (effort not settable via Agent-tool) | validated |
 | Claude Haiku 4.5 | 3 | 2 | 3 | 200k tokens | 64k | $0.77/MTok | single-mode no-op | validated |
 
-**CLI carrier (`claude-code-cli`):** same capability integers; adds the 5-level effort ladder (`low|medium|high|xhigh|max` via `--effort`) for opus and sonnet. Haiku is a no-op single-mode even on the CLI. `cost` integers identical (board market price, no subscription discount).
+**CLI carrier (`claude-code-cli`):** same capability integers; adds the 5-level effort ladder (`low|medium|high|xhigh|max` via `--effort`) for fable, opus and sonnet. Fable's CLI-side effort ladder was probe-confirmed 2026-07-07 via two trivial `claude -p --model fable --effort low|max` dispatches (both `is_error:false`, `modelUsage.claude-fable-5`); a full task-bearing CLI dispatch remains unexercised. Haiku is a no-op single-mode even on the CLI. `cost` integers identical (board market price, no subscription discount).
 
-**Capability:** Opus = frontier reasoning + strong agentic coding; Sonnet = strong reasoning; Haiku = fast/cheap volume tasks. No `routable_for` restriction — all three eligible for all leaves. `reasoning` source: Intelligence Index + GPQA/HLE cross-checks. `coding` source: Terminal-Bench Hard.
+**Capability:** Fable = premium senior-most tier (reasoning 7 / coding 7, ceiling on both axes) — the conductor and final-plan-reviewer pin target (opus falls back when fable is unavailable), never auto-picked on a cost tie (cost 7 ranks last in cost-ascending rank; reached ONLY via the conductor/final-plan-reviewer pins). Opus = frontier reasoning + strong agentic coding; Sonnet = strong reasoning; Haiku = fast/cheap volume tasks. No `routable_for` restriction — all four eligible for all leaves. `reasoning`/`coding` for Fable are owner-approved (Fable 5 is not on the AA leaderboard — no board data); Opus/Sonnet/Haiku `reasoning` source: Intelligence Index + GPQA/HLE cross-checks, `coding` source: Terminal-Bench Hard.
 
 ## DeepSeek (API)
 

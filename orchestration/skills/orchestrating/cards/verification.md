@@ -16,7 +16,7 @@ Iron rules it serves (from the core protocol): **disk = truth — every return i
 | **A development dispatch returned** | The return gate (§1) AND a review gate (§2). At a FEATURE commit boundary, ALSO the cold verifier (§3). |
 | **An API text-worker returned** | The return gate (§1, deliverable-scoped per §1c) AND the review gate's content-review variant (§2). NOT the cold verifier (§3) — no executable behavior. |
 | **A micro-dispatch inside a feature** | The return gate (§1) + the review gate (§2). The cold verifier fires at the feature boundary, not per micro-dispatch. |
-| **An interaction / behavior bug surfaced** | A debug role (§4) — never a CLI worker root-causing. |
+| **An interaction / behavior bug surfaced** | A debug role (§4) — the D17 reasoning-7 debug floor. |
 | **The run is about to be declared done** | The orchestrator-executed exit probes (§5) — the conductor personally exercises N probes before declaring the run complete. |
 | **The run is being closed** (exit probes held) | Run finalization (§6) — complete the exit scorecard, set the honest status, and surface every Human Review block + low-confidence/red-flag decision before reporting completion. |
 
@@ -159,9 +159,9 @@ The done-gate rule's Integrity Tripwire also applies: a builder sheet caught dis
 
 ---
 
-## 4. Debug roles (D21) — top-tier, never a CLI worker root-causing
+## 4. Debug roles (D21) — the D17 reasoning-7 debug floor
 
-When a defect is an interaction / behavior bug (the §1 reconciliation, a review, or a cold-verifier `failed` row surfaced it), root-causing it is judgment-dense work that routing pins to a TOP-TIER (opus) debug role — never a CLI worker. This card drives the role.
+When a defect is an interaction / behavior bug (the §1 reconciliation, a review, or a cold-verifier `failed` row surfaced it), root-causing it is judgment-dense work that routing pins to the D17 debug floor — any elected, available, code-eligible executor with `reasoning >= 7` (opus is the default on cost). This card drives the role.
 
 | Role | When | Discipline |
 |------|------|------------|
