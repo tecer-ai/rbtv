@@ -278,6 +278,19 @@ The `qwen-code-cli` package is a **CLI code-executor** running FOUR configured b
 
 **Capability:** CLI code-executor (NOT a chat worker) — writes/edits files, runs shells/tests, native `--worktree` isolation; `web_access: false` (route web research elsewhere). No `routable_for` restriction — all backends eligible for all leaves (they execute code). `deepseek-flash` = cheap workhorse (same DeepSeek V4 Flash model as `deepseek-api`, different ROLE — code executor vs text worker); `deepseek-pro` = deeper reasoning; `qwen3.6-plus` = native Qwen flagship; `glm` = model diversity.
 
+## OpenCode (multi-provider CLI)
+
+The `opencode` package is a **CLI code-executor** running an OSS provider-agnostic harness (`opencode run -m <provider>/<model>`, opencode 1.17.11 verified 2026-07-09). TWO backends only — the net-new models (owner ruling 2026-07-09; no gemini/deepseek/kimi duplicates). Per-backend API keys via the manifest `auth.env_var` override.
+
+| Variant | reasoning | coding | cost | Backend id | Context | Max Output | Price in/out | Key env var | evidence_status |
+|---------|:---------:|:------:|:----:|-----------|---------|-----------|---------------|-------------|-----------------|
+| `z1` | 5 | 4 | 3 | zai/glm-5.2 | 1M | 131,072 | $1.40/$4.40 | `ZHIPU_API_KEY` | probe-pending |
+| `sakana` | 6 ⚑ | 6 ⚑ | 7 | sakana/fugu-ultra | 1M | 65,536 (design budget — vendor unpublished) | $5.00/$30.00 | `SAKANA_API_KEY` | probe-pending |
+
+⚑ sakana capability integers are **vendor-reported** (Sakana: SWE-bench Pro 73.7, TB2.1 82.1; frontier-parity claims), NOT board-backed — fugu-ultra has no AA entry (checked 2026-07-09); graded one below the frontier ceiling at `confidence: low`; owner re-grade when board data lands. z1 grades are board-backed (AA II v4.1 51 — #1 open-weights; coding held at the GLM-5.1 TBH-cohort placement pending a comparable TBH read, ⚑ likely under-rated).
+
+**Capability:** CLI code-executor — writes/edits files, runs shells, commits locally (POC-proven on sakana, 2026-07-06); `web_access: false` (native webfetch only, no search). **NO native sandbox** — confinement is worktree-mandatory (`--dir <worktree>`; the worktree is the launch root — no `--add-dir`; guidance mirrors INTO the worktree) backed by the post-run git-diff-vs-allowlist. `z1` = open-weights/provider diversity at mid cost (GLM-5.1 itself stays on `qwen-code-cli` — the opencode z.ai backend pins the successor glm-5.2, so no model routes twice); `sakana` = model-diversity premium, cost 7 = pin-only, never auto-picked. Stdin-EOF guard mandatory on every headless dispatch.
+
 ## Quick-Decision Matrix
 
 | Need | Package | Variant | Reason |
@@ -293,6 +306,8 @@ The `qwen-code-cli` package is a **CLI code-executor** running FOUR configured b
 | Autonomous multi-step browser | manus-api | manus-autonomous | routable_for: [web-research] only; per-task cost |
 | Bounded code, cheapest CLI | qwen-code-cli | deepseek-flash | reasoning 4 / coding 3 / cost 1; 384k output |
 | Bounded code, deeper reasoning | qwen-code-cli | deepseek-pro | reasoning 5 / coding 4 / cost 1 |
+| Open-weights code, 1M context, OSS harness | opencode | z1 | reasoning 5 / coding 4 / cost 3; glm-5.2 via z.ai (key not yet provisioned) |
+| Model-diversity premium (pin-only) | opencode | sakana | vendor-reported 6/6, cost 7 ranks last — reached via pinned roles only |
 | Code-fleet model diversity | qwen-code-cli | glm / qwen3.6-plus | non-DeepSeek options |
 | High volume, cheapest Claude | claude-code-native | haiku | reasoning 3 / coding 2 / cost 3 |
 

@@ -280,6 +280,11 @@
           "name": "manus-api",
           "manifest": "orchestration/models/manus-api/manifest.yaml",
           "description": "Manus agentic-web worker (probe-pending) — autonomous server-side browser/tool loop; per-task cost; raw-dump return only (no JSON envelope, no code cold-verify); runs via the shared models/_api/run.py runner"
+        },
+        {
+          "name": "opencode",
+          "manifest": "orchestration/models/opencode/manifest.yaml",
+          "description": "OpenCode CLI multi-provider worker (opencode run, probe-pending) — OSS harness serving the net-new z1 (zai/glm-5.2) + sakana (fugu-ultra) backends; NO native sandbox — worktree-mandatory confinement"
         }
       ]
     },

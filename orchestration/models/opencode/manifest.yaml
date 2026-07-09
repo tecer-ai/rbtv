@@ -1,0 +1,197 @@
+# OpenCode capability manifest — the routing card's data interface for the opencode package.
+# Schema + field meanings + routing-card consumers: ../manifest-schema.md
+# Sources: `opencode run --help` (opencode 1.17.11, verified locally 2026-07-09 — flags are ground
+#          truth for the installed build); coordination-POC live test 2026-07-06 (headless-sessions
+#          handoff §1–2: sakana/fugu-ultra ran a real worktree task headless — commit 6c0b1fb3 —
+#          two-turn session memory proven, stdin-EOF guard mandatory, NO native sandbox observed);
+#          models.dev provider registry (read 2026-07-09: `zai` provider — https://api.z.ai/api/paas/v4,
+#          env ZHIPU_API_KEY, models incl. glm-5.2); AA board GLM-5.2 (read 2026-07-09).
+# Backend scope (owner ruling 2026-07-09): z1 (z.ai GLM-5.2) + sakana (fugu-ultra) ONLY — the net-new
+#          models. NOT gemini/deepseek/kimi (already reachable via gemini-api / deepseek-api /
+#          kimi-code-cli — adding them would create duplicate routes + nondeterministic RANK).
+#          GLM-5.1 stays on qwen-code-cli (its existing route); the opencode z.ai backend pins the
+#          SUCCESSOR glm-5.2 (net-new: 1M context vs 5.1's 200K) so no (model) is routable twice.
+# Axes grade the MODEL, not the harness (owner ruling): a backend carries the same reasoning/coding/
+#          cost integers the same model would get through any other route.
+# The exact invocation shape (commands, flags, stdin-EOF guard, worktree confinement, resume,
+#          recovery) is in ./manual.md (rendered from ./delta.md by ../render-manuals.py) —
+#          this manifest points to it, never duplicates it.
+
+model: opencode
+display: "opencode (CLI)"
+evidence_status: probe-pending   # sakana live-proven TWICE: 2026-07-06 POC (headless worktree task, real git commands, commit 6c0b1fb3) + 2026-07-09 smoke THROUGH this package's manual (Shape-B file-pointer dispatch exit 0, five-field return conformant, confinement diff clean, ~9 min wall). Still unpiloted: z1 entirely, resume-in-loop, exit taxonomy, a real task through the review gates — graduate to validated on the first real pilot
+permission_rules:            # installer-managed allowlist entries in the target's .claude/settings.local.json — added when this package is elected, removed when deselected; schema: ../manifest-schema.md
+  - "Bash(opencode:*)"
+  - "PowerShell(opencode:*)"
+
+variants:
+  - variant: z1   # z.ai GLM-5.2 via opencode's built-in `zai` provider — `opencode run -m zai/glm-5.2`
+    display: "GLM 5.2 (z.ai)"   # installer backend-election label (installer-consumed, NOT a routing input — schema §2)
+
+    # --- capability + cost scores + sizing (routing §2, §8) — scale: schema §0 (integer 1–7, comparable across all models) ---
+    reasoning: 5                           # AA II v4.1 51 — #1 open-weights model (AA article 2026-06; precedent: II 50-52 cohort → 5, kimi II 54 → 6)
+    coding: 4                              # AA Terminal-Bench v2.1 78; the TBH column was NOT retrievable for GLM-5.2 at authoring (AA moved II v4.1 to TB v2.1) — held at the GLM-5.1 TBH-cohort placement (aa-tbh(43) → 4) for cross-model comparability. ⚑ Likely under-rated (same posture as qwen glm-5.1's SWE-bench-Pro flag) — re-derive when a comparable TBH read exists
+    cost: 3                                # board blended price $0.90/1M → bin 3 (mid) — same bin as GLM-5.1
+    axis_evidence:
+      reasoning: { source: "aa-ii-v4.1(51)", confidence: high }
+      coding:    { source: "aa-tb2.1(78); TBH unavailable — held at glm-5.1 TBH-cohort placement", confidence: medium }
+    cost_evidence: { source: "aa-blended($0.90)→bin3", confidence: high }
+    context_window: 1000000         # 1M — AA model page + z.ai docs (verified 2026-07-09); the net-new jump over GLM-5.1's 200K
+    max_output: 131072              # 128K per-response cap (z.ai provider docs via Requesty, read 2026-07-09) — matches GLM-5.1's documented 131,072 max
+
+    # --- role eligibility (routing §2, §6) ---
+    web_access: false               # opencode ships a native webfetch tool (URL fetch) but NO web-search tool — not a research-leaf worker (same posture as qwen-code-cli)
+
+    # --- reasoning / effort modes (routing §2 post-pin effort=f(boundedness) — schema §0a) ---
+    reasoning_modes:
+      depths: []                    # UNVERIFIED — opencode exposes a provider-specific effort flag (`--variant high|max|minimal`, 1.17.11 help) but which levels the zai backend honors is unprobed; treat as single-mode until a probe establishes the ladder. NOTE: opencode's `--variant` flag is its EFFORT dial — unrelated to this manifest's variant ids
+      invocation: "none — `--variant <level>` exists but per-backend support is unverified; do not pin an effort level until probed"
+      carrier: "CLI flag (provider-specific)"
+
+    # --- parallelism + resume (routing §8, §4) ---
+    parallel_safe: true             # separate OS processes; worktree-mandatory confinement gives each dispatch its own cwd — NEVER run two dispatches in the SAME cwd (sessions are per-cwd; `-c` would cross-resume)
+    resume_support: session-id      # -s/--session <id> resumes a specific session; -c/--continue resumes the cwd's last session (two-turn memory POC-proven 2026-07-06)
+
+    # --- non-interactive run (routing §4 → dispatch-wrapper) ---
+    headless:
+      flags: "run -m zai/glm-5.2 --dir <worktree>"   # `opencode run` IS the headless mode; --format json for structured JSONL events; stdin-EOF guard MANDATORY (see os_quirks)
+      auto_approves_tools: true     # POC 2026-07-06: ran real git commands (incl. on the live vault, unprompted) with no interactive gate — treat headless as full-auto; opencode.json `permission` block exists but is UNPILOTED as a boundary
+      prompt_transport: arg         # message is a positional arg; stdin IS read when piped (hence the mandatory EOF guard) but stdin-as-prompt transport is unverified — use the arg, or a file-pointer prompt for large briefs
+
+    # --- auth pre-flight (routing §1 → halt-recovery USER-EXECUTED-ONLY) ---
+    auth:
+      required: true
+      method: api-key
+      env_var: ZHIPU_API_KEY        # models.dev `zai` provider key (read 2026-07-09); NOT provisioned in this vault's env yet — variant reads unavailable until the owner adds it. opencode resolves keys from the PROCESS env — the dispatch must export it (see manual pre-flight)
+      interactive: false            # availability = the key resolves (OS env → rbtv.json env_file)
+
+    rate_budget_notes: "exit-code taxonomy UNPILOTED — no known retryable-throttle code (unlike kimi 75); on any non-zero exit reconcile disk + recover-or-surface, never blind-retry. z.ai quota behavior unknown — bound autonomous runs by task scope"
+
+    # --- tool surface + confinement (routing §2, §4, §8) ---
+    tool_surface:
+      native: [shell, file, webfetch, todo]   # bash/edit/write/read/grep/glob + webfetch + todo list (POC: self-managed todo list observed)
+      mcp: true                     # opencode.json `mcp` block (local + remote servers)
+      agent_file: true              # `--agent <name>` + .opencode/agent/*.md agent specs (tool/permission restriction per agent) — UNPILOTED as a restriction surface
+    confinement:
+      workspace_scope: "worktree-mandatory — NO native sandbox (POC-observed); dispatch ONLY inside a dedicated git worktree via --dir <worktree>"
+      tool_restriction: "opencode.json `permission` block (edit/bash/webfetch allow|ask|deny; per-command bash patterns) + per-agent tool specs — both UNPILOTED; never rely on them as the boundary"
+      write_enforcement: git-diff-vs-allowlist   # post-run `git -C <worktree> diff --name-only HEAD` of every changed path vs the task allowlist is the ONLY reliable enforcement; out-of-allowlist = halt + surface, never auto-revert
+
+    # --- invocation + failures (routing §4, §2) ---
+    invocation_pointer: ./manual.md
+    manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/opencode/manual.md
+    delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/opencode/delta.md
+    specialty: "OSS-harness route to the leading open-weights model (GLM-5.2, AA II 51, 1M context) — provider-diversity code executor at mid cost; pick when open-weights/control or z.ai reach is wanted"   # within-tier tiebreaker only; boundedness-first stays the master cut
+    configurable_model:
+      provider_label: "opencode (multi-provider)"   # installer backend-election provider-path label (installer-consumed; not a routing input)
+      is_configurable: true          # the model opencode runs is CONFIGURATION, not a fixed package identity
+      note: "served backend set by -m <provider>/<model> (zai/glm-5.2 | sakana/fugu-ultra); the zai provider is models.dev-built-in (key-only), sakana is a custom provider block in the machine-global ~/.config/opencode/opencode.jsonc; resolve/attribute the CONFIGURED id at dispatch, never assume from the package name"
+    failure_modes:
+      - "headless HANGS forever reading non-TTY stdin ('Reading additional input from stdin...') — stdin-EOF guard MANDATORY on every dispatch: PowerShell `$null |` prefix, Bash `< /dev/null` suffix (POC-diagnosed 2026-07-06)"
+      - "NO native sandbox — POC ran `git status` on the live vault unprompted; worktree-mandatory dispatch + post-run git-diff-vs-allowlist is the boundary, never the CLI"
+      - "API keys resolve from the PROCESS env only ({env:VAR} in provider config / registry key lookup) — rbtv's env_file is NOT auto-read by opencode; the dispatch must export the variant's key first"
+      - "provider config absent → the -m id does not resolve (sakana needs its custom provider block in the machine-global opencode config; zai needs only the key)"
+      - "sessions are per-cwd — two dispatches sharing a cwd cross-resume via -c; one worktree per dispatch"
+      - "guidance file: a fresh vault worktree carries NO AGENTS.md (the vault gitignores mirror-generated guidance) — generate it into the worktree via the mirror pre-flight or inline the load-bearing rules"
+      - "exit-code taxonomy UNPILOTED — reconcile disk on any non-zero exit; never blind-retry"
+      - "a timeout-killed dispatch ORPHANS the opencode child on Windows — the shell wrapper dies, the worker keeps executing and mutating the workspace (live-diagnosed 2026-07-09: the orphan completed its task minutes after the kill); before ANY re-dispatch, liveness-check and `taskkill /PID <pid> /T /F` surviving opencode processes, or the old and new runs race in the same cwd"
+      - "a killed run leaves a stale snapshot index.lock under ~/.local/share/opencode/snapshot/ — benign WARN spam on later runs; the lock is held while an orphan lives (busy delete = orphan still alive, a liveness signal)"
+
+    # --- guidance file (routing §4 pre-dispatch check) ---
+    guidance_file:
+      convention: AGENTS.md         # opencode natively loads AGENTS.md (and honors opencode.json `instructions`); shares the AGENTS.md mirror target with codex/kimi (ref-counted)
+      mirror_entry: opencode-mirror  # resolves to: python orchestration/models/mirror/mirror.py --config orchestration/models/opencode/mirror-config.yaml --target <workspace-or-worktree>
+
+    # --- swarm / sub-conducting (routing §4 topology, depth cap) ---
+    swarm_support:
+      subagents: true               # opencode's agent system can invoke subagents (@agent / task) — UNPILOTED here
+      nesting: one-level            # treat as one-level, matching the D7 depth cap ≤ 2
+      default: disabled             # safe default posture; enable ONLY for independent slices with disjoint allowlists
+
+    os_quirks:
+      windows: "stdin-EOF guard MANDATORY: PowerShell `$null | opencode run …` / Bash `opencode run … < /dev/null` (POC 2026-07-06 — hangs without it); the Bash suffix form keeps the line beginning with `opencode` (binary-first allowlist match), the PowerShell prefix form is auto-mode/`!`-dispatch only"
+
+  - variant: sakana   # Sakana fugu-ultra via the custom `sakana` provider — `opencode run -m sakana/fugu-ultra`
+    display: "Fugu Ultra (Sakana)"   # installer backend-election label (installer-consumed, NOT a routing input — schema §2)
+    # Differs from `z1` on: reasoning (6 vs 5), coding (6 vs 4), cost (7 vs 3), auth env var, evidence basis.
+    # NOT on the AA board (checked 2026-07-09; BenchLM excludes it for lacking non-generated coverage) —
+    # capability integers are VENDOR-REPORTED (Sakana: SWE-bench Pro 73.7, TB2.1 82.1, LCB 93.2; claims
+    # frontier parity), graded ONE below the board-validated frontier ceiling (7 is not earned by
+    # self-report). confidence: low — owner re-grade when board data lands.
+
+    # --- capability + cost scores + sizing ---
+    reasoning: 6                           # vendor-reported frontier-parity claims, NOT board-backed — capped below the ceiling; POC run showed clean multi-step execution (own todo list, self-verification)
+    coding: 6                              # vendor-reported SWE-bench Pro 73.7 / TB2.1 82.1 — NOT board-backed; capped below the ceiling
+    cost: 7                                # vendor pricing $5/$30 per 1M (in/out) — blended lands above the $4.35 bin-7 precedent (gpt-5.5) under any blend formula → priciest bin; ranks LAST on cost-ascending RANK, never auto-picked on a tie
+    axis_evidence:
+      reasoning: { source: "vendor-reported(sakana) — no AA board entry 2026-07-09", confidence: low }
+      coding:    { source: "vendor-reported(sakana): swe-pro(73.7);tb2.1(82.1) — no AA board entry 2026-07-09", confidence: low }
+    cost_evidence: { source: "vendor($5/$30 per 1M)→bin7 — no AA blended figure", confidence: low }
+    context_window: 1000000         # 1M — vendor docs + OpenRouter listing (read 2026-07-09)
+    max_output: 65536               # vendor does NOT publish a per-turn output cap (vendor docs + live /v1/models probe, 2026-07-09) — design-budget assumption per the kimi precedent; flags large-single-turn-output tasks conservatively; re-verify when documented
+
+    # --- role eligibility ---
+    web_access: false               # same harness posture as z1 — webfetch only, no web-search tool
+
+    # --- reasoning / effort modes ---
+    reasoning_modes:
+      depths: []                    # UNVERIFIED — same `--variant` effort flag caveat as z1 (OpenRouter notes configurable reasoning effort, but the opencode-path levels are unprobed)
+      invocation: "none — `--variant <level>` exists but per-backend support is unverified; do not pin an effort level until probed"
+      carrier: "CLI flag (provider-specific)"
+
+    # --- parallelism + resume ---
+    parallel_safe: true             # same harness contract as z1 (one worktree per dispatch)
+    resume_support: session-id      # -s <id> / -c per cwd — the POC's two-turn memory probe ran on THIS backend
+
+    # --- non-interactive run ---
+    headless:
+      flags: "run -m sakana/fugu-ultra --dir <worktree>"
+      auto_approves_tools: true     # POC-observed on this backend (real git commands, no gate)
+      prompt_transport: arg
+
+    # --- auth pre-flight ---
+    auth:
+      required: true
+      method: api-key
+      env_var: SAKANA_API_KEY       # provisioned in this vault's env_file; opencode resolves it from the PROCESS env via the provider block's {env:SAKANA_API_KEY} — the dispatch must export it
+      interactive: false
+
+    rate_budget_notes: "exit-code taxonomy UNPILOTED; premium pricing ($5/$30 per 1M) — bound autonomous runs tightly; Sakana quota behavior unknown"
+
+    # --- tool surface + confinement (same harness contract as z1) ---
+    tool_surface:
+      native: [shell, file, webfetch, todo]
+      mcp: true
+      agent_file: true
+    confinement:
+      workspace_scope: "worktree-mandatory — NO native sandbox (POC-observed ON THIS BACKEND); dispatch ONLY inside a dedicated git worktree via --dir <worktree>"
+      tool_restriction: "opencode.json `permission` block + per-agent tool specs — UNPILOTED; never rely on them as the boundary"
+      write_enforcement: git-diff-vs-allowlist
+
+    # --- invocation + failures ---
+    invocation_pointer: ./manual.md
+    manual_path: ./manual.md
+    delta_path: ./delta.md
+    specialty: "model-diversity premium option — a non-US-lab frontier-claimed multi-agent (Composition-of-Experts) model behind the OSS harness; the POC's cleanest headless run (own todo list, self-verified). cost 7 — reached via pinned roles, never auto-picked"
+    evidence_status: probe-pending  # live-proven twice (2026-07-06 POC worktree task, commit 6c0b1fb3; 2026-07-09 manual smoke: Shape-B dispatch exit 0, five-field return + confinement diff clean) — resume-in-loop, exit taxonomy, and a real gated task remain unpiloted
+    configurable_model:
+      is_configurable: true
+      note: "served backend set by -m sakana/fugu-ultra; requires the custom sakana provider block (OpenAI-compatible, https://api.sakana.ai/v1, {env:SAKANA_API_KEY}) in the machine-global ~/.config/opencode/opencode.jsonc — template in ./manual.md pre-flight"
+    failure_modes:
+      - "same opencode harness failure modes as `z1` — stdin-EOF guard, no native sandbox, process-env keys, per-cwd sessions, worktree guidance gap, unpiloted exits"
+      - "custom provider block REQUIRED — absent from the machine-global opencode config, `-m sakana/fugu-ultra` does not resolve (the zai backend has no such dependency)"
+      - "capability integers are vendor-reported (confidence: low) — do NOT treat a sakana pin as board-equivalent to a 6/6 Claude/OpenAI row; owner re-grade when AA lists it"
+
+    # --- guidance file ---
+    guidance_file:
+      convention: AGENTS.md
+      mirror_entry: opencode-mirror
+
+    # --- swarm / sub-conducting ---
+    swarm_support:
+      subagents: true
+      nesting: one-level
+      default: disabled
+
+    os_quirks:
+      windows: "same stdin-EOF guard as z1 — PowerShell `$null |` prefix / Bash `< /dev/null` suffix; POC-diagnosed on this backend"

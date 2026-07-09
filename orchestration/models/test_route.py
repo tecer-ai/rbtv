@@ -2765,3 +2765,105 @@ class TestAvailability:
             assert set(elected) <= set(election), (elected, election)
         else:
             assert not_elected == [], not_elected
+
+
+# ---------------------------------------------------------------------------
+# opencode package: multi-provider CLI worker (z1 + sakana backends) + the
+# `auth.env_var` per-backend key-name override it introduced (manifest-schema §2)
+# ---------------------------------------------------------------------------
+
+class TestOpencode:
+    """The opencode package routes on (opencode, z1|sakana); its two backends authenticate
+    under DIFFERENT provider keys (ZHIPU_API_KEY / SAKANA_API_KEY), carried by the manifest
+    `auth.env_var` override rather than the package-id derivation (which would yield
+    OPENCODE_API_KEY). Confinement is worktree-mandatory (no native sandbox)."""
+
+    def test_opencode_enumerates_both_variants(self):
+        """Elected alone, opencode enumerates exactly the z1 + sakana backends."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        log = []
+        entries = route._enumerate_models(RBTV_ROOT, VAULT_ROOT, cfg, log, elected=["opencode"])
+        pairs = sorted((e["model"], e["variant"]) for e in entries)
+        assert pairs == [("opencode", "sakana"), ("opencode", "z1")], pairs
+
+    def test_env_var_override_unit(self, tmp_path):
+        """_check_api_key_present honors an explicit env_var override against the env_file,
+        and still derives {PROVIDER}_API_KEY from the package id when no override is given."""
+        import route
+        env_file = tmp_path / ".env"
+        env_file.write_text("ZHIPU_API_KEY=test-fake-not-real\n", encoding="utf-8")
+        cfg = {"env_file": ".env"}
+        # Guard: the override name must not leak in from the OS env for this unit (restored after).
+        saved = os.environ.pop("ZHIPU_API_KEY", None)
+        try:
+            # Override present in env_file → resolves.
+            assert route._check_api_key_present("opencode", cfg, tmp_path, env_var="ZHIPU_API_KEY")
+            # Override absent everywhere → does not resolve.
+            assert not route._check_api_key_present("opencode", cfg, tmp_path, env_var="NOPE_API_KEY")
+            # No override → derived OPENCODE_API_KEY, absent → does not resolve (the derivation
+            # path is unchanged by the override feature).
+            assert not route._check_api_key_present("opencode", cfg, tmp_path)
+        finally:
+            if saved is not None:
+                os.environ["ZHIPU_API_KEY"] = saved
+
+    def test_z1_availability_keyed_on_zhipu_api_key(self):
+        """(opencode, z1) is dropped at availability when ZHIPU_API_KEY is absent, and NOT
+        dropped when it is present in the OS env — proving the per-variant env_var override
+        drives availability end-to-end (the derived OPENCODE_API_KEY plays no role)."""
+        profile = _profile(boundedness="fully-bounded", task_type="code", inlined_context_size=10000)
+        env_no_key = {k: v for k, v in os.environ.items() if k != "ZHIPU_API_KEY"}
+        _, result_no_key = _run_route(profile, explain=True, env_override=env_no_key)
+        z1_dropped = any(
+            s.get("stage") == "availability" and s.get("model") == "opencode" and s.get("variant") == "z1"
+            for s in result_no_key.get("explain", [])
+        )
+        assert z1_dropped, (
+            "ZHIPU_API_KEY absent: expected (opencode, z1) dropped at availability; "
+            f"trace: {result_no_key.get('explain')}"
+        )
+        _, result_with_key = _run_route(
+            profile, explain=True, env_override={"ZHIPU_API_KEY": "test-fake-not-real"}
+        )
+        z1_dropped_with_key = any(
+            s.get("stage") == "availability" and s.get("model") == "opencode" and s.get("variant") == "z1"
+            for s in result_with_key.get("explain", [])
+        )
+        assert not z1_dropped_with_key, (
+            "ZHIPU_API_KEY present (OS env wins): (opencode, z1) must NOT be dropped for api-key absence"
+        )
+
+    def test_sakana_cost7_never_auto_picked(self):
+        """With BOTH opencode keys injected, a fully-bounded code leaf still resolves to the
+        validated cheaper executor (kimi) — cost-7 sakana ranks last and is never auto-picked
+        on a cost tie; z1 (cost 3, probe-pending) loses the evidence tiebreak to kimi."""
+        profile = _profile(boundedness="fully-bounded", task_type="code", inlined_context_size=10000)
+        exit_code, result = _run_route(
+            profile, explain=True,
+            env_override={"ZHIPU_API_KEY": "test-fake-not-real", "SAKANA_API_KEY": "test-fake-not-real"},
+        )
+        assert exit_code == 0, result
+        assert result["verdict"] == "route"
+        assert not (result["model"] == "opencode" and result["variant"] == "sakana"), (
+            f"cost-7 sakana must never be auto-picked: {result}"
+        )
+        assert result["model"] == "kimi-code-cli", (
+            f"validated kimi (cost 3) should out-rank probe-pending z1 (cost 3): {result}"
+        )
+
+    def test_worktree_confinement_encoded(self):
+        """Both opencode variants encode the worktree-mandatory confinement contract in the
+        manifest: workspace_scope names the worktree, write_enforcement is the git-diff check."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        log = []
+        entries = route._enumerate_models(RBTV_ROOT, VAULT_ROOT, cfg, log, elected=["opencode"])
+        assert entries, "opencode did not enumerate"
+        for e in entries:
+            confinement = e["raw_variant"].get("confinement") or {}
+            scope = str(confinement.get("workspace_scope", ""))
+            assert "worktree" in scope.lower(), (e["variant"], scope)
+            assert confinement.get("write_enforcement") == "git-diff-vs-allowlist", (
+                e["variant"], confinement,
+            )

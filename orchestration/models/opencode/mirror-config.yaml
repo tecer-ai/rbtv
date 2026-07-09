@@ -1,0 +1,16 @@
+# OpenCode mirror-config — the per-model config mirror.py reads to generate opencode's
+# per-workspace guidance file. opencode natively loads AGENTS.md at its working root
+# (shared mirror target with codex/kimi — ref-counted by the mirror driver); this mirrors
+# the workspace's CLAUDE.md body into it so the opencode worker sees the same instructions
+# the Claude conductor does.
+# Config schema: ../mirror/mirror-config.md
+# Run: python orchestration/models/mirror/mirror.py --config orchestration/models/opencode/mirror-config.yaml --target <workspace-or-worktree>
+# (the manifest's guidance_file.mirror_entry: opencode-mirror resolves to exactly this).
+# Worktree note: opencode dispatches are worktree-mandatory and a fresh vault worktree carries
+# NO AGENTS.md (gitignored) — the dispatch pre-flight runs this mirror with --target <worktree>
+# (the worktree carries the tracked CLAUDE.md source). See models/opencode/delta.md pre-flight.
+
+model: opencode                   # package id — matches models/opencode/ and the manifest's `model`
+guidance_filename: AGENTS.md      # the guidance file opencode natively loads at the target root (manifest guidance_file.convention)
+source: CLAUDE.md                 # workspace-relative source whose body is mirrored into AGENTS.md
+banner_label: the OpenCode CLI worker  # interpolated into the DO-NOT-EDIT banner

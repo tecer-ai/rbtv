@@ -485,23 +485,31 @@ def _parse_manifest_yaml(path: Path) -> dict:
     return result
 
 
-def _check_api_key_present(model_name: str, rbtv_cfg: dict, vault_root: Path) -> bool:
+def _check_api_key_present(model_name: str, rbtv_cfg: dict, vault_root: Path, env_var: str | None = None) -> bool:
     """Check if an API key resolves for a model package. OS env first, then env_file.
 
     Root: VAULT root (where rbtv.json was found). rbtv.json's env_file is vault-relative
     (e.g. `.user/config/env/.env`), so it MUST resolve against vault_root, never the rbtv
     repo root. Manifest enumeration stays at rbtv_root (models/ folder lives there).
+
+    env_var: optional manifest-declared override (variant `auth.env_var`) for packages whose
+    backends authenticate under provider-specific key names the package-id derivation cannot
+    produce (e.g. a multi-provider harness package like opencode: z1 → ZHIPU_API_KEY,
+    sakana → SAKANA_API_KEY). None → derive from the package id (the canonical path).
     """
-    # The API-key env var is keyed by PROVIDER, not by the package's runtime-suffixed
-    # id. Strip the runtime suffix (-api / -code-cli / -code-native / -cli) so e.g.
-    # qwen-code-cli → QWEN_API_KEY and deepseek-api → DEEPSEEK_API_KEY (the canonical
-    # provider key names — and the names used before the carrier+runtime rename).
-    provider = model_name
-    for _suffix in ("-code-cli", "-code-native", "-cli", "-api"):
-        if provider.endswith(_suffix):
-            provider = provider[: -len(_suffix)]
-            break
-    env_var_name = f"{provider.upper()}_API_KEY"
+    if env_var:
+        env_var_name = env_var
+    else:
+        # The API-key env var is keyed by PROVIDER, not by the package's runtime-suffixed
+        # id. Strip the runtime suffix (-api / -code-cli / -code-native / -cli) so e.g.
+        # qwen-code-cli → QWEN_API_KEY and deepseek-api → DEEPSEEK_API_KEY (the canonical
+        # provider key names — and the names used before the carrier+runtime rename).
+        provider = model_name
+        for _suffix in ("-code-cli", "-code-native", "-cli", "-api"):
+            if provider.endswith(_suffix):
+                provider = provider[: -len(_suffix)]
+                break
+        env_var_name = f"{provider.upper()}_API_KEY"
     if os.environ.get(env_var_name):
         return True
     env_file = rbtv_cfg.get("env_file")
@@ -553,7 +561,11 @@ def _is_variant_available(variant: dict, model_name: str, rbtv_cfg: dict, vault_
         return False
     auth_method = _get_auth_method(variant)
     if auth_method == "api-key":
-        return _check_api_key_present(model_name, rbtv_cfg, vault_root)
+        # Optional manifest-declared key-name override (variant auth.env_var) for
+        # multi-provider packages whose backend keys the package-id derivation cannot name.
+        auth = variant.get("auth")
+        env_var = auth.get("env_var") if isinstance(auth, dict) else None
+        return _check_api_key_present(model_name, rbtv_cfg, vault_root, env_var=env_var)
     # cli-login and none are not key-tested by the script
     return True
 
