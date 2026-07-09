@@ -1,6 +1,6 @@
 ---
 name: rbtv-safe-move
-description: "Move or rename a file or folder in ONE operation that also finds and fixes every reference to it — markdown links, wikilinks, frontmatter paths, config paths, and code imports (matched structurally via ast-grep, never regex). Use WHENEVER you or the user need to relocate or rename a file or directory and keep its references intact, instead of moving by hand and grepping for callers. Two stateless calls: consult (dry-run — find, classify, and risk-grade every reference; changes nothing) then act (perform the git-aware move and auto-apply the safe fixes, surfacing the risky ones for you). Drift-safe via a hash handshake. Folder moves are the primary case."
+description: "Move or rename a file or folder in ONE operation that also finds and fixes every reference to it — markdown links, wikilinks, frontmatter paths, config paths, and code imports (matched structurally via ast-grep, never regex). Use WHENEVER you or the user need to relocate or rename a file or directory and keep its references intact, instead of moving by hand and grepping for callers. Two stateless calls: consult (dry-run — find, classify, and risk-grade every reference; changes nothing) then act (perform the git-aware move and auto-apply the safe fixes, surfacing the risky ones for you). Each prints a compact summary and files its full result as a report under .rbtv/runtime/safe-move/; a show subcommand slices records back out. Drift-safe via a hash handshake. Folder moves are the primary case."
 ---
 
 # Safe Move

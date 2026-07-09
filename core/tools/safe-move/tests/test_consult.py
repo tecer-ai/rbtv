@@ -123,6 +123,7 @@ def test_consult_cli_prints_parseable_json(repo_builder):
             "new.md",
             "--scope-root",
             str(fix.repo),
+            "--json",
         ],
         capture_output=True,
         text=True,

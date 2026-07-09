@@ -79,6 +79,7 @@ def test_out_of_scope_folder_consult_cli_no_traceback(repo_builder, capsys):
             str(fix.repo / "1-projects" / "proj" / "newfolder"),
             "--scope-root",
             str(fix.repo / "1-projects"),
+            "--json",
         ]
     )
     captured = capsys.readouterr()

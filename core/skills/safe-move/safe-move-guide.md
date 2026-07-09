@@ -46,21 +46,29 @@ Run the package as a module with the tool directory as the working directory, an
 cd {rbtv_path}/core/tools/safe-move
 python -m safe_move consult <abs-old> <abs-new> [options]
 python -m safe_move act     <abs-old> <abs-new> --apply <id:hash>[,<id:hash>...] [options]
+python -m safe_move show    <report-path> [--id <ref-id>] [--class auto|surface|protected] [--file <glob>] [--warnings]
 ```
 
-Two stateless subcommands. The tool keeps NO state between calls — you hold the result; a per-reference hash guards integrity.
+The move engine is two stateless subcommands (`consult`/`act`) — the tool keeps NO decision state between them; a per-reference hash guards integrity. Their FULL result envelope is written to a **report file** at `{workspace_root}/.rbtv/runtime/safe-move/<subcommand>-<timestamp>-<slug>.json` (workspace root = the git top level containing the scope root; the `.rbtv/runtime/` folder self-gitignores). Stdout carries only a **compact summary** — counts, warnings, the records you must decide on, and the report path. The report is a disposable convenience artifact: `act` still re-derives everything from scratch and trusts only the hash handshake, so a stale report can never corrupt an apply. `--json` on `consult`/`act` restores the raw-envelope-on-stdout behavior and writes no report.
 
 ### `consult` — find & classify (changes nothing)
 
 - **Input:** `old`, `new`, plus options below.
-- **Returns** a record per reference: `{ id, file, line, match, context, syntax, proposed, class, hash }`; the git-move method it will use; warnings (unreachable/published, governed hand-offs, cross-project, history-loss, non-UTF-8/binary files skipped); and folder-cascade info for folder moves.
-- Run this FIRST. Read the records, decide which `surface` ids (if any) you also want applied, and keep each chosen id together with its `hash`.
+- **Computes** a record per reference: `{ id, file, line, match, context, syntax, proposed, class, hash }`; the git-move method it will use; warnings (unreachable/published, governed hand-offs, cross-project, history-loss, non-UTF-8/binary files skipped); and folder-cascade info for folder moves. The full set goes to the report file.
+- **Prints** the summary: move method; per-class counts; every `surface` record inline as a ready-to-paste `id:hash` pair with its `file:line`, syntax, and `match -> proposed`; warnings; the report path.
+- Run this FIRST. The summary's `surface` lines are the decision set — pick which (if any) you also want applied and pass their `id:hash` pairs to `act --apply`. Use `show` on the report for full context on any record; do NOT re-run consult just to re-read records.
 
 ### `act` — move & apply
 
 - **Input:** `old`, `new`, the same options, and `--apply` with the `id:hash` pairs of any **surface** sites you ALSO want applied (each id paired with the hash `consult` returned). `auto` sites are applied regardless of `--apply`; an empty `--apply` value applies the `auto` fixes and performs the move.
 - **Does:** re-derives every reference from scratch (stateless), then: applies every `auto` site; applies each **requested** id whose current hash still equals the `consult`-time hash (**mismatch (drift) → refuse that id and report it**); NEVER applies a `protected` site, even when requested (reported as `protected-not-applied`); surfaces the rest. Then performs the git-aware move.
-- **Returns** an action log: moved (and how), auto-fixed, surfaced (old→new), skipped/drifted, warnings.
+- **Prints** a compact action log: moved (and how), auto-fixed as a COUNT, surfaced and drifted rows inline (they are your remaining work), errors, warnings, and the report path (full auto-fixed rows live in the report).
+
+### `show` — slice a report back out (changes nothing)
+
+- **Input:** a report path from `consult`/`act`, plus filters.
+- No filters → re-prints the compact summary. `--id <ref-id>` (repeatable), `--class <class>`, and `--file <glob>` (AND-combined) → the matching FULL records as JSON. `--warnings` → the warnings list as JSON. An unknown `--id` exits 1 — a typo never reads as "no references".
+- Always call `show` WITH a filter when reading records — an unfiltered record dump is what the summary/report split exists to avoid. (The report is plain JSON; reading it directly with your own tools is equally fine.)
 
 Because `act` re-derives and trusts only the hash, it is parallel-safe and resumable — it is safe for you to edit surfaced sites between `consult` and `act`; any site you changed simply drifts and is refused rather than clobbered.
 
@@ -86,6 +94,7 @@ Because `act` re-derives and trusts only the hash, it is parallel-safe and resum
 | `--include-archive` | Descend into `--exclude` paths instead of skipping them. |
 | `--include-nested-repos` | Descend into nested git repositories under the scope (default: skip them). Use only when you need to find cross-repo references; their reference rewrites are always surfaced, never auto-applied. |
 | `--generated <glob>` | Mark matching files as generated (regenerate them, do not patch). Repeatable. |
+| `--json` | (`consult`/`act`) Print the full result envelope as JSON on stdout and write no report file. For programmatic consumption; the default summary+report is the agent-facing surface. |
 
 Excludes, read-only areas, and generated globs are arguments — the tool hardcodes none of them. Pass the calling workspace's conventions explicitly.
 
@@ -116,7 +125,7 @@ Moving a folder moves every file in it and fixes every reference to the folder p
 - It does NOT commit. It auto-applies `auto` sites, applies a `surface` site only when you pass its `id:hash` to `--apply`, and NEVER touches a `protected` site (even if requested → reported as `protected-not-applied`). After `act`, resolve any remaining surfaced sites yourself, then commit.
 - A `surface` classification is a request for your judgment, not an error — dynamic/aliased imports, multi-target short names, per-file relative paths, and references inside quotes/logs surface by design.
 - Drift on an id at `act` means that site changed since `consult` — re-run `consult` to get fresh records/hashes if you need it applied.
-- `consult` is read-only and safe to run alongside a parallel session. If `old` is moved or deleted by another session WHILE a scan is in flight, the scan fails cleanly — a one-line `old path no longer exists (changed during scan)` on stderr and exit 1 — never a raw traceback, and never a partial/garbage envelope on stdout.
+- `consult` changes nothing in scope (its only write is its own report file under `.rbtv/runtime/safe-move/`) and is safe to run alongside a parallel session. If `old` is moved or deleted by another session WHILE a scan is in flight, the scan fails cleanly — a one-line `old path no longer exists (changed during scan)` on stderr and exit 1 — never a raw traceback, and never a partial/garbage envelope on stdout.
 - Code coverage depends on `npx`/`ast-grep` being available (see Prerequisite). Without it, no code references are found and a warning is emitted.
 - Paths written as inline code in markdown (`` `a/b/c.md` ``) are detected and **surfaced** (never `auto`) when they resolve to the moved target — pass the id to `--apply` to apply the rewrite. When the scan is scoped to a subtree (`--scope-root` pointing inside a larger repo), a backtick path written relative to the **workspace/git root** — e.g. `` `4-archives/x.md` `` while scanning `1-projects` — is resolved against that root too and surfaced, even when the moved target lives OUTSIDE the scan scope (previously such a reference was silently dropped).
 - **A bare filename with no path separator is also detected — but ONLY when it carries a known file extension AND its basename is unique in scope.** A reference written as `` `name.md` `` (a backtick span, no separator → `inline-code-basename`) or as a bare `name.md` in plain markdown prose (no backticks, no separator → `prose-filename`) is **surfaced** (never `auto`) when its basename resolves to exactly one in-scope file — mirroring the frontmatter rule that a name carrying an extension (`x.md`) is a file reference. On a **basename collision** (two in-scope files share the name) the bare reference is left **unmatched** (the `basename-collision` warning fires), since it is genuinely ambiguous. A backtick span or prose token with **no extension** (e.g. `` `npx` ``, a bare word) is never matched, so commands and ordinary words are not mistaken for files; an extension outside the known set (e.g. a version like `1.2.3`) is likewise ignored. Prose tokens inside an inline-code span, wikilink, markdown link, or the frontmatter block are left to those matchers, never double-counted.

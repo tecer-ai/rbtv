@@ -1,10 +1,13 @@
-"""CLI dispatch for safe-move consult/act."""
+"""CLI dispatch for safe-move consult/act/show."""
 
 import argparse
+import dataclasses
 import json
 import sys
+from pathlib import Path
 
-from safe_move.act import ActError, format_action_log, run_act
+from safe_move import report, scope
+from safe_move.act import ActError, run_act
 from safe_move.consult import ConsultError, build_consult_result
 from safe_move.move import MoveError
 from safe_move.scope import ScopeError
@@ -53,6 +56,15 @@ def _add_shared_options(parser: argparse.ArgumentParser) -> None:
         default=[],
         help="Glob marking generated files (regenerate, don't patch). Repeatable.",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        default=False,
+        help=(
+            "Print the full result envelope as JSON on stdout and write no "
+            "report file (default: write a report file and print a compact summary)."
+        ),
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -84,6 +96,41 @@ def build_parser() -> argparse.ArgumentParser:
     act.add_argument("new", help="The destination path.")
     act.set_defaults(func=_run_act)
 
+    show = subparsers.add_parser(
+        "show", help="Slice records back out of a consult/act report file."
+    )
+    show.add_argument("report", help="Path to a report file written by consult/act.")
+    show.add_argument(
+        "--id",
+        metavar="<ref-id>",
+        action="append",
+        default=[],
+        dest="ids",
+        help="Print the full record(s) with this id. Repeatable.",
+    )
+    show.add_argument(
+        "--class",
+        metavar="<class>",
+        choices=["auto", "surface", "protected"],
+        default=None,
+        dest="ref_class",
+        help="Print the full records of this class.",
+    )
+    show.add_argument(
+        "--file",
+        metavar="<glob>",
+        default=None,
+        dest="file_glob",
+        help="Print the full records whose file matches this glob.",
+    )
+    show.add_argument(
+        "--warnings",
+        action="store_true",
+        default=False,
+        help="Print the warnings list as JSON.",
+    )
+    show.set_defaults(func=_run_show)
+
     return parser
 
 
@@ -103,7 +150,15 @@ def _run_consult(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
-    print(json.dumps(result, indent=2))
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0
+
+    report_path = _write_report_safe("consult", args, result)
+    print(report.format_consult_summary(result, args.old, args.new, report_path))
+    if report_path is None:
+        # Never lose information: with no report file, fall back to the full envelope.
+        print(json.dumps(result, indent=2))
     return 0
 
 
@@ -124,8 +179,47 @@ def _run_act(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
-    print(format_action_log(result))
+    payload = dataclasses.asdict(result)
+    if args.json:
+        print(json.dumps(payload, indent=2))
+        return result.exit_code
+
+    report_path = _write_report_safe("act", args, payload)
+    print(report.format_act_summary(result, report_path))
+    if report_path is None:
+        print(json.dumps(payload, indent=2))
     return result.exit_code
+
+
+def _run_show(args: argparse.Namespace) -> int:
+    try:
+        output, code = report.run_show(
+            args.report,
+            ids=args.ids,
+            ref_class=args.ref_class,
+            file_glob=args.file_glob,
+            warnings_only=args.warnings,
+        )
+    except report.ReportError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    print(output)
+    return code
+
+
+def _write_report_safe(kind: str, args: argparse.Namespace, payload) -> Path | None:
+    """Write the report file; on failure warn and return None (caller falls back)."""
+    try:
+        try:
+            root = scope.resolve_scope_root(args.old, args.scope_root)
+        except ScopeError:
+            # After ``act`` the old path is gone — resolve from the destination.
+            root = scope.resolve_scope_root(args.new, args.scope_root)
+        return report.write_report(kind, args.old, args.new, root, payload)
+    except (OSError, ScopeError) as exc:
+        print(f"warning: could not write report file: {exc}", file=sys.stderr)
+        return None
 
 
 def main(argv: list[str] | None = None) -> int:

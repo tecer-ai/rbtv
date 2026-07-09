@@ -14,8 +14,10 @@ CONSULT_FLAGS = [
     "--include-archive",
     "--include-nested-repos",
     "--generated",
+    "--json",
 ]
 ACT_FLAGS = CONSULT_FLAGS + ["--apply"]
+SHOW_FLAGS = ["--id", "--class", "--file", "--warnings"]
 
 
 def test_consult_help_shows_all_flags():
@@ -38,6 +40,17 @@ def test_act_help_shows_all_flags():
     assert result.returncode == 0, result.stderr
     for flag in ACT_FLAGS:
         assert flag in result.stdout, f"Missing flag {flag} in act --help"
+
+
+def test_show_help_shows_all_flags():
+    result = subprocess.run(
+        [sys.executable, "-m", "safe_move", "show", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    for flag in SHOW_FLAGS:
+        assert flag in result.stdout, f"Missing flag {flag} in show --help"
 
 
 def test_consult_parser_accepts_full_arg_set():
