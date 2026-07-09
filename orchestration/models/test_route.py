@@ -918,6 +918,60 @@ class TestPinnedRoleFloors:
             f"Expected floor_already_met for executor_reasoning=3 (kimi meets floor=6), got: {pin_steps_normal}"
         )
 
+    def test_external_cli_code_flag_implies_reviewer_role(self):
+        """Card-divergence fix (archive-readiness run D4, 2026-07-07): a profile carrying
+        reviews_external_cli_code=true WITHOUT pinned_role must still floor at opus —
+        routing.md §2a lists the flag as a standalone profile field and §3 pins 'Opus
+        reviews ALL external-CLI code'. route() normalizes the flag to
+        pinned_role="reviewer" when pinned_role is absent."""
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+            reviews_external_cli_code=True,
+            # NO pinned_role — the flag alone must imply the reviewer role
+        )
+        exit_code, result = _run_route(profile, explain=True)
+        assert exit_code == 0
+        assert result["verdict"] == "route"
+        assert result["model"] in ("claude-code-native", "claude-code-cli"), (
+            f"reviews_external_cli_code=true without pinned_role should resolve to Claude opus, "
+            f"got {result['model']}:{result['variant']}"
+        )
+        assert result["variant"] == "opus", (
+            f"reviews_external_cli_code=true without pinned_role should be opus, got {result['variant']}"
+        )
+        explain = result.get("explain", [])
+        pin_steps = [s for s in explain if s.get("stage") == "pin"]
+        assert any(s.get("action") == "role_implied" for s in pin_steps), (
+            f"Expected role_implied step (flag → reviewer normalization), got: {pin_steps}"
+        )
+        assert any(s.get("action") == "floor_raised_external_cli" for s in pin_steps), (
+            f"Expected floor_raised_external_cli step, got: {pin_steps}"
+        )
+
+    def test_explicit_pinned_role_not_overwritten_by_external_cli_flag(self):
+        """The flag normalization only fills an ABSENT pinned_role — an explicit different
+        pinned_role (e.g. debug) is honored unchanged, never overwritten to reviewer."""
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+            pinned_role="debug",
+            reviews_external_cli_code=True,
+        )
+        exit_code, result = _run_route(profile, explain=True)
+        assert exit_code == 0
+        assert result["verdict"] == "route"
+        explain = result.get("explain", [])
+        pin_steps = [s for s in explain if s.get("stage") == "pin"]
+        assert not any(s.get("action") == "role_implied" for s in pin_steps), (
+            f"Explicit pinned_role=debug must not be overwritten by the flag, got: {pin_steps}"
+        )
+        assert all(s.get("role") != "reviewer" for s in pin_steps), (
+            f"Pin steps should run the debug pin, not reviewer: {pin_steps}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # ADX-19: env_file resolution root fix + proving test
