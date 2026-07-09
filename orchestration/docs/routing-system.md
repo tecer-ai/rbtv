@@ -111,7 +111,7 @@ Pins raise the pick after ranking; they never lower it. Floors are defined in `_
 | `debug` | any code-eligible executor with reasoning ≥ 7. |
 | `commit` | Agent-tool Claude Sonnet; if no Claude is available, the strongest-reasoner across all elected packages (excluding Haiku), cost ignored. |
 
-**Stakes tier-up** (`_apply_stakes_tier_up`): a profile with `stakes_tier: tier_up` raises the boundedness band one level and re-resolves (re-scope, re-filter, re-rank) over the full enumeration.
+**Stakes tier-up** (`_apply_stakes_tier_up`): a profile with `stakes_tier: tier_up` raises the boundedness band one level and re-resolves (re-scope, re-filter, re-rank) over the full enumeration. The router also acts on the `stakes` VALUE directly (routing.md §2 STAKES filter): a `stakes` of `irreversible` or `cross-cutting` (with no explicit `stakes_tier`) is normalized into `stakes_tier: tier_up`, so irreversible/cross-cutting work never routes to the cheapest worker. `stakes: unresolved` is the halt-seam instead; any other/absent value is a no-op.
 
 **Empty-pipeline fallback:** when the band-scoped pipeline yields zero candidates but a `pinned_role` is set, the pin's own floor computation runs over the *full pre-scope* roster before returning the error — so a pinned role (e.g. a reviewer) can still be filled when the scoped set came up empty.
 

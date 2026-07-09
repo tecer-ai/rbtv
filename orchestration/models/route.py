@@ -80,6 +80,14 @@ REQUIRED_VARIANT_FIELDS = [
 
 SKIP_DIRS = {"_api", "_fixture", "mirror"}
 
+# routing.md §2 STAKES filter: a `stakes` VALUE signalling irreversible or cross-cutting work
+# tiers the pick UP one band ("Stakes override cheapness — a 'bounded' task with irreversible
+# blast radius does not go to the cheapest worker"). The router normalizes these tokens into the
+# existing `stakes_tier="tier_up"` trigger so the downstream tier-up path is reused verbatim.
+# `stakes="unresolved"` is NOT here — it is the halt-seam (a decision the owner must take before
+# routing), handled by _check_halt_seams; any other/absent value is a no-op.
+STAKES_TIER_UP_TOKENS = {"irreversible", "cross-cutting"}
+
 # Footprint-aware routing (spec Behavior 4): the window-utilization cap is read from rbtv.json
 # (`window_utilization_cap`). When absent or malformed (non-numeric, or outside the open-closed
 # range (0, 1]) the router falls back to this default and logs it. A worker passes the footprint
@@ -1624,6 +1632,23 @@ def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plan
             "stage": "pin", "action": "role_implied",
             "role": "reviewer",
             "note": "reviews_external_cli_code=true implies the reviewer role (routing.md §3 opus pin) -- pinned_role set to reviewer",
+        })
+
+    # Card fidelity (routing.md §2 STAKES filter): a `stakes` VALUE signalling irreversible or
+    # cross-cutting work tiers the pick UP one band. The card lists `stakes` as a standalone
+    # profile field (§2a step 1) alongside the pre-digested `stakes_tier`, so the router must act
+    # on the value itself — not only on `stakes_tier="tier_up"`. Normalize: an irreversible/
+    # cross-cutting `stakes` value + no explicit `stakes_tier` → set `stakes_tier="tier_up"`, so
+    # the downstream tier-up path (_apply_pins_and_stakes → _apply_stakes_tier_up) is reused
+    # verbatim. `stakes="unresolved"` already short-circuited at the halt-seam above; an
+    # absent/reversible/unknown value stays a no-op. An explicit `stakes_tier` is honored unchanged.
+    if profile.get("stakes") in STAKES_TIER_UP_TOKENS and not profile.get("stakes_tier"):
+        profile = dict(profile)
+        profile["stakes_tier"] = "tier_up"
+        explain_log.append({
+            "stage": "stakes", "action": "tier_up_implied",
+            "stakes": profile["stakes"],
+            "note": "irreversible/cross-cutting stakes value tiers up (routing.md §2 STAKES filter) -- stakes_tier normalized to tier_up",
         })
 
     # Stage 1: enumerate (rbtv_root = models/ folder; vault_root = env_file resolution)

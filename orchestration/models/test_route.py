@@ -568,6 +568,106 @@ class TestStakesTierUp:
         )
 
 
+class TestStakesValueTierUp:
+    """routing.md §2 STAKES filter: a `stakes` VALUE (irreversible / cross-cutting) tiers the
+    pick UP even when the pre-digested `stakes_tier` flag is absent — 'Stakes override cheapness'.
+    Before the fix a fully-bounded code profile carrying stakes=irreversible routed to the CHEAPEST
+    worker (opencode:deepseek-pro), exactly the §2 failure mode."""
+
+    def test_stakes_irreversible_tiers_up_not_cheapest(self):
+        """A fully-bounded code profile with stakes=irreversible (no stakes_tier) must NOT route to
+        the cheapest cost-1 worker; it raises the band to partially-bounded → Claude mid-tier,
+        matching what stakes_tier=tier_up yields for the same profile."""
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+            stakes="irreversible",
+        )
+        exit_code, result = _run_route(profile, explain=True)
+        assert exit_code == 0
+        assert result["verdict"] == "route", f"Expected route, got {result}"
+        # The bug: irreversible work must NOT go to the cheapest worker.
+        assert not (result["model"] == "opencode" and result["variant"] == "deepseek-pro"), (
+            "stakes=irreversible must NOT route to the cheapest cost-1 worker (routing.md §2)"
+        )
+        # It must tier up to Claude mid-tier — identical to the stakes_tier=tier_up path.
+        assert result["model"] in ("claude-code-native", "claude-code-cli"), (
+            f"stakes=irreversible should raise to Claude mid-tier, got {result['model']}:{result['variant']}"
+        )
+        # The normalization + the existing tier-up machinery both leave their trace.
+        explain = result.get("explain", [])
+        assert any(
+            s.get("stage") == "stakes" and s.get("action") == "tier_up_implied" for s in explain
+        ), "Expected the stakes value → tier_up normalization step in the explain trace"
+        assert any(
+            s.get("stage") == "stakes" and s.get("action") == "tier_up_result" for s in explain
+        ), "Expected the existing tier-up re-resolution to fire"
+
+    def test_stakes_value_matches_stakes_tier_flag(self):
+        """stakes=irreversible must yield the SAME (model, variant) as the pre-digested
+        stakes_tier=tier_up flag for an otherwise-identical profile — the value is normalized
+        into that exact flag, so the downstream pick is byte-identical."""
+        base = dict(boundedness="fully-bounded", task_type="code", inlined_context_size=10000)
+        _, via_value = _run_route(_profile(**base, stakes="irreversible"))
+        _, via_flag = _run_route(_profile(**base, stakes_tier="tier_up"))
+        assert via_value.get("verdict") == "route"
+        assert (via_value["model"], via_value["variant"]) == (via_flag["model"], via_flag["variant"]), (
+            f"stakes=irreversible ({via_value['model']}:{via_value['variant']}) must match "
+            f"stakes_tier=tier_up ({via_flag['model']}:{via_flag['variant']})"
+        )
+
+    def test_stakes_cross_cutting_tiers_up(self):
+        """cross-cutting is the second §2 token — it tiers up identically to irreversible."""
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+            stakes="cross-cutting",
+        )
+        exit_code, result = _run_route(profile, explain=True)
+        assert exit_code == 0
+        assert result["verdict"] == "route"
+        assert not (result["model"] == "opencode" and result["variant"] == "deepseek-pro"), (
+            "stakes=cross-cutting must NOT route to the cheapest cost-1 worker"
+        )
+        assert result["model"] in ("claude-code-native", "claude-code-cli"), (
+            f"stakes=cross-cutting should raise to Claude mid-tier, got {result['model']}:{result['variant']}"
+        )
+
+    def test_stakes_unresolved_still_halts(self):
+        """Regression guard: stakes=unresolved still short-circuits to halt_seam, NOT a tier-up —
+        the tier-up normalization must never swallow the halt seam."""
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+            stakes="unresolved",
+        )
+        exit_code, result = _run_route(profile)
+        assert exit_code == 0
+        assert result["verdict"] == "halt_seam"
+        assert result["seam"] == "stakes"
+
+    def test_stakes_tier_flag_still_wins_and_reversible_is_noop(self):
+        """Regression guards: an explicit stakes_tier=tier_up still tiers up; a reversible/unknown
+        stakes value is a no-op (routes byte-identically to no-stakes — the cheapest worker)."""
+        # Explicit flag unchanged.
+        _, flag = _run_route(_profile(
+            boundedness="fully-bounded", task_type="code", inlined_context_size=10000,
+            stakes_tier="tier_up",
+        ))
+        assert flag["model"] in ("claude-code-native", "claude-code-cli")
+        # Reversible value → no tier-up: identical to a profile carrying no stakes signal at all.
+        base = dict(boundedness="fully-bounded", task_type="code", inlined_context_size=10000)
+        _, no_stakes = _run_route(_profile(**base))
+        _, reversible = _run_route(_profile(**base, stakes="reversible"))
+        assert reversible.get("verdict") == "route"
+        assert (reversible["model"], reversible["variant"]) == (no_stakes["model"], no_stakes["variant"]), (
+            "a reversible/unknown stakes value must be a no-op (route byte-identically to no-stakes)"
+        )
+
+
 class TestPinnedRoleFloors:
     """ADX-14 item 2 + 3: pinned-role floors raise the pick when below floor."""
 
