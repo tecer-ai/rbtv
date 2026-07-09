@@ -91,10 +91,11 @@ class TestReferenceProfiles:
 
     def test_fully_bounded_code(self):
         """Fully-bounded code → cheapest capable non-haiku code-eligible pair.
-        Kimi (cost 3, coding 4) should win over qwen deepseek-flash (cost 1, coding 3)
-        because cost-ascending picks cheapest first — but deepseek-flash has lower cost (1 < 3).
-        However deepseek-flash routes via qwen-code-cli which requires QWEN_API_KEY;
-        absent the key it is dropped. With the full corpus (no key), kimi wins."""
+        opencode deepseek-pro (cost 1, routable_for code roles) wins the cost-ascending
+        rank: its DEEPSEEK_API_KEY resolves via the vault env_file (manifest auth.env_var
+        override), so the cost-1 code executors are available and kimi (cost 3) ranks
+        behind them; deepseek-pro beats deepseek-flash on the cost tie (capability 5/4
+        vs 4/3, capability-descending tiebreak)."""
         profile = _profile(
             boundedness="fully-bounded",
             task_type="code",
@@ -103,9 +104,9 @@ class TestReferenceProfiles:
         exit_code, result = _run_route(profile, explain=True)
         assert exit_code == 0, f"Non-zero exit: {result}"
         assert result["verdict"] == "route"
-        # kimi-code-cli is the cheapest available code executor absent the qwen API key
-        assert result["model"] == "kimi-code-cli"
-        assert result["variant"] == "kimi"
+        # opencode deepseek-pro is the cheapest-capable code executor (cost 1, tie won on capability)
+        assert result["model"] == "opencode"
+        assert result["variant"] == "deepseek-pro"
         assert result["carrier"] == "cli-process"
 
     def test_partially_bounded(self):
@@ -197,20 +198,20 @@ class TestApiKeyAvailability:
     WITH its key present, then re-run with the key absent."""
 
     def test_api_key_toggle(self):
-        # Qwen is an api-key worker with low cost (cost 2 for qwen3.6-plus)
-        # First run: key present (set env var)
+        # (opencode, z1) is an api-key worker whose key — ZHIPU_API_KEY, named by the
+        # manifest auth.env_var override — is NOT provisioned in this vault (OS env or
+        # env_file), so the flip is deterministic on the real corpus.
         profile = _profile(
             boundedness="fully-bounded",
-            task_type="text",
+            task_type="code",
             inlined_context_size=10000,
-            needs_web=False,
         )
         exit_code_with_key, result_with_key = _run_route(
             profile, explain=True,
-            env_override={"QWEN_API_KEY": "test-key-value"}
+            env_override={"ZHIPU_API_KEY": "test-key-value"}
         )
         # Run without the key
-        env_no_key = {k: v for k, v in os.environ.items() if k != "QWEN_API_KEY"}
+        env_no_key = {k: v for k, v in os.environ.items() if k != "ZHIPU_API_KEY"}
         exit_code_no_key, result_no_key = _run_route(
             profile, explain=True,
             env_override=env_no_key
@@ -218,25 +219,26 @@ class TestApiKeyAvailability:
         assert exit_code_with_key == 0
         assert exit_code_no_key == 0
         # Assert the availability FLIP, not just exit==0. With the key absent,
-        # qwen MUST appear in an availability-drop row; with the key present it
-        # MUST NOT be dropped for the api-key reason. (Subprocess env wins over
-        # env_file because _check_api_key_present checks OS env FIRST.)
+        # (opencode, z1) MUST appear in an availability-drop row; with the key present
+        # it MUST NOT be dropped for the api-key reason. (Subprocess env wins over
+        # env_file because _check_api_key_present checks OS env FIRST — and the check
+        # reads the variant's auth.env_var name, never the derived OPENCODE_API_KEY.)
         explain_no_key = result_no_key.get("explain", [])
-        qwen_dropped_no_key = any(
-            s.get("stage") == "availability" and s.get("model") == "qwen-code-cli"
+        z1_dropped_no_key = any(
+            s.get("stage") == "availability" and s.get("model") == "opencode" and s.get("variant") == "z1"
             for s in explain_no_key
         )
-        assert qwen_dropped_no_key, (
-            "Key absent: expected qwen dropped at availability, "
-            f"trace had no qwen availability drop: {explain_no_key}"
+        assert z1_dropped_no_key, (
+            "Key absent: expected (opencode, z1) dropped at availability, "
+            f"trace had no z1 availability drop: {explain_no_key}"
         )
         explain_with_key = result_with_key.get("explain", [])
-        qwen_dropped_with_key = any(
-            s.get("stage") == "availability" and s.get("model") == "qwen-code-cli"
+        z1_dropped_with_key = any(
+            s.get("stage") == "availability" and s.get("model") == "opencode" and s.get("variant") == "z1"
             for s in explain_with_key
         )
-        assert not qwen_dropped_with_key, (
-            "Key present (OS env wins): qwen must NOT be dropped for api-key absence"
+        assert not z1_dropped_with_key, (
+            "Key present (OS env wins): (opencode, z1) must NOT be dropped for api-key absence"
         )
 
 
@@ -266,7 +268,7 @@ class TestPlanCap:
         example = MODELS_DIR / "model-plans-example.yaml"
         parsed = route._parse_plans_yaml(example)
         # The schema-blessed example has 4 entries keyed by model id
-        assert set(parsed.keys()) == {"codex-cli", "claude-code-native", "kimi-code-cli", "qwen-code-cli"}, (
+        assert set(parsed.keys()) == {"codex-cli", "claude-code-native", "kimi-code-cli", "opencode"}, (
             f"plans list mis-parsed; got keys {list(parsed.keys())}"
         )
         assert parsed["kimi-code-cli"]["context_window"] == 128000
@@ -279,37 +281,38 @@ class TestPlanCap:
         import route
         rbtv_root = RBTV_ROOT
         cfg = route._load_rbtv_json(VAULT_ROOT)
-        # kimi manifest window is 262144; cap it to 100000 and inline 150000.
-        scratch_plans = {"kimi-code-cli": {"context_window": 100000, "plan_name": "scratch"}}
+        # opencode's deepseek backends (1M window) win uncapped; cap the PACKAGE to
+        # 100000 and inline 150000 → every opencode variant drops at the size filter.
+        scratch_plans = {"opencode": {"context_window": 100000, "plan_name": "scratch"}}
         profile = _profile(
             boundedness="fully-bounded",
             task_type="code",
             inlined_context_size=150000,
         )
-        # Without cap: kimi (fits 262144) wins.
+        # Without cap: opencode deepseek-pro (1M, cost 1) wins.
         v_uncapped = route.route(dict(profile), rbtv_root, VAULT_ROOT, cfg, {}, explain=True)
         assert v_uncapped["verdict"] == "route"
-        assert v_uncapped["model"] == "kimi-code-cli", f"uncapped baseline changed: {v_uncapped}"
-        # With cap: kimi's effective window = min(262144, 100000) = 100000 < 150000 → dropped.
+        assert v_uncapped["model"] == "opencode", f"uncapped baseline changed: {v_uncapped}"
+        # With cap: opencode's effective window = min(1000000, 100000) = 100000 < 150000 → dropped.
         v_capped = route.route(dict(profile), rbtv_root, VAULT_ROOT, cfg, scratch_plans, explain=True)
         assert v_capped["verdict"] == "route"
-        assert v_capped["model"] != "kimi-code-cli", (
-            f"plan cap not applied — kimi should be filtered out, got {v_capped}"
+        assert v_capped["model"] != "opencode", (
+            f"plan cap not applied — opencode should be filtered out, got {v_capped}"
         )
         # The trace must show min(manifest, plan-cap) applied and the resulting drop.
         explain = v_capped.get("explain", [])
-        kimi_capped = [
+        oc_capped = [
             s for s in explain
-            if s.get("stage") == "plan_cap" and s.get("model") == "kimi-code-cli"
+            if s.get("stage") == "plan_cap" and s.get("model") == "opencode"
         ]
-        assert kimi_capped, "expected a plan_cap trace row for kimi"
-        assert kimi_capped[0]["effective_window"] == 100000
-        kimi_dropped = [
+        assert oc_capped, "expected a plan_cap trace row for opencode"
+        assert oc_capped[0]["effective_window"] == 100000
+        oc_dropped = [
             s for s in explain
             if s.get("stage") == "filter" and s.get("action") == "drop"
-            and s.get("model") == "kimi-code-cli"
+            and s.get("model") == "opencode"
         ]
-        assert kimi_dropped, "kimi should be dropped at the Stage-2 size filter under the cap"
+        assert oc_dropped, "opencode should be dropped at the Stage-2 size filter under the cap"
 
 
 # ---------------------------------------------------------------------------
@@ -456,9 +459,9 @@ class TestRealCorpus:
         assert complete_step is not None
         assert complete_step["count"] > 0
         installed_models = complete_step.get("models", [])
-        # Should include at least kimi and qwen (installed per rbtv.json)
-        assert "kimi-code-cli" in installed_models or "qwen-code-cli" in installed_models, (
-            f"Expected kimi or qwen in installed models: {installed_models}"
+        # Should include at least kimi and opencode (installed per rbtv.json)
+        assert "kimi-code-cli" in installed_models or "opencode" in installed_models, (
+            f"Expected kimi or opencode in installed models: {installed_models}"
         )
 
 
@@ -894,6 +897,11 @@ class TestPinnedRoleFloors:
 
         # False/absent with low executor: kimi (reasoning=6) meets the reviewer floor (required=max(3+1=4,6)=6).
         # floor_already_met path fires → kimi stays (no raise). executor_reasoning=3 (haiku-class).
+        # Elected subset: over the FULL corpus the cheapest pick is now opencode deepseek-pro
+        # (reasoning 5 < 6 → the RAISE path fires) — confine to kimi+claude so the
+        # floor-already-met path is exercised.
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
         profile_normal = _profile(
             boundedness="fully-bounded",
             task_type="code",
@@ -901,8 +909,11 @@ class TestPinnedRoleFloors:
             pinned_role="reviewer",
             executor_reasoning=3,  # haiku-class integer; required=max(4,6)=6; kimi.reasoning=6 → floor met
         )
-        exit_code, result_normal = _run_route(profile_normal, explain=True)
-        assert exit_code == 0
+        result_normal = route.route(
+            dict(profile_normal), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True,
+            elected=["kimi-code-cli", "claude-code-native"],
+        )
+        assert result_normal["verdict"] == "route"
         # Normal floor: max(3+1=4, floor=6) = 6 → kimi (reasoning 6) already meets it → kimi stays
         assert result_normal["model"] == "kimi-code-cli", (
             f"Reviewer without external_cli_code + executor_reasoning=3: kimi (reasoning=6) meets floor=6, "
@@ -1220,8 +1231,9 @@ class TestHaikuGuard:
 
     def test_real_corpus_unaffected_no_haiku_wins(self):
         """Zero-regression spot-check: a fully-bounded code task over the live corpus picks
-        kimi:kimi (no haiku available absent QWEN_API_KEY and no haiku passes the S7 guard
-        even if present). The flag must not change the verdict on the real corpus."""
+        opencode:deepseek-flash (the cost-1 code executor; DEEPSEEK_API_KEY resolves via the
+        env_file) and no haiku passes the S7 guard even if present. The flag must not change
+        the verdict on the real corpus."""
         import route
         cfg = route._load_rbtv_json(VAULT_ROOT)
         base = _profile(boundedness="fully-bounded", task_type="code", inlined_context_size=10000)
@@ -1234,7 +1246,7 @@ class TestHaikuGuard:
             f"when haiku either isn't present or isn't the cheapest non-excluded: "
             f"{v_no_flag} vs {v_flag}"
         )
-        assert v_no_flag["model"] == "kimi-code-cli", f"real-corpus baseline changed: {v_no_flag}"
+        assert v_no_flag["model"] == "opencode", f"real-corpus baseline changed: {v_no_flag}"
 
 
 # ---------------------------------------------------------------------------
@@ -1375,11 +1387,12 @@ class TestModelsDir:
         assert "kimi-code-cli" not in models_found
 
     def test_flag_absent_default_identity(self):
-        """Flag absent → route.py output is byte-identical to baseline (kimi wins).
+        """Flag absent → route.py output matches the live-corpus baseline
+        (opencode:deepseek-pro, the cost-1 code executor).
 
         This is the default-identity assertion from the criterion: omitting
-        --models-dir leaves behavior byte-identical to the pre-change script
-        on the same profile.
+        --models-dir leaves behavior identical to the same profile routed
+        through the function path.
         """
         import route
         cfg = route._load_rbtv_json(VAULT_ROOT)
@@ -1391,15 +1404,15 @@ class TestModelsDir:
         # Route using the function (no --models-dir; rbtv_root = real rbtv root).
         result = route.route(dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=False)
         assert result["verdict"] == "route"
-        assert result["model"] == "kimi-code-cli", (
-            f"flag absent: default behavior changed, expected kimi, got {result['model']}"
+        assert result["model"] == "opencode", (
+            f"flag absent: default behavior changed, expected opencode, got {result['model']}"
         )
 
     def test_cli_flag_absent_same_as_pre_change(self):
         """Full-corpus baseline via the CLI: _run_route (elect=False) passes --models-dir at the
         live catalog, which bypasses the workspace election and routes the FULL real corpus —
-        the pre-election behavior, where kimi:kimi wins a fully-bounded code task. The
-        election-active default path is covered by TestElection.
+        the pre-election behavior, where opencode:deepseek-pro wins a fully-bounded code
+        task. The election-active default path is covered by TestElection.
         """
         profile = _profile(
             boundedness="fully-bounded",
@@ -1409,8 +1422,8 @@ class TestModelsDir:
         exit_code, result = _run_route(profile, explain=False)
         assert exit_code == 0
         assert result["verdict"] == "route"
-        assert result["model"] == "kimi-code-cli", (
-            f"CLI no --models-dir: kimi expected (default identity), got {result['model']}"
+        assert result["model"] == "opencode", (
+            f"CLI no --models-dir: opencode expected (default identity), got {result['model']}"
         )
 
 
@@ -1439,11 +1452,11 @@ class TestElection:
         entries = route._enumerate_models(RBTV_ROOT, VAULT_ROOT, cfg, log, elected=None)
         models = sorted(set(e["model"] for e in entries))
         assert "kimi-code-cli" in models
-        # qwen ships on disk; with no election filter it MUST enumerate
-        assert "qwen-code-cli" in models, f"elected=None should enumerate all present, got {models}"
+        # opencode ships on disk; with no election filter it MUST enumerate
+        assert "opencode" in models, f"elected=None should enumerate all present, got {models}"
 
     def test_elected_subset_drops_present_but_not_elected(self):
-        """elected=[kimi] → only kimi enumerates; qwen (present on disk, not elected) is
+        """elected=[kimi] → only kimi enumerates; opencode (present on disk, not elected) is
         skipped at enumerate with a 'not elected' reason."""
         import route
         cfg = route._load_rbtv_json(VAULT_ROOT)
@@ -1456,8 +1469,8 @@ class TestElection:
             if s.get("stage") == "enumerate" and s.get("action") == "skip"
             and "not elected" in s.get("reason", "")
         }
-        assert "qwen-code-cli" in not_elected_skips, (
-            f"qwen present-but-not-elected should be skipped as 'not elected': {log}"
+        assert "opencode" in not_elected_skips, (
+            f"opencode present-but-not-elected should be skipped as 'not elected': {log}"
         )
 
     def test_route_resolves_within_elected_set(self):
@@ -1476,12 +1489,17 @@ class TestElection:
 
     def test_main_applies_election_no_non_elected_leak(self):
         """Wiring: the CLI (main) activates election from rbtv.json — a present package that is
-        NOT elected (qwen-code-cli, in the live workspace) must not enumerate via the CLI."""
+        NOT elected in the live workspace must not enumerate via the CLI. (Resolved
+        dynamically: any present-on-disk package outside the recorded election; skips when
+        the live election covers every present package.)"""
         import route
         cfg = route._load_rbtv_json(VAULT_ROOT)
         elected = cfg.get("model_packages") or []
-        if "qwen-code-cli" in elected:
-            pytest.skip("qwen is elected in this workspace — the non-leak case is not exercised")
+        present = route._present_package_dirs(RBTV_ROOT / "orchestration" / "models")
+        non_elected = sorted(set(present) - set(elected)) if elected else []
+        if not non_elected:
+            pytest.skip("every present package is elected in this workspace — the non-leak case is not exercised")
+        probe = non_elected[0]
         profile = _profile(boundedness="fully-bounded", task_type="text", inlined_context_size=10000)
         exit_code, result = _run_route(profile, explain=True, elect=True)
         assert exit_code == 0
@@ -1491,8 +1509,8 @@ class TestElection:
             None,
         )
         assert complete is not None
-        assert "qwen-code-cli" not in complete.get("models", []), (
-            "non-elected qwen leaked into CLI enumeration — main() not applying election"
+        assert probe not in complete.get("models", []), (
+            f"non-elected {probe} leaked into CLI enumeration — main() not applying election"
         )
 
 
@@ -1510,39 +1528,39 @@ class TestVariantElection:
     election from an explicit install file (the test/what-if seam).
     """
 
-    QWEN_ALL = ["qwen3.6-plus", "deepseek-flash", "deepseek-pro", "glm-5.1"]
+    OPENCODE_ALL = ["deepseek-flash", "deepseek-pro", "sakana", "z1"]
 
     def test_variant_subset_confines_enumeration(self):
-        """elected_variants confines qwen to its DeepSeek backends; qwen3.6-plus + glm-5.1 are
+        """elected_variants confines opencode to its DeepSeek backends; z1 + sakana are
         skipped at enumerate with a 'model_variants' reason."""
         import route
         cfg = route._load_rbtv_json(VAULT_ROOT)
         log = []
         entries = route._enumerate_models(
             RBTV_ROOT, VAULT_ROOT, cfg, log,
-            elected=["qwen-code-cli"],
-            elected_variants={"qwen-code-cli": ["deepseek-flash", "deepseek-pro"]},
+            elected=["opencode"],
+            elected_variants={"opencode": ["deepseek-flash", "deepseek-pro"]},
         )
-        qwen = sorted(e["variant"] for e in entries if e["model"] == "qwen-code-cli")
-        assert qwen == ["deepseek-flash", "deepseek-pro"], qwen
+        oc = sorted(e["variant"] for e in entries if e["model"] == "opencode")
+        assert oc == ["deepseek-flash", "deepseek-pro"], oc
         skipped = {
             s["variant"] for s in log
             if s.get("stage") == "enumerate" and s.get("action") == "skip"
             and "model_variants" in s.get("reason", "")
         }
-        assert {"qwen3.6-plus", "glm-5.1"} <= skipped, f"expected qwen3.6-plus+glm-5.1 skipped, got {skipped}"
+        assert {"z1", "sakana"} <= skipped, f"expected z1+sakana skipped, got {skipped}"
 
     def test_variant_election_none_enumerates_all(self):
-        """elected_variants=None → every qwen backend enumerates (back-compat)."""
+        """elected_variants=None → every opencode backend enumerates (back-compat)."""
         import route
         cfg = route._load_rbtv_json(VAULT_ROOT)
         log = []
         entries = route._enumerate_models(
             RBTV_ROOT, VAULT_ROOT, cfg, log,
-            elected=["qwen-code-cli"], elected_variants=None,
+            elected=["opencode"], elected_variants=None,
         )
-        qwen = sorted(e["variant"] for e in entries if e["model"] == "qwen-code-cli")
-        assert qwen == sorted(self.QWEN_ALL), qwen
+        oc = sorted(e["variant"] for e in entries if e["model"] == "opencode")
+        assert oc == sorted(self.OPENCODE_ALL), oc
 
     def test_unlisted_package_keeps_all_variants(self):
         """A package with no model_variants entry keeps ALL its variants while another
@@ -1552,65 +1570,67 @@ class TestVariantElection:
         log = []
         entries = route._enumerate_models(
             RBTV_ROOT, VAULT_ROOT, cfg, log,
-            elected=["qwen-code-cli", "kimi-code-cli"],
-            elected_variants={"qwen-code-cli": ["glm-5.1"]},
+            elected=["opencode", "kimi-code-cli"],
+            elected_variants={"opencode": ["z1"]},
         )
-        qwen = sorted(e["variant"] for e in entries if e["model"] == "qwen-code-cli")
+        oc = sorted(e["variant"] for e in entries if e["model"] == "opencode")
         kimi = [e for e in entries if e["model"] == "kimi-code-cli"]
-        assert qwen == ["glm-5.1"], qwen
+        assert oc == ["z1"], oc
         assert kimi, "kimi (no model_variants entry) should keep its variants"
 
     def test_route_resolves_within_elected_backend(self):
-        """Integration: with only qwen elected and confined to deepseek-flash, a fully-bounded
-        code task resolves to qwen-code-cli:deepseek-flash. QWEN_API_KEY injected via OS env so
-        availability does not gate the assertion (route.route reads OS env first)."""
+        """Integration: with only opencode elected and confined to deepseek-flash, a
+        fully-bounded code task resolves to opencode:deepseek-flash. DEEPSEEK_API_KEY
+        injected via OS env so availability does not gate the assertion even with cfg={}
+        (no env_file; route.route reads OS env first — through the auth.env_var override)."""
         import route
-        old = os.environ.get("QWEN_API_KEY")
+        old = os.environ.get("DEEPSEEK_API_KEY")
         try:
-            os.environ["QWEN_API_KEY"] = "test-fake-not-real"
+            os.environ["DEEPSEEK_API_KEY"] = "test-fake-not-real"
             profile = _profile(boundedness="fully-bounded", task_type="code", inlined_context_size=10000)
             result = route.route(
                 dict(profile), RBTV_ROOT, VAULT_ROOT, {}, {}, explain=True,
-                elected=["qwen-code-cli"],
-                elected_variants={"qwen-code-cli": ["deepseek-flash"]},
+                elected=["opencode"],
+                elected_variants={"opencode": ["deepseek-flash"]},
             )
             assert result["verdict"] == "route", result
-            assert result["model"] == "qwen-code-cli"
+            assert result["model"] == "opencode"
             assert result["variant"] == "deepseek-flash", result
         finally:
             if old is None:
-                os.environ.pop("QWEN_API_KEY", None)
+                os.environ.pop("DEEPSEEK_API_KEY", None)
             else:
-                os.environ["QWEN_API_KEY"] = old
+                os.environ["DEEPSEEK_API_KEY"] = old
 
     def test_rbtv_json_seam_routes_scratch_election(self, tmp_path):
-        """The --rbtv-json seam: a scratch install electing only qwen's DeepSeek backends routes
-        a code task to a DeepSeek-via-qwen backend, qwen3.6-plus+glm-5.1 skipped at enumerate —
-        WITHOUT touching live config. QWEN_API_KEY supplied via the scratch env_file."""
+        """The --rbtv-json seam: a scratch install electing only opencode's DeepSeek backends
+        routes a code task to a DeepSeek-via-opencode backend, z1+sakana skipped at enumerate —
+        WITHOUT touching live config. DEEPSEEK_API_KEY supplied via the scratch env_file
+        (resolved through the manifest auth.env_var override)."""
         env_file = tmp_path / ".env"
-        env_file.write_text("QWEN_API_KEY=test-fake-not-real\n", encoding="utf-8")
+        env_file.write_text("DEEPSEEK_API_KEY=test-fake-not-real\n", encoding="utf-8")
         rbtv_json = tmp_path / "rbtv.json"
         rbtv_json.write_text(json.dumps({
-            "model_packages": ["qwen-code-cli"],
-            "model_variants": {"qwen-code-cli": ["deepseek-flash", "deepseek-pro"]},
+            "model_packages": ["opencode"],
+            "model_variants": {"opencode": ["deepseek-flash", "deepseek-pro"]},
             "env_file": ".env",
         }), encoding="utf-8")
 
         profile = _profile(boundedness="fully-bounded", task_type="code", inlined_context_size=10000)
         cmd = [sys.executable, str(ROUTE_PY), "--rbtv-json", str(rbtv_json), "--explain"]
-        env = {k: v for k, v in os.environ.items() if k != "QWEN_API_KEY"}
+        env = {k: v for k, v in os.environ.items() if k != "DEEPSEEK_API_KEY"}
         proc = subprocess.run(cmd, input=json.dumps(profile), capture_output=True, text=True, env=env)
         assert proc.returncode == 0, f"{proc.stdout}\n{proc.stderr}"
         result = json.loads(proc.stdout)
         assert result["verdict"] == "route", result
-        assert result["model"] == "qwen-code-cli"
+        assert result["model"] == "opencode"
         assert result["variant"] in ("deepseek-flash", "deepseek-pro"), result
         skipped = {
             s["variant"] for s in result.get("explain", [])
             if s.get("stage") == "enumerate" and s.get("action") == "skip"
             and "model_variants" in s.get("reason", "")
         }
-        assert {"qwen3.6-plus", "glm-5.1"} <= skipped, f"expected qwen3.6-plus+glm-5.1 skipped, got {skipped}"
+        assert {"z1", "sakana"} <= skipped, f"expected z1+sakana skipped, got {skipped}"
 
 
 # ---------------------------------------------------------------------------
@@ -2143,9 +2163,10 @@ class TestEffortPostPin:
     reasoning_modes.depths. Single-mode workers return no effort field (no-op).
     CLI multi-mode workers return an effort string keyed from the band."""
 
-    def test_fully_bounded_code_effort_no_op_on_kimi(self):
-        """kimi-code-cli:kimi has depths [no-think, think] — a two-mode worker.
-        Fully-bounded → effort should be 'no-think' (the low-effort/cheaper mode)."""
+    def test_fully_bounded_code_full_corpus_winner_is_single_mode(self):
+        """The full-corpus fully-bounded code winner (opencode:deepseek-flash) carries
+        depths=[] (the effort ladder is unverified through opencode) — the effort field
+        must be ABSENT from the verdict (single-mode no-op)."""
         profile = _profile(
             boundedness="fully-bounded",
             task_type="code",
@@ -2153,6 +2174,27 @@ class TestEffortPostPin:
         )
         exit_code, result = _run_route(profile, explain=True)
         assert exit_code == 0
+        assert result["model"] == "opencode"
+        assert "effort" not in result, (
+            f"opencode:deepseek-flash is single-mode; 'effort' must be absent, got {result.get('effort')}"
+        )
+
+    def test_fully_bounded_code_effort_no_op_on_kimi(self):
+        """kimi-code-cli:kimi has depths [no-think, think] — a two-mode worker.
+        Fully-bounded → effort should be 'no-think' (the low-effort/cheaper mode).
+        Kimi elected alone so the cheaper opencode deepseek backend does not out-rank it."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+        )
+        result = route.route(
+            dict(profile), RBTV_ROOT, VAULT_ROOT, cfg, {}, explain=True,
+            elected=["kimi-code-cli"],
+        )
+        assert result["verdict"] == "route"
         assert result["model"] == "kimi-code-cli"
         # kimi has two depths [no-think, think]; fully-bounded → low effort → no-think
         # Per route.py _resolve_effort: fully-bounded preferred=["low"]; no "low" in kimi's
@@ -2215,14 +2257,14 @@ class TestRankOrder:
 
     def test_cost_ascending_rank_cost_7_never_auto_picked(self):
         """gpt-5.5 (codex-cli) has cost=7 — it should never win a fully-bounded code task
-        by cost-ascending rank. With QWEN_API_KEY absent the cheapest available code worker
-        is kimi (cost 3), not codex (cost 7), even though codex has higher coding (7 vs 4)."""
+        by cost-ascending rank. With only kimi + codex elected the cheapest available code
+        worker is kimi (cost 3), not codex (cost 7), even though codex has higher coding (7 vs 4)."""
         profile = _profile(
             boundedness="fully-bounded",
             task_type="code",
             inlined_context_size=10000,
         )
-        # Elect kimi and codex only (no qwen API key needed)
+        # Elect kimi and codex only (excludes the cost-1 opencode deepseek backends)
         import route
         cfg = route._load_rbtv_json(VAULT_ROOT)
         result = route.route(
@@ -2313,8 +2355,9 @@ class TestFootprintRouting:
 
     def test_bounded_300k_routes_to_biggest_capable_opus(self):
         """Test #1: a >300k-token bounded single-unit task never routes to a sub-1M worker — the
-        footprint fallback picks claude-code-native:opus (1M), NOT kimi/codex/sonnet. The trace
-        shows the window-cap drops + the footprint fallback to biggest-capable."""
+        footprint fallback picks a 1M-window worker (opencode:deepseek-pro, the cheapest of the
+        1M tie), NOT kimi/codex/sonnet. The trace shows the window-cap drops + the footprint
+        fallback to biggest-capable."""
         profile = _profile(
             boundedness="fully-bounded",
             task_type="code",
@@ -2324,9 +2367,9 @@ class TestFootprintRouting:
         exit_code, result = _run_route(profile, explain=True)
         assert exit_code == 0, f"Non-zero exit: {result}"
         assert result["verdict"] == "route"
-        assert result["model"] == "claude-code-native" and result["variant"] == "opus", (
-            f"bounded 320k must route to the biggest-capable worker (opus/1M), "
-            f"got {result['model']}:{result['variant']}"
+        assert result["model"] == "opencode" and result["variant"] == "deepseek-pro", (
+            f"bounded 320k must route to the biggest-capable worker (a 1M window; "
+            f"deepseek-pro wins the 1M tie on house rank), got {result['model']}:{result['variant']}"
         )
         # NOT a sub-1M worker.
         assert result["model"] not in ("kimi-code-cli", "codex-cli"), "must not route to a sub-1M worker"
@@ -2373,7 +2416,7 @@ class TestFootprintRouting:
         to today. The cap branch and the fallback never fire when the field is absent. Asserted two
         ways: (a) the with-field-absent verdict equals the explicit pre-change baseline pair, and
         (b) the field-absent run carries NO footprint-stage trace rows at all."""
-        # (a) The unchanged-path verdict over the full corpus is kimi:kimi (the pre-footprint baseline).
+        # (a) The unchanged-path verdict over the full corpus is opencode:deepseek-pro (the live baseline).
         profile_no_field = _profile(
             boundedness="fully-bounded",
             task_type="code",
@@ -2382,7 +2425,7 @@ class TestFootprintRouting:
         exit_code, result = _run_route(profile_no_field, explain=True)
         assert exit_code == 0
         assert (result["model"], result["variant"], result["carrier"]) == (
-            "kimi-code-cli", "kimi", "cli-process",
+            "opencode", "deepseek-pro", "cli-process",
         ), f"back-compat broken: no-known_input_size verdict changed to {result['model']}:{result['variant']}"
         # (b) No footprint machinery runs when the field is absent.
         explain = result.get("explain", [])
@@ -2408,11 +2451,11 @@ class TestFootprintRouting:
         )
         exit_code, r_at = _run_route(p_at, explain=True)
         assert exit_code == 0
-        assert r_at["model"] == "claude-code-native" and r_at["variant"] == "opus", (
-            f"200000 must route to opus via the normal GATE, got {r_at['model']}:{r_at['variant']}"
+        assert r_at["model"] == "opencode" and r_at["variant"] == "deepseek-pro", (
+            f"200000 must route via the normal GATE to the cheapest 1M worker, got {r_at['model']}:{r_at['variant']}"
         )
         fb_at = [s for s in r_at.get("explain", []) if s.get("stage") == "footprint" and s.get("action", "").startswith("fallback")]
-        assert not fb_at, f"200000 must NOT trigger the footprint fallback (Opus clears the GATE): {fb_at}"
+        assert not fb_at, f"200000 must NOT trigger the footprint fallback (the 1M workers clear the GATE): {fb_at}"
 
         # 200001 → ceil(200001/0.20) = 1,000,005; Opus (1M) DROPS at the GATE → fallback → Opus.
         p_over = _profile(
@@ -2421,8 +2464,8 @@ class TestFootprintRouting:
         )
         exit_code, r_over = _run_route(p_over, explain=True)
         assert exit_code == 0
-        assert r_over["model"] == "claude-code-native" and r_over["variant"] == "opus", (
-            f"200001 must route to opus via the fallback, got {r_over['model']}:{r_over['variant']}"
+        assert r_over["model"] == "opencode" and r_over["variant"] == "deepseek-pro", (
+            f"200001 must route via the fallback to the 1M-tie house-rank winner, got {r_over['model']}:{r_over['variant']}"
         )
         fb_over = [s for s in r_over.get("explain", []) if s.get("stage") == "footprint" and s.get("action") == "fallback_pick"]
         assert fb_over, "200001 must trigger the footprint fallback (Opus needs 1,000,005, has 1,000,000)"
@@ -2452,13 +2495,13 @@ class TestFootprintRouting:
         r_default = route.route(dict(profile), RBTV_ROOT, VAULT_ROOT, cfg_default, {}, explain=True)
         fb_default = [s for s in r_default.get("explain", []) if s.get("stage") == "footprint" and s.get("action", "").startswith("fallback")]
         assert fb_default, "default cap 0.20: 300k needs 1.5M, no worker clears → fallback must fire"
-        assert r_default["model"] == "claude-code-native" and r_default["variant"] == "opus"
+        assert r_default["model"] == "opencode" and r_default["variant"] == "deepseek-pro"
 
         # Cap 0.5: ceil(300000/0.5)=600,000 <= Opus 1M → Opus clears the GATE, NO fallback.
         r_half = route.route(dict(profile), RBTV_ROOT, VAULT_ROOT, cfg_half, {}, explain=True)
         fb_half = [s for s in r_half.get("explain", []) if s.get("stage") == "footprint" and s.get("action", "").startswith("fallback")]
-        assert not fb_half, f"cap 0.5: 300k needs only 600k, Opus clears the GATE → no fallback: {fb_half}"
-        assert r_half["model"] == "claude-code-native" and r_half["variant"] == "opus"
+        assert not fb_half, f"cap 0.5: 300k needs only 600k, the 1M workers clear the GATE → no fallback: {fb_half}"
+        assert r_half["model"] == "opencode" and r_half["variant"] == "deepseek-pro"
         # The drop math for a sub-600k worker reflects the 0.5 cap (kimi 262144 < 600000).
         kimi_drops = [
             s for s in r_half.get("explain", [])
@@ -2494,7 +2537,8 @@ class TestFootprintRouting:
 
     def test_known_input_zero_routes_normally(self):
         """Spec Edge Case: known_input_size=0 → ceil(0/cap)=0, every worker passes the cap (a
-        0-token known input fits anything). Must not crash; routes like the no-field path (kimi)."""
+        0-token known input fits anything). Must not crash; routes like the no-field path
+        (opencode:deepseek-pro)."""
         profile = _profile(
             boundedness="fully-bounded", task_type="code",
             inlined_context_size=10000, known_input_size=0,
@@ -2502,8 +2546,8 @@ class TestFootprintRouting:
         exit_code, result = _run_route(profile, explain=True)
         assert exit_code == 0
         assert result["verdict"] == "route"
-        assert result["model"] == "kimi-code-cli" and result["variant"] == "kimi", (
-            f"known_input_size=0 must route normally (kimi), got {result['model']}:{result['variant']}"
+        assert result["model"] == "opencode" and result["variant"] == "deepseek-pro", (
+            f"known_input_size=0 must route normally (opencode:deepseek-pro), got {result['model']}:{result['variant']}"
         )
         # No fallback (every worker cleared the cap at min_window 0).
         fb = [s for s in result.get("explain", []) if s.get("stage") == "footprint" and s.get("action", "").startswith("fallback")]
@@ -2773,19 +2817,40 @@ class TestAvailability:
 # ---------------------------------------------------------------------------
 
 class TestOpencode:
-    """The opencode package routes on (opencode, z1|sakana); its two backends authenticate
-    under DIFFERENT provider keys (ZHIPU_API_KEY / SAKANA_API_KEY), carried by the manifest
-    `auth.env_var` override rather than the package-id derivation (which would yield
-    OPENCODE_API_KEY). Confinement is worktree-mandatory (no native sandbox)."""
+    """The opencode package routes on (opencode, z1|sakana|deepseek-flash|deepseek-pro);
+    its backends authenticate under DIFFERENT provider keys (ZHIPU_API_KEY / SAKANA_API_KEY /
+    DEEPSEEK_API_KEY), carried by the manifest `auth.env_var` override rather than the
+    package-id derivation (which would yield OPENCODE_API_KEY). Confinement is
+    worktree-mandatory (no native sandbox). The deepseek backends carry the code-executor
+    role inherited from the retired qwen-code-cli — code roles ONLY (routable_for), the
+    complement of deepseek-api's text roles."""
 
-    def test_opencode_enumerates_both_variants(self):
-        """Elected alone, opencode enumerates exactly the z1 + sakana backends."""
+    def test_opencode_enumerates_all_variants(self):
+        """Elected alone, opencode enumerates exactly its four backends."""
         import route
         cfg = route._load_rbtv_json(VAULT_ROOT)
         log = []
         entries = route._enumerate_models(RBTV_ROOT, VAULT_ROOT, cfg, log, elected=["opencode"])
         pairs = sorted((e["model"], e["variant"]) for e in entries)
-        assert pairs == [("opencode", "sakana"), ("opencode", "z1")], pairs
+        assert pairs == [
+            ("opencode", "deepseek-flash"), ("opencode", "deepseek-pro"),
+            ("opencode", "sakana"), ("opencode", "z1"),
+        ], pairs
+
+    def test_opencode_deepseek_backends_code_roles_only(self):
+        """The deepseek backends are role-partitioned against deepseek-api: routable_for
+        carries ONLY the code roles, so a text leaf never sees the same model twice."""
+        import route
+        cfg = route._load_rbtv_json(VAULT_ROOT)
+        log = []
+        entries = route._enumerate_models(RBTV_ROOT, VAULT_ROOT, cfg, log, elected=["opencode"])
+        for e in entries:
+            if e["variant"] in ("deepseek-flash", "deepseek-pro"):
+                assert e["routable_for"] == ["bounded-code", "unbounded-code"], (
+                    e["variant"], e["routable_for"],
+                )
+            else:
+                assert e["routable_for"] is None, (e["variant"], e["routable_for"])
 
     def test_env_var_override_unit(self, tmp_path):
         """_check_api_key_present honors an explicit env_var override against the env_file,
@@ -2808,36 +2873,10 @@ class TestOpencode:
             if saved is not None:
                 os.environ["ZHIPU_API_KEY"] = saved
 
-    def test_z1_availability_keyed_on_zhipu_api_key(self):
-        """(opencode, z1) is dropped at availability when ZHIPU_API_KEY is absent, and NOT
-        dropped when it is present in the OS env — proving the per-variant env_var override
-        drives availability end-to-end (the derived OPENCODE_API_KEY plays no role)."""
-        profile = _profile(boundedness="fully-bounded", task_type="code", inlined_context_size=10000)
-        env_no_key = {k: v for k, v in os.environ.items() if k != "ZHIPU_API_KEY"}
-        _, result_no_key = _run_route(profile, explain=True, env_override=env_no_key)
-        z1_dropped = any(
-            s.get("stage") == "availability" and s.get("model") == "opencode" and s.get("variant") == "z1"
-            for s in result_no_key.get("explain", [])
-        )
-        assert z1_dropped, (
-            "ZHIPU_API_KEY absent: expected (opencode, z1) dropped at availability; "
-            f"trace: {result_no_key.get('explain')}"
-        )
-        _, result_with_key = _run_route(
-            profile, explain=True, env_override={"ZHIPU_API_KEY": "test-fake-not-real"}
-        )
-        z1_dropped_with_key = any(
-            s.get("stage") == "availability" and s.get("model") == "opencode" and s.get("variant") == "z1"
-            for s in result_with_key.get("explain", [])
-        )
-        assert not z1_dropped_with_key, (
-            "ZHIPU_API_KEY present (OS env wins): (opencode, z1) must NOT be dropped for api-key absence"
-        )
-
     def test_sakana_cost7_never_auto_picked(self):
-        """With BOTH opencode keys injected, a fully-bounded code leaf still resolves to the
-        validated cheaper executor (kimi) — cost-7 sakana ranks last and is never auto-picked
-        on a cost tie; z1 (cost 3, probe-pending) loses the evidence tiebreak to kimi."""
+        """With EVERY opencode key injected, a fully-bounded code leaf resolves to the
+        cost-1 deepseek-pro backend — cost-7 sakana ranks last and is never auto-picked
+        on a cost-ascending rank."""
         profile = _profile(boundedness="fully-bounded", task_type="code", inlined_context_size=10000)
         exit_code, result = _run_route(
             profile, explain=True,
@@ -2848,8 +2887,8 @@ class TestOpencode:
         assert not (result["model"] == "opencode" and result["variant"] == "sakana"), (
             f"cost-7 sakana must never be auto-picked: {result}"
         )
-        assert result["model"] == "kimi-code-cli", (
-            f"validated kimi (cost 3) should out-rank probe-pending z1 (cost 3): {result}"
+        assert (result["model"], result["variant"]) == ("opencode", "deepseek-pro"), (
+            f"cost-ascending: deepseek-pro (cost 1, capability tiebreak over flash) should win, got {result}"
         )
 
     def test_worktree_confinement_encoded(self):

@@ -1,16 +1,18 @@
 """driver — the rbtv mirror driver's public render/uninstall orchestrator.
 
 The driver renders, into a target workspace, exactly the artifacts an elected set
-of CLI worker packages (codex / kimi / qwen) consumes — guidance files beside
+of CLI worker packages (codex / kimi / opencode) consumes — guidance files beside
 every ``CLAUDE.md``, the shared ``.agents/`` skill+rule library, and per-model
 config dirs — all from ``.claude/`` + the workspace's ``CLAUDE.md`` files alone,
 with no manifest reads.  Re-running changes nothing; uninstalling a worker removes
 only what no remaining worker needs.
 
 This package composes the three render legs (already built + committed):
-  - ``guidance.py``      → guidance files (``AGENTS.md`` / ``QWEN.md``)
+  - ``guidance.py``      → guidance files (``AGENTS.md``)
   - ``library.py``       → ``.agents/behavior-rules/`` + ``.agents/skills/``
-  - ``config_assets.py`` → ``.codex/`` / ``.kimi/`` / ``.qwen/`` config dirs
+  - ``config_assets.py`` → ``.codex/`` / ``.kimi/`` config dirs (a package with
+    no ``mirror-assets`` seed, e.g. opencode, has ``config_dir=None`` and renders
+    no config dir)
 and ``state.py`` (the ``model_mirror`` block of ``rbtv.json`` + ref-counted
 deletion).
 
@@ -42,7 +44,7 @@ class PackageFacts:
     """Static, source-agnostic facts about one CLI worker package."""
 
     guidance_filename: str  # sibling file rendered beside each CLAUDE.md
-    config_dir: str         # config tree rendered into the target root
+    config_dir: str | None  # config tree rendered into the target root; None = the package ships no mirror-assets config (guidance only)
     banner_label: str       # interpolated into the DO-NOT-EDIT banner
     guidance_owner: str     # owner tag for the guidance-filename group
 
@@ -64,11 +66,11 @@ PACKAGE_FACTS: dict[str, PackageFacts] = {
         banner_label="the Kimi CLI worker",
         guidance_owner="agents-md",
     ),
-    "qwen-code-cli": PackageFacts(
-        guidance_filename="QWEN.md",
-        config_dir=".qwen",
-        banner_label="the Qwen Code CLI worker",
-        guidance_owner="qwen-md",
+    "opencode": PackageFacts(
+        guidance_filename="AGENTS.md",
+        config_dir=None,        # opencode ships no mirror-assets — providers live in the machine-global opencode config; guidance only
+        banner_label="the OpenCode CLI worker",
+        guidance_owner="agents-md",
     ),
 }
 
@@ -334,8 +336,10 @@ def render(
         )
         all_records.extend(guidance_records)
 
-    # --- 3. Per-model config dirs ---
+    # --- 3. Per-model config dirs (skipped for a config-less package, e.g. opencode) ---
     for pkg in packages:
+        if PACKAGE_FACTS[pkg].config_dir is None:
+            continue
         config_records = config_assets.render_config(target_root, pkg, check=check)
         all_records.extend(config_records)
 
@@ -418,8 +422,12 @@ def _detect_drift(target_root: Path, rendered: list[dict]) -> bool:
 
 
 def _worker_config_dirs() -> dict[str, str]:
-    """Map every known mirrorable package id → its config-dir name (``.codex`` …)."""
-    return {pkg: facts.config_dir for pkg, facts in PACKAGE_FACTS.items()}
+    """Map every known mirrorable package id → its config-dir name (``.codex`` …).
+
+    A config-less package (``config_dir=None``, e.g. opencode) is omitted — it has
+    no worker dir to render, scan, or surface.
+    """
+    return {pkg: facts.config_dir for pkg, facts in PACKAGE_FACTS.items() if facts.config_dir is not None}
 
 
 def _detect_leftover_worker_dirs(
@@ -436,11 +444,11 @@ def _detect_leftover_worker_dirs(
     so the owner can remove the dir by hand.
 
     Scope:
-      - a config dir (``.codex``/``.kimi``/``.qwen``) is in scope when its package
+      - a config dir (``.codex``/``.kimi``) is in scope when its package
         was deselected and is NOT needed by a remaining elected package;
       - on a FULL teardown (no worker remains) EVERY known config dir plus the
         shared ``.agents/`` library is in scope — so a never-managed stray (e.g. a
-        ``.qwen/`` the qwen CLI created without rbtv ever electing it) is surfaced
+        ``.kimi/`` the kimi CLI created without rbtv ever electing it) is surfaced
         by a full ``--mirror --uninstall`` too.
 
     Each entry is ``{"dir": <rel posix>, "files": [<rel posix>, ...]}``; a dir with
@@ -482,7 +490,7 @@ def uninstall(
 
     Ref-counted by guidance-filename (design §6 / spec Behavior #7):
       - the deselected package's config dir is removed;
-      - a guidance-filename group (``AGENTS.md`` / ``QWEN.md``) is removed ONLY
+      - a guidance-filename group (``AGENTS.md``) is removed ONLY
         when no remaining elected package still maps to it;
       - the shared ``.agents/`` library is removed ONLY when no worker remains;
       - a guidance file lacking the DO-NOT-EDIT banner is SPARED (banner-guard).

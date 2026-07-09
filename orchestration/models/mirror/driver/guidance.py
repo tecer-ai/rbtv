@@ -78,7 +78,7 @@ After loading the rules, follow the project instructions below.
 # Unknown filenames fall back to the filename stem lowercased.
 _OWNER_MAP: dict[str, str] = {
     "AGENTS.md": "agents-md",
-    "QWEN.md": "qwen-md",
+    "QWEN.md": "qwen-md",  # LEGACY: qwen-code-cli retired 2026-07-09 — kept so prior-install QWEN.md files remain recognized for teardown
 }
 
 

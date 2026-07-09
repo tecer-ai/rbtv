@@ -25,7 +25,7 @@ Scan the task at the moment it arrives. If ANY single row matches, the Action be
 
 | # | Trigger | Matches when |
 |---|---------|--------------|
-| 1 | Explicit ask | The user says "orchestrate this", "run this end-to-end with workers", "use kimi/codex/claude-cli/qwen for X", or names the skill directly |
+| 1 | Explicit ask | The user says "orchestrate this", "run this end-to-end with workers", "use kimi/codex/claude-cli/opencode for X", or names the skill directly |
 | 2 | Plan with orchestration flag | An `rbtv-planning` plan is in hand and declares it will be orchestrated (orchestration-aware DEEP/LIGHT) |
 | 3 | ≥3 coordinated dispatches forecast | The work, as scoped, will need three or more sub-agent dispatches that share state or build toward one goal |
 | 4 | Multi-hour AFK intent | The user wants the work run unattended / overnight / "while I'm away" — a long-horizon run, not a single turn |

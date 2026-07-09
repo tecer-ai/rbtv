@@ -1,7 +1,8 @@
 """config_assets.py — per-model config-dir renderer for the rbtv mirror driver.
 
-Renders the elected worker's config directory (`.codex/`, `.kimi/`, `.qwen/`) into
-a target workspace by copying its `mirror-assets/` tree.  For the ``codex`` package
+Renders the elected worker's config directory (`.codex/`, `.kimi/`) into
+a target workspace by copying its `mirror-assets/` tree.  A config-less package
+(opencode — no mirror-assets seed) is never passed here; the driver skips it.  For the ``codex`` package
 it additionally generates `.codex/hooks.json` from `.claude/settings.json` when that
 file contains a ``hooks`` block; when the block is absent the file is skipped (not an
 error).
@@ -12,7 +13,7 @@ Public API
     Copy the package's ``mirror-assets/`` tree into ``target_root`` idempotently.
     Returns a list of managed-file records:
         ``{"path": "<target-root-relative posix path>", "kind": "config",
-           "owner": "<codex|kimi|qwen>"}``
+           "owner": "<codex-cli|kimi-code-cli>"}``
 
 Constraints
 -----------
@@ -65,14 +66,13 @@ def _import_mirror() -> object:
 # ---------------------------------------------------------------------------
 
 #: Packages this module knows how to render.
-SUPPORTED_PACKAGES: frozenset[str] = frozenset({"codex-cli", "kimi-code-cli", "qwen-code-cli"})
+SUPPORTED_PACKAGES: frozenset[str] = frozenset({"codex-cli", "kimi-code-cli"})
 
 #: Config-dir name produced in the target workspace for each package.
 #: Keys are the package ids; values are the tool's native config-dir name (unchanged).
 _CONFIG_DIR: dict[str, str] = {
     "codex-cli": ".codex",
     "kimi-code-cli": ".kimi",
-    "qwen-code-cli": ".qwen",
 }
 
 
@@ -106,7 +106,7 @@ def render_config(
     target_root:
         Absolute path to the target workspace (e.g. the vault root).
     package:
-        One of ``"codex-cli"``, ``"kimi-code-cli"``, ``"qwen-code-cli"``.
+        One of ``"codex-cli"``, ``"kimi-code-cli"``.
     check:
         When ``True`` the function performs a read-only drift check via
         ``write_if_changed``'s check semantics — it returns ``"stale"`` for any

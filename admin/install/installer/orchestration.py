@@ -207,7 +207,7 @@ def read_provider_label(rbtv_root: Path, pkg: str) -> str:
 
     Reads ``configurable_model.provider_label`` when present; otherwise derives it
     from the package ``display`` by dropping the trailing parenthetical
-    (e.g. ``"qwen-code (CLI)"`` → ``"qwen-code"``). Line scan, no YAML parse.
+    (e.g. ``"opencode (CLI)"`` → ``"opencode"``). Line scan, no YAML parse.
     """
     manifest = rbtv_root / MODELS_RELATIVE / pkg / PACKAGE_MARKER_FILE
     try:
@@ -464,7 +464,7 @@ def build_electable_entries(rbtv_root: Path) -> list[dict[str, str | None]]:
     configurable package (is_package_configurable) contributes ONE entry PER native
     backend (id = ``"{pkg}:{variant}"``) so the owner elects any subset, each row
     labeled with its provider path so a both-paths model (e.g. DeepSeek, reachable
-    via qwen-code AND via a direct-API package) is unambiguous.
+    via opencode AND via a direct-API package) is unambiguous.
 
     Each entry: ``{id, package, variant, label, hint}`` — ``variant`` is None for a
     whole-package row; ``hint`` carries the provider-path label for backend rows.
@@ -588,7 +588,7 @@ def resolve_selected_packages(
 def read_permission_rules(rbtv_root: Path, pkg: str) -> list[str]:
     """Return a package manifest's top-level `permission_rules:` list.
 
-    These are the literal permission-allowlist strings (e.g. "Bash(qwen:*)")
+    These are the literal permission-allowlist strings (e.g. "Bash(opencode:*)")
     the target workspace needs so a conductor session may spawn this CLI
     worker in-session (D17). Packages without the field (API workers, the
     native carrier) return []. Line scan, no YAML parse — matches

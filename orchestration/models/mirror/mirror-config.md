@@ -3,7 +3,7 @@
 The per-model config the mirror engine (`mirror.py`) reads to generate a model's
 per-workspace guidance file. Each model package that needs a guidance file ships
 one at `orchestration/models/<model>/mirror-config.yaml`; the kimi, codex,
-claude-code-cli, and qwen packages fill this in at their package-build tasks
+claude-code-cli, and opencode packages fill this in at their package-build tasks
 (p3-4/p3-5/p3-7/p3-9). A package whose worker loads NO workspace guidance file
 ships no mirror-config (and its manifest omits `guidance_file`).
 

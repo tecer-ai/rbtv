@@ -9,7 +9,7 @@
 #
 # D13 CAPABILITY-VS-ELIGIBILITY SPLIT: deepseek-api executes NO code in our dispatch (API chat worker,
 # non-executor). The coding integer is the HONEST AA board TBH score — v4-flash 3 (TBH 36–39),
-# v4-pro 4 (TBH 42–46) — same scores as the qwen-wrapped twins. Code-ineligibility is expressed
+# v4-pro 4 (TBH 42–46) — same scores as the opencode-wrapped code twins. Code-ineligibility is expressed
 # SEPARATELY via routable_for (no bounded-code / unbounded-code roles). route.py gates code on
 # routable_for membership, NEVER on the coding integer (an honest score must not silently re-enable
 # an ineligible route). No native web grounding → web-research NOT in routable_for.
@@ -30,7 +30,7 @@ variants:
 
     # --- capability + cost scores + sizing (routing §2, §8) — scale: schema §0 (integer 1–7) ---
     reasoning: 4                          # AA Intelligence Index 46–47 (DeepSeek V4 Flash Max/High rows); mid reasoner
-    coding: 3                             # Terminal-Bench Hard 36–39 (HONEST board score per D13 — mirrors qwen deepseek-flash twin); limited agentic coder; code-ineligibility via routable_for, NOT this score
+    coding: 3                             # Terminal-Bench Hard 36–39 (HONEST board score per D13 — mirrors the opencode deepseek-flash code twin); limited agentic coder; code-ineligibility via routable_for, NOT this score
     cost: 1                               # AA Blended Price $0.06 (DSV4Flash) → bin 1 (cheapest)
     axis_evidence:
       reasoning: { source: "aa-ii(46-47);gpqa(42-45)", confidence: medium }
@@ -105,11 +105,11 @@ variants:
 
     # --- capability + cost scores + sizing (routing §2, §8) — scale: schema §0 (integer 1–7) ---
     reasoning: 5                          # AA Intelligence Index 50–52 (DeepSeek V4 Pro Max/High); top open-weight tier
-    coding: 4                             # Terminal-Bench Hard 42–46 (HONEST board score per D13 — mirrors qwen deepseek-pro twin); bounded agentic coder; code-ineligibility via routable_for, NOT this score
+    coding: 4                             # Terminal-Bench Hard 42–46 (HONEST board score per D13 — mirrors the opencode deepseek-pro code twin); bounded agentic coder; code-ineligibility via routable_for, NOT this score
     cost: 1                               # AA Blended Price $0.18 (DSV4Pro) → bin 1 (cheapest)
     axis_evidence:
       reasoning: { source: "aa-ii(50-52);gpqa(46-50)", confidence: high }
-      coding:    { source: "aa-tbh(42-46)", confidence: high }   # D13 honest score; same backend as qwen deepseek-pro
+      coding:    { source: "aa-tbh(42-46)", confidence: high }   # D13 honest score; same backend as the opencode deepseek-pro code twin
     cost_evidence: { source: "aa-blended($0.18,DSV4Pro)→bin1", confidence: high }
     context_window: 1000000        # 1M tokens per routing-matrix §2; re-verify against provider docs before pilot
     max_output: 384000             # 384k per routing-matrix §2; re-verify against provider docs before pilot

@@ -47,19 +47,34 @@ def _seed_workspace(root: Path) -> None:
 
 def test_full_teardown_removes_managed_dirs_and_reports_no_leftovers(tmp_path):
     _seed_workspace(tmp_path)
-    render(tmp_path, ["codex-cli", "kimi-code-cli", "qwen-code-cli"])
-    for d in (".codex", ".kimi", ".qwen", ".agents"):
+    render(tmp_path, ["codex-cli", "kimi-code-cli", "opencode"])
+    for d in (".codex", ".kimi", ".agents"):
         assert (tmp_path / d).is_dir(), f"{d} should exist after render"
     assert (tmp_path / "AGENTS.md").is_file()
-    assert (tmp_path / "QWEN.md").is_file()
 
-    result = uninstall(tmp_path, ["codex-cli", "kimi-code-cli", "qwen-code-cli"], [])
+    result = uninstall(tmp_path, ["codex-cli", "kimi-code-cli", "opencode"], [])
 
-    for d in (".codex", ".kimi", ".qwen", ".agents"):
+    for d in (".codex", ".kimi", ".agents"):
         assert not (tmp_path / d).exists(), f"{d} should be pruned (managed-only, now empty)"
     assert not (tmp_path / "AGENTS.md").exists()
-    assert not (tmp_path / "QWEN.md").exists()
     assert result.leftover_dirs == [], "no foreign files → no leftovers reported"
+
+
+def test_configless_package_renders_guidance_only_and_refcounts(tmp_path):
+    """opencode has config_dir=None — it renders guidance + the shared library but NO
+    config dir, and its deselection keeps AGENTS.md alive while codex still needs it."""
+    _seed_workspace(tmp_path)
+    render(tmp_path, ["codex-cli", "opencode"])
+    assert (tmp_path / "AGENTS.md").is_file()
+    assert (tmp_path / ".agents").is_dir()
+    assert not (tmp_path / ".opencode").exists(), "config-less package must render no config dir"
+
+    result = uninstall(tmp_path, ["opencode"], ["codex-cli"])
+
+    assert (tmp_path / "AGENTS.md").is_file(), "AGENTS.md kept (codex still maps to it)"
+    assert (tmp_path / ".codex").is_dir(), "remaining codex dir kept"
+    assert (tmp_path / ".agents").is_dir(), "shared library kept while a worker remains"
+    assert result.leftover_dirs == []
 
 
 def test_per_model_deselect_keeps_remaining_and_shared(tmp_path):
@@ -77,44 +92,42 @@ def test_per_model_deselect_keeps_remaining_and_shared(tmp_path):
 
 def test_foreign_file_keeps_worker_dir_and_is_reported(tmp_path):
     _seed_workspace(tmp_path)
-    render(tmp_path, ["codex-cli", "kimi-code-cli", "qwen-code-cli"])
-    # qwen-tool leftovers rbtv never recorded.
-    (tmp_path / ".qwen" / "skills" / "foo").mkdir(parents=True)
-    (tmp_path / ".qwen" / "skills" / "foo" / "SKILL.md").write_text("foreign\n", encoding="utf-8")
-    (tmp_path / ".qwen" / "settings.json.orig").write_text('{"foreign": true}\n', encoding="utf-8")
-
-    result = uninstall(tmp_path, ["codex-cli", "kimi-code-cli", "qwen-code-cli"], [])
-
-    assert not (tmp_path / ".codex").exists()
-    assert not (tmp_path / ".kimi").exists()
-    assert not (tmp_path / ".agents").exists()
-    assert (tmp_path / ".qwen").is_dir(), "foreign files keep .qwen alive"
-    # rbtv's own .qwen/settings.json was deleted; only foreign files remain.
-    assert not (tmp_path / ".qwen" / "settings.json").exists()
-    entries = {e["dir"]: e for e in result.leftover_dirs}
-    assert ".qwen" in entries, "the surviving .qwen must be surfaced"
-    assert entries[".qwen"]["files"] == [
-        ".qwen/settings.json.orig",
-        ".qwen/skills/foo/SKILL.md",
-    ]
-
-
-def test_never_managed_stray_surfaced_on_full_teardown(tmp_path):
-    # Real-vault shape: qwen NOT elected, but a stray .qwen/ exists on disk.
-    _seed_workspace(tmp_path)
     render(tmp_path, ["codex-cli", "kimi-code-cli"])
-    assert not (tmp_path / ".qwen").exists(), "qwen not elected → not rendered"
-    (tmp_path / ".qwen").mkdir()
-    (tmp_path / ".qwen" / "settings.json.orig").write_text("{}\n", encoding="utf-8")
+    # kimi-tool leftovers rbtv never recorded.
+    (tmp_path / ".kimi" / "skills" / "foo").mkdir(parents=True)
+    (tmp_path / ".kimi" / "skills" / "foo" / "SKILL.md").write_text("foreign\n", encoding="utf-8")
+    (tmp_path / ".kimi" / "settings.json.orig").write_text('{"foreign": true}\n', encoding="utf-8")
 
     result = uninstall(tmp_path, ["codex-cli", "kimi-code-cli"], [])
 
     assert not (tmp_path / ".codex").exists()
-    assert not (tmp_path / ".kimi").exists()
     assert not (tmp_path / ".agents").exists()
-    assert (tmp_path / ".qwen").is_dir(), "stray survives (rbtv never created its files)"
+    assert (tmp_path / ".kimi").is_dir(), "foreign files keep .kimi alive"
+    # rbtv's own .kimi/settings.json was deleted; only foreign files remain.
+    assert not (tmp_path / ".kimi" / "settings.json").exists()
+    entries = {e["dir"]: e for e in result.leftover_dirs}
+    assert ".kimi" in entries, "the surviving .kimi must be surfaced"
+    assert entries[".kimi"]["files"] == [
+        ".kimi/settings.json.orig",
+        ".kimi/skills/foo/SKILL.md",
+    ]
+
+
+def test_never_managed_stray_surfaced_on_full_teardown(tmp_path):
+    # Real-vault shape: kimi NOT elected, but a stray .kimi/ exists on disk.
+    _seed_workspace(tmp_path)
+    render(tmp_path, ["codex-cli"])
+    assert not (tmp_path / ".kimi").exists(), "kimi not elected → not rendered"
+    (tmp_path / ".kimi").mkdir()
+    (tmp_path / ".kimi" / "settings.json.orig").write_text("{}\n", encoding="utf-8")
+
+    result = uninstall(tmp_path, ["codex-cli"], [])
+
+    assert not (tmp_path / ".codex").exists()
+    assert not (tmp_path / ".agents").exists()
+    assert (tmp_path / ".kimi").is_dir(), "stray survives (rbtv never created its files)"
     dirs = {e["dir"] for e in result.leftover_dirs}
-    assert ".qwen" in dirs, "a full teardown scans every known worker dir, surfacing the stray"
+    assert ".kimi" in dirs, "a full teardown scans every known worker dir, surfacing the stray"
 
 
 def test_agents_orphan_survives_and_is_reported(tmp_path):

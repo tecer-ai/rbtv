@@ -376,7 +376,7 @@ class TestCriterion6ModelDiff:
         model_insert_markers = [
             "**Kimi-specific worker obligations**",
             "**Claude-cli-specific worker obligations**",
-            "**Qwen-specific worker obligations**",
+            "**OpenCode-specific worker obligations**",
             "**Codex-specific worker obligations**",
         ]
         end_pos = len(content)
@@ -741,7 +741,7 @@ class TestCriterion10RealCorpus:
     each should produce a file without errors.
     """
 
-    @pytest.mark.parametrize("model", ["kimi-code-cli", "claude-code-cli", "qwen-code-cli", "codex-cli"])
+    @pytest.mark.parametrize("model", ["kimi-code-cli", "claude-code-cli", "opencode", "codex-cli"])
     def test_real_corpus_model(self, model):
         out_dir = _scratch_dir()
         try:

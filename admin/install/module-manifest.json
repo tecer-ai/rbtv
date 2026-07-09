@@ -212,7 +212,7 @@
         "source_template": "orchestration/skills/orchestrating/SKILL.md",
         "target": ".claude/skills/rbtv-orchestrating/SKILL.md",
         "bake": ["rbtv_path"],
-        "description": "General orchestration — route tasks to the right worker, dispatch with self-contained artifacts + state spine, verify every return against disk, recover from halts; single front door including standalone CLI-model dispatch (kimi-code-cli/codex-cli/claude-code-cli/qwen-code-cli). Thin loader → always-loaded core-protocol (invariants + situation table + installed-model capability summary) → JIT cards (intake, routing, dispatch-wrapper, halt-recovery, verification, state)"
+        "description": "General orchestration — route tasks to the right worker, dispatch with self-contained artifacts + state spine, verify every return against disk, recover from halts; single front door including standalone CLI-model dispatch (kimi-code-cli/codex-cli/claude-code-cli/opencode). Thin loader → always-loaded core-protocol (invariants + situation table + installed-model capability summary) → JIT cards (intake, routing, dispatch-wrapper, halt-recovery, verification, state)"
       },
       {
         "source_template": "orchestration/skills/planning/SKILL.md",
@@ -255,11 +255,6 @@
           "name": "claude-code-cli",
           "manifest": "orchestration/models/claude-code-cli/manifest.yaml",
           "description": "Claude headless worker (claude -p, validated) — native cwd-CLAUDE.md load; CLI-driven sub-conductor (process boundary clears the nesting wall)"
-        },
-        {
-          "name": "qwen-code-cli",
-          "manifest": "orchestration/models/qwen-code-cli/manifest.yaml",
-          "description": "Qwen Code CLI web-capable worker (probe-pending, auth-gated) — the research-leaf executor"
         },
         {
           "name": "deepseek-api",

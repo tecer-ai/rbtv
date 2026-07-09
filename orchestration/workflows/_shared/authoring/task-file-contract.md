@@ -83,7 +83,7 @@ This file is the GENERIC contract — model-independent. (This seam is forward-w
 
 A task whose execution flow itself dispatches Agent-tool sub-agents (review fan-outs, parallel-worker waves driven via the Agent tool, any "dispatch N sub-agents" step) MUST be authored as **orchestrator-executed** — it carries `orchestrator_executed: true` in frontmatter and runs at the conductor's (top) level. It is NEVER delegated whole into an executor sub-agent, because Agent-tool sub-agents cannot spawn sub-agents (the nesting wall, `orchestration/skills/orchestrating/cards/routing.md` §4 — "One Agent-tool level"). A sub-agent-dispatching task placed at an executor level is malformed: the dispatcher halts and reports it (Malformed-task rule below) rather than routing it down to fail at the wall.
 
-**Process-boundary exception.** This clause bans Agent-tool nesting, NOT all sub-dispatch. A task that drives CLI workers (`kimi`, `codex exec`, `claude -p`, `qwen`) as separate OS processes is the sanctioned sub-conductor path (depth cap ≤ 2, same routing card §4) — a process is not an Agent-tool sub-agent, so the wall does not apply. Such a task is NOT flagged orchestrator-executed on that basis; the marker keys on Agent-tool sub-agent dispatch specifically.
+**Process-boundary exception.** This clause bans Agent-tool nesting, NOT all sub-dispatch. A task that drives CLI workers (`kimi`, `codex exec`, `claude -p`, `opencode run`) as separate OS processes is the sanctioned sub-conductor path (depth cap ≤ 2, same routing card §4) — a process is not an Agent-tool sub-agent, so the wall does not apply. Such a task is NOT flagged orchestrator-executed on that basis; the marker keys on Agent-tool sub-agent dispatch specifically.
 
 ---
 

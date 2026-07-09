@@ -1,7 +1,7 @@
 """cli.py — command-line entry for the rbtv mirror driver.
 
 Renders / checks / uninstalls a workspace's worker-mirror artifacts for an
-elected set of CLI worker packages (codex-cli / kimi-code-cli / qwen-code-cli).  Flag conventions match
+elected set of CLI worker packages (codex-cli / kimi-code-cli / opencode).  Flag conventions match
 the sibling ``mirror.py`` engine: ``--target`` is the workspace root, ``--check``
 is read-only and exits 1 on drift, ``--uninstall`` removes artifacts, and
 ``--check`` + ``--uninstall`` together are mutually exclusive (exit 2).
@@ -9,15 +9,15 @@ is read-only and exits 1 on drift, ``--uninstall`` removes artifacts, and
 Usage
 -----
     # render the elected worker set into a workspace
-    python -m driver.cli --target <workspace> codex-cli kimi-code-cli qwen-code-cli
+    python -m driver.cli --target <workspace> codex-cli kimi-code-cli opencode
 
     # report drift without writing (exit 1 if anything is stale/missing)
-    python -m driver.cli --target <workspace> codex-cli kimi-code-cli qwen-code-cli --check
+    python -m driver.cli --target <workspace> codex-cli kimi-code-cli opencode --check
 
     # deselect a package; remaining elected workers are read from rbtv.json's
     # model_packages (or pass --remaining to override, e.g. for testing)
     python -m driver.cli --target <workspace> --uninstall codex-cli
-    python -m driver.cli --target <workspace> --uninstall codex-cli --remaining kimi-code-cli qwen-code-cli
+    python -m driver.cli --target <workspace> --uninstall codex-cli --remaining kimi-code-cli opencode
 
 Exit codes
 ----------

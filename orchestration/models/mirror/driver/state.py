@@ -57,7 +57,7 @@ BANNER_SENTINEL = "AUTO-GENERATED MIRROR — DO NOT EDIT"
 _BANNER_SCAN_BYTES = 200
 
 #: Owner tags that denote a guidance-filename group (ref-counted by filename).
-_GUIDANCE_GROUP_OWNERS = frozenset({"agents-md", "qwen-md"})
+_GUIDANCE_GROUP_OWNERS = frozenset({"agents-md", "qwen-md"})  # qwen-md is LEGACY: qwen-code-cli was retired 2026-07-09, but the tag stays recognized so a prior install's QWEN.md records still tear down
 
 #: The owner tag for the shared ``.agents/`` library.
 _SHARED_OWNER = "shared"

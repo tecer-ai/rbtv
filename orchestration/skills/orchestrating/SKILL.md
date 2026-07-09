@@ -1,6 +1,6 @@
 ---
 name: rbtv-orchestrating
-description: "Orchestrate long-horizon, multi-agent work — route tasks to the right model/worker, dispatch with self-contained artifacts, verify every return against disk, and recover from halts. Use for any work that needs coordinated dispatches: executing a multi-step plan, running a goal end-to-end through worker agents, an AFK/long-horizon build, multi-worker or cross-repo coordination, or dispatching a CLI model (kimi, codex, claude-cli, qwen). Also the single front door for a standalone single dispatch to a named model (e.g. 'use kimi for X')."
+description: "Orchestrate long-horizon, multi-agent work — route tasks to the right model/worker, dispatch with self-contained artifacts, verify every return against disk, and recover from halts. Use for any work that needs coordinated dispatches: executing a multi-step plan, running a goal end-to-end through worker agents, an AFK/long-horizon build, multi-worker or cross-repo coordination, or dispatching a CLI model (kimi, codex, claude-cli, opencode). Also the single front door for a standalone single dispatch to a named model (e.g. 'use kimi for X')."
 ---
 
 # Orchestrating

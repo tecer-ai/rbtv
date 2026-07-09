@@ -2,7 +2,7 @@
 
 Per-model delta for the **opencode** CLI worker (OSS provider-agnostic coding CLI, `opencode run`). Evidence boundary: TWO live proofs. (1) The 2026-07-06 coordination-POC test (`1-projects/rbtv-sb-merge-refactor/build/inputs/coordination-poc/headless-sessions-handoff.md` §1–2) ran a real worktree task headless on `sakana/fugu-ultra` (git worktree created, file written, commit `6c0b1fb3`), proved two-turn session memory via `-c`, and diagnosed the mandatory stdin-EOF guard. (2) The 2026-07-09 smoke through THIS manual (opencode 1.17.11, sakana backend, vault worktree): Shape-B file-pointer dispatch exit 0 — the worker read the on-disk brief (logged `Read oc-task.md`), executed its exact contract, self-validated with a real byte-compare command, and returned a well-formed five-field message on stdout; the post-run confinement diff showed ONLY allowlisted paths; wall-clock ≈9 min for a trivial task (fugu-ultra's multi-agent loop is slow — see the failure-mode row); mirror-into-worktree guidance pre-flight exercised (`created AGENTS.md from CLAUDE.md`). Still **UNPILOTED**: the z1 backend entirely, resume inside a dispatch loop, the non-zero exit taxonomy, self-commit, and a real (non-smoke) task through the full review gates — the manifest stays `evidence_status: probe-pending` until a real pilot graduates it.
 
-Backend scope (owner ruling 2026-07-09): **z1** (`zai/glm-5.2`) and **sakana** (`sakana/fugu-ultra`) ONLY — the net-new models. Do NOT add gemini/deepseek/kimi backends (already routable via `gemini-api`/`deepseek-api`/`kimi-code-cli`; duplicates make RANK nondeterministic).
+Backend scope (owner rulings 2026-07-09, two rounds): **z1** (`zai/glm-5.2`), **sakana** (`sakana/fugu-ultra`), **deepseek-flash** + **deepseek-pro** (`deepseek/deepseek-v4-flash|pro` — the code-executor role inherited when `qwen-code-cli` was retired; `deepseek-api` keeps the text roles, partitioned via `routable_for`). Do NOT add gemini/kimi backends (already routable via `gemini-api`/`kimi-code-cli`), and never give the deepseek backends text roles (duplicates make RANK nondeterministic).
 
 The render script (`../render-manuals.py`) composes the generic wrapper (`{rbtv_path}/orchestration/skills/orchestrating/cards/dispatch-wrapper.md`) with the sections below into `./manual.md`. Edit opencode behavior HERE; never in the rendered manual.
 
@@ -32,8 +32,8 @@ The opencode CLI dispatch manual — exact command shapes, flags, provider confi
 |-------|---------|------|
 | CLI present + version | `opencode --version` (this machine: `1.17.11`) | Absent/older → re-verify flags against `opencode run --help`. |
 | **Pinned-flag existence** (routing §4 gate) | `opencode run --help` grepped for every non-trivial flag this dispatch pins (`--dir`, `-m`, `--format`, `-s`/`--session`, `-c`/`--continue`, `--title`) | Runs EVERY dispatch. Any pinned flag absent → STOP, do not dispatch; re-resolve at THIS delta, re-render (`../render-manuals.py`), re-run the gate — NEVER hand-edit the rendered manual or pass an ad-hoc flag. |
-| API key resolves + exported | Resolve the variant's key per rbtv availability semantics (OS env → `rbtv.json` `env_file`): z1 → `ZHIPU_API_KEY`, sakana → `SAKANA_API_KEY`; then EXPORT it into the dispatch process env | Key absent in both → variant unavailable; route elsewhere or halt (api-key semantics — never a USER-EXECUTED login). opencode reads ONLY the process env. |
-| Provider config | z1: none needed (the `zai` provider is models.dev-built-in — key-only). sakana: the custom provider block MUST exist in the machine-global `~/.config/opencode/opencode.jsonc` (template below) | `opencode models` lists `zai/glm-5.2` / `sakana/fugu-ultra`? Absent → fix the provider config FIRST (a wrong `-m` id fails the dispatch). |
+| API key resolves + exported | Resolve the variant's key per rbtv availability semantics (OS env → `rbtv.json` `env_file`): z1 → `ZHIPU_API_KEY`, sakana → `SAKANA_API_KEY`, deepseek-flash/pro → `DEEPSEEK_API_KEY`; then EXPORT it into the dispatch process env | Key absent in both → variant unavailable; route elsewhere or halt (api-key semantics — never a USER-EXECUTED login). opencode reads ONLY the process env. |
+| Provider config | z1 + deepseek backends: none needed (the `zai` and `deepseek` providers are models.dev-built-in — key-only). sakana: the custom provider block MUST exist in the machine-global `~/.config/opencode/opencode.jsonc` (template below) | `opencode models` lists the variant's `-m` id (`zai/glm-5.2` / `sakana/fugu-ultra` / `deepseek/deepseek-v4-flash` / `deepseek/deepseek-v4-pro`)? Absent → fix the provider config / key FIRST (a wrong `-m` id fails the dispatch). |
 | Worktree exists | `git worktree add <path> -b <branch>` (or reuse the task's assigned worktree) | Worktree-mandatory — NEVER `--dir` a live repo root. One worktree per dispatch (sessions are per-cwd). |
 | Guidance file in the WORKTREE | worktree root has `AGENTS.md`? | It will NOT by default (the vault gitignores mirror-generated guidance and a fresh worktree checks out only tracked files) → generate it: `python {rbtv_path}/orchestration/models/mirror/mirror.py --config {rbtv_path}/orchestration/models/opencode/mirror-config.yaml --target "<worktree>"` (the worktree carries the tracked `CLAUDE.md` source), or inline the load-bearing rules in the prompt. |
 
@@ -89,6 +89,8 @@ Route on `(opencode, variant)`; `-m <provider>/<model>` selects the backend per 
 |---------|---------|--------------------------------------|-------------|------|
 | `z1` | `zai/glm-5.2` | 5 · 4 · 3 · probe-pending (AA-board-backed grades) | `ZHIPU_API_KEY` (NOT yet provisioned in this vault — owner pre-flight) | Open-weights/provider-diversity code executor at mid cost; 1M context. |
 | `sakana` | `sakana/fugu-ultra` | 6 · 6 · 7 · probe-pending (vendor-reported grades, confidence low) | `SAKANA_API_KEY` (provisioned) | Model-diversity premium option; cost 7 ranks LAST — reached via pinned roles, never auto-picked. |
+| `deepseek-flash` | `deepseek/deepseek-v4-flash` | 4 · 3 · 1 · probe-pending (deepseek-api twin grades) | `DEEPSEEK_API_KEY` (provisioned) | The cost-floor bounded-code executor (ex-qwen role). CODE roles only (`routable_for`) — text stays on `deepseek-api`. |
+| `deepseek-pro` | `deepseek/deepseek-v4-pro` | 5 · 4 · 1 · probe-pending (deepseek-api twin grades) | `DEEPSEEK_API_KEY` (provisioned) | Heavier-reasoning cost-1 code executor. CODE roles only. |
 
 **Effort dial — UNVERIFIED.** opencode 1.17.11 exposes `--variant <level>` ("provider-specific reasoning effort, e.g., high, max, minimal" — note the flag-name collision with this table's variant ids: opencode's `--variant` is its EFFORT flag, not our routing variant). Which levels each backend honors is unprobed — do NOT pin an effort level until a probe establishes the ladder; treat both backends as single-mode.
 
@@ -130,7 +132,9 @@ Session-id capture is UNPILOTED on the text path (the id is not printed in defau
 
 ### The opencode task contract (plugs into the shared authoring core)
 
-An opencode-executable task file extends the generic task-file contract (`{rbtv_path}/orchestration/workflows/_shared/authoring/`) with opencode-specific frontmatter:
+An opencode-executable task file extends the generic task-file contract (`{rbtv_path}/orchestration/workflows/_shared/authoring/`) with opencode-specific frontmatter.
+
+**Required frontmatter:**
 
 ```yaml
 execution_kind: code            # or research/analysis for a read-only leaf

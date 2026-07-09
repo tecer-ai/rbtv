@@ -502,7 +502,7 @@ def _check_api_key_present(model_name: str, rbtv_cfg: dict, vault_root: Path, en
     else:
         # The API-key env var is keyed by PROVIDER, not by the package's runtime-suffixed
         # id. Strip the runtime suffix (-api / -code-cli / -code-native / -cli) so e.g.
-        # qwen-code-cli → QWEN_API_KEY and deepseek-api → DEEPSEEK_API_KEY (the canonical
+        # deepseek-api → DEEPSEEK_API_KEY and manus-api → MANUS_API_KEY (the canonical
         # provider key names — and the names used before the carrier+runtime rename).
         provider = model_name
         for _suffix in ("-code-cli", "-code-native", "-cli", "-api"):
@@ -997,7 +997,7 @@ def _resolve_carrier(entry: dict, profile: dict) -> str:
     model = entry["model"]
     needs_process = profile.get("needs_process_boundary", False)
 
-    if model in ("kimi-code-cli", "codex-cli", "qwen-code-cli", "claude-code-cli"):
+    if model in ("kimi-code-cli", "codex-cli", "opencode", "claude-code-cli"):
         return "cli-process"
     elif model == "claude-code-native":
         if needs_process:

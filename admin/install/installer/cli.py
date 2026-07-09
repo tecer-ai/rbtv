@@ -284,8 +284,8 @@ def _prompt_model_selection(
 ) -> tuple[list[str], dict[str, list[str]]]:
     """Interactive checkbox over the electable worker entries (build_electable_entries).
 
-    A configurable package (e.g. qwen-code-cli) contributes one row PER native backend,
-    each provider-path labeled so a both-paths model (DeepSeek via qwen-code vs via a
+    A configurable package (e.g. opencode) contributes one row PER native backend,
+    each provider-path labeled so a both-paths model (DeepSeek via opencode vs via a
     direct-API package) is unambiguous; every other package is a single row. On a
     re-install the previous election is pre-checked; on a first install everything is
     pre-checked (full install is the default). Returns (packages, model_variants) via
@@ -696,18 +696,33 @@ def _split_mirrorable(rbtv_root: Path, elected: list[str]) -> list[str]:
     """Return the elected packages the driver can mirror, warning on skips.
 
     ``claude-code-cli`` loads its guidance natively and is mirror-less — it is dropped
-    silently (never a missing-assets warning). Any OTHER elected package whose
-    ``orchestration/models/<pkg>/mirror-assets/`` tree is absent is skipped with a
-    NAMED warning (matches the spec's "ships no mirror-assets" edge case — a skip,
-    never a crash), because the driver's config renderer raises on a missing
-    assets tree. The driver itself further drops ids it does not know.
+    silently (never a missing-assets warning). A package the driver knows as
+    CONFIG-LESS (``PackageFacts.config_dir is None``, e.g. opencode — guidance-only,
+    no ``mirror-assets/`` seed by design) is mirrorable WITHOUT an assets tree. Any
+    OTHER elected package whose ``orchestration/models/<pkg>/mirror-assets/`` tree is
+    absent is skipped with a NAMED warning (matches the spec's "ships no mirror-assets"
+    edge case — a skip, never a crash), because the driver's config renderer raises on
+    a missing assets tree. The driver itself further drops ids it does not know.
     """
     models_dir = rbtv_root / "orchestration" / "models"
+    # Config-less driver-known packages (guidance-only): mirrorable with no assets.
+    # Lazy import with the same reachability shim as _import_mirror_driver; on any
+    # import failure fall back to the assets-dir-only rule (never crash the install).
+    try:
+        driver_parent = rbtv_root / "orchestration" / "models" / "mirror"
+        if str(driver_parent) not in sys.path:
+            sys.path.insert(0, str(driver_parent))
+        from driver import PACKAGE_FACTS  # type: ignore[import-not-found]
+        configless = {p for p, f in PACKAGE_FACTS.items() if f.config_dir is None}
+    except Exception:
+        configless = set()
     mirrorable: list[str] = []
     for pkg in elected:
         if pkg == "claude-code-cli":
             continue  # native, mirror-less — silently skipped
-        if (models_dir / pkg / "mirror-assets").is_dir():
+        if pkg in configless:
+            mirrorable.append(pkg)  # guidance-only package — no assets tree needed
+        elif (models_dir / pkg / "mirror-assets").is_dir():
             mirrorable.append(pkg)
         else:
             print(
@@ -804,7 +819,7 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "Comma-separated orchestration model packages to make available "
             "(folder-safe ids, e.g. kimi-code-cli, codex-cli, claude-code-cli, "
-            "qwen-code-cli). Omit to keep the previous selection "
+            "opencode). Omit to keep the previous selection "
             "or elect all available packages. Empty string elects none. Only "
             "applies when the orchestration module is installed."
         ),
@@ -816,7 +831,7 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "Restrict CONFIGURABLE packages to a backend subset, as "
             "'package=variant,variant' groups separated by ';' "
-            "(e.g. 'qwen-code-cli=deepseek-flash,deepseek-pro'). A package named here is "
+            "(e.g. 'opencode=deepseek-flash,deepseek-pro'). A package named here is "
             "implicitly elected. Recorded in rbtv.json 'model_variants'; the router then "
             "routes only the listed backends of that package. Omit to keep the previous "
             "subset (re-installs preserve it); a package not listed keeps ALL its backends. "

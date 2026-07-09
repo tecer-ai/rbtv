@@ -13,7 +13,7 @@ rbtv.json records:
   - model_variants: per-package backend-subset election for CONFIGURABLE packages
     (optional). Shape: {package_id: [variant_id, ...]}. Present ONLY when a proper
     subset of a configurable package's native backends is elected (e.g.
-    {"qwen-code-cli": ["deepseek-flash", "deepseek-pro"]}); a fully-elected or
+    {"opencode": ["z1", "deepseek-flash"]}); a fully-elected or
     non-configurable package records no entry. The router (route.py) confines an
     elected package to these variants; an absent entry => all variants (back-compat).
   - model_mirror: mirror-driver state for elected worker packages (optional).

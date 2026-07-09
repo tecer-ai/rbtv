@@ -6,11 +6,15 @@
 #          two-turn session memory proven, stdin-EOF guard mandatory, NO native sandbox observed);
 #          models.dev provider registry (read 2026-07-09: `zai` provider — https://api.z.ai/api/paas/v4,
 #          env ZHIPU_API_KEY, models incl. glm-5.2); AA board GLM-5.2 (read 2026-07-09).
-# Backend scope (owner ruling 2026-07-09): z1 (z.ai GLM-5.2) + sakana (fugu-ultra) ONLY — the net-new
-#          models. NOT gemini/deepseek/kimi (already reachable via gemini-api / deepseek-api /
-#          kimi-code-cli — adding them would create duplicate routes + nondeterministic RANK).
-#          GLM-5.1 stays on qwen-code-cli (its existing route); the opencode z.ai backend pins the
-#          SUCCESSOR glm-5.2 (net-new: 1M context vs 5.1's 200K) so no (model) is routable twice.
+# Backend scope (owner rulings 2026-07-09, two rounds): FOUR backends — z1 (z.ai GLM-5.2), sakana
+#          (fugu-ultra), deepseek-flash + deepseek-pro (DeepSeek V4 via the official API). The deepseek
+#          CODE-executor route moved here when qwen-code-cli was RETIRED (second ruling, same day);
+#          the deepseek-api package keeps the TEXT roles — the two packages partition the leaf space
+#          via routable_for so the same model never routes twice for one leaf kind. NOT gemini/kimi
+#          (already reachable via gemini-api / kimi-code-cli — duplicates make RANK nondeterministic).
+#          qwen3.6-plus and glm-5.1 lost their routable rows with qwen's retirement (both remain
+#          harness-REACHABLE through opencode provider config, by design — owner accepted); the z.ai
+#          backend pins glm-5.2, the successor (1M context vs 5.1's 200K).
 # Axes grade the MODEL, not the harness (owner ruling): a backend carries the same reasoning/coding/
 #          cost integers the same model would get through any other route.
 # The exact invocation shape (commands, flags, stdin-EOF guard, worktree confinement, resume,
@@ -85,7 +89,7 @@ variants:
     configurable_model:
       provider_label: "opencode (multi-provider)"   # installer backend-election provider-path label (installer-consumed; not a routing input)
       is_configurable: true          # the model opencode runs is CONFIGURATION, not a fixed package identity
-      note: "served backend set by -m <provider>/<model> (zai/glm-5.2 | sakana/fugu-ultra); the zai provider is models.dev-built-in (key-only), sakana is a custom provider block in the machine-global ~/.config/opencode/opencode.jsonc; resolve/attribute the CONFIGURED id at dispatch, never assume from the package name"
+      note: "served backend set by -m <provider>/<model> (zai/glm-5.2 | sakana/fugu-ultra | deepseek/deepseek-v4-flash | deepseek/deepseek-v4-pro); zai + deepseek providers are models.dev-built-in (key-only), sakana is a custom provider block in the machine-global ~/.config/opencode/opencode.jsonc; resolve/attribute the CONFIGURED id at dispatch, never assume from the package name"
     failure_modes:
       - "headless HANGS forever reading non-TTY stdin ('Reading additional input from stdin...') — stdin-EOF guard MANDATORY on every dispatch: PowerShell `$null |` prefix, Bash `< /dev/null` suffix (POC-diagnosed 2026-07-06)"
       - "NO native sandbox — POC ran `git status` on the live vault unprompted; worktree-mandatory dispatch + post-run git-diff-vs-allowlist is the boundary, never the CLI"
@@ -195,3 +199,171 @@ variants:
 
     os_quirks:
       windows: "same stdin-EOF guard as z1 — PowerShell `$null |` prefix / Bash `< /dev/null` suffix; POC-diagnosed on this backend"
+
+  - variant: deepseek-flash   # DeepSeek V4-Flash as a CODE EXECUTOR via the built-in `deepseek` provider — `opencode run -m deepseek/deepseek-v4-flash`
+    display: "DeepSeek V4 Flash (code)"   # installer backend-election label (installer-consumed, NOT a routing input — schema §2)
+    # The cost-1 bounded-code executor role qwen-code-cli carried before its retirement (owner ruling
+    # 2026-07-09). SAME MODEL as deepseek-api's v4-flash row, DIFFERENT ROLE: routable_for here is the
+    # code complement of deepseek-api's [reasoning, text-synthesis, other] — the same model never
+    # routes twice for one leaf kind. Grades transcribed from the deepseek-api manifest (model-graded).
+
+    # --- capability + cost scores + sizing ---
+    reasoning: 4                           # AA II 46-47 (DeepSeek V4 Flash Max/High) — mid reasoner (deepseek-api twin)
+    coding: 3                              # Terminal-Bench Hard 36-39 — limited agentic coder (deepseek-api twin)
+    cost: 1                                # AA blended $0.06 (DSV4Flash) → bin 1 (cheapest); the cost-floor code executor
+    axis_evidence:
+      reasoning: { source: "aa-ii(46-47);gpqa(42-45)", confidence: medium }
+      coding:    { source: "aa-tbh(36-39)", confidence: medium }
+    cost_evidence: { source: "aa-blended($0.06,DSV4Flash)→bin1", confidence: medium }
+    context_window: 1000000         # 1M — models.dev deepseek registry (read 2026-07-09), matches provider docs
+    max_output: 384000              # 384K — models.dev deepseek registry (read 2026-07-09)
+
+    # --- role eligibility (routing §2 GATE) ---
+    web_access: false               # same harness posture as z1 — webfetch only, no web-search tool
+    routable_for: [bounded-code, unbounded-code]   # CODE roles ONLY — the complement of deepseek-api's [reasoning, text-synthesis, other]; never add text roles here without removing them there (duplicate-route ban, owner ruling 2026-07-09)
+
+    # --- reasoning / effort modes ---
+    reasoning_modes:
+      depths: []                    # UNVERIFIED — same `--variant` effort-flag caveat as z1; DeepSeek's thinking toggle through opencode is unprobed
+      invocation: "none — `--variant <level>` exists but per-backend support is unverified; do not pin an effort level until probed"
+      carrier: "CLI flag (provider-specific)"
+
+    # --- parallelism + resume (same harness contract as z1) ---
+    parallel_safe: true
+    resume_support: session-id
+
+    # --- non-interactive run ---
+    headless:
+      flags: "run -m deepseek/deepseek-v4-flash --dir <worktree>"
+      auto_approves_tools: true     # harness-level behavior (POC/smoke-observed on sakana; same opencode contract)
+      prompt_transport: arg
+
+    # --- auth pre-flight ---
+    auth:
+      required: true
+      method: api-key
+      env_var: DEEPSEEK_API_KEY     # official DeepSeek API via the models.dev built-in `deepseek` provider (https://api.deepseek.com); key provisioned in this vault's env_file; the dispatch must export it into the process env
+      interactive: false
+
+    rate_budget_notes: "exit-code taxonomy UNPILOTED (opencode harness); DeepSeek HTTP 429/5xx behavior through opencode unprobed — bound autonomous runs by task scope"
+
+    # --- tool surface + confinement (same harness contract as z1) ---
+    tool_surface:
+      native: [shell, file, webfetch, todo]
+      mcp: true
+      agent_file: true
+    confinement:
+      workspace_scope: "worktree-mandatory — NO native sandbox; dispatch ONLY inside a dedicated git worktree via --dir <worktree>"
+      tool_restriction: "opencode.json `permission` block + per-agent tool specs — UNPILOTED; never rely on them as the boundary"
+      write_enforcement: git-diff-vs-allowlist
+
+    # --- invocation + failures ---
+    invocation_pointer: ./manual.md
+    manual_path: ./manual.md
+    delta_path: ./delta.md
+    specialty: "the cost-floor bounded-code executor (cost 1) — the cheap code-workhorse role inherited from the retired qwen-code-cli deepseek backend, now through the OSS harness; same model as deepseek-api's text rows, code roles only"
+    evidence_status: probe-pending  # never dispatched through opencode — the harness contract is smoke-proven (sakana 2026-07-09) but this backend is unpiloted; validate id + auth on first dispatch
+    configurable_model:
+      is_configurable: true
+      note: "served backend set by -m deepseek/deepseek-v4-flash (models.dev built-in provider, DEEPSEEK_API_KEY)"
+    failure_modes:
+      - "same opencode harness failure modes as `z1` — stdin-EOF guard, no native sandbox, process-env keys, per-cwd sessions, worktree guidance gap, unpiloted exits, timeout-orphaned child"
+      - "SAME MODEL as deepseek-api's v4-flash text row — role-partitioned via routable_for (code here, text there); adding text roles here would create the duplicate route the owner banned"
+      - "legacy deepseek-chat/deepseek-reasoner aliases removed 2026-07-24 — dispatch deepseek-v4-flash, never the aliases"
+      - "backend unpiloted through opencode — verify `opencode models` lists deepseek/deepseek-v4-flash and the key resolves before first dispatch"
+
+    # --- guidance file ---
+    guidance_file:
+      convention: AGENTS.md
+      mirror_entry: opencode-mirror
+
+    # --- swarm / sub-conducting ---
+    swarm_support:
+      subagents: true
+      nesting: one-level
+      default: disabled
+
+    os_quirks:
+      windows: "same stdin-EOF guard as z1 — PowerShell `$null |` prefix / Bash `< /dev/null` suffix"
+
+  - variant: deepseek-pro   # DeepSeek V4-Pro as a CODE EXECUTOR via the built-in `deepseek` provider — `opencode run -m deepseek/deepseek-v4-pro`
+    display: "DeepSeek V4 Pro (code)"   # installer backend-election label (installer-consumed, NOT a routing input — schema §2)
+    # Differs from `deepseek-flash` on: reasoning (5 vs 4) — same cost bin 1 (board prices $0.18 vs
+    # $0.06). The heavier-reasoning cheap code executor (ex-qwen deepseek-pro role). Same role
+    # partition vs deepseek-api's v4-pro text row.
+
+    # --- capability + cost scores + sizing ---
+    reasoning: 5                           # AA II 50-52 (DeepSeek V4 Pro Max/High) — strong reasoner (deepseek-api twin)
+    coding: 4                              # Terminal-Bench Hard 42-46 — bounded agentic coder (deepseek-api twin)
+    cost: 1                                # AA blended $0.18 (DSV4Pro) → bin 1 — same bin as deepseek-flash, higher board price; non-dominated (reasoning 5)
+    axis_evidence:
+      reasoning: { source: "aa-ii(50-52);gpqa(46-50)", confidence: high }
+      coding:    { source: "aa-tbh(42-46)", confidence: high }
+    cost_evidence: { source: "aa-blended($0.18,DSV4Pro)→bin1", confidence: high }
+    context_window: 1000000         # 1M — models.dev deepseek registry (read 2026-07-09)
+    max_output: 384000              # 384K — models.dev deepseek registry (read 2026-07-09)
+
+    # --- role eligibility (routing §2 GATE) ---
+    web_access: false
+    routable_for: [bounded-code, unbounded-code]   # CODE roles ONLY — complement of deepseek-api's roles (see deepseek-flash)
+
+    # --- reasoning / effort modes ---
+    reasoning_modes:
+      depths: []                    # UNVERIFIED — same caveat as deepseek-flash
+      invocation: "none — `--variant <level>` exists but per-backend support is unverified; do not pin an effort level until probed"
+      carrier: "CLI flag (provider-specific)"
+
+    # --- parallelism + resume (same harness contract as z1) ---
+    parallel_safe: true
+    resume_support: session-id
+
+    # --- non-interactive run ---
+    headless:
+      flags: "run -m deepseek/deepseek-v4-pro --dir <worktree>"
+      auto_approves_tools: true
+      prompt_transport: arg
+
+    # --- auth pre-flight ---
+    auth:
+      required: true
+      method: api-key
+      env_var: DEEPSEEK_API_KEY     # same key as deepseek-flash (official DeepSeek API)
+      interactive: false
+
+    rate_budget_notes: "same as deepseek-flash; higher board price ($0.18 vs $0.06) within the same cost bin"
+
+    # --- tool surface + confinement (same harness contract as z1) ---
+    tool_surface:
+      native: [shell, file, webfetch, todo]
+      mcp: true
+      agent_file: true
+    confinement:
+      workspace_scope: "worktree-mandatory — NO native sandbox; dispatch ONLY inside a dedicated git worktree via --dir <worktree>"
+      tool_restriction: "opencode.json `permission` block + per-agent tool specs — UNPILOTED; never rely on them as the boundary"
+      write_enforcement: git-diff-vs-allowlist
+
+    # --- invocation + failures ---
+    invocation_pointer: ./manual.md
+    manual_path: ./manual.md
+    delta_path: ./delta.md
+    specialty: "the heavier-reasoning cost-1 code executor — reasoning 5 at the cheapest bin; pick over deepseek-flash when the code task carries reasoning load; same model as deepseek-api's text rows, code roles only"
+    evidence_status: probe-pending  # unpiloted through opencode — same graduation path as deepseek-flash
+    configurable_model:
+      is_configurable: true
+      note: "served backend set by -m deepseek/deepseek-v4-pro (models.dev built-in provider, DEEPSEEK_API_KEY)"
+    failure_modes:
+      - "same opencode harness failure modes as `z1`, and the same role-partition + alias + first-dispatch caveats as `deepseek-flash`"
+
+    # --- guidance file ---
+    guidance_file:
+      convention: AGENTS.md
+      mirror_entry: opencode-mirror
+
+    # --- swarm / sub-conducting ---
+    swarm_support:
+      subagents: true
+      nesting: one-level
+      default: disabled
+
+    os_quirks:
+      windows: "same stdin-EOF guard as z1 — PowerShell `$null |` prefix / Bash `< /dev/null` suffix"
