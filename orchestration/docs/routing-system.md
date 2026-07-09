@@ -1,6 +1,6 @@
 # Model Routing System — Developer Reference
 
-> **Scope.** This document explains how the deterministic router *works* — the mechanism, the file layout, how to run its tests, and how to add a model. The per-model capability *values* (each variant's reasoning/coding/cost integers, prices, evidence) live in [`routing-matrix-reference.md`](./routing-matrix-reference.md); the field definitions live in [`../models/manifest-schema.md`](../models/manifest-schema.md). This doc does not restate either.
+> **Scope.** This document explains how the deterministic router *works* — the mechanism, the file layout, how to run its tests, and how to add a model. The per-model capability *values* (each variant's reasoning/coding/cost integers, prices, evidence) live in [Part II — Per-Model Reference Data](#part-ii--per-model-reference-data) below; the field definitions live in [`../models/manifest-schema.md`](../models/manifest-schema.md). This doc does not restate the field definitions here.
 >
 > **Authority.** The routing *card* (`orchestration/skills/orchestrating/cards/routing.md` §2a) is the algorithm authority; `orchestration/models/route.py` is the executable selector the card and the planner both call. On any script-vs-card divergence the card text wins and a defect is filed against the script.
 
