@@ -126,7 +126,7 @@ The opencode CLI dispatch manual — exact command shapes, flags, provider confi
 | CLI present + version | `opencode --version` (this machine: `1.17.11`) | Absent/older → re-verify flags against `opencode run --help`. |
 | **Pinned-flag existence** (routing §4 gate) | `opencode run --help` grepped for every non-trivial flag this dispatch pins (`--dir`, `-m`, `--format`, `-s`/`--session`, `-c`/`--continue`, `--title`) | Runs EVERY dispatch. Any pinned flag absent → STOP, do not dispatch; re-resolve at THIS delta, re-render (`../render-manuals.py`), re-run the gate — NEVER hand-edit the rendered manual or pass an ad-hoc flag. |
 | API key resolves + exported | Resolve the variant's key per rbtv availability semantics (OS env → `rbtv.json` `env_file`): z1 → `ZHIPU_API_KEY`, sakana → `SAKANA_API_KEY`, deepseek-flash/pro → `DEEPSEEK_API_KEY`; then EXPORT it into the dispatch process env | Key absent in both → variant unavailable; route elsewhere or halt (api-key semantics — never a USER-EXECUTED login). opencode reads ONLY the process env. |
-| Provider config | z1 + deepseek backends: none needed (the `zai` and `deepseek` providers are models.dev-built-in — key-only). sakana: the custom provider block MUST exist in the machine-global `~/.config/opencode/opencode.jsonc` (template below) | `opencode models` lists the variant's `-m` id (`zai/glm-5.2` / `sakana/fugu-ultra` / `deepseek/deepseek-v4-flash` / `deepseek/deepseek-v4-pro`)? Absent → fix the provider config / key FIRST (a wrong `-m` id fails the dispatch). |
+| Provider config | z1 + deepseek backends: none needed (the `zai-coding-plan` and `deepseek` providers are models.dev-built-in — key-only). sakana: the custom provider block MUST exist in the machine-global `~/.config/opencode/opencode.jsonc` (template below) | `opencode models` lists the variant's `-m` id (`zai-coding-plan/glm-5.2` / `sakana/fugu-ultra` / `deepseek/deepseek-v4-flash` / `deepseek/deepseek-v4-pro`)? Absent → fix the provider config / key FIRST (a wrong `-m` id fails the dispatch). z1 uses the coding-plan endpoint — pay-per-token `zai/glm-5.2` 429s without an account balance. |
 | Worktree exists | `git worktree add <path> -b <branch>` (or reuse the task's assigned worktree) | Worktree-mandatory — NEVER `--dir` a live repo root. One worktree per dispatch (sessions are per-cwd). |
 | Guidance file in the WORKTREE | worktree root has `AGENTS.md`? | It will NOT by default (the vault gitignores mirror-generated guidance and a fresh worktree checks out only tracked files) → generate it: `python {rbtv_path}/orchestration/models/mirror/mirror.py --config {rbtv_path}/orchestration/models/opencode/mirror-config.yaml --target "<worktree>"` (the worktree carries the tracked `CLAUDE.md` source), or inline the load-bearing rules in the prompt. |
 
@@ -156,7 +156,7 @@ The opencode CLI dispatch manual — exact command shapes, flags, provider confi
 
 ```powershell
 $env:ZHIPU_API_KEY = "<resolved from env_file — never inline in artifacts>"
-$null | opencode run --dir "<worktree>" -m zai/glm-5.2 --title "<task-id>" "<task_prompt>" `
+$null | opencode run --dir "<worktree>" -m zai-coding-plan/glm-5.2 --title "<task-id>" "<task_prompt>" `
   > "<worktree>/.opencode-runs/<task-id>.txt"
 ```
 
@@ -165,7 +165,7 @@ Use when the prompt fits comfortably under the host shell's single-argument limi
 **Shape B — large brief via a FILE POINTER (default in autonomous mode; Bash-fenced — the in-session binary-first-safe form):**
 
 ```bash
-opencode run --dir "<worktree>" -m zai/glm-5.2 --title "<task-id>" \
+opencode run --dir "<worktree>" -m zai-coding-plan/glm-5.2 --title "<task-id>" \
   "Read the file '<prompt-path>' and execute the task it contains exactly; create only the files it allowlists." \
   > "<worktree>/.opencode-runs/<task-id>.txt" < /dev/null
 ```
@@ -180,19 +180,19 @@ Route on `(opencode, variant)`; `-m <provider>/<model>` selects the backend per 
 
 | Variant | `-m` id | reasoning · coding · cost · evidence | Key env var | When |
 |---------|---------|--------------------------------------|-------------|------|
-| `z1` | `zai/glm-5.2` | 5 · 4 · 3 · probe-pending (AA-board-backed grades) | `ZHIPU_API_KEY` (NOT yet provisioned in this vault — owner pre-flight) | Open-weights/provider-diversity code executor at mid cost; 1M context. |
+| `z1` | `zai-coding-plan/glm-5.2` | 5 · 4 · 3 · validated (piloted 2026-07-09) | `ZHIPU_API_KEY` (provisioned; a GLM Coding Plan key → the `zai-coding-plan` endpoint. Pay-per-token `zai/glm-5.2` 429s "insufficient balance") | Open-weights/provider-diversity code executor at mid cost; 1M context. |
 | `sakana` | `sakana/fugu-ultra` | 6 · 6 · 7 · probe-pending (vendor-reported grades, confidence low) | `SAKANA_API_KEY` (provisioned) | Model-diversity premium option; cost 7 ranks LAST — reached via pinned roles, never auto-picked. |
 | `deepseek-flash` | `deepseek/deepseek-v4-flash` | 4 · 3 · 1 · probe-pending (deepseek-api twin grades) | `DEEPSEEK_API_KEY` (provisioned) | The cost-floor bounded-code executor (ex-qwen role). CODE roles only (`routable_for`) — text stays on `deepseek-api`. |
 | `deepseek-pro` | `deepseek/deepseek-v4-pro` | 5 · 4 · 1 · probe-pending (deepseek-api twin grades) | `DEEPSEEK_API_KEY` (provisioned) | Heavier-reasoning cost-1 code executor. CODE roles only. |
 
-**Effort dial — UNVERIFIED.** opencode 1.17.11 exposes `--variant <level>` ("provider-specific reasoning effort, e.g., high, max, minimal" — note the flag-name collision with this table's variant ids: opencode's `--variant` is its EFFORT flag, not our routing variant). Which levels each backend honors is unprobed — do NOT pin an effort level until a probe establishes the ladder; treat both backends as single-mode.
+**Effort dial — PROBED, single-mode.** opencode 1.17.11 exposes `--variant <level>` ("provider-specific reasoning effort, e.g., high, max, minimal" — note the flag-name collision with this table's variant ids: opencode's `--variant` is its EFFORT flag, not our routing variant). PROBED 2026-07-09 on all four backends: opencode does NOT validate `--variant` — a bogus level (`--variant bogus-xyz`) returns identically to high/max/minimal (exit 0, same output), so no backend honors an effort ladder through it. Treat every backend as single-mode; do NOT pin an effort level.
 
 ### Exit handling
 
 `opencode run` returns a process exit code; `0` = success. The non-zero taxonomy is **UNPILOTED** — no known retryable-throttle code (unlike kimi's 75). On any non-zero exit: reconcile disk state (`git -C "<worktree>" status --porcelain`, the `.opencode-runs/` return file), then recover-or-surface — do NOT blind-retry.
 
 ```powershell
-$null | opencode run --dir "<worktree>" -m zai/glm-5.2 "<task>" > "<worktree>/.opencode-runs/<task-id>.txt"; $code = $LASTEXITCODE
+$null | opencode run --dir "<worktree>" -m zai-coding-plan/glm-5.2 "<task>" > "<worktree>/.opencode-runs/<task-id>.txt"; $code = $LASTEXITCODE
 if ($code -ne 0) { <reconcile disk; recover-or-surface — do NOT blind-retry> }
 ```
 
@@ -214,7 +214,9 @@ Session-id capture is UNPILOTED on the text path (the id is not printed in defau
 |---------|-------------|
 | Headless HANGS reading non-TTY stdin | Stdin-EOF guard on EVERY dispatch: Bash `< /dev/null` suffix (binary-first-safe) / PowerShell `$null \|` prefix (auto-mode only). The POC's multi-minute "stalls" were exactly this. |
 | No native sandbox — writes anywhere | Worktree-mandatory `--dir` + post-run `git -C "<worktree>" diff --name-only HEAD` vs the allowlist. Never rely on the UNPILOTED `permission` block. |
-| `-m` id does not resolve | Pre-flight `opencode models` lists the id? sakana needs its provider block (machine-global config); zai needs only the key. |
+| `-m` id does not resolve | Pre-flight `opencode models` lists the id? sakana needs its provider block (machine-global config); zai-coding-plan + deepseek need only the key. |
+| z.ai key on the WRONG endpoint | z.ai exposes two providers: `zai` (pay-per-token, needs an account balance) and `zai-coding-plan` (GLM Coding Plan subscription, base `https://api.z.ai/api/coding/paas/v4`). A coding-plan key 429s ("insufficient balance") on `zai/*` and works on `zai-coding-plan/*`. `opencode auth login` → "Z.AI" stores the pay-per-token cred (does NOT cover coding-plan) — pick "Z.AI Coding Plan", or export `ZHIPU_API_KEY` and use `zai-coding-plan/glm-5.2` (the piloted path). |
+| opencode HANGS on an upstream 429 (balance/quota) | It silently retries with backoff and never surfaces the error — the dispatch times out with only `> build · <model>` on stderr. Not a stdin-guard hang. Diagnostic: raw-curl the provider's `chat/completions` endpoint for the real HTTP status. (live-diagnosed 2026-07-09) |
 | Key not visible to the worker | Export the variant's key into the PROCESS env at dispatch (opencode never reads rbtv's `env_file`). |
 | Worker saw no behavior rules | A fresh worktree has NO `AGENTS.md` (gitignored) — run the mirror against the worktree, or inline the load-bearing rules in the prompt. |
 | Cross-session `-c` contamination | One worktree per dispatch; never launch two dispatches with the same `--dir`. |
@@ -232,7 +234,7 @@ An opencode-executable task file extends the generic task-file contract (`{rbtv_
 ```yaml
 execution_kind: code            # or research/analysis for a read-only leaf
 executor: opencode
-model_backend: zai/glm-5.2      # or sakana/fugu-ultra — the -m id, pinned at planning
+model_backend: zai-coding-plan/glm-5.2   # or sakana/fugu-ultra — the -m id, pinned at planning
 allowed_workdir: <the dedicated worktree path — the --dir value; worktree-mandatory>
 allowlist:
   - <file-or-folder-glob, worktree-relative>

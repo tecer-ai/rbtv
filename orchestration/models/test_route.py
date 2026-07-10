@@ -197,49 +197,46 @@ class TestApiKeyAvailability:
     """Criterion 4: run a profile whose cheapest text candidate is an api-key worker
     WITH its key present, then re-run with the key absent."""
 
-    def test_api_key_toggle(self):
-        # (opencode, z1) is an api-key worker whose key — ZHIPU_API_KEY, named by the
-        # manifest auth.env_var override — is NOT provisioned in this vault (OS env or
-        # env_file), so the flip is deterministic on the real corpus.
+    def test_api_key_toggle(self, tmp_path):
+        # (opencode, z1) authenticates under ZHIPU_API_KEY (manifest auth.env_var override).
+        # HERMETIC: route over the REAL manifests (RBTV_ROOT) but with a TEMP vault_root whose
+        # env_file we control, so the availability flip is independent of the real vault's .env
+        # — which now HOLDS ZHIPU_API_KEY (the owner provisioned it 2026-07-09; the earlier
+        # "unprovisioned on the real corpus" premise is permanently false). OS env is isolated too.
+        import route
         profile = _profile(
             boundedness="fully-bounded",
             task_type="code",
             inlined_context_size=10000,
         )
-        exit_code_with_key, result_with_key = _run_route(
-            profile, explain=True,
-            env_override={"ZHIPU_API_KEY": "test-key-value"}
-        )
-        # Run without the key
-        env_no_key = {k: v for k, v in os.environ.items() if k != "ZHIPU_API_KEY"}
-        exit_code_no_key, result_no_key = _run_route(
-            profile, explain=True,
-            env_override=env_no_key
-        )
-        assert exit_code_with_key == 0
-        assert exit_code_no_key == 0
-        # Assert the availability FLIP, not just exit==0. With the key absent,
-        # (opencode, z1) MUST appear in an availability-drop row; with the key present
-        # it MUST NOT be dropped for the api-key reason. (Subprocess env wins over
-        # env_file because _check_api_key_present checks OS env FIRST — and the check
-        # reads the variant's auth.env_var name, never the derived OPENCODE_API_KEY.)
-        explain_no_key = result_no_key.get("explain", [])
-        z1_dropped_no_key = any(
-            s.get("stage") == "availability" and s.get("model") == "opencode" and s.get("variant") == "z1"
-            for s in explain_no_key
-        )
-        assert z1_dropped_no_key, (
-            "Key absent: expected (opencode, z1) dropped at availability, "
-            f"trace had no z1 availability drop: {explain_no_key}"
-        )
-        explain_with_key = result_with_key.get("explain", [])
-        z1_dropped_with_key = any(
-            s.get("stage") == "availability" and s.get("model") == "opencode" and s.get("variant") == "z1"
-            for s in explain_with_key
-        )
-        assert not z1_dropped_with_key, (
-            "Key present (OS env wins): (opencode, z1) must NOT be dropped for api-key absence"
-        )
+        env_file = tmp_path / ".env"
+        cfg = {"env_file": ".env"}          # vault-relative → resolves under tmp_path, NOT the real .env
+        saved = os.environ.pop("ZHIPU_API_KEY", None)
+        try:
+            # WITH the key (in the temp env_file) → (opencode, z1) NOT dropped at availability.
+            env_file.write_text("ZHIPU_API_KEY=test-fake-not-real\n", encoding="utf-8")
+            result_with_key = route.route(dict(profile), RBTV_ROOT, tmp_path, cfg, {}, explain=True)
+            z1_dropped_with_key = any(
+                s.get("stage") == "availability" and s.get("model") == "opencode" and s.get("variant") == "z1"
+                for s in result_with_key.get("explain", [])
+            )
+            assert not z1_dropped_with_key, (
+                f"Key present: (opencode, z1) must NOT be dropped at availability: {result_with_key.get('explain', [])}"
+            )
+            # WITHOUT the key (temp env_file empty, OS env popped) → (opencode, z1) DROPPED.
+            env_file.write_text("# no keys here\n", encoding="utf-8")
+            result_no_key = route.route(dict(profile), RBTV_ROOT, tmp_path, cfg, {}, explain=True)
+            z1_dropped_no_key = any(
+                s.get("stage") == "availability" and s.get("model") == "opencode" and s.get("variant") == "z1"
+                for s in result_no_key.get("explain", [])
+            )
+            assert z1_dropped_no_key, (
+                "Key absent: expected (opencode, z1) dropped at availability, "
+                f"trace had no z1 availability drop: {result_no_key.get('explain', [])}"
+            )
+        finally:
+            if saved is not None:
+                os.environ["ZHIPU_API_KEY"] = saved
 
 
 # ---------------------------------------------------------------------------
