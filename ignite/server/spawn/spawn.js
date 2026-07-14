@@ -89,17 +89,6 @@ function rejectFlagInjection(value, field) {
   }
 }
 
-function validatePromptCarriage(profile, blockName) {
-  const block = profile[blockName];
-  if (!block) return;
-  if (block.prompt === 'argv-last') {
-    const last = block.argv[block.argv.length - 1];
-    if (typeof last === 'string' && last.includes('{prompt_file}')) {
-      throw new SpawnError(E_CONFIG_LOAD, 'argv-last prompt carriage cannot use {prompt_file} slot', { block: blockName });
-    }
-  }
-}
-
 function ensurePromptFile(dataRoot, sessionId, prompt) {
   const promptDir = path.join(dataRoot, 'prompts');
   fs.mkdirSync(promptDir, { recursive: true, mode: 0o700 });
@@ -412,7 +401,11 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       const units = listSystemdUnits('rbtv-worker-', userManager);
       const rows = heartStore.dump().jobs_log;
       for (const unit of units) {
-        const match = rows.find((r) => r.unit_name === unit.unitName);
+        // list-units reports names WITH the `.service` suffix; stored unit_name has none.
+        // Match on the bare unit name and the session_id-derived name to avoid false orphans.
+        const bare = unit.unitName.replace(/\.service$/, '');
+        const sid = bare.replace(/^rbtv-worker-/, '');
+        const match = rows.find((r) => r.unit_name === unit.unitName || r.unit_name === bare || r.session_id === sid);
         if (!match) {
           results.rowLessUnits.push({ unitName: unit.unitName, active: unit.active });
           log('warn', 'row-less rbtv-worker unit found; NOT auto-killed', { unitName: unit.unitName });

@@ -1,5 +1,5 @@
 probe: probe-flag-injection
-started: 2026-07-14T23:22:32.524Z
+started: 2026-07-14T23:34:53.750Z
 command: node probes/probe-flag-injection.js
 flag in prompt: E_FLAG_INJECTION
 flag in workdir: E_FLAG_INJECTION
@@ -8,5 +8,5 @@ unknown profile: E_UNKNOWN_PROFILE
 result: all injection attempts refused typed
 status: PASS
 exit: 0
-wall_ms: 15
-ended: 2026-07-14T23:22:32.539Z
+wall_ms: 16
+ended: 2026-07-14T23:34:53.766Z

@@ -210,9 +210,12 @@ function setsidStatus(pid, pidStarttime = null) {
   // pidStarttime guard against PID reuse is optional here; caller supplies if known.
   try {
     const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
-    // starttime is field 22 (1-indexed); easier to parse from the end since comm may contain spaces.
-    const match = stat.match(/\)\s+([^ ]+\s+){18}([^ ]+)\s+/);
-    const starttime = match ? parseInt(match[2], 10) : null;
+    // starttime is field 22 (1-indexed). comm (field 2) may contain spaces AND parens,
+    // so anchor on the LAST ')' and index by field position from there:
+    // after ") ", the tokens are field 3 (state), 4, ...; starttime (field 22) is index 19.
+    const rparen = stat.lastIndexOf(')');
+    const rest = rparen >= 0 ? stat.slice(rparen + 2).trim().split(/\s+/) : [];
+    const starttime = rest.length > 19 ? parseInt(rest[19], 10) : null;
     return {
       carrier: 'setsid',
       pid,

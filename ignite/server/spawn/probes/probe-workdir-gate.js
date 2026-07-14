@@ -1,13 +1,22 @@
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
 const { setup, teardown, capture, fire } = require('./lib');
 
 capture('probe-workdir-gate', async (lines) => {
   const ctx = setup();
   try {
+    // A REAL symlink-escape: a link INSIDE workdir_root that resolves OUTSIDE it.
+    // canonicalizeWorkdir uses realpathSync, so the escape must be caught post-resolution.
+    const escapeLink = path.join(ctx.workRoot, 'escape-link');
+    fs.symlinkSync(ctx.escapedir, escapeLink);
+    lines.push(`symlink ${escapeLink} -> ${fs.realpathSync(escapeLink)} (outside workdir_root ${ctx.workRoot})`);
+
     const cases = [
       { name: 'workdir outside workdir_root', fn: () => ctx.mgr.spawn(0, 'test-sleep', 'headless', null, ctx.escapedir, 'probe') },
-      { name: 'symlink escape', fn: () => ctx.mgr.spawn(0, 'test-sleep', 'headless', null, '/tmp', 'probe') },
+      { name: 'symlink escape (link inside root resolves outside)', fn: () => ctx.mgr.spawn(0, 'test-sleep', 'headless', null, escapeLink, 'probe') },
+      { name: 'absolute path outside root', fn: () => ctx.mgr.spawn(0, 'test-sleep', 'headless', null, '/tmp', 'probe') },
     ];
     for (const c of cases) {
       try {

@@ -1,12 +1,11 @@
 probe: probe-survive-close
-started: 2026-07-14T23:22:34.029Z
+started: 2026-07-14T23:34:53.830Z
 command: node probes/probe-survive-close.js
-action: fire row, spawn worker, verify it survives the launcher
-spawned session_id=4873890b-473f-4946-ae1b-7de3d1a69e4b unit=rbtv-worker-4873890b-473f-4946-ae1b-7de3d1a69e4b pid=170900
-systemctl --user is-active: active
-control group: ControlGroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-4873890b-473f-4946-ae1b-7de3d1a69e4b.service
-result: transient unit belongs to the user manager -> survives launcher exit (CON-1)
+action: a child node LAUNCHER spawns the worker then EXITS; re-check worker survives
+launcher(child node) pid=173379 spawned unit=rbtv-worker-9bc02de7-794c-4414-a476-ec5028849f84 worker-pid=173388
+after launcher exit: launcher-pid-alive=false worker is-active=active worker-ppid=9642 (launcher-pid=173379)
+result: launcher process is gone yet the worker is still active; worker PPID is the user manager, never the (dead) launcher (CON-1)
 status: PASS
 exit: 0
-wall_ms: 356
-ended: 2026-07-14T23:22:34.385Z
+wall_ms: 175
+ended: 2026-07-14T23:34:54.005Z
