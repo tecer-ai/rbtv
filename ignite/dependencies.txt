@@ -1,0 +1,13 @@
+# ignite external dependencies — EVERY external dependency (npm + system) with its install command; updated IN THE SAME CHANGE as any dependency change (owner ruling D28, 2026-07-14; convention: ignite/CLAUDE.md § Dependencies).
+#
+# Format: name — why — install command
+# "TBD at task N.n" marks a package whose final pick belongs to that build task — never pre-empted here.
+
+Node.js 24 — runtime for the daemon, gateway, and CLI — already provisioned on the box; fresh install: apt (NodeSource) or nvm (`nvm install 24`)
+npm — package manager for all Node dependencies — ships with Node.js (no separate install)
+systemd + systemd-run — daemon unit + transient-unit spawn carrier (per-profile caps, cgroup tree-kill) — OS-provided on Ubuntu (no install)
+SQLite (Node driver) — heart-store database engine, accessed via a Node driver — TBD at task 2.1 (concrete npm package chosen there; `npm install <driver>`)
+YAML parser (js-yaml or equivalent) — server-config file parsing — TBD at task 2.2 (exact package chosen there; `npm install <package>`)
+tailscaled — zero-ingress network posture: tailnet bind + Tailscale Serve (Batch 5) — `apt install tailscale` (per tailscale.com/install)
+ttyd — web-terminal viewer for headed sessions (Batch 6) — `apt install ttyd` (or build from source if the apt version lags)
+node-pty — server-owned pty layer for headed sessions (Batch 6) — `npm install node-pty`
