@@ -1,4 +1,4 @@
-COMMAND: node 3-resources/tools/rbtv/ignite/server/heart/probes/probe-single-writer.js
+COMMAND: node probe-single-writer.js
 SECOND_WRITER_CAUGHT: true
 SECOND_WRITER_CODE: E_SECOND_WRITER
 BUSY_CAUGHT: true
@@ -6,4 +6,4 @@ CHILD_OUTPUT: BUSY:ERR_SQLITE_ERROR:database is locked
 NO_DOUBLE_WRITE: true
 ROWS_AFTER: 0
 EXIT: 0
-WALL_MS: 33
+WALL_MS: 41

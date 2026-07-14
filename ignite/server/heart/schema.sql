@@ -62,6 +62,13 @@ CREATE TABLE IF NOT EXISTS jobs_log (
   session_id   TEXT,
   pid          INTEGER,
   exit_code    INTEGER,
+  profile      TEXT,
+  carrier      TEXT CHECK (carrier IS NULL OR carrier IN ('systemd','setsid')),
+  unit_name    TEXT,
+  pid_starttime INTEGER,
+  session_ref  TEXT,
+  workdir      TEXT,
+  started_at   TEXT,
   completion_msg_id INTEGER REFERENCES messages(msg_id),
   log_path     TEXT,
   ended_at     TEXT

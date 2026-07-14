@@ -461,7 +461,7 @@ class HeartStore {
     }
   }
 
-  recordExecutionStart({ queueId = null, jobId, actionType, args, enqueuedBy, sessionMode = 'headless', firedTick, firedAt, parentExecId = null, sessionId = null, pid = null }) {
+  recordExecutionStart({ queueId = null, jobId, actionType, args, enqueuedBy, sessionMode = 'headless', firedTick, firedAt, parentExecId = null, sessionId = null, pid = null, profile = null, workdir = null }) {
     const firedAtIso = toIsoUtc(firedAt);
     this.db.exec('BEGIN EXCLUSIVE;');
     try {
@@ -474,8 +474,8 @@ class HeartStore {
       }
       const stmt = this._prepare(`
         INSERT INTO jobs_log
-          (parent_exec_id, queue_id, job_id, action_type, args, enqueued_by, session_mode, fired_tick, fired_at, status, session_id, pid)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'launching', ?, ?)
+          (parent_exec_id, queue_id, job_id, action_type, args, enqueued_by, session_mode, fired_tick, fired_at, status, session_id, pid, profile, workdir)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'launching', ?, ?, ?, ?)
       `);
       const result = stmt.run(
         parentExecId,
@@ -488,7 +488,9 @@ class HeartStore {
         firedTick,
         firedAtIso,
         sessionId,
-        pid
+        pid,
+        profile,
+        workdir
       );
       const execId = Number(result.lastInsertRowid);
       this.db.exec('COMMIT;');
@@ -531,10 +533,15 @@ class HeartStore {
     return stmt.all(status).map((r) => this._attachThread(r));
   }
 
-  updateExecutionStatus(execId, { status, sessionId = null, pid = null, exitCode = null, completionMsgId = null, logPath = null, endedAt = null }) {
+  updateExecutionStatus(execId, { status, sessionId = null, pid = null, exitCode = null, completionMsgId = null, logPath = null, endedAt = null, carrier = null, unitName = null, pidStarttime = null, sessionRef = null, startedAt = null }) {
     const stmt = this._prepare(`
       UPDATE jobs_log SET
         status = ?,
+        carrier = COALESCE(?, carrier),
+        unit_name = COALESCE(?, unit_name),
+        pid_starttime = COALESCE(?, pid_starttime),
+        session_ref = COALESCE(?, session_ref),
+        started_at = COALESCE(?, started_at),
         session_id = COALESCE(?, session_id),
         pid = COALESCE(?, pid),
         exit_code = COALESCE(?, exit_code),
@@ -543,7 +550,7 @@ class HeartStore {
         ended_at = COALESCE(?, ended_at)
       WHERE exec_id = ?
     `);
-    stmt.run(status, sessionId, pid, exitCode, completionMsgId, logPath, endedAt ? toIsoUtc(endedAt) : null, execId);
+    stmt.run(status, carrier, unitName, pidStarttime, sessionRef, startedAt ? toIsoUtc(startedAt) : null, sessionId, pid, exitCode, completionMsgId, logPath, endedAt ? toIsoUtc(endedAt) : null, execId);
     return this.getExecution(execId);
   }
 
