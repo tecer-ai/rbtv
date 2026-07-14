@@ -1,0 +1,12 @@
+probe: probe-survive-close
+started: 2026-07-14T23:22:34.029Z
+command: node probes/probe-survive-close.js
+action: fire row, spawn worker, verify it survives the launcher
+spawned session_id=4873890b-473f-4946-ae1b-7de3d1a69e4b unit=rbtv-worker-4873890b-473f-4946-ae1b-7de3d1a69e4b pid=170900
+systemctl --user is-active: active
+control group: ControlGroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-4873890b-473f-4946-ae1b-7de3d1a69e4b.service
+result: transient unit belongs to the user manager -> survives launcher exit (CON-1)
+status: PASS
+exit: 0
+wall_ms: 356
+ended: 2026-07-14T23:22:34.385Z

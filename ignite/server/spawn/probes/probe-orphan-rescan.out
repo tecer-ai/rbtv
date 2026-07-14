@@ -1,0 +1,12 @@
+probe: probe-orphan-rescan
+started: 2026-07-14T23:22:33.496Z
+command: node probes/probe-orphan-rescan.js
+action: run orphan rescan on empty store
+reattached: 0
+marked_failed: 0
+row_less_units: 0
+note: full test needs pre-existing rows (blocked by row seam)
+status: PASS
+exit: 0
+wall_ms: 22
+ended: 2026-07-14T23:22:33.518Z

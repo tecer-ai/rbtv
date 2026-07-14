@@ -1,0 +1,77 @@
+bind:
+  host: 127.0.0.1        # loopback only through Batch 4; tailnet bind is wired at p5-2 (network-posture-spec)
+  port: 7431             # build-time default; changing it is a config edit + restart
+
+auth:
+  senders_file: /etc/rbtv-ignite/senders.yaml   # named-sender registry (D15 shape: sender-id, kind, token-hash, enabled); 0600, outside the repo
+  # Internal gateway<->server-core auth is the internal-api contract (p1-3) — NOT configured here.
+
+spawn:
+  data_root: /var/lib/rbtv-ignite   # store, logs/, prompts/ live under here (task 3.2 binds the concrete path)
+  carrier: auto                     # auto -> systemd-run when the boot probe finds systemd; else setsid fallback
+  kill_grace_seconds: 10            # SIGTERM -> grace -> SIGKILL
+
+default_workdir_root: /path/set-at-setup   # REQUIRED (D22): the workdir every spawn falls back to when the
+                                           # caller supplies none. Owner-fixed at setup (e.g. the owner's
+                                           # workspace root); the seed ships this PLACEHOLDER only -- never
+                                           # a hardcoded instance path (D9 relocatability).
+
+profiles:
+  claude-sonnet-tools:
+    exec:
+      argv: ["claude", "-p", "--model", "sonnet",
+             "--output-format", "stream-json", "--verbose",
+             "--allowedTools", "Bash(git *),Write"]   # allowlist BAKED into the profile (R3b); comma-joined ONE arg (POC)
+      prompt: stdin
+    resume:
+      argv: ["claude", "--resume", "{session_ref}", "-p", "--model", "sonnet",
+             "--output-format", "stream-json", "--verbose",
+             "--allowedTools", "Bash(git *),Write"]
+      prompt: stdin
+    session_ref: { source: stdout-json, field: session_id }
+    workdir_root: /srv/rbtv/work
+    caps: { memory_max: "4G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
+
+  codex-git-write:
+    # ERRATUM (notes, top): codex POLICY-blocks .git writes under workspace-write regardless of
+    # config -- a git-writing codex profile runs danger-full-access, so codex's own sandbox is OFF
+    # and containment comes from the unit's sandbox block below instead.
+    exec:
+      argv: ["codex", "exec", "--cd", "{workdir}",
+             "--sandbox", "danger-full-access", "-c", "approval_policy=never", "--json"]
+      prompt: stdin        # codex hangs without stdin EOF from a non-TTY; the server closes stdin after writing
+    resume:
+      # Sandbox policy MUST be re-pinned on every turn -- resume without these flags would fall
+      # back to codex's default sandbox and re-hit the erratum's policy-blocked .git writes.
+      # (POC verified the bare resume shape only; flag acceptance on `exec resume` re-verified at 2.2.)
+      argv: ["codex", "exec", "resume", "{session_ref}",
+             "--sandbox", "danger-full-access", "-c", "approval_policy=never", "--json"]
+      prompt: stdin
+    session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
+    workdir_root: /srv/rbtv/work
+    caps: { memory_max: "4G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
+    sandbox:
+      ProtectSystem: strict
+      ReadWritePaths: ["{workdir}"]
+      PrivateTmp: true
+      NoNewPrivileges: true
+
+  opencode-sakana:
+    # DEC-2: OpenCode is the orchestration core's harness. It has NO sandbox of its own
+    # (POC Finding 3: it touched the live vault unprompted) -- the profile confines it.
+    exec:
+      argv: ["opencode", "run", "-m", "sakana/fugu-ultra"]
+      prompt: stdin        # carriage to re-verify at 2.2; fallback per this spec: argv-last, marked
+    resume:
+      argv: ["opencode", "run", "-c", "-m", "sakana/fugu-ultra"]   # -c = continue this cwd's session
+      prompt: stdin
+    session_ref: { source: cwd-implicit }    # opencode resumes per-cwd; the session's workdir IS the ref
+    headed:
+      tui: { argv: ["opencode"] }            # headed-CAPABLE seam; the pty path is Batch 6's design
+    workdir_root: /srv/rbtv/work
+    caps: { memory_max: "4G", cpu_quota: "150%", runtime_max: "8h", tasks_max: 512 }
+    sandbox:
+      ProtectSystem: strict
+      ReadWritePaths: ["{workdir}"]
+      PrivateTmp: true
+      NoNewPrivileges: true

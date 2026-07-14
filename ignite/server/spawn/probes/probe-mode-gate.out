@@ -1,0 +1,11 @@
+probe: probe-mode-gate
+started: 2026-07-14T23:22:33.089Z
+command: node probes/probe-mode-gate.js
+headed on non-headed profile: E_HEADED_NOT_CAPABLE
+unknown mode: E_UNKNOWN_MODE
+headed on headed-capable profile: spawned, status=running
+result: invalid modes rejected; headed profile spawns successfully
+status: PASS
+exit: 0
+wall_ms: 311
+ended: 2026-07-14T23:22:33.399Z

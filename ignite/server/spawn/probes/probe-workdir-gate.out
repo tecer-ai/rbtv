@@ -1,0 +1,12 @@
+probe: probe-workdir-gate
+started: 2026-07-14T23:22:34.474Z
+command: node probes/probe-workdir-gate.js
+workdir outside workdir_root: E_WORKDIR_ESCAPE
+symlink escape: E_WORKDIR_ESCAPE
+workdir omitted: status=running, workdir=/tmp/p2-2-probe-hAQfEf/default
+workdir equals default_workdir_root: true
+result: escapes rejected; omitted workdir defaults to configured root
+status: PASS
+exit: 0
+wall_ms: 326
+ended: 2026-07-14T23:22:34.800Z
