@@ -6,7 +6,7 @@
 Node.js 24 — runtime for the daemon, gateway, and CLI — already provisioned on the box; fresh install: apt (NodeSource) or nvm (`nvm install 24`)
 npm — package manager for all Node dependencies — ships with Node.js (no separate install)
 systemd + systemd-run — daemon unit + transient-unit spawn carrier (per-profile caps, cgroup tree-kill) — OS-provided on Ubuntu (no install)
-SQLite (Node driver) — heart-store database engine, accessed via a Node driver — TBD at task 2.1 (concrete npm package chosen there; `npm install <driver>`)
+node:sqlite (built-in) — heart-store database engine (DatabaseSync — synchronous, WAL-capable) — resolved at task 2.1: Node 24 built-in module, ZERO external dependencies, no npm install (NEED-3 small-surface budget)
 YAML parser (js-yaml or equivalent) — server-config file parsing — TBD at task 2.2 (exact package chosen there; `npm install <package>`)
 tailscaled — zero-ingress network posture: tailnet bind + Tailscale Serve (Batch 5) — `apt install tailscale` (per tailscale.com/install)
 ttyd — web-terminal viewer for headed sessions (Batch 6) — `apt install ttyd` (or build from source if the apt version lags)

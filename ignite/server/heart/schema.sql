@@ -62,7 +62,6 @@ CREATE TABLE IF NOT EXISTS jobs_log (
   session_id   TEXT,
   pid          INTEGER,
   exit_code    INTEGER,
-  thread       TEXT NOT NULL,
   completion_msg_id INTEGER REFERENCES messages(msg_id),
   log_path     TEXT,
   ended_at     TEXT

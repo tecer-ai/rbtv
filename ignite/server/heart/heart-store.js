@@ -107,14 +107,15 @@ function validateArgs(args, schemaJson, actionType) {
       throw new HeartStoreError(E_BAD_ARGS, 'start-workflow requires a non-empty workflow argument', { field: 'workflow' });
     }
   } else if (actionType === 'send-message') {
+    // Dry-run contract: send-message reference check yields E_BAD_MESSAGE (not E_BAD_ARGS).
     if (typeof parsed.type !== 'string' || !MESSAGE_TYPES.has(parsed.type)) {
-      throw new HeartStoreError(E_BAD_ARGS, 'send-message requires a valid CMP-8 type', { field: 'type' });
+      throw new HeartStoreError(E_BAD_MESSAGE, 'send-message requires a valid CMP-8 type', { field: 'type' });
     }
     if (typeof parsed.thread !== 'string' || parsed.thread.length === 0) {
-      throw new HeartStoreError(E_BAD_ARGS, 'send-message requires a non-empty thread', { field: 'thread' });
+      throw new HeartStoreError(E_BAD_MESSAGE, 'send-message requires a non-empty thread', { field: 'thread' });
     }
     if (typeof parsed.corpus !== 'string') {
-      throw new HeartStoreError(E_BAD_ARGS, 'send-message requires a corpus string', { field: 'corpus' });
+      throw new HeartStoreError(E_BAD_MESSAGE, 'send-message requires a corpus string', { field: 'corpus' });
     }
   }
 }
@@ -195,7 +196,11 @@ function parseCron(expr) {
   const month = parseCronField(parts[3], 1, 12);
   let dayOfWeek = parseCronField(parts[4], 0, 7).map(v => v === 7 ? 0 : v);
   dayOfWeek = Array.from(new Set(dayOfWeek)).sort((a, b) => a - b);
-  return { minute, hour, dayOfMonth, month, dayOfWeek };
+  // Vixie day-field semantics: dom and dow are ORed only when BOTH are restricted
+  // (neither is '*'); if either is '*' they are ANDed (the '*' field always matches).
+  const domRestricted = parts[2] !== '*';
+  const dowRestricted = parts[4] !== '*';
+  return { minute, hour, dayOfMonth, month, dayOfWeek, domRestricted, dowRestricted };
 }
 
 function nextCronUtc(after, expr) {
@@ -217,7 +222,10 @@ function nextCronUtc(after, expr) {
     }
     const domMatch = cron.dayOfMonth.includes(dom);
     const dowMatch = cron.dayOfWeek.includes(dow);
-    if (!(domMatch || dowMatch)) {
+    const dayMatch = (cron.domRestricted && cron.dowRestricted)
+      ? (domMatch || dowMatch)
+      : (domMatch && dowMatch);
+    if (!dayMatch) {
       cursor.setUTCMinutes(cursor.getUTCMinutes() + 1);
       continue;
     }
@@ -397,20 +405,18 @@ class HeartStore {
         return null;
       }
 
-      let thread = 'pending';
       if (parentExecId !== null) {
-        const parent = this._prepare('SELECT thread FROM jobs_log WHERE exec_id = ?').get(parentExecId);
+        const parent = this._prepare('SELECT exec_id FROM jobs_log WHERE exec_id = ?').get(parentExecId);
         if (!parent) {
           this.db.exec('ROLLBACK;');
           throw new HeartStoreError(E_BAD_ARGS, `parent_exec_id does not exist: ${parentExecId}`, { field: 'parentExecId' });
         }
-        thread = parent.thread;
       }
 
       const insertLog = this._prepare(`
         INSERT INTO jobs_log
-          (parent_exec_id, queue_id, job_id, action_type, args, enqueued_by, session_mode, fired_tick, fired_at, status, thread)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'launching', ?)
+          (parent_exec_id, queue_id, job_id, action_type, args, enqueued_by, session_mode, fired_tick, fired_at, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'launching')
       `);
       const logResult = insertLog.run(
         parentExecId,
@@ -421,15 +427,9 @@ class HeartStore {
         queue.enqueued_by,
         queue.session_mode,
         tick,
-        firedAt,
-        thread
+        firedAt
       );
       const execId = Number(logResult.lastInsertRowid);
-
-      if (parentExecId === null) {
-        thread = `exec-${execId}`;
-        this._prepare('UPDATE jobs_log SET thread = ? WHERE exec_id = ?').run(thread, execId);
-      }
 
       if (queue.trigger_kind === 'scheduled' && (queue.repeat_rule === null || queue.repeat_rule === undefined)) {
         this._prepare('DELETE FROM queue WHERE queue_id = ?').run(queueId);
@@ -461,25 +461,21 @@ class HeartStore {
     }
   }
 
-  recordExecutionStart({ queueId = null, jobId, actionType, args, enqueuedBy, sessionMode = 'headless', firedTick, firedAt, parentExecId = null, thread = null, sessionId = null, pid = null }) {
+  recordExecutionStart({ queueId = null, jobId, actionType, args, enqueuedBy, sessionMode = 'headless', firedTick, firedAt, parentExecId = null, sessionId = null, pid = null }) {
     const firedAtIso = toIsoUtc(firedAt);
     this.db.exec('BEGIN EXCLUSIVE;');
     try {
-      let useThread = thread;
-      if (useThread === null || useThread === undefined) {
-        if (parentExecId !== null) {
-          const parent = this._prepare('SELECT thread FROM jobs_log WHERE exec_id = ?').get(parentExecId);
-          if (!parent) {
-            this.db.exec('ROLLBACK;');
-            throw new HeartStoreError(E_BAD_ARGS, `parent_exec_id does not exist: ${parentExecId}`, { field: 'parentExecId' });
-          }
-          useThread = parent.thread;
+      if (parentExecId !== null) {
+        const parent = this._prepare('SELECT exec_id FROM jobs_log WHERE exec_id = ?').get(parentExecId);
+        if (!parent) {
+          this.db.exec('ROLLBACK;');
+          throw new HeartStoreError(E_BAD_ARGS, `parent_exec_id does not exist: ${parentExecId}`, { field: 'parentExecId' });
         }
       }
       const stmt = this._prepare(`
         INSERT INTO jobs_log
-          (parent_exec_id, queue_id, job_id, action_type, args, enqueued_by, session_mode, fired_tick, fired_at, status, thread, session_id, pid)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'launching', ?, ?, ?)
+          (parent_exec_id, queue_id, job_id, action_type, args, enqueued_by, session_mode, fired_tick, fired_at, status, session_id, pid)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'launching', ?, ?)
       `);
       const result = stmt.run(
         parentExecId,
@@ -491,15 +487,10 @@ class HeartStore {
         sessionMode,
         firedTick,
         firedAtIso,
-        useThread || 'pending',
         sessionId,
         pid
       );
       const execId = Number(result.lastInsertRowid);
-      if (useThread === null || useThread === undefined) {
-        const chainThread = `exec-${execId}`;
-        this._prepare('UPDATE jobs_log SET thread = ? WHERE exec_id = ?').run(chainThread, execId);
-      }
       this.db.exec('COMMIT;');
       return this.getExecution(execId);
     } catch (err) {
@@ -508,14 +499,36 @@ class HeartStore {
     }
   }
 
+  // Chain-stable thread, DERIVED not stored (ratified DDL carries `thread` on messages
+  // only; jobs_log tracks the turn chain via parent_exec_id). The thread is
+  // `exec-<exec_id of the chain's FIRST execution>` — the root reached by walking
+  // parent_exec_id up to NULL. Carried unchanged across seat-slot recycles.
+  _chainThread(execId) {
+    const root = this._prepare(`
+      WITH RECURSIVE chain(exec_id, parent_exec_id) AS (
+        SELECT exec_id, parent_exec_id FROM jobs_log WHERE exec_id = ?
+        UNION ALL
+        SELECT j.exec_id, j.parent_exec_id
+          FROM jobs_log j JOIN chain c ON j.exec_id = c.parent_exec_id
+      )
+      SELECT exec_id FROM chain WHERE parent_exec_id IS NULL LIMIT 1
+    `).get(execId);
+    return root ? `exec-${root.exec_id}` : null;
+  }
+
+  _attachThread(row) {
+    if (row) row.thread = this._chainThread(row.exec_id);
+    return row;
+  }
+
   getExecution(execId) {
     const stmt = this._prepare('SELECT * FROM jobs_log WHERE exec_id = ?');
-    return stmt.get(execId) || null;
+    return this._attachThread(stmt.get(execId) || null);
   }
 
   listExecutionsByStatus(status) {
     const stmt = this._prepare('SELECT * FROM jobs_log WHERE status = ? ORDER BY exec_id');
-    return stmt.all(status);
+    return stmt.all(status).map((r) => this._attachThread(r));
   }
 
   updateExecutionStatus(execId, { status, sessionId = null, pid = null, exitCode = null, completionMsgId = null, logPath = null, endedAt = null }) {
@@ -612,7 +625,7 @@ class HeartStore {
     return {
       jobs: this._prepare('SELECT * FROM jobs ORDER BY job_id').all(),
       queue: this._prepare('SELECT * FROM queue ORDER BY queue_id').all(),
-      jobs_log: this._prepare('SELECT * FROM jobs_log ORDER BY exec_id').all(),
+      jobs_log: this._prepare('SELECT * FROM jobs_log ORDER BY exec_id').all().map((r) => this._attachThread(r)),
       messages: this._prepare('SELECT * FROM messages ORDER BY msg_id').all(),
       ticks: this._prepare('SELECT * FROM ticks ORDER BY tick').all(),
     };
