@@ -24,6 +24,20 @@ When carrying a file INTO this repo from an archive or an instance:
 
 Precedent: `studio/deck-loop-spec.md` (carried + generalized 2026-06-13).
 
+## ignite/ — Runnable Service Code (convention)
+
+`ignite/` holds the source of the **ignite daemon** — runnable Node.js service code (server core, gateway, client CLI). It is the ONE sanctioned exception to this repo's markdown-only component inventory; runnable service code lives NOWHERE else in the repo.
+
+Rules for `ignite/`:
+
+1. **Not installed, deployed.** `install.py` never installs `ignite/` into a workspace's `.claude/` — it is deployed to a runtime host and run as a long-lived service (systemd). The install model above does not apply to it.
+2. **The General rule applies in full.** No hardcoded workspace, vault, or host paths in the code; every per-instance input (workspace root, config, credentials) is resolved at runtime from the target workspace's `.rbtv/` runtime root or explicit configuration — never baked in.
+3. **No runtime state in the repo.** The daemon's state (queues, job logs, per-workspace data) lives in the `.rbtv/` runtime root at the workspace it serves, never under `ignite/`.
+4. **Self-contained subtree.** `ignite/` must stay relocatable as a plain folder/subtree move — no reach-outs into sibling module folders at import/require level. It consumes other rbtv capabilities via runtime interfaces, not source imports.
+5. **Docs in sync.** When ignite components materialize or change, the Keep-Docs-in-Sync rule above applies (README, `modules/`, and — where applicable — the install manifest).
+
+Development note: `ignite/` is developed on the `ignite/core-daemon` branch; it is absent from `master` until the repo-infrastructure ruling merges it.
+
 ## Module Files
 
 `modules/` defines the installable bundles. Each module lists which skills, commands, rules, subagents, personas, workflows, and tasks ship with it. When a component's module membership changes, update both the old and new module files.
