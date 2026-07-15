@@ -1,10 +1,13 @@
-{"ts":"2026-07-15T13:39:07Z","level":"info","message":"ignite daemon starting","igniteSrc":"/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite","workspaceRoot":"/tmp/rbtv-ignite-smoke-AQw6H3","pid":364077,"smokeTest":true}
-{"ts":"2026-07-15T13:39:07Z","level":"info","message":"install state ready","moduleDir":"/tmp/rbtv-ignite-smoke-AQw6H3/.rbtv/modules/ignite","installed":false}
-{"ts":"2026-07-15T13:39:07Z","level":"info","message":"loading config","configPath":"/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml"}
-{"ts":"2026-07-15T13:39:08Z","level":"info","message":"runtime config overrides materialized","effectiveConfigPath":"/tmp/rbtv-ignite-smoke-AQw6H3/data/.runtime-config/spawn-profiles.yaml"}
-{"ts":"2026-07-15T13:39:08Z","level":"info","message":"daemon composed","heartStoreOpen":true}
-{"ts":"2026-07-15T13:39:08Z","level":"info","message":"tick 1 start","tick":1}
-{"ts":"2026-07-15T13:39:08Z","level":"info","message":"tick 1 end","tick":1,"actionCount":3}
-{"ts":"2026-07-15T13:39:08Z","level":"info","message":"initial tick complete","tick":1,"actionCount":3}
-{"ts":"2026-07-15T13:39:08Z","level":"info","message":"smoke test complete, stopping cleanly"}
-{"ts":"2026-07-15T13:39:08Z","level":"info","message":"daemon stopped"}
+{"ts":"2026-07-15T14:00:05Z","level":"info","message":"ignite daemon starting","igniteSrc":"/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite","workspaceRoot":"/tmp/rbtv-r4-SOgH","pid":373290,"smokeTest":true}
+{"ts":"2026-07-15T14:00:05Z","level":"info","message":"install state ready","moduleDir":"/tmp/rbtv-r4-SOgH/.rbtv/modules/ignite","installed":false}
+{"ts":"2026-07-15T14:00:05Z","level":"info","message":"loading config","configPath":"/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml"}
+{"ts":"2026-07-15T14:00:05Z","level":"info","message":"runtime config overrides materialized","effectiveConfigPath":"/tmp/rbtv-r4-SOgH/data/.runtime-config/spawn-profiles.yaml","daemonOnlyKeys":[]}
+{"ts":"2026-07-15T14:00:05Z","level":"info","message":"spawn carriage","configuredCarrier":"auto","userManager":true}
+{"ts":"2026-07-15T14:00:05Z","level":"warn","message":"carrier is auto: if the selected systemd manager is unreachable, workers fall back to setsid, which applies NO profile caps and NO sandbox","userManager":true}
+{"ts":"2026-07-15T14:00:05Z","level":"info","message":"daemon composed","heartStoreOpen":true}
+{"ts":"2026-07-15T14:00:05Z","level":"info","message":"tick 1 start","tick":1}
+{"ts":"2026-07-15T14:00:05Z","level":"info","message":"tick 1 end","tick":1,"actionCount":3}
+{"ts":"2026-07-15T14:00:05Z","level":"info","message":"initial tick complete","tick":1,"actionCount":3}
+{"ts":"2026-07-15T14:00:05Z","level":"info","message":"smoke test: initial tick done, exercising real shutdown path"}
+{"ts":"2026-07-15T14:00:05Z","level":"info","message":"received SIGTERM, shutting down"}
+{"ts":"2026-07-15T14:00:05Z","level":"info","message":"daemon stopped"}

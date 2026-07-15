@@ -1,3 +1,4 @@
-/tmp/rbtv-ignite-substituted.service:30: Special user nobody configured, this is not safe!
-/usr/lib/systemd/system/xfs_scrub_all.service:26: Support for option CPUAccounting= has been removed and it is ignored
-/usr/lib/systemd/system/system-xfs_scrub.slice:15: Support for option CPUAccounting= has been removed and it is ignored
+# systemd-analyze verify — p3-2 unit template (substituted copy in /tmp; NEVER installed)
+# substitutions used: USER=nobody WORKSPACE_ROOT=/srv/rbtv/workspace WORKDIR_ROOT=/srv/rbtv/work
+# the 'nobody' notice is an artifact of that placeholder user, not of the template
+/tmp/rbtv-ignite-substituted.service:44: Special user nobody configured, this is not safe!

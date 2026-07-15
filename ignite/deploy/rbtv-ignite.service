@@ -8,7 +8,21 @@
 #   @@WORKSPACE_ROOT@@    - workspace root: the folder that roots .rbtv/
 #   @@NODE_BIN@@          - absolute path to the Node.js 24 binary
 #   @@IGNITE_SRC@@        - absolute path to the ignite module source root
+#   @@WORKDIR_ROOT@@      - default workdir root every spawn falls back to (REQUIRED, D22:
+#                           the seed config ships only a placeholder for this, so the daemon
+#                           refuses to boot until a real per-instance value is supplied)
 #   @@ENVIRONMENT_FILE@@  - optional EnvironmentFile path (use /dev/null to disable)
+#
+# Per-instance values reach the daemon through this unit and/or the EnvironmentFile —
+# NEVER by editing config/spawn-profiles.yaml in the repo, which would write an instance
+# path into the code tree (D26(3)).  EnvironmentFile= settings override Environment=
+# (systemd.exec), so the file is the operator's override surface; RBTV_IGNITE_DATA_ROOT
+# and RBTV_IGNITE_CARRIER are set there when the seed defaults do not fit.
+#
+# StateDirectory= provisions /var/lib/rbtv-ignite (the seed config's spawn.data_root)
+# owned by @@USER@@ before ExecStart.  Without it the unprivileged daemon cannot create
+# its data root and the unit dies at boot on EACCES.  An operator who moves data_root off
+# the default via the EnvironmentFile owns creating that path.
 #
 # Example install location for a system manager:
 #   /etc/systemd/system/rbtv-ignite.service
@@ -33,6 +47,8 @@ EnvironmentFile=-@@ENVIRONMENT_FILE@@
 Environment="RBTV_IGNITE_SRC=@@IGNITE_SRC@@"
 Environment="RBTV_IGNITE_WORKSPACE_ROOT=@@WORKSPACE_ROOT@@"
 Environment="RBTV_IGNITE_CONFIG_PATH=@@IGNITE_SRC@@/config/spawn-profiles.yaml"
+Environment="RBTV_IGNITE_WORKDIR_ROOT=@@WORKDIR_ROOT@@"
+StateDirectory=rbtv-ignite
 ExecStart=@@NODE_BIN@@ @@IGNITE_SRC@@/server/index.js
 Restart=on-failure
 RestartSec=5
