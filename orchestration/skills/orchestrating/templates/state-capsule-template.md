@@ -15,6 +15,8 @@ Instantiate this as `state-capsule.md` in the run's spine location at spine init
 
 > **Regenerate, don't edit:** at each boundary write (batch close, reviewer close, pre-refresh) re-instantiate this file from the template skeleton carrying ONLY live values — never edit the prior capsule in place. Per-row test: "does the NEXT dispatch need this row?" (history → `run-log.md`, rulings → `decisions.md`; carry pointers, not narratives). State each volatile fact — next dispatch, next hard halt, each worker's quota — EXACTLY ONCE.
 
+> **Every claim here is computed, not recalled:** each factual claim written below — the resume point, a status, a count, a "complete" — is COMPUTED from a command AT THE MOMENT OF WRITING, never recalled from having done the thing. `rbtv-deterministic-first`'s Compute gate binds this write; follow it, do not restate it. The agent reading this cannot see what you did — an unverified claim here instructs it to act on a state that does not exist.
+
 ---
 
 ## Resume Point
@@ -75,4 +77,4 @@ Instantiate this as `state-capsule.md` in the run's spine location at spine init
 
 ## Render note
 
-This template is instantiated mechanically at spine init — copy the fenced block, substitute `{run-name}` and the timestamp, write it to the spine location, and initialize the Resume Point: **Last completed** = "intake complete", **Next dispatch** = the first task/batch routing will assign, **Last update** = the init timestamp. The leading callouts (mutable-overwrite + audience) are part of the file and MUST survive instantiation — they keep the mutability boundary and the not-a-worker-surface rule visible at the point of use.
+This template is instantiated mechanically at spine init — copy the fenced block, substitute `{run-name}` and the timestamp, write it to the spine location, and initialize the Resume Point: **Last completed** = "intake complete", **Next dispatch** = the first task/batch routing will assign, **Last update** = the init timestamp. The leading callouts (mutable-overwrite + audience + computed-claims) are part of the file and MUST survive instantiation — they keep the mutability boundary, the not-a-worker-surface rule, and the compute-every-claim obligation visible at the point of use.
