@@ -76,3 +76,40 @@ profiles:
       ReadWritePaths: ["{workdir}"]
       PrivateTmp: true
       NoNewPrivileges: true
+
+  test-sleep:
+    # INERT TEST PROFILE (D52) -- the ONLY non-production profile here. It exists so the
+    # spawn/ticker path can be exercised end-to-end WITHOUT a paid, side-effecting LLM
+    # worker on the box that holds the vault. NO LLM. NO network. No side effects outside
+    # its own workdir. Named for the in-process probe fixture it mirrors
+    # (server/ticker/probes/lib.js) so probe/live parity is obvious -- D23: reuse the term,
+    # never mint an alias.
+    #
+    # DURATION (60s) is load-bearing, not arbitrary. A `sleep` writes no stdout and reports
+    # no completion, so the ticker's Enforce phase is the ONLY thing that records its exit:
+    # the crash sweep sees the unit go inactive and writes a synthetic `completion`
+    # (status: failed, exit=0 -- D23's "crash-swept agent", D18(4) uniform exit path) plus
+    # jobs_log.status=failed. But the crash sweep only scans running/launching rows, and
+    # silence drives the stall ladder: warn at 12 ticks, halt at 24 (10s cadence). A row
+    # marked `stalled` LEAVES the swept set, so its exit would never be recorded at all.
+    # 60s exits at ~tick 7 -- swept well inside the 12-tick warn rung, while still leaving
+    # a comfortable window to observe the worker alive across a terminal close (CON-1).
+    exec:
+      argv: ["sleep", "60"]
+      prompt: stdin        # sleep ignores stdin; the server still writes the prompt and closes it (EOF guard)
+    resume:
+      argv: ["sleep", "60"]
+      prompt: stdin
+    session_ref: { source: cwd-implicit }   # sleep has no session concept; the workdir IS the ref
+    workdir_root: /srv/rbtv/work
+    caps: { memory_max: "64M", cpu_quota: "10%", runtime_max: "5m", tasks_max: 16 }
+    # Carries a sandbox despite the trivial argv. `claude-sonnet-tools` omits one because its
+    # containment IS the --allowedTools allowlist baked into its argv (R3b); sleep has no such
+    # internal confinement, so "no side effects outside its own workdir" above would rest on
+    # trusting the argv alone. This makes it kernel-enforced instead -- and costs nothing,
+    # because sleep needs nothing ProtectSystem=strict takes away.
+    sandbox:
+      ProtectSystem: strict
+      ReadWritePaths: ["{workdir}"]
+      PrivateTmp: true
+      NoNewPrivileges: true
