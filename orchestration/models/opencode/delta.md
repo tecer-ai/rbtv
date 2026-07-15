@@ -24,15 +24,15 @@ The render script (`../render-manuals.py`) composes the generic wrapper (`{rbtv_
 <!-- RENDER:DELTA-END model-transport-note -->
 
 <!-- RENDER:DELTA invocation -->
-The opencode CLI dispatch manual — exact command shapes, flags, provider config, confinement, exit handling, resume, and the opencode task contract. Verified against **opencode 1.17.11** (`opencode --version`) on this machine, 2026-07-09. Re-verify with `opencode run --help` before relying on any flag — the CLI evolves fast; `--help` is ground truth for the installed build (the POC's "no --json" note was already stale by authoring time: 1.17.11 has `--format json`).
+The opencode CLI dispatch manual — exact command shapes, flags, provider config, confinement, exit handling, resume, and the opencode task contract. Flags below were verified against **opencode 1.17.11** on 2026-07-09; the ignite VPS now runs **1.17.18** (`opencode --version`, 2026-07-15) — the flags have not been re-verified against that build. Re-verify with `opencode run --help` before relying on any flag — the CLI evolves fast; `--help` is ground truth for the installed build (the POC's "no --json" note was already stale by authoring time: 1.17.11 has `--format json`).
 
 ### Pre-flight (before any dispatch)
 
 | Check | Command | Gate |
 |-------|---------|------|
-| CLI present + version | `opencode --version` (this machine: `1.17.11`) | Absent/older → re-verify flags against `opencode run --help`. |
+| CLI present + version | `opencode --version` (ignite VPS, 2026-07-15: `1.17.18`; flags in this manual were verified against `1.17.11`) | Absent/different → re-verify flags against `opencode run --help`. |
 | **Pinned-flag existence** (routing §4 gate) | `opencode run --help` grepped for every non-trivial flag this dispatch pins (`--dir`, `-m`, `--format`, `-s`/`--session`, `-c`/`--continue`, `--title`) | Runs EVERY dispatch. Any pinned flag absent → STOP, do not dispatch; re-resolve at THIS delta, re-render (`../render-manuals.py`), re-run the gate — NEVER hand-edit the rendered manual or pass an ad-hoc flag. |
-| API key resolves + exported | Resolve the variant's key per rbtv availability semantics (OS env → `rbtv.json` `env_file`): z1 → `ZHIPU_API_KEY`, sakana → `SAKANA_API_KEY`, deepseek-flash/pro → `DEEPSEEK_API_KEY`; then EXPORT it into the dispatch process env | Key absent in both → variant unavailable; route elsewhere or halt (api-key semantics — never a USER-EXECUTED login). opencode reads ONLY the process env. |
+| Credential resolves (EITHER path) | **Path A — env var (the piloted one):** resolve the variant's key per rbtv availability semantics (OS env → `rbtv.json` `env_file`): z1 → `ZHIPU_API_KEY`, sakana → `SAKANA_API_KEY`, deepseek-flash/pro → `DEEPSEEK_API_KEY`; then EXPORT it into the dispatch process env. **Path B — stored opencode login (z1 only):** `opencode auth list` shows a `Z.AI Coding Plan` credential → z1 dispatches with NO env var exported; nothing to export. | EITHER path is sufficient for z1 (owner ruling 2026-07-15; `route.py` gates on env-var **OR** the stored credential — manifest `auth.credential_store`). Both absent → variant unavailable; route elsewhere or halt (api-key semantics — never a USER-EXECUTED login at dispatch time). For a key supplied via Path A, opencode reads ONLY the process env — exporting it is mandatory on that path. sakana/deepseek-flash/pro declare no credential store: Path A only. |
 | Provider config | z1 + deepseek backends: none needed (the `zai-coding-plan` and `deepseek` providers are models.dev-built-in — key-only). sakana: the custom provider block MUST exist in the machine-global `~/.config/opencode/opencode.jsonc` (template below) | `opencode models` lists the variant's `-m` id (`zai-coding-plan/glm-5.2` / `sakana/fugu-ultra` / `deepseek/deepseek-v4-flash` / `deepseek/deepseek-v4-pro`)? Absent → fix the provider config / key FIRST (a wrong `-m` id fails the dispatch). z1 uses the coding-plan endpoint — pay-per-token `zai/glm-5.2` 429s without an account balance. |
 | Worktree exists | `git worktree add <path> -b <branch>` (or reuse the task's assigned worktree) | Worktree-mandatory — NEVER `--dir` a live repo root. One worktree per dispatch (sessions are per-cwd). |
 | Guidance file in the WORKTREE | worktree root has `AGENTS.md`? | It will NOT by default (the vault gitignores mirror-generated guidance and a fresh worktree checks out only tracked files) → generate it: `python {rbtv_path}/orchestration/models/mirror/mirror.py --config {rbtv_path}/orchestration/models/opencode/mirror-config.yaml --target "<worktree>"` (the worktree carries the tracked `CLAUDE.md` source), or inline the load-bearing rules in the prompt. |
@@ -62,6 +62,8 @@ The opencode CLI dispatch manual — exact command shapes, flags, provider confi
 **Shape A — prompt as CLI argument (small prompts; PowerShell-fenced, apply the matching guard):**
 
 ```powershell
+# Path A (env var). On Path B — a stored `opencode auth login` → "Z.AI Coding Plan"
+# credential — SKIP this line entirely: opencode reads the credential from its own store.
 $env:ZHIPU_API_KEY = "<resolved from env_file — never inline in artifacts>"
 $null | opencode run --dir "<worktree>" -m zai-coding-plan/glm-5.2 --title "<task-id>" "<task_prompt>" `
   > "<worktree>/.opencode-runs/<task-id>.txt"
@@ -87,7 +89,7 @@ Route on `(opencode, variant)`; `-m <provider>/<model>` selects the backend per 
 
 | Variant | `-m` id | reasoning · coding · cost · evidence | Key env var | When |
 |---------|---------|--------------------------------------|-------------|------|
-| `z1` | `zai-coding-plan/glm-5.2` | 5 · 4 · 3 · validated (piloted 2026-07-09) | `ZHIPU_API_KEY` (provisioned; a GLM Coding Plan key → the `zai-coding-plan` endpoint. Pay-per-token `zai/glm-5.2` 429s "insufficient balance") | Open-weights/provider-diversity code executor at mid cost; 1M context. |
+| `z1` | `zai-coding-plan/glm-5.2` | 5 · 4 · 3 · validated (piloted 2026-07-09) | `ZHIPU_API_KEY` (a GLM Coding Plan key → the `zai-coding-plan` endpoint. Pay-per-token `zai/glm-5.2` 429s "insufficient balance") **OR** a stored `opencode auth login` → "Z.AI Coding Plan" credential (either satisfies availability — ruling 2026-07-15; the ignite VPS runs on the stored credential alone, no env var) | Open-weights/provider-diversity code executor at mid cost; 1M context. |
 | `sakana` | `sakana/fugu-ultra` | 6 · 6 · 7 · probe-pending (vendor-reported grades, confidence low) | `SAKANA_API_KEY` (provisioned) | Model-diversity premium option; cost 7 ranks LAST — reached via pinned roles, never auto-picked. |
 | `deepseek-flash` | `deepseek/deepseek-v4-flash` | 4 · 3 · 1 · probe-pending (deepseek-api twin grades) | `DEEPSEEK_API_KEY` (provisioned) | The cost-floor bounded-code executor (ex-qwen role). CODE roles only (`routable_for`) — text stays on `deepseek-api`. |
 | `deepseek-pro` | `deepseek/deepseek-v4-pro` | 5 · 4 · 1 · probe-pending (deepseek-api twin grades) | `DEEPSEEK_API_KEY` (provisioned) | Heavier-reasoning cost-1 code executor. CODE roles only. |

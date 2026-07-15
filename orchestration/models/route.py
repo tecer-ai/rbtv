@@ -538,6 +538,70 @@ def _check_api_key_present(model_name: str, rbtv_cfg: dict, vault_root: Path, en
     return False
 
 
+def _opencode_auth_store_path() -> Path:
+    """Resolve opencode's credential-store path (XDG_DATA_HOME, else ~/.local/share).
+
+    opencode persists the credentials created by `opencode auth login` in a JSON file that
+    `opencode auth list` names in its OWN output header (observed on the ignite VPS,
+    opencode 1.17.18: "Credentials ~/.local/share/opencode/auth.json") — so this path is the
+    store the CLI itself reports, not an assumed location. XDG_DATA_HOME is honored first to
+    match opencode's own resolution; it also keeps the probe hermetically testable (a test
+    points XDG_DATA_HOME at a temp dir to control the store on any platform).
+    """
+    xdg = os.environ.get("XDG_DATA_HOME")
+    base = Path(xdg) if xdg else Path.home() / ".local" / "share"
+    return base / "opencode" / "auth.json"
+
+
+# Credential-store resolvers, keyed by the `auth.credential_store` id a variant may declare
+# (manifest-schema.md §2). A store id with no resolver here reads as "no stored credential"
+# (False) — an unknown id never crashes the router.
+CREDENTIAL_STORE_RESOLVERS = {
+    "opencode": _opencode_auth_store_path,
+}
+
+
+def _check_stored_credential(store_id: str | None, store_key: str | None) -> bool:
+    """Is `store_key` a stored login in CLI `store_id`'s credential store?
+
+    The SECOND resolution path for an `api-key` variant (owner ruling 2026-07-15): a harness
+    that keeps its own credential store authenticates a backend from that store with NO API-key
+    env var exported. Only a variant that DECLARES `auth.credential_store` reaches here, so
+    every other package's api-key gate is byte-identical to before.
+
+    Reads the store FILE directly instead of shelling out to the CLI's `auth list`: the file IS
+    what `auth list` reports (it prints that path as its header), so this reads the same
+    authority at the cost of a small stdlib JSON read rather than a process spawn plus an
+    ANSI/TUI output parse — the gate runs at routing time, per variant, and route.py spawns no
+    subprocesses.
+
+    Presence of the provider key in the store IS the credential: `opencode auth list` lists
+    exactly the store's top-level keys, and `opencode auth logout` removes the key. The payload
+    shape is deliberately NOT inspected (it differs across auth types — `api` carries `key`,
+    oauth carries tokens), so this stays honest about what was observed.
+
+    Unknown store id, blank key, absent/unreadable file, or malformed JSON → False (degrade,
+    never raise — manifest-schema.md §4: a manifest must NEVER crash route.py).
+    """
+    if not store_id or not store_key:
+        return False
+    resolver = CREDENTIAL_STORE_RESOLVERS.get(store_id)
+    if resolver is None:
+        return False
+    try:
+        path = resolver()
+        with open(path, encoding="utf-8") as f:
+            store = json.load(f)
+    except (OSError, RuntimeError, ValueError):
+        # OSError: absent/unreadable file. RuntimeError: home dir undeterminable.
+        # ValueError: malformed JSON (json.JSONDecodeError subclasses it).
+        return False
+    if not isinstance(store, dict):
+        return False
+    entry = store.get(store_key)
+    return isinstance(entry, dict) and bool(entry)
+
+
 def _get_auth_method(variant: dict) -> str:
     # Defense-in-depth: a manifest must NEVER crash route.py (manifest-schema.md §4 + spec
     # Edge Cases). The parser now coerces a map-key's inline value to a dict, but a malformed
@@ -569,11 +633,21 @@ def _is_variant_available(variant: dict, model_name: str, rbtv_cfg: dict, vault_
         return False
     auth_method = _get_auth_method(variant)
     if auth_method == "api-key":
+        auth = variant.get("auth") if isinstance(variant.get("auth"), dict) else {}
         # Optional manifest-declared key-name override (variant auth.env_var) for
         # multi-provider packages whose backend keys the package-id derivation cannot name.
-        auth = variant.get("auth")
-        env_var = auth.get("env_var") if isinstance(auth, dict) else None
-        return _check_api_key_present(model_name, rbtv_cfg, vault_root, env_var=env_var)
+        env_var = auth.get("env_var")
+        if _check_api_key_present(model_name, rbtv_cfg, vault_root, env_var=env_var):
+            return True
+        # EITHER path satisfies the gate (owner ruling 2026-07-15). A variant MAY declare that
+        # its credential ALSO resolves from a harness's stored CLI login (auth.credential_store
+        # + auth.credential_store_key), because such a harness authenticates that backend with
+        # NO env var exported — keying availability on the env var alone reports the backend
+        # unavailable while it demonstrably works. The env-var path above stays first and
+        # unchanged (it is the piloted one); this is a fallback, never a replacement.
+        # Variants that do NOT declare a credential_store are unaffected: `store_id` is None
+        # ⇒ _check_stored_credential returns False ⇒ behavior identical to before.
+        return _check_stored_credential(auth.get("credential_store"), auth.get("credential_store_key"))
     # cli-login and none are not key-tested by the script
     return True
 
@@ -582,6 +656,13 @@ def _unavailable_reason(variant: dict) -> str:
     """The explain-trace reason a variant was dropped at the availability stage."""
     if variant.get("available") is False:
         return "marked available: false in manifest"
+    auth = variant.get("auth") if isinstance(variant.get("auth"), dict) else {}
+    store_id = auth.get("credential_store")
+    if store_id:
+        return (
+            "api-key absent in both OS env and env_file, and no stored "
+            f"'{auth.get('credential_store_key')}' credential in the {store_id} auth store"
+        )
     return "api-key absent in both OS env and env_file"
 
 

@@ -203,6 +203,15 @@ class TestApiKeyAvailability:
         # env_file we control, so the availability flip is independent of the real vault's .env
         # — which now HOLDS ZHIPU_API_KEY (the owner provisioned it 2026-07-09; the earlier
         # "unprovisioned on the real corpus" premise is permanently false). OS env is isolated too.
+        #
+        # z1 now has a SECOND resolution path (manifest auth.credential_store, ruling
+        # 2026-07-15): a stored opencode "Z.AI Coding Plan" login satisfies availability with no
+        # env var. That is a third ambient input this env-var toggle must isolate, or the test
+        # asserts on the machine's real opencode store (the ignite VPS HAS that credential, so
+        # the key-absent leg would read available and fail there while passing on a box without
+        # it). XDG_DATA_HOME → tmp_path points route.py's store resolver at an empty temp dir on
+        # EVERY platform, so this stays a pure env-var toggle. The store path itself is covered
+        # by TestStoredCredentialAvailability.
         import route
         profile = _profile(
             boundedness="fully-bounded",
@@ -212,6 +221,8 @@ class TestApiKeyAvailability:
         env_file = tmp_path / ".env"
         cfg = {"env_file": ".env"}          # vault-relative → resolves under tmp_path, NOT the real .env
         saved = os.environ.pop("ZHIPU_API_KEY", None)
+        saved_xdg = os.environ.get("XDG_DATA_HOME")
+        os.environ["XDG_DATA_HOME"] = str(tmp_path)   # no opencode/auth.json here → no stored credential
         try:
             # WITH the key (in the temp env_file) → (opencode, z1) NOT dropped at availability.
             env_file.write_text("ZHIPU_API_KEY=test-fake-not-real\n", encoding="utf-8")
@@ -237,6 +248,100 @@ class TestApiKeyAvailability:
         finally:
             if saved is not None:
                 os.environ["ZHIPU_API_KEY"] = saved
+            if saved_xdg is not None:
+                os.environ["XDG_DATA_HOME"] = saved_xdg
+            else:
+                os.environ.pop("XDG_DATA_HOME", None)
+
+
+class TestStoredCredentialAvailability:
+    """Owner ruling 2026-07-15: an api-key variant declaring `auth.credential_store` is
+    AVAILABLE if EITHER the env var resolves OR the harness holds a stored credential.
+
+    Hermetic on every platform: XDG_DATA_HOME points route.py's opencode store resolver at a
+    temp dir, so these never read the machine's real ~/.local/share/opencode/auth.json.
+    """
+
+    Z1_AUTH = {
+        "method": "api-key",
+        "env_var": "ZHIPU_API_KEY",
+        "credential_store": "opencode",
+        "credential_store_key": "zai-coding-plan",
+    }
+
+    @staticmethod
+    def _write_store(tmp_path, payload):
+        store = tmp_path / "opencode"
+        store.mkdir(parents=True, exist_ok=True)
+        (store / "auth.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    @pytest.fixture
+    def isolated(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("ZHIPU_API_KEY", raising=False)
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+        return tmp_path
+
+    def test_stored_credential_alone_makes_variant_available(self, isolated):
+        """The ignite-VPS case: no env var, no env_file, but a stored 'Z.AI Coding Plan'."""
+        import route
+        self._write_store(isolated, {"zai-coding-plan": {"type": "api", "key": "fake-not-real"}})
+        assert route._is_variant_available({"auth": self.Z1_AUTH}, "opencode", {}, isolated)
+
+    def test_no_env_var_and_no_stored_credential_is_unavailable(self, isolated):
+        """Neither path resolves → still unavailable (the gate did not become a rubber stamp)."""
+        import route
+        self._write_store(isolated, {"deepseek": {"type": "api", "key": "fake"}})  # different provider
+        assert not route._is_variant_available({"auth": self.Z1_AUTH}, "opencode", {}, isolated)
+
+    def test_env_var_alone_still_makes_variant_available(self, isolated, monkeypatch):
+        """Upstream's piloted path is untouched: env var works with NO store on disk."""
+        import route
+        monkeypatch.setenv("ZHIPU_API_KEY", "fake-not-real")
+        assert route._is_variant_available({"auth": self.Z1_AUTH}, "opencode", {}, isolated)
+
+    def test_variant_without_credential_store_is_env_var_only(self, isolated):
+        """OPT-IN: a variant declaring no credential_store is gated on the env var exactly as
+        before, even when the store holds a same-named credential. Guards the blast radius —
+        deepseek/sakana/gemini/manus keep their pre-change behavior."""
+        import route
+        self._write_store(isolated, {"deepseek": {"type": "api", "key": "fake"}})
+        auth_no_store = {"method": "api-key", "env_var": "DEEPSEEK_API_KEY"}
+        assert not route._is_variant_available({"auth": auth_no_store}, "deepseek-api", {}, isolated)
+
+    def test_available_false_overrides_stored_credential(self, isolated):
+        """An explicit `available: false` still wins over a resolvable stored credential."""
+        import route
+        self._write_store(isolated, {"zai-coding-plan": {"type": "api", "key": "fake"}})
+        assert not route._is_variant_available(
+            {"auth": self.Z1_AUTH, "available": False}, "opencode", {}, isolated
+        )
+
+    @pytest.mark.parametrize("payload", ["{ not json", "[]", '{"zai-coding-plan": {}}'])
+    def test_malformed_or_empty_store_degrades_to_unavailable(self, isolated, payload):
+        """Malformed JSON, a non-map store, or an empty entry → False, never a crash
+        (manifest-schema.md §4: a manifest must NEVER crash route.py)."""
+        import route
+        store = isolated / "opencode"
+        store.mkdir(parents=True, exist_ok=True)
+        (store / "auth.json").write_text(payload, encoding="utf-8")
+        assert not route._is_variant_available({"auth": self.Z1_AUTH}, "opencode", {}, isolated)
+
+    def test_absent_store_file_degrades_to_unavailable(self, isolated):
+        """No store file at all (fresh machine) → False, never a crash."""
+        import route
+        assert not route._is_variant_available({"auth": self.Z1_AUTH}, "opencode", {}, isolated)
+
+    def test_unknown_store_id_degrades_to_unavailable(self, isolated):
+        """A store id with no resolver reads as 'no stored credential', never a crash."""
+        import route
+        auth = dict(self.Z1_AUTH, credential_store="not-a-real-harness")
+        assert not route._is_variant_available({"auth": auth}, "opencode", {}, isolated)
+
+    def test_unavailable_reason_names_the_store(self, isolated):
+        """The explain trace explains BOTH failed paths, so a false negative is diagnosable."""
+        import route
+        reason = route._unavailable_reason({"auth": self.Z1_AUTH})
+        assert "zai-coding-plan" in reason and "opencode" in reason
 
 
 # ---------------------------------------------------------------------------
