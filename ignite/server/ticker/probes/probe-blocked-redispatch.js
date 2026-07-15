@@ -199,10 +199,10 @@ async function run(lines) {
       }
 
       // Genuine owner input on the seat's address makes the blocked seat
-      // wake-eligible; with the recycle budget spent, the ticker writes its
-      // owner-facing budget-exhaustion note on EVERY tick. Pre-D39 that note landed
-      // on the seat's own address, which re-satisfied the watermark and produced the
-      // next note: one note per tick, forever. This is the exact regression.
+      // wake-eligible; with the recycle budget spent, the ticker logs the
+      // blocked-redispatch-budget-exhausted action but NO LONGER writes an owner-
+      // facing note here. D45's warning surface now carries this signal on a 6-tick
+      // cadence, and D50 retired the per-tick 'blocked re-dispatch halted' note.
       ctxC.store.recordMessage({
         type: 'answer',
         sender: 'owner',
@@ -226,17 +226,17 @@ async function run(lines) {
       if (seatNotes.length > 0) {
         throw new Error(`ticker note found on seat thread ${execC2.thread}: ${JSON.stringify(seatNotes)}`);
       }
-      // Also confirm the owner-facing note WAS written — to the owner feed, with its
-      // corpus intact. `owner-feed` aggregates every ticker note, so identify this one
-      // by corpus rather than by a count.
-      const ownerNotes = ctxC.store.dump().messages.filter(
-        (m) => m.type === 'note' && m.sender === 'ticker' && m.thread === 'owner-feed'
+
+      // D45 cadence baseline: the warning was already raised when execC2 became
+      // blocked on tick 4, so at least one owner-feed warning note exists before
+      // the quiet window.
+      const warningNotesBefore = ctxC.store.dump().messages.filter(
+        (m) => m.type === 'note' && m.sender === 'ticker' && m.thread === 'owner-feed' && m.corpus.includes('blocked and out of budget')
       );
-      const budgetNote = ownerNotes.find((m) => m.corpus.includes('blocked re-dispatch halted'));
-      if (!budgetNote) {
-        throw new Error(`expected the blocked-budget note on owner-feed; got: ${JSON.stringify(ownerNotes.map((m) => m.corpus))}`);
+      if (warningNotesBefore.length < 1) {
+        throw new Error(`expected at least 1 D45 warning note before quiet window, got ${warningNotesBefore.length}`);
       }
-      lines.push(`part-c owner note: ${budgetNote.corpus}`);
+      lines.push(`part-c D45 warning notes before window: ${warningNotesBefore.length}`);
 
       // Behavior proof: the blocked seat's address stays INERT across quiet ticks.
       // Pre-D39 the ticker appended one note per tick here; post-D39 the seat's
@@ -245,7 +245,8 @@ async function run(lines) {
       // the proof.
       const seatRowsBefore = ctxC.store.dump().messages.filter((m) => m.thread === execC2.thread);
       const postActions = [];
-      for (let i = 0; i < 3; i++) {
+      const QUIET_TICKS = 14;
+      for (let i = 0; i < QUIET_TICKS; i++) {
         const t = await ctxC.ticker.tick();
         lines.push(`part-c quiet-tick-${i + 1} actions: ${actionSummary(t.actions)}`);
         postActions.push(...t.actions);
@@ -261,6 +262,28 @@ async function run(lines) {
       if (seatNotesAfter.length > 0) {
         throw new Error(`ticker note on seat thread after quiet ticks: ${JSON.stringify(seatNotesAfter)}`);
       }
+
+      // Flood-retirement proof: the legacy per-tick note never appeared on the
+      // owner feed across the quiet window, while the D45 warning continued its
+      // 6-tick cadence.
+      const legacyNotesAfter = ctxC.store.dump().messages.filter(
+        (m) => m.type === 'note' && m.sender === 'ticker' && m.thread === 'owner-feed' && m.corpus.includes('blocked re-dispatch halted')
+      );
+      if (legacyNotesAfter.length > 0) {
+        throw new Error(`legacy blocked-budget note appeared during quiet window: ${JSON.stringify(legacyNotesAfter.map((m) => m.corpus))}`);
+      }
+      const warningNotesAfter = ctxC.store.dump().messages.filter(
+        (m) => m.type === 'note' && m.sender === 'ticker' && m.thread === 'owner-feed' && m.corpus.includes('blocked and out of budget')
+      );
+      const warningTicks = warningNotesAfter.map((m) => m.broadcast_at_tick);
+      lines.push(`part-c D45 warning ticks across window: ${JSON.stringify(warningTicks)}`);
+      if (warningNotesAfter.length !== 3) {
+        throw new Error(`expected 3 D45 warning notes (raise + 6 + 12) across ${QUIET_TICKS} quiet ticks, got ${warningNotesAfter.length}`);
+      }
+      if (warningTicks[0] !== tC4.tick || warningTicks[1] - warningTicks[0] !== 6 || warningTicks[2] - warningTicks[1] !== 6) {
+        throw new Error(`D45 warning cadence broken: ${JSON.stringify(warningTicks)} (raise tick ${tC4.tick})`);
+      }
+
       const woke = postActions.filter(
         (a) => a.phase === 'advance' && a.action === 'blocked-redispatch' && (a.execId === execC.exec_id || a.execId === execC2.exec_id)
       );

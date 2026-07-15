@@ -527,13 +527,6 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
 
       const recycles = countRecycles(exec.exec_id);
       if (recycles >= cfg.slot_max_repeats) {
-        heartStore.recordMessage({
-          type: 'note',
-          sender: 'ticker',
-          thread: OWNER_NOTE_THREAD,
-          corpus: `slot automatic-recycle budget exhausted (${cfg.slot_max_repeats}); blocked re-dispatch halted`,
-          createdAt: now,
-        });
         actions.push({ phase: 'advance', action: 'blocked-redispatch-budget-exhausted', execId: exec.exec_id, recycles });
         continue;
       }
