@@ -1,17 +1,17 @@
 p3-2b containment proof — worker containment through the daemon's own spawn path
-started: 2026-07-15T14:49:11.838Z
+started: 2026-07-15T15:12:54.035Z
 command: node deploy/p3-2b-containment.js --all
-config:  /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml
+config:  {IGNITE_SRC}/config/spawn-profiles.yaml
 host systemd: systemd 259 (259.5-0ubuntu3)
 user manager delegated controllers: cpu memory pids
 
-=== profile under test: claude-sonnet-tools (read from /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml) ===
+=== profile under test: claude-sonnet-tools (read from {IGNITE_SRC}/config/spawn-profiles.yaml) ===
 committed caps:    {"memory_max":"4G","cpu_quota":"150%","runtime_max":"6h","tasks_max":512}
 committed sandbox: null
 committed argv:    ["claude","-p","--model","sonnet","--output-format","stream-json","--verbose","--allowedTools","Bash(git *),Write"]
 SUBSTITUTION (disclosed): exec.argv -> ["sleep","3600"], workdir_root -> temp dir.
   caps: and sandbox: are used VERBATIM as committed — they are what is under test.
-spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-e46479dd-942a-46f2-b433-06c18b93a17f pid=395370 status=running
+spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-5fd70480-b069-4cb1-a25a-e2d1a01edc5f pid=402652 status=running
   [MATCH] carrier is systemd: actual=systemd expected=systemd
   [MATCH] unit is-active: actual=active expected=active
 systemd property readback (systemctl --user show):
@@ -28,7 +28,7 @@ systemd property readback (systemctl --user show):
   [MATCH] RuntimeMaxUSec (profile runtime_max=6h): actual=6h (21600000000us) expected=21600000000us
   [MATCH] TasksMax (profile tasks_max=512): actual=512 expected=512
 kernel cgroup readback (/sys/fs/cgroup):
-  cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-e46479dd-942a-46f2-b433-06c18b93a17f.service
+  cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-5fd70480-b069-4cb1-a25a-e2d1a01edc5f.service
   memory.max=4294967296
   cpu.max=150000 100000
   pids.max=512
@@ -36,28 +36,76 @@ kernel cgroup readback (/sys/fs/cgroup):
   [MATCH] cgroup cpu.max ENFORCED: actual=150000 100000 (150%) expected=150%
   [MATCH] cgroup pids.max ENFORCED: actual=512 expected=512
 
-=== profile under test: codex-git-write (read from /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml) ===
+=== profile under test: codex-git-write (read from {IGNITE_SRC}/config/spawn-profiles.yaml) ===
 committed caps:    {"memory_max":"4G","cpu_quota":"150%","runtime_max":"6h","tasks_max":512}
 committed sandbox: {"ProtectSystem":"strict","ReadWritePaths":["{workdir}"],"PrivateTmp":true,"NoNewPrivileges":true}
 committed argv:    ["codex","exec","--cd","{workdir}","--sandbox","danger-full-access","-c","approval_policy=never","--json"]
 SUBSTITUTION (disclosed): exec.argv -> ["sleep","3600"], workdir_root -> temp dir.
   caps: and sandbox: are used VERBATIM as committed — they are what is under test.
-  [FAILED] codex-git-write: E_CARRIER_FAILED: spawn failed for profile codex-git-write: systemd-run failed (exit 1): Failed to start transient service unit: Invalid ReadWritePaths
+spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-e959c66b-df7f-47ad-ab79-a9868ccafb8b pid=402664 status=running
+  [MATCH] carrier is systemd: actual=systemd expected=systemd
+  [MATCH] unit is-active: actual=active expected=active
+systemd property readback (systemctl --user show):
+  RuntimeMaxUSec=6h
+  CPUQuotaPerSecUSec=1.500000s
+  MemoryMax=4294967296
+  TasksMax=512
+  ReadWritePaths=/tmp/p3-2b-containment-FzuyAm/work
+  PrivateTmp=yes
+  ProtectSystem=strict
+  NoNewPrivileges=yes
+  [MATCH] MemoryMax (profile memory_max=4G): actual=4294967296 expected=4294967296
+  [MATCH] CPUQuotaPerSecUSec (profile cpu_quota=150%): actual=1.500000s (1500000us) expected=1500000us
+  [MATCH] RuntimeMaxUSec (profile runtime_max=6h): actual=6h (21600000000us) expected=21600000000us
+  [MATCH] TasksMax (profile tasks_max=512): actual=512 expected=512
+kernel cgroup readback (/sys/fs/cgroup):
+  cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-e959c66b-df7f-47ad-ab79-a9868ccafb8b.service
+  memory.max=4294967296
+  cpu.max=150000 100000
+  pids.max=512
+  [MATCH] cgroup memory.max ENFORCED: actual=4294967296 expected=4294967296
+  [MATCH] cgroup cpu.max ENFORCED: actual=150000 100000 (150%) expected=150%
+  [MATCH] cgroup pids.max ENFORCED: actual=512 expected=512
+sandbox block audit:
+  profile declares ReadWritePaths=["{workdir}"]
+  live unit reports  ReadWritePaths=/tmp/p3-2b-containment-FzuyAm/work
+  [MATCH] ReadWritePaths template slots resolved to the real workdir: actual=/tmp/p3-2b-containment-FzuyAm/work expected=must contain /tmp/p3-2b-containment-FzuyAm/work and no {slot}
 
-
-=== profile under test: opencode-sakana (read from /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml) ===
+=== profile under test: opencode-sakana (read from {IGNITE_SRC}/config/spawn-profiles.yaml) ===
 committed caps:    {"memory_max":"4G","cpu_quota":"150%","runtime_max":"8h","tasks_max":512}
 committed sandbox: {"ProtectSystem":"strict","ReadWritePaths":["{workdir}"],"PrivateTmp":true,"NoNewPrivileges":true}
 committed argv:    ["opencode","run","-m","sakana/fugu-ultra"]
 SUBSTITUTION (disclosed): exec.argv -> ["sleep","3600"], workdir_root -> temp dir.
   caps: and sandbox: are used VERBATIM as committed — they are what is under test.
-  [FAILED] opencode-sakana: E_CARRIER_FAILED: spawn failed for profile opencode-sakana: systemd-run failed (exit 1): Failed to start transient service unit: Invalid ReadWritePaths
+spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-889dca52-3a4e-4467-b187-5d413ac783a3 pid=402681 status=running
+  [MATCH] carrier is systemd: actual=systemd expected=systemd
+  [MATCH] unit is-active: actual=active expected=active
+systemd property readback (systemctl --user show):
+  RuntimeMaxUSec=8h
+  CPUQuotaPerSecUSec=1.500000s
+  MemoryMax=4294967296
+  TasksMax=512
+  ReadWritePaths=/tmp/p3-2b-containment-HIFtD4/work
+  PrivateTmp=yes
+  ProtectSystem=strict
+  NoNewPrivileges=yes
+  [MATCH] MemoryMax (profile memory_max=4G): actual=4294967296 expected=4294967296
+  [MATCH] CPUQuotaPerSecUSec (profile cpu_quota=150%): actual=1.500000s (1500000us) expected=1500000us
+  [MATCH] RuntimeMaxUSec (profile runtime_max=8h): actual=8h (28800000000us) expected=28800000000us
+  [MATCH] TasksMax (profile tasks_max=512): actual=512 expected=512
+kernel cgroup readback (/sys/fs/cgroup):
+  cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-889dca52-3a4e-4467-b187-5d413ac783a3.service
+  memory.max=4294967296
+  cpu.max=150000 100000
+  pids.max=512
+  [MATCH] cgroup memory.max ENFORCED: actual=4294967296 expected=4294967296
+  [MATCH] cgroup cpu.max ENFORCED: actual=150000 100000 (150%) expected=150%
+  [MATCH] cgroup pids.max ENFORCED: actual=512 expected=512
+sandbox block audit:
+  profile declares ReadWritePaths=["{workdir}"]
+  live unit reports  ReadWritePaths=/tmp/p3-2b-containment-HIFtD4/work
+  [MATCH] ReadWritePaths template slots resolved to the real workdir: actual=/tmp/p3-2b-containment-HIFtD4/work expected=must contain /tmp/p3-2b-containment-HIFtD4/work and no {slot}
 
-
-checks: 11 total, 9 matched, 2 mismatched
-  MISMATCH: codex-git-write: spawns and carries its caps (actual=E_CARRIER_FAILED: spawn failed for profile codex-git-write: systemd-run failed (exit 1): Failed to start transient service unit: Invalid ReadWritePaths
- expected=spawn succeeds, caps readback matches)
-  MISMATCH: opencode-sakana: spawns and carries its caps (actual=E_CARRIER_FAILED: spawn failed for profile opencode-sakana: systemd-run failed (exit 1): Failed to start transient service unit: Invalid ReadWritePaths
- expected=spawn succeeds, caps readback matches)
-result: FAIL
-ended: 2026-07-15T14:49:12.268Z
+checks: 29 total, 29 matched, 0 mismatched
+result: PASS
+ended: 2026-07-15T15:12:55.158Z

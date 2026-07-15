@@ -1,13 +1,13 @@
 p3-2b carrier-degradation warning proof — does the boot-time warning actually fire?
-started: 2026-07-15T14:46:29.757Z
+started: 2026-07-15T15:13:03.496Z
 command: node deploy/p3-2b-carrier-warning.js
-entry point: /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/server/index.js
-config: /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml
+entry point: {IGNITE_SRC}/server/index.js
+config: {IGNITE_SRC}/config/spawn-profiles.yaml
 warning matched on: level=warn AND message contains "carrier degraded"
 
 === scenario: healthy (user manager reachable, carrier auto) ===
   expect: resolvedCarrier=systemd, warning does NOT fire
-  boot exit: 0 (wall_ms=124)
+  boot exit: 0 (wall_ms=143)
   daemon reported: configuredCarrier=auto resolvedCarrier=systemd userManager=true
   warning line: (none)
   [PASS] daemon booted and shut down cleanly (exit 0)
@@ -16,31 +16,31 @@ warning matched on: level=warn AND message contains "carrier degraded"
 
 === scenario: manager-unreachable (no user bus, carrier auto) — THE D46 HAZARD ===
   expect: resolvedCarrier=setsid, warning FIRES
-  boot exit: 0 (wall_ms=118)
+  boot exit: 0 (wall_ms=101)
   daemon reported: configuredCarrier=auto resolvedCarrier=setsid userManager=true
-  warning line: {"ts":"2026-07-15T14:46:29Z","level":"warn","message":"carrier degraded: workers will NOT run under systemd --user, so profile caps and sandbox are IGNORED","configuredCarrier":"auto","resolvedCarrier":"setsid","userManager":true}
+  warning line: {"ts":"2026-07-15T15:13:03Z","level":"warn","message":"carrier degraded: workers will NOT run under systemd --user, so profile caps and sandbox are IGNORED","configuredCarrier":"auto","resolvedCarrier":"setsid","userManager":true}
   [PASS] daemon booted and shut down cleanly (exit 0)
   [PASS] resolvedCarrier is setsid
   [PASS] degradation warning FIRED
 
 === scenario: carrier pinned to setsid ===
   expect: resolvedCarrier=setsid, warning FIRES
-  boot exit: 0 (wall_ms=88)
+  boot exit: 0 (wall_ms=115)
   daemon reported: configuredCarrier=setsid resolvedCarrier=setsid userManager=true
-  warning line: {"ts":"2026-07-15T14:46:30Z","level":"warn","message":"carrier degraded: workers will NOT run under systemd --user, so profile caps and sandbox are IGNORED","configuredCarrier":"setsid","resolvedCarrier":"setsid","userManager":true}
+  warning line: {"ts":"2026-07-15T15:13:03Z","level":"warn","message":"carrier degraded: workers will NOT run under systemd --user, so profile caps and sandbox are IGNORED","configuredCarrier":"setsid","resolvedCarrier":"setsid","userManager":true}
   [PASS] daemon booted and shut down cleanly (exit 0)
   [PASS] resolvedCarrier is setsid
   [PASS] degradation warning FIRED
 
 === scenario: RBTV_IGNITE_USER_MANAGER=false ===
   expect: resolvedCarrier=systemd, warning FIRES
-  boot exit: 0 (wall_ms=81)
+  boot exit: 0 (wall_ms=87)
   daemon reported: configuredCarrier=auto resolvedCarrier=systemd userManager=false
-  warning line: {"ts":"2026-07-15T14:46:30Z","level":"warn","message":"carrier degraded: workers will NOT run under systemd --user, so profile caps and sandbox are IGNORED","configuredCarrier":"auto","resolvedCarrier":"systemd","userManager":false}
+  warning line: {"ts":"2026-07-15T15:13:03Z","level":"warn","message":"carrier degraded: workers will NOT run under systemd --user, so profile caps and sandbox are IGNORED","configuredCarrier":"auto","resolvedCarrier":"systemd","userManager":false}
   [PASS] daemon booted and shut down cleanly (exit 0)
   [PASS] resolvedCarrier is systemd
   [PASS] degradation warning FIRED
 
 checks: 12 total, 12 passed, 0 failed
 result: PASS
-ended: 2026-07-15T14:46:30.172Z
+ended: 2026-07-15T15:13:03.947Z

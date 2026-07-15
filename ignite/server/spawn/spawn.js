@@ -97,6 +97,17 @@ function ensurePromptFile(dataRoot, sessionId, prompt) {
   return promptPath;
 }
 
+function resolveSandbox(sandbox, workdir) {
+  if (!sandbox) return sandbox;
+  const values = { workdir };
+  const resolved = { ...sandbox };
+  if (sandbox.ReadWritePaths) {
+    const arr = Array.isArray(sandbox.ReadWritePaths) ? sandbox.ReadWritePaths : [sandbox.ReadWritePaths];
+    resolved.ReadWritePaths = resolveTemplateSlots(arr, values);
+  }
+  return resolved;
+}
+
 function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot) {
   const isHeaded = mode === 'headed';
   const block = isHeaded ? profile.headed.tui : profile.exec;
@@ -173,7 +184,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       logPath,
     });
 
-    const common = { sessionId, argv, workdir: resolvedWorkdir, logPath, caps: profile.caps, sandbox: profile.sandbox, envFile: profile.env?.file, userManager };
+    const common = { sessionId, argv, workdir: resolvedWorkdir, logPath, caps: profile.caps, sandbox: resolveSandbox(profile.sandbox, resolvedWorkdir), envFile: profile.env?.file, userManager };
     let launchResult;
     try {
       if (carrier === 'systemd') {
@@ -326,7 +337,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
 
     const carrier = selectCarrier(config.spawn.carrier, userManager);
 
-    const common = { sessionId, argv, workdir: resolvedWorkdir, logPath, caps: profile.caps, sandbox: profile.sandbox, envFile: profile.env?.file, userManager };
+    const common = { sessionId, argv, workdir: resolvedWorkdir, logPath, caps: profile.caps, sandbox: resolveSandbox(profile.sandbox, resolvedWorkdir), envFile: profile.env?.file, userManager };
     let launchResult;
     try {
       if (carrier === 'systemd') {

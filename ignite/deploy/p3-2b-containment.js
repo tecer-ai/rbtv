@@ -44,6 +44,15 @@ const lines = [];
 const log = (s) => { lines.push(s); };
 const now = () => new Date().toISOString();
 
+function portable(p) {
+  if (p === undefined || p === null) return p;
+  const s = String(p);
+  if (s.startsWith(IGNITE_SRC)) return '{IGNITE_SRC}' + s.slice(IGNITE_SRC.length);
+  const home = os.homedir();
+  if (home && s.startsWith(home)) return '{HOME}' + s.slice(home.length);
+  return s;
+}
+
 // ---------- expected-value derivation (from the profile's own words) ----------
 
 function memToBytes(v) {
@@ -104,11 +113,11 @@ function check(label, actual, expected, ok) {
 
 async function proveProfile(profileName, realCfg) {
   const realProfile = realCfg.profiles[profileName];
-  if (!realProfile) throw new Error(`profile not found in ${CONFIG_PATH}: ${profileName}`);
+  if (!realProfile) throw new Error(`profile not found in ${portable(CONFIG_PATH)}: ${profileName}`);
   if (!realProfile.caps) throw new Error(`profile ${profileName} declares no caps: — nothing to contain`);
 
   log('');
-  log(`=== profile under test: ${profileName} (read from ${CONFIG_PATH}) ===`);
+  log(`=== profile under test: ${profileName} (read from ${portable(CONFIG_PATH)}) ===`);
   log(`committed caps:    ${JSON.stringify(realProfile.caps)}`);
   log(`committed sandbox: ${JSON.stringify(realProfile.sandbox || null)}`);
   log(`committed argv:    ${JSON.stringify(realProfile.exec.argv)}`);
@@ -236,7 +245,7 @@ async function main() {
   log('p3-2b containment proof — worker containment through the daemon\'s own spawn path');
   log(`started: ${now()}`);
   log(`command: node deploy/p3-2b-containment.js ${process.argv.slice(2).join(' ')}`.trim());
-  log(`config:  ${CONFIG_PATH}`);
+  log(`config:  ${portable(CONFIG_PATH)}`);
   log(`host systemd: ${execFileSync('systemctl', ['--version'], { encoding: 'utf8' }).split('\n')[0]}`);
   log(`user manager delegated controllers: ${(() => {
     try { return execFileSync('systemctl', ['show', `user@${process.getuid()}.service`, '-pDelegateControllers', '--value'], { encoding: 'utf8' }).trim() || '(none reported)'; } catch { return '(unreadable)'; }

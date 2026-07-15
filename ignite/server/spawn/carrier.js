@@ -19,13 +19,17 @@ function generateSessionId() {
 }
 
 function systemdAvailable(userManager = true) {
+  const flag = userManager ? '--user' : '--system';
+  let state = null;
   try {
-    const flag = userManager ? '--user' : '--system';
-    execFileSync('systemctl', [flag, 'is-system-running'], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
+    state = execFileSync('systemctl', [flag, 'is-system-running'], { encoding: 'utf8' }).trim();
+  } catch (err) {
+    // `is-system-running` exits 1 for degraded/starting/maintenance but still prints the state.
+    // Only a missing manager (no stdout state) is treated as unavailable.
+    const captured = err && (err.stdout || err.stderr);
+    if (captured) state = String(captured).trim();
   }
+  return ['running', 'degraded', 'starting', 'maintenance'].includes(state);
 }
 
 function selectCarrier(configCarrier, userManager = true) {

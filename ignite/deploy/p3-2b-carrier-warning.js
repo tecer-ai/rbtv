@@ -41,6 +41,15 @@ const lines = [];
 const log = (s) => { lines.push(s); };
 const now = () => new Date().toISOString();
 
+function portable(p) {
+  if (p === undefined || p === null) return p;
+  const s = String(p);
+  if (s.startsWith(IGNITE_SRC)) return '{IGNITE_SRC}' + s.slice(IGNITE_SRC.length);
+  const home = os.homedir();
+  if (home && s.startsWith(home)) return '{HOME}' + s.slice(home.length);
+  return s;
+}
+
 const results = [];
 
 function bootDaemon({ name, stripUserBus = false, extraEnv = {} }) {
@@ -114,8 +123,8 @@ function main() {
   log('p3-2b carrier-degradation warning proof — does the boot-time warning actually fire?');
   log(`started: ${now()}`);
   log('command: node deploy/p3-2b-carrier-warning.js');
-  log(`entry point: ${ENTRY}`);
-  log(`config: ${CONFIG_PATH}`);
+  log(`entry point: ${portable(ENTRY)}`);
+  log(`config: ${portable(CONFIG_PATH)}`);
   log(`warning matched on: level=warn AND message contains "${WARN_MESSAGE_MATCH}"`);
 
   // 1. The healthy path must stay quiet — a warning that always fires teaches operators to
