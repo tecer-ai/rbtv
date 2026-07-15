@@ -279,7 +279,7 @@
         {
           "name": "opencode",
           "manifest": "orchestration/models/opencode/manifest.yaml",
-          "description": "OpenCode CLI multi-provider worker (opencode run, probe-pending) — OSS harness serving the net-new z1 (zai/glm-5.2) + sakana (fugu-ultra) backends; NO native sandbox — worktree-mandatory confinement"
+          "description": "OpenCode CLI multi-provider worker (opencode run, validated) — OSS harness serving four backends: z1 (zai-coding-plan/glm-5.2), sakana (fugu-ultra), deepseek-flash + deepseek-pro (deepseek/deepseek-v4-flash|pro, code roles only); NO native sandbox — worktree-mandatory confinement"
         }
       ]
     },

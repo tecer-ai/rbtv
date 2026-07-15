@@ -561,6 +561,20 @@ CREDENTIAL_STORE_RESOLVERS = {
 }
 
 
+def _is_windows() -> bool:
+    """Is this process running on NATIVE Windows?
+
+    `win32` is sys.platform's value on every native Windows build (32- and 64-bit alike).
+    Deliberately NOT matching `cygwin`/`msys`: those are POSIX-emulating environments where the
+    XDG_DATA_HOME / ~/.local/share resolution above works as it does on Linux, so they are not
+    the unverified case the Windows notice exists to flag.
+
+    Factored out (rather than inlined) so a test can pin the platform on any host: the Windows
+    notice in `_unavailable_reason` must be assertable from the Linux VPS this suite runs on.
+    """
+    return sys.platform == "win32"
+
+
 def _check_stored_credential(store_id: str | None, store_key: str | None) -> bool:
     """Is `store_key` a stored login in CLI `store_id`'s credential store?
 
@@ -653,16 +667,38 @@ def _is_variant_available(variant: dict, model_name: str, rbtv_cfg: dict, vault_
 
 
 def _unavailable_reason(variant: dict) -> str:
-    """The explain-trace reason a variant was dropped at the availability stage."""
+    """The explain-trace reason a variant was dropped at the availability stage.
+
+    Called ONLY at the availability-stage drop sites, so reaching the `store_id` branch below
+    already means all three of: the variant declares a credential store, the env-var path did
+    NOT resolve, and the store lookup found nothing — i.e. the store path is what decided the
+    verdict. That is exactly the case the Windows notice qualifies.
+    """
     if variant.get("available") is False:
         return "marked available: false in manifest"
     auth = variant.get("auth") if isinstance(variant.get("auth"), dict) else {}
     store_id = auth.get("credential_store")
     if store_id:
-        return (
+        reason = (
             "api-key absent in both OS env and env_file, and no stored "
             f"'{auth.get('credential_store_key')}' credential in the {store_id} auth store"
         )
+        if _is_windows():
+            # The store path is the deciding factor here, and on Windows this resolver has NOT
+            # been verified: CREDENTIAL_STORE_RESOLVERS resolves XDG_DATA_HOME, else
+            # ~/.local/share — where the CLI stores credentials on Windows is UNKNOWN (it may
+            # be %LOCALAPPDATA% or elsewhere), so a real stored login there reads as absent.
+            # The verdict stays UNAVAILABLE — guessing a path would be worse than saying
+            # "unverified" — but it is flagged as non-authoritative rather than silently wrong.
+            reason += (
+                " -- NOT AUTHORITATIVE ON WINDOWS: this variant MAY in fact be available via a "
+                f"stored {store_id} login. This resolver does not yet cover the Windows "
+                f"credential-store path (it looks only at XDG_DATA_HOME, else ~/.local/share), "
+                f"so a store kept elsewhere on Windows reads as absent. Run `{store_id} auth "
+                "list` on this machine and add the store path it reports to this store's "
+                "resolver in CREDENTIAL_STORE_RESOLVERS to close the gap."
+            )
+        return reason
     return "api-key absent in both OS env and env_file"
 
 

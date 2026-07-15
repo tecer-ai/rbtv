@@ -344,6 +344,74 @@ class TestStoredCredentialAvailability:
         assert "zai-coding-plan" in reason and "opencode" in reason
 
 
+class TestWindowsStoredCredentialNotice:
+    """Owner ruling 2026-07-15 (second): `_opencode_auth_store_path()` resolves XDG_DATA_HOME,
+    else ~/.local/share — where opencode stores credentials on WINDOWS is unverified. A variant
+    whose credential lives ONLY in that store therefore reads unavailable on Windows even though
+    it may well work, so the reason must SAY the verdict is not authoritative there.
+
+    The verdict itself is unchanged on every platform — the notice is a warning, not a bypass.
+    Platform is pinned via `route.sys.platform` so these assert on any host (this suite runs on
+    Linux); nothing here is skipped by platform.
+    """
+
+    Z1_AUTH = TestStoredCredentialAvailability.Z1_AUTH
+
+    @pytest.fixture
+    def isolated(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("ZHIPU_API_KEY", raising=False)
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+        return tmp_path
+
+    def test_windows_reason_warns_the_variant_may_be_available(self, isolated, monkeypatch):
+        """On Windows the reason still explains both failed paths AND flags itself unauthoritative."""
+        import route
+        monkeypatch.setattr(route.sys, "platform", "win32")
+        reason = route._unavailable_reason({"auth": self.Z1_AUTH})
+        assert "zai-coding-plan" in reason and "opencode" in reason   # the pre-existing substance survives
+        assert "NOT AUTHORITATIVE ON WINDOWS" in reason
+        assert "MAY in fact be available" in reason
+        assert "does not yet cover the Windows" in reason
+        assert "opencode auth list" in reason                          # the action that closes the gap
+
+    @pytest.mark.parametrize("platform", ["linux", "darwin", "cygwin", "msys"])
+    def test_non_windows_reason_is_unchanged(self, isolated, monkeypatch, platform):
+        """Byte-identical to the pre-change string off native Windows — the notice is win32-only.
+
+        cygwin/msys are POSIX-emulating: the XDG_DATA_HOME / ~/.local/share resolution works
+        there as on Linux, so they are NOT the unverified case and get no notice."""
+        import route
+        monkeypatch.setattr(route.sys, "platform", platform)
+        reason = route._unavailable_reason({"auth": self.Z1_AUTH})
+        assert reason == (
+            "api-key absent in both OS env and env_file, and no stored "
+            "'zai-coding-plan' credential in the opencode auth store"
+        )
+        assert "WINDOWS" not in reason.upper()
+
+    def test_windows_notice_does_not_flip_the_verdict(self, isolated, monkeypatch):
+        """The notice is a WARNING, not a bypass: z1 stays UNAVAILABLE on Windows with no
+        env var and no resolvable stored credential. Guessing a store path would be worse."""
+        import route
+        monkeypatch.setattr(route.sys, "platform", "win32")
+        assert not route._is_variant_available({"auth": self.Z1_AUTH}, "opencode", {}, isolated)
+
+    def test_windows_notice_absent_for_a_variant_without_a_credential_store(self, isolated, monkeypatch):
+        """Scoped to the store path: a plain api-key variant's reason is untouched on Windows —
+        no stored-credential path decided ITS verdict, so there is nothing to qualify."""
+        import route
+        monkeypatch.setattr(route.sys, "platform", "win32")
+        reason = route._unavailable_reason({"auth": {"method": "api-key", "env_var": "DEEPSEEK_API_KEY"}})
+        assert reason == "api-key absent in both OS env and env_file"
+
+    def test_windows_notice_absent_for_available_false(self, isolated, monkeypatch):
+        """`available: false` is a manifest verdict, not a credential-store miss — no notice."""
+        import route
+        monkeypatch.setattr(route.sys, "platform", "win32")
+        reason = route._unavailable_reason({"auth": self.Z1_AUTH, "available": False})
+        assert reason == "marked available: false in manifest"
+
+
 # ---------------------------------------------------------------------------
 # Test 5: Plan-cap override changes the surviving set
 # ---------------------------------------------------------------------------
