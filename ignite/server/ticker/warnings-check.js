@@ -4,21 +4,19 @@ const { WARNING_KINDS, WARNING_ANNOUNCE_INTERVAL_TICKS } = require('../heart/war
 
 const OWNER_NOTE_THREAD = 'owner-feed';
 
-function countRecycles(execId, heartStore) {
-  let count = 0;
-  let current = heartStore.getExecution(execId);
-  while (current && current.parent_exec_id !== null && current.parent_exec_id !== undefined) {
-    count++;
-    current = heartStore.getExecution(current.parent_exec_id);
-  }
-  return count;
-}
-
+// "Blocked AND out of budget" — evaluated from the SAME determination the
+// ticker's own advance/re-dispatch gates use (`heartStore.countChainRecycles`),
+// never a second re-implementation of it. A local chain walk here would be a
+// divergent source of truth for one condition: it would count an execution's
+// own ancestors rather than the CHAIN's total recycles, so any blocked
+// execution that is not the chain's deepest node would under-count, and the
+// ticker could halt a seat for budget exhaustion while this check stayed
+// silent — the exact situation D45 exists to surface to the master.
 function findBlockedBudgetExhaustedSubjects(heartStore, slotMaxRepeats) {
   const subjects = new Set();
   for (const exec of heartStore.listExecutionsByStatus('blocked')) {
     if (!exec.thread) continue;
-    if (countRecycles(exec.exec_id, heartStore) >= slotMaxRepeats) {
+    if (heartStore.countChainRecycles({ execId: exec.exec_id }) >= slotMaxRepeats) {
       subjects.add(exec.thread);
     }
   }

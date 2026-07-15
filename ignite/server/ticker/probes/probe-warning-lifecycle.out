@@ -1,0 +1,38 @@
+probe: probe-warning-lifecycle
+started: 2026-07-15T18:00:32.820Z
+command: node probes/probe-warning-lifecycle.js
+launch tick 1: warning actions=[]
+recycle tick 2: warning actions=[]
+launch2 tick 3: warning actions=[]
+blocked tick 4: warning actions=[{"phase":"warnings","action":"raise","kind":"seat-blocked-budget-exhausted","subject":"exec-1","warningId":1},{"phase":"warnings","action":"announce","kind":"seat-blocked-budget-exhausted","subject":"exec-1","warningId":1}]
+cadence tick 5: warning actions=[]
+cadence tick 6: warning actions=[]
+cadence tick 7: warning actions=[]
+cadence tick 8: warning actions=[]
+cadence tick 9: warning actions=[]
+cadence tick 10: warning actions=[{"phase":"warnings","action":"announce","kind":"seat-blocked-budget-exhausted","subject":"exec-1","warningId":1}]
+cadence tick 11: warning actions=[]
+cadence tick 12: warning actions=[]
+cadence tick 13: warning actions=[]
+cadence tick 14: warning actions=[]
+cadence tick 15: warning actions=[]
+cadence tick 16: warning actions=[{"phase":"warnings","action":"announce","kind":"seat-blocked-budget-exhausted","subject":"exec-1","warningId":1}]
+standing warning: {"warning_id":1,"kind":"seat-blocked-budget-exhausted","subject":"exec-1","raised_at_tick":4,"last_announced_tick":16,"snoozed_until_tick":null,"cleared_at_tick":null}
+warning notes count: 3
+warning note ticks: [4,10,16]
+clear tick 17: warning actions=[{"phase":"warnings","action":"clear","kind":"seat-blocked-budget-exhausted","subject":"exec-1","warningId":1}]
+launch tick 23: warning actions=[]
+recycle tick 24: warning actions=[]
+launch2 tick 25: warning actions=[]
+blocked tick 26: warning actions=[{"phase":"warnings","action":"raise","kind":"seat-blocked-budget-exhausted","subject":"exec-3","warningId":2},{"phase":"warnings","action":"announce","kind":"seat-blocked-budget-exhausted","subject":"exec-3","warningId":2}]
+snooze: minutes=2 at current_tick 26 -> store computed snoozed_until_tick=38
+snooze-resume tick 38: warning actions=[{"phase":"warnings","action":"announce","kind":"seat-blocked-budget-exhausted","subject":"exec-3","warningId":2}]
+re-snooze at current_tick 38 -> snoozed_until_tick=50
+snoozed-clear tick 39: warning actions=[{"phase":"warnings","action":"clear","kind":"seat-blocked-budget-exhausted","subject":"exec-3","warningId":2}]
+cleared-while-snoozed row retained: {"warning_id":2,"kind":"seat-blocked-budget-exhausted","subject":"exec-3","raised_at_tick":26,"last_announced_tick":38,"snoozed_until_tick":50,"cleared_at_tick":39}
+chain-scoped budget: subject=exec-5 recycles=3 deepest-blocked-ancestors=2 -> raised warning 3
+status: PASS
+exit: 0
+wall_ms: 2832
+skipped_count: 0
+ended: 2026-07-15T18:00:35.652Z

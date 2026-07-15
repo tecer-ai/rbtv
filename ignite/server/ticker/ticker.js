@@ -135,14 +135,11 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     `, root).map(r => r.exec_id);
   }
 
+  // Delegates to the store's ONE determination of recycle-budget consumption,
+  // so the advance/re-dispatch gates below and the warning check read the same
+  // number. Semantics are unchanged (chain-total recycles).
   function countRecycles(execId) {
-    const ids = chainExecIds(execId);
-    let count = 0;
-    for (const id of ids) {
-      const row = heartStore.getExecution(id);
-      if (row && row.parent_exec_id !== null && row.parent_exec_id !== undefined) count++;
-    }
-    return count;
+    return heartStore.countChainRecycles({ execId });
   }
 
   function liveExecutions() {

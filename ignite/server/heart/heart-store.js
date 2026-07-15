@@ -16,6 +16,7 @@ const {
   E_BAD_TRIGGER,
   E_BAD_MODE,
 } = require('./errors');
+const { TICKS_PER_MINUTE } = require('./warnings');
 
 const SCHEMA_SQL = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
 
@@ -533,6 +534,45 @@ class HeartStore {
     return stmt.all(status).map((r) => this._attachThread(r));
   }
 
+  // How many automatic recycles the seat-slot's WHOLE turn chain has consumed:
+  // walk parent_exec_id up to the chain root, then count every execution in the
+  // root's descendant set that has a parent (a non-root node = one recycle).
+  //
+  // CHAIN-scoped, not node-scoped: every execution of a chain reports the same
+  // number regardless of its own depth. That is the property that makes it a
+  // budget — the slot persists across sessions (`seat-slot`), so the budget is
+  // the chain's, never one execution's.
+  //
+  // This is the ONE determination of recycle-budget consumption. The ticker's
+  // advance/re-dispatch gates and the ticker's warning check both read it here;
+  // neither re-implements it (D44 — the arithmetic lives in the store, never
+  // smeared across call sites).
+  countChainRecycles({ execId }) {
+    if (!Number.isInteger(execId)) {
+      throw new HeartStoreError(E_BAD_ARGS, 'exec_id must be an integer', { field: 'execId' });
+    }
+    const rootRow = this._prepare(`
+      WITH RECURSIVE chain(exec_id, parent_exec_id) AS (
+        SELECT exec_id, parent_exec_id FROM jobs_log WHERE exec_id = ?
+        UNION ALL
+        SELECT j.exec_id, j.parent_exec_id
+          FROM jobs_log j JOIN chain c ON j.exec_id = c.parent_exec_id
+      )
+      SELECT exec_id FROM chain WHERE parent_exec_id IS NULL LIMIT 1
+    `).get(execId);
+    const root = rootRow ? rootRow.exec_id : execId;
+    const row = this._prepare(`
+      WITH RECURSIVE descendants(exec_id, parent_exec_id) AS (
+        SELECT exec_id, parent_exec_id FROM jobs_log WHERE exec_id = ?
+        UNION ALL
+        SELECT j.exec_id, j.parent_exec_id
+          FROM jobs_log j JOIN descendants d ON j.parent_exec_id = d.exec_id
+      )
+      SELECT COUNT(*) AS n FROM descendants WHERE parent_exec_id IS NOT NULL
+    `).get(root);
+    return row ? row.n : 0;
+  }
+
   updateExecutionStatus(execId, { status, sessionId = null, pid = null, exitCode = null, completionMsgId = null, logPath = null, endedAt = null, carrier = null, unitName = null, pidStarttime = null, sessionRef = null, startedAt = null }) {
     const stmt = this._prepare(`
       UPDATE jobs_log SET
@@ -671,18 +711,29 @@ class HeartStore {
     return this._prepare('SELECT * FROM warnings WHERE warning_id = ?').get(warningId);
   }
 
-  snoozeWarning({ kind, subject, snoozedUntilTick }) {
+  // Snooze a standing warning for `minutes` (D45: "the system converts minutes
+  // → ticks"). The conversion lives HERE and nowhere else — callers pass
+  // MINUTES and never a tick, so no call site ever duplicates the tick-rate
+  // arithmetic (D44). The reference point is the last recorded tick: a snooze
+  // arrives out-of-band between ticks, so "now" is the most recent tick.
+  // Suppresses announcement only — it NEVER clears (cleared_at_tick untouched).
+  // Snoozing a (kind, subject) with no standing warning is a clean no-op: null,
+  // never an error, never a phantom row.
+  snoozeWarning({ kind, subject, minutes }) {
     if (typeof kind !== 'string' || kind.length === 0) {
       throw new HeartStoreError(E_BAD_ARGS, 'kind must be non-empty string', { field: 'kind' });
     }
     if (typeof subject !== 'string' || subject.length === 0) {
       throw new HeartStoreError(E_BAD_ARGS, 'subject must be non-empty string', { field: 'subject' });
     }
-    if (!Number.isInteger(snoozedUntilTick)) {
-      throw new HeartStoreError(E_BAD_ARGS, 'snoozed_until_tick must be an integer', { field: 'snoozedUntilTick' });
+    if (!Number.isInteger(minutes) || minutes <= 0) {
+      throw new HeartStoreError(E_BAD_ARGS, 'minutes must be a positive integer', { field: 'minutes' });
     }
     const existing = this.getStandingWarning({ kind, subject });
     if (!existing) return null;
+    const lastTick = this.getLastTick();
+    const currentTick = lastTick ? lastTick.tick : 0;
+    const snoozedUntilTick = currentTick + (minutes * TICKS_PER_MINUTE);
     const stmt = this._prepare('UPDATE warnings SET snoozed_until_tick = ? WHERE warning_id = ?');
     stmt.run(snoozedUntilTick, existing.warning_id);
     return this._prepare('SELECT * FROM warnings WHERE warning_id = ?').get(existing.warning_id);
