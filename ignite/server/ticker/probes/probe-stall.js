@@ -40,9 +40,17 @@ async function run(lines) {
     lines.push(`final status: ${finalExec.status}`);
     if (finalExec.status !== 'stalled') throw new Error(`expected stalled, got ${finalExec.status}`);
 
-    const notes = dump.messages.filter(m => m.type === 'note' && m.thread === 'owner-feed');
+    // `owner-feed` is a SHARED destination that aggregates every ticker note, so a
+    // count no longer identifies these two notes (any 2 notes would satisfy `>= 2`).
+    // Assert each of the warn + stall notes by its corpus.
+    const notes = dump.messages.filter(m => m.type === 'note' && m.sender === 'ticker' && m.thread === 'owner-feed');
     lines.push(`notes on owner-feed: ${notes.length}`);
-    if (notes.length < 2) throw new Error('expected warn + stall notes');
+    const warnNote = notes.find(m => m.corpus.includes('silent warning after'));
+    const stallNote = notes.find(m => m.corpus.includes('slot stalled after'));
+    if (!warnNote) throw new Error(`expected the silent-warning note on owner-feed; got: ${JSON.stringify(notes.map(m => m.corpus))}`);
+    if (!stallNote) throw new Error(`expected the slot-stalled note on owner-feed; got: ${JSON.stringify(notes.map(m => m.corpus))}`);
+    lines.push(`warn note: ${warnNote.corpus}`);
+    lines.push(`stall note: ${stallNote.corpus}`);
 
     const seatNotes = dump.messages.filter(m => m.type === 'note' && m.sender === 'ticker' && m.thread === finalExec.thread);
     if (seatNotes.length > 0) throw new Error(`ticker note found on seat thread ${finalExec.thread}: ${JSON.stringify(seatNotes)}`);

@@ -53,9 +53,13 @@ async function run(lines) {
     if (completions.length !== 1) throw new Error('expected one synthetic completion');
     if (completions[0].status !== 'failed') throw new Error('expected failed completion');
 
-    const notes = dump.messages.filter(m => m.type === 'note' && m.thread === 'owner-feed');
+    // `owner-feed` is a SHARED destination aggregating every ticker note, so a count
+    // does not identify THIS note. Assert the crash note by its corpus.
+    const notes = dump.messages.filter(m => m.type === 'note' && m.sender === 'ticker' && m.thread === 'owner-feed');
     lines.push(`notes on owner-feed: ${notes.length}`);
-    if (notes.length === 0) throw new Error('expected owner note');
+    const crashNote = notes.find(m => m.corpus.includes(`slot halted: session crashed (exec ${finalExec.exec_id})`));
+    if (!crashNote) throw new Error(`expected the session-crashed note on owner-feed; got: ${JSON.stringify(notes.map(m => m.corpus))}`);
+    lines.push(`crash note: ${crashNote.corpus}`);
 
     const seatNotes = dump.messages.filter(m => m.type === 'note' && m.sender === 'ticker' && m.thread === finalExec.thread);
     if (seatNotes.length > 0) throw new Error(`ticker note found on seat thread ${finalExec.thread}: ${JSON.stringify(seatNotes)}`);

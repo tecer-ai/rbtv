@@ -1,5 +1,5 @@
 probe: probe-recycle
-started: 2026-07-15T08:59:01.514Z
+started: 2026-07-15T09:19:48.645Z
 command: node probes/probe-recycle.js
 enqueued one due launch-agent job
 tick 1: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":0}}}]
@@ -11,6 +11,6 @@ jobs_log rows: 2
 exec2 id=2, parent=1, thread=exec-1, status=running
 status: PASS
 exit: 0
-wall_ms: 1859
+wall_ms: 1839
 skipped_count: 0
-ended: 2026-07-15T08:59:03.373Z
+ended: 2026-07-15T09:19:50.484Z

@@ -178,7 +178,31 @@ async function run(lines) {
       if (!execC2) throw new Error('execC2 not recycled');
       lines.push(`execC2: exec_id=${execC2.exec_id} thread=${execC2.thread}`);
 
-      // Turn 2: done + pending input on execC2 -> budget exhausted note.
+      // Turn 2: execC2 reports BLOCKED. The seat must PERSIST as blocked for this
+      // part to prove anything: the blocked-redispatch loop scans ONLY
+      // listExecutionsByStatus('blocked'), so a `done` seat can never be woken and
+      // asserting "not woken" on one would assert nothing.
+      ctxC.store.recordMessage({
+        type: 'completion',
+        sender: 'agent',
+        thread: execC2.thread,
+        corpus: 'blocked',
+        status: 'blocked',
+        createdAt: new Date(),
+      });
+      const tC4 = await ctxC.ticker.tick();
+      lines.push(`part-c tick-4 (execC2 blocked) actions: ${actionSummary(tC4.actions)}`);
+      const blockedRow = ctxC.store.getExecution(execC2.exec_id);
+      lines.push(`part-c execC2 status after blocked completion: ${blockedRow.status}`);
+      if (blockedRow.status !== 'blocked') {
+        throw new Error(`expected execC2 blocked (else this part proves nothing), got ${blockedRow.status}`);
+      }
+
+      // Genuine owner input on the seat's address makes the blocked seat
+      // wake-eligible; with the recycle budget spent, the ticker writes its
+      // owner-facing budget-exhaustion note on EVERY tick. Pre-D39 that note landed
+      // on the seat's own address, which re-satisfied the watermark and produced the
+      // next note: one note per tick, forever. This is the exact regression.
       ctxC.store.recordMessage({
         type: 'answer',
         sender: 'owner',
@@ -186,18 +210,14 @@ async function run(lines) {
         corpus: 'more input',
         createdAt: new Date(),
       });
-      ctxC.store.recordMessage({
-        type: 'completion',
-        sender: 'agent',
-        thread: execC2.thread,
-        corpus: 'done',
-        status: 'done',
-        createdAt: new Date(),
-      });
-      const tC4 = await ctxC.ticker.tick();
-      lines.push(`part-c tick-4 actions: ${actionSummary(tC4.actions)}`);
-      const budgetAction = tC4.actions.find((a) => a.phase === 'advance' && a.action === 'budget-exhausted');
-      if (!budgetAction) throw new Error('expected budget-exhausted action');
+      const tC5 = await ctxC.ticker.tick();
+      lines.push(`part-c tick-5 actions: ${actionSummary(tC5.actions)}`);
+      const budgetAction = tC5.actions.find(
+        (a) => a.phase === 'advance'
+          && a.action === 'blocked-redispatch-budget-exhausted'
+          && a.execId === execC2.exec_id
+      );
+      if (!budgetAction) throw new Error('expected blocked-redispatch-budget-exhausted action for execC2');
 
       // Identity proof: no ticker-authored note row exists on the seat's address.
       const seatNotes = ctxC.store.dump().messages.filter(
@@ -206,18 +226,40 @@ async function run(lines) {
       if (seatNotes.length > 0) {
         throw new Error(`ticker note found on seat thread ${execC2.thread}: ${JSON.stringify(seatNotes)}`);
       }
-      // Also confirm the owner-facing note was written to the owner feed.
+      // Also confirm the owner-facing note WAS written — to the owner feed, with its
+      // corpus intact. `owner-feed` aggregates every ticker note, so identify this one
+      // by corpus rather than by a count.
       const ownerNotes = ctxC.store.dump().messages.filter(
         (m) => m.type === 'note' && m.sender === 'ticker' && m.thread === 'owner-feed'
       );
-      if (ownerNotes.length === 0) throw new Error('expected owner-feed note');
+      const budgetNote = ownerNotes.find((m) => m.corpus.includes('blocked re-dispatch halted'));
+      if (!budgetNote) {
+        throw new Error(`expected the blocked-budget note on owner-feed; got: ${JSON.stringify(ownerNotes.map((m) => m.corpus))}`);
+      }
+      lines.push(`part-c owner note: ${budgetNote.corpus}`);
 
-      // Behavior proof: across several subsequent ticks, the seat is never re-dispatched.
+      // Behavior proof: the blocked seat's address stays INERT across quiet ticks.
+      // Pre-D39 the ticker appended one note per tick here; post-D39 the seat's
+      // address gains no row at all. Asserted on the actual rows (identity), with
+      // the offending rows dumped on failure — the count is a growth signal, not
+      // the proof.
+      const seatRowsBefore = ctxC.store.dump().messages.filter((m) => m.thread === execC2.thread);
       const postActions = [];
       for (let i = 0; i < 3; i++) {
         const t = await ctxC.ticker.tick();
         lines.push(`part-c quiet-tick-${i + 1} actions: ${actionSummary(t.actions)}`);
         postActions.push(...t.actions);
+      }
+      const seatRowsAfter = ctxC.store.dump().messages.filter((m) => m.thread === execC2.thread);
+      lines.push(`part-c seat rows on ${execC2.thread}: before=${seatRowsBefore.length} after=${seatRowsAfter.length}`);
+      const beforeIds = new Set(seatRowsBefore.map((m) => m.msg_id));
+      const appended = seatRowsAfter.filter((m) => !beforeIds.has(m.msg_id));
+      if (appended.length > 0) {
+        throw new Error(`seat address ${execC2.thread} gained rows across quiet ticks: ${JSON.stringify(appended)}`);
+      }
+      const seatNotesAfter = seatRowsAfter.filter((m) => m.type === 'note' && m.sender === 'ticker');
+      if (seatNotesAfter.length > 0) {
+        throw new Error(`ticker note on seat thread after quiet ticks: ${JSON.stringify(seatNotesAfter)}`);
       }
       const woke = postActions.filter(
         (a) => a.phase === 'advance' && a.action === 'blocked-redispatch' && (a.execId === execC.exec_id || a.execId === execC2.exec_id)
