@@ -1,0 +1,43 @@
+# rbtv-ignite.service — machine-agnostic systemd unit template for the ignite daemon.
+#
+# The daemon runs in place from the ignite module source tree; no deploy-root copy
+# and no transport step.  Per-instance values are substituted at install time.
+#
+# Install-time substitution points (replace each @@NAME@@ with the instance value):
+#   @@USER@@              - unprivileged user the daemon runs as
+#   @@WORKSPACE_ROOT@@    - workspace root: the folder that roots .rbtv/
+#   @@NODE_BIN@@          - absolute path to the Node.js 24 binary
+#   @@IGNITE_SRC@@        - absolute path to the ignite module source root
+#   @@ENVIRONMENT_FILE@@  - optional EnvironmentFile path (use /dev/null to disable)
+#
+# Example install location for a system manager:
+#   /etc/systemd/system/rbtv-ignite.service
+#
+# After installing and substituting:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable rbtv-ignite
+#   sudo systemctl start rbtv-ignite
+#
+# Do NOT commit a substituted version of this file.
+
+[Unit]
+Description=RBTV ignite daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@@USER@@
+WorkingDirectory=@@WORKSPACE_ROOT@@
+EnvironmentFile=-@@ENVIRONMENT_FILE@@
+Environment="RBTV_IGNITE_SRC=@@IGNITE_SRC@@"
+Environment="RBTV_IGNITE_WORKSPACE_ROOT=@@WORKSPACE_ROOT@@"
+Environment="RBTV_IGNITE_CONFIG_PATH=@@IGNITE_SRC@@/config/spawn-profiles.yaml"
+ExecStart=@@NODE_BIN@@ @@IGNITE_SRC@@/server/index.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

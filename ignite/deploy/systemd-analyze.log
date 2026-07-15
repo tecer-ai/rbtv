@@ -1,0 +1,3 @@
+/tmp/rbtv-ignite-substituted.service:30: Special user nobody configured, this is not safe!
+/usr/lib/systemd/system/xfs_scrub_all.service:26: Support for option CPUAccounting= has been removed and it is ignored
+/usr/lib/systemd/system/system-xfs_scrub.slice:15: Support for option CPUAccounting= has been removed and it is ignored

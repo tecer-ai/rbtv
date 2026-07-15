@@ -1,0 +1,24 @@
+# ignite probe suite results — p3-2 worker validation
+# run: 2026-07-15T13:34:42Z to 2026-07-15T13:35:25Z
+# format: probe_path exit wall_ms status
+server/heart/probes/probe-enqueue.out 0 5 PASS
+server/heart/probes/probe-jobslog.out 0 3 PASS
+server/heart/probes/probe-reject.out 0 3 PASS
+server/heart/probes/probe-session-row.out 0 4 PASS
+server/heart/probes/probe-single-writer.out 0 65 PASS
+server/spawn/probes/probe-flag-injection.out 0 17 PASS
+server/spawn/probes/probe-killtree.out 0 383 PASS
+server/spawn/probes/probe-mode-gate.out 0 340 PASS
+server/spawn/probes/probe-orphan-rescan.out 0 588 PASS
+server/spawn/probes/probe-spawn.out 0 331 PASS
+server/spawn/probes/probe-survive-close.out 0 211 PASS
+server/spawn/probes/probe-workdir-gate.out 0 305 PASS
+server/ticker/probes/probe-blocked-redispatch.out 0 3004 PASS
+server/ticker/probes/probe-budget.out 0 3695 PASS
+server/ticker/probes/probe-cap.out 0 1378 PASS
+server/ticker/probes/probe-crash.out 0 1246 PASS
+server/ticker/probes/probe-idempotent.out 0 438 PASS
+server/ticker/probes/probe-periodic.out 0 5062 PASS
+server/ticker/probes/probe-recycle.out 0 1850 PASS
+server/ticker/probes/probe-scheduled.out 0 2502 PASS
+server/ticker/probes/probe-stall.out 0 969 PASS
