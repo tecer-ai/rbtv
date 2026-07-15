@@ -248,6 +248,8 @@ variants:
       required: true
       method: api-key
       env_var: DEEPSEEK_API_KEY     # official DeepSeek API via the models.dev built-in `deepseek` provider (https://api.deepseek.com); key provisioned in this vault's env_file; the dispatch must export it into the process env
+      credential_store: opencode        # EITHER-path availability (task adhoc-1, 2026-07-15), same mechanism as z1 (commit c0e2b42): a stored `opencode auth login` credential for the `deepseek` provider authenticates this backend with NO env var exported. Live-probed on the ignite VPS 2026-07-15 per adhoc-1's bar: DEEPSEEK_API_KEY absent from the OS env, the vault env_file absent entirely, and `opencode run -m deepseek/deepseek-v4-flash --dir <dir> "<prompt>" </dev/null` returned exit 0 with the expected reply (capture: phase-adhoc/probe-deepseek-flash.out). Keying availability on the env var ALONE therefore false-negatives a working backend.
+      credential_store_key: deepseek    # the provider id route.py looks up in opencode's store (`opencode auth list` reports the store's top-level keys)
       interactive: false
 
     rate_budget_notes: "exit-code taxonomy UNPILOTED (opencode harness); DeepSeek HTTP 429/5xx behavior through opencode unprobed — bound autonomous runs by task scope"
@@ -333,6 +335,8 @@ variants:
       required: true
       method: api-key
       env_var: DEEPSEEK_API_KEY     # same key as deepseek-flash (official DeepSeek API)
+      credential_store: opencode        # EITHER-path availability (task adhoc-1, 2026-07-15), same mechanism as z1 (commit c0e2b42): a stored `opencode auth login` credential for the `deepseek` provider authenticates this backend with NO env var exported. Live-probed on the ignite VPS 2026-07-15 per adhoc-1's bar: DEEPSEEK_API_KEY absent from the OS env, the vault env_file absent entirely, and `opencode run -m deepseek/deepseek-v4-pro --dir <dir> "<prompt>" </dev/null` returned exit 0 with the expected reply (capture: phase-adhoc/probe-deepseek-pro.out). Keying availability on the env var ALONE therefore false-negatives a working backend.
+      credential_store_key: deepseek    # the provider id route.py looks up in opencode's store (`opencode auth list` reports the store's top-level keys)
       interactive: false
 
     rate_budget_notes: "same as deepseek-flash; higher board price ($0.18 vs $0.06) within the same cost bin"
