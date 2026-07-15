@@ -1,0 +1,23 @@
+started: 2026-07-15T14:28:54.578Z
+tmp: /tmp/p3-2b-containment-O3w3Jn
+data_root: /tmp/p3-2b-containment-O3w3Jn/data
+profile_caps: {"memory_max":"128M","cpu_quota":"100%","runtime_max":"30s","tasks_max":64}
+exec_id: 1
+session_id: 908dfaa2-afc2-4f08-adeb-02954c60a453
+carrier: systemd
+unit_name: rbtv-worker-908dfaa2-afc2-4f08-adeb-02954c60a453
+status: running
+systemctl --user show caps:
+  RuntimeMaxUSec=30s
+  CPUQuotaPerSecUSec=1s
+  MemoryMax=134217728
+  TasksMax=64
+systemctl --user is-active: active
+matched MemoryMax: 134217728 bytes (expected 134217728)
+matched CPUQuotaPerSecUSec: 1000000us (expected 1000000us)
+matched RuntimeMaxUSec: 30s (expected 30s)
+matched TasksMax: 64
+containment verified: --user transient unit carries profile caps
+result: PASS
+killed worker
+ended: 2026-07-15T14:28:54.925Z

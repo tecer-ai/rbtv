@@ -1,0 +1,30 @@
+probe-suite summary
+generated: 2026-07-15T14:29:21Z
+
+[server/heart/probes]
+probe-enqueue | EXIT: 0 | WALL_MS: 8
+probe-jobslog | EXIT: 0 | WALL_MS: 5
+probe-reject | EXIT: 0 | WALL_MS: 3
+probe-session-row | EXIT: 0 | WALL_MS: 4
+probe-single-writer | EXIT: 0 | WALL_MS: 66
+
+[server/spawn/probes]
+probe-flag-injection | status: PASS | wall_ms: 14
+probe-killtree | status: PASS | wall_ms: 345
+probe-mode-gate | status: PASS | wall_ms: 329
+probe-orphan-rescan | status: PASS | wall_ms: 576
+probe-spawn | status: PASS | wall_ms: 312
+probe-survive-close | status: PASS | wall_ms: 209
+probe-workdir-gate | status: PASS | wall_ms: 323
+
+[server/ticker/probes]
+probe-blocked-redispatch | status: PASS | wall_ms: 3026
+probe-budget | status: PASS | wall_ms: 3670
+probe-cap | status: PASS | wall_ms: 1418
+probe-crash | status: PASS | wall_ms: 1242
+probe-idempotent | status: PASS | wall_ms: 409
+probe-periodic | status: PASS | wall_ms: 4993
+probe-recycle | status: PASS | wall_ms: 1869
+probe-scheduled | status: PASS | wall_ms: 2513
+probe-stall | status: PASS | wall_ms: 983
+

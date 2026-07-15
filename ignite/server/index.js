@@ -6,6 +6,7 @@ const yaml = require('js-yaml');
 const { openHeartStore, closeHeartStore, isHeartStoreOpen } = require('./heart/heart-store');
 const { createSpawnManager } = require('./spawn/spawn');
 const { createTicker } = require('./ticker/ticker');
+const { selectCarrier } = require('./spawn/carrier');
 
 // Smoke mode is an ARGV flag, never an environment variable: EnvironmentFile= and
 // inherited environments can carry an env var into a production boot by accident,
@@ -249,14 +250,17 @@ async function main() {
   });
 
   // Worker containment (profile `caps:` and `sandbox:`) exists ONLY on the systemd carrier.
-  // With carrier `auto`, an unreachable manager silently degrades to setsid and drops every
-  // cap and sandbox property — so state the carriage mode at boot rather than leaving the
-  // downgrade to be inferred from per-spawn lines.
+  // With carrier `auto`, an unreachable user manager silently degrades to setsid and drops
+  // every cap and sandbox property — so state the resolved carriage mode at boot and warn
+  // loudly when the resolved carrier is NOT the systemd user manager.
   const userManager = resolveUserManager();
   const configuredCarrier = mergedConfig.spawn?.carrier || 'auto';
-  log('info', 'spawn carriage', { configuredCarrier, userManager });
-  if (configuredCarrier === 'auto') {
-    log('warn', 'carrier is auto: if the selected systemd manager is unreachable, workers fall back to setsid, which applies NO profile caps and NO sandbox', {
+  const resolvedCarrier = selectCarrier(configuredCarrier, userManager);
+  log('info', 'spawn carriage', { configuredCarrier, resolvedCarrier, userManager });
+  if (resolvedCarrier !== 'systemd' || !userManager) {
+    log('warn', 'carrier degraded: workers will NOT run under systemd --user, so profile caps and sandbox are IGNORED', {
+      configuredCarrier,
+      resolvedCarrier,
       userManager,
     });
   }

@@ -1,10 +1,9 @@
-# rbtv-ignite.service — machine-agnostic systemd unit template for the ignite daemon.
+# rbtv-ignite.service — machine-agnostic systemd USER unit template for the ignite daemon.
 #
 # The daemon runs in place from the ignite module source tree; no deploy-root copy
 # and no transport step.  Per-instance values are substituted at install time.
 #
 # Install-time substitution points (replace each @@NAME@@ with the instance value):
-#   @@USER@@              - unprivileged user the daemon runs as
 #   @@WORKSPACE_ROOT@@    - workspace root: the folder that roots .rbtv/
 #   @@NODE_BIN@@          - absolute path to the Node.js 24 binary
 #   @@IGNITE_SRC@@        - absolute path to the ignite module source root
@@ -19,18 +18,19 @@
 # (systemd.exec), so the file is the operator's override surface; RBTV_IGNITE_DATA_ROOT
 # and RBTV_IGNITE_CARRIER are set there when the seed defaults do not fit.
 #
-# StateDirectory= provisions /var/lib/rbtv-ignite (the seed config's spawn.data_root)
-# owned by @@USER@@ before ExecStart.  Without it the unprivileged daemon cannot create
-# its data root and the unit dies at boot on EACCES.  An operator who moves data_root off
+# StateDirectory= provisions %S/rbtv-ignite (the runtime data root) for the user unit.
+# In a user unit %S resolves to $XDG_STATE_HOME (~/.local/state).  The unit exports this
+# path as RBTV_IGNITE_DATA_ROOT so the seed config's system-centric /var/lib/rbtv-ignite
+# is overridden without editing the committed config.  An operator who moves data_root off
 # the default via the EnvironmentFile owns creating that path.
 #
-# Example install location for a system manager:
-#   /etc/systemd/system/rbtv-ignite.service
+# Install location for the user manager:
+#   ~/.config/systemd/user/rbtv-ignite.service
 #
 # After installing and substituting:
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable rbtv-ignite
-#   sudo systemctl start rbtv-ignite
+#   systemctl --user daemon-reload
+#   systemctl --user enable rbtv-ignite
+#   systemctl --user start rbtv-ignite
 #
 # Do NOT commit a substituted version of this file.
 
@@ -41,13 +41,14 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=@@USER@@
 WorkingDirectory=@@WORKSPACE_ROOT@@
 EnvironmentFile=-@@ENVIRONMENT_FILE@@
 Environment="RBTV_IGNITE_SRC=@@IGNITE_SRC@@"
 Environment="RBTV_IGNITE_WORKSPACE_ROOT=@@WORKSPACE_ROOT@@"
 Environment="RBTV_IGNITE_CONFIG_PATH=@@IGNITE_SRC@@/config/spawn-profiles.yaml"
 Environment="RBTV_IGNITE_WORKDIR_ROOT=@@WORKDIR_ROOT@@"
+Environment="RBTV_IGNITE_DATA_ROOT=%S/rbtv-ignite"
+Environment="RBTV_IGNITE_USER_MANAGER=true"
 StateDirectory=rbtv-ignite
 ExecStart=@@NODE_BIN@@ @@IGNITE_SRC@@/server/index.js
 Restart=on-failure
@@ -56,4 +57,4 @@ StandardOutput=journal
 StandardError=journal
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
