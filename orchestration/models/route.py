@@ -80,6 +80,14 @@ REQUIRED_VARIANT_FIELDS = [
 
 SKIP_DIRS = {"_api", "_fixture", "mirror"}
 
+# routing.md §2 STAKES filter: a `stakes` VALUE signalling irreversible or cross-cutting work
+# tiers the pick UP one band ("Stakes override cheapness — a 'bounded' task with irreversible
+# blast radius does not go to the cheapest worker"). The router normalizes these tokens into the
+# existing `stakes_tier="tier_up"` trigger so the downstream tier-up path is reused verbatim.
+# `stakes="unresolved"` is NOT here — it is the halt-seam (a decision the owner must take before
+# routing), handled by _check_halt_seams; any other/absent value is a no-op.
+STAKES_TIER_UP_TOKENS = {"irreversible", "cross-cutting"}
+
 # Footprint-aware routing (spec Behavior 4): the window-utilization cap is read from rbtv.json
 # (`window_utilization_cap`). When absent or malformed (non-numeric, or outside the open-closed
 # range (0, 1]) the router falls back to this default and logs it. A worker passes the footprint
@@ -530,6 +538,84 @@ def _check_api_key_present(model_name: str, rbtv_cfg: dict, vault_root: Path, en
     return False
 
 
+def _opencode_auth_store_path() -> Path:
+    """Resolve opencode's credential-store path (XDG_DATA_HOME, else ~/.local/share).
+
+    opencode persists the credentials created by `opencode auth login` in a JSON file that
+    `opencode auth list` names in its OWN output header (observed on the ignite VPS,
+    opencode 1.17.18: "Credentials ~/.local/share/opencode/auth.json") — so this path is the
+    store the CLI itself reports, not an assumed location. XDG_DATA_HOME is honored first to
+    match opencode's own resolution; it also keeps the probe hermetically testable (a test
+    points XDG_DATA_HOME at a temp dir to control the store on any platform).
+    """
+    xdg = os.environ.get("XDG_DATA_HOME")
+    base = Path(xdg) if xdg else Path.home() / ".local" / "share"
+    return base / "opencode" / "auth.json"
+
+
+# Credential-store resolvers, keyed by the `auth.credential_store` id a variant may declare
+# (manifest-schema.md §2). A store id with no resolver here reads as "no stored credential"
+# (False) — an unknown id never crashes the router.
+CREDENTIAL_STORE_RESOLVERS = {
+    "opencode": _opencode_auth_store_path,
+}
+
+
+def _is_windows() -> bool:
+    """Is this process running on NATIVE Windows?
+
+    `win32` is sys.platform's value on every native Windows build (32- and 64-bit alike).
+    Deliberately NOT matching `cygwin`/`msys`: those are POSIX-emulating environments where the
+    XDG_DATA_HOME / ~/.local/share resolution above works as it does on Linux, so they are not
+    the unverified case the Windows notice exists to flag.
+
+    Factored out (rather than inlined) so a test can pin the platform on any host: the Windows
+    notice in `_unavailable_reason` must be assertable from the Linux VPS this suite runs on.
+    """
+    return sys.platform == "win32"
+
+
+def _check_stored_credential(store_id: str | None, store_key: str | None) -> bool:
+    """Is `store_key` a stored login in CLI `store_id`'s credential store?
+
+    The SECOND resolution path for an `api-key` variant (owner ruling 2026-07-15): a harness
+    that keeps its own credential store authenticates a backend from that store with NO API-key
+    env var exported. Only a variant that DECLARES `auth.credential_store` reaches here, so
+    every other package's api-key gate is byte-identical to before.
+
+    Reads the store FILE directly instead of shelling out to the CLI's `auth list`: the file IS
+    what `auth list` reports (it prints that path as its header), so this reads the same
+    authority at the cost of a small stdlib JSON read rather than a process spawn plus an
+    ANSI/TUI output parse — the gate runs at routing time, per variant, and route.py spawns no
+    subprocesses.
+
+    Presence of the provider key in the store IS the credential: `opencode auth list` lists
+    exactly the store's top-level keys, and `opencode auth logout` removes the key. The payload
+    shape is deliberately NOT inspected (it differs across auth types — `api` carries `key`,
+    oauth carries tokens), so this stays honest about what was observed.
+
+    Unknown store id, blank key, absent/unreadable file, or malformed JSON → False (degrade,
+    never raise — manifest-schema.md §4: a manifest must NEVER crash route.py).
+    """
+    if not store_id or not store_key:
+        return False
+    resolver = CREDENTIAL_STORE_RESOLVERS.get(store_id)
+    if resolver is None:
+        return False
+    try:
+        path = resolver()
+        with open(path, encoding="utf-8") as f:
+            store = json.load(f)
+    except (OSError, RuntimeError, ValueError):
+        # OSError: absent/unreadable file. RuntimeError: home dir undeterminable.
+        # ValueError: malformed JSON (json.JSONDecodeError subclasses it).
+        return False
+    if not isinstance(store, dict):
+        return False
+    entry = store.get(store_key)
+    return isinstance(entry, dict) and bool(entry)
+
+
 def _get_auth_method(variant: dict) -> str:
     # Defense-in-depth: a manifest must NEVER crash route.py (manifest-schema.md §4 + spec
     # Edge Cases). The parser now coerces a map-key's inline value to a dict, but a malformed
@@ -561,19 +647,58 @@ def _is_variant_available(variant: dict, model_name: str, rbtv_cfg: dict, vault_
         return False
     auth_method = _get_auth_method(variant)
     if auth_method == "api-key":
+        auth = variant.get("auth") if isinstance(variant.get("auth"), dict) else {}
         # Optional manifest-declared key-name override (variant auth.env_var) for
         # multi-provider packages whose backend keys the package-id derivation cannot name.
-        auth = variant.get("auth")
-        env_var = auth.get("env_var") if isinstance(auth, dict) else None
-        return _check_api_key_present(model_name, rbtv_cfg, vault_root, env_var=env_var)
+        env_var = auth.get("env_var")
+        if _check_api_key_present(model_name, rbtv_cfg, vault_root, env_var=env_var):
+            return True
+        # EITHER path satisfies the gate (owner ruling 2026-07-15). A variant MAY declare that
+        # its credential ALSO resolves from a harness's stored CLI login (auth.credential_store
+        # + auth.credential_store_key), because such a harness authenticates that backend with
+        # NO env var exported — keying availability on the env var alone reports the backend
+        # unavailable while it demonstrably works. The env-var path above stays first and
+        # unchanged (it is the piloted one); this is a fallback, never a replacement.
+        # Variants that do NOT declare a credential_store are unaffected: `store_id` is None
+        # ⇒ _check_stored_credential returns False ⇒ behavior identical to before.
+        return _check_stored_credential(auth.get("credential_store"), auth.get("credential_store_key"))
     # cli-login and none are not key-tested by the script
     return True
 
 
 def _unavailable_reason(variant: dict) -> str:
-    """The explain-trace reason a variant was dropped at the availability stage."""
+    """The explain-trace reason a variant was dropped at the availability stage.
+
+    Called ONLY at the availability-stage drop sites, so reaching the `store_id` branch below
+    already means all three of: the variant declares a credential store, the env-var path did
+    NOT resolve, and the store lookup found nothing — i.e. the store path is what decided the
+    verdict. That is exactly the case the Windows notice qualifies.
+    """
     if variant.get("available") is False:
         return "marked available: false in manifest"
+    auth = variant.get("auth") if isinstance(variant.get("auth"), dict) else {}
+    store_id = auth.get("credential_store")
+    if store_id:
+        reason = (
+            "api-key absent in both OS env and env_file, and no stored "
+            f"'{auth.get('credential_store_key')}' credential in the {store_id} auth store"
+        )
+        if _is_windows():
+            # The store path is the deciding factor here, and on Windows this resolver has NOT
+            # been verified: CREDENTIAL_STORE_RESOLVERS resolves XDG_DATA_HOME, else
+            # ~/.local/share — where the CLI stores credentials on Windows is UNKNOWN (it may
+            # be %LOCALAPPDATA% or elsewhere), so a real stored login there reads as absent.
+            # The verdict stays UNAVAILABLE — guessing a path would be worse than saying
+            # "unverified" — but it is flagged as non-authoritative rather than silently wrong.
+            reason += (
+                " -- NOT AUTHORITATIVE ON WINDOWS: this variant MAY in fact be available via a "
+                f"stored {store_id} login. This resolver does not yet cover the Windows "
+                f"credential-store path (it looks only at XDG_DATA_HOME, else ~/.local/share), "
+                f"so a store kept elsewhere on Windows reads as absent. Run `{store_id} auth "
+                "list` on this machine and add the store path it reports to this store's "
+                "resolver in CREDENTIAL_STORE_RESOLVERS to close the gap."
+            )
+        return reason
     return "api-key absent in both OS env and env_file"
 
 
@@ -1624,6 +1749,23 @@ def route(profile: dict, rbtv_root: Path, vault_root: Path, rbtv_cfg: dict, plan
             "stage": "pin", "action": "role_implied",
             "role": "reviewer",
             "note": "reviews_external_cli_code=true implies the reviewer role (routing.md §3 opus pin) -- pinned_role set to reviewer",
+        })
+
+    # Card fidelity (routing.md §2 STAKES filter): a `stakes` VALUE signalling irreversible or
+    # cross-cutting work tiers the pick UP one band. The card lists `stakes` as a standalone
+    # profile field (§2a step 1) alongside the pre-digested `stakes_tier`, so the router must act
+    # on the value itself — not only on `stakes_tier="tier_up"`. Normalize: an irreversible/
+    # cross-cutting `stakes` value + no explicit `stakes_tier` → set `stakes_tier="tier_up"`, so
+    # the downstream tier-up path (_apply_pins_and_stakes → _apply_stakes_tier_up) is reused
+    # verbatim. `stakes="unresolved"` already short-circuited at the halt-seam above; an
+    # absent/reversible/unknown value stays a no-op. An explicit `stakes_tier` is honored unchanged.
+    if profile.get("stakes") in STAKES_TIER_UP_TOKENS and not profile.get("stakes_tier"):
+        profile = dict(profile)
+        profile["stakes_tier"] = "tier_up"
+        explain_log.append({
+            "stage": "stakes", "action": "tier_up_implied",
+            "stakes": profile["stakes"],
+            "note": "irreversible/cross-cutting stakes value tiers up (routing.md §2 STAKES filter) -- stakes_tier normalized to tier_up",
         })
 
     # Stage 1: enumerate (rbtv_root = models/ folder; vault_root = env_file resolution)

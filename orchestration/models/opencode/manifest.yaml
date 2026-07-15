@@ -23,13 +23,13 @@
 
 model: opencode
 display: "opencode (CLI)"
-evidence_status: probe-pending   # sakana live-proven TWICE: 2026-07-06 POC (headless worktree task, real git commands, commit 6c0b1fb3) + 2026-07-09 smoke THROUGH this package's manual (Shape-B file-pointer dispatch exit 0, five-field return conformant, confinement diff clean, ~9 min wall). Still unpiloted: z1 entirely, resume-in-loop, exit taxonomy, a real task through the review gates — graduate to validated on the first real pilot
+evidence_status: validated   # ALL FOUR backends piloted through this package's manual 2026-07-09 (real bounded-code task — temperature converter + pytest — exit 0, conformant five-field return, confinement diff = only the allowlisted files, no worker commit, independent conductor re-validation): deepseek-flash 29s, deepseek-pro 41s, sakana 302s, z1(zai-coding-plan) 54s. Per-variant evidence rows below. STILL unpiloted package-wide: resume-in-loop, non-zero exit taxonomy, self-commit — narrow on future runs
 permission_rules:            # installer-managed allowlist entries in the target's .claude/settings.local.json — added when this package is elected, removed when deselected; schema: ../manifest-schema.md
   - "Bash(opencode:*)"
   - "PowerShell(opencode:*)"
 
 variants:
-  - variant: z1   # z.ai GLM-5.2 via opencode's built-in `zai` provider — `opencode run -m zai/glm-5.2`
+  - variant: z1   # z.ai GLM-5.2 via opencode's built-in `zai-coding-plan` provider — `opencode run -m zai-coding-plan/glm-5.2` (coding-plan endpoint; pay-per-token `zai/glm-5.2` 429s without an account balance — see auth + failure_modes)
     display: "GLM 5.2 (z.ai)"   # installer backend-election label (installer-consumed, NOT a routing input — schema §2)
 
     # --- capability + cost scores + sizing (routing §2, §8) — scale: schema §0 (integer 1–7, comparable across all models) ---
@@ -48,8 +48,8 @@ variants:
 
     # --- reasoning / effort modes (routing §2 post-pin effort=f(boundedness) — schema §0a) ---
     reasoning_modes:
-      depths: []                    # UNVERIFIED — opencode exposes a provider-specific effort flag (`--variant high|max|minimal`, 1.17.11 help) but which levels the zai backend honors is unprobed; treat as single-mode until a probe establishes the ladder. NOTE: opencode's `--variant` flag is its EFFORT dial — unrelated to this manifest's variant ids
-      invocation: "none — `--variant <level>` exists but per-backend support is unverified; do not pin an effort level until probed"
+      depths: []                    # PROBED 2026-07-09 through opencode: `--variant {minimal,high,max}` all return identically to a bogus control (`--variant bogus-xyz`, exit 0, same output) → opencode does NOT validate `--variant` and the zai backend does not honor it observably → NO effort ladder, single-mode CONFIRMED. NOTE: opencode's `--variant` flag is its EFFORT dial — unrelated to this manifest's variant ids
+      invocation: "none — PROBED 2026-07-09: opencode passes `--variant` to the provider but does NOT validate it; a bogus level (`--variant bogus-xyz`) returns identically to high/max/minimal (exit 0, same output) → no honored effort ladder → single-mode"
       carrier: "CLI flag (provider-specific)"
 
     # --- parallelism + resume (routing §8, §4) ---
@@ -58,7 +58,7 @@ variants:
 
     # --- non-interactive run (routing §4 → dispatch-wrapper) ---
     headless:
-      flags: "run -m zai/glm-5.2 --dir <worktree>"   # `opencode run` IS the headless mode; --format json for structured JSONL events; stdin-EOF guard MANDATORY (see os_quirks)
+      flags: "run -m zai-coding-plan/glm-5.2 --dir <worktree>"   # coding-plan endpoint (this vault's key is a GLM Coding Plan key; pay-per-token `zai/glm-5.2` 429s). `opencode run` IS the headless mode; --format json for structured JSONL events; stdin-EOF guard MANDATORY (see os_quirks)
       auto_approves_tools: true     # POC 2026-07-06: ran real git commands (incl. on the live vault, unprompted) with no interactive gate — treat headless as full-auto; opencode.json `permission` block exists but is UNPILOTED as a boundary
       prompt_transport: arg         # message is a positional arg; stdin IS read when piped (hence the mandatory EOF guard) but stdin-as-prompt transport is unverified — use the arg, or a file-pointer prompt for large briefs
 
@@ -66,8 +66,10 @@ variants:
     auth:
       required: true
       method: api-key
-      env_var: ZHIPU_API_KEY        # models.dev `zai` provider key (read 2026-07-09); NOT provisioned in this vault's env yet — variant reads unavailable until the owner adds it. opencode resolves keys from the PROCESS env — the dispatch must export it (see manual pre-flight)
-      interactive: false            # availability = the key resolves (OS env → rbtv.json env_file)
+      env_var: ZHIPU_API_KEY        # z.ai key (provisioned 2026-07-09). This vault's key is a GLM Coding Plan key → use the `zai-coding-plan` provider id (HTTP 200); the pay-per-token `zai` provider 429s "insufficient balance". When the key comes from the env, opencode resolves it from the PROCESS env for `zai-coding-plan` (registry key lookup) — such a dispatch MUST export it. A stored plain-"Z.AI" auth maps to the pay-per-token endpoint and does NOT cover `zai-coding-plan` (a stored "Z.AI Coding Plan" auth DOES — see credential_store). Pay-per-token installs: pin `zai/glm-5.2` (same key var, needs an account balance). Canonical z.ai setup (docs.z.ai/devpack/tool/opencode): the coding-plan OpenAI-protocol base URL is https://api.z.ai/api/coding/paas/v4. This env-var path is upstream's piloted+validated one (2026-07-09) and stays the first path route.py tries
+      credential_store: opencode        # EITHER-path availability (owner ruling 2026-07-15): a stored `opencode auth login` → "Z.AI Coding Plan" credential authenticates this backend with NO env var exported, so availability = env-var resolves OR this stored credential exists. VERIFIED twice on the ignite VPS 2026-07-15: ZHIPU_API_KEY absent from the OS env AND the vault env_file absent entirely, `opencode auth list` shows a stored "Z.AI Coding Plan", and `opencode run -m zai-coding-plan/glm-5.2 --dir <dir> "<prompt>" </dev/null` exits 0 in ~7s (three GLM research agents also ran to completion this way). Keying availability on the env var ALONE therefore false-negatives a working backend. NOT a claim that the env-var path is wrong — both authenticate
+      credential_store_key: zai-coding-plan   # the provider id route.py looks up in opencode's store (`opencode auth list` reports the store's top-level keys; NOT plain `zai`, which is the pay-per-token provider)
+      interactive: false            # availability = the key resolves (OS env → rbtv.json env_file) OR a stored opencode credential exists — never a human gesture at dispatch time
 
     rate_budget_notes: "exit-code taxonomy UNPILOTED — no known retryable-throttle code (unlike kimi 75); on any non-zero exit reconcile disk + recover-or-surface, never blind-retry. z.ai quota behavior unknown — bound autonomous runs by task scope"
 
@@ -86,15 +88,18 @@ variants:
     manual_path: ./manual.md          # canonical planning-emittable manual-path constant — resolves to models/opencode/manual.md
     delta_path: ./delta.md            # canonical render-source delta constant — resolves to models/opencode/delta.md
     specialty: "OSS-harness route to the leading open-weights model (GLM-5.2, AA II 51, 1M context) — provider-diversity code executor at mid cost; pick when open-weights/control or z.ai reach is wanted"   # within-tier tiebreaker only; boundedness-first stays the master cut
+    evidence_status: validated  # piloted through the manual 2026-07-09 via `zai-coding-plan/glm-5.2`: temperature-converter task, exit 0 (54s), conformant DONE, diff = only the 2 allowlisted files, no worker commit, independent pytest 5-passed + formula spot-check (worker float()-wrapped returns per spec). NOTE the endpoint: pay-per-token `zai/glm-5.2` 429s ("insufficient balance") — this vault's ZHIPU_API_KEY is a GLM Coding Plan key, so the coding-plan endpoint is the working route (see headless.flags + auth)
     configurable_model:
       provider_label: "opencode (multi-provider)"   # installer backend-election provider-path label (installer-consumed; not a routing input)
       is_configurable: true          # the model opencode runs is CONFIGURATION, not a fixed package identity
-      note: "served backend set by -m <provider>/<model> (zai/glm-5.2 | sakana/fugu-ultra | deepseek/deepseek-v4-flash | deepseek/deepseek-v4-pro); zai + deepseek providers are models.dev-built-in (key-only), sakana is a custom provider block in the machine-global ~/.config/opencode/opencode.jsonc; resolve/attribute the CONFIGURED id at dispatch, never assume from the package name"
+      note: "served backend set by -m <provider>/<model> (zai-coding-plan/glm-5.2 | sakana/fugu-ultra | deepseek/deepseek-v4-flash | deepseek/deepseek-v4-pro); zai-coding-plan + deepseek providers are models.dev-built-in (key-only), sakana is a custom provider block in the machine-global ~/.config/opencode/opencode.jsonc; resolve/attribute the CONFIGURED id at dispatch, never assume from the package name (this vault pins zai-coding-plan for glm-5.2 — a pay-per-token install uses zai/glm-5.2)"
     failure_modes:
       - "headless HANGS forever reading non-TTY stdin ('Reading additional input from stdin...') — stdin-EOF guard MANDATORY on every dispatch: PowerShell `$null |` prefix, Bash `< /dev/null` suffix (POC-diagnosed 2026-07-06)"
       - "NO native sandbox — POC ran `git status` on the live vault unprompted; worktree-mandatory dispatch + post-run git-diff-vs-allowlist is the boundary, never the CLI"
       - "API keys resolve from the PROCESS env only ({env:VAR} in provider config / registry key lookup) — rbtv's env_file is NOT auto-read by opencode; the dispatch must export the variant's key first"
-      - "provider config absent → the -m id does not resolve (sakana needs its custom provider block in the machine-global opencode config; zai needs only the key)"
+      - "provider config: zai-coding-plan + deepseek are models.dev-built-in (key-only); sakana needs its custom provider block in the machine-global opencode config. A wrong -m id does not resolve (`opencode models` must list it)."
+      - "z.ai has TWO endpoints — `zai` (pay-per-token; 429 code 1113 'insufficient balance' with no account balance) vs `zai-coding-plan` (GLM Coding Plan subscription). A coding-plan key works ONLY on `zai-coding-plan/*`; opencode's `opencode auth login` for Z.AI stores a `zai` (pay-per-token) credential that does NOT cover `zai-coding-plan` (which reads ZHIPU_API_KEY from the process env). This vault pins `zai-coding-plan/glm-5.2` (diagnosed 2026-07-09)."
+      - "opencode MASKS an upstream 429 (balance/quota) as an INDEFINITE HANG — it retries with backoff and never surfaces the error; the dispatch just times out with only `> build · <model>` on stderr (live-diagnosed 2026-07-09, zai pay-per-token 429). Diagnostic: raw-curl the provider's chat/completions endpoint for the real HTTP status — NOT a missed stdin-guard."
       - "sessions are per-cwd — two dispatches sharing a cwd cross-resume via -c; one worktree per dispatch"
       - "guidance file: a fresh vault worktree carries NO AGENTS.md (the vault gitignores mirror-generated guidance) — generate it into the worktree via the mirror pre-flight or inline the load-bearing rules"
       - "exit-code taxonomy UNPILOTED — reconcile disk on any non-zero exit; never blind-retry"
@@ -139,8 +144,8 @@ variants:
 
     # --- reasoning / effort modes ---
     reasoning_modes:
-      depths: []                    # UNVERIFIED — same `--variant` effort flag caveat as z1 (OpenRouter notes configurable reasoning effort, but the opencode-path levels are unprobed)
-      invocation: "none — `--variant <level>` exists but per-backend support is unverified; do not pin an effort level until probed"
+      depths: []                    # PROBED 2026-07-09: same result as z1 — `--variant high` == bogus control (exit 0, identical output) → single-mode confirmed
+      invocation: "none — PROBED 2026-07-09: opencode passes `--variant` to the provider but does NOT validate it; a bogus level (`--variant bogus-xyz`) returns identically to high/max/minimal (exit 0, same output) → no honored effort ladder → single-mode"
       carrier: "CLI flag (provider-specific)"
 
     # --- parallelism + resume ---
@@ -177,7 +182,7 @@ variants:
     manual_path: ./manual.md
     delta_path: ./delta.md
     specialty: "model-diversity premium option — a non-US-lab frontier-claimed multi-agent (Composition-of-Experts) model behind the OSS harness; the POC's cleanest headless run (own todo list, self-verified). cost 7 — reached via pinned roles, never auto-picked"
-    evidence_status: probe-pending  # live-proven twice (2026-07-06 POC worktree task, commit 6c0b1fb3; 2026-07-09 manual smoke: Shape-B dispatch exit 0, five-field return + confinement diff clean) — resume-in-loop, exit taxonomy, and a real gated task remain unpiloted
+    evidence_status: validated  # piloted through the manual 2026-07-09: temperature-converter task, exit 0 (302s), DONE_WITH_NOTES — worker self-detected+removed __pycache__ and re-ran pytest clean; diff = only the 2 allowlisted files, no worker commit, independent pytest 5-passed + formula spot-check; + POC 2026-07-06 (commit 6c0b1fb3). resume-in-loop + exit taxonomy still unpiloted. Capability GRADES remain vendor-reported (leg-3 AA re-grade deferred — fugu-ultra not on the board 2026-07-09)
     configurable_model:
       is_configurable: true
       note: "served backend set by -m sakana/fugu-ultra; requires the custom sakana provider block (OpenAI-compatible, https://api.sakana.ai/v1, {env:SAKANA_API_KEY}) in the machine-global ~/.config/opencode/opencode.jsonc — template in ./manual.md pre-flight"
@@ -224,8 +229,8 @@ variants:
 
     # --- reasoning / effort modes ---
     reasoning_modes:
-      depths: []                    # UNVERIFIED — same `--variant` effort-flag caveat as z1; DeepSeek's thinking toggle through opencode is unprobed
-      invocation: "none — `--variant <level>` exists but per-backend support is unverified; do not pin an effort level until probed"
+      depths: []                    # PROBED 2026-07-09: `--variant {minimal,high,max,bogus-xyz}` all exit 0 with identical output → silently ignored → single-mode confirmed (DeepSeek thinking not exposed via opencode `--variant`)
+      invocation: "none — PROBED 2026-07-09: opencode passes `--variant` to the provider but does NOT validate it; a bogus level (`--variant bogus-xyz`) returns identically to high/max/minimal (exit 0, same output) → no honored effort ladder → single-mode"
       carrier: "CLI flag (provider-specific)"
 
     # --- parallelism + resume (same harness contract as z1) ---
@@ -262,7 +267,7 @@ variants:
     manual_path: ./manual.md
     delta_path: ./delta.md
     specialty: "the cost-floor bounded-code executor (cost 1) — the cheap code-workhorse role inherited from the retired qwen-code-cli deepseek backend, now through the OSS harness; same model as deepseek-api's text rows, code roles only"
-    evidence_status: probe-pending  # never dispatched through opencode — the harness contract is smoke-proven (sakana 2026-07-09) but this backend is unpiloted; validate id + auth on first dispatch
+    evidence_status: validated  # piloted through the manual 2026-07-09: temperature-converter bounded-code task, exit 0 (29s), conformant five-field return, diff = only the 2 allowlisted files, no worker commit, independent pytest 5-passed + formula spot-check. `deepseek/deepseek-v4-flash` id + DEEPSEEK_API_KEY resolve (both verified via `opencode models`)
     configurable_model:
       is_configurable: true
       note: "served backend set by -m deepseek/deepseek-v4-flash (models.dev built-in provider, DEEPSEEK_API_KEY)"
@@ -309,8 +314,8 @@ variants:
 
     # --- reasoning / effort modes ---
     reasoning_modes:
-      depths: []                    # UNVERIFIED — same caveat as deepseek-flash
-      invocation: "none — `--variant <level>` exists but per-backend support is unverified; do not pin an effort level until probed"
+      depths: []                    # PROBED 2026-07-09: same result as deepseek-flash — `--variant high` == bogus control → single-mode confirmed
+      invocation: "none — PROBED 2026-07-09: opencode passes `--variant` to the provider but does NOT validate it; a bogus level (`--variant bogus-xyz`) returns identically to high/max/minimal (exit 0, same output) → no honored effort ladder → single-mode"
       carrier: "CLI flag (provider-specific)"
 
     # --- parallelism + resume (same harness contract as z1) ---
@@ -347,7 +352,7 @@ variants:
     manual_path: ./manual.md
     delta_path: ./delta.md
     specialty: "the heavier-reasoning cost-1 code executor — reasoning 5 at the cheapest bin; pick over deepseek-flash when the code task carries reasoning load; same model as deepseek-api's text rows, code roles only"
-    evidence_status: probe-pending  # unpiloted through opencode — same graduation path as deepseek-flash
+    evidence_status: validated  # piloted through the manual 2026-07-09: temperature-converter task, exit 0 (41s), conformant five-field return, diff clean (2 allowlisted files), no worker commit, independent pytest 5-passed + formula spot-check. `deepseek/deepseek-v4-pro` id + DEEPSEEK_API_KEY resolve
     configurable_model:
       is_configurable: true
       note: "served backend set by -m deepseek/deepseek-v4-pro (models.dev built-in provider, DEEPSEEK_API_KEY)"

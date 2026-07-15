@@ -197,49 +197,219 @@ class TestApiKeyAvailability:
     """Criterion 4: run a profile whose cheapest text candidate is an api-key worker
     WITH its key present, then re-run with the key absent."""
 
-    def test_api_key_toggle(self):
-        # (opencode, z1) is an api-key worker whose key — ZHIPU_API_KEY, named by the
-        # manifest auth.env_var override — is NOT provisioned in this vault (OS env or
-        # env_file), so the flip is deterministic on the real corpus.
+    def test_api_key_toggle(self, tmp_path):
+        # (opencode, z1) authenticates under ZHIPU_API_KEY (manifest auth.env_var override).
+        # HERMETIC: route over the REAL manifests (RBTV_ROOT) but with a TEMP vault_root whose
+        # env_file we control, so the availability flip is independent of the real vault's .env
+        # — which now HOLDS ZHIPU_API_KEY (the owner provisioned it 2026-07-09; the earlier
+        # "unprovisioned on the real corpus" premise is permanently false). OS env is isolated too.
+        #
+        # z1 now has a SECOND resolution path (manifest auth.credential_store, ruling
+        # 2026-07-15): a stored opencode "Z.AI Coding Plan" login satisfies availability with no
+        # env var. That is a third ambient input this env-var toggle must isolate, or the test
+        # asserts on the machine's real opencode store (the ignite VPS HAS that credential, so
+        # the key-absent leg would read available and fail there while passing on a box without
+        # it). XDG_DATA_HOME → tmp_path points route.py's store resolver at an empty temp dir on
+        # EVERY platform, so this stays a pure env-var toggle. The store path itself is covered
+        # by TestStoredCredentialAvailability.
+        import route
         profile = _profile(
             boundedness="fully-bounded",
             task_type="code",
             inlined_context_size=10000,
         )
-        exit_code_with_key, result_with_key = _run_route(
-            profile, explain=True,
-            env_override={"ZHIPU_API_KEY": "test-key-value"}
+        env_file = tmp_path / ".env"
+        cfg = {"env_file": ".env"}          # vault-relative → resolves under tmp_path, NOT the real .env
+        saved = os.environ.pop("ZHIPU_API_KEY", None)
+        saved_xdg = os.environ.get("XDG_DATA_HOME")
+        os.environ["XDG_DATA_HOME"] = str(tmp_path)   # no opencode/auth.json here → no stored credential
+        try:
+            # WITH the key (in the temp env_file) → (opencode, z1) NOT dropped at availability.
+            env_file.write_text("ZHIPU_API_KEY=test-fake-not-real\n", encoding="utf-8")
+            result_with_key = route.route(dict(profile), RBTV_ROOT, tmp_path, cfg, {}, explain=True)
+            z1_dropped_with_key = any(
+                s.get("stage") == "availability" and s.get("model") == "opencode" and s.get("variant") == "z1"
+                for s in result_with_key.get("explain", [])
+            )
+            assert not z1_dropped_with_key, (
+                f"Key present: (opencode, z1) must NOT be dropped at availability: {result_with_key.get('explain', [])}"
+            )
+            # WITHOUT the key (temp env_file empty, OS env popped) → (opencode, z1) DROPPED.
+            env_file.write_text("# no keys here\n", encoding="utf-8")
+            result_no_key = route.route(dict(profile), RBTV_ROOT, tmp_path, cfg, {}, explain=True)
+            z1_dropped_no_key = any(
+                s.get("stage") == "availability" and s.get("model") == "opencode" and s.get("variant") == "z1"
+                for s in result_no_key.get("explain", [])
+            )
+            assert z1_dropped_no_key, (
+                "Key absent: expected (opencode, z1) dropped at availability, "
+                f"trace had no z1 availability drop: {result_no_key.get('explain', [])}"
+            )
+        finally:
+            if saved is not None:
+                os.environ["ZHIPU_API_KEY"] = saved
+            if saved_xdg is not None:
+                os.environ["XDG_DATA_HOME"] = saved_xdg
+            else:
+                os.environ.pop("XDG_DATA_HOME", None)
+
+
+class TestStoredCredentialAvailability:
+    """Owner ruling 2026-07-15: an api-key variant declaring `auth.credential_store` is
+    AVAILABLE if EITHER the env var resolves OR the harness holds a stored credential.
+
+    Hermetic on every platform: XDG_DATA_HOME points route.py's opencode store resolver at a
+    temp dir, so these never read the machine's real ~/.local/share/opencode/auth.json.
+    """
+
+    Z1_AUTH = {
+        "method": "api-key",
+        "env_var": "ZHIPU_API_KEY",
+        "credential_store": "opencode",
+        "credential_store_key": "zai-coding-plan",
+    }
+
+    @staticmethod
+    def _write_store(tmp_path, payload):
+        store = tmp_path / "opencode"
+        store.mkdir(parents=True, exist_ok=True)
+        (store / "auth.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    @pytest.fixture
+    def isolated(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("ZHIPU_API_KEY", raising=False)
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+        return tmp_path
+
+    def test_stored_credential_alone_makes_variant_available(self, isolated):
+        """The ignite-VPS case: no env var, no env_file, but a stored 'Z.AI Coding Plan'."""
+        import route
+        self._write_store(isolated, {"zai-coding-plan": {"type": "api", "key": "fake-not-real"}})
+        assert route._is_variant_available({"auth": self.Z1_AUTH}, "opencode", {}, isolated)
+
+    def test_no_env_var_and_no_stored_credential_is_unavailable(self, isolated):
+        """Neither path resolves → still unavailable (the gate did not become a rubber stamp)."""
+        import route
+        self._write_store(isolated, {"deepseek": {"type": "api", "key": "fake"}})  # different provider
+        assert not route._is_variant_available({"auth": self.Z1_AUTH}, "opencode", {}, isolated)
+
+    def test_env_var_alone_still_makes_variant_available(self, isolated, monkeypatch):
+        """Upstream's piloted path is untouched: env var works with NO store on disk."""
+        import route
+        monkeypatch.setenv("ZHIPU_API_KEY", "fake-not-real")
+        assert route._is_variant_available({"auth": self.Z1_AUTH}, "opencode", {}, isolated)
+
+    def test_variant_without_credential_store_is_env_var_only(self, isolated):
+        """OPT-IN: a variant declaring no credential_store is gated on the env var exactly as
+        before, even when the store holds a same-named credential. Guards the blast radius —
+        deepseek/sakana/gemini/manus keep their pre-change behavior."""
+        import route
+        self._write_store(isolated, {"deepseek": {"type": "api", "key": "fake"}})
+        auth_no_store = {"method": "api-key", "env_var": "DEEPSEEK_API_KEY"}
+        assert not route._is_variant_available({"auth": auth_no_store}, "deepseek-api", {}, isolated)
+
+    def test_available_false_overrides_stored_credential(self, isolated):
+        """An explicit `available: false` still wins over a resolvable stored credential."""
+        import route
+        self._write_store(isolated, {"zai-coding-plan": {"type": "api", "key": "fake"}})
+        assert not route._is_variant_available(
+            {"auth": self.Z1_AUTH, "available": False}, "opencode", {}, isolated
         )
-        # Run without the key
-        env_no_key = {k: v for k, v in os.environ.items() if k != "ZHIPU_API_KEY"}
-        exit_code_no_key, result_no_key = _run_route(
-            profile, explain=True,
-            env_override=env_no_key
+
+    @pytest.mark.parametrize("payload", ["{ not json", "[]", '{"zai-coding-plan": {}}'])
+    def test_malformed_or_empty_store_degrades_to_unavailable(self, isolated, payload):
+        """Malformed JSON, a non-map store, or an empty entry → False, never a crash
+        (manifest-schema.md §4: a manifest must NEVER crash route.py)."""
+        import route
+        store = isolated / "opencode"
+        store.mkdir(parents=True, exist_ok=True)
+        (store / "auth.json").write_text(payload, encoding="utf-8")
+        assert not route._is_variant_available({"auth": self.Z1_AUTH}, "opencode", {}, isolated)
+
+    def test_absent_store_file_degrades_to_unavailable(self, isolated):
+        """No store file at all (fresh machine) → False, never a crash."""
+        import route
+        assert not route._is_variant_available({"auth": self.Z1_AUTH}, "opencode", {}, isolated)
+
+    def test_unknown_store_id_degrades_to_unavailable(self, isolated):
+        """A store id with no resolver reads as 'no stored credential', never a crash."""
+        import route
+        auth = dict(self.Z1_AUTH, credential_store="not-a-real-harness")
+        assert not route._is_variant_available({"auth": auth}, "opencode", {}, isolated)
+
+    def test_unavailable_reason_names_the_store(self, isolated):
+        """The explain trace explains BOTH failed paths, so a false negative is diagnosable."""
+        import route
+        reason = route._unavailable_reason({"auth": self.Z1_AUTH})
+        assert "zai-coding-plan" in reason and "opencode" in reason
+
+
+class TestWindowsStoredCredentialNotice:
+    """Owner ruling 2026-07-15 (second): `_opencode_auth_store_path()` resolves XDG_DATA_HOME,
+    else ~/.local/share — where opencode stores credentials on WINDOWS is unverified. A variant
+    whose credential lives ONLY in that store therefore reads unavailable on Windows even though
+    it may well work, so the reason must SAY the verdict is not authoritative there.
+
+    The verdict itself is unchanged on every platform — the notice is a warning, not a bypass.
+    Platform is pinned via `route.sys.platform` so these assert on any host (this suite runs on
+    Linux); nothing here is skipped by platform.
+    """
+
+    Z1_AUTH = TestStoredCredentialAvailability.Z1_AUTH
+
+    @pytest.fixture
+    def isolated(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("ZHIPU_API_KEY", raising=False)
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+        return tmp_path
+
+    def test_windows_reason_warns_the_variant_may_be_available(self, isolated, monkeypatch):
+        """On Windows the reason still explains both failed paths AND flags itself unauthoritative."""
+        import route
+        monkeypatch.setattr(route.sys, "platform", "win32")
+        reason = route._unavailable_reason({"auth": self.Z1_AUTH})
+        assert "zai-coding-plan" in reason and "opencode" in reason   # the pre-existing substance survives
+        assert "NOT AUTHORITATIVE ON WINDOWS" in reason
+        assert "MAY in fact be available" in reason
+        assert "does not yet cover the Windows" in reason
+        assert "opencode auth list" in reason                          # the action that closes the gap
+
+    @pytest.mark.parametrize("platform", ["linux", "darwin", "cygwin", "msys"])
+    def test_non_windows_reason_is_unchanged(self, isolated, monkeypatch, platform):
+        """Byte-identical to the pre-change string off native Windows — the notice is win32-only.
+
+        cygwin/msys are POSIX-emulating: the XDG_DATA_HOME / ~/.local/share resolution works
+        there as on Linux, so they are NOT the unverified case and get no notice."""
+        import route
+        monkeypatch.setattr(route.sys, "platform", platform)
+        reason = route._unavailable_reason({"auth": self.Z1_AUTH})
+        assert reason == (
+            "api-key absent in both OS env and env_file, and no stored "
+            "'zai-coding-plan' credential in the opencode auth store"
         )
-        assert exit_code_with_key == 0
-        assert exit_code_no_key == 0
-        # Assert the availability FLIP, not just exit==0. With the key absent,
-        # (opencode, z1) MUST appear in an availability-drop row; with the key present
-        # it MUST NOT be dropped for the api-key reason. (Subprocess env wins over
-        # env_file because _check_api_key_present checks OS env FIRST — and the check
-        # reads the variant's auth.env_var name, never the derived OPENCODE_API_KEY.)
-        explain_no_key = result_no_key.get("explain", [])
-        z1_dropped_no_key = any(
-            s.get("stage") == "availability" and s.get("model") == "opencode" and s.get("variant") == "z1"
-            for s in explain_no_key
-        )
-        assert z1_dropped_no_key, (
-            "Key absent: expected (opencode, z1) dropped at availability, "
-            f"trace had no z1 availability drop: {explain_no_key}"
-        )
-        explain_with_key = result_with_key.get("explain", [])
-        z1_dropped_with_key = any(
-            s.get("stage") == "availability" and s.get("model") == "opencode" and s.get("variant") == "z1"
-            for s in explain_with_key
-        )
-        assert not z1_dropped_with_key, (
-            "Key present (OS env wins): (opencode, z1) must NOT be dropped for api-key absence"
-        )
+        assert "WINDOWS" not in reason.upper()
+
+    def test_windows_notice_does_not_flip_the_verdict(self, isolated, monkeypatch):
+        """The notice is a WARNING, not a bypass: z1 stays UNAVAILABLE on Windows with no
+        env var and no resolvable stored credential. Guessing a store path would be worse."""
+        import route
+        monkeypatch.setattr(route.sys, "platform", "win32")
+        assert not route._is_variant_available({"auth": self.Z1_AUTH}, "opencode", {}, isolated)
+
+    def test_windows_notice_absent_for_a_variant_without_a_credential_store(self, isolated, monkeypatch):
+        """Scoped to the store path: a plain api-key variant's reason is untouched on Windows —
+        no stored-credential path decided ITS verdict, so there is nothing to qualify."""
+        import route
+        monkeypatch.setattr(route.sys, "platform", "win32")
+        reason = route._unavailable_reason({"auth": {"method": "api-key", "env_var": "DEEPSEEK_API_KEY"}})
+        assert reason == "api-key absent in both OS env and env_file"
+
+    def test_windows_notice_absent_for_available_false(self, isolated, monkeypatch):
+        """`available: false` is a manifest verdict, not a credential-store miss — no notice."""
+        import route
+        monkeypatch.setattr(route.sys, "platform", "win32")
+        reason = route._unavailable_reason({"auth": self.Z1_AUTH, "available": False})
+        assert reason == "marked available: false in manifest"
 
 
 # ---------------------------------------------------------------------------
@@ -565,6 +735,106 @@ class TestStakesTierUp:
         assert tier_up_result is not None
         assert tier_up_result["original_pick"] != tier_up_result["raised_pick"], (
             "Stakes tier-up should change the pick"
+        )
+
+
+class TestStakesValueTierUp:
+    """routing.md §2 STAKES filter: a `stakes` VALUE (irreversible / cross-cutting) tiers the
+    pick UP even when the pre-digested `stakes_tier` flag is absent — 'Stakes override cheapness'.
+    Before the fix a fully-bounded code profile carrying stakes=irreversible routed to the CHEAPEST
+    worker (opencode:deepseek-pro), exactly the §2 failure mode."""
+
+    def test_stakes_irreversible_tiers_up_not_cheapest(self):
+        """A fully-bounded code profile with stakes=irreversible (no stakes_tier) must NOT route to
+        the cheapest cost-1 worker; it raises the band to partially-bounded → Claude mid-tier,
+        matching what stakes_tier=tier_up yields for the same profile."""
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+            stakes="irreversible",
+        )
+        exit_code, result = _run_route(profile, explain=True)
+        assert exit_code == 0
+        assert result["verdict"] == "route", f"Expected route, got {result}"
+        # The bug: irreversible work must NOT go to the cheapest worker.
+        assert not (result["model"] == "opencode" and result["variant"] == "deepseek-pro"), (
+            "stakes=irreversible must NOT route to the cheapest cost-1 worker (routing.md §2)"
+        )
+        # It must tier up to Claude mid-tier — identical to the stakes_tier=tier_up path.
+        assert result["model"] in ("claude-code-native", "claude-code-cli"), (
+            f"stakes=irreversible should raise to Claude mid-tier, got {result['model']}:{result['variant']}"
+        )
+        # The normalization + the existing tier-up machinery both leave their trace.
+        explain = result.get("explain", [])
+        assert any(
+            s.get("stage") == "stakes" and s.get("action") == "tier_up_implied" for s in explain
+        ), "Expected the stakes value → tier_up normalization step in the explain trace"
+        assert any(
+            s.get("stage") == "stakes" and s.get("action") == "tier_up_result" for s in explain
+        ), "Expected the existing tier-up re-resolution to fire"
+
+    def test_stakes_value_matches_stakes_tier_flag(self):
+        """stakes=irreversible must yield the SAME (model, variant) as the pre-digested
+        stakes_tier=tier_up flag for an otherwise-identical profile — the value is normalized
+        into that exact flag, so the downstream pick is byte-identical."""
+        base = dict(boundedness="fully-bounded", task_type="code", inlined_context_size=10000)
+        _, via_value = _run_route(_profile(**base, stakes="irreversible"))
+        _, via_flag = _run_route(_profile(**base, stakes_tier="tier_up"))
+        assert via_value.get("verdict") == "route"
+        assert (via_value["model"], via_value["variant"]) == (via_flag["model"], via_flag["variant"]), (
+            f"stakes=irreversible ({via_value['model']}:{via_value['variant']}) must match "
+            f"stakes_tier=tier_up ({via_flag['model']}:{via_flag['variant']})"
+        )
+
+    def test_stakes_cross_cutting_tiers_up(self):
+        """cross-cutting is the second §2 token — it tiers up identically to irreversible."""
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+            stakes="cross-cutting",
+        )
+        exit_code, result = _run_route(profile, explain=True)
+        assert exit_code == 0
+        assert result["verdict"] == "route"
+        assert not (result["model"] == "opencode" and result["variant"] == "deepseek-pro"), (
+            "stakes=cross-cutting must NOT route to the cheapest cost-1 worker"
+        )
+        assert result["model"] in ("claude-code-native", "claude-code-cli"), (
+            f"stakes=cross-cutting should raise to Claude mid-tier, got {result['model']}:{result['variant']}"
+        )
+
+    def test_stakes_unresolved_still_halts(self):
+        """Regression guard: stakes=unresolved still short-circuits to halt_seam, NOT a tier-up —
+        the tier-up normalization must never swallow the halt seam."""
+        profile = _profile(
+            boundedness="fully-bounded",
+            task_type="code",
+            inlined_context_size=10000,
+            stakes="unresolved",
+        )
+        exit_code, result = _run_route(profile)
+        assert exit_code == 0
+        assert result["verdict"] == "halt_seam"
+        assert result["seam"] == "stakes"
+
+    def test_stakes_tier_flag_still_wins_and_reversible_is_noop(self):
+        """Regression guards: an explicit stakes_tier=tier_up still tiers up; a reversible/unknown
+        stakes value is a no-op (routes byte-identically to no-stakes — the cheapest worker)."""
+        # Explicit flag unchanged.
+        _, flag = _run_route(_profile(
+            boundedness="fully-bounded", task_type="code", inlined_context_size=10000,
+            stakes_tier="tier_up",
+        ))
+        assert flag["model"] in ("claude-code-native", "claude-code-cli")
+        # Reversible value → no tier-up: identical to a profile carrying no stakes signal at all.
+        base = dict(boundedness="fully-bounded", task_type="code", inlined_context_size=10000)
+        _, no_stakes = _run_route(_profile(**base))
+        _, reversible = _run_route(_profile(**base, stakes="reversible"))
+        assert reversible.get("verdict") == "route"
+        assert (reversible["model"], reversible["variant"]) == (no_stakes["model"], no_stakes["variant"]), (
+            "a reversible/unknown stakes value must be a no-op (route byte-identically to no-stakes)"
         )
 
 
