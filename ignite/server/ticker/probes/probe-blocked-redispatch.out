@@ -1,0 +1,25 @@
+probe: probe-blocked-redispatch
+started: 2026-07-15T02:34:05.445Z
+command: node probes/probe-blocked-redispatch.js
+tick-1 actions: [{"phase":"apply-events"},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+exec1: exec_id=1 thread=exec-1 status=running
+blocked completion msg_id=1
+tick-2 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked","execId":1},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"broadcast"}]
+exec1 after block: status=blocked completion_msg_id=1
+new answer msg_id=2
+tick-3 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch","execId":1,"watermark":1},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"broadcast"}]
+re-dispatch queue row: queue_id=2 parent_exec_id marker=1
+tick-4 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-deferred","execId":1,"reason":"slot-live-or-rearmed"},{"phase":"dispatch","action":"spawn","execId":2,"queueId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+exec2: exec_id=2 parent_exec_id=1 thread=exec-1 status=running
+exec3: exec_id=3 thread=exec-3
+tick-6 (exec3 blocked) actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked","execId":3},{"phase":"advance","action":"blocked-redispatch-deferred","execId":1,"reason":"slot-live-or-rearmed"},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"broadcast"}]
+no-new-msg-tick-1 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-deferred","execId":1,"reason":"slot-live-or-rearmed"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+no-new-msg-tick-2 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-deferred","execId":1,"reason":"slot-live-or-rearmed"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+no-new-msg-tick-3 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-deferred","execId":1,"reason":"slot-live-or-rearmed"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+pre-teardown live executions: 1
+  live exec_id=2 session_id=ed70c375-1cd0-4d5f-980d-8d26a67fff95 status=running
+status: PASS
+exit: 0
+wall_ms: 1678
+skipped_count: 0
+ended: 2026-07-15T02:34:07.123Z

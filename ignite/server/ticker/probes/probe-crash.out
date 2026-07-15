@@ -1,10 +1,10 @@
 probe: probe-crash
-started: 2026-07-15T00:22:31.134Z
+started: 2026-07-15T02:33:58.920Z
 command: node probes/probe-crash.js
 enqueued one due launch-agent job
 tick 1: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":0}}}]
 exec id=1, status=running
-unit name: rbtv-worker-ebb1ba6c-1e61-411c-b654-8261df34a036
+unit name: rbtv-worker-cc90077f-854e-47df-8df0-89fd4f3bf030
 tick 2: [{"phase":"apply-events","skipped":true},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"crash-sweep","execId":1,"exitCode":0,"completionMsgId":1},{"phase":"enforce","action":"state","sessions":{}},{"phase":"broadcast","msgId":1},{"phase":"broadcast","msgId":2}]
 tick 3: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"failed-halt","execId":1},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}},{"phase":"broadcast","msgId":3}]
 final status: failed
@@ -12,6 +12,6 @@ completions on thread: 1
 notes on thread: 2
 status: PASS
 exit: 0
-wall_ms: 1229
+wall_ms: 1253
 skipped_count: 0
-ended: 2026-07-15T00:22:32.363Z
+ended: 2026-07-15T02:34:00.173Z

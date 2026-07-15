@@ -179,6 +179,26 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     return false;
   }
 
+  function hasNewInputSinceBlock(execRow) {
+    const thread = execRow.thread;
+    const watermark = execRow.completion_msg_id;
+    if (!thread || !watermark) return false;
+    const rows = allSql(
+      'SELECT 1 FROM messages WHERE thread = ? AND msg_id > ? LIMIT 1',
+      thread, watermark
+    );
+    return rows.length > 0;
+  }
+
+  function isSlotLiveOrRearmed(blockedExec) {
+    if (findLiveExecutionForThread(blockedExec.thread)) return true;
+    for (const row of heartStore.listQueue()) {
+      const args = safeJsonParse(row.args, {});
+      if (args[CHAIN_MARKER] === blockedExec.exec_id) return true;
+    }
+    return false;
+  }
+
   function findExecForCompletion(msg) {
     if (!msg.thread || !msg.thread.startsWith('exec-')) return null;
     const rootId = parseInt(msg.thread.slice(5), 10);
@@ -493,6 +513,39 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         heartStore.resolveCompletion({ msgId: msg.msg_id, execId: exec.exec_id, status: 'failed', endedAt: now, routedAtTick: tick });
         actions.push({ phase: 'advance', action: 'failed-halt', execId: exec.exec_id });
       }
+    }
+
+    // Re-dispatch blocked slots when genuinely new input arrives on the thread.
+    for (const exec of heartStore.listExecutionsByStatus('blocked')) {
+      if (!hasNewInputSinceBlock(exec)) continue;
+      if (isSlotLiveOrRearmed(exec)) {
+        actions.push({ phase: 'advance', action: 'blocked-redispatch-deferred', execId: exec.exec_id, reason: 'slot-live-or-rearmed' });
+        continue;
+      }
+
+      const recycles = countRecycles(exec.exec_id);
+      if (recycles >= cfg.slot_max_repeats) {
+        heartStore.recordMessage({
+          type: 'note',
+          sender: 'ticker',
+          thread: exec.thread,
+          corpus: `slot automatic-recycle budget exhausted (${cfg.slot_max_repeats}); blocked re-dispatch halted`,
+          createdAt: now,
+        });
+        actions.push({ phase: 'advance', action: 'blocked-redispatch-budget-exhausted', execId: exec.exec_id, recycles });
+        continue;
+      }
+
+      insertQueueRow({
+        jobId: exec.job_id,
+        args: exec.args,
+        sessionMode: exec.session_mode,
+        triggerKind: 'scheduled',
+        runAt: toIsoUtc(new Date(now.getTime() + 1000)),
+        enqueuedBy: exec.enqueued_by,
+        parentExecId: exec.exec_id,
+      });
+      actions.push({ phase: 'advance', action: 'blocked-redispatch', execId: exec.exec_id, watermark: exec.completion_msg_id });
     }
   }
 
