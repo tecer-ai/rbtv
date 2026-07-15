@@ -9,7 +9,7 @@ Instantiate this as `state-capsule.md` in the run's spine location at spine init
 ```markdown
 # State Capsule — {run-name}
 
-> Mutable file, but entries are append-only per `_shared/authoring/decisions-discipline.md`. Follow it. Planning decisions belong in `decisions.md`, not here.
+> **Overwriting is the contract:** this file is MUTABLE and atomic-overwrite. NEVER append to it and NEVER treat it as a history — history is `run-log.md`. A planning decision is append-only and belongs in `decisions.md`, not here.
 
 > **Audience:** the next conductor session, resuming after interruption or context-refresh. Everything here exists to make resumption clean.
 
