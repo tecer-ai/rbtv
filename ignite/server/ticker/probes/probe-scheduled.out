@@ -1,0 +1,14 @@
+probe: probe-scheduled
+started: 2026-07-15T00:11:45.638Z
+command: node probes/probe-scheduled.js
+enqueued at 2026-07-15T00:11:45.660Z, run_at 2026-07-15T00:11:47.660Z
+tick 1: [{"phase":"apply-events","skipped":true},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}}]
+tick 2: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":2,"lastLogSize":0,"silenceTicks":0}}}]
+jobs_log rows: 1
+exec status: running, profile: null
+spawn live: true
+status: PASS
+exit: 0
+wall_ms: 2516
+skipped_count: 0
+ended: 2026-07-15T00:11:48.154Z

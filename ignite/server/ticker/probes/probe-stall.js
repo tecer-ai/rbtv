@@ -1,0 +1,57 @@
+'use strict';
+
+const { setup, teardown, registerLaunchAgentJob, enqueueLaunchAgent, capture } = require('./lib');
+
+async function run(lines) {
+  const ctx = setup();
+  try {
+    registerLaunchAgentJob(ctx);
+    const now = new Date();
+    enqueueLaunchAgent(ctx, { profile: 'test-sleep', runAt: now });
+
+    lines.push('enqueued one due launch-agent job');
+
+    let r = await ctx.ticker.tick(now);
+    lines.push(`tick ${r.tick}: ${JSON.stringify(r.actions)}`);
+
+    const exec = ctx.store.dump().jobs_log[0];
+    lines.push(`exec id=${exec.exec_id}, status=${exec.status}`);
+
+    let warned = false;
+    let stalled = false;
+    for (let i = 0; i < 30; i++) {
+      r = await ctx.ticker.tick(new Date());
+      if (r.actions.some(a => a.phase === 'enforce' && a.action === 'warn')) {
+        warned = true;
+        lines.push(`warn at tick ${r.tick}`);
+      }
+      if (r.actions.some(a => a.phase === 'enforce' && a.action === 'stalled')) {
+        stalled = true;
+        lines.push(`stalled at tick ${r.tick}`);
+        break;
+      }
+    }
+
+    if (!warned) throw new Error('expected warn note before stall');
+    if (!stalled) throw new Error('expected stalled status');
+
+    const dump = ctx.store.dump();
+    const finalExec = dump.jobs_log[0];
+    lines.push(`final status: ${finalExec.status}`);
+    if (finalExec.status !== 'stalled') throw new Error(`expected stalled, got ${finalExec.status}`);
+
+    const notes = dump.messages.filter(m => m.type === 'note' && m.thread === finalExec.thread);
+    lines.push(`notes on thread: ${notes.length}`);
+    if (notes.length < 2) throw new Error('expected warn + stall notes');
+
+    const live = await ctx.mgr.status(finalExec.exec_id);
+    lines.push(`process live after stall: ${live.live}`);
+    if (!live.live) throw new Error('process should remain alive after stall');
+
+    try { await ctx.mgr.kill(finalExec.exec_id); } catch {}
+  } finally {
+    teardown(ctx);
+  }
+}
+
+capture('probe-stall', run);
