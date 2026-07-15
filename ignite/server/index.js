@@ -2,7 +2,6 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const os = require('node:os');
 const yaml = require('js-yaml');
 const { openHeartStore, closeHeartStore, isHeartStoreOpen } = require('./heart/heart-store');
 const { createSpawnManager } = require('./spawn/spawn');
@@ -102,7 +101,7 @@ function loadMergedConfig(configPath) {
   return cfg;
 }
 
-function materializeEffectiveConfig(configPath) {
+function materializeEffectiveConfig(configPath, dataRoot, workspaceRoot) {
   const overrides = {};
   if (process.env.RBTV_IGNITE_DATA_ROOT) overrides.data_root = process.env.RBTV_IGNITE_DATA_ROOT;
   if (process.env.RBTV_IGNITE_CARRIER) overrides.carrier = process.env.RBTV_IGNITE_CARRIER;
@@ -113,7 +112,10 @@ function materializeEffectiveConfig(configPath) {
   }
 
   const cfg = loadMergedConfig(configPath);
-  const tempConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rbtv-ignite-cfg-'));
+  // Keep runtime-only config material inside the configured data root so no
+  // ephemeral file lands in arbitrary temp directories outside the workspace.
+  const tempConfigDir = path.join(dataRoot || workspaceRoot, '.runtime-config');
+  ensureDir(tempConfigDir);
   const effectiveConfigPath = path.join(tempConfigDir, 'spawn-profiles.yaml');
   fs.writeFileSync(effectiveConfigPath, yaml.dump(cfg));
   return { effectiveConfigPath, mergedConfig: cfg, tempConfigDir };
@@ -140,12 +142,16 @@ async function main() {
   const configPath = resolveConfigPath(igniteSrc);
   log('info', 'loading config', { configPath });
 
-  const { effectiveConfigPath, mergedConfig, tempConfigDir } = materializeEffectiveConfig(configPath);
+  const dataRoot = (() => {
+    const cfg = loadMergedConfig(configPath);
+    return process.env.RBTV_IGNITE_DATA_ROOT || cfg.spawn?.data_root || null;
+  })();
+
+  const { effectiveConfigPath, mergedConfig, tempConfigDir } = materializeEffectiveConfig(configPath, dataRoot, workspaceRoot);
   if (effectiveConfigPath !== configPath) {
     log('info', 'runtime config overrides materialized', { effectiveConfigPath });
   }
 
-  const dataRoot = mergedConfig.spawn?.data_root || null;
   if (dataRoot) ensureDir(dataRoot);
   if (mergedConfig.default_workdir_root) ensureDir(mergedConfig.default_workdir_root);
 
