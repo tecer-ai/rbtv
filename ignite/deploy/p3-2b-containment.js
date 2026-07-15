@@ -223,14 +223,20 @@ async function proveProfile(profileName, realCfg) {
       const rwp = realProfile.sandbox.ReadWritePaths;
       if (rwp) {
         const declared = Array.isArray(rwp) ? rwp : [rwp];
-        const unresolved = declared.filter((p) => /\{[a-z_]+\}/.test(p));
+        const declaredSlots = declared.filter((p) => /\{[a-z_]+\}/.test(p));
         const live = props.ReadWritePaths || '';
         log(`  profile declares ReadWritePaths=${JSON.stringify(declared)}`);
         log(`  live unit reports  ReadWritePaths=${live}`);
+        // Report whether the profile actually declares a slot: if it declares none, the
+        // resolution check below is vacuous and must not be read as proof of resolution.
+        log(`  slots declared in profile: ${declaredSlots.length ? JSON.stringify(declaredSlots) : '(NONE — slot resolution is not exercised by this profile)'}`);
+        // Grade BOTH halves of the label. `live.includes(workdir)` alone would pass a value
+        // that still carried a literal `{slot}` next to the resolved path.
+        const liveHasSlot = /\{[a-z_]+\}/.test(live);
         check(
           'ReadWritePaths template slots resolved to the real workdir',
           live, `must contain ${row.workdir} and no {slot}`,
-          unresolved.length === 0 ? live.includes(row.workdir) : live.includes(row.workdir),
+          live.includes(row.workdir) && !liveHasSlot,
         );
       }
     }

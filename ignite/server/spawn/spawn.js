@@ -97,13 +97,24 @@ function ensurePromptFile(dataRoot, sessionId, prompt) {
   return promptPath;
 }
 
+// Resolve template slots across the WHOLE sandbox block rather than one named directive.
+// systemd's sandbox vocabulary is path-heavy (ReadWritePaths=, ReadOnlyPaths=, BindPaths=,
+// InaccessiblePaths=, ...); resolving only the directive today's profiles happen to use would
+// leave the next one added silently carrying a literal `{workdir}` into the unit — the same
+// defect, one directive over. Values are resolved by SHAPE, not by name: strings and
+// string-arrays go through slot resolution, everything else (booleans like PrivateTmp,
+// numbers) passes through untouched. A slot with no value throws E_MISSING_KEY from
+// resolveTemplateSlots — the spawn fails loudly rather than emitting a literal `{slot}`.
 function resolveSandbox(sandbox, workdir) {
   if (!sandbox) return sandbox;
   const values = { workdir };
   const resolved = { ...sandbox };
-  if (sandbox.ReadWritePaths) {
-    const arr = Array.isArray(sandbox.ReadWritePaths) ? sandbox.ReadWritePaths : [sandbox.ReadWritePaths];
-    resolved.ReadWritePaths = resolveTemplateSlots(arr, values);
+  for (const [key, value] of Object.entries(sandbox)) {
+    if (typeof value === 'string') {
+      resolved[key] = resolveTemplateSlots([value], values)[0];
+    } else if (Array.isArray(value) && value.every((v) => typeof v === 'string')) {
+      resolved[key] = resolveTemplateSlots(value, values);
+    }
   }
   return resolved;
 }

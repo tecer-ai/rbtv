@@ -40,9 +40,14 @@ const lines = [
   `generated: ${now}`,
   '',
   ...output.split('\n').map((line) => portable(line)),
+  // A tool that never ran reports status null. Record that explicitly: an empty capture with
+  // no error line is indistinguishable from a verify that produced no findings.
+  ...(proc.error ? [`VERIFY_ERROR: systemd-analyze could not be run: ${proc.error.message}`] : []),
   `VERIFY_EXIT: ${proc.status}`,
   `VERIFY_WALL_MS: ${wallMs}`,
 ];
 
 fs.writeFileSync(OUT_PATH, lines.join('\n') + '\n', 'utf8');
-process.exit(proc.status ?? 0);
+// `?? 1`, never `?? 0`: status is null when systemd-analyze could not be run at all, and
+// exiting 0 there would report a verification that never happened as a success.
+process.exit(proc.status ?? 1);

@@ -18,18 +18,41 @@ function generateSessionId() {
   return crypto.randomUUID();
 }
 
+// systemctl(1) `is-system-running`, Table 4, prints exactly one of:
+//   initializing | starting | running | degraded | maintenance | stopping | offline | unknown
+// Every state EXCEPT `running` exits non-zero while still printing its state word on STDOUT.
+//
+// This is a DENYLIST on purpose. The question is NOT "is the manager healthy?" but "is there a
+// manager here to contain this worker?" — and those differ. An allowlist of healthy states sends
+// every state it fails to enumerate (`unknown`, which systemd reports under resource pressure;
+// `stopping`; `initializing`; any state a future systemd adds) down the `setsid` path, where caps
+// and sandbox are silently dropped. That is precisely the D46 fail-open this function exists to
+// prevent, and an allowlist re-opens it for every state it does not name.
+//
+// The two error directions are NOT symmetric, so we bias deliberately:
+//   guess "available" wrongly  -> systemd-run fails -> loud E_CARRIER_FAILED, no worker runs.
+//   guess "unavailable" wrongly -> setsid -> an UNCONFINED worker runs, silently.
+// Only a definitive "no manager" answer — `offline` (manager not running), or no state word at
+// all — resolves to unavailable.
+const MANAGER_ABSENT_STATES = new Set(['offline']);
+
 function systemdAvailable(userManager = true) {
   const flag = userManager ? '--user' : '--system';
   let state = null;
   try {
-    state = execFileSync('systemctl', [flag, 'is-system-running'], { encoding: 'utf8' }).trim();
+    state = execFileSync('systemctl', [flag, 'is-system-running'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
   } catch (err) {
-    // `is-system-running` exits 1 for degraded/starting/maintenance but still prints the state.
-    // Only a missing manager (no stdout state) is treated as unavailable.
-    const captured = err && (err.stdout || err.stderr);
+    // ONLY stdout carries a state word. stderr carries bus errors ("Failed to connect to user
+    // scope bus...") and must never be read as one: under a denylist a bus error would test as
+    // "not offline" and wrongly report a manager that is not there.
+    const captured = err && err.stdout;
     if (captured) state = String(captured).trim();
   }
-  return ['running', 'degraded', 'starting', 'maintenance'].includes(state);
+  if (!state) return false;
+  return !MANAGER_ABSENT_STATES.has(state);
 }
 
 function selectCarrier(configCarrier, userManager = true) {
@@ -44,13 +67,21 @@ function selectCarrier(configCarrier, userManager = true) {
   return systemdAvailable(userManager) ? 'systemd' : 'setsid';
 }
 
+// A key these two cannot translate is DROPPED from the unit unless it is raised. Dropping a
+// `caps:`/`sandbox:` directive that the profile explicitly declares is a silent containment
+// loss — the profile promises a confinement the worker never gets, and nothing says so.
+// config.js's KNOWN_CAPS_KEYS/KNOWN_SANDBOX_KEYS make that unreachable through loadConfig
+// today, so these throws cannot fire on the current profiles; they exist so that the day a
+// directive is added to the config allowlist without a translation here, the spawn fails
+// loudly instead of quietly running a less-confined worker (D46: containment is non-negotiable).
 function capToProperty(key, value) {
   switch (key) {
     case 'memory_max': return `MemoryMax=${value}`;
     case 'cpu_quota': return `CPUQuota=${value}`;
     case 'runtime_max': return `RuntimeMaxSec=${value}`;
     case 'tasks_max': return `TasksMax=${String(value)}`;
-    default: return null;
+    default:
+      throw new SpawnError(E_CARRIER_FAILED, `unsupported caps directive: ${key} — refusing to spawn a worker whose profile declares a cap the carrier cannot apply`, { carrier: 'systemd', key });
   }
 }
 
@@ -63,7 +94,8 @@ function sandboxToProperty(key, value) {
       const arr = Array.isArray(value) ? value : [value];
       return arr.map((p) => `ReadWritePaths=${p}`);
     }
-    default: return null;
+    default:
+      throw new SpawnError(E_CARRIER_FAILED, `unsupported sandbox directive: ${key} — refusing to spawn a worker whose profile declares a confinement the carrier cannot apply`, { carrier: 'systemd', key });
   }
 }
 

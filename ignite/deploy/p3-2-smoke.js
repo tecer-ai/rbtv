@@ -66,7 +66,15 @@ stdout = stdout.split('\n').map((line) => {
   return JSON.stringify(parsed, replacer);
 }).join('\n');
 
-const out = stdout + '\n' + `SMOKE_EXIT: ${proc.status}\nSMOKE_WALL_MS: ${wallMs}\n`;
+// The daemon logs structured JSON to stdout; stderr should stay empty. Capture it anyway —
+// a crash stack or a warning printed to stderr is exactly the evidence a scrubbing wrapper
+// must not swallow, and an exit code alone would not reveal a stderr warning on a clean exit.
+const stderrText = (proc.stderr || '').trim();
+
+const out = stdout + '\n'
+  + (stderrText ? `SMOKE_STDERR:\n${stderrText.split('\n').map((l) => portable(l)).join('\n')}\n` : '')
+  + (proc.error ? `SMOKE_ERROR: the daemon could not be run: ${proc.error.message}\n` : '')
+  + `SMOKE_EXIT: ${proc.status}\nSMOKE_WALL_MS: ${wallMs}\n`;
 fs.writeFileSync(OUT_PATH, out, 'utf8');
 
 try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
