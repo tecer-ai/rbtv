@@ -8,7 +8,8 @@ auth:
 
 spawn:
   data_root: /var/lib/rbtv-ignite   # store, logs/, prompts/ live under here (task 3.2 binds the concrete path)
-  carrier: auto                     # auto -> systemd-run when the boot probe finds systemd; else setsid fallback
+  carrier: systemd                  # required (D48): containment is non-negotiable. A worker runs under
+                                     # systemd-run --user with its profile caps/sandbox, or it refuses to start.
   kill_grace_seconds: 10            # SIGTERM -> grace -> SIGKILL
 
 default_workdir_root: /path/set-at-setup   # REQUIRED (D22): the workdir every spawn falls back to when the

@@ -1,5 +1,5 @@
 p3-2c degraded-manager containment proof — carrier stays systemd, containment stays on
-started: 2026-07-15T15:38:48.449Z
+started: 2026-07-15T16:11:23.564Z
 command: node deploy/p3-2c-degraded-containment.js
 config: {IGNITE_SRC}/config/spawn-profiles.yaml
 initial user manager state: running
@@ -8,13 +8,14 @@ initial user manager state: running
 user manager state after forcing failure: degraded
 
 === spawning a sandboxed worker while degraded ===
-spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-04e1afd8-35ab-4862-ab6f-c6302e38b1a2 workdir=/tmp/p3-2c-degraded-UkeVBo/work
+carrier under test: systemd
+spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-527d4564-648e-491d-b486-f9d13f08581f workdir=/tmp/p3-2c-degraded-tqKECX/work
 MemoryMax readback: 4294967296 (expected 4294967296)
-ReadWritePaths readback: /tmp/p3-2c-degraded-UkeVBo/work
+ReadWritePaths readback: /tmp/p3-2c-degraded-tqKECX/work
 containment intact under degraded manager: PASS
 
 user manager state after cleanup: running
 forced degraded state held during spawn: true
 carrier resolved to systemd with containment intact: true
 result: PASS
-ended: 2026-07-15T15:38:48.991Z
+ended: 2026-07-15T16:11:24.121Z

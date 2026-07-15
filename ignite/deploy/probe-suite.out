@@ -1,30 +1,30 @@
 probe-suite summary
-generated: 2026-07-15T14:29:21Z
+generated: 2026-07-15T16:10:20.357Z
 
 [server/heart/probes]
-probe-enqueue | EXIT: 0 | WALL_MS: 8
-probe-jobslog | EXIT: 0 | WALL_MS: 5
-probe-reject | EXIT: 0 | WALL_MS: 3
-probe-session-row | EXIT: 0 | WALL_MS: 4
-probe-single-writer | EXIT: 0 | WALL_MS: 66
+probe-enqueue | EXIT: 0 | WALL_MS: 67
+probe-jobslog | EXIT: 0 | WALL_MS: 62
+probe-reject | EXIT: 0 | WALL_MS: 56
+probe-session-row | EXIT: 0 | WALL_MS: 52
+probe-single-writer | EXIT: 0 | WALL_MS: 68
 
 [server/spawn/probes]
-probe-flag-injection | status: PASS | wall_ms: 14
-probe-killtree | status: PASS | wall_ms: 345
-probe-mode-gate | status: PASS | wall_ms: 329
-probe-orphan-rescan | status: PASS | wall_ms: 576
-probe-spawn | status: PASS | wall_ms: 312
-probe-survive-close | status: PASS | wall_ms: 209
-probe-workdir-gate | status: PASS | wall_ms: 323
+probe-flag-injection | EXIT: 0 | WALL_MS: 78
+probe-killtree | EXIT: 0 | WALL_MS: 395
+probe-mode-gate | EXIT: 0 | WALL_MS: 385
+probe-orphan-rescan | EXIT: 0 | WALL_MS: 621
+probe-spawn | EXIT: 0 | WALL_MS: 419
+probe-survive-close | EXIT: 0 | WALL_MS: 246
+probe-workdir-gate | EXIT: 0 | WALL_MS: 358
 
 [server/ticker/probes]
-probe-blocked-redispatch | status: PASS | wall_ms: 3026
-probe-budget | status: PASS | wall_ms: 3670
-probe-cap | status: PASS | wall_ms: 1418
-probe-crash | status: PASS | wall_ms: 1242
-probe-idempotent | status: PASS | wall_ms: 409
-probe-periodic | status: PASS | wall_ms: 4993
-probe-recycle | status: PASS | wall_ms: 1869
-probe-scheduled | status: PASS | wall_ms: 2513
-probe-stall | status: PASS | wall_ms: 983
+probe-blocked-redispatch | EXIT: 0 | WALL_MS: 3129
+probe-budget | EXIT: 0 | WALL_MS: 3817
+probe-cap | EXIT: 0 | WALL_MS: 1430
+probe-crash | EXIT: 0 | WALL_MS: 1297
+probe-idempotent | EXIT: 0 | WALL_MS: 519
+probe-periodic | EXIT: 0 | WALL_MS: 5089
+probe-recycle | EXIT: 0 | WALL_MS: 1933
+probe-scheduled | EXIT: 0 | WALL_MS: 2566
+probe-stall | EXIT: 0 | WALL_MS: 1143
 

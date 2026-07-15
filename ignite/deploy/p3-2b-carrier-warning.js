@@ -9,18 +9,24 @@
 // degradation is the defect this round exists to close, so the warning must be proven to fire
 // under the real condition, not asserted by a comment.
 //
-// It boots the REAL entry point (server/index.js --smoke-test) as a child process under four
+// It boots the REAL entry point (server/index.js --smoke-test) as a child process under five
 // carriage scenarios and asserts on the daemon's own structured log lines:
 //
 //   1. healthy        — user manager reachable, carrier auto   -> resolves systemd, NO warning
-//   2. manager-unreachable (THE hazard) — XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS stripped
+//   2. manager-unreachable (THE auto hazard) — XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS stripped
 //                       so `systemctl --user` cannot connect, carrier auto -> degrades to setsid
 //                       -> the warning MUST fire
 //   3. carrier-setsid — operator pins RBTV_IGNITE_CARRIER=setsid -> the warning MUST fire
 //   4. user-manager-off — RBTV_IGNITE_USER_MANAGER=false -> the warning MUST fire
+//   5. pin systemd, manager unreachable (D48) — config carrier is systemd, user bus stripped
+//                       -> daemon MUST fail to boot with E_SYSTEMD_NOT_AVAILABLE and MUST NOT
+//                       silently produce a setsid worker.
 //
-// Scenario 2 is the load-bearing one: it reproduces the actual silent-degradation condition
-// rather than a flag that merely announces it.
+// Scenarios 1-4 exercise `carrier: auto` via the RBTV_IGNITE_CARRIER env override so their
+// documented behavior stays correct even though the committed config is now pinned to systemd.
+// Scenario 2 is the load-bearing auto hazard: it reproduces the actual silent-degradation
+// condition rather than a flag that merely announces it.
+// Scenario 5 is the load-bearing D48 pin proof: a pinned carrier with no manager refuses to run.
 //
 // Usage:  node deploy/p3-2b-carrier-warning.js
 // Writes deploy/p3-2b-carrier-warning.out and exits 0 (PASS) / 1 (FAIL). Needs no privilege.
@@ -48,6 +54,15 @@ function portable(p) {
   const home = os.homedir();
   if (home && s.startsWith(home)) return '{HOME}' + s.slice(home.length);
   return s;
+}
+
+function scrub(s) {
+  if (typeof s !== 'string') return s;
+  let out = s;
+  if (IGNITE_SRC) out = out.split(IGNITE_SRC).join('{IGNITE_SRC}');
+  const home = os.homedir();
+  if (home) out = out.split(home).join('{HOME}');
+  return out;
 }
 
 const results = [];
@@ -101,7 +116,7 @@ function assertScenario({ name, stripUserBus, extraEnv, expectResolved, expectWa
   } else {
     log('  daemon reported: NO "spawn carriage" line found');
   }
-  log(`  warning line: ${warning ? JSON.stringify(warning) : '(none)'}`);
+  log(`  warning line: ${warning ? JSON.stringify(warning, (k, v) => typeof v === 'string' ? scrub(v) : v) : '(none)'}`);
 
   const okBoot = r.exit === 0;
   const okResolved = carriage ? carriage.resolvedCarrier === expectResolved : false;
@@ -119,6 +134,42 @@ function assertScenario({ name, stripUserBus, extraEnv, expectResolved, expectWa
   if (!okBoot) log(`  stderr: ${r.stderr.split('\n').slice(0, 4).join(' | ')}`);
 }
 
+function assertPinHardFail({ name, stripUserBus, extraEnv }) {
+  log('');
+  log(`=== scenario: ${name} ===`);
+  log('  expect: daemon fails to boot with E_SYSTEMD_NOT_AVAILABLE, no setsid worker produced');
+
+  const r = bootDaemon({ name, stripUserBus, extraEnv });
+  const carriage = r.parsed.find((l) => l.message === 'spawn carriage');
+  const errorLine = r.parsed.find((l) => l.level === 'error' && l.message === 'daemon failed to start');
+  const errorMessage = errorLine && errorLine.error ? String(errorLine.error) : '';
+  const expectedMessage = 'systemd carrier requested but user manager is not available';
+  const identityOk = errorMessage.includes(expectedMessage);
+  const setsidSpawn = r.parsed.find((l) => l.message === 'setsid spawn');
+
+  log(`  boot exit: ${r.exit} (wall_ms=${r.wallMs})`);
+  log(`  error line: ${errorLine ? JSON.stringify(errorLine, (k, v) => typeof v === 'string' ? scrub(v) : v) : '(none)'}`);
+  if (carriage) log(`  UNEXPECTED spawn carriage: ${JSON.stringify(carriage, (k, v) => typeof v === 'string' ? scrub(v) : v)}`);
+  if (setsidSpawn) log(`  UNEXPECTED setsid spawn: ${JSON.stringify(setsidSpawn, (k, v) => typeof v === 'string' ? scrub(v) : v)}`);
+
+  const okFail = r.exit !== 0;
+  const okIdentity = identityOk;
+  const okNoCarriage = !carriage;
+  const okNoSetsid = !setsidSpawn;
+
+  for (const [label, ok] of [
+    ['daemon fails to boot (non-zero exit)', okFail],
+    ['error identity is E_SYSTEMD_NOT_AVAILABLE (unique message)', okIdentity],
+    ['no spawn carriage line produced', okNoCarriage],
+    ['no setsid worker produced', okNoSetsid],
+  ]) {
+    log(`  [${ok ? 'PASS' : 'FAIL'}] ${label}`);
+    results.push({ scenario: name, label, ok });
+  }
+
+  if (!okFail) log(`  stderr: ${r.stderr.split('\n').slice(0, 4).join(' | ')}`);
+}
+
 function main() {
   log('p3-2b carrier-degradation warning proof — does the boot-time warning actually fire?');
   log(`started: ${now()}`);
@@ -128,11 +179,14 @@ function main() {
   log(`warning matched on: level=warn AND message contains "${WARN_MESSAGE_MATCH}"`);
 
   // 1. The healthy path must stay quiet — a warning that always fires teaches operators to
-  //    ignore it, which is the same failure as no warning at all.
-  assertScenario({ name: 'healthy (user manager reachable, carrier auto)', stripUserBus: false, extraEnv: {}, expectResolved: 'systemd', expectWarning: false });
+  //    ignore it, which is the same failure as no warning at all. Force carrier=auto so this
+  //    scenario keeps testing auto's documented behavior even though the committed config is
+  //    now pinned to systemd.
+  assertScenario({ name: 'healthy (user manager reachable, carrier auto)', stripUserBus: false, extraEnv: { RBTV_IGNITE_CARRIER: 'auto' }, expectResolved: 'systemd', expectWarning: false });
 
-  // 2. THE HAZARD: the real silent-degradation condition D46 exists to make visible.
-  assertScenario({ name: 'manager-unreachable (no user bus, carrier auto) — THE D46 HAZARD', stripUserBus: true, extraEnv: {}, expectResolved: 'setsid', expectWarning: true });
+  // 2. THE AUTO HAZARD: the real silent-degradation condition D46 exists to make visible.
+  //    Force carrier=auto so auto's degrade-to-setsid behavior stays exercised and verified.
+  assertScenario({ name: 'manager-unreachable (no user bus, carrier auto) — THE D46 HAZARD', stripUserBus: true, extraEnv: { RBTV_IGNITE_CARRIER: 'auto' }, expectResolved: 'setsid', expectWarning: true });
 
   // 3. Operator explicitly pins setsid — containment is off; say so.
   assertScenario({ name: 'carrier pinned to setsid', stripUserBus: false, extraEnv: { RBTV_IGNITE_CARRIER: 'setsid' }, expectResolved: 'setsid', expectWarning: true });
@@ -140,6 +194,11 @@ function main() {
   // 4. userManager=false — carriage would target the SYSTEM manager, which an unprivileged
   //    daemon cannot drive; the warning must fire even though systemd resolves.
   assertScenario({ name: 'RBTV_IGNITE_USER_MANAGER=false', stripUserBus: false, extraEnv: { RBTV_IGNITE_USER_MANAGER: 'false' }, expectResolved: 'systemd', expectWarning: true });
+
+  // 5. THE PIN (D48): with carrier pinned to systemd in the committed config and the user
+  //    manager genuinely unreachable, the daemon must fail to boot with E_SYSTEMD_NOT_AVAILABLE
+  //    and must NOT silently fall back to a setsid worker.
+  assertPinHardFail({ name: 'pin systemd, manager unreachable (D48 hard-fail)', stripUserBus: true, extraEnv: {} });
 
   const failed = results.filter((r) => !r.ok);
   log('');

@@ -1,9 +1,9 @@
 command: systemd-analyze verify deploy/rbtv-ignite.service   (unsubstituted TEMPLATE — @@SLOTS@@ are not valid systemd values by design)
-generated: 2026-07-15T15:36:49.123Z
+generated: 2026-07-15T16:11:40.463Z
 
 {IGNITE_SRC}/deploy/rbtv-ignite.service:49: WorkingDirectory= path is not absolute: @@WORKSPACE_ROOT@@
 rbtv-ignite.service: Unit configuration has fatal error, unit will not be started.
 Unit rbtv-ignite.service has a bad unit file setting.
 
 VERIFY_EXIT: 1
-VERIFY_WALL_MS: 23
+VERIFY_WALL_MS: 13

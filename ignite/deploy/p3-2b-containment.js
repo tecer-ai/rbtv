@@ -142,7 +142,7 @@ async function proveProfile(profileName, realCfg) {
   const cfg = {
     bind: { host: '127.0.0.1', port: 7431 },
     auth: { senders_file: path.join(tmp, 'senders.yaml') },
-    spawn: { data_root: dataRoot, carrier: 'auto', kill_grace_seconds: 2 },
+    spawn: { data_root: dataRoot, carrier: realCfg.spawn?.carrier || 'auto', kill_grace_seconds: 2 },
     default_workdir_root: workRoot,
     profiles: { [profileName]: testProfile },
   };
@@ -258,6 +258,7 @@ async function main() {
   })()}`);
 
   const realCfg = yaml.load(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  log(`carrier under test: ${realCfg.spawn?.carrier || 'auto'}`);
   const arg = process.argv[2];
   const targets = arg === '--all'
     ? Object.keys(realCfg.profiles).filter((p) => realCfg.profiles[p].caps)

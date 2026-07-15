@@ -88,6 +88,7 @@ async function main() {
   log('=== spawning a sandboxed worker while degraded ===');
 
   const realCfg = yaml.load(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  log(`carrier under test: ${realCfg.spawn?.carrier || 'auto'}`);
   const profileName = 'codex-git-write';
   const realProfile = realCfg.profiles[profileName];
   if (!realProfile) throw new Error(`profile not found in ${portable(CONFIG_PATH)}: ${profileName}`);
@@ -110,7 +111,7 @@ async function main() {
   const cfg = {
     bind: { host: '127.0.0.1', port: 7431 },
     auth: { senders_file: path.join(tmp, 'senders.yaml') },
-    spawn: { data_root: dataRoot, carrier: 'auto', kill_grace_seconds: 2 },
+    spawn: { data_root: dataRoot, carrier: realCfg.spawn?.carrier || 'auto', kill_grace_seconds: 2 },
     default_workdir_root: workRoot,
     profiles: { [profileName]: testProfile },
   };

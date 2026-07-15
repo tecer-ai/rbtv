@@ -1,15 +1,15 @@
-{"ts":"2026-07-15T15:36:48Z","level":"info","message":"ignite daemon starting","igniteSrc":"{IGNITE_SRC}","workspaceRoot":"{WORKSPACE_ROOT}","pid":412445,"smokeTest":true}
-{"ts":"2026-07-15T15:36:48Z","level":"info","message":"install state ready","moduleDir":"{WORKSPACE_ROOT}/.rbtv/modules/ignite","installed":false}
-{"ts":"2026-07-15T15:36:48Z","level":"info","message":"loading config","configPath":"{IGNITE_SRC}/config/spawn-profiles.yaml"}
-{"ts":"2026-07-15T15:36:48Z","level":"info","message":"runtime config overrides materialized","effectiveConfigPath":"{DATA_ROOT}/.runtime-config/spawn-profiles.yaml","daemonOnlyKeys":[]}
-{"ts":"2026-07-15T15:36:48Z","level":"info","message":"spawn carriage","configuredCarrier":"auto","resolvedCarrier":"systemd","userManager":true}
-{"ts":"2026-07-15T15:36:48Z","level":"info","message":"daemon composed","heartStoreOpen":true}
-{"ts":"2026-07-15T15:36:48Z","level":"info","message":"tick 1 start","tick":1}
-{"ts":"2026-07-15T15:36:48Z","level":"info","message":"tick 1 end","tick":1,"actionCount":3}
-{"ts":"2026-07-15T15:36:48Z","level":"info","message":"initial tick complete","tick":1,"actionCount":3}
-{"ts":"2026-07-15T15:36:48Z","level":"info","message":"smoke test: initial tick done, exercising real shutdown path"}
-{"ts":"2026-07-15T15:36:48Z","level":"info","message":"received SIGTERM, shutting down"}
-{"ts":"2026-07-15T15:36:48Z","level":"info","message":"daemon stopped"}
+{"ts":"2026-07-15T16:08:16Z","level":"info","message":"ignite daemon starting","igniteSrc":"{IGNITE_SRC}","workspaceRoot":"{WORKSPACE_ROOT}","pid":419974,"smokeTest":true}
+{"ts":"2026-07-15T16:08:16Z","level":"info","message":"install state ready","moduleDir":"{WORKSPACE_ROOT}/.rbtv/modules/ignite","installed":false}
+{"ts":"2026-07-15T16:08:16Z","level":"info","message":"loading config","configPath":"{IGNITE_SRC}/config/spawn-profiles.yaml"}
+{"ts":"2026-07-15T16:08:16Z","level":"info","message":"runtime config overrides materialized","effectiveConfigPath":"{DATA_ROOT}/.runtime-config/spawn-profiles.yaml","daemonOnlyKeys":[]}
+{"ts":"2026-07-15T16:08:16Z","level":"info","message":"spawn carriage","configuredCarrier":"systemd","resolvedCarrier":"systemd","userManager":true}
+{"ts":"2026-07-15T16:08:16Z","level":"info","message":"daemon composed","heartStoreOpen":true}
+{"ts":"2026-07-15T16:08:16Z","level":"info","message":"tick 1 start","tick":1}
+{"ts":"2026-07-15T16:08:16Z","level":"info","message":"tick 1 end","tick":1,"actionCount":3}
+{"ts":"2026-07-15T16:08:16Z","level":"info","message":"initial tick complete","tick":1,"actionCount":3}
+{"ts":"2026-07-15T16:08:16Z","level":"info","message":"smoke test: initial tick done, exercising real shutdown path"}
+{"ts":"2026-07-15T16:08:16Z","level":"info","message":"received SIGTERM, shutting down"}
+{"ts":"2026-07-15T16:08:16Z","level":"info","message":"daemon stopped"}
 
 SMOKE_EXIT: 0
-SMOKE_WALL_MS: 139
+SMOKE_WALL_MS: 136

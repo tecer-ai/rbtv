@@ -1,9 +1,10 @@
 p3-2b containment proof — worker containment through the daemon's own spawn path
-started: 2026-07-15T15:38:47.244Z
+started: 2026-07-15T16:11:22.360Z
 command: node deploy/p3-2b-containment.js --all
 config:  {IGNITE_SRC}/config/spawn-profiles.yaml
 host systemd: systemd 259 (259.5-0ubuntu3)
 user manager delegated controllers: cpu memory pids
+carrier under test: systemd
 
 === profile under test: claude-sonnet-tools (read from {IGNITE_SRC}/config/spawn-profiles.yaml) ===
 committed caps:    {"memory_max":"4G","cpu_quota":"150%","runtime_max":"6h","tasks_max":512}
@@ -11,7 +12,7 @@ committed sandbox: null
 committed argv:    ["claude","-p","--model","sonnet","--output-format","stream-json","--verbose","--allowedTools","Bash(git *),Write"]
 SUBSTITUTION (disclosed): exec.argv -> ["sleep","3600"], workdir_root -> temp dir.
   caps: and sandbox: are used VERBATIM as committed — they are what is under test.
-spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-5c332da6-544c-4aca-8079-9d9e8965f5ce pid=413480 status=running
+spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-7e6b279c-2792-4299-9df7-1e7f8ebe9f96 pid=422379 status=running
   [MATCH] carrier is systemd: actual=systemd expected=systemd
   [MATCH] unit is-active: actual=active expected=active
 systemd property readback (systemctl --user show):
@@ -28,7 +29,7 @@ systemd property readback (systemctl --user show):
   [MATCH] RuntimeMaxUSec (profile runtime_max=6h): actual=6h (21600000000us) expected=21600000000us
   [MATCH] TasksMax (profile tasks_max=512): actual=512 expected=512
 kernel cgroup readback (/sys/fs/cgroup):
-  cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-5c332da6-544c-4aca-8079-9d9e8965f5ce.service
+  cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-7e6b279c-2792-4299-9df7-1e7f8ebe9f96.service
   memory.max=4294967296
   cpu.max=150000 100000
   pids.max=512
@@ -42,7 +43,7 @@ committed sandbox: {"ProtectSystem":"strict","ReadWritePaths":["{workdir}"],"Pri
 committed argv:    ["codex","exec","--cd","{workdir}","--sandbox","danger-full-access","-c","approval_policy=never","--json"]
 SUBSTITUTION (disclosed): exec.argv -> ["sleep","3600"], workdir_root -> temp dir.
   caps: and sandbox: are used VERBATIM as committed — they are what is under test.
-spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-9f1e6819-6524-41b6-9dce-a825b54bb504 pid=413492 status=running
+spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-a87ab4e3-266e-4d5d-88db-dbcc5c7f871c pid=422391 status=running
   [MATCH] carrier is systemd: actual=systemd expected=systemd
   [MATCH] unit is-active: actual=active expected=active
 systemd property readback (systemctl --user show):
@@ -50,7 +51,7 @@ systemd property readback (systemctl --user show):
   CPUQuotaPerSecUSec=1.500000s
   MemoryMax=4294967296
   TasksMax=512
-  ReadWritePaths=/tmp/p3-2b-containment-dH3X7a/work
+  ReadWritePaths=/tmp/p3-2b-containment-YUhLgX/work
   PrivateTmp=yes
   ProtectSystem=strict
   NoNewPrivileges=yes
@@ -59,7 +60,7 @@ systemd property readback (systemctl --user show):
   [MATCH] RuntimeMaxUSec (profile runtime_max=6h): actual=6h (21600000000us) expected=21600000000us
   [MATCH] TasksMax (profile tasks_max=512): actual=512 expected=512
 kernel cgroup readback (/sys/fs/cgroup):
-  cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-9f1e6819-6524-41b6-9dce-a825b54bb504.service
+  cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-a87ab4e3-266e-4d5d-88db-dbcc5c7f871c.service
   memory.max=4294967296
   cpu.max=150000 100000
   pids.max=512
@@ -68,9 +69,9 @@ kernel cgroup readback (/sys/fs/cgroup):
   [MATCH] cgroup pids.max ENFORCED: actual=512 expected=512
 sandbox block audit:
   profile declares ReadWritePaths=["{workdir}"]
-  live unit reports  ReadWritePaths=/tmp/p3-2b-containment-dH3X7a/work
+  live unit reports  ReadWritePaths=/tmp/p3-2b-containment-YUhLgX/work
   slots declared in profile: ["{workdir}"]
-  [MATCH] ReadWritePaths template slots resolved to the real workdir: actual=/tmp/p3-2b-containment-dH3X7a/work expected=must contain /tmp/p3-2b-containment-dH3X7a/work and no {slot}
+  [MATCH] ReadWritePaths template slots resolved to the real workdir: actual=/tmp/p3-2b-containment-YUhLgX/work expected=must contain /tmp/p3-2b-containment-YUhLgX/work and no {slot}
 
 === profile under test: opencode-sakana (read from {IGNITE_SRC}/config/spawn-profiles.yaml) ===
 committed caps:    {"memory_max":"4G","cpu_quota":"150%","runtime_max":"8h","tasks_max":512}
@@ -78,7 +79,7 @@ committed sandbox: {"ProtectSystem":"strict","ReadWritePaths":["{workdir}"],"Pri
 committed argv:    ["opencode","run","-m","sakana/fugu-ultra"]
 SUBSTITUTION (disclosed): exec.argv -> ["sleep","3600"], workdir_root -> temp dir.
   caps: and sandbox: are used VERBATIM as committed — they are what is under test.
-spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-12996f92-b125-4515-8e1d-cfba53d9a122 pid=413507 status=running
+spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-5b2b3889-36d0-4b5c-ad24-d6ccb95db4d4 pid=422406 status=running
   [MATCH] carrier is systemd: actual=systemd expected=systemd
   [MATCH] unit is-active: actual=active expected=active
 systemd property readback (systemctl --user show):
@@ -86,7 +87,7 @@ systemd property readback (systemctl --user show):
   CPUQuotaPerSecUSec=1.500000s
   MemoryMax=4294967296
   TasksMax=512
-  ReadWritePaths=/tmp/p3-2b-containment-2lKvvK/work
+  ReadWritePaths=/tmp/p3-2b-containment-BdEokf/work
   PrivateTmp=yes
   ProtectSystem=strict
   NoNewPrivileges=yes
@@ -95,7 +96,7 @@ systemd property readback (systemctl --user show):
   [MATCH] RuntimeMaxUSec (profile runtime_max=8h): actual=8h (28800000000us) expected=28800000000us
   [MATCH] TasksMax (profile tasks_max=512): actual=512 expected=512
 kernel cgroup readback (/sys/fs/cgroup):
-  cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-12996f92-b125-4515-8e1d-cfba53d9a122.service
+  cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-5b2b3889-36d0-4b5c-ad24-d6ccb95db4d4.service
   memory.max=4294967296
   cpu.max=150000 100000
   pids.max=512
@@ -104,10 +105,10 @@ kernel cgroup readback (/sys/fs/cgroup):
   [MATCH] cgroup pids.max ENFORCED: actual=512 expected=512
 sandbox block audit:
   profile declares ReadWritePaths=["{workdir}"]
-  live unit reports  ReadWritePaths=/tmp/p3-2b-containment-2lKvvK/work
+  live unit reports  ReadWritePaths=/tmp/p3-2b-containment-BdEokf/work
   slots declared in profile: ["{workdir}"]
-  [MATCH] ReadWritePaths template slots resolved to the real workdir: actual=/tmp/p3-2b-containment-2lKvvK/work expected=must contain /tmp/p3-2b-containment-2lKvvK/work and no {slot}
+  [MATCH] ReadWritePaths template slots resolved to the real workdir: actual=/tmp/p3-2b-containment-BdEokf/work expected=must contain /tmp/p3-2b-containment-BdEokf/work and no {slot}
 
 checks: 29 total, 29 matched, 0 mismatched
 result: PASS
-ended: 2026-07-15T15:38:48.351Z
+ended: 2026-07-15T16:11:23.471Z
