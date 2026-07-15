@@ -8,6 +8,7 @@ const {
   spawnSetsid,
   generateSessionId,
 } = require('../spawn/carrier');
+const { runWarningCheck } = require('./warnings-check');
 
 const DEFAULT_CONFIG = {
   tick_interval_ms: 10000,
@@ -719,6 +720,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       await dispatch(now, tick, actions);
       actions.push({ phase: 'nudge', skipped: true });
       await enforce(now, tick, actions);
+      runWarningCheck({ heartStore, tick, now, slotMaxRepeats: cfg.slot_max_repeats, actions });
       await broadcast(tick, actions);
 
       const ts = new Date();

@@ -628,6 +628,97 @@ class HeartStore {
     return stmt.get() || null;
   }
 
+  getStandingWarning({ kind, subject }) {
+    if (typeof kind !== 'string' || kind.length === 0) {
+      throw new HeartStoreError(E_BAD_ARGS, 'kind must be non-empty string', { field: 'kind' });
+    }
+    if (typeof subject !== 'string' || subject.length === 0) {
+      throw new HeartStoreError(E_BAD_ARGS, 'subject must be non-empty string', { field: 'subject' });
+    }
+    const stmt = this._prepare('SELECT * FROM warnings WHERE kind = ? AND subject = ? AND cleared_at_tick IS NULL');
+    return stmt.get(kind, subject) || null;
+  }
+
+  raiseWarning({ kind, subject, raisedAtTick }) {
+    if (typeof kind !== 'string' || kind.length === 0) {
+      throw new HeartStoreError(E_BAD_ARGS, 'kind must be non-empty string', { field: 'kind' });
+    }
+    if (typeof subject !== 'string' || subject.length === 0) {
+      throw new HeartStoreError(E_BAD_ARGS, 'subject must be non-empty string', { field: 'subject' });
+    }
+    if (!Number.isInteger(raisedAtTick)) {
+      throw new HeartStoreError(E_BAD_ARGS, 'raised_at_tick must be an integer', { field: 'raisedAtTick' });
+    }
+    const existing = this.getStandingWarning({ kind, subject });
+    if (existing) return existing;
+    const stmt = this._prepare(`
+      INSERT INTO warnings (kind, subject, raised_at_tick)
+      VALUES (?, ?, ?)
+    `);
+    const result = stmt.run(kind, subject, raisedAtTick);
+    return this._prepare('SELECT * FROM warnings WHERE warning_id = ?').get(result.lastInsertRowid);
+  }
+
+  announceWarning({ warningId, tick }) {
+    if (!Number.isInteger(warningId)) {
+      throw new HeartStoreError(E_BAD_ARGS, 'warning_id must be an integer', { field: 'warningId' });
+    }
+    if (!Number.isInteger(tick)) {
+      throw new HeartStoreError(E_BAD_ARGS, 'tick must be an integer', { field: 'tick' });
+    }
+    const stmt = this._prepare('UPDATE warnings SET last_announced_tick = ? WHERE warning_id = ?');
+    stmt.run(tick, warningId);
+    return this._prepare('SELECT * FROM warnings WHERE warning_id = ?').get(warningId);
+  }
+
+  snoozeWarning({ kind, subject, snoozedUntilTick }) {
+    if (typeof kind !== 'string' || kind.length === 0) {
+      throw new HeartStoreError(E_BAD_ARGS, 'kind must be non-empty string', { field: 'kind' });
+    }
+    if (typeof subject !== 'string' || subject.length === 0) {
+      throw new HeartStoreError(E_BAD_ARGS, 'subject must be non-empty string', { field: 'subject' });
+    }
+    if (!Number.isInteger(snoozedUntilTick)) {
+      throw new HeartStoreError(E_BAD_ARGS, 'snoozed_until_tick must be an integer', { field: 'snoozedUntilTick' });
+    }
+    const existing = this.getStandingWarning({ kind, subject });
+    if (!existing) return null;
+    const stmt = this._prepare('UPDATE warnings SET snoozed_until_tick = ? WHERE warning_id = ?');
+    stmt.run(snoozedUntilTick, existing.warning_id);
+    return this._prepare('SELECT * FROM warnings WHERE warning_id = ?').get(existing.warning_id);
+  }
+
+  clearWarning({ warningId, tick }) {
+    if (!Number.isInteger(warningId)) {
+      throw new HeartStoreError(E_BAD_ARGS, 'warning_id must be an integer', { field: 'warningId' });
+    }
+    if (!Number.isInteger(tick)) {
+      throw new HeartStoreError(E_BAD_ARGS, 'tick must be an integer', { field: 'tick' });
+    }
+    const stmt = this._prepare('UPDATE warnings SET cleared_at_tick = ? WHERE warning_id = ? AND cleared_at_tick IS NULL');
+    stmt.run(tick, warningId);
+    return this._prepare('SELECT * FROM warnings WHERE warning_id = ?').get(warningId);
+  }
+
+  listWarnings({ kind = null, subject = null, standingOnly = false } = {}) {
+    let sql = 'SELECT * FROM warnings WHERE 1=1';
+    const params = [];
+    if (kind !== null && kind !== undefined) {
+      sql += ' AND kind = ?';
+      params.push(kind);
+    }
+    if (subject !== null && subject !== undefined) {
+      sql += ' AND subject = ?';
+      params.push(subject);
+    }
+    if (standingOnly) {
+      sql += ' AND cleared_at_tick IS NULL';
+    }
+    sql += ' ORDER BY raised_at_tick, warning_id';
+    const stmt = this._prepare(sql);
+    return stmt.all(...params);
+  }
+
   dump() {
     return {
       jobs: this._prepare('SELECT * FROM jobs ORDER BY job_id').all(),
@@ -635,6 +726,7 @@ class HeartStore {
       jobs_log: this._prepare('SELECT * FROM jobs_log ORDER BY exec_id').all().map((r) => this._attachThread(r)),
       messages: this._prepare('SELECT * FROM messages ORDER BY msg_id').all(),
       ticks: this._prepare('SELECT * FROM ticks ORDER BY tick').all(),
+      warnings: this._prepare('SELECT * FROM warnings ORDER BY warning_id').all(),
     };
   }
 }

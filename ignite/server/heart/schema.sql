@@ -80,3 +80,15 @@ CREATE TABLE IF NOT EXISTS ticks (
   ts           TEXT NOT NULL,
   actions_json TEXT NOT NULL DEFAULT '[]'
 );
+
+CREATE TABLE IF NOT EXISTS warnings (
+  warning_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind                TEXT NOT NULL,
+  subject             TEXT NOT NULL,
+  raised_at_tick      INTEGER NOT NULL,
+  last_announced_tick INTEGER,
+  snoozed_until_tick  INTEGER,
+  cleared_at_tick     INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_warnings_standing_kind_subject
+  ON warnings(kind, subject) WHERE cleared_at_tick IS NULL;
