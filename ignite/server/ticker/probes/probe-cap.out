@@ -1,5 +1,5 @@
 probe: probe-cap
-started: 2026-07-15T00:11:35.639Z
+started: 2026-07-15T00:22:32.449Z
 command: node probes/probe-cap.js
 enqueued 3 due launch-agent jobs with cap=2
 tick 1: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep"},{"phase":"dispatch","action":"spawn","execId":2,"queueId":2,"profile":"test-sleep"},{"phase":"dispatch","action":"defer","queueId":3,"reason":"global-cap"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":0},"2":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":0}}}]
@@ -10,6 +10,6 @@ tick 3: [{"phase":"apply-events","skipped":true},{"phase":"nudge","skipped":true
 jobs_log rows after follow-up ticks: 3
 status: PASS
 exit: 0
-wall_ms: 1310
+wall_ms: 1324
 skipped_count: 0
-ended: 2026-07-15T00:11:36.949Z
+ended: 2026-07-15T00:22:33.773Z

@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const { execFileSync } = require('node:child_process');
 const yaml = require('js-yaml');
 const { openHeartStore, closeHeartStore } = require('../../heart/heart-store');
 const { createSpawnManager } = require('../../spawn/spawn');
@@ -65,7 +66,35 @@ function setup(configOverrides = {}) {
   return { tmp, dataRoot, workRoot, defaultWorkdir, cfgPath, store, mgr, ticker, dbPath, feedPath, logPath };
 }
 
+// Forcibly reap a transient user unit spawned by this probe, clearing any
+// failed state (a SIGKILLed unit lingers as `failed` until reset-failed).
+// Best-effort and idempotent: safe on an already-dead or never-created unit.
+function reapWorkerUnit(sessionId) {
+  if (!sessionId) return;
+  const unit = `rbtv-worker-${sessionId}.service`;
+  for (const sig of ['SIGTERM', 'SIGKILL']) {
+    try { execFileSync('systemctl', ['--user', 'kill', `--signal=${sig}`, unit], { stdio: 'ignore', timeout: 10000 }); } catch {}
+  }
+  try { execFileSync('systemctl', ['--user', 'stop', unit], { stdio: 'ignore', timeout: 10000 }); } catch {}
+  try { execFileSync('systemctl', ['--user', 'reset-failed', unit], { stdio: 'ignore', timeout: 10000 }); } catch {}
+}
+
+// Guaranteed cleanup: kill every worker unit this probe spawned, on PASS or
+// FAIL. Runs in every probe's finally() before the store closes, so an
+// assertion that throws mid-probe never leaks a live `rbtv-worker-*` unit.
 function teardown(ctx) {
+  try {
+    if (ctx && ctx.store && ctx.store.db) {
+      for (const row of ctx.store.dump().jobs_log) {
+        // systemd carrier (the VPS default): reap the transient unit by its
+        // deterministic name. setsid carrier: SIGKILL the detached pgroup.
+        reapWorkerUnit(row.session_id);
+        if (row.carrier === 'setsid' && row.pid) {
+          try { process.kill(-row.pid, 'SIGKILL'); } catch {}
+        }
+      }
+    }
+  } catch {}
   try { closeHeartStore(); } catch {}
   try { fs.rmSync(ctx.tmp, { recursive: true, force: true }); } catch {}
 }
