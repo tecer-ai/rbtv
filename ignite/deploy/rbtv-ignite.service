@@ -34,10 +34,15 @@
 #
 # Do NOT commit a substituted version of this file.
 
+# network-online.target does NOT exist for the user manager (it ships under
+# /usr/lib/systemd/system, which the user manager never searches), so the After=/Wants=
+# pair this unit carried as a SYSTEM unit resolved to `not-found` here and ordered nothing.
+# It is dropped rather than left as a dependency that reads like a guarantee and is not one.
+# The v1 bind is loopback (config bind.host 127.0.0.1), which needs no network wait. When
+# p5-2 moves the bind to the tailnet, network readiness needs a REAL mechanism (bind retry
+# in the daemon, or a user-manager-visible readiness unit) — not this line.
 [Unit]
 Description=RBTV ignite daemon
-After=network-online.target
-Wants=network-online.target
 
 [Service]
 Type=simple

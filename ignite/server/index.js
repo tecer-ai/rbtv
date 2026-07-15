@@ -62,12 +62,12 @@ function resolveConfigPath(igniteSrc) {
   return process.env.RBTV_IGNITE_CONFIG_PATH || path.join(igniteSrc, 'config', 'spawn-profiles.yaml');
 }
 
-// Selects `systemd-run --user` vs `--system` for worker carriage. This was hardcoded true,
-// which the unit had no way to override. It stays defaulted to true — flipping it is an
-// owner call at the ADX-9 privilege line, not a reviewer's — but it is now reachable from
-// the unit's EnvironmentFile. See the boot-time 'spawn carriage' warning below: with
-// carrier `auto`, an unavailable manager degrades to setsid, which carries NO caps and NO
-// sandbox (spawn/carrier.js spawnSetsid accepts neither).
+// Selects `systemd-run --user` vs `--system` for worker carriage. Defaults to true, which
+// D46 settles as CORRECT rather than a downgrade: ignite runs as a systemd USER unit with
+// lingering, so the user manager is the carrier and no root is in the deploy path. It stays
+// reachable from the unit's EnvironmentFile for the operator who must override it, and
+// setting it false trips the boot-time degradation warning below — an unprivileged daemon
+// cannot drive the SYSTEM manager, so `--system` carriage means no containment in practice.
 function resolveUserManager() {
   const raw = process.env.RBTV_IGNITE_USER_MANAGER;
   if (raw === undefined || raw === '') return true;
@@ -78,8 +78,9 @@ function ensureDir(p, mode = 0o700) {
   fs.mkdirSync(p, { recursive: true, mode });
 }
 
-// A raw EACCES from mkdirSync names no cause and no remedy. The daemon runs as an
-// unprivileged User=, so an unprovisioned root is the expected first-boot failure:
+// A raw EACCES from mkdirSync names no cause and no remedy. The daemon runs unprivileged as
+// the user owning the systemd user manager (D46 — the unit carries no User=; it runs as its
+// owning user by construction), so an unprovisioned root is the expected first-boot failure:
 // report which configured root failed and how to supply it.
 function ensureConfiguredDir(dirPath, label, envVar) {
   try {

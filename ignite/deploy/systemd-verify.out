@@ -1,6 +1,7 @@
-/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/deploy/rbtv-ignite.service:44: WorkingDirectory= path is not absolute: @@WORKSPACE_ROOT@@
+command: systemd-analyze verify deploy/rbtv-ignite.service   (unsubstituted TEMPLATE — @@SLOTS@@ are not valid systemd values by design)
+generated: 2026-07-15T14:45:49Z
+
+/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/deploy/rbtv-ignite.service:49: WorkingDirectory= path is not absolute: @@WORKSPACE_ROOT@@
 rbtv-ignite.service: Unit configuration has fatal error, unit will not be started.
-/usr/lib/systemd/system/system-xfs_scrub.slice:15: Support for option CPUAccounting= has been removed and it is ignored
-/usr/lib/systemd/system/xfs_scrub_all.service:26: Support for option CPUAccounting= has been removed and it is ignored
 Unit rbtv-ignite.service has a bad unit file setting.
 VERIFY_EXIT: 1

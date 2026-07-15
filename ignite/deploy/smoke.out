@@ -1,15 +1,15 @@
-{"ts":"2026-07-15T14:25:34Z","level":"info","message":"ignite daemon starting","igniteSrc":"/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite","workspaceRoot":"/tmp/tmp.1yioCqEfyJ/workspace","pid":385300,"smokeTest":true}
-{"ts":"2026-07-15T14:25:34Z","level":"info","message":"install state ready","moduleDir":"/tmp/tmp.1yioCqEfyJ/workspace/.rbtv/modules/ignite","installed":false}
-{"ts":"2026-07-15T14:25:34Z","level":"info","message":"loading config","configPath":"/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml"}
-{"ts":"2026-07-15T14:25:34Z","level":"info","message":"runtime config overrides materialized","effectiveConfigPath":"/tmp/tmp.1yioCqEfyJ/data/.runtime-config/spawn-profiles.yaml","daemonOnlyKeys":[]}
-{"ts":"2026-07-15T14:25:34Z","level":"info","message":"spawn carriage","configuredCarrier":"auto","resolvedCarrier":"systemd","userManager":true}
-{"ts":"2026-07-15T14:25:34Z","level":"info","message":"daemon composed","heartStoreOpen":true}
-{"ts":"2026-07-15T14:25:34Z","level":"info","message":"tick 1 start","tick":1}
-{"ts":"2026-07-15T14:25:34Z","level":"info","message":"tick 1 end","tick":1,"actionCount":3}
-{"ts":"2026-07-15T14:25:34Z","level":"info","message":"initial tick complete","tick":1,"actionCount":3}
-{"ts":"2026-07-15T14:25:34Z","level":"info","message":"smoke test: initial tick done, exercising real shutdown path"}
-{"ts":"2026-07-15T14:25:34Z","level":"info","message":"received SIGTERM, shutting down"}
-{"ts":"2026-07-15T14:25:34Z","level":"info","message":"daemon stopped"}
+{"ts":"2026-07-15T14:46:06Z","level":"info","message":"ignite daemon starting","igniteSrc":"/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite","workspaceRoot":"/tmp/tmp.ulJ36VC6gF/workspace","pid":394410,"smokeTest":true}
+{"ts":"2026-07-15T14:46:06Z","level":"info","message":"install state ready","moduleDir":"/tmp/tmp.ulJ36VC6gF/workspace/.rbtv/modules/ignite","installed":false}
+{"ts":"2026-07-15T14:46:06Z","level":"info","message":"loading config","configPath":"/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml"}
+{"ts":"2026-07-15T14:46:06Z","level":"info","message":"runtime config overrides materialized","effectiveConfigPath":"/tmp/tmp.ulJ36VC6gF/data/.runtime-config/spawn-profiles.yaml","daemonOnlyKeys":[]}
+{"ts":"2026-07-15T14:46:06Z","level":"info","message":"spawn carriage","configuredCarrier":"auto","resolvedCarrier":"systemd","userManager":true}
+{"ts":"2026-07-15T14:46:06Z","level":"info","message":"daemon composed","heartStoreOpen":true}
+{"ts":"2026-07-15T14:46:06Z","level":"info","message":"tick 1 start","tick":1}
+{"ts":"2026-07-15T14:46:06Z","level":"info","message":"tick 1 end","tick":1,"actionCount":3}
+{"ts":"2026-07-15T14:46:06Z","level":"info","message":"initial tick complete","tick":1,"actionCount":3}
+{"ts":"2026-07-15T14:46:06Z","level":"info","message":"smoke test: initial tick done, exercising real shutdown path"}
+{"ts":"2026-07-15T14:46:06Z","level":"info","message":"received SIGTERM, shutting down"}
+{"ts":"2026-07-15T14:46:06Z","level":"info","message":"daemon stopped"}
 
 SMOKE_EXIT: 0
-SMOKE_WALL_MS: 144
+SMOKE_WALL_MS: 143

@@ -1,3 +1,9 @@
+command: systemd-analyze verify <substituted copy>   (per-instance @@SLOTS@@ filled; paths are this box's and are NOT committed)
+generated: 2026-07-15T14:45:49Z
+
 /usr/lib/systemd/system/xfs_scrub_all.service:26: Support for option CPUAccounting= has been removed and it is ignored
 /usr/lib/systemd/system/system-xfs_scrub.slice:15: Support for option CPUAccounting= has been removed and it is ignored
 SUBSTITUTED_VERIFY_EXIT: 0
+
+command: systemd-analyze --user verify <substituted copy>   (USER-manager mode — the mode this unit actually installs into, D46)
+USER_VERIFY_EXIT: 0

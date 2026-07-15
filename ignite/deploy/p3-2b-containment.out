@@ -1,23 +1,63 @@
-started: 2026-07-15T14:28:54.578Z
-tmp: /tmp/p3-2b-containment-O3w3Jn
-data_root: /tmp/p3-2b-containment-O3w3Jn/data
-profile_caps: {"memory_max":"128M","cpu_quota":"100%","runtime_max":"30s","tasks_max":64}
-exec_id: 1
-session_id: 908dfaa2-afc2-4f08-adeb-02954c60a453
-carrier: systemd
-unit_name: rbtv-worker-908dfaa2-afc2-4f08-adeb-02954c60a453
-status: running
-systemctl --user show caps:
-  RuntimeMaxUSec=30s
-  CPUQuotaPerSecUSec=1s
-  MemoryMax=134217728
-  TasksMax=64
-systemctl --user is-active: active
-matched MemoryMax: 134217728 bytes (expected 134217728)
-matched CPUQuotaPerSecUSec: 1000000us (expected 1000000us)
-matched RuntimeMaxUSec: 30s (expected 30s)
-matched TasksMax: 64
-containment verified: --user transient unit carries profile caps
-result: PASS
-killed worker
-ended: 2026-07-15T14:28:54.925Z
+p3-2b containment proof — worker containment through the daemon's own spawn path
+started: 2026-07-15T14:49:11.838Z
+command: node deploy/p3-2b-containment.js --all
+config:  /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml
+host systemd: systemd 259 (259.5-0ubuntu3)
+user manager delegated controllers: cpu memory pids
+
+=== profile under test: claude-sonnet-tools (read from /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml) ===
+committed caps:    {"memory_max":"4G","cpu_quota":"150%","runtime_max":"6h","tasks_max":512}
+committed sandbox: null
+committed argv:    ["claude","-p","--model","sonnet","--output-format","stream-json","--verbose","--allowedTools","Bash(git *),Write"]
+SUBSTITUTION (disclosed): exec.argv -> ["sleep","3600"], workdir_root -> temp dir.
+  caps: and sandbox: are used VERBATIM as committed — they are what is under test.
+spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-e46479dd-942a-46f2-b433-06c18b93a17f pid=395370 status=running
+  [MATCH] carrier is systemd: actual=systemd expected=systemd
+  [MATCH] unit is-active: actual=active expected=active
+systemd property readback (systemctl --user show):
+  RuntimeMaxUSec=6h
+  CPUQuotaPerSecUSec=1.500000s
+  MemoryMax=4294967296
+  TasksMax=512
+  ReadWritePaths=
+  PrivateTmp=no
+  ProtectSystem=no
+  NoNewPrivileges=no
+  [MATCH] MemoryMax (profile memory_max=4G): actual=4294967296 expected=4294967296
+  [MATCH] CPUQuotaPerSecUSec (profile cpu_quota=150%): actual=1.500000s (1500000us) expected=1500000us
+  [MATCH] RuntimeMaxUSec (profile runtime_max=6h): actual=6h (21600000000us) expected=21600000000us
+  [MATCH] TasksMax (profile tasks_max=512): actual=512 expected=512
+kernel cgroup readback (/sys/fs/cgroup):
+  cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-e46479dd-942a-46f2-b433-06c18b93a17f.service
+  memory.max=4294967296
+  cpu.max=150000 100000
+  pids.max=512
+  [MATCH] cgroup memory.max ENFORCED: actual=4294967296 expected=4294967296
+  [MATCH] cgroup cpu.max ENFORCED: actual=150000 100000 (150%) expected=150%
+  [MATCH] cgroup pids.max ENFORCED: actual=512 expected=512
+
+=== profile under test: codex-git-write (read from /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml) ===
+committed caps:    {"memory_max":"4G","cpu_quota":"150%","runtime_max":"6h","tasks_max":512}
+committed sandbox: {"ProtectSystem":"strict","ReadWritePaths":["{workdir}"],"PrivateTmp":true,"NoNewPrivileges":true}
+committed argv:    ["codex","exec","--cd","{workdir}","--sandbox","danger-full-access","-c","approval_policy=never","--json"]
+SUBSTITUTION (disclosed): exec.argv -> ["sleep","3600"], workdir_root -> temp dir.
+  caps: and sandbox: are used VERBATIM as committed — they are what is under test.
+  [FAILED] codex-git-write: E_CARRIER_FAILED: spawn failed for profile codex-git-write: systemd-run failed (exit 1): Failed to start transient service unit: Invalid ReadWritePaths
+
+
+=== profile under test: opencode-sakana (read from /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml) ===
+committed caps:    {"memory_max":"4G","cpu_quota":"150%","runtime_max":"8h","tasks_max":512}
+committed sandbox: {"ProtectSystem":"strict","ReadWritePaths":["{workdir}"],"PrivateTmp":true,"NoNewPrivileges":true}
+committed argv:    ["opencode","run","-m","sakana/fugu-ultra"]
+SUBSTITUTION (disclosed): exec.argv -> ["sleep","3600"], workdir_root -> temp dir.
+  caps: and sandbox: are used VERBATIM as committed — they are what is under test.
+  [FAILED] opencode-sakana: E_CARRIER_FAILED: spawn failed for profile opencode-sakana: systemd-run failed (exit 1): Failed to start transient service unit: Invalid ReadWritePaths
+
+
+checks: 11 total, 9 matched, 2 mismatched
+  MISMATCH: codex-git-write: spawns and carries its caps (actual=E_CARRIER_FAILED: spawn failed for profile codex-git-write: systemd-run failed (exit 1): Failed to start transient service unit: Invalid ReadWritePaths
+ expected=spawn succeeds, caps readback matches)
+  MISMATCH: opencode-sakana: spawns and carries its caps (actual=E_CARRIER_FAILED: spawn failed for profile opencode-sakana: systemd-run failed (exit 1): Failed to start transient service unit: Invalid ReadWritePaths
+ expected=spawn succeeds, caps readback matches)
+result: FAIL
+ended: 2026-07-15T14:49:12.268Z
