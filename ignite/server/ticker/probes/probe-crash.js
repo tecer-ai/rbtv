@@ -53,9 +53,12 @@ async function run(lines) {
     if (completions.length !== 1) throw new Error('expected one synthetic completion');
     if (completions[0].status !== 'failed') throw new Error('expected failed completion');
 
-    const notes = dump.messages.filter(m => m.type === 'note' && m.thread === finalExec.thread);
-    lines.push(`notes on thread: ${notes.length}`);
+    const notes = dump.messages.filter(m => m.type === 'note' && m.thread === 'owner-feed');
+    lines.push(`notes on owner-feed: ${notes.length}`);
     if (notes.length === 0) throw new Error('expected owner note');
+
+    const seatNotes = dump.messages.filter(m => m.type === 'note' && m.sender === 'ticker' && m.thread === finalExec.thread);
+    if (seatNotes.length > 0) throw new Error(`ticker note found on seat thread ${finalExec.thread}: ${JSON.stringify(seatNotes)}`);
 
     // No retry: queue should be empty.
     if (dump.queue.length !== 0) throw new Error('expected no retry queue row');

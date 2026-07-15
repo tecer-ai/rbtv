@@ -78,8 +78,11 @@ async function run(lines) {
 
     dump = ctx.store.dump();
     if (dump.queue.length !== 0) throw new Error('expected no re-dispatch queue row after budget exhausted');
-    const notes = dump.messages.filter(m => m.type === 'note' && m.thread === exec3.thread && m.corpus.includes('budget exhausted'));
+    const notes = dump.messages.filter(m => m.type === 'note' && m.thread === 'owner-feed' && m.corpus.includes('budget exhausted'));
     if (notes.length === 0) throw new Error('expected owner note about exhausted budget');
+
+    const seatNotes = dump.messages.filter(m => m.type === 'note' && m.sender === 'ticker' && m.thread === exec3.thread);
+    if (seatNotes.length > 0) throw new Error(`ticker note found on seat thread ${exec3.thread}: ${JSON.stringify(seatNotes)}`);
 
     // Owner re-arms with a fresh enqueue.
     enqueueLaunchAgent(ctx, { profile: 'test-sleep', runAt: new Date() });

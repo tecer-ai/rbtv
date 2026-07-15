@@ -40,9 +40,12 @@ async function run(lines) {
     lines.push(`final status: ${finalExec.status}`);
     if (finalExec.status !== 'stalled') throw new Error(`expected stalled, got ${finalExec.status}`);
 
-    const notes = dump.messages.filter(m => m.type === 'note' && m.thread === finalExec.thread);
-    lines.push(`notes on thread: ${notes.length}`);
+    const notes = dump.messages.filter(m => m.type === 'note' && m.thread === 'owner-feed');
+    lines.push(`notes on owner-feed: ${notes.length}`);
     if (notes.length < 2) throw new Error('expected warn + stall notes');
+
+    const seatNotes = dump.messages.filter(m => m.type === 'note' && m.sender === 'ticker' && m.thread === finalExec.thread);
+    if (seatNotes.length > 0) throw new Error(`ticker note found on seat thread ${finalExec.thread}: ${JSON.stringify(seatNotes)}`);
 
     const live = await ctx.mgr.status(finalExec.exec_id);
     lines.push(`process live after stall: ${live.live}`);

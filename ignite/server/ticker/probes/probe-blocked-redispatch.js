@@ -138,6 +138,96 @@ async function run(lines) {
     for (const r of live) {
       lines.push(`  live exec_id=${r.exec_id} session_id=${r.session_id} status=${r.status}`);
     }
+
+    // ---------- Part C: owner-facing note never lands on a seat's address ----------
+    // Close the first probe's store before opening a second writer.
+    teardown(ctx);
+
+    const ctxC = setup({ slot_max_repeats: 1 });
+    try {
+      registerLaunchAgentJob(ctxC);
+      const qC = enqueueLaunchAgent(ctxC, { profile: 'test-sleep', runAt: new Date() });
+      const tC1 = await ctxC.ticker.tick();
+      lines.push(`part-c tick-1 actions: ${actionSummary(tC1.actions)}`);
+      const execC = ctxC.store.dump().jobs_log.find((r) => r.queue_id === qC.queue_id);
+      if (!execC) throw new Error('execC not found after launch');
+      lines.push(`execC: exec_id=${execC.exec_id} thread=${execC.thread}`);
+
+      // Turn 1: done + pending input -> recycle once (execC2).
+      ctxC.store.recordMessage({
+        type: 'answer',
+        sender: 'owner',
+        thread: execC.thread,
+        corpus: 'more input',
+        createdAt: new Date(),
+      });
+      ctxC.store.recordMessage({
+        type: 'completion',
+        sender: 'agent',
+        thread: execC.thread,
+        corpus: 'done',
+        status: 'done',
+        createdAt: new Date(),
+      });
+      const tC2 = await ctxC.ticker.tick();
+      lines.push(`part-c tick-2 actions: ${actionSummary(tC2.actions)}`);
+      await sleep(1100);
+      const tC3 = await ctxC.ticker.tick();
+      lines.push(`part-c tick-3 actions: ${actionSummary(tC3.actions)}`);
+      const execC2 = ctxC.store.dump().jobs_log.find((r) => r.parent_exec_id === execC.exec_id);
+      if (!execC2) throw new Error('execC2 not recycled');
+      lines.push(`execC2: exec_id=${execC2.exec_id} thread=${execC2.thread}`);
+
+      // Turn 2: done + pending input on execC2 -> budget exhausted note.
+      ctxC.store.recordMessage({
+        type: 'answer',
+        sender: 'owner',
+        thread: execC2.thread,
+        corpus: 'more input',
+        createdAt: new Date(),
+      });
+      ctxC.store.recordMessage({
+        type: 'completion',
+        sender: 'agent',
+        thread: execC2.thread,
+        corpus: 'done',
+        status: 'done',
+        createdAt: new Date(),
+      });
+      const tC4 = await ctxC.ticker.tick();
+      lines.push(`part-c tick-4 actions: ${actionSummary(tC4.actions)}`);
+      const budgetAction = tC4.actions.find((a) => a.phase === 'advance' && a.action === 'budget-exhausted');
+      if (!budgetAction) throw new Error('expected budget-exhausted action');
+
+      // Identity proof: no ticker-authored note row exists on the seat's address.
+      const seatNotes = ctxC.store.dump().messages.filter(
+        (m) => m.type === 'note' && m.sender === 'ticker' && m.thread === execC2.thread
+      );
+      if (seatNotes.length > 0) {
+        throw new Error(`ticker note found on seat thread ${execC2.thread}: ${JSON.stringify(seatNotes)}`);
+      }
+      // Also confirm the owner-facing note was written to the owner feed.
+      const ownerNotes = ctxC.store.dump().messages.filter(
+        (m) => m.type === 'note' && m.sender === 'ticker' && m.thread === 'owner-feed'
+      );
+      if (ownerNotes.length === 0) throw new Error('expected owner-feed note');
+
+      // Behavior proof: across several subsequent ticks, the seat is never re-dispatched.
+      const postActions = [];
+      for (let i = 0; i < 3; i++) {
+        const t = await ctxC.ticker.tick();
+        lines.push(`part-c quiet-tick-${i + 1} actions: ${actionSummary(t.actions)}`);
+        postActions.push(...t.actions);
+      }
+      const woke = postActions.filter(
+        (a) => a.phase === 'advance' && a.action === 'blocked-redispatch' && (a.execId === execC.exec_id || a.execId === execC2.exec_id)
+      );
+      if (woke.length > 0) {
+        throw new Error(`spurious blocked-redispatch after owner note: ${woke.length}`);
+      }
+    } finally {
+      teardown(ctxC);
+    }
   } finally {
     teardown(ctx);
   }

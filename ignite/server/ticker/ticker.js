@@ -23,6 +23,10 @@ const DEFAULT_CONFIG = {
 // args are persisted in jobs_log.
 const CHAIN_MARKER = '__rbtv_chain_parent_exec_id';
 
+// Owner-facing ticker notes are addressed to the owner, never to a seat's `exec-<N>`
+// sub-thread — a note on a seat's address wakes that seat (owner ruling D39).
+const OWNER_NOTE_THREAD = 'owner-feed';
+
 function isoNow() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
@@ -458,7 +462,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         heartStore.recordMessage({
           type: 'note',
           sender: 'ticker',
-          thread: msg.thread || 'unknown',
+          thread: OWNER_NOTE_THREAD,
           corpus: `anomaly: unrouted completion for unknown/inactive thread: ${msg.thread}`,
           createdAt: now,
         });
@@ -476,7 +480,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
             heartStore.recordMessage({
               type: 'note',
               sender: 'ticker',
-              thread: exec.thread,
+              thread: OWNER_NOTE_THREAD,
               corpus: `slot automatic-recycle budget exhausted (${cfg.slot_max_repeats})`,
               createdAt: now,
             });
@@ -506,7 +510,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         heartStore.recordMessage({
           type: 'note',
           sender: 'ticker',
-          thread: exec.thread,
+          thread: OWNER_NOTE_THREAD,
           corpus: `slot halted: session failed (exec ${exec.exec_id})`,
           createdAt: now,
         });
@@ -528,7 +532,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         heartStore.recordMessage({
           type: 'note',
           sender: 'ticker',
-          thread: exec.thread,
+          thread: OWNER_NOTE_THREAD,
           corpus: `slot automatic-recycle budget exhausted (${cfg.slot_max_repeats}); blocked re-dispatch halted`,
           createdAt: now,
         });
@@ -623,7 +627,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         heartStore.recordMessage({
           type: 'note',
           sender: 'ticker',
-          thread: exec.thread || `exec-${exec.exec_id}`,
+          thread: OWNER_NOTE_THREAD,
           corpus: `slot halted: session crashed (exec ${exec.exec_id})`,
           createdAt: now,
         });
@@ -658,7 +662,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         heartStore.recordMessage({
           type: 'note',
           sender: 'ticker',
-          thread: exec.thread,
+          thread: OWNER_NOTE_THREAD,
           corpus: `slot stalled after ${silenceTicks} ticks of silence`,
           createdAt: now,
         });
@@ -667,7 +671,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         heartStore.recordMessage({
           type: 'note',
           sender: 'ticker',
-          thread: exec.thread,
+          thread: OWNER_NOTE_THREAD,
           corpus: `silent warning after ${silenceTicks} ticks of silence`,
           createdAt: now,
         });
