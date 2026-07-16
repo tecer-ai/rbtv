@@ -358,6 +358,18 @@ class HeartStore {
       }
     }
 
+    // ── Validate-only mode (owner ruling D73 / D72) ──────────────────────────
+    // ADDITIVE: when `dryRun` is truthy, the COMPLETE re-validation above has
+    // already run and PASSED — return the verdict WITHOUT touching the single
+    // writer. No INSERT, no rowid advance, the queue row count UNCHANGED. A check
+    // FAILURE has already thrown the SAME typed HeartStoreError above, so the
+    // dry-run failure path is byte-identical to the normal one. The default path
+    // (no `dryRun`) falls straight through to the insert below, byte-behaviour
+    // UNCHANGED — this branch is the ONLY addition (narrow single-round grant).
+    if (req.dryRun) {
+      return { dryRun: true, valid: true };
+    }
+
     const enqueuedAt = req.enqueuedAt || isoNow();
     const stmt = this._prepare(`
       INSERT INTO queue (job_id, args, session_mode, trigger_kind, run_at, repeat_rule, interval_seconds, max_fires, enqueued_by, enqueued_at)

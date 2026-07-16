@@ -1,18 +1,18 @@
-COMMAND: node probe-enqueue.js
+COMMAND: node server/heart/probes/probe-enqueue.js
 === BEFORE CLOSE ===
 jobs:
-[{"job_id":"launch-worker","action_type":"launch-agent","function":"spawnLaunchAgent","args_schema":"{\"required\":{\"profile\":\"string\"},\"optional\":{}}","description":null,"enabled":1,"created_at":"2026-07-14T22:43:14Z","updated_at":"2026-07-14T22:43:14Z"}]
+[{"job_id":"launch-worker","action_type":"launch-agent","function":"spawnLaunchAgent","args_schema":"{\"required\":{\"profile\":\"string\"},\"optional\":{}}","description":null,"enabled":1,"created_at":"2026-07-16T19:02:35Z","updated_at":"2026-07-16T19:02:35Z"}]
 queue:
-[{"queue_id":1,"job_id":"launch-worker","args":"{\"profile\":\"default\"}","session_mode":"headless","trigger_kind":"scheduled","run_at":"2026-07-14T22:43:14Z","repeat_rule":null,"interval_seconds":null,"max_fires":null,"enqueued_by":"owner","enqueued_at":"2026-07-14T22:43:14Z"}]
+[{"queue_id":1,"job_id":"launch-worker","args":"{\"profile\":\"default\"}","session_mode":"headless","trigger_kind":"scheduled","run_at":"2026-07-16T19:02:35Z","repeat_rule":null,"interval_seconds":null,"max_fires":null,"enqueued_by":"owner","enqueued_at":"2026-07-16T19:02:35Z"}]
 jobs_log:
 []
 === AFTER REOPEN ===
 jobs:
-[{"job_id":"launch-worker","action_type":"launch-agent","function":"spawnLaunchAgent","args_schema":"{\"required\":{\"profile\":\"string\"},\"optional\":{}}","description":null,"enabled":1,"created_at":"2026-07-14T22:43:14Z","updated_at":"2026-07-14T22:43:14Z"}]
+[{"job_id":"launch-worker","action_type":"launch-agent","function":"spawnLaunchAgent","args_schema":"{\"required\":{\"profile\":\"string\"},\"optional\":{}}","description":null,"enabled":1,"created_at":"2026-07-16T19:02:35Z","updated_at":"2026-07-16T19:02:35Z"}]
 queue:
-[{"queue_id":1,"job_id":"launch-worker","args":"{\"profile\":\"default\"}","session_mode":"headless","trigger_kind":"scheduled","run_at":"2026-07-14T22:43:14Z","repeat_rule":null,"interval_seconds":null,"max_fires":null,"enqueued_by":"owner","enqueued_at":"2026-07-14T22:43:14Z"}]
+[{"queue_id":1,"job_id":"launch-worker","args":"{\"profile\":\"default\"}","session_mode":"headless","trigger_kind":"scheduled","run_at":"2026-07-16T19:02:35Z","repeat_rule":null,"interval_seconds":null,"max_fires":null,"enqueued_by":"owner","enqueued_at":"2026-07-16T19:02:35Z"}]
 jobs_log:
 []
 PERSISTENCE_OK: true
 EXIT: 0
-WALL_MS: 6
+WALL_MS: 4

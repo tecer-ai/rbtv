@@ -1,0 +1,24 @@
+COMMAND: node server/internal-api/probes/probe-dryrun.js
+PASS  SEED: a normal enqueue lands one row (establishes a known count) — ok=true jobId=1
+PASS  SEED: the queue holds exactly 1 row ON DISK — disk queue rows=1
+PASS  a VALID dry_run is ACCEPTED past the gateway — ok=true error=undefined
+PASS  the result is the verdict { dry_run: true, valid: true } (NOT a jobId) — result={"dry_run":true,"valid":true}
+PASS  NOTHING was written — the queue row count is UNCHANGED ON DISK (seed vs after dry-run) — disk queue rows=1 (seeded=1)
+PASS  an INVALID dry_run (unknown profile) is REFUSED — ok=false
+PASS  the refusal is typed VALIDATION_FAILED (identical to the non-dry_run failure path) — code=VALIDATION_FAILED
+PASS  the typed error NAMES the failing check (E_UNKNOWN_PROFILE — the core re-validated) — details={"check":"E_UNKNOWN_PROFILE","profile":"ghost-profile"}
+PASS  the invalid-dry_run refusal maps to the CLI exit-4 class (HTTP 400) — status=400
+PASS  an INVALID dry_run writes NOTHING — queue row count UNCHANGED ON DISK — disk queue rows=1 (seeded=1)
+PASS  MUTATION: a NORMAL enqueue (no dry_run) is ACCEPTED and mints a jobId — ok=true jobId=2
+PASS  the DEFAULT write path is INTACT — the queue grew by exactly 1 ON DISK (+1 over seed) — disk queue rows=2 (seeded=1) newId=2
+PASS  an explicit dry_run:false STILL INSERTS (the mode is opt-in by TRUE, not by presence) — ok=true jobId=3
+PASS  dry_run:false grew the queue by one more ON DISK (+2 over seed) — disk queue rows=3 (seeded=1)
+PASS  a non-boolean dry_run is REFUSED (shape-check) — a bad shape can never flip the write path — ok=false error={"code":"SHAPE_INVALID","message":"dry_run must be a boolean","details":{"field":"dry_run"}}
+PASS  the non-boolean dry_run wrote NOTHING ON DISK (count still +2 over seed) — disk queue rows=3 (seeded=1)
+PASS  the internal-API envelope version is UNCHANGED at 1 (additive field, no bump) — api.ENVELOPE_VERSION=1
+
+CHECKS: 17/17 passed
+SKIPPED_COUNT: 0
+DRYRUN_OK: true
+EXIT: 0
+WALL_MS: 34

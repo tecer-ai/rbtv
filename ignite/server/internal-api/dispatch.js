@@ -66,6 +66,9 @@ const SENDER_KINDS = new Set(['owner', 'agent', 'bridge']);
 const ENQUEUE_ALLOWED_KEYS = new Set([
   'job_id', 'args', 'session_mode', 'trigger_kind', 'run_at',
   'repeat_rule', 'interval_seconds', 'max_fires',
+  // Validate-only mode (owner ruling D72/D73): opt-in, default false. NOT a job
+  // column — it selects a pre-insert exit, it is never written to the queue.
+  'dry_run',
 ]);
 
 // ── Boundary serialization ───────────────────────────────────────────────────
@@ -214,10 +217,19 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });
       }
     }
+    // `dry_run` is RE-CHECKED here, not trusted from the gateway (DEC-3): a non-boolean
+    // is refused before it can flip the write path in either direction. Absent → false.
+    if (payload.dry_run !== undefined && typeof payload.dry_run !== 'boolean') {
+      throw new InternalApiError(VALIDATION_FAILED, 'dry_run must be a boolean', { check: 'dry_run-shape', field: 'dry_run' });
+    }
+    const dryRun = payload.dry_run === true;
+
     // The store re-runs the COMPLETE deterministic dry-run (function in catalogue,
     // args shape, trigger, named profile, session_mode) inside enqueue() and writes
-    // NOTHING on any failure — the single place all mutations pass.
-    const row = heartStore.enqueue({
+    // NOTHING on any failure — the single place all mutations pass. Under `dryRun` it
+    // runs the SAME checks and returns the verdict BEFORE the single-writer insert
+    // (owner ruling D73) — the queue is UNCHANGED; nothing is written.
+    const result = heartStore.enqueue({
       jobId: payload.job_id,
       args: typeof payload.args === 'string' ? payload.args : JSON.stringify(payload.args ?? {}),
       sessionMode: payload.session_mode,
@@ -229,11 +241,19 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       // Stamped from the ATTESTED sender, never from the payload (the audit trail
       // into job and session rows — spawn-profiles-spec.md Design 4).
       enqueuedBy: sender.id,
+      dryRun,
     });
+
+    // Validate-only verdict — no queue row minted (D72/D73). Reaching here means the
+    // store's COMPLETE re-validation PASSED (a failure throws VALIDATION_FAILED,
+    // identical to the non-dry_run failure path). The verdict is plain data.
+    if (dryRun) {
+      return { dry_run: true, valid: true };
+    }
     // `jobId` here is the QUEUE-ROW id — see the note on handleRemoveJob. This is
     // the id gateway-cli-spec.md:26 calls "the NEW job id" and feeds straight into
     // remove-job at its test 5.
-    return { jobId: row.queue_id };
+    return { jobId: result.queue_id };
   }
 
   function handleRemoveJob(payload, sender) {

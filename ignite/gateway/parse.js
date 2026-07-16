@@ -56,7 +56,7 @@ function optionalPositiveInt(value, field) {
 // rather than quietly overwritten downstream.
 const ENQUEUE_KEYS = new Set([
   'job_id', 'args', 'session_mode', 'trigger_kind', 'run_at',
-  'repeat_rule', 'interval_seconds', 'max_fires',
+  'repeat_rule', 'interval_seconds', 'max_fires', 'dry_run',
 ]);
 
 function parseEnqueueJob(payload) {
@@ -117,6 +117,16 @@ function parseEnqueueJob(payload) {
     bad('max_fires requires a repeating trigger', 'max_fires');
   }
 
+  // `dry_run` (owner ruling D72/D73): validate-only mode — SHAPE ONLY here, a boolean,
+  // default false when absent. The gateway forwards it; it does NOT decide dry-run
+  // semantics (the core runs the complete re-validation and chooses whether to write).
+  // A non-boolean is refused at shape-check, like every other field.
+  let dryRun = false;
+  if (payload.dry_run !== undefined) {
+    if (typeof payload.dry_run !== 'boolean') bad('dry_run must be a boolean', 'dry_run');
+    dryRun = payload.dry_run;
+  }
+
   return {
     job_id: payload.job_id,
     args: JSON.stringify(args),
@@ -126,6 +136,7 @@ function parseEnqueueJob(payload) {
     repeat_rule: repeatRule,
     interval_seconds: intervalSeconds,
     max_fires: maxFires,
+    dry_run: dryRun,
   };
 }
 
