@@ -1,0 +1,31 @@
+COMMAND: node cli/probes/probe-cli-dryrun.js
+PASS  the throwaway daemon boots and its gateway listens — port 41671
+PASS  setup: queue starts empty — rows=[]
+--- add-job --dry-run (valid) ---
+EXIT=0
+STDOUT=dry-run: VALID — validated, nothing enqueued
+STDERR=
+PASS  valid dry-run exits 0 with a verdict — exit=0 stdout=dry-run: VALID — validated, nothing enqueued
+--- inspect queue after valid dry-run ---
+rows=[]
+PASS  a valid dry-run enqueues nothing (queue still empty) — rows=[]
+--- add-job --dry-run (invalid: unknown function) ---
+EXIT=4
+STDERR=ERROR [VALIDATION_FAILED] unknown job: no-such-job
+{"check":"E_UNKNOWN_JOB","jobId":"no-such-job"}
+PASS  invalid dry-run (unknown function) is refused with exit 4 and VALIDATION_FAILED — exit=4 stderr=ERROR [VALIDATION_FAILED] unknown job: no-such-job
+{"check":"E_UNKNOWN_JOB","jobId":"no-such-job"}
+--- inspect queue after invalid dry-run ---
+rows=[]
+PASS  an invalid dry-run also enqueues nothing (queue still empty) — rows=[]
+--- add-job --json --dry-run ---
+EXIT=0
+STDOUT={"ok":true,"result":{"dry_run":true,"valid":true}}
+PASS  add-job --json --dry-run exits 0 with a stable {ok,result:{dry_run,valid}} envelope — exit=0 parsed={"ok":true,"result":{"dry_run":true,"valid":true}}
+--- inspect queue after --json valid dry-run ---
+rows=[]
+PASS  a --json valid dry-run also enqueues nothing (queue still empty) — rows=[]
+
+CHECKS: 8/8 passed
+EXIT: 0
+WALL_MS: 581

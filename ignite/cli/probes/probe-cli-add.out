@@ -1,0 +1,35 @@
+COMMAND: node cli/probes/probe-cli-add.js
+PASS  the throwaway daemon boots and its gateway listens — port 42503
+--- add-job scheduled ---
+EXIT=0
+STDOUT=queued: queue id 1
+STDERR=
+PASS  add-job (scheduled, --profile sugar) exits 0 and prints a queue id — exit=0
+--- add-job periodic --json ---
+EXIT=0
+STDOUT={"ok":true,"result":{"jobId":2}}
+PASS  add-job (periodic, --json) exits 0 with a stable {ok,result.jobId} envelope — exit=0 parsed={"ok":true,"result":{"jobId":2}}
+--- add-job unknown function ---
+EXIT=4
+STDERR=ERROR [VALIDATION_FAILED] unknown job: no-such-job
+{"check":"E_UNKNOWN_JOB","jobId":"no-such-job"}
+PASS  add-job naming an uncatalogued function is refused by the SERVER (not the gateway) with exit 4 — exit=4 stderr=ERROR [VALIDATION_FAILED] unknown job: no-such-job
+{"check":"E_UNKNOWN_JOB","jobId":"no-such-job"}
+--- add-job missing --trigger ---
+EXIT=2
+STDERR=USAGE ERROR: add-job requires --trigger scheduled|periodic
+PASS  add-job with no --trigger is a LOCAL usage error, exit 2 — exit=2
+--- add-job --dry-run (smoke) ---
+EXIT=0
+STDOUT=dry-run: VALID — validated, nothing enqueued
+PASS  add-job --dry-run (valid) exits 0 and prints a validation verdict — exit=0 stdout=dry-run: VALID — validated, nothing enqueued
+--- add-job resolved via .rbtv/modules/ignite/server.json (no IGNITE_GATEWAY_ADDR) ---
+EXIT=0
+STDOUT=queued: queue id 3
+STDERR=
+PASS  add-job resolves the gateway from the committed server.json (D27/ADX-3) when no env override is set — exit=0
+PASS  the sender token never appears in the CLI invocation argv — token passed only via IGNITE_SENDER_TOKEN env, never a flag (see runCli calls above)
+
+CHECKS: 8/8 passed
+EXIT: 0
+WALL_MS: 464

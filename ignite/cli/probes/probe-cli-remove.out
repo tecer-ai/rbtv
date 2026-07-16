@@ -1,0 +1,33 @@
+COMMAND: node cli/probes/probe-cli-remove.js
+PASS  the throwaway daemon boots and its gateway listens — port 38679
+PASS  setup: add-job succeeds — exit=0 
+queued queue_id=1
+--- remove-job (scheduled) ---
+EXIT=0
+STDOUT=removed: trigger=scheduled
+PASS  remove-job on a scheduled (non-repeating) row exits 0 and does NOT claim the whole schedule was cancelled — exit=0 stdout=removed: trigger=scheduled
+PASS  the removed row is actually gone from inspect queue — rows=[]
+PASS  setup: add-job (periodic) succeeds — exit=0 
+--- remove-job (periodic) ---
+EXIT=0
+STDOUT=removed: trigger=periodic interval_seconds=3600
+the WHOLE recurring schedule was cancelled, not just the next fire.
+PASS  remove-job on a periodic row exits 0 and LOUDLY says the whole schedule was cancelled (D68) — exit=0 stdout=removed: trigger=periodic interval_seconds=3600
+the WHOLE recurring schedule was cancelled, not just the next fire.
+--- remove-job unknown id ---
+EXIT=1
+STDERR=ERROR [NOT_FOUND] queue row not found: 999999
+{"check":"row-exists","jobId":999999}
+PASS  remove-job on an unknown queue id is a typed NOT_FOUND (exit 1, catch-all per the exit-code table) — exit=1
+--- remove-job missing id ---
+EXIT=2
+STDERR=USAGE ERROR: missing required argument: queue-id
+PASS  remove-job with no id is a LOCAL usage error, exit 2 — exit=2
+--- remove-job non-integer id ---
+EXIT=2
+STDERR=USAGE ERROR: remove-job requires an integer queue id
+PASS  remove-job with a non-integer id is a LOCAL usage error, exit 2 — exit=2
+
+CHECKS: 9/9 passed
+EXIT: 0
+WALL_MS: 650

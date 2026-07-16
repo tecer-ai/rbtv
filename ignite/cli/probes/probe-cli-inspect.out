@@ -1,0 +1,51 @@
+COMMAND: node cli/probes/probe-cli-inspect.js
+seeded exec_id=1 (no log), exec_id=2 (20 real log lines)
+PASS  the throwaway daemon boots and its gateway listens — port 44625
+--- inspect jobs ---
+EXIT=0
+STDOUT=jobs: 1 row(s)
+{"job_id":"probe-cli-sleep","action_type":"launch-agent","function":"spawnLaunchAgent","args_schema":"{\"required\":{\"profile\":\"string\"},\"optional\":{}}","description":null,"enabled":1,"created_at":"2026-07-16T19:38:09Z","updated_at":"2026-07-16T19:38:09Z"}
+PASS  inspect jobs exits 0 and lists the seeded catalogue job — exit=0
+PASS  setup: add-job for the inspect-queue check succeeds — exit=0 
+--- inspect queue --json ---
+EXIT=0
+STDOUT={"ok":true,"result":{"target":"queue","rows":[{"queue_id":1,"job_id":"probe-cli-sleep","args":"{\"profile\":\"test-sleep\"}","session_mode":"headless","trigger_kind":"scheduled","run_at":"2099-01-01T00:00:00Z","repeat_rule":null,"interval_seconds":null,"max_fires":null,"enqueued_by":"probe-owner","enqueued_at":"2026-07-16T19:38:09Z"}]}}
+PASS  inspect queue --json exits 0 and shows the row just enqueued — exit=0 queueId=1 rows=[{"queue_id":1,"job_id":"probe-cli-sleep","args":"{\"profile\":\"test-sleep\"}","session_mode":"headless","trigger_kind":"scheduled","run_at":"2099-01-01T00:00:00Z","repeat_rule":null,"interval_seconds":null,"max_fires":null,"enqueued_by":"probe-owner","enqueued_at":"2026-07-16T19:38:09Z"}]
+--- inspect status ---
+EXIT=0
+STDOUT={"target":"status","id":1,"execId":1,"sessionId":null,"profile":"test-sleep","sessionMode":"headless","status":"failed","workdir":null,"carrier":null,"unitName":null,"pid":null,"exitCode":null,"logPath":null,"sessionRef":null,"live":false}
+STDERR=
+PASS  inspect status <exec-id> exits 0 and renders the execution snapshot — exit=0
+--- inspect status unknown id ---
+EXIT=1
+STDERR=ERROR [NOT_FOUND] execution not found: 999999
+{"check":"id-exists","id":999999}
+PASS  inspect status on an unknown exec-id is a typed NOT_FOUND, exit 1 — exit=1
+--- inspect logs (never-spawned execution) ---
+EXIT=1
+STDOUT={"ok":false,"error":{"code":"NOT_FOUND","message":"no log for session: 1","details":{"check":"E_SESSION_NOT_FOUND","execId":1}}}
+PASS  inspect logs <exec-id> on a never-spawned execution surfaces the REAL typed NOT_FOUND, exit 1 — exit=1 parsed={"ok":false,"error":{"code":"NOT_FOUND","message":"no log for session: 1","details":{"check":"E_SESSION_NOT_FOUND","execId":1}}}
+--- inspect logs --tail 5 (never-spawned execution) ---
+EXIT=1
+STDOUT={"ok":false,"error":{"code":"NOT_FOUND","message":"no log for session: 1","details":{"check":"E_SESSION_NOT_FOUND","execId":1}}}
+PASS  inspect logs --tail 5 propagates the SAME typed error unmasked (no fake success from the paging loop) — exit=1 parsed={"ok":false,"error":{"code":"NOT_FOUND","message":"no log for session: 1","details":{"check":"E_SESSION_NOT_FOUND","execId":1}}}
+--- inspect logs (real content) ---
+EXIT=0
+STDOUT={"ok":true,"result":{"target":"logs","id":2,"lines":["line 1","line 2","line 3","line 4","line 5","line 6","line 7","line 8","line 9","line 10","line 11","line 12","line 13","line 14","line 15","line 16","line 17","line 18","line 19","line 20"],"nextOffset":20,"eof":true}}
+PASS  inspect logs <exec-id> on a real log renders the actual captured lines — exit=0 lineCount=20
+--- inspect logs --tail 5 (real content) ---
+EXIT=0
+STDOUT={"ok":true,"result":{"lines":["line 16","line 17","line 18","line 19","line 20"],"eof":true,"tailOf":20}}
+PASS  inspect logs --tail 5 returns exactly the LAST 5 lines (not the first 5) — exit=0 got=["line 16","line 17","line 18","line 19","line 20"] expected=["line 16","line 17","line 18","line 19","line 20"]
+--- inspect bogus target ---
+EXIT=2
+STDERR=USAGE ERROR: inspect target must be jobs|queue|status|logs (got "bogus")
+PASS  inspect with an unknown target is a LOCAL usage error, exit 2 — exit=2
+--- inspect status missing id ---
+EXIT=2
+STDERR=USAGE ERROR: missing required argument: exec-id
+PASS  inspect status with no id is a LOCAL usage error, exit 2 — exit=2
+
+CHECKS: 12/12 passed
+EXIT: 0
+WALL_MS: 778

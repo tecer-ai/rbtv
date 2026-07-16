@@ -1,0 +1,41 @@
+COMMAND: node cli/probes/probe-cli-snooze.js
+PASS  the throwaway daemon boots and its gateway listens — port 35145
+seeded standing warning (after the daemon's initial tick): {"warning_id":1,"kind":"seat-blocked-budget-exhausted","subject":"probe-seat","raised_at_tick":0,"last_announced_tick":null,"snoozed_until_tick":null,"cleared_at_tick":null}
+--- snooze (hit) ---
+EXIT=0
+STDOUT=snoozed: seat-blocked-budget-exhausted/probe-seat until tick 181
+PASS  snooze on a real standing warning exits 0 and loudly names what was snoozed and until when — exit=0 stdout=snoozed: seat-blocked-budget-exhausted/probe-seat until tick 181
+--- snooze --json (hit again) ---
+EXIT=0
+STDOUT={"ok":true,"result":{"snoozed":true,"kind":"seat-blocked-budget-exhausted","subject":"probe-seat","snoozed_until_tick":181}}
+PASS  snooze --json exits 0 with a stable {ok,result:{snoozed:true,snoozed_until_tick}} envelope — exit=0 parsed={"ok":true,"result":{"snoozed":true,"kind":"seat-blocked-budget-exhausted","subject":"probe-seat","snoozed_until_tick":181}}
+--- snooze (no-op) ---
+EXIT=0
+STDOUT=nothing to snooze: no standing warning for seat-blocked-budget-exhausted/no-such-seat
+PASS  snooze with no standing warning is a CLEAN NO-OP, exit 0, never an error (D45) — exit=0 stdout=nothing to snooze: no standing warning for seat-blocked-budget-exhausted/no-such-seat
+--- snooze (non-owner sender) ---
+EXIT=1
+STDERR=ERROR [UNAUTHORIZED_SENDER] snooze is owner-only; the attested sender is not the owner
+{"check":"authorization"}
+PASS  snooze from a non-owner sender is refused UNAUTHORIZED_SENDER (D45/D71 owner-only, exit 1 catch-all) — exit=1 stderr=ERROR [UNAUTHORIZED_SENDER] snooze is owner-only; the attested sender is not the owner
+{"check":"authorization"}
+--- snooze missing --minutes ---
+EXIT=2
+STDERR=USAGE ERROR: snooze requires --minutes <N>
+PASS  snooze with no --minutes is a LOCAL usage error, exit 2 — exit=2
+--- snooze --minutes 0 ---
+EXIT=2
+STDERR=USAGE ERROR: --minutes must be a positive integer
+PASS  snooze --minutes 0 is a LOCAL usage error, exit 2 — exit=2
+--- snooze missing subject ---
+EXIT=2
+STDERR=USAGE ERROR: missing required argument: subject
+PASS  snooze with no subject is a LOCAL usage error, exit 2 — exit=2
+--- dismiss (must not exist) ---
+EXIT=2
+STDERR=USAGE ERROR: unknown command "dismiss" — run "ignite --help" for the command list
+PASS  there is no dismiss/clear/acknowledge/delete subcommand — "dismiss" is an unknown command (D45: snooze never clears) — exit=2 stderr=USAGE ERROR: unknown command "dismiss" — run "ignite --help" for the command list
+
+CHECKS: 9/9 passed
+EXIT: 0
+WALL_MS: 641
