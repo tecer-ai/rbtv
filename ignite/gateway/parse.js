@@ -13,11 +13,12 @@
 
 const { GatewayError, SHAPE_INVALID, UNKNOWN_INTENT } = require('./errors');
 
-// The ratified four-intent surface the gateway speaks (internal-api-contract-spec
-// .md § 1). v1's CLI drives only the first three (D15); the gateway routes the
-// fourth because a bridge or a later client may name it — the gateway is the
-// internal API's single client and speaks its whole surface.
-const INTENTS = new Set(['enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile']);
+// The ratified intent surface the gateway speaks (internal-api-contract-spec.md
+// § 1). v1's CLI drives add-job/remove-job/inspect (D15) plus `snooze` (the fifth
+// intent, added ADDITIVELY by owner ruling D71 — p4-2's CLI wraps it); the gateway
+// also routes `spawn-via-named-profile` because a bridge or a later client may name
+// it — the gateway is the internal API's single client and speaks its whole surface.
+const INTENTS = new Set(['enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze']);
 
 const TRIGGER_KINDS = new Set(['scheduled', 'periodic']);
 const SESSION_MODES = new Set(['headless', 'headed']);
@@ -193,6 +194,32 @@ function parseSpawnViaNamedProfile(payload) {
   return out;
 }
 
+// `snooze` (the fifth intent, added ADDITIVELY by owner ruling D71) — SHAPE ONLY,
+// like every parse here: kind/subject non-empty strings, minutes a positive integer.
+// Whether a standing warning actually EXISTS for (kind, subject) is the CORE's
+// semantic re-validation (the gateway holds no store handle), and minutes→ticks is
+// the STORE's business (D44) — the gateway forwards `minutes` untouched.
+function parseSnooze(payload) {
+  requireObject(payload);
+  rejectUnknownKeys(payload, new Set(['kind', 'subject', 'minutes']), 'snooze');
+  if (typeof payload.kind !== 'string' || payload.kind.length === 0) {
+    bad('snooze requires a non-empty kind', 'kind');
+  }
+  if (typeof payload.subject !== 'string' || payload.subject.length === 0) {
+    bad('snooze requires a non-empty subject', 'subject');
+  }
+  // The CLI passes `--minutes <N>` straight from argv, so a numeric string is the
+  // normal shape off a terminal; coerce it HERE — at the one place raw sender input
+  // is parsed — so the wire always carries the integer the contract means (mirrors
+  // remove-job's jobId / inspect's id coercion).
+  const raw = payload.minutes;
+  const minutes = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : raw;
+  if (!Number.isInteger(minutes) || minutes <= 0) {
+    bad('snooze requires a positive integer minutes', 'minutes');
+  }
+  return { kind: payload.kind, subject: payload.subject, minutes };
+}
+
 // Raw sender input -> a typed request payload, or a typed refusal. This is the
 // ONLY function in the daemon that interprets raw sender input.
 function parseRequest({ intent, payload }) {
@@ -204,6 +231,7 @@ function parseRequest({ intent, payload }) {
     case 'remove-job': return parseRemoveJob(payload);
     case 'inspect': return parseInspect(payload);
     case 'spawn-via-named-profile': return parseSpawnViaNamedProfile(payload);
+    case 'snooze': return parseSnooze(payload);
   }
 }
 

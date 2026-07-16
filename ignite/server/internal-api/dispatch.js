@@ -30,11 +30,13 @@ const { createAuthzPolicy } = require('./authz');
 
 const ENVELOPE_VERSION = 1;
 
-// The ratified four-intent surface (contract § 1). NEVER a raw spawn command,
+// The ratified five-intent surface (contract § 1). NEVER a raw spawn command,
 // NEVER a raw SQL/store handle. Future intents are ADDED by name under the same
 // envelope, each with its own re-validation clause — never by widening an
-// existing intent's payload semantics.
-const INTENTS = new Set(['enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile']);
+// existing intent's payload semantics. `snooze` is the fifth, added ADDITIVELY by
+// owner ruling D71 (envelope version UNCHANGED) so p4-2's CLI snooze subcommand has
+// a gateway path to wrap.
+const INTENTS = new Set(['enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze']);
 
 const ALLOWED_ENVELOPE_KEYS = new Set(['v', 'id', 'ts', 'auth', 'sender', 'intent', 'payload']);
 
@@ -375,7 +377,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     //
     // ⚑ PERMANENTLY EXCLUDED FROM v1 — owner ruling D70 (2026-07-16). This is a
     // SETTLED posture, NOT an open escalation and NOT a pending ruling. The intent
-    // stays REGISTERED in the four-intent surface (a call reaches this handler and
+    // stays REGISTERED in the intent surface (a call reaches this handler and
     // gets a TYPED InternalApiError, never UNKNOWN_INTENT), but it is never
     // implemented or CLI-exposed in v1 — its fail-loud is permanent. D70 chose to
     // DROP the intent from v1 over the two design-inventing alternatives (minting a
@@ -417,6 +419,54 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       'v1 (gateway-cli-spec.md:35 / D15).',
       { check: 'excluded-intent', ruling: 'D70' }
     );
+  }
+
+  // Snooze a STANDING warning for `minutes`. A MUTATION intent (it serializes at the
+  // store's single-writer connection, like enqueue-job/remove-job), added ADDITIVELY
+  // by owner ruling D71 under the SAME envelope (contract §1 extension rule) — the
+  // envelope version is UNCHANGED. Snooze NEVER clears (D45) — it only suppresses a
+  // standing warning's announcement; it does not dismiss/acknowledge/delete.
+  function handleSnooze(payload, sender) {
+    for (const key of Object.keys(payload)) {
+      if (key !== 'kind' && key !== 'subject' && key !== 'minutes') {
+        throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });
+      }
+    }
+
+    // Owner-only (D45/D71): the MASTER may snooze and v1's owner IS the master; a
+    // warning is SYSTEM-raised, so there is no sender-"creator" to approximate (unlike
+    // remove-job's owner+creator model). The authorization question is asked in the
+    // ONE policy module (authz.js), never as a scattered `if` here — a non-owner
+    // sender maps onto the ratified UNAUTHORIZED_SENDER wire code.
+    const decision = authz.canSnoozeWarning({ sender });
+    if (!decision.allowed) {
+      throw new InternalApiError(UNAUTHORIZED_SENDER, decision.reason, { check: 'authorization' });
+    }
+
+    // minutes→ticks is the STORE's business (D44): pass `minutes` through named fields,
+    // never re-implement the arithmetic and never raw SQL here. The store re-validates
+    // deterministically (kind/subject non-empty, `minutes` a positive integer →
+    // E_BAD_ARGS → VALIDATION_FAILED naming the failing check) and, for a (kind,
+    // subject) with NO standing warning, returns null — a CLEAN NO-OP, never an error
+    // and never a phantom row (D45; ADX-14).
+    const row = heartStore.snoozeWarning({
+      kind: payload.kind,
+      subject: payload.subject,
+      minutes: payload.minutes,
+    });
+
+    // Loud, owner-readable feedback (D21(3)), mirroring remove-job's result shape
+    // (D23): a hit reports WHAT was snoozed and until WHICH tick; the no-op reports
+    // honestly that nothing stood to be snoozed.
+    if (!row) {
+      return { snoozed: false, kind: payload.kind, subject: payload.subject };
+    }
+    return {
+      snoozed: true,
+      kind: row.kind,
+      subject: row.subject,
+      snoozed_until_tick: row.snoozed_until_tick,
+    };
   }
 
   // ── The single entry point ─────────────────────────────────────────────────
@@ -464,6 +514,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         case 'remove-job': result = handleRemoveJob(env.payload, env.sender); break;
         case 'inspect': result = await handleInspect(env.payload); break;
         case 'spawn-via-named-profile': result = await handleSpawnViaNamedProfile(env.payload); break;
+        case 'snooze': result = handleSnooze(env.payload, env.sender); break;
       }
 
       // Outbound round-trip: the snapshot the gateway receives is DETACHED, so

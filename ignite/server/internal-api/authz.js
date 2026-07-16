@@ -131,7 +131,29 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver] } = {}) {
     };
   }
 
-  return { canRemoveQueueRow, principalsOf, PRINCIPALS };
+  // May this attested sender SNOOZE a standing warning? OWNER-ONLY (owner rulings
+  // D45 / D71): the MASTER may snooze and v1's owner IS the master; a warning is
+  // SYSTEM-raised, so — unlike canRemoveQueueRow — there is NO creator seat to
+  // approximate, and the sender-id creator APPROXIMATION deliberately does NOT apply
+  // here. Only the `owner` principal (proven by `kind: owner`) is authorized;
+  // `master` and `leader` stay INERT in v1 exactly as they do for removal, and the
+  // `kind` enum is NOT extended (D65(B) deliberately-weak model). Returns a DECISION
+  // as data — the caller maps a denial onto the ratified UNAUTHORIZED_SENDER wire
+  // code. `subject` is passed null so the creator approximation is unreachable by
+  // construction, never merely unused.
+  function canSnoozeWarning({ sender }) {
+    const principals = principalsOf(sender, null);
+    const allowed = principals.includes('owner') && PRINCIPALS.owner.enforcedInV1;
+    return {
+      allowed,
+      principals,
+      reason: allowed
+        ? 'authorized as: owner'
+        : 'snooze is owner-only; the attested sender is not the owner',
+    };
+  }
+
+  return { canRemoveQueueRow, canSnoozeWarning, principalsOf, PRINCIPALS };
 }
 
 module.exports = { createAuthzPolicy, tokenKindResolver, PRINCIPALS };

@@ -1,0 +1,24 @@
+COMMAND: node 3-resources/tools/rbtv/ignite/server/internal-api/probes/probe-snooze.js
+PASS  setup: the warning is standing ON DISK, snoozed_until_tick NULL — disk warning={"warning_id":1,"kind":"seat-blocked-budget-exhausted","subject":"client-x/leader","raised_at_tick":3,"snoozed_until_tick":null,"cleared_at_tick":null}
+PASS  a NON-OWNER (kind: agent) snooze is refused UNAUTHORIZED_SENDER — code=UNAUTHORIZED_SENDER
+PASS  the refused snooze maps to HTTP 403 — status=403
+PASS  the denial wrote NOTHING — snoozed_until_tick is STILL NULL ON DISK (mutation-backed guard) — disk snoozed_until_tick=null
+PASS  the OWNER snoozes the standing warning -> ok, snoozed: true — ok=true result={"snoozed":true,"kind":"seat-blocked-budget-exhausted","subject":"client-x/leader","snoozed_until_tick":40}
+PASS  the result reports until WHICH tick (loud feedback, D21(3)) — snoozed_until_tick=40 (expected 40)
+PASS  snoozed_until_tick ACTUALLY ADVANCED ON DISK (read back, not a return value) — disk snoozed_until_tick=40 (expected 40)
+PASS  snooze NEVER clears (D45): cleared_at_tick is STILL NULL ON DISK — disk cleared_at_tick=null
+PASS  the snooze intent is REGISTERED (a typed snooze result, never UNKNOWN_INTENT) — result keys=["snoozed","kind","subject","snoozed_until_tick"]
+PASS  a numeric-string minutes "5" is coerced at the gateway and accepted — ok=true result={"snoozed":true,"kind":"seat-blocked-budget-exhausted","subject":"client-x/leader","snoozed_until_tick":40}
+PASS  snooze with NO standing warning -> clean NO-OP SUCCESS (ok, snoozed: false), never an error — ok=true result={"snoozed":false,"kind":"no-such-kind","subject":"no-such-subject"}
+PASS  the no-op wrote NO PHANTOM ROW ON DISK (warnings count unchanged; no row for the absent subject) — count before=1 after=1
+PASS  bad minutes (0) is refused VALIDATION_FAILED at the CORE, naming the check — code=VALIDATION_FAILED details={"check":"E_BAD_ARGS","field":"minutes"}
+PASS  bad minutes (-5) is refused VALIDATION_FAILED at the CORE, naming the check — code=VALIDATION_FAILED details={"check":"E_BAD_ARGS","field":"minutes"}
+PASS  bad minutes (1.5) is refused VALIDATION_FAILED at the CORE, naming the check — code=VALIDATION_FAILED details={"check":"E_BAD_ARGS","field":"minutes"}
+PASS  the bad-minutes refusals wrote NOTHING — snoozed_until_tick is UNCHANGED ON DISK — disk snoozed_until_tick=40 (expected 40)
+PASS  the GATEWAY also shape-refuses bad minutes (SHAPE_INVALID, exit-4 class) — both layers guard — code=SHAPE_INVALID status=400
+
+CHECKS: 17/17 passed
+SKIPPED_COUNT: 0
+SNOOZE_OK: true
+EXIT: 0
+WALL_MS: 30
