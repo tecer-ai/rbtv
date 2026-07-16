@@ -22,7 +22,7 @@ const INTENTS = new Set(['enqueue-job', 'remove-job', 'inspect', 'spawn-via-name
 
 const TRIGGER_KINDS = new Set(['scheduled', 'periodic']);
 const SESSION_MODES = new Set(['headless', 'headed']);
-const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs']);
+const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker']);
 
 // Fixed-width ISO-8601 UTC. The store's own contract: lexicographic compare must
 // equal chronological compare, so "due" checks stay deterministic string compares.
@@ -162,7 +162,7 @@ function parseInspect(payload) {
   requireObject(payload);
   rejectUnknownKeys(payload, new Set(['target', 'id', 'offset', 'limit']), 'inspect');
   if (!INSPECT_TARGETS.has(payload.target)) {
-    bad(`inspect target must be jobs|queue|status|logs (got "${payload.target}")`, 'target');
+    bad(`inspect target must be jobs|queue|status|logs|daemon|ticker (got "${payload.target}")`, 'target');
   }
   const out = { target: payload.target };
 
@@ -171,6 +171,8 @@ function parseInspect(payload) {
     const id = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : raw;
     if (!Number.isInteger(id) || id <= 0) bad(`inspect ${payload.target} requires an integer id`, 'id');
     out.id = id;
+  } else if (payload.target === 'daemon' || payload.target === 'ticker') {
+    if (payload.id !== undefined) bad(`inspect ${payload.target} takes no id`, 'id');
   } else if (payload.id !== undefined) {
     bad(`inspect ${payload.target} takes no id`, 'id');
   }

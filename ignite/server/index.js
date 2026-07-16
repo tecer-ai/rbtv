@@ -304,6 +304,9 @@ async function main() {
   // ticker's own config but silently ignored by the daemon loop that actually drives it.
   const tickerConfig = mergedConfig.ticker || {};
 
+  // Captured once at boot for `inspect daemon` uptime reporting.
+  const daemonStartTime = Date.now();
+
   const ticker = createTicker({
     heartStore,
     spawnManager,
@@ -331,6 +334,8 @@ async function main() {
     spawnManager,
     secret: internalSecret,
     logger: (m) => log(m.level || 'info', m.message, m),
+    daemonStartTime,
+    daemonConfig: tickerConfig,
   });
 
   const gateway = createGateway({

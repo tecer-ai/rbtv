@@ -11,10 +11,12 @@ const HELP = `ignite inspect jobs
 ignite inspect queue
 ignite inspect status <exec-id>
 ignite inspect logs <exec-id> [--tail <n>]
+ignite inspect daemon
+ignite inspect ticker
 
   Read-only. Renders server state (or the full envelope with --json).`;
 
-const TARGETS = new Set(['jobs', 'queue', 'status', 'logs']);
+const TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker']);
 
 // A single page's line count for the (offset, limit) walk logs paging does.
 // Generous but arbitrary — the server-side page bound (internal-api-contract-
@@ -103,12 +105,22 @@ async function runLogs(argv, ctx) {
   });
 }
 
+async function runDaemonOrTicker(target, argv, ctx) {
+  if (argv.length > 0) throw new CliUsageError(`inspect ${target}: unrecognized argument(s): ${argv.join(' ')}`);
+  const { envelope } = await ctx.call('inspect', { target });
+  return finish(envelope, {
+    json: ctx.json,
+    renderSuccess: (result) => console.log(JSON.stringify(result, null, 2)),
+  });
+}
+
 async function run(argv, ctx) {
-  const target = requirePositional(argv, 'target (jobs|queue|status|logs)');
+  const target = requirePositional(argv, 'target (jobs|queue|status|logs|daemon|ticker)');
   if (!TARGETS.has(target)) {
-    throw new CliUsageError(`inspect target must be jobs|queue|status|logs (got "${target}")`);
+    throw new CliUsageError(`inspect target must be jobs|queue|status|logs|daemon|ticker (got "${target}")`);
   }
   if (target === 'jobs' || target === 'queue') return runJobsOrQueue(target, argv, ctx);
+  if (target === 'daemon' || target === 'ticker') return runDaemonOrTicker(target, argv, ctx);
   if (target === 'status') return runStatus(argv, ctx);
   return runLogs(argv, ctx);
 }

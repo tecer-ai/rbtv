@@ -1,0 +1,52 @@
+COMMAND: node ignite/cli/probes/probe-cli-ticker.js
+PASS  the throwaway daemon boots and its gateway listens — port 44201
+--- inspect ticker --json ---
+EXIT=0
+STDOUT={"ok":true,"result":{"target":"ticker","recent_ticks":[{"tick":1,"actions":[{"phase":"apply-events","skipped":true},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}}]}],"live_sessions":[],"queue_rows":[],"owner_feed_notes":[],"config":{"tick_interval_ms":10000,"stall_warn_ticks":12,"stall_halt_ticks":24,"slot_max_repeats":10,"max_live_agent_sessions":2}}}
+PASS  inspect ticker --json exits 0 and returns ok envelope — exit=0 ok=true
+PASS  inspect ticker result carries recent_ticks array — recent_ticks_len=1
+PASS  inspect ticker result has at least one tick after daemon boot — recent_ticks_len=1
+PASS  inspect ticker carries live_sessions array — live_sessions_len=0
+PASS  inspect ticker carries queue_rows array — queue_rows_len=0
+PASS  inspect ticker carries owner_feed_notes array — owner_feed_notes_len=0
+PASS  inspect ticker carries config knobs — config={"tick_interval_ms":10000,"stall_warn_ticks":12,"stall_halt_ticks":24,"slot_max_repeats":10,"max_live_agent_sessions":2}
+--- inspect ticker (human) ---
+EXIT=0
+STDOUT={
+  "target": "ticker",
+  "recent_ticks": [
+    {
+      "tick": 1,
+      "actions": [
+        {
+          "phase": "apply-events",
+          "skipped": true
+        },
+        {
+          "phase": "nudge",
+          "skipped": true
+        },
+        {
+          "phase": "enforce",
+          "action": "state",
+          "sessions": {}
+        }
+      ]
+    }
+  ],
+  "live_sessions": [],
+  "queue_rows": [],
+  "owner_feed_notes": [],
+  "config": {
+    "tick_interval_ms": 10000,
+    "stall_warn_ticks": 12,
+    "stall_halt_ticks": 24,
+    "slot_max_repeats": 10,
+    "max_live_agent_sessions": 2
+  }
+}
+PASS  inspect ticker exits 0 and renders something non-empty — exit=0 stdout_len=602
+
+CHECKS: 9/9 passed
+EXIT: 0
+WALL_MS: 302

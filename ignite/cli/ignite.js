@@ -25,6 +25,7 @@ const COMMANDS = {
   'remove-job': require('./commands/remove-job'),
   inspect: require('./commands/inspect'),
   snooze: require('./commands/snooze'),
+  status: require('./commands/status'),
 };
 
 function topHelp() {

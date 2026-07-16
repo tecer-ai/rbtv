@@ -1,0 +1,51 @@
+COMMAND: node ignite/cli/probes/probe-cli-status.js
+PASS  the throwaway daemon boots and its gateway listens — port 42491
+--- inspect daemon --json ---
+EXIT=0
+STDOUT={"ok":true,"result":{"target":"daemon","pid":1213229,"uptime_ms":94,"last_tick":1,"live_agent_sessions":0,"max_live_agent_sessions":2,"queue_depth":0,"standing_warnings":[],"config":{"tick_interval_ms":10000,"stall_warn_ticks":12,"stall_halt_ticks":24,"slot_max_repeats":10,"max_live_agent_sessions":2}}}
+PASS  inspect daemon --json exits 0 and returns ok envelope with pid — exit=0 ok=true pid=1213229
+PASS  inspect daemon carries last_tick — last_tick=1
+PASS  inspect daemon carries uptime_ms (non-negative) — uptime_ms=94
+PASS  inspect daemon carries live_agent_sessions (non-negative integer) — live_agent_sessions=0
+PASS  inspect daemon carries config knobs — config={"tick_interval_ms":10000,"stall_warn_ticks":12,"stall_halt_ticks":24,"slot_max_repeats":10,"max_live_agent_sessions":2}
+PASS  inspect daemon carries queue_depth (non-negative integer) — queue_depth=0
+--- ignite status --json ---
+EXIT=0
+STDOUT={"ok":true,"result":{"target":"daemon","pid":1213229,"uptime_ms":151,"last_tick":1,"live_agent_sessions":0,"max_live_agent_sessions":2,"queue_depth":0,"standing_warnings":[],"config":{"tick_interval_ms":10000,"stall_warn_ticks":12,"stall_halt_ticks":24,"slot_max_repeats":10,"max_live_agent_sessions":2}}}
+PASS  ignite status --json exits 0 and returns daemon health (pid present) — exit=0 ok=true pid=1213229
+--- ignite status (human) ---
+EXIT=0
+STDOUT={
+  "target": "daemon",
+  "pid": 1213229,
+  "uptime_ms": 200,
+  "last_tick": 1,
+  "live_agent_sessions": 0,
+  "max_live_agent_sessions": 2,
+  "queue_depth": 0,
+  "standing_warnings": [],
+  "config": {
+    "tick_interval_ms": 10000,
+    "stall_warn_ticks": 12,
+    "stall_halt_ticks": 24,
+    "slot_max_repeats": 10,
+    "max_live_agent_sessions": 2
+  }
+}
+PASS  ignite status exits 0 and renders something non-empty — exit=0 stdout_len=354
+--- inspect daemon with extra arg ---
+EXIT=2
+STDERR=USAGE ERROR: inspect daemon: unrecognized argument(s): extra
+PASS  inspect daemon with an extra arg is a LOCAL usage error, exit 2 — exit=2
+--- ignite status (daemon stopped) ---
+EXIT=0
+STDOUT=daemon: DOWN
+PASS  ignite status with daemon stopped prints "daemon: DOWN" and exits 0 — exit=0 stdout=daemon: DOWN
+--- ignite status --json (daemon stopped) ---
+EXIT=0
+STDOUT={"ok":false,"error":{"code":"DAEMON_DOWN","message":"daemon: DOWN"}}
+PASS  ignite status --json with daemon stopped returns DAEMON_DOWN envelope, exit 0 — exit=0 parsed={"ok":false,"error":{"code":"DAEMON_DOWN","message":"daemon: DOWN"}}
+
+CHECKS: 12/12 passed
+EXIT: 0
+WALL_MS: 504

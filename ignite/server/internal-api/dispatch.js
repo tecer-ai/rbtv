@@ -50,7 +50,7 @@ const ALLOWED_ENVELOPE_KEYS = new Set(['v', 'id', 'ts', 'auth', 'sender', 'inten
 // the auth check below, which is where the contract puts it.
 const REQUIRED_ENVELOPE_KEYS = ['v', 'id', 'ts', 'sender', 'intent', 'payload'];
 
-const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs']);
+const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker']);
 // Server-enforced max page (contract § 1, `inspect`: "offset/limit bounded").
 const MAX_PAGE = 500;
 const DEFAULT_PAGE = 200;
@@ -199,7 +199,7 @@ function toWireError(err) {
   return { code: INTERNAL, message: 'server-core fault', details: null };
 }
 
-function createInternalApi({ heartStore, spawnManager, secret, logger = null, authzPolicy = null }) {
+function createInternalApi({ heartStore, spawnManager, secret, logger = null, authzPolicy = null, daemonStartTime = null, daemonConfig = null }) {
   if (typeof secret !== 'string' || secret.length === 0) {
     throw new Error('createInternalApi requires a non-empty per-boot client secret');
   }
@@ -339,6 +339,106 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     return { offset: rawOffset, limit: Math.min(rawLimit, MAX_PAGE) };
   }
 
+  async function handleInspectDaemon() {
+    const lastTick = heartStore.getLastTick();
+    const liveRows = heartStore.listExecutionsByStatus('running')
+      .concat(heartStore.listExecutionsByStatus('launching'));
+    const liveAgentSessions = liveRows.filter((r) => r.action_type === 'launch-agent').length;
+
+    const queueRows = heartStore.listQueue();
+    const warnings = heartStore.listWarnings({ standingOnly: true });
+
+    const configKnobs = daemonConfig || {};
+    const uptimeMs = daemonStartTime ? Date.now() - daemonStartTime : null;
+
+    return {
+      target: 'daemon',
+      pid: process.pid,
+      uptime_ms: uptimeMs,
+      last_tick: lastTick ? lastTick.tick : null,
+      live_agent_sessions: liveAgentSessions,
+      max_live_agent_sessions: configKnobs.max_live_agent_sessions ?? 2,
+      queue_depth: queueRows.length,
+      standing_warnings: warnings.map((w) => ({
+        id: w.warning_id,
+        kind: w.kind,
+        subject: w.subject,
+        raised_at_tick: w.raised_at_tick,
+        snoozed_until_tick: w.snoozed_until_tick,
+      })),
+      config: {
+        tick_interval_ms: configKnobs.tick_interval_ms ?? 10000,
+        stall_warn_ticks: configKnobs.stall_warn_ticks ?? 12,
+        stall_halt_ticks: configKnobs.stall_halt_ticks ?? 24,
+        slot_max_repeats: configKnobs.slot_max_repeats ?? 10,
+        max_live_agent_sessions: configKnobs.max_live_agent_sessions ?? 2,
+      },
+    };
+  }
+
+  function handleInspectTicker() {
+    const lastTick = heartStore.getLastTick();
+    const tickRows = [];
+    if (lastTick) {
+      const lastN = lastTick.tick;
+      for (let n = lastN; n > 0 && tickRows.length < 10; n--) {
+        const t = heartStore.getTick(n);
+        if (t) tickRows.push({ tick: t.tick, actions: safeParseActionsJson(t.actions_json) });
+      }
+    }
+
+    const liveRows = heartStore.listExecutionsByStatus('running')
+      .concat(heartStore.listExecutionsByStatus('launching'));
+    const liveSessions = liveRows.map((r) => ({
+      exec_id: r.exec_id,
+      status: r.status,
+      action_type: r.action_type,
+      job_id: r.job_id,
+      fired_tick: r.fired_tick,
+      thread: r.thread,
+    }));
+
+    const queueRows = heartStore.listQueue();
+    const dueSoon = queueRows.filter((r) => r.run_at !== undefined).slice(0, 20);
+
+    const allMessages = heartStore.getMessages({ limit: 50 });
+    const ownerFeedNotes = allMessages
+      .filter((m) => m.thread === 'owner-feed')
+      .slice(-10)
+      .map((m) => ({
+        msg_id: m.msg_id,
+        type: m.type,
+        corpus: m.corpus,
+        created_at: m.created_at,
+      }));
+
+    const configKnobs = daemonConfig || {};
+
+    return {
+      target: 'ticker',
+      recent_ticks: tickRows,
+      live_sessions: liveSessions,
+      queue_rows: dueSoon.map((r) => ({
+        queue_id: r.queue_id,
+        job_id: r.job_id,
+        run_at: r.run_at,
+        trigger_kind: r.trigger_kind,
+      })),
+      owner_feed_notes: ownerFeedNotes,
+      config: {
+        tick_interval_ms: configKnobs.tick_interval_ms ?? 10000,
+        stall_warn_ticks: configKnobs.stall_warn_ticks ?? 12,
+        stall_halt_ticks: configKnobs.stall_halt_ticks ?? 24,
+        slot_max_repeats: configKnobs.slot_max_repeats ?? 10,
+        max_live_agent_sessions: configKnobs.max_live_agent_sessions ?? 2,
+      },
+    };
+  }
+
+  function safeParseActionsJson(json) {
+    try { return JSON.parse(json); } catch { return json; }
+  }
+
   async function handleInspect(payload) {
     for (const key of Object.keys(payload)) {
       if (!['target', 'id', 'offset', 'limit'].includes(key)) {
@@ -347,11 +447,13 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     }
     const { target } = payload;
     if (!INSPECT_TARGETS.has(target)) {
-      throw new InternalApiError(VALIDATION_FAILED, `unknown inspect target: ${target}`, { check: 'inspect-target', field: 'target' });
+      throw new InternalApiError(VALIDATION_FAILED, `unknown inspect target: ${target} (known: jobs, queue, status, logs, daemon, ticker)`, { check: 'inspect-target', field: 'target' });
     }
 
     if (target === 'jobs') return { target, rows: heartStore.listJobs() };
     if (target === 'queue') return { target, rows: heartStore.listQueue() };
+    if (target === 'daemon') return handleInspectDaemon();
+    if (target === 'ticker') return handleInspectTicker();
 
     // status/logs are execution-scoped: `id` is required and must exist (one
     // execution = one session row, D16).
