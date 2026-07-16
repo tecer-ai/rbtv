@@ -1,0 +1,19 @@
+COMMAND: node probe-queue-remove.js
+PASS  setup: repeating row SURVIVES its fire (run_at advanced) — run_at 2026-07-16T12:55:35Z -> 2026-07-16T12:56:35Z
+PASS  setup: the fire recorded an execution — exec_id=1
+PASS  remove returns the REMOVED ROW, identified (not a bare boolean) — queue_id=1 job_id=launch-worker
+PASS  one-shot row is GONE on disk (identity, not a count) — disk queue_ids=[2]
+PASS  the SIBLING row is untouched (removal is targeted) — rowB queue_id=2 still present
+PASS  removing a repeating trigger returns its recurrence fields (lets the caller be LOUD) — trigger_kind=periodic interval_seconds=60
+PASS  repeating row is GONE on disk — the recurring schedule is cancelled — disk queue_ids=[]
+PASS  the fired execution's audit row SURVIVES its queue row's removal — jobs_log exec_ids=[1]
+PASS  unknown id throws (never a silent no-op) — threw
+PASS  unknown id is TYPED E_QUEUE_ROW_NOT_FOUND — code=E_QUEUE_ROW_NOT_FOUND
+PASS  the typed error carries the offending id in details — details={"queueId":999999}
+PASS  a non-integer id is E_BAD_ARGS (distinct from not-found) — code=E_BAD_ARGS
+PASS  a failed removal leaves the queue exactly as it was — disk queue rows=0
+
+CHECKS: 13/13 passed
+REMOVE_OK: true
+EXIT: 0
+WALL_MS: 17

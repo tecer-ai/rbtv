@@ -15,6 +15,7 @@ const {
   E_BAD_MESSAGE,
   E_BAD_TRIGGER,
   E_BAD_MODE,
+  E_QUEUE_ROW_NOT_FOUND,
 } = require('./errors');
 const { TICKS_PER_MINUTE } = require('./warnings');
 
@@ -390,6 +391,49 @@ class HeartStore {
   listQueue() {
     const stmt = this._prepare('SELECT * FROM queue ORDER BY run_at, queue_id');
     return stmt.all();
+  }
+
+  // Sender-initiated removal of a PENDING queue row (p4-0 / D65(A)). The only
+  // other DELETEs on `queue` are fire-path (one-shot fire, max_fires retirement).
+  //
+  // SEMANTICS — whole-row, and therefore: removing a REPEATING trigger's row
+  // ends the WHOLE recurring schedule, not one occurrence. This is not a pick;
+  // it is what the ratified contract admits. A repeating trigger is ONE row whose
+  // `run_at` advances on fire, so "one pending occurrence" HAS NO ROW to delete;
+  // `remove-job`'s ratified payload is `{ jobId }` with NO occurrence selector and
+  // its result is the boolean `{ removed: true }`; and the store spec already
+  // equates ending a repeating trigger with removing its queue row (§ Trigger
+  // semantics, max_fires: "the trigger RETIRES: the queue row is removed").
+  //
+  // The removed row is RETURNED (never a bare boolean) so the caller can tell the
+  // sender WHAT it just cancelled — the row carries `trigger_kind`/`repeat_rule`/
+  // `interval_seconds`, which is what lets `ignite remove-job` be loud about
+  // killing a recurrence (D21(3) loud feedback, BINDING acceptance).
+  //
+  // NOT this method's business: authorization (the caller owns policy — D65(B)),
+  // and removable-state/in-flight checks (the internal API's re-validation). A
+  // running execution is NEVER touched: `jobs_log` carries no FK to `queue` and
+  // denormalizes `enqueued_by`/`action_type` at fire precisely so the audit
+  // survives its queue row's deletion. Removal cancels FUTURE fires only.
+  removeQueueRow({ queueId }) {
+    if (!Number.isInteger(queueId)) {
+      throw new HeartStoreError(E_BAD_ARGS, 'queue_id must be an integer', { field: 'queueId' });
+    }
+    this.db.exec('BEGIN EXCLUSIVE;');
+    try {
+      const row = this.getQueueRow(queueId);
+      if (!row) {
+        this.db.exec('ROLLBACK;');
+        // Typed, never a silent no-op (internal-api-contract-spec.md:27).
+        throw new HeartStoreError(E_QUEUE_ROW_NOT_FOUND, `queue row not found: ${queueId}`, { queueId });
+      }
+      this._prepare('DELETE FROM queue WHERE queue_id = ?').run(queueId);
+      this.db.exec('COMMIT;');
+      return row;
+    } catch (err) {
+      try { this.db.exec('ROLLBACK;'); } catch {}
+      throw err;
+    }
   }
 
   fireQueueRow({ queueId, now, tick, parentExecId = null }) {
@@ -802,6 +846,7 @@ module.exports = {
   isHeartStoreOpen,
   HeartStore,
   HeartStoreError,
+  E_QUEUE_ROW_NOT_FOUND,
   E_SECOND_WRITER,
   E_UNKNOWN_JOB,
   E_JOB_DISABLED,
