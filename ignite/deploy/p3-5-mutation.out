@@ -1,0 +1,17 @@
+p3-5 mutation proof — the D56 fail-open is CLOSED by construction AND by check (D58(2))
+started: 2026-07-15T23:16:33.087Z
+command: node deploy/p3-5-mutation.js
+
+=== LEG 1: ALIGNED (workdir_root == derived sessions root) — must CONTAIN ===
+  spawned: workdir=/tmp/p3-5-mut-aligned-IPwZtd/ws/.rbtv/sessions/1 status=running
+  [PASS] aligned null-workdir spawn RUNS and is contained in .rbtv/sessions/<exec-id> — /tmp/p3-5-mut-aligned-IPwZtd/ws/.rbtv/sessions/1
+
+=== LEG 2: ESCAPING (workdir_root OUTSIDE the derived sessions root) — must REFUSE ===
+  workdir_root=/tmp/p3-5-mut-escape-IVG0EI/allowed  derived sessions root=/tmp/p3-5-mut-escape-IVG0EI/ws/.rbtv/sessions (divergent)
+  spawn outcome: E_WORKDIR_ESCAPE: resolved session dir /tmp/p3-5-mut-escape-IVG0EI/ws/.rbtv/sessions/1 is outside profile workdir_root /tmp/p3-5-mut-escape-IVG0EI/allowed
+  [PASS] escaping null-workdir spawn REFUSES with E_WORKDIR_ESCAPE (fail-closed)
+  [PASS] escaping spawn did NOT run a worker (no row went to running)
+
+checks: 3 total, 3 passed, 0 failed
+result: PASS
+ended: 2026-07-15T23:16:33.395Z

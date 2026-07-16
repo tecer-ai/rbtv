@@ -11,3 +11,4 @@ js-yaml — YAML parser for server-config and launch-profile files — `npm inst
 tailscaled — zero-ingress network posture: tailnet bind + Tailscale Serve (Batch 5) — `apt install tailscale` (per tailscale.com/install)
 ttyd — web-terminal viewer for headed sessions (Batch 6) — `apt install ttyd` (or build from source if the apt version lags)
 node-pty — server-owned pty layer for headed sessions (Batch 6) — `npm install node-pty`
+bubblewrap (bwrap) — LOAD-BEARING worker filesystem containment: mount-namespace walls nested inside each systemd-run --user unit (D59; systemd's FS sandbox is a no-op under the user manager) — `sudo apt-get install -y bubblewrap` (one-time root provisioning; Ubuntu pre-loads the bwrap-userns-restrict AppArmor profile that grants bwrap user-namespace access)

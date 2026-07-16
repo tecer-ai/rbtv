@@ -290,16 +290,68 @@ function canonicalizeWorkdir(requested, filePath) {
   }
 }
 
-function resolveWorkdir(profile, requestedWorkdir, defaultWorkdirRoot, filePath) {
+// D58 open-item ruling (smallest shape): the per-execution launch dir lives at
+// `<workspaceRoot>/.rbtv/sessions/<exec-id>/`. The sessions root is DERIVED, never a new
+// config key. It MUST be a sibling of the heart store's `.rbtv/` (D58(3): `.rbtv/heart/` — the
+// control-plane store — stays out of every worker's reach), so it is sourced FROM the store's
+// own db path (`<ws>/.rbtv/heart/heart.db`), which guarantees the sibling relationship. index.js
+// is frozen for this task and cannot pass the workspace root in, so the fallback chain mirrors
+// index.js's own machine-agnostic resolution: the store's `.rbtv/`, then RBTV_IGNITE_WORKSPACE_ROOT,
+// else null (a store with no `.rbtv/` shape — a test-only flat db — yields null, and the default
+// branch then bases the session dir on the profile's own workdir_root, which is still contained).
+function resolveWorkspaceRoot(heartDbPath) {
+  if (heartDbPath) {
+    const parts = path.resolve(heartDbPath).split(path.sep);
+    const idx = parts.lastIndexOf('.rbtv');
+    if (idx > 0) return parts.slice(0, idx).join(path.sep) || path.sep;
+  }
+  const env = process.env.RBTV_IGNITE_WORKSPACE_ROOT;
+  if (env) return path.resolve(env);
+  return null;
+}
+
+function sessionsRootFor(workspaceRoot) {
+  return workspaceRoot ? path.join(workspaceRoot, '.rbtv', 'sessions') : null;
+}
+
+// D56 fix (D58 contract). BOTH branches now pass the SAME fail-closed containment check —
+// the resolved dir must sit inside the profile's workdir_root or the spawn REFUSES
+// (E_WORKDIR_ESCAPE). The former default branch returned `default_workdir_root` UNCHECKED
+// (the fail-open); it now materializes a per-execution launch dir under the sessions root and
+// enforces it exactly as the caller branch enforces a caller-supplied workdir. A worker that
+// cannot be contained does not run (the D48 fail-closed direction).
+function resolveWorkdir(profile, requestedWorkdir, defaultWorkdirRoot, filePath, opts = {}) {
+  const { execId, sessionsRoot = null, workspaceRoot = null } = opts;
+
+  // Resolve the profile's containment boundary to an absolute path. A machine-agnostic
+  // committed workdir_root may be workspace-relative (the D58 repoint `.rbtv/sessions`, D26(3)):
+  // resolve it against the workspace root the daemon runs under, never a stray process cwd.
+  const workdirRootAbs = path.isAbsolute(profile.workdir_root)
+    ? profile.workdir_root
+    : path.resolve(workspaceRoot || process.cwd(), profile.workdir_root);
+
   if (requestedWorkdir === undefined || requestedWorkdir === null) {
-    if (!defaultWorkdirRoot) {
-      throw new SpawnError(E_WORKDIR_MISSING, 'no workdir supplied and no default_workdir_root configured', { profile: profile });
+    if (execId === undefined || execId === null) {
+      throw new SpawnError(E_WORKDIR_MISSING, 'default-branch launch requires an exec id to materialize the session dir', { profile });
     }
-    return canonicalizeWorkdir(defaultWorkdirRoot, filePath);
+    // The session dir is sourced from the sessions root (workspace-derived), which is
+    // INDEPENDENT of the profile's workdir_root — so this check is not vacuous: a sessions
+    // root that falls outside workdir_root (misconfiguration, or a divergence a mutation test
+    // injects) is REFUSED. In production the two coincide; the check proves they do.
+    const base = sessionsRoot || workdirRootAbs;
+    fs.mkdirSync(workdirRootAbs, { recursive: true, mode: 0o700 });
+    const sessionDir = path.join(base, String(execId));
+    fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
+    const resolved = fs.realpathSync(sessionDir);
+    const allowedRoot = fs.realpathSync(workdirRootAbs);
+    if (resolved !== allowedRoot && !resolved.startsWith(allowedRoot + path.sep)) {
+      throw new SpawnError(E_WORKDIR_ESCAPE, `resolved session dir ${resolved} is outside profile workdir_root ${allowedRoot}`, { workdir: resolved, allowedRoot });
+    }
+    return resolved;
   }
 
   const resolved = canonicalizeWorkdir(requestedWorkdir, filePath);
-  const allowedRoot = fs.realpathSync(path.resolve(profile.workdir_root));
+  const allowedRoot = fs.realpathSync(workdirRootAbs);
   if (resolved !== allowedRoot && !resolved.startsWith(allowedRoot + path.sep)) {
     throw new SpawnError(E_WORKDIR_ESCAPE, `workdir ${resolved} is outside profile workdir_root ${allowedRoot}`, { workdir: resolved, allowedRoot });
   }
@@ -310,5 +362,7 @@ module.exports = {
   loadConfig,
   resolveTemplateSlots,
   resolveWorkdir,
+  resolveWorkspaceRoot,
+  sessionsRootFor,
   CLOSED_SLOTS,
 };

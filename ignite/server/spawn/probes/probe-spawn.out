@@ -1,16 +1,16 @@
 probe: probe-spawn
-started: 2026-07-14T23:34:53.317Z
+started: 2026-07-15T23:03:40.955Z
 command: node probes/probe-spawn.js
 action: fire row then spawn trivial worker via test-sleep profile
 exec_id before spawn: 1, status: launching
 exec_id after spawn: 1
-session_id: 0bf8082e-1e5d-42e4-849d-d391526770e1
-pid: 173348
+session_id: 970fb8ec-938b-4305-989d-86ec6b7e969a
+pid: 653975
 carrier: systemd
-unit_name: rbtv-worker-0bf8082e-1e5d-42e4-849d-d391526770e1
+unit_name: rbtv-worker-970fb8ec-938b-4305-989d-86ec6b7e969a
 status: running
-log_path: /tmp/p2-2-probe-KAuOje/data/logs/0bf8082e-1e5d-42e4-849d-d391526770e1.log
-workdir: /tmp/p2-2-probe-KAuOje/default
+log_path: /tmp/p2-2-probe-RPpkl0/data/logs/970fb8ec-938b-4305-989d-86ec6b7e969a.log
+workdir: /tmp/p2-2-probe-RPpkl0/work/1
 systemctl --user show caps:
   RuntimeMaxUSec=1h
   MemoryMax=67108864
@@ -19,5 +19,5 @@ systemctl --user is-active: active
 log file exists: true
 status: PASS
 exit: 0
-wall_ms: 349
-ended: 2026-07-14T23:34:53.666Z
+wall_ms: 323
+ended: 2026-07-15T23:03:41.278Z

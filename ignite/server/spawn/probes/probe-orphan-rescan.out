@@ -1,9 +1,9 @@
 probe: probe-orphan-rescan
-started: 2026-07-14T23:39:01.842Z
+started: 2026-07-15T23:03:42.968Z
 command: node probes/probe-orphan-rescan.js
-case-a live: exec_id=1 unit=rbtv-worker-3d0e8499-e4bb-4876-b889-ff6132691185 status=running is-active=active
-case-b orphan: exec_id=2 unit=rbtv-worker-ccbf3139-8175-4be6-8059-20e54139379c row-status-before-rescan=running unit-inactive=true is-active=inactive
-case-c row-less unit: rbtv-worker-21df4dbf-3799-4d08-96e1-00960ae0e3bc is-active=active
+case-a live: exec_id=1 unit=rbtv-worker-b68904a5-1c17-4cc5-8f98-f3e88b77b6ef status=running is-active=active
+case-b orphan: exec_id=2 unit=rbtv-worker-cd869ae4-5082-48c0-b4a9-07f01215399c row-status-before-rescan=running unit-inactive=true is-active=inactive
+case-c row-less unit: rbtv-worker-fe529660-1c0c-4436-a4de-60561e163460 is-active=active
 action: run orphan rescan (both directions) against real user-manager units
 RESULT case-a: reattached=true status-after=running is-active-after=active falsely-rowless=false falsely-failed=false
 RESULT case-b: marked_failed=true status-after=failed reason="unit inactive at boot rescan"
@@ -12,5 +12,5 @@ counts: reattached=1 marked_failed=1 row_less_units=1 errors=0
 result: 3-case boot reconciliation proven (live reattach / dead->failed / row-less flagged, never killed)
 status: PASS
 exit: 0
-wall_ms: 556
-ended: 2026-07-14T23:39:02.398Z
+wall_ms: 547
+ended: 2026-07-15T23:03:43.515Z

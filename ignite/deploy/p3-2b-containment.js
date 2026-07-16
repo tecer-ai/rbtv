@@ -102,6 +102,40 @@ function readCgroup(unit) {
   return { cgroup: cg, 'memory.max': read('memory.max'), 'cpu.max': read('cpu.max'), 'pids.max': read('pids.max') };
 }
 
+// ---------- post-D61 RW readback: the writable walls are bwrap's `--bind` set, NOT the systemd
+// ReadWritePaths property. D61 emptied that property (systemd's FS sandbox both no-ops under the
+// --user manager AND breaks bwrap's user namespace), moving FS containment into a bubblewrap mount
+// namespace nested in the unit. The real RW set is the `--bind SRC DEST` entries of the unit's
+// bwrap ExecStart. systemd renders ExecStart --value as "{ path=… ; argv[]=<tokens> ; … }". ----------
+
+function readUnitArgv(unit) {
+  let raw;
+  try {
+    raw = execFileSync('systemctl', ['--user', 'show', unit, '-pExecStart', '--value'], { encoding: 'utf8' }).trim();
+  } catch { return []; }
+  const seg = raw.split(' ; ').find((s) => s.startsWith('argv[]='));
+  if (!seg) return [];
+  return seg.slice('argv[]='.length).trim().split(/\s+/).filter(Boolean);
+}
+
+// The RW walls = the SRC of each exact `--bind SRC DEST` (writable). `--ro-bind`/`--ro-bind-try`
+// are read-only; `--bind-try` are the harness's OWN auth dirs (absent here — p3-2b substitutes
+// every profile's argv to `sleep`, so harness=null and no harness state is bound). Only `--bind`
+// entries count as the declared RW set. Scanning stops at the `--` separating bwrap flags from the
+// wrapped command, so a path in the wrapped argv can never be mistaken for a bind.
+function bwrapRwBinds(argv) {
+  const out = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--') break;
+    if (argv[i] === '--bind') { if (argv[i + 1] !== undefined) out.push(argv[i + 1]); i += 2; }
+  }
+  return out;
+}
+
+function bwrapRwBindsReal(unit) {
+  return bwrapRwBinds(readUnitArgv(unit)).map((p) => { try { return fs.realpathSync(p); } catch { return p; } });
+}
+
 // ---------- the proof ----------
 
 const checks = [];
@@ -217,29 +251,122 @@ async function proveProfile(profileName, realCfg) {
       check(`cgroup pids.max ENFORCED`, cg['pids.max'], String(caps.tasks_max), String(cg['pids.max']) === String(caps.tasks_max));
     }
 
-    // ---- sandbox: reported, and slot-resolution audited ----
+    // ---- sandbox: RW walls audited on the ACTUAL post-D61 mechanism (bwrap --bind), not the
+    // now-empty systemd ReadWritePaths property. The declared `{workdir}` slot must resolve into a
+    // real bwrap --bind of the session dir, with no literal `{slot}` surviving into the argv. ----
     if (realProfile.sandbox) {
-      log('sandbox block audit:');
+      log('sandbox block audit (post-D61: RW walls are bwrap --bind; systemd ReadWritePaths is empty by design):');
       const rwp = realProfile.sandbox.ReadWritePaths;
       if (rwp) {
         const declared = Array.isArray(rwp) ? rwp : [rwp];
         const declaredSlots = declared.filter((p) => /\{[a-z_]+\}/.test(p));
-        const live = props.ReadWritePaths || '';
-        log(`  profile declares ReadWritePaths=${JSON.stringify(declared)}`);
-        log(`  live unit reports  ReadWritePaths=${live}`);
-        // Report whether the profile actually declares a slot: if it declares none, the
-        // resolution check below is vacuous and must not be read as proof of resolution.
+        const binds = bwrapRwBindsReal(row.unit_name);
+        const workdirReal = fs.realpathSync(row.workdir);
+        log(`  profile declares sandbox.ReadWritePaths=${JSON.stringify(declared)}`);
+        log(`  live unit bwrap --bind RW set=${JSON.stringify(binds.map(portable))}`);
         log(`  slots declared in profile: ${declaredSlots.length ? JSON.stringify(declaredSlots) : '(NONE — slot resolution is not exercised by this profile)'}`);
-        // Grade BOTH halves of the label. `live.includes(workdir)` alone would pass a value
-        // that still carried a literal `{slot}` next to the resolved path.
-        const liveHasSlot = /\{[a-z_]+\}/.test(live);
+        const anySlot = binds.some((p) => /\{[a-z_]+\}/.test(p));
         check(
-          'ReadWritePaths template slots resolved to the real workdir',
-          live, `must contain ${row.workdir} and no {slot}`,
-          live.includes(row.workdir) && !liveHasSlot,
+          'workdir slot resolved into the bwrap --bind RW set (no literal {slot})',
+          JSON.stringify(binds.map(portable)), `must contain ${portable(workdirReal)} and no {slot}`,
+          binds.includes(workdirReal) && !anySlot,
         );
       }
     }
+  } finally {
+    try { if (row) await mgr.kill(row.exec_id); } catch {}
+    try { closeHeartStore(); } catch {}
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
+  }
+}
+
+// D56/D58 EXTENSION — the null-workdir (DEFAULT / ticker) branch. The checks above drive a
+// CONFIGURED workdir_root; they never enter the branch the ticker actually uses, which is exactly
+// why the 39/39 proof passed OVER the D56 fail-open. This scenario opens the store at a real
+// `.rbtv/`-rooted workspace so the sessions root derives to `<ws>/.rbtv/sessions`, spawns with NO
+// workdir (the default branch), and proves the transient unit's RW set is EXACTLY the per-execution
+// session dir + the declared test folder — and NOT the vault root, NOT `.rbtv/`, NOT `.rbtv/heart/`
+// (the control-plane store, a SIBLING that must stay out of every worker's reach — D58(3)).
+async function proveNullBranchExactness(profileName, realCfg) {
+  const realProfile = realCfg.profiles[profileName];
+  if (!realProfile) throw new Error(`profile not found: ${profileName}`);
+  if (!realProfile.sandbox) { log(`  (skip null-branch RW exactness for ${profileName}: no sandbox block)`); return; }
+
+  log('');
+  log(`=== null-workdir (default/ticker) branch under test: ${profileName} ===`);
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'p3-2b-nullbranch-'));
+  const ws = path.join(tmp, 'ws');                    // workspace root (roots .rbtv/)
+  const dataRoot = path.join(tmp, 'data');
+  const testFolder = path.join(tmp, 'containment-test'); // stands in for the vault test folder (declared RW)
+  fs.mkdirSync(ws, { recursive: true });
+  fs.mkdirSync(dataRoot, { recursive: true });
+  fs.mkdirSync(testFolder, { recursive: true });
+  const heartDir = path.join(ws, '.rbtv', 'heart');
+  const sessionsRoot = path.join(ws, '.rbtv', 'sessions');
+
+  // Real sandbox VERBATIM (that is what is under test), + the declared test folder in RW.
+  // exec.argv substituted for a benign sleep; workdir_root repointed to the ABSOLUTE sessions root.
+  const testProfile = {
+    ...realProfile,
+    exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
+    resume: { argv: ['sleep', '3600'], prompt: 'stdin' },
+    session_ref: { source: 'cwd-implicit' },
+    workdir_root: sessionsRoot,
+    sandbox: { ...realProfile.sandbox, ReadWritePaths: ['{workdir}', testFolder] },
+  };
+  delete testProfile.headed;
+
+  const cfg = {
+    bind: { host: '127.0.0.1', port: 7431 },
+    auth: { senders_file: path.join(tmp, 'senders.yaml') },
+    spawn: { data_root: dataRoot, carrier: realCfg.spawn?.carrier || 'auto', kill_grace_seconds: 2 },
+    default_workdir_root: ws,
+    profiles: { [profileName]: testProfile },
+  };
+  const cfgPath = path.join(tmp, 'spawn-profiles.yaml');
+  fs.writeFileSync(cfgPath, yaml.dump(cfg));
+
+  // Store opened at the WORKSPACE root: dbPath = <ws>/.rbtv/heart/heart.db → sessions root
+  // derives to <ws>/.rbtv/sessions, a proven SIBLING of .rbtv/heart (D58(3)).
+  const store = openHeartStore({ runtimeStateRoot: ws });
+  const mgr = createSpawnManager({ heartStore: store, configPath: cfgPath, logger: null, userManager: true });
+
+  let row;
+  try {
+    const fired = store.recordExecutionStart({
+      jobId: 'launch-agent', actionType: 'launch-agent',
+      args: JSON.stringify({ profile: profileName, workdir: null }),
+      enqueuedBy: 'p3-2b-nullbranch', sessionMode: 'headless',
+      firedTick: 1, firedAt: new Date(), profile: profileName, workdir: null,
+    });
+    // NO workdir supplied — the DEFAULT branch, the one the ticker uses and D56 left unguarded.
+    row = await mgr.spawn(fired.exec_id, profileName, 'headless', null, null, 'p3-2b-nullbranch');
+    log(`spawned (null workdir): carrier=${row.carrier} unit=${row.unit_name} workdir=${portable(row.workdir)}`);
+
+    const expectedSessionDir = fs.realpathSync(path.join(sessionsRoot, String(fired.exec_id)));
+    check('null-branch landed in .rbtv/sessions/<exec-id>', portable(row.workdir), portable(expectedSessionDir), row.workdir === expectedSessionDir);
+    check('session dir is INSIDE the sessions root (fail-closed passed)', portable(row.workdir), `under ${portable(sessionsRoot)}`, row.workdir.startsWith(fs.realpathSync(sessionsRoot) + path.sep));
+
+    // Post-D61: the RW walls are bwrap's `--bind` set (systemd ReadWritePaths is empty by design).
+    // Read the bind set off the unit's bwrap ExecStart and assert it is EXACTLY {session dir, test
+    // folder} and excludes the vault root / .rbtv / .rbtv/heart — the same D58(3) containment the
+    // stale systemd-property checks intended, now graded against the real mechanism.
+    const rwReal = bwrapRwBindsReal(row.unit_name);
+    log(`  live bwrap --bind RW set: ${JSON.stringify(rwReal.map(portable))}`);
+    const expectTest = fs.realpathSync(testFolder);
+
+    check('RW set contains the session dir', JSON.stringify(rwReal.map(portable)), portable(expectedSessionDir), rwReal.includes(expectedSessionDir));
+    check('RW set contains the declared test folder', JSON.stringify(rwReal.map(portable)), portable(expectTest), rwReal.includes(expectTest));
+    check('RW set is EXACTLY {session dir, test folder} (nothing else)', String(rwReal.length), '2', rwReal.length === 2 && rwReal.includes(expectedSessionDir) && rwReal.includes(expectTest));
+    // The forbidden siblings — the whole point of D58(3). Now a REAL exclusion over the bwrap bind
+    // set (a non-empty {session, test}), not a vacuous check over an empty systemd property.
+    const wsReal = fs.realpathSync(ws);
+    const rbtvReal = fs.realpathSync(path.join(ws, '.rbtv'));
+    const heartReal = fs.existsSync(heartDir) ? fs.realpathSync(heartDir) : heartDir;
+    check('RW set does NOT contain the vault root', JSON.stringify(rwReal.map(portable)), `no ${portable(wsReal)}`, !rwReal.includes(wsReal));
+    check('RW set does NOT contain .rbtv/', JSON.stringify(rwReal.map(portable)), `no ${portable(rbtvReal)}`, !rwReal.includes(rbtvReal));
+    check('RW set does NOT contain .rbtv/heart/ (control-plane store)', JSON.stringify(rwReal.map(portable)), `no ${portable(heartReal)}`, !rwReal.includes(heartReal));
   } finally {
     try { if (row) await mgr.kill(row.exec_id); } catch {}
     try { closeHeartStore(); } catch {}
@@ -272,6 +399,16 @@ async function main() {
     } catch (err) {
       log(`  [FAILED] ${p}: ${err.code || err.name}: ${err.message}`);
       checks.push({ label: `${p}: spawns and carries its caps`, actual: `${err.code || err.name}: ${err.message}`, expected: 'spawn succeeds, caps readback matches', ok: false });
+    }
+  }
+
+  // D56/D58: additionally drive the null-workdir (default/ticker) branch and prove RW-set exactness.
+  for (const p of targets) {
+    try {
+      await proveNullBranchExactness(p, realCfg);
+    } catch (err) {
+      log(`  [FAILED null-branch] ${p}: ${err.code || err.name}: ${err.message}`);
+      checks.push({ label: `${p}: null-branch RW-set exactness`, actual: `${err.code || err.name}: ${err.message}`, expected: 'null-workdir spawn contained, RW = {session dir, test folder}', ok: false });
     }
   }
 

@@ -30,13 +30,27 @@ profiles:
              "--allowedTools", "Bash(git *),Write"]
       prompt: stdin
     session_ref: { source: stdout-json, field: session_id }
-    workdir_root: /srv/rbtv/work
+    workdir_root: .rbtv/sessions   # D58: per-execution launch dirs at .rbtv/sessions/<exec-id>/. Machine-agnostic (D26(3)): workspace-relative, resolved at runtime against the workspace root that roots .rbtv/ — NEVER an instance path.
     caps: { memory_max: "4G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
+    # D58(3): the worker's kernel RW set must be EXACTLY its session dir. D61 UPDATE: the FS-mount
+    # sandbox props below (ProtectSystem/ReadWritePaths/PrivateTmp) are NO LONGER emitted to systemd
+    # — under the --user manager they are a no-op AND their mount-namespace setup denies bwrap the
+    # user namespace it needs. The kernel FS boundary is now a bubblewrap mount namespace nested in
+    # the unit (server/spawn/bwrap.js); carrier.js emits ONLY the bwrap-compatible keys to systemd
+    # (NoNewPrivileges + the cgroup caps). ReadWritePaths is RETAINED here as the declarative source
+    # for the bwrap RW binds (spawn.js derives editablePaths from it). --allowedTools stays as an
+    # advisory second belt. See D59/D60/D61.
+    sandbox:
+      ProtectSystem: strict
+      ReadWritePaths: ["{workdir}"]
+      PrivateTmp: true
+      NoNewPrivileges: true
 
   codex-git-write:
     # ERRATUM (notes, top): codex POLICY-blocks .git writes under workspace-write regardless of
     # config -- a git-writing codex profile runs danger-full-access, so codex's own sandbox is OFF
-    # and containment comes from the unit's sandbox block below instead.
+    # and containment comes from the bubblewrap mount namespace (D61; the unit's sandbox FS props
+    # below are stripped at emission and no longer provide it).
     exec:
       argv: ["codex", "exec", "--cd", "{workdir}",
              "--sandbox", "danger-full-access", "-c", "approval_policy=never", "--json"]
@@ -49,7 +63,7 @@ profiles:
              "--sandbox", "danger-full-access", "-c", "approval_policy=never", "--json"]
       prompt: stdin
     session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
-    workdir_root: /srv/rbtv/work
+    workdir_root: .rbtv/sessions   # D58: per-execution launch dirs at .rbtv/sessions/<exec-id>/. Machine-agnostic (D26(3)): workspace-relative, resolved at runtime against the workspace root that roots .rbtv/ — NEVER an instance path.
     caps: { memory_max: "4G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
     sandbox:
       ProtectSystem: strict
@@ -69,7 +83,7 @@ profiles:
     session_ref: { source: cwd-implicit }    # opencode resumes per-cwd; the session's workdir IS the ref
     headed:
       tui: { argv: ["opencode"] }            # headed-CAPABLE seam; the pty path is Batch 6's design
-    workdir_root: /srv/rbtv/work
+    workdir_root: .rbtv/sessions   # D58: per-execution launch dirs at .rbtv/sessions/<exec-id>/. Machine-agnostic (D26(3)): workspace-relative, resolved at runtime against the workspace root that roots .rbtv/ — NEVER an instance path.
     caps: { memory_max: "4G", cpu_quota: "150%", runtime_max: "8h", tasks_max: 512 }
     sandbox:
       ProtectSystem: strict
@@ -101,13 +115,14 @@ profiles:
       argv: ["sleep", "60"]
       prompt: stdin
     session_ref: { source: cwd-implicit }   # sleep has no session concept; the workdir IS the ref
-    workdir_root: /srv/rbtv/work
+    workdir_root: .rbtv/sessions   # D58: per-execution launch dirs at .rbtv/sessions/<exec-id>/. Machine-agnostic (D26(3)): workspace-relative, resolved at runtime against the workspace root that roots .rbtv/ — NEVER an instance path.
     caps: { memory_max: "64M", cpu_quota: "10%", runtime_max: "5m", tasks_max: 16 }
-    # Carries a sandbox despite the trivial argv. `claude-sonnet-tools` omits one because its
-    # containment IS the --allowedTools allowlist baked into its argv (R3b); sleep has no such
-    # internal confinement, so "no side effects outside its own workdir" above would rest on
-    # trusting the argv alone. This makes it kernel-enforced instead -- and costs nothing,
-    # because sleep needs nothing ProtectSystem=strict takes away.
+    # Carries a sandbox despite the trivial argv. Every production profile now declares one
+    # (D58(3): the worker's kernel RW set must be EXACTLY its session dir); sleep has no internal
+    # confinement of its own, so "no side effects outside its own workdir" above would otherwise
+    # rest on trusting the argv alone. D61 UPDATE: the FS-mount props are stripped at emission and
+    # the kernel boundary is the bwrap mount namespace (see the claude-sonnet-tools note); ReadWrite-
+    # Paths is retained as the declarative source of the bwrap RW binds.
     sandbox:
       ProtectSystem: strict
       ReadWritePaths: ["{workdir}"]

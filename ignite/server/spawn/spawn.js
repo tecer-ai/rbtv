@@ -3,7 +3,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn: childSpawn } = require('node:child_process');
-const { loadConfig, resolveTemplateSlots, resolveWorkdir } = require('./config');
+const { loadConfig, resolveTemplateSlots, resolveWorkdir, resolveWorkspaceRoot, sessionsRootFor } = require('./config');
+const { materializeHarnessConfig, harnessOf } = require('./harness-config');
+const { buildBwrapArgv } = require('./bwrap');
 const {
   generateSessionId,
   selectCarrier,
@@ -156,6 +158,13 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     throw new SpawnError(E_MISSING_KEY, 'spawn.data_root is required', { key: 'spawn.data_root' });
   }
 
+  // D58(1): the default (ticker) launch branch materializes `<workspaceRoot>/.rbtv/sessions/<exec-id>/`.
+  // The sessions root is derived once, from the heart store's own `.rbtv/` location (guaranteeing the
+  // session dir is a SIBLING of `.rbtv/heart/`, never a parent of it — D58(3)). index.js is frozen for
+  // this task and does not pass the workspace root, so the module sources it here the same way.
+  const workspaceRoot = resolveWorkspaceRoot(heartStore && heartStore.dbPath);
+  const sessionsRoot = sessionsRootFor(workspaceRoot);
+
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
   }
@@ -179,11 +188,31 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       throw new SpawnError(E_HEADED_NOT_CAPABLE, `profile ${profileName} is not headed-capable`, { profile: profileName, sessionMode });
     }
 
-    const resolvedWorkdir = resolveWorkdir(profile, workdir, config.default_workdir_root, configPath);
+    const resolvedWorkdir = resolveWorkdir(profile, workdir, config.default_workdir_root, configPath, { execId, sessionsRoot, workspaceRoot });
+
+    // D58(4): materialize the advisory harness-local write-restraint config into the launch dir.
+    // The kernel sandbox (resolveSandbox below) is the LOAD-BEARING layer; this is the second belt.
+    const resolvedSandbox = resolveSandbox(profile.sandbox, resolvedWorkdir);
+    const editablePaths = (() => {
+      const rwp = resolvedSandbox && resolvedSandbox.ReadWritePaths;
+      if (!rwp) return [];
+      return (Array.isArray(rwp) ? rwp : [rwp]).filter((p) => p && p !== resolvedWorkdir);
+    })();
+    try {
+      const hc = materializeHarnessConfig({ sessionDir: resolvedWorkdir, profile, editablePaths });
+      if (hc && hc.written) log('info', 'harness config materialized', { harness: hc.harness, path: hc.written, enforceable: hc.enforceable });
+    } catch (err) {
+      log('warn', 'harness config materialization failed (advisory layer; kernel sandbox is authoritative)', { error: err.message });
+    }
 
     const sessionId = generateSessionId();
     const logPath = ensureLogPath(dataRoot, sessionId);
     const { argv, promptFile, promptCarriage } = composeArgv(profile, sessionMode, sessionId, resolvedWorkdir, prompt, dataRoot);
+
+    // D59: bwrap FS walls nested inside the systemd-run --user unit. The wrapped argv rides the
+    // carrier opaquely (both systemd and setsid branches); the walls live in argv, not config.
+    const maskPaths = config.auth?.senders_file ? [path.dirname(config.auth.senders_file)] : [];
+    const wrappedArgv = buildBwrapArgv({ argv, workdir: resolvedWorkdir, editablePaths, promptFile, harness: harnessOf(profile), maskPaths });
 
     const carrier = selectCarrier(config.spawn.carrier, userManager);
 
@@ -195,7 +224,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       logPath,
     });
 
-    const common = { sessionId, argv, workdir: resolvedWorkdir, logPath, caps: profile.caps, sandbox: resolveSandbox(profile.sandbox, resolvedWorkdir), envFile: profile.env?.file, userManager };
+    const common = { sessionId, argv: wrappedArgv, workdir: resolvedWorkdir, logPath, caps: profile.caps, sandbox: resolvedSandbox, envFile: profile.env?.file, userManager };
     let launchResult;
     try {
       if (carrier === 'systemd') {
@@ -346,9 +375,20 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     let argv = resolveTemplateSlots(block.argv, values);
     if (block.prompt === 'argv-last' && prompt !== null) argv = argv.concat([prompt]);
 
+    // D59: bwrap FS walls on resume too — the same composer, the same editablePaths derivation
+    // spawn() uses. The resolved sandbox is hoisted so it feeds both editablePaths and common.
+    const resolvedSandbox = resolveSandbox(profile.sandbox, resolvedWorkdir);
+    const editablePaths = (() => {
+      const rwp = resolvedSandbox && resolvedSandbox.ReadWritePaths;
+      if (!rwp) return [];
+      return (Array.isArray(rwp) ? rwp : [rwp]).filter((p) => p && p !== resolvedWorkdir);
+    })();
+    const maskPaths = config.auth?.senders_file ? [path.dirname(config.auth.senders_file)] : [];
+    const wrappedArgv = buildBwrapArgv({ argv, workdir: resolvedWorkdir, editablePaths, promptFile, harness: harnessOf(profile), maskPaths });
+
     const carrier = selectCarrier(config.spawn.carrier, userManager);
 
-    const common = { sessionId, argv, workdir: resolvedWorkdir, logPath, caps: profile.caps, sandbox: resolveSandbox(profile.sandbox, resolvedWorkdir), envFile: profile.env?.file, userManager };
+    const common = { sessionId, argv: wrappedArgv, workdir: resolvedWorkdir, logPath, caps: profile.caps, sandbox: resolvedSandbox, envFile: profile.env?.file, userManager };
     let launchResult;
     try {
       if (carrier === 'systemd') {

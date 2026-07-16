@@ -1,0 +1,30 @@
+p3-5 live 3-way write test (D58(5)) — with mandatory sandbox-enforcement pre-flight
+started: 2026-07-15T23:16:34.190Z
+command: node deploy/p3-5-three-way.js
+vault root: {VAULT}
+
+--- harness availability ---
+  claude (claude-sonnet-tools): /home/henri/.local/bin/claude
+  codex (codex-git-write): ABSENT — cannot launch
+  opencode (opencode-sakana): /home/henri/.opencode/bin/opencode
+
+--- SAFETY PRE-FLIGHT: does `systemd-run --user` ENFORCE the filesystem sandbox? ---
+  PrivateTmp isolation under --user: NOT ENFORCED (kernel FS sandbox is a NO-OP for --user units)
+
+  DECISION: SKIP all live LLM launches. The kernel sandbox — the LOAD-BEARING containment
+  layer (D58) — is not enforced under the --user carrier on this box, so a real worker would
+  run UNCONFINED against the live vault (opencode has no native sandbox; POC finding 3). The
+  deterministic kernel-write test (p3-5-kernel-write.out) already proves the kernel behavior
+  for ANY worker — the sandbox is worker-agnostic — so launching paid LLM workers would add
+  no evidence while creating the exact hazard this task exists to prevent.
+
+  FINDING (escalated): worker filesystem containment is NOT enforced by `systemd-run --user`.
+  Confirmed enforced under `systemd-run --system` (root). This re-opens the D46 user-vs-system
+  manager choice and must be ruled BEFORE Batch 4 relies on worker confinement.
+
+  claude: SKIPPED — sandbox not enforced under --user (launch unsafe + non-evidential)
+  codex: SKIPPED — binary ABSENT + sandbox not enforced
+  opencode: SKIPPED — sandbox not enforced under --user (launch unsafe + non-evidential)
+
+result: SKIPPED (safe) — see FINDING; no leg launched, nothing fabricated
+ended: 2026-07-15T23:16:34.330Z

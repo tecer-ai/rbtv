@@ -1,5 +1,5 @@
 p3-2b containment proof — worker containment through the daemon's own spawn path
-started: 2026-07-15T16:11:22.360Z
+started: 2026-07-16T01:23:21.961Z
 command: node deploy/p3-2b-containment.js --all
 config:  {IGNITE_SRC}/config/spawn-profiles.yaml
 host systemd: systemd 259 (259.5-0ubuntu3)
@@ -8,11 +8,11 @@ carrier under test: systemd
 
 === profile under test: claude-sonnet-tools (read from {IGNITE_SRC}/config/spawn-profiles.yaml) ===
 committed caps:    {"memory_max":"4G","cpu_quota":"150%","runtime_max":"6h","tasks_max":512}
-committed sandbox: null
+committed sandbox: {"ProtectSystem":"strict","ReadWritePaths":["{workdir}"],"PrivateTmp":true,"NoNewPrivileges":true}
 committed argv:    ["claude","-p","--model","sonnet","--output-format","stream-json","--verbose","--allowedTools","Bash(git *),Write"]
 SUBSTITUTION (disclosed): exec.argv -> ["sleep","3600"], workdir_root -> temp dir.
   caps: and sandbox: are used VERBATIM as committed — they are what is under test.
-spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-7e6b279c-2792-4299-9df7-1e7f8ebe9f96 pid=422379 status=running
+spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-3e991610-1fdd-45ff-a9e4-e57a29a9cb6c pid=762040 status=running
   [MATCH] carrier is systemd: actual=systemd expected=systemd
   [MATCH] unit is-active: actual=active expected=active
 systemd property readback (systemctl --user show):
@@ -23,19 +23,24 @@ systemd property readback (systemctl --user show):
   ReadWritePaths=
   PrivateTmp=no
   ProtectSystem=no
-  NoNewPrivileges=no
+  NoNewPrivileges=yes
   [MATCH] MemoryMax (profile memory_max=4G): actual=4294967296 expected=4294967296
   [MATCH] CPUQuotaPerSecUSec (profile cpu_quota=150%): actual=1.500000s (1500000us) expected=1500000us
   [MATCH] RuntimeMaxUSec (profile runtime_max=6h): actual=6h (21600000000us) expected=21600000000us
   [MATCH] TasksMax (profile tasks_max=512): actual=512 expected=512
 kernel cgroup readback (/sys/fs/cgroup):
-  cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-7e6b279c-2792-4299-9df7-1e7f8ebe9f96.service
+  cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-3e991610-1fdd-45ff-a9e4-e57a29a9cb6c.service
   memory.max=4294967296
   cpu.max=150000 100000
   pids.max=512
   [MATCH] cgroup memory.max ENFORCED: actual=4294967296 expected=4294967296
   [MATCH] cgroup cpu.max ENFORCED: actual=150000 100000 (150%) expected=150%
   [MATCH] cgroup pids.max ENFORCED: actual=512 expected=512
+sandbox block audit (post-D61: RW walls are bwrap --bind; systemd ReadWritePaths is empty by design):
+  profile declares sandbox.ReadWritePaths=["{workdir}"]
+  live unit bwrap --bind RW set=["/tmp/p3-2b-containment-Z5YIK2/work/1"]
+  slots declared in profile: ["{workdir}"]
+  [MATCH] workdir slot resolved into the bwrap --bind RW set (no literal {slot}): actual=["/tmp/p3-2b-containment-Z5YIK2/work/1"] expected=must contain /tmp/p3-2b-containment-Z5YIK2/work/1 and no {slot}
 
 === profile under test: codex-git-write (read from {IGNITE_SRC}/config/spawn-profiles.yaml) ===
 committed caps:    {"memory_max":"4G","cpu_quota":"150%","runtime_max":"6h","tasks_max":512}
@@ -43,7 +48,7 @@ committed sandbox: {"ProtectSystem":"strict","ReadWritePaths":["{workdir}"],"Pri
 committed argv:    ["codex","exec","--cd","{workdir}","--sandbox","danger-full-access","-c","approval_policy=never","--json"]
 SUBSTITUTION (disclosed): exec.argv -> ["sleep","3600"], workdir_root -> temp dir.
   caps: and sandbox: are used VERBATIM as committed — they are what is under test.
-spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-a87ab4e3-266e-4d5d-88db-dbcc5c7f871c pid=422391 status=running
+spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-51a5826f-9f63-4565-8aaa-e03afa46217d pid=762058 status=running
   [MATCH] carrier is systemd: actual=systemd expected=systemd
   [MATCH] unit is-active: actual=active expected=active
 systemd property readback (systemctl --user show):
@@ -51,27 +56,27 @@ systemd property readback (systemctl --user show):
   CPUQuotaPerSecUSec=1.500000s
   MemoryMax=4294967296
   TasksMax=512
-  ReadWritePaths=/tmp/p3-2b-containment-YUhLgX/work
-  PrivateTmp=yes
-  ProtectSystem=strict
+  ReadWritePaths=
+  PrivateTmp=no
+  ProtectSystem=no
   NoNewPrivileges=yes
   [MATCH] MemoryMax (profile memory_max=4G): actual=4294967296 expected=4294967296
   [MATCH] CPUQuotaPerSecUSec (profile cpu_quota=150%): actual=1.500000s (1500000us) expected=1500000us
   [MATCH] RuntimeMaxUSec (profile runtime_max=6h): actual=6h (21600000000us) expected=21600000000us
   [MATCH] TasksMax (profile tasks_max=512): actual=512 expected=512
 kernel cgroup readback (/sys/fs/cgroup):
-  cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-a87ab4e3-266e-4d5d-88db-dbcc5c7f871c.service
+  cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-51a5826f-9f63-4565-8aaa-e03afa46217d.service
   memory.max=4294967296
   cpu.max=150000 100000
   pids.max=512
   [MATCH] cgroup memory.max ENFORCED: actual=4294967296 expected=4294967296
   [MATCH] cgroup cpu.max ENFORCED: actual=150000 100000 (150%) expected=150%
   [MATCH] cgroup pids.max ENFORCED: actual=512 expected=512
-sandbox block audit:
-  profile declares ReadWritePaths=["{workdir}"]
-  live unit reports  ReadWritePaths=/tmp/p3-2b-containment-YUhLgX/work
+sandbox block audit (post-D61: RW walls are bwrap --bind; systemd ReadWritePaths is empty by design):
+  profile declares sandbox.ReadWritePaths=["{workdir}"]
+  live unit bwrap --bind RW set=["/tmp/p3-2b-containment-sIuNyv/work/1"]
   slots declared in profile: ["{workdir}"]
-  [MATCH] ReadWritePaths template slots resolved to the real workdir: actual=/tmp/p3-2b-containment-YUhLgX/work expected=must contain /tmp/p3-2b-containment-YUhLgX/work and no {slot}
+  [MATCH] workdir slot resolved into the bwrap --bind RW set (no literal {slot}): actual=["/tmp/p3-2b-containment-sIuNyv/work/1"] expected=must contain /tmp/p3-2b-containment-sIuNyv/work/1 and no {slot}
 
 === profile under test: opencode-sakana (read from {IGNITE_SRC}/config/spawn-profiles.yaml) ===
 committed caps:    {"memory_max":"4G","cpu_quota":"150%","runtime_max":"8h","tasks_max":512}
@@ -79,7 +84,7 @@ committed sandbox: {"ProtectSystem":"strict","ReadWritePaths":["{workdir}"],"Pri
 committed argv:    ["opencode","run","-m","sakana/fugu-ultra"]
 SUBSTITUTION (disclosed): exec.argv -> ["sleep","3600"], workdir_root -> temp dir.
   caps: and sandbox: are used VERBATIM as committed — they are what is under test.
-spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-5b2b3889-36d0-4b5c-ad24-d6ccb95db4d4 pid=422406 status=running
+spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-8b4c4860-554d-4934-9742-76985cd45fac pid=762170 status=running
   [MATCH] carrier is systemd: actual=systemd expected=systemd
   [MATCH] unit is-active: actual=active expected=active
 systemd property readback (systemctl --user show):
@@ -87,28 +92,112 @@ systemd property readback (systemctl --user show):
   CPUQuotaPerSecUSec=1.500000s
   MemoryMax=4294967296
   TasksMax=512
-  ReadWritePaths=/tmp/p3-2b-containment-BdEokf/work
-  PrivateTmp=yes
-  ProtectSystem=strict
+  ReadWritePaths=
+  PrivateTmp=no
+  ProtectSystem=no
   NoNewPrivileges=yes
   [MATCH] MemoryMax (profile memory_max=4G): actual=4294967296 expected=4294967296
   [MATCH] CPUQuotaPerSecUSec (profile cpu_quota=150%): actual=1.500000s (1500000us) expected=1500000us
   [MATCH] RuntimeMaxUSec (profile runtime_max=8h): actual=8h (28800000000us) expected=28800000000us
   [MATCH] TasksMax (profile tasks_max=512): actual=512 expected=512
 kernel cgroup readback (/sys/fs/cgroup):
-  cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-5b2b3889-36d0-4b5c-ad24-d6ccb95db4d4.service
+  cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-8b4c4860-554d-4934-9742-76985cd45fac.service
   memory.max=4294967296
   cpu.max=150000 100000
   pids.max=512
   [MATCH] cgroup memory.max ENFORCED: actual=4294967296 expected=4294967296
   [MATCH] cgroup cpu.max ENFORCED: actual=150000 100000 (150%) expected=150%
   [MATCH] cgroup pids.max ENFORCED: actual=512 expected=512
-sandbox block audit:
-  profile declares ReadWritePaths=["{workdir}"]
-  live unit reports  ReadWritePaths=/tmp/p3-2b-containment-BdEokf/work
+sandbox block audit (post-D61: RW walls are bwrap --bind; systemd ReadWritePaths is empty by design):
+  profile declares sandbox.ReadWritePaths=["{workdir}"]
+  live unit bwrap --bind RW set=["/tmp/p3-2b-containment-aM6uIr/work/1"]
   slots declared in profile: ["{workdir}"]
-  [MATCH] ReadWritePaths template slots resolved to the real workdir: actual=/tmp/p3-2b-containment-BdEokf/work expected=must contain /tmp/p3-2b-containment-BdEokf/work and no {slot}
+  [MATCH] workdir slot resolved into the bwrap --bind RW set (no literal {slot}): actual=["/tmp/p3-2b-containment-aM6uIr/work/1"] expected=must contain /tmp/p3-2b-containment-aM6uIr/work/1 and no {slot}
 
-checks: 29 total, 29 matched, 0 mismatched
+=== profile under test: test-sleep (read from {IGNITE_SRC}/config/spawn-profiles.yaml) ===
+committed caps:    {"memory_max":"64M","cpu_quota":"10%","runtime_max":"5m","tasks_max":16}
+committed sandbox: {"ProtectSystem":"strict","ReadWritePaths":["{workdir}"],"PrivateTmp":true,"NoNewPrivileges":true}
+committed argv:    ["sleep","60"]
+SUBSTITUTION (disclosed): exec.argv -> ["sleep","3600"], workdir_root -> temp dir.
+  caps: and sandbox: are used VERBATIM as committed — they are what is under test.
+spawned via createSpawnManager().spawn(): carrier=systemd unit=rbtv-worker-aae04eef-13f8-42b0-91b7-22644f33fb25 pid=762331 status=running
+  [MATCH] carrier is systemd: actual=systemd expected=systemd
+  [MATCH] unit is-active: actual=active expected=active
+systemd property readback (systemctl --user show):
+  RuntimeMaxUSec=5min
+  CPUQuotaPerSecUSec=100ms
+  MemoryMax=67108864
+  TasksMax=16
+  ReadWritePaths=
+  PrivateTmp=no
+  ProtectSystem=no
+  NoNewPrivileges=yes
+  [MATCH] MemoryMax (profile memory_max=64M): actual=67108864 expected=67108864
+  [MATCH] CPUQuotaPerSecUSec (profile cpu_quota=10%): actual=100ms (100000us) expected=100000us
+  [MATCH] RuntimeMaxUSec (profile runtime_max=5m): actual=5min (300000000us) expected=300000000us
+  [MATCH] TasksMax (profile tasks_max=16): actual=16 expected=16
+kernel cgroup readback (/sys/fs/cgroup):
+  cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-aae04eef-13f8-42b0-91b7-22644f33fb25.service
+  memory.max=67108864
+  cpu.max=10000 100000
+  pids.max=16
+  [MATCH] cgroup memory.max ENFORCED: actual=67108864 expected=67108864
+  [MATCH] cgroup cpu.max ENFORCED: actual=10000 100000 (10%) expected=10%
+  [MATCH] cgroup pids.max ENFORCED: actual=16 expected=16
+sandbox block audit (post-D61: RW walls are bwrap --bind; systemd ReadWritePaths is empty by design):
+  profile declares sandbox.ReadWritePaths=["{workdir}"]
+  live unit bwrap --bind RW set=["/tmp/p3-2b-containment-ClRoSh/work/1"]
+  slots declared in profile: ["{workdir}"]
+  [MATCH] workdir slot resolved into the bwrap --bind RW set (no literal {slot}): actual=["/tmp/p3-2b-containment-ClRoSh/work/1"] expected=must contain /tmp/p3-2b-containment-ClRoSh/work/1 and no {slot}
+
+=== null-workdir (default/ticker) branch under test: claude-sonnet-tools ===
+spawned (null workdir): carrier=systemd unit=rbtv-worker-2eae6f6f-bca4-4944-ad80-ded0d9e198f0 workdir=/tmp/p3-2b-nullbranch-IIfeyY/ws/.rbtv/sessions/1
+  [MATCH] null-branch landed in .rbtv/sessions/<exec-id>: actual=/tmp/p3-2b-nullbranch-IIfeyY/ws/.rbtv/sessions/1 expected=/tmp/p3-2b-nullbranch-IIfeyY/ws/.rbtv/sessions/1
+  [MATCH] session dir is INSIDE the sessions root (fail-closed passed): actual=/tmp/p3-2b-nullbranch-IIfeyY/ws/.rbtv/sessions/1 expected=under /tmp/p3-2b-nullbranch-IIfeyY/ws/.rbtv/sessions
+  live bwrap --bind RW set: ["/tmp/p3-2b-nullbranch-IIfeyY/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-IIfeyY/containment-test"]
+  [MATCH] RW set contains the session dir: actual=["/tmp/p3-2b-nullbranch-IIfeyY/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-IIfeyY/containment-test"] expected=/tmp/p3-2b-nullbranch-IIfeyY/ws/.rbtv/sessions/1
+  [MATCH] RW set contains the declared test folder: actual=["/tmp/p3-2b-nullbranch-IIfeyY/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-IIfeyY/containment-test"] expected=/tmp/p3-2b-nullbranch-IIfeyY/containment-test
+  [MATCH] RW set is EXACTLY {session dir, test folder} (nothing else): actual=2 expected=2
+  [MATCH] RW set does NOT contain the vault root: actual=["/tmp/p3-2b-nullbranch-IIfeyY/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-IIfeyY/containment-test"] expected=no /tmp/p3-2b-nullbranch-IIfeyY/ws
+  [MATCH] RW set does NOT contain .rbtv/: actual=["/tmp/p3-2b-nullbranch-IIfeyY/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-IIfeyY/containment-test"] expected=no /tmp/p3-2b-nullbranch-IIfeyY/ws/.rbtv
+  [MATCH] RW set does NOT contain .rbtv/heart/ (control-plane store): actual=["/tmp/p3-2b-nullbranch-IIfeyY/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-IIfeyY/containment-test"] expected=no /tmp/p3-2b-nullbranch-IIfeyY/ws/.rbtv/heart
+
+=== null-workdir (default/ticker) branch under test: codex-git-write ===
+spawned (null workdir): carrier=systemd unit=rbtv-worker-e2fa7e63-3424-4aab-a0df-bfc38775a76f workdir=/tmp/p3-2b-nullbranch-simKeZ/ws/.rbtv/sessions/1
+  [MATCH] null-branch landed in .rbtv/sessions/<exec-id>: actual=/tmp/p3-2b-nullbranch-simKeZ/ws/.rbtv/sessions/1 expected=/tmp/p3-2b-nullbranch-simKeZ/ws/.rbtv/sessions/1
+  [MATCH] session dir is INSIDE the sessions root (fail-closed passed): actual=/tmp/p3-2b-nullbranch-simKeZ/ws/.rbtv/sessions/1 expected=under /tmp/p3-2b-nullbranch-simKeZ/ws/.rbtv/sessions
+  live bwrap --bind RW set: ["/tmp/p3-2b-nullbranch-simKeZ/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-simKeZ/containment-test"]
+  [MATCH] RW set contains the session dir: actual=["/tmp/p3-2b-nullbranch-simKeZ/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-simKeZ/containment-test"] expected=/tmp/p3-2b-nullbranch-simKeZ/ws/.rbtv/sessions/1
+  [MATCH] RW set contains the declared test folder: actual=["/tmp/p3-2b-nullbranch-simKeZ/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-simKeZ/containment-test"] expected=/tmp/p3-2b-nullbranch-simKeZ/containment-test
+  [MATCH] RW set is EXACTLY {session dir, test folder} (nothing else): actual=2 expected=2
+  [MATCH] RW set does NOT contain the vault root: actual=["/tmp/p3-2b-nullbranch-simKeZ/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-simKeZ/containment-test"] expected=no /tmp/p3-2b-nullbranch-simKeZ/ws
+  [MATCH] RW set does NOT contain .rbtv/: actual=["/tmp/p3-2b-nullbranch-simKeZ/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-simKeZ/containment-test"] expected=no /tmp/p3-2b-nullbranch-simKeZ/ws/.rbtv
+  [MATCH] RW set does NOT contain .rbtv/heart/ (control-plane store): actual=["/tmp/p3-2b-nullbranch-simKeZ/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-simKeZ/containment-test"] expected=no /tmp/p3-2b-nullbranch-simKeZ/ws/.rbtv/heart
+
+=== null-workdir (default/ticker) branch under test: opencode-sakana ===
+spawned (null workdir): carrier=systemd unit=rbtv-worker-30c8fa84-29c4-4af2-8fca-aafc1b3d658b workdir=/tmp/p3-2b-nullbranch-1vWcAp/ws/.rbtv/sessions/1
+  [MATCH] null-branch landed in .rbtv/sessions/<exec-id>: actual=/tmp/p3-2b-nullbranch-1vWcAp/ws/.rbtv/sessions/1 expected=/tmp/p3-2b-nullbranch-1vWcAp/ws/.rbtv/sessions/1
+  [MATCH] session dir is INSIDE the sessions root (fail-closed passed): actual=/tmp/p3-2b-nullbranch-1vWcAp/ws/.rbtv/sessions/1 expected=under /tmp/p3-2b-nullbranch-1vWcAp/ws/.rbtv/sessions
+  live bwrap --bind RW set: ["/tmp/p3-2b-nullbranch-1vWcAp/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-1vWcAp/containment-test"]
+  [MATCH] RW set contains the session dir: actual=["/tmp/p3-2b-nullbranch-1vWcAp/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-1vWcAp/containment-test"] expected=/tmp/p3-2b-nullbranch-1vWcAp/ws/.rbtv/sessions/1
+  [MATCH] RW set contains the declared test folder: actual=["/tmp/p3-2b-nullbranch-1vWcAp/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-1vWcAp/containment-test"] expected=/tmp/p3-2b-nullbranch-1vWcAp/containment-test
+  [MATCH] RW set is EXACTLY {session dir, test folder} (nothing else): actual=2 expected=2
+  [MATCH] RW set does NOT contain the vault root: actual=["/tmp/p3-2b-nullbranch-1vWcAp/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-1vWcAp/containment-test"] expected=no /tmp/p3-2b-nullbranch-1vWcAp/ws
+  [MATCH] RW set does NOT contain .rbtv/: actual=["/tmp/p3-2b-nullbranch-1vWcAp/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-1vWcAp/containment-test"] expected=no /tmp/p3-2b-nullbranch-1vWcAp/ws/.rbtv
+  [MATCH] RW set does NOT contain .rbtv/heart/ (control-plane store): actual=["/tmp/p3-2b-nullbranch-1vWcAp/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-1vWcAp/containment-test"] expected=no /tmp/p3-2b-nullbranch-1vWcAp/ws/.rbtv/heart
+
+=== null-workdir (default/ticker) branch under test: test-sleep ===
+spawned (null workdir): carrier=systemd unit=rbtv-worker-5d61a93a-16b7-459e-a202-656bd0fa3575 workdir=/tmp/p3-2b-nullbranch-PzAicR/ws/.rbtv/sessions/1
+  [MATCH] null-branch landed in .rbtv/sessions/<exec-id>: actual=/tmp/p3-2b-nullbranch-PzAicR/ws/.rbtv/sessions/1 expected=/tmp/p3-2b-nullbranch-PzAicR/ws/.rbtv/sessions/1
+  [MATCH] session dir is INSIDE the sessions root (fail-closed passed): actual=/tmp/p3-2b-nullbranch-PzAicR/ws/.rbtv/sessions/1 expected=under /tmp/p3-2b-nullbranch-PzAicR/ws/.rbtv/sessions
+  live bwrap --bind RW set: ["/tmp/p3-2b-nullbranch-PzAicR/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-PzAicR/containment-test"]
+  [MATCH] RW set contains the session dir: actual=["/tmp/p3-2b-nullbranch-PzAicR/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-PzAicR/containment-test"] expected=/tmp/p3-2b-nullbranch-PzAicR/ws/.rbtv/sessions/1
+  [MATCH] RW set contains the declared test folder: actual=["/tmp/p3-2b-nullbranch-PzAicR/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-PzAicR/containment-test"] expected=/tmp/p3-2b-nullbranch-PzAicR/containment-test
+  [MATCH] RW set is EXACTLY {session dir, test folder} (nothing else): actual=2 expected=2
+  [MATCH] RW set does NOT contain the vault root: actual=["/tmp/p3-2b-nullbranch-PzAicR/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-PzAicR/containment-test"] expected=no /tmp/p3-2b-nullbranch-PzAicR/ws
+  [MATCH] RW set does NOT contain .rbtv/: actual=["/tmp/p3-2b-nullbranch-PzAicR/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-PzAicR/containment-test"] expected=no /tmp/p3-2b-nullbranch-PzAicR/ws/.rbtv
+  [MATCH] RW set does NOT contain .rbtv/heart/ (control-plane store): actual=["/tmp/p3-2b-nullbranch-PzAicR/ws/.rbtv/sessions/1","/tmp/p3-2b-nullbranch-PzAicR/containment-test"] expected=no /tmp/p3-2b-nullbranch-PzAicR/ws/.rbtv/heart
+
+checks: 72 total, 72 matched, 0 mismatched
 result: PASS
-ended: 2026-07-15T16:11:23.471Z
+ended: 2026-07-16T01:23:24.744Z

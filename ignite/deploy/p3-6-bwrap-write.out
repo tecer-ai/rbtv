@@ -1,0 +1,42 @@
+p3-6 bwrap filesystem-containment probe — bash worker through the daemon spawn path (bwrap walls in force)
+started: 2026-07-16T01:23:21.302Z
+command: node deploy/p3-6-bwrap-write.js
+bwrap:        bubblewrap 0.11.1
+vault root:   {VAULT}
+test folder:  {VAULT}/1-projects/rbtv-sb-merge-refactor-core-build/build/containment-test
+real heart:   {VAULT}/.rbtv/heart
+source dir:   {IGNITE_SRC}/server/spawn
+spawned: unit=rbtv-worker-b678220f-1b1c-4df5-af4e-be6324a48fe8 carrier=systemd sessionDir=/tmp/p3-6-bw-EIzyhW/ws/.rbtv/sessions/1
+  [PASS] worker ran under systemd (cgroup caps + bwrap walls in force)
+  unit ExecStart (hint): { path=/usr/bin/bwrap ; argv[]=/usr/bin/bwrap --die-with-parent --unshare-all --share-net --proc /proc --dev /dev --tmpfs /tmp --tmpfs /run --ro-bind-try /run/s
+  [PASS] bwrap wraps the worker argv (argv[0] is bwrap) — { path=/usr/bin/bwrap ; argv[]=/usr/bin/bwrap --die-with-parent --unshare-all --
+worker log (hint — disk is truth):
+  | A:WROTE
+  | B:WROTE
+  | C:WROTE
+  | D:BLOCKED
+  | D:HEARTDB:ABSENT
+  | E:BLOCKED
+  | E:CAT:FAIL
+  | F:SYSTEMD:UNREACHABLE
+  | F:BUS:ABSENT
+  | DONE
+cgroup readback: cgroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-b678220f-1b1c-4df5-af4e-be6324a48fe8.service memory.max=134217728
+  [PASS] (a) session-dir write SUCCEEDED (canary on disk) — /tmp/p3-6-bw-EIzyhW/ws/.rbtv/sessions/1/__p36_761827_session
+  [PASS] (b) declared-test-folder write SUCCEEDED (canary on disk) — {VAULT}/1-projects/rbtv-sb-merge-refactor-core-build/build/containment-test/__p36_761827_test
+  [PASS] (c) vault-root write BLOCKED by bwrap (no canary on disk) — {VAULT}/__p36_761827_vault
+  [PASS] (d) .rbtv/heart write BLOCKED by bwrap (no canary on disk) — {VAULT}/.rbtv/heart/__p36_761827_heart
+  [PASS] (d) heart.db ABSENT in-namespace (hint) — D:HEARTDB:ABSENT
+  [PASS] (e) source-tree write BLOCKED by bwrap (no canary on disk) — {IGNITE_SRC}/server/spawn/__p36_761827_source
+  [PASS] (e) source-tree cat FAILED in-namespace (hint) — E:CAT:FAIL
+  [PASS] (f) systemctl --user is-system-running FAILED in-namespace (hint) — F:SYSTEMD:UNREACHABLE
+  [PASS] (f) /run/user/<uid>/bus ABSENT in-namespace (hint) — F:BUS:ABSENT
+  [PASS] (h) cgroup memory.max ENFORCED through the wrap (128M == 134217728 bytes) — memory.max=134217728
+leg (g): thrown=E_FS_SANDBOX_UNAVAILABLE: bwrap not found on PATH — filesystem containment unavailable; refusing to spawn (D59 fail-closed)
+leg (g): rbtv-worker units before=0 after=0 new=[]
+  [PASS] (g) spawn THREW SpawnError(E_FS_SANDBOX_UNAVAILABLE) — E_FS_SANDBOX_UNAVAILABLE
+  [PASS] (g) NO rbtv-worker unit created (fail-closed, no partial launch) — []
+
+checks: 14 total, 14 passed, 0 failed
+result: PASS
+ended: 2026-07-16T01:23:21.871Z

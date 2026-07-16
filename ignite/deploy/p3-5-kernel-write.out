@@ -1,0 +1,22 @@
+p3-5 kernel-level write test — bash worker through the daemon spawn path (null-workdir branch)
+started: 2026-07-16T01:23:24.841Z
+command: node deploy/p3-5-kernel-write.js
+vault root:  {VAULT}
+test folder: {VAULT}/1-projects/rbtv-sb-merge-refactor-core-build/build/containment-test
+real heart:  {VAULT}/.rbtv/heart
+spawned: unit=rbtv-worker-174d45fa-7713-4a25-bcea-2b8bae910ba1 carrier=systemd sessionDir=/tmp/p3-5-kw-eDXhqY/ws/.rbtv/sessions/1
+  [PASS] worker ran under systemd (kernel sandbox in force)
+worker log (hint — disk is truth):
+  | SESSION:WROTE
+  | TEST:WROTE
+  | VAULT:WROTE
+  | HEART:BLOCKED
+  | DONE
+  [PASS] (a) session-dir write SUCCEEDED (canary on disk) — /tmp/p3-5-kw-eDXhqY/ws/.rbtv/sessions/1/__p35_762396_session
+  [PASS] (b) declared-test-folder write SUCCEEDED (canary on disk) — {VAULT}/1-projects/rbtv-sb-merge-refactor-core-build/build/containment-test/__p35_762396_test
+  [PASS] (c) vault-root write FAILED at the kernel (no canary on disk) — {VAULT}/__p35_762396_vault
+  [PASS] (d) .rbtv/heart write FAILED at the kernel (no canary on disk) — {VAULT}/.rbtv/heart/__p35_762396_heart
+
+checks: 5 total, 5 passed, 0 failed
+result: PASS
+ended: 2026-07-16T01:23:25.379Z

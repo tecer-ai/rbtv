@@ -9,6 +9,7 @@ const {
   E_SYSTEMD_NOT_AVAILABLE,
   E_CARRIER_FAILED,
 } = require('./errors');
+const { BWRAP_COMPATIBLE_SANDBOX_KEYS } = require('./bwrap');
 
 function ensureDir(p) {
   fs.mkdirSync(p, { recursive: true, mode: 0o700 });
@@ -118,6 +119,12 @@ function buildSystemdRunArgs({ sessionId, argv, workdir, logPath, caps, sandbox,
 
   for (const [key, value] of Object.entries(sandbox || {})) {
     if (value === undefined || value === null) continue;
+    // D61: bwrap wraps every spawn and is the SOLE filesystem layer. systemd's FS-mount sandbox
+    // properties (ProtectSystem, ReadWritePaths, ProtectHome, PrivateTmp, …) both no-op under the
+    // --user manager (D59) AND break bwrap's nested user namespace, so they are NOT emitted onto
+    // the unit — only the bwrap-compatible security properties survive here. The cgroup resource
+    // caps are emitted from the `caps:` block above and are unaffected.
+    if (!BWRAP_COMPATIBLE_SANDBOX_KEYS.has(key)) continue;
     const prop = sandboxToProperty(key, value);
     if (prop) {
       if (Array.isArray(prop)) {
