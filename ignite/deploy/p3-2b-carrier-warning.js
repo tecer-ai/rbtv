@@ -34,6 +34,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 
 const IGNITE_SRC = path.resolve(__dirname, '..');
@@ -74,6 +75,24 @@ function bootDaemon({ name, stripUserBus = false, extraEnv = {} }) {
   const dataRoot = path.join(tmp, 'data');
   for (const d of [workspaceRoot, workRoot, dataRoot]) fs.mkdirSync(d, { recursive: true });
 
+  // The round-2 sender-registry startup gate (gateway/sender-auth.js loadSendersFile)
+  // makes the daemon REFUSE TO START without a valid senders_file. Every scenario here
+  // boots the real entry point, so each supplies a throwaway 0600 file with one valid
+  // owner row, mirroring gateway/probes/probe-gateway-live.js. The token-hash is a real-
+  // shaped random 64-hex: these scenarios only boot the daemon, never authenticate a
+  // sender, so the file only has to pass the boot-time gate — leaving the carrier
+  // resolution (the actual thing under test) to run exactly as before.
+  const sendersFile = path.join(tmp, 'senders.yaml');
+  fs.writeFileSync(sendersFile, [
+    'senders:',
+    '  - sender-id: carrier-warn-owner',
+    '    kind: owner',
+    `    token-hash: ${crypto.randomBytes(32).toString('hex')}`,
+    '    enabled: true',
+    '',
+  ].join('\n'), { mode: 0o600 });
+  fs.chmodSync(sendersFile, 0o600);
+
   const env = {
     ...process.env,
     RBTV_IGNITE_SRC: IGNITE_SRC,
@@ -81,6 +100,7 @@ function bootDaemon({ name, stripUserBus = false, extraEnv = {} }) {
     RBTV_IGNITE_CONFIG_PATH: CONFIG_PATH,
     RBTV_IGNITE_WORKDIR_ROOT: workRoot,
     RBTV_IGNITE_DATA_ROOT: dataRoot,
+    RBTV_IGNITE_SENDERS_FILE: sendersFile,
     ...extraEnv,
   };
   // Reproduce the real hazard: with no user bus, `systemctl --user` cannot connect, so the

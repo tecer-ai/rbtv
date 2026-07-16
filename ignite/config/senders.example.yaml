@@ -1,0 +1,76 @@
+# ignite — named-sender registry SEED / EXAMPLE (gateway-cli-spec.md:55; D15 shape)
+#
+# ⚑ THIS IS A SEED COPY. IT IS NOT THE LIVE FILE AND MUST NEVER BECOME ONE BY COPY ALONE.
+#
+#   • The LIVE file is deployed OUTSIDE the repo (default: /etc/rbtv-ignite/senders.yaml,
+#     or wherever auth.senders_file / RBTV_IGNITE_SENDERS_FILE points), owned by the
+#     daemon user, mode 0600.
+#   • It carries REAL token HASHES. This seed carries NONE — and never will:
+#     credentials NEVER travel in git (owner ruling D27). Every `token-hash` below is a
+#     deliberately INVALID placeholder, so a copy of this file that was not edited
+#     REFUSES TO START loudly instead of quietly booting a daemon with a bogus sender.
+#
+# THE STARTUP GATE (spawn-profiles-spec.md Design 4). The daemon refuses to start when
+# the live senders_file is missing, empty, group/world-readable, malformed, or declares
+# no senders. That is deliberate: a control-plane ingress with no sender registry is a
+# misconfiguration, not a posture. Rotation = edit the file + restart the daemon.
+#
+# ── DEPLOYING THE LIVE FILE (owner-executed; needs root only for /etc) ────────────────
+#
+#   1. Mint a token for each sender. Use a real random source, never a memorable string:
+#          openssl rand -hex 32
+#      Keep the PLAINTEXT token out of this file and out of the repo — it goes to the
+#      sender out-of-band (the gitignored env surface: IGNITE_SENDER_TOKEN).
+#
+#   2. Hash it. Only the hash rests on disk:
+#          printf %s "<the-token>" | sha256sum | cut -d' ' -f1
+#      ⚑ `printf %s` (not `echo`) — echo appends a newline and would hash the WRONG value.
+#
+#   3. Install the file:
+#          sudo install -d -m 755 /etc/rbtv-ignite
+#          sudo install -m 600 -o "$(id -un)" /path/to/your/senders.yaml /etc/rbtv-ignite/senders.yaml
+#      The owner must be the user the ignite systemd USER unit runs as (D46) — a file
+#      root can read but the daemon cannot is the same as a missing file.
+#
+#   4. Restart the daemon:  systemctl --user restart rbtv-ignite
+#
+# ── ROW SHAPE (ratified, spawn-profiles-spec.md:70) ───────────────────────────────────
+#
+#   sender-id   the audit identity. It lands in `enqueued_by` on every queue and session
+#               row this sender causes, so name it for a DEVICE or a BRIDGE, not a person.
+#   kind        owner | agent | bridge — the CLOSED enum. ⚑ Do NOT add `master`/`leader`:
+#               explicitly declined (D65(B)) — they are DRAFT registry terms and must not
+#               be baked into the ingress auth schema before ratification.
+#   token-hash  64-char hex SHA-256 of the sender's token. Plaintext NEVER rests here.
+#   enabled     true | false. `false` revokes the sender; a disabled sender is refused
+#               EXACTLY like an unknown one (revocation must not be distinguishable).
+#
+# Tokens are PER-SENDER, never one shared secret — that is what makes revoking a single
+# device or bridge possible and the `enqueued_by` audit column truthful (DEC-3). It is
+# also why the Batch-7 chat bridge is just another row here and never a privileged path.
+#
+# ⚑ AUTHORIZATION CAVEAT, stated where it bites (D65(B)): a shared `agent` token is a
+# shared IDENTITY. v1's only "did this sender create this job" check is
+# `enqueued_by == authenticated sender-id`, so EVERY seat behind one `agent` token can
+# cancel every other seat's job. One row per sender keeps that check meaningful.
+
+senders:
+  # The owner's workstation. `kind: owner` may cancel ANY queued job (D65(B)).
+  - sender-id: owner-laptop
+    kind: owner
+    token-hash: REPLACE-ME-WITH-SHA256-OF-A-REAL-TOKEN-SEE-STEP-2-ABOVE
+    enabled: true
+
+  # An agent client (a worker session driving the `ignite` CLI). `kind: agent` may cancel
+  # only the jobs it enqueued itself.
+  - sender-id: agent-local
+    kind: agent
+    token-hash: REPLACE-ME-WITH-SHA256-OF-A-REAL-TOKEN-SEE-STEP-2-ABOVE
+    enabled: true
+
+  # A chat bridge (Batch 7) — an ORDINARY sender on the same ingress, never privileged.
+  # Shipped disabled: a bridge row should not go live before the bridge does.
+  - sender-id: bridge-example
+    kind: bridge
+    token-hash: REPLACE-ME-WITH-SHA256-OF-A-REAL-TOKEN-SEE-STEP-2-ABOVE
+    enabled: false

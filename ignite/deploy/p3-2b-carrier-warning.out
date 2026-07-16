@@ -1,5 +1,5 @@
 p3-2b carrier-degradation warning proof — does the boot-time warning actually fire?
-started: 2026-07-15T16:11:47.968Z
+started: 2026-07-16T16:09:40.323Z
 command: node deploy/p3-2b-carrier-warning.js
 entry point: {IGNITE_SRC}/server/index.js
 config: {IGNITE_SRC}/config/spawn-profiles.yaml
@@ -7,7 +7,7 @@ warning matched on: level=warn AND message contains "carrier degraded"
 
 === scenario: healthy (user manager reachable, carrier auto) ===
   expect: resolvedCarrier=systemd, warning does NOT fire
-  boot exit: 0 (wall_ms=104)
+  boot exit: 0 (wall_ms=114)
   daemon reported: configuredCarrier=auto resolvedCarrier=systemd userManager=true
   warning line: (none)
   [PASS] daemon booted and shut down cleanly (exit 0)
@@ -16,35 +16,35 @@ warning matched on: level=warn AND message contains "carrier degraded"
 
 === scenario: manager-unreachable (no user bus, carrier auto) — THE D46 HAZARD ===
   expect: resolvedCarrier=setsid, warning FIRES
-  boot exit: 0 (wall_ms=86)
+  boot exit: 0 (wall_ms=107)
   daemon reported: configuredCarrier=auto resolvedCarrier=setsid userManager=true
-  warning line: {"ts":"2026-07-15T16:11:48Z","level":"warn","message":"carrier degraded: workers will NOT run under systemd --user, so profile caps and sandbox are IGNORED","configuredCarrier":"auto","resolvedCarrier":"setsid","userManager":true}
+  warning line: {"ts":"2026-07-16T16:09:40Z","level":"warn","message":"carrier degraded: workers will NOT run under systemd --user, so profile caps and sandbox are IGNORED","configuredCarrier":"auto","resolvedCarrier":"setsid","userManager":true}
   [PASS] daemon booted and shut down cleanly (exit 0)
   [PASS] resolvedCarrier is setsid
   [PASS] degradation warning FIRED
 
 === scenario: carrier pinned to setsid ===
   expect: resolvedCarrier=setsid, warning FIRES
-  boot exit: 0 (wall_ms=77)
+  boot exit: 0 (wall_ms=127)
   daemon reported: configuredCarrier=setsid resolvedCarrier=setsid userManager=true
-  warning line: {"ts":"2026-07-15T16:11:48Z","level":"warn","message":"carrier degraded: workers will NOT run under systemd --user, so profile caps and sandbox are IGNORED","configuredCarrier":"setsid","resolvedCarrier":"setsid","userManager":true}
+  warning line: {"ts":"2026-07-16T16:09:40Z","level":"warn","message":"carrier degraded: workers will NOT run under systemd --user, so profile caps and sandbox are IGNORED","configuredCarrier":"setsid","resolvedCarrier":"setsid","userManager":true}
   [PASS] daemon booted and shut down cleanly (exit 0)
   [PASS] resolvedCarrier is setsid
   [PASS] degradation warning FIRED
 
 === scenario: RBTV_IGNITE_USER_MANAGER=false ===
   expect: resolvedCarrier=systemd, warning FIRES
-  boot exit: 0 (wall_ms=83)
+  boot exit: 0 (wall_ms=114)
   daemon reported: configuredCarrier=systemd resolvedCarrier=systemd userManager=false
-  warning line: {"ts":"2026-07-15T16:11:48Z","level":"warn","message":"carrier degraded: workers will NOT run under systemd --user, so profile caps and sandbox are IGNORED","configuredCarrier":"systemd","resolvedCarrier":"systemd","userManager":false}
+  warning line: {"ts":"2026-07-16T16:09:40Z","level":"warn","message":"carrier degraded: workers will NOT run under systemd --user, so profile caps and sandbox are IGNORED","configuredCarrier":"systemd","resolvedCarrier":"systemd","userManager":false}
   [PASS] daemon booted and shut down cleanly (exit 0)
   [PASS] resolvedCarrier is systemd
   [PASS] degradation warning FIRED
 
 === scenario: pin systemd, manager unreachable (D48 hard-fail) ===
   expect: daemon fails to boot with E_SYSTEMD_NOT_AVAILABLE, no setsid worker produced
-  boot exit: 1 (wall_ms=79)
-  error line: {"ts":"2026-07-15T16:11:48Z","level":"error","message":"daemon failed to start","error":"systemd carrier requested but user manager is not available","stack":"SpawnError: systemd carrier requested but user manager is not available\n    at selectCarrier ({IGNITE_SRC}/server/spawn/carrier.js:61:13)\n    at main ({IGNITE_SRC}/server/index.js:259:27)\n    at Object.<anonymous> ({IGNITE_SRC}/server/index.js:327:1)\n    at Module._compile (node:internal/modules/cjs/loader:1871:14)\n    at Object..js (node:internal/modules/cjs/loader:2002:10)\n    at Module.load (node:internal/modules/cjs/loader:1594:32)\n    at Module._load (node:internal/modules/cjs/loader:1396:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47"}
+  boot exit: 1 (wall_ms=86)
+  error line: {"ts":"2026-07-16T16:09:40Z","level":"error","message":"daemon failed to start","error":"systemd carrier requested but user manager is not available","stack":"SpawnError: systemd carrier requested but user manager is not available\n    at selectCarrier ({IGNITE_SRC}/server/spawn/carrier.js:62:13)\n    at main ({IGNITE_SRC}/server/index.js:285:27)\n    at Object.<anonymous> ({IGNITE_SRC}/server/index.js:399:1)\n    at Module._compile (node:internal/modules/cjs/loader:1871:14)\n    at Object..js (node:internal/modules/cjs/loader:2002:10)\n    at Module.load (node:internal/modules/cjs/loader:1594:32)\n    at Module._load (node:internal/modules/cjs/loader:1396:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47"}
   [PASS] daemon fails to boot (non-zero exit)
   [PASS] error identity is E_SYSTEMD_NOT_AVAILABLE (unique message)
   [PASS] no spawn carriage line produced
@@ -52,4 +52,4 @@ warning matched on: level=warn AND message contains "carrier degraded"
 
 checks: 16 total, 16 passed, 0 failed
 result: PASS
-ended: 2026-07-15T16:11:48.402Z
+ended: 2026-07-16T16:09:40.877Z

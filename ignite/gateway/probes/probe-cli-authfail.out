@@ -1,0 +1,27 @@
+COMMAND: node gateway/probes/probe-cli-authfail.js
+PASS  no token -> typed AUTH_REFUSED — code=AUTH_REFUSED
+PASS  no token -> HTTP 401-class — status=401
+PASS  no token -> NOTHING reached the server core — dispatch calls=0
+PASS  wrong token -> typed AUTH_REFUSED — code=AUTH_REFUSED
+PASS  wrong token -> NOTHING reached the server core — dispatch calls=0
+PASS  a DISABLED sender is refused (revocation is effective) — code=AUTH_REFUSED
+PASS  a disabled sender -> NOTHING reached the server core — dispatch calls=0
+PASS  the refusal is UNIFORM — no-token / bad-token / disabled are indistinguishable — identical payload: {"ok":false,"error":{"code":"AUTH_REFUSED","message":"authentication required"}}
+PASS  the refusal leaks NO detail (no token echo, no field name, no sender roster) — {"ok":false,"error":{"code":"AUTH_REFUSED","message":"authentication required"}}
+PASS  AUTH PRECEDES PARSE: an unauthenticated MALFORMED request is AUTH_REFUSED, never a shape error — code=AUTH_REFUSED (a SHAPE_INVALID/UNKNOWN_INTENT here would prove the body was interpreted first)
+PASS  the unauthenticated malformed request reached NOTHING — dispatch calls=0
+PASS  MUTATION: a parse-first pipeline would answer a NON-auth error (so the order assertion discriminates) — parse-first would answer "UNKNOWN_INTENT" instead of AUTH_REFUSED
+PASS  a VALID token is accepted and forwarded (the guard DISCRIMINATES, not just denies) — ok=true dispatch calls=1
+PASS  the forwarded envelope carries the RESOLVED sender id + kind (the audit trail) — sender={"id":"probe-agent","kind":"agent","via":"cli"}
+PASS  the forwarded envelope carries the L2 client secret, NOT the sender token — auth === the per-boot internal secret (value withheld from evidence)
+PASS  a sender CANNOT supply enqueued_by (audit forgery refused at shape-check) — code=SHAPE_INVALID details={"field":"enqueued_by"}
+PASS  L2: dispatch with NO secret -> AUTH_FAILED — code=AUTH_FAILED
+PASS  L2: dispatch with a WRONG secret -> AUTH_FAILED — code=AUTH_FAILED
+PASS  L2 MUTATION: the CORRECT secret is accepted (the L2 guard DISCRIMINATES) — ok=true
+PASS  L2: auth is refused BEFORE intent dispatch (bogus intent + bad secret -> AUTH_FAILED) — code=AUTH_FAILED
+
+CHECKS: 20/20 passed
+SKIPPED_COUNT: 0
+AUTHFAIL_OK: true
+EXIT: 0
+WALL_MS: 27

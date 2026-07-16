@@ -1,0 +1,23 @@
+COMMAND: node server/internal-api/probes/probe-revalidate.js
+PASS  setup: the queue starts empty ON DISK — disk queue rows=0
+PASS  a semantically-invalid job is REFUSED past the gateway — ok=false
+PASS  the refusal is typed VALIDATION_FAILED (not a shape error — the gateway could not know) — code=VALIDATION_FAILED
+PASS  the typed error NAMES the failing check (the contract's own requirement) — details={"check":"E_UNKNOWN_PROFILE","profile":"ghost-profile"}
+PASS  the refusal maps to the CLI's exit-4 class (HTTP 400) — status=400
+PASS  NOTHING was written — the queue is unchanged ON DISK (identity, not a count) — disk queue rows=0
+PASS  the GATEWAY passes this request (so the refusal above is genuinely the CORE re-validating) — gateway shape-check accepted the well-formed-but-semantically-invalid job
+PASS  MUTATION: the SAME request naming a REAL profile is ACCEPTED (the guard discriminates) — ok=true jobId=1
+PASS  the valid job landed ON DISK, identified — disk row={"queue_id":1,"job_id":"launch-worker","args":"{\"profile\":\"test-sleep\"}","enqueued_by":"probe-agent","trigger_kind":"scheduled"}
+PASS  enqueued_by ON DISK is the AUTHENTICATED sender id (the audit trail is not caller-supplied) — enqueued_by=probe-agent
+PASS  a circular reference is refused BAD_ENVELOPE at the boundary — code=BAD_ENVELOPE
+PASS  a LIVE HANDLE (function) is refused BAD_ENVELOPE, not silently dropped — code=BAD_ENVELOPE
+PASS  inspect returns a plain-data snapshot — rows=1
+PASS  mutating the returned snapshot does NOT reach server-core state (proven ON DISK) — disk rows=1 job_id=launch-worker
+PASS  an unsupported major version is refused VERSION_MISMATCH — code=VERSION_MISMATCH
+PASS  an unknown intent is UNKNOWN_INTENT, distinct from a bad payload — code=UNKNOWN_INTENT
+
+CHECKS: 16/16 passed
+SKIPPED_COUNT: 0
+REVALIDATE_OK: true
+EXIT: 0
+WALL_MS: 35

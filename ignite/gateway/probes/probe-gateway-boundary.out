@@ -1,0 +1,19 @@
+COMMAND: node gateway/probes/probe-gateway-boundary.js
+SCANNED: errors.js, gateway.js, parse.js, sender-auth.js
+PASS  the gateway module has ZERO store/spawn/profile-config references — 4 files scanned, 0 violations
+PASS  the gateway reaches the core ONLY through an INJECTED dispatch endpoint — dispatch is a constructor argument, never a require
+PASS  MUTATION: a gateway file reaching "heart store module" is DETECTED — caught: require('../server/heart/heart-store')
+PASS  MUTATION: a gateway file reaching "spawn module" is DETECTED — caught: require('../server/spawn/spawn')
+PASS  MUTATION: a gateway file reaching "server-core internals" is DETECTED — caught: require('../server/ticker/ticker')
+PASS  MUTATION: a gateway file reaching "a raw SQLite driver" is DETECTED — caught: DatabaseSync
+PASS  MUTATION: a gateway file reaching "child-process spawn" is DETECTED — caught: require('node:child_process')
+PASS  MUTATION: a gateway file reaching "the store/spawn factory functions" is DETECTED — caught: openHeartStore
+PASS  MUTATION: a gateway file reaching "launch-profile config" is DETECTED — caught: profiles[
+PASS  REVERT: the mutant file is gone from disk — _boundary-mutant.js absent
+PASS  REVERT: the scan is green again (identity, not a count) — 4 files scanned, 0 violations
+
+CHECKS: 11/11 passed
+SKIPPED_COUNT: 0
+BOUNDARY_OK: true
+EXIT: 0
+WALL_MS: 18

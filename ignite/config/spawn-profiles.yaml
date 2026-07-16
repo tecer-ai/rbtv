@@ -4,7 +4,13 @@ bind:
 
 auth:
   senders_file: /etc/rbtv-ignite/senders.yaml   # named-sender registry (D15 shape: sender-id, kind, token-hash, enabled); 0600, outside the repo
-  # Internal gateway<->server-core auth is the internal-api contract (p1-3) — NOT configured here.
+  # ⚑ STARTUP GATE (p4-1, spawn-profiles-spec.md Design 4): the daemon REFUSES TO START when this
+  # file is missing, empty, group/world-readable, malformed, or declares no senders. Deploying it is
+  # an OWNER-EXECUTED install step — see config/senders.example.yaml for the seed + the procedure.
+  # Override the path (e.g. for probes) with RBTV_IGNITE_SENDERS_FILE via the unit's EnvironmentFile;
+  # never by writing an instance path here (D26(3)).
+  # Internal gateway<->server-core auth is the internal-api contract (p1-3) — NOT configured here:
+  # it is a per-boot secret minted by the composition root, never a configured value.
 
 spawn:
   data_root: /var/lib/rbtv-ignite   # store, logs/, prompts/ live under here (task 3.2 binds the concrete path)

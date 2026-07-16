@@ -1,0 +1,28 @@
+COMMAND: node server/internal-api/probes/probe-remove-job.js
+PASS  setup: the repeating row SURVIVED its fire and recorded an execution — exec_id=1
+PASS  setup: 4 rows are on disk — disk queue rows=4
+PASS  remove-job succeeds for the sender that enqueued the row — ok=true
+PASS  D68: `removed: true` REMAINS (the widening is ADDITIVE — existing readers keep working) — removed=true
+PASS  D68: a ONE-SHOT reports no recurrence (trigger_kind=scheduled, repeat_rule null, interval null) — {"removed":true,"trigger_kind":"scheduled","repeat_rule":null,"interval_seconds":null}
+PASS  the one-shot row is GONE ON DISK (identity, not a count) — disk queue_ids=[2,3,4]
+PASS  D68: removing a PERIODIC trigger surfaces trigger_kind + interval_seconds ACROSS the wire — {"removed":true,"trigger_kind":"periodic","repeat_rule":null,"interval_seconds":60}
+PASS  the periodic row is GONE ON DISK — the WHOLE recurring schedule is cancelled — disk queue_ids=[3,4]
+PASS  the fired execution's audit row SURVIVES its queue row's removal — jobs_log exec_ids=[1]
+PASS  D68: removing a CRON repeating trigger surfaces its repeat_rule ACROSS the wire — {"removed":true,"trigger_kind":"scheduled","repeat_rule":"*/5 * * * *","interval_seconds":null}
+PASS  D65(B): agent-b CANNOT remove a row it did not enqueue -> UNAUTHORIZED_SENDER — code=UNAUTHORIZED_SENDER
+PASS  D65(B): the refused removal maps to HTTP 403 — status=403
+PASS  D65(B): the refused removal wrote NOTHING — the row is still ON DISK — disk queue_ids=[4]
+PASS  D65(B): kind=owner may remove ANOTHER sender's row (the owner principal is enforced) — ok=true
+PASS  the owner-removed row is GONE ON DISK — disk queue_ids=[4]
+PASS  an unknown queue-row id -> typed NOT_FOUND (never a silent no-op) — code=NOT_FOUND
+PASS  the NOT_FOUND refusal maps to HTTP 404 — status=404
+PASS  an unknown CATALOGUE job stays VALIDATION_FAILED — distinct from a missing queue ROW — code=VALIDATION_FAILED check=E_UNKNOWN_JOB
+PASS  D69: the id enqueue-job MINTS is the queue_id ON DISK (a row handle, not a catalogue slug) — minted jobId=6 -> disk queue_id=6, catalogue slug=launch-worker
+PASS  D69: feeding that minted id straight into remove-job removes THAT row (gateway-cli-spec test 5) — removed queue_id=6
+PASS  a catalogue SLUG passed as jobId is refused (it is not a row handle) — code=SHAPE_INVALID
+
+CHECKS: 21/21 passed
+SKIPPED_COUNT: 0
+REMOVE_JOB_OK: true
+EXIT: 0
+WALL_MS: 48

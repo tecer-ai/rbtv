@@ -12,6 +12,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 
 const IGNITE_SRC = path.resolve(__dirname, '..');
@@ -24,6 +25,23 @@ const dataRoot = path.join(tmp, 'data');
 const workRoot = path.join(tmp, 'work');
 for (const d of [workspaceRoot, dataRoot, workRoot]) fs.mkdirSync(d, { recursive: true });
 
+// The round-2 sender-registry startup gate (gateway/sender-auth.js loadSendersFile)
+// makes the daemon REFUSE TO START without a valid senders_file. This smoke test boots
+// the real entry point, so it must supply one — a throwaway 0600 file with one valid
+// owner row, mirroring gateway/probes/probe-gateway-live.js. The token-hash is a real-
+// shaped random 64-hex: this producer only boots the daemon, it never authenticates a
+// sender, so the file only has to pass the boot-time gate.
+const sendersFile = path.join(tmp, 'senders.yaml');
+fs.writeFileSync(sendersFile, [
+  'senders:',
+  '  - sender-id: smoke-owner',
+  '    kind: owner',
+  `    token-hash: ${crypto.randomBytes(32).toString('hex')}`,
+  '    enabled: true',
+  '',
+].join('\n'), { mode: 0o600 });
+fs.chmodSync(sendersFile, 0o600);
+
 const env = {
   ...process.env,
   RBTV_IGNITE_SRC: IGNITE_SRC,
@@ -32,6 +50,7 @@ const env = {
   RBTV_IGNITE_WORKDIR_ROOT: workRoot,
   RBTV_IGNITE_DATA_ROOT: dataRoot,
   RBTV_IGNITE_USER_MANAGER: 'true',
+  RBTV_IGNITE_SENDERS_FILE: sendersFile,
 };
 
 const started = Date.now();

@@ -2,11 +2,15 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const yaml = require('js-yaml');
 const { openHeartStore, closeHeartStore, isHeartStoreOpen } = require('./heart/heart-store');
 const { createSpawnManager } = require('./spawn/spawn');
 const { createTicker } = require('./ticker/ticker');
 const { selectCarrier } = require('./spawn/carrier');
+const { createInternalApi } = require('./internal-api/dispatch');
+const { createGateway } = require('../gateway/gateway');
+const { loadSendersFile } = require('../gateway/sender-auth');
 
 // Smoke mode is an ARGV flag, never an environment variable: EnvironmentFile= and
 // inherited environments can carry an env var into a production boot by accident,
@@ -60,6 +64,13 @@ function resolveWorkspaceRoot(igniteSrc) {
 
 function resolveConfigPath(igniteSrc) {
   return process.env.RBTV_IGNITE_CONFIG_PATH || path.join(igniteSrc, 'config', 'spawn-profiles.yaml');
+}
+
+// The named-sender registry's path. The LIVE file is deployed OUTSIDE the repo
+// (D27: credentials never in git), so this resolves from config with an env override
+// for the unit's EnvironmentFile — never a literal path in code (D26(3)).
+function resolveSendersFilePath(mergedConfig) {
+  return process.env.RBTV_IGNITE_SENDERS_FILE || (mergedConfig.auth && mergedConfig.auth.senders_file) || null;
 }
 
 // Selects `systemd-run --user` vs `--system` for worker carriage. Defaults to true, which
@@ -243,6 +254,21 @@ async function main() {
     ensureConfiguredDir(mergedConfig.default_workdir_root, 'default_workdir_root', 'RBTV_IGNITE_WORKDIR_ROOT');
   }
 
+  // ── The sender-registry STARTUP GATE (spawn-profiles-spec.md Design 4) ──────
+  //
+  // Fires BEFORE the store is opened and before any listener exists: a missing,
+  // empty, or group/world-readable senders_file makes the daemon REFUSE TO START,
+  // loudly. Fail at boot, never at auth time.
+  //
+  // ⚑ OPERATOR: this gate is what makes the live senders_file a REQUIRED install
+  // step. Until it is deployed (root-owned, 0600, outside the repo), the daemon will
+  // not start. See config/senders.example.yaml for the deploy procedure. That is the
+  // intended posture, not a defect — a control-plane ingress that cannot authenticate
+  // anyone must not be running.
+  const sendersFilePath = resolveSendersFilePath(mergedConfig);
+  loadSendersFile(sendersFilePath);
+  log('info', 'sender registry startup gate passed', { sendersFile: sendersFilePath });
+
   const heartStore = openHeartStore({
     runtimeStateRoot: workspaceRoot,
     profiles: mergedConfig.profiles || {},
@@ -287,7 +313,46 @@ async function main() {
     logPath: dataRoot ? path.join(dataRoot, 'ticker.log') : null,
   });
 
-  log('info', 'daemon composed', { heartStoreOpen: isHeartStoreOpen() });
+  // ── The composition root (internal-api-contract-spec.md § 4) ────────────────
+  //
+  // 1:1 is enforced BY CONSTRUCTION here, and this is the only place it can be:
+  // the per-boot secret is minted now, handed to the server core (which registers
+  // it) and to the GATEWAY module constructor — and to nothing else. The dispatch
+  // endpoint is never exported globally and the server core accepts no second
+  // client registration, so no other holder of the secret exists. Any other module,
+  // any test bypass, any future code path calling dispatch() gets AUTH_FAILED.
+  //
+  // Random per BOOT (not persisted) because v1 is in-process and has nothing to
+  // outlive the process. The split's shape is already designed: the same secret,
+  // persisted 0600 under the runtime dir, PLUS socket peer credentials.
+  const internalSecret = crypto.randomBytes(32).toString('hex');
+  const internalApi = createInternalApi({
+    heartStore,
+    spawnManager,
+    secret: internalSecret,
+    logger: (m) => log(m.level || 'info', m.message, m),
+  });
+
+  const gateway = createGateway({
+    dispatch: internalApi.dispatch,
+    internalSecret,
+    sendersFilePath,
+    logger: (m) => log(m.level || 'info', m.message, m),
+  });
+
+  // Loopback through Batch 4 (spawn-profiles-spec.md Design 4: "the gateway listens
+  // on loopback (127.0.0.1) through Batches 2-4"); p5-2 wires the tailnet bind under
+  // the network-posture spec. Binding 0.0.0.0 or any public interface is a build
+  // defect that spec hard-gates.
+  // Env overrides join the existing RBTV_IGNITE_* family (data_root, carrier,
+  // workdir_root). They exist so a probe can bring the ingress up WITHOUT colliding
+  // with the live daemon's bind — never to widen exposure: the network-posture spec
+  // hard-gates a non-loopback bind, and p5-2 owns the tailnet rewiring.
+  const bindHost = process.env.RBTV_IGNITE_BIND_HOST || mergedConfig.bind?.host || '127.0.0.1';
+  const bindPort = Number(process.env.RBTV_IGNITE_BIND_PORT || mergedConfig.bind?.port) || 7431;
+  await gateway.listen({ host: bindHost, port: bindPort });
+
+  log('info', 'daemon composed', { heartStoreOpen: isHeartStoreOpen(), gatewayBind: `${bindHost}:${bindPort}` });
 
   const tickResult = await ticker.tick();
   log('info', 'initial tick complete', { tick: tickResult.tick, actionCount: tickResult.actions.length });
@@ -301,6 +366,13 @@ async function main() {
     return async () => {
       log('info', `received ${signal}, shutting down`);
       clearInterval(timer);
+      // Close the ingress FIRST: a request accepted after the store closes would
+      // fault on a dead handle instead of being refused cleanly.
+      try {
+        await gateway.close();
+      } catch (err) {
+        log('error', 'error closing gateway', { error: err.message });
+      }
       cleanupTempConfig(tempConfigDir);
       try {
         if (isHeartStoreOpen()) closeHeartStore();

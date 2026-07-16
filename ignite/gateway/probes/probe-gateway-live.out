@@ -1,0 +1,20 @@
+COMMAND: node gateway/probes/probe-gateway-live.js
+PASS  LANDMINE: with NO senders_file deployed, the daemon REFUSES TO START — exit=1, never reached "gateway listening"
+PASS  LANDMINE: the refusal is LOUD — it names the cause and the remedy in the daemon log — daemon log carries the actionable refusal
+PASS  LANDMINE: the daemon never opened its ingress before refusing — no listener was ever bound
+PASS  the daemon BOOTS and its gateway LISTENS on loopback — bound 127.0.0.1:36405
+PASS  the startup gate is reported as PASSED in the daemon log before the ingress opens — gate logged at boot
+PASS  the bind is LOOPBACK, never a public interface (DEC-3 zero-ingress) — host=127.0.0.1
+PASS  LIVE: an unauthenticated request over the real socket is refused AUTH_REFUSED (401) — status=401 code=AUTH_REFUSED
+PASS  LIVE: a wrong token over the real socket is refused AUTH_REFUSED (401) — status=401 code=AUTH_REFUSED
+PASS  LIVE: a VALID token round-trips the full chain (sender -> gateway -> core -> store) — status=200 ok=true rows=0
+PASS  the per-boot internal secret never appears in the daemon log or on the wire — no L2 secret in the log or the response
+PASS  LIVE: the core re-validates over the socket — an unknown job is VALIDATION_FAILED (400) — status=400 code=VALIDATION_FAILED
+PASS  LIVE: an AUTHENTICATED sender naming a bogus intent gets UNKNOWN_INTENT (not an auth error) — code=UNKNOWN_INTENT
+PASS  the daemon shut down cleanly through its real SIGTERM path (the ingress closes first) — clean shutdown logged
+
+CHECKS: 13/13 passed
+SKIPPED_COUNT: 0
+GATEWAY_LIVE_OK: true
+EXIT: 0
+WALL_MS: 271

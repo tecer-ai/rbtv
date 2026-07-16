@@ -1,0 +1,23 @@
+COMMAND: node gateway/probes/probe-startup-gate.js
+TMPDIR: <throwaway>/ignite-probe-gate-1046449-LSbnrq
+PASS  a MISSING senders_file REFUSES the daemon start — refused
+PASS  the missing-file refusal is LOUD (names the cause and the remedy) — REFUSING TO START: senders_file is missing at /tmp/ignite-probe-gate-1046449-LSbnrq/does-not-exist.
+PASS  an EMPTY senders_file REFUSES the daemon start — refused: empty
+PASS  a GROUP/WORLD-READABLE senders_file REFUSES the daemon start (mode 0644) — refused: mode 644
+PASS  the mode refusal names the fix (chmod 600) — remedy present in the message
+PASS  MUTATION: those exact bytes are VALID content — only the MODE check refuses them (the gate is load-bearing) — the file parses to 1 well-formed sender; without the mode gate it would have loaded
+PASS  MUTATION: the IDENTICAL content at mode 0600 is ACCEPTED (mode is the only variable) — same bytes, 0600 -> accepted
+PASS  a MALFORMED senders_file REFUSES the daemon start — refused: malformed
+PASS  a senders_file declaring NO senders REFUSES the daemon start — refused: empty roster
+PASS  an invalid sender KIND REFUSES the start and names the offending row — refused: kind=wizard
+PASS  a non-SHA-256 token-hash REFUSES the start (plaintext tokens never rest on disk) — refused: bad hash
+PASS  the SHIPPED SEED (config/senders.example.yaml), copied verbatim at 0600, REFUSES to boot — refused: placeholder token-hash — the seed cannot become a live registry by copy alone
+PASS  the shipped seed contains NO 64-hex token-hash (no credential in git) — every token-hash in the seed is a visible placeholder
+PASS  a well-formed 0600 senders_file is ACCEPTED (the gate discriminates, not just denies) — loaded 1 sender(s)
+PASS  the loaded sender carries NO plaintext token (only the hash ever rests on disk) — plaintext token absent from the loaded registry
+
+CHECKS: 15/15 passed
+SKIPPED_COUNT: 0
+STARTUP_GATE_OK: true
+EXIT: 0
+WALL_MS: 13
