@@ -401,7 +401,13 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     const queueRows = heartStore.listQueue();
     const dueSoon = queueRows.filter((r) => r.run_at !== undefined).slice(0, 20);
 
-    const allMessages = heartStore.getMessages({ limit: 50 });
+    // getMessages orders msg_id ASC; its `limit` is a HEAD bound and the store
+    // exposes no thread filter and no DESC order (read-only surface — no store
+    // change here, D75). Passing a limit here would take the OLDEST N messages,
+    // then filter owner-feed within them — so once the head fills with non-feed
+    // messages the "recent" notes silently vanish. Fetch all, filter, take the
+    // tail: the 10 most-recent owner-feed notes. v1-scale only (loads all rows).
+    const allMessages = heartStore.getMessages();
     const ownerFeedNotes = allMessages
       .filter((m) => m.thread === 'owner-feed')
       .slice(-10)
