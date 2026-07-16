@@ -573,7 +573,7 @@ class HeartStore {
     return row ? row.n : 0;
   }
 
-  updateExecutionStatus(execId, { status, sessionId = null, pid = null, exitCode = null, completionMsgId = null, logPath = null, endedAt = null, carrier = null, unitName = null, pidStarttime = null, sessionRef = null, startedAt = null }) {
+  updateExecutionStatus(execId, { status, sessionId = null, pid = null, exitCode = null, completionMsgId = null, logPath = null, endedAt = null, carrier = null, unitName = null, pidStarttime = null, sessionRef = null, startedAt = null, profile = null, workdir = null }) {
     const stmt = this._prepare(`
       UPDATE jobs_log SET
         status = ?,
@@ -587,10 +587,12 @@ class HeartStore {
         exit_code = COALESCE(?, exit_code),
         completion_msg_id = COALESCE(?, completion_msg_id),
         log_path = COALESCE(?, log_path),
-        ended_at = COALESCE(?, ended_at)
+        ended_at = COALESCE(?, ended_at),
+        profile = COALESCE(?, profile),
+        workdir = COALESCE(?, workdir)
       WHERE exec_id = ?
     `);
-    stmt.run(status, carrier, unitName, pidStarttime, sessionRef, startedAt ? toIsoUtc(startedAt) : null, sessionId, pid, exitCode, completionMsgId, logPath, endedAt ? toIsoUtc(endedAt) : null, execId);
+    stmt.run(status, carrier, unitName, pidStarttime, sessionRef, startedAt ? toIsoUtc(startedAt) : null, sessionId, pid, exitCode, completionMsgId, logPath, endedAt ? toIsoUtc(endedAt) : null, profile, workdir, execId);
     return this.getExecution(execId);
   }
 

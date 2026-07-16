@@ -260,6 +260,8 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       startedAt,
       logPath,
       sessionId,
+      profile: profileName,
+      workdir: resolvedWorkdir,
     });
 
     // Return the fresh row with workdir filled from the original recordExecutionStart value.
