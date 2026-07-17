@@ -99,7 +99,31 @@ profiles:
       prompt: stdin
     session_ref: { source: cwd-implicit }    # opencode resumes per-cwd; the session's workdir IS the ref
     headed:
-      tui: { argv: ["opencode"] }            # headed-CAPABLE seam; the pty path is Batch 6's design
+      # headed-CAPABLE seam (D17: presence of this block = capable). The pty path is Batch 6's.
+      #
+      # ⚑ NO prompt carriage is declared — DELIBERATE, and it is the SPEC-COMPLIANT state
+      # (conductor ruling D86 at p6-2b's close, backed by verbatim ratified text). Design 3's
+      # seed paragraph CONDITIONS the declaration on a precondition NOT YET MET: "6.2 can declare
+      # `prompt: argv` with `headed.tui.argv: ["opencode","--prompt","{prompt}"]` ONCE the runtime
+      # behavior (`--prompt` auto-submits vs pre-fills the composer) is verified on a real pty" —
+      # that verification is still owed (6.3 / p6-checkpoint; the TUI cannot be driven headlessly).
+      #
+      # Declaring it prematurely also BROKE Behavior #1 (proven by observed state at the p6-2b
+      # review): a `{prompt}` slot makes the prompt MANDATORY — carriage.js refuses a headed spawn
+      # whose argv carries the slot when no prompt is supplied — so a bare owner-driven TUI, the
+      # primary JOIN/TAKE-OVER entry path for 6.3, became unreachable on the ONLY headed-capable
+      # seed profile. An argv/flag template cannot express an OPTIONAL prompt (dropping the slot
+      # would leave a dangling `--prompt`).
+      #
+      # Per Design 3 a no-carriage profile is VALID and means "headed spawns of this profile REJECT
+      # `prompt`" — typed, at queue AND spawn time (both proven: 6.2 the spawn half, 6.2b the queue
+      # half). Criterion 8's "delivered" half is proven on a throwaway argv-carriage profile, so
+      # nothing rests on this seed declaring one.
+      #
+      # To carry a prompt here later, the owner rules the companion-template fix (a prompt-less
+      # `headed.tui.argv` + a distinct with-prompt template, so an OPTIONAL prompt is expressible)
+      # — it touches certified carriage.js. Until then this stays bare.
+      tui: { argv: ["opencode"] }
     workdir_root: .rbtv/sessions   # D58: per-execution launch dirs at .rbtv/sessions/<exec-id>/. Machine-agnostic (D26(3)): workspace-relative, resolved at runtime against the workspace root that roots .rbtv/ — NEVER an instance path.
     caps: { memory_max: "4G", cpu_quota: "150%", runtime_max: "8h", tasks_max: 512 }
     sandbox:

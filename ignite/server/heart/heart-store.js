@@ -356,6 +356,54 @@ class HeartStore {
       if (!profile || !profile.headed) {
         throw new HeartStoreError(E_BAD_MODE, `profile ${parsedArgs.profile} is not headed-capable`, { field: 'sessionMode', profile: parsedArgs.profile });
       }
+
+      // ── QUEUE-TIME half of the headed prompt-carriage DOUBLE GATE ──────────
+      // (session-surface-spec.md Design 3 + Behavior #9; OQ-F RULED D83; task p6-2b.)
+      //
+      // ADDITIVE: the headed-CAPABILITY check above is UNTOUCHED — this is its
+      // sibling, not its replacement. The ruling requires a typed rejection at
+      // queue time AND spawn time: the SPAWN half already lives in
+      // server/pty/carriage.js (composeHeadedArgv → E_HEADED_PROMPT_REJECTED);
+      // this is the QUEUE half, so a prompt the profile has no carriage for is
+      // refused BEFORE a queue row exists — nothing is enqueued, nothing starts.
+      //
+      // WHERE THE PROMPT LIVES: `args.prompt` — the enqueue surface's own field.
+      // A launch-agent job's args_schema declares it (`optional: { prompt:
+      // 'string' }`), validateArgs() above has already type-checked it, and the
+      // ticker's launchAgent reads exactly `args.prompt ?? null` and hands it to
+      // the spawn path. So this gate reads the SAME value the spawn gate will.
+      //
+      // PROMPT-SUPPLIED TEST: mirrors composeHeadedArgv's test EXACTLY
+      // (undefined / null / '' = not supplied), so the two gates can never
+      // disagree — the queue must not refuse what the spawn path would accept.
+      //
+      // VOCABULARY: `headed.tui.prompt` ∈ argv | file | keystroke, `stdin`
+      // structurally absent. All three gates (profile-LOAD in spawn/config.js,
+      // this one, and the spawn-time one in pty/carriage.js) agree on that set;
+      // presence of a carriage is the test here, never its value.
+      //
+      // CODE CHOICE — E_BAD_MODE, NOT a new E_HEADED_PROMPT_REJECTED. The store's
+      // typed codes cross the wire through internal-api/dispatch.js's CLOSED
+      // STORE_TO_WIRE map, and an UNMAPPED code degrades to INTERNAL "server-core
+      // fault" (dispatch.js toWireError) — which would show a sender this
+      // validation refusal as an internal fault instead of VALIDATION_FAILED.
+      // dispatch.js and heart/errors.js are both outside p6-2b's allowlist, so a
+      // new code could not be mapped in this change. E_BAD_MODE is the in-family
+      // code the SIBLING headed check immediately above already uses, it maps to
+      // VALIDATION_FAILED, and `details.check` + `carriage: null` name this exact
+      // refusal on the wire. Minting the distinct code is a follow-up needing
+      // errors.js + the dispatch map row together (surfaced in the p6-2b return).
+      const promptSupplied = parsedArgs.prompt !== undefined
+        && parsedArgs.prompt !== null
+        && parsedArgs.prompt !== '';
+      if (promptSupplied && !profile.headed.tui?.prompt) {
+        throw new HeartStoreError(
+          E_BAD_MODE,
+          `profile ${parsedArgs.profile}: a prompt was supplied for a headed session but the profile ` +
+          `declares NO headed.tui.prompt carriage — rejected by default (spec Design 3, Behavior #9)`,
+          { field: 'sessionMode', profile: parsedArgs.profile, carriage: null },
+        );
+      }
     }
 
     // ── Validate-only mode (owner ruling D73 / D72) ──────────────────────────

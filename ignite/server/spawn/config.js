@@ -20,8 +20,17 @@ const KNOWN_PROFILE_KEYS = new Set([
 const KNOWN_EXEC_KEYS = new Set(['argv', 'prompt']);
 const KNOWN_RESUME_KEYS = new Set(['argv', 'prompt']);
 const KNOWN_HEADED_KEYS = new Set(['tui']);
-const KNOWN_TUI_KEYS = new Set(['argv']);
+const KNOWN_TUI_KEYS = new Set(['argv', 'prompt', 'keystroke']);
+// The HEADLESS exec/resume prompt vocabulary — NOT the headed one. Untouched by p6-2b.
 const KNOWN_PROMPT_VALUES = new Set(['stdin', 'file', 'argv-last']);
+// The HEADED carriage vocabulary (session-surface-spec.md Design 3; OQ-F RULED, D83). A
+// DIFFERENT closed set from KNOWN_PROMPT_VALUES above — the two are deliberately not shared:
+// `argv-last` is headless-only, and `stdin` is STRUCTURALLY ABSENT here (stdin IS the pty
+// slave; write-then-close = type-then-hang-up), so declaring it is a config-LOAD failure and
+// not a runtime error. Matches server/pty/carriage.js's KNOWN_CARRIAGES exactly — the
+// profile-LOAD gate, the QUEUE gate (heart-store.js) and the SPAWN gate (carriage.js) MUST
+// agree on this vocabulary.
+const KNOWN_HEADED_CARRIAGES = new Set(['argv', 'file', 'keystroke']);
 const KNOWN_SESSION_REF_SOURCES = new Set([
   'stdout-json', 'stdout-json-event', 'cwd-implicit',
 ]);
@@ -60,12 +69,17 @@ function checkUnknownKeys(obj, knownSet, prefix, filePath) {
   }
 }
 
-function detectUnknownSlots(value, prefix, filePath) {
+// `extraSlots` (ADDITIVE, defaults to null = the previous behaviour for every existing caller)
+// admits a slot for ONE call site only, WITHOUT loosening the module-wide CLOSED_SLOTS set. It
+// carries `{prompt}` for `headed.tui.argv` on a profile declaring `prompt: argv`, and nothing
+// else — so `{prompt}` stays the existing unknown-slot config-load failure everywhere else
+// (exec/resume argv, sandbox, and a headed block that declares no argv carriage).
+function detectUnknownSlots(value, prefix, filePath, extraSlots = null) {
   const str = typeof value === 'string' ? value : JSON.stringify(value);
   const matches = str.match(UNKNOWN_SLOT_RE);
   if (matches) {
     for (const m of matches) {
-      if (!CLOSED_SLOTS.has(m)) {
+      if (!CLOSED_SLOTS.has(m) && !(extraSlots && extraSlots.has(m))) {
         throw new SpawnError(E_UNKNOWN_SLOT, `unknown template slot ${m} in ${prefix}`, { file: filePath, key: prefix, slot: m });
       }
     }
@@ -135,8 +149,74 @@ function validateHeaded(headed, profileName, filePath) {
   }
   checkUnknownKeys(headed.tui, KNOWN_TUI_KEYS, `profiles.${profileName}.headed.tui`, filePath);
   assertArrayOfStrings(headed.tui.argv, `profiles.${profileName}.headed.tui.argv`, filePath);
+
+  // ── Headed prompt carriage — the profile-LOAD gate (ADDITIVE; Design 3, OQ-F RULED D83) ──
+  // The `headed.tui.prompt` key is OPTIONAL: a profile declaring none is VALID and means
+  // "headed spawns of this profile REJECT a prompt" (reject-by-default, Behavior #9) — the
+  // headed-CAPABLE seam (D17: presence of the `headed.tui` block = capable) is unchanged.
+  const carriage = headed.tui.prompt;
+  if (carriage !== undefined && carriage !== null) {
+    if (carriage === 'stdin') {
+      throw new SpawnError(
+        E_CONFIG_LOAD,
+        `profiles.${profileName}.headed.tui.prompt: stdin is STRUCTURALLY ABSENT from the headed ` +
+        `carriage vocabulary (stdin IS the pty slave; write-then-close would type-then-hang-up the ` +
+        `session) — declaring it is a config-LOAD failure, not a runtime value (known: argv|file|keystroke)`,
+        { file: filePath, key: `profiles.${profileName}.headed.tui.prompt`, carriage },
+      );
+    }
+    if (!KNOWN_HEADED_CARRIAGES.has(carriage)) {
+      throw new SpawnError(
+        E_CONFIG_LOAD,
+        `profiles.${profileName}.headed.tui.prompt must be one of argv|file|keystroke`,
+        { file: filePath, key: `profiles.${profileName}.headed.tui.prompt`, carriage },
+      );
+    }
+  }
+
+  // The `{prompt}` slot is admitted ONLY here, and ONLY under `prompt: argv`. Under any other
+  // carriage (or none) `extraSlots` stays null and a `{prompt}` slot falls through to the
+  // existing E_UNKNOWN_SLOT config-load failure — the consistency check in the other direction.
+  const promptSlot = carriage === 'argv' ? new Set(['{prompt}']) : null;
   for (let i = 0; i < headed.tui.argv.length; i++) {
-    detectUnknownSlots(headed.tui.argv[i], `profiles.${profileName}.headed.tui.argv[${i}]`, filePath);
+    detectUnknownSlots(headed.tui.argv[i], `profiles.${profileName}.headed.tui.argv[${i}]`, filePath, promptSlot);
+  }
+
+  // Consistency, declared-but-absent direction: a carriage whose slot is missing would compose
+  // no prompt at spawn time. Refuse the profile at LOAD instead (server/pty/carriage.js refuses
+  // the same shapes at spawn time — the gates agree).
+  if (carriage === 'argv' && !headed.tui.argv.some((el) => el.includes('{prompt}'))) {
+    throw new SpawnError(
+      E_CONFIG_LOAD,
+      `profiles.${profileName}.headed.tui.prompt: argv declared but headed.tui.argv carries no {prompt} slot`,
+      { file: filePath, key: `profiles.${profileName}.headed.tui.argv`, carriage },
+    );
+  }
+  if (carriage === 'file' && !headed.tui.argv.some((el) => el.includes('{prompt_file}'))) {
+    throw new SpawnError(
+      E_CONFIG_LOAD,
+      `profiles.${profileName}.headed.tui.prompt: file declared but headed.tui.argv carries no {prompt_file} slot`,
+      { file: filePath, key: `profiles.${profileName}.headed.tui.argv`, carriage },
+    );
+  }
+
+  // keystroke (declared LAST RESORT, Design 3): a profile declaring it MUST also declare a
+  // readiness marker — matched against the RENDERED screen state, never raw ANSI bytes — and a
+  // timeout whose expiry is the typed `prompt-injection-timeout` failure (Behavior #10), never a
+  // hang and never a silent no-prompt session. Shape mirrors carriage.js's own check exactly.
+  if (carriage === 'keystroke') {
+    const ks = headed.tui.keystroke;
+    if (!ks || typeof ks !== 'object' || Array.isArray(ks)
+      || typeof ks.readiness !== 'string' || ks.readiness.length === 0
+      || !Number.isInteger(ks.timeout_ms)) {
+      throw new SpawnError(
+        E_CONFIG_LOAD,
+        `profiles.${profileName}.headed.tui.keystroke: keystroke carriage MUST declare a readiness ` +
+        `marker (non-empty string, matched vs the RENDERED screen) and an integer timeout_ms ` +
+        `(expiry → prompt-injection-timeout failure)`,
+        { file: filePath, key: `profiles.${profileName}.headed.tui.keystroke`, carriage },
+      );
+    }
   }
 }
 
