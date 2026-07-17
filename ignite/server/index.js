@@ -11,6 +11,7 @@ const { createSpawnManager } = require('./spawn/spawn');
 const { createTicker } = require('./ticker/ticker');
 const { selectCarrier } = require('./spawn/carrier');
 const { createInternalApi } = require('./internal-api/dispatch');
+const { createPtyHost } = require('./pty');
 const { createGateway } = require('../gateway/gateway');
 const { loadSendersFile } = require('../gateway/sender-auth');
 
@@ -433,6 +434,50 @@ async function main() {
     userManager,
   });
 
+  // ── The headed/pty session surface (task 6.2, session-surface-spec.md Design 1–3) ──────────
+  //
+  // The pty host is an EXTENSION at the existing spawn/kill/log owner: it OWNS only the headed
+  // spawn path (the in-unit dtach holder + the vt-model screen capture + POST /keys/:id + the
+  // watch-tee), reusing the spawn manager's config + kill/status surface. Headless one-shot stays
+  // the DEFAULT and rides the sole-spawn-path UNCHANGED — the decoration below routes ONLY
+  // session_mode:headed to the pty host and delegates everything else to spawnManager.spawn.
+  // POST /keys/:id and screen capture are the INTERNAL server-core surface (ptyHost methods held
+  // here); their remote/gateway exposure is Batch-6 seam work (Amendment #2) — not added here.
+  const ptyHost = createPtyHost({
+    heartStore,
+    spawnManager,
+    dataRoot,
+    userManager,
+    logger: (m) => log(m.level || 'info', m.message, m),
+  });
+  const spawnManagerWithPty = {
+    ...spawnManager,
+    spawn: (execId, profileName, sessionMode = 'headless', prompt = null, workdir = null, enqueuedBy = 'unknown') =>
+      sessionMode === 'headed'
+        ? ptyHost.spawnHeaded(execId, profileName, prompt, workdir, enqueuedBy)
+        : spawnManager.spawn(execId, profileName, sessionMode, prompt, workdir, enqueuedBy),
+    // Headed exit_code sourcing (spec Behavior #8 / Design 2 caveat 1 — wired at the p6-2 review):
+    // for a DEAD headed session the unit's ExecMainStatus is the HOLDER's exit and MASKS the
+    // harness's (M3: child exited 42, unit reported 0) — and the ticker's crash sweep copies
+    // status().exitCode onto the row. Without this override the sweep would write the forbidden
+    // masked 0. The shim-sourced TRUE status replaces it; a non-integer source (status file
+    // absent/malformed, or a signal death) becomes a typed null (honest absence, option ii) —
+    // NEVER the masked ExecMainStatus.
+    status: async (execId) => {
+      const info = await spawnManager.status(execId);
+      if (info.sessionMode === 'headed' && !info.live) {
+        const src = ptyHost.sourceExitCode(execId);
+        info.exitCode = Number.isInteger(src.exit_code) ? src.exit_code : null;
+        info.exitCodeSource = src.source;
+        // Scrub the carrier readout too: consumers fall back to carrierInfo.exitCode (the ticker
+        // crash sweep's `info.exitCode ?? info.carrierInfo?.exitCode` chain), which would
+        // re-introduce the masked ExecMainStatus whenever the shim source is a typed unknown.
+        if (info.carrierInfo) info.carrierInfo = { ...info.carrierInfo, exitCode: info.exitCode };
+      }
+      return info;
+    },
+  };
+
   // tick_interval_ms is a TICKER-namespaced key (ticker.js DEFAULT_CONFIG). Reading it
   // from the config top level meant an operator's configured cadence was honoured by the
   // ticker's own config but silently ignored by the daemon loop that actually drives it.
@@ -443,7 +488,7 @@ async function main() {
 
   const ticker = createTicker({
     heartStore,
-    spawnManager,
+    spawnManager: spawnManagerWithPty,
     config: tickerConfig,
     logger: (m) => log(m.level || 'info', m.message, m),
     feedPath: dataRoot ? path.join(dataRoot, 'feed.jsonl') : null,
@@ -465,7 +510,7 @@ async function main() {
   const internalSecret = crypto.randomBytes(32).toString('hex');
   const internalApi = createInternalApi({
     heartStore,
-    spawnManager,
+    spawnManager: spawnManagerWithPty,
     secret: internalSecret,
     logger: (m) => log(m.level || 'info', m.message, m),
     daemonStartTime,
@@ -573,6 +618,24 @@ async function main() {
     gatewayBind: tailnetBound ? `${bindHost}:${bindPort} + ${tailnetBound}:${bindPort}` : `${bindHost}:${bindPort} (loopback-only)`,
   });
 
+  // Reconnect any headed sessions that SURVIVED a restart (session-surface-spec.md Behavior #7):
+  // the holder + pty live in the transient unit, so a running row whose holder socket still exists
+  // is re-attached and its vt model repaints on attach. Best-effort + non-fatal — a session that
+  // did not survive is left to the ticker's own crash-sweep, never killed here.
+  try {
+    const runningHeaded = heartStore.listExecutionsByStatus('running').filter((r) => r.session_mode === 'headed');
+    for (const row of runningHeaded) {
+      try {
+        const res = ptyHost.reconnect(row.exec_id);
+        log('info', 'reconnected headed session after restart', { execId: row.exec_id, sock: res.sock });
+      } catch (err) {
+        log('warn', 'could not reconnect headed session (may not have survived)', { execId: row.exec_id, error: err.message });
+      }
+    }
+  } catch (err) {
+    log('warn', 'headed-session reconnect pass failed', { error: err.message });
+  }
+
   const tickResult = await ticker.tick();
   log('info', 'initial tick complete', { tick: tickResult.tick, actionCount: tickResult.actions.length });
 
@@ -585,6 +648,14 @@ async function main() {
     return async () => {
       log('info', `received ${signal}, shutting down`);
       clearInterval(timer);
+      // Detach the pty readers WITHOUT ending headed sessions: their holders live in their own
+      // transient units, so closing the bridges lets each session survive for the next boot to
+      // reconnect (session-surface-spec.md Behavior #7). NEVER kills a headed session on shutdown.
+      try {
+        ptyHost.shutdown();
+      } catch (err) {
+        log('error', 'error detaching pty host', { error: err.message });
+      }
       // Close the ingress FIRST: a request accepted after the store closes would
       // fault on a dead handle instead of being refused cleanly.
       try {

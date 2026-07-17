@@ -10,5 +10,6 @@ node:sqlite (built-in) — heart-store database engine (DatabaseSync — synchro
 js-yaml — YAML parser for server-config and launch-profile files — `npm install js-yaml`
 tailscaled — zero-ingress network posture: tailnet bind + Tailscale Serve (Batch 5) — `apt install tailscale` (per tailscale.com/install)
 ttyd — web-terminal viewer for headed sessions (Batch 6) — `apt install ttyd` (or build from source if the apt version lags)
-node-pty — server-owned pty layer for headed sessions (Batch 6) — `npm install node-pty`
+dtach (0.9) — in-unit foreground pty holder for headed sessions (Batch 6, D83 OQ-E / D84) — `apt install dtach`; `screen` (4.09) is the fallback holder
+python3 — pty-bridge interpreter for the headed session surface (`dtach -a` cannot be piped, so a `pty.fork` bridge runs it on a pty; system tool, NOT an npm dependency — D84). node-pty is NOT used (the in-unit dtach holder owns the pty).
 bubblewrap (bwrap) — LOAD-BEARING worker filesystem containment: mount-namespace walls nested inside each systemd-run --user unit (D59; systemd's FS sandbox is a no-op under the user manager) — `sudo apt-get install -y bubblewrap` (one-time root provisioning; Ubuntu pre-loads the bwrap-userns-restrict AppArmor profile that grants bwrap user-namespace access)
