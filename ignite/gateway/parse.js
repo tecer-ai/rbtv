@@ -18,7 +18,16 @@ const { GatewayError, SHAPE_INVALID, UNKNOWN_INTENT } = require('./errors');
 // intent, added ADDITIVELY by owner ruling D71 — p4-2's CLI wraps it); the gateway
 // also routes `spawn-via-named-profile` because a bridge or a later client may name
 // it — the gateway is the internal API's single client and speaks its whole surface.
-const INTENTS = new Set(['enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze']);
+//
+// ⚑ `send-to-session` + `capture-session-screen` ADDED by owner ruling D91 (p6-3a). THIS SET IS
+// WHY THEY WERE ADDED HERE AT ALL: the core registered both intents, but this set did not — and
+// handleRequest parses BEFORE it forwards, so an authenticated OWNER driving the real ingress
+// got `UNKNOWN_INTENT` and the whole session surface was unreachable end-to-end. The gateway
+// speaks the internal API's WHOLE surface; a core intent missing from this set is a dead intent.
+const INTENTS = new Set([
+  'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
+  'send-to-session', 'capture-session-screen',
+]);
 
 const TRIGGER_KINDS = new Set(['scheduled', 'periodic']);
 const SESSION_MODES = new Set(['headless', 'headed']);
@@ -233,6 +242,40 @@ function parseSnooze(payload) {
   return { kind: payload.kind, subject: payload.subject, minutes };
 }
 
+// The Batch-6 session-surface intents (owner rulings D90/D91) — SHAPE ONLY, like every parse
+// here. The session id is the SAME wire field `inspect` uses for an execution-scoped call, so
+// it gets the SAME numeric-string coercion `remove-job`/`inspect` already apply: the CLI passes
+// `ignite <cmd> <id>` straight from argv, so a numeric string is the normal shape off a
+// terminal, and coercing HERE — at the one place raw sender input is interpreted — means the
+// wire always carries the integer the contract means.
+function parseSessionScopedId(raw, intent) {
+  const id = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : raw;
+  if (!Number.isInteger(id) || id <= 0) bad(`${intent} requires an integer session id`, 'id');
+  return id;
+}
+
+function parseSendToSession(payload) {
+  requireObject(payload);
+  rejectUnknownKeys(payload, new Set(['id', 'data']), 'send-to-session');
+  const id = parseSessionScopedId(payload.id, 'send-to-session');
+  // Shape only: the keystroke bytes must BE bytes, and an empty burst is not a burst.
+  if (typeof payload.data !== 'string' || payload.data.length === 0) {
+    bad('send-to-session requires a non-empty data string of keystroke bytes', 'data');
+  }
+  // ⚑ The 4096-byte MAX is deliberately NOT duplicated here. It is a SERVER-ENFORCED policy
+  // bound grounded in PIPE_BUF write atomicity — the core's business, re-validated on every
+  // call regardless of what passed the gateway (DEC-3). Restating the number here would create
+  // a SECOND source of truth for it, and the two would drift. Length is bounded meanwhile by
+  // the ingress body cap (gateway.js MAX_BODY_BYTES).
+  return { id, data: payload.data };
+}
+
+function parseCaptureSessionScreen(payload) {
+  requireObject(payload);
+  rejectUnknownKeys(payload, new Set(['id']), 'capture-session-screen');
+  return { id: parseSessionScopedId(payload.id, 'capture-session-screen') };
+}
+
 // Raw sender input -> a typed request payload, or a typed refusal. This is the
 // ONLY function in the daemon that interprets raw sender input.
 function parseRequest({ intent, payload }) {
@@ -245,6 +288,8 @@ function parseRequest({ intent, payload }) {
     case 'inspect': return parseInspect(payload);
     case 'spawn-via-named-profile': return parseSpawnViaNamedProfile(payload);
     case 'snooze': return parseSnooze(payload);
+    case 'send-to-session': return parseSendToSession(payload);
+    case 'capture-session-screen': return parseCaptureSessionScreen(payload);
   }
 }
 

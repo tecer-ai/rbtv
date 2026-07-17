@@ -27,16 +27,31 @@ const {
   INTERNAL,
 } = require('./errors');
 const { createAuthzPolicy } = require('./authz');
+const { appendKeystrokeRecord } = require('./keys-audit');
 
 const ENVELOPE_VERSION = 1;
 
-// The ratified five-intent surface (contract § 1). NEVER a raw spawn command,
+// The ratified intent surface (contract § 1). NEVER a raw spawn command,
 // NEVER a raw SQL/store handle. Future intents are ADDED by name under the same
 // envelope, each with its own re-validation clause — never by widening an
 // existing intent's payload semantics. `snooze` is the fifth, added ADDITIVELY by
 // owner ruling D71 (envelope version UNCHANGED) so p4-2's CLI snooze subcommand has
 // a gateway path to wrap.
-const INTENTS = new Set(['enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze']);
+//
+// `send-to-session` + `capture-session-screen` are the SIXTH and SEVENTH, added
+// ADDITIVELY by owner ruling D90 (p6-3a) under the SAME §1 extension rule — the
+// Batch-6 session surface. Each carries its OWN complete re-validation clause and its
+// OWN authz decision; the ENVELOPE VERSION IS UNCHANGED (the extension rule is explicit
+// that adding an intent never bumps it), and no existing intent's payload semantics move.
+//
+// ⚑ Screen capture is a SEPARATE INTENT, deliberately — it MUST NOT ride `inspect` as a
+// new `target: screen`. `inspect`'s ratified target set is jobs|queue|status|logs; adding
+// to it would be "widening an existing intent's payload semantics", which the extension
+// rule forbids. A separate intent is the RATIFIED shape (D90), not a style preference.
+const INTENTS = new Set([
+  'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
+  'send-to-session', 'capture-session-screen',
+]);
 
 const ALLOWED_ENVELOPE_KEYS = new Set(['v', 'id', 'ts', 'auth', 'sender', 'intent', 'payload']);
 
@@ -54,6 +69,24 @@ const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 't
 // Server-enforced max page (contract § 1, `inspect`: "offset/limit bounded").
 const MAX_PAGE = 500;
 const DEFAULT_PAGE = 200;
+
+// Server-enforced max keystroke payload for `send-to-session` (contract § 1's
+// bounded-payload precedent — the same principle `inspect` applies to a page: the sender
+// does not get to choose how much it pushes through the core in one call).
+//
+// The VALUE is grounded in the mechanism this intent actually drives, not picked round:
+// sendKeys writes to the pty bridge's STDIN, which is a PIPE (pty-host.js attachBridge —
+// stdio ['pipe','pipe','pipe']). POSIX guarantees a write of at most PIPE_BUF bytes to a
+// pipe is ATOMIC, and PIPE_BUF is 4096 on this platform (/usr/include/linux/limits.h:14,
+// `getconf PIPE_BUF` — both verified on the deploy box). At or below it, two concurrent
+// send-to-session calls CANNOT interleave their keystrokes into one live TUI; above it the
+// kernel may split a write and a second sender's bytes can land mid-command.
+//
+// ⚑ REJECTS, never CLAMPS — deliberately UNLIKE `inspect`'s pageBounds. Clamping a READ
+// page is safe: the sender simply pages on via nextOffset, and no state changes. Clamping
+// a WRITE is DESTRUCTIVE: the truncated head of a command still reaches a LIVE tty and
+// executes there. An over-long payload is refused typed, and nothing is written.
+const MAX_KEYS_BYTES = 4096;
 
 const SENDER_KINDS = new Set(['owner', 'agent', 'bridge']);
 
@@ -178,6 +211,15 @@ const STORE_TO_WIRE = new Map([
   ['E_WORKDIR_MISSING', VALIDATION_FAILED],
   ['E_UNKNOWN_REQUEST_KEY', VALIDATION_FAILED],
   ['E_BAD_REQUEST', VALIDATION_FAILED],
+  // The pty host's liveness refusal (server/pty/errors.js) — the ONLY typed code the two
+  // Batch-6 session-surface intents can raise from below. WITHOUT this row the map is a
+  // CLOSED literal Map that does not match it, so toWireError() below degrades it to
+  // { code: INTERNAL, message: 'server-core fault' } — and a sender could not tell "you sent
+  // keys to a session that is no longer live" from "the daemon broke". VALIDATION_FAILED,
+  // not NOT_FOUND: reaching sendKeys/captureScreen means the execution row EXISTS (the
+  // re-validation clause proved it) — what refused is the liveness CHECK, and `details.check`
+  // names it. Same shape as E_BAD_MODE / E_HEADED_NOT_CAPABLE, the other state refusals.
+  ['E_SESSION_NOT_LIVE', VALIDATION_FAILED],
 ]);
 
 function toWireError(err) {
@@ -199,7 +241,7 @@ function toWireError(err) {
   return { code: INTERNAL, message: 'server-core fault', details: null };
 }
 
-function createInternalApi({ heartStore, spawnManager, secret, logger = null, authzPolicy = null, daemonStartTime = null, daemonConfig = null }) {
+function createInternalApi({ heartStore, spawnManager, secret, logger = null, authzPolicy = null, daemonStartTime = null, daemonConfig = null, ptyHost = null }) {
   if (typeof secret !== 'string' || secret.length === 0) {
     throw new Error('createInternalApi requires a non-empty per-boot client secret');
   }
@@ -597,6 +639,187 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     };
   }
 
+  // ── The Batch-6 session surface (owner ruling D90; contract §1 extension rule) ──────
+  //
+  // Two intents that let a SEPARATE process drive a live headed session THROUGH the daemon,
+  // keeping the daemon the sole keystroke mediator and the single audit point. Task 6.3's
+  // attach client is the intended caller. Nothing here streams: the contract's §3 boundary
+  // prohibition forbids a pty handle, a stream, or an emitter crossing in EITHER direction,
+  // so keystroke bytes cross INBOUND as data and the screen crosses OUTBOUND as a detached
+  // value snapshot — the `inspect logs` precedent (a bounded chunk, never a stream handle).
+
+  // The pty host is threaded in by the composition root (index.js). Its absence is a WIRING
+  // fault, never a sender error — fail LOUD as a server-core fault rather than let the
+  // session surface look present-but-broken. (The internal-api probes construct the API
+  // without a pty host; they call neither intent, and this keeps that honest.)
+  function requirePtyHost(intentName) {
+    if (!ptyHost) {
+      throw new InternalApiError(
+        INTERNAL,
+        `${intentName} requires the pty host; the composition root did not thread it into createInternalApi`,
+        { check: 'pty-host-wired' },
+      );
+    }
+  }
+
+  // The COMPLETE session-target re-validation both intents run, server-side, on EVERY call,
+  // regardless of what the gateway already validated (DEC-3: gateway origin is not trust).
+  // Deterministic, no LLM. The single principal RESOLVER lives in authz.js and is reused, so
+  // this is one clause invoked in full by each intent — never a second authorization model.
+  function revalidateSessionTarget(payload, sender, intentName) {
+    // ⚑ THE ID FIELD IS `id` — the SAME wire field `inspect` already uses for an
+    // execution-scoped call, carrying the SAME integer jobs_log.exec_id (one execution = one
+    // session row, D16). D23: the surface already names this thing, so no synonym is minted.
+    // It is NOT `jobId` — that is remove-job's RATIFIED queue-row misnomer (D69), a different
+    // identity space (queue.job_id has no UNIQUE; one slug maps to many rows). It is NOT
+    // `sessionId` — jobs_log.session_id is a distinct TEXT column (schema.sql:62), the
+    // holder/session-id string, not this integer.
+    const id = payload.id;
+    if (!Number.isInteger(id)) {
+      throw new InternalApiError(VALIDATION_FAILED, `${intentName} requires an integer id`, { check: 'id-shape', field: 'id' });
+    }
+    const row = heartStore.getExecution(id);
+    if (!row) {
+      throw new InternalApiError(NOT_FOUND, `execution not found: ${id}`, { check: 'id-exists', id });
+    }
+
+    // Authorization BEFORE the mode/liveness checks — remove-job's own order (existence, then
+    // authorization). An unauthorized sender therefore learns only that the id exists, never
+    // whether the session is headed or live.
+    const decision = authz.canDriveSession({ sender, row });
+    if (!decision.allowed) {
+      throw new InternalApiError(UNAUTHORIZED_SENDER, decision.reason, { check: 'authorization', id });
+    }
+
+    // Headed-only: JOIN/TAKE-OVER exist only for a session that runs inside a server-owned pty
+    // (D7/D17). A headless session's id is refused by a CHECK, not by a fault.
+    if (row.session_mode !== 'headed') {
+      throw new InternalApiError(
+        VALIDATION_FAILED,
+        `session ${id} is session_mode:${row.session_mode} — the session surface is headed-only (D7/D17)`,
+        { check: 'session-mode', field: 'id', id, session_mode: row.session_mode },
+      );
+    }
+    return row;
+  }
+
+  // Write keystroke bytes into a live headed session's pty — the keystroke rung (CMP-9).
+  function handleSendToSession(payload, sender) {
+    for (const key of Object.keys(payload)) {
+      if (key !== 'id' && key !== 'data') {
+        throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });
+      }
+    }
+    requirePtyHost('send-to-session');
+
+    // The bytes cross as DATA (§3 prohibition: no pty handle, no stream, no emitter). `data`
+    // is the name pty-host.js's sendKeys already gives this argument — D23: use the existing
+    // term, never an alias.
+    const data = payload.data;
+    if (typeof data !== 'string') {
+      throw new InternalApiError(VALIDATION_FAILED, 'data must be a string of keystroke bytes', { check: 'data-shape', field: 'data' });
+    }
+    const bytes = Buffer.byteLength(data, 'utf8');
+    if (bytes === 0) {
+      throw new InternalApiError(VALIDATION_FAILED, 'data must be a non-empty keystroke payload', { check: 'data-bound', field: 'data', bytes });
+    }
+    if (bytes > MAX_KEYS_BYTES) {
+      throw new InternalApiError(
+        VALIDATION_FAILED,
+        `data is ${bytes} bytes; the server-enforced max keystroke payload is ${MAX_KEYS_BYTES}`,
+        { check: 'data-bound', field: 'data', bytes, max: MAX_KEYS_BYTES },
+      );
+    }
+
+    const row = revalidateSessionTarget(payload, sender, 'send-to-session');
+
+    // ⚑ A row carrying NO log_path NEVER REACHED SPAWN, so it cannot possibly have a live pty.
+    // That is the LIVENESS refusal — answer the SAME typed code the pty host would, never "the
+    // audit could not be written". Without this the audit below (which sits beside that very
+    // log) would fail first and mis-report a dead session as a server fault: found by the C3(b)
+    // check when the audit landed, and fixed here rather than by loosening the check.
+    //
+    // Deliberately NARROW — this is a structural fact about the row (no transcript log ⇒ never
+    // spawned), NOT a general liveness check. Real liveness stays the pty host's ONE authority:
+    // a row that DID spawn and has since died still flows to sendKeys below and gets its
+    // E_SESSION_NOT_LIVE through the STORE_TO_WIRE map. The wire shape is identical either way.
+    if (typeof row.log_path !== 'string' || row.log_path.length === 0) {
+      throw new InternalApiError(
+        VALIDATION_FAILED,
+        `no live headed pty for session ${row.exec_id} (the row never spawned: it carries no transcript log)`,
+        { check: 'E_SESSION_NOT_LIVE', execId: row.exec_id },
+      );
+    }
+
+    // ── THE KEYSTROKE AUDIT (owner rulings D92/D93) ──────────────────────────────
+    //
+    // ⚑ BEFORE the pty write, and FAIL-CLOSED. The daemon mediates keystrokes rather than
+    // handing out a pty precisely BECAUSE mediation preserves an audit point; delivering a
+    // keystroke this file did not record would void that justification.
+    //
+    // The ORDER is a security property, not a style choice. Auditing AFTER delivery would hand
+    // an attacker a real bypass: fill the disk -> the audit write fails -> but the keystrokes
+    // already landed -> un-audited injection. Written first, a failed audit means NOTHING was
+    // ever delivered.
+    //
+    // ⚑ WHAT AN ENTRY MEANS (D93 leaves this to the build; stated here): an entry records a
+    // burst the daemon ACCEPTED for delivery — D93's own word. A request refused by the strict
+    // schema, the byte bound, the re-validation clause, or authz is NEVER written, so the file
+    // is not a log of attempts. The one over-record this ordering admits: a burst accepted here
+    // and THEN refused by the liveness check below (E_SESSION_NOT_LIVE) leaves an entry for
+    // bytes no TUI received. That trade is deliberate — for an audit, UNDER-recording (a
+    // delivered keystroke with no record) is the fatal direction; an over-record is visible,
+    // harmless, and correlatable against the typed refusal the sender received.
+    let audited;
+    try {
+      audited = appendKeystrokeRecord({
+        logPath: row.log_path,
+        execId: row.exec_id,
+        sessionId: row.session_id,
+        sender,          // the ATTESTED sender — D93: a record without attribution answers nothing
+        data,
+      });
+    } catch (err) {
+      // Loud, and the keystrokes do NOT go through. An InternalApiError carries its own message
+      // to the wire (toWireError passes it verbatim), so the sender learns the daemon refused —
+      // never the opaque generic 'server-core fault' the unmapped path would give.
+      log('error', 'send-to-session REFUSED: the keystroke audit could not be written — no keys were delivered', {
+        execId: row.exec_id, senderId: sender.id, error: err.message,
+      });
+      throw new InternalApiError(
+        INTERNAL,
+        `send-to-session refused: the keystroke audit could not be written (${err.message}). No keystrokes were delivered — ` +
+        `the daemon does not deliver un-audited input (owner rulings D92/D93).`,
+        { check: 'keys-audit' },
+      );
+    }
+
+    // LIVE is the pty host's own check: with no attached/live bridge it raises the TYPED
+    // E_SESSION_NOT_LIVE — never a hang (Behavior #11) — and the STORE_TO_WIRE row above
+    // carries it to the wire AS ITSELF instead of degrading it to INTERNAL.
+    const res = ptyHost.sendKeys(row.exec_id, data);
+    log('info', 'keystrokes delivered to a headed session', { execId: row.exec_id, senderId: sender.id, bytes: res.wrote, audit: audited.auditPath });
+    return { id: row.exec_id, wrote: res.wrote };
+  }
+
+  // Return the session's current rendered screen from the server-side vt model.
+  function handleCaptureSessionScreen(payload, sender) {
+    for (const key of Object.keys(payload)) {
+      if (key !== 'id') {
+        throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });
+      }
+    }
+    requirePtyHost('capture-session-screen');
+    const row = revalidateSessionTarget(payload, sender, 'capture-session-screen');
+
+    const cap = ptyHost.captureScreen(row.exec_id);
+    // A DETACHED VALUE SNAPSHOT: the rendered screen as a plain string plus its dimensions.
+    // NEVER the vt model itself, the bridge, or a stream (§3). `screen` is already a rendered
+    // string — a copy, not a view into vt state — and the outbound round-trip in dispatch()
+    // re-asserts the whole thing is plain data before it crosses.
+    return { id: row.exec_id, rows: cap.rows, cols: cap.cols, screen: cap.screen };
+  }
+
   // ── The single entry point ─────────────────────────────────────────────────
 
   async function dispatch(requestEnvelope) {
@@ -643,6 +866,8 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         case 'inspect': result = await handleInspect(env.payload); break;
         case 'spawn-via-named-profile': result = await handleSpawnViaNamedProfile(env.payload); break;
         case 'snooze': result = handleSnooze(env.payload, env.sender); break;
+        case 'send-to-session': result = handleSendToSession(env.payload, env.sender); break;
+        case 'capture-session-screen': result = handleCaptureSessionScreen(env.payload, env.sender); break;
       }
 
       // Outbound round-trip: the snapshot the gateway receives is DETACHED, so

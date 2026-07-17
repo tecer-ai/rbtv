@@ -441,8 +441,11 @@ async function main() {
   // watch-tee), reusing the spawn manager's config + kill/status surface. Headless one-shot stays
   // the DEFAULT and rides the sole-spawn-path UNCHANGED — the decoration below routes ONLY
   // session_mode:headed to the pty host and delegates everything else to spawnManager.spawn.
-  // POST /keys/:id and screen capture are the INTERNAL server-core surface (ptyHost methods held
-  // here); their remote/gateway exposure is Batch-6 seam work (Amendment #2) — not added here.
+  // POST /keys/:id and screen capture are the server-core surface (ptyHost methods held here).
+  // ⚑ UPDATED at p6-3a: that Batch-6 seam work (Amendment #2) IS now wired — the pty host is
+  // threaded to the internal API below, where owner ruling D90's two additive intents
+  // (`send-to-session` / `capture-session-screen`) expose it to authenticated senders through
+  // the gateway. The daemon remains the SOLE keystroke mediator: no caller touches a pty.
   const ptyHost = createPtyHost({
     heartStore,
     spawnManager,
@@ -515,6 +518,12 @@ async function main() {
     logger: (m) => log(m.level || 'info', m.message, m),
     daemonStartTime,
     daemonConfig: tickerConfig,
+    // The pty host is threaded to the internal API so the Batch-6 session-surface intents
+    // (`send-to-session` / `capture-session-screen`, owner ruling D90) can reach the headed
+    // session they drive. ADDITIVE: the pty host is unchanged, every other intent is unchanged,
+    // and the DAEMON — not the caller — stays the sole keystroke mediator and audit point.
+    // Their authorization is the D89/D65(B) model, decided in authz.js like every other intent's.
+    ptyHost,
   });
 
   const gateway = createGateway({
