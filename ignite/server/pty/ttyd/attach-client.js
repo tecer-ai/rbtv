@@ -178,12 +178,36 @@ function attach(execId) {
       resolve(why);
     };
 
+    // ── SERIAL SEND QUEUE (FD-1) ──────────────────────────────────────────────────
+    // Keystroke ORDER must be preserved end-to-end. `send-to-session` is a separate HTTP request per
+    // burst and the internal-api contract §2 guarantees NO cross-request ordering — so firing the
+    // sends concurrently (the old `sendKeys(...).catch()` per stdin event) lets a browser PASTE or
+    // fast typing arrive transposed on the pty (proven: `echo` -> `ehco`). Fix: enqueue every chunk
+    // and drain it with ONE worker that AWAITS each send before the next, so bursts land in order.
+    // `onKeys` stays non-blocking (it never awaits — stdin is never back-pressured); the drainer owns
+    // the ordering. sendKeys keeps its own UTF-8-boundary chunking UNCHANGED — serialization wraps it.
+    const sendQueue = [];
+    let draining = false;
+    const drain = async () => {
+      if (draining) return;
+      draining = true;
+      try {
+        while (sendQueue.length > 0) {
+          const next = sendQueue.shift();
+          await sendKeys(execId, next); // completes fully (incl. its multi-chunk loop) before the next
+        }
+      } catch (err) {
+        if (/session ended/.test(err.message)) { fail('session ended.'); finish('ended'); }
+      } finally {
+        draining = false;
+      }
+    };
+
     const onKeys = (chunk) => {
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       if (buf.includes(DETACH_BYTE)) { finish('detach'); return; }
-      sendKeys(execId, buf).catch((err) => {
-        if (/session ended/.test(err.message)) { fail('session ended.'); finish('ended'); }
-      });
+      sendQueue.push(buf); // FIFO — preserves order across stdin data events
+      drain();             // fire the drainer (non-blocking); re-entrant calls are no-ops while draining
     };
     stdin.on('data', onKeys);
 
