@@ -27,7 +27,7 @@ const {
   INTERNAL,
 } = require('./errors');
 const { createAuthzPolicy } = require('./authz');
-const { appendKeystrokeRecord } = require('./keys-audit');
+const { appendKeystrokeRecord, appendScreenReadRecord } = require('./keys-audit');
 
 const ENVELOPE_VERSION = 1;
 
@@ -812,12 +812,77 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     requirePtyHost('capture-session-screen');
     const row = revalidateSessionTarget(payload, sender, 'capture-session-screen');
 
+    // ⚑ SAME NARROW STRUCTURAL GUARD send-to-session carries, for the SAME reason (the C3(b)
+    // finding): a row with NO log_path never reached spawn, so it has no pty AND no place to put
+    // an audit record. Without this, the audit below would fail FIRST and mis-report a never-
+    // spawned session as an audit fault instead of the liveness refusal it is. Deliberately NARROW
+    // — real liveness stays the pty host's ONE authority (see D96 below).
+    if (typeof row.log_path !== 'string' || row.log_path.length === 0) {
+      throw new InternalApiError(
+        VALIDATION_FAILED,
+        `no live headed pty for session ${row.exec_id} (the row never spawned: it carries no transcript log)`,
+        { check: 'E_SESSION_NOT_LIVE', execId: row.exec_id },
+      );
+    }
+
+    // ── THE SCREEN-READ AUDIT (owner ruling D94) ─────────────────────────────────
+    //
+    // ⚑ BEFORE the capture, and FAIL-CLOSED — the SAME posture as the keystroke path, but this is
+    // NOT reasoned from symmetry with it. It is reasoned from the BYPASS D94 exists to close:
+    //
+    //   D94 exists because a rendered screen can expose the SAME typed secret the keystroke audit
+    //   attributes, so the cheap way to steal a credential is to READ it, not type it. If the
+    //   audit were written AFTER the capture (or best-effort), an attacker fills the disk -> the
+    //   audit write fails -> the screen is served anyway -> a secret leaves the daemon with NO
+    //   record of who took it. That is precisely, and exactly, the hole D94 was ruled to close —
+    //   re-opened by the ordering. Written first, a failed audit means NO screen was ever served.
+    //
+    // THE TRADE, STATED (it is real, not hypothetical): a full disk — or a loosened audit mode —
+    // now disables READS too, not just writes. The attach client (task 6.3) goes blind rather than
+    // reading un-recorded. That is the correct direction for an ATTRIBUTION record: an audit an
+    // attacker can defeat by filling a disk is not an audit, and availability of a screen-read
+    // surface is worth less than the attributability of every secret that leaves through it.
+    // ⚑ But see the volume note on the audit's growth (D95 leaves it UNBOUNDED and 6.3 will POLL
+    // this intent): fail-closed + unbounded means the audit's OWN growth can eventually disable
+    // the surface. That interaction is SURFACED for tasks 6.3 and 7.5; it is not resolved here,
+    // and it does NOT justify a fail-open read (which would reopen the bypass).
+    //
+    // The over-record this ordering admits: a read audited here and THEN refused by the liveness
+    // check below leaves an entry for a screen no sender received. Deliberate, and the same trade
+    // the keystroke path takes — for an audit, UNDER-recording is the fatal direction; an
+    // over-record is visible, harmless, and correlatable against the typed refusal.
+    try {
+      appendScreenReadRecord({
+        logPath: row.log_path,
+        execId: row.exec_id,
+        sessionId: row.session_id,
+        sender,          // the ATTESTED sender — D93/D94: a record without attribution answers nothing
+      });
+    } catch (err) {
+      log('error', 'capture-session-screen REFUSED: the screen-read audit could not be written — no screen was served', {
+        execId: row.exec_id, senderId: sender.id, error: err.message,
+      });
+      throw new InternalApiError(
+        INTERNAL,
+        `capture-session-screen refused: the screen-read audit could not be written (${err.message}). No screen was served — ` +
+        `the daemon does not serve un-audited screen reads (owner ruling D94).`,
+        { check: 'screen-read-audit' },
+      );
+    }
+
     const cap = ptyHost.captureScreen(row.exec_id);
     // A DETACHED VALUE SNAPSHOT: the rendered screen as a plain string plus its dimensions.
     // NEVER the vt model itself, the bridge, or a stream (§3). `screen` is already a rendered
     // string — a copy, not a view into vt state — and the outbound round-trip in dispatch()
     // re-asserts the whole thing is plain data before it crosses.
-    return { id: row.exec_id, rows: cap.rows, cols: cap.cols, screen: cap.screen };
+    //
+    // `repainting` (D96): true means the vt model has not yet received a byte — the session was
+    // just re-attached and dtach's `-r winch` repaint is still in flight, so `screen` is blank or
+    // partial. It exists because session-surface-spec.md Behavior #7 permits a first capture that
+    // is "momentarily stale" but forbids one that is SILENTLY blank: a lazily re-attached session
+    // would otherwise return an empty screen indistinguishable from a genuinely empty one. A
+    // polling client simply reads again.
+    return { id: row.exec_id, rows: cap.rows, cols: cap.cols, screen: cap.screen, repainting: Boolean(cap.repainting) };
   }
 
   // ── The single entry point ─────────────────────────────────────────────────

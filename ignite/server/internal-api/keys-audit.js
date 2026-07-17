@@ -1,6 +1,7 @@
 'use strict';
 
-// The keystroke audit (owner rulings D92/D93) — the record `send-to-session` MUST write.
+// The session-surface audit (owner rulings D92/D93, EXTENDED to screen reads by D94) — the record
+// `send-to-session` and `capture-session-screen` MUST write.
 //
 // WHY THIS EXISTS: the daemon mediates keystrokes instead of handing a caller a direct pty
 // because mediation preserves an AUDIT POINT. Until p6-3a that justification was unbacked —
@@ -25,6 +26,28 @@
 // hand an attacker a real bypass: fill the disk -> the audit write fails -> but the keystrokes
 // already landed -> un-audited keystroke injection. Ordered this way, a failed audit means no
 // keystrokes were ever delivered.
+//
+// ── D94: SCREEN READS ARE AUDITED TOO ────────────────────────────────────────────────────────
+//
+// WHY: until D94 only the WRITE path wrote a record, so the cheapest way to obtain a typed secret
+// was to READ IT OFF THE SCREEN rather than type it — `capture-session-screen` returned the same
+// rendered password/API key/recovery phrase the keystroke audit exists to attribute, and left NO
+// trace of who took it. An audit that records only half the ways to reach the secret is not an
+// audit; D94 closes that bypass by extending WHICH intents write here. The SHAPE is D93's,
+// UNCHANGED (same file, same 0600 + fail-closed re-stat, same sender attribution).
+//
+// ⚑ A READ RECORD CARRIES NO SCREEN CONTENTS, DELIBERATELY. Logging the captured screen would
+// write the very secret this exists to protect into the audit ON EVERY POLL — converting an
+// ATTRIBUTION record into a BULK SECRET ARCHIVE, and a far better target than the session itself
+// (one file, every screen, forever — D95 rules the audit unbounded for v1). The record answers
+// WHO read WHICH session WHEN. It never answers WHAT they saw: the transcript tee
+// (`<session-id>.log`) already holds the bytes, under the same 0700 `logs/` dir.
+//
+// ⚑ THE `event` FIELD IS THE READ/WRITE DISCRIMINATOR (D94: "reads MUST be distinguishable from
+// writes"). It is the vocabulary D93's record already carries — EXTENDED, not paralleled:
+//   • `keys-accepted`  — a keystroke burst the daemon accepted for delivery (carries `data`).
+//   • `screen-read`    — a rendered screen the daemon served to a sender (carries NO `data`).
+// A reader holding ONLY this file can tell the two apart from that one field.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -121,4 +144,73 @@ function appendKeystrokeRecord({ logPath, execId, sessionId, sender, data }) {
   return { auditPath, bytes: record.bytes };
 }
 
-module.exports = { appendKeystrokeRecord, auditPathFor, KeysAuditError, AUDIT_SUFFIX, AUDIT_MODE };
+// Append ONE screen-read record (D94). Throws KeysAuditError on any failure — the caller MUST
+// treat a throw as "refuse the read", never as "log and continue" (the fail-closed posture is the
+// caller's, reasoned at dispatch.js's handleCaptureSessionScreen).
+//
+// ⚑ THE GUARD SEQUENCE BELOW IS DUPLICATED FROM appendKeystrokeRecord ON PURPOSE, NOT BY
+// OVERSIGHT. That function is CERTIFIED code under an explicit extend-don't-disturb order, and its
+// 0600 create + fail-closed re-stat are named byte-intact: factoring them into a helper BOTH
+// functions call — the change this file would otherwise want — would rewrite the certified bytes.
+// The conservative reading wins here; the extraction is proposed as a follow-up for the owner to
+// grant, and until then ANY fix to one guard MUST be applied to the other.
+function appendScreenReadRecord({ logPath, execId, sessionId, sender }) {
+  if (typeof logPath !== 'string' || logPath.length === 0) {
+    throw new KeysAuditError('the session row carries no log_path, so the audit file cannot be placed beside its output log', { execId });
+  }
+  if (!sender || typeof sender.id !== 'string' || sender.id.length === 0) {
+    // D93: an unattributable record answers none of the questions this exists to answer. For a
+    // READ that is the whole point — an un-attributed read IS the bypass D94 closes.
+    throw new KeysAuditError('no authenticated sender to attribute the screen read to', { execId });
+  }
+
+  const auditPath = auditPathFor(logPath);
+
+  try {
+    fs.appendFileSync(auditPath, '', { mode: AUDIT_MODE });
+  } catch (err) {
+    throw new KeysAuditError(`cannot open the session audit at ${auditPath}: ${err.message}`, { execId, auditPath });
+  }
+
+  // Re-verify the mode fail-closed, exactly as the keystroke path does. A read record carries no
+  // secret itself, but it is appended to the SAME file the keystroke records live in — appending
+  // to a file that has been loosened to group/world would keep extending a readable archive of
+  // verbatim keystrokes. Refuse instead.
+  let mode;
+  try {
+    mode = fs.statSync(auditPath).mode & 0o777;
+  } catch (err) {
+    throw new KeysAuditError(`cannot stat the session audit at ${auditPath}: ${err.message}`, { execId, auditPath });
+  }
+  if (mode & 0o077) {
+    throw new KeysAuditError(
+      `REFUSING TO AUDIT: the session audit at ${auditPath} is group/world-accessible (mode ${mode.toString(8)}); ` +
+      `it carries verbatim keystrokes and MUST NOT be appended to while readable. Fix with: chmod 600 ${auditPath}`,
+      { execId, auditPath, mode: mode.toString(8) },
+    );
+  }
+
+  // ⚑ NO `data`, NO `screen`, NO `bytes`. Recording that a read HAPPENED, by whom, when — never
+  // what was on the screen. `rows`/`cols` are absent too: this record is written BEFORE the
+  // capture (fail-closed ordering), so the dimensions are not yet known, and they describe the
+  // exposure's size rather than its attribution.
+  const record = {
+    ts: new Date().toISOString(),
+    event: 'screen-read',
+    id: execId,
+    session_id: sessionId ?? null,
+    sender_id: sender.id,
+    sender_kind: sender.kind ?? null,
+    via: sender.via ?? null,
+  };
+
+  try {
+    fs.appendFileSync(auditPath, JSON.stringify(record) + '\n', { mode: AUDIT_MODE });
+  } catch (err) {
+    throw new KeysAuditError(`cannot append to the session audit at ${auditPath}: ${err.message}`, { execId, auditPath });
+  }
+
+  return { auditPath };
+}
+
+module.exports = { appendKeystrokeRecord, appendScreenReadRecord, auditPathFor, KeysAuditError, AUDIT_SUFFIX, AUDIT_MODE };

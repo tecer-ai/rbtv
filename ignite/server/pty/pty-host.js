@@ -152,6 +152,10 @@ function createPtyHost({ heartStore, spawnManager, dataRoot, userManager = true,
     entry.bridge = proc;
     entry.bridgeAlive = true;
     proc.stdout.on('data', (buf) => {
+      // D96: the vt has now taken at least one byte, so a render is a real screen rather than the
+      // blank of a not-yet-repainted re-attach. Set BEFORE the vt write so a throwing vt cannot
+      // leave a painted screen reported as `repainting`.
+      entry.painted = true;
       try { entry.vt.write(buf); } catch (e) { log('warn', 'vt write failed', { error: e.message }); }
       try { if (entry.logStream) entry.logStream.write(buf); } catch { /* tee best-effort */ }
     });
@@ -297,6 +301,7 @@ function createPtyHost({ heartStore, spawnManager, dataRoot, userManager = true,
       vt: new VtModel({ rows: DEFAULT_ROWS, cols: DEFAULT_COLS }),
       logStream: fs.createWriteStream(transcriptLog, { flags: 'a', mode: 0o600 }),
       bridge: null, bridgeAlive: false,
+      painted: false,   // D96: no byte has reached the vt yet — a render now is blank, not stale.
     };
     sessions.set(execId, entry);
     if (socketReady) {
@@ -328,11 +333,63 @@ function createPtyHost({ heartStore, spawnManager, dataRoot, userManager = true,
     });
   }
 
+  // ── D96: ATTACHMENT IS NOT LIVENESS ────────────────────────────────────────────────────────
+  //
+  // THE BUG THIS CLOSES: `sessions` is an in-daemon ATTACHMENT map — it is populated at exactly
+  // two sites (spawnHeaded, reconnect) and `shutdown()` clears it while deliberately leaving every
+  // holder RUNNING. So a daemon restart empties this map WHILE THE SESSIONS KEEP RUNNING, and both
+  // rungs below used absence-from-the-map as their liveness test. The result: a session that is
+  // genuinely ALIVE in its unit was reported `E_SESSION_NOT_LIVE` — "dead". The old message even
+  // said all three things at once ("dead, unknown, or not attached in this daemon"); the CODE
+  // could not tell them apart, so the caller could not either.
+  //
+  // ⚑ WHY THIS IS WORTH REOPENING CERTIFIED CODE: the restart window is EXACTLY the window D83's
+  // in-unit holder was ruled to make survivable. The daemon was reporting "not live" about
+  // precisely the sessions that ruling exists to preserve — the holder kept its promise and the
+  // liveness check broke it.
+  //
+  // THE DISTINCTION: liveness is a property of the UNIT (the D83 holder + its socket), never of a
+  // daemon-local map. So absence from `sessions` asks a question rather than answering one, and
+  // `reconnect()` is the thing that ALREADY consults the real oracle: it reads the row, checks
+  // `systemctl is-active` on the unit, and checks the holder socket — throwing E_SESSION_NOT_LIVE
+  // ONLY when the session is genuinely dead or unknown. Routing the unattached case through it
+  // therefore needs NO NEW TYPED CODE (a term mint is owner-gated): the dead case keeps the
+  // existing code, and the ALIVE case stops being an error at all.
+  //
+  // ⚑ RE-ATTACHING RATHER THAN RE-LABELLING IS DELIBERATE. Reporting the live-but-unattached case
+  // under some new code would still refuse the caller, leaving D83's surviving session undrivable
+  // and the holder's value unrealized. Re-attaching is the RATIFIED behavior — Behavior #7: "the
+  // daemon reconnects to the holder's pty socket; the session survives" — applied at the point the
+  // code decides instead of only at boot. index.js already runs that pass at boot; this makes a
+  // session the boot pass MISSED self-heal on first use (see the surfaced index.js gaps).
+  function attachedAndHealthy(entry) {
+    return Boolean(entry && entry.bridge && entry.bridgeAlive && entry.bridge.stdin.writable);
+  }
+
+  // Resolve the ATTACHED entry for a session, re-attaching if the session is alive but unattached.
+  // Throws the typed E_SESSION_NOT_LIVE (via reconnect) only when the UNIT says genuinely dead.
+  function ensureAttached(execId) {
+    const existing = sessions.get(execId);
+    if (existing) return existing;
+    // NOT ATTACHED — which is NOT dead. Ask the unit, not the map. reconnect() throws the typed
+    // E_SESSION_NOT_LIVE if the row/unit/socket say the session is genuinely gone: never a hang
+    // (Behavior #11), and never a lie about a live one.
+    reconnect(execId);
+    const entry = sessions.get(execId);
+    if (!entry) {
+      // reconnect() resolved without registering an entry — a wiring fault, not a sender error.
+      throw new SpawnError(E_PTY_BRIDGE, `re-attached session ${execId} but no bridge entry was registered`, { execId });
+    }
+    return entry;
+  }
+
   // POST /keys/:id — write keystroke bytes into the live session's pty (the keystroke rung, CMP-9).
   // A dead/nonexistent session yields a TYPED error, never a hang (Behavior #11).
   function sendKeys(execId, data) {
-    const entry = sessions.get(execId);
-    if (!entry || !entry.bridge || !entry.bridgeAlive || !entry.bridge.stdin.writable) {
+    // D96: absence from the map means UNATTACHED, so ask the unit before calling anything dead.
+    // A session alive in its holder is re-attached here and the keystrokes land.
+    const entry = sessions.get(execId) || ensureAttached(execId);
+    if (!attachedAndHealthy(entry)) {
       throw new SpawnError(E_SESSION_NOT_LIVE, `no live headed pty for session ${execId} (dead, unknown, or not attached in this daemon)`, { execId });
     }
     entry.bridge.stdin.write(Buffer.isBuffer(data) ? data : Buffer.from(String(data), 'utf8'));
@@ -341,9 +398,15 @@ function createPtyHost({ heartStore, spawnManager, dataRoot, userManager = true,
 
   // Screen capture — the current rendered screen from the server-side vt model (Behavior #3).
   function captureScreen(execId) {
-    const entry = sessions.get(execId);
-    if (!entry) throw new SpawnError(E_SESSION_NOT_LIVE, `no attached headed pty for session ${execId}`, { execId });
-    return { execId, sessionId: entry.sessionId, rows: entry.vt.rows, cols: entry.vt.cols, screen: entry.vt.render() };
+    // D96: same distinction. `repainting` reports that this vt has not yet taken a byte — after a
+    // lazy re-attach the `-r winch` repaint is still in flight, so the render is blank/partial.
+    // Behavior #7 allows a momentarily stale first capture but forbids a SILENTLY blank one, so
+    // the state is reported rather than passed off as an empty screen.
+    const entry = sessions.get(execId) || ensureAttached(execId);
+    return {
+      execId, sessionId: entry.sessionId, rows: entry.vt.rows, cols: entry.vt.cols,
+      screen: entry.vt.render(), repainting: !entry.painted,
+    };
   }
 
   // Reconnect to a session that survived a daemon restart (Behavior #7): the holder + pty live in
@@ -368,6 +431,7 @@ function createPtyHost({ heartStore, spawnManager, dataRoot, userManager = true,
       vt: new VtModel({ rows, cols }),
       logStream: fs.createWriteStream(transcriptLog, { flags: 'a', mode: 0o600 }),
       bridge: null, bridgeAlive: false,
+      painted: false,   // D96: a fresh vt on re-attach — blank until dtach's `-r winch` repaint lands.
     };
     sessions.set(execId, entry);
     attachBridge(entry, { rows, cols });
