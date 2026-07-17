@@ -2,7 +2,9 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const net = require('node:net');
 const crypto = require('node:crypto');
+const { execFileSync } = require('node:child_process');
 const yaml = require('js-yaml');
 const { openHeartStore, closeHeartStore, isHeartStoreOpen } = require('./heart/heart-store');
 const { createSpawnManager } = require('./spawn/spawn');
@@ -30,7 +32,22 @@ const WORKDIR_ROOT_PLACEHOLDER = '/path/set-at-setup';
 // daemon (ticker tunables) and the heart store (tools/workflows catalogues), so spawn must
 // never be handed them — otherwise the first operator to configure a ticker cadence, a
 // tool, or a workflow kills the daemon at boot with a spawn config error.
-const DAEMON_ONLY_ROOT_KEYS = ['ticker', 'tools', 'workflows'];
+const DAEMON_ONLY_ROOT_KEYS = ['ticker', 'tools', 'workflows', 'network'];
+
+// ── p5-2 network posture (network-posture-spec.md) ──────────────────────────
+//
+// The fail-closed bind guard's typed error. OWNER-APPROVED name (D77(C), D23 mint,
+// D66(B) `E_QUEUE_ROW_NOT_FOUND` precedent) — use exactly this string.
+const E_BIND_FORBIDDEN = 'E_BIND_FORBIDDEN';
+
+// The standing-warning kind raised when the tailnet bind cannot be established within
+// the retry budget (Design 2, rule 3). ⚑ NEW term, NOT yet registered in the canonical
+// kind registry (server/heart/warnings.js WARNING_KINDS) — that file is OUTSIDE 5.2's
+// allowlist. Surfaced correctly by `ignite status` regardless (inspect daemon lists ALL
+// standing warnings by kind). See the dispatch return's concerns: term ratification +
+// registry registration are a task-7.5 follow-up, the E_BIND_FORBIDDEN-class pattern.
+const TAILNET_BIND_DEGRADED = 'tailnet-bind-degraded';
+const TAILNET_WARNING_SUBJECT = 'gateway-tailnet-bind';
 
 function isoNow() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -214,6 +231,123 @@ function cleanupTempConfig(tempConfigDir) {
   }
 }
 
+// Classify a bind host by ADDRESS CLASS, never by port (peerapi ports are ephemeral and
+// MOVE across restarts — network-posture-spec.md Edge Cases). Only literal IP addresses
+// are classifiable: a hostname (`localhost`, a MagicDNS name) is refused, because the
+// guard cannot prove where a name resolves and fail-closed forbids a public bind.
+function isLoopbackAddress(host) {
+  const kind = net.isIP(host);
+  if (kind === 4) return host.startsWith('127.');
+  if (kind === 6) return host === '::1' || host === '0:0:0:0:0:0:0:1';
+  return false;
+}
+
+// Is this IP within Tailscale's OWN address space? IPv4 CGNAT 100.64.0.0/10 (Tailscale's
+// pool) or the tailnet ULA prefix fd7a:115c:a1e0::/48. This is the intrinsic ADDRESS-CLASS
+// test the guard needs: `tailnetAddrs` is populated partly from RBTV_IGNITE_TAILNET_ADDR,
+// an env var any operator/unit file can set — so membership in that list is NOT by itself
+// proof of a tailnet address (an override of `0.0.0.0` or a public IP would otherwise
+// classify as `tailnet` and defeat the guard). Fail-closed: anything not provably in-range
+// is not tailnet.
+function isTailscaleAddress(host) {
+  const kind = net.isIP(host);
+  if (kind === 4) {
+    const o = host.split('.').map((n) => Number(n));
+    // 100.64.0.0/10 → first octet 100, second octet 64–127.
+    return o[0] === 100 && o[1] >= 64 && o[1] <= 127;
+  }
+  if (kind === 6) {
+    // Tailscale ULA fd7a:115c:a1e0::/48 — the first three hextets are fixed. Tailscale
+    // always spells the /48 prefix out, so a group-wise prefix match is exact.
+    const groups = host.toLowerCase().split(':');
+    return groups[0] === 'fd7a' && groups[1] === '115c' && groups[2] === 'a1e0';
+  }
+  return false;
+}
+
+function classifyBindHost(host, tailnetAddrs) {
+  if (isLoopbackAddress(host)) return 'loopback';
+  // BOTH conditions: the address must be one this node actually resolved AND fall within
+  // Tailscale's address space. The range test is what makes the guard's notion of "tailnet"
+  // independent of the env-supplied list — an out-of-range override never passes.
+  if (tailnetAddrs.includes(host) && isTailscaleAddress(host)) return 'tailnet';
+  return 'public';
+}
+
+// THE bind guard (Design 2, fail-closed). Permits a host ONLY if it is a loopback address
+// OR one of this node's LIVE tailnet addresses. Anything else — `0.0.0.0`, `::`, a public
+// interface, a bare hostname — throws E_BIND_FORBIDDEN and the daemon refuses to start.
+// No override flag, no env escape, no "warn and continue". Runs BEFORE any socket opens.
+function assertBindPermitted(host, tailnetAddrs) {
+  const cls = classifyBindHost(host, tailnetAddrs);
+  if (cls === 'public') {
+    const err = new Error(
+      `E_BIND_FORBIDDEN: refusing to bind ${host} — not a loopback address and not one of ` +
+      `this node's live tailnet addresses [${tailnetAddrs.join(', ') || 'none resolved'}]. ` +
+      `The daemon exposes NO public listener (DEC-3; network-posture-spec.md Design 2). ` +
+      `There is no override.`
+    );
+    err.code = E_BIND_FORBIDDEN;
+    throw err;
+  }
+  return cls;
+}
+
+// Resolve this node's tailnet addresses at RUNTIME (Design 1, rule 3 — never hardcoded in
+// repo config; machine-agnostic per D9/D26(3)). Sources, in order:
+//   RBTV_IGNITE_TAILNET_ADDR set to `none`  → [] (probe knob: force the unresolvable path,
+//                                                 spec criterion 9)
+//   RBTV_IGNITE_TAILNET_ADDR set to an IP   → [that IP] (explicit runtime override)
+//   unset                                    → tailscaled's own report (`tailscale status
+//                                                 --json` → Self.TailscaleIPs)
+function resolveTailnetAddresses() {
+  const override = process.env.RBTV_IGNITE_TAILNET_ADDR;
+  if (override !== undefined && override !== '') {
+    return override === 'none' ? [] : [override];
+  }
+  try {
+    const out = execFileSync('tailscale', ['status', '--json'], { encoding: 'utf8', timeout: 5000 });
+    const data = JSON.parse(out);
+    const ips = (data && data.Self && data.Self.TailscaleIPs) || [];
+    return Array.isArray(ips) ? ips.filter((ip) => net.isIP(ip)) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Best-effort MagicDNS name for the endpoint record — resolved from tailscaled independently
+// of the address source, so an explicit address override (Design 1, rule 3) still yields a
+// complete record when tailscaled is up. Returns null (never throws) when unavailable.
+function resolveTailnetHostname() {
+  try {
+    const out = execFileSync('tailscale', ['status', '--json'], { encoding: 'utf8', timeout: 5000 });
+    const data = JSON.parse(out);
+    const dns = data && data.Self && data.Self.DNSName;
+    return typeof dns === 'string' && dns.length ? dns.replace(/\.$/, '') : null;
+  } catch {
+    return null;
+  }
+}
+
+// Materialize the D27 endpoint record's RUNTIME-resolvable fields into server.json,
+// MERGING — owner-config fields (name, ssh_*) are never clobbered. server.json is the
+// COMMITTED endpoint record (module CLAUDE.md § Installation model): it is meant to carry
+// the tailnet host/IP + gateway port so a `git pull` on another machine finds this server.
+function updateEndpointRecord(serverPath, { tailnetHost, tailnetIp, gatewayPort }) {
+  let record;
+  try {
+    record = JSON.parse(fs.readFileSync(serverPath, 'utf8'));
+  } catch {
+    record = {};
+  }
+  const next = { ...record };
+  if (tailnetHost) next.tailnet_host = tailnetHost;
+  if (tailnetIp) next.tailnet_ip = tailnetIp;
+  if (Number.isInteger(gatewayPort)) next.gateway_port = gatewayPort;
+  fs.writeFileSync(serverPath, JSON.stringify(next, null, 2));
+  return next;
+}
+
 async function main() {
   const igniteSrc = resolveIgniteSrc();
   const workspaceRoot = resolveWorkspaceRoot(igniteSrc);
@@ -345,19 +479,99 @@ async function main() {
     logger: (m) => log(m.level || 'info', m.message, m),
   });
 
-  // Loopback through Batch 4 (spawn-profiles-spec.md Design 4: "the gateway listens
-  // on loopback (127.0.0.1) through Batches 2-4"); p5-2 wires the tailnet bind under
-  // the network-posture spec. Binding 0.0.0.0 or any public interface is a build
-  // defect that spec hard-gates.
-  // Env overrides join the existing RBTV_IGNITE_* family (data_root, carrier,
-  // workdir_root). They exist so a probe can bring the ingress up WITHOUT colliding
-  // with the live daemon's bind — never to widen exposure: the network-posture spec
-  // hard-gates a non-loopback bind, and p5-2 owns the tailnet rewiring.
+  // ── The bind: loopback AND tailnet, never public (network-posture-spec.md) ──
+  //
+  // Design 1: the daemon binds `127.0.0.1` (always, first, unconditionally) AND this
+  // node's tailnet address (when available), and NOTHING else. Loopback stays bound so
+  // the SSH-tunnel fallback (`ssh -L <port>:127.0.0.1:<port>`) survives a tailnet outage
+  // — the fallback must work exactly when the tailnet does not (Design 1, "Why loopback
+  // MUST stay bound"). The env overrides join the RBTV_IGNITE_* family; they let a PROBE
+  // bring an ingress up without colliding with the live daemon — never to widen exposure:
+  // the guard below binds them too. `bindHost` MUST stay a loopback address (default
+  // 127.0.0.1); it is the unconditional loopback listener, not a place to inject a public
+  // interface — criterion 8 sets it to 0.0.0.0 to prove the guard refuses.
   const bindHost = process.env.RBTV_IGNITE_BIND_HOST || mergedConfig.bind?.host || '127.0.0.1';
   const bindPort = Number(process.env.RBTV_IGNITE_BIND_PORT || mergedConfig.bind?.port) || 7431;
-  await gateway.listen({ host: bindHost, port: bindPort });
 
-  log('info', 'daemon composed', { heartStoreOpen: isHeartStoreOpen(), gatewayBind: `${bindHost}:${bindPort}` });
+  const netCfg = mergedConfig.network || {};
+  const tailnetRetries = Number(process.env.RBTV_IGNITE_TAILNET_RETRIES ?? netCfg.tailnet_bind_retries ?? 3);
+  const tailnetRetryMs = Number(process.env.RBTV_IGNITE_TAILNET_RETRY_MS ?? netCfg.tailnet_bind_retry_ms ?? 1000);
+
+  // GUARD FIRST, bind second. The primary (loopback) host is classified BEFORE any socket
+  // opens, so a configured public bind (`0.0.0.0`) makes the daemon refuse to start with
+  // NOTHING bound — the fail-closed contract (Design 2; criterion 8).
+  const initialTailnet = resolveTailnetAddresses();
+  assertBindPermitted(bindHost, initialTailnet);
+  await gateway.listen({ hosts: [bindHost], port: bindPort });
+  log('info', 'gateway bound loopback', { host: bindHost, port: bindPort });
+
+  // The tailnet bind is ADDITIONAL, attempted with a bounded, config-knobbed retry — each
+  // attempt RE-RESOLVES the address, because tailscaled may not have assigned it yet
+  // (Design 2, rule 2). On exhaustion the daemon KEEPS RUNNING loopback-only and raises a
+  // standing warning; it NEVER exits and NEVER widens to 0.0.0.0 (rule 3).
+  const lastTick = heartStore.getLastTick();
+  const warnTick = lastTick ? lastTick.tick : 0;
+  let tailnetBound = null;
+  for (let attempt = 1; attempt <= Math.max(1, tailnetRetries); attempt += 1) {
+    const addrs = resolveTailnetAddresses();
+    const primary = addrs.find((a) => net.isIP(a) === 4) || addrs[0] || null;
+    if (primary && primary === bindHost) {
+      // The loopback bind above already opened this exact address (operator pointed the
+      // primary bind at the tailnet address). It is bound; do not double-bind it.
+      tailnetBound = primary;
+      break;
+    }
+    if (primary) {
+      assertBindPermitted(primary, addrs); // classifies as tailnet; a rogue value fails closed
+      await gateway.listen({ hosts: [primary], port: bindPort });
+      log('info', 'gateway bound tailnet', { host: primary, port: bindPort, attempt });
+      tailnetBound = primary;
+      break;
+    }
+    if (attempt < Math.max(1, tailnetRetries)) {
+      log('warn', 'tailnet address not yet resolvable, retrying', { attempt, retries: tailnetRetries, retryMs: tailnetRetryMs });
+      await new Promise((r) => setTimeout(r, tailnetRetryMs));
+    }
+  }
+
+  if (tailnetBound) {
+    // Self-heal: a prior degraded boot may have left a standing warning; clear it now that
+    // the tailnet bind succeeded (uses the existing store API — no warnings.js edit).
+    const stale = heartStore.getStandingWarning({ kind: TAILNET_BIND_DEGRADED, subject: TAILNET_WARNING_SUBJECT });
+    if (stale) heartStore.clearWarning({ warningId: stale.warning_id, tick: warnTick });
+    // D27 endpoint record: materialize the runtime-resolved fields (merge, never clobber).
+    const rec = updateEndpointRecord(installState.serverPath, {
+      tailnetHost: resolveTailnetHostname(),
+      tailnetIp: tailnetBound,
+      gatewayPort: bindPort,
+    });
+    log('info', 'endpoint record updated', { serverPath: installState.serverPath, tailnet_host: rec.tailnet_host, tailnet_ip: rec.tailnet_ip });
+  } else {
+    // Runs loopback-only. The standing warning is surfaced by `ignite status` (Design 2,
+    // rule 3). Runtime re-check is DEFERRED (rule 4 permits deferral) — the warning states
+    // that an operator restart is the remedy, loudly, never implied.
+    heartStore.raiseWarning({ kind: TAILNET_BIND_DEGRADED, subject: TAILNET_WARNING_SUBJECT, raisedAtTick: warnTick });
+    heartStore.recordMessage({
+      type: 'note',
+      sender: 'daemon',
+      thread: 'owner-feed',
+      corpus: `warning: gateway is running LOOPBACK-ONLY — this node's tailnet address did not ` +
+              `resolve within the bind-retry budget (${tailnetRetries} attempts). The daemon is ` +
+              `alive and the SSH-tunnel fallback works; the tailnet path is unavailable until the ` +
+              `daemon is restarted with tailscaled up. No public port was opened.`,
+      createdAt: isoNow(),
+    });
+    log('warn', 'tailnet bind unavailable after retries; running loopback-only with a standing warning', {
+      retries: tailnetRetries,
+      warningKind: TAILNET_BIND_DEGRADED,
+      subject: TAILNET_WARNING_SUBJECT,
+    });
+  }
+
+  log('info', 'daemon composed', {
+    heartStoreOpen: isHeartStoreOpen(),
+    gatewayBind: tailnetBound ? `${bindHost}:${bindPort} + ${tailnetBound}:${bindPort}` : `${bindHost}:${bindPort} (loopback-only)`,
+  });
 
   const tickResult = await ticker.tick();
   log('info', 'initial tick complete', { tick: tickResult.tick, actionCount: tickResult.actions.length });

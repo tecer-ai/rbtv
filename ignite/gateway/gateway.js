@@ -13,8 +13,9 @@
 // probe-gateway-boundary fails on it (gateway-cli-spec.md test 4 / internal-api test 3).
 //
 // Request path, in order (gateway-cli-spec.md § Gateway Pipeline):
-//   1. Accept on the configured bind (loopback through Batch 4; the tailnet bind is
-//      wired at p5-2 — nothing else about this module changes with the bind).
+//   1. Accept on the configured bind ADDRESSES (p5-2: loopback AND this node's tailnet
+//      address — network-posture-spec.md Design 1). Steps 2-6 are identical on every
+//      address: which socket accepted a connection is not an input to any of them.
 //   2. AUTHENTICATE THE SENDER FIRST — before the body is interpreted at all.
 //   3. Parse + shape-check into a typed request envelope.
 //   4. Attach the resolved sender identity.
@@ -148,12 +149,13 @@ function createGateway({ dispatch, internalSecret, sendersFilePath, logger = nul
     };
   }
 
-  // ── The loopback listener ──────────────────────────────────────────────────
+  // ── The listeners ──────────────────────────────────────────────────────────
   //
   // Bind values arrive as PLAIN DATA from the composition root — the gateway never
-  // reads the config file (that would hand it server config it must not hold). The
-  // bind is loopback through Batch 4; p5-2 rewires it to the tailnet under the
-  // network-posture spec, and nothing in this module changes when it does.
+  // reads the config file (that would hand it server config it must not hold), and
+  // it never resolves or CLASSIFIES an address either: which addresses are permitted
+  // is the server core's bind guard (network-posture-spec.md Design 2), not the
+  // gateway's. This module opens the sockets it is handed and nothing more.
   //
   // ⚑ The token travels in the Authorization header, NEVER in a URL or an argv:
   // process lists and access logs leak both (gateway-cli-spec.md § Client config).
@@ -206,26 +208,39 @@ function createGateway({ dispatch, internalSecret, sendersFilePath, logger = nul
     });
   }
 
-  let server = null;
+  let servers = [];
 
-  function listen({ host, port }) {
-    return new Promise((resolve, reject) => {
-      server = createServer();
-      server.once('error', reject);
-      server.listen(port, host, () => {
-        const addr = server.address();
+  // ⚑ p5-2 (network-posture-spec.md Design 1, rule 2): the socket-opening path takes a
+  // LIST of hosts. Node binds exactly ONE address per server.listen(), so the dual bind
+  // (loopback AND this node's tailnet address) is N servers sharing this ONE handler —
+  // `createServer()` is the same function for every address, which is what makes "the
+  // tailnet is not trust" true by CONSTRUCTION: there is no per-address code path in
+  // which a check could be skipped, and a request arriving over the tailnet is
+  // authenticated by the same `handleRequest` as one arriving over loopback.
+  //
+  // Hosts ACCUMULATE across calls: the composition root binds loopback first,
+  // unconditionally, then calls again to ADD the tailnet address once tailscaled
+  // reports one (Design 2's readiness retry). A later call never replaces an earlier
+  // listener. A scalar host is accepted as a one-element list.
+  function listen({ hosts, port }) {
+    const list = (Array.isArray(hosts) ? hosts : [hosts]).filter((h) => h !== null && h !== undefined && h !== '');
+    if (list.length === 0) return Promise.reject(new Error('gateway.listen requires at least one bind host'));
+    return Promise.all(list.map((host) => new Promise((resolve, reject) => {
+      const srv = createServer();
+      srv.once('error', reject);
+      srv.listen(port, host, () => {
+        servers.push(srv);
+        const addr = srv.address();
         log('info', 'gateway listening', { host: addr.address, port: addr.port });
         resolve(addr);
       });
-    });
+    })));
   }
 
   function close() {
-    return new Promise((resolve) => {
-      if (!server) return resolve();
-      server.close(() => resolve());
-      server = null;
-    });
+    const open = servers;
+    servers = [];
+    return Promise.all(open.map((srv) => new Promise((resolve) => srv.close(() => resolve())))).then(() => undefined);
   }
 
   return { handleRequest, listen, close, senderCount: senders.length };

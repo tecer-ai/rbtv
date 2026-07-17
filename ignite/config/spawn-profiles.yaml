@@ -1,6 +1,17 @@
 bind:
-  host: 127.0.0.1        # loopback only through Batch 4; tailnet bind is wired at p5-2 (network-posture-spec)
+  host: 127.0.0.1        # the UNCONDITIONAL loopback listener (p5-2, network-posture-spec Design 1). MUST stay a
+                         # loopback address — the daemon ALSO binds this node's tailnet address automatically
+                         # (resolved at runtime from tailscaled). A non-loopback/non-tailnet host is refused at
+                         # startup by the fail-closed bind guard (E_BIND_FORBIDDEN); there is NO override.
   port: 7431             # build-time default; changing it is a config edit + restart
+
+# Daemon-only namespace (stripped before spawn/config.js sees it, like ticker/tools/workflows).
+# The tailnet-bind readiness retry budget (network-posture-spec Design 2, rule 2). The daemon binds
+# loopback first, then attempts this node's tailnet address with this bounded retry; on exhaustion it
+# runs loopback-only with a standing warning (surfaced by `ignite status`) and NEVER widens to 0.0.0.0.
+network:
+  tailnet_bind_retries: 3       # attempts to resolve+bind the tailnet address before degrading to loopback-only
+  tailnet_bind_retry_ms: 1000   # delay between attempts (ms). Env: RBTV_IGNITE_TAILNET_RETRIES / _RETRY_MS (probes)
 
 auth:
   senders_file: /etc/rbtv-ignite/senders.yaml   # named-sender registry (D15 shape: sender-id, kind, token-hash, enabled); 0600, outside the repo
