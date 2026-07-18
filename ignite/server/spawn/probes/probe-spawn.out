@@ -1,16 +1,19 @@
 probe: probe-spawn
-started: 2026-07-15T23:03:40.955Z
+started: 2026-07-18T05:49:20.576Z
 command: node probes/probe-spawn.js
+D109 assert: argv[0]='sleep' resolves to '/usr/bin/sleep'
+D109 assert PASS: post-'--' head is the resolved absolute path; tail preserved in order
+D109 mutation self-check PASS: assertion rejects the pre-fix bare-argv[0] head
 action: fire row then spawn trivial worker via test-sleep profile
 exec_id before spawn: 1, status: launching
 exec_id after spawn: 1
-session_id: 970fb8ec-938b-4305-989d-86ec6b7e969a
-pid: 653975
+session_id: 46678fb8-7a71-4f66-b3ad-f065beb1a37c
+pid: 1905672
 carrier: systemd
-unit_name: rbtv-worker-970fb8ec-938b-4305-989d-86ec6b7e969a
+unit_name: rbtv-worker-46678fb8-7a71-4f66-b3ad-f065beb1a37c
 status: running
-log_path: /tmp/p2-2-probe-RPpkl0/data/logs/970fb8ec-938b-4305-989d-86ec6b7e969a.log
-workdir: /tmp/p2-2-probe-RPpkl0/work/1
+log_path: /tmp/p2-2-probe-bjdmKx/data/logs/46678fb8-7a71-4f66-b3ad-f065beb1a37c.log
+workdir: /tmp/p2-2-probe-bjdmKx/work/1
 systemctl --user show caps:
   RuntimeMaxUSec=1h
   MemoryMax=67108864
@@ -19,5 +22,5 @@ systemctl --user is-active: active
 log file exists: true
 status: PASS
 exit: 0
-wall_ms: 323
-ended: 2026-07-15T23:03:41.278Z
+wall_ms: 381
+ended: 2026-07-18T05:49:20.957Z

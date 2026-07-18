@@ -188,7 +188,10 @@ function buildBwrapArgv({ argv, workdir, editablePaths = [], promptFile = null, 
 
   out.push('--chdir', workdir);
   out.push('--');
-  out.push(...argv);
+  // Exec the RESOLVED, sandbox-bound binary path (not the bare argv[0]): bwrap's in-namespace
+  // execvp searches the sandbox PATH, which need not contain argv[0]'s dir. binPath is ro-bound
+  // at SRC==DEST above, so it is valid inside the sandbox.
+  out.push(binPath, ...argv.slice(1));
 
   return [bwrapPath, ...out];
 }
