@@ -1,0 +1,99 @@
+{
+  "summary": {
+    "probe": "probe-chat-allowlist",
+    "pass": true,
+    "EXIT": 0,
+    "WALL_MS": 29,
+    "SKIPPED_COUNT": 0
+  },
+  "entries": [
+    {
+      "ts": "2026-07-18T03:42:08Z",
+      "bridge": {
+        "level": "warn",
+        "message": "chat principal refused — pending owner pairing",
+        "chatUserId": "U-stranger"
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:08Z",
+      "bridge": {
+        "level": "warn",
+        "message": "chat message refused (not admitted) — no forward",
+        "chatUserId": "U-stranger",
+        "chatThreadId": "C-chan:1.1",
+        "reason": "not-paired"
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:08Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat message handled",
+        "chatThreadId": "C-chan:1.1",
+        "forwarded": false,
+        "refused": true,
+        "reason": "not-paired"
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:08Z",
+      "step": "non-allowlisted",
+      "strangerOutcome": {
+        "forwarded": false,
+        "refused": true,
+        "reason": "not-paired"
+      },
+      "queueBefore": 0,
+      "queueAfter": 0,
+      "pendingPairings": [
+        {
+          "id": "U-stranger",
+          "firstSeenAt": "2026-07-18T03:42:08.840Z",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "ts": "2026-07-18T03:42:08Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat thread mapped to a new conversation",
+        "chatThreadId": "C-chan:2.2",
+        "queueId": 1
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:08Z",
+      "bridge": {
+        "level": "info",
+        "message": "session-create job enqueued",
+        "chatThreadId": "C-chan:2.2",
+        "queueId": 1
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:08Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat message handled",
+        "chatThreadId": "C-chan:2.2",
+        "forwarded": true,
+        "leg": "session-create",
+        "intent": "enqueue-job",
+        "queueId": 1
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:08Z",
+      "step": "allowlisted",
+      "ownerOutcome": {
+        "forwarded": true,
+        "leg": "session-create",
+        "intent": "enqueue-job",
+        "queueId": 1
+      },
+      "queueAfter": 1
+    }
+  ]
+}

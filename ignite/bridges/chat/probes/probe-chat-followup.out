@@ -1,0 +1,191 @@
+{
+  "summary": {
+    "probe": "probe-chat-followup",
+    "pass": true,
+    "EXIT": 0,
+    "WALL_MS": 55,
+    "SKIPPED_COUNT": 0
+  },
+  "entries": [
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "step": "seeded running execution",
+      "execId": 1,
+      "chainThread": "exec-1"
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat thread mapped to a new conversation",
+        "chatThreadId": "C-chan:5.5",
+        "queueId": 1
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "bridge": {
+        "level": "info",
+        "message": "chain thread resolved via inspect",
+        "chatThreadId": "C-chan:5.5",
+        "execId": 1,
+        "chainThread": "exec-1"
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "bridge": {
+        "level": "info",
+        "message": "follow-up send-message enqueued",
+        "chatThreadId": "C-chan:5.5",
+        "replyType": "note",
+        "thread": "exec-1",
+        "queueId": 1
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "step": "follow-up (no pending ask)",
+      "outcome": {
+        "forwarded": true,
+        "leg": "follow-up",
+        "intent": "enqueue-job",
+        "replyType": "note",
+        "thread": "exec-1",
+        "queueId": 1
+      },
+      "enqueuedRow": {
+        "queue_id": 1,
+        "job_id": "send-message",
+        "args": {
+          "type": "note",
+          "thread": "exec-1",
+          "corpus": "any progress?"
+        }
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "bridge": {
+        "level": "info",
+        "message": "follow-up send-message enqueued",
+        "chatThreadId": "C-chan:5.5",
+        "replyType": "answer",
+        "thread": "exec-1",
+        "queueId": 2
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "step": "follow-up (pending ask)",
+      "outcome": {
+        "forwarded": true,
+        "leg": "follow-up",
+        "intent": "enqueue-job",
+        "replyType": "answer",
+        "thread": "exec-1",
+        "queueId": 2
+      },
+      "enqueuedRow": {
+        "queue_id": 2,
+        "job_id": "send-message",
+        "args": {
+          "type": "answer",
+          "thread": "exec-1",
+          "corpus": "yes, ship it"
+        }
+      },
+      "askCleared": true
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat thread mapped to a new conversation",
+        "chatThreadId": "C-chan:7.7",
+        "queueId": 4242
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "bridge": {
+        "level": "info",
+        "message": "exec-id learned from ticker dispatch actions",
+        "chatThreadId": "C-chan:7.7",
+        "queueId": 4242,
+        "execId": 1
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "bridge": {
+        "level": "info",
+        "message": "chain thread resolved via inspect",
+        "chatThreadId": "C-chan:7.7",
+        "execId": 1,
+        "chainThread": "exec-1"
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "bridge": {
+        "level": "info",
+        "message": "follow-up send-message enqueued",
+        "chatThreadId": "C-chan:7.7",
+        "replyType": "note",
+        "thread": "exec-1",
+        "queueId": 3
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "step": "follow-up (queue-id-only conversation, exec-id learned via recent_ticks)",
+      "outcome": {
+        "forwarded": true,
+        "leg": "follow-up",
+        "intent": "enqueue-job",
+        "replyType": "note",
+        "thread": "exec-1",
+        "queueId": 3
+      },
+      "enqueuedRow": {
+        "queue_id": 3,
+        "job_id": "send-message",
+        "args": {
+          "type": "note",
+          "thread": "exec-1",
+          "corpus": "status?"
+        }
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat thread mapped to a new conversation",
+        "chatThreadId": "C-chan:8.8",
+        "queueId": 999983
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "bridge": {
+        "level": "warn",
+        "message": "follow-up not forwarded: chain thread unresolved",
+        "chatThreadId": "C-chan:8.8",
+        "reason": "exec-id-unknown"
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "step": "follow-up (unresolvable chain) declines",
+      "outcome": {
+        "forwarded": false,
+        "leg": "follow-up",
+        "reason": "chain-unresolved:exec-id-unknown"
+      },
+      "queueBefore": 3,
+      "queueAfter": 3
+    }
+  ]
+}

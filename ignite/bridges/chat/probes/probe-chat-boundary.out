@@ -1,0 +1,40 @@
+{
+  "summary": {
+    "probe": "probe-chat-boundary",
+    "pass": true,
+    "EXIT": 0,
+    "WALL_MS": 2,
+    "SKIPPED_COUNT": 0
+  },
+  "entries": [
+    {
+      "ts": "2026-07-18T03:42:08Z",
+      "step": "scanned runtime source",
+      "files": [
+        "config.js",
+        "gateway-forwarder.js",
+        "allowlist.js",
+        "thread-map.js",
+        "forward-path.js",
+        "slack-socket-mode.js",
+        "chat-bridge.js",
+        "index.js"
+      ],
+      "forbiddenPatterns": [
+        "store-driver (node:sqlite)",
+        "store-open (heart store)",
+        "child process / spawn",
+        "inbound listener (server)",
+        "sibling reach-out (server/gateway/cli)",
+        "raw queue/store write",
+        "probe-harness import (transitive sibling reach)"
+      ]
+    },
+    {
+      "ts": "2026-07-18T03:42:08Z",
+      "step": "forbidden-capability hits",
+      "count": 0,
+      "hits": []
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "summary": {
+    "probe": "probe-chat-enqueue",
+    "pass": true,
+    "EXIT": 0,
+    "WALL_MS": 129,
+    "SKIPPED_COUNT": 0
+  },
+  "entries": [
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "step": "stood up throwaway daemon + mock Slack",
+      "gatewayAddr": "127.0.0.1:39687",
+      "slackApiBase": "http://127.0.0.1:41515"
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat bridge started",
+        "transport": "slack-socket-mode",
+        "connected": true
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "step": "bridge connected to mock Socket Mode (outbound WS)"
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "transport": {
+        "level": "info",
+        "message": "Socket Mode connection established (hello)",
+        "numConnections": 1
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "step": "pushed a user message from allowlisted U-owner"
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat thread mapped to a new conversation",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "queueId": 1
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "bridge": {
+        "level": "info",
+        "message": "session-create job enqueued",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "queueId": 1
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat message handled",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "forwarded": true,
+        "leg": "session-create",
+        "intent": "enqueue-job",
+        "queueId": 1
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "step": "queue after",
+      "queueDepth": 1,
+      "enqueuedRow": {
+        "queue_id": 1,
+        "job_id": "chat-launch",
+        "action": "launch-agent",
+        "enqueued_by": "bridge-probe",
+        "args": "{\"profile\":\"worker\",\"prompt\":\"kick off a build\"}"
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat bridge stopped"
+      }
+    }
+  ]
+}

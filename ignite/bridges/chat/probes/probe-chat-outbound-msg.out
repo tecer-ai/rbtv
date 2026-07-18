@@ -1,0 +1,48 @@
+{
+  "summary": {
+    "probe": "probe-chat-outbound-msg",
+    "pass": true,
+    "EXIT": 0,
+    "WALL_MS": 58,
+    "SKIPPED_COUNT": 0
+  },
+  "entries": [
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat thread mapped to a new conversation",
+        "chatThreadId": "C-chan:9.9",
+        "queueId": 1
+      }
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "step": "delivered owner output",
+      "res": {
+        "delivered": true,
+        "ts": "1784346129.549"
+      },
+      "sentMessages": [
+        {
+          "channel": "C-chan",
+          "text": "here is your PDF report",
+          "thread_ts": "9.9"
+        }
+      ]
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "step": "assertions",
+      "posted": true,
+      "askArmed": true
+    },
+    {
+      "ts": "2026-07-18T03:42:09Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat bridge stopped"
+      }
+    }
+  ]
+}
