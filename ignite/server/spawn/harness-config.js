@@ -59,15 +59,27 @@ function materializeHarnessConfig({ sessionDir, profile, editablePaths = [] }) {
   }
 
   // opencode: POC finding 3 — it has NO native path-scoped write sandbox (it touched the live
-  // vault unprompted). A local `opencode.json` cannot confine writes to a path set. Written for
-  // transparency: the kernel systemd sandbox is the SOLE enforcement.
+  // vault unprompted). A local `opencode.json` cannot confine writes to a path set. The kernel
+  // systemd/bwrap sandbox is the SOLE enforcement.
+  //
+  // opencode STRICT-VALIDATES opencode.json and REFUSES any unrecognized key, so the advisory
+  // MUST NOT ride in the config it parses (a `_note` key killed every opencode session at startup
+  // with "Configuration is invalid ↳ Unrecognized key: _note"). The materialized config carries
+  // ONLY opencode-schema-valid keys; the no-native-sandbox advisory (POC finding 3) is preserved
+  // in a sidecar file beside it and never seen by opencode's parser.
   const cfg = {
     $schema: 'https://opencode.ai/config.json',
-    _note: `ADVISORY ONLY: opencode has no path-scoped write sandbox (POC finding 3). Kernel-enforced editable roots: ${roots.join(', ')}`,
   };
   const p = path.join(sessionDir, 'opencode.json');
   fs.writeFileSync(p, JSON.stringify(cfg, null, 2));
-  return { harness: 'opencode', written: p, enforceable: false, note: 'no native sandbox — kernel is sole enforcement' };
+  const notePath = path.join(sessionDir, '.ignite-sandbox-note.txt');
+  fs.writeFileSync(
+    notePath,
+    `ADVISORY ONLY: opencode has no path-scoped write sandbox (POC finding 3). ` +
+    `Kernel-enforced editable roots: ${roots.join(', ')}\n`,
+    { mode: 0o600 }
+  );
+  return { harness: 'opencode', written: p, advisoryNote: notePath, enforceable: false, note: 'no native sandbox — kernel is sole enforcement' };
 }
 
 module.exports = { materializeHarnessConfig, harnessOf };
