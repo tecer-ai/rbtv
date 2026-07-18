@@ -44,6 +44,36 @@ function createSlackSocketMode({
     if (logger) logger({ level, message, ...extra });
   }
 
+  // Slack delivers events AT-LEAST-ONCE — after a reconnect or slow ack, the
+  // same message event is re-pushed with a NEW envelope id. The bridge MUST drop
+  // redelivered duplicates BEFORE the forward path, so one chat message can never
+  // enqueue two jobs (D108(C)).
+  //
+  // Key: `client_msg_id` (user-authored messages carry a durable id), else the
+  // (channel, event_ts) pair. The envelope id is NEVER the key — redelivery mints
+  // a fresh envelope for the same event.
+  const DEDUPE_MAX = 500;
+  const dedupeCache = new Map();
+
+  function dedupeKey(event) {
+    if (!event) return null;
+    if (event.client_msg_id) return `msg:${event.client_msg_id}`;
+    if (event.channel && event.event_ts) return `ev:${event.channel}:${event.event_ts}`;
+    return null;
+  }
+
+  function isDuplicate(event) {
+    const key = dedupeKey(event);
+    if (!key) return false;
+    if (dedupeCache.has(key)) return true;
+    dedupeCache.set(key, true);
+    if (dedupeCache.size > DEDUPE_MAX) {
+      const oldest = dedupeCache.keys().next().value;
+      dedupeCache.delete(oldest);
+    }
+    return false;
+  }
+
   async function slackPost(method, token, body) {
     const res = await fetchImpl(`${apiBase}/${method}`, {
       method: 'POST',
@@ -111,6 +141,14 @@ function createSlackSocketMode({
         // ACK FIRST (Slack requires an ack within 3s), then process.
         ackEnvelope(msg.envelope_id);
         const event = msg.payload && msg.payload.event;
+        if (isDuplicate(event)) {
+          log('debug', 'duplicate slack event dropped (redelivery guard)', {
+            client_msg_id: event && event.client_msg_id,
+            channel: event && event.channel,
+            event_ts: event && event.event_ts,
+          });
+          return;
+        }
         const chatMsg = toChatMessage(event);
         if (chatMsg) {
           try {

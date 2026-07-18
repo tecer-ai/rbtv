@@ -3,18 +3,18 @@
     "probe": "probe-chat-enqueue",
     "pass": true,
     "EXIT": 0,
-    "WALL_MS": 129,
+    "WALL_MS": 955,
     "SKIPPED_COUNT": 0
   },
   "entries": [
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:58Z",
       "step": "stood up throwaway daemon + mock Slack",
-      "gatewayAddr": "127.0.0.1:39687",
-      "slackApiBase": "http://127.0.0.1:41515"
+      "gatewayAddr": "127.0.0.1:39555",
+      "slackApiBase": "http://127.0.0.1:46643"
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:58Z",
       "bridge": {
         "level": "info",
         "message": "chat bridge started",
@@ -23,11 +23,11 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:58Z",
       "step": "bridge connected to mock Socket Mode (outbound WS)"
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:58Z",
       "transport": {
         "level": "info",
         "message": "Socket Mode connection established (hello)",
@@ -35,11 +35,11 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:58Z",
       "step": "pushed a user message from allowlisted U-owner"
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:58Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -48,7 +48,7 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:58Z",
       "bridge": {
         "level": "info",
         "message": "session-create job enqueued",
@@ -57,7 +57,7 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:58Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -69,7 +69,7 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:58Z",
       "step": "queue after",
       "queueDepth": 1,
       "enqueuedRow": {
@@ -81,7 +81,274 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:58Z",
+      "step": "enqueue result",
+      "pass": true
+    },
+    {
+      "ts": "2026-07-18T04:08:58Z",
+      "step": "pushed redelivery test message (channel A)",
+      "client_msg_id": "msg-redeliver-p7-2b"
+    },
+    {
+      "ts": "2026-07-18T04:08:58Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat thread mapped to a new conversation",
+        "chatThreadId": "C-redel-A:1700000000.001000",
+        "queueId": 2
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:58Z",
+      "bridge": {
+        "level": "info",
+        "message": "session-create job enqueued",
+        "chatThreadId": "C-redel-A:1700000000.001000",
+        "queueId": 2
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:58Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat message handled",
+        "chatThreadId": "C-redel-A:1700000000.001000",
+        "forwarded": true,
+        "leg": "session-create",
+        "intent": "enqueue-job",
+        "queueId": 2
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:58Z",
+      "step": "queue after first push (channel A)",
+      "queueDepth": 2,
+      "delta": 1
+    },
+    {
+      "ts": "2026-07-18T04:08:58Z",
+      "transport": {
+        "level": "debug",
+        "message": "duplicate slack event dropped (redelivery guard)",
+        "client_msg_id": "msg-redeliver-p7-2b",
+        "channel": "C-redel-B"
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:58Z",
+      "step": "re-pushed same client_msg_id on different channel (simulated redelivery)",
+      "client_msg_id": "msg-redeliver-p7-2b"
+    },
+    {
+      "ts": "2026-07-18T04:08:58Z",
+      "step": "queue after redelivery (channel B)",
+      "queueDepth": 2,
+      "delta": 0,
+      "deduped": true
+    },
+    {
+      "ts": "2026-07-18T04:08:58Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat thread mapped to a new conversation",
+        "chatThreadId": "C-live:1700000000.007000",
+        "queueId": 1
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:58Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat thread bound to chain thread",
+        "chatThreadId": "C-live:1700000000.007000",
+        "chainThread": "exec-1"
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:58Z",
+      "bridge": {
+        "level": "info",
+        "message": "follow-up send-message enqueued",
+        "chatThreadId": "C-live:1700000000.007000",
+        "replyType": "note",
+        "thread": "exec-1",
+        "queueId": 3
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:58Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat message handled",
+        "chatThreadId": "C-live:1700000000.007000",
+        "forwarded": true,
+        "leg": "follow-up",
+        "intent": "enqueue-job",
+        "replyType": "note",
+        "thread": "exec-1",
+        "queueId": 3
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
+      "step": "live-chain follow-up enqueued one send-message",
+      "sendMessages": 1,
+      "delta": 1
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
+      "transport": {
+        "level": "debug",
+        "message": "duplicate slack event dropped (redelivery guard)",
+        "client_msg_id": "msg-followup-redeliver-p7-2b",
+        "channel": "C-live",
+        "event_ts": "1700000000.007500"
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
+      "step": "re-pushed IDENTICAL follow-up on SAME channel (realistic Slack redelivery)",
+      "client_msg_id": "msg-followup-redeliver-p7-2b"
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
+      "step": "send-message count after same-channel redelivery",
+      "sendMessages": 1,
+      "deduped": true
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat thread mapped to a new conversation",
+        "chatThreadId": "C-live2:1700000000.008000",
+        "queueId": 1
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat thread bound to chain thread",
+        "chatThreadId": "C-live2:1700000000.008000",
+        "chainThread": "exec-2"
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
+      "bridge": {
+        "level": "info",
+        "message": "follow-up send-message enqueued",
+        "chatThreadId": "C-live2:1700000000.008000",
+        "replyType": "note",
+        "thread": "exec-2",
+        "queueId": 4
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat message handled",
+        "chatThreadId": "C-live2:1700000000.008000",
+        "forwarded": true,
+        "leg": "follow-up",
+        "intent": "enqueue-job",
+        "replyType": "note",
+        "thread": "exec-2",
+        "queueId": 4
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
+      "transport": {
+        "level": "debug",
+        "message": "duplicate slack event dropped (redelivery guard)",
+        "channel": "C-live2",
+        "event_ts": "1700000000.008500"
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
+      "step": "re-pushed IDENTICAL client_msg_id-less follow-up (fallback key (channel,event_ts))",
+      "channel": "C-live2",
+      "event_ts": "1700000000.008500"
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
+      "step": "send-message count after fallback-key redelivery",
+      "sendMessages": 2,
+      "deduped": true
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat thread mapped to a new conversation",
+        "chatThreadId": "C-distinct-A:1700000000.005000",
+        "queueId": 5
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
+      "bridge": {
+        "level": "info",
+        "message": "session-create job enqueued",
+        "chatThreadId": "C-distinct-A:1700000000.005000",
+        "queueId": 5
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat message handled",
+        "chatThreadId": "C-distinct-A:1700000000.005000",
+        "forwarded": true,
+        "leg": "session-create",
+        "intent": "enqueue-job",
+        "queueId": 5
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat thread mapped to a new conversation",
+        "chatThreadId": "C-distinct-B:1700000000.006000",
+        "queueId": 6
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
+      "bridge": {
+        "level": "info",
+        "message": "session-create job enqueued",
+        "chatThreadId": "C-distinct-B:1700000000.006000",
+        "queueId": 6
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat message handled",
+        "chatThreadId": "C-distinct-B:1700000000.006000",
+        "forwarded": true,
+        "leg": "session-create",
+        "intent": "enqueue-job",
+        "queueId": 6
+      }
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
+      "step": "two distinct messages both enqueued (never-over-drop)",
+      "delta": 2,
+      "ok": true
+    },
+    {
+      "ts": "2026-07-18T04:08:59Z",
       "bridge": {
         "level": "info",
         "message": "chat bridge stopped"

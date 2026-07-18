@@ -3,18 +3,18 @@
     "probe": "probe-chat-followup",
     "pass": true,
     "EXIT": 0,
-    "WALL_MS": 55,
+    "WALL_MS": 35,
     "SKIPPED_COUNT": 0
   },
   "entries": [
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "step": "seeded running execution",
       "execId": 1,
       "chainThread": "exec-1"
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -23,7 +23,7 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "bridge": {
         "level": "info",
         "message": "chain thread resolved via inspect",
@@ -33,7 +33,7 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "bridge": {
         "level": "info",
         "message": "follow-up send-message enqueued",
@@ -44,7 +44,7 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "step": "follow-up (no pending ask)",
       "outcome": {
         "forwarded": true,
@@ -65,7 +65,7 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "bridge": {
         "level": "info",
         "message": "follow-up send-message enqueued",
@@ -76,7 +76,7 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "step": "follow-up (pending ask)",
       "outcome": {
         "forwarded": true,
@@ -98,7 +98,7 @@
       "askCleared": true
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -107,7 +107,7 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "bridge": {
         "level": "info",
         "message": "exec-id learned from ticker dispatch actions",
@@ -117,7 +117,7 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "bridge": {
         "level": "info",
         "message": "chain thread resolved via inspect",
@@ -127,7 +127,7 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "bridge": {
         "level": "info",
         "message": "follow-up send-message enqueued",
@@ -138,7 +138,7 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "step": "follow-up (queue-id-only conversation, exec-id learned via recent_ticks)",
       "outcome": {
         "forwarded": true,
@@ -159,7 +159,7 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -168,7 +168,7 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "bridge": {
         "level": "warn",
         "message": "follow-up not forwarded: chain thread unresolved",
@@ -177,7 +177,7 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "step": "follow-up (unresolvable chain) declines",
       "outcome": {
         "forwarded": false,

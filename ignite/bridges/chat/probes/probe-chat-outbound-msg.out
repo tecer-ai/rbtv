@@ -3,12 +3,12 @@
     "probe": "probe-chat-outbound-msg",
     "pass": true,
     "EXIT": 0,
-    "WALL_MS": 58,
+    "WALL_MS": 55,
     "SKIPPED_COUNT": 0
   },
   "entries": [
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -17,11 +17,11 @@
       }
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "step": "delivered owner output",
       "res": {
         "delivered": true,
-        "ts": "1784346129.549"
+        "ts": "1784347739.928"
       },
       "sentMessages": [
         {
@@ -32,13 +32,13 @@
       ]
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "step": "assertions",
       "posted": true,
       "askArmed": true
     },
     {
-      "ts": "2026-07-18T03:42:09Z",
+      "ts": "2026-07-18T04:08:59Z",
       "bridge": {
         "level": "info",
         "message": "chat bridge stopped"

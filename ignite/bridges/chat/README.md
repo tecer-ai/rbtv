@@ -32,6 +32,19 @@ Owner output is delivered outbound via `chat.postMessage` (bot token). Telegram
 Turn-boundary ceiling (notes §7b): chat rides the headless model — turn-boundary
 dialogue only, no mid-turn interrupt / live TUI (that is the ttyd surface, Batch 6).
 
+### Slack event dedupe (at-least-once redelivery guard, D108(C))
+
+Slack Socket Mode delivers events AT-LEAST-ONCE — after a reconnect or slow ack,
+the same message event is re-pushed with a NEW envelope id. The bridge drops
+redelivered duplicates BEFORE the forward path (allowlist/thread-map/forward),
+so one chat message can never enqueue two jobs.
+
+The dedupe key is the message EVENT's identity: `client_msg_id` when present,
+else `(channel, event_ts)`. The envelope id is never the key (redelivery mints
+a new envelope for the same event). The cache is a bounded in-memory insertion-
+ordered `Map` (max ~500 entries, oldest evicted) — consistent with the bridge's
+in-memory-by-design architecture (sessions-are-cattle; no persistence).
+
 ## The forward contract (D104/D105) — `forward-path.js`
 
 One chat thread = one conversation. A message from an admitted principal becomes
@@ -96,7 +109,7 @@ Run the probes: `node probes/probe-chat-<name>.js` (evidence → `probe-chat-<na
 
 | Probe | Test Plan | Proves |
 |-------|-----------|--------|
-| `probe-chat-enqueue` | #1 | allowlisted user's message → validated job reaches gateway → queue (full mock-WS round-trip) |
+| `probe-chat-enqueue` | #1 | allowlisted user's message → validated job reaches gateway → queue (full mock-WS round-trip); redelivery legs (D108(C)): same event re-pushed under a new envelope is dropped — SAME-channel follow-up on a live chain (no double `send-message`), the `(channel, event_ts)` fallback key when `client_msg_id` is absent, and a negative control proving two DISTINCT messages both still enqueue |
 | `probe-chat-allowlist` | #2 | non-allowlisted user refused, nothing enqueued; admitted user does enqueue |
 | `probe-chat-outbound` | #3 | starting the bridge adds NO new inbound listener (`ss -tlnp` delta) |
 | `probe-chat-outbound-msg` | #4 | owner output delivered outbound via `chat.postMessage` |
