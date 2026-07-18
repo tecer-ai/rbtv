@@ -169,3 +169,30 @@ profiles:
       ReadWritePaths: ["{workdir}"]
       PrivateTmp: true
       NoNewPrivileges: true
+
+  headed-shell:
+    # INERT HEADED TEST PROFILE (session #21, D12 surface test). A plain interactive shell in the
+    # server-owned pty — proves the ttyd JOIN/TAKE-OVER surface (criterion 4) + the FD-1 in-order
+    # keystroke fix WITHOUT a paid, side-effecting LLM harness. bash carries no harness
+    # (harnessOf -> null), so NO harness-config is materialized: this profile SIDESTEPS the opencode
+    # `_note` config bug by construction. NO LLM, NO network; writes confined to its own session
+    # workdir by the bwrap mount namespace (same containment as test-sleep).
+    exec:
+      argv: ["bash", "-i"]
+      prompt: stdin        # bash ignores the written prompt; the server closes stdin (EOF guard)
+    resume:
+      argv: ["bash", "-i"]
+      prompt: stdin
+    session_ref: { source: cwd-implicit }   # a shell has no session concept; the workdir IS the ref
+    headed:
+      # headed-CAPABLE seam (D17: presence of this block = capable). Bare TUI argv, no prompt
+      # carriage — the owner drives it live (the JOIN/TAKE-OVER entry path), same posture as the
+      # opencode-sakana bare seed (D86).
+      tui: { argv: ["bash", "-i"] }
+    workdir_root: .rbtv/sessions
+    caps: { memory_max: "256M", cpu_quota: "50%", runtime_max: "1h", tasks_max: 128 }
+    sandbox:
+      ProtectSystem: strict
+      ReadWritePaths: ["{workdir}"]
+      PrivateTmp: true
+      NoNewPrivileges: true
