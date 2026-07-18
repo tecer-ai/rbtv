@@ -9,7 +9,7 @@ const { openHeartStore, closeHeartStore } = require('../../heart/heart-store');
 const { createSpawnManager } = require('../../spawn/spawn');
 const { createTicker } = require('../ticker');
 
-function setup(configOverrides = {}) {
+function setup(configOverrides = {}, extraProfiles = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'p3-1-probe-'));
   const dataRoot = path.join(tmp, 'data');
   const workRoot = path.join(tmp, 'work');
@@ -45,6 +45,7 @@ function setup(configOverrides = {}) {
         workdir_root: workRoot,
         caps: { memory_max: '64M', runtime_max: '1h' },
       },
+      ...(typeof extraProfiles === 'function' ? extraProfiles({ workRoot, dataRoot, defaultWorkdir }) : extraProfiles),
     },
   };
   const cfgPath = path.join(tmp, 'ignite.yaml');
@@ -115,8 +116,9 @@ function registerLaunchAgentJob(ctx, jobId = 'launch-agent') {
   });
 }
 
-function enqueueLaunchAgent(ctx, { jobId = 'launch-agent', profile, workdir = null, runAt, triggerKind = 'scheduled', intervalSeconds = null, maxFires = null, enqueuedBy = 'probe' }) {
+function enqueueLaunchAgent(ctx, { jobId = 'launch-agent', profile, prompt = null, workdir = null, runAt, triggerKind = 'scheduled', intervalSeconds = null, maxFires = null, enqueuedBy = 'probe' }) {
   const args = { profile };
+  if (prompt !== null && prompt !== undefined) args.prompt = prompt;
   if (workdir !== null && workdir !== undefined) args.workdir = workdir;
   return ctx.store.enqueue({
     jobId,

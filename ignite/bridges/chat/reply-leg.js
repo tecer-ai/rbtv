@@ -78,9 +78,10 @@ function createReplyLeg({
   }
 
   // chatThreadId -> {
-  //   queueId,           // the conversation's SESSION queue-row id — the watch key.
-  //                      //   Every turn's spawn action carries this queueId; a new
-  //                      //   turn re-dispatches a NEW exec on the same queue.
+  //   queueId,           // the conversation's FIRST session queue-row id — the
+  //                      //   first turn's watch key. A wake/recycle re-dispatch
+  //                      //   mints a NEW queue row, so later turns are captured
+  //                      //   by the chain-thread match below, never by queueId.
   //   armedAt,           // ms — refreshed each turn (arm) and on delivery; bounds
   //                      //   the wait for a spawn to appear (step 6 window).
   //   watching,          // Map execId -> { capturedAt } — spawns seen, awaiting turn-end.
@@ -151,24 +152,33 @@ function createReplyLeg({
     try {
       if (pending.size === 0) return;
 
-      // 1. Capture new execIds from ticker spawn actions, per conversation queueId.
-      //    A conversation may see MULTIPLE execs over its life (one per turn) — every
-      //    spawn action with an execId not yet delivered is a turn to deliver.
+      // 1. Capture new execIds from ticker spawn actions, per conversation. A
+      //    conversation may see MULTIPLE execs over its life (one per turn) — every
+      //    spawn action with an execId not yet delivered is a turn to deliver. TWO
+      //    match keys: the FIRST turn matches by the conversation's queueId; every
+      //    later turn is a wake/recycle re-dispatch on a NEW queue row, matched by
+      //    the spawn action's chain thread against the mapped conversation's
+      //    resolved chainThread (p7-multiturn — the server stamps `thread` on every
+      //    spawn action). A `compact: true` spawn is a compaction turn: its output
+      //    is the chain's short-term memory, never an owner-facing reply — skipped.
       const tickerRes = await forwarder.inspect('ticker');
       if (tickerRes && tickerRes.ok && tickerRes.result) {
         const ticks = Array.isArray(tickerRes.result.recent_ticks) ? tickerRes.result.recent_ticks : [];
         for (const [id, p] of pending) {
-          if (p.queueId == null) continue;
+          const entry = threadMap.get(id);
+          const chainThread = (entry && entry.chainThread) || null;
+          if (p.queueId == null && !chainThread) continue;
           for (const t of ticks) {
             const actions = Array.isArray(t.actions) ? t.actions : [];
             for (const a of actions) {
-              if (a && a.action === 'spawn' && a.execId != null
-                && Number(a.queueId) === Number(p.queueId)) {
-                const execId = Number(a.execId);
-                if (!p.delivered.has(execId) && !p.watching.has(execId)) {
-                  p.watching.set(execId, { capturedAt: Date.now(), attempts: 0 });
-                  log('info', 'reply leg captured spawn exec for conversation', { chatThreadId: id, queueId: p.queueId, execId });
-                }
+              if (!a || a.action !== 'spawn' || a.execId == null || a.compact) continue;
+              const byQueue = p.queueId != null && Number(a.queueId) === Number(p.queueId);
+              const byThread = chainThread !== null && a.thread === chainThread;
+              if (!byQueue && !byThread) continue;
+              const execId = Number(a.execId);
+              if (!p.delivered.has(execId) && !p.watching.has(execId)) {
+                p.watching.set(execId, { capturedAt: Date.now(), attempts: 0 });
+                log('info', 'reply leg captured spawn exec for conversation', { chatThreadId: id, queueId: p.queueId, execId, matchedBy: byQueue ? 'queue-id' : 'chain-thread' });
               }
             }
           }

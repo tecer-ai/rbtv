@@ -677,6 +677,57 @@ class HeartStore {
     return row ? row.n : 0;
   }
 
+  // Budget ruling (p7-multiturn, owner 2026-07-18): a re-dispatch caused by a
+  // real sender's message IS an owner action and never consumes the automatic
+  // budget — only AUTOMATIC re-dispatches do, and "the automatic-recycle count
+  // restarts on any owner action" (ticker-engine-spec § Budgets). AUTOMATIC
+  // executions are identified by marker keys the ticker persists in their args
+  // (the compaction turn and its answering re-dispatch); this count is the
+  // number of CONSECUTIVE automatic executions at the chain's TAIL, in
+  // dispatch (exec_id) order — a sender-triggered (unmarked) execution resets
+  // it, and the chain root is never a recycle. This is the ONE determination
+  // of the automatic budget (D44); countChainRecycles above remains the
+  // chain-TOTAL reading the blocked-slot gate and warning check key on.
+  countAutomaticChainRecycles({ execId, markerKeys }) {
+    if (!Number.isInteger(execId)) {
+      throw new HeartStoreError(E_BAD_ARGS, 'exec_id must be an integer', { field: 'execId' });
+    }
+    if (!Array.isArray(markerKeys) || markerKeys.length === 0 || !markerKeys.every((k) => typeof k === 'string' && k.length > 0)) {
+      throw new HeartStoreError(E_BAD_ARGS, 'markerKeys must be a non-empty string array', { field: 'markerKeys' });
+    }
+    const rootRow = this._prepare(`
+      WITH RECURSIVE chain(exec_id, parent_exec_id) AS (
+        SELECT exec_id, parent_exec_id FROM jobs_log WHERE exec_id = ?
+        UNION ALL
+        SELECT j.exec_id, j.parent_exec_id
+          FROM jobs_log j JOIN chain c ON j.exec_id = c.parent_exec_id
+      )
+      SELECT exec_id FROM chain WHERE parent_exec_id IS NULL LIMIT 1
+    `).get(execId);
+    const root = rootRow ? rootRow.exec_id : execId;
+    const rows = this._prepare(`
+      WITH RECURSIVE descendants(exec_id, parent_exec_id, args) AS (
+        SELECT exec_id, parent_exec_id, args FROM jobs_log WHERE exec_id = ?
+        UNION ALL
+        SELECT j.exec_id, j.parent_exec_id, j.args
+          FROM jobs_log j JOIN descendants d ON j.parent_exec_id = d.exec_id
+      )
+      SELECT exec_id, parent_exec_id, args FROM descendants ORDER BY exec_id
+    `).all(root);
+    let n = 0;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (rows[i].parent_exec_id === null) break;
+      let marked = false;
+      try {
+        const a = JSON.parse(rows[i].args);
+        marked = a !== null && typeof a === 'object' && markerKeys.some((k) => a[k] === true);
+      } catch {}
+      if (!marked) break;
+      n++;
+    }
+    return n;
+  }
+
   updateExecutionStatus(execId, { status, sessionId = null, pid = null, exitCode = null, completionMsgId = null, logPath = null, endedAt = null, carrier = null, unitName = null, pidStarttime = null, sessionRef = null, startedAt = null, profile = null, workdir = null }) {
     const stmt = this._prepare(`
       UPDATE jobs_log SET

@@ -1,5 +1,15 @@
 'use strict';
 
+// Budget semantics per the p7-multiturn owner ruling (2026-07-18): a recycle
+// triggered by SENDER input never consumes the automatic budget — the count
+// "restarts on any owner action" — so done-with-pending-input recycles flow
+// UNGATED past slot_max_repeats. (This supersedes the former chain-total gate
+// this probe certified; ticker-engine-spec Test Plan row 8's gesture is a
+// task-7.5 divergence row. The AUTOMATIC budget bound — the compaction loop —
+// is certified by probe-multiturn scenario D2.) Also re-certifies D39: the
+// ticker writes NO notes to a seat's thread, and a fresh owner enqueue always
+// opens a NEW chain.
+
 const { setup, teardown, registerLaunchAgentJob, enqueueLaunchAgent, capture, sleep } = require('./lib');
 
 async function run(lines) {
@@ -18,7 +28,8 @@ async function run(lines) {
     let exec = ctx.store.dump().jobs_log[0];
     lines.push(`exec1 id=${exec.exec_id}, thread=${exec.thread}`);
 
-    // Helper to simulate a done+pending completion and advance.
+    // Helper: land owner input + a done completion for the chain's live turn,
+    // then tick twice (advance routes; the +1s re-dispatch row fires).
     async function turn(execId) {
       const e = ctx.store.getExecution(execId);
       ctx.store.recordMessage({
@@ -41,50 +52,37 @@ async function run(lines) {
       await sleep(1100);
       const rd = await ctx.ticker.tick(new Date());
       lines.push(`tick ${rd.tick}: ${JSON.stringify(rd.actions)}`);
+      return [...rr.actions, ...rd.actions];
     }
 
-    // Turn 1 -> recycle 1 (exec2).
-    await turn(exec.exec_id);
+    // Three sender-input turns with slot_max_repeats=2: ALL must recycle (the
+    // superseded chain-total gate would refuse the third).
+    let allActions = [];
+    let lastExec = exec;
+    for (let i = 1; i <= 3; i++) {
+      const acts = await turn(lastExec.exec_id);
+      allActions = allActions.concat(acts);
+      const dump = ctx.store.dump();
+      if (dump.jobs_log.length !== 1 + i) {
+        throw new Error(`expected ${1 + i} execs after sender-input turn ${i}, got ${dump.jobs_log.length}`);
+      }
+      const child = dump.jobs_log[i];
+      if (child.parent_exec_id !== lastExec.exec_id) {
+        throw new Error(`turn ${i}: child parent ${child.parent_exec_id} != ${lastExec.exec_id}`);
+      }
+      lastExec = child;
+    }
+    if (allActions.some((a) => String(a.action || '').includes('budget-exhausted'))) {
+      throw new Error('a sender-input recycle hit a budget gate — ruling broken');
+    }
+    lines.push('PASS: 3 sender-input recycles flowed ungated at slot_max_repeats=2 (linear chain of 4 execs)');
+
     let dump = ctx.store.dump();
-    if (dump.jobs_log.length !== 2) throw new Error(`expected 2 execs after turn 1, got ${dump.jobs_log.length}`);
-    const exec2 = dump.jobs_log[1];
+    const seatNotes = dump.messages.filter(m => m.type === 'note' && m.sender === 'ticker' && m.thread === exec.thread);
+    if (seatNotes.length > 0) throw new Error(`ticker note found on seat thread ${exec.thread}: ${JSON.stringify(seatNotes)}`);
+    lines.push('PASS: no ticker notes on the seat thread (D39)');
 
-    // Turn 2 -> recycle 2 (exec3).
-    await turn(exec2.exec_id);
-    dump = ctx.store.dump();
-    if (dump.jobs_log.length !== 3) throw new Error(`expected 3 execs after turn 2, got ${dump.jobs_log.length}`);
-    const exec3 = dump.jobs_log[2];
-
-    // Turn 3 -> budget exhausted, no recycle.
-    ctx.store.recordMessage({
-      type: 'answer',
-      sender: 'owner',
-      thread: exec3.thread,
-      corpus: 'more input',
-      createdAt: new Date(),
-    });
-    ctx.store.recordMessage({
-      type: 'completion',
-      sender: 'agent',
-      thread: exec3.thread,
-      corpus: 'done',
-      status: 'done',
-      createdAt: new Date(),
-    });
-    r = await ctx.ticker.tick(new Date());
-    lines.push(`tick ${r.tick}: ${JSON.stringify(r.actions)}`);
-    const budgetAction = r.actions.find(a => a.phase === 'advance' && a.action === 'budget-exhausted');
-    if (!budgetAction) throw new Error('expected budget-exhausted action');
-
-    dump = ctx.store.dump();
-    if (dump.queue.length !== 0) throw new Error('expected no re-dispatch queue row after budget exhausted');
-    const notes = dump.messages.filter(m => m.type === 'note' && m.thread === 'owner-feed' && m.corpus.includes('budget exhausted'));
-    if (notes.length === 0) throw new Error('expected owner note about exhausted budget');
-
-    const seatNotes = dump.messages.filter(m => m.type === 'note' && m.sender === 'ticker' && m.thread === exec3.thread);
-    if (seatNotes.length > 0) throw new Error(`ticker note found on seat thread ${exec3.thread}: ${JSON.stringify(seatNotes)}`);
-
-    // Owner re-arms with a fresh enqueue.
+    // A fresh owner enqueue opens a NEW chain (root, parent NULL).
     enqueueLaunchAgent(ctx, { profile: 'test-sleep', runAt: new Date() });
     r = await ctx.ticker.tick(new Date());
     lines.push(`tick ${r.tick}: ${JSON.stringify(r.actions)}`);
@@ -92,9 +90,10 @@ async function run(lines) {
     if (!spawnAction) throw new Error('expected fresh owner enqueue to launch');
 
     dump = ctx.store.dump();
-    if (dump.jobs_log.length !== 4) throw new Error(`expected 4 execs after re-arm, got ${dump.jobs_log.length}`);
-    const exec4 = dump.jobs_log[3];
-    if (exec4.parent_exec_id !== null) throw new Error('fresh owner enqueue should start a new chain');
+    if (dump.jobs_log.length !== 5) throw new Error(`expected 5 execs after fresh enqueue, got ${dump.jobs_log.length}`);
+    const fresh = dump.jobs_log[4];
+    if (fresh.parent_exec_id !== null) throw new Error('fresh owner enqueue should start a new chain');
+    lines.push('PASS: fresh owner enqueue opened a new chain');
 
     // Clean up.
     for (const e of dump.jobs_log) {

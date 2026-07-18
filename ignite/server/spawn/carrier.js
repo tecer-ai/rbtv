@@ -100,7 +100,7 @@ function sandboxToProperty(key, value) {
   }
 }
 
-function buildSystemdRunArgs({ sessionId, argv, workdir, logPath, stdinFile = null, caps, sandbox, envFile, userManager = true }) {
+function buildSystemdRunArgs({ sessionId, argv, workdir, logPath, stdinFile = null, exitFile = null, caps, sandbox, envFile, userManager = true }) {
   const unitName = `rbtv-worker-${sessionId}`;
   const args = [
     userManager ? '--user' : '--system',
@@ -117,6 +117,17 @@ function buildSystemdRunArgs({ sessionId, argv, workdir, logPath, stdinFile = nu
   // stdin defaults to /dev/null (EOF, no prompt). StandardInput=file: requires systemd ≥ 236.
   if (stdinFile) {
     args.push('--property', `StandardInput=file:${stdinFile}`);
+  }
+
+  // Turn-end exit marker: `--collect` garbage-collects the transient unit the instant it exits,
+  // so a later `systemctl show` returns DEFAULT values (ExecMainStatus=0, inactive) — the daemon
+  // could never read the real exit code, and every ended worker swept as `failed`. ExecStopPost
+  // runs inside the unit's own lifecycle — after the main process exits, before collection — with
+  // the real exit status in $EXIT_STATUS (systemd.service(5): a number, or a signal name like
+  // TERM). `$$` defers expansion to the spawned sh, not systemd's unit-line expansion. The path is
+  // server-composed (data_root + uuid session id); no caller input rides this line.
+  if (exitFile) {
+    args.push('--property', `ExecStopPost=/bin/sh -c 'echo $$EXIT_STATUS > ${exitFile}'`);
   }
 
   for (const [key, value] of Object.entries(caps || {})) {
@@ -153,9 +164,9 @@ function buildSystemdRunArgs({ sessionId, argv, workdir, logPath, stdinFile = nu
   return { args, unitName };
 }
 
-function spawnSystemd({ sessionId, argv, workdir, logPath, stdinFile = null, caps, sandbox, envFile, userManager = true }, logger = null) {
+function spawnSystemd({ sessionId, argv, workdir, logPath, stdinFile = null, exitFile = null, caps, sandbox, envFile, userManager = true }, logger = null) {
   ensureDir(path.dirname(logPath));
-  const { args, unitName } = buildSystemdRunArgs({ sessionId, argv, workdir, logPath, stdinFile, caps, sandbox, envFile, userManager });
+  const { args, unitName } = buildSystemdRunArgs({ sessionId, argv, workdir, logPath, stdinFile, exitFile, caps, sandbox, envFile, userManager });
 
   if (logger) logger({ level: 'info', message: 'systemd-run', args });
 
@@ -181,7 +192,7 @@ function spawnSystemd({ sessionId, argv, workdir, logPath, stdinFile = null, cap
   });
 }
 
-function spawnSetsid({ sessionId, argv, workdir, logPath, stdinFile = null }, logger = null) {
+function spawnSetsid({ sessionId, argv, workdir, logPath, stdinFile = null, exitFile = null }, logger = null) {
   ensureDir(path.dirname(logPath));
 
   const out = fs.openSync(logPath, 'a', 0o600);
@@ -199,6 +210,17 @@ function spawnSetsid({ sessionId, argv, workdir, logPath, stdinFile = null }, lo
   });
 
   proc.unref();
+
+  // Exit-marker parity with the systemd carrier's ExecStopPost: no post-exit hook exists for a
+  // detached setsid child, so observe it directly. The observer lives only while THIS daemon
+  // process does — across a daemon restart the marker never lands and the worker sweeps by the
+  // marker-absent (crash) path, exactly the pre-marker behavior. Signal death records the signal
+  // name, matching $EXIT_STATUS semantics.
+  if (exitFile) {
+    proc.on('exit', (code, signal) => {
+      try { fs.writeFileSync(exitFile, `${code !== null ? code : (signal || 'unknown')}\n`, 'utf8'); } catch {}
+    });
+  }
 
   return new Promise((resolve, reject) => {
     proc.on('error', (err) => {

@@ -3,7 +3,7 @@
     "probe": "probe-chat-reply-leg",
     "pass": true,
     "EXIT": 0,
-    "WALL_MS": 99,
+    "WALL_MS": 92,
     "SKIPPED_COUNT": 0,
     "checks": [
       {
@@ -77,6 +77,19 @@
         "giveUpText": "⚠ the agent finished but its reply couldn't be delivered"
       },
       {
+        "name": "k:wake re-dispatch (new queueId) captured via chain-thread match and delivered",
+        "ok": true,
+        "sentCount": 8,
+        "text": "woken third turn reply"
+      },
+      {
+        "name": "l:compact:true spawn never watched nor delivered",
+        "ok": true,
+        "sentCount": 8,
+        "watching": [],
+        "text": "woken third turn reply"
+      },
+      {
         "name": "f:each exec delivered exactly once; give-up exec retired with an honest notice",
         "ok": true,
         "delivered": [
@@ -86,16 +99,17 @@
           29,
           30,
           31,
-          32
+          32,
+          33
         ],
         "watching": [],
-        "sentCount": 7
+        "sentCount": 8
       }
     ]
   },
   "entries": [
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "reply leg started",
@@ -104,7 +118,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "chat bridge started",
@@ -113,7 +127,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -122,7 +136,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "session-create job enqueued",
@@ -131,7 +145,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "reply leg armed for conversation",
@@ -140,7 +154,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -152,7 +166,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "check": "a1:forwarded message armed the leg with the ACTUAL enqueue queueId",
       "ok": true,
       "armed": true,
@@ -160,17 +174,18 @@
       "armedQueueId": 100
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "reply leg captured spawn exec for conversation",
         "chatThreadId": "C-chan:1700000000.000100",
         "queueId": 100,
-        "execId": 26
+        "execId": 26,
+        "matchedBy": "queue-id"
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "check": "a2:exec captured while live, nothing posted",
       "ok": true,
       "watching": [
@@ -179,7 +194,7 @@
       "sentCount": 0
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "reply leg delivered worker reply to owner",
@@ -189,7 +204,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "check": "b:reply posted to channel+thread, text EQUALS the last result string",
       "ok": true,
       "sentCount": 1,
@@ -197,23 +212,24 @@
       "text": "the answer is 42"
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "check": "d:same exec not redelivered",
       "ok": true,
       "sentCount": 1
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "reply leg captured spawn exec for conversation",
         "chatThreadId": "C-chan:1700000000.000100",
         "queueId": 100,
-        "execId": 27
+        "execId": 27,
+        "matchedBy": "queue-id"
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "warn",
         "message": "reply leg found no parseable result line — delivering fallback",
@@ -222,7 +238,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "reply leg delivered worker reply to owner",
@@ -232,7 +248,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "check": "c:no-result-line log delivers the fixed fallback (never the raw log)",
       "ok": true,
       "sentCount": 2,
@@ -240,7 +256,7 @@
       "isFallback": true
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "exec-id learned from ticker dispatch actions",
@@ -250,7 +266,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "chain thread resolved via inspect",
@@ -260,7 +276,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "follow-up send-message enqueued",
@@ -271,7 +287,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "reply leg armed for conversation",
@@ -280,7 +296,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -294,17 +310,18 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "reply leg captured spawn exec for conversation",
         "chatThreadId": "C-chan:1700000000.000100",
         "queueId": 100,
-        "execId": 28
+        "execId": 28,
+        "matchedBy": "queue-id"
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "reply leg delivered worker reply to owner",
@@ -314,7 +331,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "check": "e:real follow-up re-armed; new exec on same queue delivers a text-equal second reply",
       "ok": true,
       "rearmed": true,
@@ -322,17 +339,18 @@
       "text": "second turn reply"
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "reply leg captured spawn exec for conversation",
         "chatThreadId": "C-chan:1700000000.000100",
         "queueId": 100,
-        "execId": 29
+        "execId": 29,
+        "matchedBy": "queue-id"
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "reply leg delivered worker reply to owner",
@@ -342,7 +360,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "check": "g:multi-page log paged to the end — last result line extracted, text-equal",
       "ok": true,
       "sentCount": 4,
@@ -350,17 +368,18 @@
       "pageMax": 2
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "reply leg captured spawn exec for conversation",
         "chatThreadId": "C-chan:1700000000.000100",
         "queueId": 100,
-        "execId": 30
+        "execId": 30,
+        "matchedBy": "queue-id"
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "warn",
         "message": "reply leg logs inspect failed — will retry next pass",
@@ -371,7 +390,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "warn",
         "message": "reply leg fetch/delivery failed — will retry next pass",
@@ -382,7 +401,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "reply leg delivered worker reply to owner",
@@ -392,7 +411,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "check": "h:transient logs failure posts nothing, exec retried, REAL text delivered",
       "ok": true,
       "heldOnFailure": true,
@@ -400,17 +419,18 @@
       "text": "survived the blip"
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "reply leg captured spawn exec for conversation",
         "chatThreadId": "C-chan:1700000000.000100",
         "queueId": 100,
-        "execId": 31
+        "execId": 31,
+        "matchedBy": "queue-id"
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "warn",
         "message": "reply leg fetch/delivery failed — will retry next pass",
@@ -421,7 +441,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "reply leg delivered worker reply to owner",
@@ -431,7 +451,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "check": "i:refused post not marked delivered; retry delivers exactly once",
       "ok": true,
       "heldOnRefusal": true,
@@ -439,17 +459,18 @@
       "text": "post me twice if you dare"
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "reply leg captured spawn exec for conversation",
         "chatThreadId": "C-chan:1700000000.000100",
         "queueId": 100,
-        "execId": 32
+        "execId": 32,
+        "matchedBy": "queue-id"
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "warn",
         "message": "reply leg logs inspect failed — will retry next pass",
@@ -460,7 +481,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "warn",
         "message": "reply leg fetch/delivery failed — will retry next pass",
@@ -471,7 +492,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "warn",
         "message": "reply leg logs inspect failed — will retry next pass",
@@ -482,7 +503,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "warn",
         "message": "reply leg fetch/delivery failed — will retry next pass",
@@ -493,7 +514,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "warn",
         "message": "reply leg logs inspect failed — will retry next pass",
@@ -504,7 +525,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "warn",
         "message": "reply leg giving up on exec after persistent fetch/delivery failures — reply NOT delivered",
@@ -515,7 +536,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "reply leg give-up notice posted to owner",
@@ -524,7 +545,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "check": "j:persistent failure gives up at the attempt cap — retired undelivered, honest give-up notice posted (exact text), no unbounded retry",
       "ok": true,
       "gaveUpAtCap": true,
@@ -533,7 +554,43 @@
       "giveUpText": "⚠ the agent finished but its reply couldn't be delivered"
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg captured spawn exec for conversation",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "queueId": 100,
+        "execId": 33,
+        "matchedBy": "chain-thread"
+      }
+    },
+    {
+      "ts": "2026-07-18T08:47:36Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg delivered worker reply to owner",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "execId": 33,
+        "chars": 22
+      }
+    },
+    {
+      "ts": "2026-07-18T08:47:36Z",
+      "check": "k:wake re-dispatch (new queueId) captured via chain-thread match and delivered",
+      "ok": true,
+      "sentCount": 8,
+      "text": "woken third turn reply"
+    },
+    {
+      "ts": "2026-07-18T08:47:36Z",
+      "check": "l:compact:true spawn never watched nor delivered",
+      "ok": true,
+      "sentCount": 8,
+      "watching": [],
+      "text": "woken third turn reply"
+    },
+    {
+      "ts": "2026-07-18T08:47:36Z",
       "check": "f:each exec delivered exactly once; give-up exec retired with an honest notice",
       "ok": true,
       "delivered": [
@@ -543,20 +600,21 @@
         29,
         30,
         31,
-        32
+        32,
+        33
       ],
       "watching": [],
-      "sentCount": 7
+      "sentCount": 8
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "reply leg stopped"
       }
     },
     {
-      "ts": "2026-07-18T07:59:46Z",
+      "ts": "2026-07-18T08:47:36Z",
       "bridge": {
         "level": "info",
         "message": "chat bridge stopped"

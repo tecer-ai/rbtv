@@ -1,15 +1,15 @@
 probe: probe-cap
-started: 2026-07-15T09:19:39.977Z
+started: 2026-07-18T08:44:48.249Z
 command: node probes/probe-cap.js
 enqueued 3 due launch-agent jobs with cap=2
-tick 1: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep"},{"phase":"dispatch","action":"spawn","execId":2,"queueId":2,"profile":"test-sleep"},{"phase":"dispatch","action":"defer","queueId":3,"reason":"global-cap"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":0},"2":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":0}}}]
+tick 1: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep","thread":"exec-1"},{"phase":"dispatch","action":"spawn","execId":2,"queueId":2,"profile":"test-sleep","thread":"exec-2"},{"phase":"dispatch","action":"defer","queueId":3,"reason":"global-cap"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":0},"2":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":0}}}]
 jobs_log rows after first tick: 2
 deferrals: [{"phase":"dispatch","action":"defer","queueId":3,"reason":"global-cap"}]
-tick 2: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":3,"queueId":3,"profile":"test-sleep"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"2":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":1},"3":{"lastActivityTick":2,"lastLogSize":0,"silenceTicks":0}}}]
+tick 2: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":3,"queueId":3,"profile":"test-sleep","thread":"exec-3"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"2":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":1},"3":{"lastActivityTick":2,"lastLogSize":0,"silenceTicks":0}}}]
 tick 3: [{"phase":"apply-events","skipped":true},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"2":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":2},"3":{"lastActivityTick":2,"lastLogSize":0,"silenceTicks":1}}}]
 jobs_log rows after follow-up ticks: 3
 status: PASS
 exit: 0
-wall_ms: 1459
+wall_ms: 1421
 skipped_count: 0
-ended: 2026-07-15T09:19:41.436Z
+ended: 2026-07-18T08:44:49.670Z

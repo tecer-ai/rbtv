@@ -277,12 +277,35 @@ async function main() {
       { gaveUpAtCap: jGaveUp, sentCount: sent.length, watching: [...pend().watching.keys()], giveUpText: lastText() });
     state.failLogs = 0;
 
-    // Final delivered-set sanity: 26, 27, 28, 29, 30, 31 delivered exactly once
-    // (six real-reply posts), 32 retired undelivered but its give-up NOTICE posted
-    // (the 7th post); nothing left watching.
+    // ── (k) CHAIN-THREAD capture (p7-multiturn): a wake re-dispatch mints a NEW
+    // queue row, so its spawn action carries a DIFFERENT queueId — the driver must
+    // capture it by the spawn action's `thread` matching the conversation's
+    // resolved chainThread (exec-26, cached at leg e), and deliver its reply. ─────
+    state.recentTicks.push({ tick: 8, actions: [{ action: 'spawn', execId: 33, queueId: 777, thread: 'exec-26' }] });
+    state.status.set(33, { live: false, status: 'done' });
+    state.logs.set(33, [resultLine('woken third turn reply')]);
+    await leg().tick();
+    record('k:wake re-dispatch (new queueId) captured via chain-thread match and delivered',
+      sent.length === 8 && lastText() === 'woken third turn reply' && pend().delivered.has(33),
+      { sentCount: sent.length, text: lastText() });
+
+    // ── (l) COMPACTION turn skipped: compact:true spawns are the chain's
+    // short-term memory, never an owner-facing reply — never watched, never posted. ─
+    state.recentTicks.push({ tick: 9, actions: [{ action: 'spawn', execId: 34, queueId: 778, thread: 'exec-26', compact: true }] });
+    state.status.set(34, { live: false, status: 'done' });
+    state.logs.set(34, [resultLine('a summary that must never reach Slack')]);
+    await leg().tick();
+    await leg().tick();
+    record('l:compact:true spawn never watched nor delivered',
+      !pend().watching.has(34) && !pend().delivered.has(34) && sent.length === 8 && lastText() !== 'a summary that must never reach Slack',
+      { sentCount: sent.length, watching: [...pend().watching.keys()], text: lastText() });
+
+    // Final delivered-set sanity: 26, 27, 28, 29, 30, 31, 33 delivered exactly once
+    // (seven real-reply posts), 32 retired undelivered but its give-up NOTICE posted;
+    // 34 (compaction) untouched; nothing left watching.
     record('f:each exec delivered exactly once; give-up exec retired with an honest notice',
-      pend().delivered.size === 7 && [26, 27, 28, 29, 30, 31, 32].every((e) => pend().delivered.has(e))
-      && pend().watching.size === 0 && sent.length === 7,
+      pend().delivered.size === 8 && [26, 27, 28, 29, 30, 31, 32, 33].every((e) => pend().delivered.has(e))
+      && pend().watching.size === 0 && sent.length === 8,
       { delivered: [...pend().delivered], watching: [...pend().watching.keys()], sentCount: sent.length });
   } catch (err) {
     cap.log({ error: err.message, stack: err.stack });

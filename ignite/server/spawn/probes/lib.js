@@ -46,6 +46,24 @@ function setup() {
         workdir_root: workRoot,
         caps: { memory_max: '64M', runtime_max: '1h' },
       },
+      // argv-last carriage: the ONE carriage whose prompt rides argv — the
+      // flag-injection guard's remaining scope (p7-multiturn carriage-conditional).
+      'test-argvlast': {
+        exec: { argv: ['sleep', '3600'], prompt: 'argv-last' },
+        resume: { argv: ['sleep', '3600'], prompt: 'argv-last' },
+        session_ref: { source: 'cwd-implicit' },
+        workdir_root: workRoot,
+        caps: { memory_max: '64M', runtime_max: '1h' },
+      },
+      // Exits 0 immediately: exit-marker + accepted-prompt legs need a worker
+      // that finishes on its own (no kill, no lingering unit).
+      'test-quick': {
+        exec: { argv: ['true'], prompt: 'stdin' },
+        resume: { argv: ['true'], prompt: 'stdin' },
+        session_ref: { source: 'cwd-implicit' },
+        workdir_root: workRoot,
+        caps: { memory_max: '64M', runtime_max: '1h' },
+      },
     },
   };
   const cfgPath = path.join(tmp, 'spawn.yaml');

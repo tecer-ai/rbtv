@@ -159,6 +159,19 @@ function ensureLogPath(dataRoot, sessionId) {
   return path.join(logDir, `${sessionId}.log`);
 }
 
+// THE one derivation of a session's exit-marker path (the file the carrier's post-exit hook
+// writes the real exit status to, and the ticker's sweep reads back). The ticker imports this
+// rather than re-deriving the path (D44 discipline applied to a filesystem contract).
+function exitFilePath(dataRoot, sessionId) {
+  return path.join(dataRoot, 'exits', `${sessionId}.exit`);
+}
+
+function ensureExitFile(dataRoot, sessionId) {
+  const exitDir = path.join(dataRoot, 'exits');
+  fs.mkdirSync(exitDir, { recursive: true, mode: 0o700 });
+  return exitFilePath(dataRoot, sessionId);
+}
+
 function createSpawnManager({ heartStore, configPath, logger = null, userManager = true }) {
   const config = loadConfig(configPath);
   const dataRoot = config.spawn.data_root;
@@ -181,7 +194,6 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // Strict request-key validation for object-style callers (gateway path).
     validateRequestKeys({ profile: profileName, session_mode: sessionMode, prompt, workdir });
 
-    rejectFlagInjection(prompt, 'prompt');
     rejectFlagInjection(workdir, 'workdir');
 
     if (!config.profiles[profileName]) {
@@ -194,6 +206,17 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     }
     if (sessionMode === 'headed' && !profile.headed) {
       throw new SpawnError(E_HEADED_NOT_CAPABLE, `profile ${profileName} is not headed-capable`, { profile: profileName, sessionMode });
+    }
+
+    // The prompt flag-injection guard is CARRIAGE-CONDITIONAL (p7-multiturn): only `argv-last`
+    // carriage puts the prompt into argv, where a leading dash or shell metacharacters could read
+    // as flags. File/stdin carriage writes the prompt to a 0600 file the worker consumes as DATA —
+    // no argv, no shell — and a composed multi-turn conversation transcript legitimately carries
+    // newlines and parentheses, which the unconditional guard would refuse. The workdir guard
+    // above stays unconditional: a workdir always rides argv/unit properties.
+    const promptBlock = sessionMode === 'headed' ? profile.headed.tui : profile.exec;
+    if (promptBlock.prompt === 'argv-last') {
+      rejectFlagInjection(prompt, 'prompt');
     }
 
     const resolvedWorkdir = resolveWorkdir(profile, workdir, config.default_workdir_root, configPath, { execId, sessionsRoot, workspaceRoot });
@@ -232,7 +255,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       logPath,
     });
 
-    const common = { sessionId, argv: wrappedArgv, workdir: resolvedWorkdir, logPath, stdinFile, caps: profile.caps, sandbox: resolvedSandbox, envFile: profile.env?.file, userManager };
+    const common = { sessionId, argv: wrappedArgv, workdir: resolvedWorkdir, logPath, stdinFile, exitFile: ensureExitFile(dataRoot, sessionId), caps: profile.caps, sandbox: resolvedSandbox, envFile: profile.env?.file, userManager };
     let launchResult;
     try {
       if (carrier === 'systemd') {
@@ -398,7 +421,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
 
     const carrier = selectCarrier(config.spawn.carrier, userManager);
 
-    const common = { sessionId, argv: wrappedArgv, workdir: resolvedWorkdir, logPath, caps: profile.caps, sandbox: resolvedSandbox, envFile: profile.env?.file, userManager };
+    const common = { sessionId, argv: wrappedArgv, workdir: resolvedWorkdir, logPath, exitFile: ensureExitFile(dataRoot, sessionId), caps: profile.caps, sandbox: resolvedSandbox, envFile: profile.env?.file, userManager };
     let launchResult;
     try {
       if (carrier === 'systemd') {
@@ -503,7 +526,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
   };
 }
 
-module.exports = { createSpawnManager, validateSpawnRequest };
+module.exports = { createSpawnManager, validateSpawnRequest, exitFilePath, ensureExitFile };
 
 function validateSpawnRequest(req) {
   if (req === null || typeof req !== 'object' || Array.isArray(req)) {

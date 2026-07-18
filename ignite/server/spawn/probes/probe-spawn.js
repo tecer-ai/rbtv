@@ -99,6 +99,40 @@ capture('probe-spawn', async (lines) => {
     if (!stdinCaught) throw new Error('stdin-carriage mutation self-check FAILED: assertion did not reject the property-less pre-fix unit args');
     lines.push('stdin-carriage mutation self-check PASS: assertion rejects the pre-fix property-less unit args');
 
+    // --- exit-marker unit assertion (p7-multiturn): an exitFile handed to the carrier composer
+    // MUST emit an ExecStopPost property writing $EXIT_STATUS to it — the daemon's ONLY honest
+    // exit observation for a --collect unit (post-collection `systemctl show` returns defaults) ---
+    const exitProbeFile = path.join(ctx.dataRoot, 'exits', 'exit-compose-probe.exit');
+    const { args: withExit } = buildSystemdRunArgs({ ...stdinArgsIn, exitFile: exitProbeFile });
+    const wantExecStopPost = `ExecStopPost=/bin/sh -c 'echo $$EXIT_STATUS > ${exitProbeFile}'`;
+    if (!withExit.some((a, k) => a === '--property' && withExit[k + 1] === wantExecStopPost)) {
+      throw new Error(`exit-marker: unit args carry no '--property ${wantExecStopPost}'`);
+    }
+    lines.push('exit-marker assert PASS: unit args carry the ExecStopPost $EXIT_STATUS writer');
+
+    // --- exit-marker mutation self-check: the pre-fix composer shape (no exitFile → no
+    // ExecStopPost, exit status unobservable) MUST be rejected ---
+    const { args: withoutExit } = buildSystemdRunArgs({ ...stdinArgsIn, exitFile: null });
+    if (withoutExit.some((a) => typeof a === 'string' && a.startsWith('ExecStopPost='))) {
+      throw new Error('exit-marker mutation self-check FAILED: exitFile:null still emitted an ExecStopPost property');
+    }
+    lines.push('exit-marker mutation self-check PASS: no exitFile → no ExecStopPost property');
+
+    // --- exit-marker LIVE: a worker that exits 0 on its own leaves the real exit status in
+    // <data_root>/exits/<session-id>.exit, written by the unit's own ExecStopPost hook ---
+    const quickFired = fire(ctx, { profile: 'test-quick', sessionMode: 'headless', workdir: ctx.defaultWorkdir });
+    const quickRow = await ctx.mgr.spawn(quickFired.exec_id, 'test-quick', 'headless', 'exit-marker live probe', null, 'probe');
+    const markerPath = path.join(ctx.dataRoot, 'exits', `${quickRow.session_id}.exit`);
+    let markerRaw = null;
+    for (let i = 0; i < 20; i++) {
+      try { markerRaw = fs.readFileSync(markerPath, 'utf8').trim(); break; } catch {}
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    if (markerRaw !== '0') {
+      throw new Error(`exit-marker live: expected '0' in ${markerPath}, got ${JSON.stringify(markerRaw)}`);
+    }
+    lines.push(`exit-marker live PASS: ${markerPath} carries exit status 0 after clean worker exit`);
+
     lines.push('action: fire row then spawn trivial worker via test-sleep profile (prompt: stdin) with a real prompt');
     const STDIN_PROMPT = 'p7-stdin-carriage probe prompt: bytes then EOF';
     const fired = fire(ctx, { profile: 'test-sleep', sessionMode: 'headless', workdir: ctx.defaultWorkdir });

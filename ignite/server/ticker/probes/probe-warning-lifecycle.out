@@ -1,5 +1,5 @@
 probe: probe-warning-lifecycle
-started: 2026-07-15T18:00:32.820Z
+started: 2026-07-18T08:44:58.546Z
 command: node probes/probe-warning-lifecycle.js
 launch tick 1: warning actions=[]
 recycle tick 2: warning actions=[]
@@ -33,6 +33,6 @@ cleared-while-snoozed row retained: {"warning_id":2,"kind":"seat-blocked-budget-
 chain-scoped budget: subject=exec-5 recycles=3 deepest-blocked-ancestors=2 -> raised warning 3
 status: PASS
 exit: 0
-wall_ms: 2832
+wall_ms: 2874
 skipped_count: 0
-ended: 2026-07-15T18:00:35.652Z
+ended: 2026-07-18T08:45:01.420Z

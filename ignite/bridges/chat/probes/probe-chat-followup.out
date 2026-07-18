@@ -3,7 +3,7 @@
     "probe": "probe-chat-followup",
     "pass": true,
     "EXIT": 0,
-    "WALL_MS": 712,
+    "WALL_MS": 695,
     "SKIPPED_COUNT": 0,
     "checks": [
       {
@@ -88,13 +88,13 @@
   },
   "entries": [
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "step": "stood up throwaway daemon + mock Slack",
-      "gatewayAddr": "127.0.0.1:35555",
-      "slackApiBase": "http://127.0.0.1:33123"
+      "gatewayAddr": "127.0.0.1:37837",
+      "slackApiBase": "http://127.0.0.1:43499"
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "reply leg started",
@@ -103,7 +103,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "chat bridge started",
@@ -112,11 +112,11 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "step": "bridge connected to mock Socket Mode (outbound WS)"
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -125,7 +125,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "transport": {
         "level": "info",
         "message": "Socket Mode connection established (hello)",
@@ -133,7 +133,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "chain thread resolved via inspect",
@@ -143,7 +143,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "follow-up send-message enqueued",
@@ -154,7 +154,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "reply leg armed for conversation",
@@ -163,7 +163,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -177,7 +177,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "check": "L1:live-chain follow-up (no pending ask) enqueues send-message type note on the chain thread",
       "ok": true,
       "row": {
@@ -190,7 +190,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "follow-up send-message enqueued",
@@ -201,7 +201,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "reply leg armed for conversation",
@@ -210,7 +210,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -224,7 +224,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "check": "L2:pending-ask follow-up enqueues send-message type answer and clears the ask",
       "ok": true,
       "row": {
@@ -237,7 +237,7 @@
       "askCleared": true
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -246,7 +246,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "exec-id learned from ticker dispatch actions",
@@ -256,7 +256,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "chain thread resolved via inspect",
@@ -266,7 +266,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "follow-up send-message enqueued",
@@ -277,7 +277,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "reply leg armed for conversation",
@@ -286,7 +286,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -300,7 +300,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "check": "L3:queue-id-only conversation learns exec_id via recent_ticks and forwards on the true chain thread",
       "ok": true,
       "row": {
@@ -312,7 +312,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -321,7 +321,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "chain thread derived from first exec-id (convention fallback; session not live)",
@@ -331,7 +331,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "follow-up send-message enqueued",
@@ -342,7 +342,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "reply leg armed for conversation",
@@ -351,7 +351,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -365,7 +365,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "check": "f1:exec KNOWN but NOT live → send-message enqueued addressed to the DERIVED exec-<firstExecId>",
       "ok": true,
       "derivedThread": "exec-3",
@@ -379,7 +379,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -388,7 +388,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "ignored later exec-id bind (first-wins; chain thread is exec-<first exec_id>)",
@@ -398,7 +398,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "chain thread derived from first exec-id (convention fallback; session not live)",
@@ -408,7 +408,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "follow-up send-message enqueued",
@@ -419,7 +419,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "reply leg armed for conversation",
@@ -428,7 +428,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:44Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -442,7 +442,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:45Z",
       "check": "f2:first-wins immutability — later exec-id bind ignored; derived chain thread stays exec-<firstExecId>",
       "ok": true,
       "boundExecId": 4,
@@ -451,7 +451,7 @@
       "thread": "exec-4"
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:45Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -460,7 +460,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:45Z",
       "bridge": {
         "level": "warn",
         "message": "follow-up not forwarded: chain thread unresolved",
@@ -469,7 +469,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:45Z",
       "bridge": {
         "level": "info",
         "message": "decline notice posted to owner thread",
@@ -477,7 +477,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:45Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -488,7 +488,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:45Z",
       "check": "f3:mapped decline (exec-id-unknown) enqueues NOTHING and posts the exact DECLINE_NOTICE to the mapped thread",
       "ok": true,
       "queueDelta": 0,
@@ -499,7 +499,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:45Z",
       "bridge": {
         "level": "warn",
         "message": "chat principal refused — pending owner pairing",
@@ -507,7 +507,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:45Z",
       "bridge": {
         "level": "warn",
         "message": "chat message refused (not admitted) — no forward",
@@ -517,7 +517,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:45Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -528,14 +528,14 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:45Z",
       "check": "f3:allowlist-refused user gets NO notice and NO enqueue (never post on a refusal)",
       "ok": true,
       "postsDelta": 0,
       "queueDelta": 0
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:45Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -544,7 +544,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:45Z",
       "bridge": {
         "level": "warn",
         "message": "follow-up not forwarded: chain thread unresolved",
@@ -553,7 +553,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:45Z",
       "transport": {
         "level": "warn",
         "message": "chat.postMessage failed",
@@ -562,7 +562,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:45Z",
       "bridge": {
         "level": "warn",
         "message": "decline notice not delivered (best-effort, dropped)",
@@ -571,7 +571,7 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:45Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -582,21 +582,21 @@
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:45Z",
       "check": "f5:failed notice post is logged and dropped — no retry loop, no enqueue, run continues",
       "ok": true,
       "queueDelta": 0,
       "successfulPostsDelta": 0
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:45Z",
       "bridge": {
         "level": "info",
         "message": "reply leg stopped"
       }
     },
     {
-      "ts": "2026-07-18T07:59:45Z",
+      "ts": "2026-07-18T08:45:45Z",
       "bridge": {
         "level": "info",
         "message": "chat bridge stopped"

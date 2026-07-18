@@ -1,0 +1,15 @@
+probe: probe-multiturn
+started: 2026-07-18T08:47:25.711Z
+command: node probes/probe-multiturn.js
+A PASS: clean exit swept done, corpus=ANSWER-len-17, exec done/0, spawn action thread=exec-1
+B PASS (negatives): quiet thread and ticker rows never wake the chain
+B PASS (turn 2): woke on sender reply; prompt composed (Q1+A1+R1, no ticker rows); linear chain exec1→exec2
+B PASS (turn 3): history accumulates across 3 turns
+C PASS: over-bound wake became a compaction turn; answering turn spliced at the summary; chain linear exec1→exec2→exec3
+D PASS: 3 sender-message wakes fired under slot_max_repeats=2 (sender turns never consume the automatic budget)
+D2 PASS: the compaction (automatic) recycle hit the budget gate at slot_max_repeats=1
+status: PASS
+exit: 0
+wall_ms: 10910
+skipped_count: 0
+ended: 2026-07-18T08:47:36.621Z

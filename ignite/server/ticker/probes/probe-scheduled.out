@@ -1,14 +1,14 @@
 probe: probe-scheduled
-started: 2026-07-15T09:19:50.654Z
+started: 2026-07-18T08:44:35.459Z
 command: node probes/probe-scheduled.js
-enqueued at 2026-07-15T09:19:50.677Z, run_at 2026-07-15T09:19:52.677Z
+enqueued at 2026-07-18T08:44:35.472Z, run_at 2026-07-18T08:44:37.472Z
 tick 1: [{"phase":"apply-events","skipped":true},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}}]
-tick 2: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":2,"lastLogSize":0,"silenceTicks":0}}}]
+tick 2: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":2,"lastLogSize":0,"silenceTicks":0}}}]
 jobs_log rows: 1
-exec status: running, profile: null
+exec status: running, profile: test-sleep
 spawn live: true
 status: PASS
 exit: 0
-wall_ms: 2538
+wall_ms: 2555
 skipped_count: 0
-ended: 2026-07-15T09:19:53.192Z
+ended: 2026-07-18T08:44:38.014Z

@@ -1,12 +1,14 @@
 probe: probe-flag-injection
-started: 2026-07-15T23:03:42.157Z
+started: 2026-07-18T08:32:10.903Z
 command: node probes/probe-flag-injection.js
-flag in prompt: E_FLAG_INJECTION
+flag in prompt (argv-last carriage): E_FLAG_INJECTION
+metacharacters in prompt (argv-last carriage): E_FLAG_INJECTION
 flag in workdir: E_FLAG_INJECTION
 unknown request key: E_UNKNOWN_REQUEST_KEY
 unknown profile: E_UNKNOWN_PROFILE
 result: all injection attempts refused typed
+stdin-carriage transcript prompt ACCEPTED: exec 1 spawned (session 81bb3356-78c1-46ed-ad71-4c0a5ecc63de)
 status: PASS
 exit: 0
-wall_ms: 14
-ended: 2026-07-15T23:03:42.171Z
+wall_ms: 93
+ended: 2026-07-18T08:32:10.996Z
