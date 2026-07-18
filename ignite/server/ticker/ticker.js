@@ -632,6 +632,14 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     const lastSessions = lastEnforceSessions();
     const sessions = {};
     for (const exec of liveExecutions()) {
+      // D101: headed sessions are EXEMPT from the silence stall ladder. A headed session emits no
+      // `completion` and is expected to sit idle (an owner-driven pty waiting for JOIN/TAKE-OVER),
+      // so silence must NEVER warn or stall it — that would drop it from the live-only session
+      // picker while its pty stays fully attachable, breaking browser take-over. The CRASH SWEEP
+      // above (a dead headed session → `failed`) still applies, and `runtime_max` / explicit kill
+      // still bound it; only the silence warn/stall path is skipped.
+      if (exec.session_mode === 'headed') continue;
+
       const last = lastSessions[exec.exec_id] || { lastActivityTick: exec.fired_tick, lastLogSize: 0 };
       let lastActivityTick = last.lastActivityTick;
       let lastLogSize = last.lastLogSize;
