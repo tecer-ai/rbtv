@@ -28,9 +28,35 @@ const { nowIsoUtc } = require('./config');
 // so a future producer never invents a sixth.
 const CMP8_TYPES = new Set(['completion', 'ask', 'answer', 'verdict', 'note']);
 
-function createForwardPath({ forwarder, threadMap, allowlist, config, logger = null }) {
+// D111 part 2 — the honest decline notice. When a MAPPED conversation's follow-up
+// cannot reach the running work (chain unresolved, or the gateway refused the
+// enqueue), the owner sees this ONE fixed line instead of silence. Fixed string,
+// NO internals (never leak a reason / thread / queue id into chat).
+const DECLINE_NOTICE = "⚠ couldn't route your reply to the running work — please try again shortly";
+
+function createForwardPath({ forwarder, threadMap, allowlist, config, logger = null, deliver = null }) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
+  }
+
+  // Best-effort owner notice on a DROPPED reply path (D111 part 2). Called ONLY from
+  // the follow-up leg — i.e. a MAPPED conversation. Delivery is best-effort: when no
+  // reply address exists deliverToOwner returns delivered:false and we drop; a failed
+  // post is logged and dropped, NEVER retried (no notice loop). Notices are NEVER
+  // posted on allowlist/pairing refusals — that path returns before the follow-up leg
+  // (unpaired users get nothing, by security posture, not a gap).
+  async function postDeclineNotice(chatThreadId) {
+    if (typeof deliver !== 'function') return;
+    try {
+      const d = await deliver({ chatThreadId, text: DECLINE_NOTICE, markAsk: false });
+      if (d && d.delivered === false) {
+        log('warn', 'decline notice not delivered (best-effort, dropped)', { chatThreadId, reason: d.reason || d.error || 'unknown' });
+      } else {
+        log('info', 'decline notice posted to owner thread', { chatThreadId });
+      }
+    } catch (err) {
+      log('warn', 'decline notice threw (best-effort, dropped)', { chatThreadId, error: err.message });
+    }
   }
 
   // A first message that STARTS work → a session-creating launch-agent job.
@@ -72,6 +98,7 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
       // reply stays with the owner's conversation state; a later turn consumes it
       // once the chain thread is resolvable.
       log('warn', 'follow-up not forwarded: chain thread unresolved', { chatThreadId, reason: resolved.reason });
+      await postDeclineNotice(chatThreadId); // D111: honest notice, never silence, on a mapped conversation
       return { forwarded: false, leg: 'follow-up', reason: `chain-unresolved:${resolved.reason}` };
     }
 
@@ -91,6 +118,7 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     const res = await forwarder.forward('enqueue-job', payload);
     if (!res.ok) {
       log('warn', 'follow-up send-message enqueue refused by gateway', { chatThreadId, error: res.error });
+      await postDeclineNotice(chatThreadId); // D111: honest notice on a mapped conversation whose enqueue was refused
       return { forwarded: false, leg: 'follow-up', intent: 'enqueue-job', replyType, thread: resolved.chainThread, error: res.error };
     }
     if (replyType === 'answer') threadMap.setPendingAsk(chatThreadId, false); // the ask has now been answered
@@ -116,4 +144,4 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   return { onChatMessage, forwardSessionCreate, forwardFollowUp, CMP8_TYPES };
 }
 
-module.exports = { createForwardPath, CMP8_TYPES };
+module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE };

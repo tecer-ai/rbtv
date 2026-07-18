@@ -80,8 +80,9 @@ bridge arms a per-conversation PENDING-REPLY state; a single driver loop (defaul
    ask-detection is out of scope for v1), marking the exec delivered ONLY on a
    confirmed delivery, so it is never posted twice — and so a TRANSIENT logs/
    transport/Slack failure never burns the reply: the exec is retried next pass,
-   bounded per exec; at the attempt cap it is retired undelivered with a warn
-   (honest non-delivery, never a silent success or a fallback posted over a blip).
+   bounded per exec; at the attempt cap it is retired undelivered with a warn AND a
+   fixed give-up notice to the owner (D111 part 2 — honest non-delivery, never a
+   silent success or a fallback posted over a blip).
 
 In-memory v1 (D110 floor): a restart forgets pending state, matching the thread-map.
 A pending conversation whose spawn never appears within a bounded window, or whose
@@ -92,6 +93,29 @@ Thread ↔ turn-chain mapping (`thread-map.js`) keys the chain by its chain-stab
 thread id `exec-<first exec_id>` (D24 Q3a). The bridge navigates
 `job-id → exec-id → chain-thread id` via the gateway `inspect` intent (D69) — it
 never conflates id spaces and never forwards a follow-up with an unresolved thread.
+The `exec-id → chain-thread` step has **two settled resolutions** (D111): the
+authoritative `live_sessions[].thread` when the chain's session is currently live,
+else the chain-stable **convention** `exec-<first exec_id>` derived from the KNOWN
+first exec-id when the session is not live — the turn-boundary reality, since short
+v1 turns end between the owner's messages (a running chain has no live session
+between turns). Deriving by that fixed convention is a resolution, not a guess;
+`sessionExecId` is **first-wins immutable** so the derived id always names the
+chain's real thread. Only when NO first exec-id can be established at all
+(`exec-id-unknown` — nothing dispatched, or the spawn aged out of the window) is
+resolution honestly deferred and the follow-up declined.
+
+### Honest owner notices (D111 part 2)
+
+The bridge never drops an owner-visible reply path in **silence** on a MAPPED
+conversation. When a follow-up cannot reach the running work — chain unresolved
+(`exec-id-unknown`) or the gateway refused the enqueue — the forward path posts a
+fixed decline notice (`⚠ couldn't route your reply to the running work — please try
+again shortly`) via `deliverToOwner`. When the reply leg retires an exec undelivered
+at its attempt cap, it posts a fixed give-up notice (`⚠ the agent finished but its
+reply couldn't be delivered`). Notices carry NO internals, are **best-effort** (a
+failed post is logged and dropped, never retried into a loop), and are posted ONLY
+for mapped conversations — never on an allowlist/pairing refusal (unpaired users get
+nothing, by security posture).
 
 ## Files
 
@@ -103,7 +127,7 @@ never conflates id spaces and never forwards a follow-up with an unresolved thre
 | `reply-leg.js` | the D110 outbound driver: worker turn finishes → fetch its answer via `inspect` → `deliverToOwner` into the Slack thread |
 | `slack-socket-mode.js` | Slack Socket Mode transport (outbound WS + chat.postMessage) |
 | `allowlist.js` | chat-user allowlist + DM pairing (admission control) |
-| `thread-map.js` | chat-thread ↔ turn-chain map + inspect-based chain-thread resolution |
+| `thread-map.js` | chat-thread ↔ turn-chain map + two-tier chain-thread resolution (live_sessions, else the `exec-<first exec_id>` convention derivation; first-wins immutable exec-id) |
 | `gateway-forwarder.js` | outbound HTTP client to the gateway (self-contained; no sibling import) |
 | `config.js` | config + secret resolution (secrets from env only) |
 | `probes/` | the spec's Test Plan probes (see below) |
@@ -143,9 +167,9 @@ Run the probes: `node probes/probe-chat-<name>.js` (evidence → `probe-chat-<na
 | `probe-chat-allowlist` | #2 | non-allowlisted user refused, nothing enqueued; admitted user does enqueue |
 | `probe-chat-outbound` | #3 | starting the bridge adds NO new inbound listener (`ss -tlnp` delta) |
 | `probe-chat-outbound-msg` | #4 | owner output delivered outbound via `chat.postMessage` |
-| `probe-chat-reply-leg` | #4 | the D110 driver, armed through the REAL inbound wiring (Slack event → forward path → arm): spawn captured from `recent_ticks` → `live:false` → LAST stream-json result line extracted (multi-page logs paged to the end) → posted to the conversation's channel+thread, text-EQUAL to the result string; no-result log delivers the fixed fallback (never the raw log); no exec delivered twice; a follow-up turn (new exec, same queue) delivers a second reply; a transient logs failure or refused post is retried (nothing burned), persistent failure retires the exec undelivered at a bounded attempt cap |
+| `probe-chat-reply-leg` | #4 | the D110 driver, armed through the REAL inbound wiring (Slack event → forward path → arm): spawn captured from `recent_ticks` → `live:false` → LAST stream-json result line extracted (multi-page logs paged to the end) → posted to the conversation's channel+thread, text-EQUAL to the result string; no-result log delivers the fixed fallback (never the raw log); no exec delivered twice; a follow-up turn (new exec, same queue) delivers a second reply; a transient logs failure or refused post is retried (nothing burned), persistent failure retires the exec undelivered at a bounded attempt cap AND posts the honest give-up notice (D111 part 2) |
 | `probe-chat-boundary` | #5 | bridge source holds no spawn/queue handle, opens no server, imports no sibling |
-| `probe-chat-followup` | #6 | follow-up forwards as `send-message` on the chain thread (NEVER send-to-session), reply type `answer`/`note`; queue_id → exec_id learned from ticker dispatch actions; unresolvable chain DECLINES (nothing enqueued) |
+| `probe-chat-followup` | #6 | follow-up forwards as `send-message` on the chain thread (NEVER send-to-session), reply type `answer`/`note`; queue_id → exec_id learned from ticker dispatch actions; **exec KNOWN but NOT live → derives `exec-<firstExecId>`** (D111 convention fallback); **first-exec immutability** (a later exec-id bind is ignored); **exec-id-unknown DECLINES** (nothing enqueued) and posts the exact decline notice to the mapped thread while an allowlist-refused user gets nothing; a failed notice post is logged and dropped (no retry loop) |
 
 ## Flagged seams (task-7.5 / p7-checkpoint — surfaced, not resolved here)
 
@@ -158,12 +182,16 @@ Run the probes: `node probes/probe-chat-<name>.js` (evidence → `probe-chat-<na
   `recent_ticks[].actions[]` carries `{ action: 'spawn', execId, queueId }` per
   fired row (the store's `jobs_log.queue_id` holds the same link), and
   `thread-map.js` navigates it (queue_id → exec_id via dispatch actions, then
-  exec_id → thread via `live_sessions[]`). The residual gap is the WINDOW: the
-  surface returns only the last 10 ticks (~100 s at default cadence), so a spawn
+  exec_id → thread via `live_sessions[]`, else the `exec-<first exec_id>` convention
+  derivation, D111). The residual gap is the WINDOW for *learning the first exec-id*:
+  the surface returns only the last 10 ticks (~100 s at default cadence), so a spawn
   older than that ages out before the first follow-up learns its exec-id — then
-  resolution is honestly deferred (`exec-id-unknown`), never guessed. A direct
-  `jobs_log` lookup (e.g. exposing `queue_id` on `live_sessions[]`) would close
-  it; that is a server-surface change outside this task's write surface.
+  resolution is honestly deferred (`exec-id-unknown`), never guessed. Once the first
+  exec-id IS learned (within the window, or bound directly), it is remembered
+  first-wins and EVERY later turn resolves by derivation regardless of liveness — the
+  window no longer bites per-turn. A direct `jobs_log` lookup (e.g. exposing
+  `queue_id` on `live_sessions[]`) would close the initial-learning gap too; that is
+  a server-surface change outside this task's write surface.
 - **Registry convergence.** The settled model is channel → (1:1) goal thread →
   per-slot sub-thread → session; the v1 chat-thread ↔ turn-chain map is the v1
   stand-in until goals/threads-store land.

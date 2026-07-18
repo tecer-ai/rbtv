@@ -32,7 +32,8 @@
 //   (i) a REFUSED chat.postMessage (ok:false) does NOT mark the exec delivered —
 //       the next pass retries and delivers;
 //   (j) PERSISTENT fetch failure gives up at the bounded attempt cap: the exec is
-//       retired undelivered (honest non-delivery), nothing posted, no unbounded retry.
+//       retired undelivered (honest non-delivery), and the HONEST GIVE-UP NOTICE
+//       (D111 part 2) is posted to the owner — no silent success, no unbounded retry.
 //
 // MUTATION EVIDENCE (validation #2): each guard is provable by this probe —
 //   • comment the `deliver(...)` call in reply-leg.js _runOnce → b/c/e/g fail;
@@ -41,7 +42,9 @@
 //     (fallback posted on a transport blip);
 //   • drop the `d.delivered === false` check → (i) fails (refused post marked done);
 //   • drop the attempt cap → (j) fails (unbounded retry);
-//   • break the paging loop after page 0 → (g) fails.
+//   • break the paging loop after page 0 → (g) fails;
+//   • remove the give-up notice deliver at the attempt cap (M4) → (j) fails
+//     (no notice posted; sent stays 6 and lastText ≠ GIVE_UP_NOTICE).
 // Run each mutation → probe FAILS → restore byte-exact → passes.
 //
 // ⚑ Timing uses Node `Date.now()` — `date +%s%3N` is broken on this box (D64).
@@ -51,7 +54,7 @@ const { startMockSlack, makeCapture, nowMs, sleep } = require('./lib');
 const { resolveConfig } = require('../config');
 const { createSlackSocketMode } = require('../slack-socket-mode');
 const { buildBridge } = require('../index');
-const { FALLBACK_TEXT } = require('../reply-leg');
+const { FALLBACK_TEXT, GIVE_UP_NOTICE } = require('../reply-leg');
 
 const OUT = path.join(__dirname, 'probe-chat-reply-leg.out');
 
@@ -255,7 +258,11 @@ async function main() {
       iHeld && sent.length === 6 && lastText() === 'post me twice if you dare' && pend().delivered.has(31),
       { heldOnRefusal: iHeld, sentCount: sent.length, text: lastText() });
 
-    // ── (j) PERSISTENT failure → bounded give-up (attempt cap 3), nothing posted ─
+    // ── (j) PERSISTENT failure → bounded give-up (attempt cap 3) → honest notice ─
+    // The reply itself is never delivered (logs keep failing), but at the cap the
+    // driver posts the fixed GIVE-UP NOTICE (D111 part 2) — the mock Slack post path
+    // is healthy (only logs fail), so the notice lands. That is the 7th (and last)
+    // post: an honest "the agent finished but its reply couldn't be delivered".
     state.recentTicks.push({ tick: 7, actions: [{ action: 'spawn', execId: 32, queueId: QUEUE }] });
     state.status.set(32, { live: false, status: 'failed' });
     state.logs.set(32, [resultLine('never delivered')]);
@@ -263,18 +270,19 @@ async function main() {
     await leg().tick();
     await leg().tick();
     await leg().tick();
-    const jGaveUp = !pend().watching.has(32) && pend().delivered.has(32) && sent.length === 6;
-    await leg().tick(); // one more pass: must NOT resurrect or post
-    record('j:persistent failure gives up at the attempt cap — retired undelivered, nothing posted, no unbounded retry',
-      jGaveUp && !pend().watching.has(32) && sent.length === 6,
-      { gaveUpAtCap: jGaveUp, sentCount: sent.length, watching: [...pend().watching.keys()] });
+    const jGaveUp = !pend().watching.has(32) && pend().delivered.has(32) && sent.length === 7 && lastText() === GIVE_UP_NOTICE;
+    await leg().tick(); // one more pass: must NOT resurrect, re-post, or retry
+    record('j:persistent failure gives up at the attempt cap — retired undelivered, honest give-up notice posted (exact text), no unbounded retry',
+      jGaveUp && !pend().watching.has(32) && sent.length === 7 && lastText() === GIVE_UP_NOTICE,
+      { gaveUpAtCap: jGaveUp, sentCount: sent.length, watching: [...pend().watching.keys()], giveUpText: lastText() });
     state.failLogs = 0;
 
     // Final delivered-set sanity: 26, 27, 28, 29, 30, 31 delivered exactly once
-    // (six successful posts), 32 retired undelivered; nothing left watching.
-    record('f:each exec delivered exactly once; give-up exec retired',
+    // (six real-reply posts), 32 retired undelivered but its give-up NOTICE posted
+    // (the 7th post); nothing left watching.
+    record('f:each exec delivered exactly once; give-up exec retired with an honest notice',
       pend().delivered.size === 7 && [26, 27, 28, 29, 30, 31, 32].every((e) => pend().delivered.has(e))
-      && pend().watching.size === 0 && sent.length === 6,
+      && pend().watching.size === 0 && sent.length === 7,
       { delivered: [...pend().delivered], watching: [...pend().watching.keys()], sentCount: sent.length });
   } catch (err) {
     cap.log({ error: err.message, stack: err.stack });

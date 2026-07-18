@@ -10,8 +10,12 @@
 // ⚑ ID-SPACE DISCIPLINE (D69): jobId (a queue-row handle), exec-id, and the
 // chain/thread id are DISTINCT id spaces. The bridge navigates
 //   job-id → exec-id → chain-thread id
-// via the gateway `inspect` intent — it NEVER conflates or synthesizes across
-// spaces, and it NEVER guesses a thread it has not resolved.
+// via the gateway `inspect` intent — it NEVER conflates the spaces and NEVER
+// guesses. The exec-id → chain-thread step has TWO settled resolutions: the
+// authoritative live_sessions `thread` when the session is live, else the
+// chain-stable CONVENTION `exec-<first exec_id>` (D24 Q3a) derived from the KNOWN
+// first exec-id (see resolveChainThread). Deriving by that fixed convention is a
+// resolution, not a guess — an UNKNOWN first exec-id derives nothing.
 //
 // ⚑ REGISTRY CONVERGENCE (surfaced, task-7.5): the settled model is deeper —
 // channel → (1:1) goal thread → per-slot sub-thread → session. v1 maps
@@ -58,12 +62,21 @@ function createThreadMap({ logger = null } = {}) {
   }
 
   // Record the first execution's exec_id (the D69 job-id → exec-id nav step),
-  // learned from the daemon. Deriving the chain thread from it is a pure string
-  // (chain-stable convention), but we still confirm liveness via inspect before
-  // trusting it as the address.
+  // learned from the daemon. FIRST-WINS immutable (D111 guard): once set, a later
+  // bind is IGNORED — the chain-stable thread is `exec-<FIRST exec_id>` (D24 Q3a),
+  // so a later turn's exec must never overwrite it, or the convention-derivation
+  // fallback below would address a NONEXISTENT thread. resolveChainThread prefers
+  // the authoritative live_sessions thread, then DERIVES `exec-<first exec_id>`
+  // from this id when the session is not live (convention-derivation, not a guess).
   function bindSessionExecId(chatThreadId, execId) {
     const entry = get(chatThreadId);
     if (!entry) return null;
+    if (entry.sessionExecId != null) {
+      if (Number(execId) !== entry.sessionExecId) {
+        log('info', 'ignored later exec-id bind (first-wins; chain thread is exec-<first exec_id>)', { chatThreadId: String(chatThreadId), keptExecId: entry.sessionExecId, ignoredExecId: Number(execId) });
+      }
+      return entry;
+    }
     entry.sessionExecId = Number(execId);
     return entry;
   }
@@ -91,11 +104,23 @@ function createThreadMap({ logger = null } = {}) {
   // gateway `inspect` intent (D69 — the bridge holds no store handle). Returns
   // { resolved, chainThread, reason }.
   //
-  // ⚑ NEVER GUESSES. If the chain thread cannot be resolved from the recorded
-  // exec-id via inspect, it returns resolved:false — the caller then declines to
-  // forward with a wrong thread (fail loud, never silent-wrong). A conversation
-  // whose session has not been dispatched yet HAS no chain thread; that is the
-  // turn-boundary reality, not an error to paper over.
+  // ⚑ RESOLUTION ORDER (D111) — two tiers, authoritative first, and it NEVER
+  // guesses:
+  //   1. live_sessions[] — when the chain's session is CURRENTLY live, the store's
+  //      own `thread` is the authoritative address (reason 'inspect-ticker').
+  //   2. CONVENTION-DERIVATION fallback — when the FIRST exec_id is KNOWN (bound,
+  //      or learned from recent_ticks below) but its session is not live (the
+  //      turn-boundary reality: short v1 turns end between the owner's messages, so
+  //      live_sessions no longer carries it), DERIVE `exec-<first exec_id>`. This
+  //      is not a guess: the chain-stable thread id IS `exec-<first exec_id>` by
+  //      settled convention (D24 Q3a; this module's header; ticker-engine-spec
+  //      § v1 turn-chain), and `sessionExecId` is FIRST-WINS immutable
+  //      (bindSessionExecId), so the derived id always names the chain's real
+  //      thread (reason 'derived-convention').
+  // When NO first exec_id can be established at all (`exec-id-unknown` — nothing
+  // dispatched yet, or the spawn aged out of the window), resolution is honestly
+  // deferred, never fabricated: the caller declines rather than forward a wrong
+  // thread (fail loud). There is still nothing to derive FROM.
   async function resolveChainThread(chatThreadId, forwarder) {
     const entry = get(chatThreadId);
     if (!entry) return { resolved: false, chainThread: null, reason: 'unknown-conversation' };
@@ -146,7 +171,16 @@ function createThreadMap({ logger = null } = {}) {
       log('info', 'chain thread resolved via inspect', { chatThreadId: String(chatThreadId), execId: entry.sessionExecId, chainThread: match.thread });
       return { resolved: true, chainThread: match.thread, reason: 'inspect-ticker' };
     }
-    return { resolved: false, chainThread: null, reason: 'exec-id-not-live' };
+
+    // The session is not live — the turn-boundary reality: the chain's first exec
+    // ended between the owner's short v1 turns, so live_sessions no longer carries
+    // it. We KNOW the first exec_id (bound, or learned above) and the chain-stable
+    // thread id IS `exec-<first exec_id>` by settled convention (D24 Q3a), so DERIVE
+    // it rather than decline. Cache it on the entry (subsequent turns hit the cache).
+    const derived = `exec-${entry.sessionExecId}`;
+    entry.chainThread = derived;
+    log('info', 'chain thread derived from first exec-id (convention fallback; session not live)', { chatThreadId: String(chatThreadId), execId: entry.sessionExecId, chainThread: derived });
+    return { resolved: true, chainThread: derived, reason: 'derived-convention' };
   }
 
   function size() {

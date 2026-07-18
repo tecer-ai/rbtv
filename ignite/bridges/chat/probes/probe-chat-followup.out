@@ -3,59 +3,184 @@
     "probe": "probe-chat-followup",
     "pass": true,
     "EXIT": 0,
-    "WALL_MS": 38,
-    "SKIPPED_COUNT": 0
+    "WALL_MS": 712,
+    "SKIPPED_COUNT": 0,
+    "checks": [
+      {
+        "name": "L1:live-chain follow-up (no pending ask) enqueues send-message type note on the chain thread",
+        "ok": true,
+        "row": {
+          "job_id": "send-message",
+          "args": {
+            "type": "note",
+            "thread": "exec-1",
+            "corpus": "any progress?"
+          }
+        }
+      },
+      {
+        "name": "L2:pending-ask follow-up enqueues send-message type answer and clears the ask",
+        "ok": true,
+        "row": {
+          "args": {
+            "type": "answer",
+            "thread": "exec-1",
+            "corpus": "yes, ship it"
+          }
+        },
+        "askCleared": true
+      },
+      {
+        "name": "L3:queue-id-only conversation learns exec_id via recent_ticks and forwards on the true chain thread",
+        "ok": true,
+        "row": {
+          "args": {
+            "type": "note",
+            "thread": "exec-2",
+            "corpus": "status?"
+          }
+        }
+      },
+      {
+        "name": "f1:exec KNOWN but NOT live → send-message enqueued addressed to the DERIVED exec-<firstExecId>",
+        "ok": true,
+        "derivedThread": "exec-3",
+        "storeThread": "exec-3",
+        "row": {
+          "args": {
+            "type": "note",
+            "thread": "exec-3",
+            "corpus": "still on it?"
+          }
+        }
+      },
+      {
+        "name": "f2:first-wins immutability — later exec-id bind ignored; derived chain thread stays exec-<firstExecId>",
+        "ok": true,
+        "boundExecId": 4,
+        "firstExecId": 4,
+        "laterExecId": 5,
+        "thread": "exec-4"
+      },
+      {
+        "name": "f3:mapped decline (exec-id-unknown) enqueues NOTHING and posts the exact DECLINE_NOTICE to the mapped thread",
+        "ok": true,
+        "queueDelta": 0,
+        "post": {
+          "channel": "C-decline-fu",
+          "text": "⚠ couldn't route your reply to the running work — please try again shortly",
+          "thread_ts": "1700000000.012000"
+        }
+      },
+      {
+        "name": "f3:allowlist-refused user gets NO notice and NO enqueue (never post on a refusal)",
+        "ok": true,
+        "postsDelta": 0,
+        "queueDelta": 0
+      },
+      {
+        "name": "f5:failed notice post is logged and dropped — no retry loop, no enqueue, run continues",
+        "ok": true,
+        "queueDelta": 0,
+        "successfulPostsDelta": 0
+      }
+    ]
   },
   "entries": [
     {
-      "ts": "2026-07-18T07:00:55Z",
-      "step": "seeded running execution",
-      "execId": 1,
-      "chainThread": "exec-1"
+      "ts": "2026-07-18T07:59:45Z",
+      "step": "stood up throwaway daemon + mock Slack",
+      "gatewayAddr": "127.0.0.1:35555",
+      "slackApiBase": "http://127.0.0.1:33123"
     },
     {
-      "ts": "2026-07-18T07:00:55Z",
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg started",
+        "pollMs": 3600000,
+        "windowMs": 600000
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat bridge started",
+        "transport": "slack-socket-mode",
+        "connected": true
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "step": "bridge connected to mock Socket Mode (outbound WS)"
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
-        "chatThreadId": "C-chan:5.5",
+        "chatThreadId": "C-live-fu:1700000000.010000",
         "queueId": 1
       }
     },
     {
-      "ts": "2026-07-18T07:00:55Z",
+      "ts": "2026-07-18T07:59:45Z",
+      "transport": {
+        "level": "info",
+        "message": "Socket Mode connection established (hello)",
+        "numConnections": 1
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
       "bridge": {
         "level": "info",
         "message": "chain thread resolved via inspect",
-        "chatThreadId": "C-chan:5.5",
+        "chatThreadId": "C-live-fu:1700000000.010000",
         "execId": 1,
         "chainThread": "exec-1"
       }
     },
     {
-      "ts": "2026-07-18T07:00:55Z",
+      "ts": "2026-07-18T07:59:45Z",
       "bridge": {
         "level": "info",
         "message": "follow-up send-message enqueued",
-        "chatThreadId": "C-chan:5.5",
+        "chatThreadId": "C-live-fu:1700000000.010000",
         "replyType": "note",
         "thread": "exec-1",
         "queueId": 1
       }
     },
     {
-      "ts": "2026-07-18T07:00:55Z",
-      "step": "follow-up (no pending ask)",
-      "outcome": {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg armed for conversation",
+        "chatThreadId": "C-live-fu:1700000000.010000",
+        "queueId": 1
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat message handled",
+        "chatThreadId": "C-live-fu:1700000000.010000",
         "forwarded": true,
         "leg": "follow-up",
         "intent": "enqueue-job",
         "replyType": "note",
         "thread": "exec-1",
         "queueId": 1
-      },
-      "enqueuedRow": {
-        "queue_id": 1,
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "check": "L1:live-chain follow-up (no pending ask) enqueues send-message type note on the chain thread",
+      "ok": true,
+      "row": {
         "job_id": "send-message",
         "args": {
           "type": "note",
@@ -65,30 +190,44 @@
       }
     },
     {
-      "ts": "2026-07-18T07:00:55Z",
+      "ts": "2026-07-18T07:59:45Z",
       "bridge": {
         "level": "info",
         "message": "follow-up send-message enqueued",
-        "chatThreadId": "C-chan:5.5",
+        "chatThreadId": "C-live-fu:1700000000.010000",
         "replyType": "answer",
         "thread": "exec-1",
         "queueId": 2
       }
     },
     {
-      "ts": "2026-07-18T07:00:55Z",
-      "step": "follow-up (pending ask)",
-      "outcome": {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg armed for conversation",
+        "chatThreadId": "C-live-fu:1700000000.010000",
+        "queueId": 1
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat message handled",
+        "chatThreadId": "C-live-fu:1700000000.010000",
         "forwarded": true,
         "leg": "follow-up",
         "intent": "enqueue-job",
         "replyType": "answer",
         "thread": "exec-1",
         "queueId": 2
-      },
-      "enqueuedRow": {
-        "queue_id": 2,
-        "job_id": "send-message",
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "check": "L2:pending-ask follow-up enqueues send-message type answer and clears the ask",
+      "ok": true,
+      "row": {
         "args": {
           "type": "answer",
           "thread": "exec-1",
@@ -98,94 +237,370 @@
       "askCleared": true
     },
     {
-      "ts": "2026-07-18T07:00:55Z",
+      "ts": "2026-07-18T07:59:45Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
-        "chatThreadId": "C-chan:7.7",
+        "chatThreadId": "C-nav-fu:1700000000.011000",
         "queueId": 4242
       }
     },
     {
-      "ts": "2026-07-18T07:00:55Z",
+      "ts": "2026-07-18T07:59:45Z",
       "bridge": {
         "level": "info",
         "message": "exec-id learned from ticker dispatch actions",
-        "chatThreadId": "C-chan:7.7",
+        "chatThreadId": "C-nav-fu:1700000000.011000",
         "queueId": 4242,
-        "execId": 1
+        "execId": 2
       }
     },
     {
-      "ts": "2026-07-18T07:00:55Z",
+      "ts": "2026-07-18T07:59:45Z",
       "bridge": {
         "level": "info",
         "message": "chain thread resolved via inspect",
-        "chatThreadId": "C-chan:7.7",
-        "execId": 1,
-        "chainThread": "exec-1"
+        "chatThreadId": "C-nav-fu:1700000000.011000",
+        "execId": 2,
+        "chainThread": "exec-2"
       }
     },
     {
-      "ts": "2026-07-18T07:00:55Z",
+      "ts": "2026-07-18T07:59:45Z",
       "bridge": {
         "level": "info",
         "message": "follow-up send-message enqueued",
-        "chatThreadId": "C-chan:7.7",
+        "chatThreadId": "C-nav-fu:1700000000.011000",
         "replyType": "note",
-        "thread": "exec-1",
+        "thread": "exec-2",
         "queueId": 3
       }
     },
     {
-      "ts": "2026-07-18T07:00:55Z",
-      "step": "follow-up (queue-id-only conversation, exec-id learned via recent_ticks)",
-      "outcome": {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg armed for conversation",
+        "chatThreadId": "C-nav-fu:1700000000.011000",
+        "queueId": 4242
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat message handled",
+        "chatThreadId": "C-nav-fu:1700000000.011000",
         "forwarded": true,
         "leg": "follow-up",
         "intent": "enqueue-job",
         "replyType": "note",
-        "thread": "exec-1",
+        "thread": "exec-2",
         "queueId": 3
-      },
-      "enqueuedRow": {
-        "queue_id": 3,
-        "job_id": "send-message",
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "check": "L3:queue-id-only conversation learns exec_id via recent_ticks and forwards on the true chain thread",
+      "ok": true,
+      "row": {
         "args": {
           "type": "note",
-          "thread": "exec-1",
+          "thread": "exec-2",
           "corpus": "status?"
         }
       }
     },
     {
-      "ts": "2026-07-18T07:00:55Z",
+      "ts": "2026-07-18T07:59:45Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
-        "chatThreadId": "C-chan:8.8",
+        "chatThreadId": "C-derive-fu:1700000000.014000",
+        "queueId": 5
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "chain thread derived from first exec-id (convention fallback; session not live)",
+        "chatThreadId": "C-derive-fu:1700000000.014000",
+        "execId": 3,
+        "chainThread": "exec-3"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "follow-up send-message enqueued",
+        "chatThreadId": "C-derive-fu:1700000000.014000",
+        "replyType": "note",
+        "thread": "exec-3",
+        "queueId": 4
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg armed for conversation",
+        "chatThreadId": "C-derive-fu:1700000000.014000",
+        "queueId": 5
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat message handled",
+        "chatThreadId": "C-derive-fu:1700000000.014000",
+        "forwarded": true,
+        "leg": "follow-up",
+        "intent": "enqueue-job",
+        "replyType": "note",
+        "thread": "exec-3",
+        "queueId": 4
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "check": "f1:exec KNOWN but NOT live → send-message enqueued addressed to the DERIVED exec-<firstExecId>",
+      "ok": true,
+      "derivedThread": "exec-3",
+      "storeThread": "exec-3",
+      "row": {
+        "args": {
+          "type": "note",
+          "thread": "exec-3",
+          "corpus": "still on it?"
+        }
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat thread mapped to a new conversation",
+        "chatThreadId": "C-immut-fu:1700000000.015000",
+        "queueId": 6
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "ignored later exec-id bind (first-wins; chain thread is exec-<first exec_id>)",
+        "chatThreadId": "C-immut-fu:1700000000.015000",
+        "keptExecId": 4,
+        "ignoredExecId": 5
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "chain thread derived from first exec-id (convention fallback; session not live)",
+        "chatThreadId": "C-immut-fu:1700000000.015000",
+        "execId": 4,
+        "chainThread": "exec-4"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "follow-up send-message enqueued",
+        "chatThreadId": "C-immut-fu:1700000000.015000",
+        "replyType": "note",
+        "thread": "exec-4",
+        "queueId": 5
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg armed for conversation",
+        "chatThreadId": "C-immut-fu:1700000000.015000",
+        "queueId": 6
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat message handled",
+        "chatThreadId": "C-immut-fu:1700000000.015000",
+        "forwarded": true,
+        "leg": "follow-up",
+        "intent": "enqueue-job",
+        "replyType": "note",
+        "thread": "exec-4",
+        "queueId": 5
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "check": "f2:first-wins immutability — later exec-id bind ignored; derived chain thread stays exec-<firstExecId>",
+      "ok": true,
+      "boundExecId": 4,
+      "firstExecId": 4,
+      "laterExecId": 5,
+      "thread": "exec-4"
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat thread mapped to a new conversation",
+        "chatThreadId": "C-decline-fu:1700000000.012000",
         "queueId": 999983
       }
     },
     {
-      "ts": "2026-07-18T07:00:55Z",
+      "ts": "2026-07-18T07:59:45Z",
       "bridge": {
         "level": "warn",
         "message": "follow-up not forwarded: chain thread unresolved",
-        "chatThreadId": "C-chan:8.8",
+        "chatThreadId": "C-decline-fu:1700000000.012000",
         "reason": "exec-id-unknown"
       }
     },
     {
-      "ts": "2026-07-18T07:00:55Z",
-      "step": "follow-up (unresolvable chain) declines",
-      "outcome": {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "decline notice posted to owner thread",
+        "chatThreadId": "C-decline-fu:1700000000.012000"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat message handled",
+        "chatThreadId": "C-decline-fu:1700000000.012000",
         "forwarded": false,
         "leg": "follow-up",
         "reason": "chain-unresolved:exec-id-unknown"
-      },
-      "queueBefore": 3,
-      "queueAfter": 3
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "check": "f3:mapped decline (exec-id-unknown) enqueues NOTHING and posts the exact DECLINE_NOTICE to the mapped thread",
+      "ok": true,
+      "queueDelta": 0,
+      "post": {
+        "channel": "C-decline-fu",
+        "text": "⚠ couldn't route your reply to the running work — please try again shortly",
+        "thread_ts": "1700000000.012000"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "warn",
+        "message": "chat principal refused — pending owner pairing",
+        "chatUserId": "U-stranger"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "warn",
+        "message": "chat message refused (not admitted) — no forward",
+        "chatUserId": "U-stranger",
+        "chatThreadId": "C-refused-fu:1700000000.013000",
+        "reason": "not-paired"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat message handled",
+        "chatThreadId": "C-refused-fu:1700000000.013000",
+        "forwarded": false,
+        "refused": true,
+        "reason": "not-paired"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "check": "f3:allowlist-refused user gets NO notice and NO enqueue (never post on a refusal)",
+      "ok": true,
+      "postsDelta": 0,
+      "queueDelta": 0
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat thread mapped to a new conversation",
+        "chatThreadId": "C-notice-fail-fu:1700000000.016000",
+        "queueId": 888888
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "warn",
+        "message": "follow-up not forwarded: chain thread unresolved",
+        "chatThreadId": "C-notice-fail-fu:1700000000.016000",
+        "reason": "exec-id-unknown"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "transport": {
+        "level": "warn",
+        "message": "chat.postMessage failed",
+        "channel": "C-notice-fail-fu",
+        "error": "ratelimited"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "warn",
+        "message": "decline notice not delivered (best-effort, dropped)",
+        "chatThreadId": "C-notice-fail-fu:1700000000.016000",
+        "reason": "ratelimited"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat message handled",
+        "chatThreadId": "C-notice-fail-fu:1700000000.016000",
+        "forwarded": false,
+        "leg": "follow-up",
+        "reason": "chain-unresolved:exec-id-unknown"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "check": "f5:failed notice post is logged and dropped — no retry loop, no enqueue, run continues",
+      "ok": true,
+      "queueDelta": 0,
+      "successfulPostsDelta": 0
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg stopped"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:59:45Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat bridge stopped"
+      }
     }
   ]
 }

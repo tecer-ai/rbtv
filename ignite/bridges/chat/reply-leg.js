@@ -26,6 +26,13 @@
 // log is NEVER dumped into Slack (D110 step 4).
 const FALLBACK_TEXT = '⚠ agent run ended without a parseable reply';
 
+// D111 part 2 — the honest give-up notice. When the driver RETIRES an exec
+// UNDELIVERED at the attempt cap (persistent fetch/delivery failure), the owner
+// sees this ONE fixed line instead of silence: the agent finished but its reply
+// could not be delivered. Fixed string, NO internals. Best-effort — a failed post
+// is logged and dropped, never retried.
+const GIVE_UP_NOTICE = "⚠ the agent finished but its reply couldn't be delivered";
+
 const DEFAULT_POLL_MS = 3000;                 // single driver cadence (D110 step 3)
 const DEFAULT_WINDOW_MS = 10 * 60 * 1000;     // bound: wait for a spawn ≤ 10 min (step 6)
 const DEFAULT_LOG_LIMIT = 1000;               // per-page log fetch bound (server clamps to its MAX_PAGE)
@@ -220,6 +227,18 @@ function createReplyLeg({
               p.watching.delete(execId);
               p.delivered.add(execId);
               log('warn', 'reply leg giving up on exec after persistent fetch/delivery failures — reply NOT delivered', { chatThreadId: id, execId, attempts: watch.attempts, failure });
+              // Tell the owner (D111 part 2) instead of silence — best-effort: a
+              // failed notice post is logged and dropped, never retried into a loop.
+              try {
+                const n = await deliver({ chatThreadId: id, text: GIVE_UP_NOTICE, markAsk: false });
+                if (n && n.delivered === false) {
+                  log('warn', 'reply leg give-up notice not delivered (best-effort, dropped)', { chatThreadId: id, execId, reason: n.reason || n.error || 'unknown' });
+                } else {
+                  log('info', 'reply leg give-up notice posted to owner', { chatThreadId: id, execId });
+                }
+              } catch (nerr) {
+                log('warn', 'reply leg give-up notice threw (best-effort, dropped)', { chatThreadId: id, execId, error: nerr.message });
+              }
             } else {
               log('warn', 'reply leg fetch/delivery failed — will retry next pass', { chatThreadId: id, execId, attempts: watch.attempts, failure });
             }
@@ -264,4 +283,4 @@ function createReplyLeg({
   return { arm, start, stop, tick: _runOnce, _pending: pending };
 }
 
-module.exports = { createReplyLeg, extractReplyText, FALLBACK_TEXT };
+module.exports = { createReplyLeg, extractReplyText, FALLBACK_TEXT, GIVE_UP_NOTICE };

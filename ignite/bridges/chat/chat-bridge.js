@@ -19,7 +19,10 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     if (logger) logger({ level, message, ...extra });
   }
 
-  const forwardPath = createForwardPath({ forwarder, threadMap, allowlist, config, logger });
+  // deliver is the bridge's own outbound delivery (deliverToOwner, hoisted below) —
+  // injected so the forward path can post an honest decline notice (D111 part 2) on
+  // a MAPPED conversation whose follow-up cannot reach the running work, never silence.
+  const forwardPath = createForwardPath({ forwarder, threadMap, allowlist, config, logger, deliver: (args) => deliverToOwner(args) });
 
   // The outbound reply leg (Behavior #3, D110): drives worker answer → Slack thread.
   // It reaches the daemon ONLY via the injected forwarder's inspect surface, and
