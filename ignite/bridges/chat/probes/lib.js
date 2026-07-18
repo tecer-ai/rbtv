@@ -219,7 +219,8 @@ function decodeFrames(buf) {
 // The mock Slack Socket-Mode server: HTTP (apps.connections.open + chat.postMessage)
 // on the SAME port that serves the WS upgrade. Returns handles the probe drives.
 async function startMockSlack({ logger = null } = {}) {
-  const sentMessages = [];   // captured chat.postMessage bodies (outbound to owner)
+  const sentMessages = [];   // captured chat.postMessage bodies (SUCCESSFUL posts only)
+  let failPosts = 0;         // opt-in: fail the next N chat.postMessage calls (ok:false)
   let wsSocket = null;       // the connected bridge client socket
   const acks = new Map();    // envelope_id -> resolver
   let connectedResolve;
@@ -235,9 +236,15 @@ async function startMockSlack({ logger = null } = {}) {
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ ok: true, url: `ws://127.0.0.1:${server.address().port}` }));
       } else if (req.url.endsWith('/chat.postMessage')) {
-        sentMessages.push(json);
-        res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, ts: `${Date.now() / 1000}` }));
+        if (failPosts > 0) {
+          failPosts -= 1; // a FAILED post is not a sent message — do not record it
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'ratelimited' }));
+        } else {
+          sentMessages.push(json);
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, ts: `${Date.now() / 1000}` }));
+        }
       } else {
         res.writeHead(404); res.end('{}');
       }
@@ -291,6 +298,7 @@ async function startMockSlack({ logger = null } = {}) {
 
   return {
     apiBase, connected, pushMessage, sentMessages,
+    failNextPostMessage(n = 1) { failPosts = n; },
     port: server.address().port,
     close() { try { if (wsSocket) wsSocket.destroy(); } catch {} try { server.close(); } catch {} },
   };

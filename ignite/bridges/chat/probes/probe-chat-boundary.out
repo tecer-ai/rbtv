@@ -8,17 +8,18 @@
   },
   "entries": [
     {
-      "ts": "2026-07-18T04:08:58Z",
+      "ts": "2026-07-18T07:00:54Z",
       "step": "scanned runtime source",
       "files": [
-        "config.js",
-        "gateway-forwarder.js",
         "allowlist.js",
-        "thread-map.js",
-        "forward-path.js",
-        "slack-socket-mode.js",
         "chat-bridge.js",
-        "index.js"
+        "config.js",
+        "forward-path.js",
+        "gateway-forwarder.js",
+        "index.js",
+        "reply-leg.js",
+        "slack-socket-mode.js",
+        "thread-map.js"
       ],
       "forbiddenPatterns": [
         "store-driver (node:sqlite)",
@@ -31,7 +32,7 @@
       ]
     },
     {
-      "ts": "2026-07-18T04:08:58Z",
+      "ts": "2026-07-18T07:00:54Z",
       "step": "forbidden-capability hits",
       "count": 0,
       "hits": []

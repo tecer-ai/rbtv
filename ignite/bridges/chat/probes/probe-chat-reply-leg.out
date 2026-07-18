@@ -1,0 +1,555 @@
+{
+  "summary": {
+    "probe": "probe-chat-reply-leg",
+    "pass": true,
+    "EXIT": 0,
+    "WALL_MS": 87,
+    "SKIPPED_COUNT": 0,
+    "checks": [
+      {
+        "name": "a1:forwarded message armed the leg with the ACTUAL enqueue queueId",
+        "ok": true,
+        "armed": true,
+        "mappedQueueId": 100,
+        "armedQueueId": 100
+      },
+      {
+        "name": "a2:exec captured while live, nothing posted",
+        "ok": true,
+        "watching": [
+          26
+        ],
+        "sentCount": 0
+      },
+      {
+        "name": "b:reply posted to channel+thread, text EQUALS the last result string",
+        "ok": true,
+        "sentCount": 1,
+        "posted": true,
+        "text": "the answer is 42"
+      },
+      {
+        "name": "d:same exec not redelivered",
+        "ok": true,
+        "sentCount": 1
+      },
+      {
+        "name": "c:no-result-line log delivers the fixed fallback (never the raw log)",
+        "ok": true,
+        "sentCount": 2,
+        "text": "⚠ agent run ended without a parseable reply",
+        "isFallback": true
+      },
+      {
+        "name": "e:real follow-up re-armed; new exec on same queue delivers a text-equal second reply",
+        "ok": true,
+        "rearmed": true,
+        "sentCount": 3,
+        "text": "second turn reply"
+      },
+      {
+        "name": "g:multi-page log paged to the end — last result line extracted, text-equal",
+        "ok": true,
+        "sentCount": 4,
+        "text": "answer beyond page one",
+        "pageMax": 2
+      },
+      {
+        "name": "h:transient logs failure posts nothing, exec retried, REAL text delivered",
+        "ok": true,
+        "heldOnFailure": true,
+        "sentCount": 5,
+        "text": "survived the blip"
+      },
+      {
+        "name": "i:refused post not marked delivered; retry delivers exactly once",
+        "ok": true,
+        "heldOnRefusal": true,
+        "sentCount": 6,
+        "text": "post me twice if you dare"
+      },
+      {
+        "name": "j:persistent failure gives up at the attempt cap — retired undelivered, nothing posted, no unbounded retry",
+        "ok": true,
+        "gaveUpAtCap": true,
+        "sentCount": 6,
+        "watching": []
+      },
+      {
+        "name": "f:each exec delivered exactly once; give-up exec retired",
+        "ok": true,
+        "delivered": [
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32
+        ],
+        "watching": [],
+        "sentCount": 6
+      }
+    ]
+  },
+  "entries": [
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg started",
+        "pollMs": 3600000,
+        "windowMs": 600000
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat bridge started",
+        "transport": "slack-socket-mode",
+        "connected": true
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat thread mapped to a new conversation",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "queueId": 100
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "session-create job enqueued",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "queueId": 100
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg armed for conversation",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "queueId": 100
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat message handled",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "forwarded": true,
+        "leg": "session-create",
+        "intent": "enqueue-job",
+        "queueId": 100
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "check": "a1:forwarded message armed the leg with the ACTUAL enqueue queueId",
+      "ok": true,
+      "armed": true,
+      "mappedQueueId": 100,
+      "armedQueueId": 100
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg captured spawn exec for conversation",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "queueId": 100,
+        "execId": 26
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "check": "a2:exec captured while live, nothing posted",
+      "ok": true,
+      "watching": [
+        26
+      ],
+      "sentCount": 0
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg delivered worker reply to owner",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "execId": 26,
+        "chars": 16
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "check": "b:reply posted to channel+thread, text EQUALS the last result string",
+      "ok": true,
+      "sentCount": 1,
+      "posted": true,
+      "text": "the answer is 42"
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "check": "d:same exec not redelivered",
+      "ok": true,
+      "sentCount": 1
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg captured spawn exec for conversation",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "queueId": 100,
+        "execId": 27
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "warn",
+        "message": "reply leg found no parseable result line — delivering fallback",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "execId": 27
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg delivered worker reply to owner",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "execId": 27,
+        "chars": 43
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "check": "c:no-result-line log delivers the fixed fallback (never the raw log)",
+      "ok": true,
+      "sentCount": 2,
+      "text": "⚠ agent run ended without a parseable reply",
+      "isFallback": true
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "exec-id learned from ticker dispatch actions",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "queueId": 100,
+        "execId": 26
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "chain thread resolved via inspect",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "execId": 26,
+        "chainThread": "exec-26"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "follow-up send-message enqueued",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "replyType": "note",
+        "thread": "exec-26",
+        "queueId": 100
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg armed for conversation",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "queueId": 100
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat message handled",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "forwarded": true,
+        "leg": "follow-up",
+        "intent": "enqueue-job",
+        "replyType": "note",
+        "thread": "exec-26",
+        "queueId": 100
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg captured spawn exec for conversation",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "queueId": 100,
+        "execId": 28
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg delivered worker reply to owner",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "execId": 28,
+        "chars": 17
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "check": "e:real follow-up re-armed; new exec on same queue delivers a text-equal second reply",
+      "ok": true,
+      "rearmed": true,
+      "sentCount": 3,
+      "text": "second turn reply"
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg captured spawn exec for conversation",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "queueId": 100,
+        "execId": 29
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg delivered worker reply to owner",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "execId": 29,
+        "chars": 22
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "check": "g:multi-page log paged to the end — last result line extracted, text-equal",
+      "ok": true,
+      "sentCount": 4,
+      "text": "answer beyond page one",
+      "pageMax": 2
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg captured spawn exec for conversation",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "queueId": 100,
+        "execId": 30
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "warn",
+        "message": "reply leg logs inspect failed — will retry next pass",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "execId": 30,
+        "offset": 0,
+        "error": "TRANSPORT"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "warn",
+        "message": "reply leg fetch/delivery failed — will retry next pass",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "execId": 30,
+        "attempts": 1,
+        "failure": "logs-fetch-failed"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg delivered worker reply to owner",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "execId": 30,
+        "chars": 17
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "check": "h:transient logs failure posts nothing, exec retried, REAL text delivered",
+      "ok": true,
+      "heldOnFailure": true,
+      "sentCount": 5,
+      "text": "survived the blip"
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg captured spawn exec for conversation",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "queueId": 100,
+        "execId": 31
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "warn",
+        "message": "reply leg fetch/delivery failed — will retry next pass",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "execId": 31,
+        "attempts": 1,
+        "failure": "deliver-refused:ratelimited"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg delivered worker reply to owner",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "execId": 31,
+        "chars": 25
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "check": "i:refused post not marked delivered; retry delivers exactly once",
+      "ok": true,
+      "heldOnRefusal": true,
+      "sentCount": 6,
+      "text": "post me twice if you dare"
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg captured spawn exec for conversation",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "queueId": 100,
+        "execId": 32
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "warn",
+        "message": "reply leg logs inspect failed — will retry next pass",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "execId": 32,
+        "offset": 0,
+        "error": "TRANSPORT"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "warn",
+        "message": "reply leg fetch/delivery failed — will retry next pass",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "execId": 32,
+        "attempts": 1,
+        "failure": "logs-fetch-failed"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "warn",
+        "message": "reply leg logs inspect failed — will retry next pass",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "execId": 32,
+        "offset": 0,
+        "error": "TRANSPORT"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "warn",
+        "message": "reply leg fetch/delivery failed — will retry next pass",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "execId": 32,
+        "attempts": 2,
+        "failure": "logs-fetch-failed"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "warn",
+        "message": "reply leg logs inspect failed — will retry next pass",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "execId": 32,
+        "offset": 0,
+        "error": "TRANSPORT"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "warn",
+        "message": "reply leg giving up on exec after persistent fetch/delivery failures — reply NOT delivered",
+        "chatThreadId": "C-chan:1700000000.000100",
+        "execId": 32,
+        "attempts": 3,
+        "failure": "logs-fetch-failed"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "check": "j:persistent failure gives up at the attempt cap — retired undelivered, nothing posted, no unbounded retry",
+      "ok": true,
+      "gaveUpAtCap": true,
+      "sentCount": 6,
+      "watching": []
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "check": "f:each exec delivered exactly once; give-up exec retired",
+      "ok": true,
+      "delivered": [
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32
+      ],
+      "watching": [],
+      "sentCount": 6
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "reply leg stopped"
+      }
+    },
+    {
+      "ts": "2026-07-18T07:00:56Z",
+      "bridge": {
+        "level": "info",
+        "message": "chat bridge stopped"
+      }
+    }
+  ]
+}

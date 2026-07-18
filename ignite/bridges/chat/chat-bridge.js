@@ -12,13 +12,25 @@
 // forwarder, both injected here.
 
 const { createForwardPath } = require('./forward-path');
+const { createReplyLeg } = require('./reply-leg');
 
-function createChatBridge({ config, forwarder, transport, allowlist, threadMap, logger = null }) {
+function createChatBridge({ config, forwarder, transport, allowlist, threadMap, logger = null, replyLegOptions = {} }) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
   }
 
   const forwardPath = createForwardPath({ forwarder, threadMap, allowlist, config, logger });
+
+  // The outbound reply leg (Behavior #3, D110): drives worker answer → Slack thread.
+  // It reaches the daemon ONLY via the injected forwarder's inspect surface, and
+  // delivers via this bridge's own deliverToOwner — no new capability.
+  const replyLeg = createReplyLeg({
+    threadMap,
+    forwarder,
+    deliver: (args) => deliverToOwner(args),
+    logger,
+    ...replyLegOptions,
+  });
 
   // Inbound: a chat message → the forward path (admission, then session-create or
   // follow-up). Wired as the transport's onMessage.
@@ -28,6 +40,12 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       replyAddr.set(chatMsg.chatThreadId, { channel: chatMsg._channel, threadTs: chatMsg._threadTs });
     }
     const outcome = await forwardPath.onChatMessage(chatMsg);
+    // Arm the reply leg on every FORWARDED turn — a session-create (new conversation)
+    // or a follow-up (the chain re-dispatches → a new exec on the same queue). The
+    // leg then watches for the spawn, awaits turn-end, and delivers the reply.
+    if (outcome && outcome.forwarded && chatMsg && chatMsg.chatThreadId) {
+      replyLeg.arm(chatMsg.chatThreadId);
+    }
     log('info', 'chat message handled', { chatThreadId: chatMsg && chatMsg.chatThreadId, ...outcome });
     return outcome;
   }
@@ -51,16 +69,18 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
 
   async function start() {
     const r = await transport.start();
+    replyLeg.start();
     log('info', 'chat bridge started', { transport: 'slack-socket-mode', ...r });
     return r;
   }
 
   function stop() {
+    replyLeg.stop();
     transport.stop();
     log('info', 'chat bridge stopped');
   }
 
-  return { onChatMessage, deliverToOwner, start, stop, _replyAddr: replyAddr, forwardPath };
+  return { onChatMessage, deliverToOwner, start, stop, _replyAddr: replyAddr, forwardPath, replyLeg };
 }
 
 module.exports = { createChatBridge };

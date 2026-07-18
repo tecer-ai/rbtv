@@ -14,11 +14,13 @@ const { makeCapture, nowMs } = require('./lib');
 const OUT = path.join(__dirname, 'probe-chat-boundary.out');
 const SRC_DIR = path.join(__dirname, '..');
 
-// Runtime source only — probes/ and README are excluded (probes reach siblings by design).
-const RUNTIME_FILES = [
-  'config.js', 'gateway-forwarder.js', 'allowlist.js', 'thread-map.js',
-  'forward-path.js', 'slack-socket-mode.js', 'chat-bridge.js', 'index.js',
-];
+// Runtime source only — probes/ and README are excluded (probes reach siblings by
+// design). DERIVED from the directory, never a hardcoded list: a new runtime file
+// (e.g. reply-leg.js) is scanned automatically — a stale list would silently
+// exempt it from the boundary invariant.
+const RUNTIME_FILES = fs.readdirSync(SRC_DIR)
+  .filter((f) => f.endsWith('.js'))
+  .sort();
 
 // Each pattern = a capability the bridge must NOT hold. A hit is a boundary violation.
 const FORBIDDEN = [

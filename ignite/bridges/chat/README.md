@@ -59,6 +59,35 @@ exactly one gateway call, always `enqueue-job` (the bridge adds no new intent):
 (the pty keystroke rung). Chat rides the headless turn-boundary ceiling. There is
 no send-to-session code path in this module, by construction.
 
+## The reply leg (D110) — `reply-leg.js`
+
+The outbound production driver that closes Behavior #3. On every FORWARDED turn the
+bridge arms a per-conversation PENDING-REPLY state; a single driver loop (default
+~3 s) then, over the `inspect` read surface only:
+
+1. **captures** the turn's `execId` from `inspect ticker` → `recent_ticks[].actions[]`
+   spawn rows matching the conversation's queue id (a conversation sees one exec per
+   turn — every not-yet-delivered spawn is a turn to deliver);
+2. **waits for turn-end** by polling `inspect status {execId}` until `live === false`
+   — NEVER on `status === 'done'` (the daemon's crash sweep mislabels clean detached
+   successes `failed`, so the live flag is the only trustworthy signal);
+3. **extracts** the reply from `inspect logs {execId}`, paging the bounded surface
+   to the log's END (`nextOffset`/`eof`) — the LAST stream-json
+   `{ type:'result', result }` line; a log read to eof with no parseable result
+   line → a fixed fallback (`⚠ agent run ended without a parseable reply`), the
+   raw log is NEVER posted;
+4. **delivers** via `deliverToOwner` (markAsk false — plain agent output, D105 note;
+   ask-detection is out of scope for v1), marking the exec delivered ONLY on a
+   confirmed delivery, so it is never posted twice — and so a TRANSIENT logs/
+   transport/Slack failure never burns the reply: the exec is retried next pass,
+   bounded per exec; at the attempt cap it is retired undelivered with a warn
+   (honest non-delivery, never a silent success or a fallback posted over a blip).
+
+In-memory v1 (D110 floor): a restart forgets pending state, matching the thread-map.
+A pending conversation whose spawn never appears within a bounded window, or whose
+status polling errors persistently, is disarmed with a warn (no crash, no unbounded
+retry, no unbounded state growth).
+
 Thread ↔ turn-chain mapping (`thread-map.js`) keys the chain by its chain-stable
 thread id `exec-<first exec_id>` (D24 Q3a). The bridge navigates
 `job-id → exec-id → chain-thread id` via the gateway `inspect` intent (D69) — it
@@ -69,8 +98,9 @@ never conflates id spaces and never forwards a follow-up with an unresolved thre
 | File | Role |
 |------|------|
 | `index.js` | process entry + `buildBridge()` composition |
-| `chat-bridge.js` | wires transport + allowlist + thread-map + forward-path; inbound + outbound |
+| `chat-bridge.js` | wires transport + allowlist + thread-map + forward-path + reply-leg; inbound + outbound |
 | `forward-path.js` | the D104/D105 forward contract (session-create / follow-up / reply type) |
+| `reply-leg.js` | the D110 outbound driver: worker turn finishes → fetch its answer via `inspect` → `deliverToOwner` into the Slack thread |
 | `slack-socket-mode.js` | Slack Socket Mode transport (outbound WS + chat.postMessage) |
 | `allowlist.js` | chat-user allowlist + DM pairing (admission control) |
 | `thread-map.js` | chat-thread ↔ turn-chain map + inspect-based chain-thread resolution |
@@ -113,6 +143,7 @@ Run the probes: `node probes/probe-chat-<name>.js` (evidence → `probe-chat-<na
 | `probe-chat-allowlist` | #2 | non-allowlisted user refused, nothing enqueued; admitted user does enqueue |
 | `probe-chat-outbound` | #3 | starting the bridge adds NO new inbound listener (`ss -tlnp` delta) |
 | `probe-chat-outbound-msg` | #4 | owner output delivered outbound via `chat.postMessage` |
+| `probe-chat-reply-leg` | #4 | the D110 driver, armed through the REAL inbound wiring (Slack event → forward path → arm): spawn captured from `recent_ticks` → `live:false` → LAST stream-json result line extracted (multi-page logs paged to the end) → posted to the conversation's channel+thread, text-EQUAL to the result string; no-result log delivers the fixed fallback (never the raw log); no exec delivered twice; a follow-up turn (new exec, same queue) delivers a second reply; a transient logs failure or refused post is retried (nothing burned), persistent failure retires the exec undelivered at a bounded attempt cap |
 | `probe-chat-boundary` | #5 | bridge source holds no spawn/queue handle, opens no server, imports no sibling |
 | `probe-chat-followup` | #6 | follow-up forwards as `send-message` on the chain thread (NEVER send-to-session), reply type `answer`/`note`; queue_id → exec_id learned from ticker dispatch actions; unresolvable chain DECLINES (nothing enqueued) |
 
