@@ -209,7 +209,7 @@ variants:
       reasoning: { source: "aa-ii(52);gpqa(47);hle(30);arena-hp(1503,#2)", confidence: high }
       coding:    { source: "aa-tbh(53)", confidence: high }
     cost_evidence: { source: "aa-blended($2.31)→bin5; subscription@board-price,no-discount", confidence: high }
-    context_window: 200000          # probe H3: --model sonnet → JSON modelUsage.claude-sonnet-4-6 contextWindow = 2e5 (200K)
+    context_window: 1000000         # Sonnet 5 (claude-sonnet-5) = 1M (catalog; audited 2026-07-18 per sysdef-archive D76). The prior probe H3 (200K) measured the SUPERSEDED claude-sonnet-4-6 id — re-confirm via a JSON probe (modelUsage.contextWindow) on the target machine if in doubt
     max_output: 32000               # probe H3: --model sonnet → JSON modelUsage.claude-sonnet-4-6 maxOutputTokens = 32000 (NOT 64000 — that is the opus ceiling)
 
     # --- role eligibility ---
