@@ -127,8 +127,16 @@ function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot) {
   const promptCarriage = block.prompt;
 
   let promptFile = null;
+  let stdinFile = null;
   if (promptCarriage === 'file') {
     promptFile = ensurePromptFile(dataRoot, sessionId, prompt);
+  } else if (promptCarriage === 'stdin') {
+    // stdin carriage: the prompt rides a file the CARRIER connects as the worker's stdin
+    // (StandardInput=file: on systemd; the file's fd on setsid) — bytes then EOF at end-of-file,
+    // the "server writes the prompt, then closes stdin" contract. The path never appears in argv
+    // (no {prompt_file} slot), and bwrap needs no bind: fd 0 is opened before the wrap execs.
+    // Headed blocks can never reach here — config.js rejects `headed.tui.prompt: stdin` at load.
+    stdinFile = ensurePromptFile(dataRoot, sessionId, prompt);
   }
 
   const values = { workdir };
@@ -142,7 +150,7 @@ function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot) {
     }
   }
 
-  return { argv, promptFile, promptCarriage };
+  return { argv, promptFile, stdinFile, promptCarriage };
 }
 
 function ensureLogPath(dataRoot, sessionId) {
@@ -207,7 +215,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
 
     const sessionId = generateSessionId();
     const logPath = ensureLogPath(dataRoot, sessionId);
-    const { argv, promptFile, promptCarriage } = composeArgv(profile, sessionMode, sessionId, resolvedWorkdir, prompt, dataRoot);
+    const { argv, promptFile, stdinFile, promptCarriage } = composeArgv(profile, sessionMode, sessionId, resolvedWorkdir, prompt, dataRoot);
 
     // D59: bwrap FS walls nested inside the systemd-run --user unit. The wrapped argv rides the
     // carrier opaquely (both systemd and setsid branches); the walls live in argv, not config.
@@ -224,7 +232,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       logPath,
     });
 
-    const common = { sessionId, argv: wrappedArgv, workdir: resolvedWorkdir, logPath, caps: profile.caps, sandbox: resolvedSandbox, envFile: profile.env?.file, userManager };
+    const common = { sessionId, argv: wrappedArgv, workdir: resolvedWorkdir, logPath, stdinFile, caps: profile.caps, sandbox: resolvedSandbox, envFile: profile.env?.file, userManager };
     let launchResult;
     try {
       if (carrier === 'systemd') {

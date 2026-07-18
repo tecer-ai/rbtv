@@ -100,7 +100,7 @@ function sandboxToProperty(key, value) {
   }
 }
 
-function buildSystemdRunArgs({ sessionId, argv, workdir, logPath, caps, sandbox, envFile, userManager = true }) {
+function buildSystemdRunArgs({ sessionId, argv, workdir, logPath, stdinFile = null, caps, sandbox, envFile, userManager = true }) {
   const unitName = `rbtv-worker-${sessionId}`;
   const args = [
     userManager ? '--user' : '--system',
@@ -110,6 +110,14 @@ function buildSystemdRunArgs({ sessionId, argv, workdir, logPath, caps, sandbox,
     '--property', `StandardOutput=append:${logPath}`,
     '--property', `StandardError=append:${logPath}`,
   ];
+
+  // stdin carriage (`prompt: stdin`): systemd opens the prompt file as the unit's stdin and
+  // delivers EOF at end-of-file — the write-prompt-then-close-stdin contract a detached
+  // --collect unit cannot get from a live pipe. Without this property the transient unit's
+  // stdin defaults to /dev/null (EOF, no prompt). StandardInput=file: requires systemd ≥ 236.
+  if (stdinFile) {
+    args.push('--property', `StandardInput=file:${stdinFile}`);
+  }
 
   for (const [key, value] of Object.entries(caps || {})) {
     if (value === undefined || value === null) continue;
@@ -145,9 +153,9 @@ function buildSystemdRunArgs({ sessionId, argv, workdir, logPath, caps, sandbox,
   return { args, unitName };
 }
 
-function spawnSystemd({ sessionId, argv, workdir, logPath, caps, sandbox, envFile, userManager = true }, logger = null) {
+function spawnSystemd({ sessionId, argv, workdir, logPath, stdinFile = null, caps, sandbox, envFile, userManager = true }, logger = null) {
   ensureDir(path.dirname(logPath));
-  const { args, unitName } = buildSystemdRunArgs({ sessionId, argv, workdir, logPath, caps, sandbox, envFile, userManager });
+  const { args, unitName } = buildSystemdRunArgs({ sessionId, argv, workdir, logPath, stdinFile, caps, sandbox, envFile, userManager });
 
   if (logger) logger({ level: 'info', message: 'systemd-run', args });
 
@@ -173,18 +181,21 @@ function spawnSystemd({ sessionId, argv, workdir, logPath, caps, sandbox, envFil
   });
 }
 
-function spawnSetsid({ sessionId, argv, workdir, logPath }, logger = null) {
+function spawnSetsid({ sessionId, argv, workdir, logPath, stdinFile = null }, logger = null) {
   ensureDir(path.dirname(logPath));
 
   const out = fs.openSync(logPath, 'a', 0o600);
   const err = fs.openSync(logPath, 'a', 0o600);
+  // stdin carriage parity with the systemd carrier: the prompt file's read fd IS the child's
+  // stdin — same bytes-then-EOF contract as StandardInput=file:. No stdinFile => stdin ignored.
+  const stdinFd = stdinFile ? fs.openSync(stdinFile, 'r') : null;
 
   if (logger) logger({ level: 'info', message: 'setsid spawn', argv, workdir, logPath });
 
   const proc = spawn(argv[0], argv.slice(1), {
     cwd: workdir,
     detached: true,
-    stdio: ['ignore', out, err],
+    stdio: [stdinFd === null ? 'ignore' : stdinFd, out, err],
   });
 
   proc.unref();
@@ -193,6 +204,7 @@ function spawnSetsid({ sessionId, argv, workdir, logPath }, logger = null) {
     proc.on('error', (err) => {
       try { fs.closeSync(out); } catch {}
       try { fs.closeSync(err); } catch {}
+      if (stdinFd !== null) { try { fs.closeSync(stdinFd); } catch {} }
       reject(new SpawnError(E_CARRIER_FAILED, `setsid spawn error: ${err.message}`, { carrier: 'setsid' }));
     });
 
@@ -201,6 +213,7 @@ function spawnSetsid({ sessionId, argv, workdir, logPath }, logger = null) {
       if (proc.exitCode !== null) {
         try { fs.closeSync(out); } catch {}
         try { fs.closeSync(err); } catch {}
+        if (stdinFd !== null) { try { fs.closeSync(stdinFd); } catch {} }
         reject(new SpawnError(E_CARRIER_FAILED, `setsid process exited immediately with code ${proc.exitCode}`, { carrier: 'setsid', exitCode: proc.exitCode }));
         return;
       }

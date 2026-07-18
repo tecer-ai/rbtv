@@ -1,26 +1,30 @@
 probe: probe-spawn
-started: 2026-07-18T05:49:20.576Z
+started: 2026-07-18T06:17:56.130Z
 command: node probes/probe-spawn.js
 D109 assert: argv[0]='sleep' resolves to '/usr/bin/sleep'
 D109 assert PASS: post-'--' head is the resolved absolute path; tail preserved in order
 D109 mutation self-check PASS: assertion rejects the pre-fix bare-argv[0] head
-action: fire row then spawn trivial worker via test-sleep profile
+stdin-carriage assert PASS: unit args carry StandardInput=file:<promptfile>
+stdin-carriage mutation self-check PASS: assertion rejects the pre-fix property-less unit args
+action: fire row then spawn trivial worker via test-sleep profile (prompt: stdin) with a real prompt
 exec_id before spawn: 1, status: launching
 exec_id after spawn: 1
-session_id: 46678fb8-7a71-4f66-b3ad-f065beb1a37c
-pid: 1905672
+session_id: d187d943-240c-4027-91ef-b7b6a869acd9
+pid: 1922265
 carrier: systemd
-unit_name: rbtv-worker-46678fb8-7a71-4f66-b3ad-f065beb1a37c
+unit_name: rbtv-worker-d187d943-240c-4027-91ef-b7b6a869acd9
 status: running
-log_path: /tmp/p2-2-probe-bjdmKx/data/logs/46678fb8-7a71-4f66-b3ad-f065beb1a37c.log
-workdir: /tmp/p2-2-probe-bjdmKx/work/1
+log_path: /tmp/p2-2-probe-t4G4Er/data/logs/d187d943-240c-4027-91ef-b7b6a869acd9.log
+workdir: /tmp/p2-2-probe-t4G4Er/work/1
 systemctl --user show caps:
   RuntimeMaxUSec=1h
   MemoryMax=67108864
   TasksMax=8050
 systemctl --user is-active: active
+stdin live PASS: prompt file /tmp/p2-2-probe-t4G4Er/data/prompts/d187d943-240c-4027-91ef-b7b6a869acd9.txt carries the prompt verbatim
+stdin live PASS: running unit stdin connected to the prompt file (StandardInput=file)
 log file exists: true
 status: PASS
 exit: 0
-wall_ms: 381
-ended: 2026-07-18T05:49:20.957Z
+wall_ms: 379
+ended: 2026-07-18T06:17:56.509Z
