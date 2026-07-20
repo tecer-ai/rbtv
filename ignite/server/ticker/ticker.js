@@ -91,6 +91,13 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
   let ticking = false;
   let tickNumber = null;
 
+  // Task 7.19 wake-scan bound state — in-memory CACHES only (safe to lose:
+  // a restart's first tick falls back to one full tail scan). `wakeWatermark`
+  // is the highest messages.msg_id already examined for wake candidates;
+  // `pendingWakeThreads` holds wakes deferred while their slot was live/armed.
+  let wakeWatermark = null;
+  const pendingWakeThreads = new Set();
+
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
   }
@@ -129,6 +136,24 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
 
   function stampMessageRouted(msgId, tick) {
     runSql('UPDATE messages SET routed_at_tick = ? WHERE msg_id = ?', tick, msgId);
+  }
+
+  // Task 7.19 root fix (batch-08 item 10 part 1): a ticker-authored note to the
+  // owner feed is informational — nothing routes it — so it is marked routed AT
+  // WRITE. Left unstamped, every stall warning and crash note joins the
+  // unrouted set permanently (74 of the 79 unrouted rows measured live were
+  // these notes) and the per-tick scan grows monotonically. Every ticker-
+  // authored owner-feed note MUST be written through this helper.
+  function recordOwnerNote(corpus, now, tick) {
+    const msg = heartStore.recordMessage({
+      type: 'note',
+      sender: 'ticker',
+      thread: OWNER_NOTE_THREAD,
+      corpus,
+      createdAt: now,
+    });
+    stampMessageRouted(msg.msg_id, tick);
+    return msg;
   }
 
   function updateArgs(execId, argsJson) {
@@ -443,7 +468,14 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
   function ensureLogPath(dataRoot, sessionId) {
     const logDir = path.join(dataRoot, 'logs');
     fs.mkdirSync(logDir, { recursive: true, mode: 0o700 });
-    return path.join(logDir, `${sessionId}.log`);
+    const logPath = path.join(logDir, `${sessionId}.log`);
+    // Pre-create 0600 so the tool-execution log is never born with the systemd
+    // append: default mode (664 observed live) — same fix as the agent-session
+    // transcript in spawn.js ensureLogPath (task 7.13 piece 4; applied here as
+    // a conductor extension riding task 7.19). An existing file keeps its
+    // mode; appendFileSync never truncates.
+    fs.appendFileSync(logPath, '', { mode: 0o600 });
+    return logPath;
   }
 
   function carrierConfig() {
@@ -612,19 +644,17 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
 
   // Phases
   async function advance(now, tick, actions) {
-    const unrouted = heartStore.getMessages({ unroutedOnly: true });
+    // Bounded fetch (task 7.19, batch-08 item 10 part 2): Advance consumes
+    // COMPLETIONS only, so it asks the store for unrouted completions — never
+    // the whole unrouted set. Backed by the partial index
+    // idx_messages_unrouted_completion, per-tick work here tracks in-flight
+    // completions (promptly routed below), not accumulated history — a future
+    // writer that forgets to stamp a note cannot recreate the growth.
+    const unrouted = heartStore.getMessages({ unroutedOnly: true, type: 'completion' });
     for (const msg of unrouted) {
-      if (msg.type !== 'completion') continue;
-
       const exec = findExecForCompletion(msg);
       if (!exec) {
-        heartStore.recordMessage({
-          type: 'note',
-          sender: 'ticker',
-          thread: OWNER_NOTE_THREAD,
-          corpus: `anomaly: unrouted completion for unknown/inactive thread: ${msg.thread}`,
-          createdAt: now,
-        });
+        recordOwnerNote(`anomaly: unrouted completion for unknown/inactive thread: ${msg.thread}`, now, tick);
         stampMessageRouted(msg.msg_id, tick);
         actions.push({ phase: 'advance', action: 'anomaly', msgId: msg.msg_id, reason: 'unknown-thread' });
         continue;
@@ -641,13 +671,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         // conversations never do.
         const recycles = countAutomaticRecycles(exec.exec_id);
         if (recycles >= cfg.slot_max_repeats) {
-          heartStore.recordMessage({
-            type: 'note',
-            sender: 'ticker',
-            thread: OWNER_NOTE_THREAD,
-            corpus: `slot automatic-recycle budget exhausted after compaction (${cfg.slot_max_repeats})`,
-            createdAt: now,
-          });
+          recordOwnerNote(`slot automatic-recycle budget exhausted after compaction (${cfg.slot_max_repeats})`, now, tick);
           heartStore.resolveCompletion({ msgId: msg.msg_id, execId: exec.exec_id, status: 'done', endedAt: now, routedAtTick: tick });
           actions.push({ phase: 'advance', action: 'compaction-budget-exhausted', execId: exec.exec_id, recycles });
         } else {
@@ -692,13 +716,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         heartStore.resolveCompletion({ msgId: msg.msg_id, execId: exec.exec_id, status: 'blocked', endedAt: now, routedAtTick: tick });
         actions.push({ phase: 'advance', action: 'blocked', execId: exec.exec_id });
       } else if (status === 'failed') {
-        heartStore.recordMessage({
-          type: 'note',
-          sender: 'ticker',
-          thread: OWNER_NOTE_THREAD,
-          corpus: `slot halted: session failed (exec ${exec.exec_id})`,
-          createdAt: now,
-        });
+        recordOwnerNote(`slot halted: session failed (exec ${exec.exec_id})`, now, tick);
         heartStore.resolveCompletion({ msgId: msg.msg_id, execId: exec.exec_id, status: 'failed', endedAt: now, routedAtTick: tick });
         actions.push({ phase: 'advance', action: 'failed-halt', execId: exec.exec_id });
       }
@@ -735,16 +753,68 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     // due on the new message row and is re-dispatched fresh next tick"): a
     // launch-agent chain whose TAIL execution ended `done` re-dispatches when a
     // genuinely new sender message lands on its thread. `blocked` wakes via the
-    // loop above; `failed`/`stalled` stay owner-halted. Scans every done tail
-    // each tick — v1-scale; bound this before jobs_log grows large.
-    for (const raw of allSql(`
-      SELECT exec_id FROM jobs_log j
-      WHERE j.status = 'done' AND j.action_type = 'launch-agent'
-        AND NOT EXISTS (SELECT 1 FROM jobs_log c WHERE c.parent_exec_id = j.exec_id)
-    `)) {
-      const exec = heartStore.getExecution(raw.exec_id);
+    // loop above; `failed`/`stalled` stay owner-halted.
+    //
+    // Bounded scan (task 7.19, batch-08 item 10 part 2): the loop is driven by
+    // a MESSAGE WATERMARK instead of scanning every done tail each tick (which
+    // grew monotonically with ended chains). Candidates are (a) threads that
+    // received a non-ticker, non-completion row since the last examined msg_id,
+    // plus (b) wakes deferred while their slot was live/armed, retried until
+    // they land. The FIRST tick after boot does one full tail scan — it covers
+    // messages that arrived while the daemon was down AND any deferral lost
+    // with the process. The watermark and deferred set are in-memory CACHES,
+    // safe to lose (boot rescan recovers), never authoritative state.
+    let wakeCandidates = null; // null = boot tick: full tail scan
+    // Snapshot BEFORE the candidate query, and advance the watermark to the
+    // snapshot — never only to the last MATCHED row: rows the filter rejects
+    // (ticker notes, completions) are examined too, and a watermark left
+    // behind them would re-walk the same range every tick.
+    const maxRow = getSql('SELECT MAX(msg_id) AS max_id FROM messages');
+    const msgIdSnapshot = (maxRow && maxRow.max_id) || 0;
+    if (wakeWatermark !== null) {
+      wakeCandidates = new Set(pendingWakeThreads);
+      for (const r of allSql(
+        "SELECT thread FROM messages WHERE msg_id > ? AND msg_id <= ? AND sender != 'ticker' AND type != 'completion'",
+        wakeWatermark, msgIdSnapshot
+      )) {
+        wakeCandidates.add(r.thread);
+      }
+    }
+    wakeWatermark = Math.max(wakeWatermark ?? 0, msgIdSnapshot);
+    pendingWakeThreads.clear();
+
+    const doneTailIds = [];
+    if (wakeCandidates === null) {
+      for (const raw of allSql(`
+        SELECT exec_id FROM jobs_log j
+        WHERE j.status = 'done' AND j.action_type = 'launch-agent'
+          AND NOT EXISTS (SELECT 1 FROM jobs_log c WHERE c.parent_exec_id = j.exec_id)
+      `)) doneTailIds.push(raw.exec_id);
+    } else {
+      for (const thread of wakeCandidates) {
+        if (typeof thread !== 'string' || !thread.startsWith('exec-')) continue;
+        const rootId = parseInt(thread.slice(5), 10);
+        if (!Number.isInteger(rootId)) continue;
+        const raw = getSql(`
+          WITH RECURSIVE descendants(exec_id) AS (
+            SELECT exec_id FROM jobs_log WHERE exec_id = ?
+            UNION ALL
+            SELECT j.exec_id FROM jobs_log j JOIN descendants d ON j.parent_exec_id = d.exec_id
+          )
+          SELECT j.exec_id FROM jobs_log j JOIN descendants d ON j.exec_id = d.exec_id
+          WHERE j.status = 'done' AND j.action_type = 'launch-agent'
+            AND NOT EXISTS (SELECT 1 FROM jobs_log c WHERE c.parent_exec_id = j.exec_id)
+          LIMIT 1
+        `, rootId);
+        if (raw) doneTailIds.push(raw.exec_id);
+      }
+    }
+
+    for (const execId of doneTailIds) {
+      const exec = heartStore.getExecution(execId);
       if (!exec || !hasNewSenderInputSinceEnd(exec)) continue;
       if (isSlotLiveOrRearmed(exec)) {
+        pendingWakeThreads.add(exec.thread);
         actions.push({ phase: 'advance', action: 'wake-redispatch-deferred', execId: exec.exec_id, reason: 'slot-live-or-rearmed' });
         continue;
       }
@@ -762,6 +832,18 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       });
       actions.push({ phase: 'advance', action: 'wake-redispatch', execId: exec.exec_id, watermark: exec.completion_msg_id });
     }
+
+    // Scan observability (task 7.19): the two per-tick scan figures the bound
+    // governs, recorded every tick so a probe (and the tick log) can assert
+    // scan work does not grow with accumulated notes/executions.
+    actions.push({
+      phase: 'advance',
+      action: 'scan-stats',
+      unroutedCompletionsScanned: unrouted.length,
+      wakeCandidates: wakeCandidates === null ? doneTailIds.length : wakeCandidates.size,
+      wakeBootScan: wakeCandidates === null,
+      wakeWatermark,
+    });
   }
 
   async function dispatch(now, tick, actions) {
@@ -900,13 +982,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
           status: 'failed',
           createdAt: now,
         });
-        heartStore.recordMessage({
-          type: 'note',
-          sender: 'ticker',
-          thread: OWNER_NOTE_THREAD,
-          corpus: `slot halted: session crashed (exec ${exec.exec_id})`,
-          createdAt: now,
-        });
+        recordOwnerNote(`slot halted: session crashed (exec ${exec.exec_id})`, now, tick);
         heartStore.updateExecutionStatus(exec.exec_id, { status: 'failed', exitCode, endedAt: now });
         crashedThisTick.add(exec.exec_id);
         actions.push({ phase: 'enforce', action: 'crash-sweep', execId: exec.exec_id, exitCode, completionMsgId: msg.msg_id });
@@ -943,22 +1019,10 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
 
       if (silenceTicks >= cfg.stall_halt_ticks) {
         heartStore.updateExecutionStatus(exec.exec_id, { status: 'stalled' });
-        heartStore.recordMessage({
-          type: 'note',
-          sender: 'ticker',
-          thread: OWNER_NOTE_THREAD,
-          corpus: `slot stalled after ${silenceTicks} ticks of silence`,
-          createdAt: now,
-        });
+        recordOwnerNote(`slot stalled after ${silenceTicks} ticks of silence`, now, tick);
         actions.push({ phase: 'enforce', action: 'stalled', execId: exec.exec_id, silenceTicks });
       } else if (silenceTicks >= cfg.stall_warn_ticks) {
-        heartStore.recordMessage({
-          type: 'note',
-          sender: 'ticker',
-          thread: OWNER_NOTE_THREAD,
-          corpus: `silent warning after ${silenceTicks} ticks of silence`,
-          createdAt: now,
-        });
+        recordOwnerNote(`silent warning after ${silenceTicks} ticks of silence`, now, tick);
         actions.push({ phase: 'enforce', action: 'warn', execId: exec.exec_id, silenceTicks });
       }
     }
@@ -1003,7 +1067,18 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       await dispatch(now, tick, actions);
       actions.push({ phase: 'nudge', skipped: true });
       await enforce(now, tick, actions);
+      const preWarnActionCount = actions.length;
       runWarningCheck({ heartStore, tick, now, slotMaxRepeats: cfg.slot_max_repeats, actions });
+      // The warning check writes its announce notes to the owner feed through
+      // the store directly; stamp them routed in the same tick (task 7.19 —
+      // a ticker-authored owner-feed note is informational, nothing routes
+      // it, so it must never linger in the unrouted set).
+      if (actions.slice(preWarnActionCount).some(a => a.phase === 'warnings' && a.action === 'announce')) {
+        runSql(
+          "UPDATE messages SET routed_at_tick = ? WHERE routed_at_tick IS NULL AND type = 'note' AND sender = 'ticker' AND thread = ?",
+          tick, OWNER_NOTE_THREAD
+        );
+      }
       await broadcast(tick, actions);
 
       const ts = new Date();

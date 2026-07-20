@@ -45,6 +45,11 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_unrouted    ON messages(msg_id) WHERE routed_at_tick IS NULL;
 CREATE INDEX IF NOT EXISTS idx_messages_unbroadcast ON messages(msg_id) WHERE broadcast_at_tick IS NULL;
+-- Task 7.19: backs the ticker's bounded Advance fetch (unrouted COMPLETIONS
+-- only) — per-tick scan work tracks in-flight completions, never the
+-- accumulated unrouted-note history.
+CREATE INDEX IF NOT EXISTS idx_messages_unrouted_completion
+  ON messages(msg_id) WHERE routed_at_tick IS NULL AND type = 'completion';
 
 CREATE TABLE IF NOT EXISTS jobs_log (
   exec_id      INTEGER PRIMARY KEY AUTOINCREMENT,

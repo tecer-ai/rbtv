@@ -787,16 +787,25 @@ class HeartStore {
     return stmt.get(msgId) || null;
   }
 
-  getMessages({ unroutedOnly = false, unbroadcastOnly = false, limit = null } = {}) {
+  getMessages({ unroutedOnly = false, unbroadcastOnly = false, type = null, limit = null } = {}) {
     let sql = 'SELECT * FROM messages';
     const conds = [];
+    const params = [];
     if (unroutedOnly) conds.push('routed_at_tick IS NULL');
     if (unbroadcastOnly) conds.push('broadcast_at_tick IS NULL');
+    // Task 7.19: `{ unroutedOnly: true, type: 'completion' }` is the ticker's
+    // bounded Advance fetch — matched by the partial index
+    // idx_messages_unrouted_completion so per-tick work never scans the
+    // accumulated message history.
+    if (type !== null) {
+      conds.push('type = ?');
+      params.push(type);
+    }
     if (conds.length) sql += ' WHERE ' + conds.join(' AND ');
     sql += ' ORDER BY msg_id';
     if (limit !== null) sql += ` LIMIT ${Number(limit)}`;
     const stmt = this._prepare(sql);
-    return stmt.all();
+    return stmt.all(...params);
   }
 
   resolveCompletion({ msgId, execId, status, endedAt, routedAtTick }) {

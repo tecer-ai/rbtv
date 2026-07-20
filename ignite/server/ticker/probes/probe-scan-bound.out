@@ -1,0 +1,18 @@
+probe: probe-scan-bound
+started: 2026-07-20T17:34:00.798Z
+command: node probes/probe-scan-bound.js
+boot tick 1: {"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":true,"wakeWatermark":0}
+baseline tick 2: {"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":false,"wakeWatermark":0}
+growth step 1 tick 3: {"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":false,"wakeWatermark":120}
+growth step 2 tick 4: {"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":false,"wakeWatermark":240}
+growth step 3 tick 5: {"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":false,"wakeWatermark":360}
+store now: unrouted total=300, unrouted completions=0, done tails=60
+scan figures FLAT across 3 growth steps (300 notes + 60 chains)
+ticker-authored note routed at write: routed_at_tick=6
+wake tick 8: {"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":1,"wakeBootScan":false,"wakeWatermark":364}
+new sender message woke exec 61 with 1 candidate examined (61 tails on disk)
+status: PASS
+exit: 0
+wall_ms: 92
+skipped_count: 0
+ended: 2026-07-20T17:34:00.890Z
