@@ -291,4 +291,139 @@ function appendKillRecord({ logPath, execId, sessionId, sender }) {
   return { auditPath };
 }
 
-module.exports = { appendKeystrokeRecord, appendScreenReadRecord, appendKillRecord, auditPathFor, KeysAuditError, AUDIT_SUFFIX, AUDIT_MODE };
+// ── TASK 7.13 (owner ruling 2026-07-20, batch 08 item 2 piece 1): SCREEN-READ POLLS ARE
+// COALESCED AT SOURCE ─────────────────────────────────────────────────────────────────────────
+//
+// WHY: the attach client polls `capture-session-screen` every ~250 ms, and the D94 record was
+// written once PER POLL — measured on the live box: 2,139 of 2,275 audit records (94%) were
+// `screen-read` poll artifacts against 136 keystrokes. A single 10-second human glance wrote
+// ~40 "screen was read" entries. The ruling cuts that volume AT SOURCE: a continuous attach by
+// one sender is ONE read run, not thousands of reads.
+//
+// THE SHAPE (extends D93's vocabulary — extended, never paralleled, same as D94 and the kill
+// record before it):
+//   • `screen-read`         — UNCHANGED, but now written once per read RUN (the first poll of a
+//                             continuous attach), not once per poll. Same fields, same fail-closed
+//                             ordering: it is appended BEFORE the first screen of the run is
+//                             served, and a failed append refuses the read. D94's signal — WHO
+//                             read WHICH session's screen, WHEN, distinguishable from writes —
+//                             is fully carried by this record.
+//   • `screen-read-summary` — NEW: closes a coalesced run, carrying `count` (polls served) and
+//                             `first_ts`/`last_ts` (the run's time range) — the ruling's "one
+//                             entry carrying a count + time range". Appended when the run closes
+//                             (a poll gap past SCREEN_READ_COALESCE_GAP_MS, a kill, or daemon
+//                             shutdown), BEST-EFFORT: the screens it summarizes were already
+//                             served, so a failed close append cannot retroactively refuse them —
+//                             attribution never depended on it (the open record carries that).
+//                             A run of exactly one poll writes NO summary (the open record
+//                             already says everything).
+//
+// ⚑ FAIL-CLOSED IS PRESERVED WHERE IT IS LOAD-BEARING. The bypass D94 closes is an
+// UN-ATTRIBUTED read. Every run still opens with a fail-closed `screen-read` append before any
+// byte is served; polls WITHIN an open run are attributed by that record. What a full disk can
+// no longer do is write one record per frame — which is the ruled point.
+
+const SCREEN_READ_COALESCE_GAP_MS = 15000;
+
+// key -> { auditPath, execId, sessionId, sender, firstTs, lastTs, count, lastMs }
+const screenReadRuns = new Map();
+let coalesceTimer = null;
+
+function runKeyFor(auditPath, execId, senderId) {
+  return `${auditPath} ${execId} ${senderId}`;
+}
+
+// Append the run-close summary, best-effort. Re-checks the file mode before appending (the
+// same posture as the three certified guard copies above: never extend a loosened file that
+// holds verbatim keystrokes) — but on ANY failure it drops the summary silently rather than
+// throwing: the reads it summarizes already happened.
+function appendRunSummary(run) {
+  if (run.count <= 1) return;
+  try {
+    const mode = fs.statSync(run.auditPath).mode & 0o777;
+    if (mode & 0o077) return;
+    const record = {
+      ts: new Date().toISOString(),
+      event: 'screen-read-summary',
+      id: run.execId,
+      session_id: run.sessionId ?? null,
+      sender_id: run.sender.id,
+      sender_kind: run.sender.kind ?? null,
+      via: run.sender.via ?? null,
+      count: run.count,
+      first_ts: run.firstTs,
+      last_ts: run.lastTs,
+    };
+    fs.appendFileSync(run.auditPath, JSON.stringify(record) + '\n', { mode: AUDIT_MODE });
+  } catch { /* best-effort — see the header note */ }
+}
+
+function flushExpiredRuns(now = Date.now()) {
+  for (const [key, run] of screenReadRuns) {
+    if (now - run.lastMs > SCREEN_READ_COALESCE_GAP_MS) {
+      screenReadRuns.delete(key);
+      appendRunSummary(run);
+    }
+  }
+  if (screenReadRuns.size === 0 && coalesceTimer) {
+    clearInterval(coalesceTimer);
+    coalesceTimer = null;
+  }
+}
+
+function ensureCoalesceTimer() {
+  if (coalesceTimer) return;
+  coalesceTimer = setInterval(() => flushExpiredRuns(), SCREEN_READ_COALESCE_GAP_MS);
+  // unref: an idle-attach timer must never hold the daemon (or a probe) alive.
+  if (coalesceTimer.unref) coalesceTimer.unref();
+}
+
+// Close every open run (optionally only one exec's) and append their summaries. Called on
+// daemon shutdown, and before a kill record so the summary lands ahead of `session-killed`
+// in the file's order.
+function flushScreenReadRuns({ execId = null } = {}) {
+  for (const [key, run] of screenReadRuns) {
+    if (execId !== null && run.execId !== execId) continue;
+    screenReadRuns.delete(key);
+    appendRunSummary(run);
+  }
+  if (screenReadRuns.size === 0 && coalesceTimer) {
+    clearInterval(coalesceTimer);
+    coalesceTimer = null;
+  }
+}
+
+// THE screen-read entry point (task 7.13) — call this instead of appendScreenReadRecord.
+// First poll of a run: appends the fail-closed `screen-read` record (throws exactly as
+// appendScreenReadRecord does — the caller refuses the read). Subsequent polls within the
+// coalesce gap: counted in memory, no disk write, `coalesced: true` in the return.
+function recordScreenRead({ logPath, execId, sessionId, sender }) {
+  const now = Date.now();
+  flushExpiredRuns(now);
+  const auditPath = auditPathFor(logPath);
+  const key = runKeyFor(auditPath, execId, sender && sender.id);
+  const run = screenReadRuns.get(key);
+  if (run && now - run.lastMs <= SCREEN_READ_COALESCE_GAP_MS) {
+    run.count += 1;
+    run.lastMs = now;
+    run.lastTs = new Date(now).toISOString();
+    return { auditPath, coalesced: true };
+  }
+  // No open run (or the gap elapsed and flushExpiredRuns closed it): open a new run,
+  // fail-closed — a throw here propagates and the caller refuses the read (D94 unchanged).
+  const res = appendScreenReadRecord({ logPath, execId, sessionId, sender });
+  const ts = new Date(now).toISOString();
+  screenReadRuns.set(key, {
+    auditPath: res.auditPath, execId, sessionId,
+    sender: { id: sender.id, kind: sender.kind ?? null, via: sender.via ?? null },
+    firstTs: ts, lastTs: ts, count: 1, lastMs: now,
+  });
+  ensureCoalesceTimer();
+  return { ...res, coalesced: false };
+}
+
+module.exports = {
+  appendKeystrokeRecord, appendScreenReadRecord, appendKillRecord, auditPathFor,
+  recordScreenRead, flushScreenReadRuns, SCREEN_READ_COALESCE_GAP_MS,
+  KeysAuditError, AUDIT_SUFFIX, AUDIT_MODE,
+};

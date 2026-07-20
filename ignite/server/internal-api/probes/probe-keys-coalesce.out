@@ -1,0 +1,19 @@
+PASS | BEFORE (per-poll appender): 40 polls -> 40 records | records=40
+PASS | first poll opens the run on disk (coalesced: false)
+PASS | polls 2..N are coalesced in memory (no disk write)
+PASS | mid-run the audit holds exactly ONE record (the fail-closed open) | records=1
+PASS | the open record is D94's `screen-read`, attributed
+PASS | run close appends exactly ONE `screen-read-summary` | records=2 last=screen-read-summary
+PASS | summary carries the count (40) | count=40
+PASS | summary carries the time range (first_ts <= last_ts)
+VOLUME | attach of 40 polls | before=40 records | after=2 records | reduction=95.0%
+PASS | audit volume dropped at source for an equivalent attach | 40 -> 2
+PASS | a one-poll run closes with NO summary (the open record says everything)
+PASS | a new run after close re-opens fail-closed on disk
+PASS | a loosened (0644) audit file REFUSES the run open (fail-closed, D94 unchanged) | REFUSING TO AUDIT: the session audit at /tmp/ignite-probe-co
+
+CHECKS: 12/12 passed
+SKIPPED_COUNT: 0
+COALESCE_OK: true
+EXIT: 0
+WALL_MS: 16

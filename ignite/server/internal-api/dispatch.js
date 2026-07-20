@@ -27,7 +27,7 @@ const {
   INTERNAL,
 } = require('./errors');
 const { createAuthzPolicy } = require('./authz');
-const { appendKeystrokeRecord, appendScreenReadRecord, appendKillRecord } = require('./keys-audit');
+const { appendKeystrokeRecord, recordScreenRead, flushScreenReadRuns, appendKillRecord } = require('./keys-audit');
 
 const ENVELOPE_VERSION = 1;
 
@@ -435,6 +435,10 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         stall_halt_ticks: configKnobs.stall_halt_ticks ?? 24,
         slot_max_repeats: configKnobs.slot_max_repeats ?? 10,
         max_live_agent_sessions: configKnobs.max_live_agent_sessions ?? 2,
+        // Task 7.13 piece 3: the retention window, READ-ONLY, as a FIELD on this existing
+        // config block — never a new intent (ce-5/D3: read-only queries extend `inspect`;
+        // the closed intent set is not touched). 0 = never delete.
+        log_retention_days: configKnobs.log_retention_days ?? 90,
       },
     };
   }
@@ -895,8 +899,14 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     // check below leaves an entry for a screen no sender received. Deliberate, and the same trade
     // the keystroke path takes — for an audit, UNDER-recording is the fatal direction; an
     // over-record is visible, harmless, and correlatable against the typed refusal.
+    //
+    // ⚑ TASK 7.13 (piece 1): the record is COALESCED at source. The first poll of a continuous
+    // attach appends the fail-closed `screen-read` record exactly as before (a throw refuses
+    // the read — D94 unchanged); subsequent polls within the coalesce gap are counted in memory
+    // and closed out by ONE `screen-read-summary` carrying count + time range. See keys-audit.js
+    // § task 7.13 for why fail-closed is preserved where it is load-bearing.
     try {
-      appendScreenReadRecord({
+      recordScreenRead({
         logPath: row.log_path,
         execId: row.exec_id,
         sessionId: row.session_id,
@@ -1008,6 +1018,9 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     // with carrier metadata but no log_path is not a shape the daemon produces, and if one
     // appears the appender's own guard refuses rather than inventing an audit location.
     try {
+      // Task 7.13: close any open screen-read run for this exec FIRST, so its summary lands
+      // ahead of the kill record in the audit's append order (best-effort by design).
+      flushScreenReadRuns({ execId: row.exec_id });
       appendKillRecord({
         logPath: row.log_path,
         execId: row.exec_id,

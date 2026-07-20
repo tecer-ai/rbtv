@@ -33,7 +33,7 @@ ignite's state lives in exactly TWO roots, split by ONE membership test: **"can 
 
 - **`heart.db` is per-machine, WHOLE.** The membership test cuts through the store (the `jobs` catalogue is user-authorable; `queue`/`jobs_log`/`messages` are runtime) — owner ruled it stays one file, per-machine, at `{state_root}/heart.db`. Accepted consequence: the jobs catalogue is not readable without the daemon.
 - **`sessions/` is per-workspace.** Stays at `.rbtv/sessions/` (consistent with the seat-folder target model). Accepted tradeoff: worker-writable areas remain inside the workspace.
-- **Retention** (task 7.13) enumerates the per-machine root's artifact classes — `logs/`, `prompts/`, `exits/`, `ptys/`, `ticker.log`, `feed.jsonl` — and MUST explicitly exclude `heart.db`, which shares that root.
+- **Retention** (task 7.13, BUILT — `server/retention.js`, swept at daemon boot and daily) enumerates the per-machine root's artifact classes — `logs/`, `prompts/`, `exits/`, `ptys/`, `ticker.log`, `feed.jsonl`, and `ttyd.log` (batch-08 D8 conductor ruling) — as a POSITIVE enumeration: `heart.db` and `.runtime-config/` are never visited by construction. Age-based only, NO size cap; window `RBTV_IGNITE_LOG_RETENTION_DAYS` (default 90, `0` = never, below 7 rejected at boot); read-only on `inspect daemon`'s `config` block.
 
 ## Dependencies
 

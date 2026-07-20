@@ -155,7 +155,14 @@ function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot) {
 function ensureLogPath(dataRoot, sessionId) {
   const logDir = path.join(dataRoot, 'logs');
   fs.mkdirSync(logDir, { recursive: true, mode: 0o700 });
-  return path.join(logDir, `${sessionId}.log`);
+  const logPath = path.join(logDir, `${sessionId}.log`);
+  // Task 7.13 piece 4 (settles D97): pre-create the transcript 0600 BEFORE the carrier opens
+  // it — systemd's `StandardOutput=append:` creates a missing file at the manager's default
+  // mode (664 observed live), leaving a secret-bearing transcript world-readable while its
+  // audit neighbour sits at 0600. An existing file keeps its mode, so this pre-create wins.
+  // appendFileSync (not writeFileSync): never truncate an existing transcript.
+  fs.appendFileSync(logPath, '', { mode: 0o600 });
+  return logPath;
 }
 
 // THE one derivation of a session's exit-marker path (the file the carrier's post-exit hook

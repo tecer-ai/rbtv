@@ -260,6 +260,13 @@ function createPtyHost({ heartStore, spawnManager, dataRoot, userManager = true,
     // Same carrier composition as any spawn: caps + bwrap-compatible sandbox props on the unit.
     const holderDiagLog = holderDiagLogFor(sessionId);
     const transcriptLog = transcriptLogFor(sessionId);
+    // Task 7.13 piece 4 (settles D97): pre-create BOTH log files 0600 before the unit starts —
+    // systemd's `StandardOutput=append:` creates missing files at the manager's default mode
+    // (664 observed live). An existing file keeps its mode, so the pre-create wins the race.
+    // appendFileSync: never truncate. The tee's own createWriteStream below already passes
+    // mode 0600, but mode applies at CREATION only — the unit could create the file first.
+    fs.appendFileSync(holderDiagLog, '', { mode: 0o600 });
+    fs.appendFileSync(transcriptLog, '', { mode: 0o600 });
     const { args, unitName } = buildSystemdRunArgs({
       sessionId, argv: holderArgv, workdir, logPath: holderDiagLog,
       caps: profile.caps, sandbox: resolvedSandbox, envFile: profile.env?.file, userManager,

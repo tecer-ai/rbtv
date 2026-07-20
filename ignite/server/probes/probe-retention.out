@@ -1,0 +1,35 @@
+PASS | unset -> default 90
+PASS | '0' -> 0 (never delete)
+PASS | '7' -> 7 (floor is inclusive)
+PASS | '90' -> 90
+PASS | '6' (below the 7-day floor) is REJECTED loudly | RBTV_IGNITE_LOG_RETENTION_DAYS=6 is below the 7-day floor and is REJECTED: a typ
+PASS | '1' (below the 7-day floor) is REJECTED loudly | RBTV_IGNITE_LOG_RETENTION_DAYS=1 is below the 7-day floor and is REJECTED: a typ
+PASS | '3' (below the 7-day floor) is REJECTED loudly | RBTV_IGNITE_LOG_RETENTION_DAYS=3 is below the 7-day floor and is REJECTED: a typ
+PASS | '-1' (not a non-negative integer) is REJECTED loudly | RBTV_IGNITE_LOG_RETENTION_DAYS must be a non-negative integer number of days (go
+PASS | 'abc' (not a non-negative integer) is REJECTED loudly | RBTV_IGNITE_LOG_RETENTION_DAYS must be a non-negative integer number of days (go
+PASS | '7.5' (not a non-negative integer) is REJECTED loudly | RBTV_IGNITE_LOG_RETENTION_DAYS must be a non-negative integer number of days (go
+PASS | date boundary: artifact just OUTSIDE the window is deleted (transcript)
+PASS | date boundary: its audit neighbour is deleted with it
+PASS | date boundary: artifact just INSIDE the window survives
+PASS | prompts/ artifact beyond the window is deleted
+PASS | exits/ artifact beyond the window is deleted
+PASS | ptys/ artifact beyond the window is deleted
+PASS | a LIVE session's artifacts are never swept, at any age | skipped_live=["live-session.log"]
+PASS | heart.db SURVIVES the sweep at 400 days old (positive enumeration — never visited)
+PASS | heart.db-wal SURVIVES
+PASS | .runtime-config/ SURVIVES
+PASS | an UNKNOWN root file survives (enumeration fails closed, not a denylist)
+PASS | ticker.log rotated to a dated segment
+PASS | feed.jsonl rotated to a dated segment
+PASS | ttyd.log rotated to a dated segment (D8: INCLUDED in retention)
+PASS | an ancient rotated segment is deleted
+PASS | a 664 transcript in logs/ is tightened to 0600 (piece 4 heal pass) | mode=600
+PASS | second sweep the same day does NOT rotate again (dated target exists)
+PASS | retentionDays=0: a 400-day-old artifact is NOT deleted (never delete) | removed=0
+PASS | retentionDays=0: the mode heal pass still runs (tightening is not deletion)
+
+CHECKS: 29/29 passed
+SKIPPED_COUNT: 0
+RETENTION_OK: true
+EXIT: 0
+WALL_MS: 15

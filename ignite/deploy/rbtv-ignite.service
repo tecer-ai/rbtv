@@ -54,6 +54,12 @@ Environment="RBTV_IGNITE_CONFIG_PATH=@@IGNITE_SRC@@/config/spawn-profiles.yaml"
 Environment="RBTV_IGNITE_WORKDIR_ROOT=@@WORKDIR_ROOT@@"
 Environment="RBTV_IGNITE_DATA_ROOT=%S/rbtv-ignite"
 Environment="RBTV_IGNITE_USER_MANAGER=true"
+# Retention window (days) for the per-machine state root's ENUMERATED artifact classes
+# (logs/, prompts/, exits/, ptys/, ticker.log, feed.jsonl, ttyd.log — never heart.db),
+# swept at daemon boot and daily (task 7.13). 0 = never delete; values below 7 are
+# REJECTED at boot (a typo must not be able to erase the audit trail). Override via the
+# EnvironmentFile like any RBTV_IGNITE_* knob.
+Environment="RBTV_IGNITE_LOG_RETENTION_DAYS=90"
 StateDirectory=rbtv-ignite
 ExecStart=@@NODE_BIN@@ @@IGNITE_SRC@@/server/index.js
 Restart=on-failure

@@ -12,6 +12,8 @@ const { createSpawnManager } = require('./spawn/spawn');
 const { createTicker } = require('./ticker/ticker');
 const { selectCarrier } = require('./spawn/carrier');
 const { createInternalApi } = require('./internal-api/dispatch');
+const { flushScreenReadRuns } = require('./internal-api/keys-audit');
+const { parseRetentionDays, sweepRetention } = require('./retention');
 const { createPtyHost } = require('./pty');
 const { createGateway } = require('../gateway/gateway');
 const { loadSendersFile } = require('../gateway/sender-auth');
@@ -411,6 +413,12 @@ async function main() {
     );
   }
 
+  // Task 7.13: the retention window is a BOOT-TIME config knob with a fail-closed floor —
+  // parse it before anything opens, so a sub-7-day typo refuses the boot loudly instead of
+  // booting a daemon that would erase the audit trail. Default 90; 0 = never delete.
+  const retentionDays = parseRetentionDays(process.env.RBTV_IGNITE_LOG_RETENTION_DAYS);
+  log('info', 'log retention window resolved', { retentionDays });
+
   if (dataRoot) ensureConfiguredDir(dataRoot, 'spawn.data_root', 'RBTV_IGNITE_DATA_ROOT');
   if (mergedConfig.default_workdir_root) {
     ensureConfiguredDir(mergedConfig.default_workdir_root, 'default_workdir_root', 'RBTV_IGNITE_WORKDIR_ROOT');
@@ -557,7 +565,9 @@ async function main() {
     secret: internalSecret,
     logger: (m) => log(m.level || 'info', m.message, m),
     daemonStartTime,
-    daemonConfig: tickerConfig,
+    // Task 7.13: the retention window rides the daemon-config knobs so `inspect daemon`
+    // surfaces it read-only on its existing `config` block (never a new intent).
+    daemonConfig: { ...tickerConfig, log_retention_days: retentionDays },
     // The pty host is threaded to the internal API so the Batch-6 session-surface intents
     // (`send-to-session` / `capture-session-screen`, owner ruling D90) can reach the headed
     // session they drive. ADDITIVE: the pty host is unchanged, every other intent is unchanged,
@@ -687,6 +697,35 @@ async function main() {
     log('warn', 'headed-session reconnect pass failed', { error: err.message });
   }
 
+  // ── Task 7.13: the retention sweep — at boot, then daily ────────────────────
+  //
+  // Age-based only (NO size cap, by ruling) over the ENUMERATED per-machine artifact classes;
+  // `heart.db` and `.runtime-config/` are never visited by construction (retention.js header).
+  // A LIVE session's artifacts are never swept: the predicate consults the store per pass.
+  const runRetentionSweep = () => {
+    try {
+      const liveIds = new Set(
+        ['running', 'launching', 'stalled']
+          .flatMap((s) => heartStore.listExecutionsByStatus(s))
+          .map((r) => r.session_id)
+          .filter(Boolean)
+      );
+      sweepRetention({
+        dataRoot,
+        retentionDays,
+        isSessionLive: (sid) => liveIds.has(sid),
+        logger: (m) => log(m.level || 'info', m.message, m),
+      });
+    } catch (err) {
+      // The sweep is housekeeping: a failed pass is logged loudly and retried at the next
+      // scheduled pass — it never takes the daemon down.
+      log('error', 'retention sweep failed', { error: err.message });
+    }
+  };
+  runRetentionSweep();
+  const retentionTimer = setInterval(runRetentionSweep, 24 * 60 * 60 * 1000);
+  if (retentionTimer.unref) retentionTimer.unref();
+
   const tickResult = await ticker.tick();
   log('info', 'initial tick complete', { tick: tickResult.tick, actionCount: tickResult.actions.length });
 
@@ -699,6 +738,12 @@ async function main() {
     return async () => {
       log('info', `received ${signal}, shutting down`);
       clearInterval(timer);
+      clearInterval(retentionTimer);
+      // Task 7.13: close any open screen-read coalesce runs so their summaries (count +
+      // time range) land in the audit before the daemon exits. Best-effort by design.
+      try { flushScreenReadRuns(); } catch (err) {
+        log('warn', 'screen-read run flush failed at shutdown', { error: err.message });
+      }
       // Detach the pty readers WITHOUT ending headed sessions: their holders live in their own
       // transient units, so closing the bridges lets each session survive for the next boot to
       // reconnect (session-surface-spec.md Behavior #7). NEVER kills a headed session on shutdown.
