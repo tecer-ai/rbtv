@@ -846,7 +846,16 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
 
   async function enforce(now, tick, actions) {
     // Crash sweep first so stall ladder only applies to still-live sessions.
-    const liveBeforeCrash = liveExecutions();
+    //
+    // `stalled` executions STAY in the swept set (owner ruling 2026-07-20,
+    // batch-08 item 4 half B): `stalled` means "owner should look", never "no
+    // longer tracked". A stalled worker whose unit later goes inactive still
+    // gets its synthetic completion + exit code exactly as a `running` row
+    // does — without this, the exit is recorded by nothing and the outcome is
+    // unrecoverable. Dispatch semantics are unchanged: the stall ladder below
+    // and every re-dispatch path still exclude `stalled` (owner-halted).
+    const liveBeforeCrash = liveExecutions()
+      .concat(heartStore.listExecutionsByStatus('stalled'));
     const crashedThisTick = new Set();
     for (const exec of liveBeforeCrash) {
       let info;

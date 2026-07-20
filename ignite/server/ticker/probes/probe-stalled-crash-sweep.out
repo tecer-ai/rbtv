@@ -1,0 +1,18 @@
+probe: probe-stalled-crash-sweep
+started: 2026-07-20T17:27:16.218Z
+command: node probes/probe-stalled-crash-sweep.js
+enqueued one due launch-agent job (silent worker)
+tick 1: [{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep","thread":"exec-1"}]
+exec id=1, status=running
+stalled at tick 25
+stalled + alive: not re-dispatched, not swept
+unit name: rbtv-worker-24d992a8-2cfe-41cd-9f38-8b52d92d341c
+tick 27: [{"phase":"enforce","action":"crash-sweep","execId":1,"exitCode":0,"completionMsgId":14},{"phase":"enforce","action":"state","sessions":{}}]
+post-sweep status: failed, ended_at: 2026-07-20T17:27:17Z
+synthetic completion recorded: crash sweep: exit=0
+completion resolved by Advance; no retry; final status failed
+status: PASS
+exit: 0
+wall_ms: 1269
+skipped_count: 0
+ended: 2026-07-20T17:27:17.487Z
