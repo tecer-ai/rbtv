@@ -1190,4 +1190,8 @@ function constantTimeEquals(a, b) {
 
 // STORE_TO_WIRE + NOT_WIRE_REACHABLE are exported as DATA for probe-error-map-drift.js (the
 // batch-08 item 7 decay guard) — read-only introspection; no caller mutates them.
-module.exports = { createInternalApi, ENVELOPE_VERSION, assertSerializable, constantTimeEquals, STORE_TO_WIRE, NOT_WIRE_REACHABLE };
+// INTENTS is exported as DATA for probe-intent-drift.js (the batch-08 item 5 lockstep guard,
+// task 7.16): the closed intent set is duplicated BY DESIGN across the DEC-4 boundary
+// (gateway/parse.js holds its own copy — the gateway may not import core), so the probe must
+// read this gate's copy here. Read-only introspection; no caller mutates it.
+module.exports = { createInternalApi, ENVELOPE_VERSION, assertSerializable, constantTimeEquals, STORE_TO_WIRE, NOT_WIRE_REACHABLE, INTENTS };

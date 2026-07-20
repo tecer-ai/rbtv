@@ -1,0 +1,16 @@
+derived: 'capture-session-screen' -> handler ran (typed VALIDATION_FAILED)
+derived: 'enqueue-job' -> handler ran (typed VALIDATION_FAILED)
+derived: 'inspect' -> handler ran (typed VALIDATION_FAILED)
+derived: 'kill-session' -> handler ran (typed VALIDATION_FAILED)
+derived: 'remove-job' -> handler ran (typed VALIDATION_FAILED)
+derived: 'send-to-session' -> handler ran (typed VALIDATION_FAILED)
+derived: 'snooze' -> handler ran (typed VALIDATION_FAILED)
+derived: 'spawn-via-named-profile' -> handler ran (typed INTERNAL)
+
+gateway/parse.js INTENTS: 8
+dispatch.js INTENTS (gate): 8
+dispatch() switch handlers (derived): 8
+
+RESULT: PASS — all three copies of the closed intent set are in lockstep; gate->handler fall-through is impossible at this HEAD.
+WALL_MS 8
+EXIT 0

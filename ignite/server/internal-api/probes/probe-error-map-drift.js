@@ -24,9 +24,10 @@
 // future code through that decision point — which is exactly the drift detection the
 // closed set lacked.
 //
-// Sibling guard: task 7.16's intent-set drift probe shares this shape (a closed set
-// diffed against its universe, failures NAMED). checkClosedSetPartition below is
-// written to be liftable if the two suites want one helper.
+// Sibling guard: task 7.16's intent-set drift probe (probe-intent-drift.js) shares this
+// shape (a closed set diffed against its universe, failures NAMED). The partition check
+// was lifted into the shared lib/closed-set.js at task 7.16 — one helper, two probes,
+// so the checker itself cannot become a fourth drifting closed set.
 //
 // Static — requires the modules as data; no daemon, no db, no ports. Exit code is the
 // truth; the .out footer is a hint (D51 evidence-husk hazard: capture truncated at load).
@@ -42,6 +43,7 @@ function emit(s) { lines.push(s); }
 
 const { STORE_TO_WIRE, NOT_WIRE_REACHABLE } = require('../dispatch');
 const { WIRE_ERROR_CODES } = require('../errors');
+const { checkClosedSetPartition } = require('./lib/closed-set');
 
 // The typed-code UNIVERSE: every E_* string constant the three error modules export.
 // Derived by REQUIRING the modules (never by regex over source) so a code cannot hide
@@ -58,36 +60,25 @@ for (const mod of ERROR_MODULES) {
   }
 }
 
-// The partition check — every universe member in exactly one side, no stale keys,
-// every mapped value a ratified wire code, every classification a real rationale.
-function checkClosedSetPartition({ universe, sides }) {
-  const failures = [];
-  const membership = new Map(); // code -> [side names]
-  for (const { name, keys } of sides) {
-    for (const key of keys) {
-      if (!universe.has(key)) failures.push(`STALE ROW: ${name} carries '${key}', which no errors module defines`);
-      membership.set(key, [...(membership.get(key) || []), name]);
-    }
-  }
-  for (const code of [...universe].sort()) {
-    const homes = membership.get(code) || [];
-    if (homes.length === 0) {
-      failures.push(`UNCLASSIFIED TYPED CODE: '${code}' is in neither STORE_TO_WIRE nor NOT_WIRE_REACHABLE — ` +
-        `if it can cross toWireError() it will degrade to the anonymous INTERNAL 'server-core fault'. ` +
-        `Rule its wire fate: map it, or classify it with a rationale.`);
-    } else if (homes.length > 1) {
-      failures.push(`CONTRADICTION: '${code}' is in BOTH ${homes.join(' and ')} — a code cannot be mapped and not-wire-reachable at once`);
-    }
-  }
-  return failures;
-}
-
+// The partition check — every universe member in exactly one side, no stale keys —
+// lives in the shared lib (see header note); this probe supplies its own failure
+// wording so the findings keep naming THIS map's decay mode. On top of it: every
+// mapped value a ratified wire code, every classification a real rationale (below).
 const failures = checkClosedSetPartition({
   universe: defined,
   sides: [
     { name: 'STORE_TO_WIRE', keys: [...STORE_TO_WIRE.keys()] },
     { name: 'NOT_WIRE_REACHABLE', keys: [...NOT_WIRE_REACHABLE.keys()] },
   ],
+  describe: {
+    staleRow: (name, key) => `STALE ROW: ${name} carries '${key}', which no errors module defines`,
+    unclassified: (code) =>
+      `UNCLASSIFIED TYPED CODE: '${code}' is in neither STORE_TO_WIRE nor NOT_WIRE_REACHABLE — ` +
+      `if it can cross toWireError() it will degrade to the anonymous INTERNAL 'server-core fault'. ` +
+      `Rule its wire fate: map it, or classify it with a rationale.`,
+    contradiction: (code, homes) =>
+      `CONTRADICTION: '${code}' is in BOTH ${homes.join(' and ')} — a code cannot be mapped and not-wire-reachable at once`,
+  },
 });
 
 for (const [code, wire] of STORE_TO_WIRE) {
