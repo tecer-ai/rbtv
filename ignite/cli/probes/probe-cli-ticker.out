@@ -1,5 +1,5 @@
-COMMAND: node cli/probes/probe-cli-ticker.js
-PASS  the throwaway daemon boots and its gateway listens — port 41705
+COMMAND: node ignite/cli/probes/probe-cli-ticker.js
+PASS  the throwaway daemon boots and its gateway listens — port 46497
 --- inspect ticker --json ---
 EXIT=0
 STDOUT={"ok":true,"result":{"target":"ticker","recent_ticks":[{"tick":1,"actions":[{"phase":"apply-events","skipped":true},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}}]}],"live_sessions":[],"queue_rows":[],"owner_feed_notes":[],"config":{"tick_interval_ms":10000,"stall_warn_ticks":12,"stall_halt_ticks":24,"slot_max_repeats":10,"max_live_agent_sessions":2}}}
@@ -48,9 +48,9 @@ STDOUT={
 PASS  inspect ticker exits 0 and renders something non-empty — exit=0 stdout_len=602
 --- inspect ticker --json (post-seed, recency guard) ---
 EXIT=0
-STDOUT={"ok":true,"result":{"target":"ticker","recent_ticks":[{"tick":1,"actions":[{"phase":"apply-events","skipped":true},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}}]}],"live_sessions":[],"queue_rows":[],"owner_feed_notes":[{"msg_id":51,"type":"note","corpus":"RECENT-OWNER-NOTE-1","created_at":"2026-07-20T17:22:10Z"},{"msg_id":52,"type":"note","corpus":"RECENT-OWNER-NOTE-2","created_at":"2026-07-20T17:22:10Z"},{"msg_id":53,"type":"note","corpus":"RECENT-OWNER-NOTE-3","created_at":"2026-07-20T17:22:10Z"},{"msg_id":54,"type":"note","corpus":"RECENT-OWNER-NOTE-4","created_at":"2026-07-20T17:22:10Z"},{"msg_id":55,"type":"note","corpus":"RECENT-OWNER-NOTE-5","created_at":"2026-07-20T17:22:10Z"}],"config":{"tick_interval_ms":10000,"stall_warn_ticks":12,"stall_halt_ticks":24,"slot_max_repeats":10,"max_live_agent_sessions":2}}}
+STDOUT={"ok":true,"result":{"target":"ticker","recent_ticks":[{"tick":1,"actions":[{"phase":"apply-events","skipped":true},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}}]}],"live_sessions":[],"queue_rows":[],"owner_feed_notes":[{"msg_id":51,"type":"note","corpus":"RECENT-OWNER-NOTE-1","created_at":"2026-07-20T17:25:29Z"},{"msg_id":52,"type":"note","corpus":"RECENT-OWNER-NOTE-2","created_at":"2026-07-20T17:25:29Z"},{"msg_id":53,"type":"note","corpus":"RECENT-OWNER-NOTE-3","created_at":"2026-07-20T17:25:29Z"},{"msg_id":54,"type":"note","corpus":"RECENT-OWNER-NOTE-4","created_at":"2026-07-20T17:25:29Z"},{"msg_id":55,"type":"note","corpus":"RECENT-OWNER-NOTE-5","created_at":"2026-07-20T17:25:29Z"}],"config":{"tick_interval_ms":10000,"stall_warn_ticks":12,"stall_halt_ticks":24,"slot_max_repeats":10,"max_live_agent_sessions":2}}}
 PASS  owner_feed_notes returns the NEWEST note past a >50-message head (fails if {limit:50} is reintroduced) — seeded_total=55 newest="RECENT-OWNER-NOTE-5" got=[RECENT-OWNER-NOTE-1 | RECENT-OWNER-NOTE-2 | RECENT-OWNER-NOTE-3 | RECENT-OWNER-NOTE-4 | RECENT-OWNER-NOTE-5]
 
 CHECKS: 10/10 passed
 EXIT: 0
-WALL_MS: 440
+WALL_MS: 420

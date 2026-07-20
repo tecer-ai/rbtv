@@ -1,50 +1,50 @@
 probe: probe-blocked-redispatch
-started: 2026-07-18T08:44:55.156Z
+started: 2026-07-20T17:33:32.615Z
 command: node probes/probe-blocked-redispatch.js
-tick-1 actions: [{"phase":"apply-events"},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+tick-1 actions: [{"phase":"apply-events"},{"phase":"advance","action":"scan-stats"},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
 exec1: exec_id=1 thread=exec-1 status=running
 blocked completion msg_id=1
-tick-2 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked","execId":1},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"broadcast"}]
+tick-2 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked","execId":1},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"broadcast"}]
 exec1 after block: status=blocked completion_msg_id=1
 new answer msg_id=2
-tick-3 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch","execId":1,"watermark":1},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"broadcast"}]
+tick-3 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch","execId":1,"watermark":1},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"broadcast"}]
 re-dispatch queue row: queue_id=2 parent_exec_id marker=1
-tick-4 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-deferred","execId":1,"reason":"slot-live-or-rearmed"},{"phase":"dispatch","action":"spawn","execId":2,"queueId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+tick-4 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-deferred","execId":1,"reason":"slot-live-or-rearmed"},{"phase":"advance","action":"scan-stats"},{"phase":"dispatch","action":"spawn","execId":2,"queueId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
 exec2: exec_id=2 parent_exec_id=1 thread=exec-1 status=running
 exec3: exec_id=3 thread=exec-3
-tick-6 (exec3 blocked) actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked","execId":3},{"phase":"advance","action":"blocked-redispatch-deferred","execId":1,"reason":"slot-live-or-rearmed"},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"broadcast"}]
-no-new-msg-tick-1 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-deferred","execId":1,"reason":"slot-live-or-rearmed"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
-no-new-msg-tick-2 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-deferred","execId":1,"reason":"slot-live-or-rearmed"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
-no-new-msg-tick-3 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-deferred","execId":1,"reason":"slot-live-or-rearmed"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+tick-6 (exec3 blocked) actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked","execId":3},{"phase":"advance","action":"blocked-redispatch-deferred","execId":1,"reason":"slot-live-or-rearmed"},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"broadcast"}]
+no-new-msg-tick-1 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-deferred","execId":1,"reason":"slot-live-or-rearmed"},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+no-new-msg-tick-2 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-deferred","execId":1,"reason":"slot-live-or-rearmed"},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+no-new-msg-tick-3 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-deferred","execId":1,"reason":"slot-live-or-rearmed"},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
 pre-teardown live executions: 1
-  live exec_id=2 session_id=8c89aebd-c260-4d81-badf-86bba46342f9 status=running
-part-c tick-1 actions: [{"phase":"apply-events"},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+  live exec_id=2 session_id=f02ced8f-b0d2-418a-8860-1de56f2683f8 status=running
+part-c tick-1 actions: [{"phase":"apply-events"},{"phase":"advance","action":"scan-stats"},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
 execC: exec_id=1 thread=exec-1
-part-c tick-2 actions: [{"phase":"apply-events"},{"phase":"advance","action":"recycle","execId":1},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"broadcast"},{"phase":"broadcast"}]
-part-c tick-3 actions: [{"phase":"apply-events"},{"phase":"dispatch","action":"spawn","execId":2,"queueId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+part-c tick-2 actions: [{"phase":"apply-events"},{"phase":"advance","action":"recycle","execId":1},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"broadcast"},{"phase":"broadcast"}]
+part-c tick-3 actions: [{"phase":"apply-events"},{"phase":"advance","action":"scan-stats"},{"phase":"dispatch","action":"spawn","execId":2,"queueId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
 execC2: exec_id=2 thread=exec-1
-part-c tick-4 (execC2 blocked) actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked","execId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"warnings","action":"raise"},{"phase":"warnings","action":"announce"},{"phase":"broadcast"},{"phase":"broadcast"}]
+part-c tick-4 (execC2 blocked) actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked","execId":2},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"warnings","action":"raise"},{"phase":"warnings","action":"announce"},{"phase":"broadcast"},{"phase":"broadcast"}]
 part-c execC2 status after blocked completion: blocked
-part-c tick-5 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"broadcast"}]
+part-c tick-5 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"broadcast"}]
 part-c D45 warning notes before window: 1
-part-c quiet-tick-1 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
-part-c quiet-tick-2 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
-part-c quiet-tick-3 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
-part-c quiet-tick-4 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
-part-c quiet-tick-5 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"warnings","action":"announce"},{"phase":"broadcast"}]
-part-c quiet-tick-6 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
-part-c quiet-tick-7 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
-part-c quiet-tick-8 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
-part-c quiet-tick-9 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
-part-c quiet-tick-10 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
-part-c quiet-tick-11 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"warnings","action":"announce"},{"phase":"broadcast"}]
-part-c quiet-tick-12 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
-part-c quiet-tick-13 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
-part-c quiet-tick-14 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+part-c quiet-tick-1 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+part-c quiet-tick-2 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+part-c quiet-tick-3 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+part-c quiet-tick-4 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+part-c quiet-tick-5 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"warnings","action":"announce"},{"phase":"broadcast"}]
+part-c quiet-tick-6 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+part-c quiet-tick-7 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+part-c quiet-tick-8 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+part-c quiet-tick-9 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+part-c quiet-tick-10 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+part-c quiet-tick-11 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"warnings","action":"announce"},{"phase":"broadcast"}]
+part-c quiet-tick-12 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+part-c quiet-tick-13 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
+part-c quiet-tick-14 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-budget-exhausted","execId":2},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
 part-c seat rows on exec-1: before=4 after=4
 part-c D45 warning ticks across window: [4,10,16]
 status: PASS
 exit: 0
-wall_ms: 3300
+wall_ms: 3044
 skipped_count: 0
-ended: 2026-07-18T08:44:58.456Z
+ended: 2026-07-20T17:33:35.659Z

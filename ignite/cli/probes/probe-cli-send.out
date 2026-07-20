@@ -1,6 +1,6 @@
-COMMAND: node ignite/cli/probes/probe-cli-send.js
+COMMAND: node cli/probes/probe-cli-send.js
 seeded headless execution exec_id=1
-PASS  the throwaway daemon boots and its gateway listens — port 44931
+PASS  the throwaway daemon boots and its gateway listens — port 36545
 --- send (no args) ---
 EXIT=2
 STDERR=USAGE ERROR: missing required argument: session-id
@@ -60,4 +60,4 @@ PASS  --json on the headed-only refusal carries the server's typed details (chec
 
 CHECKS: 13/13 passed
 EXIT: 0
-WALL_MS: 877
+WALL_MS: 941

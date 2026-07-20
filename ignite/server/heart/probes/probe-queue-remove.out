@@ -1,5 +1,5 @@
-COMMAND: node ignite/server/heart/probes/probe-queue-remove.js
-PASS  setup: repeating row SURVIVES its fire (run_at advanced) — run_at 2026-07-20T05:24:02Z -> 2026-07-20T05:25:02Z
+COMMAND: node probes/probe-queue-remove.js
+PASS  setup: repeating row SURVIVES its fire (run_at advanced) — run_at 2026-07-20T17:34:09Z -> 2026-07-20T17:35:09Z
 PASS  setup: the fire recorded an execution — exec_id=1
 PASS  remove returns the REMOVED ROW, identified (not a bare boolean) — queue_id=1 job_id=launch-worker
 PASS  one-shot row is GONE on disk (identity, not a count) — disk queue_ids=[2]
@@ -16,4 +16,4 @@ PASS  a failed removal leaves the queue exactly as it was — disk queue rows=0
 CHECKS: 13/13 passed
 REMOVE_OK: true
 EXIT: 0
-WALL_MS: 10
+WALL_MS: 15

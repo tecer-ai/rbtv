@@ -1,13 +1,13 @@
 probe: probe-idempotent
-started: 2026-07-18T08:44:43.184Z
+started: 2026-07-20T17:33:43.766Z
 command: node probes/probe-idempotent.js
 enqueued one due launch-agent job
-tick 1: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":0}}}]
-tick 2: [{"phase":"apply-events","skipped":true},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":1}}}]
+tick 1: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":true,"wakeWatermark":0},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":0}}}]
+tick 2: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":false,"wakeWatermark":0},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":1}}}]
 jobs_log rows: 1
 spawn live: true
 status: PASS
 exit: 0
-wall_ms: 439
+wall_ms: 417
 skipped_count: 0
-ended: 2026-07-18T08:44:43.623Z
+ended: 2026-07-20T17:33:44.183Z

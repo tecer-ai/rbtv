@@ -1,6 +1,6 @@
-COMMAND: node ignite/cli/probes/probe-cli-screen.js
+COMMAND: node cli/probes/probe-cli-screen.js
 seeded headless exec_id=1 headed(never-spawned) exec_id=2
-PASS  the throwaway daemon boots and its gateway listens — port 39809
+PASS  the throwaway daemon boots and its gateway listens — port 34185
 --- screen missing id ---
 EXIT=2
 STDERR=USAGE ERROR: missing required argument: session-id
@@ -42,10 +42,10 @@ PASS  headless refusal under --json is the gateway envelope with VALIDATION_FAIL
 --- screen headed never-spawned ---
 EXIT=4
 STDERR=ERROR [VALIDATION_FAILED] no live headed pty for session 2 (the row never spawned: it carries no transcript log)
-{"check":"E_SESSION_NOT_LIVE","execId":2}
+{"check":"E_SESSION_NOT_LIVE","id":2}
 PASS  screen on a headed row that never spawned is the liveness refusal (VALIDATION_FAILED), exit 4 — exit=4 stderr=ERROR [VALIDATION_FAILED] no live headed pty for session 2 (the row never spawned: it carries no transcript log)
-{"check":"E_SESSION_NOT_LIVE","execId":2}
+{"check":"E_SESSION_NOT_LIVE","id":2}
 
 CHECKS: 10/10 passed
 EXIT: 0
-WALL_MS: 801
+WALL_MS: 786

@@ -12,5 +12,5 @@ dispatch.js INTENTS (gate): 8
 dispatch() switch handlers (derived): 8
 
 RESULT: PASS — all three copies of the closed intent set are in lockstep; gate->handler fall-through is impossible at this HEAD.
-WALL_MS 8
+WALL_MS 12
 EXIT 0

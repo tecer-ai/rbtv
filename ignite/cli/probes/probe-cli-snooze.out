@@ -1,5 +1,5 @@
-COMMAND: node ignite/cli/probes/probe-cli-snooze.js
-PASS  the throwaway daemon boots and its gateway listens — port 38373
+COMMAND: node cli/probes/probe-cli-snooze.js
+PASS  the throwaway daemon boots and its gateway listens — port 45339
 seeded standing warning (after the daemon's initial tick): {"warning_id":1,"kind":"seat-blocked-budget-exhausted","subject":"probe-seat","raised_at_tick":0,"last_announced_tick":null,"snoozed_until_tick":null,"cleared_at_tick":null}
 --- snooze (hit) ---
 EXIT=0
@@ -38,4 +38,4 @@ PASS  there is no dismiss/clear/acknowledge/delete subcommand — "dismiss" is a
 
 CHECKS: 9/9 passed
 EXIT: 0
-WALL_MS: 726
+WALL_MS: 678

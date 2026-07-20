@@ -1,4 +1,4 @@
-COMMAND: node ignite/server/internal-api/probes/probe-snooze.js
+COMMAND: node server/internal-api/probes/probe-snooze.js
 PASS  setup: the warning is standing ON DISK, snoozed_until_tick NULL — disk warning={"warning_id":1,"kind":"seat-blocked-budget-exhausted","subject":"client-x/leader","raised_at_tick":3,"snoozed_until_tick":null,"cleared_at_tick":null}
 PASS  a NON-OWNER (kind: agent) snooze is refused UNAUTHORIZED_SENDER — code=UNAUTHORIZED_SENDER
 PASS  the refused snooze maps to HTTP 403 — status=403
@@ -21,4 +21,4 @@ CHECKS: 17/17 passed
 SKIPPED_COUNT: 0
 SNOOZE_OK: true
 EXIT: 0
-WALL_MS: 44
+WALL_MS: 35

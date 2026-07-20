@@ -1,8 +1,8 @@
 probe: probe-stall
-started: 2026-07-18T08:44:45.657Z
+started: 2026-07-20T17:34:05.004Z
 command: node probes/probe-stall.js
 enqueued one due launch-agent job
-tick 1: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":0}}}]
+tick 1: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":true,"wakeWatermark":0},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":0}}}]
 exec id=1, status=running
 warn at tick 13
 warn at tick 14
@@ -24,6 +24,6 @@ stall note: slot stalled after 24 ticks of silence
 process live after stall: true
 status: PASS
 exit: 0
-wall_ms: 1182
+wall_ms: 997
 skipped_count: 0
-ended: 2026-07-18T08:44:46.839Z
+ended: 2026-07-20T17:34:06.001Z

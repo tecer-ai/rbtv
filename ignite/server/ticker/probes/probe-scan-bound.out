@@ -1,5 +1,5 @@
 probe: probe-scan-bound
-started: 2026-07-20T17:34:00.798Z
+started: 2026-07-20T17:39:17.291Z
 command: node probes/probe-scan-bound.js
 boot tick 1: {"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":true,"wakeWatermark":0}
 baseline tick 2: {"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":false,"wakeWatermark":0}
@@ -13,6 +13,6 @@ wake tick 8: {"phase":"advance","action":"scan-stats","unroutedCompletionsScanne
 new sender message woke exec 61 with 1 candidate examined (61 tails on disk)
 status: PASS
 exit: 0
-wall_ms: 92
+wall_ms: 100
 skipped_count: 0
-ended: 2026-07-20T17:34:00.890Z
+ended: 2026-07-20T17:39:17.391Z

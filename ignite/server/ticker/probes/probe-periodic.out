@@ -1,13 +1,13 @@
 probe: probe-periodic
-started: 2026-07-18T08:44:38.089Z
+started: 2026-07-20T17:33:53.727Z
 command: node probes/probe-periodic.js
-enqueued at 2026-07-18T08:44:38.105Z, first run_at 2026-07-18T08:44:40.105Z, interval 2s
-tick 1: [{"phase":"apply-events","skipped":true},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}}]
-tick 2: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":2,"lastLogSize":0,"silenceTicks":0}}}]
-tick 3: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":2,"queueId":1,"profile":"test-sleep","thread":"exec-2"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":2,"lastLogSize":0,"silenceTicks":1},"2":{"lastActivityTick":3,"lastLogSize":0,"silenceTicks":0}}}]
+enqueued at 2026-07-20T17:33:53.743Z, first run_at 2026-07-20T17:33:55.743Z, interval 2s
+tick 1: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":true,"wakeWatermark":0},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}}]
+tick 2: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":false,"wakeWatermark":0},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":2,"lastLogSize":0,"silenceTicks":0}}}]
+tick 3: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":false,"wakeWatermark":0},{"phase":"dispatch","action":"spawn","execId":2,"queueId":1,"profile":"test-sleep","thread":"exec-2"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":2,"lastLogSize":0,"silenceTicks":1},"2":{"lastActivityTick":3,"lastLogSize":0,"silenceTicks":0}}}]
 jobs_log rows: 2
 status: PASS
 exit: 0
-wall_ms: 5016
+wall_ms: 5038
 skipped_count: 0
-ended: 2026-07-18T08:44:43.105Z
+ended: 2026-07-20T17:33:58.765Z

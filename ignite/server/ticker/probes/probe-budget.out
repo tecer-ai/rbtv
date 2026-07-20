@@ -1,21 +1,21 @@
 probe: probe-budget
-started: 2026-07-18T08:44:49.753Z
+started: 2026-07-20T17:33:35.729Z
 command: node probes/probe-budget.js
 enqueued one due launch-agent job with slot_max_repeats=2
-tick 1: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":0}}}]
+tick 1: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":true,"wakeWatermark":0},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":0}}}]
 exec1 id=1, thread=exec-1
-tick 2: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"recycle","execId":1,"recycles":0},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}},{"phase":"broadcast","msgId":1},{"phase":"broadcast","msgId":2}]
-tick 3: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":2,"queueId":2,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"2":{"lastActivityTick":3,"lastLogSize":0,"silenceTicks":0}}}]
-tick 4: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"recycle","execId":2,"recycles":1},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}},{"phase":"broadcast","msgId":3},{"phase":"broadcast","msgId":4}]
-tick 5: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":3,"queueId":3,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"3":{"lastActivityTick":5,"lastLogSize":0,"silenceTicks":0}}}]
-tick 6: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"recycle","execId":3,"recycles":2},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}},{"phase":"broadcast","msgId":5},{"phase":"broadcast","msgId":6}]
-tick 7: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":4,"queueId":4,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"4":{"lastActivityTick":7,"lastLogSize":0,"silenceTicks":0}}}]
+tick 2: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"recycle","execId":1,"recycles":0},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":1,"wakeCandidates":1,"wakeBootScan":false,"wakeWatermark":2},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}},{"phase":"broadcast","msgId":1},{"phase":"broadcast","msgId":2}]
+tick 3: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":false,"wakeWatermark":2},{"phase":"dispatch","action":"spawn","execId":2,"queueId":2,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"2":{"lastActivityTick":3,"lastLogSize":0,"silenceTicks":0}}}]
+tick 4: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"recycle","execId":2,"recycles":1},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":1,"wakeCandidates":1,"wakeBootScan":false,"wakeWatermark":4},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}},{"phase":"broadcast","msgId":3},{"phase":"broadcast","msgId":4}]
+tick 5: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":false,"wakeWatermark":4},{"phase":"dispatch","action":"spawn","execId":3,"queueId":3,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"3":{"lastActivityTick":5,"lastLogSize":0,"silenceTicks":0}}}]
+tick 6: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"recycle","execId":3,"recycles":2},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":1,"wakeCandidates":1,"wakeBootScan":false,"wakeWatermark":6},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}},{"phase":"broadcast","msgId":5},{"phase":"broadcast","msgId":6}]
+tick 7: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":false,"wakeWatermark":6},{"phase":"dispatch","action":"spawn","execId":4,"queueId":4,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"4":{"lastActivityTick":7,"lastLogSize":0,"silenceTicks":0}}}]
 PASS: 3 sender-input recycles flowed ungated at slot_max_repeats=2 (linear chain of 4 execs)
 PASS: no ticker notes on the seat thread (D39)
-tick 8: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":5,"queueId":5,"profile":"test-sleep","thread":"exec-5"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"4":{"lastActivityTick":7,"lastLogSize":0,"silenceTicks":1},"5":{"lastActivityTick":8,"lastLogSize":0,"silenceTicks":0}}}]
+tick 8: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":false,"wakeWatermark":6},{"phase":"dispatch","action":"spawn","execId":5,"queueId":5,"profile":"test-sleep","thread":"exec-5"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"4":{"lastActivityTick":7,"lastLogSize":0,"silenceTicks":1},"5":{"lastActivityTick":8,"lastLogSize":0,"silenceTicks":0}}}]
 PASS: fresh owner enqueue opened a new chain
 status: PASS
 exit: 0
-wall_ms: 5322
+wall_ms: 5251
 skipped_count: 0
-ended: 2026-07-18T08:44:55.075Z
+ended: 2026-07-20T17:33:40.980Z

@@ -1,4 +1,4 @@
-COMMAND: node ignite/gateway/probes/probe-cli-authfail.js
+COMMAND: node gateway/probes/probe-cli-authfail.js
 PASS  no token -> typed AUTH_REFUSED — code=AUTH_REFUSED
 PASS  no token -> HTTP 401-class — status=401
 PASS  no token -> NOTHING reached the server core — dispatch calls=0
@@ -24,4 +24,4 @@ CHECKS: 20/20 passed
 SKIPPED_COUNT: 0
 AUTHFAIL_OK: true
 EXIT: 0
-WALL_MS: 31
+WALL_MS: 27

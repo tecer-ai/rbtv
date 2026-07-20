@@ -30,7 +30,7 @@ AFTER close + reopen
   session_ref=session-abc123
   workdir=/tmp/session-workdir
   started_at=2026-07-14T12:00:00Z
-COMMAND: node ignite/server/heart/probes/probe-session-row.js
+COMMAND: node probes/probe-session-row.js
 START_PROFILE_OK: true
 START_WORKDIR_OK: true
 RUNNING_CARRIER_OK: true
@@ -57,4 +57,4 @@ REOPEN_SESSION_REF_OK: true
 REOPEN_STARTED_AT_OK: true
 ALL_OK: true
 EXIT: 0
-WALL_MS: 5
+WALL_MS: 6

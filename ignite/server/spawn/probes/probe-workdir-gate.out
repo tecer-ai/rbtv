@@ -1,14 +1,14 @@
 probe: probe-workdir-gate
-started: 2026-07-18T08:32:12.706Z
+started: 2026-07-20T16:22:39.533Z
 command: node probes/probe-workdir-gate.js
-symlink /tmp/p2-2-probe-sRlK9V/work/escape-link -> /tmp/p2-2-probe-sRlK9V/escape (outside workdir_root /tmp/p2-2-probe-sRlK9V/work)
+symlink /tmp/p2-2-probe-zy3EO2/work/escape-link -> /tmp/p2-2-probe-zy3EO2/escape (outside workdir_root /tmp/p2-2-probe-zy3EO2/work)
 workdir outside workdir_root: E_WORKDIR_ESCAPE
 symlink escape (link inside root resolves outside): E_WORKDIR_ESCAPE
 absolute path outside root: E_WORKDIR_ESCAPE
-workdir omitted: status=running, workdir=/tmp/p2-2-probe-sRlK9V/work/1
+workdir omitted: status=running, workdir=/tmp/p2-2-probe-zy3EO2/work/1
 workdir equals default_workdir_root: false
 result: escapes rejected; omitted workdir defaults to configured root
 status: PASS
 exit: 0
-wall_ms: 334
-ended: 2026-07-18T08:32:13.040Z
+wall_ms: 319
+ended: 2026-07-20T16:22:39.852Z

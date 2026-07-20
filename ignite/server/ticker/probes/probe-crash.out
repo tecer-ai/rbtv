@@ -1,18 +1,18 @@
 probe: probe-crash
-started: 2026-07-18T08:44:46.919Z
+started: 2026-07-20T17:33:42.461Z
 command: node probes/probe-crash.js
 enqueued one due launch-agent job
-tick 1: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":0}}}]
+tick 1: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":true,"wakeWatermark":0},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":0}}}]
 exec id=1, status=running
-unit name: rbtv-worker-c1375c82-1bd2-4ee3-bc84-0e7b10aed948
-tick 2: [{"phase":"apply-events","skipped":true},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"crash-sweep","execId":1,"exitCode":0,"completionMsgId":1},{"phase":"enforce","action":"state","sessions":{}},{"phase":"broadcast","msgId":1},{"phase":"broadcast","msgId":2}]
-tick 3: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"failed-halt","execId":1},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}},{"phase":"broadcast","msgId":3}]
+unit name: rbtv-worker-d5f26b12-6b31-40d9-984d-77b6e97e4381
+tick 2: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":false,"wakeWatermark":0},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"crash-sweep","execId":1,"exitCode":0,"completionMsgId":1},{"phase":"enforce","action":"state","sessions":{}},{"phase":"broadcast","msgId":1},{"phase":"broadcast","msgId":2}]
+tick 3: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"failed-halt","execId":1},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":1,"wakeCandidates":0,"wakeBootScan":false,"wakeWatermark":3},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}},{"phase":"broadcast","msgId":3}]
 final status: failed
 completions on thread: 1
 notes on owner-feed: 2
 crash note: slot halted: session crashed (exec 1)
 status: PASS
 exit: 0
-wall_ms: 1236
+wall_ms: 1238
 skipped_count: 0
-ended: 2026-07-18T08:44:48.155Z
+ended: 2026-07-20T17:33:43.698Z

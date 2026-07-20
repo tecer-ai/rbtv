@@ -1,4 +1,4 @@
-COMMAND: node ignite/server/internal-api/probes/probe-dryrun.js
+COMMAND: node server/internal-api/probes/probe-dryrun.js
 PASS  SEED: a normal enqueue lands one row (establishes a known count) — ok=true jobId=1
 PASS  SEED: the queue holds exactly 1 row ON DISK — disk queue rows=1
 PASS  a VALID dry_run is ACCEPTED past the gateway — ok=true error=undefined
@@ -21,4 +21,4 @@ CHECKS: 17/17 passed
 SKIPPED_COUNT: 0
 DRYRUN_OK: true
 EXIT: 0
-WALL_MS: 32
+WALL_MS: 36

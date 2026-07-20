@@ -1,6 +1,6 @@
-COMMAND: node ignite/cli/probes/probe-cli-kill.js
-seeded exec_id=1 (never spawned) done exec_id=2 live exec_id=3 (sleep pid 2318374)
-PASS  the throwaway daemon boots and its gateway listens — port 36567
+COMMAND: node cli/probes/probe-cli-kill.js
+seeded exec_id=1 (never spawned) done exec_id=2 live exec_id=3 (sleep pid 2426068)
+PASS  the throwaway daemon boots and its gateway listens — port 45541
 --- kill missing id ---
 EXIT=2
 STDERR=USAGE ERROR: missing required argument: session-id
@@ -38,13 +38,13 @@ PASS  owner kill of a never-spawned row (swept to failed at boot rescan) is the 
 EXIT=0
 STDOUT=killed: session 3 (signal SIGTERM)
 PASS  kill on a live session exits 0 and prints the human killed summary (session + signal) — exit=0 stdout=killed: session 3 (signal SIGTERM)
-PASS  the killed session's process is actually dead — pid=2318374
-PASS  inspect status on the killed session reports status "killed" and not live — exit=0 stdout={"ok":true,"result":{"target":"status","id":3,"execId":3,"sessionId":null,"profile":"test-sleep","sessionMode":"headless","status":"killed","workdir":null,"carrier":"setsid","unitName":null,"pid":2318374,"exitCode":null,"logPath":"/tmp/ce-4-cli-kill-2318367-X9Jp28/live-session.log","sessionRef":null,"live":false}}
+PASS  the killed session's process is actually dead — pid=2426068
+PASS  inspect status on the killed session reports status "killed" and not live — exit=0 stdout={"ok":true,"result":{"target":"status","id":3,"execId":3,"sessionId":null,"profile":"test-sleep","sessionMode":"headless","status":"killed","workdir":null,"carrier":"setsid","unitName":null,"pid":2426068,"exitCode":null,"logPath":"/tmp/ce-4-cli-kill-2426061-oWEanp/live-session.log","sessionRef":null,"live":false}}
 --- kill audit record ---
-AUDIT_PATH=/tmp/ce-4-cli-kill-2318367-X9Jp28/live-session.keys.jsonl
-AUDIT={"ts":"2026-07-20T11:53:31.279Z","event":"session-killed","id":3,"session_id":null,"sender_id":"probe-owner","sender_kind":"owner","via":"cli"}
-PASS  the kill audit file exists beside the session log and is non-empty — path=/tmp/ce-4-cli-kill-2318367-X9Jp28/live-session.keys.jsonl
-PASS  the kill audit record is a session-killed record carrying the exec id and the attested sender — record={"ts":"2026-07-20T11:53:31.279Z","event":"session-killed","id":3,"session_id":null,"sender_id":"probe-owner","sender_kind":"owner","via":"cli"}
+AUDIT_PATH=/tmp/ce-4-cli-kill-2426061-oWEanp/live-session.keys.jsonl
+AUDIT={"ts":"2026-07-20T17:11:15.672Z","event":"session-killed","id":3,"session_id":null,"sender_id":"probe-owner","sender_kind":"owner","via":"cli"}
+PASS  the kill audit file exists beside the session log and is non-empty — path=/tmp/ce-4-cli-kill-2426061-oWEanp/live-session.keys.jsonl
+PASS  the kill audit record is a session-killed record carrying the exec id and the attested sender — record={"ts":"2026-07-20T17:11:15.672Z","event":"session-killed","id":3,"session_id":null,"sender_id":"probe-owner","sender_kind":"owner","via":"cli"}
 --- kill already-killed session ---
 EXIT=4
 STDOUT={"ok":false,"error":{"code":"VALIDATION_FAILED","message":"session 3 is already terminal (status: killed) — nothing to kill","details":{"check":"session-terminal","field":"id","id":3,"status":"killed"}}}
@@ -52,4 +52,4 @@ PASS  kill on an already-killed session is the typed session-terminal refusal (s
 
 CHECKS: 17/17 passed
 EXIT: 0
-WALL_MS: 1138
+WALL_MS: 1213

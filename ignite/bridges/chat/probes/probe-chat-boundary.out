@@ -3,12 +3,12 @@
     "probe": "probe-chat-boundary",
     "pass": true,
     "EXIT": 0,
-    "WALL_MS": 3,
+    "WALL_MS": 4,
     "SKIPPED_COUNT": 0
   },
   "entries": [
     {
-      "ts": "2026-07-20T11:56:56Z",
+      "ts": "2026-07-20T16:05:54Z",
       "step": "scanned runtime source",
       "files": [
         "allowlist.js",
@@ -32,7 +32,7 @@
       ]
     },
     {
-      "ts": "2026-07-20T11:56:56Z",
+      "ts": "2026-07-20T16:05:54Z",
       "step": "forbidden-capability hits",
       "count": 0,
       "hits": []

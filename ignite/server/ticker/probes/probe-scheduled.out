@@ -1,14 +1,14 @@
 probe: probe-scheduled
-started: 2026-07-18T08:44:35.459Z
+started: 2026-07-20T17:34:00.950Z
 command: node probes/probe-scheduled.js
-enqueued at 2026-07-18T08:44:35.472Z, run_at 2026-07-18T08:44:37.472Z
-tick 1: [{"phase":"apply-events","skipped":true},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}}]
-tick 2: [{"phase":"apply-events","skipped":true},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":2,"lastLogSize":0,"silenceTicks":0}}}]
+enqueued at 2026-07-20T17:34:00.966Z, run_at 2026-07-20T17:34:02.966Z
+tick 1: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":true,"wakeWatermark":0},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}}]
+tick 2: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":false,"wakeWatermark":0},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":2,"lastLogSize":0,"silenceTicks":0}}}]
 jobs_log rows: 1
 exec status: running, profile: test-sleep
 spawn live: true
 status: PASS
 exit: 0
-wall_ms: 2555
+wall_ms: 2499
 skipped_count: 0
-ended: 2026-07-18T08:44:38.014Z
+ended: 2026-07-20T17:34:03.449Z
