@@ -1,24 +1,24 @@
 COMMAND: node ignite/cli/probes/probe-cli-status.js
-PASS  the throwaway daemon boots and its gateway listens — port 44647
+PASS  the throwaway daemon boots and its gateway listens — port 46751
 --- inspect daemon --json ---
 EXIT=0
-STDOUT={"ok":true,"result":{"target":"daemon","pid":1219851,"uptime_ms":51,"last_tick":1,"live_agent_sessions":0,"max_live_agent_sessions":2,"queue_depth":0,"standing_warnings":[],"config":{"tick_interval_ms":10000,"stall_warn_ticks":12,"stall_halt_ticks":24,"slot_max_repeats":10,"max_live_agent_sessions":2}}}
-PASS  inspect daemon --json exits 0 and returns ok envelope with pid — exit=0 ok=true pid=1219851
+STDOUT={"ok":true,"result":{"target":"daemon","pid":2317148,"uptime_ms":120,"last_tick":1,"live_agent_sessions":0,"max_live_agent_sessions":2,"queue_depth":0,"standing_warnings":[],"config":{"tick_interval_ms":10000,"stall_warn_ticks":12,"stall_halt_ticks":24,"slot_max_repeats":10,"max_live_agent_sessions":2}}}
+PASS  inspect daemon --json exits 0 and returns ok envelope with pid — exit=0 ok=true pid=2317148
 PASS  inspect daemon carries last_tick — last_tick=1
-PASS  inspect daemon carries uptime_ms (non-negative) — uptime_ms=51
+PASS  inspect daemon carries uptime_ms (non-negative) — uptime_ms=120
 PASS  inspect daemon carries live_agent_sessions (non-negative integer) — live_agent_sessions=0
 PASS  inspect daemon carries config knobs — config={"tick_interval_ms":10000,"stall_warn_ticks":12,"stall_halt_ticks":24,"slot_max_repeats":10,"max_live_agent_sessions":2}
 PASS  inspect daemon carries queue_depth (non-negative integer) — queue_depth=0
 --- ignite status --json ---
 EXIT=0
-STDOUT={"ok":true,"result":{"target":"daemon","pid":1219851,"uptime_ms":119,"last_tick":1,"live_agent_sessions":0,"max_live_agent_sessions":2,"queue_depth":0,"standing_warnings":[],"config":{"tick_interval_ms":10000,"stall_warn_ticks":12,"stall_halt_ticks":24,"slot_max_repeats":10,"max_live_agent_sessions":2}}}
-PASS  ignite status --json exits 0 and returns daemon health (pid present) — exit=0 ok=true pid=1219851
+STDOUT={"ok":true,"result":{"target":"daemon","pid":2317148,"uptime_ms":179,"last_tick":1,"live_agent_sessions":0,"max_live_agent_sessions":2,"queue_depth":0,"standing_warnings":[],"config":{"tick_interval_ms":10000,"stall_warn_ticks":12,"stall_halt_ticks":24,"slot_max_repeats":10,"max_live_agent_sessions":2}}}
+PASS  ignite status --json exits 0 and returns daemon health (pid present) — exit=0 ok=true pid=2317148
 --- ignite status (human) ---
 EXIT=0
 STDOUT={
   "target": "daemon",
-  "pid": 1219851,
-  "uptime_ms": 207,
+  "pid": 2317148,
+  "uptime_ms": 229,
   "last_tick": 1,
   "live_agent_sessions": 0,
   "max_live_agent_sessions": 2,
@@ -48,4 +48,4 @@ PASS  ignite status --json with daemon stopped returns DAEMON_DOWN envelope, exi
 
 CHECKS: 12/12 passed
 EXIT: 0
-WALL_MS: 500
+WALL_MS: 545

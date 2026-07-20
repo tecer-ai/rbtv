@@ -1,19 +1,20 @@
-COMMAND: node cli/probes/probe-cli-inspect.js
+COMMAND: node ignite/cli/probes/probe-cli-inspect.js
 seeded exec_id=1 (no log), exec_id=2 (20 real log lines)
-PASS  the throwaway daemon boots and its gateway listens — port 44625
+seeded 3 message rows (2 on exec-1, 1 on owner-feed)
+PASS  the throwaway daemon boots and its gateway listens — port 34561
 --- inspect jobs ---
 EXIT=0
 STDOUT=jobs: 1 row(s)
-{"job_id":"probe-cli-sleep","action_type":"launch-agent","function":"spawnLaunchAgent","args_schema":"{\"required\":{\"profile\":\"string\"},\"optional\":{}}","description":null,"enabled":1,"created_at":"2026-07-16T19:38:09Z","updated_at":"2026-07-16T19:38:09Z"}
+{"job_id":"probe-cli-sleep","action_type":"launch-agent","function":"spawnLaunchAgent","args_schema":"{\"required\":{\"profile\":\"string\"},\"optional\":{}}","description":null,"enabled":1,"created_at":"2026-07-20T11:49:11Z","updated_at":"2026-07-20T11:49:11Z"}
 PASS  inspect jobs exits 0 and lists the seeded catalogue job — exit=0
 PASS  setup: add-job for the inspect-queue check succeeds — exit=0 
 --- inspect queue --json ---
 EXIT=0
-STDOUT={"ok":true,"result":{"target":"queue","rows":[{"queue_id":1,"job_id":"probe-cli-sleep","args":"{\"profile\":\"test-sleep\"}","session_mode":"headless","trigger_kind":"scheduled","run_at":"2099-01-01T00:00:00Z","repeat_rule":null,"interval_seconds":null,"max_fires":null,"enqueued_by":"probe-owner","enqueued_at":"2026-07-16T19:38:09Z"}]}}
-PASS  inspect queue --json exits 0 and shows the row just enqueued — exit=0 queueId=1 rows=[{"queue_id":1,"job_id":"probe-cli-sleep","args":"{\"profile\":\"test-sleep\"}","session_mode":"headless","trigger_kind":"scheduled","run_at":"2099-01-01T00:00:00Z","repeat_rule":null,"interval_seconds":null,"max_fires":null,"enqueued_by":"probe-owner","enqueued_at":"2026-07-16T19:38:09Z"}]
+STDOUT={"ok":true,"result":{"target":"queue","rows":[{"queue_id":1,"job_id":"probe-cli-sleep","args":"{\"profile\":\"test-sleep\",\"__rbtv_chain_parent_exec_id\":1}","session_mode":"headless","trigger_kind":"scheduled","run_at":"2026-07-20T11:49:13Z","repeat_rule":null,"interval_seconds":null,"max_fires":null,"enqueued_by":"probe-owner","enqueued_at":"2026-07-20T11:49:12Z"},{"queue_id":2,"job_id":"probe-cli-sleep","args":"{\"profile\":\"test-sleep\"}","session_mode":"headless","trigger_kind":"scheduled","run_at":"2099-01-01T00:00:00Z","repeat_rule":null,"interval_seconds":null,"max_fires":null,"enqueued_by":"probe-owner","enqueued_at":"2026-07-20T11:49:12Z"}]}}
+PASS  inspect queue --json exits 0 and shows the row just enqueued — exit=0 queueId=2 rows=[{"queue_id":1,"job_id":"probe-cli-sleep","args":"{\"profile\":\"test-sleep\",\"__rbtv_chain_parent_exec_id\":1}","session_mode":"headless","trigger_kind":"scheduled","run_at":"2026-07-20T11:49:13Z","repeat_rule":null,"interval_seconds":null,"max_fires":null,"enqueued_by":"probe-owner","enqueued_at":"2026-07-20T11:49:12Z"},{"queue_id":2,"job_id":"probe-cli-sleep","args":"{\"profile\":\"test-sleep\"}","session_mode":"headless","trigger_kind":"scheduled","run_at":"2099-01-01T00:00:00Z","repeat_rule":null,"interval_seconds":null,"max_fires":null,"enqueued_by":"probe-owner","enqueued_at":"2026-07-20T11:49:12Z"}]
 --- inspect status ---
 EXIT=0
-STDOUT={"target":"status","id":1,"execId":1,"sessionId":null,"profile":"test-sleep","sessionMode":"headless","status":"failed","workdir":null,"carrier":null,"unitName":null,"pid":null,"exitCode":null,"logPath":null,"sessionRef":null,"live":false}
+STDOUT={"target":"status","id":1,"execId":1,"sessionId":null,"profile":"test-sleep","sessionMode":"headless","status":"done","workdir":null,"carrier":null,"unitName":null,"pid":null,"exitCode":null,"logPath":null,"sessionRef":null,"live":false}
 STDERR=
 PASS  inspect status <exec-id> exits 0 and renders the execution snapshot — exit=0
 --- inspect status unknown id ---
@@ -39,13 +40,31 @@ STDOUT={"ok":true,"result":{"lines":["line 16","line 17","line 18","line 19","li
 PASS  inspect logs --tail 5 returns exactly the LAST 5 lines (not the first 5) — exit=0 got=["line 16","line 17","line 18","line 19","line 20"] expected=["line 16","line 17","line 18","line 19","line 20"]
 --- inspect bogus target ---
 EXIT=2
-STDERR=USAGE ERROR: inspect target must be jobs|queue|status|logs (got "bogus")
+STDERR=USAGE ERROR: inspect target must be jobs|queue|status|logs|daemon|ticker|messages (got "bogus")
 PASS  inspect with an unknown target is a LOCAL usage error, exit 2 — exit=2
 --- inspect status missing id ---
 EXIT=2
 STDERR=USAGE ERROR: missing required argument: exec-id
 PASS  inspect status with no id is a LOCAL usage error, exit 2 — exit=2
+--- inspect messages missing id ---
+EXIT=2
+STDERR=USAGE ERROR: missing required argument: exec-id
+PASS  inspect messages with no id is a LOCAL usage error, exit 2 — exit=2
+--- inspect messages unknown id ---
+EXIT=1
+STDOUT={"ok":false,"error":{"code":"NOT_FOUND","message":"execution not found: 999999","details":{"check":"id-exists","id":999999}}}
+PASS  inspect messages on an unknown exec-id is a typed NOT_FOUND, exit 1 — exit=1 parsed={"ok":false,"error":{"code":"NOT_FOUND","message":"execution not found: 999999","details":{"check":"id-exists","id":999999}}}
+--- inspect messages --json (real rows) ---
+EXIT=0
+STDOUT={"ok":true,"result":{"target":"messages","id":1,"thread":"exec-1","rows":[{"msg_id":1,"type":"note","sender":"probe-owner","thread":"exec-1","corpus":"first note for the messages probe","status":null,"created_at":"2026-07-20T11:49:11Z","routed_at_tick":null,"broadcast_at_tick":1},{"msg_id":2,"type":"completion","sender":"exec-1","thread":"exec-1","corpus":"turn ended cleanly","status":"done","created_at":"2026-07-20T11:49:11Z","routed_at_tick":1,"broadcast_at_tick":1}],"nextOffset":2,"eof":true}}
+PASS  inspect messages --json returns exactly the thread's seeded rows, msg_id-ordered, thread stamped — exit=0 rows=[{"msg_id":1,"type":"note","sender":"probe-owner","thread":"exec-1","corpus":"first note for the messages probe","status":null,"created_at":"2026-07-20T11:49:11Z","routed_at_tick":null,"broadcast_at_tick":1},{"msg_id":2,"type":"completion","sender":"exec-1","thread":"exec-1","corpus":"turn ended cleanly","status":"done","created_at":"2026-07-20T11:49:11Z","routed_at_tick":1,"broadcast_at_tick":1}]
+--- inspect messages (human render) ---
+EXIT=0
+STDOUT=messages (thread exec-1): 2 row(s)
+#1 2026-07-20T11:49:11Z note from=probe-owner status=- first note for the messages probe
+#2 2026-07-20T11:49:11Z completion from=exec-1 status=done turn ended cleanly
+PASS  inspect messages renders compact per-message lines (msg_id, type, corpus preview), exit 0 — exit=0
 
-CHECKS: 12/12 passed
+CHECKS: 16/16 passed
 EXIT: 0
-WALL_MS: 778
+WALL_MS: 1109

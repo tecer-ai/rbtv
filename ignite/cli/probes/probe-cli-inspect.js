@@ -10,8 +10,25 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const {
-  freePort, makeWorkspace, baseEnv, bootDaemon, stopDaemon, seedCatalogue, runCli,
+  IGNITE_SRC, freePort, makeWorkspace, baseEnv, bootDaemon, stopDaemon, seedCatalogue, runCli,
 } = require('./lib/fixtures');
+
+// LOCAL fixture helper (cli-expansion ruling D4: fixtures.js is READ-ONLY — a
+// missing helper is built inside the probe file, never added there). Seeds
+// message rows directly via the heart store, pre-boot, exactly like
+// seedCatalogue does for the catalogue: fixture setup in THIS probe's own
+// process, never the CLI bypassing the gateway. Returns the recorded rows.
+const { openHeartStore, closeHeartStore } = require(
+  require('node:path').join(IGNITE_SRC, 'server', 'heart', 'heart-store'),
+);
+function seedMessages(ws, messages) {
+  const store = openHeartStore({ runtimeStateRoot: ws.workspaceRoot });
+  try {
+    return messages.map((m) => store.recordMessage(m));
+  } finally {
+    closeHeartStore();
+  }
+}
 
 const start = Date.now();
 const outPath = path.join(__dirname, 'probe-cli-inspect.out');
@@ -35,6 +52,20 @@ async function main() {
   const { execId } = seedCatalogue(ws, { withExecution: true }); // never-spawned: no log_path
   const { execId: execIdWithLog } = seedCatalogue(ws, { withExecution: true, withLogLines: LOG_LINES });
   out(`seeded exec_id=${execId} (no log), exec_id=${execIdWithLog} (${LOG_LINES.length} real log lines)`);
+
+  // Seed real message rows for `inspect messages` (ce-5). Both seeded
+  // executions are chain ROOTS (recordExecutionStart with no parent), so each
+  // one's chain-stable thread is `exec-<its own exec_id>` (heart-store
+  // _chainThread, D24 Q3a). Two rows land on execId's thread; one lands on a
+  // DIFFERENT thread (owner-feed) to prove the handler FILTERS by thread
+  // rather than returning every message.
+  const thread = `exec-${execId}`;
+  const seededMsgs = seedMessages(ws, [
+    { type: 'note', sender: 'probe-owner', thread, corpus: 'first note for the messages probe' },
+    { type: 'completion', sender: `exec-${execId}`, thread, corpus: 'turn ended cleanly', status: 'done' },
+    { type: 'note', sender: 'probe-owner', thread: 'owner-feed', corpus: 'foreign-thread row that must NOT appear' },
+  ]);
+  out(`seeded ${seededMsgs.length} message rows (2 on ${thread}, 1 on owner-feed)`);
 
   const d = await bootDaemon(env);
   check('the throwaway daemon boots and its gateway listens', d.listening === true,
@@ -140,6 +171,62 @@ async function main() {
     out('--- inspect status missing id ---', 'EXIT=' + r.code, 'STDERR=' + r.stderr.trim());
     check('inspect status with no id is a LOCAL usage error, exit 2',
       r.code === 2 && /USAGE ERROR/.test(r.stderr), `exit=${r.code}`);
+
+    // ── `inspect messages` (ce-5, ruling D3) ─────────────────────────────────
+
+    // 10. Missing id is a LOCAL usage error, exit 2 — the request never leaves
+    // the CLI.
+    r = await runCli(['inspect', 'messages'], cliEnv);
+    out('--- inspect messages missing id ---', 'EXIT=' + r.code, 'STDERR=' + r.stderr.trim());
+    check('inspect messages with no id is a LOCAL usage error, exit 2',
+      r.code === 2 && /USAGE ERROR/.test(r.stderr), `exit=${r.code}`);
+
+    // 11. A nonexistent execution id is a typed NOT_FOUND, exit 1 (the
+    // documented catch-all — NOT_FOUND has no dedicated exit code).
+    r = await runCli(['--json', 'inspect', 'messages', '999999'], cliEnv);
+    out('--- inspect messages unknown id ---', 'EXIT=' + r.code, 'STDOUT=' + r.stdout.trim());
+    let msgNfEnvelope = null;
+    try { msgNfEnvelope = JSON.parse(r.stdout.trim()); } catch {}
+    check('inspect messages on an unknown exec-id is a typed NOT_FOUND, exit 1',
+      r.code === 1 && msgNfEnvelope && msgNfEnvelope.ok === false && msgNfEnvelope.error.code === 'NOT_FOUND',
+      `exit=${r.code} parsed=${JSON.stringify(msgNfEnvelope)}`);
+
+    // 12. The real listing path: envelope shape + CONTENT + ORDER + IDENTITY
+    // proof, never a bare count — exactly the seeded rows of exec's chain-stable
+    // thread, msg_id ascending, and the foreign-thread row absent.
+    r = await runCli(['--json', 'inspect', 'messages', String(execId)], cliEnv);
+    out('--- inspect messages --json (real rows) ---', 'EXIT=' + r.code, 'STDOUT=' + r.stdout.trim());
+    let msgEnvelope = null;
+    try { msgEnvelope = JSON.parse(r.stdout.trim()); } catch {}
+    const mrows = msgEnvelope && msgEnvelope.ok ? msgEnvelope.result.rows : [];
+    check('inspect messages --json returns exactly the thread\'s seeded rows, msg_id-ordered, thread stamped',
+      r.code === 0 && msgEnvelope && msgEnvelope.ok === true
+        && msgEnvelope.result.target === 'messages'
+        && msgEnvelope.result.thread === thread
+        && msgEnvelope.result.eof === true
+        && mrows.length === 2
+        && mrows[0].msg_id === seededMsgs[0].msg_id
+        && mrows[0].type === 'note'
+        && mrows[0].corpus === 'first note for the messages probe'
+        && mrows[1].msg_id === seededMsgs[1].msg_id
+        && mrows[1].type === 'completion'
+        && mrows[1].status === 'done'
+        && mrows[1].corpus === 'turn ended cleanly'
+        && mrows[0].msg_id < mrows[1].msg_id
+        && mrows.every((m) => m.thread === thread),
+      `exit=${r.code} rows=${JSON.stringify(mrows)}`);
+
+    // 13. The human rendering: one compact line per message, exit 0.
+    r = await runCli(['inspect', 'messages', String(execId)], cliEnv);
+    out('--- inspect messages (human render) ---', 'EXIT=' + r.code, 'STDOUT=' + r.stdout.trim());
+    check('inspect messages renders compact per-message lines (msg_id, type, corpus preview), exit 0',
+      r.code === 0
+        && new RegExp(`thread ${thread}`).test(r.stdout)
+        && /2 row\(s\)/.test(r.stdout)
+        && new RegExp(`#${seededMsgs[0].msg_id} .*note from=probe-owner status=- first note for the messages probe`).test(r.stdout)
+        && new RegExp(`#${seededMsgs[1].msg_id} .*completion from=exec-${execId} status=done turn ended cleanly`).test(r.stdout)
+        && !/foreign-thread row/.test(r.stdout),
+      `exit=${r.code}`);
   } finally {
     await stopDaemon(d);
     try { fs.rmSync(ws.tmp, { recursive: true, force: true }); } catch {}

@@ -43,8 +43,12 @@ subcommand.
 |---------|-------|-------|
 | `ignite add-job` | `enqueue-job` | Enqueues a job (server-side dry-run-validated before writing). `--dry-run` is refused (see § Known gap below). |
 | `ignite remove-job <queue-id>` | `remove-job` | Removes a pending queue row; removing a repeating row cancels the WHOLE schedule (D68) and the CLI says so. |
-| `ignite inspect jobs\|queue\|status <id>\|logs <id> [--tail n]` | `inspect` | Read-only. `--tail` walks the offset/limit pages client-side (the contract has no reverse read) and keeps only the last N lines. |
+| `ignite inspect jobs\|queue\|status <id>\|logs <id> [--tail n]\|daemon\|ticker\|messages <id>` | `inspect` | Read-only. `--tail` walks the offset/limit pages client-side (the contract has no reverse read) and keeps only the last N lines. `messages <id>` (cli-expansion D3): `<id>` is an execution id; the server resolves the execution's chain-stable thread and returns that thread's message rows, paged. |
 | `ignite snooze <kind> <subject> --minutes <n>` | `snooze` | OWNER-ONLY. No standing warning is a clean no-op, never an error. There is no dismiss/clear subcommand — snooze never clears a warning (D45). |
+| `ignite status` | `inspect` (`target: daemon`) | Alias for `ignite inspect daemon`. On transport failure (daemon unreachable) prints `daemon: DOWN` instead of a raw connect error. |
+| `ignite send <session-id> --data <string>` | `send-to-session` | Keystroke bytes into a live HEADED session's pty (D92/D93 — audited server-side before delivery). `<session-id>` is the integer execution id. Headless id → typed refusal, never a hang. The 4096-byte max is server-enforced only (never re-checked locally). |
+| `ignite screen <session-id>` | `capture-session-screen` | A live HEADED session's current rendered screen — a detached snapshot with dimensions, never a stream; every read audited server-side first (D94). `repainting: true` means the re-attached pty has not painted yet — capture again. |
+| `ignite kill <session-id>` | `kill-session` | TERM → grace → KILL of the whole process tree; status becomes `killed`. Any session mode (headless or headed). Unknown id → typed not-found; an already-terminal session (`done`/`failed`/`killed`) → typed refusal. |
 
 ## `--json` policy
 
@@ -87,6 +91,18 @@ ignite inspect logs 42 --tail 50
 
 # Snooze a standing warning for 30 minutes (owner token required)
 ignite snooze seat-blocked-budget-exhausted my-seat --minutes 30
+
+# Send a keystroke burst into a live headed session (execution id 42)
+ignite send 42 --data $'ls -la\n'
+
+# Capture the same session's current rendered screen
+ignite screen 42
+
+# Read the message rows of execution 42's chain-stable thread
+ignite inspect messages 42
+
+# Kill session 42 (TERM -> grace -> KILL; status becomes "killed")
+ignite kill 42
 ```
 
 ## Known gap — `add-job --dry-run`
@@ -102,8 +118,10 @@ wrapper cannot honestly perform. See task p4-2's `open_questions`.
 
 ## Probes (`probes/`)
 
-`probe-cli-add.js`, `probe-cli-inspect.js`, `probe-cli-remove.js`,
-`probe-cli-snooze.js` each boot their OWN throwaway daemon (mirrors
+`probe-cli-add.js`, `probe-cli-inspect.js` (covers `inspect messages`),
+`probe-cli-remove.js`, `probe-cli-snooze.js`, `probe-cli-dryrun.js`,
+`probe-cli-status.js`, `probe-cli-ticker.js`, `probe-cli-send.js`,
+`probe-cli-screen.js`, `probe-cli-kill.js` each boot their OWN throwaway daemon (mirrors
 `../gateway/probes/probe-gateway-live.js`) and drive this CLI as a real child
 process against it — never the live `rbtv-ignite` daemon. `probes/lib/fixtures.js`
 holds the shared boot/seed/run helpers.

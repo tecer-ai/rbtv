@@ -24,14 +24,22 @@ const { GatewayError, SHAPE_INVALID, UNKNOWN_INTENT } = require('./errors');
 // handleRequest parses BEFORE it forwards, so an authenticated OWNER driving the real ingress
 // got `UNKNOWN_INTENT` and the whole session surface was unreachable end-to-end. The gateway
 // speaks the internal API's WHOLE surface; a core intent missing from this set is a dead intent.
+// ⚑ `kill-session` ADDED by the cli-expansion run (ruling D2, ce-4): exposes the spawn
+// module's existing kill surface (TERM → grace → KILL, status → `killed`). Same
+// session-scoped integer id and coercion path as the Batch-6 session-surface intents.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
-  'send-to-session', 'capture-session-screen',
+  'send-to-session', 'capture-session-screen', 'kill-session',
 ]);
 
 const TRIGGER_KINDS = new Set(['scheduled', 'periodic']);
 const SESSION_MODES = new Set(['headless', 'headed']);
-const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker']);
+// ⚑ `messages` ADDED by the cli-expansion run (ruling D3, ce-5): a new TARGET of the
+// existing `inspect` intent, never a sixth intent — read-only store queries are what
+// `inspect` is for. Execution-scoped like `status`/`logs`: the id is a jobs_log exec_id,
+// same coercion path; the core resolves the execution's chain-stable thread and returns
+// that thread's message rows.
+const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages']);
 
 // Fixed-width ISO-8601 UTC. The store's own contract: lexicographic compare must
 // equal chronological compare, so "due" checks stay deterministic string compares.
@@ -171,11 +179,11 @@ function parseInspect(payload) {
   requireObject(payload);
   rejectUnknownKeys(payload, new Set(['target', 'id', 'offset', 'limit']), 'inspect');
   if (!INSPECT_TARGETS.has(payload.target)) {
-    bad(`inspect target must be jobs|queue|status|logs|daemon|ticker (got "${payload.target}")`, 'target');
+    bad(`inspect target must be jobs|queue|status|logs|daemon|ticker|messages (got "${payload.target}")`, 'target');
   }
   const out = { target: payload.target };
 
-  if (payload.target === 'status' || payload.target === 'logs') {
+  if (payload.target === 'status' || payload.target === 'logs' || payload.target === 'messages') {
     const raw = payload.id;
     const id = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : raw;
     if (!Number.isInteger(id) || id <= 0) bad(`inspect ${payload.target} requires an integer id`, 'id');
@@ -276,6 +284,16 @@ function parseCaptureSessionScreen(payload) {
   return { id: parseSessionScopedId(payload.id, 'capture-session-screen') };
 }
 
+// `kill-session` (cli-expansion ruling D2) — SHAPE ONLY, like every parse here. The id is
+// the SAME session-scoped integer the Batch-6 intents carry (a `jobs_log` execution id),
+// so it takes the SAME coercion path. Whether the row exists, who may kill it, and whether
+// anything is left to kill are the core's semantic re-validation (DEC-3).
+function parseKillSession(payload) {
+  requireObject(payload);
+  rejectUnknownKeys(payload, new Set(['id']), 'kill-session');
+  return { id: parseSessionScopedId(payload.id, 'kill-session') };
+}
+
 // Raw sender input -> a typed request payload, or a typed refusal. This is the
 // ONLY function in the daemon that interprets raw sender input.
 function parseRequest({ intent, payload }) {
@@ -290,6 +308,7 @@ function parseRequest({ intent, payload }) {
     case 'snooze': return parseSnooze(payload);
     case 'send-to-session': return parseSendToSession(payload);
     case 'capture-session-screen': return parseCaptureSessionScreen(payload);
+    case 'kill-session': return parseKillSession(payload);
   }
 }
 

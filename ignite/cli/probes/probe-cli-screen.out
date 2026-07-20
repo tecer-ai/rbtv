@@ -1,0 +1,51 @@
+COMMAND: node ignite/cli/probes/probe-cli-screen.js
+seeded headless exec_id=1 headed(never-spawned) exec_id=2
+PASS  the throwaway daemon boots and its gateway listens — port 39809
+--- screen missing id ---
+EXIT=2
+STDERR=USAGE ERROR: missing required argument: session-id
+PASS  screen with no id is a LOCAL usage error, exit 2 — exit=2
+--- screen missing id --json ---
+EXIT=2
+STDOUT={"ok":false,"error":{"code":"CLI_USAGE_ERROR","message":"missing required argument: session-id"}}
+PASS  missing id under --json is the standard envelope with CLI_USAGE_ERROR, exit 2 — exit=2 stdout={"ok":false,"error":{"code":"CLI_USAGE_ERROR","message":"missing required argument: session-id"}}
+--- screen non-integer id ---
+EXIT=4
+STDERR=ERROR [SHAPE_INVALID] capture-session-screen requires an integer session id
+{"field":"id"}
+PASS  screen with a non-integer id is a gateway shape refusal (SHAPE_INVALID), exit 4 — exit=4 stderr=ERROR [SHAPE_INVALID] capture-session-screen requires an integer session id
+{"field":"id"}
+--- screen non-integer id --json ---
+EXIT=4
+STDOUT={"ok":false,"error":{"code":"SHAPE_INVALID","message":"capture-session-screen requires an integer session id","details":{"field":"id"}}}
+PASS  non-integer id under --json is the gateway envelope with SHAPE_INVALID, exit 4 — exit=4 stdout={"ok":false,"error":{"code":"SHAPE_INVALID","message":"capture-session-screen requires an integer session id","details":{"field":"id"}}}
+--- screen nonexistent session ---
+EXIT=1
+STDERR=ERROR [NOT_FOUND] execution not found: 999999
+{"check":"id-exists","id":999999}
+PASS  screen on a nonexistent session is a typed NOT_FOUND, exit 1 (catch-all) — exit=1 stderr=ERROR [NOT_FOUND] execution not found: 999999
+{"check":"id-exists","id":999999}
+--- screen nonexistent session --json ---
+EXIT=1
+STDOUT={"ok":false,"error":{"code":"NOT_FOUND","message":"execution not found: 999999","details":{"check":"id-exists","id":999999}}}
+PASS  nonexistent session under --json is the gateway envelope with NOT_FOUND, exit 1 — exit=1 stdout={"ok":false,"error":{"code":"NOT_FOUND","message":"execution not found: 999999","details":{"check":"id-exists","id":999999}}}
+--- screen headless session ---
+EXIT=4
+STDERR=ERROR [VALIDATION_FAILED] session 1 is session_mode:headless — the session surface is headed-only (D7/D17)
+{"check":"session-mode","field":"id","id":1,"session_mode":"headless"}
+PASS  screen on a HEADLESS session is the headed-only refusal (VALIDATION_FAILED), exit 4 — exit=4 stderr=ERROR [VALIDATION_FAILED] session 1 is session_mode:headless — the session surface is headed-only (D7/D17)
+{"check":"session-mode","field":"id","id":1,"session_mode":"headless"}
+--- screen headless session --json ---
+EXIT=4
+STDOUT={"ok":false,"error":{"code":"VALIDATION_FAILED","message":"session 1 is session_mode:headless — the session surface is headed-only (D7/D17)","details":{"check":"session-mode","field":"id","id":1,"session_mode":"headless"}}}
+PASS  headless refusal under --json is the gateway envelope with VALIDATION_FAILED, exit 4 — exit=4 stdout={"ok":false,"error":{"code":"VALIDATION_FAILED","message":"session 1 is session_mode:headless — the session surface is headed-only (D7/D17)","details":{"check":"session-mode","field":"id","id":1,"session_mode":"headless"}}}
+--- screen headed never-spawned ---
+EXIT=4
+STDERR=ERROR [VALIDATION_FAILED] no live headed pty for session 2 (the row never spawned: it carries no transcript log)
+{"check":"E_SESSION_NOT_LIVE","execId":2}
+PASS  screen on a headed row that never spawned is the liveness refusal (VALIDATION_FAILED), exit 4 — exit=4 stderr=ERROR [VALIDATION_FAILED] no live headed pty for session 2 (the row never spawned: it carries no transcript log)
+{"check":"E_SESSION_NOT_LIVE","execId":2}
+
+CHECKS: 10/10 passed
+EXIT: 0
+WALL_MS: 801

@@ -1,5 +1,5 @@
 COMMAND: node ignite/cli/probes/probe-cli-ticker.js
-PASS  the throwaway daemon boots and its gateway listens — port 46049
+PASS  the throwaway daemon boots and its gateway listens — port 35371
 --- inspect ticker --json ---
 EXIT=0
 STDOUT={"ok":true,"result":{"target":"ticker","recent_ticks":[{"tick":1,"actions":[{"phase":"apply-events","skipped":true},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{}}]}],"live_sessions":[],"queue_rows":[],"owner_feed_notes":[],"config":{"tick_interval_ms":10000,"stall_warn_ticks":12,"stall_halt_ticks":24,"slot_max_repeats":10,"max_live_agent_sessions":2}}}
@@ -49,4 +49,4 @@ PASS  inspect ticker exits 0 and renders something non-empty — exit=0 stdout_l
 
 CHECKS: 9/9 passed
 EXIT: 0
-WALL_MS: 315
+WALL_MS: 376

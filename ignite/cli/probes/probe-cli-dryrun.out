@@ -1,5 +1,5 @@
-COMMAND: node cli/probes/probe-cli-dryrun.js
-PASS  the throwaway daemon boots and its gateway listens — port 41671
+COMMAND: node ignite/cli/probes/probe-cli-dryrun.js
+PASS  the throwaway daemon boots and its gateway listens — port 44883
 PASS  setup: queue starts empty — rows=[]
 --- add-job --dry-run (valid) ---
 EXIT=0
@@ -28,4 +28,4 @@ PASS  a --json valid dry-run also enqueues nothing (queue still empty) — rows=
 
 CHECKS: 8/8 passed
 EXIT: 0
-WALL_MS: 581
+WALL_MS: 650

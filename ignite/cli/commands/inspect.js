@@ -1,7 +1,10 @@
 'use strict';
 
-// `ignite inspect jobs|queue|status <id>|logs <id> [--tail <n>]` — wraps the
-// `inspect` intent (four read-only targets, one gateway intent).
+// `ignite inspect jobs|queue|status <id>|logs <id> [--tail <n>]|daemon|ticker|
+// messages <id>` — wraps the `inspect` intent (read-only targets, one gateway
+// intent). `messages` (cli-expansion ruling D3, ce-5) is execution-scoped like
+// status/logs: the server resolves the execution's chain-stable thread and
+// returns that thread's message rows, paged.
 
 const { CliUsageError } = require('../lib/errors');
 const { takeValue, requirePositional } = require('../lib/args');
@@ -13,10 +16,12 @@ ignite inspect status <exec-id>
 ignite inspect logs <exec-id> [--tail <n>]
 ignite inspect daemon
 ignite inspect ticker
+ignite inspect messages <exec-id>
 
-  Read-only. Renders server state (or the full envelope with --json).`;
+  Read-only. Renders server state (or the full envelope with --json).
+  messages: the message rows of the execution's chain-stable thread.`;
 
-const TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker']);
+const TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages']);
 
 // A single page's line count for the (offset, limit) walk logs paging does.
 // Generous but arbitrary — the server-side page bound (internal-api-contract-
@@ -105,6 +110,37 @@ async function runLogs(argv, ctx) {
   });
 }
 
+// One line per message: msg_id, type, sender, status, created_at, and a
+// truncated corpus preview — compact enough to scan a whole thread. `--json`
+// stays the raw envelope (finish() renders it before this ever runs).
+const CORPUS_PREVIEW_CHARS = 80;
+
+function corpusPreview(corpus) {
+  const flat = String(corpus ?? '').replace(/\s+/g, ' ').trim();
+  return flat.length > CORPUS_PREVIEW_CHARS ? flat.slice(0, CORPUS_PREVIEW_CHARS - 1) + '…' : flat;
+}
+
+async function runMessages(argv, ctx) {
+  const rawId = requirePositional(argv, 'exec-id');
+  if (!/^\d+$/.test(rawId)) throw new CliUsageError('inspect messages requires an integer id');
+  if (argv.length > 0) throw new CliUsageError(`inspect messages: unrecognized argument(s): ${argv.join(' ')}`);
+
+  const { envelope } = await ctx.call('inspect', { target: 'messages', id: rawId });
+  return finish(envelope, {
+    json: ctx.json,
+    renderSuccess: (result) => {
+      const rows = result.rows || [];
+      console.log(`messages (thread ${result.thread}): ${rows.length} row(s)`);
+      for (const m of rows) {
+        console.log(`#${m.msg_id} ${m.created_at} ${m.type} from=${m.sender} status=${m.status ?? '-'} ${corpusPreview(m.corpus)}`);
+      }
+      if (result.eof === false) {
+        console.log(`... more available (nextOffset=${result.nextOffset})`);
+      }
+    },
+  });
+}
+
 async function runDaemonOrTicker(target, argv, ctx) {
   if (argv.length > 0) throw new CliUsageError(`inspect ${target}: unrecognized argument(s): ${argv.join(' ')}`);
   const { envelope } = await ctx.call('inspect', { target });
@@ -115,13 +151,14 @@ async function runDaemonOrTicker(target, argv, ctx) {
 }
 
 async function run(argv, ctx) {
-  const target = requirePositional(argv, 'target (jobs|queue|status|logs|daemon|ticker)');
+  const target = requirePositional(argv, 'target (jobs|queue|status|logs|daemon|ticker|messages)');
   if (!TARGETS.has(target)) {
-    throw new CliUsageError(`inspect target must be jobs|queue|status|logs|daemon|ticker (got "${target}")`);
+    throw new CliUsageError(`inspect target must be jobs|queue|status|logs|daemon|ticker|messages (got "${target}")`);
   }
   if (target === 'jobs' || target === 'queue') return runJobsOrQueue(target, argv, ctx);
   if (target === 'daemon' || target === 'ticker') return runDaemonOrTicker(target, argv, ctx);
   if (target === 'status') return runStatus(argv, ctx);
+  if (target === 'messages') return runMessages(argv, ctx);
   return runLogs(argv, ctx);
 }
 

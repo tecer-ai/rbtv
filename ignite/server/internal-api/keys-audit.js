@@ -48,6 +48,19 @@
 //   • `keys-accepted`  — a keystroke burst the daemon accepted for delivery (carries `data`).
 //   • `screen-read`    — a rendered screen the daemon served to a sender (carries NO `data`).
 // A reader holding ONLY this file can tell the two apart from that one field.
+//
+// ── CLI-EXPANSION (owner ruling, 2026-07-20, at run close): KILLS ARE AUDITED TOO ────────────
+//
+// `kill-session` writes its own record to the SAME file — attribution only, the screen-read
+// shape (a kill carries no typed secret; the record answers WHO killed WHICH session WHEN).
+// The vocabulary is EXTENDED again, not paralleled:
+//   • `session-killed` — a session the daemon killed on a sender's behalf (carries NO `data`).
+// Unlike the two intents above, the caller writes this record AFTER the kill succeeds — the
+// owner-ruled success-path placement: a kill delivers no secret whose delivery must be blocked
+// on the audit, and refusing a KILL fail-closed would leave a runaway process unkillable behind
+// a full disk. The failure POSTURE still mirrors the callers above — an audit-write failure is
+// surfaced as a refusal of the success result, never degraded to log-and-continue
+// (dispatch.js's handleKillSession reasons the ordering).
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -213,4 +226,69 @@ function appendScreenReadRecord({ logPath, execId, sessionId, sender }) {
   return { auditPath };
 }
 
-module.exports = { appendKeystrokeRecord, appendScreenReadRecord, auditPathFor, KeysAuditError, AUDIT_SUFFIX, AUDIT_MODE };
+// Append ONE session-kill record (cli-expansion owner ruling, 2026-07-20). Throws KeysAuditError
+// on any failure — the caller surfaces a throw as a refusal of the success result, never as
+// "log and continue" (the kill has already happened by the time this is called; the ordering and
+// its posture are reasoned at dispatch.js's handleKillSession).
+//
+// ⚑ THE GUARD SEQUENCE BELOW IS THE THIRD DELIBERATE COPY of appendKeystrokeRecord's — the same
+// extend-don't-disturb order the appendScreenReadRecord note states: the certified bytes are not
+// factored into a shared helper, and until the owner grants that extraction ANY fix to one guard
+// MUST be applied to all three.
+function appendKillRecord({ logPath, execId, sessionId, sender }) {
+  if (typeof logPath !== 'string' || logPath.length === 0) {
+    throw new KeysAuditError('the session row carries no log_path, so the audit file cannot be placed beside its output log', { execId });
+  }
+  if (!sender || typeof sender.id !== 'string' || sender.id.length === 0) {
+    // D93: an unattributable record answers none of the questions this exists to answer — and
+    // WHO killed this session is this record's entire content.
+    throw new KeysAuditError('no authenticated sender to attribute the kill to', { execId });
+  }
+
+  const auditPath = auditPathFor(logPath);
+
+  try {
+    fs.appendFileSync(auditPath, '', { mode: AUDIT_MODE });
+  } catch (err) {
+    throw new KeysAuditError(`cannot open the session audit at ${auditPath}: ${err.message}`, { execId, auditPath });
+  }
+
+  // Re-verify the mode fail-closed, exactly as the two paths above do — the screen-read copy's
+  // reasoning holds unchanged: this record carries no secret itself, but it appends to the SAME
+  // file the verbatim keystroke records live in.
+  let mode;
+  try {
+    mode = fs.statSync(auditPath).mode & 0o777;
+  } catch (err) {
+    throw new KeysAuditError(`cannot stat the session audit at ${auditPath}: ${err.message}`, { execId, auditPath });
+  }
+  if (mode & 0o077) {
+    throw new KeysAuditError(
+      `REFUSING TO AUDIT: the session audit at ${auditPath} is group/world-accessible (mode ${mode.toString(8)}); ` +
+      `it carries verbatim keystrokes and MUST NOT be appended to while readable. Fix with: chmod 600 ${auditPath}`,
+      { execId, auditPath, mode: mode.toString(8) },
+    );
+  }
+
+  // ⚑ NO payload data, mirroring the screen-read record: a kill carries no typed secret. The
+  // record answers WHO killed WHICH session WHEN — nothing else.
+  const record = {
+    ts: new Date().toISOString(),
+    event: 'session-killed',
+    id: execId,
+    session_id: sessionId ?? null,
+    sender_id: sender.id,
+    sender_kind: sender.kind ?? null,
+    via: sender.via ?? null,
+  };
+
+  try {
+    fs.appendFileSync(auditPath, JSON.stringify(record) + '\n', { mode: AUDIT_MODE });
+  } catch (err) {
+    throw new KeysAuditError(`cannot append to the session audit at ${auditPath}: ${err.message}`, { execId, auditPath });
+  }
+
+  return { auditPath };
+}
+
+module.exports = { appendKeystrokeRecord, appendScreenReadRecord, appendKillRecord, auditPathFor, KeysAuditError, AUDIT_SUFFIX, AUDIT_MODE };

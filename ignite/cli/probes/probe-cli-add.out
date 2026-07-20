@@ -1,5 +1,5 @@
-COMMAND: node cli/probes/probe-cli-add.js
-PASS  the throwaway daemon boots and its gateway listens — port 42503
+COMMAND: node ignite/cli/probes/probe-cli-add.js
+PASS  the throwaway daemon boots and its gateway listens — port 41695
 --- add-job scheduled ---
 EXIT=0
 STDOUT=queued: queue id 1
@@ -32,4 +32,4 @@ PASS  the sender token never appears in the CLI invocation argv — token passed
 
 CHECKS: 8/8 passed
 EXIT: 0
-WALL_MS: 464
+WALL_MS: 622

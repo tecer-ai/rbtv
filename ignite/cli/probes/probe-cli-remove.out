@@ -1,5 +1,5 @@
-COMMAND: node cli/probes/probe-cli-remove.js
-PASS  the throwaway daemon boots and its gateway listens — port 38679
+COMMAND: node ignite/cli/probes/probe-cli-remove.js
+PASS  the throwaway daemon boots and its gateway listens — port 36973
 PASS  setup: add-job succeeds — exit=0 
 queued queue_id=1
 --- remove-job (scheduled) ---
@@ -30,4 +30,4 @@ PASS  remove-job with a non-integer id is a LOCAL usage error, exit 2 — exit=2
 
 CHECKS: 9/9 passed
 EXIT: 0
-WALL_MS: 650
+WALL_MS: 731

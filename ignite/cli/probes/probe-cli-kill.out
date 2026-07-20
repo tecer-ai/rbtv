@@ -1,0 +1,55 @@
+COMMAND: node ignite/cli/probes/probe-cli-kill.js
+seeded exec_id=1 (never spawned) done exec_id=2 live exec_id=3 (sleep pid 2318374)
+PASS  the throwaway daemon boots and its gateway listens — port 36567
+--- kill missing id ---
+EXIT=2
+STDERR=USAGE ERROR: missing required argument: session-id
+PASS  kill with no id is a LOCAL usage error, exit 2 — exit=2
+PASS  kill with no id under --json is the envelope shape with CLI_USAGE_ERROR, exit 2 — exit=2 stdout={"ok":false,"error":{"code":"CLI_USAGE_ERROR","message":"missing required argument: session-id"}}
+--- kill non-integer id ---
+EXIT=4
+STDERR=ERROR [SHAPE_INVALID] kill-session requires an integer session id
+{"field":"id"}
+PASS  kill with a non-integer id is the GATEWAY shape refusal (SHAPE_INVALID, exit 4) — exit=4 stderr=ERROR [SHAPE_INVALID] kill-session requires an integer session id
+{"field":"id"}
+PASS  non-integer id under --json is the raw envelope with SHAPE_INVALID, exit 4 — exit=4 stdout={"ok":false,"error":{"code":"SHAPE_INVALID","message":"kill-session requires an integer session id","details":{"field":"id"}}}
+--- kill unknown id ---
+EXIT=1
+STDERR=ERROR [NOT_FOUND] execution not found: 999999
+{"check":"id-exists","id":999999}
+PASS  kill on an unknown id is a typed NOT_FOUND, exit 1 — exit=1
+PASS  unknown id under --json is the raw envelope with NOT_FOUND, exit 1 — exit=1 stdout={"ok":false,"error":{"code":"NOT_FOUND","message":"execution not found: 999999","details":{"check":"id-exists","id":999999}}}
+--- kill as non-creator agent ---
+EXIT=1
+STDERR=ERROR [UNAUTHORIZED_SENDER] the attested sender is neither the owner nor the sender that enqueued this session
+{"check":"authorization","id":1}
+PASS  kill by a non-owner, non-creator sender is a typed UNAUTHORIZED_SENDER, exit 1 — exit=1 stderr=ERROR [UNAUTHORIZED_SENDER] the attested sender is neither the owner nor the sender that enqueued this session
+{"check":"authorization","id":1}
+PASS  the authz refusal under --json is the raw envelope with UNAUTHORIZED_SENDER, exit 1 — exit=1 stdout={"ok":false,"error":{"code":"UNAUTHORIZED_SENDER","message":"the attested sender is neither the owner nor the sender that enqueued this session","details":{"check":"authorization","id":1}}}
+--- kill terminal (done) session ---
+EXIT=4
+STDOUT={"ok":false,"error":{"code":"VALIDATION_FAILED","message":"session 2 is already terminal (status: done) — nothing to kill","details":{"check":"session-terminal","field":"id","id":2,"status":"done"}}}
+PASS  kill on an already-terminal (done) session is a typed VALIDATION_FAILED naming session-terminal, exit 4 — exit=4 stdout={"ok":false,"error":{"code":"VALIDATION_FAILED","message":"session 2 is already terminal (status: done) — nothing to kill","details":{"check":"session-terminal","field":"id","id":2,"status":"done"}}}
+--- kill never-spawned session (owner) ---
+EXIT=4
+STDOUT={"ok":false,"error":{"code":"VALIDATION_FAILED","message":"session 1 is already terminal (status: failed) — nothing to kill","details":{"check":"session-terminal","field":"id","id":1,"status":"failed"}}}
+PASS  owner kill of a never-spawned row (swept to failed at boot rescan) is the typed session-terminal refusal, exit 4 — exit=4 stdout={"ok":false,"error":{"code":"VALIDATION_FAILED","message":"session 1 is already terminal (status: failed) — nothing to kill","details":{"check":"session-terminal","field":"id","id":1,"status":"failed"}}}
+--- kill live session ---
+EXIT=0
+STDOUT=killed: session 3 (signal SIGTERM)
+PASS  kill on a live session exits 0 and prints the human killed summary (session + signal) — exit=0 stdout=killed: session 3 (signal SIGTERM)
+PASS  the killed session's process is actually dead — pid=2318374
+PASS  inspect status on the killed session reports status "killed" and not live — exit=0 stdout={"ok":true,"result":{"target":"status","id":3,"execId":3,"sessionId":null,"profile":"test-sleep","sessionMode":"headless","status":"killed","workdir":null,"carrier":"setsid","unitName":null,"pid":2318374,"exitCode":null,"logPath":"/tmp/ce-4-cli-kill-2318367-X9Jp28/live-session.log","sessionRef":null,"live":false}}
+--- kill audit record ---
+AUDIT_PATH=/tmp/ce-4-cli-kill-2318367-X9Jp28/live-session.keys.jsonl
+AUDIT={"ts":"2026-07-20T11:53:31.279Z","event":"session-killed","id":3,"session_id":null,"sender_id":"probe-owner","sender_kind":"owner","via":"cli"}
+PASS  the kill audit file exists beside the session log and is non-empty — path=/tmp/ce-4-cli-kill-2318367-X9Jp28/live-session.keys.jsonl
+PASS  the kill audit record is a session-killed record carrying the exec id and the attested sender — record={"ts":"2026-07-20T11:53:31.279Z","event":"session-killed","id":3,"session_id":null,"sender_id":"probe-owner","sender_kind":"owner","via":"cli"}
+--- kill already-killed session ---
+EXIT=4
+STDOUT={"ok":false,"error":{"code":"VALIDATION_FAILED","message":"session 3 is already terminal (status: killed) — nothing to kill","details":{"check":"session-terminal","field":"id","id":3,"status":"killed"}}}
+PASS  kill on an already-killed session is the typed session-terminal refusal (status killed), exit 4 — exit=4 stdout={"ok":false,"error":{"code":"VALIDATION_FAILED","message":"session 3 is already terminal (status: killed) — nothing to kill","details":{"check":"session-terminal","field":"id","id":3,"status":"killed"}}}
+
+CHECKS: 17/17 passed
+EXIT: 0
+WALL_MS: 1138

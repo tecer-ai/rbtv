@@ -184,7 +184,39 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver] } = {}) {
     };
   }
 
-  return { canRemoveQueueRow, canSnoozeWarning, canDriveSession, principalsOf, PRINCIPALS };
+  // May this attested sender KILL this session — the spawn module's kill surface
+  // (TERM → grace → KILL of the whole tree, status → `killed`)?
+  //
+  // OWNER RULING D65(B), applied to kill by the cli-expansion run (ce-4): kill follows the
+  // SAME v1 policy as cancel — `kind: owner` may kill anything; the creator APPROXIMATION
+  // (`enqueued_by === authenticated sender-id`) may kill their own. NOT owner-only (that is
+  // snooze's model — a warning is SYSTEM-raised so there is no creator to approximate; a
+  // session HAS one, so removal's model is the fit, exactly as D89 reasoned for the session
+  // surface). The `subject` row is the jobs_log row, which carries `enqueued_by` exactly as
+  // a queue row does.
+  //
+  // ⚑ There is NO second implementation of the model here: the principal resolution lives
+  // ONCE, in the resolver chain (`tokenKindResolver` → `principalsOf`), and this function
+  // only asks the question for this action — the same one-question-per-function shape the
+  // three queries above use. When the CMP-13 seat-identity resolver lands it registers in
+  // that ONE chain and this call site does not change.
+  //
+  // ⚑ This is a DEVICE-identity approximation of a creator — NOT a seat check. Do not
+  // describe it as seat-based (D65(B)); wherever a token is SHARED it is COARSER than the
+  // ruling: every seat behind a shared `agent` token can kill another seat's session.
+  function canKillSession({ sender, row }) {
+    const principals = principalsOf(sender, row);
+    const allowed = principals.some((p) => PRINCIPALS[p] && PRINCIPALS[p].enforcedInV1);
+    return {
+      allowed,
+      principals,
+      reason: allowed
+        ? `authorized as: ${principals.join(', ')}`
+        : 'the attested sender is neither the owner nor the sender that enqueued this session',
+    };
+  }
+
+  return { canRemoveQueueRow, canSnoozeWarning, canDriveSession, canKillSession, principalsOf, PRINCIPALS };
 }
 
 module.exports = { createAuthzPolicy, tokenKindResolver, PRINCIPALS };

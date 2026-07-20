@@ -1,0 +1,63 @@
+COMMAND: node ignite/cli/probes/probe-cli-send.js
+seeded headless execution exec_id=1
+PASS  the throwaway daemon boots and its gateway listens — port 44931
+--- send (no args) ---
+EXIT=2
+STDERR=USAGE ERROR: missing required argument: session-id
+PASS  send with no arguments is a LOCAL usage error, exit 2 — exit=2
+--- send (missing --data) ---
+EXIT=2
+STDERR=USAGE ERROR: send requires --data <string>
+PASS  send with no --data is a LOCAL usage error, exit 2 — exit=2
+--- send (missing --data, --json) ---
+EXIT=2
+STDOUT={"ok":false,"error":{"code":"CLI_USAGE_ERROR","message":"send requires --data <string>"}}
+PASS  --json on a local usage error keeps the envelope shape with code CLI_USAGE_ERROR, exit 2 — exit=2 stdout={"ok":false,"error":{"code":"CLI_USAGE_ERROR","message":"send requires --data <string>"}}
+--- send (extra arg) ---
+EXIT=2
+STDERR=USAGE ERROR: send: unrecognized argument(s): stray-extra
+PASS  send with an unrecognized extra argument is a LOCAL usage error, exit 2 — exit=2
+--- send non-integer id ---
+EXIT=4
+STDERR=ERROR [SHAPE_INVALID] send-to-session requires an integer session id
+{"field":"id"}
+PASS  send with a non-integer id is the GATEWAY's typed shape refusal, exit 4 — exit=4 stderr=ERROR [SHAPE_INVALID] send-to-session requires an integer session id
+{"field":"id"}
+--- send non-integer id (--json) ---
+EXIT=4
+STDOUT={"ok":false,"error":{"code":"SHAPE_INVALID","message":"send-to-session requires an integer session id","details":{"field":"id"}}}
+PASS  --json on the non-integer-id refusal is the gateway envelope verbatim: ok:false, code SHAPE_INVALID, exit 4 — exit=4 stdout={"ok":false,"error":{"code":"SHAPE_INVALID","message":"send-to-session requires an integer session id","details":{"field":"id"}}}
+--- send empty data ---
+EXIT=4
+STDERR=ERROR [SHAPE_INVALID] send-to-session requires a non-empty data string of keystroke bytes
+{"field":"data"}
+PASS  send with empty --data is the GATEWAY's typed shape refusal, exit 4 — exit=4 stderr=ERROR [SHAPE_INVALID] send-to-session requires a non-empty data string of keystroke bytes
+{"field":"data"}
+--- send empty data (--json) ---
+EXIT=4
+STDOUT={"ok":false,"error":{"code":"SHAPE_INVALID","message":"send-to-session requires a non-empty data string of keystroke bytes","details":{"field":"data"}}}
+PASS  --json on the empty-data refusal is the gateway envelope verbatim: ok:false, code SHAPE_INVALID, exit 4 — exit=4 stdout={"ok":false,"error":{"code":"SHAPE_INVALID","message":"send-to-session requires a non-empty data string of keystroke bytes","details":{"field":"data"}}}
+--- send unknown id ---
+EXIT=1
+STDERR=ERROR [NOT_FOUND] execution not found: 999999
+{"check":"id-exists","id":999999}
+PASS  send to an execution id that does not exist is a typed NOT_FOUND, exit 1 — exit=1 stderr=ERROR [NOT_FOUND] execution not found: 999999
+{"check":"id-exists","id":999999}
+--- send unknown id (--json) ---
+EXIT=1
+STDOUT={"ok":false,"error":{"code":"NOT_FOUND","message":"execution not found: 999999","details":{"check":"id-exists","id":999999}}}
+PASS  --json on the unknown-id refusal is the gateway envelope verbatim: ok:false, code NOT_FOUND, exit 1 — exit=1 stdout={"ok":false,"error":{"code":"NOT_FOUND","message":"execution not found: 999999","details":{"check":"id-exists","id":999999}}}
+--- send to headless session ---
+EXIT=4
+STDERR=ERROR [VALIDATION_FAILED] session 1 is session_mode:headless — the session surface is headed-only (D7/D17)
+{"check":"session-mode","field":"id","id":1,"session_mode":"headless"}
+PASS  send to a REAL headless execution is the server's headed-only re-validation refusal (VALIDATION_FAILED), exit 4 — exit=4 stderr=ERROR [VALIDATION_FAILED] session 1 is session_mode:headless — the session surface is headed-only (D7/D17)
+{"check":"session-mode","field":"id","id":1,"session_mode":"headless"}
+--- send to headless session (--json) ---
+EXIT=4
+STDOUT={"ok":false,"error":{"code":"VALIDATION_FAILED","message":"session 1 is session_mode:headless — the session surface is headed-only (D7/D17)","details":{"check":"session-mode","field":"id","id":1,"session_mode":"headless"}}}
+PASS  --json on the headed-only refusal carries the server's typed details (check:session-mode, the session's own mode), exit 4 — exit=4 stdout={"ok":false,"error":{"code":"VALIDATION_FAILED","message":"session 1 is session_mode:headless — the session surface is headed-only (D7/D17)","details":{"check":"session-mode","field":"id","id":1,"session_mode":"headless"}}}
+
+CHECKS: 13/13 passed
+EXIT: 0
+WALL_MS: 877

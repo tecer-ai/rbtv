@@ -27,7 +27,7 @@ const {
   INTERNAL,
 } = require('./errors');
 const { createAuthzPolicy } = require('./authz');
-const { appendKeystrokeRecord, appendScreenReadRecord } = require('./keys-audit');
+const { appendKeystrokeRecord, appendScreenReadRecord, appendKillRecord } = require('./keys-audit');
 
 const ENVELOPE_VERSION = 1;
 
@@ -48,9 +48,15 @@ const ENVELOPE_VERSION = 1;
 // new `target: screen`. `inspect`'s ratified target set is jobs|queue|status|logs; adding
 // to it would be "widening an existing intent's payload semantics", which the extension
 // rule forbids. A separate intent is the RATIFIED shape (D90), not a style preference.
+// `kill-session` is the EIGHTH, added ADDITIVELY by the cli-expansion run (ruling D2,
+// ce-4) under the SAME §1 extension rule: it exposes the spawn module's EXISTING kill
+// surface (TERM → grace → KILL of the whole tree, status → `killed`) on the wire, with
+// its OWN complete re-validation clause and its OWN authz decision (D65(B) — the same
+// model as remove-job's cancel). The ENVELOPE VERSION IS UNCHANGED and no existing
+// intent's payload semantics move.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
-  'send-to-session', 'capture-session-screen',
+  'send-to-session', 'capture-session-screen', 'kill-session',
 ]);
 
 const ALLOWED_ENVELOPE_KEYS = new Set(['v', 'id', 'ts', 'auth', 'sender', 'intent', 'payload']);
@@ -65,7 +71,14 @@ const ALLOWED_ENVELOPE_KEYS = new Set(['v', 'id', 'ts', 'auth', 'sender', 'inten
 // the auth check below, which is where the contract puts it.
 const REQUIRED_ENVELOPE_KEYS = ['v', 'id', 'ts', 'sender', 'intent', 'payload'];
 
-const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker']);
+// ⚑ `messages` ADDED by the cli-expansion run (ruling D3, ce-5): a new read-only TARGET
+// of `inspect`, ruled a target rather than a ninth intent — read-only store queries are
+// what `inspect` is for, and a separate intent would duplicate its plumbing. (Contrast
+// the D90 note above: screen capture is a LIVE pty read, not a store query, which is why
+// IT is a separate intent.) Execution-scoped like `status`/`logs` — the id is a jobs_log
+// exec_id; the handler resolves the execution's chain-stable thread and returns that
+// thread's message rows, paged.
+const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages']);
 // Server-enforced max page (contract § 1, `inspect`: "offset/limit bounded").
 const MAX_PAGE = 500;
 const DEFAULT_PAGE = 200;
@@ -220,6 +233,14 @@ const STORE_TO_WIRE = new Map([
   // re-validation clause proved it) — what refused is the liveness CHECK, and `details.check`
   // names it. Same shape as E_BAD_MODE / E_HEADED_NOT_CAPABLE, the other state refusals.
   ['E_SESSION_NOT_LIVE', VALIDATION_FAILED],
+  // The spawn module's carrier refusal — through THIS dispatch it is reachable ONLY from
+  // `kill-session` (the one intent that calls into the spawn manager: spawn-via-named-profile
+  // is D70-excluded before any spawn call, and inspect status/logs never throw it). spawn.kill
+  // raises it for a row with NO usable carrier metadata — a row that never reached spawn, or
+  // whose carrier identity was lost — so there is no process to signal. VALIDATION_FAILED, not
+  // NOT_FOUND: the execution row EXISTS (the re-validation clause proved it); what refused is a
+  // state check on the row, and `details.check` names it. Same shape as E_SESSION_NOT_LIVE.
+  ['E_CARRIER_FAILED', VALIDATION_FAILED],
 ]);
 
 function toWireError(err) {
@@ -436,6 +457,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       status: r.status,
       action_type: r.action_type,
       job_id: r.job_id,
+      queue_id: r.queue_id,
       fired_tick: r.fired_tick,
       thread: r.thread,
     }));
@@ -495,7 +517,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     }
     const { target } = payload;
     if (!INSPECT_TARGETS.has(target)) {
-      throw new InternalApiError(VALIDATION_FAILED, `unknown inspect target: ${target} (known: jobs, queue, status, logs, daemon, ticker)`, { check: 'inspect-target', field: 'target' });
+      throw new InternalApiError(VALIDATION_FAILED, `unknown inspect target: ${target} (known: jobs, queue, status, logs, daemon, ticker, messages)`, { check: 'inspect-target', field: 'target' });
     }
 
     if (target === 'jobs') return { target, rows: heartStore.listJobs() };
@@ -503,14 +525,36 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     if (target === 'daemon') return handleInspectDaemon();
     if (target === 'ticker') return handleInspectTicker();
 
-    // status/logs are execution-scoped: `id` is required and must exist (one
-    // execution = one session row, D16).
+    // status/logs/messages are execution-scoped: `id` is required and must exist
+    // (one execution = one session row, D16).
     const id = payload.id;
     if (!Number.isInteger(id)) {
       throw new InternalApiError(VALIDATION_FAILED, `inspect ${target} requires an integer id`, { check: 'id-shape', field: 'id' });
     }
-    if (!heartStore.getExecution(id)) {
+    const execRow = heartStore.getExecution(id);
+    if (!execRow) {
       throw new InternalApiError(NOT_FOUND, `execution not found: ${id}`, { check: 'id-exists', id });
+    }
+
+    if (target === 'messages') {
+      // The message rows of this execution's chain-stable thread (cli-expansion
+      // ruling D3, ce-5). The thread is NEVER re-derived here: getExecution()
+      // already attaches it via the store's ONE derivation (_chainThread — D24
+      // Q3a: `exec-<exec_id of the chain's FIRST execution>`, carried unchanged
+      // across recycles), and re-implementing that walk would smear the
+      // arithmetic across call sites (D44).
+      //
+      // Fetch-all-then-filter mirrors handleInspectTicker's owner-feed read
+      // above, for the SAME reason: getMessages() orders msg_id ASC and exposes
+      // no thread filter (read-only surface — no store change, D75), and passing
+      // its HEAD-bound `limit` would page over the WRONG set. v1-scale only.
+      // The page bound is server-ENFORCED on the filtered set, same clamp as
+      // `logs` (contract § 1: offset/limit bounded).
+      const { offset, limit } = pageBounds(payload);
+      const all = heartStore.getMessages().filter((m) => m.thread === execRow.thread);
+      const rows = all.slice(offset, offset + limit);
+      const nextOffset = offset + rows.length;
+      return { target, id, thread: execRow.thread, rows, nextOffset, eof: nextOffset >= all.length };
     }
 
     if (target === 'status') {
@@ -885,6 +929,108 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     return { id: row.exec_id, rows: cap.rows, cols: cap.cols, screen: cap.screen, repainting: Boolean(cap.repainting) };
   }
 
+  // Kill a session — expose the spawn module's EXISTING kill surface (TERM → grace →
+  // KILL of the whole process tree, status → `killed`) on the wire (cli-expansion ruling
+  // D2, ce-4). Kill is NOT headed-only — a session is "killable at any time" regardless
+  // of session_mode (D7) — so this handler does NOT reuse revalidateSessionTarget (whose
+  // headed-only check belongs to the JOIN/TAKE-OVER surface); it runs its own complete
+  // re-validation clause in remove-job's own order: existence, then authorization, then
+  // state. An unauthorized sender therefore learns only that the id exists, never the
+  // session's state.
+  async function handleKillSession(payload, sender) {
+    for (const key of Object.keys(payload)) {
+      if (key !== 'id') {
+        throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });
+      }
+    }
+
+    // ⚑ The id field is `id` — the same wire field the session surface and exec-scoped
+    // `inspect` use, carrying the same integer jobs_log.exec_id (D16/D23; see the note on
+    // revalidateSessionTarget for why it is neither `jobId` nor `sessionId`).
+    const id = payload.id;
+    if (!Number.isInteger(id)) {
+      throw new InternalApiError(VALIDATION_FAILED, 'kill-session requires an integer id', { check: 'id-shape', field: 'id' });
+    }
+    const row = heartStore.getExecution(id);
+    if (!row) {
+      throw new InternalApiError(NOT_FOUND, `execution not found: ${id}`, { check: 'id-exists', id });
+    }
+
+    // D65(B) applied to kill (ce-4): the SAME v1 model as cancel — owner may kill
+    // anything; the creator APPROXIMATION may kill their own. The question is asked in
+    // the ONE policy module (authz.js), never as a scattered `if` here.
+    const decision = authz.canKillSession({ sender, row });
+    if (!decision.allowed) {
+      throw new InternalApiError(UNAUTHORIZED_SENDER, decision.reason, { check: 'authorization', id });
+    }
+
+    // A session already TERMINAL (`done`/`failed`/`killed` — the closed jobs_log.status
+    // enum's terminal states) is refused TYPED, never re-killed: its process already
+    // resolved, so there is nothing to signal, and letting spawn.kill run would OVERWRITE
+    // the honest lifecycle record (a `done` row re-marked `killed` falsifies how the turn
+    // actually ended). `blocked`/`stalled` deliberately pass through: a stalled session's
+    // process still lives (D23 — stalled is NOT auto-killed), and liveness for the rest is
+    // the spawn module's own carrier check.
+    if (row.status === 'done' || row.status === 'failed' || row.status === 'killed') {
+      throw new InternalApiError(
+        VALIDATION_FAILED,
+        `session ${id} is already terminal (status: ${row.status}) — nothing to kill`,
+        { check: 'session-terminal', field: 'id', id, status: row.status },
+      );
+    }
+
+    // The kill capability is CONSUMED, not reimplemented: TERM → grace → KILL and the
+    // status → `killed` store write live in the spawn module. A row spawn.kill cannot
+    // signal (no usable carrier metadata) raises E_CARRIER_FAILED, carried to the wire as
+    // VALIDATION_FAILED by the STORE_TO_WIRE row above. The result is already plain data.
+    const res = await spawnManager.kill(row.exec_id);
+
+    // ── THE KILL AUDIT (cli-expansion owner ruling, 2026-07-20) ──────────────────
+    //
+    // AFTER the kill, on the SUCCESS path — the owner-ruled placement, deliberately NOT the
+    // audit-first ordering the session surface above uses. That fail-closed-BEFORE posture
+    // exists to stop a SECRET leaving un-audited (keystrokes delivered, a screen served); a
+    // kill delivers nothing, and refusing a KILL because an audit file cannot be written would
+    // leave a runaway process unkillable behind a full disk — inverting the kill switch's whole
+    // point ("killable at any time", D7). The record mirrors the screen-read shape: WHO killed
+    // WHICH session WHEN; no payload data.
+    //
+    // The failure POSTURE mirrors the session surface exactly (refuse, never log-and-continue):
+    // the kill has already landed and cannot be un-done, so what is refused is the SUCCESS
+    // REPORT — the sender gets a loud INTERNAL naming the audit fault instead of a clean
+    // result, and the store's `killed` status remains the disk truth to reconcile against. The
+    // one gap this ordering admits — a kill that lands while the audit write fails leaves no
+    // record — is inherent to the ruled placement, visible in the daemon log, and correlatable
+    // against the store row.
+    //
+    // `row.log_path` is read from the pre-kill row: every row spawn.kill can actually signal
+    // reached spawn, and spawn writes log_path at `launching` before any carrier launch — a row
+    // with carrier metadata but no log_path is not a shape the daemon produces, and if one
+    // appears the appender's own guard refuses rather than inventing an audit location.
+    try {
+      appendKillRecord({
+        logPath: row.log_path,
+        execId: row.exec_id,
+        sessionId: row.session_id,
+        sender,          // the ATTESTED sender — D93: a record without attribution answers nothing
+      });
+    } catch (err) {
+      log('error', 'kill-session AUDIT FAILED: the session was killed but the kill audit could not be written', {
+        execId: row.exec_id, senderId: sender.id, error: err.message,
+      });
+      throw new InternalApiError(
+        INTERNAL,
+        `kill-session: the session WAS killed (the store now reads status 'killed') but the kill audit could not be ` +
+        `written (${err.message}) — the success result is withheld rather than reporting an un-audited kill ` +
+        `(session-audit posture, D92/D94 lineage; owner ruling 2026-07-20).`,
+        { check: 'kill-audit' },
+      );
+    }
+
+    log('info', 'session killed via kill-session', { execId: row.exec_id, senderId: sender.id, signal: res.signal });
+    return { execId: res.execId, killed: res.killed, signal: res.signal ?? null };
+  }
+
   // ── The single entry point ─────────────────────────────────────────────────
 
   async function dispatch(requestEnvelope) {
@@ -933,6 +1079,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         case 'snooze': result = handleSnooze(env.payload, env.sender); break;
         case 'send-to-session': result = handleSendToSession(env.payload, env.sender); break;
         case 'capture-session-screen': result = handleCaptureSessionScreen(env.payload, env.sender); break;
+        case 'kill-session': result = await handleKillSession(env.payload, env.sender); break;
       }
 
       // Outbound round-trip: the snapshot the gateway receives is DETACHED, so
