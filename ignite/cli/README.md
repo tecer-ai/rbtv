@@ -31,7 +31,7 @@ chmod +x ~/.local/bin/ignite   # cli/ignite.js already carries the shebang + exe
 | Source | Purpose |
 |--------|---------|
 | `IGNITE_GATEWAY_ADDR` env var | Explicit gateway address override (`host:port` or a full URL). Always wins when set. |
-| `.rbtv/modules/ignite/server.json` | The workspace's committed endpoint record (D27 install model). Used when `IGNITE_GATEWAY_ADDR` is unset: tailnet address preferred; the SSH-tunnel fallback is printed as a command to run yourself (this CLI never opens a tunnel). |
+| `.rbtv/modules/ignite/server.json` | The workspace's committed endpoint record (D27 install model), a **machine-keyed map**: each machine's install lives under `machines[<hostname>]` (endpoint fields + that machine's `state_root`). Used when `IGNITE_GATEWAY_ADDR` is unset: this machine's own entry wins when it records a server, else the one entry that does; tailnet address preferred; the SSH-tunnel fallback is printed as a command to run yourself (this CLI never opens a tunnel). The legacy flat shape is still accepted. |
 | `IGNITE_SENDER_TOKEN` env var | The sender's auth token. **Never** passed as a flag — argv and process lists leak flags; env does not. |
 
 Run `ignite --help` (or `ignite <command> --help`) for the exact flags of each

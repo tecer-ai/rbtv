@@ -14,13 +14,26 @@ Canonical statement of the ignite install model (owner ruling D27, 2026-07-14, `
   | File | Holds |
   |------|-------|
   | `status.json` | installed flag · version · first-run stamp |
-  | `server.json` | the **endpoint record**: server name · tailnet hostname + IP · gateway port · SSH host/user/port for the tunnel fallback |
+  | `server.json` | the **endpoint record**, a **machine-keyed map**: each machine's install lives under `machines[<hostname>]` — tailnet hostname + IP · gateway port · SSH host/user/port for the tunnel fallback · that machine's per-machine `state_root`. The file travels via git to EVERY machine (see travel split below), so a single flat value would be right on one machine and wrong on every other; the map records each machine's install instead. The CLI selects its own machine's entry when it records a server, else the one entry that does |
   | `settings.json` | current settings |
   | `settings-history.jsonl` | append-only settings history — NEVER rewritten |
 
   Future per-module files land beside them. First run creates the folder and its files **idempotently**; the installed test is: a valid `server.json` exists.
-- **The travel split is load-bearing.** `.rbtv/modules/ignite/` is **COMMITTED** — the installation travels with the repo, so a `git pull` on another machine carries it and that machine's agents find and reach the server via `server.json` (the cross-machine intent). Live runtime state (`.rbtv/heart/`, `goals/`, logs) is **GITIGNORED** — machine-local, never travels. **Credentials NEVER travel in git**: each machine's/sender's token is distributed out-of-band into a gitignored env surface (the workspace `.env` pattern), and SSH private keys never appear in the repo — the tailnet is the preferred client path (no SSH material needed once a device is enrolled); the SSH-tunnel fallback requires the connecting machine's public key authorized on the VPS, done once out-of-band.
-- **Registry note:** this model EXTENDS the draft runtime-root component CMP-1 (which sketches flat `config/module*.json`; interface explicitly undesigned) — a documented D8 (iii) divergence/extension feeding task 7.5's reconciliation table and Phase 3. The heart store stays at `.rbtv/heart/` (CMP-2's home), untouched by this model.
+- **The travel split is load-bearing.** `.rbtv/modules/ignite/` is **COMMITTED** — the installation travels with the repo, so a `git pull` on another machine carries it and that machine's agents find and reach the server via `server.json` (the cross-machine intent). Live per-machine runtime state (the heart store, logs — see § State layout) lives in the machine's own state root, outside the workspace; per-workspace state that stays inside `.rbtv/` but must not travel (`sessions/`, future `goals/`) is **GITIGNORED**. **Credentials NEVER travel in git**: each machine's/sender's token is distributed out-of-band into a gitignored env surface (the workspace `.env` pattern), and SSH private keys never appear in the repo — the tailnet is the preferred client path (no SSH material needed once a device is enrolled); the SSH-tunnel fallback requires the connecting machine's public key authorized on the VPS, done once out-of-band.
+- **Registry note:** this model EXTENDS the draft runtime-root component CMP-1 (which sketches flat `config/module*.json`; interface explicitly undesigned) — a documented D8 (iii) divergence/extension feeding task 7.5's reconciliation table and Phase 3. The heart store's home is the per-machine state root (§ State layout — batch-08 item 10 moved it out of `.rbtv/heart/`, CMP-2's former sketch); flag the divergence for registry transcription, never edit the registry from here.
+
+## State layout — the two roots (owner ruling, 2026-07-20, registry-reconciliation batch 08 item 10)
+
+ignite's state lives in exactly TWO roots, split by ONE membership test: **"can the user work with this WITHOUT ignite?"** Yes → per-workspace. No → per-machine.
+
+| Root | Purpose | Holds |
+|------|---------|-------|
+| **Per-workspace** — `{workspace}/.rbtv/` | Everything a user can work with without the daemon — an interactive session on a machine with no ignite carries the same modules and configs as the server machine | `modules/`, `runtime/`, `sessions/`, future `goals/`, `mirror/` |
+| **Per-machine** — the machine's state root (recorded as `state_root` in `server.json`'s machine entry; on the VPS `~/.local/state/rbtv-ignite/`, provisioned by the unit's `StateDirectory=` and passed as `RBTV_IGNITE_DATA_ROOT`) | Ignite-only configs, logs, and runtime | `heart.db`, `logs/`, `prompts/`, `exits/`, `ptys/`, `ticker.log`, `feed.jsonl` |
+
+- **`heart.db` is per-machine, WHOLE.** The membership test cuts through the store (the `jobs` catalogue is user-authorable; `queue`/`jobs_log`/`messages` are runtime) — owner ruled it stays one file, per-machine, at `{state_root}/heart.db`. Accepted consequence: the jobs catalogue is not readable without the daemon.
+- **`sessions/` is per-workspace.** Stays at `.rbtv/sessions/` (consistent with the seat-folder target model). Accepted tradeoff: worker-writable areas remain inside the workspace.
+- **Retention** (task 7.13) enumerates the per-machine root's artifact classes — `logs/`, `prompts/`, `exits/`, `ptys/`, `ticker.log`, `feed.jsonl` — and MUST explicitly exclude `heart.db`, which shares that root.
 
 ## Dependencies
 

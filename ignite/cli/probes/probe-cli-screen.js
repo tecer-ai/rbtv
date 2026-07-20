@@ -38,7 +38,7 @@ function check(name, pass, detail) {
 function seedHeadedNeverSpawnedRow(ws) {
   const { openHeartStore, closeHeartStore } =
     require(path.join(IGNITE_SRC, 'server', 'heart', 'heart-store'));
-  const store = openHeartStore({ runtimeStateRoot: ws.workspaceRoot });
+  const store = openHeartStore({ dbPath: path.join(ws.dataRoot, 'heart.db') });
   try {
     const row = store.recordExecutionStart({
       jobId: 'probe-cli-sleep',

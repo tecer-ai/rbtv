@@ -22,7 +22,7 @@ const { openHeartStore, closeHeartStore } = require(
   require('node:path').join(IGNITE_SRC, 'server', 'heart', 'heart-store'),
 );
 function seedMessages(ws, messages) {
-  const store = openHeartStore({ runtimeStateRoot: ws.workspaceRoot });
+  const store = openHeartStore({ dbPath: path.join(ws.dataRoot, 'heart.db') });
   try {
     return messages.map((m) => store.recordMessage(m));
   } finally {

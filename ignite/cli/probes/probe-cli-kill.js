@@ -34,7 +34,7 @@ const { setsidStatus } = require(path.join(IGNITE_SRC, 'server', 'spawn', 'carri
 const { auditPathFor } = require(path.join(IGNITE_SRC, 'server', 'internal-api', 'keys-audit'));
 
 function seedExecution(ws, patch) {
-  const store = openHeartStore({ runtimeStateRoot: ws.workspaceRoot });
+  const store = openHeartStore({ dbPath: path.join(ws.dataRoot, 'heart.db') });
   try {
     const row = store.recordExecutionStart({
       jobId: 'probe-cli-sleep',

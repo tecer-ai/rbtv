@@ -24,7 +24,10 @@ auth:
   # it is a per-boot secret minted by the composition root, never a configured value.
 
 spawn:
-  data_root: /var/lib/rbtv-ignite   # store, logs/, prompts/ live under here (task 3.2 binds the concrete path)
+  data_root: /var/lib/rbtv-ignite   # the PER-MACHINE state root (batch-08 item 10 boundary — ignite/CLAUDE.md
+                                    # § State layout): heart.db, logs/, prompts/, exits/, ptys/, ticker.log,
+                                    # feed.jsonl live under here. Live deploys override via RBTV_IGNITE_DATA_ROOT
+                                    # (the user unit's StateDirectory= path); this seed is the system-service shape.
   carrier: systemd                  # required (D48): containment is non-negotiable. A worker runs under
                                     # systemd-run --user with its profile caps/sandbox, or it refuses to start.
   kill_grace_seconds: 10            # SIGTERM -> grace -> SIGKILL

@@ -23,6 +23,7 @@
 // only READS that state — it never writes `.rbtv/modules/ignite/*`.
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { CliUsageError } = require('./errors');
 
@@ -71,13 +72,42 @@ function parseAddr(raw) {
   return { host: url.hostname, port };
 }
 
+// server.json is a MACHINE-KEYED MAP (batch-08 item 10 state-layout boundary,
+// owner-ruled 2026-07-20): it travels via git to EVERY machine, so each machine's
+// install — endpoint fields plus its per-machine state-root path — is recorded
+// under `machines[<hostname>]`; a single flat value would be right on one machine
+// and wrong on every other. Selection: this machine's own entry when it records a
+// server (a session spawned ON the server machine resolves its own daemon), else
+// the one entry that does; several remote candidates are ambiguous and ask for
+// IGNITE_GATEWAY_ADDR. The legacy flat shape (endpoint fields at top level) is
+// still accepted so a workspace pulled at either side of the shape change resolves.
+function selectMachineEntry(record, recordPath) {
+  if (!record || typeof record !== 'object') return record;
+  const machines = record.machines;
+  if (!machines || typeof machines !== 'object') return record; // legacy flat shape
+  const hasServer = (m) => m && typeof m === 'object' && typeof m.tailnet_host === 'string' && m.tailnet_host.length > 0;
+  const own = machines[os.hostname()];
+  if (hasServer(own)) return own;
+  const servers = Object.values(machines).filter(hasServer);
+  if (servers.length === 1) return servers[0];
+  if (servers.length > 1) {
+    throw new CliUsageError(
+      `${recordPath} records ${servers.length} machines running a server — ambiguous from this ` +
+      `machine. Set IGNITE_GATEWAY_ADDR to the gateway you mean.`
+    );
+  }
+  // No entry names a server; fall back to the machine's own entry (it may still
+  // carry the ssh_* fields) so the existing error paths below stay accurate.
+  return own || null;
+}
+
 function resolveGatewayAddr() {
   const envAddr = process.env.IGNITE_GATEWAY_ADDR;
   if (envAddr && envAddr.length > 0) return parseAddr(envAddr);
 
   const workspaceRoot = resolveWorkspaceRoot();
-  const record = readServerJson(workspaceRoot);
   const recordPath = serverJsonPath(workspaceRoot);
+  const record = selectMachineEntry(readServerJson(workspaceRoot), recordPath);
 
   if (record && typeof record.tailnet_host === 'string' && record.tailnet_host.length > 0) {
     if (!Number.isInteger(record.gateway_port)) {
@@ -120,6 +150,7 @@ module.exports = {
   resolveWorkspaceRoot,
   serverJsonPath,
   readServerJson,
+  selectMachineEntry,
   resolveGatewayAddr,
   resolveToken,
 };

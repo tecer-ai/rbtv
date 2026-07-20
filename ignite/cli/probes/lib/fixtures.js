@@ -137,9 +137,9 @@ async function stopDaemon(d) {
 // FIXTURE SETUP ONLY (see file header): seeds one catalogue job — a
 // launch-agent job naming the shipped, side-effect-free `test-sleep` profile
 // (D52) — directly into the SAME sqlite db path server/index.js's own
-// openHeartStore({ runtimeStateRoot }) resolves to
-// (`<workspaceRoot>/.rbtv/heart/heart.db`), so the daemon that boots
-// afterwards sees it. Optionally also seeds one jobs_log execution row (for
+// openHeartStore({ dbPath }) resolves to (`<dataRoot>/heart.db` — the heart
+// store is per-machine state, batch-08 item 10 state-layout boundary), so the
+// daemon that boots afterwards sees it. Optionally also seeds one jobs_log execution row (for
 // probes exercising `inspect status`/`inspect logs`, which are exec-scoped
 // and have no other way to get an id without actually spawning a worker), and
 // optionally points that row's log_path at a REAL file with real content —
@@ -148,7 +148,7 @@ async function stopDaemon(d) {
 // without this probe having to actually launch and wait on a worker process.
 function seedCatalogue(ws, { withExecution = false, withLogLines = null } = {}) {
   const store = openHeartStore({
-    runtimeStateRoot: ws.workspaceRoot,
+    dbPath: path.join(ws.dataRoot, 'heart.db'),
     profiles: { 'test-sleep': { headed: false } },
   });
   try {
@@ -206,7 +206,7 @@ function runCli(args, env, { timeoutMs = 15000 } = {}) {
 // `ignite snooze` against a REAL standing warning without needing the ticker
 // to organically raise one.
 function seedWarning(ws, { kind, subject }) {
-  const store = openHeartStore({ runtimeStateRoot: ws.workspaceRoot });
+  const store = openHeartStore({ dbPath: path.join(ws.dataRoot, 'heart.db') });
   try {
     return store.raiseWarning({ kind, subject, raisedAtTick: 0 });
   } finally {

@@ -1,0 +1,15 @@
+COMMAND: node ignite/cli/probes/probe-cli-server-json.js
+PASS  own-hostname entry wins when this machine records a server — selected=own.example.ts.net
+PASS  with no server on this machine, the one machine recording a server is selected — selected=remote.example.ts.net
+PASS  two remote server entries are ambiguous — loud CliUsageError, never a silent pick — err=x records 2 machines running a server — ambiguous from this machine. Set IGNITE_
+PASS  legacy flat shape (no machines map) passes through unchanged — selected=flat.example.ts.net
+PASS  the throwaway daemon boots and its gateway listens — port 41683
+--- ignite status --json (resolved via machines map, no IGNITE_GATEWAY_ADDR) ---
+EXIT=0
+STDOUT={"ok":true,"result":{"target":"daemon","pid":2387216,"uptime_ms":113,"last_tick":1,"live_agent_sessions":0,"max_live_agent_sessions":2,"queue_depth":0,"standing_warnings":[],"config":{"tick_interval_ms":10000,"stall_warn_ticks":12,"stall_halt_ticks":24,"slot_max_repeats":10,"max_live_agent_sessions":2}}}
+PASS  real CLI reaches the daemon through machines[<hostname>] — ok envelope, exit 0 — exit=0 ok=true
+PASS  resolveGatewayAddr() yields the own-machine entry host:port — addr=127.0.0.1:41683
+
+CHECKS: 7/7 passed
+EXIT: 0
+WALL_MS: 240

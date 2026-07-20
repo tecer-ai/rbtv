@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
 const crypto = require('node:crypto');
@@ -136,16 +137,16 @@ function ensureInstallState(workspaceRoot) {
     }, null, 2));
   }
 
+  // server.json is a MACHINE-KEYED MAP (batch-08 item 10 state-layout boundary,
+  // owner-ruled 2026-07-20): the file is git-tracked so the installation travels to
+  // every machine, so a single flat endpoint/state-root value would be right on one
+  // machine and wrong on every other. Each machine's install — its endpoint fields
+  // and its per-machine state-root path — lives under `machines[<hostname>]`.
   const serverPath = path.join(moduleDir, 'server.json');
   if (!fs.existsSync(serverPath)) {
     fs.writeFileSync(serverPath, JSON.stringify({
       name: null,
-      tailnet_host: null,
-      tailnet_ip: null,
-      gateway_port: null,
-      ssh_host: null,
-      ssh_user: null,
-      ssh_port: null,
+      machines: {},
     }, null, 2));
   }
 
@@ -162,10 +163,18 @@ function ensureInstallState(workspaceRoot) {
   return { moduleDir, statusPath, serverPath, settingsPath, historyPath };
 }
 
+// "Installed" = the endpoint record names at least one machine running a server.
+// Accepts BOTH shapes: the machine-keyed map (`machines[<hostname>]` entries — the
+// current shape, batch-08 item 10) and the legacy flat record (fields at top level),
+// so a workspace pulled at either side of the shape change still validates.
 function isServerJsonValid(serverJsonPath) {
   try {
     const data = JSON.parse(fs.readFileSync(serverJsonPath, 'utf8'));
-    return data && typeof data === 'object' && typeof data.tailnet_host === 'string' && data.tailnet_host.length > 0;
+    if (!data || typeof data !== 'object') return false;
+    const entries = (data.machines && typeof data.machines === 'object')
+      ? Object.values(data.machines)
+      : [data];
+    return entries.some((e) => e && typeof e === 'object' && typeof e.tailnet_host === 'string' && e.tailnet_host.length > 0);
   } catch {
     return false;
   }
@@ -334,19 +343,37 @@ function resolveTailnetHostname() {
 // MERGING — owner-config fields (name, ssh_*) are never clobbered. server.json is the
 // COMMITTED endpoint record (module CLAUDE.md § Installation model): it is meant to carry
 // the tailnet host/IP + gateway port so a `git pull` on another machine finds this server.
-function updateEndpointRecord(serverPath, { tailnetHost, tailnetIp, gatewayPort }) {
+// Writes THIS machine's install into `machines[<hostname>]` (batch-08 item 10:
+// server.json is a machine-keyed map — see ensureInstallState). Merge, never clobber:
+// other machines' entries and unrelated fields survive. A legacy flat record described
+// the daemon's own machine, so its endpoint fields are folded into this machine's
+// entry and dropped from the top level.
+function updateEndpointRecord(serverPath, { tailnetHost, tailnetIp, gatewayPort, stateRoot }) {
   let record;
   try {
     record = JSON.parse(fs.readFileSync(serverPath, 'utf8'));
   } catch {
     record = {};
   }
+  if (!record || typeof record !== 'object' || Array.isArray(record)) record = {};
   const next = { ...record };
-  if (tailnetHost) next.tailnet_host = tailnetHost;
-  if (tailnetIp) next.tailnet_ip = tailnetIp;
-  if (Number.isInteger(gatewayPort)) next.gateway_port = gatewayPort;
+  if (!next.machines || typeof next.machines !== 'object') next.machines = {};
+  const legacy = {};
+  for (const f of ['tailnet_host', 'tailnet_ip', 'gateway_port', 'ssh_host', 'ssh_user', 'ssh_port']) {
+    if (next[f] !== undefined) {
+      if (next[f] !== null) legacy[f] = next[f];
+      delete next[f];
+    }
+  }
+  const key = os.hostname();
+  const entry = { ...legacy, ...(next.machines[key] || {}) };
+  if (tailnetHost) entry.tailnet_host = tailnetHost;
+  if (tailnetIp) entry.tailnet_ip = tailnetIp;
+  if (Number.isInteger(gatewayPort)) entry.gateway_port = gatewayPort;
+  if (stateRoot) entry.state_root = path.resolve(stateRoot);
+  next.machines[key] = entry;
   fs.writeFileSync(serverPath, JSON.stringify(next, null, 2));
-  return next;
+  return entry;
 }
 
 async function main() {
@@ -404,8 +431,21 @@ async function main() {
   loadSendersFile(sendersFilePath);
   log('info', 'sender registry startup gate passed', { sendersFile: sendersFilePath });
 
+  // State-layout boundary (batch-08 item 10, owner-ruled 2026-07-20): the heart store
+  // is PER-MACHINE state — membership test "can the user work with this WITHOUT
+  // ignite?" cuts through the store (the jobs catalogue is user-authorable, but
+  // queue/jobs_log/messages are runtime) and the owner ruled it stays ONE file,
+  // per-machine. So it lives at `{data_root}/heart.db`, never under the workspace's
+  // `.rbtv/` (its pre-ruling home). Accepted consequence: the jobs catalogue is not
+  // readable without the daemon.
+  if (!dataRoot) {
+    throw new Error(
+      'the heart store is per-machine state and requires a configured data root ' +
+      '(spawn.data_root or RBTV_IGNITE_DATA_ROOT) — batch-08 item 10 state-layout boundary.'
+    );
+  }
   const heartStore = openHeartStore({
-    runtimeStateRoot: workspaceRoot,
+    dbPath: path.join(dataRoot, 'heart.db'),
     profiles: mergedConfig.profiles || {},
     tools: mergedConfig.tools || {},
     workflows: mergedConfig.workflows || {},
@@ -593,11 +633,13 @@ async function main() {
     // the tailnet bind succeeded (uses the existing store API — no warnings.js edit).
     const stale = heartStore.getStandingWarning({ kind: TAILNET_BIND_DEGRADED, subject: TAILNET_WARNING_SUBJECT });
     if (stale) heartStore.clearWarning({ warningId: stale.warning_id, tick: warnTick });
-    // D27 endpoint record: materialize the runtime-resolved fields (merge, never clobber).
+    // D27 endpoint record: materialize the runtime-resolved fields under this
+    // machine's key (merge, never clobber) — including the per-machine state root.
     const rec = updateEndpointRecord(installState.serverPath, {
       tailnetHost: resolveTailnetHostname(),
       tailnetIp: tailnetBound,
       gatewayPort: bindPort,
+      stateRoot: dataRoot,
     });
     log('info', 'endpoint record updated', { serverPath: installState.serverPath, tailnet_host: rec.tailnet_host, tailnet_ip: rec.tailnet_ip });
   } else {

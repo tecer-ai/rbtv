@@ -240,6 +240,12 @@ function ensureDir(p) {
   fs.mkdirSync(p, { recursive: true });
 }
 
+// The DAEMON passes `dbPath: {data_root}/heart.db` — the heart store is PER-MACHINE
+// state (batch-08 item 10 state-layout boundary, owner-ruled 2026-07-20), never under
+// the workspace's `.rbtv/`. The `runtimeStateRoot` branch below is the store's
+// pre-ruling workspace-shaped resolution, kept ONLY for store-scoped probes that
+// exercise the `.rbtv/`-sibling session-dir derivation (D58(3)) against throwaway
+// workspaces; server/index.js no longer uses it.
 function resolveDbPath(opts) {
   if (opts.dbPath) return path.resolve(opts.dbPath);
   if (opts.runtimeStateRoot) {
