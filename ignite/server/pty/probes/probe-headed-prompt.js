@@ -1,18 +1,17 @@
 'use strict';
 
 // Criterion 8 (Test Plan): headed prompt carriage is DEFINED or TYPED-REJECTED for every profile
-// shape (session-surface-spec.md Design 3, OQ-F RULED D83).
-//   (a) prompt + headed on a NO-carriage profile  -> typed rejection (E_HEADED_PROMPT_REJECTED).
-//   (b) prompt + headed on an argv-carriage profile -> the prompt is DELIVERED into the {prompt}
-//       argv slot (proven by the TUI echoing its argv, which shows the prompt landed).
+// shape (session-surface-spec.md Design 3, OQ-F RULED D83; vocabulary NARROWED to file|keystroke
+// by the batch-08 item 4 half A owner ruling, 2026-07-20 — `argv` REMOVED so caller free text
+// NEVER becomes argv).
+//   (a) prompt + headed on a NO-carriage profile   -> typed rejection (E_HEADED_PROMPT_REJECTED).
+//   (b) prompt + headed on the RETIRED argv-carriage profile -> typed rejection
+//       (E_HEADED_PROMPT_CARRIAGE — the spawn gate refuses the retired carriage; nothing spawns).
 //   (c) stdin carriage -> structurally absent (a config-load failure), proven at the unit level.
-//
-// NOTE: the argv-carriage profile (test-headed-argv) carries headed.tui.prompt, a key
-// server/spawn/config.js currently REJECTS (KNOWN_TUI_KEYS={'argv'}) — its acceptance is a
-// conductor-owed config.js extension OUTSIDE this task's allowlist (see the dispatch concerns).
-// lib.js injects it post-config to exercise the carriage machinery the pty host already owns.
+//   (c2) composeHeadedArgv refuses the retired argv carriage at the unit level too — the
+//        {prompt}-slot substitution path no longer exists.
 
-const { setup, fire, teardown, capture, sleep } = require('./lib');
+const { setup, fire, teardown, capture } = require('./lib');
 const { composeHeadedArgv, validateHeadedCarriage } = require('../carriage');
 
 capture('probe-headed-prompt', async (lines) => {
@@ -30,17 +29,20 @@ capture('probe-headed-prompt', async (lines) => {
     }
     if (!rejected) throw new Error('(a) a prompt against a no-carriage headed profile was NOT rejected');
 
-    // (b) delivery: prompt into the {prompt} argv slot of test-headed-argv; the TUI echoes argv.
-    const payload = `PROMPTPAYLOAD-${Math.floor(Math.random() * 1e6)}`;
+    // (b) the RETIRED argv carriage: a prompt against test-headed-argv (injected post-config;
+    // config.js refuses this profile at LOAD — probe-carriage-vocab.js proves that) must be
+    // refused TYPED at the spawn gate, and nothing may spawn.
     const firedD = fire(ctx, { profile: 'test-headed-argv', sessionMode: 'headed', workdir: ctx.defaultWorkdir });
-    lines.push(`(b) action: spawn headed test-headed-argv with prompt='${payload}' (carriage=argv, {prompt} slot)`);
-    const rowD = await ctx.routed.spawn(firedD.exec_id, 'test-headed-argv', 'headed', payload, null, 'probe');
-    ctx.units.push(rowD.unit_name);
-    await sleep(900);
-    const screen = ctx.ptyHost.captureScreen(rowD.exec_id).screen;
-    lines.push(`(b) rendered screen (TUI echoing its argv):\n${screen}`);
-    if (!screen.includes(payload)) throw new Error(`(b) prompt payload '${payload}' did not reach the TUI argv — delivery failed`);
-    lines.push(`(b) DELIVERED: the prompt filled the {prompt} argv slot and reached the TUI.`);
+    let argvRejected = false;
+    try {
+      const r = await ctx.routed.spawn(firedD.exec_id, 'test-headed-argv', 'headed', 'PROMPTPAYLOAD', null, 'probe');
+      if (r && r.unit_name) ctx.units.push(r.unit_name);
+    } catch (e) {
+      argvRejected = true;
+      if (e.code !== 'E_HEADED_PROMPT_CARRIAGE') throw new Error(`(b) retired argv carriage refused with WRONG code ${e.code} (expected E_HEADED_PROMPT_CARRIAGE)`);
+      lines.push(`(b) prompt + headed on the RETIRED argv-carriage profile -> TYPED REJECTION ${e.code}: ${e.message}`);
+    }
+    if (!argvRejected) throw new Error('(b) the retired argv carriage was NOT rejected — a {prompt}-substitution path survives');
 
     // (c) unit-level: composeHeadedArgv rejects stdin carriage and an unknown carriage.
     let stdinRejected = false;
@@ -48,12 +50,17 @@ capture('probe-headed-prompt', async (lines) => {
     catch (e) { stdinRejected = true; lines.push(`(c) stdin carriage -> ${e.code}: structurally absent`); }
     if (!stdinRejected) throw new Error('(c) stdin carriage was not rejected as structurally absent');
 
-    // (c2) argv delivery composition is deterministic and closed-substitution (no split).
-    const composed = composeHeadedArgv({ tui: { argv: ['tui', '--prompt', '{prompt}'], prompt: 'argv' } }, 'a b c', 'probe', {});
-    lines.push(`(c2) composeHeadedArgv argv-slot -> ${JSON.stringify(composed.argv)}`);
-    if (JSON.stringify(composed.argv) !== JSON.stringify(['tui', '--prompt', 'a b c'])) throw new Error('(c2) argv-slot substitution wrong');
+    // (c2) unit-level: the retired argv carriage is refused by composeHeadedArgv directly.
+    let unitArgvRejected = false;
+    try { composeHeadedArgv({ tui: { argv: ['tui', '--prompt', '{prompt}'], prompt: 'argv' } }, 'a b c', 'probe', {}); }
+    catch (e) {
+      unitArgvRejected = true;
+      if (e.code !== 'E_HEADED_PROMPT_CARRIAGE') throw new Error(`(c2) retired argv carriage refused with WRONG code ${e.code}`);
+      lines.push(`(c2) composeHeadedArgv argv carriage -> TYPED REJECTION ${e.code} (retired, batch-08 item 4)`);
+    }
+    if (!unitArgvRejected) throw new Error('(c2) composeHeadedArgv accepted the retired argv carriage');
 
-    lines.push('RESULT: prompt carriage is reject-by-default for no-carriage profiles AND delivered for a declared argv carriage; stdin is structurally absent.');
+    lines.push('RESULT: prompt carriage is reject-by-default for no-carriage profiles; the retired argv carriage is TYPED-REJECTED at the spawn gate and the unit level; stdin is structurally absent.');
   } finally {
     teardown(ctx);
   }

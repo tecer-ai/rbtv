@@ -6,12 +6,12 @@ const { validateSpawnRequest } = require('../spawn');
 capture('probe-flag-injection', async (lines) => {
   const ctx = setup();
   try {
-    // The prompt guard is CARRIAGE-CONDITIONAL (p7-multiturn): argv-last is the
-    // one carriage whose prompt rides argv, so ONLY it refuses flag-shaped /
-    // metacharacter prompts. File/stdin prompts are data in a 0600 file.
+    // NO prompt flag-injection guard remains (batch-08 item 4 half A): with the carriage
+    // vocabulary collapsed to stdin (headless) / file|keystroke (headed), no carriage puts
+    // caller text on a command line, so the prompt is 0600-file DATA everywhere and the former
+    // argv-last guard cases are config-load failures now (probe-carriage-vocab.js proves that).
+    // The WORKDIR guard stays UNCONDITIONAL — a workdir always rides argv/unit properties.
     const cases = [
-      { name: 'flag in prompt (argv-last carriage)', fn: () => ctx.mgr.spawn(0, 'test-argvlast', 'headless', '-h', null, 'probe') },
-      { name: 'metacharacters in prompt (argv-last carriage)', fn: () => ctx.mgr.spawn(0, 'test-argvlast', 'headless', 'x; rm -rf $(HOME)', null, 'probe') },
       { name: 'flag in workdir', fn: () => ctx.mgr.spawn(0, 'test-sleep', 'headless', null, '-/tmp', 'probe') },
       { name: 'unknown request key', fn: () => validateSpawnRequest({ profile: 'test-sleep', session_mode: 'headless', prompt: null, workdir: null, extra: 1 }) },
       { name: 'unknown profile', fn: () => ctx.mgr.spawn(0, 'not-a-profile', 'headless', null, null, 'probe') },

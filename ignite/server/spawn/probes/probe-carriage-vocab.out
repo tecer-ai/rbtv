@@ -1,0 +1,14 @@
+probe: probe-carriage-vocab
+started: 2026-07-20T16:22:31.300Z
+command: node probes/probe-carriage-vocab.js
+(1) headless prompt: file -> LOUD config-LOAD failure E_CONFIG_LOAD: profiles.bad.exec.prompt must be stdin — the ONLY headless carriage (file and argv-last REMOVED, batch-08 item 4: caller free text never becomes argv)
+(2) headless prompt: argv-last -> LOUD config-LOAD failure E_CONFIG_LOAD: profiles.bad.exec.prompt must be stdin — the ONLY headless carriage (file and argv-last REMOVED, batch-08 item 4: caller free text never becomes argv)
+(3) headed tui.prompt: argv -> LOUD config-LOAD failure E_CONFIG_LOAD: profiles.bad.headed.tui.prompt must be one of file|keystroke (argv REMOVED, batch-08 item 4: caller free text never becomes argv)
+(4) headed tui.prompt: stdin (structurally absent) -> LOUD config-LOAD failure E_CONFIG_LOAD: profiles.bad.headed.tui.prompt: stdin is STRUCTURALLY ABSENT from the headed carriage vocabulary (stdin IS the pty slave; write-then-close would type-then-hang-up the session) — declaring it is a config-LOAD failure, not a runtime value (known: file|keystroke)
+(5) {prompt} slot in headed.tui.argv (slot retired) -> LOUD config-LOAD failure E_UNKNOWN_SLOT: unknown template slot {prompt} in profiles.bad.headed.tui.argv[1]
+(6) shipped config loads cleanly: 5 profiles [claude-sonnet-tools=stdin, codex-git-write=stdin, opencode-sakana=stdin, test-sleep=stdin, headed-shell=stdin]
+RESULT: file/argv-last/argv (and the {prompt} slot) all fail config load LOUDLY; the five shipped stdin profiles load cleanly.
+status: PASS
+exit: 0
+wall_ms: 29
+ended: 2026-07-20T16:22:31.328Z

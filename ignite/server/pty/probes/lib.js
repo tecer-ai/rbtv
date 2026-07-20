@@ -111,11 +111,10 @@ function setup() {
   // ★ Headed test profiles are injected DIRECTLY into the loaded config, bypassing config.js's
   // strict validation — for TWO reasons: (1) the deterministic renderer TUI is inline `node -e`
   // JS whose braces config.js's slot detector would mis-read as template slots, and (2) the
-  // carriage profiles carry headed.tui.prompt, a key config.js currently REJECTS
-  // (KNOWN_TUI_KEYS={'argv'}) — extending config.js is a conductor-owed change OUTSIDE this task's
-  // allowlist (see the dispatch return's concerns). The pty host reads config.profiles regardless
-  // of how a profile got there, so this exercises the pty host EXACTLY as it will behave once
-  // config.js is extended. config.js's own (certified) headed.tui.argv validation is unchanged.
+  // test-headed-argv fixture deliberately carries the RETIRED `argv` carriage, which config.js
+  // now refuses at LOAD (batch-08 item 4 half A) — injecting it post-config is the only way to
+  // reach the SPAWN gate's own refusal. The pty host reads config.profiles regardless of how a
+  // profile got there.
   //
   // Headed-capable, NO prompt carriage (reject-by-default). The deterministic renderer is the TUI.
   mgr.config.profiles['test-headed'] = {
@@ -126,6 +125,9 @@ function setup() {
     caps: { memory_max: '256M', runtime_max: '1h' },
     sandbox: { ReadWritePaths: ['{workdir}'], NoNewPrivileges: true },
   };
+  // Carries the RETIRED `argv` carriage (batch-08 item 4 half A removed it from the vocabulary).
+  // Injected post-config (config.js would refuse it at LOAD — proven by probe-carriage-vocab.js
+  // in spawn/probes) so probe-headed-prompt can prove the SPAWN gate refuses it typed too.
   mgr.config.profiles['test-headed-argv'] = {
     exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
     session_ref: { source: 'cwd-implicit' },

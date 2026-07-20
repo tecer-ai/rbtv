@@ -214,16 +214,12 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       throw new SpawnError(E_HEADED_NOT_CAPABLE, `profile ${profileName} is not headed-capable`, { profile: profileName, sessionMode });
     }
 
-    // The prompt flag-injection guard is CARRIAGE-CONDITIONAL (p7-multiturn): only `argv-last`
-    // carriage puts the prompt into argv, where a leading dash or shell metacharacters could read
-    // as flags. File/stdin carriage writes the prompt to a 0600 file the worker consumes as DATA —
-    // no argv, no shell — and a composed multi-turn conversation transcript legitimately carries
-    // newlines and parentheses, which the unconditional guard would refuse. The workdir guard
-    // above stays unconditional: a workdir always rides argv/unit properties.
-    const promptBlock = sessionMode === 'headed' ? profile.headed.tui : profile.exec;
-    if (promptBlock.prompt === 'argv-last') {
-      rejectFlagInjection(prompt, 'prompt');
-    }
+    // NO prompt flag-injection guard: the carriage collapse (batch-08 item 4 half A — headless
+    // `stdin` only, headed `file`|`keystroke` only) means NO carriage puts caller text on a
+    // command line, so there is nothing for a prompt guard to protect. The prompt is 0600-file
+    // DATA everywhere (a composed multi-turn transcript legitimately carries newlines and
+    // parentheses). The workdir guard above stays UNCONDITIONAL: a workdir always rides
+    // argv/unit properties.
 
     const resolvedWorkdir = resolveWorkdir(profile, workdir, config.default_workdir_root, configPath, { execId, sessionsRoot, workspaceRoot });
 

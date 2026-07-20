@@ -84,7 +84,7 @@ profiles:
     # (POC Finding 3: it touched the live vault unprompted) -- the profile confines it.
     exec:
       argv: ["opencode", "run", "-m", "sakana/fugu-ultra"]
-      prompt: stdin        # carriage to re-verify at 2.2; fallback per this spec: argv-last, marked
+      prompt: stdin
     session_ref: { source: cwd-implicit }    # opencode resumes per-cwd; the session's workdir IS the ref
     headed:
       # headed-CAPABLE seam (D17: presence of this block = capable). The pty path is Batch 6's.

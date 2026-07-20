@@ -43,14 +43,9 @@ function setup() {
         workdir_root: workRoot,
         caps: { memory_max: '64M', runtime_max: '1h' },
       },
-      // argv-last carriage: the ONE carriage whose prompt rides argv — the
-      // flag-injection guard's remaining scope (p7-multiturn carriage-conditional).
-      'test-argvlast': {
-        exec: { argv: ['sleep', '3600'], prompt: 'argv-last' },
-        session_ref: { source: 'cwd-implicit' },
-        workdir_root: workRoot,
-        caps: { memory_max: '64M', runtime_max: '1h' },
-      },
+      // (the former test-argvlast fixture is gone WITH its carriage: `argv-last` was removed
+      // from the vocabulary — batch-08 item 4 half A — and now fails config load, proven by
+      // probe-carriage-vocab.js.)
       // Exits 0 immediately: exit-marker + accepted-prompt legs need a worker
       // that finishes on its own (no kill, no lingering unit).
       'test-quick': {

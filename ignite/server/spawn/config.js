@@ -20,16 +20,20 @@ const KNOWN_PROFILE_KEYS = new Set([
 const KNOWN_EXEC_KEYS = new Set(['argv', 'prompt']);
 const KNOWN_HEADED_KEYS = new Set(['tui']);
 const KNOWN_TUI_KEYS = new Set(['argv', 'prompt', 'keystroke']);
-// The HEADLESS exec prompt vocabulary — NOT the headed one. Untouched by p6-2b.
-const KNOWN_PROMPT_VALUES = new Set(['stdin', 'file', 'argv-last']);
-// The HEADED carriage vocabulary (session-surface-spec.md Design 3; OQ-F RULED, D83). A
-// DIFFERENT closed set from KNOWN_PROMPT_VALUES above — the two are deliberately not shared:
-// `argv-last` is headless-only, and `stdin` is STRUCTURALLY ABSENT here (stdin IS the pty
-// slave; write-then-close = type-then-hang-up), so declaring it is a config-LOAD failure and
-// not a runtime error. Matches server/pty/carriage.js's KNOWN_CARRIAGES exactly — the
-// profile-LOAD gate, the QUEUE gate (heart-store.js) and the SPAWN gate (carriage.js) MUST
-// agree on this vocabulary.
-const KNOWN_HEADED_CARRIAGES = new Set(['argv', 'file', 'keystroke']);
+// The HEADLESS exec prompt vocabulary — NOT the headed one. `stdin` ONLY: `file` and
+// `argv-last` were REMOVED (owner ruling 2026-07-20, batch-08 item 4 half A; NARROWS D83/OQ-F)
+// so that caller free text NEVER becomes argv, with no exception clause anywhere. A profile
+// declaring a removed carriage is a config-LOAD failure, loudly.
+const KNOWN_PROMPT_VALUES = new Set(['stdin']);
+// The HEADED carriage vocabulary (session-surface-spec.md Design 3; OQ-F RULED, D83; `argv`
+// REMOVED by the same batch-08 item 4 half A ruling — no carriage may put caller text on a
+// command line, and the headed argv path was the one UNGUARDED route there). A DIFFERENT
+// closed set from KNOWN_PROMPT_VALUES above — the two are deliberately not shared:
+// `stdin` is STRUCTURALLY ABSENT here (stdin IS the pty slave; write-then-close =
+// type-then-hang-up), so declaring it is a config-LOAD failure and not a runtime error.
+// Matches server/pty/carriage.js's KNOWN_CARRIAGES exactly — the profile-LOAD gate, the QUEUE
+// gate (heart-store.js) and the SPAWN gate (carriage.js) MUST agree on this vocabulary.
+const KNOWN_HEADED_CARRIAGES = new Set(['file', 'keystroke']);
 const KNOWN_SESSION_REF_SOURCES = new Set([
   'stdout-json', 'stdout-json-event', 'cwd-implicit',
 ]);
@@ -68,17 +72,16 @@ function checkUnknownKeys(obj, knownSet, prefix, filePath) {
   }
 }
 
-// `extraSlots` (ADDITIVE, defaults to null = the previous behaviour for every existing caller)
-// admits a slot for ONE call site only, WITHOUT loosening the module-wide CLOSED_SLOTS set. It
-// carries `{prompt}` for `headed.tui.argv` on a profile declaring `prompt: argv`, and nothing
-// else — so `{prompt}` stays the existing unknown-slot config-load failure everywhere else
-// (exec argv, sandbox, and a headed block that declares no argv carriage).
-function detectUnknownSlots(value, prefix, filePath, extraSlots = null) {
+// The slot vocabulary is the module-wide CLOSED_SLOTS set, everywhere. The former `extraSlots`
+// admission ({prompt} in `headed.tui.argv` under `prompt: argv`) was retired with the argv
+// carriage (batch-08 item 4 half A): a `{prompt}` slot anywhere is now an unknown-slot
+// config-load failure.
+function detectUnknownSlots(value, prefix, filePath) {
   const str = typeof value === 'string' ? value : JSON.stringify(value);
   const matches = str.match(UNKNOWN_SLOT_RE);
   if (matches) {
     for (const m of matches) {
-      if (!CLOSED_SLOTS.has(m) && !(extraSlots && extraSlots.has(m))) {
+      if (!CLOSED_SLOTS.has(m)) {
         throw new SpawnError(E_UNKNOWN_SLOT, `unknown template slot ${m} in ${prefix}`, { file: filePath, key: prefix, slot: m });
       }
     }
@@ -104,7 +107,7 @@ function validateExec(block, profileName, filePath) {
   checkUnknownKeys(block, KNOWN_EXEC_KEYS, `profiles.${profileName}.${blockName}`, filePath);
   assertArrayOfStrings(block.argv, `profiles.${profileName}.${blockName}.argv`, filePath);
   if (!block.prompt || !KNOWN_PROMPT_VALUES.has(block.prompt)) {
-    throw new SpawnError(E_CONFIG_LOAD, `profiles.${profileName}.${blockName}.prompt must be one of stdin|file|argv-last`, { file: filePath, key: `profiles.${profileName}.${blockName}.prompt` });
+    throw new SpawnError(E_CONFIG_LOAD, `profiles.${profileName}.${blockName}.prompt must be stdin — the ONLY headless carriage (file and argv-last REMOVED, batch-08 item 4: caller free text never becomes argv)`, { file: filePath, key: `profiles.${profileName}.${blockName}.prompt` });
   }
   for (let i = 0; i < block.argv.length; i++) {
     detectUnknownSlots(block.argv[i], `profiles.${profileName}.${blockName}.argv[${i}]`, filePath);
@@ -161,37 +164,30 @@ function validateHeaded(headed, profileName, filePath) {
         E_CONFIG_LOAD,
         `profiles.${profileName}.headed.tui.prompt: stdin is STRUCTURALLY ABSENT from the headed ` +
         `carriage vocabulary (stdin IS the pty slave; write-then-close would type-then-hang-up the ` +
-        `session) — declaring it is a config-LOAD failure, not a runtime value (known: argv|file|keystroke)`,
+        `session) — declaring it is a config-LOAD failure, not a runtime value (known: file|keystroke)`,
         { file: filePath, key: `profiles.${profileName}.headed.tui.prompt`, carriage },
       );
     }
     if (!KNOWN_HEADED_CARRIAGES.has(carriage)) {
       throw new SpawnError(
         E_CONFIG_LOAD,
-        `profiles.${profileName}.headed.tui.prompt must be one of argv|file|keystroke`,
+        `profiles.${profileName}.headed.tui.prompt must be one of file|keystroke (argv REMOVED, ` +
+        `batch-08 item 4: caller free text never becomes argv)`,
         { file: filePath, key: `profiles.${profileName}.headed.tui.prompt`, carriage },
       );
     }
   }
 
-  // The `{prompt}` slot is admitted ONLY here, and ONLY under `prompt: argv`. Under any other
-  // carriage (or none) `extraSlots` stays null and a `{prompt}` slot falls through to the
-  // existing E_UNKNOWN_SLOT config-load failure — the consistency check in the other direction.
-  const promptSlot = carriage === 'argv' ? new Set(['{prompt}']) : null;
+  // The slot set is CLOSED_SLOTS, unconditionally. The former `{prompt}` admission (argv
+  // carriage only) was retired with that carriage — a `{prompt}` slot in headed.tui.argv is now
+  // an E_UNKNOWN_SLOT config-load failure regardless of what the profile declares.
   for (let i = 0; i < headed.tui.argv.length; i++) {
-    detectUnknownSlots(headed.tui.argv[i], `profiles.${profileName}.headed.tui.argv[${i}]`, filePath, promptSlot);
+    detectUnknownSlots(headed.tui.argv[i], `profiles.${profileName}.headed.tui.argv[${i}]`, filePath);
   }
 
   // Consistency, declared-but-absent direction: a carriage whose slot is missing would compose
   // no prompt at spawn time. Refuse the profile at LOAD instead (server/pty/carriage.js refuses
   // the same shapes at spawn time — the gates agree).
-  if (carriage === 'argv' && !headed.tui.argv.some((el) => el.includes('{prompt}'))) {
-    throw new SpawnError(
-      E_CONFIG_LOAD,
-      `profiles.${profileName}.headed.tui.prompt: argv declared but headed.tui.argv carries no {prompt} slot`,
-      { file: filePath, key: `profiles.${profileName}.headed.tui.argv`, carriage },
-    );
-  }
   if (carriage === 'file' && !headed.tui.argv.some((el) => el.includes('{prompt_file}'))) {
     throw new SpawnError(
       E_CONFIG_LOAD,
