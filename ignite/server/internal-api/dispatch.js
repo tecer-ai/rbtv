@@ -241,6 +241,61 @@ const STORE_TO_WIRE = new Map([
   // NOT_FOUND: the execution row EXISTS (the re-validation clause proved it); what refused is a
   // state check on the row, and `details.check` names it. Same shape as E_SESSION_NOT_LIVE.
   ['E_CARRIER_FAILED', VALIDATION_FAILED],
+  // The pty ATTACH-BRIDGE wiring fault (server/pty/errors.js) — reachable from `send-to-session`
+  // and `capture-session-screen` through ensureAttached's lazy re-attach: the bridge interpreter
+  // is missing from PATH (pty-host.js attachBridge), or reconnect() resolved without registering
+  // a bridge entry (ensureAttached's post-reconnect wiring-fault throw, task 7.17). INTERNAL,
+  // ruled EXPLICITLY (batch-08 item 7, task 7.18) — this is a daemon-side environmental fault,
+  // nothing the sender can correct, so VALIDATION_FAILED would lie about whose problem it is.
+  // The row still earns its place: a MAPPED code crosses with its real message and
+  // `details.check: 'E_PTY_BRIDGE'`, so a sender (and the owner reading the sender's report) can
+  // tell "the pty bridge could not be wired" from the unmapped fall-through's opaque
+  // "server-core fault" — which is exactly the distinction the ruling exists to create.
+  ['E_PTY_BRIDGE', INTERNAL],
+]);
+
+// ── The classification's other half: typed codes DELIBERATELY absent from the map ────────────
+//
+// STORE_TO_WIRE is a CLOSED literal map, and an unmapped typed code silently degrades to the
+// anonymous INTERNAL "server-core fault" below — the decay mode batch-08 item 7 ruled against
+// (the THIRD closed set in that batch with no drift detection). The durable fix is not the rows,
+// it is this invariant, held by probe-error-map-drift.js:
+//
+//   EVERY typed code exported by server/{pty,spawn,heart}/errors.js is either a STORE_TO_WIRE
+//   key or a NOT_WIRE_REACHABLE key — exactly one, never neither, never both.
+//
+// Adding a new typed code without deciding its wire fate fails the probe NAMING the code. The
+// rationale strings are the reachability ruling of record: each states WHY the code cannot cross
+// toWireError() from a request path (verified at task 7.18 against every dispatch handler's call
+// graph — the eight intents reach heartStore.*, spawnManager.status/logs/kill, and
+// ptyHost.sendKeys/captureScreen ONLY; spawn itself is never wire-triggered, because
+// spawn-via-named-profile is D70-dropped on entry and dispatch never calls spawnManager.spawn).
+// If a later change makes one of these codes cross the wire, MOVE it to STORE_TO_WIRE with a
+// ruled wire code — do not widen a rationale.
+const NOT_WIRE_REACHABLE = new Map([
+  // Boot / config-load only — the daemon refuses to START; no request path exists yet.
+  ['E_CONFIG_LOAD', 'config-load failure at boot; the daemon never comes up to serve a request'],
+  ['E_MISSING_KEY', 'missing required config key at boot/config-load; never raised in a handler'],
+  ['E_UNKNOWN_SLOT', 'unknown template slot at profile config-load; never raised in a handler'],
+  ['E_DUPLICATE_PROFILE', 'duplicate profile name at config-load; never raised in a handler'],
+  ['E_SYSTEMD_NOT_AVAILABLE', 'carrier availability check at boot; never raised in a handler'],
+  ['E_ORPHAN_RESCAN_FAILED', 'boot orphan rescan only (spawn.orphanRescan); dispatch never calls it'],
+  // A genuine internal fault — the anonymous INTERNAL fall-through IS the honest wire answer
+  // (batch-08 item 7 ruled it correctly absent; a map row would add nothing but false precision).
+  ['E_SECOND_WRITER', 'single-writer invariant breach — a real daemon fault; INTERNAL is honest'],
+  // Ticker-spawn-path only (task 7.18 reachability finding, refining the item-7 table): these
+  // fire inside spawnHeaded/spawn/bwrap/carriage, which ONLY the ticker's dispatch phase invokes.
+  // A spawn failure lands as jobs_log status 'failed' + a spawn-failed feed action — it never
+  // crosses toWireError(), so it cannot degrade to the wire's "server-core fault" today.
+  ['E_HOLDER_FAILED', 'ticker-spawn-path only (spawnHeaded dtach holder); spawn is never wire-triggered'],
+  ['E_PROMPT_INJECTION_TIMEOUT', 'ticker-spawn-path only (spawnHeaded keystroke carriage); spawn is never wire-triggered'],
+  ['E_HEADED_PROMPT_REJECTED', 'ticker-spawn-path only (carriage composeHeadedArgv); the QUEUE half of the D85 double gate already refuses the same sender mistake at enqueue as E_BAD_MODE -> VALIDATION_FAILED'],
+  ['E_FS_SANDBOX_UNAVAILABLE', 'ticker-spawn-path only (bwrap sandbox resolve); spawn is never wire-triggered'],
+  // Defense-in-depth behind config-load refusals (task 7.14 collapsed carriage validation to
+  // LOAD time): from a config the daemon actually booted with, these cannot fire — and their
+  // remaining raise sites are on the ticker-spawn path anyway.
+  ['E_HEADED_PROMPT_CARRIAGE', 'refused earlier at config LOAD (task 7.14); residual raise sites are ticker-spawn-path only'],
+  ['E_HEADED_STDIN_CARRIAGE', 'refused earlier at config LOAD (task 7.14); residual raise sites are ticker-spawn-path only'],
 ]);
 
 function toWireError(err) {
@@ -795,7 +850,10 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       throw new InternalApiError(
         VALIDATION_FAILED,
         `no live headed pty for session ${row.exec_id} (the row never spawned: it carries no transcript log)`,
-        { check: 'E_SESSION_NOT_LIVE', execId: row.exec_id },
+        // `id` — the session surface's ratified wire field (see revalidateSessionTarget), matching
+        // every other detail block here; `execId` was the store-side name leaking onto the wire
+        // (naming ride-along, batch-08 item 10 part 4 / task 7.18).
+        { check: 'E_SESSION_NOT_LIVE', id: row.exec_id },
       );
     }
 
@@ -869,7 +927,10 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       throw new InternalApiError(
         VALIDATION_FAILED,
         `no live headed pty for session ${row.exec_id} (the row never spawned: it carries no transcript log)`,
-        { check: 'E_SESSION_NOT_LIVE', execId: row.exec_id },
+        // `id` — the session surface's ratified wire field (see revalidateSessionTarget), matching
+        // every other detail block here; `execId` was the store-side name leaking onto the wire
+        // (naming ride-along, batch-08 item 10 part 4 / task 7.18).
+        { check: 'E_SESSION_NOT_LIVE', id: row.exec_id },
       );
     }
 
@@ -1127,4 +1188,6 @@ function constantTimeEquals(a, b) {
   return diff === 0;
 }
 
-module.exports = { createInternalApi, ENVELOPE_VERSION, assertSerializable, constantTimeEquals };
+// STORE_TO_WIRE + NOT_WIRE_REACHABLE are exported as DATA for probe-error-map-drift.js (the
+// batch-08 item 7 decay guard) — read-only introspection; no caller mutates them.
+module.exports = { createInternalApi, ENVELOPE_VERSION, assertSerializable, constantTimeEquals, STORE_TO_WIRE, NOT_WIRE_REACHABLE };

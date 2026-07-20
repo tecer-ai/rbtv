@@ -1,0 +1,8 @@
+typed-code universe (server/{pty,spawn,heart}/errors.js exports): 34
+STORE_TO_WIRE rows: 21
+NOT_WIRE_REACHABLE classifications: 13
+partition: 21 + 13 = 34 (universe 34)
+
+RESULT: PASS — every typed code is either deliberately mapped or deliberately classified; the closed map cannot decay silently.
+WALL_MS 6
+EXIT 0
