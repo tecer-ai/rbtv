@@ -177,21 +177,27 @@ Run the probes: `node probes/probe-chat-<name>.js` (evidence → `probe-chat-<na
   follow-up leg (dry-run validates `type` ∈ CMP-8 types + non-empty `thread`).
   Seeding it is a server/deployment concern **outside this task's write surface**;
   the probes seed it into the throwaway store.
-- **`queue_id → exec_id` correlation — WINDOWED, not absent** (p7-2 review
-  finding). The inspect surface DOES expose the correlation: `inspect ticker` →
-  `recent_ticks[].actions[]` carries `{ action: 'spawn', execId, queueId }` per
-  fired row (the store's `jobs_log.queue_id` holds the same link), and
-  `thread-map.js` navigates it (queue_id → exec_id via dispatch actions, then
-  exec_id → thread via `live_sessions[]`, else the `exec-<first exec_id>` convention
-  derivation, D111). The residual gap is the WINDOW for *learning the first exec-id*:
-  the surface returns only the last 10 ticks (~100 s at default cadence), so a spawn
-  older than that ages out before the first follow-up learns its exec-id — then
-  resolution is honestly deferred (`exec-id-unknown`), never guessed. Once the first
-  exec-id IS learned (within the window, or bound directly), it is remembered
-  first-wins and EVERY later turn resolves by derivation regardless of liveness — the
-  window no longer bites per-turn. A direct `jobs_log` lookup (e.g. exposing
-  `queue_id` on `live_sessions[]`) would close the initial-learning gap too; that is
-  a server-surface change outside this task's write surface.
+- **`queue_id → exec_id` correlation — initial-learning gap CLOSED** (p7-2 review
+  finding; closed by D108(B)). `inspect ticker` → `live_sessions[]` now exposes
+  `queue_id` per row (the store's `jobs_log.queue_id` link, populated by
+  `fireQueueRow`), and `thread-map.js` resolves in this tier order (see its
+  RESOLUTION ORDER header):
+  1. **queue_id → live session direct match** (reason `inspect-ticker-queue`) —
+     TIME-INDEPENDENT: a live session resolves at ANY age, no ticks window. The
+     hit also binds the first exec-id (first-wins preserved — it IS the first
+     binding).
+  2. **`recent_ticks[].actions[]` navigation** — `{ action: 'spawn', execId,
+     queueId }` per fired row; still WINDOWED (last 10 ticks, ~100 s at default
+     cadence). It remains the tier that covers a spawn whose session already
+     ENDED (absent from `live_sessions[]`) but is still inside the window.
+  3. **exec_id → thread via `live_sessions[]`** (reason `inspect-ticker`), else
+     the `exec-<first exec_id>` convention derivation (reason
+     `derived-convention`, D111).
+  The formerly-flagged initial-learning window now bites ONLY the narrow case of a
+  session that ENDED before the first follow-up AND whose spawn aged out of the
+  ticks window — then resolution is honestly deferred (`exec-id-unknown`), never
+  guessed. Once the first exec-id IS learned, it is remembered first-wins and
+  EVERY later turn resolves by derivation regardless of liveness.
 - **Registry convergence.** The settled model is channel → (1:1) goal thread →
   per-slot sub-thread → session; the v1 chat-thread ↔ turn-chain map is the v1
   stand-in until goals/threads-store land.

@@ -60,8 +60,9 @@ async function main() {
         && envelope.result.recent_ticks.length > 0,
       `recent_ticks_len=${envelope && envelope.result && envelope.result.recent_ticks ? envelope.result.recent_ticks.length : 'N/A'}`);
 
-    check('inspect ticker carries live_sessions array',
-      envelope && envelope.ok && Array.isArray(envelope.result.live_sessions),
+    check('inspect ticker carries live_sessions array (every row carrying queue_id, D108(B))',
+      envelope && envelope.ok && Array.isArray(envelope.result.live_sessions)
+        && envelope.result.live_sessions.every((s) => s && Object.prototype.hasOwnProperty.call(s, 'queue_id')),
       `live_sessions_len=${envelope && envelope.result && envelope.result.live_sessions && envelope.result.live_sessions.length}`);
 
     check('inspect ticker carries queue_rows array',

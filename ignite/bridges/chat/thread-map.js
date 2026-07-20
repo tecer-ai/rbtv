@@ -104,23 +104,37 @@ function createThreadMap({ logger = null } = {}) {
   // gateway `inspect` intent (D69 — the bridge holds no store handle). Returns
   // { resolved, chainThread, reason }.
   //
-  // ⚑ RESOLUTION ORDER (D111) — two tiers, authoritative first, and it NEVER
-  // guesses:
-  //   1. live_sessions[] — when the chain's session is CURRENTLY live, the store's
-  //      own `thread` is the authoritative address (reason 'inspect-ticker').
-  //   2. CONVENTION-DERIVATION fallback — when the FIRST exec_id is KNOWN (bound,
-  //      or learned from recent_ticks below) but its session is not live (the
-  //      turn-boundary reality: short v1 turns end between the owner's messages, so
-  //      live_sessions no longer carries it), DERIVE `exec-<first exec_id>`. This
-  //      is not a guess: the chain-stable thread id IS `exec-<first exec_id>` by
-  //      settled convention (D24 Q3a; this module's header; ticker-engine-spec
-  //      § v1 turn-chain), and `sessionExecId` is FIRST-WINS immutable
+  // ⚑ RESOLUTION ORDER (D111; queue-id tier added per D108(B)) — authoritative
+  // first, and it NEVER guesses:
+  //   1. QUEUE-ID → LIVE SESSION direct match — when the first exec_id is NOT yet
+  //      known but the conversation's queue_id is, match `live_sessions[]` by
+  //      `queue_id` (the surface exposes the store's `jobs_log.queue_id`, D108(B)).
+  //      A hit binds the first exec_id (this IS the first binding — first-wins
+  //      preserved) and, when the row carries a non-empty `thread`, resolves the
+  //      chain thread from it (reason 'inspect-ticker-queue'). TIME-INDEPENDENT:
+  //      unlike the recent-ticks navigation below, this tier has no ~10-tick
+  //      window — a live session resolves at ANY age.
+  //   2. recent_ticks[].actions[] navigation — when the first exec_id is still
+  //      unknown (e.g. the session already ENDED, so live_sessions[] no longer
+  //      carries it), learn queue_id → exec_id from a recent tick's
+  //      { action: 'spawn', execId, queueId } row (WINDOWED: last 10 ticks).
+  //   3. live_sessions[] by exec_id — when the chain's session is CURRENTLY live,
+  //      the store's own `thread` is the authoritative address (reason
+  //      'inspect-ticker').
+  //   4. CONVENTION-DERIVATION fallback — when the FIRST exec_id is KNOWN (bound,
+  //      or learned above) but its session is not live (the turn-boundary reality:
+  //      short v1 turns end between the owner's messages, so live_sessions no
+  //      longer carries it), DERIVE `exec-<first exec_id>`. This is not a guess:
+  //      the chain-stable thread id IS `exec-<first exec_id>` by settled
+  //      convention (D24 Q3a; this module's header; ticker-engine-spec § v1
+  //      turn-chain), and `sessionExecId` is FIRST-WINS immutable
   //      (bindSessionExecId), so the derived id always names the chain's real
   //      thread (reason 'derived-convention').
   // When NO first exec_id can be established at all (`exec-id-unknown` — nothing
-  // dispatched yet, or the spawn aged out of the window), resolution is honestly
-  // deferred, never fabricated: the caller declines rather than forward a wrong
-  // thread (fail loud). There is still nothing to derive FROM.
+  // dispatched yet, or the session ended AND the spawn aged out of the ticks
+  // window), resolution is honestly deferred, never fabricated: the caller
+  // declines rather than forward a wrong thread (fail loud). There is still
+  // nothing to derive FROM.
   async function resolveChainThread(chatThreadId, forwarder) {
     const entry = get(chatThreadId);
     if (!entry) return { resolved: false, chainThread: null, reason: 'unknown-conversation' };
@@ -132,18 +146,39 @@ function createThreadMap({ logger = null } = {}) {
     }
 
     // ONE inspect ticker read serves both navigation steps (D69):
-    //   queue_id → exec_id  via recent_ticks[].actions[] — the ticker's Dispatch
-    //     phase records { action: 'spawn', execId, queueId } per fired row
+    //   queue_id → exec_id  via live_sessions[].queue_id (D108(B), tier 1 —
+    //     time-independent while the session is live), else via
+    //     recent_ticks[].actions[] — the ticker's Dispatch phase records
+    //     { action: 'spawn', execId, queueId } per fired row
     //     (server/ticker/ticker.js; jobs_log.queue_id carries the same link in
-    //     the store). The window is the surface's last-10-ticks bound: a spawn
-    //     older than that ages out, and resolution defers until the exec-id is
-    //     learned another way (see README "Flagged seams").
+    //     the store). The ticks tier is WINDOWED (last 10 ticks): a spawn older
+    //     than that whose session also already ended ages out, and resolution
+    //     defers until the exec-id is learned another way (see README
+    //     "Flagged seams").
     //   exec_id → chain thread via live_sessions[].{ exec_id, thread } — the
     //     chain-stable thread the store DERIVES from parent_exec_id (heart-store
     //     _chainThread).
     const res = await forwarder.inspect('ticker');
     if (!res.ok) {
       return { resolved: false, chainThread: null, reason: `inspect-failed:${res.error && res.error.code}` };
+    }
+
+    // Tier 1 (D108(B)): direct queue_id → live session match — time-independent
+    // (no ticks window). This IS the first exec-id binding when it hits, so
+    // first-wins immutability is preserved by construction.
+    if (entry.sessionExecId == null && entry.queueId != null) {
+      const liveByQueue = (res.result && res.result.live_sessions) || [];
+      const qMatch = liveByQueue.find((s) => s && s.queue_id != null && s.exec_id != null
+        && Number(s.queue_id) === Number(entry.queueId));
+      if (qMatch) {
+        entry.sessionExecId = Number(qMatch.exec_id);
+        log('info', 'exec-id learned from live-session queue-id match', { chatThreadId: String(chatThreadId), queueId: entry.queueId, execId: entry.sessionExecId });
+        if (typeof qMatch.thread === 'string' && qMatch.thread.length > 0) {
+          entry.chainThread = qMatch.thread;
+          log('info', 'chain thread resolved via live-session queue-id match', { chatThreadId: String(chatThreadId), execId: entry.sessionExecId, chainThread: qMatch.thread });
+          return { resolved: true, chainThread: qMatch.thread, reason: 'inspect-ticker-queue' };
+        }
+      }
     }
 
     if (entry.sessionExecId == null) {

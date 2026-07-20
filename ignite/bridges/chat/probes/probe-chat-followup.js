@@ -24,6 +24,13 @@
 // The reply leg's interval is pinned far out so it never auto-fires (this probe
 // drives only the forward path; the reply leg is exercised by probe-chat-reply-leg).
 //
+// D108(B) leg:
+//   (L4) queue-id tier — a spawn aged OUT of the recent_ticks window (NOT present in
+//        recent_ticks[].actions[]) whose session IS live with a queue_id-bearing
+//        live_sessions[] row resolves via the direct queue-id match
+//        (reason 'inspect-ticker-queue') — time-independent, closing the ~10-tick
+//        initial-learning window D107 documents.
+//
 // D111 legs:
 //   (f1) follow-up with the first exec KNOWN but NOT live → send-message enqueued
 //        addressed to the DERIVED `exec-<firstExecId>` (convention fallback);
@@ -41,7 +48,10 @@
 //   • remove the first-wins guard in thread-map.js bindSessionExecId (M2) → (f2)
 //     fails (the later exec-id overwrites; the derived thread becomes exec-<later>);
 //   • remove the decline notice (postDeclineNotice) in forward-path.js (M3) →
-//     (f3) fails (no notice posted on the mapped decline).
+//     (f3) fails (no notice posted on the mapped decline);
+//   • remove the queue-id tier in thread-map.js resolveChainThread (M4) → (L4)
+//     fails (the spawn is outside the ticks window, so resolution declines with
+//     exec-id-unknown instead of enqueuing on the chain thread).
 // Run each mutation → probe FAILS → restore byte-exact → passes.
 //
 // ⚑ Timing uses Node `Date.now()` — `date +%s%3N` is broken on this box (D64).
@@ -172,6 +182,53 @@ async function main() {
     record('L3:queue-id-only conversation learns exec_id via recent_ticks and forwards on the true chain thread',
       Boolean(navRow) && navArgs && navArgs.type === 'note' && navArgs.thread === execNav.thread,
       { row: navRow ? { args: navArgs } : null });
+
+    // ── L4: queue-id tier (D108(B)) — spawn AGED OUT of recent_ticks, session LIVE ─
+    // Seed a RUNNING exec whose jobs_log row CARRIES its queue_id (fireQueueRow's
+    // link; recordExecutionStart takes it directly here — the lib helper seeds
+    // queue-id-less rows on purpose for the other legs). Its spawn is recorded at
+    // tick 3, then empty ticks 4..13 push it OUT of the surface's last-10-ticks
+    // window (recent_ticks = 13..4) — so the ticks navigation finds NOTHING and
+    // only the time-independent queue-id tier can resolve.
+    const qtQueueId = 7777;
+    const execQtStart = daemon.store.recordExecutionStart({
+      queueId: qtQueueId,
+      jobId: 'chat-launch', actionType: 'launch-agent',
+      args: JSON.stringify({ profile: 'worker', prompt: 'hi' }),
+      enqueuedBy: daemon.bridgeSenderId, sessionMode: 'headless',
+      firedTick: 3, firedAt: new Date(),
+      sessionId: 'sess-probe-qt', pid: 999998, profile: 'worker', workdir: null,
+    });
+    daemon.store.updateExecutionStatus(execQtStart.exec_id, { status: 'running' });
+    const execQt = daemon.store.getExecution(execQtStart.exec_id); // carries thread = exec-<exec_id>
+    daemon.store.recordTick({ tick: 3, actionsJson: JSON.stringify([
+      { phase: 'dispatch', action: 'spawn', execId: execQt.exec_id, queueId: qtQueueId, profile: 'worker' },
+    ]) });
+    for (let n = 4; n <= 13; n++) daemon.store.recordTick({ tick: n, actionsJson: JSON.stringify([]) });
+    // Prove the aging premise on the REAL surface: the spawn is NOT in recent_ticks,
+    // and the live_sessions row for this exec DOES carry queue_id (D108(B) surface).
+    const tickerView = await forwarder.inspect('ticker');
+    const viewTicks = (tickerView.ok && tickerView.result.recent_ticks) || [];
+    const spawnInWindow = viewTicks.some((t) => (Array.isArray(t.actions) ? t.actions : [])
+      .some((a) => a && a.action === 'spawn' && Number(a.queueId) === qtQueueId));
+    const qtLiveRow = ((tickerView.ok && tickerView.result.live_sessions) || [])
+      .find((s) => Number(s.exec_id) === execQt.exec_id);
+    record('L4:premise — spawn aged OUT of recent_ticks; live_sessions row carries queue_id',
+      tickerView.ok && !spawnInWindow && Boolean(qtLiveRow) && Number(qtLiveRow.queue_id) === qtQueueId,
+      { spawnInWindow, liveRow: qtLiveRow || null });
+    const chanL4 = 'C-queue-tier-fu'; const tsL4 = '1700000000.017000';
+    const threadL4 = `${chanL4}:${tsL4}`;
+    bridgeH.threadMap.create(threadL4, { queueId: qtQueueId }); // queue-id only — no exec bind
+    const beforeQt = sendMessageCount(daemon.store);
+    await mock.pushMessage({ type: 'message', user: 'U-owner', text: 'how goes it?', channel: chanL4, thread_ts: tsL4, ts: '1700000000.017500', event_ts: '1700000000.017500', client_msg_id: 'fu-queue-tier' });
+    await waitFor(() => sendMessageCount(daemon.store) > beforeQt);
+    const qtRow = latestSendMessageRow(daemon.store);
+    const qtArgs = qtRow ? JSON.parse(qtRow.args) : null;
+    const qtBound = bridgeH.threadMap.get(threadL4).sessionExecId;
+    record('L4:queue-id tier — spawn outside the ticks window, session live → resolved via live_sessions queue_id match and forwarded on the true chain thread',
+      Boolean(qtRow) && qtArgs && qtArgs.type === 'note' && qtArgs.thread === execQt.thread
+      && qtBound === execQt.exec_id,
+      { boundExecId: qtBound, execId: execQt.exec_id, row: qtRow ? { args: qtArgs } : null });
 
     // ── f1: first exec KNOWN but NOT live → DERIVE exec-<firstExecId> (D111) ──────
     // The ended (done) exec is absent from live_sessions, so live resolution misses
