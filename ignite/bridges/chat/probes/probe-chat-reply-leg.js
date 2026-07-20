@@ -132,9 +132,10 @@ async function main() {
     // + scripted forwarder (the daemon surface). The driver interval is pinned far
     // out (1 h) so ONLY the probe's manual `tick()` passes run; the retry bound is
     // pinned to 3 so leg (j) proves the cap in three passes.
+    const forwarder = scriptedForwarder(state);
     bridgeH = buildBridge(config, {
       logger: (o) => cap.log({ bridge: o }),
-      forwarderImpl: scriptedForwarder(state),
+      forwarderImpl: forwarder,
       makeTransport: (onMessage) => createSlackSocketMode({
         appToken: config.slack.appToken, botToken: config.slack.botToken, apiBase: config.slack.apiBase, onMessage,
       }),
@@ -203,7 +204,16 @@ async function main() {
     // The follow-up leg resolves the chain thread from the SAME ticker surface
     // (recent_ticks queue→exec + live_sessions exec→thread), then enqueues a
     // send-message — outcome.forwarded → chat-bridge re-arms the leg.
-    state.liveSessions = [{ exec_id: 26, thread: 'exec-26' }];
+    // The fixture row matches the REAL inspect-ticker surface (dispatch.js
+    // handleInspectTicker): every live_sessions row carries queue_id (D108(B)) —
+    // the queue-id resolution tier (thread-map.js resolveChainThread) keys on it.
+    state.liveSessions = [{ exec_id: 26, queue_id: QUEUE, thread: 'exec-26' }];
+    const tickerViewE = await forwarder.inspect('ticker');
+    const liveRowsE = (tickerViewE.ok && tickerViewE.result.live_sessions) || [];
+    record('e0:regression guard — every live_sessions row the probe consumes carries queue_id (real-surface shape)',
+      tickerViewE.ok && liveRowsE.length > 0 && liveRowsE.every((r) => Number.isInteger(r.queue_id))
+      && liveRowsE.some((r) => r.exec_id === 26 && r.queue_id === QUEUE),
+      { rows: liveRowsE });
     const armedAtBefore = pend().armedAt;
     await mock.pushMessage({ type: 'message', user: 'U-owner', text: 'and a follow-up', channel: CHANNEL, thread_ts: ROOT_TS, ts: '1700000000.000200', event_ts: '1700000000.000200', client_msg_id: 'reply-leg-m2' });
     const rearmed = await waitFor(() => pend().armedAt > armedAtBefore);
