@@ -1,7 +1,7 @@
-COMMAND: node gateway/probes/probe-startup-gate.js
-TMPDIR: <throwaway>/ignite-probe-gate-1121657-daPuIf
+COMMAND: node ignite/gateway/probes/probe-startup-gate.js
+TMPDIR: <throwaway>/ignite-probe-gate-2317650-SqAVhT
 PASS  a MISSING senders_file REFUSES the daemon start — refused
-PASS  the missing-file refusal is LOUD (names the cause and the remedy) — REFUSING TO START: senders_file is missing at /tmp/ignite-probe-gate-1121657-daPuIf/does-not-exist.
+PASS  the missing-file refusal is LOUD (names the cause and the remedy) — REFUSING TO START: senders_file is missing at /tmp/ignite-probe-gate-2317650-SqAVhT/does-not-exist.
 PASS  an EMPTY senders_file REFUSES the daemon start — refused: empty
 PASS  a GROUP/WORLD-READABLE senders_file REFUSES the daemon start (mode 0644) — refused: mode 644
 PASS  the mode refusal names the fix (chmod 600) — remedy present in the message
@@ -20,4 +20,4 @@ CHECKS: 15/15 passed
 SKIPPED_COUNT: 0
 STARTUP_GATE_OK: true
 EXIT: 0
-WALL_MS: 16
+WALL_MS: 19

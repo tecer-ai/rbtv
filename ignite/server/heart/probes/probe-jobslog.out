@@ -1,4 +1,4 @@
-COMMAND: node probe-jobslog.js
+COMMAND: node ignite/server/heart/probes/probe-jobslog.js
 ROW1_EXEC_ID: 1
 ROW1_THREAD: exec-1
 ROW2_EXEC_ID: 2
@@ -13,4 +13,4 @@ PARENT_LINKED: true
 DANGLING_REJECTED: true
 DANGLING_ERROR: FOREIGN KEY constraint failed
 EXIT: 0
-WALL_MS: 4
+WALL_MS: 3

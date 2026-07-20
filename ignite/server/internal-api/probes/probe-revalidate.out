@@ -1,4 +1,4 @@
-COMMAND: node server/internal-api/probes/probe-revalidate.js
+COMMAND: node ignite/server/internal-api/probes/probe-revalidate.js
 PASS  setup: the queue starts empty ON DISK — disk queue rows=0
 PASS  a semantically-invalid job is REFUSED past the gateway — ok=false
 PASS  the refusal is typed VALIDATION_FAILED (not a shape error — the gateway could not know) — code=VALIDATION_FAILED
@@ -20,4 +20,4 @@ CHECKS: 16/16 passed
 SKIPPED_COUNT: 0
 REVALIDATE_OK: true
 EXIT: 0
-WALL_MS: 35
+WALL_MS: 32

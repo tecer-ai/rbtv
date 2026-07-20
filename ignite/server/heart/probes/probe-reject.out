@@ -1,8 +1,8 @@
-COMMAND: node probe-reject.js
+COMMAND: node ignite/server/heart/probes/probe-reject.js
 ERROR_CODE: E_UNKNOWN_PROFILE
 ERROR_MESSAGE: unknown launch profile: nonexistent-profile
 EXPECTED_CODE: E_UNKNOWN_PROFILE
 QUEUE_ROWS_AFTER: 0
 REJECT_OK: true
 EXIT: 0
-WALL_MS: 5
+WALL_MS: 3

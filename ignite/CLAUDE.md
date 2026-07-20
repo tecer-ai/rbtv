@@ -69,5 +69,3 @@ Canonical vocabulary for every spec, task, dispatch, review, and code file of th
 | sender | An authenticated identity (`kind: owner \| agent \| bridge`) presenting a per-sender token at the gateway; the resolved sender-id rides every forwarded request and lands in the audit columns. | D15; gateway spec; `messages.sender` |
 | `enqueued_by` | CANONICAL column/argument name for "the authenticated sender who caused this run" — owner-ruled, 2026-07-14, decisions.md D26 (unifies the store columns' name across the store, spawn, and session-row surfaces; no synonym alias). | D26; `queue.enqueued_by`, `jobs_log.enqueued_by`; spawn spec `spawn()` signature |
 | completion | The typed message that ends a turn, carrying status `done` \| `blocked` \| `failed` (report-failed is a completion with failed status — never a sixth type). | Registry CMP-8; `messages` table; ticker spec |
-
-Retired words — MUST NOT be used for this module: `heartbeat` (the engine is the ticker engine), `spawning` (use `launching`), `orphaned-dead` (use `failed` + discovery data), `requested_by` (use `enqueued_by` — owner-ruled 2026-07-14, decisions.md D26).

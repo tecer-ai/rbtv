@@ -1,4 +1,4 @@
-COMMAND: node server/internal-api/probes/probe-remove-job.js
+COMMAND: node ignite/server/internal-api/probes/probe-remove-job.js
 PASS  setup: the repeating row SURVIVED its fire and recorded an execution — exec_id=1
 PASS  setup: 4 rows are on disk — disk queue rows=4
 PASS  remove-job succeeds for the sender that enqueued the row — ok=true
@@ -25,4 +25,4 @@ CHECKS: 21/21 passed
 SKIPPED_COUNT: 0
 REMOVE_JOB_OK: true
 EXIT: 0
-WALL_MS: 40
+WALL_MS: 44
