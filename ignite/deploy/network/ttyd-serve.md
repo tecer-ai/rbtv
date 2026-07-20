@@ -43,6 +43,46 @@ A browser reaching JOIN/TAKE-OVER must pass all three (D83):
 - **A second enrolled tailnet device** for the live JOIN/TAKE-OVER grade (PD — met; graded at
   p6-checkpoint, not by the build worker).
 
+## Deploy-time port precondition (batch-08 item 9 part 4, owner ruling 2026-07-20)
+
+**⚑ MANDATORY, enforced in code — not a manual checklist item.** Before `ttyd-serve.sh` applies
+`tailscale serve`, it runs `verify_target_listener` against `127.0.0.1:<ttyd_port>` and refuses to
+publish, loudly, on anything short of a positive match. This exists because the target port can be
+occupied by a listener that is NOT ignite's ttyd — the concrete incident: a root-owned, distro-packaged
+`ttyd.service` held port 7681 for three days, serving a writable system `login` shell with no
+credential. Publishing that instead of the daemon-mediated attach client would have collapsed the
+surface's three independent gates (tailnet membership · terminal credential · device token) down to
+one, and exposed a raw root login prompt.
+
+**What the check verifies** ("ignite's own ttyd", not merely "something" or "nothing" on the port):
+
+1. the process bound to the port has `/proc/<pid>/comm` exactly `ttyd`;
+2. it does **not** run as root (ignite's ttyd always runs as the ignite service user; the incident
+   listener was root-owned — this alone would have caught it);
+3. its `/proc/<pid>/cmdline` wraps this checkout's exact `server/pty/ttyd/attach-client.js` path —
+   the argv shape only `serve-ttyd.sh` produces.
+
+**Fail-closed on every non-match, including the inconclusive ones:** nothing listening, or a listener
+whose owning process we cannot read (typically a different-UID process — the kernel hides
+`/proc/<pid>/{comm,cmdline}` across UIDs, which is itself how a root-owned foreign listener gets
+caught even before check 2 runs), all refuse exactly like a positively-wrong listener. None of those
+states establishes "this is ignite's own ttyd", which is the only thing that licenses a publish.
+
+**Keys off the configured port**, not a hardcoded `7681` — reads `IGNITE_TTYD_PORT` (default `7681`)
+the same way `serve-ttyd.sh` does, so a future port move cannot silently bypass the guard.
+
+**Scope — a precondition check, not an authentication system:** it verifies process identity as seen
+from `/proc`, not a cryptographic identity. A process with root on the box (or the ability to run as
+the ignite service user) could construct a matching `comm` + non-root uid + argv wrapping the real
+`attach-client.js` and pass the check while not actually being ignite's supervised ttyd. This does not
+weaken the deploy surface's real security boundary — the terminal credential (gate 2) and the device
+token (gate 3) still gate JOIN/TAKE-OVER regardless of what this check does. It only narrows the
+publish-time failure mode described above; it is deliberately not built heavier than that.
+
+`server/pty/ttyd/serve-ttyd.sh` also refuses to *start* if something already holds the target port,
+naming the pid/process it found (or reporting it as unidentifiable) — a diagnostic preflight, not a
+duplicate of the identity check above.
+
 ## Deploy order (conductor)
 
 1. Restart the live daemon onto the committed pty code (owner action — separate from Serve).

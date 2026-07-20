@@ -40,6 +40,23 @@ case "$TTYD_IFACE" in
   *) echo "REFUSING: ttyd --interface must be loopback (got '$TTYD_IFACE'); Serve proxies the tailnet, ttyd never binds it." >&2; exit 2 ;;
 esac
 
+# Preflight (batch-08 item 9 part 4, owner ruling 2026-07-20): name what already holds the port
+# before attempting to bind, instead of letting ttyd fail with a bare "address already in use".
+# This is diagnostic only — the binding fail-closed identity check that actually gates the tailnet
+# publish lives in deploy/network/ttyd-serve.sh's verify_target_listener, which this script does not
+# duplicate (Simplicity-first — a bare bind conflict here is caught by ttyd's own exec failure).
+_preflight_line="$(ss -H -tlnp "sport = :${TTYD_PORT}" 2>/dev/null | grep LISTEN || true)"
+if [[ -n "$_preflight_line" ]]; then
+  _preflight_pid="$(grep -oP 'pid=\K[0-9]+' <<<"$_preflight_line" | head -1 || true)"
+  if [[ -n "$_preflight_pid" ]]; then
+    _preflight_comm="$(cat "/proc/${_preflight_pid}/comm" 2>/dev/null || echo '?')"
+    echo "REFUSING to start: 127.0.0.1:${TTYD_PORT} is already held by pid ${_preflight_pid} (${_preflight_comm}) — not this script." >&2
+  else
+    echo "REFUSING to start: 127.0.0.1:${TTYD_PORT} is already held by a process we cannot identify (permission denied — likely a different user)." >&2
+  fi
+  exit 3
+fi
+
 # --writable enables TAKE-OVER (keyboard in); without it ttyd is view-only (JOIN only).
 # --credential is the terminal gate (gate 2 above). --check-origin rejects a cross-origin websocket
 # (a malicious page abusing the browser's ambient tailnet reach cannot open the terminal ws).
