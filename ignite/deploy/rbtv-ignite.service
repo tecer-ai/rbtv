@@ -32,6 +32,12 @@
 #   systemctl --user enable rbtv-ignite
 #   systemctl --user start rbtv-ignite
 #
+# Deploy prerequisite — PATH: the [Service] block below ships a PATH= Environment
+# line covering the user-local bin dirs (~/.local/bin, ~/.opencode/bin) the agent
+# harnesses install into, via the %h specifier — no substitution needed. Without it
+# the daemon inherits the minimal user-manager PATH and every real agent spawn fails
+# ENOENT. Verify the installed unit still carries this line before enabling.
+#
 # Do NOT commit a substituted version of this file.
 
 # network-online.target does NOT exist for the user manager (it ships under
@@ -48,6 +54,13 @@ Description=RBTV ignite daemon
 Type=simple
 WorkingDirectory=@@WORKSPACE_ROOT@@
 EnvironmentFile=-@@ENVIRONMENT_FILE@@
+# PATH must include the user-local bin dirs where the agent harnesses install
+# (opencode → ~/.opencode/bin; claude/codex/kimi → ~/.local/bin). Without this the
+# daemon inherits the minimal user-manager PATH and every real agent spawn fails
+# ENOENT — only system binaries (node/python3) resolve. Added 2026-07-17 (D12 deploy).
+# %h expands to the invoking user's home for a systemd USER unit — machine-agnostic,
+# no @@PLACEHOLDER@@ needed.
+Environment="PATH=%h/.local/bin:%h/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin"
 Environment="RBTV_IGNITE_SRC=@@IGNITE_SRC@@"
 Environment="RBTV_IGNITE_WORKSPACE_ROOT=@@WORKSPACE_ROOT@@"
 Environment="RBTV_IGNITE_CONFIG_PATH=@@IGNITE_SRC@@/config/spawn-profiles.yaml"
