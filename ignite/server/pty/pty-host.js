@@ -373,14 +373,18 @@ function createPtyHost({ heartStore, spawnManager, dataRoot, userManager = true,
     return Boolean(entry && entry.bridge && entry.bridgeAlive && entry.bridge.stdin.writable);
   }
 
-  // Resolve the ATTACHED entry for a session, re-attaching if the session is alive but unattached.
-  // Throws the typed E_SESSION_NOT_LIVE (via reconnect) only when the UNIT says genuinely dead.
+  // Resolve the ATTACHED entry for a session, re-attaching if the session is alive but unattached
+  // OR mapped to a bridge that has gone dead. Throws the typed E_SESSION_NOT_LIVE (via reconnect)
+  // only when the UNIT says genuinely dead.
   function ensureAttached(execId) {
     const existing = sessions.get(execId);
-    if (existing) return existing;
-    // NOT ATTACHED — which is NOT dead. Ask the unit, not the map. reconnect() throws the typed
-    // E_SESSION_NOT_LIVE if the row/unit/socket say the session is genuinely gone: never a hang
-    // (Behavior #11), and never a lie about a live one.
+    if (existing && attachedAndHealthy(existing)) return existing;
+    // NOT ATTACHED, or mapped to a DEAD bridge over a still-live unit — NEITHER is dead. Ask the
+    // unit, not the map: a present-but-unhealthy map entry must not short-circuit the re-attach
+    // (that was the bug — a stale entry blocked this path forever, needing a daemon restart to
+    // clear). reconnect() itself disposes of any stale bridge before installing the fresh one.
+    // reconnect() throws the typed E_SESSION_NOT_LIVE if the row/unit/socket say the session is
+    // genuinely gone: never a hang (Behavior #11), and never a lie about a live one.
     reconnect(execId);
     const entry = sessions.get(execId);
     if (!entry) {
@@ -394,8 +398,10 @@ function createPtyHost({ heartStore, spawnManager, dataRoot, userManager = true,
   // A dead/nonexistent session yields a TYPED error, never a hang (Behavior #11).
   function sendKeys(execId, data) {
     // D96: absence from the map means UNATTACHED, so ask the unit before calling anything dead.
-    // A session alive in its holder is re-attached here and the keystrokes land.
-    const entry = sessions.get(execId) || ensureAttached(execId);
+    // A session alive in its holder is re-attached here and the keystrokes land. Always route
+    // through ensureAttached (never take the map entry directly) so a mapped-but-DEAD bridge is
+    // also health-checked and re-attached, not just a map-absent one (task 7.17).
+    const entry = ensureAttached(execId);
     if (!attachedAndHealthy(entry)) {
       throw new SpawnError(E_SESSION_NOT_LIVE, `no live headed pty for session ${execId} (dead, unknown, or not attached in this daemon)`, { execId });
     }
@@ -408,8 +414,9 @@ function createPtyHost({ heartStore, spawnManager, dataRoot, userManager = true,
     // D96: same distinction. `repainting` reports that this vt has not yet taken a byte — after a
     // lazy re-attach the `-r winch` repaint is still in flight, so the render is blank/partial.
     // Behavior #7 allows a momentarily stale first capture but forbids a SILENTLY blank one, so
-    // the state is reported rather than passed off as an empty screen.
-    const entry = sessions.get(execId) || ensureAttached(execId);
+    // the state is reported rather than passed off as an empty screen. Always route through
+    // ensureAttached (task 7.17 — same reasoning as sendKeys above).
+    const entry = ensureAttached(execId);
     return {
       execId, sessionId: entry.sessionId, rows: entry.vt.rows, cols: entry.vt.cols,
       screen: entry.vt.render(), repainting: !entry.painted,
