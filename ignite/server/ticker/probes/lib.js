@@ -26,21 +26,18 @@ function setup(configOverrides = {}, extraProfiles = {}) {
     profiles: {
       'test-sleep': {
         exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
-        resume: { argv: ['sleep', '3600'], prompt: 'stdin' },
         session_ref: { source: 'cwd-implicit' },
         workdir_root: workRoot,
         caps: { memory_max: '64M', runtime_max: '1h' },
       },
       'test-silent': {
         exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
-        resume: { argv: ['sleep', '3600'], prompt: 'stdin' },
         session_ref: { source: 'cwd-implicit' },
         workdir_root: workRoot,
         caps: { memory_max: '64M', runtime_max: '1h' },
       },
       'test-writer': {
         exec: { argv: ['bash', '-c', 'while true; do sleep 1; echo ping >> "$RANDOM"; done'], prompt: 'stdin' },
-        resume: { argv: ['bash', '-c', 'while true; do sleep 1; echo ping >> "$RANDOM"; done'], prompt: 'stdin' },
         session_ref: { source: 'cwd-implicit' },
         workdir_root: workRoot,
         caps: { memory_max: '64M', runtime_max: '1h' },

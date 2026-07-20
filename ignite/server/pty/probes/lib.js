@@ -71,7 +71,6 @@ function setup() {
       // Headless one-shot (the DEFAULT path — must attach NO pty).
       'test-sleep': {
         exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
-        resume: { argv: ['sleep', '3600'], prompt: 'stdin' },
         session_ref: { source: 'cwd-implicit' },
         workdir_root: workRoot,
         caps: { memory_max: '128M', runtime_max: '1h' },
@@ -121,7 +120,6 @@ function setup() {
   // Headed-capable, NO prompt carriage (reject-by-default). The deterministic renderer is the TUI.
   mgr.config.profiles['test-headed'] = {
     exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
-    resume: { argv: ['sleep', '3600'], prompt: 'stdin' },
     session_ref: { source: 'cwd-implicit' },
     headed: { tui: { argv: ['node', '-e', RENDERER_SRC] } },
     workdir_root: workRoot,
@@ -130,7 +128,6 @@ function setup() {
   };
   mgr.config.profiles['test-headed-argv'] = {
     exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
-    resume: { argv: ['sleep', '3600'], prompt: 'stdin' },
     session_ref: { source: 'cwd-implicit' },
     headed: { tui: { argv: ['node', '-e', ECHO_ARGV_SRC, '{prompt}'], prompt: 'argv' } },
     workdir_root: workRoot,
@@ -139,7 +136,6 @@ function setup() {
   };
   mgr.config.profiles['test-headed-exit'] = {
     exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
-    resume: { argv: ['sleep', '3600'], prompt: 'stdin' },
     session_ref: { source: 'cwd-implicit' },
     headed: { tui: { argv: ['node', '-e', EXIT42_SRC] } },
     workdir_root: workRoot,

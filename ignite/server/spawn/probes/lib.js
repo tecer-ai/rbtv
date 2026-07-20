@@ -26,14 +26,12 @@ function setup() {
     profiles: {
       'test-sleep': {
         exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
-        resume: { argv: ['sleep', '3600'], prompt: 'stdin' },
         session_ref: { source: 'cwd-implicit' },
         workdir_root: workRoot,
         caps: { memory_max: '64M', runtime_max: '1h' },
       },
       'test-headed': {
         exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
-        resume: { argv: ['sleep', '3600'], prompt: 'stdin' },
         session_ref: { source: 'cwd-implicit' },
         headed: { tui: { argv: ['sleep', '3600'] } },
         workdir_root: workRoot,
@@ -41,7 +39,6 @@ function setup() {
       },
       'test-forker': {
         exec: { argv: ['bash', '-c', 'sleep 3600 & sleep 3600 & wait'], prompt: 'stdin' },
-        resume: { argv: ['bash', '-c', 'sleep 3600 & sleep 3600 & wait'], prompt: 'stdin' },
         session_ref: { source: 'cwd-implicit' },
         workdir_root: workRoot,
         caps: { memory_max: '64M', runtime_max: '1h' },
@@ -50,7 +47,6 @@ function setup() {
       // flag-injection guard's remaining scope (p7-multiturn carriage-conditional).
       'test-argvlast': {
         exec: { argv: ['sleep', '3600'], prompt: 'argv-last' },
-        resume: { argv: ['sleep', '3600'], prompt: 'argv-last' },
         session_ref: { source: 'cwd-implicit' },
         workdir_root: workRoot,
         caps: { memory_max: '64M', runtime_max: '1h' },
@@ -59,7 +55,6 @@ function setup() {
       // that finishes on its own (no kill, no lingering unit).
       'test-quick': {
         exec: { argv: ['true'], prompt: 'stdin' },
-        resume: { argv: ['true'], prompt: 'stdin' },
         session_ref: { source: 'cwd-implicit' },
         workdir_root: workRoot,
         caps: { memory_max: '64M', runtime_max: '1h' },

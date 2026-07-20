@@ -41,11 +41,6 @@ profiles:
              "--output-format", "stream-json", "--verbose",
              "--allowedTools", "Bash(git *),Write"]   # allowlist BAKED into the profile (R3b); comma-joined ONE arg (POC)
       prompt: stdin
-    resume:
-      argv: ["claude", "--resume", "{session_ref}", "-p", "--model", "sonnet",
-             "--output-format", "stream-json", "--verbose",
-             "--allowedTools", "Bash(git *),Write"]
-      prompt: stdin
     session_ref: { source: stdout-json, field: session_id }
     workdir_root: .rbtv/sessions   # D58: per-execution launch dirs at .rbtv/sessions/<exec-id>/. Machine-agnostic (D26(3)): workspace-relative, resolved at runtime against the workspace root that roots .rbtv/ — NEVER an instance path.
     caps: { memory_max: "4G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
@@ -72,13 +67,6 @@ profiles:
       argv: ["codex", "exec", "--cd", "{workdir}",
              "--sandbox", "danger-full-access", "-c", "approval_policy=never", "--json"]
       prompt: stdin        # codex hangs without stdin EOF from a non-TTY; the server closes stdin after writing
-    resume:
-      # Sandbox policy MUST be re-pinned on every turn -- resume without these flags would fall
-      # back to codex's default sandbox and re-hit the erratum's policy-blocked .git writes.
-      # (POC verified the bare resume shape only; flag acceptance on `exec resume` re-verified at 2.2.)
-      argv: ["codex", "exec", "resume", "{session_ref}",
-             "--sandbox", "danger-full-access", "-c", "approval_policy=never", "--json"]
-      prompt: stdin
     session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
     workdir_root: .rbtv/sessions   # D58: per-execution launch dirs at .rbtv/sessions/<exec-id>/. Machine-agnostic (D26(3)): workspace-relative, resolved at runtime against the workspace root that roots .rbtv/ — NEVER an instance path.
     caps: { memory_max: "4G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
@@ -94,9 +82,6 @@ profiles:
     exec:
       argv: ["opencode", "run", "-m", "sakana/fugu-ultra"]
       prompt: stdin        # carriage to re-verify at 2.2; fallback per this spec: argv-last, marked
-    resume:
-      argv: ["opencode", "run", "-c", "-m", "sakana/fugu-ultra"]   # -c = continue this cwd's session
-      prompt: stdin
     session_ref: { source: cwd-implicit }    # opencode resumes per-cwd; the session's workdir IS the ref
     headed:
       # headed-CAPABLE seam (D17: presence of this block = capable). The pty path is Batch 6's.
@@ -152,9 +137,6 @@ profiles:
     exec:
       argv: ["sleep", "60"]
       prompt: stdin        # sleep ignores stdin; the server still writes the prompt and closes it (EOF guard)
-    resume:
-      argv: ["sleep", "60"]
-      prompt: stdin
     session_ref: { source: cwd-implicit }   # sleep has no session concept; the workdir IS the ref
     workdir_root: .rbtv/sessions   # D58: per-execution launch dirs at .rbtv/sessions/<exec-id>/. Machine-agnostic (D26(3)): workspace-relative, resolved at runtime against the workspace root that roots .rbtv/ — NEVER an instance path.
     caps: { memory_max: "64M", cpu_quota: "10%", runtime_max: "5m", tasks_max: 16 }
@@ -180,9 +162,6 @@ profiles:
     exec:
       argv: ["bash", "-i"]
       prompt: stdin        # bash ignores the written prompt; the server closes stdin (EOF guard)
-    resume:
-      argv: ["bash", "-i"]
-      prompt: stdin
     session_ref: { source: cwd-implicit }   # a shell has no session concept; the workdir IS the ref
     headed:
       # headed-CAPABLE seam (D17: presence of this block = capable). Bare TUI argv, no prompt

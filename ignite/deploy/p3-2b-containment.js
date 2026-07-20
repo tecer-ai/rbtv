@@ -167,7 +167,6 @@ async function proveProfile(profileName, realCfg) {
   const testProfile = {
     ...realProfile,
     exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
-    resume: { argv: ['sleep', '3600'], prompt: 'stdin' },
     session_ref: { source: 'cwd-implicit' },
     workdir_root: workRoot,
   };
@@ -310,7 +309,6 @@ async function proveNullBranchExactness(profileName, realCfg) {
   const testProfile = {
     ...realProfile,
     exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
-    resume: { argv: ['sleep', '3600'], prompt: 'stdin' },
     session_ref: { source: 'cwd-implicit' },
     workdir_root: sessionsRoot,
     sandbox: { ...realProfile.sandbox, ReadWritePaths: ['{workdir}', testFolder] },

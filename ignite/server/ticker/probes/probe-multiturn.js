@@ -28,7 +28,6 @@ function makeCtx(configOverrides) {
   return setup(configOverrides, ({ workRoot }) => ({
     'test-chat': {
       exec: { argv: ['bash', '-c', echoResult], prompt: 'stdin' },
-      resume: { argv: ['bash', '-c', echoResult], prompt: 'stdin' },
       session_ref: { source: 'cwd-implicit' },
       workdir_root: workRoot,
       caps: { memory_max: '64M', runtime_max: '1h' },

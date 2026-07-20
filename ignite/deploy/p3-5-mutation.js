@@ -41,7 +41,6 @@ function check(label, ok, detail) { checks.push({ label, ok }); log(`  [${ok ? '
 
 const PROFILE = {
   exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
-  resume: { argv: ['sleep', '3600'], prompt: 'stdin' },
   session_ref: { source: 'cwd-implicit' },
   caps: { memory_max: '64M', runtime_max: '1h' },
   sandbox: { ProtectSystem: 'strict', ReadWritePaths: ['{workdir}'], PrivateTmp: true, NoNewPrivileges: true },

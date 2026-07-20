@@ -102,7 +102,6 @@ async function main() {
   const testProfile = {
     ...realProfile,
     exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
-    resume: { argv: ['sleep', '3600'], prompt: 'stdin' },
     session_ref: { source: 'cwd-implicit' },
     workdir_root: workRoot,
   };

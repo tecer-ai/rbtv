@@ -15,13 +15,12 @@ const {
 
 const KNOWN_TOP_KEYS = new Set(['bind', 'auth', 'spawn', 'profiles', 'default_workdir_root']);
 const KNOWN_PROFILE_KEYS = new Set([
-  'exec', 'resume', 'session_ref', 'headed', 'workdir_root', 'caps', 'sandbox', 'env',
+  'exec', 'session_ref', 'headed', 'workdir_root', 'caps', 'sandbox', 'env',
 ]);
 const KNOWN_EXEC_KEYS = new Set(['argv', 'prompt']);
-const KNOWN_RESUME_KEYS = new Set(['argv', 'prompt']);
 const KNOWN_HEADED_KEYS = new Set(['tui']);
 const KNOWN_TUI_KEYS = new Set(['argv', 'prompt', 'keystroke']);
-// The HEADLESS exec/resume prompt vocabulary — NOT the headed one. Untouched by p6-2b.
+// The HEADLESS exec prompt vocabulary — NOT the headed one. Untouched by p6-2b.
 const KNOWN_PROMPT_VALUES = new Set(['stdin', 'file', 'argv-last']);
 // The HEADED carriage vocabulary (session-surface-spec.md Design 3; OQ-F RULED, D83). A
 // DIFFERENT closed set from KNOWN_PROMPT_VALUES above — the two are deliberately not shared:
@@ -73,7 +72,7 @@ function checkUnknownKeys(obj, knownSet, prefix, filePath) {
 // admits a slot for ONE call site only, WITHOUT loosening the module-wide CLOSED_SLOTS set. It
 // carries `{prompt}` for `headed.tui.argv` on a profile declaring `prompt: argv`, and nothing
 // else — so `{prompt}` stays the existing unknown-slot config-load failure everywhere else
-// (exec/resume argv, sandbox, and a headed block that declares no argv carriage).
+// (exec argv, sandbox, and a headed block that declares no argv carriage).
 function detectUnknownSlots(value, prefix, filePath, extraSlots = null) {
   const str = typeof value === 'string' ? value : JSON.stringify(value);
   const matches = str.match(UNKNOWN_SLOT_RE);
@@ -99,9 +98,10 @@ function validateSessionRef(sessionRef, profileName, filePath) {
   }
 }
 
-function validateExecOrResume(block, blockName, profileName, filePath) {
+function validateExec(block, profileName, filePath) {
+  const blockName = 'exec';
   assertObject(block, `profiles.${profileName}.${blockName}`, filePath);
-  checkUnknownKeys(block, blockName === 'exec' ? KNOWN_EXEC_KEYS : KNOWN_RESUME_KEYS, `profiles.${profileName}.${blockName}`, filePath);
+  checkUnknownKeys(block, KNOWN_EXEC_KEYS, `profiles.${profileName}.${blockName}`, filePath);
   assertArrayOfStrings(block.argv, `profiles.${profileName}.${blockName}.argv`, filePath);
   if (!block.prompt || !KNOWN_PROMPT_VALUES.has(block.prompt)) {
     throw new SpawnError(E_CONFIG_LOAD, `profiles.${profileName}.${blockName}.prompt must be one of stdin|file|argv-last`, { file: filePath, key: `profiles.${profileName}.${blockName}.prompt` });
@@ -227,12 +227,7 @@ function validateProfile(profile, name, filePath) {
   if (!profile.exec) {
     throw new SpawnError(E_MISSING_KEY, `profiles.${name}.exec is required`, { file: filePath, key: `profiles.${name}.exec` });
   }
-  validateExecOrResume(profile.exec, 'exec', name, filePath);
-
-  if (!profile.resume) {
-    throw new SpawnError(E_MISSING_KEY, `profiles.${name}.resume is required`, { file: filePath, key: `profiles.${name}.resume` });
-  }
-  validateExecOrResume(profile.resume, 'resume', name, filePath);
+  validateExec(profile.exec, name, filePath);
 
   if (!profile.session_ref) {
     throw new SpawnError(E_MISSING_KEY, `profiles.${name}.session_ref is required`, { file: filePath, key: `profiles.${name}.session_ref` });

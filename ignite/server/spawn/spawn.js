@@ -27,7 +27,6 @@ const {
   E_WORKDIR_MISSING,
   E_UNKNOWN_REQUEST_KEY,
   E_SESSION_NOT_FOUND,
-  E_SESSION_REF_MISSING,
   E_CARRIER_FAILED,
   E_ORPHAN_RESCAN_FAILED,
   E_MISSING_KEY,
@@ -383,73 +382,6 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     return { sessions: rows, anomalies };
   }
 
-  async function resume(execId, prompt = null) {
-    const row = heartStore.getExecution(execId);
-    if (!row) throw new SpawnError(E_SESSION_NOT_FOUND, `session not found: ${execId}`, { execId });
-    if (!row.profile || !config.profiles[row.profile]) {
-      throw new SpawnError(E_UNKNOWN_PROFILE, `profile missing or unknown for session: ${row.profile}`, { execId, profile: row.profile });
-    }
-    if (!row.session_ref) {
-      throw new SpawnError(E_SESSION_REF_MISSING, `session ${execId} has no captured session_ref`, { execId });
-    }
-
-    const profile = config.profiles[row.profile];
-    const resolvedWorkdir = row.workdir;
-    const sessionId = row.session_id || generateSessionId();
-    const logPath = ensureLogPath(dataRoot, sessionId);
-
-    const values = { workdir: resolvedWorkdir, session_ref: row.session_ref };
-    const block = profile.resume;
-    let promptFile = null;
-    if (block.prompt === 'file') {
-      promptFile = ensurePromptFile(dataRoot, sessionId, prompt);
-      values.prompt_file = promptFile;
-    }
-    let argv = resolveTemplateSlots(block.argv, values);
-    if (block.prompt === 'argv-last' && prompt !== null) argv = argv.concat([prompt]);
-
-    // D59: bwrap FS walls on resume too — the same composer, the same editablePaths derivation
-    // spawn() uses. The resolved sandbox is hoisted so it feeds both editablePaths and common.
-    const resolvedSandbox = resolveSandbox(profile.sandbox, resolvedWorkdir);
-    const editablePaths = (() => {
-      const rwp = resolvedSandbox && resolvedSandbox.ReadWritePaths;
-      if (!rwp) return [];
-      return (Array.isArray(rwp) ? rwp : [rwp]).filter((p) => p && p !== resolvedWorkdir);
-    })();
-    const maskPaths = config.auth?.senders_file ? [path.dirname(config.auth.senders_file)] : [];
-    const wrappedArgv = buildBwrapArgv({ argv, workdir: resolvedWorkdir, editablePaths, promptFile, harness: harnessOf(profile), maskPaths });
-
-    const carrier = selectCarrier(config.spawn.carrier, userManager);
-
-    const common = { sessionId, argv: wrappedArgv, workdir: resolvedWorkdir, logPath, exitFile: ensureExitFile(dataRoot, sessionId), caps: profile.caps, sandbox: resolvedSandbox, envFile: profile.env?.file, userManager };
-    let launchResult;
-    try {
-      if (carrier === 'systemd') {
-        launchResult = await spawnSystemd(common, log);
-      } else {
-        launchResult = await spawnSetsid(common, log);
-      }
-    } catch (err) {
-      heartStore.updateExecutionStatus(execId, { status: 'failed', endedAt: new Date() });
-      throw new SpawnError(E_CARRIER_FAILED, `resume failed for profile ${row.profile}: ${err.message}`, { profile: row.profile, execId, cause: err.code });
-    }
-
-    const pid = launchResult.pid || null;
-    const unitName = launchResult.unitName || null;
-    const pidStarttime = await resolvePidStarttime(carrier, pid, unitName);
-
-    return heartStore.updateExecutionStatus(execId, {
-      status: 'running',
-      carrier,
-      unitName,
-      pid,
-      pidStarttime,
-      logPath,
-      sessionId,
-      startedAt: new Date(),
-    });
-  }
-
   async function orphanRescan() {
     const launching = heartStore.listExecutionsByStatus('launching');
     const running = heartStore.listExecutionsByStatus('running');
@@ -521,7 +453,6 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     logs,
     kill,
     list,
-    resume,
     orphanRescan,
   };
 }

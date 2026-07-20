@@ -130,7 +130,6 @@ async function main() {
 
   const profile = {
     exec: { argv: ['bash', '-c', script], prompt: 'stdin' },
-    resume: { argv: ['bash', '-c', script], prompt: 'stdin' },
     session_ref: { source: 'cwd-implicit' },
     workdir_root: sessionsRoot,
     caps: { memory_max: '128M', runtime_max: '5m' },
