@@ -17,3 +17,7 @@ __pycache__/
 # Real-deck test fixtures (large local decks for hypresent e2e/unit suites) — local only,
 # substitutable per machine, never shipped (a real client deck must not enter repo history).
 tecer-gsmm-introduction*.html
+
+# playwright-cli runtime cache (timestamped console logs + page snapshots per browser
+# session) — regenerated every run, never shipped.
+.playwright-cli/
