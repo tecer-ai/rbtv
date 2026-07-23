@@ -125,11 +125,8 @@ function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot) {
   const block = isHeaded ? profile.headed.tui : profile.exec;
   const promptCarriage = block.prompt;
 
-  let promptFile = null;
   let stdinFile = null;
-  if (promptCarriage === 'file') {
-    promptFile = ensurePromptFile(dataRoot, sessionId, prompt);
-  } else if (promptCarriage === 'stdin') {
+  if (promptCarriage === 'stdin') {
     // stdin carriage: the prompt rides a file the CARRIER connects as the worker's stdin
     // (StandardInput=file: on systemd; the file's fd on setsid) — bytes then EOF at end-of-file,
     // the "server writes the prompt, then closes stdin" contract. The path never appears in argv
@@ -137,19 +134,15 @@ function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot) {
     // Headed blocks can never reach here — config.js rejects `headed.tui.prompt: stdin` at load.
     stdinFile = ensurePromptFile(dataRoot, sessionId, prompt);
   }
+  // The former `file` and `argv-last` branches are DELETED (task 7.23): task 7.14 (batch-08
+  // item 4 half A) narrowed the loadable headless vocabulary to `stdin` only
+  // (KNOWN_PROMPT_VALUES, config.js), making both branches unreachable from any loadable
+  // config. Headed `file` carriage is owned end-to-end by the pty host (composeHeadedArgv,
+  // pty/carriage.js) — it never routes through here.
 
-  const values = { workdir };
-  if (promptFile) values.prompt_file = promptFile;
+  const argv = resolveTemplateSlots(block.argv, { workdir });
 
-  let argv = resolveTemplateSlots(block.argv, values);
-
-  if (promptCarriage === 'argv-last') {
-    if (prompt !== undefined && prompt !== null) {
-      argv = argv.concat([prompt]);
-    }
-  }
-
-  return { argv, promptFile, stdinFile, promptCarriage };
+  return { argv, stdinFile, promptCarriage };
 }
 
 function ensureLogPath(dataRoot, sessionId) {
@@ -240,12 +233,14 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
 
     const sessionId = generateSessionId();
     const logPath = ensureLogPath(dataRoot, sessionId);
-    const { argv, promptFile, stdinFile, promptCarriage } = composeArgv(profile, sessionMode, sessionId, resolvedWorkdir, prompt, dataRoot);
+    const { argv, stdinFile } = composeArgv(profile, sessionMode, sessionId, resolvedWorkdir, prompt, dataRoot);
 
     // D59: bwrap FS walls nested inside the systemd-run --user unit. The wrapped argv rides the
     // carrier opaquely (both systemd and setsid branches); the walls live in argv, not config.
+    // No promptFile bind: the sole headless carriage is stdin (fd 0 opens before the wrap execs);
+    // headed prompt files are bound by the pty host's own buildBwrapArgv call.
     const maskPaths = config.auth?.senders_file ? [path.dirname(config.auth.senders_file)] : [];
-    const wrappedArgv = buildBwrapArgv({ argv, workdir: resolvedWorkdir, editablePaths, promptFile, harness: harnessOf(profile), maskPaths });
+    const wrappedArgv = buildBwrapArgv({ argv, workdir: resolvedWorkdir, editablePaths, harness: harnessOf(profile), maskPaths });
 
     const carrier = selectCarrier(config.spawn.carrier, userManager);
 
