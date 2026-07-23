@@ -61,10 +61,14 @@ function resolveOnPath(name) {
 }
 
 // Request-level injection hygiene (mirrors spawn.js rejectFlagInjection BYTE-FOR-BYTE — the same
-// policy the headless sole-spawn-path applies to caller free text; kept local because spawn.js
-// does not export it and this task's allowlist forbids editing spawn.js). Without this a headed
-// spawn accepted prompt/workdir values the headless path REJECTS — a sole-path policy drift
-// (found + fixed at the p6-2 review).
+// policy the headless sole-spawn-path applies; kept local because spawn.js does not export it).
+// Applied to WORKDIR ONLY — the headed PROMPT is deliberately exempt (task 7.22): post-7.14 the
+// headed carriage vocabulary is file|keystroke (KNOWN_HEADED_CARRIAGES, spawn/config.js; argv
+// carriage RETIRED, batch-08 item 4), so the prompt is 0600-file DATA or typed keystrokes and can
+// NEVER reach argv — a leading dash / newline / $() is harmless there, and rejecting it blocked
+// composed multi-turn transcripts (the same over-refusal p7-multiturn removed headless-side).
+// Composition-level guards stay: composeHeadedArgv refuses retired/unknown carriages typed, and
+// the queue-time carriage double gate (heart-store.js, 6.2b) is untouched.
 function rejectFlagInjection(value, field) {
   if (typeof value !== 'string') return;
   // Reject strings that look like flag injection attempts: leading dash, or embedded shell metacharacters.
@@ -173,8 +177,8 @@ function createPtyHost({ heartStore, spawnManager, dataRoot, userManager = true,
     ensureDirs();
 
     // The same request-level hygiene the headless sole-spawn-path applies (spawn.js order:
-    // injection checks BEFORE profile resolution).
-    rejectFlagInjection(prompt, 'prompt');
+    // injection checks BEFORE profile resolution). Workdir only — the prompt is carriage-borne
+    // DATA (file|keystroke), never argv; see rejectFlagInjection's header (task 7.22).
     rejectFlagInjection(requestedWorkdir, 'workdir');
 
     const profile = config.profiles[profileName];
