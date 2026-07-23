@@ -268,6 +268,26 @@ async function run(lines) {
       );
     }
     lines.push(`chain-scoped budget: subject=${chainSubject} recycles=${CHAIN_RECYCLES} deepest-blocked-ancestors=2 -> raised warning ${chainWarning.warning_id}`);
+
+    // ---------- Part F: announce notes are stamped routed AT WRITE (task 7.25) ----------
+    // The runWarningCheck call above ran OUTSIDE tick() — tick()'s in-tick compensation
+    // never saw its announce note. The write-site itself must stamp routed_at_tick, or a
+    // direct caller of runWarningCheck reintroduces permanently-unrouted notes.
+    const eNotes = warningNotes(ctx.store.dump().messages);
+    const outOfTickNote = eNotes[eNotes.length - 1];
+    if (!outOfTickNote) throw new Error('Part E announce note not found');
+    if (outOfTickNote.routed_at_tick !== 1000) {
+      throw new Error(
+        `announce note written by runWarningCheck OUTSIDE tick() is not stamped at write: routed_at_tick=${outOfTickNote.routed_at_tick} != 1000 (task 7.25)`
+      );
+    }
+    const unroutedTickerNotes = ctx.store.dump().messages.filter(
+      (m) => m.type === 'note' && m.sender === 'ticker' && (m.routed_at_tick === null || m.routed_at_tick === undefined)
+    );
+    if (unroutedTickerNotes.length !== 0) {
+      throw new Error(`${unroutedTickerNotes.length} ticker note(s) left unrouted: ${JSON.stringify(unroutedTickerNotes.map((m) => m.msg_id))}`);
+    }
+    lines.push(`out-of-tick announce note msg_id=${outOfTickNote.msg_id} stamped routed_at_tick=${outOfTickNote.routed_at_tick} at write; 0 unrouted ticker notes (task 7.25)`);
   } finally {
     teardown(ctx);
   }

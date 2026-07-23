@@ -51,13 +51,19 @@ function runWarningCheck({ heartStore, tick, now, slotMaxRepeats, actions }) {
     if (snoozed) continue;
     const last = w.last_announced_tick;
     if (last === null || last === undefined || tick - last >= WARNING_ANNOUNCE_INTERVAL_TICKS) {
-      heartStore.recordMessage({
+      const noted = heartStore.recordMessage({
         type: 'note',
         sender: 'ticker',
         thread: OWNER_NOTE_THREAD,
         corpus: `warning: seat ${w.subject} is blocked and out of budget`,
         createdAt: now,
       });
+      // Stamp routed AT WRITE (task 7.25 — roots task 7.19's model in this write-site): a
+      // ticker-authored owner-feed note is informational — nothing routes it — so it must
+      // never enter the unrouted set. tick()'s in-tick compensation only covers calls made
+      // inside a tick; a direct caller of runWarningCheck outside tick() would otherwise
+      // reintroduce unstamped notes. Same _prepare surface ticker.js's runSql uses.
+      heartStore._prepare('UPDATE messages SET routed_at_tick = ? WHERE msg_id = ?').run(tick, noted.msg_id);
       heartStore.announceWarning({ warningId: w.warning_id, tick });
       actions.push({ phase: 'warnings', action: 'announce', kind, subject: w.subject, warningId: w.warning_id });
     }

@@ -1,5 +1,5 @@
 probe: probe-warning-lifecycle
-started: 2026-07-20T17:34:06.078Z
+started: 2026-07-23T23:56:58.753Z
 command: node probes/probe-warning-lifecycle.js
 launch tick 1: warning actions=[]
 recycle tick 2: warning actions=[]
@@ -31,8 +31,9 @@ re-snooze at current_tick 38 -> snoozed_until_tick=50
 snoozed-clear tick 39: warning actions=[{"phase":"warnings","action":"clear","kind":"seat-blocked-budget-exhausted","subject":"exec-3","warningId":2}]
 cleared-while-snoozed row retained: {"warning_id":2,"kind":"seat-blocked-budget-exhausted","subject":"exec-3","raised_at_tick":26,"last_announced_tick":38,"snoozed_until_tick":50,"cleared_at_tick":39}
 chain-scoped budget: subject=exec-5 recycles=3 deepest-blocked-ancestors=2 -> raised warning 3
+out-of-tick announce note msg_id=12 stamped routed_at_tick=1000 at write; 0 unrouted ticker notes (task 7.25)
 status: PASS
 exit: 0
-wall_ms: 2911
+wall_ms: 2925
 skipped_count: 0
-ended: 2026-07-20T17:34:08.989Z
+ended: 2026-07-23T23:57:01.679Z
