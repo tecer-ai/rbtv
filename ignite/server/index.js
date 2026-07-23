@@ -130,7 +130,7 @@ function ensureInstallState(workspaceRoot) {
   const statusPath = path.join(moduleDir, 'status.json');
   if (!fs.existsSync(statusPath)) {
     fs.writeFileSync(statusPath, JSON.stringify({
-      installed: false,
+      _note: 'install truth is DERIVED from server.json (isServerJsonValid) — this file never stores an installed flag (task 7.9, D81)',
       version: '0.1.0',
       first_run_at: isoNow(),
     }, null, 2));
@@ -381,8 +381,12 @@ async function main() {
   log('info', 'ignite daemon starting', { igniteSrc, workspaceRoot, pid: process.pid, smokeTest: SMOKE_TEST });
 
   const installState = ensureInstallState(workspaceRoot);
-  const installed = isServerJsonValid(installState.serverPath);
-  log('info', 'install state ready', { moduleDir: installState.moduleDir, installed });
+  // Derived install test (D81): valid server.json = installed. Computed BEFORE this
+  // boot's own endpoint write (updateEndpointRecord fires later, on a successful
+  // tailnet bind), so the field name says what it is — the value at boot entry,
+  // NOT a verdict on whether this boot is installing.
+  const serverJsonValidAtBoot = isServerJsonValid(installState.serverPath);
+  log('info', 'install state ready', { moduleDir: installState.moduleDir, server_json_valid_at_boot: serverJsonValidAtBoot });
 
   const configPath = resolveConfigPath(igniteSrc);
   log('info', 'loading config', { configPath });
