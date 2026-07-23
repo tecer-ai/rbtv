@@ -74,6 +74,8 @@ Environment="RBTV_IGNITE_USER_MANAGER=true"
 # EnvironmentFile like any RBTV_IGNITE_* knob.
 Environment="RBTV_IGNITE_LOG_RETENTION_DAYS=90"
 StateDirectory=rbtv-ignite
+# 0700: the state root holds heart.db + logs; keep it unreadable to other local users (task 7.26).
+StateDirectoryMode=0700
 ExecStart=@@NODE_BIN@@ @@IGNITE_SRC@@/server/index.js
 Restart=on-failure
 RestartSec=5
