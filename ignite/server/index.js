@@ -8,6 +8,7 @@ const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const yaml = require('js-yaml');
 const { openHeartStore, closeHeartStore, isHeartStoreOpen } = require('./heart/heart-store');
+const { WARNING_KINDS } = require('./heart/warnings');
 const { createSpawnManager } = require('./spawn/spawn');
 const { createTicker } = require('./ticker/ticker');
 const { selectCarrier } = require('./spawn/carrier');
@@ -45,12 +46,8 @@ const DAEMON_ONLY_ROOT_KEYS = ['ticker', 'tools', 'workflows', 'network'];
 const E_BIND_FORBIDDEN = 'E_BIND_FORBIDDEN';
 
 // The standing-warning kind raised when the tailnet bind cannot be established within
-// the retry budget (Design 2, rule 3). ⚑ NEW term, NOT yet registered in the canonical
-// kind registry (server/heart/warnings.js WARNING_KINDS) — that file is OUTSIDE 5.2's
-// allowlist. Surfaced correctly by `ignite status` regardless (inspect daemon lists ALL
-// standing warnings by kind). See the dispatch return's concerns: term ratification +
-// registry registration are a task-7.5 follow-up, the E_BIND_FORBIDDEN-class pattern.
-const TAILNET_BIND_DEGRADED = 'tailnet-bind-degraded';
+// the retry budget (Design 2, rule 3) is WARNING_KINDS.TAILNET_BIND_DEGRADED —
+// registered canonically in server/heart/warnings.js (task 7.8, D80 ratified).
 const TAILNET_WARNING_SUBJECT = 'gateway-tailnet-bind';
 
 function isoNow() {
@@ -641,7 +638,7 @@ async function main() {
   if (tailnetBound) {
     // Self-heal: a prior degraded boot may have left a standing warning; clear it now that
     // the tailnet bind succeeded (uses the existing store API — no warnings.js edit).
-    const stale = heartStore.getStandingWarning({ kind: TAILNET_BIND_DEGRADED, subject: TAILNET_WARNING_SUBJECT });
+    const stale = heartStore.getStandingWarning({ kind: WARNING_KINDS.TAILNET_BIND_DEGRADED, subject: TAILNET_WARNING_SUBJECT });
     if (stale) heartStore.clearWarning({ warningId: stale.warning_id, tick: warnTick });
     // D27 endpoint record: materialize the runtime-resolved fields under this
     // machine's key (merge, never clobber) — including the per-machine state root.
@@ -656,7 +653,7 @@ async function main() {
     // Runs loopback-only. The standing warning is surfaced by `ignite status` (Design 2,
     // rule 3). Runtime re-check is DEFERRED (rule 4 permits deferral) — the warning states
     // that an operator restart is the remedy, loudly, never implied.
-    heartStore.raiseWarning({ kind: TAILNET_BIND_DEGRADED, subject: TAILNET_WARNING_SUBJECT, raisedAtTick: warnTick });
+    heartStore.raiseWarning({ kind: WARNING_KINDS.TAILNET_BIND_DEGRADED, subject: TAILNET_WARNING_SUBJECT, raisedAtTick: warnTick });
     heartStore.recordMessage({
       type: 'note',
       sender: 'daemon',
@@ -669,7 +666,7 @@ async function main() {
     });
     log('warn', 'tailnet bind unavailable after retries; running loopback-only with a standing warning', {
       retries: tailnetRetries,
-      warningKind: TAILNET_BIND_DEGRADED,
+      warningKind: WARNING_KINDS.TAILNET_BIND_DEGRADED,
       subject: TAILNET_WARNING_SUBJECT,
     });
   }

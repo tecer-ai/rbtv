@@ -2,6 +2,9 @@
 
 const WARNING_KINDS = {
   SEAT_BLOCKED_BUDGET_EXHAUSTED: 'seat-blocked-budget-exhausted',
+  // D80: tailnet bind degraded to loopback-only — raised by the daemon's
+  // tailnet-degrade path (registered here per task 7.8).
+  TAILNET_BIND_DEGRADED: 'tailnet-bind-degraded',
 };
 
 // The D45 announcement cadence: announce every 60 s while a warning stands.
