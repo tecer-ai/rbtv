@@ -414,7 +414,7 @@ def bar(pct, width):
 def account_label(acc, multi):
     name = acc.get("name", "main")
     base = acc["provider"] if not multi else f"{acc['provider']}:{name}"
-    return (f"{BOLD}*{base}{OFF}" if acc.get("in_use") else f"{DIM}{base}{OFF}"), len(base) + 1
+    return (f"{BOLD}{base}{OFF}" if acc.get("in_use") else f"{DIM}{base}{OFF}"), len(base)
 
 
 def usage_cells(cache):
@@ -429,8 +429,8 @@ def usage_cells(cache):
     for a in cache.get("accounts", []):
         d = a.get("data") or {}
         label, lvis = account_label(a, multi[a["provider"]] > 1)
-        star = "*" if a.get("in_use") else " "
         plain = a["provider"] if multi[a["provider"]] == 1 else f"{a['provider']}:{a.get('name')}"
+        star = f"{BOLD}{plain}{OFF}" if a.get("in_use") else plain
         if d.get("windows"):
             stale = d.get("as_of") and now_ts - d["as_of"] > 5400
             for w in d["windows"]:
@@ -439,11 +439,11 @@ def usage_cells(cache):
                               w["pct"], suffix))
         elif d.get("balance") is not None:
             cur = {"USD": "$", "CNY": "¥"}.get(d.get("currency"), d.get("currency") or "")
-            notes.append(f"{star}{plain} {cur}{d['balance']} left")
+            notes.append(f"{star} {cur}{d['balance']} left")
         elif d.get("note"):
-            notes.append(f"{star}{plain}: {d['note']}")
+            notes.append(f"{star}: {d['note']}")
         elif d.get("error"):
-            notes.append(f"{star}{plain}: {d['error']}")
+            notes.append(f"{star}: {d['error']}")
     return cells, notes
 
 
@@ -477,6 +477,10 @@ def window_tokens(wins):
     return out
 
 
+
+
+LEGEND = (f"{DIM}+ working · ~ name cut · * active window · "
+          f"bold account = in use{OFF}")
 
 
 def window_grid(wins, width, max_rows, dashes=False):
@@ -559,8 +563,10 @@ def render_full(session, wins, nwin, npane, cells, notes, cache, cols, rows):
         out.append(f"  {DIM}{n}{OFF}")
     out.append("")
     out.append(f"{BOLD}WINDOWS{OFF} {DIM}(panes beneath){OFF}")
-    grid_budget = rows - len(out) - 3
+    grid_budget = rows - len(out) - 4
     out.extend("  " + l for l in window_grid(wins, cols - 2, grid_budget, dashes=True))
+    out.append("")
+    out.append(LEGEND)
     return out[:rows - 1]
 
 
@@ -588,7 +594,8 @@ def render_strip(session, wins, nwin, npane, cells, notes, cols, rows):
     if notes:
         left.append(f"{DIM}{' · '.join(notes)[:max(0, lw - 1)]}{OFF}")
     right_w = cols - lw - 3
-    right = window_grid(wins, right_w, budget)
+    right = window_grid(wins, right_w, budget - 1)
+    right.append(LEGEND)
     out = []
     for i in range(min(budget, max(len(left), len(right)))):
         lseg = left[i] if i < len(left) else ""
@@ -720,8 +727,8 @@ def cmd_selftest():
     check("cells: one bar per window, money+notes to footer",
           len(cells) == 3 and any("9.26" in n for n in notes)
           and any("sakana" in n for n in notes))
-    check("in-use highlight: bold* for in-use, dim for alt",
-          "*claude" in cells[0][0] and BOLD in cells[0][0] and DIM in cells[2][0])
+    check("in-use highlight: bold (no star) for in-use, dim for alt",
+          "*" not in cells[0][0] and BOLD in cells[0][0] and DIM in cells[2][0])
     wins = [{"idx": "0", "name": "control", "active": True, "panes": ["master", "watcher"]},
             {"idx": "1", "name": "cli", "active": False, "panes": ["cli"]}]
     for layout_fn, dims in ((render_strip, (240, 8)), (render_narrow, (56, 40)),
