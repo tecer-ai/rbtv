@@ -599,7 +599,7 @@ def render_strip(session, wins, nwin, npane, cells, notes, cols, rows):
     label_w = max([c[1] for c in cells], default=10)
     for ncols in (1, 2, 3):
         bar_w = 22 if ncols == 1 else 14
-        cell_w = label_w + bar_w + 8 + (14 if ncols == 1 else 0)
+        cell_w = label_w + bar_w + 8 + 15  # renew/as-of suffix stays in every fold
         need_rows = math.ceil(len(cells) / ncols) if cells else 0
         left_w = ncols * (cell_w + 2)
         if need_rows <= budget - 2 and left_w <= cols - 42:
@@ -607,8 +607,7 @@ def render_strip(session, wins, nwin, npane, cells, notes, cols, rows):
     grid_rows = math.ceil(len(cells) / ncols) if cells else 0
     left = [head]
     for r in range(grid_rows):
-        row_cells = [render_bar_cell(cells[r + grid_rows * c], label_w, bar_w,
-                                     with_suffix=(ncols == 1))
+        row_cells = [render_bar_cell(cells[r + grid_rows * c], label_w, bar_w)
                      for c in range(ncols) if r + grid_rows * c < len(cells)]
         left.append("  ".join(pad_to(s, cell_w) for s in row_cells))
     # width from head + bars only — the notes footer is truncated to fit, never widens the block
