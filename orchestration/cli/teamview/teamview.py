@@ -681,14 +681,14 @@ def cmd_selftest():
         (home / ".kimi" / "credentials").mkdir(parents=True)
         oc = home / "auth.json"
         oc.write_text(json.dumps({"deepseek": {"key": "k1"}, "zai-coding-plan": {"key": "k2"}}))
-        (home / ".claude-tecer").mkdir()
+        (home / ".claude-work").mkdir()
         acc = load_accounts(home / "nonexistent.json", home=home, opencode_path=oc)
         provs = sorted(a["provider"] for a in acc)
         check("discovery: claude+codex+kimi+opencode providers found",
               provs == ["claude", "claude", "codex", "deepseek", "kimi", "zai"])
-        tecer = next((a for a in acc if a["provider"] == "claude" and a["name"] == "tecer"), None)
+        extra = next((a for a in acc if a["provider"] == "claude" and a["name"] == "work"), None)
         check("discovery: extra ~/.claude-<tag> account dir found with tagged statusline path",
-              tecer is not None and tecer["source"]["path"].endswith("plan-usage-tecer.json"))
+              extra is not None and extra["source"]["path"].endswith("plan-usage-work.json"))
         check("discovery: harness-backed accounts marked in use",
               all(a["in_use"] for a in acc))
         cfg = home / "teamview.json"

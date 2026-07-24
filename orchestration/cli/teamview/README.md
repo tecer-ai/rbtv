@@ -6,8 +6,8 @@ plan-limit bars for every AI provider account on the machine. An orchestration-m
 or machine-specific is baked in; accounts come from a config file or auto-discovery of whatever
 harness credential stores exist.
 
-Origin: promoted 2026-07-24 from the second-brain team-kit's `tmux-overview` /
-`overview-compact.py` / `provider-usage.py` trio (first proven on the kg-views-rebuild run).
+Origin: promoted 2026-07-24 from a workspace team-kit's overview tooling after it proved
+out on a live multi-agent run.
 
 ## Run
 
@@ -28,16 +28,16 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
 - **Session block** — an ASCII grid: each window is a column (bold header, `*` = active
   window) with its PANES stacked beneath it; a seat whose TUI reports it is WORKING carries a
   trailing `+` (the working/thinking indicator, derived from the busy glyph agent TUIs write
-  into their pane title, re-encoded ASCII-safe). A `legend:` line explains the markers in
-  place. Names resolve pane-id → agent from a team-kit run package's `coordination/workers.md`
-  (`--package`, or `RBTV_TEAMVIEW_PACKAGE`) because agent TUIs rewrite their own pane titles;
-  fallback is the cleaned pane title. Quota renewal times render as plain `renews <time>` —
-  no arrow or box-drawing glyphs anywhere (ambiguous-width characters break column alignment
-  in some terminal fonts). Narrow/tiny layouts fall back to inline `window[pane pane]` tokens.
+  into their pane title, re-encoded ASCII-safe). Names resolve pane-id → agent from a team-kit
+  run package's `coordination/workers.md` (`--package`, or `RBTV_TEAMVIEW_PACKAGE`) because
+  agent TUIs rewrite their own pane titles; fallback is the cleaned pane title. Pure ASCII
+  markers throughout — no arrow or box-drawing glyphs (ambiguous-width characters break column
+  alignment in some terminal fonts). Narrow/tiny layouts fall back to inline
+  `window[pane pane]` tokens.
 - **Plan-limit bars** — one bar per usage window per account, colored by headroom (green <60%,
-  yellow <85%, red ≥85%), with reset times; money-balance and console-only providers render as
-  footer notes. The account each harness ACTUALLY uses is highlighted `*bold`; extra accounts
-  render dim.
+  yellow <85%, red ≥85%); money-balance and console-only providers render as footer notes;
+  stale local snapshots carry `as of <time>`. The account each harness ACTUALLY uses is
+  highlighted `*bold`; extra accounts render dim.
 
 ## Responsive layouts (chosen from the pane's own size, re-measured every frame)
 
