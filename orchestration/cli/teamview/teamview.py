@@ -356,7 +356,8 @@ def roster_map(package):
 
 
 def clean_title(title):
-    t = re.sub(r"[⠀-⣿]", "", title or "").strip()
+    # strip the agent TUIs' busy/spinner glyphs (braille spinner + asterisk variants)
+    t = re.sub(r"[⠀-⣿✳✻✽✶✢]", "", title or "").strip()
     return (t[:18] + "…") if len(t) > 19 else (t or "?")
 
 
