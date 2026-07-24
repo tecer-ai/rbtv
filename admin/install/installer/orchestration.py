@@ -721,6 +721,36 @@ _CONTEXT_MONITOR_RELATIVE = Path("orchestration") / "hooks" / "context-monitor.p
 _HOOK_COMMAND_SIGNATURE = _CONTEXT_MONITOR_RELATIVE.as_posix()
 
 
+def _build_cwd_independent_command(
+    interpreter: str, script_posix: str, extra_args: list[str] | None = None
+) -> str:
+    """A hook command whose script resolution does not depend on the session's cwd.
+
+    Claude Code sets `$CLAUDE_PROJECT_DIR` to the SESSION's cwd, not necessarily the
+    repo root — a session one or more levels below the repo root (a worktree, a
+    per-seat subfolder) gets a non-existent joined path and the plain
+    `$CLAUDE_PROJECT_DIR`-relative command errors on every matched tool call
+    (observed 2026-07-24, a team-kit run with per-seat working directories). This
+    wraps the invocation in a small Python resolver that reads `CLAUDE_PROJECT_DIR`
+    from `os.environ` directly (shell-syntax independent — the same command runs
+    under sh/bash/cmd/PowerShell), walks up from there to the nearest ancestor
+    holding a `.git` directory (the real repo root), then joins `script_posix`. No
+    match (e.g. a differently laid out machine) exits 0 silently — never a hard
+    error.
+    """
+    tail = "" if not extra_args else "," + ",".join(repr(a) for a in extra_args)
+    code = (
+        "import os,sys,subprocess as s;"
+        "c=os.environ.get('CLAUDE_PROJECT_DIR') or os.getcwd();"
+        "parts=c.split(os.sep);"
+        "cands=[os.sep.join(parts[:len(parts)-i]) or os.sep for i in range(0,len(parts))];"
+        "d=next((x for x in cands if x and os.path.isdir(os.path.join(x,'.git'))),None);"
+        f"p=os.path.join(d,{script_posix!r}) if d else None;"
+        f"sys.exit(s.call([sys.executable,p{tail}]) if p and os.path.isfile(p) else 0)"
+    )
+    return f'"{interpreter}" -c "{code}"'
+
+
 def _entry_commands(entry: dict) -> list[str]:
     """Every ``command`` string inside a PostToolUse matcher entry's ``hooks`` list.
 
@@ -767,12 +797,14 @@ def sync_hook_entry(
     - Inserts exactly one fresh entry at the end of the PostToolUse list.
     - Writes back, preserving every unrelated key.
 
-    The hook ``command`` is built from Claude Code's ``$CLAUDE_PROJECT_DIR`` hook
-    variable (the project root, resolved per-machine when the hook runs) joined with
-    ``rbtv_relative`` (the per-user relative path to the RBTV install, baked at install
-    time) — so it resolves from ANY working directory and on ANY machine, never a
-    hardcoded absolute path. (A bare relative command broke when Claude Code ran the
-    hook from a non-project-root CWD.)
+    The hook ``command`` is built by `_build_cwd_independent_command()`: a small Python
+    resolver, wrapping ``rbtv_relative`` (the per-user relative path to the RBTV
+    install, baked at install time), that reads Claude Code's ``$CLAUDE_PROJECT_DIR``
+    from its OWN environment and walks up to the nearest ``.git`` ancestor before
+    joining the script path — so it resolves from ANY working directory (including a
+    session whose cwd sits below the repo root) and on ANY machine, never a hardcoded
+    absolute path. (A bare ``$CLAUDE_PROJECT_DIR``-relative command broke when Claude
+    Code ran the hook from a non-repo-root CWD — see `_build_cwd_independent_command`.)
 
     The interpreter is ``sys.executable`` (the Python running THIS install), captured
     as an absolute path — never a bare ``python`` / ``python3`` name. That name is not
@@ -795,7 +827,7 @@ def sync_hook_entry(
     # Forward-slash + quote it so absolute paths with spaces / Windows drive letters
     # survive being embedded in the shell command string.
     interpreter = Path(sys.executable).as_posix()
-    command_str = f'"{interpreter}" "$CLAUDE_PROJECT_DIR/{script_posix}"'
+    command_str = _build_cwd_independent_command(interpreter, script_posix)
 
     # The entry the installer owns, identifiable by _HOOK_SENTINEL.
     rbtv_entry: dict = {
