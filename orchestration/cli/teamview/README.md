@@ -85,6 +85,14 @@ endpoint in the provider's official docs first, read-only GETs only.
 the harnesses actually read; override per account with `"in_use": true/false`. With no config,
 accounts are auto-discovered from the stores present on the machine.
 
+**Multiple Claude accounts** — one config dir per account, discovered automatically: any
+`~/.claude-<tag>` directory becomes account `claude:<tag>` reading
+`~/.claude/rbtv-runtime/plan-usage-<tag>.json`. The companion statusline script keys its output
+file by `CLAUDE_CONFIG_DIR`, so a session launched as
+`CLAUDE_CONFIG_DIR=~/.claude-<tag> claude` (wrap it in a tiny launcher, e.g. `claude-<tag>`)
+tracks that account's windows separately; the default `~/.claude` account is untouched. An
+account with no sessions yet reports "no data file yet" rather than vanishing.
+
 ## Caching
 
 Provider data caches at `$XDG_CACHE_HOME/rbtv/teamview-providers.json` (default

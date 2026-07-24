@@ -106,6 +106,15 @@ def discover_accounts(home=None, opencode_path=None):
         acc.append({"provider": "claude", "name": "main",
                     "source": {"type": "statusline",
                                "path": str(home / ".claude" / "rbtv-runtime" / "plan-usage.json")}})
+    # extra Claude accounts: one config dir per account (CLAUDE_CONFIG_DIR=~/.claude-<tag>);
+    # the statusline script persists each account's windows to plan-usage-<tag>.json
+    for extra in sorted(home.glob(".claude-*")):
+        if extra.is_dir():
+            tag = extra.name[len(".claude-"):] or "alt"
+            acc.append({"provider": "claude", "name": tag,
+                        "source": {"type": "statusline",
+                                   "path": str(home / ".claude" / "rbtv-runtime"
+                                               / f"plan-usage-{tag}.json")}})
     if (home / ".codex" / "sessions").is_dir():
         acc.append({"provider": "codex", "name": "main",
                     "source": {"type": "codex-local", "path": str(home / ".codex" / "sessions")}})
@@ -461,17 +470,14 @@ def flow(tokens, width, max_lines):
 def window_tokens(wins):
     out = []
     for w in wins:
-        star = "*" if w["active"] else ""
         if len(w["panes"]) <= 1:
             busy = "+" if (w["panes"] and w["panes"][0].endswith("+")) else ""
-            out.append(f"{star}{w['name']}{busy}")
+            out.append(f"{w['name']}{busy}")
         else:
-            out.append(f"{star}{w['name']}[{' '.join(w['panes'])}]")
+            out.append(f"{w['name']}[{' '.join(w['panes'])}]")
     return out
 
 
-LEGEND = (f"{DIM}legend: *=active window · name{OFF}+{DIM}=working · "
-          f"{BOLD}*acct{OFF}{DIM}=account in use · renews=quota reset{OFF}")
 
 
 def window_grid(wins, width, max_rows, dashes=False):
@@ -479,7 +485,7 @@ def window_grid(wins, width, max_rows, dashes=False):
     Fills banks left-to-right; reports what it cannot fit rather than hiding it."""
     cols = []
     for w in wins:
-        header = ("*" if w["active"] else "") + w["name"]
+        header = w["name"]
         panes = list(w["panes"]) or ["-"]
         colw = max([len(header)] + [len(p) for p in panes])
         cols.append((header, panes, colw))
@@ -556,8 +562,6 @@ def render_full(session, wins, nwin, npane, cells, notes, cache, cols, rows):
     out.append(f"{BOLD}WINDOWS{OFF} {DIM}(panes beneath){OFF}")
     grid_budget = rows - len(out) - 3
     out.extend("  " + l for l in window_grid(wins, cols - 2, grid_budget, dashes=True))
-    out.append("")
-    out.append(LEGEND)
     return out[:rows - 1]
 
 
@@ -585,8 +589,7 @@ def render_strip(session, wins, nwin, npane, cells, notes, cols, rows):
     if notes:
         left.append(f"{DIM}{' · '.join(notes)[:max(0, lw - 1)]}{OFF}")
     right_w = cols - lw - 3
-    right = window_grid(wins, right_w, budget - 1)
-    right.append(LEGEND)
+    right = window_grid(wins, right_w, budget)
     out = []
     for i in range(min(budget, max(len(left), len(right)))):
         lseg = left[i] if i < len(left) else ""
@@ -679,10 +682,14 @@ def cmd_selftest():
         (home / ".kimi" / "credentials").mkdir(parents=True)
         oc = home / "auth.json"
         oc.write_text(json.dumps({"deepseek": {"key": "k1"}, "zai-coding-plan": {"key": "k2"}}))
+        (home / ".claude-tecer").mkdir()
         acc = load_accounts(home / "nonexistent.json", home=home, opencode_path=oc)
         provs = sorted(a["provider"] for a in acc)
         check("discovery: claude+codex+kimi+opencode providers found",
-              provs == ["claude", "codex", "deepseek", "kimi", "zai"])
+              provs == ["claude", "claude", "codex", "deepseek", "kimi", "zai"])
+        tecer = next((a for a in acc if a["provider"] == "claude" and a["name"] == "tecer"), None)
+        check("discovery: extra ~/.claude-<tag> account dir found with tagged statusline path",
+              tecer is not None and tecer["source"]["path"].endswith("plan-usage-tecer.json"))
         check("discovery: harness-backed accounts marked in use",
               all(a["in_use"] for a in acc))
         cfg = home / "teamview.json"
@@ -728,10 +735,11 @@ def cmd_selftest():
     out = render_full("sess", wins, 2, 3, cells, notes, fake_cache, 120, 40)
     plain = [re.sub(r"\033\[[0-9;]*m", "", l) for l in out]
     hdr = next((i for i, l in enumerate(plain) if "control" in l), None)
-    check("render_full: grid — window headers with panes stacked beneath + legend",
+    check("render_full: grid — window headers with panes stacked beneath, no legend/star",
           any("PLAN LIMITS" in l for l in plain) and hdr is not None
           and any("master" in l for l in plain[hdr:])
-          and any("legend:" in l for l in plain))
+          and not any("legend:" in l for l in plain)
+          and not any("*control" in l for l in plain))
     out = window_grid([{"name": "big", "active": True, "panes": [f"p{i}" for i in range(9)]},
                        {"name": "other", "active": False, "panes": ["x"]}], 30, 5)
     check("window_grid: height-capped with overflow note",
