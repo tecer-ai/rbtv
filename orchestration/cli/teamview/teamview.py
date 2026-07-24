@@ -434,9 +434,7 @@ def usage_cells(cache):
         if d.get("windows"):
             stale = d.get("as_of") and now_ts - d["as_of"] > 5400
             for w in d["windows"]:
-                suffix = (f"as of {fmt_epoch(d['as_of'])}" if stale
-                          else (f"renews {fmt_epoch(w['resets_at'])}"
-                                if w.get("resets_at") else ""))
+                suffix = f"as of {fmt_epoch(d['as_of'])}" if stale else ""
                 cells.append((f"{label} {w['label']}", lvis + 1 + len(w["label"]),
                               w["pct"], suffix))
         elif d.get("balance") is not None:
@@ -470,11 +468,12 @@ def flow(tokens, width, max_lines):
 def window_tokens(wins):
     out = []
     for w in wins:
+        star = "*" if w["active"] else ""
         if len(w["panes"]) <= 1:
             busy = "+" if (w["panes"] and w["panes"][0].endswith("+")) else ""
-            out.append(f"{w['name']}{busy}")
+            out.append(f"{star}{w['name']}{busy}")
         else:
-            out.append(f"{w['name']}[{' '.join(w['panes'])}]")
+            out.append(f"{star}{w['name']}[{' '.join(w['panes'])}]")
     return out
 
 
@@ -485,7 +484,7 @@ def window_grid(wins, width, max_rows, dashes=False):
     Fills banks left-to-right; reports what it cannot fit rather than hiding it."""
     cols = []
     for w in wins:
-        header = w["name"]
+        header = ("*" if w["active"] else "") + w["name"]
         panes = list(w["panes"]) or ["-"]
         colw = max([len(header)] + [len(p) for p in panes])
         cols.append((header, panes, colw))
@@ -735,11 +734,12 @@ def cmd_selftest():
     out = render_full("sess", wins, 2, 3, cells, notes, fake_cache, 120, 40)
     plain = [re.sub(r"\033\[[0-9;]*m", "", l) for l in out]
     hdr = next((i for i, l in enumerate(plain) if "control" in l), None)
-    check("render_full: grid — window headers with panes stacked beneath, no legend/star",
+    check("render_full: grid — starred active window, panes beneath, no legend, no renews",
           any("PLAN LIMITS" in l for l in plain) and hdr is not None
           and any("master" in l for l in plain[hdr:])
+          and any("*control" in l for l in plain)
           and not any("legend:" in l for l in plain)
-          and not any("*control" in l for l in plain))
+          and not any("renews" in l for l in plain))
     out = window_grid([{"name": "big", "active": True, "panes": [f"p{i}" for i in range(9)]},
                        {"name": "other", "active": False, "panes": ["x"]}], 30, 5)
     check("window_grid: height-capped with overflow note",
