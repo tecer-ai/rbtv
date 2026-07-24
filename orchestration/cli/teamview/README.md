@@ -36,8 +36,9 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   `window[pane pane]` tokens.
 - **Plan-limit bars** — one bar per usage window per account, colored by headroom (green <60%,
   yellow <85%, red ≥85%); money-balance and console-only providers render as footer notes;
-  stale local snapshots carry `as of <time>`. The account each harness ACTUALLY uses is
-  highlighted `*bold`; extra accounts render dim.
+  stale local snapshots carry `as of <time>`. The account each harness ACTUALLY uses renders
+  CYAN (bold alone proved invisible in some terminal themes); extra accounts render dim.
+  Window headers in the session grid are bold+underlined to separate them from pane rows.
 
 ## Responsive layouts (chosen from the pane's own size, re-measured every frame)
 

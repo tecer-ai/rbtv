@@ -66,6 +66,7 @@ from pathlib import Path
 
 TIMEOUT = 10
 BOLD, DIM, OFF = "\033[1m", "\033[2m", "\033[0m"
+CYAN, UL = "\033[36m", "\033[4m"
 GREEN, YELLOW, RED = "\033[32m", "\033[33m", "\033[31m"
 CONSOLE_URLS = {"google": "aistudio.google.com", "sakana": "console.sakana.ai",
                 "kimi": "kimi.com"}
@@ -414,7 +415,7 @@ def bar(pct, width):
 def account_label(acc, multi):
     name = acc.get("name", "main")
     base = acc["provider"] if not multi else f"{acc['provider']}:{name}"
-    return (f"{BOLD}{base}{OFF}" if acc.get("in_use") else f"{DIM}{base}{OFF}"), len(base)
+    return (f"{CYAN}{base}{OFF}" if acc.get("in_use") else f"{DIM}{base}{OFF}"), len(base)
 
 
 def usage_cells(cache):
@@ -430,7 +431,7 @@ def usage_cells(cache):
         d = a.get("data") or {}
         label, lvis = account_label(a, multi[a["provider"]] > 1)
         plain = a["provider"] if multi[a["provider"]] == 1 else f"{a['provider']}:{a.get('name')}"
-        star = f"{BOLD}{plain}{OFF}" if a.get("in_use") else plain
+        star = f"{CYAN}{plain}{OFF}" if a.get("in_use") else plain
         if d.get("windows"):
             stale = d.get("as_of") and now_ts - d["as_of"] > 5400
             for w in d["windows"]:
@@ -480,7 +481,7 @@ def window_tokens(wins):
 
 
 LEGEND = (f"{DIM}+ working · ~ name cut · * active window · "
-          f"bold account = in use{OFF}")
+          f"{CYAN}account{OFF}{DIM} = in use{OFF}")
 
 
 def window_grid(wins, width, max_rows, dashes=False):
@@ -510,7 +511,7 @@ def window_grid(wins, width, max_rows, dashes=False):
             break
         if lines:
             lines.append("")
-        lines.append("".join(pad_to(f"{BOLD}{h}{OFF}", w + 2) for h, _p, w in bank))
+        lines.append("".join(pad_to(f"{BOLD}{UL}{h}{OFF}", w + 2) for h, _p, w in bank))
         if dashes:
             lines.append("".join(pad_to("-" * w, w + 2) for _h, _p, w in bank))
         for r in range(depth):
@@ -727,8 +728,8 @@ def cmd_selftest():
     check("cells: one bar per window, money+notes to footer",
           len(cells) == 3 and any("9.26" in n for n in notes)
           and any("sakana" in n for n in notes))
-    check("in-use highlight: bold (no star) for in-use, dim for alt",
-          "*" not in cells[0][0] and BOLD in cells[0][0] and DIM in cells[2][0])
+    check("in-use highlight: cyan (no star) for in-use, dim for alt",
+          "*" not in cells[0][0] and CYAN in cells[0][0] and DIM in cells[2][0])
     wins = [{"idx": "0", "name": "control", "active": True, "panes": ["master", "watcher"]},
             {"idx": "1", "name": "cli", "active": False, "panes": ["cli"]}]
     for layout_fn, dims in ((render_strip, (240, 8)), (render_narrow, (56, 40)),
