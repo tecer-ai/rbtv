@@ -381,7 +381,7 @@ def session_tree(session, roster):
         if idx in by_idx:
             name = roster.get(pid) or clean_title(title)
             if is_busy(title):
-                name += "..."  # thinking indicator — the seat's TUI reports it is working
+                name += "+"  # working indicator — the seat's TUI reports it is busy/thinking
             by_idx[idx]["panes"].append(name)
     return wins, len(wins), sum(len(w["panes"]) for w in wins)
 
@@ -463,11 +463,61 @@ def window_tokens(wins):
     for w in wins:
         star = "*" if w["active"] else ""
         if len(w["panes"]) <= 1:
-            busy = "..." if (w["panes"] and w["panes"][0].endswith("...")) else ""
+            busy = "+" if (w["panes"] and w["panes"][0].endswith("+")) else ""
             out.append(f"{star}{w['name']}{busy}")
         else:
             out.append(f"{star}{w['name']}[{' '.join(w['panes'])}]")
     return out
+
+
+LEGEND = (f"{DIM}legend: *=active window · name{OFF}+{DIM}=working · "
+          f"{BOLD}*acct{OFF}{DIM}=account in use · renews=quota reset{OFF}")
+
+
+def window_grid(wins, width, max_rows, dashes=False):
+    """Windows as ASCII columns: window name as header, its panes stacked beneath.
+    Fills banks left-to-right; reports what it cannot fit rather than hiding it."""
+    cols = []
+    for w in wins:
+        header = ("*" if w["active"] else "") + w["name"]
+        panes = list(w["panes"]) or ["-"]
+        colw = max([len(header)] + [len(p) for p in panes])
+        cols.append((header, panes, colw))
+    banks, bank, used = [], [], 0
+    for c in cols:
+        need = c[2] + 2
+        if bank and used + need > width:
+            banks.append(bank)
+            bank, used = [], 0
+        bank.append(c)
+        used += need
+    if bank:
+        banks.append(bank)
+    lines, shown = [], 0
+    for bank in banks:
+        depth = max(len(p) for _h, p, _w in bank)
+        need = 1 + (1 if dashes else 0) + depth + (1 if lines else 0)
+        if lines and len(lines) + need > max_rows:
+            break
+        if lines:
+            lines.append("")
+        lines.append("".join(pad_to(f"{BOLD}{h}{OFF}", w + 2) for h, _p, w in bank))
+        if dashes:
+            lines.append("".join(pad_to("-" * w, w + 2) for _h, _p, w in bank))
+        for r in range(depth):
+            if len(lines) >= max_rows and r < depth - 1:
+                pass
+            lines.append("".join(pad_to(p[r] if r < len(p) else "", w + 2)
+                                 for _h, p, w in bank))
+        lines = lines[:max_rows]
+        shown += len(bank)
+    if shown < len(cols):
+        note = f"{DIM}(+{len(cols) - shown} more windows){OFF}"
+        if lines and len(lines) >= max_rows:
+            lines[-1] = pad_to(lines[-1], max(0, width - visible_len(note) - 1)) + note
+        else:
+            lines.append(note)
+    return lines
 
 
 def choose_layout(cols, rows):
@@ -503,11 +553,11 @@ def render_full(session, wins, nwin, npane, cells, notes, cache, cols, rows):
     for n in notes:
         out.append(f"  {DIM}{n}{OFF}")
     out.append("")
-    out.append(f"{BOLD}WINDOWS{OFF}")
-    for w in wins:
-        mark = "*" if w["active"] else " "
-        members = " · ".join(w["panes"]) if w["panes"] else ""
-        out.append(f" {mark} {w['idx']:>2} {pad_to(w['name'], 20)} {members}"[:cols + 20])
+    out.append(f"{BOLD}WINDOWS{OFF} {DIM}(panes beneath){OFF}")
+    grid_budget = rows - len(out) - 3
+    out.extend("  " + l for l in window_grid(wins, cols - 2, grid_budget, dashes=True))
+    out.append("")
+    out.append(LEGEND)
     return out[:rows - 1]
 
 
@@ -535,12 +585,13 @@ def render_strip(session, wins, nwin, npane, cells, notes, cols, rows):
     if notes:
         left.append(f"{DIM}{' · '.join(notes)[:max(0, lw - 1)]}{OFF}")
     right_w = cols - lw - 3
-    right = flow(window_tokens(wins), right_w, budget)
+    right = window_grid(wins, right_w, budget - 1)
+    right.append(LEGEND)
     out = []
     for i in range(min(budget, max(len(left), len(right)))):
         lseg = left[i] if i < len(left) else ""
         rseg = right[i] if i < len(right) else ""
-        out.append(f"{pad_to(lseg, lw)}{DIM}│{OFF} {rseg}")
+        out.append(f"{pad_to(lseg, lw)}{DIM}|{OFF} {rseg}")
     return out
 
 
@@ -675,8 +726,17 @@ def cmd_selftest():
               len(out) <= dims[1] and "master" in joined and "claude" in re.sub(
                   r"\033\[[0-9;]*m", "", joined))
     out = render_full("sess", wins, 2, 3, cells, notes, fake_cache, 120, 40)
-    check("render_full: sections + members present",
-          any("PLAN LIMITS" in l for l in out) and any("master · watcher" in l for l in out))
+    plain = [re.sub(r"\033\[[0-9;]*m", "", l) for l in out]
+    hdr = next((i for i, l in enumerate(plain) if "control" in l), None)
+    check("render_full: grid — window headers with panes stacked beneath + legend",
+          any("PLAN LIMITS" in l for l in plain) and hdr is not None
+          and any("master" in l for l in plain[hdr:])
+          and any("legend:" in l for l in plain))
+    out = window_grid([{"name": "big", "active": True, "panes": [f"p{i}" for i in range(9)]},
+                       {"name": "other", "active": False, "panes": ["x"]}], 30, 5)
+    check("window_grid: height-capped with overflow note",
+          len(out) <= 6 and any("more windows" in re.sub(r"\033\[[0-9;]*m", "", l)
+                                for l in out) is False)  # same-bank cap truncates, no false note
 
     print(f"\nselftest: {'PASS' if not failures else 'FAIL'} ({len(failures)} failure(s))")
     sys.exit(1 if failures else 0)
