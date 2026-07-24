@@ -44,6 +44,8 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   CYAN (bold alone proved invisible in some terminal themes); extra accounts render dim.
   Window headers in the session grid are bold+underlined to separate them from pane rows.
 
+Every layout leads with three fixed rows: the **session-stats line** (windows · panes · time) on its own, then a **two-table header row** — bold+underlined `PLAN LIMITS` and `WINDOWS · PANES`, each scoped over its block — then the tables. So the session stats are never misread as the first table's header (the small views previously lacked these headers).
+
 ## Responsive layouts (chosen from the pane's own size, re-measured every frame)
 
 | Pane shape | Layout |

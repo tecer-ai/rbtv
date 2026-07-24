@@ -669,46 +669,56 @@ def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, 
     return out[:rows - 1]
 
 
+def session_line(session, nwin, npane, cols=999):
+    s = f"{BOLD}{session}{OFF} · {nwin} windows · {npane} panes · {datetime.now().strftime('%H:%M:%S')}"
+    return s if visible_len(s) <= cols else f"{BOLD}{session[:max(4, cols - 22)]}{OFF} · {nwin}w · {npane}p"
+
+
+# The two table titles — one own line, bold+underlined, so each block's SCOPE is unmistakable
+# and the session-stats line above is never mistaken for a table header.
+LIMITS_HDR = f"{BOLD}{UL}PLAN LIMITS{OFF}"
+WINDOWS_HDR = f"{BOLD}{UL}WINDOWS · PANES{OFF}"
+
+
 def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows):
-    head = (f"{BOLD}{session}{OFF} · {nwin}w/{npane}p · {datetime.now().strftime('%H:%M:%S')}")
-    budget = max(3, rows - 1)
-    # bars fold into as many columns as height demands and width allows
+    budget = max(2, rows - 2)  # rows 0-1 are the session line + the two-table header row
     label_w = max([c[1] for c in cells], default=10)
     for ncols in (1, 2, 3):
         bar_w = 22 if ncols == 1 else 14
         cell_w = label_w + bar_w + 8 + 15  # renew/as-of suffix stays in every fold
         need_rows = math.ceil(len(cells) / ncols) if cells else 0
         left_w = ncols * (cell_w + 2)
-        if need_rows <= budget - 2 and left_w <= cols - 42:
+        if need_rows <= budget - 1 and left_w <= cols - 42:
             break
     grid_rows = math.ceil(len(cells) / ncols) if cells else 0
-    left = [head]
+    left = []
     for r in range(grid_rows):
         row_cells = [render_bar_cell(cells[r + grid_rows * c], label_w, bar_w)
                      for c in range(ncols) if r + grid_rows * c < len(cells)]
         left.append("  ".join(pad_to(s, cell_w) for s in row_cells))
-    # width from head + bars only — the notes footer is truncated to fit, never widens the block
-    lw = min(max((visible_len(l) for l in left), default=0), cols - 42)
+    lw = min(max([visible_len(l) for l in left] + [len("PLAN LIMITS")], default=11), cols - 42)
     if notes:
         left.append(f"{DIM}{' · '.join(notes)[:max(0, lw - 1)]}{OFF}")
     if console:
         cl = console_line(console)
-        left.append(cl if visible_len(cl) <= lw else cl[:0] + f"{YELLOW}no usage API{OFF} {DIM}> "
+        left.append(cl if visible_len(cl) <= lw else f"{YELLOW}no usage API{OFF} {DIM}> "
                     + ", ".join(re.sub(r"\033\[[0-9;]*m", "", c).split(" ")[0] for c in console)
                     + f"{OFF}")
     right_w = cols - lw - 3
-    right = window_grid(wins, right_w, budget - 1)
-    right.append(LEGEND)
-    out = []
-    for i in range(min(budget, max(len(left), len(right)))):
+    right = window_grid(wins, right_w, budget)
+    out = [session_line(session, nwin, npane, cols),
+           f"{pad_to(LIMITS_HDR, lw)}{DIM}|{OFF} {WINDOWS_HDR}"]
+    for i in range(budget):
         lseg = left[i] if i < len(left) else ""
         rseg = right[i] if i < len(right) else ""
+        if not lseg and not rseg:
+            break
         out.append(f"{pad_to(lseg, lw)}{DIM}|{OFF} {rseg}")
-    return out
+    return out[:rows]
 
 
 def render_narrow(session, wins, nwin, npane, cells, notes, console, cols, rows):
-    out = [f"{BOLD}{session}{OFF} {nwin}w/{npane}p {datetime.now().strftime('%H:%M')}"]
+    out = [session_line(session, nwin, npane, cols), LIMITS_HDR]
     label_w = max([c[1] for c in cells], default=8)
     bar_w = max(6, min(14, cols - label_w - 8))
     for c in cells:
@@ -717,18 +727,20 @@ def render_narrow(session, wins, nwin, npane, cells, notes, console, cols, rows)
         out.append(f"{DIM}{n[:cols]}{OFF}")
     if console:
         out.append(console_line(console)[:cols + 40])
+    out.append(WINDOWS_HDR)
     out.extend(flow(window_tokens(wins), cols, max(1, rows - len(out) - 1)))
     return out[:rows - 1]
 
 
 def render_tiny(session, wins, nwin, npane, cells, notes, console, cols, rows):
-    out = [f"{BOLD}{session[:cols - 12]}{OFF} {nwin}w/{npane}p"]
+    out = [session_line(session, nwin, npane, cols), f"{BOLD}{UL}LIMITS{OFF}"]
     toks = [f"{re.sub(chr(27) + r'\[[0-9;]*m', '', c[0])} {c[2]:.0f}%" for c in cells]
     toks += [re.sub(r"\s+", " ", n) for n in notes]
     if console:
         toks.append("no-API: " + " ".join(
             re.sub(r"\033\[[0-9;]*m", "", c).split(" ")[0] for c in console))
-    out.extend(flow(toks, cols, max(1, (rows - 1) // 2)))
+    out.extend(flow(toks, cols, max(1, (rows - 3) // 2)))
+    out.append(f"{BOLD}{UL}WINDOWS{OFF}")
     out.extend(flow(window_tokens(wins), cols, max(1, rows - len(out) - 1)))
     return out[:rows - 1]
 
@@ -934,8 +946,9 @@ def main():
         return
     try:
         while True:
-            out = frame()
-            sys.stdout.write("\033[H\033[2J" + out + "\n")
+            # no trailing newline: a full-height frame must fill the pane EXACTLY, or the extra
+            # newline scrolls the top line (the session-stats line) off the pane.
+            sys.stdout.write("\033[H\033[2J" + frame())
             sys.stdout.flush()
             time.sleep(args.interval)
     except KeyboardInterrupt:
