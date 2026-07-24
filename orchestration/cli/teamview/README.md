@@ -12,13 +12,23 @@ out on a live multi-agent run.
 ## Run
 
 ```bash
-python3 orchestration/cli/teamview/teamview.py                  # dashboard of the session you are IN
-python3 .../teamview.py <session>                               # any session by name
+python3 orchestration/cli/teamview/teamview.py                  # session you are IN; from OUTSIDE
+                                                                #   tmux: the only running session
+python3 .../teamview.py <session>                               # any session by name (works from
+python3 .../teamview.py session <session>                       #   outside tmux; both forms equal)
 python3 .../teamview.py --package <run-package>                 # pane->agent names from the
                                                                 #   team-kit roster (workers.md)
 python3 .../teamview.py --once | --interval 5 | --refresh       # snapshot / cadence / poll now
+python3 .../teamview.py --once --no-rotate                      # COMPLETE snapshot: every
+                                                                #   window/pane, no rotation
+                                                                #   (can exceed terminal height)
+python3 .../teamview.py --help-providers | --help-config        # reference: usage sources /
+                                                                #   accounts schema (-h stays short)
 python3 .../teamview.py --selftest                              # must exit 0 after ANY edit here
 ```
+
+Outside tmux with several sessions running and no name given, it lists the candidates and
+exits rather than guessing.
 
 Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by git):
 `ln -s <abs>/teamview.py ~/.local/bin/teamview && chmod +x ~/.local/bin/teamview`.
@@ -36,8 +46,64 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   run package's `coordination/workers.md` (`--package`, or `RBTV_TEAMVIEW_PACKAGE`) because
   agent TUIs rewrite their own pane titles; fallback is the cleaned pane title. Pure ASCII
   markers throughout — no arrow or box-drawing glyphs (ambiguous-width characters break column
-  alignment in some terminal fonts). Narrow/tiny layouts fall back to inline
-  `window[pane pane]` tokens.
+  alignment in some terminal fonts). Narrow/tiny layouts render each window as its own flowed
+  line block (`*name:` then panes), wrapping between panes. When the window set doesn't fit the
+  pane at all, the visible page ROTATES every ~10s (stateless — derived from wall clock, so the
+  refresh loop rotates naturally and `--once` shows whichever page is current) instead of
+  permanently hiding the rest; a `(windows N-M/T - rotating)` note replaces the old fixed
+  "+N more windows" drop. A SINGLE window with more panes than fit rotates its OWN pane list
+  the same way, with a `(panes N-M/T - rotating)` note — a 6-seat window in a 1-pane-tall
+  slot never renders as if it were a dead 1-seat window with no hint the rest exist. A
+  CRITICAL pane — past its own ctx-refresh threshold, at/above 85% context regardless of
+  `--package`, or stuck awaiting approval — is PINNED into every rotation page instead of
+  cycling out of view (the note gains a `· pinned` tag when this holds a page steady).
+  `--no-rotate` disables rotation entirely for a COMPLETE snapshot in one frame — every
+  window and every pane at once, best paired with `--once` (the output can grow taller than
+  the terminal). A seat stuck at a permission or trust prompt renders its name RED
+  with a trailing `?!` (detected in the same busy-sampling capture — claude's numbered
+  Yes/No dialogs, codex's "Action Required", and generic trust-this-folder prompts — no
+  extra tmux call), overriding the busy `+` marker.
+- **Per-seat context-refresh warning** — with `--package`, each seat's `ctx-refresh:` % is
+  read from its OWN `workers/<agent>/agent.md` frontmatter (no key = no threshold, never
+  enforced). A pane whose context used % has reached that seat's own threshold renders its
+  ctx cell RED with a trailing `!` (e.g. `ctx55%!`), regardless of the normal green/yellow/
+  red color band it would otherwise get. WITHOUT `--package` this check never runs — the
+  session-stats line then carries a `no --package: thresholds/roster off` cue so a plain
+  green `ctxN%` is never mistaken for "confirmed under threshold" when it really means "never
+  checked" (an operator made a wrong renewal call on exactly this silent gap).
+- **Graceful degradation at every width** — the no-package cue, every rotation footer, and
+  every PLAN LIMITS/ctx VALUE shrink to a shorter but still-COMPLETE form as the pane
+  narrows (down to ~60 cols) instead of relying on the outer hard clip's blind mid-word cut.
+  A bar and its suffix drop before the percent number does; a seat's harness/age drop before
+  its ctx% (and any past-threshold `!`) does; a rotation footer shrinks from
+  `(windows 2-3/5 - rotating)` down to a bare `(2-3/5)` or `+3` before disappearing
+  entirely — it is never shown at a length that would need cutting mid-value.
+- **System RAM+CPU readout** — the header line also carries available RAM and CPU load
+  (`RAM 1989MB/7746MB  CPU 0.7/4`), read stdlib-only from `/proc/meminfo` and
+  `os.getloadavg()`/`os.cpu_count()` — no new deps. Colored by pressure (green comfortable,
+  yellow past ~1.5GB-available/75%-load, red past ~500MB-available/at-or-over core count)
+  so an operator or the watcher spots an OOM risk at a glance (this run hit an OOM cascade
+  with no such warning). Degrades the same graceful way as every other cue — RAM detail
+  shrinks before CPU drops, then the whole cue vanishes rather than clip mid-value — and
+  disappears entirely (no crash) on a platform where neither reading is available.
+- **Marker legend** — the full-screen (`full`) layout's footer explains every marker
+  (`+`, `~`, `*`, `ctxN%`, `ctx~`, `Nm/Nh`, in-use color, `name?!`, `ctxN%!`); it is
+  WORD-WRAPPED to the frame's own width so a narrow pane never hard-clips an item mid-word
+  (previously it could silently drop everything past ~80 columns, e.g. cutting
+  "ctx~ = pane match uncertain" down to "...pane ma~" with no other sign anything was
+  missing). The same legend text is also in `-h`'s own description, so its meaning is
+  discoverable without ever running a live frame. The console-only PROVIDER group (Sakana /
+  Google / Kimi — no readable usage endpoint) is word-wrapped the same way in the `full` and
+  `narrow` layouts, so a long provider list never hard-clips mid-word either (e.g. cutting
+  "google (key present; aistudio.google.com)" down to "...google (ke~").
+- **Per-pane agent info** — every pane row also carries the agent running in it:
+  `seat+ harness:model ctxN% age` — harness (the pane command, dim), model, context-window
+  used % (colored green <60 / yellow <85 / red ≥85), and last-activity age (`now`, `Nm`,
+  `NhMMm`, `NdNh`). Resolved by the sibling **ctx-monitor** CLI
+  (`orchestration/cli/ctx-monitor/ctx_monitor.py`, imported by path) from each harness's own
+  session record — claude transcript (exact pid→transcript map when the team-kit statusline
+  is installed), codex rollout, opencode db, kimi wire, argv/TUI fallbacks — see its README.
+  Without ctx-monitor the rows degrade to seat + pane command.
 - **Plan-limit bars** — one bar per usage window per account, colored by headroom (green <60%,
   yellow <85%, red ≥85%); money-balance and console-only providers render as footer notes;
   stale local snapshots carry `as of <time>`. The account each harness ACTUALLY uses renders
@@ -53,13 +119,13 @@ Every layout leads with three fixed rows: the **session-stats line** (windows ·
 | ≥70 cols, ≥16 rows | **full** — sectioned view: big bars + per-window member list |
 | wide, <16 rows | **strip** — bars fold into 1–3 columns beside a flowed window list (the team-kit control-panel shape) |
 | <70 cols, tall | **narrow** — stacked mini-bars + window list |
-| <70 cols, <18 rows (≈1/6 screen) | **tiny** — token summary lines, no bars |
+| <70 cols, <18 rows (≈1/6 screen) | **tiny** — token summary lines, no bars. Plan-usage limits render ONE `label: N%` per line (never two flowed onto the same line) so a percent can never visually read as belonging to a neighboring label at this width |
 
 ## Providers and sources (read-only; keys never printed, sent ONLY to their own provider's documented endpoint)
 
 | Provider | Source | Shows |
 |----------|--------|-------|
-| claude | statusline-persisted `rate_limits` JSON (a Claude Code statusline script writes it; path per account) | 5h/7d bars (+ model-specific windows when reported) |
+| claude | per-account OAuth usage endpoint — `GET api.anthropic.com/api/oauth/usage` with the STORED `accessToken` from that account's `{config_dir}/.credentials.json` (the same call the Claude Code `/usage` screen makes; read-only, owner-sanctioned — see Hard rule below; tokens are never refreshed, an expired one falls back to the statusline-persisted `rate_limits` JSON until that account runs a real session) | 5h/7d bars PLUS every model-scoped weekly window the plan carries (e.g. `7d fable`); statusline recency still decides IN-USE highlighting |
 | codex | LOCAL `~/.codex/sessions/**/rollout-*.jsonl` `payload.rate_limits` (no API call) | plan bars; "as of <time>" when the snapshot is stale |
 | zai | `GET https://api.z.ai/api/monitor/usage/quota/limit` (`Authorization: <key>`, no Bearer) | 5h + weekly used-% bars, plan tier |
 | deepseek | `GET https://api.deepseek.com/user/balance` (Bearer) | money balance |
@@ -72,7 +138,13 @@ Providers with no readable usage nest under one visually distinct footer line �
 prefixed and separate from the API-backed facts (balances) above it.
 
 **Hard rule:** never add a probe of an undocumented endpoint with stored keys — verify the
-endpoint in the provider's official docs first, read-only GETs only.
+endpoint in the provider's official docs first, read-only GETs only. **One owner-sanctioned
+exception (2026-07-24):** the read-only `GET api.anthropic.com/api/oauth/usage` call with a
+Claude account's stored access token — it is the exact call the Claude Code `/usage` screen
+makes and the only source of the model-scoped weekly windows the owner asked for. The
+sanction covers that single read-only GET and nothing more: teamview MUST NOT refresh,
+rotate, or write tokens (an expired token means statusline fallback until that account runs
+a real session).
 
 ## Accounts config (optional — multiple accounts per provider)
 
