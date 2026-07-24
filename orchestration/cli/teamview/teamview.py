@@ -454,7 +454,9 @@ def usage_cells(cache):
         if d.get("windows"):
             stale = d.get("as_of") and now_ts - d["as_of"] > 5400
             for w in d["windows"]:
-                suffix = f"as of {fmt_epoch(d['as_of'])}" if stale else ""
+                suffix = (f"as of {fmt_epoch(d['as_of'])}" if stale
+                          else (f"renews {fmt_epoch(w['resets_at'])}"
+                                if w.get("resets_at") else ""))
                 cells.append((f"{label} {w['label']}", lvis + 1 + len(w["label"]),
                               w["pct"], suffix))
         elif d.get("balance") is not None:
@@ -768,8 +770,7 @@ def cmd_selftest():
           any("PLAN LIMITS" in l for l in plain) and hdr is not None
           and any("master" in l for l in plain[hdr:])
           and any("*control" in l for l in plain)
-          and not any("legend:" in l for l in plain)
-          and not any("renews" in l for l in plain))
+          and not any("legend:" in l for l in plain))
     out = window_grid([{"name": "big", "active": True, "panes": [f"p{i}" for i in range(9)]},
                        {"name": "other", "active": False, "panes": ["x"]}], 30, 5)
     check("window_grid: height-capped with overflow note",
