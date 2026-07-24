@@ -27,8 +27,10 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
 
 - **Session block** — an ASCII grid: each window is a column (bold header, `*` = active
   window) with its PANES stacked beneath it; a seat whose TUI reports it is WORKING carries a
-  trailing `+` (the working/thinking indicator, derived from the busy glyph agent TUIs write
-  into their pane title, re-encoded ASCII-safe). Names resolve pane-id → agent from a team-kit
+  trailing `+` (the working indicator — detected from the TUI's interrupt footer in the pane
+  CONTENT, e.g. "esc to interrupt", which only renders while a turn is actually running; title
+  spinner glyphs persist when idle and are NOT trusted). A pane whose harness has exited (a
+  bare shell) renders dim. Names resolve pane-id → agent from a team-kit
   run package's `coordination/workers.md` (`--package`, or `RBTV_TEAMVIEW_PACKAGE`) because
   agent TUIs rewrite their own pane titles; fallback is the cleaned pane title. Pure ASCII
   markers throughout — no arrow or box-drawing glyphs (ambiguous-width characters break column

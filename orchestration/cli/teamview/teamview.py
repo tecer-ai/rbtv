@@ -421,11 +421,20 @@ def roster_map(package):
     return out
 
 
-BUSY_GLYPHS = r"[⠀-⣿✳✻✽✶✢]"  # agent TUIs write these into their pane title while WORKING
+BUSY_GLYPHS = r"[⠀-⣿✳✻✽✶✢]"  # TUI title spinner glyphs — PERSIST when idle, so titles cannot
+SHELLS = {"bash", "zsh", "sh", "fish", "dash"}  # pane_current_command = shell -> harness exited
+# tell busy from idle. The honest working signal is the TUI's interrupt footer in the pane
+# CONTENT ("esc to interrupt" — claude + codex; opencode shows "esc interrupt"), only rendered
+# while a turn is actually running.
+BUSY_RE = re.compile(r"esc(ape)? (to )?interrupt|ctrl\+c to stop", re.I)
 
 
-def is_busy(title):
-    return bool(re.search(BUSY_GLYPHS, title or ""))
+def pane_busy(pane):
+    r = subprocess.run(["tmux", "capture-pane", "-p", "-t", pane],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return False
+    return bool(BUSY_RE.search("\n".join(r.stdout.splitlines()[-15:])))
 
 
 def clean_title(title):
@@ -442,12 +451,14 @@ def session_tree(session, roster):
         wins.append({"idx": idx, "name": name, "active": active == "1", "panes": []})
     by_idx = {w["idx"]: w for w in wins}
     for ln in tmux_lines("list-panes", "-s", "-t", session, "-F",
-                         "#{window_index}\t#{pane_id}\t#{pane_title}"):
-        idx, pid, title = ln.split("\t", 2)
+                         "#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_title}"):
+        idx, pid, cmd, title = ln.split("\t", 3)
         if idx in by_idx:
             name = roster.get(pid) or clean_title(title)
-            if is_busy(title):
-                name += "+"  # working indicator — the seat's TUI reports it is busy/thinking
+            if cmd in SHELLS:
+                name = f"{DIM}{name}{OFF}"  # harness exited — a bare shell sits in the pane
+            elif pane_busy(pid):
+                name += "+"  # genuinely working: the TUI's interrupt footer is on screen
             by_idx[idx]["panes"].append(name)
     return wins, len(wins), sum(len(w["panes"]) for w in wins)
 
