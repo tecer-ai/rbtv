@@ -25,10 +25,16 @@ that provider's own documented endpoint):
   zai       GET https://api.z.ai/api/monitor/usage/quota/limit (Authorization: <key>, no
             Bearer) -> 5h + weekly used-% bars + plan tier
   deepseek  GET https://api.deepseek.com/user/balance (Bearer) -> money balance (no windows)
-  kimi      subscription login (~/.kimi/credentials) has no usage endpoint -> login state;
-            a Moonshot API-key account uses GET /v1/users/me/balance (api.moonshot.ai|.cn)
-  google    no usage-read endpoint -> account presence + console pointer (aistudio)
-  sakana    no balance endpoint (checked 2026-07-24) -> account presence + console pointer
+  kimi      subscription OAuth login has no usage endpoint -> login state in the console-only
+            group. Opt-in: an sk-kimi key (minted at kimi.com/code/console) polls
+            GET api.kimi.com/coding/v1/usages -> per-model plan bars (community-verified
+            endpoint, not officially documented); a Moonshot platform key instead uses the
+            documented GET /v1/users/me/balance (api.moonshot.ai|.cn)
+  google    no usage-read endpoint for an AI Studio API key (verified 2026-07-24; quota IS
+            readable via gcloud OAuth + Cloud Monitoring on the key's project — out of scope
+            for key-based polling) -> console-only group
+  sakana    no balance/usage endpoint (verified 2026-07-24: chat/responses/models only) ->
+            console-only group
 
 Config file shape (all fields optional except provider; `source.type` one of
 opencode | env | file | statusline | codex-local | kimi-local | none):
@@ -221,6 +227,28 @@ def parse_deepseek(d):
             "available": d.get("is_available")}
 
 
+def parse_kimi_code(d):
+    """Kimi Code plan usage — GET api.kimi.com/coding/v1/usages with an sk-kimi key (minted in
+    the Kimi Code Console; the subscription OAuth token cannot call it). Community-verified
+    endpoint (not in official docs) — parser is tolerant: accepts a list of per-model rows
+    carrying limit/used (top-level, data, or usages)."""
+    rows = d.get("usages") or (d.get("data") or {}).get("usages") or d.get("data") or []
+    if isinstance(rows, dict):
+        rows = [rows]
+    windows = []
+    for r in rows:
+        if not isinstance(r, dict) or not r.get("limit"):
+            continue
+        used = r.get("used", r.get("limit", 0) - r.get("remaining", 0))
+        label = str(r.get("model") or r.get("name") or "plan")[:12]
+        reset = r.get("reset_at") or r.get("resets_at")
+        windows.append({"label": label, "pct": round(100.0 * used / r["limit"], 1),
+                        "resets_at": reset})
+    if not windows:
+        return {"error": "no usage rows"}
+    return {"windows": windows[:2]}
+
+
 def parse_moonshot(d):
     data = d.get("data") or {}
     if data.get("available_balance") is None:
@@ -307,6 +335,15 @@ def fetch_account(account, opencode_path=None):
         if prov == "deepseek":
             return parse_deepseek(get_json("https://api.deepseek.com/user/balance",
                                            {"Authorization": f"Bearer {key}"}))
+        if prov == "kimi" and key.startswith("sk-kimi"):
+            # Kimi Code Console key -> plan usage endpoint (community-verified; opt-in key)
+            for path in ("/coding/v1/usages", "/coding/v1/usage"):
+                try:
+                    return parse_kimi_code(get_json("https://api.kimi.com" + path,
+                                                    {"Authorization": f"Bearer {key}"}))
+                except Exception:  # noqa: BLE001 — try the fallback path
+                    continue
+            return {"error": "usages endpoint unreachable"}
         if prov == "kimi":  # API-key account: documented Moonshot balance endpoint
             for base in ("https://api.moonshot.ai", "https://api.moonshot.cn"):
                 try:
@@ -438,10 +475,12 @@ def account_label(acc, multi):
 
 
 def usage_cells(cache):
-    """(bar_cells, note_bits): bar cell = (label, label_vis, pct, suffix); notes are text."""
-    cells, notes = [], []
+    """(bar_cells, note_bits, console_bits): bar cell = (label, label_vis, pct, suffix);
+    notes = API-backed facts (balances, errors); console_bits = providers whose usage is NOT
+    programmatically readable (nested under one 'console only' group by the renderers)."""
+    cells, notes, console = [], [], []
     if not cache:
-        return cells, ["providers: no data yet (first poll pending)"]
+        return cells, ["providers: no data yet (first poll pending)"], console
     multi = {}
     for a in cache.get("accounts", []):
         multi[a["provider"]] = multi.get(a["provider"], 0) + 1
@@ -463,10 +502,20 @@ def usage_cells(cache):
             cur = {"USD": "$", "CNY": "¥"}.get(d.get("currency"), d.get("currency") or "")
             notes.append(f"{star} {cur}{d['balance']} left")
         elif d.get("note"):
-            notes.append(f"{star}: {d['note']}")
+            url = CONSOLE_URLS.get(a["provider"], "")
+            state = "logged in" if "logged in" in d["note"] else (
+                "key present" if "key present" in d["note"] else "no credential")
+            console.append(f"{star} {DIM}({state}{'; ' + url if url else ''}){OFF}")
         elif d.get("error"):
             notes.append(f"{star}: {d['error']}")
-    return cells, notes
+    return cells, notes, console
+
+
+def console_line(console):
+    """The nested console-only group, visually set apart: 'no usage API > provider (state)'."""
+    if not console:
+        return ""
+    return f"{YELLOW}no usage API{OFF} {DIM}>{OFF} " + f" {DIM}·{OFF} ".join(console)
 
 
 def flow(tokens, width, max_lines):
@@ -569,7 +618,7 @@ def render_bar_cell(cell, label_w, bar_w, with_suffix=True):
     return s
 
 
-def render_full(session, wins, nwin, npane, cells, notes, cache, cols, rows):
+def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, rows):
     out = [f"{BOLD}teamview{OFF} · session {BOLD}{session}{OFF} · {nwin} windows / "
            f"{npane} panes · {datetime.now().strftime('%H:%M:%S')}", ""]
     age = ""
@@ -583,6 +632,8 @@ def render_full(session, wins, nwin, npane, cells, notes, cache, cols, rows):
         out.append("  " + render_bar_cell(c, label_w, bar_w))
     for n in notes:
         out.append(f"  {DIM}{n}{OFF}")
+    if console:
+        out.append("  " + console_line(console))
     out.append("")
     out.append(f"{BOLD}WINDOWS{OFF} {DIM}(panes beneath){OFF}")
     grid_budget = rows - len(out) - 4
@@ -592,7 +643,7 @@ def render_full(session, wins, nwin, npane, cells, notes, cache, cols, rows):
     return out[:rows - 1]
 
 
-def render_strip(session, wins, nwin, npane, cells, notes, cols, rows):
+def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows):
     head = (f"{BOLD}{session}{OFF} · {nwin}w/{npane}p · {datetime.now().strftime('%H:%M:%S')}")
     budget = max(3, rows - 1)
     # bars fold into as many columns as height demands and width allows
@@ -614,6 +665,11 @@ def render_strip(session, wins, nwin, npane, cells, notes, cols, rows):
     lw = min(max((visible_len(l) for l in left), default=0), cols - 42)
     if notes:
         left.append(f"{DIM}{' · '.join(notes)[:max(0, lw - 1)]}{OFF}")
+    if console:
+        cl = console_line(console)
+        left.append(cl if visible_len(cl) <= lw else cl[:0] + f"{YELLOW}no usage API{OFF} {DIM}> "
+                    + ", ".join(re.sub(r"\033\[[0-9;]*m", "", c).split(" ")[0] for c in console)
+                    + f"{OFF}")
     right_w = cols - lw - 3
     right = window_grid(wins, right_w, budget - 1)
     right.append(LEGEND)
@@ -625,7 +681,7 @@ def render_strip(session, wins, nwin, npane, cells, notes, cols, rows):
     return out
 
 
-def render_narrow(session, wins, nwin, npane, cells, notes, cols, rows):
+def render_narrow(session, wins, nwin, npane, cells, notes, console, cols, rows):
     out = [f"{BOLD}{session}{OFF} {nwin}w/{npane}p {datetime.now().strftime('%H:%M')}"]
     label_w = max([c[1] for c in cells], default=8)
     bar_w = max(6, min(14, cols - label_w - 8))
@@ -633,14 +689,19 @@ def render_narrow(session, wins, nwin, npane, cells, notes, cols, rows):
         out.append(render_bar_cell(c, label_w, bar_w, with_suffix=False))
     for n in notes:
         out.append(f"{DIM}{n[:cols]}{OFF}")
+    if console:
+        out.append(console_line(console)[:cols + 40])
     out.extend(flow(window_tokens(wins), cols, max(1, rows - len(out) - 1)))
     return out[:rows - 1]
 
 
-def render_tiny(session, wins, nwin, npane, cells, notes, cols, rows):
+def render_tiny(session, wins, nwin, npane, cells, notes, console, cols, rows):
     out = [f"{BOLD}{session[:cols - 12]}{OFF} {nwin}w/{npane}p"]
     toks = [f"{re.sub(chr(27) + r'\[[0-9;]*m', '', c[0])} {c[2]:.0f}%" for c in cells]
     toks += [re.sub(r"\s+", " ", n) for n in notes]
+    if console:
+        toks.append("no-API: " + " ".join(
+            re.sub(r"\033\[[0-9;]*m", "", c).split(" ")[0] for c in console))
     out.extend(flow(toks, cols, max(1, (rows - 1) // 2)))
     out.extend(flow(window_tokens(wins), cols, max(1, rows - len(out) - 1)))
     return out[:rows - 1]
@@ -657,15 +718,15 @@ def render(args, session):
         return [f"no such tmux session: {session}",
                 "sessions: " + " ".join(tmux_lines("list-sessions", "-F", "#{session_name}"))]
     cache = load_cache()
-    cells, notes = usage_cells(cache)
+    cells, notes, console = usage_cells(cache)
     layout = choose_layout(cols, rows)
     if layout == "full":
-        return render_full(session, wins, nwin, npane, cells, notes, cache, cols, rows)
+        return render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, rows)
     if layout == "strip":
-        return render_strip(session, wins, nwin, npane, cells, notes, cols, rows)
+        return render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows)
     if layout == "narrow":
-        return render_narrow(session, wins, nwin, npane, cells, notes, cols, rows)
-    return render_tiny(session, wins, nwin, npane, cells, notes, cols, rows)
+        return render_narrow(session, wins, nwin, npane, cells, notes, console, cols, rows)
+    return render_tiny(session, wins, nwin, npane, cells, notes, console, cols, rows)
 
 
 # ---------- selftest ----------
@@ -693,6 +754,11 @@ def cmd_selftest():
     check("deepseek parser: balance+currency", d["balance"] == "9.26" and d["currency"] == "USD")
     m = parse_moonshot({"data": {"available_balance": 12.5}})
     check("moonshot parser: balance", m["balance"] == "12.5" and m["currency"] == "CNY")
+    k = parse_kimi_code({"usages": [{"model": "kimi-for-coding", "limit": 200, "used": 30,
+                                     "reset_at": 7}]})
+    check("kimi-code parser: pct from limit/used",
+          k["windows"][0]["pct"] == 15.0 and k["windows"][0]["resets_at"] == 7)
+    check("kimi-code parser: empty -> error", parse_kimi_code({}).get("error") == "no usage rows")
     c = parse_claude_statusline({"ts": 1, "rate_limits": {
         "five_hour": {"used_percentage": 51, "resets_at": 2},
         "seven_day": {"used_percentage": 19}, "seven_day_opus": {"used_percentage": 40}}})
@@ -747,22 +813,24 @@ def cmd_selftest():
          "data": {"balance": "9.26", "currency": "USD"}},
         {"provider": "sakana", "name": "main", "in_use": True,
          "data": {"note": "key present · console-only (console.sakana.ai)"}}]}
-    cells, notes = usage_cells(fake_cache)
-    check("cells: one bar per window, money+notes to footer",
+    cells, notes, console = usage_cells(fake_cache)
+    check("cells: one bar per window, money to notes, console-only nested apart",
           len(cells) == 3 and any("9.26" in n for n in notes)
-          and any("sakana" in n for n in notes))
+          and not any("sakana" in n for n in notes)
+          and any("sakana" in c for c in console)
+          and "no usage API" in console_line(console))
     check("in-use highlight: cyan (no star) for in-use, dim for alt",
           "*" not in cells[0][0] and CYAN in cells[0][0] and DIM in cells[2][0])
     wins = [{"idx": "0", "name": "control", "active": True, "panes": ["master", "watcher"]},
             {"idx": "1", "name": "cli", "active": False, "panes": ["cli"]}]
     for layout_fn, dims in ((render_strip, (240, 8)), (render_narrow, (56, 40)),
                             (render_tiny, (58, 12)), ):
-        out = layout_fn("sess", wins, 2, 3, cells, notes, *dims)
+        out = layout_fn("sess", wins, 2, 3, cells, notes, console, *dims)
         joined = "\n".join(out)
         check(f"{layout_fn.__name__}: fits height and carries seats + a provider",
               len(out) <= dims[1] and "master" in joined and "claude" in re.sub(
                   r"\033\[[0-9;]*m", "", joined))
-    out = render_full("sess", wins, 2, 3, cells, notes, fake_cache, 120, 40)
+    out = render_full("sess", wins, 2, 3, cells, notes, console, fake_cache, 120, 40)
     plain = [re.sub(r"\033\[[0-9;]*m", "", l) for l in out]
     hdr = next((i for i, l in enumerate(plain) if "control" in l), None)
     check("render_full: grid — starred active window, panes beneath, no legend, no renews",

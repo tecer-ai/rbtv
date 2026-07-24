@@ -57,9 +57,13 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
 | codex | LOCAL `~/.codex/sessions/**/rollout-*.jsonl` `payload.rate_limits` (no API call) | plan bars; "as of <time>" when the snapshot is stale |
 | zai | `GET https://api.z.ai/api/monitor/usage/quota/limit` (`Authorization: <key>`, no Bearer) | 5h + weekly used-% bars, plan tier |
 | deepseek | `GET https://api.deepseek.com/user/balance` (Bearer) | money balance |
-| kimi | subscription login state (`~/.kimi/credentials/`) — no usage endpoint; an API-key account uses Moonshot `GET /v1/users/me/balance` (`api.moonshot.ai` → `.cn` fallback) | login note / balance |
-| google | no usage-read endpoint | key presence + console pointer (aistudio.google.com) |
-| sakana | no balance endpoint (checked 2026-07-24) | key presence + console pointer (console.sakana.ai) |
+| kimi | subscription OAuth login: no usage endpoint → console-only group. Opt-in: an `sk-kimi` key (mint at kimi.com/code/console, supply via an `env`/`file` source) polls `GET api.kimi.com/coding/v1/usages` — community-verified, not officially documented. A Moonshot platform key instead uses the documented `GET /v1/users/me/balance` | login note / per-model plan bars / balance |
+| google | no usage-read endpoint for an AI Studio API key (verified 2026-07-24; project-level quota IS readable via gcloud OAuth + Cloud Monitoring — out of scope for key polling) | console-only group |
+| sakana | no balance/usage endpoint (verified 2026-07-24: chat/responses/models only, no rate-limit headers documented) | console-only group |
+
+Providers with no readable usage nest under one visually distinct footer line —
+`no usage API > sakana (key present; console.sakana.ai) · google (…) · kimi (…)` — yellow-
+prefixed and separate from the API-backed facts (balances) above it.
 
 **Hard rule:** never add a probe of an undocumented endpoint with stored keys — verify the
 endpoint in the provider's official docs first, read-only GETs only.
