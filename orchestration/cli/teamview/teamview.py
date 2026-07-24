@@ -355,10 +355,16 @@ def roster_map(package):
     return out
 
 
+BUSY_GLYPHS = r"[⠀-⣿✳✻✽✶✢]"  # agent TUIs write these into their pane title while WORKING
+
+
+def is_busy(title):
+    return bool(re.search(BUSY_GLYPHS, title or ""))
+
+
 def clean_title(title):
-    # strip the agent TUIs' busy/spinner glyphs (braille spinner + asterisk variants)
-    t = re.sub(r"[⠀-⣿✳✻✽✶✢]", "", title or "").strip()
-    return (t[:18] + "…") if len(t) > 19 else (t or "?")
+    t = re.sub(BUSY_GLYPHS, "", title or "").strip()
+    return (t[:18] + "~") if len(t) > 19 else (t or "?")
 
 
 def session_tree(session, roster):
@@ -373,7 +379,10 @@ def session_tree(session, roster):
                          "#{window_index}\t#{pane_id}\t#{pane_title}"):
         idx, pid, title = ln.split("\t", 2)
         if idx in by_idx:
-            by_idx[idx]["panes"].append(roster.get(pid) or clean_title(title))
+            name = roster.get(pid) or clean_title(title)
+            if is_busy(title):
+                name += "..."  # thinking indicator — the seat's TUI reports it is working
+            by_idx[idx]["panes"].append(name)
     return wins, len(wins), sum(len(w["panes"]) for w in wins)
 
 
@@ -417,7 +426,8 @@ def usage_cells(cache):
             stale = d.get("as_of") and now_ts - d["as_of"] > 5400
             for w in d["windows"]:
                 suffix = (f"as of {fmt_epoch(d['as_of'])}" if stale
-                          else (f"→{fmt_epoch(w['resets_at'])}" if w.get("resets_at") else ""))
+                          else (f"renews {fmt_epoch(w['resets_at'])}"
+                                if w.get("resets_at") else ""))
                 cells.append((f"{label} {w['label']}", lvis + 1 + len(w["label"]),
                               w["pct"], suffix))
         elif d.get("balance") is not None:
@@ -453,7 +463,8 @@ def window_tokens(wins):
     for w in wins:
         star = "*" if w["active"] else ""
         if len(w["panes"]) <= 1:
-            out.append(f"{star}{w['name']}")
+            busy = "..." if (w["panes"] and w["panes"][0].endswith("...")) else ""
+            out.append(f"{star}{w['name']}{busy}")
         else:
             out.append(f"{star}{w['name']}[{' '.join(w['panes'])}]")
     return out

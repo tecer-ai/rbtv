@@ -25,10 +25,14 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
 
 ## What it shows
 
-- **Session block** — every window with its member seat names; the active window starred.
+- **Session block** — every window with its member seat names; the active window starred; a
+  seat whose TUI reports it is WORKING carries a trailing `...` (the thinking indicator —
+  derived from the busy glyph agent TUIs write into their pane title, rendered ASCII-safe).
   Names resolve pane-id → agent from a team-kit run package's `coordination/workers.md`
   (`--package`, or `RBTV_TEAMVIEW_PACKAGE`) because agent TUIs rewrite their own pane titles;
-  fallback is the cleaned pane title.
+  fallback is the cleaned pane title. Quota renewal times render as plain `renews <time>` —
+  no arrow glyphs anywhere (U+2192 is ambiguous-width and breaks column alignment in some
+  terminal fonts).
 - **Plan-limit bars** — one bar per usage window per account, colored by headroom (green <60%,
   yellow <85%, red ≥85%), with reset times; money-balance and console-only providers render as
   footer notes. The account each harness ACTUALLY uses is highlighted `*bold`; extra accounts
