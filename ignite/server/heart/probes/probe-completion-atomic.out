@@ -1,0 +1,9 @@
+COMMAND: node server/heart/probes/probe-completion-atomic.js
+CASE1_ATOMIC_VISIBLE (status=done, completion_msg_id=msg, ended_at set, routed_at_tick NULL): true
+CASE2_EXECID_PIN (status=failed, completion_msg_id=msg, exit_code=7): true
+CASE3_FAULT_RAISED: injected fault between the completion INSERT and the jobs_log UPDATE
+CASE3_NEITHER_LANDED (message rolled back, exec untouched): true
+CASE3_BOTH_LANDED_AFTER_CLEAR: true
+CASE4_UNKNOWN_THREAD (message inserted alone, unrouted for Advance's anomaly path): true
+EXIT: 0
+WALL_MS: 17

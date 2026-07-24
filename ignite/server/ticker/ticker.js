@@ -554,6 +554,9 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     const tail = tailBytes(logPath, 4096);
     const corpus = `tool exit: ${exitCode}\n--- output tail ---\n${tail}`;
     const status = exitCode === 0 ? 'done' : 'failed';
+    // Task 7.7: the store stamps jobs_log (status, completion_msg_id, ended_at,
+    // exit_code) atomically with this INSERT — execId pins the tool's own row.
+    // Advance still owns the ROUTING stamp (routed_at_tick) at its next tick.
     heartStore.recordMessage({
       type: 'completion',
       sender: 'ticker',
@@ -561,8 +564,9 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       corpus,
       status,
       createdAt: new Date(),
+      execId,
+      exitCode,
     });
-    // Leave the completion unresolved so Advance owns the lifecycle stamp.
   }
 
   async function launchFireTool(queueRow, actions, tick, now) {
@@ -650,6 +654,16 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     // idx_messages_unrouted_completion, per-tick work here tracks in-flight
     // completions (promptly routed below), not accumulated history — a future
     // writer that forgets to stamp a note cannot recreate the growth.
+    //
+    // Task 7.7 narrowed what this scan resolves: the jobs_log stamp (status,
+    // completion_msg_id, ended_at) lands ATOMICALLY with the completion INSERT
+    // in the store (recordMessage's one-transaction completion path), so a
+    // half-recorded completion can no longer exist and this scan no longer
+    // writes jobs_log. What it still catches — and still recovers after a
+    // crash/restart, since an unrouted completion survives on disk: the
+    // ROUTING half of D30's deferred resolution (recycle-on-pending-input,
+    // compaction recycle, budget/failure owner notes, the wake interplay) and
+    // the routed_at_tick stamp, plus the unknown-thread anomaly surface.
     const unrouted = heartStore.getMessages({ unroutedOnly: true, type: 'completion' });
     for (const msg of unrouted) {
       const exec = findExecForCompletion(msg);
@@ -672,7 +686,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         const recycles = countAutomaticRecycles(exec.exec_id);
         if (recycles >= cfg.slot_max_repeats) {
           recordOwnerNote(`slot automatic-recycle budget exhausted after compaction (${cfg.slot_max_repeats})`, now, tick);
-          heartStore.resolveCompletion({ msgId: msg.msg_id, execId: exec.exec_id, status: 'done', endedAt: now, routedAtTick: tick });
+          stampMessageRouted(msg.msg_id, tick);
           actions.push({ phase: 'advance', action: 'compaction-budget-exhausted', execId: exec.exec_id, recycles });
         } else {
           insertQueueRow({
@@ -685,7 +699,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
             parentExecId: exec.exec_id,
             autoRedispatch: true,
           });
-          heartStore.resolveCompletion({ msgId: msg.msg_id, execId: exec.exec_id, status: 'done', endedAt: now, routedAtTick: tick });
+          stampMessageRouted(msg.msg_id, tick);
           actions.push({ phase: 'advance', action: 'compaction-recycle', execId: exec.exec_id, recycles });
         }
       } else if (status === 'done') {
@@ -706,18 +720,18 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
             enqueuedBy: exec.enqueued_by,
             parentExecId: exec.exec_id,
           });
-          heartStore.resolveCompletion({ msgId: msg.msg_id, execId: exec.exec_id, status: 'done', endedAt: now, routedAtTick: tick });
+          stampMessageRouted(msg.msg_id, tick);
           actions.push({ phase: 'advance', action: 'recycle', execId: exec.exec_id, recycles });
         } else {
-          heartStore.resolveCompletion({ msgId: msg.msg_id, execId: exec.exec_id, status: 'done', endedAt: now, routedAtTick: tick });
+          stampMessageRouted(msg.msg_id, tick);
           actions.push({ phase: 'advance', action: 'end', execId: exec.exec_id });
         }
       } else if (status === 'blocked') {
-        heartStore.resolveCompletion({ msgId: msg.msg_id, execId: exec.exec_id, status: 'blocked', endedAt: now, routedAtTick: tick });
+        stampMessageRouted(msg.msg_id, tick);
         actions.push({ phase: 'advance', action: 'blocked', execId: exec.exec_id });
       } else if (status === 'failed') {
         recordOwnerNote(`slot halted: session failed (exec ${exec.exec_id})`, now, tick);
-        heartStore.resolveCompletion({ msgId: msg.msg_id, execId: exec.exec_id, status: 'failed', endedAt: now, routedAtTick: tick });
+        stampMessageRouted(msg.msg_id, tick);
         actions.push({ phase: 'advance', action: 'failed-halt', execId: exec.exec_id });
       }
     }
@@ -959,6 +973,8 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
           const corpus = answer !== null
             ? answer
             : `clean exit: 0 (no parseable result line)\n--- log tail ---\n${tailBytes(exec.log_path, 4096)}`;
+          // Task 7.7: message INSERT + jobs_log stamp are ONE store transaction
+          // (execId pins the swept row — no thread re-resolution).
           const msg = heartStore.recordMessage({
             type: 'completion',
             sender: 'ticker',
@@ -966,14 +982,17 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
             corpus,
             status: 'done',
             createdAt: now,
+            execId: exec.exec_id,
+            exitCode: 0,
           });
-          heartStore.updateExecutionStatus(exec.exec_id, { status: 'done', exitCode: 0, endedAt: now });
           actions.push({ phase: 'enforce', action: 'clean-exit-sweep', execId: exec.exec_id, completionMsgId: msg.msg_id, extracted: answer !== null });
           continue;
         }
         const exitCode = marker.present ? marker.exitCode : (info.exitCode ?? info.carrierInfo?.exitCode ?? null);
         const tail = tailBytes(exec.log_path, 4096);
         const corpus = `crash sweep: exit=${marker.present ? marker.raw : exitCode}\n--- log tail ---\n${tail}`;
+        // Task 7.7: message INSERT + jobs_log stamp are ONE store transaction
+        // (execId pins the swept row — no thread re-resolution).
         const msg = heartStore.recordMessage({
           type: 'completion',
           sender: 'ticker',
@@ -981,9 +1000,10 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
           corpus,
           status: 'failed',
           createdAt: now,
+          execId: exec.exec_id,
+          exitCode,
         });
         recordOwnerNote(`slot halted: session crashed (exec ${exec.exec_id})`, now, tick);
-        heartStore.updateExecutionStatus(exec.exec_id, { status: 'failed', exitCode, endedAt: now });
         crashedThisTick.add(exec.exec_id);
         actions.push({ phase: 'enforce', action: 'crash-sweep', execId: exec.exec_id, exitCode, completionMsgId: msg.msg_id });
       }

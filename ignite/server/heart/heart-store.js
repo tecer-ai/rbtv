@@ -757,7 +757,7 @@ class HeartStore {
     return this.getExecution(execId);
   }
 
-  recordMessage({ type, sender, thread, corpus, status = null, createdAt }) {
+  recordMessage({ type, sender, thread, corpus, status = null, createdAt, execId = null, exitCode = null }) {
     if (!MESSAGE_TYPES.has(type)) {
       throw new HeartStoreError(E_BAD_MESSAGE, `invalid message type: ${type}`, { field: 'type' });
     }
@@ -773,13 +773,74 @@ class HeartStore {
     if (type === 'completion' && !['done', 'blocked', 'failed'].includes(status)) {
       throw new HeartStoreError(E_BAD_MESSAGE, 'completion requires status done|blocked|failed', { field: 'status' });
     }
+    if (execId !== null && !Number.isInteger(execId)) {
+      throw new HeartStoreError(E_BAD_ARGS, 'execId must be an integer when given', { field: 'execId' });
+    }
     const createdAtIso = createdAt ? toIsoUtc(createdAt) : isoNow();
-    const stmt = this._prepare(`
+    const insertSql = `
       INSERT INTO messages (type, sender, thread, corpus, status, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(type, sender, thread, corpus, status, createdAtIso);
-    return this.getMessage(Number(result.lastInsertRowid));
+    `;
+
+    if (type !== 'completion') {
+      const result = this._prepare(insertSql).run(type, sender, thread, corpus, status, createdAtIso);
+      return this.getMessage(Number(result.lastInsertRowid));
+    }
+
+    // Completion path (task 7.7, owner ruling 2026-07-23 / heart-store-spec § Single-writer):
+    // completion = messages INSERT + jobs_log UPDATE (status, completion_msg_id, ended_at)
+    // in ONE transaction — a crash can never leave a finished job's completion message on
+    // disk with its jobs_log row unstamped (the former recordMessage-then-resolveCompletion
+    // two-transaction window). The ticker's routed_at_tick stamp deliberately stays a
+    // ticker-side Advance update (D30 deferred ROUTING unchanged — recycle/wake decisions
+    // remain the ticker's, at its own tick). The owning execution is the caller's `execId`
+    // when given (the ticker's sweeps know their exec), else resolved from the thread with
+    // the same determination Advance used (live execution in the chain first, else the most
+    // recent terminal one for a duplicate/late report). A completion on an unknown/inactive
+    // thread inserts the message alone — Advance's anomaly path routes it.
+    this.db.exec('BEGIN EXCLUSIVE;');
+    try {
+      const result = this._prepare(insertSql).run(type, sender, thread, corpus, status, createdAtIso);
+      const msgId = Number(result.lastInsertRowid);
+      const exec = execId !== null ? this.getExecution(execId) : this._findCompletionExecution(thread);
+      if (exec) {
+        this._prepare(`
+          UPDATE jobs_log SET status = ?, completion_msg_id = ?, ended_at = ?, exit_code = COALESCE(?, exit_code)
+          WHERE exec_id = ?
+        `).run(status, msgId, createdAtIso, exitCode, exec.exec_id);
+      }
+      this.db.exec('COMMIT;');
+      return this.getMessage(msgId);
+    } catch (err) {
+      try { this.db.exec('ROLLBACK;'); } catch { /* rollback best-effort */ }
+      throw err;
+    }
+  }
+
+  // Resolve which execution a thread's completion belongs to — the SAME determination the
+  // ticker's Advance made before task 7.7 moved the jobs_log stamp to record time: prefer
+  // the chain's live execution (running/launching), else the most recent terminal one
+  // (duplicate / late report). Returns the jobs_log row or null (unknown/inactive thread).
+  _findCompletionExecution(thread) {
+    if (typeof thread !== 'string' || !thread.startsWith('exec-')) return null;
+    const rootId = parseInt(thread.slice(5), 10);
+    if (!Number.isInteger(rootId)) return null;
+    const rows = this._prepare(`
+      WITH RECURSIVE descendants(exec_id, parent_exec_id) AS (
+        SELECT exec_id, parent_exec_id FROM jobs_log WHERE exec_id = ?
+        UNION ALL
+        SELECT j.exec_id, j.parent_exec_id
+          FROM jobs_log j JOIN descendants d ON j.parent_exec_id = d.exec_id
+      )
+      SELECT j.* FROM jobs_log j JOIN descendants d ON j.exec_id = d.exec_id ORDER BY j.exec_id
+    `).all(rootId);
+    for (const row of rows) {
+      if (row.status === 'running' || row.status === 'launching') return row;
+    }
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (['done', 'blocked', 'failed', 'stalled'].includes(rows[i].status)) return rows[i];
+    }
+    return null;
   }
 
   getMessage(msgId) {
@@ -808,20 +869,10 @@ class HeartStore {
     return stmt.all(...params);
   }
 
-  resolveCompletion({ msgId, execId, status, endedAt, routedAtTick }) {
-    this.db.exec('BEGIN EXCLUSIVE;');
-    try {
-      this._prepare('UPDATE messages SET routed_at_tick = ? WHERE msg_id = ?').run(routedAtTick, msgId);
-      this._prepare(`
-        UPDATE jobs_log SET status = ?, completion_msg_id = ?, ended_at = ? WHERE exec_id = ?
-      `).run(status, msgId, toIsoUtc(endedAt), execId);
-      this.db.exec('COMMIT;');
-      return { message: this.getMessage(msgId), execution: this.getExecution(execId) };
-    } catch (err) {
-      try { this.db.exec('ROLLBACK;'); } catch {}
-      throw err;
-    }
-  }
+  // resolveCompletion was RETIRED by task 7.7: the jobs_log stamp (status, completion_msg_id,
+  // ended_at) now lands atomically with the completion INSERT in recordMessage above, and the
+  // routed_at_tick stamp is the ticker Advance's own update (stampMessageRouted) — nothing is
+  // left for a combined resolve to do.
 
   recordTick({ tick, ts, actionsJson = '[]' }) {
     const tsIso = ts ? toIsoUtc(ts) : isoNow();
