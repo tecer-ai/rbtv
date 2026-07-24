@@ -129,6 +129,18 @@ def discover_accounts(home=None, opencode_path=None):
 
 
 HARNESS_BACKED = {"opencode", "codex-local", "statusline", "kimi-local"}
+# A statusline (Claude) account counts as IN USE only if a session wrote its usage file within
+# this window — multiple Claude accounts are all statusline-backed, so recency, not source
+# type, is what distinguishes the account actually being used.
+CLAUDE_ACTIVE_SECS = 600
+
+
+def claude_in_use(data, now=None):
+    as_of = (data or {}).get("as_of")
+    if not as_of:
+        return False
+    now = now if now is not None else time.time()
+    return (now - as_of) <= CLAUDE_ACTIVE_SECS
 
 
 def load_accounts(cfg_path, home=None, opencode_path=None):
@@ -142,7 +154,9 @@ def load_accounts(cfg_path, home=None, opencode_path=None):
         accounts = discover_accounts(home, opencode_path)
     for a in accounts:
         src = a.get("source") or {}
-        if "in_use" not in a:  # harness-backed sources are what the harnesses actually read
+        if "in_use" in a:
+            a["_in_use_explicit"] = True
+        else:  # harness-backed sources are what the harnesses actually read
             a["in_use"] = src.get("type") in HARNESS_BACKED
     return accounts
 
@@ -312,8 +326,13 @@ def poll_providers(args):
     accounts = load_accounts(config_path(args.config))
     out = {"ts": int(time.time()), "accounts": []}
     for a in accounts:
+        data = fetch_account(a)
+        in_use = bool(a.get("in_use"))
+        if (a["provider"] == "claude" and (a.get("source") or {}).get("type") == "statusline"
+                and not a.get("_in_use_explicit")):
+            in_use = claude_in_use(data)  # recency decides between multiple Claude accounts
         out["accounts"].append({"provider": a["provider"], "name": a.get("name", "main"),
-                                "in_use": bool(a.get("in_use")), "data": fetch_account(a)})
+                                "in_use": in_use, "data": data})
     cf = cache_file()
     cf.parent.mkdir(parents=True, exist_ok=True)
     tmp = cf.with_suffix(".tmp")
@@ -681,6 +700,9 @@ def cmd_selftest():
     cw = codex_windows_from_rl({"primary": {"used_percent": 3.0, "window_minutes": 10080,
                                             "resets_at": 5}, "secondary": None})
     check("codex windows: 10080min -> 7d", cw == [{"label": "7d", "pct": 3.0, "resets_at": 5}])
+    check("claude in-use: recent statusline write -> in use; stale/absent -> not",
+          claude_in_use({"as_of": 1000}, now=1300) and not claude_in_use({"as_of": 1000}, now=1000 + CLAUDE_ACTIVE_SECS + 1)
+          and not claude_in_use({"error": "no data file yet"}, now=1300))
 
     with tempfile.TemporaryDirectory() as td:
         home = Path(td)
