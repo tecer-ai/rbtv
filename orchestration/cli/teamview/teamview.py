@@ -421,20 +421,31 @@ def roster_map(package):
     return out
 
 
-BUSY_GLYPHS = r"[⠀-⣿✳✻✽✶✢]"  # TUI title spinner glyphs — PERSIST when idle, so titles cannot
+BUSY_GLYPHS = r"[⠀-⣿✳✻✽✶✢]"  # TUI title spinner glyphs — they PERSIST frozen when a turn ends,
 SHELLS = {"bash", "zsh", "sh", "fish", "dash"}  # pane_current_command = shell -> harness exited
-# tell busy from idle. The honest working signal is the TUI's interrupt footer in the pane
-# CONTENT ("esc to interrupt" — claude + codex; opencode shows "esc interrupt"), only rendered
-# while a turn is actually running.
-BUSY_RE = re.compile(r"esc(ape)? (to )?interrupt|ctrl\+c to stop", re.I)
+# so a still frame cannot tell working from idle (a frozen ✳ is not activity). The honest,
+# harness-agnostic signal is CHANGE: a pane whose visible content differs across two samples a
+# fraction of a second apart is actively rendering (spinner cycling / tokens streaming / tool
+# output) — i.e. working. An idle pane's content is static between samples.
+BUSY_SAMPLE_GAP = 0.6  # seconds between the two activity samples
 
 
-def pane_busy(pane):
+def pane_signature(pane):
     r = subprocess.run(["tmux", "capture-pane", "-p", "-t", pane],
                        capture_output=True, text=True)
     if r.returncode != 0:
-        return False
-    return bool(BUSY_RE.search("\n".join(r.stdout.splitlines()[-15:])))
+        return ""
+    return "\n".join(r.stdout.splitlines()[-8:])
+
+
+def busy_panes(pids, gap=BUSY_SAMPLE_GAP):
+    """Set of pane ids whose visible content changed across two samples -> actively working."""
+    if not pids:
+        return set()
+    a = {pid: pane_signature(pid) for pid in pids}
+    time.sleep(gap)
+    b = {pid: pane_signature(pid) for pid in pids}
+    return {pid for pid in pids if a.get(pid) and a[pid] != b.get(pid)}
 
 
 def clean_title(title):
@@ -450,16 +461,20 @@ def session_tree(session, roster):
         idx, name, active = ln.split("\t")
         wins.append({"idx": idx, "name": name, "active": active == "1", "panes": []})
     by_idx = {w["idx"]: w for w in wins}
+    rows = []
     for ln in tmux_lines("list-panes", "-s", "-t", session, "-F",
                          "#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_title}"):
         idx, pid, cmd, title = ln.split("\t", 3)
         if idx in by_idx:
-            name = roster.get(pid) or clean_title(title)
-            if cmd in SHELLS:
-                name = f"{DIM}{name}{OFF}"  # harness exited — a bare shell sits in the pane
-            elif pane_busy(pid):
-                name += "+"  # genuinely working: the TUI's interrupt footer is on screen
-            by_idx[idx]["panes"].append(name)
+            rows.append((idx, pid, cmd, title))
+    working = busy_panes([pid for _i, pid, cmd, _t in rows if cmd not in SHELLS])
+    for idx, pid, cmd, title in rows:
+        name = roster.get(pid) or clean_title(title)
+        if cmd in SHELLS:
+            name = f"{DIM}{name}{OFF}"  # harness exited — a bare shell sits in the pane
+        elif pid in working:
+            name += "+"  # content changed between samples -> actively working
+        by_idx[idx]["panes"].append(name)
     return wins, len(wins), sum(len(w["panes"]) for w in wins)
 
 
@@ -778,6 +793,16 @@ def cmd_selftest():
     cw = codex_windows_from_rl({"primary": {"used_percent": 3.0, "window_minutes": 10080,
                                             "resets_at": 5}, "secondary": None})
     check("codex windows: 10080min -> 7d", cw == [{"label": "7d", "pct": 3.0, "resets_at": 5}])
+    global pane_signature
+    real_sig = pane_signature
+    sig_seq = {"%a": iter(["x", "x"]), "%b": iter(["one", "two"])}  # %a static, %b changing
+    pane_signature = lambda pid: next(sig_seq[pid])
+    working = busy_panes(["%a", "%b"], gap=0)
+    pane_signature = real_sig
+    check("busy_panes: changed content -> working; static -> idle",
+          working == {"%b"})
+    check("busy_panes: empty input -> empty", busy_panes([], gap=0) == set())
+
     check("claude in-use: recent statusline write -> in use; stale/absent -> not",
           claude_in_use({"as_of": 1000}, now=1300) and not claude_in_use({"as_of": 1000}, now=1000 + CLAUDE_ACTIVE_SECS + 1)
           and not claude_in_use({"error": "no data file yet"}, now=1300))
