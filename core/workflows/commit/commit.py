@@ -8,6 +8,8 @@ staging gate, the commit, and an optional push.
 
 It fails loudly (non-zero exit + a clear message) and makes NO commit on:
   - a real merge conflict while syncing the remote,
+  - any OTHER remote-sync failure (stale index.lock, network/auth, refused
+    fast-forward) — reported as its own class, never as a conflict,
   - a requested file that has no changes to commit,
   - a staged/requested mismatch (defensive; should not happen after the reset).
 
@@ -71,20 +73,37 @@ def git_ok(args, root):
 
 
 def sync_after_commit(root, before):
-    """Pull remote changes on top of the just-made commit. On a real conflict,
-    abort the merge and undo the commit so NO commit survives and the requested
-    changes are left staged in the working tree. `before` is HEAD prior to the
-    commit (the undo target)."""
+    """Pull remote changes on top of the just-made commit. On ANY failure, abort
+    the merge and undo the commit so NO commit survives and the requested changes
+    are left staged in the working tree. `before` is HEAD prior to the commit
+    (the undo target).
+
+    A failed pull is CLASSIFIED before it is reported. A non-zero pull is not
+    evidence of a conflict: a stale `.git/index.lock`, a network or auth failure,
+    or a refused fast-forward all exit non-zero with no conflict anywhere.
+    Reporting those as a conflict sends the caller into the conflict-resolution
+    workflow hunting for conflicts that do not exist, so the two cases carry
+    different messages and the real git error is surfaced verbatim."""
     pull = git(["pull", "--no-edit"], root, check=False)
     if pull.returncode == 0:
         return
+    # Ground truth for "was this a conflict": unmerged index entries, or a merge
+    # left in progress. `--absolute-git-dir` (not root/.git) so this holds in a
+    # worktree, where .git is a file pointing elsewhere.
     conflicts = git(["diff", "--name-only", "--diff-filter=U"], root, check=False).stdout.strip()
+    git_dir = git(["rev-parse", "--absolute-git-dir"], root, check=False).stdout.strip()
+    merging = bool(git_dir) and os.path.exists(os.path.join(git_dir, "MERGE_HEAD"))
     git(["merge", "--abort"], root, check=False)
     git(["reset", "--soft", before], root, check=False)  # undo our commit, keep changes staged
-    msg = "merge conflict pulling remote changes"
-    if conflicts:
-        msg += " in: " + ", ".join(conflicts.splitlines())
-    fail(msg + ". No commit made; your changes are staged. Resolve the remote divergence, then retry.")
+    left = " No commit made; your changes are staged."
+    if conflicts or merging:
+        msg = "merge conflict pulling remote changes"
+        if conflicts:
+            msg += " in: " + ", ".join(conflicts.splitlines())
+        fail(msg + "." + left + " Resolve the remote divergence, then retry.")
+    err = (pull.stderr or pull.stdout or "").strip() or f"git pull exited {pull.returncode}"
+    fail("could not pull remote changes — NOT a merge conflict (no unmerged paths, no merge "
+         "in progress)." + left + " Fix the cause reported by git below, then retry:\n" + err)
 
 
 def main():

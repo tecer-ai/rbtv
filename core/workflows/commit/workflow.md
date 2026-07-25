@@ -56,6 +56,7 @@ Read the script's error and act:
 |-------|---------|--------|
 | `no changes to commit: <paths>` | A listed file/directory had no changes | Fix the path list, retry the script for that cluster |
 | `merge conflict pulling remote changes in: <files>` | The remote diverged and conflicts with this cluster | Read and follow `{rbtv_path}/core/workflows/commit/merge-conflict.md` |
+| `could not pull remote changes — NOT a merge conflict` | The remote sync failed for a NON-conflict reason; git's own error follows the message | Read that error and fix its cause — a stale `.git/index.lock` (verify NO git process is running, then remove it), a network/auth failure, a refused fast-forward. Then retry the script for that cluster. Do NOT open `merge-conflict.md`: there is no conflict to resolve. |
 
 NEVER move to the next cluster until the current one has committed.
 
