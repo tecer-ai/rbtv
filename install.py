@@ -21,6 +21,7 @@ Scripted / CI mode:
 
 Mirror-only mode (refresh worker guidance artifacts, no component install):
     python install.py --mirror [--target /path/to/workspace]
+    python install.py --mirror --check [--target /path/to/workspace]
     python install.py --mirror --exclude 4-archives 5-workbench/vendor
     python install.py --mirror --uninstall [--target /path/to/workspace]
 
@@ -29,6 +30,14 @@ Mirror-only mode (refresh worker guidance artifacts, no component install):
     recorded in rbtv.json, skipping the target/module/component prompts. The
     target resolves from --target, else the nearest rbtv.json walking upward
     from the current directory.
+
+    --check applies ONLY with --mirror: a read-only drift probe that writes
+    NOTHING. It names every managed file that is missing or has fallen behind
+    its source, then exits 1 when the mirror is out of sync and 0 when it is
+    current — so CI and pre-flight checks can gate on it. Answers "is my mirror
+    current?"; a plain --mirror run is what makes it current. Mirrors are
+    gitignored and refresh only when this installer runs, so drift is
+    per-machine and invisible to git — nothing else will tell you.
 
     --exclude PATH [PATH ...] takes workspace-root-relative posix paths the
     mirror skips — no guidance file is rendered beside any CLAUDE.md inside an

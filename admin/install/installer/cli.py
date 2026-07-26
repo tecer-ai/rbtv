@@ -906,6 +906,17 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--check",
+        action="store_true",
+        help=(
+            "With --mirror: read-only drift probe. Writes NOTHING — reports every "
+            "managed file that is missing or has fallen behind its source, then "
+            "exits 1 if the mirror is out of sync and 0 if it is current. Use it "
+            "to ask 'is my mirror current?' without refreshing it; a plain "
+            "--mirror run is what refreshes."
+        ),
+    )
+    parser.add_argument(
         "--uninstall",
         action="store_true",
         help=(
@@ -934,6 +945,24 @@ def main(argv: list[str] | None = None) -> int:
             "--uninstall applies only with --mirror (full mirror teardown). "
             "Run: install.py --mirror --uninstall [--target <workspace>]."
         )
+
+    # --check is a mirror-probe flag. Guarding it here rather than silently ignoring
+    # it matters: a caller who types `install.py --check` expecting a dry run would
+    # otherwise get a FULL INSTALL.
+    if args.check and not args.mirror:
+        raise SystemExit(
+            "--check applies only with --mirror (read-only mirror drift probe). "
+            "Run: install.py --mirror --check [--target <workspace>]."
+        )
+    # Mirrors the driver's own rejection: one writes nothing, the other deletes
+    # everything — there is no coherent combined meaning.
+    if args.check and args.uninstall:
+        print(
+            "ERROR: --check and --uninstall are mutually exclusive "
+            "(--check writes nothing; --uninstall removes every mirror artifact).",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
 
     # Parse the model-packages flag: None (omitted) vs an explicit (possibly empty) set.
     requested_model_packages: tuple[str, ...] | None = None
@@ -1047,12 +1076,37 @@ def main(argv: list[str] | None = None) -> int:
                 rendered = mirror_render(
                     mirror_target,
                     mirrorable,
+                    check=args.check,
                     excluded_paths=requested_excluded_paths,
                 )
+
+                # --- --mirror --check: report drift, write nothing, exit-code it ---
+                if args.check:
+                    for rel in rendered.stale_paths:
+                        print(f"  stale: {rel} is missing or differs from its source")
+                    if rendered.stale:
+                        print(
+                            f"\n  Mirror: [{', '.join(sorted(mirrorable))}] is OUT OF SYNC "
+                            f"— {len(rendered.managed_files)} managed file(s) expected."
+                        )
+                        print(
+                            "\nRefresh it with: install.py --mirror "
+                            "--non-interactive --target <workspace>"
+                        )
+                        return 1
+                    print(
+                        f"  Mirror: [{', '.join(sorted(mirrorable))}] is in sync "
+                        f"— {len(rendered.managed_files)} managed file(s)."
+                    )
+                    print("\nMirror check complete — no drift.")
+                    return 0
+
                 # The driver already wrote model_mirror to rbtv.json via
                 # state.write_mirror_block (preserving all other keys). Call
                 # update_mirror_state with the driver's final block so the
                 # --mirror contract is satisfied and the state is consistent.
+                # NEVER reached under --check: this is a write, and a probe writes
+                # nothing at all.
                 post_state = read_state(mirror_target)
                 if post_state is not None and isinstance(
                     post_state.get("model_mirror"), dict
@@ -1066,15 +1120,21 @@ def main(argv: list[str] | None = None) -> int:
                     f"{len(rendered.managed_files)} managed file(s) {verb}."
                 )
             else:
-                print("  Mirror: no mirrorable packages elected — nothing to render.")
+                noun = "check" if args.check else "render"
+                print(f"  Mirror: no mirrorable packages elected — nothing to {noun}.")
         except Exception as exc:
+            verb = "check" if args.check else "refresh"
             raise SystemExit(
-                f"\nERROR — mirror refresh failed: {exc}\n"
-                "  The workspace's mirror artifacts may be incomplete. "
-                "Re-run once the cause is resolved."
+                f"\nERROR — mirror {verb} failed: {exc}\n"
+                + (
+                    "  Nothing was written.\n"
+                    if args.check
+                    else "  The workspace's mirror artifacts may be incomplete.\n"
+                )
+                + "  Re-run once the cause is resolved."
             ) from exc
 
-        print("\nMirror refresh complete.")
+        print("\nMirror refresh complete." if not args.check else "\nMirror check complete.")
         return 0
 
     # --- Resolve target path -------------------------------------------------
