@@ -15,7 +15,9 @@ tags:
 agent: {agent-name}        # roster signature — launch discovers briefings by this key
 harness: claude            # optional; claude | codex | opencode (default claude)
 model: opus                # claude alias, or provider/model slug for opencode (REQUIRED there);
-                           # omit on codex for the plan default. Fable for taste/rigor seats
+                           # omit on codex for the plan default. Fable for taste/rigor seats.
+                           # launch pre-validates the alias/slug shape and refuses the whole
+                           # launch before opening any pane on a bad value (PROP-8)
 effort: high               # claude only; optional (default high)
 window: yes                # optional; yes -> own tmux window (tab) — ephemeral/loop seats.
                            # A NAME (e.g. wave-haiku) -> SHARED window of that name: first

@@ -16,6 +16,16 @@ it and relays judgment). One pass checks every ACTIVE roster seat and reports:
              (P38 — a codex seat at "Action Required" stalls silently: its pane content is frozen,
              so it reads as a healthy idle seat until the inactivity threshold finally fires
              ~30 min later). Flagged immediately, with the `approve <agent>` command to run.
+  system     RAM/load pressure on the BOX (PROP-9, tv-ux-review — a stuck-process pile-up
+             OOM-killed the watcher itself, the one seat meant to notice it): available memory
+             below --mem-floor-mb (default 500) or 1-min load at/over cores x --load-per-core
+             flags SYSTEM PRESSURE. Read from /proc/meminfo + /proc/loadavg; on a box without
+             /proc the check skips honestly (never a fake reading).
+  leftover   a briefing-declared wave window whose panes are ALL agent-dead — no active roster
+             seat left in it (PROP-10, tv-ux-review): either its wave closed leaving bash-only
+             shells, or its seats died at model-init before ever checking in. Flagged once with
+             the sanctioned teardown (`tmux kill-window` — bash ignores SIGTERM, kill-pane is
+             classifier-blocked).
 
 Every pass stamps `<package>/coordination/watch-heartbeat.json` (P32 — nothing watched the
 watcher: this loop runs detached, so a dead loop is indistinguishable from a quiet run). `coordinate
@@ -99,6 +109,47 @@ def at_approval_gate(pane):
     """P38 detection half. The marker set and the title read both live in coord (`coordinate send`
     needs the same predicate to skip a blind gate seat, 8(b)) — one definition, two consumers."""
     return coord.at_approval_gate(pane)
+
+
+def window_panes():
+    """Live panes grouped by 'session:window' — one tmux call (PROP-10). {} when tmux is
+    unavailable or unreadable; callers treat {} as unmeasurable, never as 'all windows gone'."""
+    try:
+        r = subprocess.run(["tmux", "list-panes", "-a", "-F",
+                            "#{session_name}:#{window_name}\t#{pane_id}"],
+                           capture_output=True, text=True)
+    except OSError:
+        return {}
+    if r.returncode != 0:
+        return {}
+    out = {}
+    for ln in r.stdout.splitlines():
+        if "\t" not in ln:
+            continue
+        win, pane = ln.split("\t", 1)
+        out.setdefault(win, []).append(pane.strip())
+    return out
+
+
+# ---------- system pressure (stubbable) ----------
+
+def system_pressure():
+    """RAM/load reading for PROP-9. Returns {"avail_mb", "load1", "cores"}, or None where
+    /proc is unavailable (a non-Linux box) — the check skips honestly, never fakes a reading."""
+    try:
+        avail_kb = None
+        with open("/proc/meminfo", encoding="utf-8") as f:
+            for ln in f:
+                if ln.startswith("MemAvailable:"):
+                    avail_kb = int(ln.split()[1])
+                    break
+        if avail_kb is None:
+            return None
+        with open("/proc/loadavg", encoding="utf-8") as f:
+            load1 = float(f.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+    return {"avail_mb": avail_kb // 1024, "load1": load1, "cores": os.cpu_count() or 1}
 
 
 # ---------- claude transcript matching ----------
@@ -210,6 +261,23 @@ def save_state(base, state):
     coord.atomic_write(base / "watch-state.json", json.dumps(state, indent=1))
 
 
+def load_sys_state(base):
+    """PROP-9/PROP-10 re-arm state. A SEPARATE file from watch-state.json for the P32 reason:
+    that file is keyed by agent name, and a reserved key inside it would be one roster name away
+    from a collision."""
+    p = base / "watch-system.json"
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def save_sys_state(base, st):
+    coord.atomic_write(base / "watch-system.json", json.dumps(st, indent=1))
+
+
 def save_heartbeat(base, loop_min):
     """P32 — stamp this pass so something outside the loop can tell a live watcher from a dead one.
 
@@ -245,6 +313,86 @@ def notify_leader(args, text):
               f"{text[:80]}", file=sys.stderr)
 
 
+# ---------- system + leftover-window checks ----------
+
+def check_system(args, sysstate, notes):
+    """PROP-9 — system memory/load as a first-class duty of the loop: the run's stuck-process
+    pile-up OOM-killed the WATCHER itself, and nothing had the instrumentation to see the
+    pressure building. Flags once per episode; re-arms only when the pressure clears — the same
+    discipline as every other crossing. Returns the report line, or None where unmeasurable."""
+    sp = system_pressure()
+    if sp is None:
+        return None
+    floor = args.mem_floor_mb
+    mem_low = sp["avail_mb"] < floor
+    load_high = sp["load1"] >= sp["cores"] * args.load_per_core
+    flags = []
+    if mem_low:
+        flags.append(f"MEM {sp['avail_mb']}MB<{floor}MB")
+    if load_high:
+        flags.append(f"LOAD {sp['load1']}/{sp['cores']}")
+    if flags:
+        if not sysstate.get("notified_pressure"):
+            notes.append(
+                f"watch: SYSTEM PRESSURE — {sp['avail_mb']}MB RAM available (floor {floor}MB), "
+                f"load {sp['load1']}/{sp['cores']} cores. An OOM cascade kills seats AND this "
+                f"watcher itself. Free the box NOW: accelerate close-out of idle/done seats, "
+                f"tear down leftover dead wave windows (tmux kill-window), and pause further "
+                f"launches until this clears.")
+            sysstate["notified_pressure"] = True
+    else:
+        sysstate.pop("notified_pressure", None)
+    return (f"{'system':<18} {'FLAG' if flags else 'ok':<7} ram={sp['avail_mb']}MB "
+            f"load={sp['load1']}/{sp['cores']}  {' '.join(flags)}")
+
+
+def check_leftover_windows(rows, seats, sysstate, notes):
+    """PROP-10 — a briefing-declared window whose panes are ALL agent-dead: no ACTIVE roster
+    seat's pane is in it. Covers both halves of the incident: a closed wave leaving bash-only
+    shells, AND a wave whose seats died at model-init before ever checking in (which is also
+    the runtime residue PROP-8's pre-flight cannot catch locally). Keyed to windows the
+    briefings declare (`window: NAME`, or the agent's own name for `window: yes`), so the
+    control panel and unrelated tmux windows never false-fire. Flags once per window; re-arms
+    when the window disappears or an active seat (re)appears in it. Returns report lines."""
+    declared = set()
+    for s in seats.values():
+        w = s.get("window")
+        if w == "yes":
+            declared.add(s["agent"])
+        elif w:
+            declared.add(w)
+    if not declared:
+        sysstate.pop("windows", None)
+        return []
+    wins = window_panes()
+    if not wins:  # tmux unavailable/unreadable — unmeasurable, leave the armed state untouched
+        return []
+    active_panes = {r["pane"] for r in rows if r["active"] == "yes" and r["pane"]}
+    prior = sysstate.get("windows", {})
+    leftover, lines = {}, []
+    for full, panes in sorted(wins.items()):
+        name = full.split(":", 1)[1] if ":" in full else full
+        if name not in declared or not panes:
+            continue
+        if any(p in active_panes for p in panes):
+            continue
+        lines.append(f"{name:<18} LEFTOVER window '{full}': {len(panes)} pane(s), no active seat")
+        leftover[full] = True
+        if not prior.get(full):
+            notes.append(
+                f"watch: window '{full}' still holds {len(panes)} pane(s) but NO active seat — "
+                f"either its wave closed leaving dead shells, or its seats died before checkin "
+                f"(a config error kills a seat at model-init, before it ever registers). Inspect "
+                f"it, then tear the whole window down: tmux kill-window -t '{full}' — the "
+                f"sanctioned teardown: an interactive bash ignores SIGTERM, and kill-pane is "
+                f"blocked by the harness automation classifier.")
+    if leftover:
+        sysstate["windows"] = leftover
+    else:
+        sysstate.pop("windows", None)
+    return lines
+
+
 # ---------- one pass ----------
 
 def run_pass(args):
@@ -255,6 +403,12 @@ def run_pass(args):
     live = live_panes()
     nnow = now_dt()
     report, notes = [], []
+
+    # PROP-9/PROP-10: box-level duties run FIRST — pressure explains per-seat symptoms, and a
+    # leftover dead window is invisible to the per-seat loop (its seats have no active row).
+    sysstate = load_sys_state(base)
+    sysline = check_system(args, sysstate, notes)
+    leftover_lines = check_leftover_windows(rows, seats, sysstate, notes)
 
     for r in rows:
         if r["active"] != "yes" or r["agent"] == "watcher":
@@ -349,10 +503,15 @@ def run_pass(args):
         state[agent] = st
 
     save_state(base, state)
+    save_sys_state(base, sysstate)
     save_heartbeat(base, getattr(args, "loop", None))
     stamp = nnow.strftime("%Y-%m-%d %H:%M")
     print(f"watch pass {stamp} — {len(report)} active seat(s), {len(notes)} new flag(s)")
+    if sysline:
+        print("  " + sysline)
     for line in report:
+        print("  " + line)
+    for line in leftover_lines:
         print("  " + line)
     if args.notify:
         for text in notes:
@@ -373,15 +532,34 @@ def cmd_selftest():
         if not cond:
             failures.append(name)
 
-    global pane_tail, live_panes, pane_cwd
+    global pane_tail, live_panes, pane_cwd, system_pressure, window_panes
     coord.wake = lambda pane, text: (False, "stub")
     # coord's identity resolution (T1) reads the calling pane: stub it, or a selftest run from
     # inside a tmux pane would talk to the real server and could inherit a live seat's identity.
     coord.detect_pane = lambda override=None: (override or "")
+    # coord functions cmd_checkin/cmd_checkout shell out to on this suite's behalf — unstubbed,
+    # the selftest CRASHED on a box without tmux on PATH (FileNotFoundError from set_pane_title,
+    # observed 2026-07-26 on Windows), despite the kit's promise that selftests need no tmux.
+    coord.set_pane_title = lambda pane, title: None
+    coord.live_panes = lambda: set()
     coord_env_agent = os.environ.pop("COORD_AGENT", None)
+
+    # PROP-9/PROP-10: the real readers must be GRACEFUL wherever they run — a box without /proc
+    # or tmux gets None/{} back, never a raise. Exercised for real BEFORE the stubs go in.
+    real_sp = system_pressure()
+    check("PROP-9: real system_pressure() returns a reading or None, never raises "
+          "(graceful on a box without /proc)",
+          real_sp is None or {"avail_mb", "load1", "cores"} <= set(real_sp))
+    check("PROP-10: real window_panes() returns a dict, never raises (graceful without tmux)",
+          isinstance(window_panes(), dict))
+
     tails = {}
     pane_tail = lambda pane: tails.get(pane)
-    live_panes = lambda: {"%1", "%2", "%3", "%4", "%5", "%6", "%7"}
+    live_panes = lambda: {"%1", "%2", "%3", "%4", "%5", "%6", "%7", "%40", "%41"}
+    sys_reading = {"v": {"avail_mb": 4000, "load1": 0.4, "cores": 4}}
+    system_pressure = lambda: sys_reading["v"]
+    win_map = {}
+    window_panes = lambda: dict(win_map)
     pane_cwds = {}
     pane_cwd = lambda pane: pane_cwds.get(pane)
     # P38: the approval predicate reads the pane TITLE through coord — stub it there, so this
@@ -436,7 +614,8 @@ def cmd_selftest():
 
         def ns(**kw):
             d = {"package": str(pkg), "base": None, "workers_dir": None, "notify": True,
-                 "inactive_min": 30, "context_pct": 50, "claude_projects_dir": str(Path(td) / "projects")}
+                 "inactive_min": 30, "context_pct": 50, "mem_floor_mb": 500,
+                 "load_per_core": 1.0, "claude_projects_dir": str(Path(td) / "projects")}
             d.update(kw)
             return argparse.Namespace(**d)
 
@@ -604,6 +783,62 @@ def cmd_selftest():
               any("'eta'" in n and "approve eta" in n for n in notes))
         pane_titles.pop("%7")
 
+        # ---- PROP-9: system RAM/load pressure is a first-class duty of the loop ----
+        sys_reading["v"] = {"avail_mb": 358, "load1": 1.6, "cores": 4}
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            notes = run_pass(ns(context_pct=90))
+        check("PROP-9: RAM below the floor flags SYSTEM PRESSURE once, with the remedy — the "
+              "run's stuck-process pile-up OOM-killed the watcher ITSELF, unwarned",
+              any("SYSTEM PRESSURE" in n and "358MB" in n and "floor 500MB" in n for n in notes))
+        check("PROP-9: the pass report carries a system line, not counted as a seat",
+              any(ln.strip().startswith("system") and "FLAG" in ln
+                  for ln in buf.getvalue().splitlines()))
+        notes = run_pass(ns(context_pct=90))
+        check("PROP-9: does not re-fire while the pressure persists",
+              not any("SYSTEM PRESSURE" in n for n in notes))
+        sys_reading["v"] = {"avail_mb": 4000, "load1": 0.4, "cores": 4}
+        run_pass(ns(context_pct=90))  # pressure clears -> re-arms
+        sys_reading["v"] = {"avail_mb": 4000, "load1": 9.2, "cores": 4}
+        notes = run_pass(ns(context_pct=90))
+        check("PROP-9: load at/over cores x factor fires a fresh episode after the clear",
+              any("SYSTEM PRESSURE" in n and "9.2/4" in n for n in notes))
+        sys_reading["v"] = None
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            notes = run_pass(ns(context_pct=90))
+        check("PROP-9: an unmeasurable box (no /proc) -> no system line, no flag, no crash",
+              not any(ln.strip().startswith("system") for ln in buf.getvalue().splitlines())
+              and not any("SYSTEM PRESSURE" in n for n in notes))
+        sys_reading["v"] = {"avail_mb": 4000, "load1": 0.4, "cores": 4}
+
+        # ---- PROP-10: a briefing-declared wave window left with NO active seat ----
+        (wdir / "wv1").mkdir()
+        (wdir / "wv1" / "agent.md").write_text(
+            "---\nagent: wv1\nharness: claude\nwindow: wave-x\nephemeral: yes\n---\nb\n")
+        win_map["testsess:wave-x"] = ["%40", "%41"]
+        notes = run_pass(ns(context_pct=90))
+        check("PROP-10: a wave window with panes but no active seat is flagged once with the "
+              "kill-window remedy — covers seats that died at model-init before ever checking "
+              "in, AND a closed wave's leftover bash shells",
+              any("wave-x" in n and "kill-window" in n for n in notes))
+        notes = run_pass(ns(context_pct=90))
+        check("PROP-10: does not re-fire while the leftover window persists",
+              not any("kill-window" in n for n in notes))
+        coord.cmd_checkin(argparse.Namespace(package=str(pkg), base=None, workers_dir=None,
+                                             agent="wv1", summary="w", pane="%40"))
+        tails["%40"] = "wv1-tail"
+        notes = run_pass(ns(context_pct=90))
+        check("PROP-10: an active seat in the window clears the flag (re-arm) — a live wave is "
+              "never reported as leftover",
+              not any("kill-window" in n for n in notes))
+        coord.cmd_checkout(argparse.Namespace(package=str(pkg), base=None, workers_dir=None,
+                                              agent="wv1", no_export=True))
+        notes = run_pass(ns(context_pct=90))
+        check("PROP-10: fires again once the wave has closed and its window still holds panes",
+              any("wave-x" in n and "kill-window" in n for n in notes))
+        win_map.clear()
+
         # ---- P32: every pass stamps a heartbeat, so a dead loop is visible from outside ----
         run_pass(ns(context_pct=90))
         hb = coord.watcher_heartbeat(base)
@@ -647,6 +882,8 @@ def main():
     p.add_argument("--workers-dir", help="override worker-briefings directory (testing only)")
     p.add_argument("--inactive-min", type=int, default=30, help="flag a seat after this many minutes without pane activity (default 30)")
     p.add_argument("--context-pct", type=float, default=50, help="flag a claude seat at this context percentage (default 50)")
+    p.add_argument("--mem-floor-mb", type=int, default=500, help="flag SYSTEM PRESSURE when available RAM drops below this many MB (default 500; PROP-9)")
+    p.add_argument("--load-per-core", type=float, default=1.0, help="flag SYSTEM PRESSURE when 1-min load reaches cores x this factor (default 1.0; PROP-9)")
     p.add_argument("--notify", action="store_true", help="send each new flag to leader as a coordination ask (default: print only)")
     p.add_argument("--loop", type=int, metavar="MIN", help="repeat forever every MIN minutes (the watcher seat's mode)")
     p.add_argument("--claude-projects-dir", help="override ~/.claude/projects (testing only)")

@@ -1815,6 +1815,34 @@ def identity_prefix(agent):
     return f"COORD_AGENT={shlex.quote(agent)} "
 
 
+CLAUDE_MODEL_ALIASES = ("opus", "sonnet", "haiku", "fable")
+OPENCODE_MODEL_RE = re.compile(r"[^/\s]+/[^/\s]+\Z")
+
+
+def validate_seat(w):
+    """Pre-flight launch validation — PROP-8 (tv-ux-review): an invalid model slug in one
+    wave's briefings stalled the ENTIRE wave at model-init, after every pane had already
+    spawned and before any seat reached its boot prompt. Validates only what the kit can know
+    locally (accepted alias/slug SHAPES per harness) — never a provider call. A well-formed
+    slug the provider still rejects dies at boot anyway; the watcher's leftover-window flag
+    (PROP-10) is the detection net for that residue. Returns '' when launchable, else the
+    reason (used to refuse a launch BEFORE any pane opens)."""
+    if w["harness"] not in HARNESSES:
+        return f"unknown harness '{w['harness']}' (expected one of {', '.join(HARNESSES)})"
+    if w["harness"] == "claude" and not (
+            w["model"] in CLAUDE_MODEL_ALIASES or w["model"].startswith("claude-")):
+        return (f"claude model '{w['model']}' is neither a known alias "
+                f"({', '.join(CLAUDE_MODEL_ALIASES)}) nor a full claude-* model id — "
+                f"write a genuinely new alias as its full claude-* id")
+    if w["harness"] == "opencode":
+        if not w["model"]:
+            return "opencode seats require an explicit model: (provider/model slug)"
+        if not OPENCODE_MODEL_RE.fullmatch(w["model"]):
+            return (f"opencode model '{w['model']}' is not a provider/model slug "
+                    f"(e.g. deepseek/deepseek-v4-pro)")
+    return ""
+
+
 def harness_command(w, prompt):
     """The shell command that starts this seat's interactive session, or (None, reason).
     Carries the seat's identity as an env prefix (see identity_prefix)."""
@@ -1981,6 +2009,9 @@ def seat_placement(w):
 
 def launch_seat(w, args, target, prompt=None):
     """Open a pane/window for one seat and start its harness. Returns (pane_id, err)."""
+    verr = validate_seat(w)  # PROP-8: `close-seat --renew` relaunches single seats through here
+    if verr:
+        return "", verr
     cmd, err = harness_command(w, prompt or boot_prompt(w, args))
     if cmd is None:
         return "", err
@@ -2035,6 +2066,18 @@ def cmd_launch(args):
               f"(template: briefing-template.md beside coord.py).", file=sys.stderr)
         sys.exit(1)
 
+    # PROP-8 (tv-ux-review): validate EVERY seat's launch config BEFORE any pane opens. An
+    # invalid model slug used to fail only at model-init, INSIDE each spawned pane — a whole
+    # wave died before its first checkin, its panes holding memory until someone noticed.
+    invalid = [(w, e) for w in workers for e in [validate_seat(w)] if e]
+    if invalid and not args.dry_run:
+        for w, e in invalid:
+            print(f"  {w['agent']}: {e}\n    briefing: {w['briefing']}", file=sys.stderr)
+        print(f"refused: {len(invalid)} seat(s) above carry an invalid harness/model — NO pane "
+              f"was opened (not even for the valid seats). Fix the briefing frontmatter, then "
+              f"relaunch the whole set.", file=sys.stderr)
+        sys.exit(1)
+
     target = os.environ.get("COORD_LAUNCH_TARGET") or os.environ.get("TMUX_PANE")
     if not target and not args.dry_run:
         print("refused: launch opens tmux panes and this shell is not inside tmux (no $TMUX_PANE),"
@@ -2047,7 +2090,8 @@ def cmd_launch(args):
                                  if w["harness"] != "claude" and w["cwd"]):
             print(f"[dry-run] would refresh the worker mirror for {cwd}")
         for w in workers:
-            cmd, err = harness_command(w, boot_prompt(w, args))
+            verr = validate_seat(w)  # PROP-8: the dry-run shows the same pre-flight refusal
+            cmd, err = (None, verr) if verr else harness_command(w, boot_prompt(w, args))
             kind, wname = seat_placement(w)
             place = {"own": "window", "shared": f"window:{wname}"}.get(kind, "pane")
             print(f"[dry-run] {w['agent']} ({w['harness']}/{w['model'] or 'plan-default'}"
@@ -2804,6 +2848,20 @@ def cmd_selftest(args):
         cmd, err = harness_command(bad, "P")
         check("v2: opencode without model refused", cmd is None and "require" in err)
 
+        # ---- PROP-8: pre-flight harness/model validation (local knowledge only) ----
+        check("PROP-8: every fixture seat's launch config validates clean",
+              validate_seat(by["alpha"]) == "" and validate_seat(by["gamma"]) == ""
+              and validate_seat(by["delta"]) == "" and validate_seat(by["leader"]) == "")
+        check("PROP-8: a full claude-* model id is accepted alongside the aliases",
+              validate_seat(dict(by["alpha"], model="claude-fable-5")) == "")
+        check("PROP-8: an unknown claude alias is refused with the accepted forms named",
+              "neither a known alias" in validate_seat(dict(by["alpha"], model="opsu")))
+        check("PROP-8: an opencode slug missing its provider half is refused — the shape a "
+              "launch can validate locally, without any provider call",
+              "provider/model" in validate_seat(dict(by["gamma"], model="deepseek-reasoner")))
+        check("PROP-8: an unknown harness is refused at pre-flight, not mid-spawn",
+              "unknown harness" in validate_seat(dict(by["alpha"], harness="gemini")))
+
         # ---- v2: boot prompt mentions memory only for persistent folder seats ----
         p = boot_prompt(by["gamma"], ns())
         check("v2: persistent folder seat boot prompt names memory.md", "memory.md" in p)
@@ -2837,6 +2895,21 @@ def cmd_selftest(args):
         check("wave: first seat creates the shared window, second splits into it",
               [o for o in opened if o == ("window", "wave-haiku")] == [("window", "wave-haiku")]
               and "window:wave-haiku" in out and out.count("launched") == 2)
+
+        # ---- PROP-8 end to end: one invalid seat refuses the WHOLE launch, pre-spawn ----
+        badf = pkg / "workers" / "badseat.md"
+        badf.write_text("---\nagent: badseat\nmodel: opsu\n---\nbrief\n")
+        opened_before = len(opened)
+        out, code = refuse(cmd_launch, agent="leader", only="badseat,alpha", dry_run=False)
+        check("PROP-8: a launch containing an invalid seat is refused BEFORE any pane opens — "
+              "the valid seat beside it is not launched either (an invalid slug used to kill "
+              "the whole wave at model-init, after every pane had spawned)",
+              code == 1 and "badseat" in out and "opsu" in out and "NO pane" in out
+              and len(opened) == opened_before)
+        out = run(cmd_launch, agent="leader", only="badseat,alpha", dry_run=True)
+        check("PROP-8: dry-run shows the same per-seat pre-flight refusal instead of a command",
+              "REFUSED" in out and "opsu" in out)
+        badf.unlink()
 
         # ---- v2: transcript export ----
         run(cmd_checkin, agent="gamma", summary="gamma work", pane="%5")

@@ -168,6 +168,22 @@ row states why.
 | **Publish-your-contract joins the startup round rather than becoming its own rule** (S§3.3) | The round already makes every seat state what it produces and which surfaces it touches; what it can ACCEPT is the missing third field of the same sentence, and run 1's single most valuable message (#16) was exactly that field. A separate rule would be read once at boot and never at the moment it applies; inside the round it fires at the one point where every seat is already composing that message. |
 | **The verifier's blast-radius clause lands on the verifier ROLE** (D31) | It constrains what counts as evidence for one specific seat, so it belongs with that seat's definition, not in the general execution rules where 19 other seats would carry it. It also completes the role's existing logic: the seat is already "not the fixer" — this says why that separation extends to the fixer's TOOLS. A script authored beside a wrong fix is wrong in the same direction, so running it proves only that the two agree. |
 
+### v6 decisions (2026-07-26 — the tv-ux-review learnings never folded in)
+
+Run 3 (`teamview-cli/build/tv-ux-review`) raised PROP-1–PROP-11; most were fixed IN the kit
+during the run itself (the checkin fix, master-renew, the closers/wave-window mechanics). A
+2026-07-26 fold-in pass against the shipped kit found five never landed: PROP-6/7/8/9/10. Three
+are code; two are rules, each with its stated reason (the D18 default, §2). The `PROP-n`
+citation form resolves per `protocol.md`'s provenance note.
+
+| Decision | Why (and what it must not regress to) |
+|----------|----------------------------------------|
+| **`launch` pre-validates EVERY seat's harness/model and refuses the whole launch BEFORE any pane opens** (PROP-8) — `validate_seat` checks locally-knowable shapes only: harness in the known set, claude model a known alias (`CLAUDE_MODEL_ALIASES`) or a full `claude-*` id, opencode model a `provider/model` slug; `launch_seat` re-checks on the single-seat renew path; the dry-run shows the same refusal per seat | One wrong slug (`deepseek/deepseek-reasoner`) killed an entire wave at model-init AFTER every pane had spawned — 5 seats dead before their boot prompts, ~2.6GB held idle, and the pile-up then OOM-killed the watcher (PROP-9's incident). The old behavior failed per-seat, mid-loop, inside the spawned process — seats 1..k were already burning panes when seat k+1's config error surfaced. Validation is deliberately LOCAL (alias/slug shapes; never a provider call or endpoint probe — the owner security-flagged exactly that reflex in a prior session): a well-formed slug the provider still rejects dies at boot anyway, and the leftover-window flag (PROP-10) is the runtime net for that residue. Never move this back into the launch loop, and never "improve" it with a network canary. |
+| **`watch.py` reads system RAM/load every pass as a first-class duty** (PROP-9) — `/proc/meminfo` MemAvailable vs `--mem-floor-mb` (default 500), `/proc/loadavg` 1-min vs cores × `--load-per-core`; flags SYSTEM PRESSURE once per episode, re-arms only on clear; returns None (honest skip) where /proc is absent, so the selftest runs on any box | The box's memory cascade OOM-killed the WATCHER — the single seat responsible for noticing problems — and nothing had the instrumentation to see the pressure building (watch.py knew only per-seat ctx% and gates). The owner adopted the fix live within 40 minutes of the incident (`free -m` available / loadavg vs nproc, flag under ~500MB). The re-arm state lives in `watch-system.json`, a SEPARATE file from `watch-state.json` for the same reason the P32 heartbeat is separate: that file is keyed by agent name, and a reserved key is one roster name away from a collision. Never fake a reading where /proc is missing — an honest skip beats a wrong number. |
+| **`watch.py` flags a briefing-declared window whose panes are ALL agent-dead** (PROP-10) — per pass: any tmux window matching a declared `window: NAME` (or a `window: yes` seat's own name) that holds panes but no ACTIVE roster seat's pane is flagged once, with `tmux kill-window -t '<session>:<name>'` as the remedy; re-arms when the window goes or an active seat (re)appears in it | The per-seat loop is structurally blind to both halves of the incident: a closed wave's leftover bash shells have no active row to iterate, and seats that die at model-init never checked in at all — %28 and %33-%36 sat unflagged until master swept them by hand at close-out. Keying to briefing-DECLARED windows keeps the control panel and unrelated windows from ever false-firing. The remedy is deliberate, from measured teardown facts: an interactive bash IGNORES SIGTERM (kill <pid> is a no-op), and `tmux kill-pane` is blocked by the harness automation classifier where `kill-window` is allowed. Firing on a launched-but-never-checked-in wave is intended, not noise — that is the runtime signature of the config-error class PROP-8's local pre-flight cannot catch. |
+| **R-rebrief-on-resume (PROP-6) is a RULE, not code** | The stale state lives inside the resumed agent's own conversation context — a surface no kit code can reach, rewrite, or even inspect (the briefing FILES were confirmed fixed; the seats replayed the old command from their own transcripts). The tool is not in the loop at resume time either: `--resume` happens in the operator's tmux, outside every coord call. The rule binds the one party who IS in the loop — whoever resumes the seat. |
+| **R-runnable-saves (PROP-7) is a RULE, not code** | The kit cannot gate another editor's save operations on an arbitrary artifact — it would have to become a file-watcher/CI layer over surfaces it does not own. The mechanizable half already exists for the kit's OWN files (the CLAUDE.md selftest-in-same-change hard rule); this rule generalizes the discipline to any artifact a run consumes live, where the run's fix-track seat is the writer. The incident's author converged on the same rule independently (`no more multi-step splits`) — it worked for the rest of the run, including surfacing a latent crash bug via the stress-testing it forces. |
+
 ## 4. The rules layer (what code cannot enforce)
 
 `protocol.md` holds only rules with measured evidence behind them — a `P`-number (a numbered
@@ -263,6 +279,17 @@ opened with multicast walls of text and formed its first group at message #16.
   with the wrong remedy. Extending coverage means capturing a real pane in the gated state, never
   guessing a marker (P35 round 2's rule). Matching pane TEXT instead is not the escape — it
   false-fires on any seat whose output contains the phrase.
+- **Pre-launch validation covers only locally-knowable facts** (v6, PROP-8): alias and slug
+  SHAPES, never provider acceptance. A well-formed `provider/model` slug the provider rejects
+  (the actual incident slug was shape-valid) still kills its seats at model-init — the
+  detection net for that residue is the leftover-window flag (PROP-10) plus deputy's
+  checkin-verification sweep, not the pre-flight. Closing it fully would need a provider call
+  or a canary spawn, both deliberately rejected (no credentialed probes; a canary spends a
+  real seat).
+- **System-pressure and leftover-window checks are Linux/tmux-scoped by construction** (v6):
+  `system_pressure()` returns None without `/proc`, `window_panes()` returns `{}` without
+  tmux, and both read as "unmeasurable — skip", never as healthy or as all-clear. A run on a
+  box without /proc simply has no pressure sentinel; nothing substitutes a fake reading.
 - **The watcher heartbeat proves the LOOP ran, not that its measurements were right.** A watcher
   whose transcript matching silently resolves nothing still stamps a healthy heartbeat every pass:
   `workers` will say `ok` while context goes unmeasured. Seats that stay permanently without a

@@ -15,6 +15,10 @@ section `n` — the observer's strategic findings, which were never numbered as 
 carry no P-number. Rules citing `S§` were folded 2026-07-26 from the run-1 fact-check
 (`fact-check-kg-edges-vs-kit.md`, beside the other two).
 
+A **`PROP-n`** pointer cites the 2026-07-24 tv-ux-review run — the third proving run, a 28-seat
+5-model wave test over an external CLI (evidence: that package's `run-observations.md`, one
+`### PROP-n` section per proposal). Its unlanded proposals were folded 2026-07-26.
+
 ## The CLI
 
 ```
@@ -33,7 +37,7 @@ $COORD send <to> "<msg>" --type answer --re N   # the ask this settles — REQUI
 $COORD send <to> "<msg>" --type T --supersedes N   # retract message N (P12)
 $COORD workers                                  # roster + live-pane check + owner presence + per-seat unread lag
 $COORD owner present|afk [--note ".."]          # owner/leader only (P15)
-$COORD launch [--only a,b,c] [--dry-run]        # leader only — per-seat harness/model/effort
+$COORD launch [--only a,b,c] [--dry-run]        # leader only — per-seat harness/model/effort; pre-validates every seat's harness/model and refuses BEFORE opening any pane (PROP-8)
 $COORD create-group <group> [member ...]        # creator + leader auto-included
 $COORD add-to-group <group> <member ...>        # leader only
 $COORD export-transcript <agent> [--label L]    # full pane scrollback -> workers/<agent>/transcripts/
@@ -216,6 +220,21 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
   refuses while the registered pane is alive); the kill-by-id half is yours. Two live sessions
   under one name are mutually blind: unread is filtered by NAME, so neither sees the other's
   messages, and only the newest pane receives wakes.
+- **R-rebrief-on-resume (PROP-6).** A fix shipped to a briefing/config file mid-run does NOT
+  reach a seat resumed from pre-fix context: a resume continues from the seat's own transcript
+  memory, silently replaying the bug the run already closed (two crash-resumed seats re-hit the
+  fixed checkin bug over half an hour after the fix landed in all 35 briefings). Whoever resumes
+  or relaunches a seat that was alive before a mid-run fix landed MUST either relaunch it fresh
+  from the fixed briefing (the standard remedy) or explicitly instruct the resumed seat to
+  re-read its briefing before its next coordination call — never assume "fixed in the file"
+  means fixed in the seat.
+- **R-runnable-saves (PROP-7).** When the artifact you are editing is executed LIVE by other
+  seats or by the run's own control loop (a fix-track seat editing the tool under test; this
+  kit's own scripts), every SAVED state must be syntax-valid and selftest-green — never leave a
+  multi-step edit mid-transition on disk. A two-write constant swap broke the run's own
+  gate-scanning dashboard in the window between the writes, mid-wave. Stage multi-step changes
+  so each save is runnable; seats that depend on the artifact keep a raw fallback (manual tmux
+  scanning) for exactly this failure.
 - **R-serialized-browser (queue 11).** Headless browsers are the run's scarcest resource, not a
   free one: each Chromium is hundreds of MB and several of them at once is how a run box reaches
   its memory ceiling and starts killing seats. Run at most ONE at a time across the whole run —
@@ -310,9 +329,11 @@ can actually run). Both are decided once, per run, and the briefings below only 
   A closer never touches deliverables, never rules open questions, never messages beyond target
   and leader.
 - **watcher seats** — sentinel pattern: a deterministic monitor (`watch.py` beside `coord.py`)
-  measures liveness, inactivity, approval-gate parking and claude-seat context usage on a loop and
+  measures liveness, inactivity, approval-gate parking, claude-seat context usage, system
+  RAM/load pressure (PROP-9) and leftover all-dead wave windows (PROP-10) on a loop and
   flags leader with the exact command to run (`close <agent> --renew` at the context threshold,
-  `approve <agent>` at a gate); the watcher agent keeps the loop alive and interprets, never acts
+  `approve <agent>` at a gate, `tmux kill-window` for a dead wave window); the watcher agent
+  keeps the loop alive and interprets, never acts
   on seats directly. Context is measurable for claude-harness seats only — codex/opencode seats
   get liveness/inactivity/approval watching.
   **Something must watch the watcher (P32).** The loop is detached, so its death produces no
