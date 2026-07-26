@@ -1,5 +1,5 @@
 probe: probe-warning-lifecycle
-started: 2026-07-23T23:56:58.753Z
+started: 2026-07-26T14:24:38.132Z
 command: node probes/probe-warning-lifecycle.js
 launch tick 1: warning actions=[]
 recycle tick 2: warning actions=[]
@@ -34,6 +34,6 @@ chain-scoped budget: subject=exec-5 recycles=3 deepest-blocked-ancestors=2 -> ra
 out-of-tick announce note msg_id=12 stamped routed_at_tick=1000 at write; 0 unrouted ticker notes (task 7.25)
 status: PASS
 exit: 0
-wall_ms: 2925
+wall_ms: 2913
 skipped_count: 0
-ended: 2026-07-23T23:57:01.679Z
+ended: 2026-07-26T14:24:41.044Z
