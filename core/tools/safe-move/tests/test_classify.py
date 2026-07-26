@@ -326,10 +326,32 @@ class TestAutoEligibility:
         )
         assert classify(c, OPERATION_RENAME) == CLASS_AUTO
 
-    def test_frontmatter_field_unique_is_auto(self):
+    def test_frontmatter_field_path_value_unique_is_auto(self):
         c = cand(
             syntax="frontmatter-field",
+            match="docs/old.md",
+            target="docs/old.md",
+            resolves_to=1,
+        )
+        assert classify(c, OPERATION_RENAME) == CLASS_AUTO
+
+    def test_frontmatter_field_bare_basename_value_is_never_auto(self):
+        # A bare value carries no directory, so the rewrite would swap a bare
+        # name for a full path — inside a file that may own its own same-named
+        # file. Uniqueness is not enough; the agent decides.
+        c = cand(
+            syntax="frontmatter-field",
+            match="old.md",
             target="old.md",
+            resolves_to=1,
+        )
+        assert classify(c, OPERATION_RENAME) == CLASS_SURFACE
+
+    def test_frontmatter_field_wikilink_value_unique_is_auto(self):
+        c = cand(
+            syntax="frontmatter-field",
+            match="[[old]]",
+            target="old",
             resolves_to=1,
         )
         assert classify(c, OPERATION_RENAME) == CLASS_AUTO

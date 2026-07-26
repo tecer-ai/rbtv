@@ -42,12 +42,25 @@ def compute_proposed(
     *,
     scope_root: Path | str | None = None,
     workspace_root: Path | str | None = None,
+    new_file: str | None = None,
 ) -> str | None:
     """Return the operation-aware replacement for ``candidate.match``.
 
     Returns the same string as ``match`` when no edit is needed (pure-move
     wikilinks).  Returns ``None`` when a single correct replacement cannot be
     computed deterministically.
+
+    ``new_file`` is the REFERRING file's post-move scope-relative path, set when
+    the referring file itself moves as part of a folder move. The resolution FORM
+    (how the reference was written — scope-root-relative, relative to the
+    referring file's own directory, workspace-root-relative) is always read at
+    the reference's ORIGINAL location; only the resulting VALUE is computed from
+    ``new_file``. Reading the form at the post-move location instead made every
+    file-relative reference between two files that move TOGETHER unresolvable,
+    which surfaced as an EMPTY proposed rewrite — applying it would have deleted
+    the path token. With the form read correctly such a reference computes back
+    to itself: proposed == match, "no change". Defaults to ``candidate.file``
+    (the referring file does not move), which is the single-file-move case.
 
     ``workspace_root`` is the wider workspace/vault root (the git top level) when
     the scan is scoped to a SUBTREE of it. It anchors a reference written
@@ -72,18 +85,31 @@ def compute_proposed(
     )
     old_rel = _normalize_old(old, scope_root_path)
     new_rel = _normalize_old(new, scope_root_path)
+    # Where the reference was written (form) vs. where it will live (value).
+    old_dir = str(Path(candidate.file).parent)
+    new_dir = str(Path(new_file).parent) if new_file is not None else old_dir
 
     if candidate.syntax == "wikilink":
         return _propose_wikilink(candidate, new_rel, operation)
     if candidate.syntax == "markdown-link":
-        return _propose_markdown_link(candidate, new_rel, scope_root_path)
+        return _propose_markdown_link(candidate, new_rel, scope_root_path, new_dir)
     if candidate.syntax == "frontmatter-field":
-        return _propose_frontmatter_field(candidate, old_rel, new_rel, operation, scope_root_path)
+        return _propose_frontmatter_field(
+            candidate, old_rel, new_rel, operation, scope_root_path, old_dir, new_dir
+        )
     if candidate.syntax == "config-path":
-        return _propose_config_path(candidate, old_rel, new_rel, operation, scope_root_path)
+        return _propose_config_path(
+            candidate, old_rel, new_rel, operation, scope_root_path, old_dir, new_dir
+        )
     if candidate.syntax == "inline-code-path":
         return _propose_inline_code_path(
-            candidate, old_rel, new_rel, scope_root_path, workspace_root_path
+            candidate,
+            old_rel,
+            new_rel,
+            scope_root_path,
+            workspace_root_path,
+            old_dir,
+            new_dir,
         )
     if candidate.syntax in ("inline-code-basename", "prose-filename"):
         return _propose_bare_filename(candidate, new_rel, operation)
@@ -156,12 +182,14 @@ def _propose_path_qualified_wikilink(candidate: Candidate, new_rel: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _propose_markdown_link(candidate: Candidate, new_rel: str, scope_root: Path) -> str | None:
+def _propose_markdown_link(
+    candidate: Candidate, new_rel: str, scope_root: Path, new_dir: str
+) -> str | None:
     """Compute the replacement for a markdown link ``[text](path)``.
 
-    The path is always recomputed relative to the referring file's directory.
-    The link label, fragment, original encoding form, and a leading ``./``
-    style are preserved.
+    The path is always recomputed relative to the referring file's directory —
+    its POST-move directory when the referring file moves too. The link label,
+    fragment, original encoding form, and a leading ``./`` style are preserved.
     """
     parsed = _MARKDOWN_LINK_RE.fullmatch(candidate.match)
     if not parsed:
@@ -170,8 +198,7 @@ def _propose_markdown_link(candidate: Candidate, new_rel: str, scope_root: Path)
     text = parsed.group("text")
     original_path = parsed.group("path")
 
-    file_dir = str(Path(candidate.file).parent)
-    new_path = _compute_relative_path(file_dir, new_rel, scope_root)
+    new_path = _compute_relative_path(new_dir, new_rel, scope_root)
     if new_path is None:
         return None
 
@@ -210,6 +237,8 @@ def _propose_frontmatter_field(
     new_rel: str,
     operation: str,
     scope_root: Path,
+    old_dir: str,
+    new_dir: str,
 ) -> str | None:
     """Compute the replacement for a frontmatter field value.
 
@@ -226,11 +255,10 @@ def _propose_frontmatter_field(
 
     if "/" in match or Path(match).suffix:
         if "/" in match:
-            file_dir = str(Path(candidate.file).parent)
-            form = _resolve_form(match, file_dir, scope_root, old_rel)
+            form = _resolve_form(match, old_dir, scope_root, old_rel)
             if form is None:
                 return None
-            return _compute_path_value(form, file_dir, new_rel, scope_root)
+            return _compute_path_value(form, new_dir, new_rel, scope_root)
         # Bare filename with extension = scope-root-relative path.
         return _compute_path_value("scope-root", "", new_rel, scope_root)
 
@@ -274,6 +302,8 @@ def _propose_config_path(
     new_rel: str,
     operation: str,
     scope_root: Path,
+    old_dir: str,
+    new_dir: str,
 ) -> str | None:
     """Compute the replacement for a config file path literal.
 
@@ -296,11 +326,10 @@ def _propose_config_path(
         return f"{quote}{new_inner}{quote}"
 
     if "/" in inner:
-        file_dir = str(Path(candidate.file).parent)
-        form = _resolve_form(inner, file_dir, scope_root, old_rel)
+        form = _resolve_form(inner, old_dir, scope_root, old_rel)
         if form is None:
             return None
-        new_inner = _compute_path_value(form, file_dir, new_rel, scope_root)
+        new_inner = _compute_path_value(form, new_dir, new_rel, scope_root)
     else:
         # Bare config value = scope-root-relative path.
         new_inner = _compute_path_value("scope-root", "", new_rel, scope_root)
@@ -328,7 +357,9 @@ def _propose_inline_code_path(
     old_rel: str,
     new_rel: str,
     scope_root: Path,
-    workspace_root: Path | None = None,
+    workspace_root: Path | None,
+    old_dir: str,
+    new_dir: str,
 ) -> str | None:
     """Compute the replacement for an inline-code path reference.
 
@@ -344,11 +375,10 @@ def _propose_inline_code_path(
     target = candidate.match.strip()
     if "/" not in target:
         return None
-    file_dir = str(Path(candidate.file).parent)
-    form = _resolve_form(target, file_dir, scope_root, old_rel, workspace_root)
+    form = _resolve_form(target, old_dir, scope_root, old_rel, workspace_root)
     if form is None:
         return None
-    return _compute_path_value(form, file_dir, new_rel, scope_root, workspace_root)
+    return _compute_path_value(form, new_dir, new_rel, scope_root, workspace_root)
 
 
 # ---------------------------------------------------------------------------
@@ -380,15 +410,20 @@ def _propose_bare_filename(
 def _propose_literal_path(candidate: Candidate, old_rel: str, new_rel: str) -> str | None:
     """Compute the replacement for a literal old-path occurrence.
 
-    ``candidate.match`` is the exact ``old_rel`` string at its position; the act
-    layer rewrites only that span, so any trailing sub-path (a contained file
-    under a moved folder) is preserved verbatim. The replacement is therefore
-    just ``new_rel``. Returns ``None`` only if the match is not the old path
-    (it always is, by construction), leaving the reference surfaced unrewritten.
+    ``candidate.match`` is the old path AS WRITTEN at that position — the
+    scope-root-relative form, or one of the alternate forms the literal sweep
+    also searches (workspace-root-relative, absolute POSIX, absolute
+    Windows-backslash). The act layer rewrites only that span, so any trailing
+    sub-path (a contained file under a moved folder) is preserved verbatim. The
+    replacement is the NEW path in the SAME form, which the matcher precomputed
+    onto ``candidate.target``. Returns ``None`` when neither is available,
+    leaving the reference surfaced unrewritten.
     """
-    if candidate.match != old_rel:
-        return None
-    return new_rel
+    if candidate.match == old_rel:
+        return new_rel
+    if candidate.target and candidate.target != candidate.match:
+        return candidate.target
+    return None
 
 
 # ---------------------------------------------------------------------------

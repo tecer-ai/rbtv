@@ -39,6 +39,11 @@ NON_CODE_SYNTAXES = frozenset(
         "markdown-link",
         "frontmatter-field",
         "config-path",
+        # The structured relation-edge form of a TERM reference. Its value slot
+        # holds the term and nothing else, so a rename has exactly one correct
+        # rewrite. ``term-prose`` is deliberately absent: only a human can tell a
+        # reference from an incidental use of the same words.
+        "term-edge",
     }
 )
 
@@ -208,6 +213,17 @@ def _off_limits(candidate: Candidate) -> bool:
     )
 
 
+def _is_bare_frontmatter_value(candidate: Candidate) -> bool:
+    """Return True for a frontmatter value that is a plain bare filename.
+
+    A ``[[wikilink]]`` value declares itself a link and keeps its own handling;
+    a value carrying a path separator is matched (and rewritten) as a path.
+    Everything else — ``allowlist: roadmap.md`` — is a bare name.
+    """
+    value = candidate.match.strip().strip("'\"")
+    return not value.startswith("[[") and "/" not in value and "\\" not in value
+
+
 def _match_is_ambiguous(candidate: Candidate) -> bool:
     """Return True when the match is too ambiguous for auto-fixing."""
     if candidate.resolves_to > 1:
@@ -284,6 +300,14 @@ def classify(candidate: Candidate, operation: str, *, scope_root: Path | str | N
     # correct rewrite form (vault-root vs file-relative, .md handling) is surfaced
     # for the agent rather than auto-applied. A bare [[name]] is unaffected.
     if candidate.syntax == "wikilink" and "/" in candidate.target:
+        return CLASS_SURFACE
+
+    # 3b. A frontmatter value matched as a PLAIN bare basename (``x.md``, not a
+    # ``[[wikilink]]`` and not a path) carries no directory of its own, so the
+    # rewrite REPLACES a bare name with a full path — a shape change, inside a
+    # file that may well own its own same-named file. Auto-applying that
+    # corrupted an unrelated project on a real run. Always the agent's call.
+    if candidate.syntax == "frontmatter-field" and _is_bare_frontmatter_value(candidate):
         return CLASS_SURFACE
 
     # 4. Match-safety gate.

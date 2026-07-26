@@ -10,7 +10,8 @@ Pins:
   C) inline-code paths written vault-root-relative are surfaced even when the
      scan is scoped to a subtree that does NOT contain ``old``.
   D) a moved folder's OWN ``build/`` files are scanned by the STRUCTURED matchers,
-     not only the literal-path sweep; the broad-scope skip is unchanged elsewhere.
+     not only the literal-path sweep. (``build/`` elsewhere in the scope is now
+     scanned too — see ``test_referrer_scan_fixes.py``.)
 """
 
 from __future__ import annotations
@@ -89,7 +90,8 @@ def test_folder_move_scans_moved_build_dir_with_structured_matchers(repo_builder
         # without the fix it is caught only as a crude literal-path.
         "sub/proj/build/config.yaml": "parent: sub/proj\n",
         "sub/proj/decisions.md": "d\n",
-        # OUTSIDE the moved tree: a build/ file elsewhere must stay skipped.
+        # OUTSIDE the moved tree: a build/ file elsewhere is content too, and is
+        # scanned as well (the old blanket build/ skip blinded the referrer scan).
         "other/build/note.md": "[[proj]] and sub/proj here\n",
     }
     fix = repo_builder("folder-build-structured", files, tracked=list(files))
@@ -103,9 +105,10 @@ def test_folder_move_scans_moved_build_dir_with_structured_matchers(repo_builder
     # match, not merely a crude literal-path surface.
     assert ("sub/proj/build/config.yaml", "config-path") in by_file_syntax
 
-    # The broad-scope build/ skip is UNCHANGED for files OUTSIDE the moved tree:
-    # other/build/note.md is never scanned, so it contributes no references.
-    assert not any(
+    # A build/ file OUTSIDE the moved tree is a referrer like any other and is
+    # scanned too — the previous blanket build/ skip made such referrers
+    # undiscoverable (the WS-C1 defect: 0 of ~40 real referrers found).
+    assert any(
         r["file"] == "other/build/note.md" for r in consulted["references"]
     )
 

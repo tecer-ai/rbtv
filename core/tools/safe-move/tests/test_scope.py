@@ -65,7 +65,13 @@ def test_resolve_scope_root_errors_when_override_missing(tmp_path):
 
 
 def test_walk_skips_git_deps_binary_and_lockfiles(repo_builder):
-    """git, dependency/build dirs, binaries, and lockfiles are skipped."""
+    """git/dependency dirs, binaries, and lockfiles are skipped.
+
+    Output-NAMED dirs (``dist/`` / ``build/`` / ``target/``) are NOT skipped by
+    name: a tracked one holds hand-authored records, and blanket-skipping them
+    blinded the referrer scan. Real build output is gitignored (see
+    ``test_gitignored_build_dir_is_still_skipped``) or ``--exclude``d.
+    """
     fx = repo_builder(
         "skip_ignored",
         {
@@ -85,9 +91,9 @@ def test_walk_skips_git_deps_binary_and_lockfiles(repo_builder):
     assert "src/text.md" in paths
     assert not any(p.startswith("node_modules/") for p in paths)
     assert not any("__pycache__" in p for p in paths)
-    assert not any(p.startswith("dist/") for p in paths)
-    assert not any(p.startswith("build/") for p in paths)
-    assert not any(p.startswith("target/") for p in paths)
+    assert "dist/bundle.js" in paths
+    assert "build/output.md" in paths
+    assert "target/release/app" in paths
     assert "binary.dat" not in paths
     assert "plain.lock" in paths  # generic *.lock is not auto-skipped
     assert "deps/package-lock.json" not in paths

@@ -51,6 +51,9 @@ def run_act(
     include_archive: bool = False,
     descend_nested_repos: bool = False,
     generated: list[str] | tuple[str, ...] = (),
+    terms: list[str] | tuple[str, ...] = (),
+    new_term: str | None = None,
+    term_scan: bool = True,
 ) -> ActResult:
     """Re-derive current refs, move, apply verified requested ids, and return a log."""
     requested = parse_apply(apply)
@@ -77,6 +80,9 @@ def run_act(
         include_archive=include_archive,
         descend_nested_repos=descend_nested_repos,
         generated=generated,
+        terms=terms,
+        new_term=new_term,
+        term_scan=term_scan,
     )
     result.warnings.extend(consult_result["warnings"])
 

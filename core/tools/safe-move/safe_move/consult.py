@@ -26,8 +26,19 @@ def build_consult_result(
     include_archive: bool = False,
     descend_nested_repos: bool = False,
     generated: list[str] | tuple[str, ...] = (),
+    terms: list[str] | tuple[str, ...] = (),
+    new_term: str | None = None,
+    term_scan: bool = True,
 ) -> dict[str, Any]:
-    """Return the contract-shaped consult JSON object."""
+    """Return the contract-shaped consult JSON object.
+
+    ``terms`` names concept TERMS whose references are scanned in addition to
+    path references (see ``matchers.find_term_candidates``). When ``terms`` is
+    empty and ``term_scan`` is on, a single term is auto-derived from the moved
+    record's own ``term:`` frontmatter field, if it has one. ``new_term`` is the
+    term's replacement on a RENAME; leave it ``None`` for a retirement, and every
+    term reference is surfaced with no proposed rewrite.
+    """
     root = scope.resolve_scope_root(old, scope_root)
     old_rel = matchers._normalize_old(old, root)
     new_rel = matchers._normalize_old(new, root)
@@ -72,6 +83,14 @@ def build_consult_result(
         folder_cascade = None
         warnings.extend(_basename_collision_warnings(old_rel, walked))
     warnings.extend(candidate_warnings)
+
+    if term_scan:
+        term_refs, term_warnings = _build_term_references(
+            list(terms), new_term, old_abs, root, walked, provider, len(references)
+        )
+        references.extend(term_refs)
+        warnings.extend(term_warnings)
+
     warnings.extend(_non_utf8_warnings(provider))
 
     git_method, method_warnings = compute_git_move_method(old_abs, root / new_rel, root)
@@ -117,6 +136,59 @@ def build_consult_result(
         "warnings": warnings,
         "folder_cascade": folder_cascade,
     }
+
+
+def _literal_needles(
+    old_rel: str,
+    new_rel: str,
+    scope_root: Path,
+    workspace_root: Path | None,
+) -> list[tuple[str, str]]:
+    """Return the ``(old_form, new_form)`` string pairs the literal sweep searches.
+
+    The SAME path is written several ways in the wild, and a form the sweep does
+    not search is a reference it cannot see:
+
+    * scope-root-relative — the default form (``proj/refs``);
+    * workspace-root-relative — how a reference is written when the scan is
+      scoped to a SUBTREE (``1-projects/proj/refs`` while ``--scope-root`` is
+      ``.../1-projects``). Scope-relative matching reads that leading
+      ``1-projects/`` as a DIFFERENT parent and skips the site, so without this
+      form every such live reference comes back as zero references;
+    * absolute POSIX and absolute Windows-backslash — how a path pasted from a
+      shell or an editor is written.
+
+    Order matters: the sweep dedups by span, so the more specific (longer)
+    absolute forms are searched before the shorter relative ones that are their
+    suffixes. Duplicates are collapsed, preserving first occurrence.
+    """
+    old_abs = Path(old_rel) if Path(old_rel).is_absolute() else scope_root / old_rel
+    new_abs = Path(new_rel) if Path(new_rel).is_absolute() else scope_root / new_rel
+
+    pairs: list[tuple[str, str]] = []
+    old_posix, new_posix = old_abs.as_posix(), new_abs.as_posix()
+    pairs.append((old_posix, new_posix))
+    pairs.append((old_posix.replace("/", "\\"), new_posix.replace("/", "\\")))
+    if workspace_root is not None and workspace_root != scope_root:
+        try:
+            pairs.append(
+                (
+                    old_abs.relative_to(workspace_root).as_posix(),
+                    new_abs.relative_to(workspace_root).as_posix(),
+                )
+            )
+        except ValueError:
+            pass
+    pairs.append((old_rel, new_rel))
+
+    deduped: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for old_form, new_form in pairs:
+        if old_form in seen:
+            continue
+        seen.add(old_form)
+        deduped.append((old_form, new_form))
+    return deduped
 
 
 def _reference_record(
@@ -244,7 +316,12 @@ def _build_file_references(
     # against everything already found above.
     all_candidates.extend(
         matchers.find_literal_path_candidates(
-            old_rel, walked, scope_root, all_candidates, provider=provider
+            old_rel,
+            walked,
+            scope_root,
+            all_candidates,
+            provider=provider,
+            needles=_literal_needles(old_rel, new_rel, scope_root, workspace_root),
         )
     )
     all_candidates.sort(key=lambda c: (c.file, c.line, c.match))
@@ -391,13 +468,17 @@ def _build_folder_references(
                         candidate, sub_op, scope_root=scope_root
                     )
             else:
+                # The FORM is read at the reference's original location
+                # (``candidate``); only the VALUE is computed for its post-move
+                # location (``replace_candidate.file``).
                 proposed = replace.compute_proposed(
-                    replace_candidate,
+                    candidate,
                     sub_old,
                     sub_new,
                     sub_op,
                     scope_root=scope_root,
                     workspace_root=workspace_root,
+                    new_file=replace_candidate.file,
                 )
                 ref_class = classify.classify(
                     class_candidate, sub_op, scope_root=scope_root
@@ -433,9 +514,19 @@ def _build_folder_references(
         scope_root,
         [item[0] for item in collected],
         provider=provider,
+        needles=_literal_needles(old_rel, new_rel, scope_root, workspace_root),
     ):
-        literal_class = classify.classify(literal, folder_op, scope_root=scope_root)
-        collected.append((literal, old_rel, new_rel, new_rel, literal_class))
+        literal_proposed = replace.compute_proposed(
+            literal, old_rel, new_rel, folder_op, scope_root=scope_root
+        )
+        if literal_proposed:
+            literal_class = classify.classify(literal, folder_op, scope_root=scope_root)
+        else:
+            literal_proposed = ""
+            literal_class = classify.CLASS_SURFACE
+        collected.append(
+            (literal, old_rel, new_rel, literal_proposed, literal_class)
+        )
 
     collected.sort(key=lambda item: (item[0].file, item[0].line, item[0].match))
 
@@ -496,6 +587,94 @@ def _build_folder_references(
         "contained_file_refs": contained_file_refs,
     }
     return references, folder_cascade, candidate_warnings, nested
+
+
+def _resolve_terms(terms: list[str], old_abs: Path) -> list[str]:
+    """Return the terms to scan for, auto-deriving from ``old`` when none given.
+
+    An explicit ``--term`` always wins. Otherwise the moved target's own
+    ``term:`` frontmatter field is used: a record that declares a term IS a
+    registry record, and moving one without scanning its term references is the
+    exact failure this scan exists to prevent. A target with no such field yields
+    no terms and the scan costs nothing.
+    """
+    explicit = [t.strip() for t in terms if t and t.strip()]
+    if explicit:
+        return list(dict.fromkeys(explicit))
+    if not old_abs.is_file():
+        return []
+    content = scope.read_text_safe(old_abs)
+    if content is None:
+        return []
+    derived = matchers.extract_frontmatter_term(content)
+    return [derived] if derived else []
+
+
+def _build_term_references(
+    terms: list[str],
+    new_term: str | None,
+    old_abs: Path,
+    scope_root: Path,
+    walked: list[scope.WalkedFile],
+    provider: scope.ContentProvider,
+    start_index: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return term-reference records (ids continuing from ``start_index``).
+
+    Without a ``new_term`` there is nothing to rewrite — a retirement — so every
+    record carries an empty ``proposed`` and is surfaced, which is exactly the
+    review set the caller needs. With one, the unambiguous ``term-edge`` form can
+    reach ``auto``; ``term-prose`` never does.
+    """
+    resolved = _resolve_terms(terms, old_abs)
+    if not resolved:
+        return [], []
+
+    proposed = (new_term or "").strip()
+    references: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    seen: set[tuple[str, int, int]] = set()
+    index = start_index
+
+    for term in resolved:
+        if proposed == term:
+            continue
+        for candidate in matchers.find_term_candidates(term, walked, provider=provider):
+            key = (candidate.file, candidate.line, candidate.offset)
+            if key in seen:
+                continue
+            seen.add(key)
+            index += 1
+            ref_id = f"ref-{index:04d}"
+            ref_class = (
+                classify.classify(
+                    candidate, classify.OPERATION_RENAME, scope_root=scope_root
+                )
+                if proposed
+                else classify.CLASS_SURFACE
+            )
+            references.append(
+                _reference_record(ref_id, candidate, proposed, ref_class)
+            )
+            warnings.extend(_warnings_for_candidate(candidate, ref_id))
+
+    warnings.append(
+        {
+            "kind": "term-scan",
+            "message": (
+                "term reference scan ran for: "
+                + ", ".join(repr(t) for t in resolved)
+                + (
+                    f"; proposed replacement {proposed!r}"
+                    if proposed
+                    else "; no replacement term given, every hit is surfaced"
+                )
+            ),
+            "file": None,
+            "ref_id": None,
+        }
+    )
+    return references, warnings
 
 
 def _maybe_warn_index_cascade(

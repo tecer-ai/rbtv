@@ -121,14 +121,6 @@ def by_match(rows: list[AnalyzedRow]) -> dict[str, AnalyzedRow]:
             "[target](<new.md>)",
         ),
         (
-            "frontmatter arbitrary path key",
-            {"old-note.md": "", "note.md": "---\ncover: old-note.md\n---\n"},
-            "old-note.md",
-            "new-note.md",
-            "old-note.md",
-            "new-note.md",
-        ),
-        (
             "frontmatter arbitrary wikilink key",
             {"old-note.md": "", "note.md": '---\nthumbnail: "[[old-note]]"\n---\n'},
             "old-note.md",
@@ -206,13 +198,32 @@ def test_ambiguous_bare_basename_surfaces_and_is_never_auto(repo_builder):
     assert rows[0][1] != CLASS_AUTO
 
 
-def test_ambiguous_bare_basename_frontmatter_value_surfaces_and_is_never_auto(
-    repo_builder,
-):
-    # A frontmatter value carrying a file extension is a file reference; when two
-    # files share that basename it is ambiguous and MUST surface — never auto-edit.
-    # (A bare value with no extension — e.g. `tags: old` — is a label and no
-    # longer matches at all, regardless of key; see test_reorg_fixes.)
+def test_unique_bare_basename_frontmatter_value_is_found_but_never_auto(repo_builder):
+    # A frontmatter value carrying a file extension is a file reference when its
+    # basename is UNIQUE in scope. It is never `auto`: the rewrite swaps a bare
+    # name for a full path, and a bare name is exactly the form whose meaning
+    # depends on the reading file. (A bare value with no extension — e.g.
+    # `tags: old` — is a label and does not match at all; see test_reorg_fixes.)
+    fix = repo_builder(
+        "unique-basename-frontmatter",
+        {"left/old.md": "", "note.md": "---\ncover: old.md\n---\n"},
+    )
+
+    rows = analyze(fix, "left/old.md", "left/new.md")
+
+    frontmatter = [row for row in rows if row[0].syntax == "frontmatter-field"]
+    assert len(frontmatter) == 1
+    assert frontmatter[0][1] == CLASS_SURFACE
+    assert frontmatter[0][2] == "left/new.md"
+
+
+def test_ambiguous_bare_basename_frontmatter_value_is_not_matched(repo_builder):
+    # Bare-NAME matching requires the basename be UNIQUE in scope — the rule the
+    # wikilink, inline-code, and prose matchers already apply. Frontmatter now
+    # applies it too. Without it the least unique basenames in a workspace
+    # (`CLAUDE.md`, `README.md`) matched every frontmatter field naming them, so
+    # an unrelated project's task spec was reported as a reference to a moved
+    # folder's own file (and once proposed for a cross-project rewrite).
     fix = repo_builder(
         "ambiguous-basename-frontmatter",
         {
@@ -224,10 +235,7 @@ def test_ambiguous_bare_basename_frontmatter_value_surfaces_and_is_never_auto(
 
     rows = analyze(fix, "left/old.md", "left/new.md")
 
-    assert len(rows) == 1
-    assert rows[0][0].syntax == "frontmatter-field"
-    assert rows[0][1] == CLASS_SURFACE
-    assert rows[0][1] != CLASS_AUTO
+    assert [row for row in rows if row[0].syntax == "frontmatter-field"] == []
 
 
 @pytest.mark.parametrize(

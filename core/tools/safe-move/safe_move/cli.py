@@ -57,6 +57,33 @@ def _add_shared_options(parser: argparse.ArgumentParser) -> None:
         help="Glob marking generated files (regenerate, don't patch). Repeatable.",
     )
     parser.add_argument(
+        "--term",
+        metavar="<term>",
+        action="append",
+        default=[],
+        dest="terms",
+        help=(
+            "Also scan for references to this concept TERM (relation edges and "
+            "prose), which no path matcher can see. Repeatable. Defaults to the "
+            "moved record's own `term:` frontmatter value when it has one."
+        ),
+    )
+    parser.add_argument(
+        "--new-term",
+        metavar="<term>",
+        default=None,
+        help=(
+            "The term's replacement, for a rename. Omit for a retirement: every "
+            "term reference is then surfaced with no proposed rewrite."
+        ),
+    )
+    parser.add_argument(
+        "--no-term-scan",
+        action="store_true",
+        default=False,
+        help="Skip the term scan entirely, including the frontmatter auto-derivation.",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         default=False,
@@ -145,6 +172,9 @@ def _run_consult(args: argparse.Namespace) -> int:
             include_archive=args.include_archive,
             descend_nested_repos=args.include_nested_repos,
             generated=args.generated,
+            terms=args.terms,
+            new_term=args.new_term,
+            term_scan=not args.no_term_scan,
         )
     except (ConsultError, ScopeError) as exc:
         print(str(exc), file=sys.stderr)
@@ -173,6 +203,9 @@ def _run_act(args: argparse.Namespace) -> int:
             include_archive=args.include_archive,
             descend_nested_repos=args.include_nested_repos,
             generated=args.generated,
+            terms=args.terms,
+            new_term=args.new_term,
+            term_scan=not args.no_term_scan,
             apply=args.apply,
         )
     except (ActError, ConsultError, MoveError, ScopeError, ValueError) as exc:

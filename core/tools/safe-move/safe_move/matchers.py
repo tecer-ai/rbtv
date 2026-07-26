@@ -1020,7 +1020,13 @@ def match_frontmatter_fields(
         # plain word with no extension (``tags: decisions``) is a label, not a
         # reference. Values with a path separator — including a trailing ``/``
         # folder — are matched by path above and never need this basename branch.
-        basename_allowed = s.is_wikilink or bool(Path(s.value).suffix)
+        # A PLAIN bare filename additionally needs a UNIQUE basename (see the
+        # matching guard in ``find_candidates_multi``); an explicit
+        # ``[[wikilink]]`` value is exempt.
+        basename_allowed = s.is_wikilink or (
+            bool(Path(s.value).suffix)
+            and (resolves_index is None or s.basename_resolves_to == 1)
+        )
         basename_matches = basename_allowed and _wikilink_target_matches_old(
             s.value, old_rel
         )
@@ -1177,6 +1183,12 @@ def _span_overlaps(spans: Iterable[tuple[int, int]], start: int, end: int) -> bo
     return any(a < end and start < b for a, b in spans)
 
 
+#: Characters that separate path segments in a written reference. A literal
+#: occurrence bounded by one of these on the right is a folder path followed by a
+#: contained-file sub-path — a genuine match, not a longer sibling name.
+_PATH_SEPARATORS = frozenset("/\\")
+
+
 def find_literal_path_candidates(
     old_rel: str,
     walked_files: Iterable[WalkedFile],
@@ -1184,55 +1196,249 @@ def find_literal_path_candidates(
     existing: Iterable[Candidate] = (),
     *,
     provider: ContentProvider | None = None,
+    needles: Iterable[tuple[str, str]] | None = None,
 ) -> list[Candidate]:
     """Surface literal occurrences of the old path that the matchers missed.
 
-    Searches every scoped file for the EXACT ``old_rel`` string and emits a
+    Searches every scoped file for each needle's EXACT old string and emits a
     ``literal-path`` candidate for each occurrence that (a) is bounded by
-    non-path characters on the left and by a ``/`` or a non-path character on
-    the right — so a folder path matches both itself and the prefix of any
-    contained-file path, but never a longer sibling name — and (b) does not
-    overlap a span already reported by another matcher (dedup, so a markdown
-    link / inline-code / frontmatter / config hit is not double-counted).
+    non-path characters on the left and by a path separator or a non-path
+    character on the right — so a folder path matches both itself and the prefix
+    of any contained-file path, but never a longer sibling name — and (b) does
+    not overlap a span already reported by another matcher, or by an earlier
+    needle (dedup, so a markdown link / inline-code / frontmatter / config hit is
+    not double-counted and the same site is not reported once per form).
 
-    ``old_rel`` MUST be scope-root-relative and POSIX (as ``_normalize_old``
-    returns). The sweep only runs for a path-shaped target (one containing a
-    ``/`` or carrying a file extension); a bare top-level name like ``foo`` is
-    too generic to search literally and is left to the basename matchers.
+    ``needles`` is the list of ``(old_form, new_form)`` string pairs to search —
+    the SAME path written the several ways a reference may express it
+    (scope-root-relative, workspace-root-relative, absolute POSIX, absolute
+    Windows-backslash). Defaults to the scope-relative form alone. Each emitted
+    candidate carries its own ``new_form`` as ``target``, so the replacement is
+    expressed in the form the reference was written in. A reference written
+    workspace-root-relative while the scan is scoped to a SUBTREE — so the path
+    begins with the scope root's own directory name (``1-projects/...`` while
+    ``--scope-root`` is ``.../1-projects``) — is only reachable through this,
+    because scope-relative matching reads its leading segment as a different
+    parent and skips it.
+
+    A needle is skipped unless it is path-shaped (contains a separator or carries
+    a file extension); a bare top-level name like ``foo`` is too generic to
+    search literally and is left to the basename matchers.
     """
-    if "/" not in old_rel and not Path(old_rel).suffix:
+    pairs = list(needles) if needles is not None else [(old_rel, old_rel)]
+    pairs = [
+        (old_form, new_form)
+        for old_form, new_form in pairs
+        if old_form
+        and (
+            any(sep in old_form for sep in _PATH_SEPARATORS)
+            or Path(old_form).suffix
+        )
+    ]
+    if not pairs:
         return []
 
     spans_by_loc = _candidate_spans_by_loc(existing)
-    needle = old_rel
-    nlen = len(needle)
+    # Spans this sweep itself emits, so the same site found by two needle forms
+    # (or by an overlapping form) is reported once.
+    emitted: dict[tuple[str, int], list[tuple[int, int]]] = {}
     out: list[Candidate] = []
 
     for wf in walked_files:
         content = provider.get(wf) if provider is not None else read_text_safe(wf.abs_path)
-        if content is None or needle not in content:
+        if content is None:
+            continue
+        line_starts: list[int] | None = None
+        for needle, new_form in pairs:
+            if needle not in content:
+                continue
+            if line_starts is None:
+                line_starts = _build_line_starts(content)
+            nlen = len(needle)
+            start = content.find(needle)
+            while start != -1:
+                end = start + nlen
+                before = content[start - 1] if start > 0 else ""
+                after = content[end] if end < len(content) else ""
+                left_ok = start == 0 or (
+                    before not in _PATH_NAME_CHARS and before not in _PATH_SEPARATORS
+                )
+                right_ok = (
+                    end >= len(content)
+                    or after in _PATH_SEPARATORS
+                    or after not in _PATH_NAME_CHARS
+                )
+                if left_ok and right_ok:
+                    line_no, line_start, context = _locate(
+                        content, line_starts, start, end
+                    )
+                    offset = start - line_start
+                    loc = (wf.path, line_no)
+                    if not _span_overlaps(
+                        spans_by_loc.get(loc, ()), offset, offset + nlen
+                    ) and not _span_overlaps(
+                        emitted.get(loc, ()), offset, offset + nlen
+                    ):
+                        emitted.setdefault(loc, []).append((offset, offset + nlen))
+                        out.append(
+                            _build_candidate(
+                                wf, line_no, context, "literal-path", needle,
+                                new_form, None, None, "plain", 1, offset,
+                            )
+                        )
+                start = content.find(needle, start + 1)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Term references
+#
+# A registry/ontology record is named by a human-readable TERM as well as by its
+# filename, and the load-bearing references to it are written in the TERM form —
+# a relation edge (``{ verb: composed-of, to: goal contract }``) or prose. NO path
+# matcher can see those: they contain no path and no filename. Retiring or
+# renaming such a record therefore left every structural term reference behind,
+# silently, on four separate campaign runs.
+#
+# The scan is opt-in per run (``--term``, or auto-derived from the moved record's
+# own ``term:`` frontmatter field) and target-independent of the move: it matches
+# the term TEXT, not a path.
+# ---------------------------------------------------------------------------
+
+#: Files scanned for the structured EDGE form. Markdown carries the registry
+#: records; config files carry the same mappings in native YAML/JSON/TOML.
+TERM_EDGE_EXTENSIONS = MARKDOWN_EXTENSIONS | CONFIG_EXTENSIONS
+
+#: Shortest term the scan accepts. A one- or two-character "term" matches
+#: everywhere and is noise, not a reference.
+_MIN_TERM_LENGTH = 3
+
+#: Frontmatter key naming the record's own term, used for auto-derivation.
+TERM_FRONTMATTER_KEY = "term"
+
+
+#: A line made up of NOTHING but mapping pairs — ``term: goal``,
+#: ``- to: goal contract``, ``- { verb: composed-of, to: goal contract }``.
+#: The edge form is only recognised on such a line. Without this gate an
+#: ordinary SENTENCE containing a ``word: value,`` fragment reads as an edge:
+#: a real registry line — "...sets up available models and harnesses for that
+#: seat: ... llms: harness, model, params..." — was matched and classed AUTO,
+#: which would have rewritten a term inside running prose.
+_MAPPING_LINE_RE = re.compile(
+    r"^\s*-?\s*\{?\s*"
+    r"[A-Za-z_][\w.-]*\s*:\s*[^,{}]*"
+    r"(?:,\s*[A-Za-z_][\w.-]*\s*:\s*[^,{}]*)*"
+    r"\s*\}?\s*$"
+)
+
+
+def _term_edge_re(term: str) -> re.Pattern[str]:
+    """Return the EDGE-form pattern for ``term``.
+
+    The edge form is a mapping value that IS the term: ``to: goal contract``,
+    ``- to: 'goal contract'``, or the same inside an inline mapping
+    ``{ verb: composed-of, to: goal contract }``. The key is not constrained to
+    any particular vocabulary — a workspace names its relation keys itself — but
+    the value must equal the term exactly and end the value slot (end of line, or
+    a ``,`` / ``}`` / ``]`` closing an inline structure), so a term that merely
+    STARTS a longer value is prose, not an edge. The containing line must ALSO be
+    purely mapping-shaped (``_MAPPING_LINE_RE``), which the caller checks.
+    """
+    return re.compile(
+        r"(?P<key>[A-Za-z_][\w.-]*)\s*:\s*"
+        r"(?P<quote>['\"]?)(?P<term>" + re.escape(term) + r")(?P=quote)"
+        r"(?=\s*(?:[,}\]]|$))",
+        re.MULTILINE,
+    )
+
+
+def _term_prose_re(term: str) -> re.Pattern[str]:
+    """Return the word-bounded prose pattern for ``term``."""
+    return re.compile(r"(?<![\w-])" + re.escape(term) + r"(?![\w-])")
+
+
+def extract_frontmatter_term(content: str) -> str | None:
+    """Return the value of the ``term:`` frontmatter field, or ``None``."""
+    for _line_no, key, value in _extract_frontmatter_values(content):
+        if key.lower() == TERM_FRONTMATTER_KEY:
+            stripped = value.strip()
+            if stripped:
+                return stripped
+    return None
+
+
+def find_term_candidates(
+    term: str,
+    walked_files: Iterable[WalkedFile],
+    *,
+    provider: ContentProvider | None = None,
+) -> list[Candidate]:
+    """Return every reference to the concept ``term`` across ``walked_files``.
+
+    Two syntaxes are emitted, and the distinction is what makes the feature safe
+    to auto-apply at all:
+
+    * ``term-edge`` — the structured mapping form. Unambiguous: the value slot
+      holds the term and nothing else, so a rename has exactly one correct
+      rewrite.
+    * ``term-prose`` — any other word-bounded occurrence. Always surfaced: only a
+      human can tell a reference from an incidental use of the same words.
+
+    Matching is CASE-SENSITIVE — a term is a chosen name, and case-folding it
+    would sweep up ordinary sentences that happen to use the words. Prose
+    occurrences inside an edge span are not double-counted.
+    """
+    term = term.strip()
+    if len(term) < _MIN_TERM_LENGTH:
+        return []
+
+    edge_re = _term_edge_re(term)
+    prose_re = _term_prose_re(term)
+    out: list[Candidate] = []
+
+    for wf in walked_files:
+        suffix = Path(wf.path).suffix.lower()
+        is_markdown = suffix in MARKDOWN_EXTENSIONS
+        if suffix not in TERM_EDGE_EXTENSIONS:
+            continue
+        content = provider.get(wf) if provider is not None else read_text_safe(wf.abs_path)
+        if content is None or term not in content:
             continue
         line_starts = _build_line_starts(content)
-        start = content.find(needle)
-        while start != -1:
-            end = start + nlen
-            before = content[start - 1] if start > 0 else ""
-            after = content[end] if end < len(content) else ""
-            left_ok = start == 0 or (before not in _PATH_NAME_CHARS and before != "/")
-            right_ok = end >= len(content) or after == "/" or after not in _PATH_NAME_CHARS
-            if left_ok and right_ok:
-                line_no, line_start, context = _locate(content, line_starts, start, end)
-                offset = start - line_start
-                if not _span_overlaps(
-                    spans_by_loc.get((wf.path, line_no), ()), offset, offset + nlen
-                ):
-                    out.append(
-                        _build_candidate(
-                            wf, line_no, context, "literal-path", needle, needle,
-                            None, None, "plain", 1, offset,
-                        )
-                    )
-            start = content.find(needle, start + 1)
+
+        edge_spans: list[tuple[int, int]] = []
+        for m in edge_re.finditer(content):
+            start, end = m.span("term")
+            line_no, line_start, context = _locate(content, line_starts, start, end)
+            if not _MAPPING_LINE_RE.match(context):
+                # A ``key: value`` fragment inside a sentence, not an edge. Left
+                # to the prose scan below, which always surfaces.
+                continue
+            edge_spans.append((start, end))
+            out.append(
+                _build_candidate(
+                    wf, line_no, context, "term-edge", term, term,
+                    None, None, "plain", 1, start - line_start,
+                )
+            )
+
+        if not is_markdown:
+            continue
+        intervals = _merge_intervals(edge_spans)
+        interval_starts = [iv[0] for iv in intervals]
+        for m in prose_re.finditer(content):
+            start, end = m.span()
+            if _interval_covers(interval_starts, intervals, start, end):
+                continue
+            line_no, line_start, context = _locate(content, line_starts, start, end)
+            out.append(
+                _build_candidate(
+                    wf, line_no, context, "term-prose", term, term,
+                    None, None, "plain", 1, start - line_start,
+                )
+            )
+
+    out.sort(key=lambda c: (c.file, c.line, c.offset))
     return out
 
 
@@ -1363,7 +1569,19 @@ def find_candidates_multi(
             # word with no extension (``tags: decisions``) is a label, not a
             # reference. (Separator / trailing-``/`` values are matched by path
             # above.) This is the folder-move false-positive fix.
+            #
+            # A PLAIN bare filename additionally needs a UNIQUE basename — the
+            # same guard the bare-filename/prose matcher below applies, and the
+            # rule the guide states for bare-name matching. Without it the least
+            # unique basenames in a workspace (``CLAUDE.md``, ``README.md``)
+            # matched every frontmatter field naming them, so an unrelated
+            # project's task spec was reported as a reference to a moved folder's
+            # own ``CLAUDE.md``. An explicit ``[[wikilink]]`` value keeps the
+            # older behaviour (matched, with its multiplicity surfaced) because
+            # the syntax itself declares "this is a link".
             if s.is_wikilink or bool(Path(s.value).suffix):
+                if not s.is_wikilink and s.basename_resolves_to != 1:
+                    continue
                 for index in by_basename.get(s.value.lower(), ()):
                     if index not in path_indices:
                         results[index].append(

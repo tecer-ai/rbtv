@@ -19,7 +19,7 @@
         "source_template": "core/skills/safe-move/SKILL.md",
         "target": ".claude/skills/rbtv-safe-move/SKILL.md",
         "bake": ["rbtv_path"],
-        "description": "Move/rename a file or folder in one git-aware operation that finds and fixes every reference — markdown links, wikilinks, frontmatter, config paths, and structural code imports (ast-grep, never regex). Stateless two-call consult→act with a drift-safe hash handshake; thin loader → safe-move-guide.md. The engine is a runnable Python package read in place from core/tools/safe-move (NOT installed into .claude/; see this module's tools inventory)."
+        "description": "Move/rename a file or folder in one git-aware operation that finds and fixes every reference — markdown links, wikilinks, frontmatter, config paths, and structural code imports (ast-grep, never regex), plus an optional --term scan for references written as a registry record's TERM (relation edges and prose) rather than its path. Stateless two-call consult→act with a drift-safe hash handshake; thin loader → safe-move-guide.md. The engine is a runnable Python package read in place from core/tools/safe-move (NOT installed into .claude/; see this module's tools inventory)."
       }
     ],
     "commands": [

@@ -127,13 +127,26 @@ def format_consult_summary(
     if cascade:
         lines.append(f"folder cascade: {len(cascade)} moved paths (see report)")
 
-    if surface:
+    # A surfaced reference whose proposed rewrite EQUALS its match needs no edit —
+    # the reference is already correct after the move (a bare basename that does
+    # not change, a relative path between two files that move together). Listing
+    # it as a decision is pure clutter, so it collapses to a count; the record is
+    # still in the report.
+    actionable = [ref for ref in surface if ref["proposed"] != ref["match"]]
+    no_op = [ref for ref in surface if ref["proposed"] == ref["match"]]
+
+    if actionable:
         lines.append("surface (pass id:hash to act --apply to also fix):")
-        for ref in surface:
+        for ref in actionable:
             lines.append(
                 f"- {ref['id']}:{ref['hash']}  {ref['file']}:{ref['line']}"
                 f"  {ref['syntax']}  {_snippet(ref['match'])} -> {_snippet(ref['proposed'])}"
             )
+    if no_op:
+        lines.append(
+            f"surface: {len(no_op)} no-op (reference stays correct after the "
+            "move; nothing to decide; see report)"
+        )
     if protected:
         lines.append(f"protected: {len(protected)} (never edited; see report)")
 
@@ -166,13 +179,22 @@ def format_act_summary(result: Any, report_path: Path | None) -> str:
 
     lines.append(f"auto-fixed: {len(result.auto_fixed)}")
 
-    if result.surfaced:
+    surfaced = list(result.surfaced)
+    # Same no-op split as the consult summary: a surfaced row whose new text
+    # equals its old text is nothing to resolve.
+    actionable = [row for row in surfaced if row["new"] != row["old"]]
+    no_op = [row for row in surfaced if row["new"] == row["old"]]
+    if actionable:
         lines.append("surfaced (yours to resolve):")
-        for row in result.surfaced:
+        for row in actionable:
             lines.append(
                 f"- {row['id']}  {row['file']}"
                 f"  {_snippet(row['old'])} -> {_snippet(row['new'])}"
             )
+    if no_op:
+        lines.append(
+            f"surfaced: {len(no_op)} no-op (already correct after the move; see report)"
+        )
     if result.drifted:
         lines.append("drifted (re-run consult for fresh hashes):")
         for row in result.drifted:

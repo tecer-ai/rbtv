@@ -739,9 +739,11 @@ def scan_code_references(
             {
                 "kind": "code-unsupported-language",
                 "message": (
-                    f"structural code matching is not supported for "
-                    f"{Path(wf.path).suffix.lower()} files; "
-                    f"any references in {wf.path} were not discovered"
+                    f"structural (AST) code matching is not supported for "
+                    f"{Path(wf.path).suffix.lower()} files; {wf.path} was still "
+                    f"scanned by the literal path sweep, so a path written out "
+                    f"in full is caught — but an import-style reference "
+                    f"(a module/require specifier) there may be missed"
                 ),
                 "file": wf.path,
                 "ref_id": None,

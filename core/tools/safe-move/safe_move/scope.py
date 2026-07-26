@@ -34,7 +34,15 @@ class WalkWarning:
     file: str | None = None
 
 
-# Directories that are part of VCS, dependency, or build tooling.
+# Directories that are part of VCS or dependency tooling — machine-managed trees
+# nobody hand-authors a reference into.
+#
+# Output-named directories (``build/`` / ``dist/`` / ``target/``) are deliberately
+# NOT here. They were, and it silently blinded the referrer scan: a workspace that
+# keeps hand-authored records under ``build/`` had every reference in them missed
+# (found 0 of ~40 real referrers on one campaign move). Genuine build OUTPUT is
+# gitignored, and the walk already skips gitignored paths; a tracked ``build/`` is
+# content. Callers that must skip one anyway pass ``--exclude``.
 SKIP_DIR_NAMES = frozenset(
     {
         ".git",
@@ -46,9 +54,6 @@ SKIP_DIR_NAMES = frozenset(
         ".mypy_cache",
         ".pytest_cache",
         ".eggs",
-        "dist",
-        "build",
-        "target",
     }
 )
 
@@ -313,14 +318,14 @@ def iter_subtree_text_files(
     *,
     skip_subtrees: Iterable[Path] = (),
 ) -> Iterable[WalkedFile]:
-    """Yield text files under ``subtree`` ignoring ``SKIP_DIR_NAMES`` (except ``.git``).
+    """Yield text files under ``subtree``, skipping only ``.git`` and the excluded trees.
 
-    Used to scan a MOVED folder's OWN files for self-references: a project's
-    ``build/`` / ``dist/`` / ``target/`` records are hand-authored content being
-    relocated, not regenerated artifacts, so the skip-dir heuristic (correct for
-    the broad scope) must not hide them from the self-reference sweep. Still
-    skips ``.git`` internals, the nested-repo subtrees in ``skip_subtrees``,
-    binaries, and generated lockfiles. Paths are relative to ``scope_root``;
+    Used to scan a MOVED folder's OWN files for self-references. Unlike the broad
+    walk it applies NO name-based skip set and NO ``--exclude`` globs: every file
+    being relocated is content, so none of it may be hidden from the
+    self-reference sweep. Still skips ``.git`` internals, the nested-repo subtrees
+    in ``skip_subtrees``, gitignored paths, binaries, and generated lockfiles.
+    Paths are relative to ``scope_root``;
     scope tags are neutral (``read_only`` / ``generated`` / ``boundary`` unset) —
     the sweep that consumes these only surfaces matches, never auto-applies.
     """
