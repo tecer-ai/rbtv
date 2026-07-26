@@ -38,6 +38,10 @@ Rules for `ignite/`:
 
 Development note: `ignite/` is developed on the `ignite/core-daemon` branch; it is absent from `master` until the repo-infrastructure ruling merges it.
 
+## CLI Tool Placement (convention, owner-ruled 2026-07-26)
+
+The settled destination for every rbtv CLI tool is **capability-folder shape** — `<module>/<component>/capabilities/<name>/tool*/` per the CMP-5 component-first layout (`system-definition/architecture/CMP-5-component-databases.md` in the merge-refactor campaign). NEVER create a new interim CLI home (a `cli/` folder or ad-hoc scripts location). The existing off-tree CLIs (`orchestration/cli/teamview/`, `orchestration/cli/ctx-monitor/`) stay in place until the Phase-6 migration materializes the CMP-5 tree and moves them (task filed in `rbtv-sb-merge-refactor-migrate-tasks.md`).
+
 ## Module Files
 
 `modules/` defines the installable bundles. Each module lists which skills, commands, rules, subagents, personas, workflows, and tasks ship with it. When a component's module membership changes, update both the old and new module files.
