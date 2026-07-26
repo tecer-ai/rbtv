@@ -137,22 +137,64 @@ try {
     badType !== null && badType.code === E_BAD_ARGS && badType.details.field === 'args_schema.required.profile',
     `code=${badType && badType.code} field=${badType && badType.details.field}`);
 
+  // The id-BURN guards (adversarial review, 2026-07-25). Registration is create-only
+  // with no update/unregister surface, so a schema that registers but can never be
+  // satisfied permanently burns the id — repairable only by the out-of-band database
+  // write this whole intent exists to close. Each of these registered happily before.
+  const typoKey = refusal(() => store.registerJob({
+    jobId: 'x5',
+    actionType: 'launch-agent',
+    function: 'f',
+    argsSchema: JSON.stringify({ requried: { profile: 'string' } }),
+  }));
+  check('a TYPO\'d top-level schema key is refused (would otherwise burn the id forever)',
+    typoKey !== null && typoKey.code === E_BAD_ARGS && typoKey.details.key === 'requried',
+    `code=${typoKey && typoKey.code} key=${typoKey && typoKey.details.key}`);
+
+  const nullRequired = refusal(() => store.registerJob({
+    jobId: 'x6', actionType: 'fire-tool', function: 'f', argsSchema: JSON.stringify({ required: null }),
+  }));
+  check('a NULL required map is refused (the spec says these are objects)',
+    nullRequired !== null && nullRequired.code === E_BAD_ARGS && nullRequired.details.field === 'args_schema.required',
+    `code=${nullRequired && nullRequired.code} field=${nullRequired && nullRequired.details.field}`);
+
+  const objType = refusal(() => store.registerJob({
+    jobId: 'x7', actionType: 'fire-tool', function: 'f',
+    argsSchema: JSON.stringify({ required: { a: { nested: true } } }),
+  }));
+  check('a non-string declared type reports readably, never "[object Object]"',
+    objType !== null && objType.code === E_BAD_ARGS && !/\[object Object\]/.test(objType.message),
+    `message=${objType && objType.message}`);
+
+  // The other side of the same coin: a WELL-FORMED schema with only `optional`, or with
+  // neither key, must still register — the strictness must not reject valid shapes.
+  const onlyOptional = store.registerJob({
+    jobId: 'x8', actionType: 'fire-tool', function: 'f',
+    argsSchema: JSON.stringify({ optional: { note: 'string' } }),
+  });
+  const emptySchema = store.registerJob({ jobId: 'x9', actionType: 'fire-tool', function: 'f' });
+  check('a well-formed schema (optional-only, and empty) still registers',
+    onlyOptional !== null && emptySchema !== null,
+    `optional-only=${!!onlyOptional} empty=${!!emptySchema}`);
+
   // --- 4. Every refusal above wrote NOTHING.
+  // 1 from the happy path + the 2 well-formed schemas just registered (x8, x9).
   const afterRefusals = readBackJobs();
   check('no refused registration created a row',
-    afterRefusals.length === 1,
-    `disk catalogue rows=${afterRefusals.length}`);
+    afterRefusals.length === 3 && afterRefusals.every((r) => !['x1', 'x2', 'x3', 'x4', 'x5', 'x6', 'x7'].includes(r.job_id)),
+    `disk catalogue rows=${afterRefusals.map((r) => r.job_id).join(',')}`);
 
   // --- 5. Validate-only mode: full validation, no write.
+  const beforeDryRun = readBackJobs().length;
   const verdict = store.registerJob({
     jobId: 'dry-one', actionType: 'fire-tool', function: 'fire-tool', dryRun: true,
   });
   check('dry-run returns a verdict',
     verdict && verdict.dryRun === true && verdict.valid === true,
     `verdict=${JSON.stringify(verdict)}`);
-  check('dry-run wrote nothing',
-    readBackJobs().length === 1,
-    `disk catalogue rows=${readBackJobs().length}`);
+  check('dry-run wrote nothing — row count UNCHANGED and no `dry-one` row exists',
+    readBackJobs().length === beforeDryRun && !readBackJobs().some((r) => r.job_id === 'dry-one'),
+    `rows=${readBackJobs().length} (before ${beforeDryRun})`);
 
   // The duplicate check runs INSIDE the dry-run — the whole point of validating first.
   const dryDup = refusal(() => store.registerJob({

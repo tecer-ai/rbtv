@@ -4,5 +4,5 @@ NOT_WIRE_REACHABLE classifications: 13
 partition: 22 + 13 = 35 (universe 35)
 
 RESULT: PASS — every typed code is either deliberately mapped or deliberately classified; the closed map cannot decay silently.
-WALL_MS 4
+WALL_MS 6
 EXIT 0

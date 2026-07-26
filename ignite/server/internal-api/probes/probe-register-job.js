@@ -234,6 +234,41 @@ async function main() {
     r.body.error && r.body.error.details && r.body.error.details.check === 'E_JOB_EXISTS',
     `details=${JSON.stringify(r.body.error && r.body.error.details)}`);
 
+  // --- 7b. Coverage the first cut of this probe missed (adversarial review, 2026-07-25):
+  //         the optional fields and the gateway's schema normalization, each proven ON
+  //         DISK rather than from the result envelope.
+  r = await register(OWNER, {
+    ...base('staged'), enabled: false, description: 'staged, not runnable yet',
+  });
+  const stagedRow = readBackJob('staged');
+  check('enabled:false and description reach the row ON DISK',
+    r.body.ok === true && r.body.result.enabled === false
+      && stagedRow !== null && stagedRow.enabled === 0,
+    `result=${JSON.stringify(r.body.result)} disk=${JSON.stringify(stagedRow)}`);
+
+  // The gateway accepts args_schema as an OBJECT or a JSON STRING and normalizes both
+  // to one canonical wire string — so the two spellings must land byte-identically.
+  r = await register(OWNER, { ...base('as-string'), args_schema: JSON.stringify(SCHEMA) });
+  const asString = readBackJob('as-string');
+  const asObject = readBackJob('launch-worker');
+  check('a STRING args_schema normalizes to the same stored value as an OBJECT one',
+    asString !== null && asObject !== null && asString.args_schema === asObject.args_schema,
+    `string=${asString && asString.args_schema} object=${asObject && asObject.args_schema}`);
+
+  // A malformed sender at the INTENT level is refused, not crashed through.
+  const malformed = await api.dispatch({
+    v: ENVELOPE_VERSION,
+    id: crypto.randomUUID(),
+    ts: new Date().toISOString(),
+    auth: secret,
+    sender: { id: 'probe-nokind' },
+    intent: 'register-job',
+    payload: { ...base('no-kind'), args_schema: JSON.stringify(SCHEMA) },
+  });
+  check('a sender with no kind is refused, and registers nothing',
+    malformed.ok === false && readBackJob('no-kind') === null,
+    `code=${malformed.error && malformed.error.code}`);
+
   // --- 8. The whole point: a registered job is enqueueable through the SAME pipeline.
   //        Registration is what the queue's foreign key demands — no catalogue row, no
   //        queue row.

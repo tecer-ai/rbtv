@@ -773,11 +773,15 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
   // CREATE-ONLY (Call 2): a duplicate id is refused typed; nothing is ever overwritten.
   // Update/removal/disable have no v1 surface — deliberately, and stated in the spec.
   function handleRegisterJob(payload, sender) {
-    // ⚑ STRICT SCHEMA FIRST — and it must STAY first. Beyond hygiene, this ordering is
-    // what makes the new intent auto-covered by probe-intent-drift.js: that probe
-    // derives the handler set by exercising dispatch() with a one-unknown-field payload
-    // against stub stores, and treats a typed refusal as proof the case ran. A handler
-    // that reached the store or authz first would touch a stub and fault instead.
+    // ⚑ STRICT SCHEMA FIRST, matching every sibling handler. It also keeps
+    // probe-intent-drift.js's derivation CLEAN: that probe exercises dispatch() with a
+    // one-unknown-field payload against stub stores, and a handler refusing it typed is
+    // unambiguous proof the case ran. (Correction, 2026-07-25 adversarial review: this
+    // ordering is NOT the probe's detection PRECONDITION, as an earlier comment here
+    // claimed — the probe also counts an anonymous INTERNAL fault as "handler ran", so
+    // a handler that touched a stub first would still be detected. The ordering earns
+    // its place on hygiene and on giving the probe an unambiguous signal, not on being
+    // load-bearing for the guard.)
     for (const key of Object.keys(payload)) {
       if (!REGISTER_ALLOWED_KEYS.has(key)) {
         throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });

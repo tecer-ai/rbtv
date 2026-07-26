@@ -73,7 +73,19 @@ const PRINCIPALS = Object.freeze({
   'master-approximation': Object.freeze({
     id: 'master-approximation',
     describes: 'stands in for `master` until the seat-identity gate can prove one',
-    enforcedInV1: true,
+    // ⚑ enforcedInV1 is FALSE ON PURPOSE, and canRegisterJob still honours this
+    // principal — the two are not in conflict, so do not "fix" either one.
+    // WHY: every OTHER query here authorizes with
+    //   principals.some(p => PRINCIPALS[p] && PRINCIPALS[p].enforcedInV1)
+    // over whatever the RESOLVER CHAIN returned. Marking this entry true would arm it
+    // for canRemoveQueueRow / canDriveSession / canKillSession the moment any resolver
+    // emitted the string — and adding a resolver is exactly what task 7.10 (CMP-13)
+    // will do. That would silently widen three authorization decisions the 2026-07-25
+    // ruling never touched. The window is real, not theoretical, and a code comment is
+    // not a mechanism — so the flag is the mechanism. (Adversarial review, 2026-07-25.)
+    // canRegisterJob does not consult this flag: it tests `sender.kind` directly, so
+    // the approximation stays confined to the ONE decision that was ruled.
+    enforcedInV1: false,
     provenBy: 'APPROXIMATION: sender.kind === "agent" — i.e. ANY enrolled agent token, not the master specifically',
   }),
   master: Object.freeze({
@@ -253,7 +265,12 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver] } = {}) {
   // The approximation is asked HERE, in the one policy module, and deliberately NOT
   // added to `tokenKindResolver`: that resolver feeds canRemoveQueueRow /
   // canDriveSession / canKillSession too, and widening it would silently loosen three
-  // authorization decisions this ruling never touched.
+  // authorization decisions this ruling never touched. Two mechanisms hold that
+  // confinement — this function tests `sender.kind` directly rather than reading the
+  // PRINCIPALS flag, AND the `master-approximation` entry is `enforcedInV1: false`, so
+  // even a future resolver that emitted the string could not arm the other three
+  // queries. (The flag half was added after adversarial review found the comment alone
+  // was doing the work.)
   function canRegisterJob({ sender }) {
     const principals = principalsOf(sender, null);
     const owner = principals.includes('owner') && PRINCIPALS.owner.enforcedInV1;

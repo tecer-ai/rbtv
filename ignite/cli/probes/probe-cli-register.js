@@ -4,7 +4,9 @@
 // binary against a REAL (throwaway) daemon (task 7.12; owner ruling 2026-07-25):
 // happy-path registration, the CREATE-ONLY duplicate refusal (exit 4), validate-only
 // --dry-run, --disabled, local usage errors (exit 2), the master-approximation authz
-// (an `agent` sender may register; a `bridge` sender may not — exit 3), and the point
+// (an `agent` sender may register; a `bridge` sender is refused UNAUTHORIZED_SENDER,
+// which the ratified exit table puts in the catch-all exit 1 — 3 is AUTH_REFUSED,
+// which an ENROLLED sender never draws), and the point
 // of the whole surface: a job registered through the CLI is then visible in
 // `inspect jobs` and enqueueable by `add-job`.
 //
@@ -112,7 +114,15 @@ async function main() {
     // 7. Authorization (owner ruling Call 1, build (ii)).
     if (bridgeEnv) {
       r = await runCli(['register-job', 'bridge-attempt', '--action-type', 'fire-tool'], bridgeEnv);
-      check('a BRIDGE sender is refused (exit 3, unauthorized)', r.code === 3, `exit=${r.code} stderr=${r.stderr.trim()}`);
+      // ⚑ EXIT 1, not 3. The ratified exit table gives 3 to AUTH_REFUSED only (an
+      // unknown/disabled token, refused at the gateway). An ENROLLED bridge sender
+      // passes auth and is denied by the CORE with UNAUTHORIZED_SENDER, which
+      // `exitForEnvelopeCode` puts in the catch-all 1 — the same expectation
+      // probe-cli-snooze asserts for its owner-only denial. Assert the code AND the
+      // reason, so a 1 from an unrelated crash cannot pass as a refusal.
+      check('a BRIDGE sender is refused UNAUTHORIZED_SENDER (exit 1 catch-all)',
+        r.code === 1 && /UNAUTHORIZED_SENDER/.test(r.stderr),
+        `exit=${r.code} stderr=${r.stderr.trim()}`);
     } else {
       out('SKIP  bridge-sender authz — the fixture workspace defines no bridge token');
     }

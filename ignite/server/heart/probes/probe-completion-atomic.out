@@ -6,4 +6,4 @@ CASE3_NEITHER_LANDED (message rolled back, exec untouched): true
 CASE3_BOTH_LANDED_AFTER_CLEAR: true
 CASE4_UNKNOWN_THREAD (message inserted alone, unrouted for Advance's anomaly path): true
 EXIT: 0
-WALL_MS: 16
+WALL_MS: 14

@@ -18,10 +18,13 @@ PASS  an unknown action_type is refused at the gateway shape-check — code=SHAP
 PASS  dry-run returns the validate-only verdict — result={"dry_run":true,"valid":true}
 PASS  dry-run wrote NOTHING — catalogue row count UNCHANGED ON DISK — rows=2 (before 2)
 PASS  dry-run runs the duplicate check too (E_JOB_EXISTS, nothing written) — details={"check":"E_JOB_EXISTS","field":"jobId","jobId":"launch-worker"}
+PASS  enabled:false and description reach the row ON DISK — result={"registered":true,"job_id":"staged","action_type":"launch-agent","enabled":false} disk={"job_id":"staged","action_type":"launch-agent","function":"spawnLaunchAgent","args_schema":"{\"required\":{\"profile\":\"string\"},\"optional\":{\"prompt\":\"string\"}}","enabled":0}
+PASS  a STRING args_schema normalizes to the same stored value as an OBJECT one — string={"required":{"profile":"string"},"optional":{"prompt":"string"}} object={"required":{"profile":"string"},"optional":{"prompt":"string"}}
+PASS  a sender with no kind is refused, and registers nothing — code=BAD_ENVELOPE
 PASS  a job registered through the gateway is then ENQUEUEABLE through the gateway — ok=true result={"jobId":1} error=null
 PASS  an UNREGISTERED job is still refused at enqueue (E_UNKNOWN_JOB) — details={"check":"E_UNKNOWN_JOB","jobId":"never-registered"}
 
-CHECKS: 21/21 passed
+CHECKS: 24/24 passed
 REGISTER_INTENT_OK: true
 EXIT: 0
-WALL_MS: 39
+WALL_MS: 41

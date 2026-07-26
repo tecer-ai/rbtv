@@ -76,18 +76,73 @@ function parseArgsSchema(schemaJson) {
   return { required, optional };
 }
 
-// Registration-time strictness (task 7.12): every DECLARED type must be a valid
-// primitive. This is why registration validates the schema at all — a job whose
-// schema declares a nonsense type poisons every future enqueue of that job, and the
-// door that accepts the schema is the honest place to refuse it.
-function validateSchemaTypes({ required, optional }) {
+// Registration-time strictness (task 7.12): the schema a job is registered with must
+// be one a future enqueue can actually satisfy. A job whose schema is malformed
+// poisons EVERY future enqueue of that job, and — because registration is create-only
+// with no update or unregister surface in v1 — a bad schema PERMANENTLY BURNS the
+// catalogue id: the only repair is a direct database write on the box, the exact
+// out-of-band path this intent exists to close. So the door that accepts the schema is
+// the only honest place to refuse it. Three checks, all registration-only:
+//
+//   (1) UNKNOWN TOP-LEVEL KEYS are refused. `parseArgsSchema` reads `required` and
+//       `optional` and ignores everything else, so a one-character typo
+//       (`"requried"`) registers happily and then rejects every enqueue with
+//       "unknown argument" — the id is burnt with no in-band fix. Found by
+//       adversarial review, 2026-07-25.
+//   (2) `required`/`optional`, WHEN PRESENT, must really be objects. `parseArgsSchema`
+//       coerces `null` to `{}` (`schema.required || {}`), so `{"required": null}`
+//       would otherwise register and silently mean "no required args" — and the
+//       heart-store spec states these must be objects.
+//   (3) Every DECLARED type must be a valid primitive.
+//
+// ⚑ ALL THREE ARE REGISTRATION-ONLY, deliberately. `validateArgs`/`enqueue` keep the
+// permissive reading for rows ALREADY in the catalogue (including any written
+// out-of-band before this intent existed) — tightening there would change certified
+// behaviour and could strand a live job. Strictness belongs at the new door.
+const SCHEMA_TOP_LEVEL_KEYS = new Set(['required', 'optional']);
+
+function validateSchemaTypes(schemaJson, { required, optional }) {
+  let raw;
+  try {
+    raw = JSON.parse(schemaJson);
+  } catch {
+    // Unreachable in practice: parseArgsSchema already parsed this string and threw
+    // on failure. Kept so this function is safe to call on its own terms.
+    throw new HeartStoreError(E_BAD_ARGS, 'args_schema is not valid JSON', { field: 'args_schema' });
+  }
+
+  for (const key of Object.keys(raw)) {
+    if (!SCHEMA_TOP_LEVEL_KEYS.has(key)) {
+      throw new HeartStoreError(
+        E_BAD_ARGS,
+        `args_schema carries an unknown top-level key: ${key} (expected only "required" and "optional" — ` +
+        `a typo here would register a job that can never be enqueued)`,
+        { field: 'args_schema', key },
+      );
+    }
+  }
+  for (const where of SCHEMA_TOP_LEVEL_KEYS) {
+    const value = raw[where];
+    if (value !== undefined && (value === null || typeof value !== 'object' || Array.isArray(value))) {
+      throw new HeartStoreError(
+        E_BAD_ARGS,
+        `args_schema.${where} must be an object when present`,
+        { field: `args_schema.${where}` },
+      );
+    }
+  }
+
   for (const [map, where] of [[required, 'required'], [optional, 'optional']]) {
     for (const key of Object.keys(map)) {
-      if (!VALID_PRIMITIVE_TYPES.has(map[key])) {
+      const declared = map[key];
+      if (!VALID_PRIMITIVE_TYPES.has(declared)) {
+        // The declared value may be any JSON — stringify it so the message never
+        // renders "[object Object]" (adversarial review, 2026-07-25).
+        const shown = typeof declared === 'string' ? declared : JSON.stringify(declared);
         throw new HeartStoreError(
           E_BAD_ARGS,
-          `args_schema.${where}.${key} declares an unknown type: ${map[key]}`,
-          { field: `args_schema.${where}.${key}`, declared: map[key] },
+          `args_schema.${where}.${key} declares an unknown type: ${shown}`,
+          { field: `args_schema.${where}.${key}`, declared: shown },
         );
       }
     }
@@ -359,7 +414,7 @@ class HeartStore {
     }
     // Schema SHAPE through the shared parser (the same code enqueue validates
     // with), then the registration-only strictness on every declared type.
-    validateSchemaTypes(parseArgsSchema(argsSchema));
+    validateSchemaTypes(argsSchema, parseArgsSchema(argsSchema));
 
     if (this.getJob(jobId)) {
       throw new HeartStoreError(E_JOB_EXISTS, `job already registered: ${jobId}`, { field: 'jobId', jobId });

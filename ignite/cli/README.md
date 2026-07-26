@@ -80,7 +80,9 @@ success and `ERROR [<code>] <message>` on failure.
 
 ```bash
 # Register a job definition (must exist before anything can be queued against it)
-IGNITE_GATEWAY_ADDR=127.0.0.1:7431 IGNITE_SENDER_TOKEN=$TOKEN \n  ignite register-job my-job --action-type launch-agent \n    --args-schema '{"required":{"profile":"string"},"optional":{"prompt":"string"}}'
+IGNITE_GATEWAY_ADDR=127.0.0.1:7431 IGNITE_SENDER_TOKEN=$TOKEN \
+  ignite register-job my-job --action-type launch-agent \
+    --args-schema '{"required":{"profile":"string"},"optional":{"prompt":"string"}}'
 
 # Validate a definition without writing it
 ignite register-job my-job --action-type launch-agent --dry-run
