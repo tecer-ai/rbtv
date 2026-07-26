@@ -123,9 +123,18 @@ def format_consult_summary(
         ),
     ]
 
+    # Counts come from the cascade's LISTS. ``len(cascade)`` is the dict's KEY
+    # count, so every folder move reported the same "3 moved paths" no matter how
+    # many files actually moved — a wrong number in the first line an agent reads.
     cascade = result.get("folder_cascade")
     if cascade:
-        lines.append(f"folder cascade: {len(cascade)} moved paths (see report)")
+        moved = len(cascade.get("moved_files", ()))
+        folder_refs = len(cascade.get("folder_path_refs", ()))
+        contained_refs = len(cascade.get("contained_file_refs", ()))
+        lines.append(
+            f"folder cascade: {moved} moved file(s); references to the folder path"
+            f" {folder_refs}, to contained paths {contained_refs} (see report)"
+        )
 
     # A surfaced reference whose proposed rewrite EQUALS its match needs no edit —
     # the reference is already correct after the move (a bare basename that does

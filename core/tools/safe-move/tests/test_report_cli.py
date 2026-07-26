@@ -149,3 +149,39 @@ def test_act_default_writes_report_and_compact_log(repo_builder, capsys):
     captured = capsys.readouterr()
     assert code == 1
     assert "act report" in captured.err
+
+
+def test_folder_cascade_line_reports_real_counts(repo_builder, capsys):
+    """The cascade line counts the cascade's LISTS, not the dict's keys.
+
+    ``len(folder_cascade)`` is 3 for every folder move (the key count), so the
+    summary printed "3 moved paths" whatever the move actually contained.
+    """
+    files = {
+        "docs/old/a.md": "a\n",
+        "docs/old/b.md": "b\n",
+        "docs/old/sub/c.md": "c\n",
+        "links.md": "See [the folder](docs/old) and [a](docs/old/a.md).\n",
+    }
+    fix = repo_builder("cascade-count", files, tracked=list(files))
+
+    code = main(
+        [
+            "consult",
+            str(fix.repo / "docs" / "old"),
+            str(fix.repo / "docs" / "new"),
+            "--scope-root",
+            str(fix.repo),
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+
+    cascade_lines = [ln for ln in out.splitlines() if ln.startswith("folder cascade:")]
+    assert len(cascade_lines) == 1, out
+    line = cascade_lines[0]
+    # Three files move; one reference names the folder path, one a contained file.
+    assert line == (
+        "folder cascade: 3 moved file(s); references to the folder path 1,"
+        " to contained paths 1 (see report)"
+    ), line
