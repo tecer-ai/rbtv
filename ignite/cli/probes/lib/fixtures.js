@@ -13,10 +13,12 @@
 // daemon child boots, exactly like probe-gateway-live.js writes a throwaway
 // senders.yaml directly to disk before booting. The `ignite` CLI under test
 // never imports server/heart itself — only this fixture file does, and only
-// to give a fresh daemon something in its catalogue to enqueue against (v1
-// ships no CLI-reachable way to register a catalogue job at all — that
-// surface does not exist yet, gateway-cli-spec.md's CLI Surface table has no
-// such subcommand).
+// to give a fresh daemon something in its catalogue to enqueue against.
+//
+// ⚑ Since task 7.12 there IS a CLI-reachable way to register a catalogue job
+// (`ignite register-job`), so this direct seeding is no longer the only route —
+// it stays because it is SETUP: a probe that tests enqueue should not depend on
+// registration passing first. probe-cli-register.js drives the real subcommand.
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -55,6 +57,11 @@ function makeWorkspace(prefix) {
 
   const OWNER_TOKEN = crypto.randomBytes(16).toString('hex');
   const AGENT_TOKEN = crypto.randomBytes(16).toString('hex');
+  // A BRIDGE sender (task 7.12): the third ratified sender kind, and the only
+  // principal `register-job` refuses — a probe needs it to prove the denial half of
+  // that policy. Purely additive: a row in the throwaway senders file that no existing
+  // probe reads, and an unused enrolled sender changes no behaviour.
+  const BRIDGE_TOKEN = crypto.randomBytes(16).toString('hex');
   const sendersFile = path.join(tmp, 'senders.yaml');
   fs.writeFileSync(sendersFile, [
     'senders:',
@@ -66,11 +73,15 @@ function makeWorkspace(prefix) {
     '    kind: agent',
     `    token-hash: ${hashToken(AGENT_TOKEN)}`,
     '    enabled: true',
+    '  - sender-id: probe-bridge',
+    '    kind: bridge',
+    `    token-hash: ${hashToken(BRIDGE_TOKEN)}`,
+    '    enabled: true',
     '',
   ].join('\n'), { mode: 0o600 });
   fs.chmodSync(sendersFile, 0o600);
 
-  return { tmp, workspaceRoot, dataRoot, workRoot, sendersFile, OWNER_TOKEN, AGENT_TOKEN };
+  return { tmp, workspaceRoot, dataRoot, workRoot, sendersFile, OWNER_TOKEN, AGENT_TOKEN, BRIDGE_TOKEN };
 }
 
 function baseEnv(ws, port) {

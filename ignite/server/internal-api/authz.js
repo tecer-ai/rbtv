@@ -65,6 +65,17 @@ const PRINCIPALS = Object.freeze({
     enforcedInV1: true,
     provenBy: 'APPROXIMATION: enqueued_by === authenticated sender-id (exact only at 1:1 sender:seat; coarser under a shared token)',
   }),
+  // The master APPROXIMATION (owner ruling 2026-07-25, task 7.12, build (ii)) —
+  // recorded here so the honest name of what is enforced appears beside the honest
+  // name of what is meant. It is NOT reachable from the resolver chain: only
+  // canRegisterJob adds it, so the three authorization decisions that predate this
+  // ruling are unaffected by its presence. Retire it when CMP-13 lands (task 7.10).
+  'master-approximation': Object.freeze({
+    id: 'master-approximation',
+    describes: 'stands in for `master` until the seat-identity gate can prove one',
+    enforcedInV1: true,
+    provenBy: 'APPROXIMATION: sender.kind === "agent" — i.e. ANY enrolled agent token, not the master specifically',
+  }),
   master: Object.freeze({
     id: 'master',
     describes: 'the system-plane agent with system-wide oversight (registry concept, DRAFT)',
@@ -216,7 +227,49 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver] } = {}) {
     };
   }
 
-  return { canRemoveQueueRow, canSnoozeWarning, canDriveSession, canKillSession, principalsOf, PRINCIPALS };
+  // May this attested sender REGISTER a catalogue job — add to the set of things the
+  // daemon is ABLE to do (task 7.12)?
+  //
+  // OWNER RULING 2026-07-25 (Call 1): "humans AND the master agent"; ordinary worker
+  // agents are refused. The owner was then given the two builds that ruling admits and
+  // chose (ii) — the MASTER APPROXIMATION below — with the exposure stated.
+  //
+  // ⚑ THE MASTER APPROXIMATION — READ THIS BEFORE "FIXING" IT.
+  //   The daemon CANNOT prove a sender is the master: the ratified sender kinds are
+  //   owner|agent|bridge, and a master, a leader, and an ordinary worker are ALL merely
+  //   `kind: agent` (see this file's header). Until the CMP-13 seat-identity gate lands
+  //   (task 7.10, blocked on seats existing at all), "the master" is approximated as
+  //   `kind: 'agent'` — i.e. ANY sender holding an enrolled agent token.
+  //   The exposure this buys, stated plainly and ACCEPTED by the owner at the ruling:
+  //   any agent behind that token can extend what the daemon is able to do. It is the
+  //   same shape as the creator approximation above, one step wider, on a more
+  //   consequential subject — registration changes what the system CAN do, where
+  //   enqueue only changes WHEN it does something already sanctioned.
+  //   `kind: 'bridge'` is REFUSED: a chat bridge relays other people's words and is not
+  //   a master under any reading of the ruling.
+  //   When CMP-13 lands, DELETE the approximation branch — the resolver chain will
+  //   return a truthful 'master' and this function keeps its shape.
+  //
+  // The approximation is asked HERE, in the one policy module, and deliberately NOT
+  // added to `tokenKindResolver`: that resolver feeds canRemoveQueueRow /
+  // canDriveSession / canKillSession too, and widening it would silently loosen three
+  // authorization decisions this ruling never touched.
+  function canRegisterJob({ sender }) {
+    const principals = principalsOf(sender, null);
+    const owner = principals.includes('owner') && PRINCIPALS.owner.enforcedInV1;
+    const masterApprox = !!sender && sender.kind === 'agent';
+    if (masterApprox) principals.push('master-approximation');
+    const allowed = owner || masterApprox;
+    return {
+      allowed,
+      principals,
+      reason: allowed
+        ? `authorized as: ${principals.join(', ')}`
+        : 'register-job is owner-and-master-only; the attested sender is neither',
+    };
+  }
+
+  return { canRemoveQueueRow, canSnoozeWarning, canDriveSession, canKillSession, canRegisterJob, principalsOf, PRINCIPALS };
 }
 
 module.exports = { createAuthzPolicy, tokenKindResolver, PRINCIPALS };

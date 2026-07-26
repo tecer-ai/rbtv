@@ -54,9 +54,15 @@ const ENVELOPE_VERSION = 1;
 // its OWN complete re-validation clause and its OWN authz decision (D65(B) — the same
 // model as remove-job's cancel). The ENVELOPE VERSION IS UNCHANGED and no existing
 // intent's payload semantics move.
+// `register-job` is the NINTH, added ADDITIVELY by owner ruling 2026-07-25 (task 7.12)
+// under the SAME §1 extension rule: it is the daemon's first catalogue-WRITE surface,
+// with its OWN complete re-validation clause and its OWN authz decision (owner + the
+// master APPROXIMATION — see authz.canRegisterJob). The ENVELOPE VERSION IS UNCHANGED
+// and no existing intent's payload semantics move. Before it, catalogue rows could only
+// be created by writing the database directly on the box — around this entire pipeline.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
-  'send-to-session', 'capture-session-screen', 'kill-session',
+  'send-to-session', 'capture-session-screen', 'kill-session', 'register-job',
 ]);
 
 const ALLOWED_ENVELOPE_KEYS = new Set(['v', 'id', 'ts', 'auth', 'sender', 'intent', 'payload']);
@@ -114,6 +120,17 @@ const ENQUEUE_ALLOWED_KEYS = new Set([
   'repeat_rule', 'interval_seconds', 'max_fires',
   // Validate-only mode (owner ruling D72/D73): opt-in, default false. NOT a job
   // column — it selects a pre-insert exit, it is never written to the queue.
+  'dry_run',
+]);
+
+// The register-job payload's field set (task 7.12). The `jobs` DDL is the authoritative
+// field source here exactly as it is for enqueue above, so the wire carries the ratified
+// column names. `created_at`/`updated_at` are deliberately ABSENT: the store stamps them,
+// and a sender that could set them could forge a catalogue row's history.
+const REGISTER_ALLOWED_KEYS = new Set([
+  'job_id', 'action_type', 'function', 'args_schema', 'description', 'enabled',
+  // Validate-only mode (owner ruling 2026-07-25 Call 3) — not a column; it selects a
+  // pre-insert exit and is never written.
   'dry_run',
 ]);
 
@@ -209,6 +226,11 @@ const STORE_TO_WIRE = new Map([
   ['E_QUEUE_ROW_NOT_FOUND', NOT_FOUND],
   ['E_SESSION_NOT_FOUND', NOT_FOUND],
   ['E_UNKNOWN_JOB', VALIDATION_FAILED],
+  // The create-only duplicate refusal from `register-job` (task 7.12). Sender-
+  // correctable — the same family as E_UNKNOWN_JOB, which is its exact inverse:
+  // "that catalogue id is already taken", fixed by picking another id. Not NOT_FOUND
+  // (nothing is missing) and not INTERNAL (nothing broke).
+  ['E_JOB_EXISTS', VALIDATION_FAILED],
   ['E_JOB_DISABLED', VALIDATION_FAILED],
   ['E_BAD_ARGS', VALIDATION_FAILED],
   ['E_UNKNOWN_PROFILE', VALIDATION_FAILED],
@@ -742,6 +764,81 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     };
   }
 
+  // Register a catalogue job — add to the set of actions the daemon is ABLE to run
+  // (task 7.12; owner ruling 2026-07-25). A MUTATION intent: it serializes at the
+  // store's single-writer connection like enqueue-job/remove-job/snooze, and writes
+  // exactly one row in one statement. Added ADDITIVELY under the contract §1 extension
+  // rule — the envelope version is UNCHANGED.
+  //
+  // CREATE-ONLY (Call 2): a duplicate id is refused typed; nothing is ever overwritten.
+  // Update/removal/disable have no v1 surface — deliberately, and stated in the spec.
+  function handleRegisterJob(payload, sender) {
+    // ⚑ STRICT SCHEMA FIRST — and it must STAY first. Beyond hygiene, this ordering is
+    // what makes the new intent auto-covered by probe-intent-drift.js: that probe
+    // derives the handler set by exercising dispatch() with a one-unknown-field payload
+    // against stub stores, and treats a typed refusal as proof the case ran. A handler
+    // that reached the store or authz first would touch a stub and fault instead.
+    for (const key of Object.keys(payload)) {
+      if (!REGISTER_ALLOWED_KEYS.has(key)) {
+        throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });
+      }
+    }
+
+    // Field shapes are RE-CHECKED here, never trusted from the gateway (DEC-3).
+    if (typeof payload.job_id !== 'string' || payload.job_id.length === 0) {
+      throw new InternalApiError(VALIDATION_FAILED, 'job_id must be a non-empty string', { check: 'job_id-shape', field: 'job_id' });
+    }
+    if (typeof payload.function !== 'string' || payload.function.length === 0) {
+      throw new InternalApiError(VALIDATION_FAILED, 'function must be a non-empty string', { check: 'function-shape', field: 'function' });
+    }
+    if (payload.enabled !== undefined && typeof payload.enabled !== 'boolean') {
+      throw new InternalApiError(VALIDATION_FAILED, 'enabled must be a boolean', { check: 'enabled-shape', field: 'enabled' });
+    }
+    if (payload.dry_run !== undefined && typeof payload.dry_run !== 'boolean') {
+      throw new InternalApiError(VALIDATION_FAILED, 'dry_run must be a boolean', { check: 'dry_run-shape', field: 'dry_run' });
+    }
+    const dryRun = payload.dry_run === true;
+
+    // Authorization: owner + the master APPROXIMATION (owner ruling 2026-07-25, Call 1,
+    // build (ii)). Asked in the ONE policy module, never as a scattered `if` here, and
+    // asked BEFORE any store read so a refused sender learns nothing about the
+    // catalogue. ⚑ The approximation admits ANY enrolled agent token, not the master
+    // specifically — the exposure is stated at the policy and was accepted at the
+    // ruling; it retires when CMP-13 lands (task 7.10).
+    const decision = authz.canRegisterJob({ sender });
+    if (!decision.allowed) {
+      throw new InternalApiError(UNAUTHORIZED_SENDER, decision.reason, { check: 'authorization' });
+    }
+
+    // The store re-runs the COMPLETE deterministic validation (id/function shape,
+    // action_type enum, args_schema shape AND declared types, duplicate id) and writes
+    // NOTHING on any failure — the single place all mutations pass. Under `dryRun` it
+    // runs the SAME checks, duplicate included, and returns the verdict BEFORE the
+    // insert; the catalogue is UNCHANGED.
+    const result = heartStore.registerJob({
+      jobId: payload.job_id,
+      actionType: payload.action_type,
+      function: payload.function,
+      argsSchema: typeof payload.args_schema === 'string'
+        ? payload.args_schema
+        : JSON.stringify(payload.args_schema ?? {}),
+      description: payload.description ?? null,
+      enabled: payload.enabled === undefined ? 1 : (payload.enabled ? 1 : 0),
+      dryRun,
+    });
+
+    if (dryRun) {
+      return { dry_run: true, valid: true };
+    }
+    // Loud, owner-readable feedback (D21(3)) in the shape remove-job/snooze established.
+    return {
+      registered: true,
+      job_id: result.job_id,
+      action_type: result.action_type,
+      enabled: result.enabled === 1,
+    };
+  }
+
   // ── The Batch-6 session surface (owner ruling D90; contract §1 extension rule) ──────
   //
   // Two intents that let a SEPARATE process drive a live headed session THROUGH the daemon,
@@ -1154,6 +1251,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         case 'send-to-session': result = handleSendToSession(env.payload, env.sender); break;
         case 'capture-session-screen': result = handleCaptureSessionScreen(env.payload, env.sender); break;
         case 'kill-session': result = await handleKillSession(env.payload, env.sender); break;
+        case 'register-job': result = handleRegisterJob(env.payload, env.sender); break;
       }
 
       // Outbound round-trip: the snapshot the gateway receives is DETACHED, so

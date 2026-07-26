@@ -16,6 +16,7 @@ const {
   E_BAD_TRIGGER,
   E_BAD_MODE,
   E_QUEUE_ROW_NOT_FOUND,
+  E_JOB_EXISTS,
 } = require('./errors');
 const { TICKS_PER_MINUTE } = require('./warnings');
 
@@ -46,17 +47,17 @@ function parseIsoUtc(s) {
   return d;
 }
 
-function validateArgs(args, schemaJson, actionType) {
-  let parsed;
-  try {
-    parsed = JSON.parse(args);
-  } catch {
-    throw new HeartStoreError(E_BAD_ARGS, 'args is not valid JSON', { field: 'args' });
-  }
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new HeartStoreError(E_BAD_ARGS, 'args must be a JSON object', { field: 'args' });
-  }
-
+// The SHAPE half of an args_schema, extracted from validateArgs so registration
+// (task 7.12) and enqueue validate a schema through the SAME code, never a second
+// implementation. Returns the parsed `{ required, optional }` maps.
+//
+// ⚑ SHAPE ONLY — deliberately. It does NOT check that each DECLARED type is a valid
+// primitive: enqueue has always checked a declared type lazily, on the args a caller
+// actually supplied (a bogus type declared for an absent optional arg passes there),
+// and tightening that here would change certified enqueue behaviour. Registration
+// wants the strict check, so it calls validateSchemaTypes below as well — the extra
+// strictness lives at the new door, not inside the old one.
+function parseArgsSchema(schemaJson) {
   let schema;
   try {
     schema = JSON.parse(schemaJson);
@@ -72,6 +73,39 @@ function validateArgs(args, schemaJson, actionType) {
   if (typeof required !== 'object' || Array.isArray(required) || typeof optional !== 'object' || Array.isArray(optional)) {
     throw new HeartStoreError(E_BAD_ARGS, 'args_schema.required and args_schema.optional must be objects', { field: 'args_schema' });
   }
+  return { required, optional };
+}
+
+// Registration-time strictness (task 7.12): every DECLARED type must be a valid
+// primitive. This is why registration validates the schema at all — a job whose
+// schema declares a nonsense type poisons every future enqueue of that job, and the
+// door that accepts the schema is the honest place to refuse it.
+function validateSchemaTypes({ required, optional }) {
+  for (const [map, where] of [[required, 'required'], [optional, 'optional']]) {
+    for (const key of Object.keys(map)) {
+      if (!VALID_PRIMITIVE_TYPES.has(map[key])) {
+        throw new HeartStoreError(
+          E_BAD_ARGS,
+          `args_schema.${where}.${key} declares an unknown type: ${map[key]}`,
+          { field: `args_schema.${where}.${key}`, declared: map[key] },
+        );
+      }
+    }
+  }
+}
+
+function validateArgs(args, schemaJson, actionType) {
+  let parsed;
+  try {
+    parsed = JSON.parse(args);
+  } catch {
+    throw new HeartStoreError(E_BAD_ARGS, 'args is not valid JSON', { field: 'args' });
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new HeartStoreError(E_BAD_ARGS, 'args must be a JSON object', { field: 'args' });
+  }
+
+  const { required, optional } = parseArgsSchema(schemaJson);
 
   for (const key of Object.keys(required)) {
     if (!(key in parsed)) {
@@ -290,22 +324,61 @@ class HeartStore {
     if (singleton === this) singleton = null;
   }
 
-  registerJob({ jobId, actionType, function: fn, argsSchema = '{}', description = null, enabled = 1, createdAt, updatedAt }) {
+  // Catalogue registration — the write behind the `register-job` intent (task 7.12).
+  //
+  // ── CREATE-ONLY (owner ruling 2026-07-25, Call 2) ────────────────────────────
+  // This method WAS an upsert (`ON CONFLICT(job_id) DO UPDATE`). It is not any
+  // more, and the removal is the ruling, not a tidy-up: for the surface that
+  // defines what the daemon is CAPABLE of, a re-register that silently replaces a
+  // row's action type, args schema, or enabled flag is the failure mode — a typo'd
+  // id would quietly repoint a working job. A duplicate is now refused typed
+  // (E_JOB_EXISTS) and the sender picks another id.
+  //
+  // UPDATE / REMOVAL / DISABLE have NO v1 surface and that is deliberate, not an
+  // omission: changing or retiring a catalogue row stays an operator action on the
+  // box until a future ruling adds `update-job`/`unregister-job` additively — the
+  // same interim posture kill held before `kill-session` landed.
+  //
+  // ⚑ AUTHORIZATION IS NOT ASKED HERE. This is the data layer; the caller (the
+  // internal API) owns policy — the D65(B) split p4-0 set for removeQueueRow.
+  registerJob({ jobId, actionType, function: fn, argsSchema = '{}', description = null, enabled = 1, createdAt, updatedAt, dryRun = false }) {
+    if (typeof jobId !== 'string' || jobId.length === 0) {
+      throw new HeartStoreError(E_BAD_ARGS, 'job_id must be a non-empty string', { field: 'jobId' });
+    }
     if (!ACTION_TYPES.has(actionType)) {
       throw new HeartStoreError(E_BAD_ARGS, `invalid action_type: ${actionType}`, { field: 'actionType' });
     }
+    if (typeof fn !== 'string' || fn.length === 0) {
+      throw new HeartStoreError(E_BAD_ARGS, 'function must be a non-empty string', { field: 'function' });
+    }
+    if (typeof argsSchema !== 'string') {
+      throw new HeartStoreError(E_BAD_ARGS, 'args_schema must be a JSON string', { field: 'argsSchema' });
+    }
+    if (description !== null && typeof description !== 'string') {
+      throw new HeartStoreError(E_BAD_ARGS, 'description must be a string or null', { field: 'description' });
+    }
+    // Schema SHAPE through the shared parser (the same code enqueue validates
+    // with), then the registration-only strictness on every declared type.
+    validateSchemaTypes(parseArgsSchema(argsSchema));
+
+    if (this.getJob(jobId)) {
+      throw new HeartStoreError(E_JOB_EXISTS, `job already registered: ${jobId}`, { field: 'jobId', jobId });
+    }
+
+    // Validate-only mode (owner ruling 2026-07-25 Call 3; the D72/D73 model
+    // verbatim): every check above — including the duplicate check — has already
+    // run and PASSED. Return the verdict WITHOUT touching the single writer; the
+    // catalogue row count is UNCHANGED. A failure has already thrown the SAME
+    // typed error it throws on the real path, so the two paths refuse identically.
+    if (dryRun) {
+      return { dryRun: true, valid: true };
+    }
+
     const now = createdAt || isoNow();
     const upd = updatedAt || now;
     const stmt = this._prepare(`
       INSERT INTO jobs (job_id, action_type, function, args_schema, description, enabled, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(job_id) DO UPDATE SET
-        action_type = excluded.action_type,
-        function = excluded.function,
-        args_schema = excluded.args_schema,
-        description = excluded.description,
-        enabled = excluded.enabled,
-        updated_at = excluded.updated_at
     `);
     stmt.run(jobId, actionType, fn, argsSchema, description, enabled ? 1 : 0, now, upd);
     return this.getJob(jobId);
@@ -1024,6 +1097,7 @@ module.exports = {
   HeartStore,
   HeartStoreError,
   E_QUEUE_ROW_NOT_FOUND,
+  E_JOB_EXISTS,
   E_SECOND_WRITER,
   E_UNKNOWN_JOB,
   E_JOB_DISABLED,

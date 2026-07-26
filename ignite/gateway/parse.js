@@ -27,13 +27,23 @@ const { GatewayError, SHAPE_INVALID, UNKNOWN_INTENT } = require('./errors');
 // ⚑ `kill-session` ADDED by the cli-expansion run (ruling D2, ce-4): exposes the spawn
 // module's existing kill surface (TERM → grace → KILL, status → `killed`). Same
 // session-scoped integer id and coercion path as the Batch-6 session-surface intents.
+// ⚑ `register-job` ADDED by owner ruling 2026-07-25 (task 7.12): the NINTH intent —
+// the daemon's first catalogue-WRITE surface. Before it, the only way a job entered
+// the `jobs` catalogue was a direct database write on the box, bypassing this parser,
+// authorization, validation, and audit entirely.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
-  'send-to-session', 'capture-session-screen', 'kill-session',
+  'send-to-session', 'capture-session-screen', 'kill-session', 'register-job',
 ]);
 
 const TRIGGER_KINDS = new Set(['scheduled', 'periodic']);
 const SESSION_MODES = new Set(['headless', 'headed']);
+// A deliberate SECOND copy of the schema's closed action_type enum (schema.sql:5-6),
+// exactly like SESSION_MODES/TRIGGER_KINDS above: the gateway holds no store or schema
+// import by design (DEC-4), so it cannot read the enum from the source of truth. A
+// closed enum is SHAPE, so an unknown value is refused here — the same reasoning that
+// puts session_mode's enum at the door.
+const ACTION_TYPES = new Set(['launch-agent', 'fire-tool', 'start-workflow', 'send-message']);
 // ⚑ `messages` ADDED by the cli-expansion run (ruling D3, ce-5): a new TARGET of the
 // existing `inspect` intent, never a sixth intent — read-only store queries are what
 // `inspect` is for. Execution-scoped like `status`/`logs`: the id is a jobs_log exec_id,
@@ -294,6 +304,72 @@ function parseKillSession(payload) {
   return { id: parseSessionScopedId(payload.id, 'kill-session') };
 }
 
+// `register-job` (the ninth intent, owner ruling 2026-07-25 / task 7.12) — SHAPE ONLY,
+// like every parse here. What the gateway CANNOT check, and must not grow a handle to
+// try: whether the id is already taken, and anything semantic about how the schema
+// interacts with the action type. Both are the core's complete re-validation (DEC-3).
+const REGISTER_KEYS = new Set([
+  'job_id', 'action_type', 'function', 'args_schema', 'description', 'enabled', 'dry_run',
+]);
+
+function parseRegisterJob(payload) {
+  requireObject(payload);
+  rejectUnknownKeys(payload, REGISTER_KEYS, 'register-job');
+
+  if (typeof payload.job_id !== 'string' || payload.job_id.length === 0) {
+    bad('register-job requires a non-empty job_id', 'job_id');
+  }
+  if (!ACTION_TYPES.has(payload.action_type)) {
+    bad(`action_type must be launch-agent|fire-tool|start-workflow|send-message (got "${payload.action_type}")`, 'action_type');
+  }
+  if (typeof payload.function !== 'string' || payload.function.length === 0) {
+    bad('register-job requires a non-empty function', 'function');
+  }
+
+  // `args_schema` takes the SAME object-or-JSON-string normalization enqueue-job's
+  // `args` takes (above), and rides the wire as a canonical JSON string — so the core
+  // and the store see one shape regardless of how a client expressed it.
+  let argsSchema = payload.args_schema ?? {};
+  if (typeof argsSchema === 'string') {
+    try {
+      argsSchema = JSON.parse(argsSchema);
+    } catch {
+      bad('args_schema is not valid JSON', 'args_schema');
+    }
+  }
+  if (argsSchema === null || typeof argsSchema !== 'object' || Array.isArray(argsSchema)) {
+    bad('args_schema must be a JSON object', 'args_schema');
+  }
+
+  let description = null;
+  if (payload.description !== undefined && payload.description !== null) {
+    if (typeof payload.description !== 'string') bad('description must be a string', 'description');
+    description = payload.description;
+  }
+
+  let enabled = true;
+  if (payload.enabled !== undefined) {
+    if (typeof payload.enabled !== 'boolean') bad('enabled must be a boolean', 'enabled');
+    enabled = payload.enabled;
+  }
+
+  let dryRun = false;
+  if (payload.dry_run !== undefined) {
+    if (typeof payload.dry_run !== 'boolean') bad('dry_run must be a boolean', 'dry_run');
+    dryRun = payload.dry_run;
+  }
+
+  return {
+    job_id: payload.job_id,
+    action_type: payload.action_type,
+    function: payload.function,
+    args_schema: JSON.stringify(argsSchema),
+    description,
+    enabled,
+    dry_run: dryRun,
+  };
+}
+
 // Raw sender input -> a typed request payload, or a typed refusal. This is the
 // ONLY function in the daemon that interprets raw sender input.
 function parseRequest({ intent, payload }) {
@@ -309,6 +385,7 @@ function parseRequest({ intent, payload }) {
     case 'send-to-session': return parseSendToSession(payload);
     case 'capture-session-screen': return parseCaptureSessionScreen(payload);
     case 'kill-session': return parseKillSession(payload);
+    case 'register-job': return parseRegisterJob(payload);
   }
 }
 

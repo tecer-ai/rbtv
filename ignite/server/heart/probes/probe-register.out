@@ -1,0 +1,21 @@
+COMMAND: node server\heart\probes\probe-register.js
+PASS  a valid registration lands on disk — rows=1 row={"job_id":"launch-worker","action_type":"launch-agent","function":"spawnLaunchAgent","args_schema":"{\"required\":{\"profile\":\"string\"},\"optional\":{\"prompt\":\"string\"}}","description":"the probe job","enabled":1}
+PASS  the registration returns the created row — returned={"job_id":"launch-worker","action_type":"launch-agent","function":"spawnLaunchAgent","args_schema":"{\"required\":{\"profile\":\"string\"},\"optional\":{\"prompt\":\"string\"}}","description":"the probe job","enabled":1,"created_at":"2026-07-26T00:27:39Z","updated_at":"2026-07-26T00:27:39Z"}
+PASS  a duplicate job_id is refused with E_JOB_EXISTS — code=E_JOB_EXISTS
+PASS  the refused duplicate overwrote nothing — row={"job_id":"launch-worker","action_type":"launch-agent","function":"spawnLaunchAgent","args_schema":"{\"required\":{\"profile\":\"string\"},\"optional\":{\"prompt\":\"string\"}}","description":"the probe job","enabled":1}
+PASS  an unknown action_type is refused with E_BAD_ARGS — code=E_BAD_ARGS
+PASS  an empty function is refused with E_BAD_ARGS — code=E_BAD_ARGS field=function
+PASS  an empty job_id is refused with E_BAD_ARGS — code=E_BAD_ARGS
+PASS  a non-JSON args_schema is refused with E_BAD_ARGS — code=E_BAD_ARGS
+PASS  a schema declaring an unknown type is refused, naming the field — code=E_BAD_ARGS field=args_schema.required.profile
+PASS  no refused registration created a row — disk catalogue rows=1
+PASS  dry-run returns a verdict — verdict={"dryRun":true,"valid":true}
+PASS  dry-run wrote nothing — disk catalogue rows=1
+PASS  dry-run reports a duplicate as E_JOB_EXISTS — code=E_JOB_EXISTS
+PASS  a freshly registered job is enqueueable — queue row=1
+PASS  enqueue keeps its lazy declared-type check (extraction changed no behaviour) — accepted, as before
+
+CHECKS: 15/15 passed
+REGISTER_OK: true
+EXIT: 0
+WALL_MS: 23

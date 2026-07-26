@@ -21,6 +21,7 @@ const { CliUsageError, CliTransportError } = require('./lib/errors');
 const { takeFlag } = require('./lib/args');
 
 const COMMANDS = {
+  'register-job': require('./commands/register-job'),
   'add-job': require('./commands/add-job'),
   'remove-job': require('./commands/remove-job'),
   inspect: require('./commands/inspect'),

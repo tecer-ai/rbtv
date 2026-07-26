@@ -41,6 +41,7 @@ subcommand.
 
 | Command | Wraps | Notes |
 |---------|-------|-------|
+| `ignite register-job <job-id> --action-type <t>` | `register-job` | Registers a job DEFINITION in the catalogue — what the daemon is ABLE to run (task 7.12). CREATE-ONLY: an id already registered is refused typed (`E_JOB_EXISTS`); nothing is ever overwritten, and there is no update/unregister subcommand in v1. `--dry-run` validates without writing. Authorized for the owner AND — under the master APPROXIMATION — any enrolled `agent` sender; `bridge` senders are refused. |
 | `ignite add-job` | `enqueue-job` | Enqueues a job (server-side dry-run-validated before writing). `--dry-run` is refused (see § Known gap below). |
 | `ignite remove-job <queue-id>` | `remove-job` | Removes a pending queue row; removing a repeating row cancels the WHOLE schedule (D68) and the CLI says so. |
 | `ignite inspect jobs\|queue\|status <id>\|logs <id> [--tail n]\|daemon\|ticker\|messages <id>` | `inspect` | Read-only. `--tail` walks the offset/limit pages client-side (the contract has no reverse read) and keeps only the last N lines. `messages <id>` (cli-expansion D3): `<id>` is an execution id; the server resolves the execution's chain-stable thread and returns that thread's message rows, paged. |
@@ -78,6 +79,12 @@ success and `ERROR [<code>] <message>` on failure.
 ## Examples
 
 ```bash
+# Register a job definition (must exist before anything can be queued against it)
+IGNITE_GATEWAY_ADDR=127.0.0.1:7431 IGNITE_SENDER_TOKEN=$TOKEN \n  ignite register-job my-job --action-type launch-agent \n    --args-schema '{"required":{"profile":"string"},"optional":{"prompt":"string"}}'
+
+# Validate a definition without writing it
+ignite register-job my-job --action-type launch-agent --dry-run
+
 # Enqueue a scheduled job
 IGNITE_GATEWAY_ADDR=127.0.0.1:7431 IGNITE_SENDER_TOKEN=$TOKEN \
   ignite add-job --fn my-job --profile my-profile \
@@ -118,7 +125,7 @@ wrapper cannot honestly perform. See task p4-2's `open_questions`.
 
 ## Probes (`probes/`)
 
-`probe-cli-add.js`, `probe-cli-inspect.js` (covers `inspect messages`),
+`probe-cli-register.js`, `probe-cli-add.js`, `probe-cli-inspect.js` (covers `inspect messages`),
 `probe-cli-remove.js`, `probe-cli-snooze.js`, `probe-cli-dryrun.js`,
 `probe-cli-status.js`, `probe-cli-ticker.js`, `probe-cli-send.js`,
 `probe-cli-screen.js`, `probe-cli-kill.js` each boot their OWN throwaway daemon (mirrors
