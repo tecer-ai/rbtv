@@ -201,6 +201,9 @@ def _propose_markdown_link(
     new_path = _compute_relative_path(new_dir, new_rel, scope_root)
     if new_path is None:
         return None
+    # ``candidate.target`` is the decoded path part (fragment already split off),
+    # so its trailing ``/`` is the author's folder notation.
+    new_path = _preserve_trailing_slash(candidate.target, new_path)
 
     if candidate.fragment:
         new_path = f"{new_path}{candidate.fragment}"
@@ -258,7 +261,9 @@ def _propose_frontmatter_field(
             form = _resolve_form(match, old_dir, scope_root, old_rel)
             if form is None:
                 return None
-            return _compute_path_value(form, new_dir, new_rel, scope_root)
+            return _preserve_trailing_slash(
+                match, _compute_path_value(form, new_dir, new_rel, scope_root)
+            )
         # Bare filename with extension = scope-root-relative path.
         return _compute_path_value("scope-root", "", new_rel, scope_root)
 
@@ -329,7 +334,9 @@ def _propose_config_path(
         form = _resolve_form(inner, old_dir, scope_root, old_rel)
         if form is None:
             return None
-        new_inner = _compute_path_value(form, new_dir, new_rel, scope_root)
+        new_inner = _preserve_trailing_slash(
+            inner, _compute_path_value(form, new_dir, new_rel, scope_root)
+        )
     else:
         # Bare config value = scope-root-relative path.
         new_inner = _compute_path_value("scope-root", "", new_rel, scope_root)
@@ -378,7 +385,10 @@ def _propose_inline_code_path(
     form = _resolve_form(target, old_dir, scope_root, old_rel, workspace_root)
     if form is None:
         return None
-    return _compute_path_value(form, new_dir, new_rel, scope_root, workspace_root)
+    return _preserve_trailing_slash(
+        target,
+        _compute_path_value(form, new_dir, new_rel, scope_root, workspace_root),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -429,6 +439,23 @@ def _propose_literal_path(candidate: Candidate, old_rel: str, new_rel: str) -> s
 # ---------------------------------------------------------------------------
 # Shared path helpers
 # ---------------------------------------------------------------------------
+
+
+def _preserve_trailing_slash(original: str, new_value: str | None) -> str | None:
+    """Return ``new_value`` carrying ``original``'s trailing ``/``, when it had one.
+
+    A trailing separator is the author's FOLDER notation (`` `refs/` ``), and every
+    path value here is built from ``Path`` / ``os.path.relpath`` output, which never
+    carries one — so the rewrite silently dropped it. Cosmetic (the link still
+    resolves either way), but the rewrite must preserve how the reference was
+    written. A value without a trailing slash, an empty rewrite, and a rewrite that
+    already ends in ``/`` are all returned unchanged.
+    """
+    if not new_value:
+        return new_value
+    if not original.endswith("/") or new_value.endswith("/"):
+        return new_value
+    return new_value + "/"
 
 
 def _new_basename_or_stem(original_value: str, new_rel: str) -> str:

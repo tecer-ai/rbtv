@@ -150,8 +150,13 @@ def test_workspace_relative_reference_under_scope_root_is_matched(repo_builder):
 
     found = _refs_in(result, "other/other-tasks.md")
     assert found, "a workspace-relative reference to the moved folder must be matched"
+    # The reference points at a SUBDIRECTORY of the moved folder, so the
+    # structured inline-code matcher now owns it and rewrites the WHOLE path.
+    # (It used to be caught only by the literal sweep, which matched the moved
+    # folder's path as a PREFIX span and proposed the folder path alone; the
+    # sweep dedups against the structured hit, so that record is gone.)
     assert any(
-        r["proposed"] == "1-projects/proj/build/refs" for r in found
+        r["proposed"] == "1-projects/proj/build/refs/weaver-ui" for r in found
     ), [r["proposed"] for r in found]
 
 

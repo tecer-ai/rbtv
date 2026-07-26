@@ -371,9 +371,19 @@ def _build_folder_references(
     the folder-cascade block. ast-grep runs once total — not once per sub-target
     — and each scoped file is read once.
     """
+    # Sub-targets: the moved folder itself, every contained file, AND every
+    # contained DIRECTORY. The directories are what let the STRUCTURED matchers
+    # (markdown-link, wikilink, frontmatter, config, inline-code) see a reference
+    # that points at a SUBDIRECTORY of the moved folder — ``refs/weaver-ui`` while
+    # moving ``refs/``. Without a sub-target to match against, no structured
+    # matcher could produce one, so such a reference was caught only by the crude
+    # literal sweep (always ``surface``, whole-string rewrite) and missed entirely
+    # in a form the sweep does not search (notably a ``../``-relative path, which
+    # the structured matchers DO resolve). Symlinked directories are skipped — the
+    # walk does not follow them.
     sub_targets: list[tuple[str, str]] = [(old_rel, new_rel)]
     for path in sorted(old_abs.rglob("*")):
-        if path.is_file():
+        if path.is_file() or (path.is_dir() and not path.is_symlink()):
             rel = path.relative_to(old_abs).as_posix()
             sub_targets.append((f"{old_rel}/{rel}", f"{new_rel}/{rel}"))
 
@@ -532,6 +542,10 @@ def _build_folder_references(
 
     references: list[dict[str, Any]] = []
     folder_path_refs: list[str] = []
+    # Every reference to something INSIDE the moved folder — a contained file OR a
+    # contained subdirectory (the name predates directory sub-targets and is kept
+    # for envelope compatibility). ``folder_path_refs`` holds references to the
+    # moved folder path itself. ``moved_files`` below stays files-only.
     contained_file_refs: list[str] = []
     for index, (candidate, sub_old, sub_new, proposed, ref_class) in enumerate(collected, 1):
         ref_id = f"ref-{index:04d}"

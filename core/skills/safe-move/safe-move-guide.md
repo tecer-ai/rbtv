@@ -122,7 +122,11 @@ The tool **moves and stages**; it does NOT commit. `git mv` history continuity i
 
 ## Folders — the primary case
 
-Moving a folder moves every file in it and fixes every reference to the folder path AND to each moved file, using the same classifier. This needs no conventions. Convention-specific follow-ons (renaming a folder's index file, rewriting identity tags, fixing dashboard queries) are NOT in the engine — they are the calling agent's job.
+Moving a folder moves every file in it and fixes every reference to the folder path, to each contained **subdirectory**, AND to each moved file, using the same classifier. This needs no conventions. Convention-specific follow-ons (renaming a folder's index file, rewriting identity tags, fixing dashboard queries) are NOT in the engine — they are the calling agent's job.
+
+**Subdirectory references get the full structured treatment.** A reference to a folder INSIDE the moved one (`` `refs/weaver-ui` `` while moving `refs/`) is matched by every structured matcher — markdown link, wikilink, frontmatter, config, inline-code path — each with a whole-path rewrite, and a `../`-relative one is matched too (the literal sweep cannot see those). Previously only the literal sweep caught such a reference, which meant a crude prefix-span rewrite at best and a miss whenever it was written in a form the sweep does not search. In the `folder_cascade` block these ids land in `contained_file_refs` alongside the contained-file ones (the field name predates directory sub-targets; `moved_files` remains files-only). A bare `[[dirname]]` wikilink to such a subdirectory is always **surfaced**, never `auto` — the basename index counts files only, so a directory name resolves to zero files and the certainty gate refuses it.
+
+**A trailing `/` is preserved.** When the matched reference is written in folder notation (`` `kg-viz/` ``, `[folder](docs/old/)`, `source: docs/old/`), the proposed rewrite keeps the trailing slash. It is cosmetic — the reference resolves either way — but the rewrite must not silently restyle how a reference was written.
 
 ---
 
