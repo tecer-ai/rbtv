@@ -19,6 +19,28 @@ Scripted / CI mode:
     python install.py --target /path/to/workspace --modules core,innovation
     python install.py --target /path/to/workspace --non-interactive
 
+Mirror-only mode (refresh worker guidance artifacts, no component install):
+    python install.py --mirror [--target /path/to/workspace]
+    python install.py --mirror --exclude 4-archives 5-workbench/vendor
+    python install.py --mirror --uninstall [--target /path/to/workspace]
+
+    --mirror re-renders the mirror artifacts (worker guidance files, the shared
+    .agents/ library, per-model config dirs) for the model packages already
+    recorded in rbtv.json, skipping the target/module/component prompts. The
+    target resolves from --target, else the nearest rbtv.json walking upward
+    from the current directory.
+
+    --exclude PATH [PATH ...] takes workspace-root-relative posix paths the
+    mirror skips — no guidance file is rendered beside any CLAUDE.md inside an
+    excluded path, and an already-mirrored excluded path has its generated
+    guidance files deleted (hand-authored files are spared). Passing --exclude
+    REPLACES the list recorded in rbtv.json (model_mirror.excluded_paths);
+    omitting it PRESERVES it. Applies on both a full install and --mirror.
+
+    --uninstall applies ONLY with --mirror: a full mirror teardown that removes
+    every generated mirror artifact for the target and clears the model_mirror
+    block from rbtv.json.
+
 Re-running is safe — previous rbtv-* files are cleared before each install.
 Choices are persisted in rbtv.json at the target root so re-installs remember
 selected modules and excluded components.
