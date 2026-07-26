@@ -22,15 +22,18 @@ runs.
 | `tmux-overview` | Owner utility: live view of one tmux session's windows/panes plus Claude plan usage (`tmux-overview <session>`; on this VPS also on PATH, per-machine symlink). `--compact --package <run-package>` renders the ≤7-line control-panel dashboard via `overview-compact.py` — plan-usage bar charts left, windows with roster-resolved seat names right; the `panel` subcommand embeds exactly that in the leader window's 8-row strip. |
 | `overview-compact.py` | The compact dashboard renderer behind `tmux-overview --compact`: colored usage bars for Claude (5h/7d) AND the worker providers (GLM 5h/7d, Codex 7d) + DeepSeek balance + Sakana console note, plus every window with member seat names mapped pane→agent from `coordination/workers.md` (claude panes rewrite their own titles, so the roster is the name source). |
 | `provider-usage.py` | Read-only poller for worker-harness plan limits → `~/.claude/rbtv-runtime/provider-usage.json`: Z.AI coding-plan quota endpoint (5h/weekly %), DeepSeek balance endpoint, Codex plan windows from its LOCAL session files (no API call; fresh only while a codex seat runs), Sakana marked console-only (no documented endpoint). Keys stay in opencode's store, sent only to each provider's own documented host, never printed. The compact loop re-polls when data is >10 min old. |
-
-> **Successor note (2026-07-24):** the `tmux-overview` / `overview-compact.py` / `provider-usage.py`
-> trio was promoted, generalized, into the rbtv repo as the **`teamview`** CLI
-> (`orchestration/cli/teamview/`, branch `ignite/core-daemon`) — multi-account providers with
-> in-use highlighting, kimi+google added, four size-responsive layouts, session auto-detection.
-> The kit copies stay authoritative for the in-flight kg-views-rebuild run; new runs and the
-> `panel` strip should adopt `teamview` after that run closes. |
 | `statusline-usage.py` | Claude Code statusline script (wired in the vault's `.claude/settings.local.json`): renders the status line, persists plan usage (5h/7d windows from the statusline payload's `rate_limits`) to `~/.claude/rbtv-runtime/plan-usage.{txt,json}` for `tmux-overview` to display, AND persists the session's pid map (`~/.claude/rbtv-runtime/session-pids/<sid>.json` — claude pid → transcript) so the rbtv `ctx-monitor` CLI can resolve a tmux pane's claude process to its EXACT transcript (per-pane context/model in `teamview`). |
 | `system-design.md` | Designer-only: the kit's design rationale (see `CLAUDE.md` — run agents never read it; designers keep it updated). |
+
+> **Successor note (2026-07-24, updated 2026-07-26):** the `tmux-overview` /
+> `overview-compact.py` / `provider-usage.py` trio was promoted, generalized, into the rbtv repo
+> as the **`teamview`** CLI (`orchestration/cli/teamview/`, branch `ignite/core-daemon`) —
+> multi-account providers with in-use highlighting, kimi+google added, four size-responsive
+> layouts, session auto-detection. The hold that kept these kit copies authoritative has EXPIRED:
+> it was scoped to the then in-flight kg-views-rebuild run, which closed on 2026-07-24. Whether
+> the kit now DROPS the trio for `teamview` or KEEPS it for the `panel` strip is an OWNER-GATED
+> decision, open at `CLAUDE.md` § Known instance couplings — not settled here. Until it is ruled
+> these copies stay in place and `panel` keeps using them.
 
 ## Starting a new run
 
