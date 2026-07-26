@@ -102,6 +102,11 @@ function now() {
 }
 
 function registerLaunchAgentJob(ctx, jobId = 'launch-agent') {
+  // Idempotent setup: [7.12] (acc661d) made duplicate registration a typed
+  // E_JOB_EXISTS refusal; multi-scenario probes register the same job once per
+  // scenario on one store, so an existing row is returned, never re-registered.
+  const existing = ctx.store.getJob(jobId);
+  if (existing) return existing;
   return ctx.store.registerJob({
     jobId,
     actionType: 'launch-agent',
