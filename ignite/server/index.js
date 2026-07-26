@@ -458,6 +458,9 @@ async function main() {
     profiles: mergedConfig.profiles || {},
     tools: mergedConfig.tools || {},
     workflows: mergedConfig.workflows || {},
+    // The snooze minutes→ticks conversion lives in the store (D44) and needs the live
+    // cadence. TICKER-namespaced key, same as the daemon loop below reads it.
+    tickIntervalMs: (mergedConfig.ticker || {}).tick_interval_ms,
   });
 
   // Worker containment (profile `caps:` and `sandbox:`) exists ONLY on the systemd carrier.

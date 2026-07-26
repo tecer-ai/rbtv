@@ -1,6 +1,6 @@
 'use strict';
 
-const { WARNING_KINDS, WARNING_ANNOUNCE_INTERVAL_TICKS } = require('../heart/warnings');
+const { WARNING_KINDS, announceIntervalTicks } = require('../heart/warnings');
 
 const OWNER_NOTE_THREAD = 'owner-feed';
 
@@ -26,9 +26,11 @@ function findBlockedBudgetExhaustedSubjects(heartStore, slotMaxRepeats) {
   return subjects;
 }
 
-function runWarningCheck({ heartStore, tick, now, slotMaxRepeats, actions }) {
+function runWarningCheck({ heartStore, tick, now, slotMaxRepeats, tickIntervalMs, actions }) {
   const activeSubjects = findBlockedBudgetExhaustedSubjects(heartStore, slotMaxRepeats);
   const kind = WARNING_KINDS.SEAT_BLOCKED_BUDGET_EXHAUSTED;
+  // D45's "every 60 s" in ticks at the cadence this ticker is ACTUALLY running.
+  const announceInterval = announceIntervalTicks(tickIntervalMs);
 
   const standing = heartStore.listWarnings({ standingOnly: true, kind });
   for (const w of standing) {
@@ -50,7 +52,7 @@ function runWarningCheck({ heartStore, tick, now, slotMaxRepeats, actions }) {
     const snoozed = w.snoozed_until_tick !== null && w.snoozed_until_tick !== undefined && tick < w.snoozed_until_tick;
     if (snoozed) continue;
     const last = w.last_announced_tick;
-    if (last === null || last === undefined || tick - last >= WARNING_ANNOUNCE_INTERVAL_TICKS) {
+    if (last === null || last === undefined || tick - last >= announceInterval) {
       const noted = heartStore.recordMessage({
         type: 'note',
         sender: 'ticker',

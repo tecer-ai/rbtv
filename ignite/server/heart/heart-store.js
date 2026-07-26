@@ -18,7 +18,7 @@ const {
   E_QUEUE_ROW_NOT_FOUND,
   E_JOB_EXISTS,
 } = require('./errors');
-const { TICKS_PER_MINUTE } = require('./warnings');
+const { minutesToTicks } = require('./warnings');
 
 const SCHEMA_SQL = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
 
@@ -364,6 +364,11 @@ class HeartStore {
       profiles: opts.profiles || {},
       tools: opts.tools || {},
       workflows: opts.workflows || {},
+      // The live ticker cadence, handed in by the composition root like every other
+      // configured value: the minutes→ticks conversion below reads it so a snooze
+      // means the same wall-clock duration at any tick_interval_ms. Absent → the
+      // ticker's own 10 s default (warnings.js).
+      tick_interval_ms: opts.tickIntervalMs,
     };
   }
 
@@ -1065,8 +1070,10 @@ class HeartStore {
   // Snooze a standing warning for `minutes` (D45: "the system converts minutes
   // → ticks"). The conversion lives HERE and nowhere else — callers pass
   // MINUTES and never a tick, so no call site ever duplicates the tick-rate
-  // arithmetic (D44). The reference point is the last recorded tick: a snooze
-  // arrives out-of-band between ticks, so "now" is the most recent tick.
+  // arithmetic (D44). That conversion derives from the LIVE configured cadence,
+  // never a baked-in ticks-per-minute constant. The reference point is the last
+  // recorded tick: a snooze arrives out-of-band between ticks, so "now" is the
+  // most recent tick.
   // Suppresses announcement only — it NEVER clears (cleared_at_tick untouched).
   // Snoozing a (kind, subject) with no standing warning is a clean no-op: null,
   // never an error, never a phantom row.
@@ -1084,7 +1091,7 @@ class HeartStore {
     if (!existing) return null;
     const lastTick = this.getLastTick();
     const currentTick = lastTick ? lastTick.tick : 0;
-    const snoozedUntilTick = currentTick + (minutes * TICKS_PER_MINUTE);
+    const snoozedUntilTick = currentTick + minutesToTicks(minutes, this.config.tick_interval_ms);
     const stmt = this._prepare('UPDATE warnings SET snoozed_until_tick = ? WHERE warning_id = ?');
     stmt.run(snoozedUntilTick, existing.warning_id);
     return this._prepare('SELECT * FROM warnings WHERE warning_id = ?').get(existing.warning_id);

@@ -7,19 +7,33 @@ const WARNING_KINDS = {
   TAILNET_BIND_DEGRADED: 'tailnet-bind-degraded',
 };
 
-// The D45 announcement cadence: announce every 60 s while a warning stands.
-// ticker.js runs at tick_interval_ms: 10000 (10 s/tick), so 60 s = 6 ticks.
-const WARNING_ANNOUNCE_INTERVAL_TICKS = 6;
+// Every duration below is expressed in WALL-CLOCK ms and converted at call time
+// against the LIVE configured cadence. A stored tick count would be a hidden
+// assumption that ticker.js runs at its 10 s default: at any other cadence a
+// baked-in constant silently corrupts the duration it stands for.
+const DEFAULT_TICK_INTERVAL_MS = 10000; // ticker.js DEFAULT_CONFIG default
 
-// The tick-rate conversion used to turn an owner-supplied `minutes` into ticks
-// (60 s/min ÷ 10 s/tick). Deliberately SEPARATE from the announce cadence
-// above: the two are equal at 10 s/tick by arithmetic, not by meaning, and
-// collapsing them would make any future change to the announce cadence
-// silently corrupt every minutes→ticks conversion.
-const TICKS_PER_MINUTE = 6;
+function resolveTickIntervalMs(tickIntervalMs) {
+  const ms = Number(tickIntervalMs);
+  return Number.isFinite(ms) && ms > 0 ? ms : DEFAULT_TICK_INTERVAL_MS;
+}
+
+// The D45 announcement cadence: announce every 60 s while a warning stands.
+function announceIntervalTicks(tickIntervalMs) {
+  return Math.ceil(60000 / resolveTickIntervalMs(tickIntervalMs));
+}
+
+// The tick-rate conversion used to turn an owner-supplied `minutes` into ticks.
+// Deliberately SEPARATE from the announce cadence above: the two are equal at
+// 10 s/tick by arithmetic, not by meaning, and collapsing them would make any
+// future change to the announce cadence silently corrupt every minutes→ticks
+// conversion.
+function minutesToTicks(minutes, tickIntervalMs) {
+  return Math.ceil((minutes * 60000) / resolveTickIntervalMs(tickIntervalMs));
+}
 
 module.exports = {
   WARNING_KINDS,
-  WARNING_ANNOUNCE_INTERVAL_TICKS,
-  TICKS_PER_MINUTE,
+  announceIntervalTicks,
+  minutesToTicks,
 };

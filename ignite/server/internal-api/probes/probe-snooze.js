@@ -42,7 +42,7 @@ const outPath = path.join(__dirname, 'probe-snooze.out');
 fs.writeFileSync(outPath, '');
 
 const { openHeartStore, closeHeartStore } = require('../../heart/heart-store');
-const { TICKS_PER_MINUTE } = require('../../heart/warnings');
+const { minutesToTicks } = require('../../heart/warnings');
 const { createInternalApi } = require('../dispatch');
 const { createGateway } = require('../../../gateway/gateway');
 const { hashToken } = require('../../../gateway/sender-auth');
@@ -58,7 +58,10 @@ const REF_TICK = 10;
 const KIND = 'seat-blocked-budget-exhausted';
 const SUBJECT = 'client-x/leader';
 const MINUTES = 5;
-const EXPECT_UNTIL = REF_TICK + MINUTES * TICKS_PER_MINUTE; // 10 + 5*6 = 40
+// The cadence this probe's store is configured with; the expectation derives from it
+// through the same conversion the store uses, so it holds at any tick_interval_ms.
+const TICK_INTERVAL_MS = 10000;
+const EXPECT_UNTIL = REF_TICK + minutesToTicks(MINUTES, TICK_INTERVAL_MS); // 10 + 5*6 = 40
 
 function out(...lines) {
   fs.appendFileSync(outPath, lines.join('\n') + '\n');
@@ -108,7 +111,7 @@ async function main() {
   ].join('\n'), { mode: 0o600 });
   fs.chmodSync(sendersFile, 0o600);
 
-  const store = openHeartStore({ dbPath: tmpDb, profiles: { 'test-sleep': { headed: false } } });
+  const store = openHeartStore({ dbPath: tmpDb, profiles: { 'test-sleep': { headed: false } }, tickIntervalMs: TICK_INTERVAL_MS });
 
   // Seed a reference tick (so snoozeWarning's "now" is a real tick, not 0) and ONE
   // standing warning. The warning is SYSTEM-raised via the store's own API — there is

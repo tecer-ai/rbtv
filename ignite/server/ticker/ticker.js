@@ -1088,7 +1088,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       actions.push({ phase: 'nudge', skipped: true });
       await enforce(now, tick, actions);
       const preWarnActionCount = actions.length;
-      runWarningCheck({ heartStore, tick, now, slotMaxRepeats: cfg.slot_max_repeats, actions });
+      runWarningCheck({ heartStore, tick, now, slotMaxRepeats: cfg.slot_max_repeats, tickIntervalMs: cfg.tick_interval_ms, actions });
       // The warning check writes its announce notes to the owner feed through
       // the store directly; stamp them routed in the same tick (task 7.19 —
       // a ticker-authored owner-feed note is informational, nothing routes
