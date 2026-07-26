@@ -3,8 +3,13 @@
 Covers the pure clobber detector (orchestration.clobbered_variants / read_variant_windows)
 over the REAL claude-code-native manifest, and the interactive plan-size flow
 (cli._resolve_model_plan_caps) driven with fed menu answers against a scratch target —
-asserting a sub-largest cap WARNS (naming the shrunk variant) while "no cap" and an
+asserting a sub-largest cap WARNS (naming the shrunk variants) while "no cap" and an
 at-ceiling cap do not, and the chosen cap is still written either way (advisory, never blocks).
+
+The expected windows come from the REAL manifest and MUST track it: sonnet moved 200K→1M by
+owner ruling D76 (rbtv 3d91443, 2026-07-18) and `fable` was re-added (8b40cfe), which is what
+these assertions were updated for. When a variant's window changes in the manifest, update the
+expectations here — never loosen the assertions, since catching exactly this drift is the point.
 
 Stdlib + pytest only. No network / clock / randomness.
 """
@@ -37,9 +42,13 @@ PLANS_REL = ".user/config/orchestration/model-plans.yaml"
 # --- pure detector over the REAL claude-code-native manifest ------------------------------
 
 def test_read_variant_windows_real_manifest():
+    # Windows track the manifest, which is the authority: sonnet moved 200K→1M by owner
+    # ruling D76 (rbtv 3d91443, 2026-07-18) and `fable` was re-added (8b40cfe). haiku is
+    # now the ONLY sub-1M variant — the asymmetry the clobber tests below turn on.
     w = dict(read_variant_windows(RBTV_ROOT, PKG))
+    assert w.get("fable") == 1_000_000
     assert w.get("opus") == 1_000_000
-    assert w.get("sonnet") == 200_000
+    assert w.get("sonnet") == 1_000_000
     assert w.get("haiku") == 200_000
 
 
@@ -51,15 +60,24 @@ def test_cap_at_ceiling_clobbers_nothing():
     assert clobbered_variants(RBTV_ROOT, PKG, 1_000_000) == []
 
 
-def test_sub_largest_cap_clobbers_only_the_bigger_variant():
-    # 200K caps opus's 1M window; the native-200K sonnet/haiku are untouched.
-    assert clobbered_variants(RBTV_ROOT, PKG, 200_000) == [("opus", 1_000_000)]
+def test_sub_largest_cap_clobbers_every_1m_variant():
+    # 200K caps all three 1M windows (fable/opus/sonnet); native-200K haiku is untouched.
+    # This case is only meaningful while SOME variant sits below the cap — haiku is the
+    # last one. If haiku ever reaches 1M too, this test stops distinguishing anything and
+    # should be re-pointed at whatever the new smallest variant is.
+    assert clobbered_variants(RBTV_ROOT, PKG, 200_000) == [
+        ("fable", 1_000_000),
+        ("opus", 1_000_000),
+        ("sonnet", 1_000_000),
+    ]
 
 
 def test_deep_cap_clobbers_every_variant():
+    # Below EVERY native window, so nothing is spared — the counterpart to the case above.
     assert dict(clobbered_variants(RBTV_ROOT, PKG, 128_000)) == {
+        "fable": 1_000_000,
         "opus": 1_000_000,
-        "sonnet": 200_000,
+        "sonnet": 1_000_000,
         "haiku": 200_000,
     }
 
