@@ -27,15 +27,22 @@ pressure so an operator or watcher spots an OOM risk at a glance; it degrades th
 graceful way and vanishes rather than crash on a platform without these readings.
 Stdlib only.
 
-Legend (dashboard markers): + working · ~ name cut · * active window · ctxN% context used
-(ctx~ = pane match uncertain) · Nm/Nh last activity · account = in use ·
-name?! = awaiting approval · ctxN%! = past this seat's ctx-refresh threshold.
+Legend (dashboard markers): + working · … text cut · * active window · ctxN% context used
+(ctx~ = pane match uncertain; '~' means ONLY that, never truncation) ·
+green<60 / yellow<85 / red>=85 = ctx and limit-bar color bands (plain red = high value,
+no threshold involved) · Nm/Nh last activity · account = in use ·
+name?! = awaiting approval · ctxN%! = past this seat's ctx-refresh threshold ·
+name shell = harness exited · ? = empty-title pane.
 
 Reference:  --help-providers  usage source per provider (read-only; keys never printed)
             --help-config     accounts config schema (multi-account)
+            --help-security   audit surface: writes, endpoints, never-touches-tmux
+            --help-panes      every pane state/marker, cause and remedy
+            --audit           resolved accounts -> source -> redacted path -> poll result
             full docs         orchestration/cli/teamview/README.md
 """
 import argparse
+import difflib
 import importlib.util
 import json
 import math
@@ -75,6 +82,10 @@ are sent ONLY to that provider's own documented endpoint):
   google    no usage-read endpoint for an AI Studio API key (verified 2026-07-24) ->
             console-only group
   sakana    no balance/usage endpoint (verified 2026-07-24) -> console-only group
+
+A model-scoped weekly like "7d fable" is a SUBSET of the plain "7d" window, not a separate
+budget: that model's usage counts against BOTH bars, so the scoped bar can be exhausted
+while the overall 7d still has room — a launch decision needs the scoped bar, not just 7d.
 """
 
 DOC_CONFIG = """Accounts config — optional; with no config, accounts are auto-discovered from
@@ -95,6 +106,51 @@ types are highlighted IN USE (override per account with "in_use": true/false).
 
 Extra Claude accounts: any ~/.claude-<tag> config dir is auto-discovered as account
 claude:<tag> (statusline file plan-usage-<tag>.json; OAuth credentials from that dir).
+"""
+
+DOC_SECURITY = """Security / audit surface — what teamview touches (verify with --audit):
+
+WRITES — the ONLY files teamview ever writes:
+  {XDG_CACHE_HOME|~/.cache}/rbtv/teamview-providers.json  provider usage cache (+ its .tmp)
+It NEVER mutates tmux state: every tmux call is read-only (list-sessions, list-windows,
+list-panes, display-message, capture-pane) — no send-keys, no kill, no resize, ever.
+
+NETWORK — the complete endpoint list; each credential is sent ONLY to its own provider:
+  api.anthropic.com/api/oauth/usage         claude (stored OAuth token, NEVER refreshed)
+  api.z.ai/api/monitor/usage/quota/limit    zai
+  api.deepseek.com/user/balance             deepseek
+  api.kimi.com/coding/v1/usages | /usage    kimi (opt-in sk-kimi key only)
+  api.moonshot.ai|.cn/v1/users/me/balance   kimi (Moonshot platform key only)
+All read-only GETs. google/sakana have no usage endpoint and are never contacted.
+
+CREDENTIALS — read-only from the harness stores (opencode auth.json, ~/.claude*/
+.credentials.json, env vars, statusline/rollout files). Keys and tokens are NEVER printed:
+--audit redacts paths to their basename and shows env-var NAMES only; fetch errors carry
+the exception class name only, never the request.
+"""
+
+DOC_PANES = """Pane states and markers — every form a pane row can take, and what clears it:
+
+  seat+           WORKING — visible content changed across two samples ~0.6s apart. Work
+                  is bursty: a seat flips between + and unmarked as turns start/finish, so
+                  a pane can honestly show a recent age (e.g. 'now') without a '+'.
+  seat            idle this sample (no marker).
+  seat?!  (red)   AWAITING APPROVAL — the pane tail matches a permission/trust prompt.
+                  Clears when the prompt is answered in that pane.
+  ctxN%           context-window used %, colored green <60 / yellow <85 / red >=85.
+  ctxN%!  (red)   past this seat's OWN ctx-refresh threshold (workers/<agent>/agent.md
+                  frontmatter) — only checked WITH --package.
+  ctx~N%          pane match UNCERTAIN: ctx-monitor could not uniquely map this pane's
+                  process to one harness session record, so the value may belong to a
+                  sibling pane. Clears when the mapping becomes unambiguous — e.g. the
+                  team-kit statusline persists a pid->transcript record for claude panes,
+                  or the ambiguous sibling exits. (ctx-monitor --json flag: "ambiguous".)
+  name shell (dim) the harness EXITED — a bare shell sits in the pane. Distinct from a
+                  live pane whose agent info merely failed to resolve (name + command).
+  ?          (dim) a pane with an EMPTY title and no roster name — usually a dead pane;
+                  pass --package to resolve roster names.
+  … / ~           '…' marks TEXT truncated for width (anywhere); '~' is ONLY the
+                  ctx-uncertainty marker above — it never marks truncation.
 """
 
 TIMEOUT = 10
@@ -192,6 +248,51 @@ def load_accounts(cfg_path, home=None, opencode_path=None):
         else:  # harness-backed sources are what the harnesses actually read
             a["in_use"] = src.get("type") in HARNESS_BACKED
     return accounts
+
+
+def missing_config_warning(cfg_arg):
+    """stderr warning when an EXPLICIT --config path does not exist (auto-discovery still
+    proceeds) — None when no --config was given or the file exists. Previously a mistyped
+    --config fell back to auto-discovery SILENTLY, indistinguishable from a working one."""
+    if cfg_arg and not Path(cfg_arg).expanduser().is_file():
+        return (f"warning: --config {cfg_arg} not found — falling back to account "
+                "auto-discovery (see --help-config for the schema and default path)")
+    return None
+
+
+def redact_path(p):
+    """Basename only, '…/' prefix — --audit must show WHICH file backs an account without
+    ever printing a full filesystem path (or, anywhere, a key/token)."""
+    return f"…/{Path(p).name}" if p else ""
+
+
+def audit_lines(accounts, cache):
+    """One line per resolved account: 'provider:name -> source-kind -> redacted path ->
+    last poll result' — the auditor surface (--audit). Pure function of the account list +
+    cache: no network, no key resolution, nothing secret ever enters the output."""
+    by_key = {(c.get("provider"), c.get("name", "main")): c.get("data") or {}
+              for c in (cache or {}).get("accounts", [])}
+    out = []
+    for a in accounts:
+        src = a.get("source") or {}
+        kind = src.get("type") or "none"
+        loc = redact_path(src.get("path") or src.get("config_dir"))
+        if not loc and src.get("var"):
+            loc = f"${src['var']}"  # the env var's NAME, never its value
+        d = by_key.get((a["provider"], a.get("name", "main")))
+        if d is None:
+            result = "not polled yet"
+        elif d.get("windows"):
+            result = f"ok ({len(d['windows'])} windows)"
+        elif d.get("balance") is not None:
+            result = "ok (balance)"
+        elif d.get("note"):
+            result = "console-only"
+        else:
+            result = f"error: {d.get('error', '?')}"
+        out.append(f"{a['provider']}:{a.get('name', 'main')} -> {kind} -> "
+                   f"{loc or '-'} -> {result}")
+    return out
 
 
 def resolve_key(account, opencode_path=None):
@@ -511,6 +612,25 @@ def resolve_session(tokens, current, sessions):
     return None
 
 
+def session_error(session, sessions):
+    """The teaching refusal for an unresolved/unknown session — None when `session` is a
+    live tmux session. Callers print it to stderr and exit 2: a bogus name previously
+    rendered an 'empty' frame on STDOUT with exit 0, so a wrapper script recorded success
+    for a view that showed nothing."""
+    if session and session in sessions:
+        return None
+    if not sessions:
+        return ("no tmux sessions are running" if session
+                else "not inside tmux and no tmux sessions are running")
+    if not session:
+        return (f"not inside tmux and {len(sessions)} sessions are running — pick one: "
+                "teamview <session>. sessions: " + " ".join(sessions))
+    close = difflib.get_close_matches(session, sessions, n=1)
+    hint = f" — did you mean '{close[0]}'?" if close else ""
+    return (f"no such tmux session: {session}{hint}\n"
+            "sessions: " + " ".join(sessions))
+
+
 def roster_map(package):
     out = {}
     if not package:
@@ -601,7 +721,7 @@ def busy_panes(pids, gap=BUSY_SAMPLE_GAP):
 
 def clean_title(title):
     t = re.sub(BUSY_GLYPHS, "", title or "").strip()
-    return (t[:18] + "~") if len(t) > 19 else (t or "?")
+    return (t[:18] + "…") if len(t) > 19 else (t or "?")
 
 
 _CTX_MOD = "unset"
@@ -695,10 +815,17 @@ def pane_name(p):
     return p["name"] + ("+" if p["busy"] else "")
 
 
+def shell_cell(p):
+    """Harness exited — a bare shell sits in the pane. The explicit 'shell' tag separates
+    this KNOWN state from a live pane whose agent info merely failed to resolve (the two
+    previously rendered identically as a dim bare name)."""
+    return f"{DIM}{p['name']} shell{OFF}"
+
+
 def pane_cell(p):
     """Wide layouts (full/strip grid): 'seat+ harness:model ctxN% age' on one line."""
     if p["shell"]:
-        return f"{DIM}{p['name']}{OFF}"  # harness exited — a bare shell sits in the pane
+        return shell_cell(p)
     return " ".join([pane_name(p)] + pane_agent_bits(p))
 
 
@@ -709,7 +836,7 @@ def pane_cell_variants(p):
     drops first, then harness:model; ctx% — the DESIGN-4 safety signal — survives until the
     very last non-bare variant."""
     if p["shell"]:
-        return [f"{DIM}{p['name']}{OFF}"]
+        return [shell_cell(p), f"{DIM}{p['name']}{OFF}"]
     name = pane_name(p)
     bits = pane_agent_bits(p)
     idx, hm, ctx, age = 0, None, None, None
@@ -735,7 +862,7 @@ def pane_cell_fit(p, max_w):
 def pane_compact(p):
     """Compact layouts (narrow/tiny flow): 'seat+(harness:model ctxN% age)'."""
     if p["shell"]:
-        return f"{DIM}{p['name']}{OFF}"
+        return shell_cell(p)
     name = pane_name(p)
     bits = pane_agent_bits(p)
     return f"{name}({' '.join(bits)})" if bits else name
@@ -749,7 +876,8 @@ def visible_len(s):
 
 def clip_line(s, width):
     """ANSI-aware hard clip: a rendered line longer than the pane wraps in the terminal and
-    breaks the exact-height frame contract, so it is cut to width with a '~' marker."""
+    breaks the exact-height frame contract, so it is cut to width with a '…' marker ('…' is
+    the ONE text-truncation glyph everywhere; '~' is reserved for ctx-match uncertainty)."""
     if visible_len(s) <= width:
         return s
     out, vis = "", 0
@@ -762,7 +890,7 @@ def clip_line(s, width):
         vis += min(len(chunk), take)
         if vis >= width - 1:
             break
-    return out + OFF + "~"
+    return out + OFF + "…"
 
 
 def pad_to(s, width):
@@ -900,7 +1028,12 @@ def flow(tokens, width, max_lines):
     if len(lines) > max_lines:
         dropped = len(lines) - max_lines
         lines = lines[:max_lines]
-        lines[-1] += f" {DIM}(+{dropped} more){OFF}"
+        tail = f" {DIM}(+{dropped} more){OFF}"
+        # width-safe: shed whole trailing tokens until the note fits — never let the
+        # suffix push the line past width into the outer clip's mid-word cut
+        while "   " in lines[-1] and visible_len(lines[-1] + tail) > width:
+            lines[-1] = lines[-1].rsplit("   ", 1)[0]
+        lines[-1] += tail
     return lines
 
 
@@ -969,12 +1102,17 @@ def compact_window_lines(wins, width, max_lines, now=None):
 # Individual marker explanations — flowed (wrapped) to the frame's own width at render time
 # instead of joined into one long line, so a narrow pane never hard-clips the legend mid-word
 # (clip_line's '~' cut previously ate everything past ~80 cols, e.g. "...ctx~ = pane ma~").
+# ALARM items lead: flow() drops overflow from the END, so the keys an operator most
+# needs (approval, threshold, the color bands) are the LAST dropped, never the first
+# (the run verified the old order shed exactly those keys first at <=70 cols).
 LEGEND_ITEMS = (
-    f"{DIM}+{OFF} working", f"{DIM}~{OFF} name cut", f"{DIM}*{OFF} active window",
-    f"{DIM}ctxN%{OFF} = context used (ctx~ = pane match uncertain)",
-    f"{DIM}Nm/Nh{OFF} = last activity", f"{CYAN}account{OFF} = in use",
     f"{RED}name?!{OFF} = awaiting approval",
     f"{RED}ctxN%!{OFF} = past this seat's ctx-refresh threshold",
+    f"{GREEN}green{OFF}<60 {YELLOW}yellow{OFF}<85 {RED}red{OFF}>=85 = ctx/bar color bands",
+    f"{DIM}+{OFF} working", f"{DIM}…{OFF} text cut", f"{DIM}*{OFF} active window",
+    f"{DIM}ctxN%{OFF} = context used (ctx~ = pane match uncertain)",
+    f"{DIM}Nm/Nh{OFF} = last activity", f"{CYAN}account{OFF} = in use",
+    f"{DIM}name shell{OFF} = harness exited", f"{DIM}?{OFF} = empty-title pane",
 )
 
 
@@ -982,6 +1120,57 @@ def legend_lines(width, max_lines=4):
     """The full marker legend, WORD-WRAPPED (never hard-clipped) to the given width — every
     item always shows complete, just on however many lines it takes."""
     return flow(LEGEND_ITEMS, width, max_lines)
+
+
+# Alarm keys FIRST — items drop from the END as width shrinks, so the alarm vocabulary
+# (the keys a small view exists to surface) is the LAST thing lost, never the first.
+MINI_LEGEND_ITEMS = (
+    f"{RED}?!{OFF}=approval", f"{RED}ctx%!{OFF}=threshold",
+    f"{RED}red{OFF}>=85 {YELLOW}yel{OFF}>=60",
+    f"{DIM}+{OFF}=working", f"{DIM}…{OFF}=cut", f"{DIM}~{OFF}=ctx uncertain",
+)
+
+
+def mini_legend(width):
+    """ONE legend line for the sub-full layouts (strip/narrow/tiny previously rendered no
+    legend at all — an operator at a small size had NO on-screen key for the alarm markers).
+    Degrades by dropping trailing items (alarm keys survive longest); '' when even the
+    alarm keys alone don't fit."""
+    variants = [f" {DIM}·{OFF} ".join(MINI_LEGEND_ITEMS[:n])
+                for n in range(len(MINI_LEGEND_ITEMS), 0, -1)]
+    return shrink_to_fit(variants, width)
+
+
+def rollup_variants(wins):
+    """The persistent alarm-rollup — '13 panes · worst ctx94%~ · 1 red · 0 ?!' — rendered
+    at EVERY layout size on the windows header line, above the rotating detail. Rotation
+    can hide panes; this line is the fixed summary that proves (or disproves) 'nothing is
+    alarming' from any single glance (DESIGN item 4: a 93.7%-ctx pane once rotated fully
+    out of view). Shell panes count in the total but never in worst/red/?!."""
+    panes = [p for w in wins for p in w["panes"]]
+    live = [p for p in panes if not p.get("shell")]
+    ctxs = [p for p in live if p.get("ctx") is not None]
+    worst = max(ctxs, key=lambda p: p["ctx"]) if ctxs else None
+    red = sum(1 for p in live if p.get("ctx_over")
+              or (p.get("ctx") is not None and p["ctx"] >= 85))
+    waiting = sum(1 for p in live if p.get("awaiting"))
+    wc = (ctx_str(worst["ctx"], worst.get("approx", False), worst.get("ctx_over", False))
+          if worst else "")
+    rc, ac = (RED if red else DIM), (RED if waiting else DIM)
+    full = [f"{len(panes)} panes"] + ([f"worst {wc}"] if wc else []) \
+        + [f"{rc}{red} red{OFF}", f"{ac}{waiting} ?!{OFF}"]
+    short = [f"{len(panes)}p"] + ([wc] if wc else []) \
+        + [f"{rc}{red}r{OFF}", f"{ac}{waiting}?!{OFF}"]
+    return [" · ".join(full), " ".join(short)]
+
+
+def rollup_suffix(wins, avail):
+    """The rollup shrunk to the room left on a header line — never mid-value clipped;
+    '' only when even the short form doesn't fit."""
+    if avail <= 2:
+        return ""
+    fit = shrink_to_fit(rollup_variants(wins), avail - 2)
+    return f"  {fit}" if fit else ""
 
 
 def rotate_page(total, budget, now=None):
@@ -1175,7 +1364,12 @@ def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, 
     age = ""
     if cache and cache.get("ts"):
         m = int((datetime.now().timestamp() - cache["ts"]) // 60)
-        age = f"  {DIM}(providers polled {m}m ago){OFF}"
+        # 'polled Nm ago' is the CACHE's age; a local-parse bar (codex) can be far older.
+        # Hedge the header whenever any bar carries its own stale 'as of' stamp, so the
+        # fresh-sounding poll age never over-claims those bars' freshness.
+        hedge = (" — some bars older, see per-bar 'as of'"
+                 if any(c[3].startswith("as of") for c in cells) else "")
+        age = f"  {DIM}(providers polled {m}m ago{hedge}){OFF}"
     out.append(f"{BOLD}PLAN LIMITS{OFF}{age}")
     label_w = max([c[1] for c in cells], default=10) + 1
     bar_w = max(16, min(40, cols - label_w - 30))
@@ -1185,7 +1379,8 @@ def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, 
         out.append(f"  {DIM}{n}{OFF}")
     out.extend("  " + l for l in console_lines(console, cols - 2))
     out.append("")
-    out.append(f"{BOLD}WINDOWS{OFF} {DIM}(panes beneath){OFF}")
+    whdr = f"{BOLD}WINDOWS{OFF} {DIM}(panes beneath){OFF}"
+    out.append(whdr + rollup_suffix(wins, cols - visible_len(whdr)))
     grid_budget = rows - len(out) - 4
     out.extend("  " + l for l in window_grid(wins, cols - 2, grid_budget, dashes=True))
     out.append("")
@@ -1289,7 +1484,8 @@ WINDOWS_HDR = f"{BOLD}{UL}WINDOWS · PANES{OFF}"
 
 def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows,
                  no_package=False):
-    budget = max(2, rows - 2)  # rows 0-1 are the session line + the two-table header row
+    budget = max(2, rows - 3)  # rows 0-1 are the session line + the two-table header row;
+    # one more row is reserved for the mini legend appended below
     label_w = max([c[1] for c in cells], default=10)
     for ncols in (1, 2, 3):
         bar_w = 22 if ncols == 1 else 14
@@ -1337,14 +1533,18 @@ def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows,
         left.append(cl)
     right_w = cols - lw - 3
     right = window_grid(wins, right_w, budget)
-    out = [session_line(session, nwin, npane, cols, no_package),
-           f"{pad_to(LIMITS_HDR, lw)}{DIM}|{OFF} {WINDOWS_HDR}"]
+    hdr_row = f"{pad_to(LIMITS_HDR, lw)}{DIM}|{OFF} {WINDOWS_HDR}"
+    hdr_row += rollup_suffix(wins, cols - visible_len(hdr_row))
+    out = [session_line(session, nwin, npane, cols, no_package), hdr_row]
     for i in range(budget):
         lseg = left[i] if i < len(left) else ""
         rseg = right[i] if i < len(right) else ""
         if not lseg and not rseg:
             break
         out.append(f"{pad_to(lseg, lw)}{DIM}|{OFF} {rseg}")
+    leg = mini_legend(cols)
+    if leg:
+        out.append(leg)
     return out[:rows]
 
 
@@ -1358,8 +1558,11 @@ def render_narrow(session, wins, nwin, npane, cells, notes, console, cols, rows,
     for n in notes:
         out.append(f"{DIM}{n[:cols]}{OFF}")
     out.extend(console_lines(console, cols, max_lines=2))
-    out.append(WINDOWS_HDR)
-    out.extend(compact_window_lines(wins, cols, max(1, rows - len(out) - 1)))
+    out.append(WINDOWS_HDR + rollup_suffix(wins, cols - visible_len(WINDOWS_HDR)))
+    out.extend(compact_window_lines(wins, cols, max(1, rows - len(out) - 2)))
+    leg = mini_legend(cols)
+    if leg:
+        out.append(leg)
     return out[:rows - 1]
 
 
@@ -1371,7 +1574,13 @@ def render_tiny(session, wins, nwin, npane, cells, notes, console, cols, rows,
     line makes each label unambiguously own its own number."""
     out = [session_line(session, nwin, npane, cols, no_package), f"{BOLD}{UL}LIMITS{OFF}"]
     limit_budget = max(1, (rows - 3) // 2)
-    limit_lines = [f"{re.sub(chr(27) + r'\[[0-9;]*m', '', c[0])}: {c[2]:.0f}%" for c in cells]
+    # The percent keeps its urgency color band even at this size — color costs ZERO
+    # columns, and a bare '97%' rendered identically to '12%' was a verified false
+    # all-clear (the glance view was structurally unable to show a red limit).
+    limit_lines = []
+    for c in cells:
+        color = GREEN if c[2] < 60 else (YELLOW if c[2] < 85 else RED)
+        limit_lines.append(f"{c[0]}: {color}{c[2]:.0f}%{OFF}")
     if len(limit_lines) > limit_budget:
         dropped = len(limit_lines) - limit_budget
         limit_lines = limit_lines[:limit_budget]
@@ -1382,8 +1591,12 @@ def render_tiny(session, wins, nwin, npane, cells, notes, console, cols, rows,
         note_toks.append("no-API: " + " ".join(
             re.sub(r"\033\[[0-9;]*m", "", c).split(" ")[0] for c in console))
     out.extend(flow(note_toks, cols, max(1, rows - len(out) - 3)))
-    out.append(f"{BOLD}{UL}WINDOWS{OFF}")
-    out.extend(compact_window_lines(wins, cols, max(1, rows - len(out) - 1)))
+    thdr = f"{BOLD}{UL}WINDOWS{OFF}"
+    out.append(thdr + rollup_suffix(wins, cols - visible_len(thdr)))
+    out.extend(compact_window_lines(wins, cols, max(1, rows - len(out) - 2)))
+    leg = mini_legend(cols)
+    if leg:
+        out.append(leg)
     return out[:rows - 1]
 
 
@@ -1534,9 +1747,9 @@ def cmd_selftest():
           and "opencode | env | file" in DOC_CONFIG and "api.z.ai" in DOC_PROVIDERS
           and all(s not in __doc__ for s in ("api.z.ai", '"accounts"')))
     check("legend: every marker discoverable from -h (fresh-eyes gap fix)",
-          all(s in __doc__ for s in ("name cut", "active window", "pane match uncertain",
+          all(s in __doc__ for s in ("text cut", "active window", "pane match uncertain",
                                      "last activity", "= in use", "awaiting approval",
-                                     "ctx-refresh threshold")))
+                                     "ctx-refresh threshold", "shell", "empty-title")))
     narrow_legend = [re.sub(r"\033\[[0-9;]*m", "", l) for l in legend_lines(80)]
     check("legend_lines: word-wraps at a narrow width instead of hard-clipping mid-word "
           "(the '...ctx~ = pane ma~' bug — every line fits, none end in a clip_line '~')",
@@ -1676,8 +1889,8 @@ def cmd_selftest():
               and ctx_refresh_thresholds("") == {} and ctx_refresh_thresholds(None) == {})
     finally:
         shutil.rmtree(tmp_pkg, ignore_errors=True)
-    check("pane_cell: shell pane -> dim name only; no-info pane -> harness only",
-          re.sub(r"\033\[[0-9;]*m", "", pane_cell(P("gone", shell=True))) == "gone"
+    check("pane_cell: shell pane -> dim name + explicit 'shell' tag; no-info pane -> harness only",
+          re.sub(r"\033\[[0-9;]*m", "", pane_cell(P("gone", shell=True))) == "gone shell"
           and re.sub(r"\033\[[0-9;]*m", "", pane_cell(
               P("ov", harness="python3", model="", ctx=None, age=""))) == "ov python3")
     check("pane_compact: parenthesized agent info",
@@ -1886,6 +2099,119 @@ def cmd_selftest():
               "cue) never exceeds the requested width",
               all(len(l) <= w for l in plain_full))
 
+    # ---- UX backlog items 2,4,5,6,7,8,9,10 (findings run tv-ux-review; fixed 2026-07-26) ----
+    strip_sgr = lambda s: re.sub(r"\033\[[0-9;]*m", "", s)  # noqa: E731
+    hot_cells = [("claude:main 5h", 14, 97.0, ""), ("zai 7d", 6, 12.0, "")]
+    tiny_hot = render_tiny("sess", wins, 2, 3, hot_cells, [], [], 60, 12)
+    hot_line = next((l for l in tiny_hot if "97%" in strip_sgr(l)), "")
+    cool_line = next((l for l in tiny_hot if "12%" in strip_sgr(l)), "")
+    check("item2: render_tiny at 60x12 keeps the urgency color band on LIMITS rows — a "
+          "97% row carries RED SGR, a 12% row GREEN (the verified false all-clear)",
+          RED in hot_line and GREEN in cool_line)
+    for layout_fn, dims in ((render_strip, (220, 10)), (render_narrow, (70, 40)),
+                            (render_tiny, (60, 12))):
+        out_l = layout_fn("sess", wins, 2, 3, hot_cells, [], [], *dims)
+        check(f"item2: {layout_fn.__name__} emits the one-line mini legend with the alarm "
+              "keys (previously NO legend rendered below full size)",
+              "?!=approval" in strip_sgr("\n".join(out_l))
+              and all(visible_len(l) <= dims[0] for l in out_l))
+    ml30 = strip_sgr(mini_legend(30))
+    check("item2: mini legend drops TAIL items as width shrinks — alarm keys are the "
+          "last thing lost, never the first",
+          ml30.startswith("?!=approval") and "working" not in ml30)
+    fl2 = strip_sgr(" ".join(legend_lines(70, max_lines=2)))
+    check("item2: full-legend drop priority INVERTED — under a 2-line cap at 70 cols "
+          "the alarm keys survive and tail items drop (was the reverse); the (+N more) "
+          "note never pushes a line past width",
+          "awaiting approval" in fl2 and "empty-title" not in fl2
+          and all(len(strip_sgr(l)) <= 70 for l in legend_lines(70, max_lines=2)))
+
+    roll_wins = [{"idx": "0", "name": "w0", "active": True,
+                  "panes": [P("calm", ctx=30.0), P("hot", ctx=94.0, approx=True),
+                            P("stuck", awaiting=True, ctx=91.0)]}]
+    check("item4: rollup line — pane total, worst ctx (keeping its ~), red count, "
+          "?! count",
+          strip_sgr(rollup_variants(roll_wins)[0]) == "3 panes · worst ctx~94% · 2 red · 1 ?!")
+    full_o = render_full("sess", roll_wins, 1, 3, hot_cells, [], [], fake_cache, 220, 50)
+    strip_o = render_strip("sess", roll_wins, 1, 3, hot_cells, [], [], 220, 10)
+    narrow_o = render_narrow("sess", roll_wins, 1, 3, hot_cells, [], [], 70, 40)
+    tiny_o = render_tiny("sess", roll_wins, 1, 3, hot_cells, [], [], 60, 12)
+    check("item4: the alarm rollup renders at EVERY layout size (full 220x50, strip "
+          "220x10, narrow 70x40, tiny 60x12) above the rotating windows detail",
+          all(any(("2 red" in strip_sgr(l) or "2r" in strip_sgr(l)) for l in o)
+              for o in (full_o, strip_o, narrow_o, tiny_o)))
+
+    check("item5: color-band thresholds documented — a legend item AND -h carry the "
+          "green<60 / yellow<85 / red>=85 numbers",
+          any("<60" in strip_sgr(i) and ">=85" in strip_sgr(i) for i in LEGEND_ITEMS)
+          and "green<60" in __doc__ and "red>=85" in __doc__)
+
+    check("item6: '…' is the ONE text-cut glyph — clip_line and clean_title never emit "
+          "'~' (reserved for ctx-match uncertainty), and the legend says so",
+          clip_line("x" * 50, 10).endswith("…") and "~" not in clip_line("x" * 50, 10)
+          and clean_title("a-very-long-pane-title-here").endswith("…")
+          and any("text cut" in strip_sgr(i) for i in LEGEND_ITEMS))
+
+    check("item7: --help-security states the write-set, EVERY endpoint, and the "
+          "never-touches-tmux guarantee",
+          all(s in DOC_SECURITY for s in ("teamview-providers.json", "api.anthropic.com",
+              "api.z.ai", "api.deepseek.com", "api.kimi.com", "api.moonshot",
+              "NEVER mutates tmux", "no send-keys")))
+    aud_acc = [{"provider": "claude", "name": "main",
+                "source": {"type": "statusline",
+                           "path": "/home/x/.claude/rbtv-runtime/plan-usage.json"}},
+               {"provider": "zai", "name": "alt", "source": {"type": "env", "var": "ZAI_ALT"}}]
+    aud = audit_lines(aud_acc, {"accounts": [
+        {"provider": "claude", "name": "main", "data": {"windows": [1, 2]}}]})
+    check("item7: --audit lines — provider:name -> source kind -> BASENAME-redacted path "
+          "-> last poll result; env vars by NAME; a full path never appears",
+          aud[0] == "claude:main -> statusline -> …/plan-usage.json -> ok (2 windows)"
+          and aud[1] == "zai:alt -> env -> $ZAI_ALT -> not polled yet"
+          and not any("/home/x" in l for l in aud))
+    check("item7: an explicit --config path that does not exist WARNS instead of "
+          "silently falling back to auto-discovery; no --config -> no warning",
+          "auto-discovery" in (missing_config_warning("/nope/teamview.json") or "")
+          and missing_config_warning("") is None and missing_config_warning(None) is None)
+
+    check("item8: --help-panes documents every pane state — ctx~ cause AND what clears "
+          "it, the shell tag, the '?' empty-title placeholder, '+' vs age",
+          all(s in DOC_PANES for s in ("ctx~", "Clears when", "shell", "EMPTY title",
+                                       "WORKING", "ambiguous")))
+    check("item8: pane_compact and pane_cell_variants carry the explicit 'shell' tag too",
+          "gone shell" in strip_sgr(pane_compact(P("gone", shell=True)))
+          and "gone shell" in strip_sgr(pane_cell_variants(P("gone", shell=True))[0]))
+
+    check("item9: unknown session -> teaching refusal (stderr + exit 2 in main): names "
+          "the bad session, suggests the closest match, lists the live set; valid -> None",
+          session_error("kg-viewz", ["kg-views", "other"]).startswith(
+              "no such tmux session: kg-viewz — did you mean 'kg-views'?")
+          and "sessions: kg-views other" in session_error("kg-viewz", ["kg-views", "other"])
+          and session_error("kg-views", ["kg-views", "other"]) is None
+          and "no tmux sessions" in session_error("x", []))
+    h = subprocess.run([sys.executable, str(Path(__file__).resolve()), "-h"],
+                       capture_output=True, text=True,
+                       env={**os.environ, "PYTHONIOENCODING": "utf-8"}).stdout
+    h_flat = " ".join(h.split())
+    check("item9: --selftest carries a real help line in -h (was empty)",
+          "self-test suite" in h_flat)
+    check("item10: -h vocabulary — --interval says display-only repaint (does NOT "
+          "re-poll); --refresh notes the codex exception and the --once pairing",
+          "display refresh seconds" in h_flat and "NOT re-poll" in h_flat
+          and "codex excepted" in h_flat and "pair with --once" in h_flat)
+    stale_cells = [("codex 7d", 8, 40.0, "as of Wed 09:00"),
+                   ("claude:main 5h", 14, 10.0, "renews 23:00")]
+    hedged = "\n".join(render_full("sess", roll_wins, 1, 3, stale_cells, [], [],
+                                   fake_cache, 220, 50))
+    unhedged = "\n".join(render_full("sess", roll_wins, 1, 3,
+                                     [("claude:main 5h", 14, 10.0, "renews 23:00")],
+                                     [], [], fake_cache, 220, 50))
+    check("item10: full-layout header hedges 'providers polled Nm ago' when any bar "
+          "carries its own older 'as of' stamp — and only then",
+          "some bars older" in hedged and "some bars older" not in unhedged)
+    check("item10: --help-providers explains a model-scoped weekly ('7d fable') as a "
+          "SUBSET of the plain 7d window",
+          "SUBSET" in DOC_PROVIDERS and "7d fable" in DOC_PROVIDERS)
+
     print(f"\nselftest: {'PASS' if not failures else 'FAIL'} ({len(failures)} failure(s))")
     sys.exit(1 if failures else 0)
 
@@ -1906,8 +2232,14 @@ def main():
                     help="disable rotation: show EVERY window/pane in one COMPLETE "
                          "snapshot (best with --once; output can grow taller than the "
                          "terminal)")
-    ap.add_argument("--interval", type=int, default=2, help="refresh seconds (default 2)")
-    ap.add_argument("--refresh", action="store_true", help="poll providers NOW before rendering")
+    ap.add_argument("--interval", type=int, default=2,
+                    help="display refresh seconds (default 2) — repaint cadence only, does "
+                         "NOT re-poll providers (that is --refresh / --provider-ttl)")
+    ap.add_argument("--refresh", action="store_true",
+                    help="poll providers NOW before rendering (codex excepted: its usage is "
+                         "a local session-file parse with no endpoint to re-poll); without "
+                         "--once this then enters the live loop — pair with --once for a "
+                         "one-shot fresh frame")
     ap.add_argument("--provider-ttl", type=int, default=600,
                     help="re-poll providers in background when cache older than SECS (default 600)")
     ap.add_argument("--width", type=int, help="override detected terminal width")
@@ -1918,15 +2250,39 @@ def main():
                     help="show each provider's usage source and exit")
     ap.add_argument("--help-config", action="store_true",
                     help="show the accounts config schema and exit")
-    ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--help-security", action="store_true",
+                    help="show the audit surface — every file written, every endpoint "
+                         "contacted, and the never-touches-tmux guarantee — and exit")
+    ap.add_argument("--help-panes", action="store_true",
+                    help="show every pane state/marker, its cause and what clears it, "
+                         "and exit")
+    ap.add_argument("--audit", action="store_true",
+                    help="dump the resolved accounts (provider:name -> source kind -> "
+                         "redacted path -> last poll result) and exit; never prints a key, "
+                         "token, or full path")
+    ap.add_argument("--selftest", action="store_true",
+                    help="run the built-in offline self-test suite (pure Python — no tmux, "
+                         "no network, no writes outside temp dirs) and exit 0/1")
     args = ap.parse_args()
 
-    if args.help_providers or args.help_config:
-        print(DOC_PROVIDERS if args.help_providers else DOC_CONFIG, end="")
-        return
+    docs = {"help_providers": DOC_PROVIDERS, "help_config": DOC_CONFIG,
+            "help_security": DOC_SECURITY, "help_panes": DOC_PANES}
+    for attr, doc in docs.items():
+        if getattr(args, attr):
+            print(doc, end="")
+            return
 
     if args.selftest:
         cmd_selftest()
+        return
+
+    warn = missing_config_warning(args.config)
+    if warn:
+        print(warn, file=sys.stderr)
+
+    if args.audit:
+        for line in audit_lines(load_accounts(config_path(args.config)), load_cache()):
+            print(line)
         return
     if args.poll_providers:
         poll_providers(args)
@@ -1935,10 +2291,9 @@ def main():
 
     sessions = tmux_lines("list-sessions", "-F", "#{session_name}")
     session = resolve_session(args.session, current_session(), sessions)
-    if not session:
-        print("not inside tmux and " + (f"{len(sessions)} sessions are running — pick one: "
-              "teamview <session>. sessions: " + " ".join(sessions) if sessions
-              else "no tmux sessions are running"), file=sys.stderr)
+    err = session_error(session, sessions)
+    if err:
+        print(err, file=sys.stderr)
         sys.exit(2)
 
     if args.refresh or not cache_file().exists():

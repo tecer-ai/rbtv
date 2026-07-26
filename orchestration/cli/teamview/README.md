@@ -24,11 +24,25 @@ python3 .../teamview.py --once --no-rotate                      # COMPLETE snaps
                                                                 #   (can exceed terminal height)
 python3 .../teamview.py --help-providers | --help-config        # reference: usage sources /
                                                                 #   accounts schema (-h stays short)
+python3 .../teamview.py --help-security | --help-panes          # audit surface (writes/endpoints/
+                                                                #   never-touches-tmux) / pane states
+python3 .../teamview.py --audit                                 # resolved accounts -> source kind ->
+                                                                #   redacted path -> last poll result
+                                                                #   (never prints a key or full path)
 python3 .../teamview.py --selftest                              # must exit 0 after ANY edit here
 ```
 
 Outside tmux with several sessions running and no name given, it lists the candidates and
-exits rather than guessing.
+exits rather than guessing. An UNKNOWN session name is a refusal, not an empty frame: it
+prints the bad name, a closest-match suggestion, and the live session list to stderr and
+exits 2 (a wrapper script never records success for a view that showed nothing). An
+explicit `--config` path that does not exist warns on stderr before falling back to
+account auto-discovery — the fallback is never silent.
+
+`--interval` is the DISPLAY repaint cadence only — it never re-polls providers; provider
+data refreshes via `--provider-ttl` (background) or `--refresh` (poll NOW — codex excepted,
+whose usage is a local session-file parse with no endpoint to re-poll; pair `--refresh`
+with `--once` for a one-shot fresh frame, since without `--once` it enters the live loop).
 
 Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by git):
 `ln -s <abs>/teamview.py ~/.local/bin/teamview && chmod +x ~/.local/bin/teamview`.
@@ -40,7 +54,9 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   trailing `+` (the working indicator — detected by CHANGE: a pane whose visible content
   differs across two samples ~0.6s apart is actively rendering — spinner cycling, tokens
   streaming, tool output. A frozen title spinner glyph is NOT trusted, since it persists when a
-  turn ends). A pane whose harness has exited (a bare shell) renders dim. Work is often bursty,
+  turn ends). A pane whose harness has exited (a bare shell) renders dim with an explicit
+  `shell` tag — distinct from a live pane whose agent info merely failed to resolve. An
+  empty-titled pane with no roster name renders a dim `?`. Work is often bursty,
   so a seat flips between `+` and unmarked as it starts and finishes turns — that is honest,
   not a glitch. Names resolve pane-id → agent from a team-kit
   run package's `coordination/workers.md` (`--package`, or `RBTV_TEAMVIEW_PACKAGE`) because
@@ -86,13 +102,26 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   with no such warning). Degrades the same graceful way as every other cue — RAM detail
   shrinks before CPU drops, then the whole cue vanishes rather than clip mid-value — and
   disappears entirely (no crash) on a platform where neither reading is available.
+- **Alarm rollup line** — every layout's windows header also carries a fixed one-line
+  rollup — `13 panes · worst ctx94%~ · 1 red · 0 ?!` (total panes, worst context %, count
+  at/past red, count awaiting approval) — above the rotating detail, so a single glance
+  proves (or disproves) "nothing is alarming" even when rotation currently hides most
+  panes. It shrinks to a short form (`13p ctx94%~ 1r 0?!`) before ever clipping.
 - **Marker legend** — the full-screen (`full`) layout's footer explains every marker
-  (`+`, `~`, `*`, `ctxN%`, `ctx~`, `Nm/Nh`, in-use color, `name?!`, `ctxN%!`); it is
+  (`name?!`, `ctxN%!`, the color bands, `+`, `…`, `*`, `ctxN%`, `ctx~`, `Nm/Nh`, in-use
+  color, `name shell`, `?`) — ALARM items first, so when the legend must drop lines at a
+  narrow width the alarm keys are the last lost, never the first; it is
   WORD-WRAPPED to the frame's own width so a narrow pane never hard-clips an item mid-word
   (previously it could silently drop everything past ~80 columns, e.g. cutting
   "ctx~ = pane match uncertain" down to "...pane ma~" with no other sign anything was
   missing). The same legend text is also in `-h`'s own description, so its meaning is
-  discoverable without ever running a live frame. The console-only PROVIDER group (Sakana /
+  discoverable without ever running a live frame — and `--help-panes` documents every pane
+  state with its cause and remedy. The strip/narrow/tiny layouts append a ONE-line mini
+  legend (`?!=approval · ctx%!=threshold · red>=85 yel>=60 · …`) — alarm keys first, tail
+  items dropped as width shrinks. Truncation glyphs are split: `…` marks EVERY text cut
+  (names, titles, clipped lines); `~` means ONLY ctx-match uncertainty, never truncation.
+  Color-band thresholds are explicit everywhere: green <60, yellow <85, red ≥85 (plain red
+  = high value; red with `!` = past this seat's own threshold). The console-only PROVIDER group (Sakana /
   Google / Kimi — no readable usage endpoint) is word-wrapped the same way in the `full` and
   `narrow` layouts, so a long provider list never hard-clips mid-word either (e.g. cutting
   "google (key present; aistudio.google.com)" down to "...google (ke~").
@@ -106,7 +135,11 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   Without ctx-monitor the rows degrade to seat + pane command.
 - **Plan-limit bars** — one bar per usage window per account, colored by headroom (green <60%,
   yellow <85%, red ≥85%); money-balance and console-only providers render as footer notes;
-  stale local snapshots carry `as of <time>`. The account each harness ACTUALLY uses renders
+  stale local snapshots carry `as of <time>`, and the full layout's `providers polled Nm
+  ago` header adds `— some bars older, see per-bar 'as of'` whenever any bar carries such
+  a stamp, so the poll age never over-claims a local-parse bar's freshness. A model-scoped
+  weekly like `7d fable` is a SUBSET of the plain `7d` window (that model's usage counts
+  against both bars — see `--help-providers`). The account each harness ACTUALLY uses renders
   CYAN (bold alone proved invisible in some terminal themes); extra accounts render dim.
   Window headers in the session grid are bold+underlined to separate them from pane rows.
 
@@ -119,7 +152,7 @@ Every layout leads with three fixed rows: the **session-stats line** (windows ·
 | ≥70 cols, ≥16 rows | **full** — sectioned view: big bars + per-window member list |
 | wide, <16 rows | **strip** — bars fold into 1–3 columns beside a flowed window list (the team-kit control-panel shape) |
 | <70 cols, tall | **narrow** — stacked mini-bars + window list |
-| <70 cols, <18 rows (≈1/6 screen) | **tiny** — token summary lines, no bars. Plan-usage limits render ONE `label: N%` per line (never two flowed onto the same line) so a percent can never visually read as belonging to a neighboring label at this width |
+| <70 cols, <18 rows (≈1/6 screen) | **tiny** — token summary lines, no bars. Plan-usage limits render ONE `label: N%` per line (never two flowed onto the same line) so a percent can never visually read as belonging to a neighboring label at this width — and the percent KEEPS its green/yellow/red urgency color (color costs zero columns; a bare `97%` rendering identically to `12%` was a verified false all-clear) |
 
 ## Providers and sources (read-only; keys never printed, sent ONLY to their own provider's documented endpoint)
 
@@ -136,6 +169,13 @@ Every layout leads with three fixed rows: the **session-stats line** (windows ·
 Providers with no readable usage nest under one visually distinct footer line —
 `no usage API > sakana (key present; console.sakana.ai) · google (…) · kimi (…)` — yellow-
 prefixed and separate from the API-backed facts (balances) above it.
+
+**Auditor surface:** `--help-security` prints the complete write-set (only the provider
+cache file), the complete endpoint list, and the never-mutates-tmux guarantee (every tmux
+call is read-only); `--audit` dumps each resolved account as
+`provider:name -> source kind -> redacted path -> last poll result` — paths redact to
+`…/basename`, env vars show their NAME only, and no key, token, or full path is ever
+printed.
 
 **Hard rule:** never add a probe of an undocumented endpoint with stored keys — verify the
 endpoint in the provider's official docs first, read-only GETs only. **One owner-sanctioned
