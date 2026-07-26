@@ -8,8 +8,9 @@ tags:
 
 The shared toolkit for running parallel multi-agent teams in tmux, extracted from the
 2026-07-24 `kg-edges-visualization-improvements` run (owner-directed, 2026-07-24) and upgraded
-with the full improvement set that run's observer logged. Reusable across this campaign's builds;
-promote to the rbtv repo only after it proves out across runs.
+with the full improvement set that run's observer logged. Run-agnostic and reusable across any
+workspace's builds; promoted into the rbtv repo (ignite module) on 2026-07-26 after three proving
+runs.
 
 | File | What it is |
 |------|-----------|
@@ -87,7 +88,9 @@ added by hand, which is an environment patch, not a budget).
 > `master` is reserved for the system-plane request door (R21). Run packages created before
 > 2026-07-25 still name the seat `master` and are frozen — they are not re-keyed.
 
-Prior-run provenance: the improvement evidence (P1–P26) lives in
-`../kg-edges-visualization-improvements/team-observations.md` (tactical) and
-`../kg-edges-visualization-improvements/agent-teams-strategic-lessons.md` (strategic).
-First consumer run: `../kg-views-rebuild/`.
+Prior-run provenance — the three proving-run packages are NOT stored beside this kit; `CLAUDE.md`
+records the workspace that holds them. The improvement evidence (P1–P26) lives in the
+`kg-edges-visualization-improvements` package: `team-observations.md` (tactical) and
+`agent-teams-strategic-lessons.md` (strategic). First consumer run: the `kg-views-rebuild`
+package, whose proposals P27–P38 are evidenced in its `run-observations.md` and `roster-review.md`.
+The `coordinate` CLI redesign (T1–T6) is the `team-kit-redesign` package.

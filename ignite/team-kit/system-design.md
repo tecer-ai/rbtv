@@ -10,7 +10,9 @@ audience: system designers ONLY — agents designing or evolving this kit. Not a
 
 Written by the kit's designer (Claude Fable 5 conductor session "team-builder", 2026-07-24) so a
 successor designer inherits the mental model without re-reading the sources. The sources remain
-authoritative: `coord.py` (mechanics), `protocol.md` (rules), and the prior run's evidence files.
+authoritative: `coord.py` (mechanics), `protocol.md` (rules), and the proving runs' evidence
+files. Those run packages are named below but are NOT stored beside this kit — `CLAUDE.md` records
+the workspace that holds them.
 
 **MAINTENANCE IS MANDATORY (owner-directed).** If you change this system's design — a mechanic in
 `coord.py`, a protocol rule, an architecture decision, a known limit closed or opened — update
@@ -28,9 +30,9 @@ owner starts leader by hand and leader launches everyone else from briefing file
 
 ## 2. The theory the design falls out of
 
-Four properties of agents (from `../kg-edges-visualization-improvements/agent-teams-strategic-lessons.md`
-§1 — the distilled prior-run evidence): **context-bound, memoryless beyond disk, forkable/parallel,
-volatile**. Consequences the kit takes as axioms:
+Four properties of agents (from the `kg-edges-visualization-improvements` run package's
+`agent-teams-strategic-lessons.md` §1 — the distilled prior-run evidence): **context-bound,
+memoryless beyond disk, forkable/parallel, volatile**. Consequences the kit takes as axioms:
 
 - Shared knowledge must be ON DISK, written incrementally (write-through) — chat is not storage.
 - Every coordination failure observed was the same defect: **shared mutable state with no owner**
@@ -78,7 +80,8 @@ volatile**. Consequences the kit takes as axioms:
 
 ### v3 decisions (2026-07-25, `coordinate` CLI UX redesign — owner-ruled T1–T5, mechanics half)
 
-Redesign working doc (findings F1–F18, debate, rulings): `../team-kit-redesign/team-kit-redesign.md`.
+Redesign working doc (findings F1–F18, debate, rulings): the `team-kit-redesign` run package's
+`team-kit-redesign.md`.
 State-file grammars stayed frozen: `workers.md`/`groups.md` byte-identical, `messages.md` gained
 exactly one OPTIONAL header field, and `coordination/.lock` is the only new file.
 
