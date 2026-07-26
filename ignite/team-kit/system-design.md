@@ -38,6 +38,19 @@ memoryless beyond disk, forkable/parallel, volatile**. Consequences the kit take
 - Every coordination failure observed was the same defect: **shared mutable state with no owner**
   (prior run D15). So every shared surface gets exactly one writer — the tool enforces it where it
   can (roster rows, cursor column), the protocol where it can't (files, git index).
+- **The remedy ladder for a shared mutable surface, strongest first** (S§3.1): **derive-at-read**
+  (store no state, so there is nothing to contend) > **isolation** (a worktree or scratch dir per
+  writer, so the surface is not shared at all) > **lock** (serialize the critical section) >
+  **single-owner by convention** (a rule, subject to §2's D18 — endorsed disciplines don't hold).
+  Contention is not carelessness; it is the guaranteed product of writers × surface × time overlap,
+  so the rung you pick IS the guarantee you get. Know where the kit stands: the message-id
+  allocator and the cursor write are on the LOCK rung (v3 package lock, itself advisory — §5); the
+  roster's one-active-row-per-agent is derive-at-read from the log; and every surface that matters
+  to the actual work — the repo, the git index, generated projections — is on the WEAKEST rung,
+  convention (`R-single-writer`, `R-commit-discipline`, `R-last-lander`). Worktree-per-seat is the
+  isolation rung for exactly those surfaces and is designed but unbuilt (§5). When a new contention
+  defect appears, climb the ladder before writing another rule — the reflex to reach for rung 4
+  first is what left the dominant failure class on convention through three runs.
 - **Endorsed disciplines produce zero compliance; only mechanization does** (D18). That is why the
   improvements P1/P2/P12/P15/P22/P26 are CODE, not advice, and why protocol rules exist only where
   code can't reach.
@@ -131,12 +144,39 @@ one below says WHY it is not code — the D18 default (§2) is mechanize, so a r
 | **R-serialized-browser + the run-capacity budget (queue 11) are rules** | Both are properties of the BOX, not of the run package: coord has no view of memory, of processes it did not spawn, or of what a seat launches inside its own pane. The kit would have to become a process supervisor to enforce either. The budget therefore lands where the roster size is chosen — `team-kit.md` § Run capacity for the assembler, R-serialized-browser for the seat. |
 | **Per-AC judge posting (R-2), the deputy + verifier roles, the production-regime fixture gate and pre-registered fix→verify bars (briefing diffs 1/4) are rules** | Composition and briefing-authoring decisions: they are made before any coord command runs, by whoever assembles the run. Note that per-AC posting REVERSES the previous "ONE consolidated verdict" instruction — the consolidated verdict survives as a SUMMARY of rulings already posted. Batching was write-through's own failure mode (R-write-through) applied to verdicts: the findings lived in one judge's context until the end, so a context loss took all of them and the worker idled on criteria settled an hour earlier. |
 
+### v5 decisions (2026-07-26 — the run-1 STRATEGIC learnings never folded in)
+
+Runs 2 and 3 were both fact-checked against the shipped kit and closed. Run 1 never was. Its
+tactical file (`team-observations.md`, P1–P26) turned out to be folded almost completely — only P4
+was a genuine gap (P5 = the `master`→`leader` rename, done by R29; P8 is `R-compute`; P11/P17 are
+registry-scope, not kit). What was NOT folded is the observer's STRATEGIC file: §2 above mined its
+§1 (the four agent properties) as this kit's axioms and nothing else. Its §3.3 emergent patterns,
+§4 team-value corollary and §6 coordinator economics never reached the rules layer. This block
+closes them, cited as `S§n` (the citation form itself is new — owner-ruled 2026-07-26, since these
+findings were never numbered proposals and carry no P-number). Audit: `fact-check-kg-edges-vs-kit.md`
+in the run-package folder.
+
+ALL of v5 is rules, no code — so per the D18 default (§2 — mechanize unless there is a reason), each
+row states why.
+
+| Decision | Why (and what it must not regress to) |
+|----------|----------------------------------------|
+| **Roster assembly is an assembler section in `team-kit.md`, not a protocol rule** — partition by surface, then put a checking vantage on every surface, both recorded as two columns of the run package's ownership map (S§4, P4) | Not code: the decision is made before any coord command runs, and the map lives in a human-authored package `CLAUDE.md` whose grammar the kit deliberately does not own (parsing it would couple the run-agnostic kit to a per-package format — the one coupling this kit's split exists to prevent). Not `protocol.md` either, despite that file's own briefing-authoring section being assembler-facing: this is roster-level and pre-briefing, and every line in `protocol.md` is context all ~20 seats pay for at boot. It sits beside § Run capacity because both are properties of the RUN's shape that the assembler settles once. The two halves must stay together and stay in tension — partitioning alone drives peer review to zero (run 1's single unreviewed change was on the one surface nobody else touched), and checker-coverage alone re-creates the overlaps that produced every incident. A blank checker column must never be tolerated as "probably fine": blank reads as covered. |
+| **The remedy ladder is a designer axiom (§2), deliberately NOT in `protocol.md`** (S§3.1) | A running worker cannot choose a rung — the rung is a property of the kit's construction, chosen by whoever changes the kit. Stating it in `protocol.md` would be noise at boot for every seat and would invite a worker to improvise isolation mid-run. It belongs in §2 with the axioms it extends, and it is written to name where the kit actually stands (mostly rung 4) so the next designer inherits the debt instead of re-discovering it. Do not let this row decay into "prefer derive-at-read" with no statement of current position — the position is the useful half. |
+| **R-cheap-ask is a rule (both halves)** (S§6.3, S§3.3) | Mechanizing it would mean coord authoring or validating message CONTENT, which it has never done — every existing mechanic operates on envelope data (type, recipients, `--re`, supersession). A `--default` flag would be envelope-shaped but buys nothing: the discipline is composing the fallback, not tagging it. One boundary is load-bearing and must never be softened: "any subset, silence = held" governs the DECIDER's reply, and never licenses the asker to proceed on an unanswered item — that is `R-bounded-wait`'s (P13) self-authorized timeout, which run 1 measured two workers inventing independently. The batching half is on leader's drain rule because leader is the only seat that batches upward; ordering was already there and was measured insufficient alone. |
+| **R-negative-result and R-disclose-challenge are rules** (S§3.3) | Both are shapes of a message's content, invisible to the tool: coord cannot tell an exhaustive analysis from a narrow one, nor a disclosed judgment call from a silent one. They are the two run-1 patterns the team invented under load that had no kit representation at all — worth carrying precisely because they emerged unprompted and worked. R-negative-result closes the gap that makes an under-scoped analysis indistinguishable from a thorough one; R-disclose-challenge is the middle path between burning the arbiter on an in-scope call and denying peers the chance to catch it. |
+| **Publish-your-contract joins the startup round rather than becoming its own rule** (S§3.3) | The round already makes every seat state what it produces and which surfaces it touches; what it can ACCEPT is the missing third field of the same sentence, and run 1's single most valuable message (#16) was exactly that field. A separate rule would be read once at boot and never at the moment it applies; inside the round it fires at the one point where every seat is already composing that message. |
+| **The verifier's blast-radius clause lands on the verifier ROLE** (D31) | It constrains what counts as evidence for one specific seat, so it belongs with that seat's definition, not in the general execution rules where 19 other seats would carry it. It also completes the role's existing logic: the seat is already "not the fixer" — this says why that separation extends to the fixer's TOOLS. A script authored beside a wrong fix is wrong in the same direction, so running it proves only that the two agree. |
+
 ## 4. The rules layer (what code cannot enforce)
 
-`protocol.md` holds only rules with P-numbered evidence. Classes: session mechanics (startup
-round, cursor, retraction, checkout), execution discipline (single-writer, grep-then-classify,
-compute-don't-copy, bounded waits, commit/index discipline, write-through), decision hygiene
-(confirm-before-carry, joint-executability, cost-symmetry), and channel policy. Channel policy is
+`protocol.md` holds only rules with measured evidence behind them — a `P`-number (a numbered
+proposal from a proving run) or an `S§` pointer (a run-1 strategic finding that was never numbered;
+v5 above). Classes: session mechanics (startup round incl. publish-your-contract, cursor,
+retraction, checkout), execution discipline (single-writer, grep-then-classify, compute-don't-copy,
+bounded waits, commit/index discipline, write-through), decision hygiene (confirm-before-carry,
+joint-executability, cost-symmetry, cheap-ask, negative-result, disclose-challenge), and channel
+policy. Channel policy is
 owner-RULED, not evidence-derived: **only leader initiates owner contact** (R-owner-channel,
 2026-07-24) — this consciously reverses the prior run's measured throughput fix (worker
 pane-presenting); the compensations are typed-ask triage, escalate-first, batching. If a run shows

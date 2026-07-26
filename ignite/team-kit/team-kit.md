@@ -41,7 +41,9 @@ runs.
    `{package}/CLAUDE.md` (roster + surface-ownership map + run-specific rules, pointing at
    `protocol.md`), `{package}/workers/{agent}/` seat folders (briefing `agent.md` from the
    template + `CLAUDE.md`/`AGENTS.md` loaders), `{package}/coordination/` (empty —
-   script-managed).
+   script-managed). Settle the roster's shape BEFORE writing briefings: § Roster assembly (below)
+   for the surface partition + checker coverage the ownership map records, § Run capacity for how
+   many seats the box can carry.
 2. The owner starts `leader` by hand in a tmux pane (first boot only — renewals relaunch it
    automatically, see 3); leader runs
    `python3 {team-kit}/coord.py --package {package} launch` (optionally `--only a,b` for staged
@@ -62,6 +64,32 @@ runs.
    the auto `/rename` like any launched claude seat; a bare `launch` still never boots leader.
    A watcher seat loops `watch.py` to flag stalls and
    context overruns. Everything else follows `protocol.md`.
+
+## Roster assembly — partition by surface, then put a checker on every surface
+
+Whoever assembles a run owns this, and it is decided BEFORE any briefing is written (S§4 — the
+run-1 observer's "load-bearing structural lever"). Two moves that pull against each other, so both
+are deliberate:
+
+- **Partition by SURFACE, not by task.** Coordination cost is not spread evenly across a roster —
+  it concentrates entirely where two seats' file-sets overlap. In run 1 every single coordination
+  incident happened at an overlap (the generator, the ledger, the id counter); the seats with
+  genuinely disjoint surfaces coordinated for FREE and produced zero incidents. So cut the work so
+  each seat owns a disjoint set of files, and treat every remaining overlap as a cost you chose:
+  make it an explicit single-writer critical section (`protocol.md` R-single-writer) and say so in
+  the ownership map. Adding a seat to a shared surface is more expensive than it looks; splitting
+  the surface first is usually cheaper than coordinating the split later.
+- **Then put a checking vantage on every critical surface — on purpose.** A team's value is
+  redundancy of vantage, not speed: in run 1 EVERY wrong number was caught by another seat or by
+  re-computation, and not one by its author's own care. But checking only happens where vantages
+  overlap — which the partition above deliberately minimizes. The one change that shipped
+  unreviewed in run 1 was precisely the one no other seat's surface touched. So coverage cannot be
+  left to hope: assign it.
+- **The surface-ownership map carries BOTH columns.** The run package's `CLAUDE.md` map names, per
+  surface, its single writer AND who checks it (a judge, a verifier, or a peer whose work reads
+  it). A surface with no checker is listed explicitly as unchecked-by-choice, with the owner's
+  acceptance — never left blank. A blank reads as "covered" to everyone who opens the map, which is
+  the failure this rule exists to prevent.
 
 ## Run capacity — budget the box before you size the roster
 

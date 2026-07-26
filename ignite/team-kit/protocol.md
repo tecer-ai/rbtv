@@ -10,6 +10,11 @@ kg-views-rebuild run (evidence: its `run-observations.md` §4 proposals and `ros
 amendments, reconciled against this kit in `fact-check-views-rebuild-vs-kit.md`). These are not
 style preferences.
 
+An **`S§n`** pointer cites the same kg-edges-viz package's `agent-teams-strategic-lessons.md` at
+section `n` — the observer's strategic findings, which were never numbered as proposals and so
+carry no P-number. Rules citing `S§` were folded 2026-07-26 from the run-1 fact-check
+(`fact-check-kg-edges-vs-kit.md`, beside the other two).
+
 ## The CLI
 
 ```
@@ -67,7 +72,11 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
 2. **Startup round — organize BEFORE you discuss.** No detailed cross-agent discussion on `all`
    at run start. Leader announces a turn order; each agent, in turn, sends ONE short intro
    (`--type note`, to `all`): what it produces, which shared surfaces it touches, which overlaps
-   with already-posted intros it foresees. No replies until the round completes. Then the
+   with already-posted intros it foresees, and — **publish your contract** (S§3.3) — what it can
+   and cannot ACCEPT from upstream: the constraint that would make a peer's output unusable to you
+   (last run: "edges of these verbs render in my views; others are authored-but-invisible"), since
+   a collaborator cannot avoid an interface it was never shown. No replies until the round
+   completes. Then the
    overlapping agents `create-group` one group per identified workstream/overlap (leader
    auto-joins) and ALL detailed discussion happens in those groups. The same applies to
    later-launched agents: one intro note on checkin, then into groups. (The prior run opened with
@@ -156,6 +165,25 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
 - **R-cost-symmetry (P21).** In any decision ask, derive the cost enumeration for the option you
   are NOT recommending by the same method as for the one you are. An under-costed rival option
   corrupted an owner decision last run.
+- **R-cheap-ask (S§6.3, S§3.3).** The decider is the scarcest resource in the run, so pay for the
+  decision, not just the question. Two halves, both measured: **(a) design your unblock to cost one
+  word** — when you are blocked on a call someone else must make, hand them a fallback they can
+  approve with a single token ("proceed on the fallback unless you say otherwise"), never an open
+  question that forces them to author the answer. **(b) Batch, with per-item defaults** — a set of
+  questions goes out as ONE ask carrying a one-line recommended default per item, and the reply may
+  settle any SUBSET: what the decider does not touch stays HELD. "Held" means exactly that — it is
+  never a licence to proceed on an unanswered item, which is `R-bounded-wait`'s self-authorized
+  timeout under a new name. Attacking the cost per decision compounds with leader's escalate-first
+  drain order; ordering alone did not clear the queue last run.
+- **R-negative-result (S§3.3).** When you report an analysis, list what you checked and found
+  IRRELEVANT alongside what you found. "Absent from a list" is otherwise indistinguishable from
+  "never looked at", and a decider cannot tell an exhaustive answer from an under-scoped one — which
+  is exactly how a narrow analysis misleads without anyone lying.
+- **R-disclose-challenge (S§3.3).** For a judgment call inside your own scope, neither ask
+  permission nor act silently: make the call, state it explicitly in a message with the reasoning,
+  and invite an override. Asking burns the arbiter on something already yours to decide; acting
+  silently denies every peer the chance to catch a call their vantage can see is wrong and yours
+  cannot.
 - **R-commit-discipline (P18/P23/V1).** The git index is shared mutable state: commit by explicit
   pathspec only, never add-all; `git diff` every file at the instant of staging and confirm your
   delta is still present; treat regenerate-and-commit as a critical section (announce, hold, land,
@@ -197,6 +225,10 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
 
 ## Briefing authoring rules (for whoever assembles a run)
 
+Before authoring any briefing, settle the ROSTER's shape: `team-kit.md` § Roster assembly
+(partition by surface, then cover every surface with a checker) and § Run capacity (what the box
+can actually run). Both are decided once, per run, and the briefings below only encode the result.
+
 - **R-isolation (P3).** One worker = one briefing. A briefing NEVER cites another worker's
   briefing, not even as a pre-read — shared pre-reads are hoisted into the run package `CLAUDE.md`
   or inlined as file paths. Only leader reads workers' briefings, lazily (on first contact).
@@ -236,7 +268,11 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
   of worker briefings (lazily); reads the full log; the ONLY door to the owner (R-owner-channel).
   Drain rule (measured, adopted): per batch, ESCALATE-FIRST — relay owner-gated items before
   ruling own items, triaging with `read --type ask` (peek-only: it never consumes the rest of the
-  inbox) and `pending` for what is still open. Leader never writes to the run's target surfaces.
+  inbox) and `pending` for what is still open. Order the queue by how much each item UNBLOCKS
+  downstream, never by arrival. Then cut the cost of each decision you pass upward, per
+  `R-cheap-ask`: owner-gated items go up as ONE batched ask with a recommended default per item and
+  any-subset/silence-is-held semantics — measured to compound with the ordering, where ordering
+  alone did not clear the queue. Leader never writes to the run's target surfaces.
   Leader also carries the run's ONLY seat-lifecycle authority (launch/close/renew/approve), which
   makes it a single point of failure — see **deputy**.
 - **deputy** (optional, rosters past ~8 seats or any AFK run) — a second seat briefed to take over
@@ -261,6 +297,11 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
   acceptance bar, adversarially, on its own fixtures. Not the fixer, not the fixer's judge for
   anything else. P35 needed three rounds and each round's defect was found by exactly this seat
   re-deriving the claim rather than reading the diff.
+  **A verification script written as part of a change is INSIDE that change's blast radius** (D31):
+  if the fix is wrong, the script built beside it is wrong in the same direction, and running it
+  proves only that the two agree. The verifier's evidence must come from something the fix did not
+  author — its own fixture, its own script, or a real captured artifact — which is also why this
+  seat is never the fixer.
 - **workers** — everyone else: execute exactly one briefing, message at coordination points,
   escalate decisions.
 - **closer seats** (`closer-<target>`, spawned by `close`, kit prompt `closer-prompt.md`) —
