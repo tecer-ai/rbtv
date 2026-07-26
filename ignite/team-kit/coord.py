@@ -1861,6 +1861,114 @@ def boot_prompt(w, args):
     )
 
 
+# ---------- worker-mirror refresh (pre-launch) ----------
+# A codex/opencode seat reads its rules from the AGENTS.md + .agents/ MIRROR of the launch root's
+# CLAUDE.md/skills/rules — not from the sources themselves. The mirror only refreshes when the
+# installer runs, and every AGENTS.md is gitignored, so drift is invisible to git and per-machine:
+# a skill edited an hour ago reaches a claude seat and NOT the codex seat beside it. Nothing else
+# consumes the mirror, so launch IS the moment it must be current — refresh at the point of
+# consumption rather than on a clock.
+
+MIRROR_REFRESH_TIMEOUT = 300  # a cold full-workspace render; the steady-state run is ~2-3s
+
+
+def find_workspace_root(start):
+    """Walk up from `start` for the workspace root carrying rbtv.json.
+
+    Returns (root, rbtv_path_abs) — (None, None) when no rbtv.json is found (not an rbtv
+    workspace), (root, None) when one exists but names no readable rbtv_path.
+    """
+    try:
+        p = Path(start).resolve()
+    except OSError:
+        return None, None
+    for d in (p, *p.parents):
+        cfg = d / "rbtv.json"
+        if not cfg.is_file():
+            continue
+        try:
+            data = json.loads(cfg.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+            return d, None
+        rel = data.get("rbtv_path")
+        if not rel:
+            return d, None
+        # rbtv_path is recorded workspace-relative; an absolute value is honoured as-is.
+        return d, (Path(rel) if Path(rel).is_absolute() else (d / rel)).resolve()
+    return None, None
+
+
+def refresh_mirror(cwd):
+    """Refresh the worker mirror for the workspace owning `cwd`.
+
+    Returns (status, detail) where status is:
+      "ok"   — the mirror was refreshed (detail = the installer's summary line)
+      "skip" — nothing to refresh (detail says why): not an rbtv workspace, or one with no
+               mirror installed. NOT an error: a workspace without elected CLI workers has
+               no mirror by design.
+      "fail" — the refresh was attempted and failed (detail = the reason)
+    """
+    root, rbtv_path = find_workspace_root(cwd)
+    if root is None:
+        return "skip", f"no rbtv.json at or above {cwd} — not an rbtv workspace"
+    if rbtv_path is None:
+        return "fail", f"{root / 'rbtv.json'} is unreadable or names no rbtv_path"
+
+    installer = rbtv_path / "install.py"
+    if not installer.is_file():
+        return "fail", f"installer not found at {installer} (rbtv_path points nowhere)"
+
+    # --exclude is deliberately OMITTED: the driver defaults excluded_paths from the recorded
+    # state, so omitting it PRESERVES the workspace's exclusions. Passing it here would replace
+    # them and start rendering mirrors into paths the owner excluded.
+    cmd = [sys.executable, str(installer), "--mirror", "--non-interactive", "--target", str(root)]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=MIRROR_REFRESH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return "fail", f"refresh timed out after {MIRROR_REFRESH_TIMEOUT}s"
+    except OSError as exc:
+        return "fail", f"could not run the installer: {exc}"
+
+    if r.returncode != 0:
+        err = (r.stderr or r.stdout or "").strip().splitlines()
+        return "fail", (err[-1] if err else f"installer exited {r.returncode}")
+
+    summary = next(
+        (ln.strip() for ln in reversed((r.stdout or "").splitlines()) if "Mirror:" in ln),
+        "mirror refreshed",
+    )
+    if "no mirrorable packages elected" in summary:
+        return "skip", "workspace elects no mirrorable CLI workers — no mirror to refresh"
+    return "ok", summary
+
+
+def refresh_mirrors_for(workers):
+    """Refresh the mirror for every distinct launch root among the NON-claude seats.
+
+    Claude seats read CLAUDE.md natively and consume no mirror, so a claude-only launch does no
+    work here. Deduped by root: an N-seat wave rooted in one workspace pays one refresh, and a
+    seat rooted in a worktree gets ITS root refreshed rather than the parent's.
+
+    NEVER blocks the launch. A failed refresh is reported loudly and the seats still boot — a
+    broken installer must not be able to stop a team run, and a stale mirror still carries the
+    previous render's rules rather than none.
+    """
+    roots = list(dict.fromkeys(
+        w["cwd"] for w in workers if w["harness"] != "claude" and w["cwd"]
+    ))
+    for cwd in roots:
+        status, detail = refresh_mirror(cwd)
+        if status == "ok":
+            print(f"mirror refreshed for {cwd}: {detail}")
+        elif status == "skip":
+            print(c(f"mirror: skipped for {cwd} — {detail}", C_HINT))
+        else:
+            print(c(f"WARNING mirror refresh FAILED for {cwd} — {detail}", C_DEAD), file=sys.stderr)
+            print(c("  the codex/opencode seats below may read STALE rules; refresh by hand with "
+                    "`python install.py --mirror --non-interactive --target <root>`", C_DEAD),
+                  file=sys.stderr)
+
+
 def seat_placement(w):
     """Pure placement decision from the briefing's window: value — ("own", agent-name) for
     `yes`, ("shared", NAME) for a named wave window, ("pane", None) otherwise."""
@@ -1935,6 +2043,9 @@ def cmd_launch(args):
         sys.exit(1)
 
     if args.dry_run:
+        for cwd in dict.fromkeys(w["cwd"] for w in workers
+                                 if w["harness"] != "claude" and w["cwd"]):
+            print(f"[dry-run] would refresh the worker mirror for {cwd}")
         for w in workers:
             cmd, err = harness_command(w, boot_prompt(w, args))
             kind, wname = seat_placement(w)
@@ -1943,6 +2054,10 @@ def cmd_launch(args):
                   f"{'/' + w['effort'] if w['harness'] == 'claude' else ''}, {place}, cwd={w['cwd']}): "
                   f"{cmd if cmd else 'REFUSED — ' + err}")
         return
+
+    # BEFORE any seat boots: a worker reads its rules once, at startup, so a refresh that lands
+    # after the pane opens is a refresh the worker never sees.
+    refresh_mirrors_for(workers)
 
     tmux_raise_history_limit()  # exports capture full scrollback (see export-transcript)
     for w in workers:
@@ -2130,6 +2245,9 @@ def cmd_close_seat(args):
                   f"Relaunch it from leader's pane: {coord_invocation(args)} launch --only "
                   f"{args.target}", file=sys.stderr)
             sys.exit(1)
+        # A renewed seat re-reads its rules at boot, so it needs a current mirror just as a
+        # fresh launch does — and a renew lands mid-run, exactly when sources have been drifting.
+        refresh_mirrors_for(seats[:1])
         tmux_raise_history_limit()
         pane, err = launch_seat(seats[0], args, launch_target)
         if err:
@@ -3261,6 +3379,80 @@ def cmd_selftest(args):
               "watcher:" not in out)
         live_tmux_panes["v"] = set()
 
+        # ---- worker-mirror refresh: launch is the moment the mirror must be current ----
+        # A codex/opencode seat reads AGENTS.md + .agents/ at boot; every AGENTS.md is gitignored,
+        # so drift is per-machine and invisible to git. These cases pin the DECISION logic only —
+        # none of them runs the installer.
+        mroot = Path(td) / "mirror-ws"
+        (mroot / "deep" / "nested").mkdir(parents=True)
+        (mroot / "rbtv.json").write_text(
+            json.dumps({"rbtv_path": "tools/rbtv"}), encoding="utf-8")
+        (mroot / "tools" / "rbtv").mkdir(parents=True)
+
+        found_root, found_path = find_workspace_root(mroot / "deep" / "nested")
+        check("mirror: the workspace root is found by walking UP from the seat's cwd — a seat "
+              "rooted deep in the tree (or in a worktree) must refresh ITS root, not the caller's",
+              found_root == mroot.resolve())
+        check("mirror: rbtv_path is recorded workspace-RELATIVE and resolves against the root — "
+              "treating it as a cwd-relative path would point the refresh at nothing",
+              found_path == (mroot / "tools" / "rbtv").resolve())
+
+        orphan = Path(td) / "not-a-workspace"
+        orphan.mkdir()
+        check("mirror: a cwd under no rbtv.json resolves to no workspace",
+              find_workspace_root(orphan) == (None, None))
+        status, _ = refresh_mirror(orphan)
+        check("mirror: a non-rbtv workspace SKIPS, never fails — a team run in a plain folder has "
+              "no mirror to refresh and must not be warned at every launch",
+              status == "skip")
+
+        (mroot / "rbtv.json").write_text("{not json", encoding="utf-8")
+        check("mirror: an unreadable rbtv.json FAILS loudly rather than silently skipping — a "
+              "corrupt config is a real problem, not an absent mirror",
+              refresh_mirror(mroot)[0] == "fail")
+        (mroot / "rbtv.json").write_text(
+            json.dumps({"rbtv_path": "tools/rbtv"}), encoding="utf-8")
+        check("mirror: an rbtv_path with no install.py FAILS (it points nowhere) — the installer "
+              "is never invoked, so this costs nothing to detect",
+              refresh_mirror(mroot)[0] == "fail")
+
+        # refresh_mirrors_for: who gets refreshed, and how many times.
+        calls = []
+        _real_refresh = refresh_mirror
+        globals()["refresh_mirror"] = lambda cwd: (calls.append(cwd), ("skip", "stub"))[1]
+        try:
+            calls.clear()
+            refresh_mirrors_for([{"harness": "claude", "cwd": "/w"},
+                                 {"harness": "claude", "cwd": "/w"}])
+            check("mirror: a claude-only launch refreshes NOTHING — claude reads CLAUDE.md "
+                  "natively and consumes no mirror, so the cost must not be paid for it",
+                  calls == [])
+            calls.clear()
+            with redirect_stdout(io.StringIO()):
+                refresh_mirrors_for([{"harness": "codex", "cwd": "/w"},
+                                     {"harness": "opencode", "cwd": "/w"},
+                                     {"harness": "claude", "cwd": "/w"}])
+            check("mirror: N seats sharing one root pay ONE refresh — a 10-seat wave must not "
+                  "re-render the same workspace 10 times",
+                  calls == ["/w"])
+            calls.clear()
+            with redirect_stdout(io.StringIO()):
+                refresh_mirrors_for([{"harness": "codex", "cwd": "/w"},
+                                     {"harness": "opencode", "cwd": "/other"}])
+            check("mirror: seats in DIFFERENT roots each get their own refresh — a worktree seat's "
+                  "mirror lives in the worktree, not the parent workspace",
+                  calls == ["/w", "/other"])
+            calls.clear()
+            globals()["refresh_mirror"] = lambda cwd: (_ for _ in ()).throw(
+                AssertionError("should not be reached"))
+            refresh_mirrors_for([{"harness": "codex", "cwd": ""}])
+            check("mirror: a seat with no cwd is skipped rather than crashing the launch",
+                  True)
+        except AssertionError as exc:
+            check(f"mirror: refresh_mirrors_for raised — {exc}", False)
+        finally:
+            globals()["refresh_mirror"] = _real_refresh
+
         os.environ.pop("COORD_LAUNCH_TARGET", None)
 
     (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
@@ -3487,7 +3679,10 @@ def build_parser():
         "launch",
         "(leader) Open one tmux seat per worker briefing and start its harness. Harness, model,\n"
         "effort, cwd and pane-vs-window all come from each briefing's frontmatter, so leader\n"
-        "launches without reading any briefing. A bare launch never boots leader itself.",
+        "launches without reading any briefing. A bare launch never boots leader itself.\n"
+        "Before any codex/opencode seat opens, its launch root's worker mirror (AGENTS.md +\n"
+        ".agents/) is refreshed once, so the seat reads current rules and not whatever the\n"
+        "last installer run left behind. A failed refresh warns and launches anyway.",
         "example:\n"
         "  coordinate launch --only judge-ux,judge-parity\n"
         "next: coordinate workers — every seat must check in; one that does not never booted")

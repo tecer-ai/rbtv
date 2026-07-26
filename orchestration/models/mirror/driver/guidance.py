@@ -228,6 +228,7 @@ def render_guidance(
     check: bool,
     excluded_paths: list[str],
     banner_label: str = "",
+    stale_sink: list[str] | None = None,
 ) -> list[dict[str, str]]:
     """Render guidance files beside every CLAUDE.md in *target_root*.
 
@@ -250,6 +251,10 @@ def render_guidance(
         DO-NOT-EDIT banner by ``make_banner`` (e.g. ``"the Codex CLI worker"``).
         When empty the banner will render with an empty label — callers SHOULD
         always supply this.
+    stale_sink:
+        Optional list.  In check mode, every guidance file found missing or
+        differing has its workspace-relative path appended to it.  Printing the
+        stale paths is NOT enough — the caller needs them to set an exit code.
 
     Returns
     -------
@@ -288,8 +293,10 @@ def render_guidance(
 
     managed.sort(key=lambda r: r["path"])
 
-    if check and stale_paths:
-        for p in stale_paths:
-            print(f"stale: {p} is missing or differs from its CLAUDE.md source")
+    # Report drift through the sink ONLY — the CLI prints the collected paths
+    # uniformly for every render module. Printing here as well would double-log
+    # each stale guidance file.
+    if check and stale_paths and stale_sink is not None:
+        stale_sink.extend(stale_paths)
 
     return managed

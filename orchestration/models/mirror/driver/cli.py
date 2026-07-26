@@ -119,6 +119,11 @@ def _run_render(target_root: Path, packages: list[str], *, check: bool,
 
     if check:
         if result.stale:
+            # Name the drifted files. The guidance module prints its own lines as
+            # it walks; the library and config modules do not, so without this a
+            # stale skill or rule mirror is reported only as a count.
+            for rel in result.stale_paths:
+                print(f"stale: {rel} is missing or differs from its source")
             print(
                 f"stale: mirror is out of sync for [{', '.join(sorted(packages))}] "
                 f"— {len(result.managed_files)} managed file(s) expected; re-run to refresh"

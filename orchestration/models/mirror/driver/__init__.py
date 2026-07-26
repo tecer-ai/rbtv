@@ -152,6 +152,9 @@ class RenderResult:
     skipped_commands: list[str] = field(default_factory=list)
     state_changed: bool = False
     stale: bool = False  # only meaningful in check mode: any drift detected
+    # Check mode only: the managed files whose CONTENT drifted from their source
+    # (present on disk but out of date). Empty on a write run.
+    stale_paths: list[str] = field(default_factory=list)
     state_created: bool = False  # True when no model_mirror block existed before this render
     files_written: bool = False  # True when at least one managed file was written to disk
 
@@ -318,9 +321,19 @@ def render(
     all_records: list[dict] = []
     stale_any = False
 
+    # Content-drift sink. `_detect_drift` below sees only MISSING files and
+    # managed-set changes — never a mirrored file that exists but has fallen
+    # behind its source. Each render module appends the paths it found stale so
+    # content drift reaches the exit code instead of being printed and dropped.
+    content_stale: list[str] = []
+
     # --- 1. Shared .agents/ library (rendered once when any worker is elected) ---
-    rule_records = library.render_behavior_rules(target_root, check=check)
-    skill_records, skipped = library.render_skills(target_root, check=check)
+    rule_records = library.render_behavior_rules(
+        target_root, check=check, stale_sink=content_stale
+    )
+    skill_records, skipped = library.render_skills(
+        target_root, check=check, stale_sink=content_stale
+    )
     all_records.extend(rule_records)
     all_records.extend(skill_records)
     result.skipped_commands = skipped
@@ -333,6 +346,7 @@ def render(
             check=check,
             excluded_paths=excluded_paths,
             banner_label=banner_label,
+            stale_sink=content_stale,
         )
         all_records.extend(guidance_records)
 
@@ -340,7 +354,9 @@ def render(
     for pkg in packages:
         if PACKAGE_FACTS[pkg].config_dir is None:
             continue
-        config_records = config_assets.render_config(target_root, pkg, check=check)
+        config_records = config_assets.render_config(
+            target_root, pkg, check=check, stale_sink=content_stale
+        )
         all_records.extend(config_records)
 
     # --- 3b. Prune-on-exclude: delete guidance orphaned by a NEWLY-excluded path ---
@@ -355,8 +371,11 @@ def render(
         )
 
     # --- 4. Drift detection (check mode) ---
+    # Two independent signals, OR-ed: CONTENT drift (a managed file exists but
+    # differs from its source — collected by the render modules above) and
+    # STATE drift (a managed file is missing, or the expected set changed).
     if check:
-        stale_any = _detect_drift(target_root, all_records)
+        stale_any = _detect_drift(target_root, all_records) or bool(content_stale)
 
     # --- 5. Detect files-written (post-render, pre-state-write) ---
     # A file was written when: a new path appeared, OR an existing path's mtime
@@ -388,6 +407,7 @@ def render(
     result.state_created = (not prior_block_exists) and (not check)
     result.files_written = files_written
     result.stale = stale_any or (check and changed)
+    result.stale_paths = sorted(set(content_stale))
     return result
 
 
@@ -395,9 +415,13 @@ def _detect_drift(target_root: Path, rendered: list[dict]) -> bool:
     """Return True if any rendered managed file is missing on disk OR the recorded
     state's managed-file set differs from what a render would now produce.
 
-    In check mode the render modules already report per-file staleness via their
-    own prints; this adds the state-level drift signal (files present on disk but
-    no longer expected, or expected but absent).
+    This is the STATE-level drift signal only. It deliberately does NOT detect
+    content drift — a file that exists but no longer matches its source is
+    invisible here, because this function never re-composes expected content.
+    That half is collected by the render modules into ``render``'s
+    ``content_stale`` sink and OR-ed in by the caller; the two together are what
+    ``RenderResult.stale`` means. Do not "simplify" by relying on this alone —
+    that was the bug where a drifted mirror check-passed with exit 0.
     """
     target_root = Path(target_root).resolve()
     expected_paths = {r["path"] for r in rendered}

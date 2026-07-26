@@ -53,6 +53,14 @@ runs.
    name; claude seats also get a `/rename <agent>` injected after boot (checkin re-titles the
    pane too, so recoveries stay named). Leader's own session: type `/rename leader` yourself when
    you start it — nothing automates the pane the owner opened by hand.
+   **Worker-mirror refresh:** a codex/opencode seat reads its rules from the `AGENTS.md` +
+   `.agents/` MIRROR of its launch root, which only refreshes when the installer runs — and every
+   `AGENTS.md` is gitignored, so drift is per-machine and invisible to git. `launch` therefore
+   refreshes the mirror for each distinct non-claude launch root before opening any pane (once per
+   root, not per seat; claude seats need none and trigger none). `close-seat --renew` does the same
+   for the seat it relaunches. A refresh that fails WARNS and launches anyway — a broken installer
+   must not be able to stop a run. A workspace with no `rbtv.json`, or one electing no mirrorable
+   worker, is skipped silently.
 3. Lifecycle: a seat ends with `checkout`, which exports its transcript first (ephemeral seats use
    `depart`, which exports, checks out and kills their own pane in one command); leader closes or
    renews long-lived seats via `close <agent> [--renew]`

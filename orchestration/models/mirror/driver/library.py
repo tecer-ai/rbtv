@@ -15,11 +15,17 @@ Design constraints (from decisions.md):
 
 Public API
 ----------
-  render_behavior_rules(target_root, *, check) -> list[dict]
-  render_skills(target_root, *, check)         -> list[dict]
+  render_behavior_rules(target_root, *, check, stale_sink) -> list[dict]
+  render_skills(target_root, *, check, stale_sink)         -> list[dict]
 
 Each returns a list of managed-file records:
   {"path": str (workspace-root-relative POSIX), "kind": "behavior-rule"|"skill", "owner": "shared"}
+
+`stale_sink` is an optional list the caller passes in check mode; every managed
+file found MISSING or DIFFERING from its source has its workspace-relative path
+appended to it. Without it a check-mode run cannot see content drift at all —
+the driver's state-level drift detection only notices missing files and
+managed-set changes, never a mirrored file whose body has fallen behind.
 """
 from __future__ import annotations
 
@@ -152,11 +158,19 @@ def _rewrite_description_in_frontmatter(text: str, new_description: str) -> str:
 # render_behavior_rules
 # ---------------------------------------------------------------------------
 
-def render_behavior_rules(target_root: Path | str, *, check: bool = False) -> list[dict]:
+def render_behavior_rules(
+    target_root: Path | str,
+    *,
+    check: bool = False,
+    stale_sink: list[str] | None = None,
+) -> list[dict]:
     """Copy each `.claude/rules/*.md` verbatim into `.agents/behavior-rules/<name>.md`.
 
     Idempotent: uses `write_if_changed` — in check mode, returns the same record
     list but writes nothing (exit-code semantics are the caller's responsibility).
+
+    In check mode, every rule whose mirror is missing or differs has its
+    workspace-relative path appended to `stale_sink` when one is supplied.
 
     Returns a list of managed-file records:
       {"path": "<workspace-root-relative POSIX>", "kind": "behavior-rule", "owner": "shared"}
@@ -174,8 +188,10 @@ def render_behavior_rules(target_root: Path | str, *, check: bool = False) -> li
     for src_file in sorted(rules_src.glob("*.md")):
         data = src_file.read_bytes()  # binary: preserve exact line endings
         dst_file = rules_dst / src_file.name
-        _write_if_changed_binary(dst_file, data, check=check)
+        status = _write_if_changed_binary(dst_file, data, check=check)
         rel = dst_file.relative_to(target_root).as_posix()
+        if status == "stale" and stale_sink is not None:
+            stale_sink.append(rel)
         records.append({"path": rel, "kind": "behavior-rule", "owner": "shared"})
 
     return records
@@ -189,6 +205,7 @@ def render_skills(
     target_root: Path | str,
     *,
     check: bool = False,
+    stale_sink: list[str] | None = None,
 ) -> tuple[list[dict], list[str]]:
     """Render `.agents/skills/` from `.claude/skills/*/SKILL.md` and
     `.claude/commands/*.md` WITH `name`+`description` frontmatter.
@@ -201,6 +218,9 @@ def render_skills(
         with description defensively double-quoted).
       - A command file that lacks frontmatter (or lacks `name` or `description` keys)
         is SKIPPED; its stem is recorded in the returned skip list.
+
+    In check mode, every skill whose mirror is missing or differs has its
+    workspace-relative path appended to `stale_sink` when one is supplied.
 
     Returns (records, skipped_names) where:
       records       — list of managed-file dicts {"path", "kind": "skill", "owner": "shared"}
@@ -232,8 +252,10 @@ def render_skills(
                 # Fall back to the directory name if frontmatter is absent/incomplete
                 name = skill_dir.name
             dst_file = skills_dst / name / "SKILL.md"
-            write_if_changed(dst_file, content, check=check)
+            status = write_if_changed(dst_file, content, check=check)
             rel = dst_file.relative_to(target_root).as_posix()
+            if status == "stale" and stale_sink is not None:
+                stale_sink.append(rel)
             records.append({"path": rel, "kind": "skill", "owner": "shared"})
 
     # --- Commands (only those WITH name+description frontmatter) ---
@@ -249,8 +271,10 @@ def render_skills(
             content = _rewrite_description_in_frontmatter(content, fm["description"])
             name = fm["name"]
             dst_file = skills_dst / name / "SKILL.md"
-            write_if_changed(dst_file, content, check=check)
+            status = write_if_changed(dst_file, content, check=check)
             rel = dst_file.relative_to(target_root).as_posix()
+            if status == "stale" and stale_sink is not None:
+                stale_sink.append(rel)
             records.append({"path": rel, "kind": "skill", "owner": "shared"})
 
     return records, skipped

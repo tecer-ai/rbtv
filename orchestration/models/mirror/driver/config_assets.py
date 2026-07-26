@@ -95,6 +95,7 @@ def render_config(
     package: str,
     *,
     check: bool = False,
+    stale_sink: list[str] | None = None,
 ) -> list[dict[str, str]]:
     """Copy the package's ``mirror-assets/`` tree into *target_root*.
 
@@ -112,6 +113,10 @@ def render_config(
         ``write_if_changed``'s check semantics — it returns ``"stale"`` for any
         file that would change without actually writing it.  The returned record
         list is still complete (useful for the driver's ``--check`` mode).
+    stale_sink:
+        Optional list.  In check mode, every config file found missing or
+        differing has its workspace-relative path appended to it, so the caller
+        can turn content drift into an exit code.
 
     Returns
     -------
@@ -155,9 +160,12 @@ def render_config(
         rel_inside = src.relative_to(assets_dir)
         dest = target_root / rel_inside
         content = src.read_text(encoding="utf-8")
-        wic(dest, content, check=check)
+        status = wic(dest, content, check=check)
+        rel = _rel(dest, target_root)
+        if status == "stale" and stale_sink is not None:
+            stale_sink.append(rel)
         records.append({
-            "path": _rel(dest, target_root),
+            "path": rel,
             "kind": "config",
             "owner": package,
         })
@@ -166,7 +174,9 @@ def render_config(
     # 2. Codex-only: generate .codex/hooks.json from .claude/settings.json
     # ------------------------------------------------------------------
     if package == "codex-cli":
-        hooks_record = _render_codex_hooks(target_root, check=check, wic=wic)
+        hooks_record = _render_codex_hooks(
+            target_root, check=check, wic=wic, stale_sink=stale_sink
+        )
         if hooks_record is not None:
             records.append(hooks_record)
 
@@ -178,6 +188,7 @@ def _render_codex_hooks(
     *,
     check: bool,
     wic: object,  # write_if_changed callable from mirror.py
+    stale_sink: list[str] | None = None,
 ) -> dict[str, str] | None:
     """Generate ``.codex/hooks.json`` from ``.claude/settings.json``.
 
@@ -200,10 +211,14 @@ def _render_codex_hooks(
     dest = target_root / ".codex" / "hooks.json"
 
     # wic is the mirror.write_if_changed callable; call it for idempotency.
-    wic(dest, content, check=check)  # type: ignore[call-arg]
+    status = wic(dest, content, check=check)  # type: ignore[call-arg]
+
+    rel = _rel(dest, target_root)
+    if status == "stale" and stale_sink is not None:
+        stale_sink.append(rel)
 
     return {
-        "path": _rel(dest, target_root),
+        "path": rel,
         "kind": "config",
         "owner": "codex-cli",
     }
