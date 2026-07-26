@@ -405,6 +405,17 @@
       }
     ]
   },
+  "ignite": {
+    "description": "The ignite runtime layer: the ignite daemon (runnable service code — deployed to a runtime host, never installed into .claude/) and the team-kit (coordinated parallel multi-agent tmux team runs: coord.py coordination CLI, run protocol, watcher/closer seats, briefing templates).",
+    "skills": [
+      {
+        "source_template": "ignite/skills/team-kit/SKILL.md",
+        "target": ".claude/skills/rbtv-team-kit/SKILL.md",
+        "bake": ["rbtv_path"],
+        "description": "Set up, run, or join a coordinated parallel multi-agent tmux team run — thin loader to ignite/team-kit/ (coord.py CLI, team-kit.md run setup, protocol.md agent protocol; read JIT from {rbtv_path}, not installed)"
+      }
+    ]
+  },
   "cross_module_agents": {
     "vivian": {
       "primary_module": "studio",

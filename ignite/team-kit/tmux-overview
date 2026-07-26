@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# tmux-overview — live, always-updated view of one tmux session's windows and panes.
+#
+#   tmux-overview <session> [interval-seconds] [--once] [--compact] [--package <run-package>]
+#     interval:  refresh seconds (default 2); Ctrl-C to exit
+#     --once:    print one snapshot and exit
+#     --compact: ≤7-line full-width dashboard (overview-compact.py): plan-usage BAR CHARTS on
+#                the left, every window with its member seat names on the right — the mode the
+#                control panel's `panel` strip runs
+#     --package: run package folder — lets compact mode resolve pane-id → agent names from
+#                coordination/workers.md (claude panes rewrite their own titles, so the roster
+#                is the reliable name source)
+#
+# Full mode shows, per window, its name, pane count, and each pane's id, title, and running
+# command; the active window/pane are marked with *, plus the Claude plan-usage line
+# maintained by team-kit/statusline-usage.py.
+set -uo pipefail
+
+session="${1:?usage: tmux-overview <session> [interval-seconds] [--once] [--compact] [--package <dir>]}"
+shift || true
+interval=2 once=0 compact=0 package=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --once) once=1 ;;
+    --compact) compact=1 ;;
+    --package) package="${2:?--package needs a directory}"; shift ;;
+    ''|*[!0-9]*) echo "unknown arg: $1" >&2; exit 2 ;;
+    *) interval="$1" ;;
+  esac
+  shift
+done
+KIT_DIR="$(dirname "$(readlink -f "$0")")"
+
+plan_line() {
+  local f="$HOME/.claude/rbtv-runtime/plan-usage.txt"
+  [ -f "$f" ] && tr -d '\n' < "$f"
+}
+
+render() {
+  if ! tmux has-session -t "$session" 2>/dev/null; then
+    echo "no such tmux session: $session"
+    echo "sessions: $(tmux list-sessions -F '#{session_name}' 2>/dev/null | tr '\n' ' ')"
+    return 1
+  fi
+  local nwin npane plan
+  nwin=$(tmux list-windows -t "$session" 2>/dev/null | wc -l)
+  npane=$(tmux list-panes -s -t "$session" 2>/dev/null | wc -l)
+  plan=$(plan_line)
+
+  if [ "$compact" = 1 ]; then
+    # refresh worker-provider limits (glm/deepseek/codex) in the background when >10 min old
+    pu="$HOME/.claude/rbtv-runtime/provider-usage.json"
+    if [ ! -f "$pu" ] || [ -n "$(find "$pu" -mmin +10 2>/dev/null)" ]; then
+      (python3 "$KIT_DIR/provider-usage.py" >/dev/null 2>&1 &)
+    fi
+    python3 "$KIT_DIR/overview-compact.py" "$session" \
+      --width "$(tput cols 2>/dev/null || echo 220)" \
+      ${package:+--package "$package"}
+    return $?
+  fi
+
+  echo "session: $session — ${nwin} window(s), ${npane} pane(s) total    $(date +%H:%M:%S)"
+  [ -n "$plan" ] && echo "plan:    $plan"
+  echo
+  tmux list-windows -t "$session" -F '#{window_index}|#{window_name}|#{window_panes}|#{window_active}' |
+  while IFS='|' read -r idx name panes active; do
+    marker=" "; [ "$active" = "1" ] && marker="*"
+    printf '%s window %-3s %-20s %s pane(s)\n' "$marker" "$idx" "$name" "$panes"
+    tmux list-panes -t "$session:$idx" \
+      -F '      #{pane_id}  #{?pane_active,*, } #{pane_title}  [#{pane_current_command}]'
+  done
+}
+
+if [ "$once" = 1 ]; then
+  render
+  exit $?
+fi
+
+while :; do
+  out=$(render)
+  clear
+  printf '%s\n' "$out"
+  sleep "$interval"
+done

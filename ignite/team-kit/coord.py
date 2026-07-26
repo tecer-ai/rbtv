@@ -1,0 +1,3432 @@
+#!/usr/bin/env python3
+"""coord — the coordination CLI for a multi-agent tmux team run (shared team-kit).
+
+All state lives in the RUN PACKAGE, never beside this script: `{package}/coordination/` (roster,
+append-only message log, groups, owner status — script-managed, never hand-edited) and
+`{package}/workers/<agent>/` (one briefing per seat, plus its memory + transcripts). The package
+resolves as `--package DIR` > `--run TAG` > $COORD_PACKAGE > a cwd walk-up, so a seat working in
+its own folder needs neither flag. Identity resolves the same way instead of being typed:
+`--as NAME` > $COORD_AGENT (injected into every launched seat) > the calling pane's roster row.
+
+The command surface, its flags and its examples live in the CLI's own help — a second copy here
+drifted from the code and taught commands that no longer existed. Run `coordinate -h` for the
+grouped command list, `coordinate <command> -h` for one command's arguments, one example and the
+step that usually follows. Briefing frontmatter keys: `briefing-template.md` beside this script.
+
+Stdlib only; no PATH install. Liveness/context monitoring lives in watch.py beside this script.
+"""
+import argparse
+import difflib
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
+
+try:  # POSIX advisory locking. Absent (or unusable) -> every lock falls back to lockless.
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX
+    fcntl = None
+
+VAULT_ROOT = "/home/henri/ht-wkdir/second-brain"
+CLAUDE_BIN = os.environ.get("COORD_CLAUDE_BIN", "claude")
+CODEX_BIN = os.environ.get("COORD_CODEX_BIN", "codex")
+OPENCODE_BIN = os.environ.get("COORD_OPENCODE_BIN", "opencode")
+DEFAULT_MODEL = "opus"
+DEFAULT_EFFORT = "high"
+HARNESSES = ("claude", "codex", "opencode")
+CLOSER_MODEL = "sonnet"
+CLOSERS_WINDOW = "closers"  # every closer pane lands here, never in the control-panel window
+# tmux default history (2000 lines) truncates transcript exports; raise it before creating seats.
+HISTORY_LIMIT = "100000"
+# Observers may read the FULL message log, not just their own inbox; auto-wake recipients are
+# woken on EVERY message so live observation needs no polling. Both sets are the defaults below
+# PLUS any briefing declaring `observer: yes` / `auto-wake: yes` in its frontmatter.
+DEFAULT_OBSERVERS = {"leader", "scientist"}
+DEFAULT_AUTO_WAKE = {"scientist"}
+# P2 — the registry's five canonical message types (concepts/message.md): the SOLE vocabulary.
+MESSAGE_TYPES = ["completion", "ask", "answer", "verdict", "note"]
+SUMMARY_MAX = 560
+# T2 — a real run logged 305 messages averaging 1,243 chars: an unbounded `read` floods the
+# reader's context. A read renders at most this many messages and says how many are still
+# waiting; the cursor moves only through what was SHOWN.
+READ_LIMIT = 10
+DIGEST_SNIPPET = 90   # chars of body rendered per line by `read --digest` / truncated summaries
+# T3 — a message body over this many chars is refused (write a file, send its path). --force escapes.
+MESSAGE_MAX = 2000
+# T5 — broadcast wakes run in a bounded pool: 1.3s of Enter-verify per recipient, serial, made a
+# 10-seat send-all cost ~13s of the sender's turn.
+WAKE_PARALLEL_MAX = 8
+
+# T6 — two output modes. The DEFAULT is byte-plain (zero escape bytes): the primary reader is an
+# agent, and colour codes inside a message body it re-quotes are noise it cannot see. `--pretty`
+# (or COORD_PRETTY=1) turns on ANSI colour + aligned columns for the four VIEW commands — status,
+# workers, read, pending. It is an EXPLICIT switch, never TTY auto-detection: agents live in TTYs
+# too, so a TTY check would hand them the human mode by default (owner ruling, 2026-07-25).
+PRETTY = {"on": False}
+TYPE_COLOR = {"ask": "33", "verdict": "35", "completion": "32", "answer": "36", "note": "2"}
+C_ALIVE, C_DEAD, C_DONE = "32", "31", "2"   # roster states
+C_RETRACT = "1;31"    # supersession markers — the one thing a reader must not miss
+C_LOGNOTE = "2;31"    # delivery-failure trailers: the log speaking, not the sender
+C_LABEL = "1"         # field labels, agent names, section titles
+C_HINT = "2"          # `--` footers and `next:` lines
+
+
+def c(text, code):
+    """ANSI-wrap `text` in --pretty mode; a plain passthrough otherwise. Every colour in this file
+    goes through here, so the default output is byte-identical to the uncoloured one."""
+    text = str(text)
+    if not PRETTY["on"] or not code:
+        return text
+    return f"\x1b[{code}m{text}\x1b[0m"
+
+
+def set_pretty(args):
+    """Switch the human mode on from `--pretty` (global or after the subcommand) or COORD_PRETTY.
+    Called once by main(); a direct cmd_* caller (watch.py, the self-test) stays plain."""
+    env = os.environ.get("COORD_PRETTY", "").strip().lower()
+    PRETTY["on"] = bool(getattr(args, "pretty", False)) or env not in ("", "0", "no", "false")
+    return PRETTY["on"]
+
+WORKERS_HEADER = (
+    "# workers — agent sessions (script-managed, do not edit by hand)\n"
+    "\n"
+    "| agent | active | tmux pane | working on | checked in | checked out | last-read |\n"
+    "|-------|--------|-----------|------------|------------|-------------|-----------|\n"
+)
+MESSAGES_HEADER = (
+    "# messages — append-only coordination log (script-managed, do not edit by hand)\n"
+)
+GROUPS_HEADER = (
+    "# groups — message groups (script-managed, do not edit by hand)\n"
+    "\n"
+    "| group | members | created by | created |\n"
+    "|-------|---------|------------|---------|\n"
+)
+WORKER_ROW = re.compile(
+    r"^\|\s*(?P<agent>[^|]+?)\s*\|\s*(?P<active>yes|no)\s*\|\s*(?P<pane>[^|]*?)\s*"
+    r"\|\s*(?P<summary>[^|]*?)\s*\|\s*(?P<checkin>[^|]*?)\s*\|\s*(?P<checkout>[^|]*?)\s*"
+    r"\|\s*(?P<lastread>[^|]*?)\s*\|$"
+)
+GROUP_ROW = re.compile(
+    r"^\|\s*(?P<group>[^|]+?)\s*\|\s*(?P<members>[^|]*?)\s*\|\s*(?P<by>[^|]*?)\s*\|\s*(?P<created>[^|]*?)\s*\|$"
+)
+# T4 — ` | re: N` is ADDITIVE and optional: it sits after `supersedes:` and before the timestamp,
+# so every pre-T4 log line still parses with this same regex.
+MSG_HEADER = re.compile(
+    r"^## (?P<num>\d+) \| from: (?P<sender>\S+) \| to: (?P<to>\S+) \| type: (?P<type>\S+)"
+    r"(?: \| supersedes: (?P<supersedes>\d+))?(?: \| re: (?P<re>\d+))? \| (?P<ts>.+)$"
+)
+FM_KEY = {
+    "agent": re.compile(r"^agent:\s*(\S+)\s*$", re.MULTILINE),
+    "harness": re.compile(r"^harness:\s*(\S+)\s*$", re.MULTILINE),
+    "model": re.compile(r"^model:\s*(\S+)\s*$", re.MULTILINE),
+    "effort": re.compile(r"^effort:\s*(\S+)\s*$", re.MULTILINE),
+    "cwd": re.compile(r"^cwd:\s*(\S+)\s*$", re.MULTILINE),
+    "window": re.compile(r"^window:\s*(\S+)\s*$", re.MULTILINE),
+    "ephemeral": re.compile(r"^ephemeral:\s*(\S+)\s*$", re.MULTILINE),
+    "observer": re.compile(r"^observer:\s*(\S+)\s*$", re.MULTILINE),
+    "auto-wake": re.compile(r"^auto-wake:\s*(\S+)\s*$", re.MULTILINE),
+    "ctx-refresh": re.compile(r"^ctx-refresh:\s*(\d+)\s*$", re.MULTILINE),
+}
+
+
+def _fm_yes(fm, key):
+    m = FM_KEY[key].search(fm)
+    return bool(m) and m.group(1).lower() in ("yes", "true")
+
+
+def _fm_window(fm):
+    """window: value, normalized — "" (absent/no), "yes" (own window), or a SHARED window
+    name (wave layout: seats carrying the same name become panes of one window)."""
+    m = FM_KEY["window"].search(fm)
+    if not m:
+        return ""
+    v = m.group(1)
+    if v.lower() in ("yes", "true"):
+        return "yes"
+    if v.lower() in ("no", "false"):
+        return ""
+    return v
+
+
+def briefing_files(wdir):
+    """Every briefing path in discovery order: flat workers/*.md, then workers/*/agent.md."""
+    if not wdir.is_dir():
+        return []
+    flat = sorted(p for p in wdir.glob("*.md"))
+    folder = sorted(wdir.glob("*/agent.md"))
+    return flat + folder
+
+
+def briefing_frontmatters(wdir):
+    """agent-name -> (frontmatter text, briefing path), for every briefing in workers/."""
+    out = {}
+    for p in briefing_files(wdir):
+        text = p.read_text(encoding="utf-8")
+        if not text.startswith("---"):
+            continue
+        fm_end = text.find("\n---", 3)
+        if fm_end == -1:
+            continue
+        fm = text[:fm_end]
+        m = FM_KEY["agent"].search(fm)
+        if m:
+            out[m.group(1)] = (fm, p)
+    return out
+
+
+def observer_sets(args):
+    """(observers, auto_wake) — built-in defaults plus per-run briefing declarations."""
+    observers, auto = set(DEFAULT_OBSERVERS), set(DEFAULT_AUTO_WAKE)
+    for agent, (fm, _p) in briefing_frontmatters(workers_dir(args)).items():
+        if _fm_yes(fm, "observer"):
+            observers.add(agent)
+        if _fm_yes(fm, "auto-wake"):
+            auto.add(agent)
+    return observers, auto
+
+
+def now():
+    return datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+def file_stamp():
+    return datetime.now().strftime("%Y%m%d-%H%M")
+
+
+RUNS_INDEX = Path.home() / ".config" / "rbtv" / "coordinate-runs.json"
+
+
+def write_runs_index(idx):
+    """Persist the registry. Best-effort: a read-only HOME must never break coordination."""
+    try:
+        RUNS_INDEX.parent.mkdir(parents=True, exist_ok=True)
+        RUNS_INDEX.write_text(json.dumps(idx, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def load_runs_index(prune=True):
+    """The run-tag registry, with dead entries dropped (T5): a package folder that no longer
+    exists (a /tmp package, a deleted run) polluted every `--run` error listing. Rewrites the
+    file only when pruning actually changed it; every failure is silent."""
+    try:
+        idx = json.loads(RUNS_INDEX.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(idx, dict):
+        return {}
+    if not prune:
+        return idx
+    alive = {tag: path for tag, path in idx.items() if Path(path).is_dir()}
+    if alive != idx:
+        write_runs_index(alive)
+    return alive
+
+
+def register_run(pkg):
+    """Auto-register a package under its folder-name tag so later calls can say
+    `--run <tag>` (or nothing, from inside the package) instead of the full path.
+
+    A tag is never STOLEN: when it already points at a DIFFERENT package that still exists on
+    disk, the second same-named package registers nothing and says nothing. Re-pointing it
+    silently redirected `--run <tag>` — and every wake and hint built from it — at the wrong
+    run (observed live, two packages sharing a folder name). Silence is deliberate: the loser
+    needs no warning, because `coord_invocation` sees the tag does not resolve to its own path
+    and emits the full `--package` form instead. A tag whose path is GONE was already dropped by
+    load_runs_index's prune, so the new package takes it."""
+    idx = load_runs_index()
+    tag = Path(pkg).name
+    held = idx.get(tag)
+    if held == str(pkg):
+        return
+    if held and Path(held).is_dir():
+        return
+    idx[tag] = str(pkg)
+    write_runs_index(idx)
+
+
+def discover_package_from(cwd):
+    """Nearest ancestor (cwd included) that IS a run package — identified by its own
+    structure (coordination/ + workers/). Seats' cwd is their worker folder, so a bare
+    `coordinate <cmd>` resolves for them with no arguments at all."""
+    p = Path(cwd).resolve()
+    for cand in (p, *p.parents):
+        if (cand / "coordination").is_dir() and (cand / "workers").is_dir():
+            return cand
+    return None
+
+
+def package_dir(args, register=True):
+    """Resolution order: --package path > --run tag (registry) > COORD_PACKAGE env >
+    cwd walk-up. Every successful resolution (re-)registers the tag."""
+    pkg = getattr(args, "package", None)
+    if not pkg and getattr(args, "run", None):
+        pkg = load_runs_index().get(args.run)
+        if not pkg:
+            known = ", ".join(sorted(load_runs_index())) or "(none registered yet)"
+            print(f"error: unknown run tag '{args.run}' — known: {known}", file=sys.stderr)
+            sys.exit(2)
+    if not pkg:
+        pkg = os.environ.get("COORD_PACKAGE")
+    if not pkg:
+        pkg = discover_package_from(Path.cwd())
+    if not pkg:
+        known = ", ".join(sorted(load_runs_index())) or "(none registered yet)"
+        print("error: no run package — pass --run <tag> or --package <abs-run-folder>, or "
+              f"invoke from inside a package. Known runs: {known}", file=sys.stderr)
+        sys.exit(2)
+    pkg = Path(pkg).resolve()
+    if register:
+        register_run(pkg)
+    return pkg
+
+
+def base_dir(args):
+    if getattr(args, "base", None):
+        return Path(args.base).resolve()
+    return package_dir(args) / "coordination"
+
+
+def workers_dir(args):
+    if getattr(args, "workers_dir", None):
+        return Path(args.workers_dir).resolve()
+    return package_dir(args) / "workers"
+
+
+def coord_invocation(args):
+    """The exact command string agents use — embedded in wakes and launch prompts. Prefers
+    the per-machine `coordinate` PATH symlink (it IS a CLI — seats should not carry the
+    script's full path) and the short `--run <tag>` form (auto-registered); falls back to
+    the full forms where symlink/registry are absent."""
+    import shutil
+    script = Path(__file__).resolve()
+    cli = "coordinate" if shutil.which("coordinate") else f"python3 {script}"
+    if getattr(args, "base", None):
+        return f"{cli} --base {Path(args.base).resolve()}"
+    pkg = package_dir(args)
+    if load_runs_index().get(pkg.name) == str(pkg):
+        return f"{cli} --run {pkg.name}"
+    return f"{cli} --package {pkg}"
+
+
+def atomic_write(path, text):
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+# ---------- package lock (T5) ----------
+
+_LOCK_NOTE = {"shown": False}
+
+
+def _acquire_flock(fh):
+    """Take an exclusive advisory lock on an open handle. Raises on ANY failure — the caller
+    then proceeds lockless. Module-level so the self-test can force the fallback path."""
+    if fcntl is None:
+        raise OSError("fcntl unavailable on this platform")
+    fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+
+
+@contextmanager
+def coord_lock(base):
+    """Serialize one read-modify-write of the package's state files across concurrent coord
+    processes (message-ID allocation, roster/cursor/group writes). Two concurrent sends used to
+    claim the SAME message number (run-obs §589) and two concurrent roster writes could lose one
+    (cli #203) — reads stay lockless.
+
+    Never fatal: a sandboxed seat whose package is read-only (codex EROFS) cannot take the lock,
+    so it proceeds WITHOUT it after one note. Yields True when the lock was actually held."""
+    fh = None
+    try:
+        Path(base).mkdir(parents=True, exist_ok=True)
+        fh = open(Path(base) / ".lock", "a+", encoding="utf-8")
+        _acquire_flock(fh)
+    except Exception as exc:  # OSError, PermissionError, anything the platform raises
+        if fh is not None:
+            try:
+                fh.close()
+            except OSError:
+                pass
+            fh = None
+        if not _LOCK_NOTE["shown"]:
+            _LOCK_NOTE["shown"] = True
+            print(f"note: coordination lock unavailable ({exc}) — proceeding lockless",
+                  file=sys.stderr)
+    try:
+        yield fh is not None
+    finally:
+        if fh is not None:
+            try:
+                if fcntl is not None:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+            fh.close()
+
+
+def detect_pane(override=None):
+    if override:
+        return override
+    pane = os.environ.get("TMUX_PANE")
+    if not pane:
+        return ""
+    r = subprocess.run(
+        ["tmux", "display-message", "-p", "-t", pane, "#{pane_id}"],
+        capture_output=True, text=True,
+    )
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else pane
+
+
+# ---------- tmux wrappers (every tmux touch goes through one of these, so selftest can stub) ----
+
+def set_pane_title(pane, title):
+    """Name the tmux pane after the agent (visible via pane-border-status)."""
+    if not pane:
+        return
+    subprocess.run(["tmux", "select-pane", "-t", pane, "-T", title],
+                   capture_output=True, text=True)
+
+
+def schedule_session_rename(pane, agent, delay=25):
+    """Inject `/rename <agent>` into the pane's Claude session once it has had time to boot.
+
+    Detached (coord.py returns immediately); failures are silent — the rename is cosmetic and a
+    lost keystroke must never block a launch. claude harness only: codex/opencode have no
+    /rename — their seats are identified by pane/window title alone."""
+    script = (f"sleep {delay}; "
+              f"tmux send-keys -t {shlex.quote(pane)} -l {shlex.quote('/rename ' + agent)}; "
+              f"sleep 1; tmux send-keys -t {shlex.quote(pane)} Enter")
+    subprocess.Popen(["bash", "-c", script], stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def live_panes():
+    """Set of pane ids tmux currently knows. Empty set when tmux is unavailable."""
+    r = subprocess.run(["tmux", "list-panes", "-a", "-F", "#{pane_id}"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return set()
+    return {ln.strip() for ln in r.stdout.splitlines() if ln.strip()}
+
+
+WAKE_ENTER_ATTEMPTS = 3
+# A real production wake (300+ chars) takes some TUIs noticeably longer than round-2's 0.15s
+# first-check assumed just to REDRAW the pasted text, before Enter's effect is even relevant — a
+# check that fires before the redraw catches up cannot tell "still stranded" apart from "hasn't
+# rendered yet" (both look like "text absent from composer"), so it silently skips verification
+# on exactly the pane class it's slowest on. Round-3 live-stress finding: a real 323-char wake on
+# a rostered-width (114-col) opencode pane took ~0.6-0.85s (3 trials, cold and warm) to redraw
+# EITHER outcome (stranded-and-still-there, or typed-then-cleared) — the composer is frozen on
+# its pre-send content for that whole window regardless of whether Enter lands. Claude Code
+# resolves in <0.15s (round-2 evidence, reconfirmed). WAKE_ENTER_VERIFY_DELAY_FIRST is set with
+# margin over the slower harness's observed worst case; this trades some latency on the fast
+# common path (every send now pays it, not just genuine retries) for not being blind on the
+# slower one — the same failure MODE the wrap fix above addresses, just a different cause.
+WAKE_ENTER_VERIFY_DELAY_FIRST = 1.3
+WAKE_ENTER_VERIFY_DELAY_RETRY = 0.6   # a retry's pane has already rendered the paste once by
+                                       # here (live-verified: a genuine second Enter's effect
+                                       # still resolves within this window — round-3 evidence)
+WAKE_TAIL_LINES = 20  # on-screen lines scanned for the still-unsubmitted composer line
+# A production wake line (310-319 chars) hard-wraps in EVERY rostered pane (narrowest 114 cols) —
+# `capture-pane -J` cannot rejoin a TUI's own wrap points (verifier-tick round-2, msg #188). Only
+# a PREFIX of the wake text is guaranteed to render intact on the composer's first on-screen line;
+# 60 chars covers '[coord wake] New coordination message #N from <sender> ' (unique per send) with
+# wide margin under the narrowest rostered composer width.
+WAKE_PREFIX_LEN = 60
+
+# Claude Code draws its composer as one or more lines sandwiched between two horizontal rule
+# lines (the top rule may carry the pane's tmux title, e.g. '───── toolsmith-2 ──'); a wake line
+# wider than the pane hard-wraps across several composer lines. Status/hint chrome always renders
+# BELOW the bottom rule, never between the rules. Requiring the sandwich — not just the '❯' glyph
+# alone — also guards against a false match on a shell PS1 prompt that reuses the same glyph
+# (starship-themed shells) sitting anywhere in cooked-mode scrollback.
+_RULE_RUN = "─" * 10  # '──────────'
+
+# opencode draws its composer inside a '┃'-bordered box: a blank pad line, the composer's own
+# content line, another blank pad, then a 'Build · <model>' status line, in that order — the
+# composer is the FIRST non-blank line in the box's bottom-most run, not the last (that's the
+# model-status footer).
+_OPENCODE_BORDER = "┃"
+
+
+def tmux_send_text(pane, text):
+    r = subprocess.run(["tmux", "send-keys", "-t", pane, "-l", text], capture_output=True, text=True)
+    return r.returncode == 0, r.stderr.strip()
+
+
+def tmux_send_enter(pane):
+    r = subprocess.run(["tmux", "send-keys", "-t", pane, "Enter"], capture_output=True, text=True)
+    return r.returncode == 0, r.stderr.strip()
+
+
+def tmux_capture_tail(pane, lines=WAKE_TAIL_LINES):
+    """Last N on-screen lines of a pane, soft-wraps rejoined (-J). Returns (text, err)."""
+    r = subprocess.run(["tmux", "capture-pane", "-p", "-J", "-t", pane, "-S", f"-{lines}"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return "", r.stderr.strip()
+    return r.stdout, ""
+
+
+def _locate_claude_composer(lines):
+    """Find the bottom-most rule-sandwiched composer and return its TOP-most line — the one a
+    hard-wrapped wake's prefix starts on. Scans from the screen bottom for a rule line (the
+    sandwich's bottom rule), then walks upward collecting composer line(s) until the matching top
+    rule. A sandwich with zero lines between the rules (top rule immediately above the bottom
+    rule) is not a real composer and is skipped."""
+    for i in range(len(lines) - 1, 1, -1):
+        if not lines[i].startswith(_RULE_RUN):
+            continue
+        j = i - 1
+        while j >= 0 and not lines[j].startswith(_RULE_RUN):
+            j -= 1
+        if j < 0 or j == i - 1:
+            continue
+        return lines[j + 1]
+    return None
+
+
+def _locate_opencode_composer(lines):
+    run_start = None
+    for i in range(len(lines) - 1, -1, -1):
+        if lines[i].lstrip().startswith(_OPENCODE_BORDER):
+            run_start = i
+        elif run_start is not None:
+            break
+    if run_start is None:
+        return None
+    run_end = run_start
+    while run_end < len(lines) and lines[run_end].lstrip().startswith(_OPENCODE_BORDER):
+        run_end += 1
+    for line in lines[run_start:run_end]:
+        if line.lstrip().lstrip(_OPENCODE_BORDER).strip():
+            return line
+    return None
+
+
+def _locate_composer_line(tail):
+    """Return the pane's live composer text, or None when the capture matches no known composer
+    structure (an unrecognized TUI, or a cooked-mode pane with no composer at all). Callers MUST
+    treat None as fail-safe: do not retry, do not report failure."""
+    lines = tail.splitlines()
+    return _locate_claude_composer(lines) or _locate_opencode_composer(lines)
+
+
+def _wake_unsubmitted(pane, text):
+    """True while `text` is still sitting in the pane's live composer — the Enter that should
+    have submitted it was dropped by a busy/streaming pane (P35). False once the composer no
+    longer holds it, OR when the pane's chrome does not match a known composer structure: an
+    unparseable pane fails SAFE (today's single-Enter behavior — never retried, never reported
+    as a delivery failure) rather than risking a false stranded-retry or a false failure on a
+    pane this code cannot read (round-2 fix, verifier-tick #145 — the prior 'last non-blank
+    line' check was blind on every rostered TUI, since each renders status/hint chrome below the
+    composer). Matches only a bounded PREFIX of `text`, not the full line: a production wake
+    (310-319 chars) hard-wraps across several composer lines in every rostered pane, and
+    `capture-pane -J` cannot rejoin a TUI's own wrap points — the full text is never one
+    contiguous captured line, but its first WAKE_PREFIX_LEN chars always render intact on the
+    composer's top-most line (round-3 fix, verifier-tick round-2 re-verification). A capture
+    error is likewise treated as submitted: send-keys already reported success and there is
+    nothing further to act on."""
+    tail, err = tmux_capture_tail(pane)
+    if err:
+        return False
+    composer = _locate_composer_line(tail)
+    if composer is None:
+        return False
+    return text[:WAKE_PREFIX_LEN] in composer
+
+
+def wake(pane, text):
+    """Type `text` into `pane` and submit it. A busy/streaming pane can eat the Enter keystroke
+    without submitting (P35) even though text and Enter are already separate send-keys calls
+    (§17.3) — verify the wake line actually left the composer and, if not, re-send ONLY Enter
+    (never retype text), bounded to WAKE_ENTER_ATTEMPTS. Every send pays the first verify delay
+    (see its constant for why a "short fixed delay, only retries pay more" split does not hold at
+    real wake length); a retry (genuinely stranded after the first Enter) pays the shorter settle
+    delay on top, since by then the pane has already rendered the paste once."""
+    ok, err = tmux_send_text(pane, text)
+    if not ok:
+        return False, err
+    for attempt in range(WAKE_ENTER_ATTEMPTS):
+        ok, err = tmux_send_enter(pane)
+        if not ok:
+            return False, err
+        time.sleep(WAKE_ENTER_VERIFY_DELAY_FIRST if attempt == 0 else WAKE_ENTER_VERIFY_DELAY_RETRY)
+        if not _wake_unsubmitted(pane, text):
+            return True, ""
+    return False, (f"Enter did not submit after {WAKE_ENTER_ATTEMPTS} attempt(s) — "
+                    f"wake text left unsubmitted in the pane's composer")
+
+
+PANEL_STRIP_ROWS = 8
+
+
+def restore_overview_strip(target):
+    """After a re-tile, shrink any 'overview' pane in the window back to its strip height."""
+    for pid, title in tmux_window_panes(target):
+        if title == "overview":
+            subprocess.run(["tmux", "resize-pane", "-t", pid, "-y", str(PANEL_STRIP_ROWS)],
+                           capture_output=True, text=True)
+
+
+def tmux_split_pane(target, cwd):
+    """Open a tiled pane in the target pane's window. Returns (pane_id, err)."""
+    r = subprocess.run(
+        ["tmux", "split-window", "-d", "-t", target, "-c", cwd, "-P", "-F", "#{pane_id}"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return "", r.stderr.strip()
+    pane = r.stdout.strip()
+    subprocess.run(["tmux", "select-layout", "-t", target, "tiled"], capture_output=True, text=True)
+    subprocess.run(["tmux", "set-option", "-w", "-t", target, "pane-border-status", "top"],
+                   capture_output=True, text=True)
+    restore_overview_strip(target)  # the tiled relayout equalizes; the panel strip stays small
+    return pane, ""
+
+
+def tmux_split_strip(target, cwd, rows=PANEL_STRIP_ROWS):
+    """Open a short FULL-WIDTH bottom strip in the target pane's window (not re-tiled).
+    Returns (pane_id, err)."""
+    r = subprocess.run(
+        ["tmux", "split-window", "-d", "-f", "-l", str(rows), "-t", target, "-c", cwd,
+         "-P", "-F", "#{pane_id}"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return "", r.stderr.strip()
+    return r.stdout.strip(), ""
+
+
+def tmux_session_name(target):
+    """Session name of a pane ('' when unresolvable)."""
+    r = subprocess.run(["tmux", "display-message", "-p", "-t", target, "#{session_name}"],
+                       capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def tmux_window_panes(target):
+    """[(pane_id, pane_title), ...] of the target pane's window."""
+    r = subprocess.run(["tmux", "list-panes", "-t", target, "-F", "#{pane_id}\t#{pane_title}"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return []
+    return [tuple(ln.split("\t", 1)) for ln in r.stdout.splitlines() if "\t" in ln]
+
+
+def tmux_new_window(target, name, cwd):
+    """Open a named window (tab) in the target pane's session. Returns (pane_id, err)."""
+    session = tmux_session_name(target)
+    if not session:
+        return "", f"cannot resolve session of {target}"
+    r = subprocess.run(
+        ["tmux", "new-window", "-d", "-t", f"{session}:", "-n", name, "-c", cwd,
+         "-P", "-F", "#{pane_id}"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return "", r.stderr.strip()
+    pane = r.stdout.strip()
+    subprocess.run(["tmux", "set-option", "-w", "-t", pane, "automatic-rename", "off"],
+                   capture_output=True, text=True)
+    return pane, ""
+
+
+def tmux_find_window_pane(session, window):
+    """First pane id of `window` in `session`, or "" if that window doesn't exist (or `session`
+    is empty). A hit is a valid split-window target; a miss means the window must be created."""
+    if not session:
+        return ""
+    r = subprocess.run(
+        ["tmux", "list-panes", "-t", f"{session}:{window}", "-F", "#{pane_id}"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return ""
+    lines = [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
+    return lines[0] if lines else ""
+
+
+def tmux_kill_pane(pane):
+    """Kill a pane; a window whose last pane dies closes with it. Returns (ok, err)."""
+    r = subprocess.run(["tmux", "kill-pane", "-t", pane], capture_output=True, text=True)
+    return r.returncode == 0, r.stderr.strip()
+
+
+def tmux_pane_window(pane):
+    """Window id (@N) of a pane, '' when unresolvable."""
+    r = subprocess.run(["tmux", "display-message", "-p", "-t", pane, "#{window_id}"],
+                       capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def tmux_capture(pane):
+    """Full scrollback of a pane, wrapped lines joined. Returns (text, err)."""
+    r = subprocess.run(["tmux", "capture-pane", "-p", "-J", "-t", pane, "-S", "-"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return "", r.stderr.strip()
+    return r.stdout, ""
+
+
+def tmux_raise_history_limit():
+    subprocess.run(["tmux", "set-option", "-g", "history-limit", HISTORY_LIMIT],
+                   capture_output=True, text=True)
+
+
+# ---------- workers.md ----------
+
+def load_workers(base):
+    path = base / "workers.md"
+    if not path.exists():
+        return path, [], []
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    rows = []
+    for i, line in enumerate(lines):
+        m = WORKER_ROW.match(line.rstrip("\n"))
+        if m and m.group("agent") != "agent":
+            d = {k: v.strip() for k, v in m.groupdict().items()}
+            d["_line"] = i
+            rows.append(d)
+    return path, lines, rows
+
+
+def row_text(r):
+    return (f"| {r['agent']} | {r['active']} | {r['pane']} | {r['summary']} "
+            f"| {r['checkin']} | {r['checkout']} | {r['lastread']} |\n")
+
+
+def current_row(rows, agent):
+    """Latest row for an agent (last check-in wins). P1 keeps at most one active."""
+    mine = [r for r in rows if r["agent"] == agent]
+    return mine[-1] if mine else None
+
+
+def update_row(base, agent, mutate):
+    """Locked read-modify-write of ONE roster row: re-reads workers.md under the lock (so a
+    concurrent writer's rows are never clobbered by a stale in-memory copy), applies `mutate`
+    to the agent's current row, writes. `mutate` returning False means "no change, skip the
+    write". Returns (ok, note)."""
+    with coord_lock(base):
+        path, lines, rows = load_workers(base)
+        row = current_row(rows, agent)
+        if row is None:
+            return False, f"no roster row for '{agent}'"
+        if mutate(row) is False:
+            return True, "unchanged"
+        lines[row["_line"]] = row_text(row)
+        atomic_write(path, "".join(lines))
+    return True, ""
+
+
+# ---------- identity (T1) ----------
+
+def pane_agent(base, pane):
+    """The agent this tmux pane is REGISTERED to in the roster (latest active row wins), or ''.
+    This is the only identity claim the tool can verify, so it is what a claim is checked
+    against."""
+    if not pane:
+        return ""
+    _, _, rows = load_workers(base)
+    hit = [r for r in rows if r["pane"] == pane and r["active"] == "yes"]
+    return hit[-1]["agent"] if hit else ""
+
+
+def resolve_agent(args, required=True):
+    """Who is calling, resolved instead of typed (T1 — F1: identity used to be hand-typed into
+    every command and never verified; a sender/recipient reversal recorded leader as the sender
+    of another seat's message, and impersonation-by-typo was silent).
+
+    Order: `--as NAME` > `COORD_AGENT` (injected into every launched/closed/renewed seat's
+    harness command) > the calling pane's registered roster row. An explicit `args.agent`
+    attribute carries --as semantics — that is the internal API watch.py calls through, and it
+    runs outside any pane, so no contradiction can fire there.
+
+    A claimed identity that CONTRADICTS the calling pane's registered agent is REFUSED with the
+    registered name shown; `--force` is the deliberate override. Returns '' when identity is
+    unresolvable and `required` is False (the `owner` command reads that as "the human")."""
+    claimed = (getattr(args, "as_agent", None) or getattr(args, "agent", None) or "").strip()
+    source = "--as"
+    if not claimed:
+        claimed = os.environ.get("COORD_AGENT", "").strip()
+        source = "COORD_AGENT"
+    pane = detect_pane(getattr(args, "pane", None))
+    registered = pane_agent(base_dir(args), pane) if pane else ""
+    if claimed:
+        if registered and registered != claimed and not getattr(args, "force", False):
+            print(f"refused: you claimed '{claimed}' ({source}), but this pane ({pane}) is "
+                  f"registered to '{registered}' in the roster.\n"
+                  f"Run the command without the claim to act as '{registered}', or pass --force "
+                  f"to override deliberately (leader acting on behalf of a seat).", file=sys.stderr)
+            sys.exit(2)
+        return claimed
+    if registered:
+        return registered
+    if not required:
+        return ""
+    print(f"error: cannot resolve who you are — no --as NAME, no COORD_AGENT in the environment, "
+          f"and this pane ({pane or 'not inside tmux'}) has no active roster row.\n"
+          f"Check in first: {coord_invocation(args)} checkin <your-agent> \"<what you are working "
+          f"on>\" — or pass --as <your-agent>.", file=sys.stderr)
+    sys.exit(2)
+
+
+def gate(args, command, allow, allowed_desc):
+    """Hard role gate (T6/F14: `owner`/`launch`/`close`/`panel` documented a leader-only rule
+    and never enforced it). `allow` is a predicate over the resolved caller name; '' means
+    identity was unresolvable. Returns the caller. `--force` is the escape."""
+    caller = resolve_agent(args, required=False)
+    if allow(caller):
+        return caller
+    if getattr(args, "force", False):
+        print(f"note: `{command}` role gate overridden with --force "
+              f"(caller: {caller or 'unresolved'})", file=sys.stderr)
+        return caller
+    print(f"refused: `{command}` is {allowed_desc}; you resolve to "
+          f"'{caller or 'no identity'}'.\nAsk leader to run it, or pass --force if you are "
+          f"deliberately acting for leader.", file=sys.stderr)
+    sys.exit(2)
+
+
+def is_leader(name):
+    return name == "leader"
+
+
+def is_leader_or_closer(name):
+    return name == "leader" or name.startswith("closer-")
+
+
+def cmd_approve(args):
+    """(doorman) answer a seat's interactive permission/approval prompt: send keys to its
+    REGISTERED pane and echo the pane tail so the caller can verify the outcome. This is
+    the sanctioned pane-touch for approval gates — inspect the pane (capture-pane) and
+    decide BEFORE calling; --keys "" (default) just presses Enter (the highlighted
+    option), --keys 1/2/3/n selects that option, --no-enter sends keys without Enter.
+
+    `args.target` is the seat being answered — NEVER the caller (T1: `args.agent` now means
+    "who is calling" everywhere, so a target positional must not land on it)."""
+    _, _, rows = load_workers(base_dir(args))
+    row = current_row(rows, args.target)
+    if not row or row.get("active") != "yes" or not row.get("pane"):
+        print(f"refused: no ACTIVE pane is registered for '{args.target}', so there is nothing to "
+              f"send keys to — the seat never checked in, has checked out, or its pane changed.\n"
+              f"Check the roster first: {coord_invocation(args)} workers", file=sys.stderr)
+        sys.exit(1)
+    pane = row["pane"]
+    if args.keys:
+        tmux_send_text(pane, args.keys)
+        time.sleep(0.2)
+    if not args.no_enter:
+        tmux_send_enter(pane)
+    time.sleep(0.8)
+    tail, terr = tmux_capture_tail(pane, lines=6)  # (text, err) — printing the tuple was F13
+    print(f"sent {args.keys!r}{'' if args.no_enter else ' + Enter'} to {args.target} ({pane}); pane tail:")
+    print(tail if not terr else f"(capture failed: {terr})")
+    print(c("next: run it again if the tail above still shows the prompt", C_HINT))
+
+
+def unread_for(args, base, agent, start, blocks=None, gmap=None, observers=None):
+    """Messages after #start this agent would see on an unfiltered `read` — the same predicate
+    `read` uses, so checkin/status/workers never disagree with it. This is the ONE unread
+    derivation: it excludes the agent's own sends and honours addressing + observer status, which
+    a bare `log tail - cursor` subtraction cannot (that over-reported every seat whose own
+    messages were the tail). The optional preloaded log/groups/observers let a caller that lists
+    EVERY agent (`workers`) parse each of them once instead of once per row."""
+    if blocks is None:
+        _, blocks = load_messages(base)
+    if not blocks:
+        return []
+    if gmap is None:
+        gmap = group_map(base)
+    if observers is None:
+        observers, _ = observer_sets(args)
+    return [b for b in blocks if b["num"] > start and b["sender"] != agent
+            and addressed_to(b, agent, gmap, observers, "any")]
+
+
+def cmd_checkin(args):
+    base = base_dir(args)
+    base.mkdir(parents=True, exist_ok=True)
+    summary = " ".join(args.summary.split()).replace("|", "/")
+    if len(summary) > SUMMARY_MAX:
+        print(
+            f"refused: summary is {len(summary)} chars — max {SUMMARY_MAX}.\n"
+            "This line is how OTHER agents decide whether your work concerns them and whether "
+            "to message you. Rewrite it to state, concretely: what you are changing/producing "
+            "and which shared surfaces (records, scripts, views) you touch. No filler.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    pane = detect_pane(args.pane)
+    if not pane:
+        print("warning: not inside tmux and no --pane given, so your row carries no pane and "
+              "wakes cannot reach you — you must run `read` at your own checkpoints. Pass "
+              "--pane %N to bind one.", file=sys.stderr)
+    else:
+        set_pane_title(pane, args.agent)
+    superseded = 0
+    # The read cursor belongs to the SEAT, not to one session of it: a re-check-in (P1
+    # supersession) and a renewed seat (close-seat --renew closes the row BEFORE the fresh
+    # session checks in) both used to write lastread=0, so the seat was told the entire log was
+    # unread and re-read hundreds of messages it had already been shown. The new row inherits the
+    # highest cursor any prior row of the SAME agent reached — never another agent's.
+    inherited = 0
+    with coord_lock(base):
+        path, lines, rows = load_workers(base)
+        if not path.exists():
+            atomic_write(path, WORKERS_HEADER)
+            lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+            rows = []
+        for r in rows:
+            if r["agent"] != args.agent:
+                continue
+            if r["lastread"].isdigit():
+                inherited = max(inherited, int(r["lastread"]))
+            # P1: a re-check-in supersedes EVERY prior active row for the same agent — the roster
+            # never strands a ghost ACTIVE row again.
+            if r["active"] == "yes":
+                r["active"] = "no"
+                r["checkout"] = f"superseded {now()}"
+                lines[r["_line"]] = row_text(r)
+                superseded += 1
+        new_row = {"agent": args.agent, "active": "yes", "pane": pane, "summary": summary,
+                   "checkin": now(), "checkout": "", "lastread": str(inherited)}
+        atomic_write(path, "".join(lines) + row_text(new_row))
+    note = f" (superseded {superseded} prior row(s))" if superseded else ""
+    if inherited:
+        note += f" (cursor kept at #{inherited})"
+    print(f"checked in: {args.agent} ({pane or 'no pane'}){note} — {summary}")
+    # T1: from here the seat never types its own name again — every other command resolves it.
+    waiting = unread_for(args, base, args.agent, inherited)
+    if waiting:
+        print(c(f"next: {coord_invocation(args)} read — {len(waiting)} message(s) already waiting "
+                f"for you", C_HINT))
+    else:
+        print(c(f"next: {coord_invocation(args)} status — nothing waiting yet", C_HINT))
+
+
+def cmd_checkout(args):
+    base = base_dir(args)
+    me = resolve_agent(args)
+    _, _, rows = load_workers(base)
+    row = current_row(rows, me)
+    if not row or row["active"] != "yes":
+        print(f"refused: '{me}' has no ACTIVE roster row, so there is no session to end — you "
+              f"never checked in, or you already checked out.\n"
+              f"See the roster: {coord_invocation(args)} workers", file=sys.stderr)
+        sys.exit(1)
+    # T3: the export is the seat's last durable artifact and was routinely forgotten — mechanize
+    # it instead of teaching it (protocol item 8). --no-export is the escape for a dead pane.
+    if not getattr(args, "no_export", False):
+        out, err = export_transcript(args, me, "checkout")
+        print(f"transcript: {out}" if not err else f"transcript skipped — {err}")
+
+    def flip(r):
+        r["active"] = "no"
+        r["checkout"] = now()
+
+    update_row(base, me, flip)
+    print(f"checked out: {me}")
+    print(c(f"next: nothing on your side — leader closes or renews the seat "
+            f"(`{coord_invocation(args)} close {me} [--renew]`)", C_HINT))
+
+
+def owner_status(base):
+    path = base / "owner-status.md"
+    if not path.exists():
+        return "unknown"
+    for ln in path.read_text(encoding="utf-8").splitlines():
+        if ln.startswith("owner:"):
+            return ln[len("owner:"):].strip()
+    return "unknown"
+
+
+def cmd_owner(args):
+    # P15 — workers were inferring owner availability and getting it wrong; state it explicitly.
+    # Gate: leader, or an UNRESOLVABLE identity — that caller is the human owner at a shell.
+    gate(args, "owner", lambda who: who in ("leader", ""), "leader's (or the owner's) to set")
+    base = base_dir(args)
+    base.mkdir(parents=True, exist_ok=True)
+    note = f" — {args.note}" if args.note else ""
+    with coord_lock(base):
+        atomic_write(base / "owner-status.md",
+                     "# owner-status — script-managed (coord.py owner <present|afk>)\n"
+                     f"owner: {args.state} | since {now()}{note}\n")
+    print(f"owner is now: {args.state}{note}")
+    print(c(f"next: {coord_invocation(args)} send all \"owner is {args.state}{note}\" --type note "
+            f"— workers infer it wrongly when nobody says it (P15)", C_HINT))
+
+
+def truncate(text, limit=DIGEST_SNIPPET):
+    """One-line snippet. Newlines are collapsed: every caller renders ONE line per row, and a
+    body with embedded newlines would silently break that row into several."""
+    text = " ".join(str(text).split())
+    return text if len(text) <= limit else text[:limit].rstrip() + "…"
+
+
+def cmd_workers(args):
+    """Who is alive, at a glance (T2/F4). DEFAULT is one CURRENT row per agent with truncated
+    summaries and an unread-lag column; --full keeps summaries whole, --history replays every
+    historical row (the pre-T2 behavior)."""
+    base = base_dir(args)
+    _, _, rows = load_workers(base)
+    print(f"{c('owner:', C_LABEL)} {owner_status(base)}")
+    if not rows:
+        print("no workers registered")
+        print(c(f"next: {coord_invocation(args)} launch — nobody has checked in yet", C_HINT))
+        return
+    _, blocks = load_messages(base)
+    tail = blocks[-1]["num"] if blocks else 0
+    # Parsed ONCE for the whole listing, then handed to unread_for per row (the lag column is
+    # the same exact per-agent unread count `status` reports — see unread_for).
+    gmap = group_map(base)
+    observers, _ = observer_sets(args)
+    live = live_panes()
+    if getattr(args, "history", False):
+        shown = rows
+    else:
+        shown = [current_row(rows, a) for a in dict.fromkeys(r["agent"] for r in rows)]
+    dead = 0
+    for r in shown:
+        if r["active"] == "yes":
+            status, tone = "ACTIVE", C_ALIVE
+            if r["pane"] and live and r["pane"] not in live:
+                status, tone = "DEAD?", C_DEAD  # registered pane is gone — wakes cannot reach it
+                dead += 1
+        else:
+            status, tone = "done", C_DONE
+        cursor = f" read@{r['lastread']}" if r["lastread"] not in ("", "0") else ""
+        lag = ""
+        if r["active"] == "yes" and tail:
+            start = int(r["lastread"]) if r["lastread"].isdigit() else 0
+            behind = len(unread_for(args, base, r["agent"], start, blocks, gmap, observers))
+            lag = f" lag={behind}"
+        summary = r["summary"] if getattr(args, "full", False) else truncate(r["summary"])
+        # Columns are padded BEFORE colouring: an escape sequence inside a padded field counts
+        # toward its width and would shear every column to its right.
+        name_col = "{:<16}".format(r["agent"])
+        state_col = "{:<7}".format(status)
+        pane_col = "{:<6}".format(r["pane"] or "-")
+        print(f"{c(name_col, C_LABEL)} {c(state_col, tone)} pane={pane_col}{cursor}{lag} {summary}"
+              f"  (in {r['checkin']}{', out ' + r['checkout'] if r['checkout'] else ''})")
+    if not getattr(args, "history", False):
+        print(c(f"-- current rows only (log tail #{tail}); --history for every row, --full for "
+                f"untruncated summaries", C_HINT))
+    if dead:
+        print(c(f"next: {dead} row(s) point at a pane tmux no longer has — "
+                f"{coord_invocation(args)} close-seat <agent> cleans one up", C_HINT))
+
+
+# ---------- groups.md ----------
+
+def load_groups(base):
+    path = base / "groups.md"
+    if not path.exists():
+        return path, [], []
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    rows = []
+    for i, line in enumerate(lines):
+        m = GROUP_ROW.match(line.rstrip("\n"))
+        if m and m.group("group") != "group":
+            rows.append({
+                "group": m.group("group").strip(),
+                "members": [x.strip() for x in m.group("members").split(",") if x.strip()],
+                "by": m.group("by").strip(),
+                "created": m.group("created").strip(),
+                "_line": i,
+            })
+    return path, lines, rows
+
+
+def group_map(base):
+    _, _, rows = load_groups(base)
+    return {r["group"]: r["members"] for r in rows}
+
+
+def cmd_create_group(args):
+    base = base_dir(args)
+    me = resolve_agent(args)
+    _, _, wrows = load_workers(base)
+    agent_names = {r["agent"] for r in wrows}
+    name = args.group
+    if name == "all" or name in agent_names:
+        print(f"refused: '{name}' is already a recipient name ('all', or an agent on the roster), "
+              f"and `send {name}` could then mean two different things.\n"
+              f"Name the group after the WORKSTREAM instead (e.g. views-render).", file=sys.stderr)
+        sys.exit(1)
+    members = sorted(set(args.members) | {me, "leader"})
+    with coord_lock(base):
+        path, _, grows = load_groups(base)
+        if any(g["group"] == name for g in grows):
+            print(f"refused: group '{name}' already exists — creating it again would fork the "
+                  f"thread.\nAdd people to the existing one instead (leader): "
+                  f"{coord_invocation(args)} add-to-group {name} <member ...>", file=sys.stderr)
+            sys.exit(1)
+        if not path.exists():
+            atomic_write(path, GROUPS_HEADER)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"| {name} | {', '.join(members)} | {me} | {now()} |\n")
+    print(f"group created: {name} — members: {', '.join(members)}")
+    print(c(f"next: {coord_invocation(args)} send {name} \"<why this group exists>\" --type note "
+            f"— a group nobody was told about carries no thread", C_HINT))
+
+
+def cmd_add_to_group(args):
+    gate(args, "add-to-group", is_leader, "leader's alone")
+    base = base_dir(args)
+    with coord_lock(base):
+        path, lines, grows = load_groups(base)
+        row = next((g for g in grows if g["group"] == args.group), None)
+        if not row:
+            known = ", ".join(sorted(g["group"] for g in grows)) or "(none yet)"
+            print(f"refused: there is no group '{args.group}', so there is nothing to add to.\n"
+                  f"existing groups: {known}\nCreate it instead: {coord_invocation(args)} "
+                  f"create-group {args.group} <member ...>", file=sys.stderr)
+            sys.exit(1)
+        members = sorted(set(row["members"]) | set(args.members))
+        lines[row["_line"]] = f"| {row['group']} | {', '.join(members)} | {row['by']} | {row['created']} |\n"
+        atomic_write(path, "".join(lines))
+    print(f"group {args.group} members: {', '.join(members)}")
+    print(c(f"next: {coord_invocation(args)} send {args.group} \"<who joined, and why>\" "
+            f"--type note", C_HINT))
+
+
+# ---------- messages.md ----------
+
+def load_messages(base):
+    path = base / "messages.md"
+    if not path.exists():
+        return path, []
+    blocks, current = [], None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        m = MSG_HEADER.match(line)
+        if m:
+            current = {"num": int(m.group("num")), "sender": m.group("sender"),
+                       "to": m.group("to"), "type": m.group("type"),
+                       "supersedes": int(m.group("supersedes")) if m.group("supersedes") else None,
+                       "re": int(m.group("re")) if m.group("re") else None,
+                       "ts": m.group("ts").strip(),
+                       "lines": [line]}
+            blocks.append(current)
+        elif current is not None:
+            current["lines"].append(line)
+    return path, blocks
+
+
+def next_message_number(blocks):
+    return max((b["num"] for b in blocks), default=0) + 1
+
+
+def append_message(base, sender, to, mtype, body, supersedes=None, re_num=None):
+    """Allocate the next message number AND append the block inside one lock hold — two
+    concurrent sends used to read the same tail and claim the same ID (run-obs §589).
+    Returns the number."""
+    with coord_lock(base):
+        path, blocks = load_messages(base)
+        n = next_message_number(blocks)
+        if not path.exists():
+            path.write_text(MESSAGES_HEADER, encoding="utf-8")
+        sup = f" | supersedes: {supersedes}" if supersedes is not None else ""
+        rel = f" | re: {re_num}" if re_num is not None else ""
+        block = (f"\n## {n} | from: {sender} | to: {to} | type: {mtype}{sup}{rel} | {now()}\n"
+                 f"\n{body}\n")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(block)
+    return n
+
+
+def log_delivery_failures(base, failures):
+    """P22 — a lost wake must be visible in the LOG, not only on the sender's terminal."""
+    if not failures:
+        return
+    with coord_lock(base):
+        with open(base / "messages.md", "a", encoding="utf-8") as f:
+            for fail in failures:
+                f.write(f"> delivery-failure: {fail}\n")
+
+
+def addressed_to(b, agent, gmap, observers, mode="any"):
+    """Is message `b` in `agent`'s inbox? `mode` is the --addressed vocabulary: `any` = to me,
+    my groups, or everyone (an observer seat sees the full log); `direct` = only messages naming
+    me; `broadcast` = only messages to all."""
+    to = b["to"]
+    if mode == "direct":
+        return to == agent
+    if mode == "broadcast":
+        return to == "all"
+    if agent in observers:
+        return True
+    return to == agent or to == "all" or (to in gmap and agent in gmap[to])
+
+
+def open_asks(blocks):
+    """Asks nobody has settled: type ask, not superseded, and no answer/verdict carrying `re:`
+    its number (T4/F11 — before the link existed, an unanswered ask was invisible without
+    re-reading the whole log)."""
+    superseded = {b["supersedes"] for b in blocks if b["supersedes"] is not None}
+    settled = {b["re"] for b in blocks
+               if b["re"] is not None and b["type"] in ("answer", "verdict")}
+    return [b for b in blocks
+            if b["type"] == "ask" and b["num"] not in superseded and b["num"] not in settled]
+
+
+def age_of(ts):
+    """Age of a message timestamp in m/h ('?' when unparseable)."""
+    try:
+        dt = datetime.strptime(ts.strip(), "%Y-%m-%d %H:%M")
+    except (ValueError, AttributeError):
+        return "?"
+    mins = max(0, int((datetime.now() - dt).total_seconds() // 60))
+    return f"{mins}m" if mins < 90 else f"{mins // 60}h"
+
+
+def split_log_notes(b):
+    """(body lines, log-annotation lines) for one message block.
+
+    P22 appends its `> delivery-failure:` lines to messages.md AFTER the block they follow, so
+    `load_messages` absorbs them into that block and a plain render showed them as if the sender
+    had written them. They are the LOG speaking about a failed wake, never message content. The
+    file itself is untouched (its grammar is frozen and the lines must stay findable there) —
+    this is a RENDER split only: the reader gets them as a labelled trailer, never hidden."""
+    body = [ln for ln in b["lines"][1:] if not ln.startswith("> delivery-failure:")]
+    notes = [ln[2:] for ln in b["lines"][1:] if ln.startswith("> delivery-failure:")]
+    return body, notes
+
+
+def body_of(b):
+    """A message's body WITHOUT the P22 delivery-failure annotations (one-line views only)."""
+    return "\n".join(split_log_notes(b)[0]).strip()
+
+
+def message_body(args):
+    """The body: the positional, or --file PATH / --file - (stdin). A file/stdin body never
+    passes through a shell — the fix for the backtick-substitution class that corrupted msg #77
+    (F6)."""
+    src = getattr(args, "file", None)
+    msg = getattr(args, "message", None)
+    if src and msg:
+        print("refused: a quoted body AND --file were both given, and only one of them can be "
+              "the message — silently picking one would send a body you did not read.\n"
+              "Pass the message positionally OR via --file, not both.", file=sys.stderr)
+        sys.exit(1)
+    if src:
+        if src == "-":
+            body = sys.stdin.read()
+        else:
+            p = Path(src)
+            if not p.is_file():
+                print(f"refused: --file {src} — no such file, so there is no body to send.\n"
+                      f"Write the file first, or pass an absolute path (relative paths resolve "
+                      f"from YOUR working directory, not the package's).", file=sys.stderr)
+                sys.exit(1)
+            body = p.read_text(encoding="utf-8")
+    elif msg:
+        body = msg
+    else:
+        print('refused: no message body — pass "<msg>", or --file PATH (--file - reads stdin) '
+              'when the body carries backticks, quotes, or newlines', file=sys.stderr)
+        sys.exit(1)
+    body = body.strip("\n")
+    if not body.strip():
+        print("refused: the body is empty (whitespace only) — an empty message costs every "
+              "recipient a wake and a read, and says nothing.\nWrite the content, or drop the "
+              "send.", file=sys.stderr)
+        sys.exit(1)
+    return body
+
+
+def known_recipients(args, base):
+    """Every name `send` can deliver to: roster rows ∪ briefing `agent:` names (a seat that
+    exists but has not launched yet) ∪ group names ∪ 'all'."""
+    _, _, rows = load_workers(base)
+    names = {r["agent"] for r in rows}
+    names |= set(briefing_frontmatters(workers_dir(args)))
+    names |= set(group_map(base))
+    names.add("all")
+    return names
+
+
+def cmd_send(args):
+    base = base_dir(args)
+    sender = resolve_agent(args)
+    force = getattr(args, "force", False)
+    body = message_body(args)
+    _, blocks = load_messages(base)
+
+    # F5 — a typo'd recipient was accepted silently: the message landed under a name nobody
+    # reads and the only signal was one "wake skipped" line the sender scrolled past.
+    known = known_recipients(args, base)
+    if args.to not in known and not force:
+        near = difflib.get_close_matches(args.to, sorted(known), n=1, cutoff=0.6)
+        print(f"refused: '{args.to}' is not a known recipient — no roster row, no briefing, and "
+              f"no group of that name." + (f" Did you mean '{near[0]}'?" if near else "")
+              + f"\nknown: {', '.join(sorted(known))}\nsend anyway: --force", file=sys.stderr)
+        sys.exit(1)
+    if len(body) > MESSAGE_MAX and not force:
+        print(f"refused: message is {len(body)} chars — max {MESSAGE_MAX}.\n"
+              f"A body this long is a document, and every agent pays for it at every checkpoint. "
+              f"Write it to a file, then send the PATH plus a 3-line summary: what it says, what "
+              f"you want done with it, and by whom.\noverride: --force", file=sys.stderr)
+        sys.exit(1)
+    if args.supersedes is not None and not any(b["num"] == args.supersedes for b in blocks):
+        print(f"refused: --supersedes {args.supersedes} — no such message in the log (it ends at "
+              f"#{blocks[-1]['num'] if blocks else 0}). A retraction pointing at nothing retracts "
+              f"nothing.\nFind the number you meant: {coord_invocation(args)} read --digest --all",
+              file=sys.stderr)
+        sys.exit(1)
+
+    re_num = getattr(args, "re_num", None)
+    if args.type == "answer" and re_num is None and not force:
+        print("refused: an answer must name the ask it answers — pass --re <ask#> (list them "
+              "with `pending`).\nAn unlinked answer leaves the ask OPEN for every reader.\n"
+              "override: --force", file=sys.stderr)
+        sys.exit(1)
+    if re_num is not None and args.type not in ("answer", "verdict"):
+        print(f"refused: --re is valid only on --type answer (required) and --type verdict "
+              f"(optional) — not on '{args.type}'. A `re:` on any other type would make the "
+              f"open-ask derivation lie.\nDrop --re, or send this as an answer.", file=sys.stderr)
+        sys.exit(1)
+    if re_num is not None:
+        target = next((b for b in blocks if b["num"] == re_num), None)
+        if target is None:
+            print(f"refused: --re {re_num} — no such message in the log (it ends at "
+                  f"#{blocks[-1]['num'] if blocks else 0}), so the ask would stay OPEN for every "
+                  f"reader.\nList the open asks: {coord_invocation(args)} pending", file=sys.stderr)
+            sys.exit(1)
+        if target["type"] != "ask":
+            print(f"refused: --re {re_num} — message #{re_num} is a '{target['type']}', not an "
+                  f"ask; --re links an answer/verdict to the ask it settles.\nList the open asks: "
+                  f"{coord_invocation(args)} pending", file=sys.stderr)
+            sys.exit(1)
+
+    n = append_message(base, sender, args.to, args.type, body,
+                       supersedes=args.supersedes, re_num=re_num)
+    marks = ((f", supersedes #{args.supersedes}" if args.supersedes is not None else "")
+             + (f", re #{re_num}" if re_num is not None else ""))
+    print(f"sent message #{n} ({sender} -> {args.to}, type: {args.type}{marks})")
+    deliver_wakes(args, base, sender, args.to, n)
+    if args.type == "ask":
+        print(c(f"next: {coord_invocation(args)} pending — your ask stays OPEN until an answer "
+                f"or verdict --re's #{n}", C_HINT))
+
+
+def deliver_wakes(args, base, sender, to, n):
+    """Nudge every recipient's pane. Wakes stay BEST-EFFORT (P22) — the log is the only truth.
+
+    A wake is only ever ATTEMPTED for a recipient with an ACTIVE roster row AND a pane. Every
+    other recipient is SKIPPED: never woken, never written to the log, named to the sender in
+    the one summary line with the reason. Only an attempted wake can fail, so `> delivery-failure`
+    means exactly what P22 says it means. Before this, an unreachable recipient produced a
+    logged 'failure' for a wake nobody ever sent — 46 such lines once buried the one real failure
+    of a run, and a package with no `scientist` seat logged a phantom scientist failure on EVERY
+    single send (the built-in auto-wake default naming a seat that did not exist).
+
+    T5: the surviving wakes run in a bounded thread pool; serially, each recipient cost the
+    sender 1.3s of Enter-verify (~13s for a 10-seat send-all). Results print sorted by agent, so
+    output stays deterministic."""
+    _, _, rows = load_workers(base)
+    gmap = group_map(base)
+    if to == "all":
+        recipients = {r["agent"] for r in rows if r["agent"] != sender}
+        label = "all"
+    elif to in gmap:
+        recipients = set(gmap[to]) - {sender}
+        label = f"group '{to}'"
+    else:
+        recipients = {to}
+        label = to
+    # The built-in auto-wake names (DEFAULT_AUTO_WAKE/DEFAULT_OBSERVERS) are a DEFAULT, not a
+    # roster: they join only where THIS package actually knows the name (a roster row or a
+    # briefing). A default name absent from the package produces no wake, no skip mention and no
+    # log line — it is not a recipient of this run at all. Briefing-DECLARED auto-wake seats are
+    # by construction in the briefings, so they are unaffected.
+    _, auto_wake = observer_sets(args)
+    known = {r["agent"] for r in rows} | set(briefing_frontmatters(workers_dir(args)))
+    recipients |= (auto_wake & known) - {sender}
+
+    # T1: the wake embeds the identity-less form — the recipient's own pane/env resolves it.
+    text = (f"[coord wake] New coordination message #{n} from {sender} to {label}. "
+            f"Read it now, then continue your task: {coord_invocation(args)} read")
+    targets, skipped, failures = [], {}, []
+    for name in sorted(recipients):
+        row = current_row(rows, name)
+        if row is None:
+            skipped.setdefault("not launched", []).append(name)   # briefed/named, no row yet
+        elif row["active"] != "yes":
+            skipped.setdefault("departed", []).append(name)       # had a row, checked out/closed
+        elif not row["pane"]:
+            skipped.setdefault("no pane", []).append(name)        # checked in without a pane
+        else:
+            targets.append((name, row["pane"]))
+
+    def one(target):
+        name, pane = target
+        ok, err = wake(pane, text)
+        return name, pane, ok, err
+
+    results = []
+    if targets:
+        with ThreadPoolExecutor(max_workers=min(WAKE_PARALLEL_MAX, len(targets))) as pool:
+            results = list(pool.map(one, targets))
+    delivered = 0
+    for name, pane, ok, err in sorted(results):
+        if ok:
+            delivered += 1
+            continue
+        failures.append(f"{name} ({pane}): {err or 'tmux send-keys failed'}")
+    # T6: a 20-seat broadcast printed 20 result lines the sender had to scan for the one that
+    # mattered. Wakes are best-effort chrome — the counts are ONE line, and only failures (the
+    # actionable half) keep a line of their own. Skipped seats are named, not just counted:
+    # the sender still has to know which seats did not get the nudge, and why.
+    parts = [f"{delivered} delivered"]
+    if failures:
+        parts.append(f"{len(failures)} failed")
+    for why in ("departed", "not launched", "no pane"):
+        names = skipped.get(why)
+        if names:
+            parts.append(f"{len(names)} skipped ({why}: {', '.join(sorted(names))})")
+    print("  wakes: " + (", ".join(parts) if (delivered or failures or skipped)
+                         else "no live recipient panes"))
+    for line in sorted(failures):
+        print(f"  wake FAILED -> {line}")
+    if failures:
+        log_delivery_failures(base, failures)
+        print(f"  ({len(failures)} delivery failure(s) recorded in the log — recipients must "
+              f"pick the message up via `read` at their next checkpoint)")
+
+
+def render_message(b, superseded_by):
+    print(c(b["lines"][0], TYPE_COLOR.get(b["type"], "")))
+    if b["num"] in superseded_by:
+        # P12 — the retraction travels WITH the claim, so no reader acts on a withdrawn one.
+        print(c(f"*** SUPERSEDED by #{superseded_by[b['num']]} — do not rely on this message ***",
+                C_RETRACT))
+    body, notes = split_log_notes(b)
+    print("\n".join(body).rstrip())
+    if notes:
+        print()
+    for note in notes:
+        # Set apart from the body, never hidden: this is the log's own record of a wake that
+        # did not arrive, not something the sender wrote.
+        print(c(f"[log] {note}", C_LOGNOTE))
+    print()
+
+
+def digest_line(b, superseded_by):
+    """One line per message (T2): enough to triage a 300-message log without reading it."""
+    marks = ""
+    if b["supersedes"] is not None:
+        marks += f" (supersedes #{b['supersedes']})"
+    if b["re"] is not None:
+        marks += f" (re #{b['re']})"
+    ts = b["ts"].split(" ")[-1] if b["ts"] else "--:--"
+    num_col = "{:<4}".format("#" + str(b["num"]))
+    type_col = "{:<10}".format(b["type"])
+    retracted = (c(f" [SUPERSEDED by #{superseded_by[b['num']]}]", C_RETRACT)
+                 if b["num"] in superseded_by else "")
+    return (f"{c(num_col, C_LABEL)} {ts} {c(type_col, TYPE_COLOR.get(b['type'], ''))} "
+            f"{b['sender']}->{b['to']}{marks}{retracted}  {truncate(body_of(b))}")
+
+
+def persist_cursor(base, agent, target):
+    """Store the read cursor. NEVER fatal (F9): a codex seat's sandbox makes the package
+    read-only (EROFS) and a concurrent writer can lose the os.replace race — either way the
+    reader keeps the messages it was just shown and gets an `--after` hint instead of a
+    traceback. The no-op guard skips the rewrite entirely when the cursor would not move: that
+    rewrite was itself a race source (scientist-roster #103). Returns (stored, note)."""
+    try:
+        with coord_lock(base):
+            path, lines, rows = load_workers(base)
+            row = current_row(rows, agent)
+            if row is None or row["active"] != "yes":
+                return False, "no active check-in"
+            if row["lastread"] == str(target):
+                return True, "unchanged"
+            row["lastread"] = str(target)
+            lines[row["_line"]] = row_text(row)
+            atomic_write(path, "".join(lines))
+        return True, ""
+    except (OSError, ValueError) as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+
+
+def cmd_read(args):
+    """Bounded, cursor-safe inbox read (T2 + the designer catch).
+
+    The cursor advances ONLY on an unfiltered, non-peek read, and only through the LAST MESSAGE
+    SHOWN. Before this, a filtered read (`--type ask` — leader's documented drain) advanced the
+    cursor past every non-matching message, silently dropping it from that agent's inbox
+    forever; and an unbounded read dumped a 300-message log into the reader's context."""
+    base = base_dir(args)
+    me = resolve_agent(args)
+    _, blocks = load_messages(base)
+    if not blocks:
+        print("no messages yet")
+        return
+    gmap = group_map(base)
+    _, _, wrows = load_workers(base)
+    row = current_row(wrows, me)
+    observers, _ = observer_sets(args)
+    superseded_by = {b["supersedes"]: b["num"] for b in blocks if b["supersedes"] is not None}
+    addressed = getattr(args, "addressed", "any")
+    digest = getattr(args, "digest", False)
+    msg = getattr(args, "msg", None)
+    coord = coord_invocation(args)
+
+    if msg is not None:
+        b = next((x for x in blocks if x["num"] == msg), None)
+        if b is None:
+            print(f"refused: no message #{msg} in the log — it ends at #{blocks[-1]['num']}.\n"
+                  f"List what is there: {coord} read --digest --all", file=sys.stderr)
+            sys.exit(1)
+        render_message(b, superseded_by)
+        if b["re"] is not None:
+            print(c(f"-- answers ask #{b['re']}", C_HINT))
+        settled = [x["num"] for x in blocks if x["re"] == b["num"]]
+        if settled:
+            print(c("-- answered by #" + ", #".join(str(s) for s in settled), C_HINT))
+        print(c("-- peek: --msg never moves your cursor", C_HINT))
+        return
+
+    # P26 — persisted cursor: default start point is the agent's stored last-read.
+    if args.all:
+        start = 0
+    elif getattr(args, "after", None) is not None:
+        start = args.after
+    else:
+        start = int(row["lastread"]) if row and row["lastread"].isdigit() else 0
+
+    filtered = (args.type is not None) or (addressed != "any")
+    candidates = [b for b in blocks
+                  if b["num"] > start and b["sender"] != me
+                  and addressed_to(b, me, gmap, observers, addressed)
+                  and (args.type is None or b["type"] == args.type)]
+    limit = getattr(args, "limit", None)
+    if limit is None:
+        limit = 0 if args.all else READ_LIMIT  # --all = deliberate full replay
+    limit = max(0, limit)
+    shown = candidates[:limit] if limit else candidates
+    remaining = len(candidates) - len(shown)
+    tail = blocks[-1]["num"]
+
+    if not shown:
+        print(f"no new messages for {me} after #{start}")
+    for b in shown:
+        if digest:
+            print(digest_line(b, superseded_by))
+        else:
+            render_message(b, superseded_by)
+    if digest and shown:
+        print()
+    print(c(f"-- shown {len(shown)} message(s); last message number in log: {tail}", C_HINT))
+    if remaining:
+        print(c(f"-- {remaining} more waiting — run `{coord} read` again", C_HINT))
+    # Only asks nobody has settled yet — pointing the reader at an ask that already has its
+    # answer is worse than saying nothing (the derivation is `open_asks`, same as `pending`).
+    open_nums = {b["num"] for b in open_asks(blocks)}
+    asked = [b for b in shown if b["type"] == "ask" and b["num"] in open_nums]
+    if asked:
+        first = asked[0]
+        print(c(f"next: answer what is yours — {coord} send {first['sender']} \"<answer>\" "
+                f"--type answer --re {first['num']}", C_HINT))
+
+    advance = not (args.peek or args.all or digest or filtered)
+    if not advance:
+        why = ("--peek" if args.peek else "--all" if args.all else "--digest" if digest
+               else "a filtered read (--type/--addressed) shows only part of your inbox")
+        print(c(f"-- peek semantics: this read did NOT move your cursor ({why}). Run a plain "
+                f"`{coord} read` to actually drain your inbox.", C_HINT))
+        return
+    if not shown:
+        print(c(f"-- cursor unchanged at #{start} (nothing new was shown)", C_HINT))
+        return
+    target = shown[-1]["num"]
+    stored, note = persist_cursor(base, me, target)
+    if stored and note == "unchanged":
+        print(c(f"-- cursor already at #{target}", C_HINT))
+    elif stored:
+        print(c(f"-- cursor advanced to #{target} (override any time: --after N, --all, --peek)",
+                C_HINT))
+    else:
+        print(c(f"-- cursor NOT stored ({note}) — the messages above are still yours; pass "
+                f"--after {target} on your next read", C_HINT))
+
+
+def cmd_status(args):
+    """One-shot orientation (T2/F12): who am I, is my pane reachable, is the owner around, what
+    is waiting for me, where is my cursor, what do I run next. Recovery used to mean `workers`
+    plus `read --peek` plus a manual scan."""
+    base = base_dir(args)
+    me = resolve_agent(args)
+    coord = coord_invocation(args)
+    _, _, rows = load_workers(base)
+    row = current_row(rows, me)
+    print(f"{c('you:   ', C_LABEL)} {c(me, C_LABEL)}")
+    if not row or row["active"] != "yes":
+        print(f"{c('roster:', C_LABEL)} {c('NOT checked in', C_DEAD)} — no active row for '{me}'")
+        print(c(f"next:   {coord} checkin {me} \"<what you are working on>\"", C_HINT))
+        return
+    live = live_panes()
+    if not row["pane"]:
+        pane_state, pane_tone = "no pane registered — wakes cannot reach you", C_DEAD
+    elif live and row["pane"] not in live:
+        pane_state, pane_tone = "DEAD? — the registered pane is gone, wakes cannot reach you", C_DEAD
+    else:
+        # No live tmux server means live_panes() is empty and every pane reads ok — an honest
+        # degradation, the same one `workers` makes.
+        pane_state, pane_tone = "ok", C_ALIVE
+    print(f"{c('pane:  ', C_LABEL)} {row['pane'] or '-'} ({c(pane_state, pane_tone)})")
+    print(f"{c('work:  ', C_LABEL)} {truncate(row['summary'], 120)}")
+    print(f"{c('owner: ', C_LABEL)} {owner_status(base)}")
+    _, blocks = load_messages(base)
+    tail = blocks[-1]["num"] if blocks else 0
+    cursor = int(row["lastread"]) if row["lastread"].isdigit() else 0
+    waiting = unread_for(args, base, me, cursor)
+    counts = {}
+    for b in waiting:
+        counts[b["type"]] = counts.get(b["type"], 0) + 1
+    breakdown = ", ".join(f"{c(k, TYPE_COLOR.get(k, ''))} {v}"
+                          for k, v in sorted(counts.items())) or "none"
+    print(f"{c('cursor:', C_LABEL)} #{cursor} of #{tail} in the log")
+    print(f"{c('unread:', C_LABEL)} {len(waiting)} ({breakdown})")
+    gmap = group_map(base)
+    mine = [b for b in open_asks(blocks)
+            if b["sender"] != me and addressed_to(b, me, gmap, set(), "any")]
+    detail = ("  " + ", ".join(f"#{b['num']} from {b['sender']} ({age_of(b['ts'])})"
+                               for b in mine[:5])) if mine else ""
+    print(f"{c('asks waiting on you:', C_LABEL)} {len(mine)}{detail}")
+    if waiting:
+        print(c(f"next:   {coord} read", C_HINT))
+    elif mine:
+        print(c(f"next:   {coord} pending", C_HINT))
+    elif is_leader(me):
+        # Leader has nobody to escalate to — the idle hint told it to `send leader`, i.e. to
+        # message itself. Leader's idle move is draining the run's queue: open asks first
+        # (`pending` also shows broadcast asks and its own unanswered ones), then the log.
+        print(c(f"next:   {coord} pending — drain the run's open asks, then {coord} read",
+                C_HINT))
+    else:
+        print(c(f"next:   continue your task ({coord} send leader \"<msg>\" --type ask when "
+                f"blocked)", C_HINT))
+
+
+def cmd_pending(args):
+    """Open asks, computed over the FULL log — not cursor-relative (T4/F11)."""
+    base = base_dir(args)
+    me = resolve_agent(args)
+    coord = coord_invocation(args)
+    _, blocks = load_messages(base)
+    gmap = group_map(base)
+    opens = open_asks(blocks)
+    to_me = [b for b in opens if b["sender"] != me
+             and (b["to"] == me or (b["to"] in gmap and me in gmap[b["to"]]))]
+    broadcast = [b for b in opens if b["sender"] != me and b["to"] == "all"]
+    from_me = [b for b in opens if b["sender"] == me]
+
+    def section(title, items, hint):
+        print(f"{c(title, C_LABEL)} ({len(items)})")
+        if not items:
+            print("  (none)")
+            return
+        for b in items:
+            num_col = "{:<4}".format("#" + str(b["num"]))
+            age_col = "{:>4}".format(age_of(b["ts"]))
+            print(f"  {c(num_col, TYPE_COLOR['ask'])} {age_col} old  {b['sender']}->{b['to']}  "
+                  f"{truncate(body_of(b))}")
+        print(c(f"  {hint}", C_HINT))
+
+    section("asks waiting on you", to_me,
+            f"answer one: {coord} send <sender> \"<answer>\" --type answer --re <#>")
+    section("open asks to everyone", broadcast, "answer only what is yours to answer")
+    section("your asks nobody has answered", from_me,
+            "chase the recipient, or retract with --supersedes <#>")
+
+
+# ---------- launch / lifecycle ----------
+
+def discover_workers(wdir):
+    """Every briefing with an `agent:` frontmatter key — leader INCLUDED, so an explicit
+    by-name `launch --only leader` or `close-seat leader --renew` can target it. A bare
+    mass `launch` still never boots leader: seats_by_name filters it from the no-names sweep.
+
+    Returns per-seat dicts: agent, briefing, harness, model, effort, cwd, window, ephemeral,
+    ctx_refresh (int|None — the seat's own context-refresh threshold, consumed by watch.py),
+    folder (the seat's worker folder in folder form, else None)."""
+    found = []
+    for p in briefing_files(wdir):
+        text = p.read_text(encoding="utf-8")
+        if not text.startswith("---"):
+            continue
+        fm_end = text.find("\n---", 3)
+        if fm_end == -1:
+            continue
+        fm = text[:fm_end]
+        m = FM_KEY["agent"].search(fm)
+        if not m:
+            continue
+        folder = p.parent if p.name == "agent.md" and p.parent != wdir else None
+        mh = FM_KEY["harness"].search(fm)
+        mm = FM_KEY["model"].search(fm)
+        me = FM_KEY["effort"].search(fm)
+        mc = FM_KEY["cwd"].search(fm)
+        mr = FM_KEY["ctx-refresh"].search(fm)
+        harness = mh.group(1) if mh else "claude"
+        found.append({
+            "agent": m.group(1), "briefing": p, "harness": harness,
+            "model": mm.group(1) if mm else (DEFAULT_MODEL if harness == "claude" else ""),
+            "effort": me.group(1) if me else DEFAULT_EFFORT,
+            "cwd": mc.group(1) if mc else (str(folder) if folder else VAULT_ROOT),
+            "window": _fm_window(fm),
+            "ephemeral": _fm_yes(fm, "ephemeral"),
+            "ctx_refresh": int(mr.group(1)) if mr else None,
+            "folder": folder,
+        })
+    return found
+
+
+def identity_prefix(agent):
+    """The shell-env prefix that gives a launched seat its identity (T1). Every command the
+    seat then runs resolves `COORD_AGENT` — it never types its own name, and cannot mistype
+    another seat's."""
+    return f"COORD_AGENT={shlex.quote(agent)} "
+
+
+def harness_command(w, prompt):
+    """The shell command that starts this seat's interactive session, or (None, reason).
+    Carries the seat's identity as an env prefix (see identity_prefix)."""
+    env = identity_prefix(w["agent"])
+    if w["harness"] == "claude":
+        return f"{env}{CLAUDE_BIN} --model {w['model']} --effort {w['effort']} {shlex.quote(prompt)}", ""
+    if w["harness"] == "codex":
+        model = f" -m {shlex.quote(w['model'])}" if w["model"] else ""
+        return f"{env}{CODEX_BIN}{model} {shlex.quote(prompt)}", ""
+    if w["harness"] == "opencode":
+        if not w["model"]:
+            return None, "opencode seats require an explicit model: (provider/model slug)"
+        return (f"{env}{OPENCODE_BIN} --model {shlex.quote(w['model'])} "
+                f"--prompt {shlex.quote(prompt)}"), ""
+    return None, f"unknown harness '{w['harness']}' (expected one of {', '.join(HARNESSES)})"
+
+
+def boot_prompt(w, args):
+    """The initial prompt every seat starts with, harness-independent. A leader seat whose
+    memory.md already exists is only ever (re)launched to CONTINUE a run it was arbitrating
+    (renew, or crash recovery) — its prompt is resume-first, never the generic fresh boot."""
+    pkg = package_dir(args)
+    wdir = workers_dir(args)
+    mem = (w["folder"] / "memory.md") if w["folder"] else None
+    if w["agent"] == "leader" and mem and mem.exists():
+        first = (f"You are RESUMING a prior session, not starting fresh: read {mem} FIRST — "
+                 f"especially its 'Resume here' section — it is your own state from the session "
+                 f"this relaunch continues; do not re-run work it records as complete. "
+                 f"Then read your briefing {w['briefing']}.")
+    else:
+        memory = ""
+        if w["folder"] and not w["ephemeral"]:
+            memory = (f" If {mem} exists, read it too — it is your memory from "
+                      f"prior sessions of this seat; trust it as your own notes.")
+        first = f"Read your briefing {w['briefing']} first.{memory}"
+    return (
+        f"You are agent '{w['agent']}' of the run package at {pkg}. "
+        f"{first} "
+        f"Then read {pkg}/CLAUDE.md and follow its coordination protocol exactly: "
+        f"check in as '{w['agent']}' (coordination CLI: {coord_invocation(args)}), "
+        f"then execute ONLY your briefing. "
+        f"Never read any other agent's briefing or folder in {wdir}/. "
+        f"Message 'leader' on any conflict, inconsistency, or decision you cannot settle alone."
+    )
+
+
+def seat_placement(w):
+    """Pure placement decision from the briefing's window: value — ("own", agent-name) for
+    `yes`, ("shared", NAME) for a named wave window, ("pane", None) otherwise."""
+    if w["window"] == "yes":
+        return "own", w["agent"]
+    if w["window"]:
+        return "shared", w["window"]
+    return "pane", None
+
+
+def launch_seat(w, args, target, prompt=None):
+    """Open a pane/window for one seat and start its harness. Returns (pane_id, err)."""
+    cmd, err = harness_command(w, prompt or boot_prompt(w, args))
+    if cmd is None:
+        return "", err
+    place, wname = seat_placement(w)
+    if place == "own":
+        pane, err = tmux_new_window(target, wname, w["cwd"])
+    elif place == "shared":
+        existing = tmux_find_window_pane(tmux_session_name(target), wname)
+        if existing:
+            pane, err = tmux_split_pane(existing, w["cwd"])
+        else:
+            pane, err = tmux_new_window(target, wname, w["cwd"])
+    else:
+        pane, err = tmux_split_pane(target, w["cwd"])
+    if not pane:
+        return "", err
+    set_pane_title(pane, w["agent"])
+    ok, terr = wake(pane, cmd)
+    if not ok:
+        return pane, f"pane opened but harness start FAILED: {terr}"
+    if w["harness"] == "claude":
+        schedule_session_rename(pane, w["agent"])
+    return pane, ""
+
+
+def seats_by_name(args, names=None):
+    workers = discover_workers(workers_dir(args))
+    if names is None:
+        # A bare `launch` (no --only) never boots leader — the owner starts leader by hand;
+        # only an explicit by-name launch or a close-seat --renew may target the leader seat.
+        return [w for w in workers if w["agent"] != "leader"]
+    wanted = [n.strip() for n in names.split(",") if n.strip()]
+    picked = [w for w in workers if w["agent"] in wanted]
+    missing = set(wanted) - {w["agent"] for w in picked}
+    if missing:
+        known = ", ".join(sorted(w["agent"] for w in workers)) or "(none)"
+        print(f"refused: no worker briefing carries `agent: {', '.join(sorted(missing))}` in "
+              f"{workers_dir(args)}, so there is nothing to launch under that name.\n"
+              f"briefed seats: {known}\nFix the name, or add the briefing folder first.",
+              file=sys.stderr)
+        sys.exit(1)
+    return picked
+
+
+def cmd_launch(args):
+    gate(args, "launch", is_leader, "leader's alone (it opens seats and spends plan budget)")
+    workers = seats_by_name(args, args.only)
+    if not workers:
+        print(f"refused: no worker briefing carries an `agent:` frontmatter key in "
+              f"{workers_dir(args)}, so there is no roster to launch.\n"
+              f"Each seat needs workers/<agent>/agent.md with `agent: <name>` "
+              f"(template: briefing-template.md beside coord.py).", file=sys.stderr)
+        sys.exit(1)
+
+    target = os.environ.get("COORD_LAUNCH_TARGET") or os.environ.get("TMUX_PANE")
+    if not target and not args.dry_run:
+        print("refused: launch opens tmux panes and this shell is not inside tmux (no $TMUX_PANE),"
+              " so there is no window to open them in.\nRun it from leader's tmux pane, or use "
+              "--dry-run to see the commands it would run.", file=sys.stderr)
+        sys.exit(1)
+
+    if args.dry_run:
+        for w in workers:
+            cmd, err = harness_command(w, boot_prompt(w, args))
+            kind, wname = seat_placement(w)
+            place = {"own": "window", "shared": f"window:{wname}"}.get(kind, "pane")
+            print(f"[dry-run] {w['agent']} ({w['harness']}/{w['model'] or 'plan-default'}"
+                  f"{'/' + w['effort'] if w['harness'] == 'claude' else ''}, {place}, cwd={w['cwd']}): "
+                  f"{cmd if cmd else 'REFUSED — ' + err}")
+        return
+
+    tmux_raise_history_limit()  # exports capture full scrollback (see export-transcript)
+    for w in workers:
+        pane, err = launch_seat(w, args, target)
+        kind, wname = seat_placement(w)
+        place = {"own": "window", "shared": f"window:{wname}"}.get(kind, "pane")
+        label = f"{w['agent']} ({w['harness']}/{w['model'] or 'plan-default'}, {place})"
+        if err:
+            print(f"  {label}: FAILED — {err}", file=sys.stderr)
+        else:
+            print(f"launched {label} in {pane}"
+                  + (" (session /rename scheduled)" if w["harness"] == "claude" else ""))
+    print(c(f"next: {coord_invocation(args)} workers — every seat above must appear there; one "
+            f"that never checks in never booted", C_HINT))
+
+
+# ---------- transcript export / close / depart ----------
+
+def transcripts_dir(args, agent):
+    d = workers_dir(args) / agent / "transcripts"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def export_transcript(args, agent, label=""):
+    """Capture the agent's full pane scrollback into its worker folder. Returns (path, err)."""
+    _, _, rows = load_workers(base_dir(args))
+    row = current_row(rows, agent)
+    if not row or not row["pane"]:
+        return None, f"no registered pane for '{agent}' — nothing to capture"
+    text, err = tmux_capture(row["pane"])
+    if err:
+        return None, f"capture failed for {row['pane']}: {err}"
+    suffix = f"-{label}" if label else ""
+    out = transcripts_dir(args, agent) / f"{file_stamp()}-{agent}{suffix}.txt"
+    out.write_text(text, encoding="utf-8")
+    return out, ""
+
+
+def cmd_export_transcript(args):
+    out, err = export_transcript(args, args.target, args.label or "")
+    if err:
+        print(f"refused: cannot capture '{args.target}' — {err}. A scrollback capture needs the "
+              f"seat's registered pane to still exist.\nCheck the roster: "
+              f"{coord_invocation(args)} workers", file=sys.stderr)
+        sys.exit(1)
+    print(f"transcript exported: {out}")
+    print(c(f"next: {coord_invocation(args)} close {args.target} — the closer reads this export "
+            f"to write the seat's memory.md", C_HINT))
+
+
+def closer_prompt(args, target, renew):
+    """Fill the kit's closer prompt template for one target seat."""
+    template = Path(__file__).resolve().parent / "closer-prompt.md"
+    text = template.read_text(encoding="utf-8")
+    if text.startswith("# closer prompt template"):  # template header is meta, not prompt
+        text = text.split("\n", 1)[1].lstrip("\n")
+    pkg = package_dir(args)
+    wfolder = workers_dir(args) / target
+    renew_flag = " --renew" if renew else ""
+    renew_note = (
+        "RENEW IS ON: after you run close-seat the seat relaunches fresh and will read the "
+        "memory.md you just wrote — write it as the revival briefing it is."
+        if renew else
+        "Renew is OFF: the seat stays closed; memory.md is for a possible future revival."
+    )
+    for token, value in (
+        ("{TARGET}", target),
+        ("{CLOSER}", f"closer-{target}"),
+        ("{PACKAGE}", str(pkg)),
+        ("{COORD}", coord_invocation(args)),
+        ("{WORKER_DIR}", str(wfolder)),
+        ("{MEMORY}", str(wfolder / "memory.md")),
+        ("{TRANSCRIPTS}", str(wfolder / "transcripts")),
+        ("{MESSAGES}", str(base_dir(args) / "messages.md")),
+        ("{RENEW_FLAG}", renew_flag),
+        ("{RENEW_NOTE}", renew_note),
+    ):
+        text = text.replace(token, value)
+    return text
+
+
+def closer_placement(existing_pane):
+    """Pure placement decision for the next closer pane — no tmux I/O, so selftest can exercise
+    it headless. `existing_pane` is the result of looking up a pane already in the shared
+    CLOSERS_WINDOW ("" if that window doesn't exist yet). Returns ("split", pane_to_split) when
+    the window is already open, or ("new_window", CLOSERS_WINDOW) to create it fresh."""
+    if existing_pane:
+        return ("split", existing_pane)
+    return ("new_window", CLOSERS_WINDOW)
+
+
+def resolve_closer_pane(target, cwd):
+    """Open (or reuse) the shared 'closers' tmux window and return the pane for the next closer.
+    Every closer lands here as a pane, titled by its target agent — never in the control-panel
+    window `target` sits in. Returns (pane_id, err)."""
+    session = tmux_session_name(target)
+    existing = tmux_find_window_pane(session, CLOSERS_WINDOW)
+    action, dest = closer_placement(existing)
+    if action == "split":
+        return tmux_split_pane(dest, cwd)
+    return tmux_new_window(target, dest, cwd)
+
+
+def cmd_close(args):
+    gate(args, "close", is_leader, "leader's alone (it spawns a closer seat)")
+    prompt = closer_prompt(args, args.target, args.renew)
+    closer = {
+        "agent": f"closer-{args.target}", "briefing": None, "harness": "claude",
+        "model": CLOSER_MODEL, "effort": DEFAULT_EFFORT, "cwd": VAULT_ROOT,
+        "window": False, "ephemeral": True, "folder": None,
+    }
+    title = f"closer-{args.target}"
+    if args.dry_run:
+        print(f"[dry-run] closer seat: claude/{CLOSER_MODEL}, pane '{title}' in the shared "
+              f"'{CLOSERS_WINDOW}' window. Prompt:\n\n{prompt}")
+        return
+    target = os.environ.get("COORD_LAUNCH_TARGET") or os.environ.get("TMUX_PANE")
+    if not target:
+        print("refused: close spawns a closer seat in tmux and this shell is not inside tmux (no "
+              "$TMUX_PANE).\nRun it from leader's tmux pane, or use --dry-run to see the closer "
+              "prompt.", file=sys.stderr)
+        sys.exit(1)
+    cmd, err = harness_command(closer, prompt)
+    if cmd is None:
+        print(f"closer launch FAILED: {err}", file=sys.stderr)
+        sys.exit(1)
+    pane, err = resolve_closer_pane(target, closer["cwd"])
+    if not pane:
+        print(f"closer launch FAILED: {err}", file=sys.stderr)
+        sys.exit(1)
+    set_pane_title(pane, title)
+    ok, terr = wake(pane, cmd)
+    if not ok:
+        print(f"closer launch FAILED: pane opened but harness start FAILED: {terr}", file=sys.stderr)
+        sys.exit(1)
+    schedule_session_rename(pane, closer["agent"])
+    print(f"closer launched for '{args.target}' in {pane} (window '{CLOSERS_WINDOW}', pane '{title}')"
+          + (", renew ON" if args.renew else ""))
+    print(c(f"next: {coord_invocation(args)} workers — closer-{args.target} checks in, co-writes "
+            f"memory.md with the seat, then closes it", C_HINT))
+
+
+def cmd_close_seat(args):
+    # The closer runs this as the tail of its own close; leader runs it directly for dead panes.
+    gate(args, "close-seat", is_leader_or_closer, "leader's or a closer-* seat's")
+    base = base_dir(args)
+    if not args.no_export:
+        out, err = export_transcript(args, args.target, "close")
+        print(f"transcript: {out}" if not err else f"transcript skipped — {err}")
+    _, _, rows = load_workers(base)
+    row = current_row(rows, args.target)
+    if row and row["active"] == "yes":
+        def close_row(r):
+            r["active"] = "no"
+            r["checkout"] = f"closed {now()}"
+
+        update_row(base, args.target, close_row)
+        print(f"roster: {args.target} closed")
+    old_window = ""
+    if row and row["pane"]:
+        old_window = tmux_pane_window(row["pane"])
+        ok, err = tmux_kill_pane(row["pane"])
+        print(f"pane {row['pane']}: {'killed' if ok else 'kill failed — ' + err}")
+    if args.renew:
+        seats = [w for w in discover_workers(workers_dir(args)) if w["agent"] == args.target]
+        if not seats:
+            print(f"renew FAILED: no briefing in {workers_dir(args)} carries "
+                  f"`agent: {args.target}`, so there is nothing to relaunch — the seat is closed "
+                  f"but not renewed.\nRelaunch it by hand once the briefing exists: "
+                  f"{coord_invocation(args)} launch --only {args.target}", file=sys.stderr)
+            sys.exit(1)
+        # A pane seat relaunches into the window its old pane occupied (if it survived the
+        # kill) — e.g. a renewed leader lands back in the control panel — NEVER the caller's
+        # window: a closer runs this from the shared 'closers' window, which must not
+        # inherit the renewed seat. Window/shared seats re-place from their briefing as before.
+        launch_target = ""  # a tmux pane, not an agent — args.target is the seat being renewed
+        if seat_placement(seats[0])[0] == "pane" and old_window and tmux_session_name(old_window):
+            launch_target = old_window
+        if not launch_target:
+            launch_target = os.environ.get("COORD_LAUNCH_TARGET") or os.environ.get("TMUX_PANE")
+        if not launch_target:
+            print(f"renew FAILED: the seat is closed, but relaunching it needs a tmux window and "
+                  f"this shell is not inside tmux (no $TMUX_PANE) — its old window is gone too.\n"
+                  f"Relaunch it from leader's pane: {coord_invocation(args)} launch --only "
+                  f"{args.target}", file=sys.stderr)
+            sys.exit(1)
+        tmux_raise_history_limit()
+        pane, err = launch_seat(seats[0], args, launch_target)
+        if err:
+            print(f"renew FAILED: {err}", file=sys.stderr)
+            sys.exit(1)
+        print(f"renewed: {args.target} relaunched in {pane} (reads its updated memory.md at boot)")
+    print(c(f"next: {coord_invocation(args)} workers — confirm the seat is "
+            f"{'back and checked in' if args.renew else 'gone from the live rows'}", C_HINT))
+
+
+def cmd_panel(args):
+    """(leader) open the control-panel overview pane in the caller's window.
+
+    The leader window is the run's control panel: leader + the oversight seats (watcher,
+    scientist, scientist-roster) + on-demand closers as panes, plus this pane running the live
+    tmux-overview of the whole session. Idempotent: skips if an 'overview' pane already exists."""
+    gate(args, "panel", is_leader, "leader's alone (it splits the control-panel window)")
+    target = os.environ.get("COORD_LAUNCH_TARGET") or os.environ.get("TMUX_PANE")
+    if not target:
+        print("refused: panel splits a strip into the CALLING tmux window and this shell is not "
+              "inside tmux (no $TMUX_PANE).\nRun it from leader's own pane.", file=sys.stderr)
+        sys.exit(1)
+    for pid, title in tmux_window_panes(target):
+        if title == "overview":
+            print(f"overview pane already open ({pid}) — nothing to do")
+            return
+    session = tmux_session_name(target)
+    if not session:
+        print(f"panel FAILED: tmux does not resolve a session for this pane ({target}), and the "
+              f"overview needs a session name to watch.\nRun it from a pane inside the run's own "
+              f"tmux session.", file=sys.stderr)
+        sys.exit(1)
+    tool = Path(__file__).resolve().parent / "tmux-overview"
+    pane, err = tmux_split_strip(target, VAULT_ROOT)
+    if not pane:
+        print(f"panel FAILED: {err}", file=sys.stderr)
+        sys.exit(1)
+    set_pane_title(pane, "overview")
+    ok, terr = wake(pane, f"bash {shlex.quote(str(tool))} {shlex.quote(session)} --compact "
+                          f"--package {shlex.quote(str(package_dir(args)))}")
+    print(f"overview strip {pane} ({PANEL_STRIP_ROWS} rows) running tmux-overview '{session}' "
+          f"--compact (roster names from the package): {'ok' if ok else 'FAILED ' + terr}")
+    print(c(f"next: {coord_invocation(args)} launch — the strip tracks the seats it opens",
+            C_HINT))
+
+
+def cmd_depart(args):
+    """Self-service exit: export own transcript, check out, kill own pane. SELF ONLY (T1) —
+    it takes no target, so no seat can depart another; leader cleans dead seats with
+    close-seat."""
+    base = base_dir(args)
+    me = resolve_agent(args)
+    out, err = export_transcript(args, me, "depart")
+    print(f"transcript: {out}" if not err else f"transcript skipped — {err}")
+    _, _, rows = load_workers(base)
+    row = current_row(rows, me)
+    if row and row["active"] == "yes":
+        def close_row(r):
+            r["active"] = "no"
+            r["checkout"] = now()
+
+        update_row(base, me, close_row)
+        print(f"checked out: {me}")
+    pane = (row or {}).get("pane") or detect_pane(None)
+    if pane:
+        print(f"killing own pane {pane} — goodbye")
+        tmux_kill_pane(pane)
+    else:
+        print("no pane to kill (not inside tmux)")
+
+
+# ---------- selftest ----------
+
+def cmd_selftest(args):
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+    failures = []
+
+    def check(name, cond):
+        print(("ok  " if cond else "FAIL") + f"  {name}")
+        if not cond:
+            failures.append(name)
+
+    # Never touch real tmux from the self-test: wakes deterministically "fail" (exercising the
+    # P22 path), pane/window operations are recorded instead of executed. detect_pane/live_panes
+    # are stubbed for the same reason — identity resolution (T1) reads the calling pane.
+    # A COORD_AGENT inherited from the seat running the self-test would silently become every
+    # command's identity, so it is cleared for the duration.
+    global wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture
+    global tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name
+    global tmux_split_strip, restore_overview_strip, tmux_find_window_pane
+    global tmux_send_text, tmux_send_enter, tmux_capture_tail, tmux_pane_window, RUNS_INDEX
+    global detect_pane, live_panes, _acquire_flock, atomic_write
+    real = (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
+            tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
+            tmux_split_strip, restore_overview_strip, tmux_find_window_pane, tmux_send_text,
+            tmux_send_enter, tmux_capture_tail, tmux_pane_window, detect_pane, live_panes,
+            _acquire_flock, atomic_write)
+    env_agent = os.environ.pop("COORD_AGENT", None)
+
+    # ---- P35 (round 2): wake()'s Enter-verify + bounded Enter-only retry, exercised against the
+    # REAL wake() with only its three tmux primitives stubbed (wake itself is stubbed wholesale
+    # further below for the rest of the suite, which only needs a pass/fail switch, not the
+    # mechanics). Round 1 stubbed the wake line as the pane's LAST line — the exact false
+    # assumption verifier-tick #145 disproved (status/hint chrome renders below the composer on
+    # every rostered TUI, so the retry never fired where P35 actually happened). These fixtures
+    # are built from REAL captured pane tails instead: a rostered claude seat's idle composer
+    # (window 1 pane %6, 'cli', 2026-07-24), a scratch claude pane's stranded composer, a scratch
+    # opencode pane's boxed composer (idle + stranded), and a scratch cooked-mode bash pane whose
+    # PS1 happens to reuse claude's '❯' glyph (padding trimmed for source width; the special
+    # characters, line order, and chrome-below-composer structure are unedited).
+    CLAUDE_TAIL_IDLE = (
+        "──────────────────────────────────────────────────── cli ──\n"
+        "❯ \n"
+        "──────────────────────────────────────────────────────────\n"
+        "                                                       /rc\n"
+        "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents\n"
+    )
+    CLAUDE_TAIL_STRANDED = (
+        "──────────────────────────────────────────────────────────\n"
+        "❯ [coord wake] hello\n"
+        "──────────────────────────────────────────────────────────\n"
+        "  ⏸ manual mode on                                     /rc\n"
+    )
+    OPENCODE_TAIL_IDLE = (
+        "┃ \n"
+        '┃  Ask anything... "Fix broken tests"\n'
+        "┃ \n"
+        "┃  Build · DeepSeek Reasoner DeepSeek\n"
+        "╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n"
+        "                    tab agents  ctrl+p commands\n"
+    )
+    OPENCODE_TAIL_STRANDED = (
+        "┃ \n"
+        "┃  [coord wake] hello\n"
+        "┃ \n"
+        "┃  Build · DeepSeek Reasoner DeepSeek\n"
+        "╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n"
+        "                    tab agents  ctrl+p commands\n"
+    )
+    COOKED_TAIL = (  # a bare bash pane — no composer at all, just a starship-style '❯' PS1 echo
+        "❯ PS1='$ ' bash --norc\n"
+        "$ cat > /dev/null\n"
+        "[coord wake] hello\n"
+    )
+
+    # ---- P35 round 3: production wakes are 310-319 chars and hard-wrap in every rostered pane
+    # (narrowest 114 cols) — `capture-pane -J` cannot rejoin a TUI's own wrap points, so the
+    # round-2 full-text match against a single captured line never fired where P35 lives
+    # (verifier-tick round-2 re-verification, msg #188). These fixtures are REAL captures at a
+    # REAL production-length wake, at the narrowest rostered pane width: a scratch claude pane
+    # and a scratch opencode pane, both 114 cols, each with the exact 323-char wake text typed
+    # and left unsubmitted (padding trimmed for source width; special characters, line order,
+    # wrap points, and chrome-below-composer structure are unedited).
+    REAL_WAKE_TEXT = (
+        "[coord wake] New coordination message #199 from toolsmith-2 to all. Read it now, then "
+        "continue your task: python3 /home/henri/ht-wkdir/second-brain/1-projects/"
+        "rbtv-sb-merge-refactor/build/team-kit/coord.py --package /home/henri/ht-wkdir/"
+        "second-brain/1-projects/rbtv-sb-merge-refactor/build/kg-views-rebuild read toolsmith-2"
+    )
+    CLAUDE_TAIL_STRANDED_WRAPPED = (
+        "──────────────────────────────────────────────────────────────────\n"
+        "❯\xa0[coord wake] New coordination message #199 from toolsmith-2 to all. Read it now, "
+        "then continue your task:\n"
+        "  python3 /home/henri/ht-wkdir/second-brain/1-projects/rbtv-sb-merge-refactor/build/"
+        "team-kit/coord.py --package\n"
+        "  /home/henri/ht-wkdir/second-brain/1-projects/rbtv-sb-merge-refactor/build/"
+        "kg-views-rebuild read toolsmith-2\n"
+        "──────────────────────────────────────────────────────────────────\n"
+        "  ⏸ manual mode on                                                              /rc\n"
+    )
+    OPENCODE_TAIL_STRANDED_WRAPPED = (
+        "                    ┃\n"
+        "                    ┃  [coord wake] New coordination message #199 from toolsmith-2 to "
+        "all.\n"
+        "                    ┃  Read it now, then continue your task: python3 /home/henri/"
+        "ht-wkdir/\n"
+        "                    ┃  second-brain/1-projects/rbtv-sb-merge-refactor/build/team-kit/"
+        "coord.\n"
+        "                    ┃  py --package /home/henri/ht-wkdir/second-brain/1-projects/"
+        "rbtv-sb-\n"
+        "                    ┃  merge-refactor/build/kg-views-rebuild read toolsmith-2\n"
+        "                    ┃\n"
+        "                    ┃  Build · DeepSeek Reasoner DeepSeek\n"
+        "                    ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+        "▀▀▀▀▀▀\n"
+        "                                                                    tab agents  "
+        "ctrl+p commands\n"
+    )
+
+    sent_texts, enter_calls = [], []
+    tmux_send_text = lambda pane, t: (sent_texts.append(t) or (True, ""))
+    tmux_send_enter = lambda pane: (enter_calls.append(pane) or (True, ""))
+    capture_sequence = []
+    tmux_capture_tail = lambda pane, lines=WAKE_TAIL_LINES: (
+        capture_sequence.pop(0) if capture_sequence else ("", ""))
+
+    sent_texts.clear(); enter_calls.clear()
+    capture_sequence[:] = [(CLAUDE_TAIL_IDLE, "")]
+    ok, terr = wake("%1", "[coord wake] hello")
+    check("P35: claude normal path submits on the first Enter, no retry (real idle pane tail)",
+          ok and len(enter_calls) == 1 and sent_texts == ["[coord wake] hello"])
+
+    sent_texts.clear(); enter_calls.clear()
+    capture_sequence[:] = [(CLAUDE_TAIL_STRANDED, ""), (CLAUDE_TAIL_IDLE, "")]
+    ok, terr = wake("%1", "[coord wake] hello")
+    check("P35: claude busy pane (real stranded-composer tail) retries Enter-only, never retypes",
+          ok and len(enter_calls) == 2 and sent_texts == ["[coord wake] hello"])
+
+    sent_texts.clear(); enter_calls.clear()
+    capture_sequence[:] = [(CLAUDE_TAIL_STRANDED, "")] * WAKE_ENTER_ATTEMPTS
+    ok, terr = wake("%1", "[coord wake] hello")
+    check("P35: bounded — gives up after WAKE_ENTER_ATTEMPTS, still never retypes, reports failure",
+          not ok and len(enter_calls) == WAKE_ENTER_ATTEMPTS
+          and sent_texts == ["[coord wake] hello"] and "unsubmitted" in terr)
+
+    sent_texts.clear(); enter_calls.clear()
+    capture_sequence[:] = [(OPENCODE_TAIL_STRANDED, ""), (OPENCODE_TAIL_IDLE, "")]
+    ok, terr = wake("%1", "[coord wake] hello")
+    check("P35: opencode busy pane (real boxed-composer tail) retries Enter-only, never retypes",
+          ok and len(enter_calls) == 2 and sent_texts == ["[coord wake] hello"])
+
+    sent_texts.clear(); enter_calls.clear()
+    capture_sequence[:] = [(COOKED_TAIL, "")]
+    ok, terr = wake("%1", "[coord wake] hello")
+    check("P35: unparseable pane (cooked-mode, PS1 reuses '❯') fails safe — single Enter, no "
+          "retry, no reported failure, despite the wake text sitting on-screen",
+          ok and len(enter_calls) == 1 and sent_texts == ["[coord wake] hello"])
+
+    # ---- P35 round 3: the same mechanics, but at REAL production wake length (310-319 chars)
+    # against a REAL wrapped-composer capture — the exact regime round 2 was blind on (verifier-
+    # tick round-2 re-verification, msg #188: round 2's full-text match against ONE captured line
+    # never matches a wrapped composer, so the retry never fired where P35 actually happens).
+    sent_texts.clear(); enter_calls.clear()
+    capture_sequence[:] = [(CLAUDE_TAIL_STRANDED_WRAPPED, ""), (CLAUDE_TAIL_IDLE, "")]
+    ok, terr = wake("%1", REAL_WAKE_TEXT)
+    check("P35 round 3: claude busy pane, REAL wrapped composer at REAL wake length (323 chars, "
+          "3 wrapped lines) — prefix-matches the sandwich's top line and retries Enter-only",
+          ok and len(enter_calls) == 2 and sent_texts == [REAL_WAKE_TEXT])
+
+    sent_texts.clear(); enter_calls.clear()
+    capture_sequence[:] = [(CLAUDE_TAIL_STRANDED_WRAPPED, "")] * WAKE_ENTER_ATTEMPTS
+    ok, terr = wake("%1", REAL_WAKE_TEXT)
+    check("P35 round 3: bounded at real wake length — still gives up after WAKE_ENTER_ATTEMPTS, "
+          "never retypes, reports failure",
+          not ok and len(enter_calls) == WAKE_ENTER_ATTEMPTS
+          and sent_texts == [REAL_WAKE_TEXT] and "unsubmitted" in terr)
+
+    sent_texts.clear(); enter_calls.clear()
+    capture_sequence[:] = [(OPENCODE_TAIL_STRANDED_WRAPPED, ""), (OPENCODE_TAIL_IDLE, "")]
+    ok, terr = wake("%1", REAL_WAKE_TEXT)
+    check("P35 round 3: opencode busy pane, REAL wrapped composer at REAL wake length — "
+          "prefix-matches the box's first line and retries Enter-only",
+          ok and len(enter_calls) == 2 and sent_texts == [REAL_WAKE_TEXT])
+
+    tmux_send_text, tmux_send_enter, tmux_capture_tail = real[13], real[14], real[15]
+
+    # wake behavior is switchable: send-path tests need failing wakes (P22), launch/renew-path
+    # tests need succeeding ones (a failed wake aborts launch_seat before the rename).
+    wake_ok = {"v": False}
+    wake = lambda pane, text: ((True, "") if wake_ok["v"] else (False, "selftest stub"))
+    titles = []
+    set_pane_title = lambda pane, title: titles.append((pane, title))
+    opened, killed, renames, split_targets = [], [], [], []
+    tmux_split_pane = lambda target, cwd: (split_targets.append(target)
+                                           or opened.append(("pane", cwd))
+                                           or (f"%9{len(opened)}", ""))
+    pane_windows = {}  # pane id -> window id, for the renew-placement stub
+    tmux_pane_window = lambda pane: pane_windows.get(pane, "")
+    closers_window_pane = {"v": ""}  # models the shared 'closers' window's first pane, once opened
+    shared_windows = {}              # name -> first pane, for shared (wave) windows
+    def _fake_new_window(target, name, cwd):
+        opened.append(("window", name))
+        pane = f"%8{len(opened)}"
+        if name == CLOSERS_WINDOW:
+            closers_window_pane["v"] = pane
+        shared_windows[name] = pane
+        return pane, ""
+    tmux_new_window = _fake_new_window
+    tmux_find_window_pane = lambda session, window: (closers_window_pane["v"]
+                                                     if window == CLOSERS_WINDOW
+                                                     else shared_windows.get(window, ""))
+    tmux_kill_pane = lambda pane: (killed.append(pane) or (True, ""))
+    tmux_capture = lambda pane: (f"captured scrollback of {pane}", "")
+    tmux_raise_history_limit = lambda: None
+    schedule_session_rename = lambda pane, agent, delay=25: renames.append(agent)
+    panel_panes = []
+    tmux_window_panes = lambda target: list(panel_panes)
+    tmux_session_name = lambda target: "testsess"
+    tmux_split_strip = lambda target, cwd, rows=PANEL_STRIP_ROWS: (opened.append(("strip", rows)) or (f"%7{len(opened)}", ""))
+    restore_overview_strip = lambda target: None
+    # T1: the calling pane, stubbed. "" = "this caller is not in a registered pane", the state
+    # every internal/`--as` call runs in; individual checks below set it to a real pane id.
+    calling_pane = {"v": ""}
+    detect_pane = lambda override=None: (override or calling_pane["v"])
+    live_tmux_panes = {"v": set()}   # empty = "tmux unavailable", so no row is judged DEAD?
+    live_panes = lambda: set(live_tmux_panes["v"])
+
+    with tempfile.TemporaryDirectory() as td:
+        RUNS_INDEX = Path(td) / "coordinate-runs.json"  # never touch the real registry
+        pkg = Path(td) / "pkg"
+        (pkg / "coordination").mkdir(parents=True)
+        (pkg / "workers").mkdir()
+        (pkg / "workers" / "alpha.md").write_text("---\nagent: alpha\nmodel: fable\neffort: xhigh\n---\nbrief\n")
+        (pkg / "workers" / "beta.md").write_text("---\nagent: beta\n---\nbrief\n")
+        (pkg / "workers" / "watcher.md").write_text("---\nagent: watcher\nobserver: yes\nauto-wake: yes\n---\nbrief\n")
+        # folder-form seats (v2): opencode window seat, codex seat, memoryless validator
+        gdir = pkg / "workers" / "gamma"
+        gdir.mkdir()
+        (gdir / "agent.md").write_text(
+            "---\nagent: gamma\nharness: opencode\nmodel: zai-coding-plan/glm-5.2\nwindow: yes\n---\nbrief\n")
+        (gdir / "memory.md").write_text("# memory\nprior state\n")
+        ddir = pkg / "workers" / "delta"
+        ddir.mkdir()
+        (ddir / "agent.md").write_text("---\nagent: delta\nharness: codex\nephemeral: yes\nwindow: yes\n---\nbrief\n")
+        for hk in ("hk-1", "hk-2"):  # wave seats sharing one named window
+            hdir = pkg / "workers" / hk
+            hdir.mkdir()
+            (hdir / "agent.md").write_text(
+                f"---\nagent: {hk}\nmodel: haiku\nwindow: wave-haiku\nephemeral: yes\n"
+                f"ctx-refresh: 40\n---\nbrief\n")
+        # leader seat (folder form, no window:) — by-name launch/renew targets only
+        mdir = pkg / "workers" / "leader"
+        mdir.mkdir()
+        (mdir / "agent.md").write_text("---\nagent: leader\nmodel: opus\n---\nbrief\n")
+
+        def ns(**kw):
+            d = {"package": str(pkg), "base": None, "workers_dir": None,
+                 "as_agent": None, "force": False}
+            d.update(kw)
+            return argparse.Namespace(**d)
+
+        def run(fn, **kw):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                fn(ns(**kw))
+            return buf.getvalue()
+
+        def refuse(fn, **kw):
+            """Run a command expected to REFUSE: returns (combined output, exit code)."""
+            out, err, code = io.StringIO(), io.StringIO(), 0
+            with redirect_stdout(out), redirect_stderr(err):
+                try:
+                    fn(ns(**kw))
+                except SystemExit as exc:
+                    code = exc.code if isinstance(exc.code, int) else 1
+            return out.getvalue() + err.getvalue(), code
+
+        def rd(agent, **kw):
+            d = {"agent": agent, "after": None, "peek": False, "all": False, "type": None,
+                 "addressed": "any", "digest": False, "msg": None, "limit": None}
+            d.update(kw)
+            return run(cmd_read, **d)
+
+        def sd(agent, to, message=None, **kw):
+            d = {"agent": agent, "to": to, "message": message, "type": "note",
+                 "supersedes": None, "re_num": None, "file": None}
+            d.update(kw)
+            return run(cmd_send, **d)
+
+        def cursor_of(agent):
+            _, _, rr = load_workers(base_dir(ns()))
+            row = current_row(rr, agent)
+            return row["lastread"] if row else None
+
+        run(cmd_checkin, agent="alpha", summary="first check-in", pane="%1")
+        run(cmd_checkin, agent="beta", summary="beta work", pane="%2")
+        out = run(cmd_checkin, agent="alpha", summary="second check-in", pane="%3")
+        check("P1: re-check-in reports supersession", "superseded 1 prior row" in out)
+        _, _, rows = load_workers(base_dir(ns()))
+        active_alpha = [r for r in rows if r["agent"] == "alpha" and r["active"] == "yes"]
+        check("P1: exactly one active row per agent", len(active_alpha) == 1 and active_alpha[0]["pane"] == "%3")
+
+        keys_log = []
+        tmux_send_text = lambda pane, text: (keys_log.append((pane, text)) or (True, ""))
+        tmux_send_enter = lambda pane: (keys_log.append((pane, "<Enter>")) or (True, ""))
+        # stub signature/return type MUST match the real fn — a bare string here is what hid F13
+        tmux_capture_tail = lambda pane, lines=WAKE_TAIL_LINES: (f"tail-of-{pane}", "")
+        out = run(cmd_approve, target="alpha", keys="1", no_enter=False)
+        check("approve: keys + Enter go to the agent's REGISTERED pane, tail echoed as TEXT "
+              "(F13: it used to print the (text, err) tuple)",
+              ("%3", "1") in keys_log and ("%3", "<Enter>") in keys_log
+              and "tail-of-%3" in out and "('tail-of-%3'" not in out)
+
+        check("run tags: --package use auto-registers; --run resolves; cwd walk-up works",
+              load_runs_index().get("pkg") == str(pkg)
+              and package_dir(argparse.Namespace(package=None, run="pkg", base=None)) == pkg
+              and discover_package_from(pkg / "workers" / "gamma") == pkg
+              and discover_package_from(Path(td)) is None)
+        check("invocation: registered package emits the short --run form",
+              coord_invocation(ns()).endswith("--run pkg"))
+
+        # ---- T5: the runs registry prunes packages that no longer exist on disk (F15) ----
+        idx = load_runs_index()
+        idx["ghost-run"] = str(Path(td) / "deleted-package")
+        write_runs_index(idx)
+        pruned = load_runs_index()
+        check("T5 registry: a dead package path is pruned on load and the live one survives",
+              "ghost-run" not in pruned and pruned.get("pkg") == str(pkg)
+              and "ghost-run" not in RUNS_INDEX.read_text(encoding="utf-8"))
+
+        # ---- fix round: a run tag is never STOLEN by a same-named package ----
+        twin = Path(td) / "twin" / "pkg"
+        (twin / "coordination").mkdir(parents=True)
+        (twin / "workers").mkdir()
+        errbuf = io.StringIO()
+        with redirect_stderr(errbuf):
+            twin_invocation = coord_invocation(ns(package=str(twin)))
+        check("registry no-steal: a second package with the SAME folder name never re-points a "
+              "tag whose package still exists — it registers nothing, says nothing, and its own "
+              "invocation falls back to the explicit --package form, so neither run breaks",
+              load_runs_index().get("pkg") == str(pkg)
+              and twin_invocation.endswith(f"--package {twin.resolve()}")
+              and coord_invocation(ns()).endswith("--run pkg")
+              and errbuf.getvalue() == "")
+        idx = load_runs_index()
+        idx["revived"] = str(Path(td) / "gone" / "revived")   # tag held by a package now deleted
+        write_runs_index(idx)
+        revived = Path(td) / "revived"
+        (revived / "coordination").mkdir(parents=True)
+        (revived / "workers").mkdir()
+        register_run(revived)
+        check("registry no-steal: a tag whose package path is GONE is still re-taken by a live "
+              "package of that name (the prune drops the dead entry first)",
+              load_runs_index().get("revived") == str(revived.resolve()))
+
+        sd("beta", "alpha", "how many rows does the export have?", type="ask")
+        sd("alpha", "beta", "claim: count is 11", type="answer", re_num=1)
+        sd("beta", "all", "starting")
+        _, blocks = load_messages(base_dir(ns()))
+        check("P2: type recorded in header", blocks[0]["type"] == "ask" and blocks[1]["type"] == "answer")
+        check("T4: `| re: N` is written into the header and parses back",
+              blocks[1]["re"] == 1 and "| re: 1 |" in blocks[1]["lines"][0])
+        raw = (base_dir(ns()) / "messages.md").read_text()
+        check("P22: wake failure recorded in log", "> delivery-failure:" in raw)
+
+        out = rd("beta")
+        check("read: sees addressed message", "count is 11" in out)
+        check("P26: cursor advances to the last SHOWN message",
+              "cursor advanced to #2" in out and cursor_of("beta") == "2")
+        out = rd("beta")
+        check("P26: second read starts at cursor", "no new messages for beta after #2" in out)
+        sd("alpha", "beta", "ping", type="ask")
+        out = rd("beta", peek=True)
+        check("P26: --peek shows without advancing", "ping" in out and "cursor advanced" not in out)
+        out = rd("beta", all=True)
+        check("P26: --all replays from zero", "count is 11" in out and "ping" in out)
+
+        sd("alpha", "beta", "RETRACTED: count was wrong, it is 8", type="answer", re_num=1,
+           supersedes=2)
+        out = rd("beta", after=0, peek=True)
+        check("P12: superseded message flagged inline", "SUPERSEDED by #5" in out)
+        out = rd("beta", after=0, peek=True, type="ask")
+        check("P2: --type filter", "ping" in out and "count is 11" not in out)
+
+        # ---- T2 designer catch: a FILTERED read is peek-semantics — it must never advance the
+        # cursor past the messages its filter hid (leader's documented `--type ask` drain used to
+        # silently drop every non-ask message from the reader's inbox forever).
+        before = cursor_of("beta")
+        out = rd("beta", type="ask")
+        check("T2 catch: a filtered read shows its hits, says it is peek-semantics, and leaves "
+              "the cursor exactly where it was",
+              "ping" in out and "peek semantics" in out and cursor_of("beta") == before == "2")
+        out = rd("beta", addressed="direct")
+        check("T2 catch: --addressed is a filter too — no cursor movement",
+              "peek semantics" in out and cursor_of("beta") == "2")
+        out = rd("beta")
+        check("T2 catch: the plain read that follows still delivers everything the filtered "
+              "reads did NOT consume", "ping" in out and "count was wrong" in out
+              and cursor_of("beta") == "5")
+
+        # ---- T2: bounded batches, cursor only through what was SHOWN ----
+        for i in range(12):
+            sd("alpha", "beta", f"bulk message {i}")
+        out = rd("beta")
+        check(f"T2 bounded: a default read shows at most READ_LIMIT ({READ_LIMIT}) messages and "
+              "reports the remainder",
+              out.count("bulk message") == READ_LIMIT and "2 more waiting" in out
+              and cursor_of("beta") == "15")
+        out = rd("beta")
+        check("T2 bounded: the next read picks up exactly where the batch stopped",
+              "bulk message 10" in out and "bulk message 11" in out and cursor_of("beta") == "17")
+        out = rd("beta", after=5, limit=3, peek=True)
+        check("T2 bounded: --limit overrides the batch size",
+              out.count("bulk message") == 3 and "9 more waiting" in out)
+
+        # ---- T2: digest + single message, both peek-semantics ----
+        out = rd("beta", digest=True, after=0)
+        check("T2 digest: one line per message with type, sender->to, re/supersession markers",
+              "(re #1)" in out and "[SUPERSEDED by #5]" in out and "alpha->beta" in out
+              and "claim: count is 11" in out and "cursor advanced" not in out)
+        out = rd("beta", msg=2)
+        check("T2 --msg: one full message with its ask link, no cursor move",
+              "count is 11" in out and "answers ask #1" in out and "never moves your cursor" in out
+              and cursor_of("beta") == "17")
+        out, code = refuse(cmd_read, agent="beta", after=None, peek=False, all=False, type=None,
+                           addressed="any", digest=False, msg=9999, limit=None)
+        check("T2 --msg: an unknown message number is refused, not silently empty",
+              code == 1 and "no message #9999" in out)
+
+        run(cmd_owner, agent="leader", state="present", note="ruling live tonight")
+        out = run(cmd_workers, full=False, history=False)
+        check("P15: owner presence surfaces in workers", "owner: present" in out)
+
+        obs, auto = observer_sets(ns())
+        check("frontmatter observers: declared seat joins both sets",
+              "watcher" in obs and "watcher" in auto and "scientist" in obs and "beta" not in obs)
+        run(cmd_checkin, agent="watcher", summary="watching", pane="%9")
+        out = rd("watcher", after=0, peek=True, limit=0)
+        check("frontmatter observers: full-log read (sees a message addressed to neither it nor all)",
+              "count is 11" in out)
+
+        run(cmd_create_group, agent="alpha", group="pair", members=["beta"])
+        gm = group_map(base_dir(ns()))
+        check("groups: creator + leader auto-included", set(gm["pair"]) == {"alpha", "beta", "leader"})
+
+        # ---- v2: discovery over both briefing forms ----
+        ws = discover_workers(workers_dir(ns()))
+        by = {w["agent"]: w for w in ws}
+        check("launch: per-seat model/effort from frontmatter (flat form)",
+              by["alpha"]["model"] == "fable" and by["alpha"]["effort"] == "xhigh"
+              and by["beta"]["model"] == DEFAULT_MODEL and by["beta"]["effort"] == DEFAULT_EFFORT)
+        check("v2: folder-form seat discovered with harness/model/window/cwd",
+              by["gamma"]["harness"] == "opencode" and by["gamma"]["model"] == "zai-coding-plan/glm-5.2"
+              and by["gamma"]["window"] and by["gamma"]["cwd"] == str(gdir)
+              and by["gamma"]["folder"] == gdir)
+        check("v2: ephemeral codex seat discovered; model empty -> plan default",
+              by["delta"]["harness"] == "codex" and by["delta"]["ephemeral"] and by["delta"]["model"] == "")
+        check("T5 ctx-refresh: the frontmatter key is exposed per seat (int|None) for watch.py",
+              by["hk-1"]["ctx_refresh"] == 40 and by["alpha"]["ctx_refresh"] is None)
+        check("leader renew: discovered by name, excluded from the bare mass sweep",
+              "leader" in by
+              and "leader" not in {w["agent"] for w in seats_by_name(ns())}
+              and [w["agent"] for w in seats_by_name(ns(), "leader")] == ["leader"])
+
+        # ---- v2: harness command builders (+ T1 identity injection) ----
+        cmd, _ = harness_command(by["alpha"], "P")
+        check("v2: claude command carries model+effort", "--model fable" in cmd and "--effort xhigh" in cmd)
+        check("T1: every harness command is prefixed with the seat's COORD_AGENT identity",
+              cmd.startswith("COORD_AGENT=alpha ") and f"COORD_AGENT=alpha {CLAUDE_BIN}" in cmd)
+        cmd, _ = harness_command(by["gamma"], "P")
+        check("v2: opencode command carries provider/model + --prompt",
+              cmd.startswith(f"COORD_AGENT=gamma {OPENCODE_BIN}")
+              and "--model zai-coding-plan/glm-5.2" in cmd and "--prompt" in cmd)
+        cmd, _ = harness_command(by["delta"], "P")
+        check("v2: codex command uses plan default when model empty",
+              cmd.startswith(f"COORD_AGENT=delta {CODEX_BIN}") and " -m " not in cmd)
+        bad = dict(by["gamma"], model="")
+        cmd, err = harness_command(bad, "P")
+        check("v2: opencode without model refused", cmd is None and "require" in err)
+
+        # ---- v2: boot prompt mentions memory only for persistent folder seats ----
+        p = boot_prompt(by["gamma"], ns())
+        check("v2: persistent folder seat boot prompt names memory.md", "memory.md" in p)
+        p = boot_prompt(by["delta"], ns())
+        check("v2: ephemeral seat boot prompt omits memory", "memory.md" not in p)
+        p = boot_prompt(by["leader"], ns())
+        check("leader renew: no memory.md yet -> generic fresh boot prompt", "RESUMING" not in p)
+        (mdir / "memory.md").write_text("# memory\n## Resume here\nstate\n")
+        p = boot_prompt(by["leader"], ns())
+        check("leader renew: memory.md present -> resume-first prompt (memory before briefing, "
+              "'Resume here' named, no re-run of completed work)",
+              "RESUMING" in p and "Resume here" in p and "do not re-run" in p
+              and p.index(str(mdir / "memory.md")) < p.index(str(mdir / "agent.md")))
+
+        # ---- v2: launch placement — window vs pane ----
+        wake_ok["v"] = True  # harness starts must succeed from here on
+        os.environ["COORD_LAUNCH_TARGET"] = "%0"
+        out = run(cmd_launch, agent="leader", only="gamma,beta", dry_run=False)
+        check("v2: window seat opens a window, pane seat opens a pane",
+              ("window", "gamma") in opened and ("pane", VAULT_ROOT) in opened)
+        check("v2: claude seat schedules /rename, opencode seat does not",
+              "beta" in renames and "gamma" not in renames)
+
+        # ---- wave windows: `window: NAME` seats share one window, one pane each ----
+        check("wave: placement plan — own / shared / pane",
+              (seat_placement({"window": "yes", "agent": "a"}),
+               seat_placement({"window": "wave-x", "agent": "a"}),
+               seat_placement({"window": "", "agent": "a"}))
+              == (("own", "a"), ("shared", "wave-x"), ("pane", None)))
+        out = run(cmd_launch, agent="leader", only="hk-1,hk-2", dry_run=False)
+        check("wave: first seat creates the shared window, second splits into it",
+              [o for o in opened if o == ("window", "wave-haiku")] == [("window", "wave-haiku")]
+              and "window:wave-haiku" in out and out.count("launched") == 2)
+
+        # ---- v2: transcript export ----
+        run(cmd_checkin, agent="gamma", summary="gamma work", pane="%5")
+        out = run(cmd_export_transcript, target="gamma", label="test")
+        check("v2: export-transcript writes into the worker folder",
+              "transcript exported" in out and any((gdir / "transcripts").glob("*-gamma-test.txt")))
+
+        # ---- v2: closer prompt + close dry-run ----
+        text = closer_prompt(ns(), "gamma", renew=True)
+        check("v2: closer prompt filled (target, memory path, renew)",
+              "closer-gamma" in text and str(gdir / "memory.md") in text
+              and "close-seat gamma --renew" in text and "RENEW IS ON" in text)
+        check("T1 doc: the closer template teaches the identity-less grammar (no seat types its "
+              "own name into send/read/depart)",
+              " send gamma " in text and " read`" in text and " depart`" in text
+              and "send closer-gamma" not in text and "read closer-gamma" not in text
+              and "depart closer-gamma" not in text)
+        out = run(cmd_close, agent="leader", target="gamma", renew=False, dry_run=True)
+        check("v2: close --dry-run shows sonnet closer + prompt + shared 'closers' window",
+              CLOSER_MODEL in out and "closer-gamma" in out and CLOSERS_WINDOW in out)
+
+        # ---- closer placement: pure decision function (headless, no tmux) ----
+        check("closer_placement: no existing pane -> create the shared window",
+              closer_placement("") == ("new_window", CLOSERS_WINDOW))
+        check("closer_placement: existing pane -> split into it",
+              closer_placement("%77") == ("split", "%77"))
+
+        # ---- v2: close-seat kills, checks out, renews ----
+        killed.clear()
+        opened.clear()
+        out = run(cmd_close_seat, agent="closer-gamma", target="gamma", renew=True, no_export=False)
+        _, _, rows = load_workers(base_dir(ns()))
+        g = current_row(rows, "gamma")
+        check("v2: close-seat checks the row out and kills the pane",
+              g["active"] == "no" and "closed" in g["checkout"] and "%5" in killed)
+        check("v2: close-seat --renew relaunches the seat", ("window", "gamma") in opened
+              and "renewed: gamma" in out)
+
+        # ---- leader renew: a pane seat relaunches into its OLD window, never the caller's ----
+        run(cmd_checkin, agent="leader", summary="arbiter", pane="%6")
+        pane_windows["%6"] = "@7"
+        killed.clear()
+        split_targets.clear()
+        out = run(cmd_close_seat, agent="leader", target="leader", renew=True, no_export=False)
+        check("leader renew: close-seat --renew leader finds the briefing and relaunches it as "
+              "a pane into the window its old pane occupied (the control panel)",
+              "%6" in killed and split_targets == ["@7"] and "renewed: leader" in out)
+
+        # ---- v2: control panel — overview pane, idempotent ----
+        opened.clear()
+        out = run(cmd_panel, agent="leader")
+        check("panel: opens a short full-width strip running tmux-overview --compact --package",
+              ("strip", PANEL_STRIP_ROWS) in opened and "tmux-overview 'testsess' --compact" in out
+              and "roster names from the package" in out)
+        panel_panes.append(("%42", "overview"))
+        opened.clear()
+        out = run(cmd_panel, agent="leader")
+        check("panel: idempotent when an overview pane exists",
+              not opened and "already open" in out)
+        # closer placement (owner-directed layout fix): closers NEVER open in the control-panel
+        # window; the first close of a run creates the shared 'closers' window, every closer
+        # after that splits into that SAME window as an additional pane, titled by its target.
+        opened.clear()
+        out = run(cmd_close, agent="leader", target="gamma", renew=False, dry_run=False)
+        check("closer placement: first closer creates the shared 'closers' window (not a pane "
+              "in the caller's own window)",
+              ("window", CLOSERS_WINDOW) in opened
+              and not any(k == "pane" for k, _ in opened)
+              and any(t == "closer-gamma" for _, t in titles))
+
+        opened.clear()
+        out = run(cmd_close, agent="leader", target="beta", renew=False, dry_run=False)
+        check("closer placement: second closer splits into the EXISTING 'closers' window, "
+              "never opens a second one",
+              not any(k == "window" for k, _ in opened)
+              and any(k == "pane" for k, _ in opened)
+              and any(t == "closer-beta" for _, t in titles))
+
+        # ---- v2: depart (self close) ----
+        run(cmd_checkin, agent="delta", summary="one pass", pane="%7")
+        killed.clear()
+        out = run(cmd_depart, agent="delta")
+        _, _, rows = load_workers(base_dir(ns()))
+        d = current_row(rows, "delta")
+        check("v2: depart exports, checks out, kills own pane",
+              d["active"] == "no" and "%7" in killed
+              and any((pkg / "workers" / "delta" / "transcripts").glob("*-delta-depart.txt")))
+
+        # ---- T3: checkout mechanizes the transcript export (--no-export escapes) ----
+        out = run(cmd_checkout, agent="beta", no_export=False)
+        _, _, rows = load_workers(base_dir(ns()))
+        b = current_row(rows, "beta")
+        check("checkout stamps row", b["active"] == "no" and b["checkout"] != "")
+        check("T3: checkout auto-exports the seat's transcript first",
+              "transcript:" in out
+              and any((pkg / "workers" / "beta" / "transcripts").glob("*-beta-checkout.txt")))
+        run(cmd_checkin, agent="beta", summary="second beta pass", pane="%2")
+        before_exports = len(list((pkg / "workers" / "beta" / "transcripts").glob("*.txt")))
+        out = run(cmd_checkout, agent="beta", no_export=True)
+        check("T3: --no-export skips it (a dead pane has nothing to capture)",
+              "transcript:" not in out
+              and len(list((pkg / "workers" / "beta" / "transcripts").glob("*.txt")))
+              == before_exports)
+
+        check("auto-name: checkin titles the pane after the agent",
+              ("%1", "alpha") in titles and ("%2", "beta") in titles)
+
+        # ---- T1: identity resolution + verification (F1) ----
+        calling_pane["v"] = ""
+        check("T1: an explicit args.agent (watch.py's internal Namespace calls) resolves as --as",
+              resolve_agent(ns(agent="watcher")) == "watcher")
+        os.environ["COORD_AGENT"] = "alpha"
+        check("T1: COORD_AGENT (injected at launch) resolves the caller with nothing typed",
+              resolve_agent(ns()) == "alpha")
+        check("T1: --as beats COORD_AGENT", resolve_agent(ns(as_agent="beta")) == "beta")
+        os.environ.pop("COORD_AGENT", None)
+        calling_pane["v"] = "%3"
+        check("T1: with no claim at all, the calling pane's registered roster row IS the identity",
+              resolve_agent(ns()) == "alpha")
+        out, code = refuse(resolve_agent, as_agent="beta")
+        check("T1: a claim contradicting the calling pane's registered agent is REFUSED, and the "
+              "refusal names the registered agent",
+              code == 2 and "'alpha'" in out and "beta" in out)
+        with redirect_stderr(io.StringIO()):
+            forced = resolve_agent(ns(as_agent="beta", force=True))
+        check("T1: --force overrides the contradiction deliberately", forced == "beta")
+        out, code = refuse(cmd_send, agent="par-b", to="alpha", message="impersonation",
+                           type="note", supersedes=None, re_num=None, file=None)
+        check("T1 end-to-end: a command claiming another seat's name from a registered pane is "
+              "refused before anything is written", code == 2 and "alpha" in out)
+        calling_pane["v"] = "%99"  # a pane no roster row claims
+        out, code = refuse(resolve_agent)
+        check("T1: unresolvable identity teaches checkin instead of guessing",
+              code == 2 and "checkin" in out and "--as" in out)
+        calling_pane["v"] = ""
+
+        # ---- T6: hard role gates (F14 — these commands documented a rule they never enforced) ----
+        out, code = refuse(cmd_launch, agent="beta", only="hk-1", dry_run=True)
+        check("gate: launch hard-refuses a non-leader caller", code == 2 and "leader" in out)
+        out, code = refuse(cmd_launch, agent="beta", only="hk-1", dry_run=True, force=True)
+        check("gate: --force is the escape on every gate", code == 0 and "[dry-run] hk-1" in out)
+        out, code = refuse(cmd_panel, agent="beta")
+        check("gate: panel hard-refuses a non-leader caller", code == 2)
+        out, code = refuse(cmd_add_to_group, agent="beta", group="pair", members=["gamma"])
+        check("gate: add-to-group stays leader-only", code == 2)
+        out, code = refuse(cmd_close_seat, agent="beta", target="alpha", renew=False, no_export=True)
+        check("gate: close-seat refuses a plain worker (leader or closer-* only)", code == 2)
+        out, code = refuse(cmd_owner, agent="beta", state="afk", note="")
+        check("gate: owner refuses a worker", code == 2)
+        out = run(cmd_owner, state="afk", note="dinner")
+        check("gate: owner ACCEPTS an unresolvable identity — that caller is the human owner",
+              "owner is now: afk" in out)
+        run(cmd_owner, agent="leader", state="present", note="back")
+
+        # ---- T3: recipient validation, length guard, file/stdin bodies ----
+        out, code = refuse(cmd_send, agent="alpha", to="betaa", message="typo", type="note",
+                           supersedes=None, re_num=None, file=None)
+        check("T3 validation: an unknown recipient is refused with the closest match (F5)",
+              code == 1 and "betaa" in out and "'beta'" in out)
+        out, code = refuse(cmd_send, agent="alpha", to="betaa", message="typo", type="note",
+                           supersedes=None, re_num=None, file=None, force=True)
+        check("T3 validation: --force sends it anyway", code == 0 and "sent message #" in out)
+        raw_before = (base_dir(ns()) / "messages.md").read_text(encoding="utf-8")
+        out = sd("alpha", "hk-2", "your briefing exists but you have not checked in yet")
+        raw_after = (base_dir(ns()) / "messages.md").read_text(encoding="utf-8")
+        check("T3 validation: a briefed-but-not-yet-launched seat is a VALID recipient — and its "
+              "wake is never ATTEMPTED, so it is named in the skip list as `not launched` and "
+              "NOTHING is written to the log (a wake nobody sent cannot have failed)",
+              "sent message #" in out and "skipped (not launched: hk-2)" in out
+              and "wake FAILED" not in out
+              and raw_after.count("> delivery-failure:")
+              == raw_before.count("> delivery-failure:"))
+        long_body = "x" * (MESSAGE_MAX + 1)
+        out, code = refuse(cmd_send, agent="alpha", to="beta", message=long_body, type="note",
+                           supersedes=None, re_num=None, file=None)
+        check("T3 length guard: an oversized body is refused and TEACHES the file+summary fix",
+              code == 1 and str(MESSAGE_MAX) in out and "Write it to a file" in out)
+        out, code = refuse(cmd_send, agent="alpha", to="beta", message=long_body, type="note",
+                           supersedes=None, re_num=None, file=None, force=True)
+        check("T3 length guard: --force escapes it", code == 0 and "sent message #" in out)
+        body_file = Path(td) / "body.md"
+        body_file.write_text("holds `backticks`, \"quotes\" and $(substitution)\nsecond line\n",
+                             encoding="utf-8")
+        run(cmd_send, agent="alpha", to="beta", message=None, type="note", supersedes=None,
+            re_num=None, file=str(body_file))
+        _, blocks = load_messages(base_dir(ns()))
+        check("T3 --file: the body is read from disk verbatim — backticks never touch a shell (F6)",
+              "`backticks`" in body_of(blocks[-1]) and "$(substitution)" in body_of(blocks[-1])
+              and "second line" in body_of(blocks[-1]))
+        saved_stdin = sys.stdin
+        sys.stdin = io.StringIO("body piped in on stdin\n")
+        try:
+            run(cmd_send, agent="alpha", to="beta", message=None, type="note", supersedes=None,
+                re_num=None, file="-")
+        finally:
+            sys.stdin = saved_stdin
+        _, blocks = load_messages(base_dir(ns()))
+        check("T3 --file -: the body is read from stdin",
+              "body piped in on stdin" in body_of(blocks[-1]))
+        out, code = refuse(cmd_send, agent="alpha", to="beta", message="both", type="note",
+                           supersedes=None, re_num=None, file=str(body_file))
+        check("T3: a positional body AND --file together are refused", code == 1 and "not both" in out)
+        out, code = refuse(cmd_send, agent="alpha", to="beta", message=None, type="note",
+                           supersedes=None, re_num=None, file=None)
+        check("T3: no body at all is refused with the --file hint",
+              code == 1 and "no message body" in out)
+
+        # ---- T4: ask threading ----
+        out, code = refuse(cmd_send, agent="alpha", to="beta", message="here you go",
+                           type="answer", supersedes=None, re_num=None, file=None)
+        check("T4: an answer with no --re is refused and teaches `pending`",
+              code == 1 and "--re" in out and "pending" in out)
+        out, code = refuse(cmd_send, agent="alpha", to="beta", message="here you go",
+                           type="answer", supersedes=None, re_num=None, file=None, force=True)
+        check("T4: --force is the rare escape", code == 0 and "sent message #" in out)
+        out, code = refuse(cmd_send, agent="alpha", to="beta", message="fyi", type="note",
+                           supersedes=None, re_num=4, file=None)
+        check("T4: --re on a type that cannot carry it is refused",
+              code == 1 and "only on --type answer" in out)
+        out, code = refuse(cmd_send, agent="alpha", to="beta", message="answering", type="answer",
+                           supersedes=None, re_num=9999, file=None)
+        check("T4: --re must reference a message that exists", code == 1 and "no such message" in out)
+        out, code = refuse(cmd_send, agent="alpha", to="beta", message="answering", type="answer",
+                           supersedes=None, re_num=3, file=None)
+        check("T4: --re must reference an ASK, not any message", code == 1 and "not an ask" in out)
+
+        ask_open = int(sd("alpha", "leader", "PENDING: which layout wins?", type="ask")
+                       .split("#")[1].split()[0])
+        ask_closed = int(sd("alpha", "leader", "CLOSED-BY-ANSWER: rerun the export?", type="ask")
+                         .split("#")[1].split()[0])
+        sd("leader", "alpha", "yes, rerun it", type="answer", re_num=ask_closed)
+        ask_superseded = int(sd("alpha", "leader", "CLOSED-BY-SUPERSESSION: ignore me", type="ask")
+                             .split("#")[1].split()[0])
+        sd("alpha", "leader", "withdrawn", type="note", supersedes=ask_superseded)
+        _, blocks = load_messages(base_dir(ns()))
+        nums = {b["num"] for b in open_asks(blocks)}
+        check("T4: an ask is OPEN until an answer --re's it or it is superseded",
+              ask_open in nums and ask_closed not in nums and ask_superseded not in nums)
+
+        def section_of(text, title):
+            lines = text.splitlines()
+            start = next((i for i, ln in enumerate(lines) if ln.startswith(title)), None)
+            if start is None:
+                return ""
+            body = []
+            for ln in lines[start + 1:]:
+                if not ln.startswith("  "):
+                    break
+                body.append(ln)
+            return "\n".join(body)
+
+        out = run(cmd_pending, agent="leader")
+        check("T4 pending: open asks addressed to me are listed with their age; settled and "
+              "superseded ones are gone",
+              f"#{ask_open} " in section_of(out, "asks waiting on you")
+              and f"#{ask_closed} " not in out and f"#{ask_superseded} " not in out
+              and "old" in section_of(out, "asks waiting on you"))
+        out = run(cmd_pending, agent="alpha")
+        check("T4 pending: my own unanswered asks are a separate section",
+              f"#{ask_open} " in section_of(out, "your asks nobody has answered"))
+
+        # ---- T2: status ----
+        out = run(cmd_status, agent="alpha")
+        check("T2 status: identity, pane, owner, cursor, unread-by-type and open asks in one shot",
+              "you:    alpha" in out and "pane:   %3" in out and "owner:  present" in out
+              and "cursor: #" in out and "unread:" in out and "asks waiting on you:" in out
+              and "next:" in out)
+        out = run(cmd_status, agent="gamma")
+        check("T2 status: a not-checked-in caller is taught checkin, not shown a half-state",
+              "NOT checked in" in out and "checkin gamma" in out)
+
+        # ---- T3: wakes to DEPARTED seats are skipped quietly, never logged as failures (F7) ----
+        raw_before = (base_dir(ns()) / "messages.md").read_text(encoding="utf-8")
+        out = sd("alpha", "all", "who is still here?")
+        raw_after = (base_dir(ns()) / "messages.md").read_text(encoding="utf-8")
+        new_failures = (raw_after.count("> delivery-failure:")
+                        - raw_before.count("> delivery-failure:"))
+        departed_line = next((ln for ln in out.splitlines() if "skipped (departed:" in ln), "")
+        departed_names = [n.strip() for n in
+                          departed_line.split("departed:")[-1].split(")")[0].split(",")]
+        check("T3: a departed seat is skipped quietly — every one of them NAMED to the sender in "
+              "the single wake summary line (T6), in sorted order, and NEVER written to the log "
+              "as a delivery failure; nothing else in this broadcast was attempted-and-failed "
+              "either, so the log gains no failure line at all",
+              "beta" in departed_names and "delta" in departed_names
+              and departed_names == sorted(departed_names)
+              and out.count("wakes: ") == 1
+              and new_failures == 0 and "delivery-failure: delta" not in raw_after)
+        # ---- fix round: a built-in auto-wake DEFAULT naming a seat this package does not have ----
+        # (the body must not name the seat itself — the assertion below reads the whole log)
+        out = sd("alpha", "beta", "a routine send in a package holding no such default seat")
+        raw = (base_dir(ns()) / "messages.md").read_text(encoding="utf-8")
+        check("fix round: `scientist` is a built-in auto-wake DEFAULT, not a roster — with no "
+              "scientist row and no scientist briefing in this package it is not a recipient at "
+              "all: no wake, no skip mention, no log line (every send used to log a phantom "
+              "scientist delivery failure, the 46:1 noise class F7 is about)",
+              "scientist" not in out and "scientist" not in raw)
+
+        # ---- T5: broadcast wakes run in parallel, results printed in sorted order ----
+        import threading
+        for seat, seat_pane in (("par-a", "%21"), ("par-b", "%22"), ("par-c", "%23")):
+            run(cmd_checkin, agent=seat, summary=f"{seat} work", pane=seat_pane)
+        run(cmd_create_group, agent="par-a", group="parallel", members=["par-b", "par-c"])
+        probe = {"cur": 0, "max": 0}
+        plock = threading.Lock()
+
+        def recording_wake(pane, text):
+            with plock:
+                probe["cur"] += 1
+                probe["max"] = max(probe["max"], probe["cur"])
+            time.sleep(0.05)
+            with plock:
+                probe["cur"] -= 1
+            return True, ""
+
+        saved_wake = wake
+        wake = recording_wake
+        out = sd("par-a", "parallel", "wave check")
+        wake = saved_wake
+        summary = [ln for ln in out.splitlines() if ln.strip().startswith("wakes: ")]
+        delivered_n = int(summary[0].split("wakes: ")[1].split()[0]) if summary else 0
+        check("T5 parallel: recipients are woken concurrently, and their results collapse into "
+              "ONE deterministic summary line — no per-recipient delivery lines are left to "
+              "interleave (T6 compression; failures still get their own line)",
+              probe["max"] > 1 and len(summary) == 1 and delivered_n >= 2
+              and "wake -> " not in out)
+
+        # ---- T5: the package lock, and its lockless fallback ----
+        check("T5 lock: a locked write creates the package lockfile", (base_dir(ns()) / ".lock").exists())
+        saved_flock = _acquire_flock
+
+        def broken_flock(fh):
+            raise OSError("EROFS: read-only file system")
+
+        _acquire_flock = broken_flock
+        _LOCK_NOTE["shown"] = False
+        errbuf = io.StringIO()
+        with redirect_stderr(errbuf):
+            out = sd("par-a", "par-b", "sent while the lock is unavailable")
+        _acquire_flock = saved_flock
+        check("T5 lock: an unusable lock (read-only sandbox) degrades to lockless with ONE note "
+              "and still writes — never a crash",
+              "sent message #" in out and "proceeding lockless" in errbuf.getvalue())
+
+        # ---- T5: cursor persistence is non-fatal, and no-ops are not rewritten ----
+        saved_atomic = atomic_write
+
+        def failing_workers_write(path, text):
+            if Path(path).name == "workers.md":
+                raise OSError("EROFS: read-only file system")
+            return saved_atomic(path, text)
+
+        atomic_write = failing_workers_write
+        out = rd("par-c")
+        atomic_write = saved_atomic
+        check("T5: a cursor-persist failure never costs the reader its messages — the batch is "
+              "shown, with an --after hint instead of a traceback (F9, codex EROFS)",
+              "-- shown" in out and "cursor NOT stored" in out and "--after" in out
+              and "EROFS" in out)
+        out = rd("par-c")
+        cur = int(cursor_of("par-c"))
+        writes = []
+        atomic_write = lambda p, t: (writes.append(Path(p).name) or saved_atomic(p, t))
+        out = rd("par-c", after=cur - 1)
+        atomic_write = saved_atomic
+        check("T5: a cursor rewrite that would change nothing is skipped entirely "
+              "(the no-op rewrite was itself a race source, scientist-roster #103)",
+              "cursor already at" in out and "workers.md" not in writes)
+
+        # ---- fix round: the read cursor belongs to the SEAT, not to one session of it ----
+        run(cmd_checkin, agent="rejoin", summary="first session", pane="%31")
+        check("checkin cursor: a first-ever check-in still starts at 0",
+              cursor_of("rejoin") == "0")
+        sd("alpha", "rejoin", "read me before the relaunch")
+        rd("rejoin")
+        kept = cursor_of("rejoin")
+        out = run(cmd_checkin, agent="rejoin", summary="re-check-in, same seat", pane="%31")
+        check("checkin cursor: a re-check-in INHERITS the superseded row's cursor and reports "
+              "unread FROM it — it used to write lastread=0, so the seat was told the whole log "
+              "was waiting for it",
+              kept != "0" and cursor_of("rejoin") == kept
+              and f"cursor kept at #{kept}" in out and "nothing waiting yet" in out)
+        run(cmd_checkout, agent="rejoin", no_export=True)
+        out = run(cmd_checkin, agent="rejoin", summary="renewed session", pane="%32")
+        check("checkin cursor: a RENEWED seat inherits it too — close-seat --renew closes the "
+              "row BEFORE the fresh session checks in, so there is no ACTIVE row left to "
+              "supersede, and that is the exact path the symptom was reported on",
+              cursor_of("rejoin") == kept)
+        run(cmd_checkin, agent="fresh", summary="a different seat entirely", pane="%33")
+        check("checkin cursor: never inherited across agent NAMES", cursor_of("fresh") == "0")
+
+        # ---- fix round: the workers lag column is the exact per-agent unread count ----
+        for i in range(3):
+            sd("rejoin", "alpha", f"my own message {i}")
+        _, tail_blocks = load_messages(base_dir(ns()))
+        old_formula = tail_blocks[-1]["num"] - int(cursor_of("rejoin"))
+        out = run(cmd_workers, full=False, history=False)
+        rejoin_line = next((ln for ln in out.splitlines() if ln.startswith("rejoin")), "")
+        st = run(cmd_status, agent="rejoin")
+        check("workers lag: an agent whose OWN messages are the log tail is NOT reported behind "
+              "— the column now runs the same addressing/observer-aware unread derivation "
+              "`status` uses (`log tail - cursor` counted the agent's own sends against it: "
+              f"it would have said lag={old_formula} here)",
+              old_formula == 3 and " lag=0" in rejoin_line and "unread: 0 (none)" in st)
+
+        # ---- T6: the two output modes (--pretty is EXPLICIT — never TTY-detected) ----
+        plain = run(cmd_status, agent="alpha")
+        check("T6 --pretty off (the default): the output carries ZERO ANSI escape bytes — an "
+              "agent re-quoting a line must not paste colour codes into the log",
+              "\x1b[" not in plain and "\x1b[" not in run(cmd_workers, full=False, history=False)
+              and "\x1b[" not in rd("beta", after=0, peek=True, digest=True)
+              and "\x1b[" not in run(cmd_pending, agent="leader"))
+        set_pretty(argparse.Namespace(pretty=True))
+        pretty_status = run(cmd_status, agent="alpha")
+        pretty_digest = rd("beta", after=0, peek=True, digest=True)
+        pretty_workers = run(cmd_workers, full=False, history=False)
+        pretty_pending = run(cmd_pending, agent="leader")
+        PRETTY["on"] = False
+        check("T6 --pretty on: status, workers, read --digest and pending render ANSI, and the "
+              "plain text underneath is unchanged (colour wraps, never replaces)",
+              all("\x1b[" in o for o in (pretty_status, pretty_digest, pretty_workers,
+                                         pretty_pending))
+              and "you:" in pretty_status and "asks waiting on you" in pretty_pending)
+        os.environ["COORD_PRETTY"] = "1"
+        env_on = set_pretty(argparse.Namespace(pretty=False))
+        env_pretty = run(cmd_status, agent="alpha")
+        os.environ.pop("COORD_PRETTY", None)
+        off_again = set_pretty(argparse.Namespace(pretty=False))
+        check("T6 --pretty: COORD_PRETTY=1 turns the human mode on without the flag, and dropping "
+              "it turns the mode back off (no TTY sniffing either way)",
+              env_on and "\x1b[" in env_pretty and not off_again
+              and "\x1b[" not in run(cmd_status, agent="alpha"))
+
+        # ---- T6/F2: the help is an INDEX, not a manual (it used to print the module docstring) ----
+        saved_cols = os.environ.get("COLUMNS")
+        os.environ["COLUMNS"] = "100"  # deterministic wrapping for the line count
+        parser = build_parser()
+        top = parser.format_help()
+        per_cmd = {name: sp.format_help() for name, sp in parser.command_parsers.items()}
+        if saved_cols is None:
+            os.environ.pop("COLUMNS", None)
+        else:
+            os.environ["COLUMNS"] = saved_cols
+        check("T6 help: the top-level -h is a one-screen index — 30 lines or fewer, grouped "
+              "everyday/leader/other, pointing at the per-command help (F2/F18: it used to dump "
+              "a ~120-line docstring listing every subcommand a second time)",
+              len(top.splitlines()) <= 30
+              and all(f"\n{g}\n" in top for g in ("everyday", "leader", "other"))
+              and "coordinate <command> -h" in top
+              and "--last-read" not in top and "read <agent>" not in top)
+        check("T6 help: every command's own -h carries a worked example and the step that "
+              "usually follows",
+              len(per_cmd) == 18
+              and all("example:\n  coordinate" in h or "example:\n  python3" in h
+                      for h in per_cmd.values())
+              and all("\nnext: " in h for h in per_cmd.values()))
+        check("T6 help: a target positional says it is the SEAT ACTED ON, never the caller "
+              "(F14 — positional #1 used to mean SELF on some commands and TARGET on others)",
+              all("TARGET seat" in per_cmd[n]
+                  for n in ("close", "close-seat", "approve", "export-transcript")))
+
+        # ---- fix round: leader's idle next-hint drains the queue instead of self-messaging ----
+        run(cmd_checkin, agent="leader", summary="arbiter, second sitting", pane="%41")
+        sd("leader", "alpha", "ruling: layout A", type="answer", re_num=ask_open)
+        rd("leader", limit=0)          # drain the log so the IDLE branch is the one under test
+        out = run(cmd_status, agent="leader")
+        check("F6 status: with nothing waiting, leader is pointed at its own drain (pending, "
+              "then read) — the idle hint used to tell leader to `send leader ... --type ask`, "
+              "i.e. to message itself",
+              "unread: 0 (none)" in out and "asks waiting on you: 0" in out
+              and "pending — drain the run's open asks" in out and "send leader" not in out)
+        rd("fresh", limit=0)
+        out = run(cmd_status, agent="fresh")
+        check("F6 status: a plain worker's idle hint is unchanged — it still escalates to leader",
+              "send leader" in out and "drain the run's open asks" not in out)
+
+        os.environ.pop("COORD_LAUNCH_TARGET", None)
+
+    (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
+     tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
+     tmux_split_strip, restore_overview_strip, tmux_find_window_pane, tmux_send_text,
+     tmux_send_enter, tmux_capture_tail, tmux_pane_window, detect_pane, live_panes,
+     _acquire_flock, atomic_write) = real
+    if env_agent is not None:
+        os.environ["COORD_AGENT"] = env_agent
+    print(f"\nselftest: {'PASS' if not failures else 'FAIL'} ({len(failures)} failure(s))")
+    sys.exit(1 if failures else 0)
+
+
+def add_identity_flags(s, force=True):
+    """--as / --force are also accepted AFTER the subcommand (that is where agents type them).
+    SUPPRESS leaves the global --as untouched when the subcommand's copy is absent."""
+    s.add_argument("--as", dest="as_agent", default=argparse.SUPPRESS, metavar="NAME",
+                   help="act as this agent instead of the resolved identity")
+    if force:
+        s.add_argument("--force", action="store_true",
+                       help="override this command's refusal (identity mismatch, role gate, validation)")
+
+
+def add_pretty_flag(s):
+    """`--pretty` on the four VIEW commands as well as globally — that is where a human types it
+    (`coordinate status --pretty`). SUPPRESS keeps the global value when this copy is absent."""
+    s.add_argument("--pretty", action="store_true", default=argparse.SUPPRESS,
+                   help="ANSI colour + aligned columns (also: COORD_PRETTY=1); default is plain")
+
+
+# T6/F2 — the top-level help used to print this module's docstring: a ~120-line manual that
+# listed every subcommand a second time and had already drifted from the code. It is now a
+# grouped 1-line-per-command index; each command's own -h carries the detail, an example and the
+# step that follows. Global flags are summarised in the footer instead of an options block —
+# argparse renders one line per flag, and the whole point of this help is that it fits on a
+# screen. Groups are LIFECYCLE-ordered, not alphabetical: everyday work, leader-only, the rest.
+HELP_EPILOG = """everyday
+  checkin     register this session — binds this tmux pane to your agent name
+  status      where you stand: identity, pane, owner, unread, cursor, open asks
+  read        your unread messages, {limit} at a time (cursor persisted per agent)
+  send        message one agent, a group, or all — typed, their pane woken
+  pending     open asks: waiting on you, open to everyone, yours unanswered
+  checkout    end your session (exports your transcript first)
+
+leader
+  launch      open one tmux seat per worker briefing and start its harness
+  close       spawn a closer that co-writes a seat's memory.md, then closes it
+  close-seat  mechanical close: export, check out, kill the pane (--renew relaunches)
+  approve     answer a seat's permission prompt by sending keys to its pane
+  panel       open the control-panel overview strip in this window
+  owner       set owner presence: present | afk
+  add-to-group  add members to an existing group
+
+other
+  workers     roster: who is alive, what each is on, how far behind the log
+  create-group       open a message group for one workstream
+  export-transcript  capture a seat's pane scrollback into its worker folder
+  depart      ephemeral seats: export + check out + kill your own pane
+  selftest    run the built-in self-test (temp dir, no tmux needed)
+global: --run TAG | --package DIR (which run) · --as NAME (act as) · --pretty (colour)
+details + examples: coordinate <command> -h · --force overrides a refusal, where one exists""".format(limit=READ_LIMIT)
+
+
+def build_parser():
+    """The whole CLI surface. Split out of main() so the self-test can render the help texts."""
+    p = argparse.ArgumentParser(
+        prog="coordinate",
+        usage="coordinate [--run TAG | --package DIR] [--as NAME] [--pretty] <command> [args]",
+        description="Coordination CLI for a multi-agent tmux team run — all state lives in the "
+                    "run package.\nIdentity is resolved, never typed: --as NAME > $COORD_AGENT > "
+                    "this pane's roster row.",
+        epilog=HELP_EPILOG,
+        add_help=False,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    # -h stays, but out of the options block: with every global flag summarised in the epilog,
+    # an options section holding one entry costs three lines of a help that must fit a screen.
+    p.add_argument("-h", "--help", action="help", default=argparse.SUPPRESS,
+                   help=argparse.SUPPRESS)
+    p.add_argument("--package", metavar="DIR", help=argparse.SUPPRESS)
+    p.add_argument("--run", metavar="TAG", help=argparse.SUPPRESS)
+    p.add_argument("--as", dest="as_agent", default=None, metavar="NAME", help=argparse.SUPPRESS)
+    p.add_argument("--pretty", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--base", help=argparse.SUPPRESS)            # testing only
+    p.add_argument("--workers-dir", help=argparse.SUPPRESS)     # testing only
+    # help=SUPPRESS hides the subparsers action from the "positional arguments" block (the epilog
+    # IS the command list); parsing is untouched.
+    sub = p.add_subparsers(dest="cmd", required=True, metavar="<command>", help=argparse.SUPPRESS)
+
+    made = {}
+
+    def command(name, description, epilog):
+        """One subcommand. No `help=` on purpose: the grouped epilog above IS the command list,
+        and argparse would otherwise render a second, ungrouped one."""
+        made[name] = sub.add_parser(name, description=description, epilog=epilog,
+                                    formatter_class=argparse.RawDescriptionHelpFormatter)
+        return made[name]
+
+    s = command(
+        "checkin",
+        "Register your session. This is the ONE command that carries your name: it creates your\n"
+        "roster row and binds this tmux pane to you, and every later command resolves your\n"
+        "identity from that binding. Run it before any briefing work, and again after a relaunch\n"
+        "(a re-check-in supersedes your prior row).",
+        "example:\n"
+        "  coordinate checkin builder \"rebuilding views/*.html from graph.py; owns views/ + "
+        "render.py\"\n"
+        "next: coordinate read — anything already waiting for you")
+    s.add_argument("agent", help="your agent name, as in your briefing's `agent:` key — this call CREATES the pane->name binding every later command resolves")
+    s.add_argument("summary", help=f"what you are working on, max {SUMMARY_MAX} chars — other agents read this line to decide whether to message you")
+    s.add_argument("--pane", help="override tmux pane id (default: auto-detect from $TMUX_PANE)")
+    s.set_defaults(func=cmd_checkin)
+
+    s = command(
+        "checkout",
+        "End your session: exports your transcript, then flips your roster row to done. Run it\n"
+        "when your briefing is complete and your completion message is already sent.",
+        "example:\n"
+        "  coordinate checkout\n"
+        "next: nothing on your side — leader runs `close <you>` if the seat must go")
+    s.add_argument("--no-export", action="store_true", help="skip the automatic transcript export (e.g. the pane is already dead)")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_checkout)
+
+    s = command(
+        "send",
+        "Send one typed message to an agent, a group, or everyone, and wake the recipients'\n"
+        "panes. Send at coordination points: starting, before touching a shared surface, at a\n"
+        "milestone, when blocked, when done. The log is the truth — wakes are best-effort.",
+        "example:\n"
+        "  coordinate send leader \"views build green; 12/12 pages render\" --type completion\n"
+        "next: coordinate pending — after an ask, it shows whether anyone settled it")
+    s.add_argument("to", help="recipient: an agent name, a group name, or 'all' — validated against the roster, the briefings and the groups, so a typo is refused")
+    s.add_argument("message", nargs="?", help="the body, quoted. A body with backticks, quotes or newlines goes through --file instead (a shell eats them)")
+    s.add_argument("--type", required=True, choices=MESSAGE_TYPES,
+                   help="completion (my briefing/milestone is done) | ask (I need an answer) | answer (replying to an ask) | verdict (a judge/checker ruling) | note (FYI)")
+    s.add_argument("--re", dest="re_num", type=int, metavar="N",
+                   help="the ask this settles — REQUIRED on --type answer, optional on verdict")
+    s.add_argument("--supersedes", type=int, metavar="N",
+                   help="retract message N: readers see the retraction inline wherever N is rendered")
+    s.add_argument("--file", metavar="PATH",
+                   help="read the body from a file ('-' = stdin) — shell-safe for backticks/quotes/newlines")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_send)
+
+    s = command(
+        "read",
+        f"Show the messages you have not read yet, {READ_LIMIT} at a time. A plain read advances\n"
+        "your persisted cursor through the last message SHOWN — nothing else. Every filter\n"
+        "(--type/--addressed), plus --digest, --msg, --peek and --all, is peek-only and says so,\n"
+        "so a filtered read can never drop the messages it hid from your inbox.",
+        "example:\n"
+        "  coordinate read\n"
+        "next: read again while it reports more waiting; coordinate pending for the asks you owe")
+    s.add_argument("--digest", action="store_true", help="one line per message instead of full bodies (no cursor move)")
+    s.add_argument("--msg", type=int, default=None, metavar="N", help="show message N alone, in full, with its ask link (no cursor move)")
+    s.add_argument("--after", type=int, default=None, metavar="N",
+                   help="override the stored cursor: show messages after N (recovery after a context loss)")
+    s.add_argument("--limit", type=int, default=None, metavar="N", help=f"messages per batch (default {READ_LIMIT}; 0 = no limit)")
+    s.add_argument("--peek", action="store_true", help="show without advancing the cursor")
+    s.add_argument("--all", action="store_true", help="replay the whole log without advancing the cursor")
+    s.add_argument("--type", choices=MESSAGE_TYPES, default=None, help="show only this message type (no cursor move)")
+    s.add_argument("--addressed", choices=["any", "direct", "broadcast"], default="any",
+                   help="any = to me, my groups, or everyone (default) | direct = only messages naming me | broadcast = only messages to all")
+    add_pretty_flag(s)
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_read)
+
+    s = command(
+        "status",
+        "One-shot orientation — run it after a relaunch, a context loss, or whenever you are\n"
+        "unsure where you stand: who you are, whether your pane can still be woken, owner\n"
+        "presence, your cursor against the log tail, unread by type, and the asks waiting on you.\n"
+        "The pane check needs a live tmux server; without one every pane honestly reads ok.",
+        "example:\n"
+        "  coordinate status\n"
+        "next: whatever its own `next:` line says — read, pending, or back to your task")
+    add_pretty_flag(s)
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_status)
+
+    s = command(
+        "pending",
+        "The open asks, derived over the WHOLE log and not from your cursor: what is waiting on\n"
+        "you, what is open to everyone, and which of your own asks nobody has answered. An ask\n"
+        "stays open until an answer or verdict --re's it, or it is superseded.",
+        "example:\n"
+        "  coordinate pending\n"
+        "next: coordinate send <asker> \"<answer>\" --type answer --re <ask#>")
+    add_pretty_flag(s)
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_pending)
+
+    s = command(
+        "workers",
+        "The roster: one CURRENT row per agent — alive, dead pane, or checked out; what each is\n"
+        "working on; and how many messages each one has still to read (lag=, the same exact\n"
+        "unread count that seat's own `status` reports). ACTIVE rows are verified against live\n"
+        "tmux panes, so a seat whose pane is gone shows DEAD?.",
+        "example:\n"
+        "  coordinate workers\n"
+        "next: coordinate close-seat <agent> for a DEAD? row; send to reach a live one")
+    s.add_argument("--full", action="store_true", help="do not truncate the 'working on' summaries")
+    s.add_argument("--history", action="store_true", help="every historical row, not just each agent's current one")
+    add_pretty_flag(s)
+    s.set_defaults(func=cmd_workers)
+
+    s = command(
+        "owner",
+        "Record whether the owner is at the keyboard. Workers were inferring it and getting it\n"
+        "wrong (P15), so it is stated instead. Leader's to set — or the owner's own, from a\n"
+        "shell outside any seat.",
+        "example:\n"
+        "  coordinate owner afk --note \"back in 2h\"\n"
+        "next: coordinate send all \"owner is afk until ~18h\" --type note")
+    s.add_argument("state", choices=["present", "afk"], help="present = rulings can be escalated now; afk = queue them")
+    s.add_argument("--note", default="", help="optional context, e.g. 'back in 2h'")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_owner)
+
+    s = command(
+        "launch",
+        "(leader) Open one tmux seat per worker briefing and start its harness. Harness, model,\n"
+        "effort, cwd and pane-vs-window all come from each briefing's frontmatter, so leader\n"
+        "launches without reading any briefing. A bare launch never boots leader itself.",
+        "example:\n"
+        "  coordinate launch --only judge-ux,judge-parity\n"
+        "next: coordinate workers — every seat must check in; one that does not never booted")
+    s.add_argument("--only", help="comma-separated agent names to launch (stages: e.g. --only judge-ux,judge-parity)")
+    s.add_argument("--dry-run", action="store_true", help="print the command each seat would start with, open nothing")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_launch)
+
+    s = command(
+        "export-transcript",
+        "Capture a seat's full pane scrollback into workers/<agent>/transcripts/. checkout and\n"
+        "depart already do this for you — run it by hand for a mid-run milestone, or for a seat\n"
+        "you are about to close.",
+        "example:\n"
+        "  coordinate export-transcript builder --label milestone2\n"
+        "next: coordinate close builder — the closer reads the export")
+    s.add_argument("target", help="the TARGET seat whose pane is captured (the seat acted on, not the caller)")
+    s.add_argument("--label", default="", help="optional filename suffix, e.g. 'milestone2'")
+    s.set_defaults(func=cmd_export_transcript)
+
+    s = command(
+        "close",
+        "(leader) Spawn a closer seat for one target: it reads the seat's transcript and the log,\n"
+        "co-writes the seat's memory.md WITH the worker, then runs close-seat and departs. Use it\n"
+        "when a seat is finished, or is near its context limit (--renew gives it a fresh session\n"
+        "with the same briefing and its new memory).",
+        "example:\n"
+        "  coordinate close builder --renew\n"
+        "next: coordinate workers — closer-<target> checks in, then the seat goes")
+    s.add_argument("target", help="the TARGET seat being closed (the seat acted on, never your own name)")
+    s.add_argument("--renew", action="store_true",
+                   help="after closing, relaunch the seat fresh (it reads the updated memory.md)")
+    s.add_argument("--dry-run", action="store_true", help="print the closer prompt without launching")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_close)
+
+    s = command(
+        "close-seat",
+        "The mechanical tail of a close: export the target seat's transcript, check its row out,\n"
+        "kill its pane — and with --renew relaunch it fresh. The closer runs this at the end of\n"
+        "its own job; leader runs it directly to clean up a dead pane.",
+        "example:\n"
+        "  coordinate close-seat builder --renew\n"
+        "next: coordinate workers — confirm the seat is gone (or back, with --renew)")
+    s.add_argument("target", help="the TARGET seat being closed (the seat acted on — a closer never passes its own name)")
+    s.add_argument("--renew", action="store_true", help="relaunch the seat fresh after killing it")
+    s.add_argument("--no-export", action="store_true", help="skip the transcript export (e.g. pane already dead)")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_close_seat)
+
+    s = command(
+        "approve",
+        "(doorman) Answer a seat's interactive permission prompt by sending keys to its\n"
+        "registered pane, then echo the pane tail so you can verify what happened. Inspect the\n"
+        "pane and DECIDE first — this only presses the button.",
+        "example:\n"
+        "  coordinate approve builder --keys 2\n"
+        "next: run it again if the echoed tail still shows the prompt")
+    s.add_argument("target", help="the TARGET seat whose pane is showing the prompt (the seat acted on)")
+    s.add_argument("--keys", default="", help="literal keys before Enter (e.g. 1, 2, 3, n); empty = Enter only")
+    s.add_argument("--no-enter", action="store_true", help="send keys without a trailing Enter")
+    s.set_defaults(func=cmd_approve)
+
+    s = command(
+        "panel",
+        "(leader) Split a short full-width overview strip into THIS window: the live session\n"
+        "overview (windows, panes, seat names) plus plan usage. Idempotent — it skips if an\n"
+        "overview pane is already open.",
+        "example:\n"
+        "  coordinate panel\n"
+        "next: coordinate launch — the strip tracks the seats it opens")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_panel)
+
+    s = command(
+        "depart",
+        "Self-service exit for an ephemeral seat: export your own transcript, check out, and kill\n"
+        "your own pane, in one command. It takes no name — a seat can only depart ITSELF; leader\n"
+        "removes other seats with close-seat.",
+        "example:\n"
+        "  coordinate depart\n"
+        "next: nothing — your pane is gone and your row reads checked out")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_depart)
+
+    s = command(
+        "create-group",
+        "Open a message group for ONE workstream or overlap, so its thread leaves the `all`\n"
+        "channel. You and leader are always members. This is what the startup round produces:\n"
+        "one group per identified overlap, and detailed discussion happens there.",
+        "example:\n"
+        "  coordinate create-group views-render builder judge-ux\n"
+        "next: coordinate send views-render \"<why this group exists>\" --type note")
+    s.add_argument("group", help="the group name — a workstream, never an agent name or 'all'")
+    s.add_argument("members", nargs="*", help="agent names to include (you and leader are added automatically)")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_create_group)
+
+    s = command(
+        "add-to-group",
+        "(leader) Add members to an existing group — the way a late seat joins a thread that is\n"
+        "already running.",
+        "example:\n"
+        "  coordinate add-to-group views-render toolsmith\n"
+        "next: coordinate send views-render \"<who joined, and why>\" --type note")
+    s.add_argument("group", help="an existing group name")
+    s.add_argument("members", nargs="+", help="agent names to add")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_add_to_group)
+
+    s = command(
+        "selftest",
+        "Run the built-in self-test in a temp dir: no tmux, no run package, no network — every\n"
+        "tmux touch is stubbed. Required to exit 0 before any change to this script is used.",
+        "example:\n"
+        "  python3 coord.py selftest\n"
+        "next: nothing — a non-zero exit means the change is not ready")
+    s.set_defaults(func=cmd_selftest)
+    p.command_parsers = made  # so the self-test can render every command's help
+    return p
+
+
+def main():
+    args = build_parser().parse_args()
+    set_pretty(args)
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

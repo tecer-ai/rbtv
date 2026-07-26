@@ -1,0 +1,218 @@
+# team-kit protocol — multi-agent tmux coordination
+
+The coordination protocol every agent of a team-kit run MUST follow. A run package's `CLAUDE.md`
+declares the roster and run-specific rules and points here; on any conflict, the run package wins.
+
+Every rule below that carries a P-number was earned from a measured failure in the
+2026-07-24 kg-edges-viz run (evidence: that package's `team-observations.md` and
+`agent-teams-strategic-lessons.md`). These are not style preferences.
+
+## The CLI
+
+```
+COORD="coordinate --run {run-tag}"     # or: python3 {team-kit}/coord.py --package {abs-run-package}
+                                       # from inside the package folder, neither flag is needed
+
+$COORD checkin <agent> "<summary ≤560 chars>"   # on start — binds this pane to your name, supersedes any prior row (P1)
+$COORD status                                   # where you stand: pane, owner, unread by type, cursor, asks waiting on you
+$COORD read                                     # your unread messages, 10 at a time; cursor persisted + advances (P26)
+$COORD read --digest | --msg N | --after N      # one line each | one message in full | replay from N (all peek-only)
+$COORD read --peek | --all | --type T | --addressed any|direct|broadcast   # peek-only views too
+$COORD pending                                  # open asks: waiting on you, open to everyone, yours unanswered
+$COORD send <to> "<msg>" --type T               # T ∈ completion|ask|answer|verdict|note (P2)
+$COORD send <to> --file PATH|- --type T         # body from a file or stdin — no shell touches it (backticks, quotes, newlines)
+$COORD send <to> "<msg>" --type answer --re N   # the ask this settles — REQUIRED on answer, optional on verdict
+$COORD send <to> "<msg>" --type T --supersedes N   # retract message N (P12)
+$COORD workers                                  # roster + live-pane check + owner presence + per-seat unread lag
+$COORD owner present|afk [--note ".."]          # owner/leader only (P15)
+$COORD launch [--only a,b,c] [--dry-run]        # leader only — per-seat harness/model/effort
+$COORD create-group <group> [member ...]        # creator + leader auto-included
+$COORD add-to-group <group> <member ...>        # leader only
+$COORD export-transcript <agent> [--label L]    # full pane scrollback -> workers/<agent>/transcripts/
+$COORD checkout                                 # on finish — exports your transcript first (--no-export skips)
+$COORD depart                                   # ephemeral seats: export + checkout + kill own pane
+$COORD close <agent> [--renew]                  # leader only — spawn a closer (memory.md co-write, then close; --renew relaunches fresh)
+$COORD close-seat <agent> [--renew] [--no-export]  # mechanical close (normally the closer runs it; leader for dead panes)
+$COORD panel                                    # leader only — open the control-panel overview pane (live tmux-overview + plan usage)
+```
+
+**You never type your own name.** Identity is resolved: `--as NAME` > `$COORD_AGENT` (injected
+into every launched seat) > the calling pane's roster row. A claim that contradicts the pane's
+registered agent is REFUSED, naming the registered one. Where `<agent>` still appears above
+(`export-transcript`, `close`, `close-seat`, `approve`), it is the seat being ACTED ON, never the
+caller. `--force` is the single deliberate override on any refusal (identity, role gate,
+recipient/length/`--re` validation); leader-only commands hard-refuse everyone else.
+`--pretty` (or `COORD_PRETTY=1`) adds colour and aligned columns to `status`/`workers`/`read`/
+`pending` for a human reader; the default output is plain. Full surface: `coordinate -h` (grouped
+one-line index) and `coordinate <command> -h` (arguments, one example, the step that follows).
+
+**Control-panel layout.** The leader window is the run's control panel: leader, the oversight
+seats (watcher/observers), on-demand closers, and the `panel` overview pane — target ≤6 panes.
+Working seats declare `window: yes` and live in their own named windows (tabs).
+
+State files (`{package}/coordination/`) are script-managed: NEVER edit them by hand;
+`messages.md` is append-only.
+
+## Session protocol — every agent
+
+1. **Check in first.** Before any briefing work: `checkin` with your roster agent name and a
+   summary of what you are working on. The summary (max 560 chars, enforced) is your discovery
+   surface — name what you change/produce and which shared surfaces you touch; "working on the
+   task" is useless. A re-check-in (relaunch, recovery) supersedes your prior row automatically.
+2. **Startup round — organize BEFORE you discuss.** No detailed cross-agent discussion on `all`
+   at run start. Leader announces a turn order; each agent, in turn, sends ONE short intro
+   (`--type note`, to `all`): what it produces, which shared surfaces it touches, which overlaps
+   with already-posted intros it foresees. No replies until the round completes. Then the
+   overlapping agents `create-group` one group per identified workstream/overlap (leader
+   auto-joins) and ALL detailed discussion happens in those groups. The same applies to
+   later-launched agents: one intro note on checkin, then into groups. (The prior run opened with
+   multicast-inside-broadcast walls of text and formed its first group at message #16 — the
+   organizing step existed nowhere; now it does.)
+3. **Send messages at coordination points:** when you start; BEFORE touching any shared surface
+   another agent may also touch; when you complete a milestone that changes what another agent
+   builds against; when blocked; and when done. Every send carries an honest `--type`: an ask that
+   needs an answer is an `ask`, never a `note`. After the startup round, `all` carries only
+   milestones, completions, retractions, and facts every seat needs — threads live in groups.
+4. **Wakes.** `send` types a `[coord wake]` line into each recipient's pane carrying the exact
+   `read` command to run — it names no agent, because your own pane resolves who you are. When one
+   appears in your conversation, run it, act on the message, continue. Wakes CAN be lost (dialog
+   open, pane busy) — failures are recorded in the log as `> delivery-failure:` lines, which
+   `read` renders as a `[log]` trailer under the message they follow, and you MUST also run `read`
+   at natural checkpoints. Never rely on wakes alone.
+5. **Cursor discipline (P26).** `read` shows at most 10 messages, starting from your persisted
+   cursor, and advances that cursor ONLY through the last message it actually SHOWED — so nothing
+   you were not shown is ever marked read, and the footer tells you how many are still waiting.
+   Every filtered or peek view (`--type`, `--addressed`, `--digest`, `--msg`, `--peek`, `--all`)
+   leaves the cursor untouched and says so in its own output. After a context loss or revert, use
+   `--after N` or `--all` to replay — auto-advance plus no override would turn a context loss into
+   permanent message loss; the override is the safety.
+6. **Retraction (P12).** The moment you discover a number, claim, or inventory you published is
+   wrong, send the correction with `--supersedes N` pointing at the wrong message. Never rely on a
+   later prose correction alone — an arbiter reading to catch up will rule on whichever message it
+   reaches first.
+7. **Conflicts and decisions go to `leader`.** If you and another worker discover an inconsistency
+   between yourselves, do not settle it pairwise: `create-group` (you + the other; creator and
+   leader auto-added) and put the question there. Anything owner-gated is escalated by leader to
+   the owner — never ruled by leader, and never carried to the owner by you (R-owner-channel).
+8. **Check out last — completion first.** When your briefing is complete: `send all "<outcome>"
+   --type completion`, then `checkout`. The transcript export is no longer yours to remember —
+   `checkout` captures your pane's scrollback before flipping your row (`--no-export` is the
+   escape when the pane is already dead). Ephemeral seats use `depart` (export + checkout + killing
+   the seat's own pane, one command, no name — a seat can only depart itself). Leader checks out
+   only after all workers have.
+9. **Memory (persistent seats only).** `workers/<you>/memory.md` is your seat's cross-session
+   memory, co-written with a closer seat at each close. If it exists at boot, read it after your
+   briefing and trust it as your own notes (re-verify what is cheap to verify). When a closer
+   contacts you with a draft memory (`--type ask`), answering it IS briefing work: correct it,
+   fill what only you know, reply promptly — an unanswered closer writes your memory alone.
+   Ephemeral seats have NO memory by design: never create one, never read prior-pass artifacts.
+
+## Execution rules
+
+- **R-go-gate (P6).** A briefing's status line outranks a launch instruction. A launch prompt is
+  NEVER the owner go a status line demands. If your briefing says "do not execute without an
+  explicit owner go", downgrade to read-only preparation and ask leader.
+- **R-audit-premises (P10).** Your briefing's first executable step, always: verify every factual
+  claim it makes about the target system against the live system (compute, don't reason). A third
+  of the last run's briefings contained a false premise. If the briefing is wrong, surface it —
+  never silently reinterpret, never repair the data to fit the spec.
+- **R-single-writer (P7).** Every shared file has exactly ONE writer at a time. The run package's
+  `CLAUDE.md` carries the surface-ownership map; before touching a surface not clearly yours,
+  claim it in a message and wait for no-objection or a leader ruling. New code beats patch-lists:
+  if two agents need the same file, negotiate a boundary by change-kind and sequence.
+- **R-grep-classify (P9).** Grep to FIND, read every hit to CLASSIFY. A raw `grep -c` is not a
+  count; an inference from incidental lines is not an inventory. Both produced confident wrong
+  numbers within twenty minutes last run. No sed/bulk-replace on tokens that are also English
+  words — comments do not lint, so a corrupted comment ships green.
+- **R-compute (deterministic-first).** Any figure you publish carries the command that derived it.
+  Never hand-copy a count into prose a script can compute — hand-maintained numbers drift
+  systematically (five stale counts in 25 minutes last run). Prefer count-free prose.
+- **R-confirm-before-carry (P14).** Before a ruling or an owner-ask turns on a number or inventory
+  a worker produced, cite the message it came from and have its producer confirm it still stands.
+- **R-bounded-wait (P13).** When leader does not answer and you are blocked: proceed on the
+  unambiguous part, record the blocked part as DEFERRED in the run's ledger/notes, file the open
+  question per the run's issue conventions, and disclose — never invent a self-authorized timeout,
+  never escalate past leader to the owner uninvited.
+- **R-owner-channel (owner-ruled 2026-07-24).** ONLY leader initiates contact with the owner. A
+  worker NEVER messages, prompts, or asks the owner unprompted — every owner-gated question goes
+  to leader as an `ask`, and leader presents it in leader's own pane. If the owner addresses YOU
+  in your pane, answer exactly what was asked (initiate nothing further), then relay per
+  R-owner-relay. This matches the registry's own worker record: replies to the owner only when
+  addressed, never initiates.
+- **R-owner-relay (P16).** Any direct owner ruling received in YOUR pane is posted to `all`
+  IMMEDIATELY (`--type verdict`, citing the ask it answers). The log must stay the complete
+  decision record — an owner channel the log cannot see is how the last run lost rulings.
+- **R-joint-executability (P20).** After any batch of rulings is relayed, the affected worker
+  states in one line what the COMBINATION requires that no individual ruling did. Two
+  individually-sound rulings were jointly unshippable last run; only code showed it.
+- **R-cost-symmetry (P21).** In any decision ask, derive the cost enumeration for the option you
+  are NOT recommending by the same method as for the one you are. An under-costed rival option
+  corrupted an owner decision last run.
+- **R-commit-discipline (P18/P23).** The git index is shared mutable state: commit by explicit
+  pathspec only, never add-all; `git diff` every file at the instant of staging and confirm your
+  delta is still present; treat regenerate-and-commit as a critical section (announce, hold, land,
+  release).
+- **R-last-lander (P24).** Whole-tree generated projections (views, logs) cannot be split by
+  pathspec: the LAST lander regenerates them from the committed tree; earlier landers exclude them
+  and disclose the gap.
+- **R-write-through (P25).** Any analysis, finding, or draft you would grieve losing goes to disk
+  the moment it exists, incrementally — never batch-at-the-end, never chat-only. A context revert
+  mid-run cost nothing last time ONLY because the observer wrote live.
+- **R-verify-claims (sub-agents rule).** On any dispatch or handoff, verify claimed files exist at
+  their claimed paths before trusting the report.
+- **R-stamp-wording (P19).** Never write a verification instruction that cannot pass (e.g.
+  "byte-stable ×2" over output carrying a generation timestamp). Say "content-stable modulo the
+  generation stamp" — a check that cannot pass trains rubber-stamping.
+
+## Briefing authoring rules (for whoever assembles a run)
+
+- **R-isolation (P3).** One worker = one briefing. A briefing NEVER cites another worker's
+  briefing, not even as a pre-read — shared pre-reads are hoisted into the run package `CLAUDE.md`
+  or inlined as file paths. Only leader reads workers' briefings, lazily (on first contact).
+- **Folder form (preferred):** one folder per seat, `workers/<agent>/`, holding `agent.md` (the
+  briefing), a thin `CLAUDE.md` + `AGENTS.md` loader pair (so any harness landing in the folder
+  reads briefing + memory + package protocol), `memory.md` (closer-written, persistent seats
+  only), and `transcripts/` (export target). The legacy flat `workers/<agent>.md` still launches.
+- Briefings carry `agent:` frontmatter (the roster signature `launch` discovers), plus optional
+  `harness:` (claude | codex | opencode; default claude), `model:` (claude alias, or the
+  provider/model slug for opencode — REQUIRED there; omitted on codex = plan default),
+  `effort:` (claude only, default high), `cwd:` (launch dir; folder-form default is the seat's
+  own folder), `window: yes` (own tmux window/tab instead of a tiled pane — use for ephemeral/
+  loop seats; long-lived core seats stay panes in the leader window: the hybrid layout),
+  `ephemeral: yes` (memoryless one-pass seat: relaunched fresh, departs itself, never closed/
+  renewed, no memory.md), `observer: yes` (full-log read), `auto-wake: yes` (woken on every
+  message), and `ctx-refresh: N` (this seat's own context-refresh threshold %, enforced by the
+  watcher). Observer status is for seats whose job is watching, never a convenience for a worker.
+- Every briefing states: mission, owned surfaces, pre-reads (paths only), execution contract,
+  done gate (pre-declared criteria a checker can judge against), and what the agent must never do.
+- Factual claims a briefing makes about the target system are the FIRST thing its worker verifies
+  (R-audit-premises) — author them as commands-to-run, not assertions, wherever possible.
+
+## Roles
+
+- **leader** — support/arbiter, launched by the owner by hand; launches everyone else; sole reader
+  of worker briefings (lazily); reads the full log; the ONLY door to the owner (R-owner-channel).
+  Drain rule (measured, adopted): per batch, ESCALATE-FIRST — relay owner-gated items before
+  ruling own items, triaging with `read --type ask` (peek-only: it never consumes the rest of the
+  inbox) and `pending` for what is still open. Leader never writes to the run's target surfaces.
+- **scientist** — optional observer: reads the full log (auto-woken on every send), reads no
+  briefings, writes field notes + improvement proposals incrementally, touches nothing else.
+- **judge seats** — checkers per the registry's checker record: judge against PRE-DECLARED done
+  criteria, issue structured verdicts (`--type verdict`) with explicit fail reasons, and also
+  check leader's (and the run-assembler's) work. Judges deliberate in their own group, then
+  deliver ONE consolidated verdict to leader.
+- **workers** — everyone else: execute exactly one briefing, message at coordination points,
+  escalate decisions.
+- **closer seats** (`closer-<target>`, spawned by `close`, kit prompt `closer-prompt.md`) —
+  one-shot: co-write the target seat's `memory.md` with the target (transcript + log + a draft
+  the worker corrects), run `close-seat` (with `--renew` when leader ordered a renewal), depart.
+  A closer never touches deliverables, never rules open questions, never messages beyond target
+  and leader.
+- **watcher seats** — sentinel pattern: a deterministic monitor (`watch.py` beside `coord.py`)
+  measures liveness, inactivity, and claude-seat context usage on a loop and flags leader with
+  the exact command to run (`close <agent> --renew` at the context threshold); the watcher agent
+  keeps the loop alive and interprets, never acts on seats directly. Context is measurable for
+  claude-harness seats only — codex/opencode seats get liveness/inactivity watching.
+- **Harness note.** codex and opencode seats follow this protocol in full — their loaders
+  (`AGENTS.md` in the seat folder) point them here. They have no `/rename`; their identity lives
+  in the pane/window title. Wakes reach them as terminal input like any pane.
