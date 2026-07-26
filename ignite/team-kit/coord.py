@@ -419,6 +419,68 @@ def live_panes():
     return {ln.strip() for ln in r.stdout.splitlines() if ln.strip()}
 
 
+# P38/8(b) — a seat parked on its harness's interactive approval prompt is a BLIND GATE: the pane
+# is frozen on a modal, so a wake typed into it is not read, and worst case lands as stray text
+# inside the modal's own input. codex advertises the state in the pane TITLE ("Action Required").
+# The title is the only signal used on purpose: matching the pane's visible TEXT would false-fire
+# on any seat whose output happens to contain the phrase (a briefing quoting it, a log line).
+# codex is the only rostered harness that publishes such a title today — extending this to another
+# harness needs a real captured pane in the gated state, the same discipline P35 round 2 imposed.
+APPROVAL_TITLE_MARKERS = ("action required",)
+
+
+def pane_title(pane):
+    """Current tmux title of a pane. '' when tmux is unavailable or the pane is gone."""
+    r = subprocess.run(["tmux", "display-message", "-p", "-t", pane, "-F", "#{pane_title}"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return ""
+    return r.stdout.strip()
+
+
+def at_approval_gate(pane):
+    """True when this pane's TITLE says its harness is parked on an interactive approval prompt.
+
+    Fail-safe by construction: an unreadable title, a dead pane, or no tmux all return '' and
+    therefore False — a seat is never treated as gated on the strength of a missing signal."""
+    if not pane:
+        return False
+    title = pane_title(pane).lower()
+    return any(m in title for m in APPROVAL_TITLE_MARKERS)
+
+
+def watcher_heartbeat(base):
+    """The watcher loop's last-pass record, or None when no watcher has ever run in this package.
+
+    P32 — nothing watched the watcher: `watch.py` runs detached for hours (nohup), so when its
+    loop dies the run loses liveness/context/approval flagging SILENTLY, and the absence of flags
+    reads exactly like a healthy run. The loop stamps every pass; the roster view reads the stamp,
+    which makes leader's existing orientation command the external check."""
+    p = base / "watch-heartbeat.json"
+    if not p.exists():
+        return None
+    try:
+        hb = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(hb, dict) or not hb.get("last_pass"):
+        return None
+    try:
+        age_min = int((datetime.now() - datetime.fromisoformat(hb["last_pass"])).total_seconds()
+                      // 60)
+    except (TypeError, ValueError):
+        return None
+    loop_min = hb.get("loop_min")
+    # A one-shot pass (no --loop) has no cadence to be late against: judge it on a flat 30 min.
+    # A looping watcher gets three missed passes of slack before it is called stale — one skipped
+    # pass is a slow tmux capture, three in a row is a dead loop.
+    stale_after = (loop_min * 3) if isinstance(loop_min, int) and loop_min > 0 else 30
+    hb["age_min"] = age_min
+    hb["stale"] = age_min > stale_after
+    hb["stale_after"] = stale_after
+    return hb
+
+
 WAKE_ENTER_ATTEMPTS = 3
 # A real production wake (300+ chars) takes some TUIs noticeably longer than round-2's 0.15s
 # first-check assumed just to REDRAW the pasted text, before Enter's effect is even relevant — a
@@ -874,6 +936,33 @@ def cmd_checkin(args):
               "--pane %N to bind one.", file=sys.stderr)
     else:
         set_pane_title(pane, args.agent)
+    # P37 (zombie double-launch): supersession is the RIGHT answer for a relaunch or a recovery —
+    # the prior pane is gone, so nothing else can be holding the name. It is the WRONG answer when
+    # the prior pane is still ALIVE: two live sessions then share one roster name, and the run has
+    # no way to see it. Only the newest pane is in the roster, so every wake reaches only that one;
+    # the own-sender read filter is keyed on the NAME (`unread_for`), so each twin's messages are
+    # invisible to the other; and both write the same seat's surfaces as single-writer. Refuse, and
+    # name the remedy the protocol requires — confirm the old session is dead (kill it BY PANE ID,
+    # never by name) before retrying. `--force` is the deliberate override.
+    if not getattr(args, "force", False):
+        _, _, existing = load_workers(base)
+        prior = current_row(existing, args.agent)
+        if (prior and prior["active"] == "yes" and prior["pane"] and prior["pane"] != pane
+                and prior["pane"] in live_panes()):
+            print(
+                f"refused: '{args.agent}' is already checked in on pane {prior['pane']}, and tmux "
+                f"says that pane is still ALIVE — checking in from {pane or 'no pane'} would put "
+                f"two live sessions under one name.\n"
+                f"Neither would see the other's messages (the unread filter is keyed on the name) "
+                f"and only this pane would receive wakes.\n"
+                f"Confirm the old session is dead first, then retry: inspect it with "
+                f"`tmux capture-pane -p -t {prior['pane']}`; if it is a zombie, kill it BY PANE ID "
+                f"(`tmux kill-pane -t {prior['pane']}`) — never by name — and check in again.\n"
+                f"If you are deliberately running two sessions under this name, re-run with "
+                f"--force.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
     superseded = 0
     # The read cursor belongs to the SEAT, not to one session of it: a re-check-in (P1
     # supersession) and a renewed seat (close-seat --renew closes the row BEFORE the fresh
@@ -1019,6 +1108,19 @@ def cmd_workers(args):
         pane_col = "{:<6}".format(r["pane"] or "-")
         print(f"{c(name_col, C_LABEL)} {c(state_col, tone)} pane={pane_col}{cursor}{lag} {summary}"
               f"  (in {r['checkin']}{', out ' + r['checkout'] if r['checkout'] else ''})")
+    # P32: the watcher is the run's sentinel and NOTHING watched it. Its loop is detached, so a
+    # dead loop looks exactly like a quiet run — no flags either way. The roster view is where
+    # leader already looks, so the heartbeat is checked here rather than in a new command.
+    hb = watcher_heartbeat(base)
+    if hb:
+        cadence = f", loop {hb['loop_min']}min" if hb.get("loop_min") else ", one-shot"
+        pid = f", pid {hb['pid']}" if hb.get("pid") else ""
+        if hb["stale"]:
+            print(c(f"watcher: STALE — last pass {hb['age_min']}min ago (stale past "
+                    f"{hb['stale_after']}min{cadence}{pid}). Nothing is measuring liveness, "
+                    f"context or approval gates right now; restart the loop.", C_DEAD))
+        else:
+            print(c(f"watcher: ok — last pass {hb['age_min']}min ago{cadence}{pid}", C_ALIVE))
     if not getattr(args, "history", False):
         print(c(f"-- current rows only (log tail #{tail}); --history for every row, --full for "
                 f"untruncated summaries", C_HINT))
@@ -1366,6 +1468,13 @@ def deliver_wakes(args, base, sender, to, n):
             skipped.setdefault("departed", []).append(name)       # had a row, checked out/closed
         elif not row["pane"]:
             skipped.setdefault("no pane", []).append(name)        # checked in without a pane
+        elif at_approval_gate(row["pane"]):
+            # 8(b) blind-gate hygiene: the seat is alive but parked on an interactive approval
+            # modal. Typing into it cannot be read and can land INSIDE the modal's input — the
+            # broadcast would corrupt the very gate leader has to answer. Same skip semantics as
+            # every other unreachable recipient (T3): not woken, not logged, NAMED to the sender
+            # with the reason, so leader knows to run `approve` rather than assume delivery.
+            skipped.setdefault("at an approval gate", []).append(name)
         else:
             targets.append((name, row["pane"]))
 
@@ -1391,7 +1500,7 @@ def deliver_wakes(args, base, sender, to, n):
     parts = [f"{delivered} delivered"]
     if failures:
         parts.append(f"{len(failures)} failed")
-    for why in ("departed", "not launched", "no pane"):
+    for why in ("departed", "not launched", "no pane", "at an approval gate"):
         names = skipped.get(why)
         if names:
             parts.append(f"{len(names)} skipped ({why}: {', '.join(sorted(names))})")
@@ -1399,6 +1508,11 @@ def deliver_wakes(args, base, sender, to, n):
                          else "no live recipient panes"))
     for line in sorted(failures):
         print(f"  wake FAILED -> {line}")
+    gated = skipped.get("at an approval gate")
+    if gated:
+        print(c(f"  next: {', '.join(sorted(gated))} is parked on an approval prompt — leader "
+                f"clears it with {coord_invocation(args)} approve <agent>, and the seat picks this "
+                f"message up on its next read", C_HINT))
     if failures:
         log_delivery_failures(base, failures)
         print(f"  ({len(failures)} delivery failure(s) recorded in the log — recipients must "
@@ -2108,12 +2222,12 @@ def cmd_selftest(args):
     global tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name
     global tmux_split_strip, restore_overview_strip, tmux_find_window_pane
     global tmux_send_text, tmux_send_enter, tmux_capture_tail, tmux_pane_window, RUNS_INDEX
-    global detect_pane, live_panes, _acquire_flock, atomic_write
+    global detect_pane, live_panes, _acquire_flock, atomic_write, pane_title
     real = (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
             tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
             tmux_split_strip, restore_overview_strip, tmux_find_window_pane, tmux_send_text,
             tmux_send_enter, tmux_capture_tail, tmux_pane_window, detect_pane, live_panes,
-            _acquire_flock, atomic_write)
+            _acquire_flock, atomic_write, pane_title)
     env_agent = os.environ.pop("COORD_AGENT", None)
 
     # ---- P35 (round 2): wake()'s Enter-verify + bounded Enter-only retry, exercised against the
@@ -2313,6 +2427,11 @@ def cmd_selftest(args):
     detect_pane = lambda override=None: (override or calling_pane["v"])
     live_tmux_panes = {"v": set()}   # empty = "tmux unavailable", so no row is judged DEAD?
     live_panes = lambda: set(live_tmux_panes["v"])
+    # P38/8(b): pane TITLES back the approval-gate predicate. Unstubbed, every send in this suite
+    # would shell out to the tester's REAL tmux — and on a box where pane %1 exists, read a live
+    # seat's title. Default "" = no pane is gated.
+    pane_titles = {}
+    pane_title = lambda pane: pane_titles.get(pane, "")
 
     with tempfile.TemporaryDirectory() as td:
         RUNS_INDEX = Path(td) / "coordinate-runs.json"  # never touch the real registry
@@ -3076,13 +3195,79 @@ def cmd_selftest(args):
         check("F6 status: a plain worker's idle hint is unchanged — it still escalates to leader",
               "send leader" in out and "drain the run's open asks" not in out)
 
+        # ---- P37: a re-check-in must never split one seat across two LIVE panes ----
+        run(cmd_checkin, agent="twin", summary="first session", pane="%51")
+        live_tmux_panes["v"] = {"%51"}
+        out, code = refuse(cmd_checkin, agent="twin", summary="zombie relaunch", pane="%52")
+        _, _, twin_rows = load_workers(base_dir(ns()))
+        check("P37: a re-check-in is REFUSED while the pane already holding the name is still "
+              "ALIVE — supersession would leave two live sessions under one name, mutually blind "
+              "(the unread filter is keyed on the NAME) with only the newest receiving wakes",
+              code == 1 and "%51" in out and "kill-pane" in out
+              and current_row(twin_rows, "twin")["pane"] == "%51")
+        check("P37: the refusal teaches confirm-dead-before-retry and kill BY PANE ID",
+              "capture-pane" in out and "never by name" in out)
+        out = run(cmd_checkin, agent="twin", summary="same pane, recovered", pane="%51")
+        check("P37: re-checking in from the SAME pane is a recovery, not a twin — still supersedes",
+              "superseded 1 prior row" in out)
+        out = run(cmd_checkin, agent="twin", summary="deliberate second session", pane="%52",
+                  force=True)
+        check("P37: --force is the single deliberate override, as on every other refusal",
+              "checked in: twin (%52)" in out)
+        live_tmux_panes["v"] = {"%53"}   # the registered pane is GONE: an ordinary relaunch
+        out = run(cmd_checkin, agent="twin", summary="relaunched after its pane died", pane="%53")
+        check("P37: a relaunch whose old pane is dead supersedes exactly as before — the guard "
+              "fires on pane LIVENESS, never on the mere existence of a prior active row",
+              "superseded 1 prior row" in out)
+
+        # ---- 8(b): a seat parked on an approval gate is never broadcast-woken ----
+        run(cmd_checkin, agent="gated", summary="codex seat mid-approval", pane="%61")
+        pane_titles["%61"] = "gated — Action Required"
+        fails_before = (base_dir(ns()) / "messages.md").read_text(
+            encoding="utf-8").count("> delivery-failure:")
+        out = sd("alpha", "gated", "does this reach you?")
+        fails_after = (base_dir(ns()) / "messages.md").read_text(
+            encoding="utf-8").count("> delivery-failure:")
+        check("8(b): a LIVE seat parked on an approval prompt is SKIPPED, not woken — keystrokes "
+              "into a modal cannot be read and can land inside the gate leader has to answer. It "
+              "is named to the sender with `approve` as the next step, and — like every other "
+              "skip (T3) — nothing is written to the log, because only an ATTEMPTED wake can fail",
+              "skipped (at an approval gate: gated)" in out and "approve <agent>" in out
+              and fails_after == fails_before)
+        pane_titles.pop("%61")
+        out = sd("alpha", "gated", "and now?")
+        check("8(b): the skip is live pane STATE, not a seat property — the same seat is woken "
+              "normally the moment its title clears",
+              "at an approval gate" not in out)
+
+        # ---- P32: the roster view is the external check on the watcher loop ----
+        hbp = base_dir(ns()) / "watch-heartbeat.json"
+        hbp.write_text(json.dumps({"last_pass": datetime.now().isoformat(timespec="seconds"),
+                                   "loop_min": 10, "pid": 4242}), encoding="utf-8")
+        out = run(cmd_workers, full=False, history=False)
+        check("P32: `workers` reports the watcher loop's last pass — the loop runs detached, so "
+              "before this a DEAD watcher was indistinguishable from a quiet run (no flags "
+              "either way) and the run lost liveness/context/approval cover silently",
+              "watcher: ok" in out and "loop 10min" in out and "pid 4242" in out)
+        hbp.write_text(json.dumps({"last_pass": "2000-01-01T00:00:00", "loop_min": 10,
+                                   "pid": 4242}), encoding="utf-8")
+        out = run(cmd_workers, full=False, history=False)
+        check("P32: past three missed passes it is reported STALE, naming what has stopped being "
+              "measured — one skipped pass is a slow capture, three is a dead loop",
+              "watcher: STALE" in out and "stale past 30min" in out)
+        hbp.unlink()
+        out = run(cmd_workers, full=False, history=False)
+        check("P32: a run with no watcher prints no line at all — the row is evidence, not chrome",
+              "watcher:" not in out)
+        live_tmux_panes["v"] = set()
+
         os.environ.pop("COORD_LAUNCH_TARGET", None)
 
     (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
      tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
      tmux_split_strip, restore_overview_strip, tmux_find_window_pane, tmux_send_text,
      tmux_send_enter, tmux_capture_tail, tmux_pane_window, detect_pane, live_panes,
-     _acquire_flock, atomic_write) = real
+     _acquire_flock, atomic_write, pane_title) = real
     if env_agent is not None:
         os.environ["COORD_AGENT"] = env_agent
     print(f"\nselftest: {'PASS' if not failures else 'FAIL'} ({len(failures)} failure(s))")
@@ -3178,7 +3363,8 @@ def build_parser():
         "Register your session. This is the ONE command that carries your name: it creates your\n"
         "roster row and binds this tmux pane to you, and every later command resolves your\n"
         "identity from that binding. Run it before any briefing work, and again after a relaunch\n"
-        "(a re-check-in supersedes your prior row).",
+        "(a re-check-in supersedes your prior row — but is REFUSED while the pane that already\n"
+        "holds this name is still alive, so a zombie relaunch cannot split a seat in two).",
         "example:\n"
         "  coordinate checkin builder \"rebuilding views/*.html from graph.py; owns views/ + "
         "render.py\"\n"
@@ -3186,6 +3372,8 @@ def build_parser():
     s.add_argument("agent", help="your agent name, as in your briefing's `agent:` key — this call CREATES the pane->name binding every later command resolves")
     s.add_argument("summary", help=f"what you are working on, max {SUMMARY_MAX} chars — other agents read this line to decide whether to message you")
     s.add_argument("--pane", help="override tmux pane id (default: auto-detect from $TMUX_PANE)")
+    s.add_argument("--force", action="store_true",
+                   help="check in even though a LIVE pane still holds this name — only after you have confirmed the other session is dead (zombie double-launch guard)")
     s.set_defaults(func=cmd_checkin)
 
     s = command(

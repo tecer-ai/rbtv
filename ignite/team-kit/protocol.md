@@ -3,9 +3,12 @@
 The coordination protocol every agent of a team-kit run MUST follow. A run package's `CLAUDE.md`
 declares the roster and run-specific rules and points here; on any conflict, the run package wins.
 
-Every rule below that carries a P-number was earned from a measured failure in the
-2026-07-24 kg-edges-viz run (evidence: that package's `team-observations.md` and
-`agent-teams-strategic-lessons.md`). These are not style preferences.
+Every rule below that carries a P-number was earned from a measured failure in a proving run.
+P1–P26: the 2026-07-24 kg-edges-viz run (evidence: that package's `team-observations.md` and
+`agent-teams-strategic-lessons.md`). P27–P38 and the queue/amendment items: the 2026-07-24
+kg-views-rebuild run (evidence: its `run-observations.md` §4 proposals and `roster-review.md`
+amendments, reconciled against this kit in `fact-check-views-rebuild-vs-kit.md`). These are not
+style preferences.
 
 ## The CLI
 
@@ -13,7 +16,7 @@ Every rule below that carries a P-number was earned from a measured failure in t
 COORD="coordinate --run {run-tag}"     # or: python3 {team-kit}/coord.py --package {abs-run-package}
                                        # from inside the package folder, neither flag is needed
 
-$COORD checkin <agent> "<summary ≤560 chars>"   # on start — binds this pane to your name, supersedes any prior row (P1)
+$COORD checkin <agent> "<summary ≤560 chars>"   # on start — binds this pane to your name, supersedes any prior row (P1); REFUSED while a live pane still holds the name (P37)
 $COORD status                                   # where you stand: pane, owner, unread by type, cursor, asks waiting on you
 $COORD read                                     # your unread messages, 10 at a time; cursor persisted + advances (P26)
 $COORD read --digest | --msg N | --after N      # one line each | one message in full | replay from N (all peek-only)
@@ -58,7 +61,9 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
 1. **Check in first.** Before any briefing work: `checkin` with your roster agent name and a
    summary of what you are working on. The summary (max 560 chars, enforced) is your discovery
    surface — name what you change/produce and which shared surfaces you touch; "working on the
-   task" is useless. A re-check-in (relaunch, recovery) supersedes your prior row automatically.
+   task" is useless. A re-check-in (relaunch, recovery) supersedes your prior row automatically —
+   UNLESS the pane that already holds your name is still alive, in which case the check-in is
+   REFUSED (P37): follow R-confirm-dead before you retry.
 2. **Startup round — organize BEFORE you discuss.** No detailed cross-agent discussion on `all`
    at run start. Leader announces a turn order; each agent, in turn, sends ONE short intro
    (`--type note`, to `all`): what it produces, which shared surfaces it touches, which overlaps
@@ -78,7 +83,10 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
    appears in your conversation, run it, act on the message, continue. Wakes CAN be lost (dialog
    open, pane busy) — failures are recorded in the log as `> delivery-failure:` lines, which
    `read` renders as a `[log]` trailer under the message they follow, and you MUST also run `read`
-   at natural checkpoints. Never rely on wakes alone.
+   at natural checkpoints. Never rely on wakes alone. A recipient parked on its harness's approval
+   prompt is deliberately SKIPPED, never woken (8(b)) — keystrokes into a modal cannot be read and
+   can land inside the gate itself; `send` names that seat in its summary so leader can `approve`
+   it, and the seat picks the message up on its next `read`.
 5. **Cursor discipline (P26).** `read` shows at most 10 messages, starting from your persisted
    cursor, and advances that cursor ONLY through the last message it actually SHOWED — so nothing
    you were not shown is ever marked read, and the footer tells you how many are still waiting.
@@ -148,10 +156,13 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
 - **R-cost-symmetry (P21).** In any decision ask, derive the cost enumeration for the option you
   are NOT recommending by the same method as for the one you are. An under-costed rival option
   corrupted an owner decision last run.
-- **R-commit-discipline (P18/P23).** The git index is shared mutable state: commit by explicit
+- **R-commit-discipline (P18/P23/V1).** The git index is shared mutable state: commit by explicit
   pathspec only, never add-all; `git diff` every file at the instant of staging and confirm your
   delta is still present; treat regenerate-and-commit as a critical section (announce, hold, land,
-  release).
+  release). **Never leave anything staged in the shared index between your own commits** (V1) —
+  stage and commit in one motion, and check `git diff --cached` is empty before you step away. A
+  half-staged index is invisible to every other seat, and the next seat's explicit-pathspec commit
+  sweeps your staged hunks into ITS commit without either of you seeing it happen.
 - **R-last-lander (P24).** Whole-tree generated projections (views, logs) cannot be split by
   pathspec: the LAST lander regenerates them from the committed tree; earlier landers exclude them
   and disclose the gap.
@@ -163,6 +174,26 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
 - **R-stamp-wording (P19).** Never write a verification instruction that cannot pass (e.g.
   "byte-stable ×2" over output carrying a generation timestamp). Say "content-stable modulo the
   generation stamp" — a check that cannot pass trains rubber-stamping.
+- **R-scan-stamp (P29).** A finding is only true of the artifact state you scanned. Before you
+  start a validation/review pass, record the SCAN-START stamp — `git rev-parse HEAD` plus the
+  clock — and open every finding you file with it (`scanned-at: <sha> <time>`). Whoever disposes
+  of the finding re-checks it against the artifact NOW: `git diff <sha>.. -- <path>` empty means
+  the finding still describes the file; non-empty means re-verify before ruling. Twice last run a
+  finding was disposed against a file that had already changed under it — the reviewer and the
+  arbiter were arguing about two different artifacts and neither could tell.
+- **R-confirm-dead (P37).** Never relaunch a seat you have not CONFIRMED dead, and never kill one
+  by name. Look at the pane first (`tmux capture-pane -p -t <pane-id>`); if it must go, kill it by
+  PANE ID (`tmux kill-pane -t <pane-id>`) — a name matches whatever tmux resolves it to today,
+  which during a double-launch is the wrong session. `checkin` enforces the confirm half (it
+  refuses while the registered pane is alive); the kill-by-id half is yours. Two live sessions
+  under one name are mutually blind: unread is filtered by NAME, so neither sees the other's
+  messages, and only the newest pane receives wakes.
+- **R-serialized-browser (queue 11).** Headless browsers are the run's scarcest resource, not a
+  free one: each Chromium is hundreds of MB and several of them at once is how a run box reaches
+  its memory ceiling and starts killing seats. Run at most ONE at a time across the whole run —
+  claim it in a message before you launch, release it in a message when you close it, and never
+  hold it across a wait. The same budget governs any other heavyweight local process a seat
+  spawns.
 
 ## Briefing authoring rules (for whoever assembles a run)
 
@@ -187,6 +218,17 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
   done gate (pre-declared criteria a checker can judge against), and what the agent must never do.
 - Factual claims a briefing makes about the target system are the FIRST thing its worker verifies
   (R-audit-premises) — author them as commands-to-run, not assertions, wherever possible.
+- **Production-regime fixture gate (briefing diff 1).** A briefing that asks for a fix to a
+  detection/matching/parsing mechanic MUST require the fix be exercised against a fixture captured
+  from the REAL regime it fails in — real captured input, at real size, at the real width/shape —
+  and MUST forbid a hand-authored fixture as the evidence. P35 shipped green TWICE on fixtures
+  that hard-coded the exact assumption under test: round 1 asserted the wake was the pane's last
+  line (it never is), round 2 matched the full wake text against one captured line (a production
+  wake always wraps). Both were caught only when someone captured a live pane.
+- **Pre-registered fix→verify bars (briefing diff 4).** For every fix a briefing commissions,
+  state the acceptance bar BEFORE the fix is attempted — the exact observation that will count as
+  proof, and the observations that will NOT. A bar written after the fix is written to the fix.
+  The verifier judges against that bar and nothing else.
 
 ## Roles
 
@@ -195,12 +237,30 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
   Drain rule (measured, adopted): per batch, ESCALATE-FIRST — relay owner-gated items before
   ruling own items, triaging with `read --type ask` (peek-only: it never consumes the rest of the
   inbox) and `pending` for what is still open. Leader never writes to the run's target surfaces.
+  Leader also carries the run's ONLY seat-lifecycle authority (launch/close/renew/approve), which
+  makes it a single point of failure — see **deputy**.
+- **deputy** (optional, rosters past ~8 seats or any AFK run) — a second seat briefed to take over
+  SEAT LIFECYCLE only: launch, close, `close --renew`, `approve`, and watcher restarts. It does
+  NOT rule, does not talk to the owner (R-owner-channel is unchanged — leader remains the sole
+  door), and does not write target surfaces. It exists because leader is renewable like any other
+  seat: while leader is being closed and relaunched, nothing else in the run can start, close or
+  unblock a seat, and an approval gate or a context-exhausted worker just waits.
 - **scientist** — optional observer: reads the full log (auto-woken on every send), reads no
   briefings, writes field notes + improvement proposals incrementally, touches nothing else.
 - **judge seats** — checkers per the registry's checker record: judge against PRE-DECLARED done
   criteria, issue structured verdicts (`--type verdict`) with explicit fail reasons, and also
-  check leader's (and the run-assembler's) work. Judges deliberate in their own group, then
-  deliver ONE consolidated verdict to leader.
+  check leader's (and the run-assembler's) work. **Post per acceptance criterion, as each one is
+  decided** (R-2) — one `verdict` message per AC the moment it is settled, never a batch held to
+  the end. A batched verdict is write-through's exact failure mode (R-write-through): the findings
+  exist only in the judge's context until the end, so a context loss takes all of them, and the
+  worker sits idle on criteria that were settled an hour earlier. Judges still deliberate in their
+  own group, and still close with ONE consolidated verdict — but that message SUMMARISES rulings
+  already posted, it does not carry them for the first time.
+- **verifier seats** (standing, one per kit-affecting fix) — every change to this kit's own code
+  or rules gets an independent seat that re-derives the fix's claim against the pre-registered
+  acceptance bar, adversarially, on its own fixtures. Not the fixer, not the fixer's judge for
+  anything else. P35 needed three rounds and each round's defect was found by exactly this seat
+  re-deriving the claim rather than reading the diff.
 - **workers** — everyone else: execute exactly one briefing, message at coordination points,
   escalate decisions.
 - **closer seats** (`closer-<target>`, spawned by `close`, kit prompt `closer-prompt.md`) —
@@ -209,10 +269,17 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
   A closer never touches deliverables, never rules open questions, never messages beyond target
   and leader.
 - **watcher seats** — sentinel pattern: a deterministic monitor (`watch.py` beside `coord.py`)
-  measures liveness, inactivity, and claude-seat context usage on a loop and flags leader with
-  the exact command to run (`close <agent> --renew` at the context threshold); the watcher agent
-  keeps the loop alive and interprets, never acts on seats directly. Context is measurable for
-  claude-harness seats only — codex/opencode seats get liveness/inactivity watching.
+  measures liveness, inactivity, approval-gate parking and claude-seat context usage on a loop and
+  flags leader with the exact command to run (`close <agent> --renew` at the context threshold,
+  `approve <agent>` at a gate); the watcher agent keeps the loop alive and interprets, never acts
+  on seats directly. Context is measurable for claude-harness seats only — codex/opencode seats
+  get liveness/inactivity/approval watching.
+  **Something must watch the watcher (P32).** The loop is detached, so its death produces no
+  signal — a dead watcher and a healthy quiet run look identical. Every pass stamps
+  `coordination/watch-heartbeat.json` and `workers` reports the watcher `ok` or `STALE`; leader
+  checks that line at every drain, and restarts the loop on STALE. On a long AFK run, add the
+  redundancy the single sentinel cannot give itself: a second watcher seat on a different cadence,
+  or the deputy running one `watch.py` pass by hand at each of its own checkpoints.
 - **Harness note.** codex and opencode seats follow this protocol in full — their loaders
   (`AGENTS.md` in the seat folder) point them here. They have no `/rename`; their identity lives
   in the pane/window title. Wakes reach them as terminal input like any pane.

@@ -12,6 +12,14 @@ it and relays judgment). One pass checks every ACTIVE roster seat and reports:
              non-sidechain assistant turn: input + cache_read + cache_creation tokens over the
              window; window from $RBTV_CONTEXT_WINDOW, default 1,000,000). codex/opencode seats
              have no externally readable transcript — activity watching only.
+  approval   the seat's pane TITLE says its harness is parked on an interactive approval prompt
+             (P38 — a codex seat at "Action Required" stalls silently: its pane content is frozen,
+             so it reads as a healthy idle seat until the inactivity threshold finally fires
+             ~30 min later). Flagged immediately, with the `approve <agent>` command to run.
+
+Every pass stamps `<package>/coordination/watch-heartbeat.json` (P32 — nothing watched the
+watcher: this loop runs detached, so a dead loop is indistinguishable from a quiet run). `coordinate
+workers` reads the stamp and reports the watcher STALE past three missed passes.
 
 Thresholds (watcher defaults, owner-ruled 2026-07-24): --inactive-min 30, --context-pct 50.
 With --notify each crossing sends ONE coordination `ask` to leader (via coord.py, so it is
@@ -85,6 +93,12 @@ def pane_cwd(pane):
         return None
     out = r.stdout.strip()
     return out or None
+
+
+def at_approval_gate(pane):
+    """P38 detection half. The marker set and the title read both live in coord (`coordinate send`
+    needs the same predicate to skip a blind gate seat, 8(b)) — one definition, two consumers."""
+    return coord.at_approval_gate(pane)
 
 
 # ---------- claude transcript matching ----------
@@ -196,6 +210,22 @@ def save_state(base, state):
     coord.atomic_write(base / "watch-state.json", json.dumps(state, indent=1))
 
 
+def save_heartbeat(base, loop_min):
+    """P32 — stamp this pass so something outside the loop can tell a live watcher from a dead one.
+
+    A SEPARATE file from watch-state.json on purpose: that file is keyed by agent name, and a
+    reserved key inside it would be one roster name away from a collision. Failure is swallowed —
+    a heartbeat that cannot be written must never take the watcher down with it (the same
+    read-only-package tolerance coord's cursor persistence has)."""
+    try:
+        coord.atomic_write(base / "watch-heartbeat.json", json.dumps(
+            {"last_pass": now_dt().isoformat(timespec="seconds"),
+             "loop_min": loop_min, "pid": os.getpid()}, indent=1))
+    except OSError as exc:
+        print(f"watch: heartbeat not written ({exc}) — `coordinate workers` will report this "
+              f"watcher STALE even while it runs", file=sys.stderr)
+
+
 # ---------- notification ----------
 
 def notify_leader(args, text):
@@ -274,6 +304,22 @@ def run_pass(args):
                 _, pct = transcript_usage(t)
 
         flags = []
+        # P38: an approval gate is checked BEFORE inactivity, because it explains inactivity. A
+        # gated pane is frozen, so its content hash never changes and it would eventually trip
+        # INACTIVE — 30 minutes after the seat actually stopped, with a hint ("check on it, close
+        # it, or renew it") that is wrong for a seat waiting on one keypress. Re-arms when the
+        # title clears, like every other flag.
+        if at_approval_gate(pane):
+            flags.append("APPROVAL")
+            if not st.get("notified_approval"):
+                notes.append(f"watch: '{agent}' ({harness}) is parked on an interactive approval "
+                             f"prompt — its pane is frozen until someone answers it, and a wake "
+                             f"typed into it would land in the modal. Inspect it "
+                             f"(tmux capture-pane -p -t {pane}) and clear it: "
+                             f"{coord.coord_invocation(args)} approve {agent}")
+                st["notified_approval"] = True
+        else:
+            st.pop("notified_approval", None)
         if inact_min is not None and inact_min >= args.inactive_min:
             flags.append(f"INACTIVE {inact_min}min")
             if not st.get("notified_inactive"):
@@ -303,6 +349,7 @@ def run_pass(args):
         state[agent] = st
 
     save_state(base, state)
+    save_heartbeat(base, getattr(args, "loop", None))
     stamp = nnow.strftime("%Y-%m-%d %H:%M")
     print(f"watch pass {stamp} — {len(report)} active seat(s), {len(notes)} new flag(s)")
     for line in report:
@@ -337,6 +384,10 @@ def cmd_selftest():
     live_panes = lambda: {"%1", "%2", "%3", "%4", "%5", "%6", "%7"}
     pane_cwds = {}
     pane_cwd = lambda pane: pane_cwds.get(pane)
+    # P38: the approval predicate reads the pane TITLE through coord — stub it there, so this
+    # selftest exercises the SAME function `coordinate send` calls (8(b)), not a local copy.
+    pane_titles = {}
+    coord.pane_title = lambda pane: pane_titles.get(pane, "")
     # Every coord call below resolves a package, and resolving a package REGISTERS its folder
     # name as a run tag. Unredirected, this selftest wrote a `pkg` tag pointing at its own temp
     # directory into the owner's real ~/.config/rbtv/coordinate-runs.json — a test that mutates
@@ -532,6 +583,46 @@ def cmd_selftest():
               any("'eta'" in n and "context is at" in n and "threshold 50" in n for n in notes))
         check("ctx-refresh: epsilon (own threshold 90) stays quiet even under the lower global",
               not any("epsilon" in n for n in notes))
+
+        # ---- P38: an approval-gated seat is seen from its pane title, not 30 minutes later ----
+        pane_titles["%7"] = "eta — Action Required"
+        notes = run_pass(ns(context_pct=90))
+        check("P38: a seat parked on its harness's approval prompt is flagged AT ONCE with the "
+              "exact approve command — its pane is frozen, so the content-hash inactivity check "
+              "only notices ~30 min after the seat stopped, and offers the wrong remedy",
+              any("'eta'" in n and "approval prompt" in n and "approve eta" in n for n in notes))
+        notes = run_pass(ns(context_pct=90))
+        check("P38: the approval flag does not re-fire while the same gate is still up",
+              not any("approval prompt" in n for n in notes))
+        pane_titles.pop("%7")
+        run_pass(ns(context_pct=90))
+        check("P38: clearing the gate re-arms it — same discipline as every other crossing",
+              not load_state(base).get("eta", {}).get("notified_approval"))
+        pane_titles["%7"] = "eta — Action Required"
+        notes = run_pass(ns(context_pct=90))
+        check("P38: and it fires again on the next gate",
+              any("'eta'" in n and "approve eta" in n for n in notes))
+        pane_titles.pop("%7")
+
+        # ---- P32: every pass stamps a heartbeat, so a dead loop is visible from outside ----
+        run_pass(ns(context_pct=90))
+        hb = coord.watcher_heartbeat(base)
+        check("P32: each pass writes watch-heartbeat.json and coord reads it back as a LIVE "
+              "watcher — this loop is detached (nohup), so its death used to leave the run with "
+              "no liveness/context/approval cover and no signal that anything had stopped",
+              hb is not None and hb["stale"] is False and hb["age_min"] == 0
+              and hb["pid"] == os.getpid())
+        coord.atomic_write(base / "watch-heartbeat.json", json.dumps(
+            {"last_pass": "2000-01-01T00:00:00", "loop_min": 10, "pid": 1}))
+        hb = coord.watcher_heartbeat(base)
+        check("P32: a stamp older than three missed passes reads STALE, and the deadline is "
+              "derived from the loop's own cadence — a 10-min loop and a 60-min loop are not "
+              "late at the same age",
+              hb["stale"] is True and hb["stale_after"] == 30)
+        (base / "watch-heartbeat.json").write_text("{ not json", encoding="utf-8")
+        check("P32: an unreadable or half-written heartbeat reads as 'no watcher', never a crash "
+              "inside the roster view every seat runs",
+              coord.watcher_heartbeat(base) is None)
 
     coord.RUNS_INDEX = real_runs_index
     try:

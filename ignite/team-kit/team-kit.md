@@ -14,7 +14,7 @@ promote to the rbtv repo only after it proves out across runs.
 | File | What it is |
 |------|-----------|
 | `coord.py` | The coordination CLI. Commands — everyday: `checkin` · `status` · `read` · `send` · `pending` · `checkout`; leader: `launch` · `close` · `close-seat` · `approve` · `panel` · `owner` · `add-to-group`; other: `workers` · `create-group` · `export-transcript` · `depart` · `selftest`. Identity is RESOLVED (calling pane → roster row, or `$COORD_AGENT`/`--as`) and verified, never typed — no command carries the caller's own name, and a claim contradicting the pane is refused. Messages are typed and threaded (`--re <ask#>`, required on answers); `read` is bounded (10 at a time, cursor advances only through what it SHOWED) with `--digest`/`--msg N`/`--after N`, and every filtered view is peek-only; `status` and `pending` answer "where am I" and "what is still open" in one shot; `--pretty` (or `COORD_PRETTY=1`) colours the view commands for a human reader, default output stays plain. Multi-harness (claude, codex, opencode — per-briefing `harness:`/`model:`/`effort:`/`ctx-refresh:`), per-seat launch profiles. All state lives in the run package, resolved `--package DIR` > `--run TAG` (auto-registry) > `$COORD_PACKAGE` > cwd walk-up — a seat working in its own folder passes no flag at all. `python3 coord.py selftest` verifies the mechanics; `coordinate -h` is the grouped command index, `coordinate <command> -h` the detail. On the ignite VPS it is also on PATH as `coordinate` (per-machine symlink, never synced by git). |
-| `watch.py` | Deterministic liveness/inactivity/context monitor (the watcher-seat tool): flags leader with the exact `close --renew` command when thresholds cross. `python3 watch.py --selftest` verifies it. |
+| `watch.py` | Deterministic liveness/inactivity/context/approval-gate monitor (the watcher-seat tool): flags leader with the exact command to run — `close --renew` at the context threshold, `approve <agent>` for a seat parked on its harness's approval prompt (P38). Every pass stamps `coordination/watch-heartbeat.json`, which `coordinate workers` reads back as `watcher: ok \| STALE` — the external check on the detached loop (P32). `python3 watch.py --selftest` verifies it. |
 | `closer-prompt.md` | The closer seat's prompt template (`close <agent>` fills and spawns it): co-writes the seat's `memory.md` with the worker, then closes (and optionally renews) the seat. |
 | `protocol.md` | The coordination protocol + execution rules every run's agents follow. |
 | `briefing-template.md` | Template for a seat folder briefing (`workers/{agent}/agent.md`; `harness:`/`model:`/`window:`/`ephemeral:` frontmatter). |
@@ -58,6 +58,26 @@ promote to the rbtv repo only after it proves out across runs.
    the auto `/rename` like any launched claude seat; a bare `launch` still never boots leader.
    A watcher seat loops `watch.py` to flag stalls and
    context overruns. Everything else follows `protocol.md`.
+
+## Run capacity — budget the box before you size the roster
+
+Whoever assembles a run owns this; it is a property of the BOX, not of the work (queue 11 —
+the kg-views-rebuild run hit its box's memory ceiling mid-run and the mitigation was a swapfile
+added by hand, which is an environment patch, not a budget).
+
+- **Seats are not free.** Budget RAM per seat before choosing the roster size: each harness
+  session is a live process with its own context, and a wave of seats that fits on paper can
+  still OOM the box. Measure one seat of each harness on the target box, multiply, leave headroom
+  for the tools the seats themselves spawn — then set `max concurrent seats` and stage the launch
+  (`launch --only a,b`) rather than starting everyone at once.
+- **Headless browsers are serialized across the whole run** — one at a time, claimed and released
+  by message (`protocol.md` R-serialized-browser). Chromium is the single biggest per-seat
+  allocation most runs make, and several at once is the usual path to the ceiling.
+- **State the ceiling in the run package's `CLAUDE.md`** — the box's memory ceiling, the max
+  concurrent seats it implies, and which seats may spawn heavyweight processes. A budget nobody
+  wrote down is re-derived wrongly by whichever seat launches next.
+- **Swap is a safety net, not the budget.** Provisioning swap keeps a breach from killing seats;
+  it does not raise the number of seats the box can actually run.
 
 > **Naming note — SUPERSEDED (2026-07-25, ruling R29).** The earlier owner ruling (2026-07-24)
 > kept this seat named `master`, holding it deliberately distinct from the system-definition

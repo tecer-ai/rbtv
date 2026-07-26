@@ -110,6 +110,24 @@ changes what a command accepts, refuses, writes or computes — only what a read
 | **`> delivery-failure:` lines are rendered as a labelled `[log]` trailer, set apart from the message body — never hidden, and the log file untouched** | Agent A's finding: `load_messages` absorbs P22's failure annotations into the preceding message block (the log appends them after it), so a plain `read` printed them as if the SENDER had written them — a message whose author never mentioned a failed wake appeared to. The two obvious fixes are both wrong: changing where P22 writes is a `messages.md` grammar change (frozen, and it would break replay of closed runs), and filtering them out hides delivery failures from the one reader who only ever runs `read`. So the split is in the RENDERER only — body first, then the annotations under a `[log]` label (dim red in `--pretty`) — and the file keeps its exact bytes. Never make this a filter: P22's whole point is that a lost wake is visible in the log. |
 | **Broadcast wake results compress to ONE summary line (`wakes: N delivered, M failed, K skipped (departed: …)`); only failures keep a line of their own** | A 10-to-20-seat broadcast printed one line per recipient, so the sender scanned twenty lines of chrome for the one that mattered — the same signal-burying that made F7 (46 departed-seat "failures") a defect. Wakes are best-effort by design (P22: the log is the truth), so their per-recipient success is not news; a failure is. Departed seats are NAMED in the summary rather than merely counted — the sender still has to know which seats got no nudge — and both lists are sorted, so the output stays deterministic despite concurrent completion (that determinism was what the parallel-wake selftest asserted before compression; it now asserts the single-line collapse instead). |
 
+### v4 decisions (2026-07-26 — the kg-views-rebuild learnings the v3 redesign never folded in)
+
+The 2026-07-25 redesign folded run-2's proposals in wholesale, but a fact-check of that run's
+observer files against the shipped kit found eight items that were never folded and were not
+superseded by anything. This block closes them. Four are code; four are rules-layer only, and each
+one below says WHY it is not code — the D18 default (§2) is mechanize, so a rule needs a reason.
+
+| Decision | Why (and what it must not regress to) |
+|----------|----------------------------------------|
+| **`checkin` REFUSES while the pane already holding the name is alive** (P37) — the guard fires on pane LIVENESS, not on the existence of a prior row, so a relaunch after a dead pane and a same-pane recovery both still supersede exactly as before; `--force` is the deliberate override | P1's supersession is right for the case it was built for (a ghost ACTIVE row from a dead launch) and silently wrong for the zombie double-launch: the old session was still running, so superseding it produced two live panes under one name with nothing anywhere marking the split. The damage compounds through three separate mechanics — the roster holds ONE pane per name, so every wake reached only the newest twin; `unread_for` excludes `b["sender"] != agent`, i.e. the filter is keyed on the NAME, so each twin saw the other's messages as its own and skipped them; and both twins believed they were the single writer of the seat's surfaces. The refusal is at the door because that is the only point where the tool can still tell the two apart. Never soften it into a warning: a warning at check-in time is read by an agent that has already decided to boot. |
+| **Blind gate seats are SKIPPED, never woken** (8(b)) — `at_approval_gate(pane)` joins `departed` / `not launched` / `no pane` as a fourth skip reason in `deliver_wakes`, named to the sender with `approve` as the next step | A seat parked on an interactive approval modal is alive and paned, so it passed every existing reachability test and got a wake typed straight into a modal that cannot read it — worst case landing as stray text INSIDE the gate leader then has to answer. It reuses the T3 skip path deliberately rather than becoming a new failure class: only an ATTEMPTED wake can fail, so nothing is written to the log (that invariant is what keeps `> delivery-failure:` worth reading, F7). Never "fix" this by logging the skip to make it visible — visibility belongs in the sender's summary line, which is where it is. |
+| **The gate predicate reads the pane TITLE, never the pane text** (P38/8(b)), and lives in `coord.py` with `watch.py` delegating to it | codex publishes the state as a title ("Action Required"); matching the pane's visible CONTENT would false-fire on any seat whose output merely contains the phrase — a briefing quoting it, a log line, this design file in an editor. Fail-safe by construction: an unreadable title, a dead pane or no tmux all return `''` and therefore "not gated", so a seat is never declared blind on a missing signal. ONE definition with two consumers (the watcher's detection, `send`'s skip) because two copies of a marker list drift, and a run where the watcher and the sender disagree about which seats are gated is worse than either behaviour alone. Adding a harness needs a REAL captured pane in the gated state — the P35 round-2 discipline, for the same reason. |
+| **`watch.py` stamps `coordination/watch-heartbeat.json` every pass; `coordinate workers` reports the watcher `ok`/`STALE`** (P32) | The sentinel had no sentinel. The loop is detached by design (§5 — it deliberately survives its seat), so its death emits nothing at all, and the run then reads as healthy precisely BECAUSE no flags arrive: liveness, context and approval cover all stop silently. The check is in `workers` rather than in a new command because leader already runs `workers` at every drain — a check nobody runs is not a check. Staleness is derived from the loop's own cadence (three missed passes) instead of a constant: a 10-minute loop and a 60-minute loop are not late at the same age. Separate file from `watch-state.json` because that file is keyed by agent name and a reserved key inside it is one roster name away from a collision. The write is failure-tolerant (a read-only package must not take the watcher down) and an unreadable stamp reads as "no watcher", never as a crash inside the roster view every seat runs. |
+| **R-scan-stamp (P29) is a RULE, not code** | The stamp must be taken when the SCAN STARTS; the tool only sees the message at send time, which is the disposition-era state — the exact thing the rule exists to distinguish. Nothing coord can observe stands in for it. The only mechanizable half is the disposition-side `git diff <sha>.. -- <path>`, which is one command leader already has; wrapping it would make coord shell out to git, which it does nothing else with today. |
+| **R-confirm-dead (P37) keeps its kill-by-pane-id half as a rule** | `checkin`'s refusal mechanizes the confirm half at the only moment the tool is in the loop. The kill happens in the operator's own tmux, outside every coord call — the tool is never invoked and cannot gate it. |
+| **R-serialized-browser + the run-capacity budget (queue 11) are rules** | Both are properties of the BOX, not of the run package: coord has no view of memory, of processes it did not spawn, or of what a seat launches inside its own pane. The kit would have to become a process supervisor to enforce either. The budget therefore lands where the roster size is chosen — `team-kit.md` § Run capacity for the assembler, R-serialized-browser for the seat. |
+| **Per-AC judge posting (R-2), the deputy + verifier roles, the production-regime fixture gate and pre-registered fix→verify bars (briefing diffs 1/4) are rules** | Composition and briefing-authoring decisions: they are made before any coord command runs, by whoever assembles the run. Note that per-AC posting REVERSES the previous "ONE consolidated verdict" instruction — the consolidated verdict survives as a SUMMARY of rulings already posted. Batching was write-through's own failure mode (R-write-through) applied to verdicts: the findings lived in one judge's context until the end, so a context loss took all of them and the worker idled on criteria settled an hour earlier. |
+
 ## 4. The rules layer (what code cannot enforce)
 
 `protocol.md` holds only rules with P-numbered evidence. Classes: session mechanics (startup
@@ -139,6 +157,15 @@ opened with multicast walls of text and formed its first group at message #16.
   lock serializes the cursor WRITE (and re-reads the roster under it), but the read → decide →
   advance sequence still spans the unlocked read. Acceptable for the same reason as before: one
   agent = one session by construction; do not reuse an agent name for two live panes.
+- **The unread filter is keyed on the agent NAME, not on a session or a pane** (v4, Amend.(d)):
+  `unread_for` excludes `b["sender"] != agent`, so if two live sessions ever DO share a name, each
+  reads the other's messages as its own and skips them — mutually blind, with no marker anywhere.
+  v4's `checkin` refusal (§3) closes the way this happened in practice (a zombie double-launch),
+  but it is a guard at the door, not a fix to the derivation: `--force`, or two seats hand-started
+  under one name, still reach the blind state. Pane-keying the filter would mean recording the
+  sender's pane in `messages.md`, i.e. a grammar change to a frozen file that would break replay
+  of every closed run — deliberately not done. The invariant stands: one agent name = one live
+  session, now enforced at check-in instead of merely assumed.
 - **The package lock is advisory and best-effort** (v3). Where `flock` is unavailable or the
   package is read-only (a codex seat's sandbox), coord announces it once on stderr and proceeds
   WITHOUT the lock — i.e. back to the pre-v3 duplicate-ID and lost-roster-write races for that
@@ -186,6 +213,18 @@ opened with multicast walls of text and formed its first group at message #16.
   killing the run's tmux session does not kill the loop. Close-out includes
   `pkill -f "watch.py --package <this-package>"`; a stale loop from a closed run notifies a dead
   leader roster and is noise, not damage.
+- **Approval-gate detection covers only harnesses that publish the state in the pane TITLE**
+  (v4, P38) — codex today. A harness that renders its approval modal without changing the title is
+  invisible to both the watcher flag and `send`'s blind-gate skip, and falls back to the previous
+  behaviour: the seat is woken into the modal, and inactivity finally flags it ~30 minutes later
+  with the wrong remedy. Extending coverage means capturing a real pane in the gated state, never
+  guessing a marker (P35 round 2's rule). Matching pane TEXT instead is not the escape — it
+  false-fires on any seat whose output contains the phrase.
+- **The watcher heartbeat proves the LOOP ran, not that its measurements were right.** A watcher
+  whose transcript matching silently resolves nothing still stamps a healthy heartbeat every pass:
+  `workers` will say `ok` while context goes unmeasured. Seats that stay permanently without a
+  `ctx=` reading in the watcher's own report are the signal for that failure — the heartbeat is
+  not.
 
 ## 6. Evolution rules (also in CLAUDE.md — repeated because designers land here first)
 

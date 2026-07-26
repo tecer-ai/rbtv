@@ -60,7 +60,12 @@ ctx-refresh: 50            # optional; context-refresh threshold % for THIS seat
 
 ## Done gate (pre-declared — judges rule against THIS)
 
-{Objective criteria. Each one checkable by a third party without this agent's help.}
+{Objective criteria. Each one checkable by a third party without this agent's help.
+ For every fix this briefing commissions, pre-register the acceptance bar HERE, before the work:
+ the exact observation that will count as proof, and the ones that will NOT. A fix to a
+ detection/matching/parsing mechanic must be proved against a fixture captured from the REAL
+ regime it fails in — a hand-authored fixture is not evidence (protocol.md § Briefing authoring
+ rules).}
 
 ## Never
 
