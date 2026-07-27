@@ -164,8 +164,24 @@ def main():
     env = dict(os.environ)
     env["COORD_LAUNCH_TARGET"] = pane
     env.pop("TMUX_PANE", None)   # never let a stale pane win over the one we just proved
+    # --force carries the ROLE gate; --force-memory carries the MEMORY gate. BOTH are needed
+    # and both are passed EXPLICITLY, which is the opposite of smuggling one through the other.
+    #
+    # WHY THE MEMORY GATE IS OVERRIDDEN HERE, stated rather than assumed: a RECOVERY launch is
+    # load-NEUTRAL. It replaces a seat that has already died, so the memory that seat held is
+    # already back; the gate is sized for a NEW launch, which this is not. Without the flag the
+    # daemon-fired recovery is REFUSED below the floor (exit 2) — i.e. self-healing switches off
+    # in EXACTLY the low-memory state that kills seats and calls for recovery. Tonight's readings
+    # touched 2449 / 2757 / 2837 against a 2800 floor. A run whose healing fails precisely when
+    # needed is worse than one with no healing, because the second is honest about it.
     cmd = [sys.executable, args.coord, "--package", args.package,
-           "launch", "--only", args.seat, "--force"]
+           "launch", "--only", args.seat, "--force", "--force-memory"]
+    # RIDER (leader #409): the override is LOGGED with its reason every time. An invisible
+    # override at 4 a.m. is the thing this run spent the night eliminating.
+    log("OVERRIDING THE MEMORY GATE (--force-memory) — deliberate and load-neutral: this "
+        "recovery replaces a seat that already died, so its memory is already returned. The "
+        "gate is sized for a NEW launch; a recovery is not one. Role gate also overridden "
+        "(--force) because a daemon-fired exec has no pane and therefore no seat identity.")
     log(f"launching: COORD_LAUNCH_TARGET={pane} {' '.join(cmd)}")
     try:
         res = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=240)

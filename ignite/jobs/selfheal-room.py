@@ -39,7 +39,9 @@ seats, and the kit stays the spawner of this run's room. What changes is only WH
 notices the room died — a periodic job instead of a human.
 
 KIT FALLBACK, one command (stays armed, per `r-cutover-gated`):
-  python3 <team-kit>/coord.py --package <PKG> launch --only <SEAT> --force
+  python3 <team-kit>/coord.py --package <PKG> launch --only <SEAT> --force --force-memory
+  (BOTH flags: --force carries the ROLE gate, --force-memory the MEMORY gate, and a
+   recovery needs both — it is load-neutral, replacing a seat that already died.)
 
 WHAT THIS SCRIPT WRITES
 -----------------------
