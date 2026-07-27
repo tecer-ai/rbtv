@@ -5914,6 +5914,20 @@ def _selftest_checks(args, failures, names):
             except SystemExit:
                 g101_inline_ok = False
             check("G-101: --inline still carries a real argv body past the guard", g101_inline_ok)
+            # G-101 residual: an EXEC-AWAY WRAPPER (timeout/env/nice) leaves a non-shell parent.
+            # The guard must refuse anyway — inferring shell-ness from the parent is what let
+            # `timeout 30 coordinate send x "text $(...)"` write a shell-eaten body to the log.
+            globals()["parent_is_shell"] = lambda: False
+            g101_wrapped = None
+            try:
+                with redirect_stderr(io.StringIO()):
+                    assert_argv_body_shell_safe(
+                        ns(to="beta", message="hi", type="note", inline=False, func=cmd_send))
+            except SystemExit as exc:
+                g101_wrapped = exc.code
+            check("G-101 residual: a positional argv body is refused even behind an exec-away "
+                  "wrapper (no shell parent) — the guard asserts, it does not infer",
+                  g101_wrapped == 1)
             # ...and the substitution half, pinned against a CONTROLLED shell line rather than
             # whatever launched this run: --inline is no escape from proven damage.
             globals()["shell_source_line"] = lambda: 'send beta "v is $(id -u)" --inline'
@@ -7337,7 +7351,18 @@ def assert_argv_body_shell_safe(args):
               f"override (you are certain the substitution was harmless): --force",
               file=sys.stderr)
         sys.exit(1)
-    if parent_is_shell() and not getattr(args, "inline", False):
+    # G-101 residual (leader #76): the parent-process test is GONE, deliberately. It asked "was
+    # our argv parsed by a shell", and any exec-away wrapper — `timeout`, `env`, `nice`, `xargs`
+    # — answers no while a shell parsed the line anyway. Measured after the boundary move:
+    # `coordinate send x "body"` refused, `timeout 30 coordinate send x "body"` ACCEPTED, and
+    # `timeout 30 coordinate send x "text $(echo EATEN)"` put EATEN into the permanent log.
+    # Wrappers are not exotic — a leader reaching for `timeout` on anything that might hang
+    # produced that corruption twice in one hour. So the rule is now unconditional at this
+    # boundary: a positional body pays an explicit `--inline`, whatever launched us. That is
+    # S-4(b)'s own design (default safe; the unsafe path pays an assertion) with the inference
+    # removed, and it costs nothing real — every programmatic caller either goes in-process
+    # (goal-watcher-job calls cmd_send directly) or already uses --file (the probes).
+    if not getattr(args, "inline", False):
         print(f"refused: this body was typed on a shell command line, and a shell eats "
               f"backticks and $(...) BEFORE coord.py can see them — the corruption is "
               f"undetectable after the fact and it has silently rewritten this room's "
