@@ -79,17 +79,30 @@ Discovery is not authorization: the surface is handed to every agent per `PRIN-8
 
 ## Retirement — the successor is the `rbtv` CLI
 
-**This is a SECOND ARTIFACT that exists only because its home is unbuilt, and it retires.**
+**This is a SECOND ARTIFACT that exists only because its home is unbuilt, and it retires — but
+the `rbtv` CLI landing is NOT what retires it. ⚠ THIS SCRIPT IS LOAD-BEARING RIGHT NOW.**
 
 - **Successor:** the `rbtv` CLI's daemon verb family, `rbtv ignite daemon start|restart|stop|kill|unit`
   (registry `concepts/rbtv-cli.md` § daemon verb family; owner-ruled `d-ignite-operator-surface`).
-- **Trigger:** the `rbtv` CLI landing. Verified unbuilt 2026-07-26 and still unbuilt at time of
-  writing — `3-resources/tools/rbtv/` carries `ignite/` and `orchestration/cli/`, no `rbtv` binary.
-- **Fold-in:** the five verbs move under `rbtv ignite daemon …` **with no contract change** — same
-  verbs, same names, same exit codes. That is the whole point of fixing the surface now, and it is
-  the `concepts/master.md` v1 stand-in pattern.
-- **On retirement:** delete this capability folder, and drop the stand-in pointer from the box
-  runbook's § Daemon lifecycle section, which then names the `rbtv` command directly.
+- **Fold-in — DONE, and it WRAPS rather than moves** (core-build task 7.65, landed 2026-07-27).
+  `rbtv ignite daemon <verb>` **execs this script**: same verbs, same names, same exit codes, no
+  contract change — because 7.65's criteria ruled "wraps the stand-in script behavior unchanged",
+  and a wrapper is not a reimplementation. **So the CLI is a CALLER of this folder, not a
+  replacement for it, and this folder is now a DEPENDENCY rather than a predecessor.**
+- **Trigger — the CLI STOPS DELEGATING, not the CLI landing.** Retirement waits until the daemon
+  verbs have a real home of their own (the `CMP-5` component layer, still unbuilt) and `rbtv` no
+  longer execs this script. **Until then there is nothing to retire into.**
+- **On retirement (NOT YET — check the trigger above first):** delete this capability folder, and
+  drop the stand-in pointer from the box runbook's § Daemon lifecycle section, which then names the
+  `rbtv` command directly.
+
+⚠ **Why this section is worded so insistently.** It previously named the trigger as "the `rbtv` CLI
+landing" and instructed deleting this folder on retirement — written when fold-in was expected to
+mean ABSORPTION. The CLI then landed and *wrapped*, so **the trigger fired while the instruction
+became wrong: a reader checking the trigger CORRECTLY would have been told to delete the folder
+`rbtv ignite daemon` depends on, breaking all five verbs.** Filed as `G-131` by `C2-rbtv-cli` (which
+built the wrapper), reworded on the leader's ruling. A retirement clause must key on the condition
+that makes the artifact *unused*, never on the arrival of the thing that uses it.
 
 Also out of scope here and staying so: the cadence edit `rbtv ignite ticker set-interval` (its
 first `settings.json` consumer is core-build task 7.66), and `enable`/`disable` plus unit-file
