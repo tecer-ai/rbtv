@@ -5518,10 +5518,18 @@ def cmd_close_seat(args):
     base = base_dir(args)
     # A DOOR IS NOT CLOSED MECHANICALLY. A seat declaring `relays:` carries the relay path to a
     # HUMAN role, and its pane is the surface that human is watching — the owner can be sitting at
-    # it while the seat itself is checked out. This path KILLS the pane (measured, leader #385: a
-    # renewed leader's prior pane was gone and the successor held a new id, so renew here does not
-    # respawn in place — it kills and re-creates). So both the plain close and the renew destroy
-    # the door, and neither should happen because someone was tidying the roster.
+    # it while the seat itself is checked out.
+    #
+    # G-151, corrected: this comment used to read "renew here does not respawn in place — it kills
+    # and re-creates", generalised from ONE measurement (leader #385). That reading was true of the
+    # seat measured and false as a general claim, and it sat thirty lines from `renew_in_place`'s
+    # docstring saying the opposite — a contradiction inside one file that two rulings then leaned
+    # on from opposite sides, each correct from where it stood. Both were describing the SAME
+    # decision from different seat classes. What is actually true: the plain close ALWAYS kills the
+    # pane; the renew kills it too UNLESS the seat is already in the window its briefing asks for
+    # (G-154), in which case the pane is kept and respawned. This early check cannot tell which
+    # case it is in — `in_place` is not computed until later — and it does not need to: a door is
+    # not closed mechanically on EITHER branch.
     #
     # REFUSED, NOT SILENTLY EXEMPTED: unlike `reap`, this command is an explicit deliberate act, so
     # the right answer is to make the caller say they mean it rather than to ignore the request.
@@ -5534,10 +5542,11 @@ def cmd_close_seat(args):
         _pane = (_row or {}).get("pane") or ""
         if _relays and _pane and _pane in live_panes():
             print(f"refused: '{args.target}' carries a relay path to a human role "
-                  f"({', '.join(sorted(_relays))}), and its pane {_pane} is LIVE. This command "
-                  f"kills that pane — on the renew path too, which kills and re-creates rather "
-                  f"than respawning in place — so this would close the door a human may be "
-                  f"watching, possibly while they are away and expecting it to be there.\n"
+                  f"({', '.join(sorted(_relays))}), and its pane {_pane} is LIVE. A plain close "
+                  f"kills that pane; a --renew kills it too unless the seat is already in the "
+                  f"window its briefing asks for (G-154), and you cannot tell which case you are "
+                  f"in from here. So this may close the door a human is watching, possibly while "
+                  f"they are away and expecting it to be there.\n"
                   f"A door in the wrong place is cosmetic; a door destroyed is an outage.\n"
                   f"If you mean it (the run is ending, or the owner has moved): --force",
                   file=sys.stderr)
@@ -8153,10 +8162,10 @@ def _selftest_checks(args, failures, names):
         live_tmux_panes["v"].add("%31")
         _do, _dc = refuse(cmd_close_seat, target="dr", agent="leader", renew=False, no_export=True)
         check("r-window-layout/door: `close-seat` REFUSES a seat carrying a relay path to a human "
-              "role while its pane is LIVE — this path kills the pane (on the renew path too, "
-              "which kills and re-creates rather than respawning in place), so it would destroy a "
-              "door a human may be watching. A door misplaced is cosmetic; a door destroyed is an "
-              "outage",
+              "role while its pane is LIVE — a plain close always kills the pane, and a --renew "
+              "kills it too unless the seat already sits in its briefed window (G-154), so this "
+              "may destroy a door a human is watching. A door misplaced is cosmetic; a door "
+              "destroyed is an outage",
               _dc == 1 and "relay path to a human role" in _do and "%31" in _do)
         _fo, _fc = refuse(cmd_close_seat, target="dr", agent="leader", renew=False, no_export=True,
                           force=True)
