@@ -39,10 +39,17 @@ watcher: this loop runs detached, so a dead loop is indistinguishable from a qui
 workers` reads the stamp and reports the watcher STALE past three missed passes.
 
 Thresholds (watcher defaults, owner-ruled 2026-07-24): --inactive-min 30, --context-pct 50.
-With --notify each crossing sends ONE coordination `ask` to leader (via coord.py, so it is
-logged and wakes the pane) telling it exactly what to run — e.g. `close <agent> --renew` at the
-context threshold. A crossing re-arms only when the condition clears (activity resumes / the
-seat's pane changes, i.e. it was renewed).
+With --notify each crossing sends ONE coordination `note` (via coord.py, so it is logged and wakes
+the pane) telling the recipient exactly what to run — e.g. `close <agent> --renew` at the context
+threshold. A crossing re-arms only when the condition clears (activity resumes / the seat's pane
+changes, i.e. it was renewed).
+
+⚠ A FLAG IS NEVER SENT TO THE SEAT IT IS ABOUT. `--notify-to` (default `leader`) takes the flags;
+a flag whose SUBJECT is that seat is diverted to `--notify-fallback` (default `leader`), because a
+seat cannot be asked to adjudicate a warning about itself. This is not a special case for one role:
+it was found as one — a context warning about the LEADER was delivered to the leader, which holds
+its own close/renew/approve with no seat above it and an AFK owner — and the general rule is what
+closes it, since pointing the flags at any single seat just moves the hole to that seat.
 
   python3 watch.py --package <abs-run-package> [--notify] [--loop 10]
 
@@ -303,6 +310,55 @@ def save_heartbeat(base, loop_min):
 
 # ---------- notification ----------
 
+class Flag(str):
+    """A flag line that REMEMBERS WHICH SEAT IT IS ABOUT.
+
+    A plain string was enough while every flag went to one hardcoded recipient. Routing needs the
+    SUBJECT, and the subject is deliberately CARRIED rather than parsed back out of the rendered
+    sentence: re-deriving `'leader'` from "watch: 'leader' context is at 52.6%" would be a check
+    that INFERS a property instead of asserting it — the shape this run filed as `G-107` and paid
+    for repeatedly. A `str` subclass keeps every existing reader (`'x' in note`, the report lines,
+    the whole selftest) working untouched while the routing layer reads `.subject`.
+
+    `subject is None` means the flag is about the ROOM, not a seat (system pressure, a leftover
+    window) — those have no subject to divert away from and always go to the primary recipient."""
+
+    subject = None
+
+    def __new__(cls, subject, text):
+        obj = super().__new__(cls, text)
+        obj.subject = subject
+        return obj
+
+
+def flag_recipient(args, subject):
+    """(recipient, diverted, orphaned) for a flag about `subject`.
+
+    ⚠ THE RULE, and it is general rather than a special case for one seat: A FLAG ABOUT A SEAT MUST
+    NEVER BE ROUTED TO THAT SEAT. `notify` used to hardcode `leader`, so a warning that the LEADER
+    was out of context arrived in the leader's own inbox — a seat holding its own close/renew/approve
+    with no seat above it and an AFK owner. That is the structural hole; the owner ruled the flags
+    at the chief-of-staff. Pointing them there and stopping would move the hole rather than close
+    it: a flag about the CoS would then land on the CoS. So the subject is diverted to a SECOND
+    recipient whichever seat it is about, and the leader-subject case is one instance of it.
+
+    Both recipients are ARGUMENTS defaulting to `leader`, never a name baked into this file. This
+    kit is shared by every run; hardcoding `chief-of-staff` would freeze one campaign's roles into a
+    tool other runs use — the exact objection that got `SPECIAL_CASE_SEATS` demoted to a default
+    table. run-2 passes `--notify-to chief-of-staff`; the default keeps every other run's behaviour.
+
+    `orphaned` is the honest third state: when subject, primary AND fallback are all the same seat
+    there is no independent recipient at all, so the flag is delivered anyway AND recorded — a
+    monitor with nowhere impartial to report must say so, not quietly report to the subject."""
+    primary = getattr(args, "notify_to", None) or "leader"
+    fallback = getattr(args, "notify_fallback", None) or "leader"
+    if subject and subject == primary:
+        if subject == fallback:
+            return primary, False, True
+        return fallback, True, False
+    return primary, False, False
+
+
 def record_undelivered(args, text, reason):
     """Append an UNDELIVERED flag to the run package, so a refused warning survives where the run
     looks instead of dying in a detached stderr.
@@ -330,7 +386,10 @@ def record_undelivered(args, text, reason):
 
 
 def notify_leader(args, text):
-    """Send one flag to leader through coord (so it is logged AND wakes the pane).
+    """Send one flag to its RECIPIENT through coord (so it is logged AND wakes the pane).
+
+    Name kept for its callers; the recipient is now `flag_recipient`'s, not `leader` by fiat — see
+    that function for why a flag never goes to the seat it is about.
 
     `agent="watcher"` is coord's internal identity API — the `--as` equivalent (the watcher loop
     runs outside any pane, so no identity contradiction can fire).
@@ -348,9 +407,20 @@ def notify_leader(args, text):
     NO SENDER IDENTITY IS MINTED HERE, deliberately: the loop is not a seat and must not become one
     (`r-watcher-attributions-distributed` — detection is the loop's, never a seat's). Reusing the
     relay machinery was considered and is UNNECESSARY, because a note needs no reply route at all."""
+    subject = getattr(text, "subject", None)
+    to, diverted, orphaned = flag_recipient(args, subject)
+    if diverted:
+        # The reader must know WHY this arrived here rather than with the usual recipient, and that
+        # it is about a seat that cannot be told to act on itself. Prepended to the body because
+        # coord carries no routing metadata a human reads.
+        text = Flag(subject, f"[routed to you: this flag is ABOUT '{subject}', the seat it would "
+                             f"normally go to] {text}")
+    if orphaned:
+        record_undelivered(args, text, f"no impartial recipient — '{subject}' is both the subject "
+                                       f"and the only configured recipient; sent to it anyway")
     ns = argparse.Namespace(package=getattr(args, "package", None), base=getattr(args, "base", None),
                             workers_dir=getattr(args, "workers_dir", None),
-                            agent="watcher", as_agent=None, to="leader", message=text,
+                            agent="watcher", as_agent=None, to=to, message=str(text),
                             type="note", supersedes=None, re_num=None, file=None, force=False)
     try:
         # ⚠ THE SECOND REFUSAL, and the ruled fix did not reach it. `resolve_agent` refuses a
@@ -504,12 +574,12 @@ def run_pass(args):
             if verifiable and not hp:
                 report.append(f"{agent:<18} GHOSTROW pane {pane} has no harness process")
                 if not st.get("notified_ghostrow"):
-                    notes.append(
+                    notes.append(Flag(agent,
                         f"watch: '{agent}' is ACTIVE in the roster but pane {pane} runs NO "
                         f"harness process — the row claims a seat that is not there. Its work is "
                         f"stopped and every wake sent to it is typed into a bare shell. Inspect "
                         f"(tmux capture-pane -p -t {pane}), then either relaunch or close it: "
-                        f"{coord.coord_invocation(args)} close-seat {agent} --renew")
+                        f"{coord.coord_invocation(args)} close-seat {agent} --renew"))
                     st["notified_ghostrow"] = True
             elif hp:
                 st.pop("notified_ghostrow", None)
@@ -529,9 +599,9 @@ def run_pass(args):
         if pane and live and pane not in live:
             report.append(f"{agent:<18} DEAD    pane {pane} gone")
             if not st.get("notified_dead"):
-                notes.append(f"watch: '{agent}' is ACTIVE in the roster but its pane {pane} is gone "
+                notes.append(Flag(agent, f"watch: '{agent}' is ACTIVE in the roster but its pane {pane} is gone "
                              f"— wakes cannot reach it. Mark it closed ({coord.coord_invocation(args)} "
-                             f"close-seat {agent} --no-export) or relaunch it.")
+                             f"close-seat {agent} --no-export) or relaunch it."))
                 st["notified_dead"] = True
             state[agent] = st
             continue
@@ -571,20 +641,20 @@ def run_pass(args):
         if at_approval_gate(pane):
             flags.append("APPROVAL")
             if not st.get("notified_approval"):
-                notes.append(f"watch: '{agent}' ({harness}) is parked on an interactive approval "
+                notes.append(Flag(agent, f"watch: '{agent}' ({harness}) is parked on an interactive approval "
                              f"prompt — its pane is frozen until someone answers it, and a wake "
                              f"typed into it would land in the modal. Inspect it "
                              f"(tmux capture-pane -p -t {pane}) and clear it: "
-                             f"{coord.coord_invocation(args)} approve {agent}")
+                             f"{coord.coord_invocation(args)} approve {agent}"))
                 st["notified_approval"] = True
         else:
             st.pop("notified_approval", None)
         if inact_min is not None and inact_min >= args.inactive_min:
             flags.append(f"INACTIVE {inact_min}min")
             if not st.get("notified_inactive"):
-                notes.append(f"watch: '{agent}' has shown no pane activity for {inact_min} min "
+                notes.append(Flag(agent, f"watch: '{agent}' has shown no pane activity for {inact_min} min "
                              f"(threshold {args.inactive_min}). Check on it; if hung or done-but-"
-                             f"stuck, close it — or renew: {coord.coord_invocation(args)} close {agent} --renew")
+                             f"stuck, close it — or renew: {coord.coord_invocation(args)} close {agent} --renew"))
                 st["notified_inactive"] = True
         # A seat may declare its OWN refresh threshold in its briefing (`ctx-refresh: 60`) — a
         # cheap ephemeral seat and a long-lived builder do not want the same one. The watcher's
@@ -595,10 +665,10 @@ def run_pass(args):
             flags.append(f"CONTEXT {pct}%")
             if not st.get("notified_context"):
                 source = " from its briefing ctx-refresh" if seat_pct else ""
-                notes.append(f"watch: '{agent}' context is at {pct}% (threshold {threshold}%"
+                notes.append(Flag(agent, f"watch: '{agent}' context is at {pct}% (threshold {threshold}%"
                              f"{source}). Have the closer close and RENEW it now: "
                              f"{coord.coord_invocation(args)} close {agent} --renew "
-                             f"(memory.md gets written, the seat relaunches fresh).")
+                             f"(memory.md gets written, the seat relaunches fresh)."))
                 st["notified_context"] = True
 
         ctx = f" ctx={pct}%" if pct is not None else ""
@@ -834,8 +904,60 @@ def cmd_selftest():
               and not any(ln.strip().startswith("delta") and "ctx=" in ln for ln in printed_lines))
 
         raw = (base / "messages.md").read_text()
-        check("notify: flags land in the coordination log as watcher->leader asks",
-              "from: watcher | to: leader | type: ask" in raw)
+        # ⚠ THIS CHECK ASSERTED `type: ask` AND HAD BEEN FAILING SINCE THE ask->note FIX LANDED
+        # (e5e55e5), whose message reports "0 failures". Measured on that commit, in this tree, on
+        # two different invocations: FAIL (1 failure). The one check standing guard over delivery
+        # was red while the delivery fix it belonged to shipped — the type moved and its assertion
+        # did not follow. Corrected to the behaviour that is actually right, rather than deleted.
+        check("notify: flags land in the coordination log as watcher->leader NOTES (never asks — "
+              "an ask from an unaddressable sender can never be closed, S-7)",
+              "from: watcher | to: leader | type: note" in raw
+              and "from: watcher | to: leader | type: ask" not in raw)
+
+        # ---- B: a flag is NEVER routed to the seat it is ABOUT ----
+        # Pure-function first: exhaustive over the four cases, and DISCRIMINATING BY CONSTRUCTION —
+        # on the pre-fix code the recipient was the literal string "leader" in every case, so every
+        # non-leader expectation below fails without the routing layer.
+        rec = lambda subj, to="chief-of-staff", fb="leader": flag_recipient(
+            ns(notify_to=to, notify_fallback=fb), subj)
+        check("B: a flag about an ORDINARY seat goes to the configured recipient",
+              rec("beta") == ("chief-of-staff", False, False))
+        check("B: a flag about the RECIPIENT ITSELF is diverted to the fallback — the structural "
+              "hole: a warning about the leader was delivered to the leader, which holds its own "
+              "close/renew/approve with no seat above it",
+              rec("chief-of-staff") == ("leader", True, False))
+        check("B: the rule is GENERAL, not a carve-out for one role — it diverts whichever seat "
+              "is configured, so pointing flags at a new seat cannot move the hole to that seat",
+              rec("leader", to="leader", fb="chief-of-staff") == ("chief-of-staff", True, False))
+        check("B: a room-level flag (system pressure / leftover window) has no subject to divert "
+              "and goes to the primary recipient",
+              rec(None) == ("chief-of-staff", False, False))
+        check("B: subject == primary == fallback is ORPHANED — no impartial recipient exists, so "
+              "it is delivered anyway AND recorded, never quietly reported to its own subject",
+              rec("leader", to="leader", fb="leader") == ("leader", False, True))
+        check("B: defaults are unchanged for every run that configures nothing (leader, leader)",
+              flag_recipient(ns(), "beta") == ("leader", False, False)
+              and flag_recipient(ns(), "leader") == ("leader", False, True))
+        check("B: a Flag CARRIES its subject rather than having it parsed back out of the "
+              "rendered sentence (G-107: assert, never infer), and is still a plain str",
+              Flag("beta", "watch: 'beta' x").subject == "beta"
+              and Flag("beta", "watch: 'beta' x") == "watch: 'beta' x"
+              and getattr("plain string", "subject", None) is None)
+
+        # End-to-end through the REAL send path — the same function the loop calls, writing the
+        # real coordination log. A pass count is not a result (G-121): this asserts the ADDRESS on
+        # the delivered message, which is the whole of what B changes.
+        notify_leader(ns(notify_to="alpha"), Flag("beta", "watch: 'beta' end-to-end routing probe"))
+        notify_leader(ns(notify_to="alpha"), Flag("alpha", "watch: 'alpha' end-to-end divert probe"))
+        raw2 = (base / "messages.md").read_text()
+        check("B (end-to-end): a flag about 'beta' is ADDRESSED to the configured recipient "
+              "'alpha' in the real log — pre-fix every flag was addressed to leader",
+              "from: watcher | to: alpha | type: note" in raw2
+              and "end-to-end routing probe" in raw2)
+        check("B (end-to-end): a flag ABOUT 'alpha' is addressed to the FALLBACK instead, and the "
+              "body says why it arrived there — the reader must not have to infer the divert",
+              "routed to you: this flag is ABOUT 'alpha'" in raw2
+              and raw2.index("divert probe") > raw2.index("to: leader | type: note"))
 
         # ---- per-seat ctx-refresh threshold (coord exposes it, watch.py enforces it) ----
         for seat, marker in (("epsilon", "s_eps.jsonl"), ("zeta", "s_zet.jsonl"),
@@ -1035,7 +1157,12 @@ def main():
     p.add_argument("--context-pct", type=float, default=50, help="flag a claude seat at this context percentage (default 50)")
     p.add_argument("--mem-floor-mb", type=int, default=500, help="flag SYSTEM PRESSURE when available RAM drops below this many MB (default 500; PROP-9)")
     p.add_argument("--load-per-core", type=float, default=1.0, help="flag SYSTEM PRESSURE when 1-min load reaches cores x this factor (default 1.0; PROP-9)")
-    p.add_argument("--notify", action="store_true", help="send each new flag to leader as a coordination ask (default: print only)")
+    p.add_argument("--notify", action="store_true", help="send each new flag to its recipient as a coordination note (default: print only)")
+    p.add_argument("--notify-to", metavar="SEAT", default="leader",
+                   help="seat that receives flags (default leader). A flag ABOUT this seat is "
+                        "diverted to --notify-fallback: a seat cannot be told to act on itself")
+    p.add_argument("--notify-fallback", metavar="SEAT", default="leader",
+                   help="seat that receives flags ABOUT --notify-to (default leader)")
     p.add_argument("--loop", type=int, metavar="MIN", help="repeat forever every MIN minutes (the watcher seat's mode)")
     p.add_argument("--claude-projects-dir", help="override ~/.claude/projects (testing only)")
     p.add_argument("--selftest", action="store_true")
