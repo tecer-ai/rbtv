@@ -624,7 +624,19 @@ def wake(pane, text):
     (never retype text), bounded to WAKE_ENTER_ATTEMPTS. Every send pays the first verify delay
     (see its constant for why a "short fixed delay, only retries pay more" split does not hold at
     real wake length); a retry (genuinely stranded after the first Enter) pays the shorter settle
-    delay on top, since by then the pane has already rendered the paste once."""
+    delay on top, since by then the pane has already rendered the paste once.
+
+    REFUSES multi-line text (G-11). `tmux send-keys -l` delivers an embedded newline as Enter, so
+    multi-line text is EXECUTED LINE BY LINE by whatever reads the pane. Reproduced 2026-07-27 in
+    a throwaway pane: a closer's markdown prompt sent this way into a bash/ble.sh pane ran its
+    `coordinate checkin` line for real and printed its completion line — a seat that reported done
+    while no harness had ever started, and wake() returned SUCCESS. Any text long enough to be
+    multi-line goes through a file (prompt_file) so the wake line stays one line."""
+    if "\n" in text or "\r" in text:
+        return False, ("refused: wake text carries a newline, and send-keys delivers a newline as "
+                       "Enter — the pane's shell would execute the text line by line (G-11). "
+                       "Write the text to a file and wake with a one-line command that reads it "
+                       "(see prompt_file).")
     ok, err = tmux_send_text(pane, text)
     if not ok:
         return False, err
@@ -734,6 +746,23 @@ def tmux_kill_pane(pane):
     return r.returncode == 0, r.stderr.strip()
 
 
+def tmux_respawn_pane(pane, cwd):
+    """Restart a pane's command IN PLACE — same pane id, same cell, window layout untouched
+    (G-12). `-k` kills whatever still runs there first. A renew used to kill the pane and split a
+    fresh one, which re-tiles the whole window and destroys an arranged layout. Returns (ok, err)."""
+    r = subprocess.run(["tmux", "respawn-pane", "-k", "-c", cwd, "-t", pane],
+                       capture_output=True, text=True)
+    return r.returncode == 0, r.stderr.strip()
+
+
+def tmux_pane_pid(pane):
+    """PID of the pane's own process (its shell), 0 when unresolvable."""
+    r = subprocess.run(["tmux", "display-message", "-p", "-t", pane, "#{pane_pid}"],
+                       capture_output=True, text=True)
+    out = r.stdout.strip()
+    return int(out) if r.returncode == 0 and out.isdigit() else 0
+
+
 def tmux_pane_window(pane):
     """Window id (@N) of a pane, '' when unresolvable."""
     r = subprocess.run(["tmux", "display-message", "-p", "-t", pane, "#{window_id}"],
@@ -753,6 +782,317 @@ def tmux_capture(pane):
 def tmux_raise_history_limit():
     subprocess.run(["tmux", "set-option", "-g", "history-limit", HISTORY_LIMIT],
                    capture_output=True, text=True)
+
+
+# ---------- process truth: is the harness actually running, and did it actually die? ----------
+# Two failures on one night proved the roster is not evidence about processes:
+#   G-11 — a closer's multi-line prompt was typed into the pane's SHELL, which executed it line by
+#          line: the `checkin` line ran for real (row -> ACTIVE) and the completion line printed a
+#          report, while the harness never started. A row said ACTIVE; nothing was running.
+#   G-10 — `tmux kill-pane` SIGHUPs the pane's process group; a harness blocked elsewhere survives
+#          as a GHOST (449-488 MB each) that no roster row mentions and no sensor counts. Three were
+#          hand-reaped by the leader; hand-reaping does not scale to an unattended night.
+# Both are answered the same way: ask the process table, never the roster.
+
+HARNESS_PROCS = ("claude", "codex", "opencode")
+HARNESS_UP_TIMEOUT = 25.0   # cold claude start measured ~2-4s on this box; generous, bounded
+HARNESS_UP_POLL = 0.5
+PID_EXIT_TIMEOUT = 6.0
+# Set to skip the checkin-time harness check. The escape hatch exists because a positive-absence
+# verdict rests on argv shape: a harness launched under a wrapper this code cannot recognize would
+# be refused a checkin it deserves. Losing a seat to a false refusal is worse than G-11.
+SKIP_HARNESS_CHECK = os.environ.get("COORD_SKIP_HARNESS_CHECK") == "1"
+
+
+# ---------- memory pre-flight (leader ruling, 2026-07-27 msg #128) ----------
+# A claude seat's steady RSS is 419-549 MB but its PEAK is ~1.4 GB: boot and compaction spike ~3x
+# steady state (systemd scope accounting, "1.4G memory peak"). Every launch gate tonight sized seats
+# by what `ps` showed and understated the requirement threefold; the kernel answered by SIGKILLing a
+# bystander — the watcher, twice, its roster row still reading ACTIVE. So this gate is not a flat
+# floor over steady state: it holds a SPIKE reserve, because the spike is the risk.
+SEAT_SPIKE_MB = 1400        # measured peak of one claude seat
+SPIKE_RESERVE = 2           # concurrent spikes to keep room for (one boot + one compaction)
+LAUNCH_MEM_FLOOR_MB = SEAT_SPIKE_MB * SPIKE_RESERVE   # 2800 MB available
+
+
+def available_mb():
+    """MemAvailable in MiB, 0 when /proc/meminfo is unreadable (never gate on 'cannot tell')."""
+    try:
+        for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) // 1024
+    except (OSError, ValueError, IndexError):
+        return 0
+    return 0
+
+
+def memory_gate(n_seats, avail_mb, floor_mb=LAUNCH_MEM_FLOOR_MB):
+    """Pure: '' when it is safe to spawn `n_seats`, else the refusal reason. avail_mb == 0 means
+    unmeasurable and PASSES — a broken sensor must not be able to stop a run."""
+    if not avail_mb:
+        return ""
+    need = floor_mb + max(0, n_seats - 1) * SEAT_SPIKE_MB
+    if avail_mb >= need:
+        return ""
+    return (f"{avail_mb} MB available, {need} MB needed to spawn {n_seats} seat(s). A claude seat "
+            f"peaks at ~{SEAT_SPIKE_MB} MB on boot and on every compaction — steady RSS is a third "
+            f"of that — and this gate holds {SPIKE_RESERVE} spikes of reserve so a spiking seat "
+            f"cannot make the kernel SIGKILL a bystander (how the watcher died twice on "
+            f"2026-07-27). Close a seat first, or override with --force and say so on the log.")
+
+
+def ps_snapshot():
+    """[(pid, ppid, argv-string)] for every process on the box, [] when ps is unavailable."""
+    try:
+        r = subprocess.run(["ps", "-eo", "pid=,ppid=,args="], capture_output=True, text=True)
+    except OSError:
+        return []
+    if r.returncode != 0:
+        return []
+    rows = []
+    for line in r.stdout.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3 or not parts[0].isdigit() or not parts[1].isdigit():
+            continue
+        rows.append((int(parts[0]), int(parts[1]), parts[2]))
+    return rows
+
+
+def descendant_pids(snapshot, root_pid):
+    """Every pid at or below `root_pid` in `snapshot`. Pure — no I/O, so selftest exercises it."""
+    if not root_pid:
+        return []
+    children = {}
+    for pid, ppid, _ in snapshot:
+        children.setdefault(ppid, []).append(pid)
+    out, stack = [], [root_pid]
+    while stack:
+        pid = stack.pop()
+        out.append(pid)
+        stack.extend(children.get(pid, []))
+    return out
+
+
+def is_harness_argv(argv):
+    """True when this command line starts a coordination harness. Pure. Matches the executable's
+    basename and, for the node/bun-wrapped forms, any argv token that IS a harness path."""
+    tokens = argv.split()
+    if not tokens:
+        return False
+    if os.path.basename(tokens[0]) in HARNESS_PROCS:
+        return True
+    return any(os.path.basename(t.split("=")[-1]) in HARNESS_PROCS for t in tokens[1:4])
+
+
+def harness_pids(snapshot, root_pid):
+    """Pids of harness processes running at or below `root_pid`. Pure."""
+    want = set(descendant_pids(snapshot, root_pid))
+    return [pid for pid, _, argv in snapshot if pid in want and is_harness_argv(argv)]
+
+
+def pane_harness_pids(pane):
+    """(pids, verifiable) for the harness processes under `pane`. `verifiable` is False when the
+    process table or the pane's pid could not be read at all — 'cannot tell' is NOT 'nothing is
+    running', and every caller must treat the two differently (fail-safe)."""
+    if not pane:
+        return [], False
+    root = tmux_pane_pid(pane)
+    if not root:
+        return [], False
+    snap = ps_snapshot()
+    if not snap:
+        return [], False
+    return harness_pids(snap, root), True
+
+
+def pane_harness_idents(pane):
+    """[(pid, starttime)] for the harness processes under `pane` — the identity form of
+    pane_harness_pids, and what every teardown captures before it kills anything."""
+    if not pane:
+        return []
+    root = tmux_pane_pid(pane)
+    if not root:
+        return []
+    return harness_idents(ps_snapshot(), root)
+
+
+def proc_stat(pid):
+    """(state, starttime) from /proc/<pid>/stat — fields 3 and 22 — or ("", "") when unreadable.
+    Parsed by splitting after the LAST ')': the comm field can itself contain spaces and
+    parentheses, so a naive whitespace split mis-indexes every later field. Same derivation the
+    ignite daemon uses (carrier.js setsidStatus, "pidStarttime guard against PID reuse")."""
+    try:
+        raw = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "", ""
+    cut = raw.rfind(")")
+    if cut == -1:
+        return "", ""
+    rest = raw[cut + 1:].split()
+    # rest[0] is field 3 (state), so field 22 sits at index 19.
+    return rest[0], (rest[19] if len(rest) > 19 else "")
+
+
+def proc_starttime(pid):
+    """Field 22 of /proc/<pid>/stat, '' when unreadable — the identity half a pid cannot supply."""
+    return proc_stat(pid)[1]
+
+
+def process_identity(pid):
+    """(pid, starttime), or None when the pid is gone. A pid ALONE is not an identity: the kernel
+    recycles pids, and a teardown is exactly when new processes start, so a remembered pid can name
+    a stranger seconds later — which is how a dead seat's reaper can SIGKILL a live one.
+
+    Pane ancestry is NOT a substitute (leader, #138): G-12's in-place respawn puts the replacement
+    under the SAME pane, so an ancestry test would confirm the very process it must protect.
+    starttime is the half a respawn cannot reproduce."""
+    st = proc_starttime(pid)
+    return (pid, st) if st else None
+
+
+def harness_idents(snapshot, root_pid):
+    """[(pid, starttime)] for the harness processes under `root_pid` — identity, not bare pids."""
+    return [i for i in (process_identity(p) for p in harness_pids(snapshot, root_pid)) if i]
+
+
+def ident_is_live_harness(ident):
+    """True when (pid, starttime) still names the SAME live process and it is still a harness. The
+    single predicate every kill in this file passes through. Pure w.r.t. its argument: it re-derives
+    both halves from /proc at call time and trusts nothing remembered."""
+    pid, starttime = ident
+    state, live_start = proc_stat(pid)
+    if not starttime or live_start != starttime or state == "Z":
+        return False
+    try:
+        argv = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode(
+            "utf-8", errors="replace")
+    except OSError:
+        return False
+    return is_harness_argv(argv)
+
+
+def idents_alive(idents):
+    """The subset of `idents` that still name their original live harness process."""
+    return [i for i in idents if ident_is_live_harness(i)]
+
+
+def reaper_script(idents, delay):
+    """The detached reaper's shell text. It re-derives (pid, starttime) from /proc at the moment of
+    the kill and fires ONLY on an exact match of both halves — the guard that was missing when this
+    reaper was gated on "the pid is A harness" rather than "the pid is THE harness" (owner
+    directive 2026-07-27, msg #137). Pure, so the decision it encodes is checkable without arming
+    anything. field 22 is read after the last ')', never by a naive whitespace split.
+
+    A zombie needs no special case: its /proc/<pid>/cmdline is EMPTY, so the harness test below
+    cannot match and no signal is sent."""
+    specs = " ".join(f"{pid}:{st}" for pid, st in idents)
+    return (
+        f"sleep {delay}; for spec in {specs}; do "
+        f"p=${{spec%%:*}}; want=${{spec#*:}}; "
+        f"st=$(sed 's/^.*) //' /proc/$p/stat 2>/dev/null | awk '{{print $20}}'); "
+        f'if [ -n "$st" ] && [ "$st" = "$want" ]; then '
+        f"tr '\\0' ' ' < /proc/$p/cmdline 2>/dev/null "
+        f"| grep -qE '(^| |/)(claude|codex|opencode)( |$)' && kill -9 $p; fi; done"
+    )
+
+
+def wait_harness_up(pane, timeout=HARNESS_UP_TIMEOUT):
+    """Poll until a harness process is running under `pane`. Returns (pids, err): err is '' when
+    one came up OR when liveness is unverifiable here; non-empty ONLY on positive absence."""
+    deadline = time.time() + timeout
+    while True:
+        pids, verifiable = pane_harness_pids(pane)
+        if pids:
+            return pids, ""
+        # "Cannot tell" does not improve with waiting (no pane pid, no readable process table) —
+        # return at once rather than burning the whole timeout on an unanswerable question.
+        if not verifiable:
+            return [], ""
+        if time.time() >= deadline:
+            break
+        time.sleep(HARNESS_UP_POLL)
+    return [], (f"no {'/'.join(HARNESS_PROCS)} process is running in {pane} after "
+                f"{timeout:.0f}s — the start line was submitted to the pane but only its shell "
+                f"is there (G-11). Capture the pane to see what the shell did with it: "
+                f"tmux capture-pane -p -t {pane}")
+
+
+def pids_alive(pids):
+    """The subset of `pids` still alive, EXCLUDING zombies.
+
+    A zombie has exited: it holds no memory and runs no code, and only lingers because its parent
+    has not reaped it. `os.kill(pid, 0)` succeeds for one, so a bare signal-0 probe reports a
+    successfully killed process as a surviving ghost — caught by the live reaper proof, where a
+    process the reaper HAD killed was still reported alive."""
+    alive = []
+    for pid in pids:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            pass
+        if proc_stat(pid)[0] == "Z":
+            continue
+        alive.append(pid)
+    return alive
+
+
+def verify_pids_gone(idents, timeout=PID_EXIT_TIMEOUT):
+    """Wait for the harness processes named by `idents` — (pid, starttime) pairs — to exit,
+    escalating SIGTERM then SIGKILL on a straggler (G-10: kill-pane SIGHUPs the process group and a
+    blocked harness survives it as a ghost nobody counts). Returns (survivors, note); survivors is
+    empty on success and note says what it took.
+
+    EVERY signal passes ident_is_live_harness first, so a recycled pid can never be hit: identity is
+    re-proved from /proc at the instant of signalling, never remembered from before the kill."""
+    if not idents:
+        return [], ""
+    deadline = time.time() + timeout
+    escalated = []
+    while True:
+        alive = idents_alive(idents)
+        if not alive:
+            break
+        if time.time() >= deadline:
+            for sig in (15, 9):
+                for ident in idents_alive(idents):
+                    try:
+                        os.kill(ident[0], sig)
+                        escalated.append((ident[0], sig))
+                    except OSError:
+                        pass
+                time.sleep(0.5)
+            alive = idents_alive(idents)
+            break
+        time.sleep(0.3)
+    if alive:
+        return alive, (f"pid(s) {', '.join(str(p) for p, _ in alive)} SURVIVED kill-pane, SIGTERM "
+                       f"and SIGKILL — a ghost holding memory; reap it by hand and say so on the log")
+    if escalated:
+        return [], (f"kill-pane left the harness alive; reaped by signal "
+                    f"({', '.join(f'{p}:SIG{s}' for p, s in escalated)})")
+    return [], ""
+
+
+def arm_pid_reaper(idents, delay=4):
+    """Detach a one-shot reaper for the harness processes named by `idents` — (pid, starttime)
+    pairs — `delay` seconds from now. `depart` kills its OWN pane, so this process dies with it and
+    can verify nothing afterwards (G-10); the reaper outlives both.
+
+    It fires only on an exact (pid, starttime) match re-derived from /proc at kill time. The first
+    version guarded on "this pid is A harness", which is not identity: a relaunch landing on a
+    recycled pid would be SIGKILLed by the dead seat's reaper (owner directive, msg #137; the ignite
+    daemon guards the same hazard the same way — spawn.js pid_starttime)."""
+    idents = [i for i in idents if i and i[1]]
+    if not idents:
+        return
+    try:
+        subprocess.Popen(["setsid", "bash", "-c", reaper_script(idents, delay)],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    except OSError:
+        pass
 
 
 # ---------- workers.md ----------
@@ -969,6 +1309,31 @@ def cmd_checkin(args):
                 f"(`tmux kill-pane -t {prior['pane']}`) — never by name — and check in again.\n"
                 f"If you are deliberately running two sessions under this name, re-run with "
                 f"--force.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    # G-11: a row goes ACTIVE only when a harness process is actually running in its pane. The
+    # closer whose multi-line prompt was executed by the pane's SHELL checked itself in from bash
+    # — a real row, an honest-looking summary, and nothing running behind it; its "completion"
+    # message was believed for seven minutes. The roster is the run's map of what is alive, so the
+    # claim is verified at the moment it is made, against the process table rather than the caller.
+    # Fail-safe, deliberately asymmetric: only POSITIVE absence refuses. An unreadable process
+    # table or pane pid ("cannot tell") passes, since losing a real seat to a false refusal is
+    # worse than the defect. COORD_SKIP_HARNESS_CHECK=1 is the escape hatch for an unrecognized
+    # harness wrapper.
+    if pane and not SKIP_HARNESS_CHECK:
+        pids, verifiable = pane_harness_pids(pane)
+        if verifiable and not pids:
+            print(
+                f"refused: no {'/'.join(HARNESS_PROCS)} process is running in pane {pane}, so this "
+                f"check-in would put '{args.agent}' on the roster as ACTIVE with nothing behind it "
+                f"(G-11).\n"
+                f"This is what a briefing executed by the pane's SHELL looks like: the checkin line "
+                f"runs for real while the harness never started. If that is what happened, the "
+                f"prompt reached the pane as literal keystrokes — spawn through `launch`/`close`, "
+                f"which pass the prompt as a file.\n"
+                f"If a harness IS running here under a wrapper this check cannot recognize, re-run "
+                f"with COORD_SKIP_HARNESS_CHECK=1 and say so on the log.",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -1797,7 +2162,10 @@ def discover_workers(wdir):
         m = FM_KEY["agent"].search(fm)
         if not m:
             continue
-        folder = p.parent if p.name == "agent.md" and p.parent != wdir else None
+        # G-14: the seat.md (KG run-folder) form resolved NO folder, so `memory.md` was invisible
+        # to boot_prompt and every renewed PERSISTENT seat booted without being told to read its
+        # own memory — the one artifact a close exists to produce. Both briefing names count.
+        folder = p.parent if p.name in ("agent.md", "seat.md") and p.parent != wdir else None
         mh = FM_KEY["harness"].search(fm)
         mm = FM_KEY["model"].search(fm)
         me = FM_KEY["effort"].search(fm)
@@ -1852,20 +2220,46 @@ def validate_seat(w):
     return ""
 
 
-def harness_command(w, prompt):
-    """The shell command that starts this seat's interactive session, or (None, reason).
-    Carries the seat's identity as an env prefix (see identity_prefix)."""
+def prompt_file(args, agent, prompt):
+    """Write a seat's boot prompt to a file under the package and return its path.
+
+    EVERY harness command reads its prompt from a file rather than carrying it inline: the start
+    line is typed into the pane as literal keystrokes, and a prompt with newlines is executed line
+    by line by the pane's shell (G-11 — see wake()). A file keeps the start line one line no matter
+    how long the prompt grows, so launch and close share one path with one failure mode."""
+    d = base_dir(args) / "prompts"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"{agent}-{file_stamp()}.txt"
+    p.write_text(prompt, encoding="utf-8")
+    return p
+
+
+def harness_command(w, prompt=None, prompt_path=None):
+    """The shell command that starts this seat's session, or (None, reason). Carries the seat's
+    identity as an env prefix (see identity_prefix). Pass `prompt_path` (what every real spawn
+    does, via prompt_file) to read the prompt from a file; `prompt` inlines it and is for dry-run
+    display only — an inlined multi-line prompt is exactly the G-11 defect."""
     env = identity_prefix(w["agent"])
+    if prompt_path is not None:
+        arg = '"$(cat ' + shlex.quote(str(prompt_path)) + ')"'
+    else:
+        arg = shlex.quote(prompt or "")
     if w["harness"] == "claude":
-        return f"{env}{CLAUDE_BIN} --model {w['model']} --effort {w['effort']} {shlex.quote(prompt)}", ""
+        return f"{env}{CLAUDE_BIN} --model {w['model']} --effort {w['effort']} {arg}", ""
     if w["harness"] == "codex":
         model = f" -m {shlex.quote(w['model'])}" if w["model"] else ""
-        return f"{env}{CODEX_BIN}{model} {shlex.quote(prompt)}", ""
+        return f"{env}{CODEX_BIN}{model} {arg}", ""
     if w["harness"] == "opencode":
         if not w["model"]:
             return None, "opencode seats require an explicit model: (provider/model slug)"
-        return (f"{env}{OPENCODE_BIN} --model {shlex.quote(w['model'])} "
-                f"--prompt {shlex.quote(prompt)}"), ""
+        # G-13: the kit built `opencode --model X --prompt Y`. This opencode has NEITHER flag at
+        # top level — the one-shot form is the `run` SUBCOMMAND (`opencode run -m <slug> <msg>`,
+        # verified live on deepseek and glm-5.2). The old string fell through to the TUI and the
+        # prompt was never run: a launch command nobody had executed end to end. NOTE the shape
+        # this imposes — `run` is ONE-SHOT: an opencode seat executes its prompt and exits, so it
+        # cannot be woken later; it must read its own messages before finishing, and a wake aimed
+        # at its pane after that would type into a bare shell (the harness-up guard refuses it).
+        return f"{env}{OPENCODE_BIN} run -m {shlex.quote(w['model'])} {arg}", ""
     return None, f"unknown harness '{w['harness']}' (expected one of {', '.join(HARNESSES)})"
 
 
@@ -2016,31 +2410,42 @@ def seat_placement(w):
     return "pane", None
 
 
-def launch_seat(w, args, target, prompt=None):
-    """Open a pane/window for one seat and start its harness. Returns (pane_id, err)."""
+def launch_seat(w, args, target, prompt=None, pane=None):
+    """Open a pane/window for one seat and start its harness. Returns (pane_id, err).
+
+    `pane` reuses an EXISTING pane (a renew respawned in place — G-12) instead of placing a new
+    one. Never returns success on a pane where no harness came up: G-11's whole failure was a
+    start line that the pane's shell swallowed while the roster went on believing the seat live."""
     verr = validate_seat(w)  # PROP-8: `close-seat --renew` relaunches single seats through here
     if verr:
         return "", verr
-    cmd, err = harness_command(w, prompt or boot_prompt(w, args))
+    cmd, err = harness_command(w, prompt_path=prompt_file(args, w["agent"],
+                                                          prompt or boot_prompt(w, args)))
     if cmd is None:
         return "", err
-    place, wname = seat_placement(w)
-    if place == "own":
-        pane, err = tmux_new_window(target, wname, w["cwd"])
-    elif place == "shared":
-        existing = tmux_find_window_pane(tmux_session_name(target), wname)
-        if existing:
-            pane, err = tmux_split_pane(existing, w["cwd"])
-        else:
-            pane, err = tmux_new_window(target, wname, w["cwd"])
+    if pane:
+        place = "existing"
     else:
-        pane, err = tmux_split_pane(target, w["cwd"])
-    if not pane:
-        return "", err
+        place, wname = seat_placement(w)
+        if place == "own":
+            pane, err = tmux_new_window(target, wname, w["cwd"])
+        elif place == "shared":
+            existing = tmux_find_window_pane(tmux_session_name(target), wname)
+            if existing:
+                pane, err = tmux_split_pane(existing, w["cwd"])
+            else:
+                pane, err = tmux_new_window(target, wname, w["cwd"])
+        else:
+            pane, err = tmux_split_pane(target, w["cwd"])
+        if not pane:
+            return "", err
     set_pane_title(pane, w["agent"])
     ok, terr = wake(pane, cmd)
     if not ok:
         return pane, f"pane opened but harness start FAILED: {terr}"
+    _, uerr = wait_harness_up(pane)
+    if uerr:
+        return pane, uerr
     if w["harness"] == "claude":
         schedule_session_rename(pane, w["agent"])
     return pane, ""
@@ -2100,13 +2505,23 @@ def cmd_launch(args):
             print(f"[dry-run] would refresh the worker mirror for {cwd}")
         for w in workers:
             verr = validate_seat(w)  # PROP-8: the dry-run shows the same pre-flight refusal
-            cmd, err = (None, verr) if verr else harness_command(w, boot_prompt(w, args))
+            # The real spawn reads its prompt from a file (G-11); show that shape, not an inlined
+            # prompt the launcher would never actually type.
+            cmd, err = (None, verr) if verr else harness_command(
+                w, prompt_path=(base_dir(args) / "prompts" / f"{w['agent']}-<stamp>.txt"))
             kind, wname = seat_placement(w)
             place = {"own": "window", "shared": f"window:{wname}"}.get(kind, "pane")
             print(f"[dry-run] {w['agent']} ({w['harness']}/{w['model'] or 'plan-default'}"
                   f"{'/' + w['effort'] if w['harness'] == 'claude' else ''}, {place}, cwd={w['cwd']}): "
                   f"{cmd if cmd else 'REFUSED — ' + err}")
         return
+
+    mgate = memory_gate(len(workers), available_mb())
+    if mgate and not getattr(args, "force", False):
+        print(f"refused: {mgate}", file=sys.stderr)
+        sys.exit(1)
+    if mgate:
+        print(c(f"WARNING launching anyway (--force): {mgate}", C_DEAD), file=sys.stderr)
 
     # BEFORE any seat boots: a worker reads its rules once, at startup, so a refresh that lands
     # after the pane opens is a refresh the worker never sees.
@@ -2238,7 +2653,18 @@ def cmd_close(args):
               "$TMUX_PANE).\nRun it from leader's tmux pane, or use --dry-run to see the closer "
               "prompt.", file=sys.stderr)
         sys.exit(1)
-    cmd, err = harness_command(closer, prompt)
+    # A closer IS a claude seat and spikes like one — the memory gate applies to it too.
+    mgate = memory_gate(1, available_mb())
+    if mgate and not getattr(args, "force", False):
+        print(f"refused: {mgate}\nA mechanical `close-seat` costs no memory and is the fallback.",
+              file=sys.stderr)
+        sys.exit(1)
+    # G-11: the closer prompt is MULTI-LINE markdown, and it used to be typed into the pane as
+    # literal keystrokes — every newline arriving as Enter, so the pane's shell executed the
+    # briefing line by line. It checked the closer in for real and printed a completion report
+    # while claude never started. It now boots exactly as `launch` does: prompt in a file, start
+    # line on ONE line, and the row is only trusted once the process is verified up.
+    cmd, err = harness_command(closer, prompt_path=prompt_file(args, closer["agent"], prompt))
     if cmd is None:
         print(f"closer launch FAILED: {err}", file=sys.stderr)
         sys.exit(1)
@@ -2251,11 +2677,25 @@ def cmd_close(args):
     if not ok:
         print(f"closer launch FAILED: pane opened but harness start FAILED: {terr}", file=sys.stderr)
         sys.exit(1)
+    _, uerr = wait_harness_up(pane)
+    if uerr:
+        print(f"closer launch FAILED: {uerr}\nThe seat '{args.target}' was NOT closed — nothing "
+              f"ran. Kill the dead pane BY ID (tmux kill-pane -t {pane}) and retry.",
+              file=sys.stderr)
+        sys.exit(1)
     schedule_session_rename(pane, closer["agent"])
     print(f"closer launched for '{args.target}' in {pane} (window '{CLOSERS_WINDOW}', pane '{title}')"
           + (", renew ON" if args.renew else ""))
     print(c(f"next: {coord_invocation(args)} workers — closer-{args.target} checks in, co-writes "
             f"memory.md with the seat, then closes it", C_HINT))
+
+
+def renew_in_place(seat, pane, pane_live):
+    """Pure: True when a renew must RESPAWN the seat's existing pane rather than kill it and split
+    a fresh one. G-12 — kill+split re-tiles the whole window, so every renew destroyed the layout
+    the owner had arranged. Only a `pane` seat (no window: of its own) whose pane tmux still has
+    can be respawned in place; a window/shared seat re-places from its briefing as before."""
+    return bool(pane) and bool(pane_live) and seat_placement(seat)[0] == "pane"
 
 
 def cmd_close_seat(args):
@@ -2267,6 +2707,13 @@ def cmd_close_seat(args):
         print(f"transcript: {out}" if not err else f"transcript skipped — {err}")
     _, _, rows = load_workers(base)
     row = current_row(rows, args.target)
+    # Resolved BEFORE anything is killed: the in-place decision needs the seat's placement, and
+    # the pids to verify dead are only readable while the pane still exists (G-10).
+    seats = ([w for w in discover_workers(workers_dir(args)) if w["agent"] == args.target]
+             if args.renew else [])
+    old_pane = (row or {}).get("pane") or ""
+    old_idents = pane_harness_idents(old_pane) if old_pane else []
+    in_place = bool(seats) and renew_in_place(seats[0], old_pane, old_pane in live_panes())
     if row and row["active"] == "yes":
         def close_row(r):
             r["active"] = "no"
@@ -2275,12 +2722,22 @@ def cmd_close_seat(args):
         update_row(base, args.target, close_row)
         print(f"roster: {args.target} closed")
     old_window = ""
-    if row and row["pane"]:
-        old_window = tmux_pane_window(row["pane"])
-        ok, err = tmux_kill_pane(row["pane"])
-        print(f"pane {row['pane']}: {'killed' if ok else 'kill failed — ' + err}")
+    if old_pane:
+        old_window = tmux_pane_window(old_pane)
+        if in_place:
+            print(f"pane {old_pane}: KEPT for an in-place renew — respawned below, so the "
+                  f"window layout survives (G-12)")
+        else:
+            ok, err = tmux_kill_pane(old_pane)
+            print(f"pane {old_pane}: {'killed' if ok else 'kill failed — ' + err}")
+            # G-10: kill-pane SIGHUPs the process group and a blocked harness survives it as a
+            # ghost the roster never mentions. Confirm the exit; escalate rather than assume.
+            survivors, note = verify_pids_gone(old_idents)
+            if old_idents:
+                print(f"process check: {len(old_idents)} harness pid(s) "
+                      + (f"GONE{' — ' + note if note else ''}" if not survivors
+                         else f"NOT gone — {note}"))
     if args.renew:
-        seats = [w for w in discover_workers(workers_dir(args)) if w["agent"] == args.target]
         if not seats:
             print(f"renew FAILED: no briefing in {workers_dir(args)} carries "
                   f"`agent: {args.target}`, so there is nothing to relaunch — the seat is closed "
@@ -2292,7 +2749,9 @@ def cmd_close_seat(args):
         # window: a closer runs this from the shared 'closers' window, which must not
         # inherit the renewed seat. Window/shared seats re-place from their briefing as before.
         launch_target = ""  # a tmux pane, not an agent — args.target is the seat being renewed
-        if seat_placement(seats[0])[0] == "pane" and old_window and tmux_session_name(old_window):
+        if in_place:
+            launch_target = old_pane
+        elif seat_placement(seats[0])[0] == "pane" and old_window and tmux_session_name(old_window):
             launch_target = old_window
         if not launch_target:
             launch_target = os.environ.get("COORD_LAUNCH_TARGET") or os.environ.get("TMUX_PANE")
@@ -2306,11 +2765,31 @@ def cmd_close_seat(args):
         # fresh launch does — and a renew lands mid-run, exactly when sources have been drifting.
         refresh_mirrors_for(seats[:1])
         tmux_raise_history_limit()
-        pane, err = launch_seat(seats[0], args, launch_target)
+        same_cell = None
+        if in_place:
+            ok, rerr = tmux_respawn_pane(old_pane, seats[0]["cwd"])
+            if ok:
+                same_cell = old_pane
+                survivors, note = verify_pids_gone(old_idents)
+                if old_idents:
+                    print(f"process check: {len(old_idents)} harness pid(s) "
+                          + (f"GONE{' — ' + note if note else ''}" if not survivors
+                             else f"NOT gone — {note}"))
+            else:
+                # Fall back to the old kill+split path rather than stall the renew: a re-tiled
+                # window is a cosmetic loss, a seat that never comes back is not.
+                print(f"respawn-in-place failed ({rerr}) — falling back to kill+split, which "
+                      f"re-tiles this window", file=sys.stderr)
+                tmux_kill_pane(old_pane)
+                verify_pids_gone(old_idents)
+                launch_target = old_window or launch_target
+        pane, err = launch_seat(seats[0], args, launch_target, pane=same_cell)
         if err:
             print(f"renew FAILED: {err}", file=sys.stderr)
             sys.exit(1)
-        print(f"renewed: {args.target} relaunched in {pane} (reads its updated memory.md at boot)")
+        print(f"renewed: {args.target} relaunched in {pane}"
+              + (" (same pane, layout intact)" if same_cell else "")
+              + " (reads its updated memory.md at boot)")
     print(c(f"next: {coord_invocation(args)} workers — confirm the seat is "
             f"{'back and checked in' if args.renew else 'gone from the live rows'}", C_HINT))
 
@@ -2370,6 +2849,15 @@ def cmd_depart(args):
         print(f"checked out: {me}")
     pane = (row or {}).get("pane") or detect_pane(None)
     if pane:
+        # G-10: kill-pane SIGHUPs the process group; a harness blocked elsewhere survives as a
+        # ghost holding ~450 MB that no roster row mentions. This process dies WITH the pane, so
+        # it cannot check afterwards — a detached reaper outlives both and finishes the job.
+        idents = pane_harness_idents(pane)
+        if idents:
+            print(f"arming the exit reaper for harness pid(s) "
+                  f"{', '.join(str(p) for p, _ in idents)} — no ghost survives this departure "
+                  f"(it fires only on an exact pid+starttime match, so a recycled pid is safe)")
+            arm_pid_reaper(idents)
         print(f"killing own pane {pane} — goodbye")
         tmux_kill_pane(pane)
     else:
@@ -2404,6 +2892,32 @@ def cmd_selftest(args):
             tmux_send_enter, tmux_capture_tail, tmux_pane_window, detect_pane, live_panes,
             _acquire_flock, atomic_write, pane_title)
     env_agent = os.environ.pop("COORD_AGENT", None)
+
+    # The process-truth helpers (G-10/G-11) read the LIVE process table and live tmux panes. Left
+    # real, this suite would judge fixture panes against whatever happens to run on the tester's
+    # box — and it did: a fixture checkin at "%5" hit a real, bare-shell pane of the running team
+    # and was refused, killing the suite mid-way. Stubbed to "cannot tell" (the fail-safe default),
+    # with the branch-specific checks below flipping them deliberately. Kept in its own save/restore
+    # pair rather than the indexed `real` tuple above, which is positional and easy to break.
+    global pane_harness_pids, pane_harness_idents, wait_harness_up, verify_pids_gone
+    global arm_pid_reaper, tmux_pane_pid, tmux_respawn_pane, available_mb
+    proc_real = (pane_harness_pids, pane_harness_idents, wait_harness_up, verify_pids_gone,
+                 arm_pid_reaper, tmux_pane_pid, tmux_respawn_pane, available_mb)
+    harness_up = {"v": None}   # None = unverifiable; [] = positively absent; [pid] = up
+    reaped, respawned = [], []
+    pane_harness_pids = lambda pane: (([], False) if harness_up["v"] is None
+                                      else (list(harness_up["v"]), True))
+    wait_harness_up = lambda pane, timeout=HARNESS_UP_TIMEOUT: (
+        ([], "") if harness_up["v"] is None or harness_up["v"]
+        else ([], f"no harness process is running in {pane} after {timeout:.0f}s (G-11)"))
+    pane_harness_idents = lambda pane: ([] if harness_up["v"] is None
+                                        else [(p, f"stamp-{p}") for p in harness_up["v"]])
+    verify_pids_gone = lambda idents, timeout=PID_EXIT_TIMEOUT: (
+        reaped.extend(p for p, _ in idents) or ([], ""))
+    arm_pid_reaper = lambda idents, delay=4: reaped.extend(p for p, _ in idents)
+    tmux_pane_pid = lambda pane: 0
+    tmux_respawn_pane = lambda pane, cwd: (respawned.append((pane, cwd)) or (True, ""))
+    available_mb = lambda: 0   # unmeasurable -> the memory gate passes (fail-safe)
 
     # ---- P35 (round 2): wake()'s Enter-verify + bounded Enter-only retry, exercised against the
     # REAL wake() with only its three tmux primitives stubbed (wake itself is stubbed wholesale
@@ -2851,9 +3365,15 @@ def cmd_selftest(args):
         check("T1: every harness command is prefixed with the seat's COORD_AGENT identity",
               cmd.startswith("COORD_AGENT=alpha ") and f"COORD_AGENT=alpha {CLAUDE_BIN}" in cmd)
         cmd, _ = harness_command(by["gamma"], "P")
-        check("v2: opencode command carries provider/model + --prompt",
-              cmd.startswith(f"COORD_AGENT=gamma {OPENCODE_BIN}")
-              and "--model zai-coding-plan/glm-5.2" in cmd and "--prompt" in cmd)
+        # G-13: this asserted the flags `opencode --model X --prompt Y`, which THIS opencode has at
+        # no level — the one-shot form is the `run` subcommand. The old string fell through to the
+        # TUI and never ran the prompt, and the check passed for two months because it asserted the
+        # kit's own invention rather than the CLI's surface.
+        check("G-13: opencode command is the one-shot `run` subcommand with -m <provider/model> — "
+              "never the invented `--model/--prompt` flags this opencode does not have",
+              cmd.startswith(f"COORD_AGENT=gamma {OPENCODE_BIN} run -m ")
+              and "-m zai-coding-plan/glm-5.2" in cmd
+              and "--prompt" not in cmd and "--model" not in cmd)
         cmd, _ = harness_command(by["delta"], "P")
         check("v2: codex command uses plan default when model empty",
               cmd.startswith(f"COORD_AGENT=delta {CODEX_BIN}") and " -m " not in cmd)
@@ -2970,6 +3490,80 @@ def cmd_selftest(args):
         check("leader renew: close-seat --renew leader finds the briefing and relaunches it as "
               "a pane into the window its old pane occupied (the control panel)",
               "%6" in killed and split_targets == ["@7"] and "renewed: leader" in out)
+
+        # ---- G-10/G-11/G-12 on the real command paths (2026-07-27 close/renew ceremony) ----
+        # Fixture hygiene: this block uses probe-* names and restores alpha's row at the end, so it
+        # cannot consume a row a later check needs (it did once — the suite died on an unrelated
+        # `checkout` whose seat this block had departed).
+        harness_up["v"] = []            # positively absent: a shell-only pane
+        out, code = refuse(cmd_checkin, agent="probe-a", summary="from a bare shell", pane="%1")
+        check("G-11: a check-in from a pane with NO harness process is REFUSED — the roster is the "
+              "run's map of what is alive, so the claim is verified against the process table at "
+              "the moment it is made (a closer's briefing executed by bash checked itself in and "
+              "was believed for seven minutes)",
+              code == 1 and "G-11" in out and "nothing behind it" in out)
+        check("G-11: the refusal names the cause AND the escape hatch for an unrecognized wrapper",
+              "literal keystrokes" in out and "COORD_SKIP_HARNESS_CHECK=1" in out)
+        harness_up["v"] = None          # unverifiable
+        out = run(cmd_checkin, agent="probe-a", summary="unverifiable pane", pane="%1")
+        check("G-11: unverifiable liveness PASSES — losing a real seat to a false refusal is worse "
+              "than the defect (asymmetric on purpose)", "checked in: probe-a" in out)
+
+        harness_up["v"] = []
+        wake_ok["v"] = True
+        out, code = refuse(cmd_launch, agent="leader", only="alpha", dry_run=False, force=False)
+        check("G-11: a launch whose pane never brings a harness up FAILS LOUDLY instead of "
+              "reporting a launched seat — the submitted start line is not evidence it ran",
+              "FAILED" in out and "G-11" in out)
+        harness_up["v"] = None
+
+        # G-12: the renew respawns the seat's own pane instead of killing it and splitting a new
+        # one, so an arranged window layout survives. Exercised through the real command.
+        run(cmd_checkin, agent="alpha", summary="pane seat", pane="%31")
+        live_tmux_panes["v"] = {"%31"}
+        killed.clear(); opened.clear(); respawned.clear(); split_targets.clear()
+        out = run(cmd_close_seat, agent="leader", target="alpha", renew=True, no_export=True)
+        check("G-12: close-seat --renew on a live PANE seat respawns that pane in place — pane id "
+              "and cell kept, nothing killed, nothing split, no re-tile",
+              respawned == [("%31", str(pkg / "workers"))] or respawned == [("%31", VAULT_ROOT)]
+              or (respawned and respawned[0][0] == "%31"))
+        check("G-12: the in-place renew kills no pane and opens none — the two acts that re-tiled "
+              "the window", not killed and not opened and not split_targets)
+        check("G-12: it reports the seat back in the SAME pane", "renewed: alpha" in out
+              and "%31" in out and "layout intact" in out)
+        live_tmux_panes["v"] = set()
+
+        # G-10: a teardown proves the process died instead of assuming kill-pane was enough.
+        harness_up["v"] = [98765]
+        run(cmd_checkin, agent="probe-b", summary="ghost probe", pane="%32")
+        reaped.clear()
+        out = run(cmd_close_seat, agent="leader", target="probe-b", renew=False, no_export=True)
+        check("G-10: close-seat verifies the harness pid actually EXITED after kill-pane and says "
+              "so — kill-pane SIGHUPs the group and a blocked harness survives as a ghost nobody "
+              "counts (three were hand-reaped on 2026-07-27)",
+              98765 in reaped and "process check" in out and "GONE" in out)
+        reaped.clear()
+        run(cmd_checkin, agent="probe-c", summary="departing probe", pane="%33")
+        out = run(cmd_depart, agent="probe-c")
+        check("G-10: depart arms a detached reaper for its OWN harness — it kills its pane, so this "
+              "process dies with it and can verify nothing afterwards",
+              98765 in reaped and "exit reaper" in out)
+        harness_up["v"] = None
+        run(cmd_checkin, agent="alpha", summary="second check-in", pane="%3")  # restore fixture
+
+        # Memory pre-flight (leader ruling #128): the gate holds a SPIKE reserve, not a floor over
+        # steady state. Pure, so both branches are checkable without touching /proc.
+        check("mem gate: room for the spike reserve -> no refusal",
+              memory_gate(1, LAUNCH_MEM_FLOOR_MB) == "" and memory_gate(2, 4300) == "")
+        check("mem gate: below the reserve -> refused, naming the peak and the reason a flat "
+              "steady-state floor is the wrong shape",
+              "peaks at" in memory_gate(1, LAUNCH_MEM_FLOOR_MB - 1)
+              and "SIGKILL a bystander" in memory_gate(1, 1000))
+        check("mem gate: an N-seat wave needs a spike per seat beyond the first",
+              memory_gate(3, LAUNCH_MEM_FLOOR_MB + SEAT_SPIKE_MB) != ""
+              and memory_gate(3, LAUNCH_MEM_FLOOR_MB + 2 * SEAT_SPIKE_MB) == "")
+        check("mem gate: an unreadable sensor PASSES — a broken meter must not stop a run",
+              memory_gate(5, 0) == "")
 
         # ---- v2: control panel — overview pane, idempotent ----
         opened.clear()
@@ -3546,6 +4140,8 @@ def cmd_selftest(args):
      tmux_split_strip, restore_overview_strip, tmux_find_window_pane, tmux_send_text,
      tmux_send_enter, tmux_capture_tail, tmux_pane_window, detect_pane, live_panes,
      _acquire_flock, atomic_write, pane_title) = real
+    (pane_harness_pids, pane_harness_idents, wait_harness_up, verify_pids_gone, arm_pid_reaper,
+     tmux_pane_pid, tmux_respawn_pane, available_mb) = proc_real
     if env_agent is not None:
         os.environ["COORD_AGENT"] = env_agent
 
@@ -3564,8 +4160,110 @@ def cmd_selftest(args):
               "epsilon" in briefing_frontmatters(pkg2 / "seats"))
         check("seats-mode: walk-up recognizes coordination/ + seats/ (no workers/)",
               discover_package_from(sdir2) == pkg2)
+        # G-14: seats-mode resolved NO folder for a seat.md briefing, so `memory.md` was invisible
+        # to boot_prompt and a renewed persistent seat was never told to read its own memory — the
+        # artifact the whole close ceremony exists to produce.
+        (sdir2 / "memory.md").write_text("# memory\nprior state\n")
+        eps = [w for w in discover_workers(pkg2 / "seats") if w["agent"] == "epsilon"]
+        check("G-14: a seat.md briefing resolves its seat FOLDER (it used to key on agent.md "
+              "only), so memory.md is reachable",
+              len(eps) == 1 and eps[0]["folder"] == sdir2)
+        check("G-14: a renewed PERSISTENT seat's boot prompt names its own memory.md — without "
+              "the folder it silently booted memoryless",
+              str(sdir2 / "memory.md") in boot_prompt(
+                  eps[0], argparse.Namespace(package=str(pkg2), base=None, workers_dir=None)))
+
         check("seats-mode: workers_dir prefers seats/ when present",
               workers_dir(ns(package=str(pkg2))) == pkg2 / "seats")
+
+    # ---- G-10/G-11/G-12 (2026-07-27): the close/renew ceremony's three process-truth defects,
+    # every one of them launch-path code that had never been executed end to end. wake() and the
+    # process helpers below are exercised REAL (no tmux stubs needed: each refuses or resolves
+    # before it touches tmux), which is the point — the old checks asserted the kit's intentions.
+    ok, terr = wake("%1", "line one\nline two")
+    check("G-11: wake REFUSES multi-line text before any keystroke is sent — send-keys delivers a "
+          "newline as Enter, so the pane's shell executes the text line by line (reproduced: a "
+          "closer's prompt ran its own checkin line as bash and printed a fake completion)",
+          not ok and "newline" in terr and "G-11" in terr)
+    ok, terr = wake("%1", "one line\r")
+    check("G-11: a bare carriage return is refused too — the same Enter to a shell", not ok)
+
+    _pf_seat = {"agent": "zeta", "harness": "claude", "model": "opus", "effort": "high"}
+    with tempfile.TemporaryDirectory() as td3:
+        pkg3 = Path(td3) / "pkg"
+        (pkg3 / "coordination").mkdir(parents=True)
+        a3 = argparse.Namespace(package=str(pkg3), base=None, workers_dir=None)
+        pf = prompt_file(a3, "zeta", "multi\nline\nprompt\n")
+        cmd, _ = harness_command(_pf_seat, prompt_path=pf)
+        check("G-11: the spawn command reads its prompt from a FILE and is itself one line — the "
+              "structural fix, since no prompt length can reintroduce the defect",
+              "\n" not in cmd and f'"$(cat {pf})"' in cmd
+              and pf.read_text(encoding="utf-8") == "multi\nline\nprompt\n")
+        cmd2, _ = harness_command(_pf_seat, prompt_path=pf)
+        ok2, _ = wake("%1", cmd2)  # real wake: refuses on newline, otherwise reaches tmux
+        check("G-11: launch and close now share ONE spawn shape, so the wake guard cannot fire on "
+              "either", "\n" not in cmd2)
+
+    snap = [(100, 1, "bash"), (200, 100, "claude --model opus --effort medium PROMPT"),
+            (300, 200, "bash -c coordinate read"), (400, 1, "claude --model fable OTHER SEAT"),
+            (500, 100, "python3 watch.py --loop 10")]
+    check("G-11: harness detection walks the pane's whole process subtree — the harness is a child "
+          "of the pane's shell, and its own tool calls are children of that",
+          sorted(descendant_pids(snap, 100)) == [100, 200, 300, 500]
+          and harness_pids(snap, 100) == [200])
+    check("G-11: another pane's harness is NEVER counted as this pane's",
+          400 not in descendant_pids(snap, 100))
+    check("G-11: a shell-only subtree yields no harness — the exact state a row claiming ACTIVE "
+          "must not survive", harness_pids([(100, 1, "bash"), (300, 100, "bash -c echo")], 100) == [])
+    check("G-11: argv matching covers a wrapper form (node/bun running a harness path) as well as "
+          "a bare basename",
+          is_harness_argv("/usr/bin/node /opt/x/opencode --help")
+          and is_harness_argv("claude --model opus P") and not is_harness_argv("bash -c ls"))
+    check("G-11: unverifiable is not absent — no pane, no pid, nothing to refuse on (fail-safe)",
+          pane_harness_pids("") == ([], False) and wait_harness_up("", timeout=0.1) == ([], ""))
+
+    _pane_seat = {"agent": "eta", "harness": "claude", "model": "opus", "effort": "high",
+                  "window": False}
+    _win_seat = dict(_pane_seat, window="yes")
+    check("G-12: a pane seat with a live pane renews IN PLACE — respawn keeps the pane id and the "
+          "cell, so an arranged window layout survives the renew (kill+split re-tiled it)",
+          renew_in_place(_pane_seat, "%5", True))
+    check("G-12: a dead pane cannot be respawned — falls back to placement",
+          not renew_in_place(_pane_seat, "%5", False) and not renew_in_place(_pane_seat, "", True))
+    check("G-12: a window/shared seat still re-places from its briefing — respawning it in a pane "
+          "would silently move it out of its own window",
+          not renew_in_place(_win_seat, "%5", True))
+
+    check("G-10: verify_pids_gone reports clean for identities already gone, and never blocks on "
+          "an empty set", verify_pids_gone([]) == ([], "")
+          and verify_pids_gone([(2 ** 22 - 1, "999")], timeout=0.1)[0] == [])
+    check("G-10: this very process is seen as alive — the liveness probe is real, not a stub",
+          pids_alive([os.getpid()]) == [os.getpid()])
+
+    # ---- reaper identity (owner directive 2026-07-27 #137; leader #138; daemon precedent #139).
+    # A pid is NOT an identity. The first reaper fired on "this pid is A harness", so a relaunch
+    # landing on a recycled pid was SIGKILLed by the dead seat's reaper. Ancestry is not a fix
+    # either: G-12's in-place respawn puts the replacement under the SAME pane, so an ancestry test
+    # would confirm the very process it must protect. Only (pid, starttime) survives both.
+    me = os.getpid()
+    my_ident = process_identity(me)
+    check("reaper: a process identity is (pid, starttime) read from /proc field 22, parsed after "
+          "the LAST ')' — a naive whitespace split mis-indexes any comm containing a space",
+          my_ident is not None and my_ident[0] == me and my_ident[1].isdigit()
+          and proc_starttime(2 ** 22 - 1) == "")
+    check("reaper: the same pid with a DIFFERENT starttime is a DIFFERENT process and is never "
+          "signalled — this is the recycled-pid case that killed the watcher's replacement",
+          not ident_is_live_harness((me, "0")) and idents_alive([(me, "0")]) == [])
+    check("reaper: this python process is live but is NOT a harness, so it is not a reap target "
+          "either — both halves of the guard must hold", not ident_is_live_harness(my_ident))
+    script = reaper_script([(4242, "777")], 3)
+    check("reaper: the detached script re-derives starttime at kill time and compares it to the "
+          "value captured at ARM time — it never kills a remembered number",
+          "4242:777" in script and '[ "$st" = "$want" ]' in script
+          and "sed 's/^.*) //'" in script and "kill -9 $p" in script
+          and "sleep 3" in script)
+    check("reaper: arming with an identity that has no starttime arms NOTHING — an unidentifiable "
+          "process is never a kill target", arm_pid_reaper([(4242, "")]) is None)
 
     print(f"\nselftest: {'PASS' if not failures else 'FAIL'} ({len(failures)} failure(s))")
     sys.exit(1 if failures else 0)
