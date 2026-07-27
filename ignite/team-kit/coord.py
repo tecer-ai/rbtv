@@ -125,7 +125,8 @@ MSG_HEADER = re.compile(
     r"(?: \| supersedes: (?P<supersedes>\d+))?(?: \| re: (?P<re>\d+))? \| (?P<ts>.+)$"
 )
 FM_KEY = {
-    "agent": re.compile(r"^agent:\s*(\S+)\s*$", re.MULTILINE),
+    # roster signature: `seat:` is the KG term (seat.md descriptors); `agent:` is the legacy key
+    "agent": re.compile(r"^(?:seat|agent):\s*(\S+)\s*$", re.MULTILINE),
     "harness": re.compile(r"^harness:\s*(\S+)\s*$", re.MULTILINE),
     "model": re.compile(r"^model:\s*(\S+)\s*$", re.MULTILINE),
     "effort": re.compile(r"^effort:\s*(\S+)\s*$", re.MULTILINE),
@@ -158,11 +159,13 @@ def _fm_window(fm):
 
 
 def briefing_files(wdir):
-    """Every briefing path in discovery order: flat workers/*.md, then workers/*/agent.md."""
+    """Every briefing path in discovery order: flat <roster>/*.md, then <roster>/*/agent.md and
+    <roster>/*/seat.md (seat.md is the KG run-folder form — seats/<seat>/seat.md; agent.md the
+    legacy workers/ form)."""
     if not wdir.is_dir():
         return []
     flat = sorted(p for p in wdir.glob("*.md"))
-    folder = sorted(wdir.glob("*/agent.md"))
+    folder = sorted(list(wdir.glob("*/agent.md")) + list(wdir.glob("*/seat.md")))
     return flat + folder
 
 
@@ -256,11 +259,13 @@ def register_run(pkg):
 
 def discover_package_from(cwd):
     """Nearest ancestor (cwd included) that IS a run package — identified by its own
-    structure (coordination/ + workers/). Seats' cwd is their worker folder, so a bare
-    `coordinate <cmd>` resolves for them with no arguments at all."""
+    structure (coordination/ + a roster dir: seats/ in the KG run-folder form, workers/ in the
+    legacy form). Seats' cwd is their seat folder, so a bare `coordinate <cmd>` resolves for
+    them with no arguments at all."""
     p = Path(cwd).resolve()
     for cand in (p, *p.parents):
-        if (cand / "coordination").is_dir() and (cand / "workers").is_dir():
+        if (cand / "coordination").is_dir() and (
+                (cand / "seats").is_dir() or (cand / "workers").is_dir()):
             return cand
     return None
 
@@ -299,7 +304,11 @@ def base_dir(args):
 def workers_dir(args):
     if getattr(args, "workers_dir", None):
         return Path(args.workers_dir).resolve()
-    return package_dir(args) / "workers"
+    pkg = package_dir(args)
+    seats = pkg / "seats"  # KG run-folder form wins when present; legacy workers/ otherwise
+    if seats.is_dir():
+        return seats
+    return pkg / "workers"
 
 
 def coord_invocation(args):
@@ -2154,12 +2163,16 @@ def cmd_export_transcript(args):
 
 
 def closer_prompt(args, target, renew):
-    """Fill the kit's closer prompt template for one target seat."""
-    template = Path(__file__).resolve().parent / "closer-prompt.md"
+    """Fill the closer prompt template for one target seat. A package-local
+    closer-prompt.md at the run-package root overrides the kit template (a run may
+    extend the ceremony, e.g. ledger grooming); kit default when the file is absent."""
+    pkg = package_dir(args)
+    template = pkg / "closer-prompt.md"
+    if not template.is_file():
+        template = Path(__file__).resolve().parent / "closer-prompt.md"
     text = template.read_text(encoding="utf-8")
     if text.startswith("# closer prompt template"):  # template header is meta, not prompt
         text = text.split("\n", 1)[1].lstrip("\n")
-    pkg = package_dir(args)
     wfolder = workers_dir(args) / target
     renew_flag = " --renew" if renew else ""
     renew_note = (
@@ -3535,6 +3548,25 @@ def cmd_selftest(args):
      _acquire_flock, atomic_write, pane_title) = real
     if env_agent is not None:
         os.environ["COORD_AGENT"] = env_agent
+
+    # ---- KG seats-mode discovery (2026-07-27): a KG-shaped run folder
+    # (.rbtv/goals/<goal>/runs/run-N/) rosters briefings at seats/<seat>/seat.md;
+    # workers/<agent>/agent.md remains the legacy form. seats/ wins when both exist.
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as td2:
+        RUNS_INDEX = Path(td2) / "coordinate-runs.json"  # never the real registry
+        pkg2 = Path(td2) / "run-1"
+        (pkg2 / "coordination").mkdir(parents=True)
+        sdir2 = pkg2 / "seats" / "epsilon"
+        sdir2.mkdir(parents=True)
+        (sdir2 / "seat.md").write_text("---\nseat: epsilon\nharness: claude\n---\n# e\n")
+        check("seats-mode: */seat.md with the KG `seat:` signature key is discovered",
+              "epsilon" in briefing_frontmatters(pkg2 / "seats"))
+        check("seats-mode: walk-up recognizes coordination/ + seats/ (no workers/)",
+              discover_package_from(sdir2) == pkg2)
+        check("seats-mode: workers_dir prefers seats/ when present",
+              workers_dir(ns(package=str(pkg2))) == pkg2 / "seats")
+
     print(f"\nselftest: {'PASS' if not failures else 'FAIL'} ({len(failures)} failure(s))")
     sys.exit(1 if failures else 0)
 
