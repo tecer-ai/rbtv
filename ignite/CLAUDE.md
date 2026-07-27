@@ -62,9 +62,11 @@ refusal · **`SUITE-COMPLETE` is written last**, so a truncated run is detectabl
 in hand. A verdict comes from a live child-process exit plus a capture refreshed inside that
 probe's own run window — **never from the content of a committed `.out`**.
 
-Running the suite rewrites captures in the working tree by design (probes write their own `.out`);
-the runner reports which ones. The suite summary defaults to the workspace `.rbtv/` runtime root,
-never into the repo (§ Installation model's no-runtime-state-in-the-repo rule).
+Probes write their `.out` in place, so a run always rewrites captures — but the runner restores
+each one byte-identical (mtime included) and keeps the fresh output beside the summary, so **the
+working tree is unchanged by default**. Regeneration is the deliberate `--write-captures`. The
+summary and captures default to the workspace `.rbtv/` runtime root, never into the repo
+(§ Installation model's no-runtime-state-in-the-repo rule).
 
 ## Installation model
 
