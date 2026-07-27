@@ -213,6 +213,17 @@ FM_KEY = {
     # human. The token resolves to whichever seat currently carries it; that seat gains an ADDRESS
     # and gains no scope.
     "relays": re.compile(r"^relays:\s*(.+?)\s*$", re.MULTILINE),
+    # THE CORRESPONDENT'S OWN OPT-IN (`ruling-addressable-non-member.md`, constraint 1: derive it,
+    # never hardcode a name). A descriptor declaring `addressable: non-member` says THIS AGENT MAY
+    # BE ADDRESSED BY A PACKAGE IT IS NOT A MEMBER OF. It is the half a package cannot assert on
+    # someone else's behalf: the register (below) supplies only a PATH, and the name, together with
+    # the permission, comes from the descriptor the correspondent owns.
+    #
+    # ⚠ `non-member` IS DESCRIPTIVE, NOT A KG KIND. `sd-graph` resolves no record for
+    # `correspondent`, `guest`, `meta-agent`, `non-member` or `external agent`, and PRIN-10 forbids
+    # coining one in code — so this reuses the LEADER RULING'S OWN WORDING and mints no term. What
+    # to call this kind is an OWNER question, filed, not answered here.
+    "addressable": re.compile(r"^addressable:\s*(\S+)\s*$", re.MULTILINE),
     "ctx-refresh": re.compile(r"^ctx-refresh:\s*(\d+)\s*$", re.MULTILINE),
     # G-23 (owner-directed) — `close: mechanical` on a LONG-LIVED seat whose whole state is
     # external and machine-owned. It finishes one session and opens another: no closer agent, no
@@ -2201,6 +2212,143 @@ def row_text(r):
             f"| {r['checkin']} | {r['checkout']} | {r['lastread']} |\n")
 
 
+# ---------------------------------------------------------------------------------------------
+# ADDRESSABLE NON-MEMBERS — `seats/leader/ruling-addressable-non-member.md`, ruled 2026-07-27.
+#
+# THE DEFECT. Every source `known_recipients` draws on is PACKAGE-LOCAL by construction: this
+# package's roster rows, its seat descriptors, its groups, its relay tokens. That locality is
+# deliberate (see `relay_seats`: G-111 is a foreign seat sharing a live roster name). So an agent
+# whose descriptor lives in ANOTHER goal folder resolves nowhere, and BOTH gates in `cmd_send`
+# close on it: `send <it>` is refused as an unknown recipient (F5), and its own `ask` is refused
+# because nobody can answer it (S-7). Measured live at run-2 #509/#510: a meta-agent summoned to
+# build seats could neither message the leader nor be messaged, and finished its work through
+# `tmux send-keys` — off the bus, so no record, no threading, no delivery confirmation.
+#
+# ⚠ THE RECIPIENT HALF IS THE WHOLE DEFECT; THE ASK-REFUSAL IS ITS CONSEQUENCE. The S-7 gate asks
+# whether the SENDER can be addressed — i.e. whether it is a recipient. Fix recipient resolution
+# and the ask-refusal dissolves on its own. They must not be fixed separately.
+#
+# THE GRANT IS EXACTLY ONE CAPABILITY: A NAME THAT RESOLVES AS A RECIPIENT.
+#
+#   GRANTED      resolves as a recipient · can be `--re`-linked in ask->answer threading ·
+#                carries its `from-pkg:` origin UNCHANGED (nothing is built for that half — the
+#                engineer's stage-4 distinguisher already stamps it `external`, and it keeps
+#                doing so precisely BECAUSE no roster row is created here).
+#   NOT GRANTED  a roster row · a `taskforce.csv` row · A WAKE · a read cursor · broadcast or
+#                group membership by default · any count against the pane cap · inclusion in the
+#                chief-of-staff's sweep or any close/kill/reap lifecycle · read-everything · any
+#                KG `realizes:` edge.
+#
+# A future reader must not infer any right from this that is not in the GRANTED line.
+#
+# ⚠⚠ NO ROSTER ROW, AND THIS IS THE CONSTRAINT THAT SHAPES EVERYTHING ELSE. A row would buy the
+# name, the cursor and the wake in one move — which is exactly why it is forbidden: it buys them
+# by making the agent a member, contradicting the owner ruling that it is not one. It is also the
+# repair THIS TOOL'S OWN S-7 REFUSAL TEXT RECOMMENDS ("check in first so you have a roster row"),
+# which is how the trap gets found by every next meta-agent; that text is corrected below.
+#
+# ⚠ DELIVERY IS PULL, NOT PUSH — STATED HERE AND IN THE OUTPUT, NEVER LEFT TO BE DISCOVERED.
+# A non-member has no pane in this run's tmux session and no cursor, so `addressable` CANNOT mean
+# `woken`. The message is appended to the log addressed to it and THE CORRESPONDENT READS THE LOG
+# ITSELF. If that stays implicit, the first person to address one will assume a wake, get silence,
+# and read the silence as "considering" rather than "never delivered" — the hazard the correspondent
+# named about itself. A dropped relay is undetectable to it, and that does not change because the
+# name now resolves.
+ADDRESSABLE_COLS = ["descriptor", "admitted-by", "admitted"]
+
+
+def load_addressable(args):
+    """({name: descriptor-path}, [error, ...]) for this package's addressable non-members.
+
+    DERIVED, NEVER A KIT-SIDE NAME LIST (constraint 1). `SPECIAL_CASE_SEATS` was demoted to a
+    default table on exactly this ground, and the engineer refused to validate `window:` against
+    one run's four hardcoded names on the same one: a shared kit must not carry one campaign's
+    furniture. So the register `<package>/addressable.csv` carries ONLY A PATH — it cannot even
+    state the name — and the name is read from the descriptor the correspondent itself owns.
+    (`taskforce.csv` is the precedent: a run-authored registry this tool only ever reads.)
+
+    TWO-SIDED AND MACHINE-ENFORCED (constraint 2). The package points at a descriptor; the
+    descriptor must declare `addressable: non-member`. Either half alone does nothing. A package
+    therefore cannot make another goal's seat addressable without that seat having said so, and a
+    descriptor that says so is inert until some package points at it.
+
+    FAILS LOUD, NEVER SILENT (constraint 3). Every row that does not resolve — missing file,
+    unreadable, no frontmatter, no name, no opt-in, or a name that COLLIDES with a local seat —
+    yields an ERROR STRING and admits nothing. Four fail-silent defects landed in this system in
+    one evening; a register that quietly dropped a row would be the fifth. The collision refusal is
+    G-111 itself: a foreign descriptor named `leader` must never shadow the local one.
+    """
+    pkg = package_dir(args)
+    path = pkg / "addressable.csv"
+    header, rows = read_csv_table(path, ADDRESSABLE_COLS)
+    if not rows:
+        return {}, []
+    if "descriptor" not in header:
+        return {}, [f"{path}: no `descriptor` column — header is {','.join(header)}"]
+    i = header.index("descriptor")
+    out, errors = {}, []
+    for r in rows:
+        raw = (r[i].strip() if i < len(r) else "")
+        if not raw:
+            continue
+        p = Path(raw)
+        if not p.is_absolute():
+            p = (pkg / p)
+        try:
+            text = p.resolve().read_text(encoding="utf-8")
+        except OSError as exc:
+            errors.append(f"{raw}: descriptor unreadable ({exc.__class__.__name__}) — admits nothing")
+            continue
+        if not text.startswith("---"):
+            errors.append(f"{raw}: no frontmatter — admits nothing")
+            continue
+        fm_end = text.find("\n---", 3)
+        fm = text[:fm_end] if fm_end != -1 else text
+        m = FM_KEY["agent"].search(fm)
+        if not m:
+            errors.append(f"{raw}: descriptor declares no `seat:`/`agent:` name — admits nothing")
+            continue
+        name = m.group(1)
+        decl = FM_KEY["addressable"].search(fm)
+        if not decl or decl.group(1).lower() != "non-member":
+            errors.append(f"{raw}: '{name}' does not declare `addressable: non-member` in its own "
+                          f"descriptor — a package cannot grant this on another agent's behalf")
+            continue
+        out[name] = str(p)
+    return out, errors
+
+
+def addressable_nonmembers(args, base):
+    """Names admitted after the LOCAL-COLLISION check, plus every error to report.
+
+    Split from `load_addressable` because the collision test needs this package's local names,
+    and a resolver that reached for them would make the register's own parse depend on roster
+    state. Local always wins: a foreign descriptor never shadows a seat of this run."""
+    found, errors = load_addressable(args)
+    _, _, rows = load_workers(base)
+    local = {r["agent"] for r in rows} | set(briefing_frontmatters(workers_dir(args))) \
+        | set(group_map(base)) | {"all"}
+    admitted = {}
+    for name, p in found.items():
+        if name in local:
+            errors.append(f"{p}: '{name}' COLLIDES with a seat of this package — refused, the "
+                          f"local name wins (G-111: a foreign seat sharing a live roster name "
+                          f"must never be resolved here)")
+            continue
+        admitted[name] = p
+    return admitted, errors
+
+
+def report_addressable_errors(args, base, stream=None):
+    """Print every unresolved register row. Constraint 3 — REFUSE VISIBLY, never degrade to a
+    silent success. Called on the paths where a name is resolved, so a broken row surfaces at the
+    moment someone is relying on it rather than at some later audit nobody runs."""
+    _, errors = addressable_nonmembers(args, base)
+    for e in errors:
+        print(f"warning: addressable.csv — {e}", file=stream or sys.stderr)
+    return errors
+
+
 def current_row(rows, agent):
     """Latest row for an agent (last check-in wins). P1 keeps at most one active."""
     mine = [r for r in rows if r["agent"] == agent]
@@ -3045,7 +3193,18 @@ def cmd_workers(args):
     historical row (the pre-T2 behavior)."""
     base = base_dir(args)
     _, _, rows = load_workers(base)
+    nonmembers, addr_errors = addressable_nonmembers(args, base)
     print(f"{c('owner:', C_LABEL)} {owner_status(base)}")
+    # Listed SEPARATELY from the roster, never merged into it: these are not seats, hold no row,
+    # and must never be counted in a census, a cap or a sweep. Shown at all because a name that
+    # resolves invisibly is its own kind of fail-silent — and the errors are shown for the same
+    # reason the successes are.
+    if nonmembers or addr_errors:
+        print(f"{c('addressable non-members (no row, no wake, no cursor — PULL delivery):', C_LABEL)}")
+        for nm in sorted(nonmembers):
+            print(f"  {nm} -> {nonmembers[nm]}")
+        for e in addr_errors:
+            print(c(f"  UNRESOLVED: {e}", C_DEAD))
     if not rows:
         print("no workers registered")
         print(c(f"next: {coord_invocation(args)} launch — nobody has checked in yet", C_HINT))
@@ -3717,6 +3876,12 @@ def known_recipients(args, base):
     for d in inbox_decls(args).values():
         names |= set(d.get("relays") or ())
     names.add("all")
+    # THE ONE GRANT. An addressable non-member joins the recipient set and NOTHING else: it gains
+    # no row above, so it is absent from the census, the sweep, every lifecycle command, the pane
+    # cap, `to: all` fan-out and the wake pass — each of those reads the roster, not this set.
+    # Because BOTH `cmd_send` gates consult this one predicate, admitting the name here fixes the
+    # recipient half and the ask-refusal in a single move, which is what the ruling requires.
+    names |= set(addressable_nonmembers(args, base)[0])
     return names
 
 
@@ -3729,6 +3894,11 @@ def cmd_send(args):
 
     # F5 — a typo'd recipient was accepted silently: the message landed under a name nobody
     # reads and the only signal was one "wake skipped" line the sender scrolled past.
+    # Constraint 3: a register row that did not resolve is announced HERE, on the path that was
+    # about to rely on it — not deferred to an audit nobody runs. A name silently missing from the
+    # recipient set reads exactly like a name that was never admitted.
+    report_addressable_errors(args, base)
+    nonmembers = addressable_nonmembers(args, base)[0]
     known = known_recipients(args, base)
     if args.to not in known and not force:
         near = difflib.get_close_matches(args.to, sorted(known), n=1, cutoff=0.6)
@@ -3757,6 +3927,18 @@ def cmd_send(args):
               f"Send this as --type note (FYI) or --type flag if the type exists, or check in "
               f"first so you have a roster row: {coord_invocation(args)} checkin {sender} "
               f"\"<what you are doing>\".\n"
+              # G-165: for a NON-MEMBER that check-in line is the FORBIDDEN repair, and this text
+              # recommending it is how the trap reaches every next meta-agent. The correspondent
+              # that hit it declined the advice and said so; the next one will not have that
+              # context, so the alternative is named here rather than left to a ruling it cannot
+              # read.
+              f"⚠ If you are NOT a member of this run (a meta-agent with its own goal folder), do "
+              f"NOT check in — that would make you a member, which is the thing you are not. Ask "
+              f"this package to admit you as an addressable non-member instead: add your "
+              f"descriptor's path to {package_dir(args)}/addressable.csv and declare "
+              f"`addressable: non-member` in that descriptor. You then resolve as a recipient and "
+              f"gain nothing else — in particular NO WAKE: delivery is PULL, and you must read the "
+              f"log yourself.\n"
               f"There is no --force for this one: 13 asks opened this way in one run and not "
               f"one of them can ever be closed.", file=sys.stderr)
         sys.exit(1)
@@ -3903,6 +4085,15 @@ def cmd_send(args):
     resolved = sorted(relay_seats(args.to, decls))
     rel_note = f" [{args.to} -> {', '.join(resolved)}]" if resolved else ""
     print(f"sent message #{n} ({sender} -> {args.to}, type: {args.type}{marks}){org_note}{rel_note}")
+    # ⚠ SAID AT THE MOMENT IT MATTERS, to the person who most needs it: the sender who has just
+    # addressed a non-member and would otherwise wait for a reply that no wake will ever prompt.
+    # The ruling is explicit that leaving this implicit is the defect — silence would be read as
+    # "considering" rather than "never delivered".
+    if args.to in nonmembers:
+        print(c(f"-- delivery is PULL, not push: '{args.to}' is an addressable NON-MEMBER — it has "
+                f"no pane in this run and is NEVER woken. The message is in the log addressed to "
+                f"it, and it must read the log itself. Silence from it means NOT YET READ, never "
+                f"'considering'. If it is time-critical, confirm out of band.", C_HINT))
     deliver_wakes(args, base, sender, args.to, n, args.type, origin)
     if args.type == "ask":
         print(c(f"next: {coord_invocation(args)} pending — your ask stays OPEN until an answer "
@@ -3999,9 +4190,16 @@ def deliver_wakes(args, base, sender, to, n, mtype="note", origin=None):
     text = (f"[coord wake] New coordination message #{n} from {sender} to {label}. "
             f"Read it now, then continue your task: {coord_invocation(args)} read")
     targets, skipped, failures = [], dict(scope_skipped), []
+    nonmembers = addressable_nonmembers(args, base)[0]
     for name in sorted(recipients):
         row = current_row(rows, name)
-        if row is None:
+        if name in nonmembers:
+            # NOT "not launched" — that reason implies a pane is coming. This one never is, and the
+            # sender must be able to tell a seat that has not started from a correspondent that is
+            # never woken by design.
+            skipped.setdefault("PULL delivery — addressable NON-MEMBER, no pane in this run; it "
+                               "reads the log itself", []).append(name)
+        elif row is None:
             skipped.setdefault("not launched", []).append(name)   # briefed/named, no row yet
         elif row["active"] != "yes":
             skipped.setdefault("departed", []).append(name)       # had a row, checked out/closed
@@ -7625,6 +7823,101 @@ def _selftest_checks(args, failures, names):
               "resolve the token through the same predicate, so this stage cannot reopen the very "
               "disagreement the seat was commissioned on",
               "addressed by ROLE" in rd("rly", after=m5mark, peek=True))
+
+        # ---- ADDRESSABLE NON-MEMBERS (`ruling-addressable-non-member.md`) -------------------
+        # Inside the suite, not a side script: two probes in this system rotted for seven days
+        # because nothing ran them (G-141), and a check with no runner reports on a mechanism
+        # nobody is exercising.
+        base_an = base_dir(ns())
+        out_home = pkg.parent / "outsider-goal" / "seats" / "outsider"
+        out_home.mkdir(parents=True, exist_ok=True)
+        reg = pkg / "addressable.csv"
+        check("addressable: no register by default, so the mechanism ships INERT — a package that "
+              "admits nobody behaves exactly as it does today",
+              load_addressable(ns()) == ({}, []))
+        a_out1, a_code1 = refuse(cmd_send, agent="outsider", to="alpha", message="x", type="ask",
+                                 supersedes=None, re_num=None, file=None)
+        a_out2, a_code2 = refuse(cmd_send, agent="alpha", to="outsider", message="x", type="note",
+                                 supersedes=None, re_num=None, file=None)
+        check("addressable / THE DEFECT: an agent whose descriptor lives in ANOTHER goal folder is "
+              "blocked BOTH ways — nobody can address it (F5) and its own `ask` therefore has no "
+              "possible terminus (S-7). Every source `known_recipients` draws on is package-local "
+              "by construction. Measured live at run-2 #509/#510, where a summoned meta-agent "
+              "finished its work through `tmux send-keys`, off the bus entirely",
+              a_code1 == 1 and "cannot receive a reply" in a_out1
+              and a_code2 == 1 and "is not a known recipient" in a_out2)
+        check("addressable / G-165: the S-7 refusal no longer sends a NON-MEMBER to `checkin` "
+              "without qualification — that is the forbidden repair, and this text is how the trap "
+              "reached the correspondent that hit it. The alternative and the PULL limit are named "
+              "in the refusal itself, because the next one cannot read the ruling",
+              "do NOT check in" in a_out1 and "addressable.csv" in a_out1
+              and "NO WAKE" in a_out1 and "delivery is PULL" in a_out1)
+        (out_home / "seat.md").write_text(
+            "---\nseat: outsider\nharness: claude\naddressable: non-member\n---\nbrief\n",
+            encoding="utf-8")
+        reg.write_text(f"descriptor,admitted-by,admitted\n{out_home / 'seat.md'},leader,now\n",
+                       encoding="utf-8")
+        check("addressable: DERIVED, never hardcoded (constraint 1) — the register carries a PATH "
+              "and cannot even state the name; the name and the permission both come from the "
+              "descriptor the correspondent itself owns. A kit-side name list would freeze one "
+              "campaign's furniture into a tool every run shares, which is what SPECIAL_CASE_SEATS "
+              "was demoted for",
+              # The seat FOLDER is named after the seat, so the path legitimately contains the
+              # name. Strip the path and assert the name appears nowhere else: it is never a FIELD
+              # the register states, only an incidental substring of a location.
+              "outsider" not in reg.read_text(encoding="utf-8").replace(str(out_home), "")
+              and set(addressable_nonmembers(ns(), base_an)[0]) == {"outsider"}
+              and "outsider" in known_recipients(ns(), base_an))
+        a_ask = sd("outsider", "alpha", "now answerable", type="ask")
+        a_n = load_messages(base_an)[1][-1]["num"]
+        a_ans = sd("alpha", "outsider", "the answer", type="answer", re_num=a_n)
+        check("addressable / THE GRANT: it resolves as a recipient in BOTH directions and the "
+              "thread CLOSES — the ask-refusal was the CONSEQUENCE of the missing recipient half, "
+              "so fixing recipient resolution dissolved it rather than needing its own fix",
+              "sent message #" in a_ask and "sent message #" in a_ans
+              and load_messages(base_an)[1][-1]["re"] == a_n)
+        check("addressable / PULL, NOT PUSH — said in the OUTPUT at the moment it matters, to the "
+              "sender who would otherwise wait for a reply no wake will ever prompt. Left implicit, "
+              "the first person to address one reads silence as 'considering' rather than 'never "
+              "delivered'; the correspondent named that hazard about itself",
+              "delivery is PULL, not push" in a_ans and "NOT YET READ" in a_ans
+              and "PULL delivery — addressable NON-MEMBER" in a_ans)
+        _, _, an_rows = load_workers(base_an)
+        check("addressable / THE BOUND (constraint 5): NO ROSTER ROW EXISTS. That row is G-165's "
+              "forbidden repair and it is what a cursor, a wake, a census entry, a pane-cap count "
+              "and every lifecycle command would have come free with — which is exactly why it is "
+              "refused. No taskforce.csv either: KG membership is that file's row",
+              not any(r["agent"] == "outsider" for r in an_rows)
+              and not (pkg / "taskforce.csv").exists()
+              and current_row(an_rows, "outsider") is None)
+        reg.write_text(f"descriptor,admitted-by,admitted\n{out_home / 'seat.md'},leader,now\n"
+                       f"{out_home / 'gone.md'},leader,now\n", encoding="utf-8")
+        a_err, a_ok = addressable_nonmembers(ns(), base_an)
+        check("addressable / FAIL LOUD (constraint 3): an unresolvable row yields a NAMED error and "
+              "admits nothing — and it never takes the good row down with it (constraint 4: a "
+              "message addressed by name must always arrive). Four fail-silent defects landed here "
+              "in one evening; a register that quietly dropped a row would be the fifth",
+              set(a_err) == {"outsider"} and len(a_ok) == 1 and "unreadable" in a_ok[0])
+        (out_home / "noopt.md").write_text("---\nseat: noopt\nharness: claude\n---\nb\n",
+                                           encoding="utf-8")
+        (out_home / "clash.md").write_text(
+            "---\nseat: alpha\nharness: claude\naddressable: non-member\n---\nb\n",
+            encoding="utf-8")
+        reg.write_text(f"descriptor,admitted-by,admitted\n{out_home / 'noopt.md'},leader,now\n"
+                       f"{out_home / 'clash.md'},leader,now\n", encoding="utf-8")
+        a_names, a_errs = addressable_nonmembers(ns(), base_an)
+        check("addressable / TWO-SIDED AND MACHINE-ENFORCED (constraint 2): a descriptor without "
+              "its OWN `addressable: non-member` admits nothing, so a package cannot grant this on "
+              "another agent's behalf; and a foreign descriptor named like a LOCAL seat is REFUSED "
+              "with the local name winning — G-111 itself, a foreign seat sharing a live roster "
+              "name must never be resolved here",
+              a_names == {}
+              and any("does not declare" in e for e in a_errs)
+              and any("COLLIDES" in e for e in a_errs))
+        reg.unlink()
+        check("addressable: removing the register removes the name — nothing lingers in state, so "
+              "the grant is exactly as revocable as it is grantable",
+              "outsider" not in known_recipients(ns(), base_an))
 
         # G-21 — the STATE half. `close` sets it; this asserts the state's semantics directly so a
         # failure names the rule that broke rather than the ceremony around it.
