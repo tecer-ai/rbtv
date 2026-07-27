@@ -1931,12 +1931,21 @@ def combined_fits(combined_lines, rows, cells=(), wins=()):
     note). So: (1) it must be no taller than the frame, keeping the one spare row every
     renderer's own `rows - 1` cap reserves; (2) every bar label and every window name must
     be VISIBLY PRESENT in it. Failing either falls back to the cycle — the status quo, and
-    the safe direction: rotation always says what it is hiding, silent dropping does not."""
+    the safe direction: rotation always says what it is hiding, silent dropping does not.
+
+    BOTH SIDES of the presence test are SGR-STRIPPED. A cell label carries color (CYAN for
+    the account in use, DIM for configured), so comparing a raw label against a stripped
+    body never matched: condition (2) failed for EVERY live frame and auto-combined was
+    dead on arrival at any size (reported live at 280x83, rendering windows-only). The
+    critical-pane pin was NOT the cause — it only picks a page inside a CYCLING grid, and
+    a combined frame renders every pane regardless, so a pin cannot suppress the limits
+    block once this returns True."""
     if len(combined_lines) > max(1, rows - 1):
         return False
-    body = re.sub(r"\033\[[0-9;]*m", "", "\n".join(combined_lines))
-    return (all(c[0] in body for c in cells)
-            and all(w["name"] in body for w in wins))
+    strip = lambda s: re.sub(r"\033\[[0-9;]*m", "", s)  # noqa: E731
+    body = strip("\n".join(combined_lines))
+    return (all(strip(c[0]) in body for c in cells)
+            and all(strip(w["name"]) in body for w in wins))
 
 
 def render(args, session):
@@ -2554,9 +2563,15 @@ def cmd_selftest():
     # it is hiding.
     # The exact live shape (100 cols, the box's real 8 bars): the strip fold drops 5 of
     # them with no note, in a frame only 6 lines tall.
-    live_cells = [(l, len(l), 40.0, "renews Sat 03:00") for l in
-                  ("claude:main 5h", "claude:main 7d", "claude:main 7d fable",
-                   "claude:tecer 5h", "claude:tecer 7d", "codex 7d", "zai 5h", "zai 7d")]
+    # Labels are PRODUCTION-SHAPED: colorized exactly as usage_cells emits them (CYAN in
+    # use / DIM configured). A plain-label fixture here is what let the SGR defect below
+    # ship — it was width-realistic but not color-realistic, so it could not fail.
+    live_cells = [(f"{CYAN if i < 3 else DIM}{l.split(' ')[0]}{OFF} "
+                   + l.split(" ", 1)[1], len(l), 40.0, "renews Sat 03:00")
+                  for i, l in enumerate(
+                      ("claude:main 5h", "claude:main 7d", "claude:main 7d fable",
+                       "claude:tecer 5h", "claude:tecer 7d", "codex 7d", "zai 5h",
+                       "zai 7d"))]
     lossy = render_strip("sess", fit_wins, 1, 1, live_cells, [], [], 100, 10 ** 6,
                          cycle=False)
     intact = render_strip("sess", fit_wins, 1, 1, live_cells, [], [], 140, 10 ** 6,
@@ -2568,6 +2583,31 @@ def cmd_selftest():
           and combined_fits(lossy, 40, live_cells, fit_wins) is False
           and combined_fits(lossy, 40) is True  # height-only would have ACCEPTED it
           and combined_fits(intact, len(intact) + 1, live_cells, fit_wins) is True)
+    # Regression (owner, live at 280x83): a cell LABEL carries SGR color, so comparing the
+    # raw label against an SGR-stripped body never matched — condition (2) failed on every
+    # live frame and auto-combined never engaged at ANY size. Both sides must be stripped.
+    check("itemB: combined_fits matches COLORIZED labels (CYAN in-use / DIM configured) — "
+          "the live shape; a raw-vs-stripped comparison made auto-combined dead on arrival",
+          any("\033[" in c[0] for c in live_cells)  # the fixture is genuinely colorized
+          and combined_fits(intact, len(intact) + 1, live_cells, fit_wins) is True)
+    # Owner report at 280x83: a CRITICAL pane must NOT suppress the combined view. The pin
+    # exists so a critical pane is never CYCLED OUT OF VIEW; a combined frame renders every
+    # pane (the critical one included) plus the limits, so the pin has nothing to protect.
+    crit_big_wins = [{"idx": "0", "name": "defect-fix", "active": True,
+                      "panes": [P("defect-fix", awaiting=True)]},
+                     {"idx": "1", "name": "talk", "active": False, "panes": [P("liaison")]}]
+    crit_big = render_full("sess", crit_big_wins, 2, 2, live_cells, [], [], fake_cache,
+                           280, 10 ** 6, cycle=False)
+    crit_big_p = plain(crit_big)
+    check("itemB: a CRITICAL pane on a BIG frame still selects the COMBINED view — both "
+          "PLAN LIMITS and WINDOWS present, the critical pane visible with its ? marker "
+          "(the pin only holds a page while CYCLING)",
+          combined_fits(crit_big, 83, live_cells, crit_big_wins) is True
+          and any("PLAN LIMITS" in l for l in crit_big_p)
+          and any("WINDOWS" in l for l in crit_big_p)
+          and any("defect-fix?" in l for l in crit_big_p)
+          and all(re.sub(r"\033\[[0-9;]*m", "", c[0]) in "\n".join(crit_big_p)
+                  for c in live_cells))
     big = plain(comb_lines)
     small = plain(render_strip("sess", fit_wins, 1, 1, cells, notes, console,
                                220, 10, now=0))
