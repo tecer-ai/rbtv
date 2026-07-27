@@ -1,5 +1,5 @@
 probe: probe-spawn
-started: 2026-07-27T04:30:51.480Z
+started: 2026-07-27T04:42:31.069Z
 command: node probes/probe-spawn.js
 D109 assert: argv[0]='sleep' resolves to '/usr/bin/sleep'
 D109 assert PASS: post-'--' head is the resolved absolute path; tail preserved in order
@@ -8,26 +8,26 @@ stdin-carriage assert PASS: unit args carry StandardInput=file:<promptfile>
 stdin-carriage mutation self-check PASS: assertion rejects the pre-fix property-less unit args
 exit-marker assert PASS: unit args carry the ExecStopPost $EXIT_STATUS writer
 exit-marker mutation self-check PASS: no exitFile → no ExecStopPost property
-exit-marker live PASS: /tmp/p2-2-probe-Di1w3t/data/exits/8cae692f-147f-4c62-b42f-c6774f2b1560.exit carries exit status 0 after clean worker exit
+exit-marker live PASS: /tmp/p2-2-probe-uEP5Yn/data/exits/3eb55cb0-c8af-4b65-9e92-26adadb90113.exit carries exit status 0 after clean worker exit
 action: fire row then spawn trivial worker via test-sleep profile (prompt: stdin) with a real prompt
 exec_id before spawn: 2, status: launching
 exec_id after spawn: 2
-session_id: 544d548c-7519-4f0a-a930-414c2939836b
-pid: 785974
+session_id: fa9f7f26-76da-43e6-9361-4130eb094622
+pid: 814933
 carrier: systemd
-unit_name: rbtv-worker-544d548c-7519-4f0a-a930-414c2939836b
+unit_name: rbtv-worker-fa9f7f26-76da-43e6-9361-4130eb094622
 status: running
-log_path: /tmp/p2-2-probe-Di1w3t/data/logs/544d548c-7519-4f0a-a930-414c2939836b.log
-workdir: /tmp/p2-2-probe-Di1w3t/work/2
+log_path: /tmp/p2-2-probe-uEP5Yn/data/logs/fa9f7f26-76da-43e6-9361-4130eb094622.log
+workdir: /tmp/p2-2-probe-uEP5Yn/work/2
 systemctl --user show caps:
   RuntimeMaxUSec=1h
   MemoryMax=67108864
   TasksMax=8050
 systemctl --user is-active: active
-stdin live PASS: prompt file /tmp/p2-2-probe-Di1w3t/data/prompts/544d548c-7519-4f0a-a930-414c2939836b.txt carries the prompt verbatim
+stdin live PASS: prompt file /tmp/p2-2-probe-uEP5Yn/data/prompts/fa9f7f26-76da-43e6-9361-4130eb094622.txt carries the prompt verbatim
 stdin live PASS: running unit stdin connected to the prompt file (StandardInput=file)
 log file exists: true
 status: PASS
 exit: 0
-wall_ms: 447
-ended: 2026-07-27T04:30:51.927Z
+wall_ms: 430
+ended: 2026-07-27T04:42:31.499Z

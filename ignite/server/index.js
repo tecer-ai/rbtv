@@ -505,12 +505,41 @@ async function main() {
     userManager,
     logger: (m) => log(m.level || 'info', m.message, m),
   });
+  // Task 7.30 — the headed TARGET moves from the server-owned pty to a tmux pane (R7/R8/R15/R28).
+  //
+  // The switch is ONE environment variable on the unit, and that is deliberate (`r-cutover-gated`):
+  // unset — the default, and what every existing deployment gets — the headed fork behaves exactly
+  // as before and the pty path is untouched. Set, headed sessions land in that tmux room instead.
+  // So the new path is OFF unless someone turns it on, and turning it back off is one line in the
+  // unit file plus a restart: the fallback stays one command away rather than one revert away.
+  //
+  // The ROOM IS NOT A CALLER ARGUMENT, and that is the load-bearing part. It comes from the
+  // daemon's own environment, so no caller — gateway sender, ticker job, or agent — can choose
+  // which room a seat lands in, or name one at all. That strengthens DEC-1's R3 rather than
+  // widening it: the request surface gains no key (comm-bridge's #157 point stands — an unknown
+  // key against a live args_schema is refused anyway), and caller free text still never reaches
+  // argv. The seat's launch dir rides the EXISTING `workdir` argument, already validated by the
+  // profile's `workdir_root` gate.
+  const tmuxRoom = process.env.RBTV_IGNITE_TMUX_ROOM || null;
   const spawnManagerWithPty = {
     ...spawnManager,
-    spawn: (execId, profileName, sessionMode = 'headless', prompt = null, workdir = null, enqueuedBy = 'unknown') =>
-      sessionMode === 'headed'
-        ? ptyHost.spawnHeaded(execId, profileName, prompt, workdir, enqueuedBy)
-        : spawnManager.spawn(execId, profileName, sessionMode, prompt, workdir, enqueuedBy),
+    spawn: (execId, profileName, sessionMode = 'headless', prompt = null, workdir = null, enqueuedBy = 'unknown') => {
+      if (sessionMode !== 'headed') {
+        return spawnManager.spawn(execId, profileName, sessionMode, prompt, workdir, enqueuedBy);
+      }
+      if (!tmuxRoom) {
+        return ptyHost.spawnHeaded(execId, profileName, prompt, workdir, enqueuedBy);
+      }
+      // Window name is server-composed from the exec id — never a caller string, and free of the
+      // `:`/`.` tmux target separators that would let a name re-target another pane (tmux.js
+      // refuses those outright, so this is belt and braces on a value already ours).
+      return spawnManager.spawnSeat(execId, profileName, {
+        room: tmuxRoom,
+        seatName: `seat-${execId}`,
+        seatDir: workdir,
+        enqueuedBy,
+      });
+    },
     // Headed exit_code sourcing (spec Behavior #8 / Design 2 caveat 1 — wired at the p6-2 review):
     // for a DEAD headed session the unit's ExecMainStatus is the HOLDER's exit and MASKS the
     // harness's (M3: child exited 42, unit reported 0) — and the ticker's crash sweep copies

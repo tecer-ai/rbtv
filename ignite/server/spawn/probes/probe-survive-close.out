@@ -1,11 +1,11 @@
 probe: probe-survive-close
-started: 2026-07-27T04:30:53.870Z
+started: 2026-07-27T04:42:33.434Z
 command: node probes/probe-survive-close.js
 action: a child node LAUNCHER spawns the worker then EXITS; re-check worker survives
-launcher(child node) pid=786161 spawned unit=rbtv-worker-b1d0e918-52cb-4bb9-83c3-97d60038c871 worker-pid=786170
-after launcher exit: launcher-pid-alive=false worker is-active=active worker-ppid=206442 (launcher-pid=786161)
+launcher(child node) pid=815249 spawned unit=rbtv-worker-a3aef6a1-8ee9-4f5f-a6ae-a44912e9d9c4 worker-pid=815258
+after launcher exit: launcher-pid-alive=false worker is-active=active worker-ppid=206442 (launcher-pid=815249)
 result: launcher process is gone yet the worker is still active; worker PPID is the user manager, never the (dead) launcher (CON-1)
 status: PASS
 exit: 0
-wall_ms: 208
-ended: 2026-07-27T04:30:54.078Z
+wall_ms: 201
+ended: 2026-07-27T04:42:33.635Z

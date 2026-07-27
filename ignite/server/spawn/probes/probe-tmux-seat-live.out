@@ -1,0 +1,32 @@
+probe: probe-tmux-seat-live
+started: 2026-07-27T04:42:34.628Z
+command: node probes/probe-tmux-seat-live.js
+throwaway room created: a4-live-815341 (never this run's room)
+live seat spawned: pane %39 pid 815351 unit rbtv-seat-ee1f41c7-6d46-489f-8262-0b07bdc1ec5b
+identity at birth: pid=815351 starttime=155714987 unit=rbtv-seat-ee1f41c7-6d46-489f-8262-0b07bdc1ec5b — the pair, plus the one handle a respawn cannot reproduce
+legA scope cgroup (systemd's own record): /user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-seat-ee1f41c7-6d46-489f-8262-0b07bdc1ec5b.scope
+legA /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-seat-ee1f41c7-6d46-489f-8262-0b07bdc1ec5b.scope/memory.max = 402653184
+legA /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-seat-ee1f41c7-6d46-489f-8262-0b07bdc1ec5b.scope/pids.max = 64
+legA /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-seat-ee1f41c7-6d46-489f-8262-0b07bdc1ec5b.scope/cpu.max = 50000 100000
+legA processes IN that cgroup: 815351 815353 815354 (pane pid 815351)
+legA caps-at-kernel PASS: memory.max read from the HOST kernel for the LIVE tmux-spawned seat == declared 384M. Not the profile's word for it, and not the seat's.
+--- seat self-report (written by the seat, read from outside) ---
+  cgroup=/
+  seat_view_of_own_cgroup=/
+  cwd=/tmp/a4-live-TDDN3T/work/seat-a4
+  home_entries=
+  absent=/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv
+  absent=/home/henri/ht-wkdir/.env
+  absent=/home/henri/.ssh
+  absent=/home/henri/.local/state/rbtv-ignite
+  absent=/home/henri/ht-wkdir/second-brain/CLAUDE.md
+  done=true
+legB absence: in-namespace listing of the vault root = "ls: cannot access '/home/henri/ht-wkdir/second-brain': No such file or directory"
+         host listing of the same path has 21 entries
+legB on-disk: the breach write left NO file on the host — checked from outside the namespace after the seat ran
+legC placement: the seat is a pane of the throwaway room (panes: %38 %39 %2 %17 %24 %14 %29 %22 %23)
+throwaway room a4-live-815341 killed; evidence left under /tmp/a4-live-TDDN3T
+status: PASS
+exit: 0
+wall_ms: 359
+ended: 2026-07-27T04:42:34.987Z

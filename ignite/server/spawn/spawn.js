@@ -398,9 +398,20 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // is NOT identity either: an in-place respawn reuses the pane id (run issue G-12). The scope
     // unit name is the third handle, and the only one a respawn cannot reproduce.
     const pidStarttime = panePid ? (setsidStatus(panePid).pidStarttime || null) : null;
+    // carrier stays `systemd`, and this is modelling rather than a workaround: the CARRIER — the
+    // thing that holds the process and applies the caps — is still systemd, a --scope unit instead
+    // of a transient service. What changed is the TARGET (a tmux pane), which is exactly how the
+    // settle ledger frames it: "DEC-1 is amended in TARGET, never in gate" (R28). Writing a new
+    // carrier value would also fail the heart store's CHECK constraint
+    // (carrier IN ('systemd','setsid')) — a CERTIFIED schema whose reopen is owner-gated tonight
+    // (`r-746-schema-pregrant`), and not something to widen from here.
+    // SURFACED, not buried: the row therefore cannot distinguish a scope-in-a-pane from a
+    // transient service, which matters to any liveness/kill path that switches on carrier. Filed
+    // as a run issue for task 7.46's schema pass; the unit name + pane id below carry the truth in
+    // the meantime.
     heartStore.updateExecutionStatus(execId, {
       status: 'running',
-      carrier: 'tmux-scope',
+      carrier: 'systemd',
       unitName: composed.unitName,
       pid: panePid,
       pidStarttime,
