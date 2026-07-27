@@ -5156,9 +5156,21 @@ def cmd_reap(args):
     row and session trace are finished by the close. So a reaped seat KEEPS its debt entry, with
     its pane now gone — the leader still sees it and still owes the close. Freeing memory and
     completing a lifecycle are different acts and this one does only the first."""
-    gate(args, "reap", is_leader_or_closer, "leader's or a closer-* seat's")
-    base = base_dir(args)
+    # THE GATE IS ON THE CONSEQUENCE, NOT THE VERB (leader ruling, #363). It first covered the
+    # whole command, including the observe pass — which destroys nothing. The cost of that lands
+    # in exactly one place: a seat wanting to check the door exemption against the LIVE room had to
+    # either override the gate or not verify. A gate that MANUFACTURES its own breaches, and
+    # charges them to whoever is being most careful, is G-106's shape — every gate individually
+    # correct, the bill sent to the seat behaving best. (This one billed its own author within the
+    # hour: I overrode it to verify, which was the right act on an authority that was not mine.)
+    #
+    # So: observing is free, killing is gated. The refusal names `reap --go` rather than `reap`,
+    # because a message that refuses the verb when only the flag is barred sends the reader looking
+    # for the wrong permission.
     go = getattr(args, "go", False)
+    if go:
+        gate(args, "reap --go", is_leader_or_closer, "leader's or a closer-* seat's")
+    base = base_dir(args)
     panes = live_panes()
     debts = awaiting_debts(base, panes)
     if not debts:
@@ -7427,6 +7439,20 @@ def _selftest_checks(args, failures, names):
                   reap_blockers(dict(_fresh, since="old"), 99, {"%77"}, _door, "door"))
               and not any("DOOR, not a leak" in b for b in
                           reap_blockers(_fresh, 99, {"%77"}, _door, "ordinary")))
+        _ro, _rc = refuse(cmd_reap, agent="zeta", go=True)
+        check("G-134/B: the gate is on the CONSEQUENCE, not the verb — `--go` is leader/closer "
+              "only, and the refusal names the FLAG so the reader looks for the right permission",
+              _rc == 2 and "reap --go" in _ro)
+        # Run through `refuse` rather than `run` even though nothing should be refused: if a
+        # regression re-gates the verb, this must report a clean FAIL. Under `run`, the gate's
+        # sys.exit escapes and ABORTS the whole selftest — every later check silently unreported,
+        # which is G-121 (a truncated run reads greener than a complete one) inside the suite that
+        # exists to catch it.
+        _oo, _oc = refuse(cmd_reap, agent="zeta", go=False)
+        check("G-134/B: OBSERVING IS UNGATED — it destroys nothing, and gating it forced any seat "
+              "wanting to verify against the live room to override the gate or skip the check. A "
+              "gate that manufactures its own breaches bills whoever behaves best (G-106)",
+              _oc == 0 and "reap --go" not in _oo)
         set_awaiting(base_g, "kappa", "%77", "/tmp/x", True)
         _s1, _r1 = confirm_reap(base_g, "kappa", [])
         _s2, _r2 = confirm_reap(base_g, "kappa", [])
