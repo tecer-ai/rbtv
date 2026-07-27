@@ -75,7 +75,8 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
    REFUSED (P37): follow R-confirm-dead before you retry.
 2. **Startup round — organize BEFORE you discuss.** No detailed cross-agent discussion on `all`
    at run start. Leader announces a turn order; each agent, in turn, sends ONE short intro
-   (`--type note`, to `all`): what it produces, which shared surfaces it touches, which overlaps
+   (`--type note`, direct to `leader` — a note broadcast is refused by the tool): what it
+   produces, which shared surfaces it touches, which overlaps
    with already-posted intros it foresees, and — **publish your contract** (S§3.3) — what it can
    and cannot ACCEPT from upstream: the constraint that would make a peer's output unusable to you
    (last run: "edges of these verbs render in my views; others are authored-but-invisible"), since
@@ -115,8 +116,9 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
    between yourselves, do not settle it pairwise: `create-group` (you + the other; creator and
    leader auto-added) and put the question there. Anything owner-gated is escalated by leader to
    the owner — never ruled by leader, and never carried to the owner by you (R-owner-channel).
-8. **Check out last — completion first.** When your briefing is complete: `send all "<outcome>"
-   --type completion`, then `checkout`. The transcript export is no longer yours to remember —
+8. **Check out last — completion first.** When your briefing is complete: send your completion
+   DIRECT to `leader` (`--type completion`; to `all` only when it carries a milestone or roster
+   consequence — the broadcast `--why` gate enforces exactly that), then `checkout`. The transcript export is no longer yours to remember —
    `checkout` captures your pane's scrollback before flipping your row (`--no-export` is the
    escape when the pane is already dead). Ephemeral seats use `depart` (export + checkout + killing
    the seat's own pane, one command, no name — a seat can only depart itself). Leader checks out
