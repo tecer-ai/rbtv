@@ -59,13 +59,31 @@ def _now() -> str:
 # ---------------------------------------------------------------- writing
 
 
+def _default_file_mode() -> int:
+    """The mode a normal file would get here, honouring the process umask."""
+    umask = os.umask(0)
+    os.umask(umask)
+    return 0o666 & ~umask
+
+
 def _write_whole(path: Path, body: str) -> None:
-    """Atomic whole-file write for files this installer OWNS."""
+    """Atomic whole-file write for files this installer OWNS.
+
+    ⚠ The mode is set BEFORE `os.replace`, never after. `mkstemp` creates 0600
+    and `os.replace` REPLACES the inode, so the temp file's restrictive mode
+    becomes the destination's — an installed skill lands unreadable to everyone
+    but its writer while every content check passes. Measured live: the first
+    VPS-local install produced a 600 SKILL.md beside eighteen 664 ones. Setting
+    it after the replace would leave a window where the file is live at the
+    wrong mode, which is what `G-132` cost the room.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    mode = path.stat().st_mode & 0o7777 if path.exists() else _default_file_mode()
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".rbtv-install.")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(body)
+        os.chmod(tmp, mode)
         os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
@@ -652,6 +670,24 @@ def cmd_selftest(args) -> int:
             "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
             "widget-prompt,prompt,agents.md,exhibit,prompts.csv#widget-prompt,\n",
             encoding="utf-8")
+
+        # --- an installed file must be readable like its neighbours. mkstemp is
+        # 0600 and os.replace carries that mode onto the destination, so a skill
+        # can land unreadable while every content check passes (G-132's class).
+        t6 = Path(td) / "ws6"
+        t6.mkdir()
+        do_install(root, t6, None, None, ["claude"], dry_run=False)
+        installed = t6 / ".claude" / "skills" / "rbtv-demo" / "SKILL.md"
+        want = _default_file_mode()
+        got = installed.stat().st_mode & 0o777
+        check("a NEW installed file gets the normal file mode, not 0600",
+              got == want, f"mode {oct(got)} vs expected {oct(want)}")
+        # an EXISTING file keeps whatever mode the workspace gave it
+        os.chmod(installed, 0o640)
+        do_install(root, t6, None, None, ["claude"], dry_run=False)
+        check("re-install PRESERVES an existing file's mode",
+              (installed.stat().st_mode & 0o777) == 0o640,
+              oct(installed.stat().st_mode & 0o777))
 
         # --- dry-run writes NOTHING
         t3 = Path(td) / "ws3"
