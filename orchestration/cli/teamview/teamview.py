@@ -735,30 +735,51 @@ def roster_map(package):
     return out
 
 
+# Seat descriptors, NEWEST LAYOUT FIRST. The restructure moved a run's descriptors from
+# `workers/<agent>/agent.md` to `seats/<agent>/seat.md` (and the identity key from `agent:` to
+# `seat:`); this file kept reading the OLD path only, so on every post-restructure package
+# `ctx_refresh_thresholds` returned {} — G-153. Both layouts are read rather than the new one
+# swapped in, because this CLI is shared across runs and an older package must not go dark to fix
+# a newer one. Order matters only for the union below: a package carrying both wins on `seats/`.
+DESCRIPTOR_LAYOUTS = (("seats", "seat.md"), ("workers", "agent.md"))
+DESCRIPTOR_ID_KEYS = ("seat", "agent")
+
+
 def ctx_refresh_thresholds(package):
-    """{agent-name: threshold%} read from every workers/<agent>/agent.md frontmatter's
-    `ctx-refresh:` key (integer percent). An agent with no such key carries no threshold —
-    default is none, never enforced. [] package -> {}."""
+    """{agent-name: threshold%} read from every seat descriptor's frontmatter `ctx-refresh:` key
+    (integer percent) — `seats/<agent>/seat.md`, or the pre-restructure `workers/<agent>/agent.md`.
+    An agent with no such key carries no threshold: default is none, never enforced. [] package
+    -> {}.
+
+    ⚠ AN EMPTY RESULT IS NOT "EVERYONE IS FINE" — it is "no threshold was ever checked", and the
+    two are indistinguishable at the call site. That is why the caller raises a visible cue on {}
+    rather than rendering a plain green ctxN%: this function failing open is precisely how G-153
+    stayed invisible while six live seats carried a threshold."""
     out = {}
     if not package:
         return out
-    try:
-        agent_dirs = sorted((Path(package) / "workers").iterdir())
-    except OSError:
-        return out
-    for d in agent_dirs:
+    for subdir, fname in reversed(DESCRIPTOR_LAYOUTS):     # newest layout written last -> it wins
         try:
-            text = (d / "agent.md").read_text(encoding="utf-8")
+            agent_dirs = sorted((Path(package) / subdir).iterdir())
         except OSError:
             continue
-        if not text.startswith("---"):
-            continue
-        end = text.find("\n---", 3)
-        fm = text[:end] if end != -1 else text
-        name = re.search(r"^agent:\s*(\S+)", fm, re.M)
-        thr = re.search(r"^ctx-refresh:\s*(\d+)", fm, re.M)
-        if name and thr:
-            out[name.group(1)] = int(thr.group(1))
+        for d in agent_dirs:
+            try:
+                text = (d / fname).read_text(encoding="utf-8")
+            except OSError:
+                continue
+            if not text.startswith("---"):
+                continue
+            end = text.find("\n---", 3)
+            fm = text[:end] if end != -1 else text
+            thr = re.search(r"^ctx-refresh:\s*(\d+)", fm, re.M)
+            if not thr:
+                continue
+            for key in DESCRIPTOR_ID_KEYS:
+                name = re.search(rf"^{key}:\s*(\S+)", fm, re.M)
+                if name:
+                    out[name.group(1)] = int(thr.group(1))
+                    break
     return out
 
 
@@ -1713,14 +1734,32 @@ NO_PACKAGE_CUE_VARIANTS = (
     f"{YELLOW}no-pkg{OFF}",
 )
 
+# RED, not yellow, and the distinction is the whole point: no-package is an operator CHOICE with a
+# known consequence, while a package that loads ZERO thresholds is a DEFECT — the run asked for
+# threshold checking and silently is not getting it (G-153). Same silent-false-negative gap the
+# no-package cue was built for after a tester made a wrong renewal call on it; it simply never
+# fired for this door, because --package WAS given.
+NO_THRESHOLD_CUE_VARIANTS = (
+    f"{RED}ctx thresholds NOT loaded — none checked{OFF}",
+    f"{RED}no ctx thresholds loaded{OFF}",
+    f"{RED}no-thr!{OFF}",
+)
 
-def package_cue(no_package, avail):
-    """The no-package cue, shrunk to whatever room is actually available — never emitted at
-    a length that would need clip_line's blind mid-word cut ('...roster~' was the reported
-    bug); "" (no cue at all) only when even the shortest form doesn't fit."""
-    if not no_package or avail <= 2:
+CUE_VARIANTS_BY_REASON = {"no-thresholds": NO_THRESHOLD_CUE_VARIANTS}
+
+
+def package_cue(cue, avail):
+    """The degraded-thresholds cue, shrunk to whatever room is actually available — never emitted
+    at a length that would need clip_line's blind mid-word cut ('...roster~' was the reported
+    bug); "" (no cue at all) only when even the shortest form doesn't fit.
+
+    `cue` is falsy (no cue), True (the original no-`--package` case), or a reason key naming a
+    different degradation. The boolean spelling is kept so every existing call site and its
+    regression check keep their exact meaning; a string simply selects other wording."""
+    if not cue or avail <= 2:
         return ""
-    fit = shrink_to_fit(NO_PACKAGE_CUE_VARIANTS, avail - 2)
+    variants = CUE_VARIANTS_BY_REASON.get(cue, NO_PACKAGE_CUE_VARIANTS)
+    fit = shrink_to_fit(variants, avail - 2)
     return f"  {fit}" if fit else ""
 
 
@@ -1962,7 +2001,14 @@ def render(args, session):
     cache = load_cache()
     cells, notes, console = usage_cells(cache, live=live_agent_accounts())
     layout = choose_layout(cols, rows)
-    no_package = not args.package
+    # G-153: a package WAS given and still yielded no threshold — say so, loudly. Absence has to be
+    # audible here or it reads as health: every pane renders a plain ctxN% and an operator takes
+    # green for "confirmed under threshold" when it means "never checked" (the exact wrong-renewal
+    # call the no-package cue was added for). It fires equally when no seat happens to declare a
+    # `ctx-refresh:` — deliberate, because that state is ALSO "no threshold is being checked", and
+    # a cue that stays quiet whenever it cannot tell a stale path from an empty policy is the
+    # fail-open this fixes.
+    no_package = True if not args.package else ("no-thresholds" if not thresholds else False)
     # --no-rotate / --view combined: LAYOUT is still chosen from the real terminal shape,
     # but the whole-view cycle is disabled (both blocks render in ONE combined frame) and
     # every internal row/line budget (and the final row cap) is lifted so every window and
@@ -2293,6 +2339,38 @@ def cmd_selftest():
               and ctx_refresh_thresholds("") == {} and ctx_refresh_thresholds(None) == {})
     finally:
         shutil.rmtree(tmp_pkg, ignore_errors=True)
+    # G-153. THE CONTROL BELOW FAILS ON THE PRE-FIX CODE BY CONSTRUCTION: the fixture carries ONLY
+    # the post-restructure layout (`seats/<agent>/seat.md`, identity key `seat:`), which the old
+    # reader never looked at — it returned {} on exactly this shape, which is what every live
+    # post-restructure package IS. The legacy check above stays as the no-regression half: an old
+    # `workers/agent.md` package must keep working, since this CLI is shared across runs.
+    tmp_new = tempfile.mkdtemp()
+    try:
+        (Path(tmp_new) / "seats" / "engineer-2").mkdir(parents=True)
+        (Path(tmp_new) / "seats" / "engineer-2" / "seat.md").write_text(
+            "---\nseat: engineer-2\nharness: claude\nctx-refresh: 50\n---\nbody\n",
+            encoding="utf-8")
+        (Path(tmp_new) / "seats" / "no-thr").mkdir(parents=True)
+        (Path(tmp_new) / "seats" / "no-thr" / "seat.md").write_text(
+            "---\nseat: no-thr\nharness: claude\n---\nno ctx-refresh key here\n", encoding="utf-8")
+        check("G-153: ctx_refresh_thresholds reads the POST-RESTRUCTURE layout "
+              "seats/<agent>/seat.md keyed on `seat:` (pre-fix this returned {} — the live "
+              "failure, six seats carrying a threshold and none seen)",
+              ctx_refresh_thresholds(tmp_new) == {"engineer-2": 50})
+    finally:
+        shutil.rmtree(tmp_new, ignore_errors=True)
+    # The other half of G-153, and the half that makes the first OBSERVABLE: absence must be LOUD.
+    # A package that yields zero thresholds renders every pane's plain green ctxN%, which an
+    # operator reads as "confirmed under threshold" when it means "never checked" — the wrong
+    # renewal call the no-package cue already exists to prevent, arriving through the one door it
+    # did not cover. RED, because with --package given this is a defect and not a chosen mode.
+    plain_cue = lambda c, w=999: re.sub(r"\033\[[0-9;]*m", "", package_cue(c, w))
+    check("G-153: a package that loads ZERO thresholds raises its OWN red cue — distinct from "
+          "the no-package cue, and never silent",
+          "ctx thresholds NOT loaded" in plain_cue("no-thresholds")
+          and "no --package" not in plain_cue("no-thresholds")
+          and "no --package" in plain_cue(True) and plain_cue(False) == ""
+          and "no-thr!" in plain_cue("no-thresholds", 12))   # survives the narrowest fold too
     check("pane_cell: shell pane -> dim name + explicit 'shell' tag; no-info pane -> harness only",
           re.sub(r"\033\[[0-9;]*m", "", pane_cell(P("gone", shell=True))) == "gone shell"
           and re.sub(r"\033\[[0-9;]*m", "", pane_cell(
