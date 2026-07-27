@@ -4,12 +4,14 @@ plus plan-limit bars for every AI provider account on the machine.
 
 Run it inside tmux, or from outside: `teamview NAME` / `teamview session NAME` (bare
 `teamview` auto-picks the only running session). Layouts adapt to the pane size; provider
-data caches under ~/.cache/rbtv/ and re-polls in the background. Below the constant first
-line, the WHOLE BODY CYCLES every ~10s: the windows/panes view — itself paged into as many
-views as the height needs — then the plan-limits view, then back around (wall-clock
-derived, so --once shows whichever page is current). Nothing is permanently hidden — or
-pass --no-rotate for a COMPLETE combined snapshot instead (limits AND every window and
-pane at once, best paired with --once; the output can grow taller than the terminal). A
+data caches under ~/.cache/rbtv/ and re-polls in the background. When the terminal is big
+enough to hold the limits block AND every window/pane at once, that COMBINED view renders
+statically. Only when it is too small does the body CYCLE every ~10s below the constant
+first line: the windows/panes view — itself paged into as many views as the height needs —
+then the plan-limits view, then back around (wall-clock derived, so --once shows whichever
+page is current). Nothing is permanently hidden. --view pins one body instead: limits
+(bars only), panes (windows/panes only), or combined (= --no-rotate: everything in one
+frame even when it grows taller than the terminal, best paired with --once). A
 CRITICAL pane — past its own ctx-refresh threshold, >=85% context, or awaiting approval —
 PINS the cycle on its windows page (the limits page waits) and never cycles out of view;
 the alarm rollup rides the header of BOTH views so no glance loses it. A
@@ -1553,7 +1555,7 @@ def limits_body(cells, notes, console, width, max_lines, style="wide"):
 
 
 def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, rows,
-                no_package=False, now=None, cycle=True):
+                no_package=False, now=None, cycle=True, phase=None):
     base = (f"{BOLD}teamview{OFF} · session {BOLD}{session}{OFF} · {nwin} windows / "
            f"{npane} panes · {datetime.now().strftime('%H:%M:%S')}")
     head = base + package_cue(no_package, cols - visible_len(base))
@@ -1571,18 +1573,26 @@ def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, 
     if cycle:
         # Whole-view cycle: below the constant header line, the body alternates between
         # the windows pages (as many as the grid needs) and ONE plan-limits page —
-        # windows p1 … pN, limits, back to p1. The legend stays as constant chrome and
-        # the alarm rollup rides BOTH phase headers, so no glance loses it (DESIGN-4).
+        # windows p1 … pN, limits, back to p1. The alarm rollup rides BOTH phase headers,
+        # so no glance loses it (DESIGN-4).
+        # phase pins ONE view (--view limits / --view panes): no alternation, the other
+        # view is never rendered. phase=None keeps the timed cycle.
         legend = legend_lines(cols)
         body_budget = max(1, rows - len(out) - 3 - len(legend))
         extra = 1 if (cells or notes or console) else 0
-        grid = window_grid(wins, cols - 2, body_budget, dashes=True, now=now,
-                           extra_slots=extra)
+        grid = None if phase == "limits" else window_grid(
+            wins, cols - 2, body_budget, dashes=True, now=now,
+            extra_slots=0 if phase == "panes" else extra)
         if grid is None:
+            # LIMITS phase: the marker legend explains PANE states, which this view does
+            # not render — so it is not chrome here, it is a key to an absent table. Its
+            # rows go back to the bars instead.
             lhdr = f"{BOLD}PLAN LIMITS{OFF}{age}"
             out.append(lhdr + rollup_suffix(wins, cols - visible_len(lhdr)))
             out.extend("  " + l for l in
-                       limits_body(cells, notes, console, cols - 2, body_budget))
+                       limits_body(cells, notes, console, cols - 2,
+                                   body_budget + len(legend)))
+            return out[:rows - 1]
         else:
             whdr = f"{BOLD}WINDOWS{OFF} {DIM}(panes beneath){OFF}"
             out.append(whdr + rollup_suffix(wins, cols - visible_len(whdr)))
@@ -1737,17 +1747,21 @@ WINDOWS_HDR = f"{BOLD}{UL}WINDOWS · PANES{OFF}"
 
 
 def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows,
-                 no_package=False, now=None, cycle=True):
+                 no_package=False, now=None, cycle=True, phase=None):
     if cycle:
         # Whole-view cycle (see render_full): the old side-by-side split becomes one
         # full-width view at a time — windows pages, then the limits page, repeating.
+        # phase pins ONE view; see render_full.
         out = [session_line(session, nwin, npane, cols, no_package)]
         budget = max(1, rows - 3)  # session line + phase header + mini legend
         extra = 1 if (cells or notes or console) else 0
-        grid = window_grid(wins, cols, budget, now=now, extra_slots=extra)
+        grid = None if phase == "limits" else window_grid(
+            wins, cols, budget, now=now, extra_slots=0 if phase == "panes" else extra)
         if grid is None:
+            # LIMITS phase: no pane legend (see render_full) — its row goes to the bars
             out.append(LIMITS_HDR + rollup_suffix(wins, cols - visible_len(LIMITS_HDR)))
-            out.extend(limits_body(cells, notes, console, cols, budget))
+            out.extend(limits_body(cells, notes, console, cols, budget + 1))
+            return out[:rows]
         else:
             hdr = WINDOWS_HDR + rollup_suffix(wins, cols - visible_len(WINDOWS_HDR))
             out.append(hdr)
@@ -1821,17 +1835,21 @@ def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows,
 
 
 def cycle_compact(session, wins, nwin, npane, cells, notes, console, cols, rows,
-                  no_package, now, style):
+                  no_package, now, style, phase=None):
     """The narrow/tiny whole-view cycle frame: constant session line, then either a
-    windows page (compact_window_lines' turn) or the limits page, then the mini legend."""
+    windows page (compact_window_lines' turn) or the limits page, then the mini legend
+    (windows phase only — the mini legend keys PANE markers, absent from the limits view).
+    phase pins ONE view instead of alternating; see render_full."""
     out = [session_line(session, nwin, npane, cols, no_package)]
     budget = max(1, rows - 4)  # session line + phase header + legend + the rows-1 cap
     extra = 1 if (cells or notes or console) else 0
-    grid = compact_window_lines(wins, cols, budget, now=now, extra_slots=extra)
+    grid = None if phase == "limits" else compact_window_lines(
+        wins, cols, budget, now=now, extra_slots=0 if phase == "panes" else extra)
     if grid is None:
         lhdr = LIMITS_HDR if style == "narrow" else f"{BOLD}{UL}LIMITS{OFF}"
         out.append(lhdr + rollup_suffix(wins, cols - visible_len(lhdr)))
-        out.extend(limits_body(cells, notes, console, cols, budget, style=style))
+        out.extend(limits_body(cells, notes, console, cols, budget + 1, style=style))
+        return out[:rows - 1]
     else:
         whdr = WINDOWS_HDR if style == "narrow" else f"{BOLD}{UL}WINDOWS{OFF}"
         out.append(whdr + rollup_suffix(wins, cols - visible_len(whdr)))
@@ -1843,10 +1861,10 @@ def cycle_compact(session, wins, nwin, npane, cells, notes, console, cols, rows,
 
 
 def render_narrow(session, wins, nwin, npane, cells, notes, console, cols, rows,
-                  no_package=False, now=None, cycle=True):
+                  no_package=False, now=None, cycle=True, phase=None):
     if cycle:
         return cycle_compact(session, wins, nwin, npane, cells, notes, console, cols,
-                             rows, no_package, now, "narrow")
+                             rows, no_package, now, "narrow", phase)
     out = [session_line(session, nwin, npane, cols, no_package), LIMITS_HDR]
     label_w = max([c[1] for c in cells], default=8)
     bar_w = max(6, min(14, cols - label_w - 8))
@@ -1864,14 +1882,14 @@ def render_narrow(session, wins, nwin, npane, cells, notes, console, cols, rows,
 
 
 def render_tiny(session, wins, nwin, npane, cells, notes, console, cols, rows,
-                no_package=False, now=None, cycle=True):
+                no_package=False, now=None, cycle=True, phase=None):
     """LIMITS: one label + percent PER LINE (never 2-up flowed) — at this width a flowed
     pair sits close enough that a label can misread as paired with its NEIGHBOR's percent
     (observed: 'claude:main 5h' read against a different window's value). One entry per
     line makes each label unambiguously own its own number."""
     if cycle:
         return cycle_compact(session, wins, nwin, npane, cells, notes, console, cols,
-                             rows, no_package, now, "tiny")
+                             rows, no_package, now, "tiny", phase)
     out = [session_line(session, nwin, npane, cols, no_package), f"{BOLD}{UL}LIMITS{OFF}"]
     limit_budget = max(1, (rows - 3) // 2)
     # The percent keeps its urgency color band even at this size — color costs ZERO
@@ -1900,6 +1918,27 @@ def render_tiny(session, wins, nwin, npane, cells, notes, console, cols, rows,
     return out[:rows - 1]
 
 
+def combined_fits(combined_lines, rows, cells=(), wins=()):
+    """AUTO view: does the COMPLETE combined frame (limits block + every window and pane,
+    what --no-rotate renders) actually fit the measured frame? The cycle exists ONLY to
+    survive a frame too small to show everything at once — when everything fits, cycling
+    hides half the dashboard for 10s at a time for no reason.
+
+    TWO conditions, because height alone proved insufficient (verified live at 100x9: the
+    frame was short enough, and the strip layout's column fold had silently dropped 5 of 8
+    plan-limit bars — a --no-rotate-path defect that auto-selection would have promoted to
+    the DEFAULT view, showing an operator a limits block missing most of its bars with no
+    note). So: (1) it must be no taller than the frame, keeping the one spare row every
+    renderer's own `rows - 1` cap reserves; (2) every bar label and every window name must
+    be VISIBLY PRESENT in it. Failing either falls back to the cycle — the status quo, and
+    the safe direction: rotation always says what it is hiding, silent dropping does not."""
+    if len(combined_lines) > max(1, rows - 1):
+        return False
+    body = re.sub(r"\033\[[0-9;]*m", "", "\n".join(combined_lines))
+    return (all(c[0] in body for c in cells)
+            and all(w["name"] in body for w in wins))
+
+
 def render(args, session):
     cols = args.width or int(subprocess.run(["tput", "cols"], capture_output=True,
                                             text=True).stdout or 200)
@@ -1915,26 +1954,42 @@ def render(args, session):
     cells, notes, console = usage_cells(cache, live=live_agent_accounts())
     layout = choose_layout(cols, rows)
     no_package = not args.package
-    # --no-rotate: LAYOUT is still chosen from the real terminal shape, but the whole-view
-    # cycle is disabled (both blocks render in ONE combined frame) and every internal
-    # row/line budget (and the final row cap) is lifted so every window and every pane
-    # renders — a COMPLETE snapshot, taller than the terminal if it must be, instead of
-    # cycling pages a single --once frame can never show you the rest of.
-    no_rotate = getattr(args, "no_rotate", False)
-    render_rows = 10 ** 6 if no_rotate else rows
-    cyc = not no_rotate
-    if layout == "full":
-        out = render_full(session, wins, nwin, npane, cells, notes, console, cache, cols,
-                          render_rows, no_package, cycle=cyc)
-    elif layout == "strip":
-        out = render_strip(session, wins, nwin, npane, cells, notes, console, cols,
-                           render_rows, no_package, cycle=cyc)
-    elif layout == "narrow":
-        out = render_narrow(session, wins, nwin, npane, cells, notes, console, cols,
-                            render_rows, no_package, cycle=cyc)
+    # --no-rotate / --view combined: LAYOUT is still chosen from the real terminal shape,
+    # but the whole-view cycle is disabled (both blocks render in ONE combined frame) and
+    # every internal row/line budget (and the final row cap) is lifted so every window and
+    # every pane renders — a COMPLETE snapshot, taller than the terminal if it must be,
+    # instead of cycling pages a single --once frame can never show you the rest of.
+    def frame(render_rows, cyc, phase=None):
+        if layout == "full":
+            return render_full(session, wins, nwin, npane, cells, notes, console, cache,
+                               cols, render_rows, no_package, cycle=cyc, phase=phase)
+        if layout == "strip":
+            return render_strip(session, wins, nwin, npane, cells, notes, console, cols,
+                                render_rows, no_package, cycle=cyc, phase=phase)
+        if layout == "narrow":
+            return render_narrow(session, wins, nwin, npane, cells, notes, console, cols,
+                                 render_rows, no_package, cycle=cyc, phase=phase)
+        return render_tiny(session, wins, nwin, npane, cells, notes, console, cols,
+                           render_rows, no_package, cycle=cyc, phase=phase)
+
+    view = "combined" if getattr(args, "no_rotate", False) else getattr(args, "view", "auto")
+    if view == "combined":
+        out = frame(10 ** 6, False)
+    elif view in ("limits", "panes"):
+        # single-view modes: one view, pinned — no alternation with the other
+        out = frame(rows, True, phase=view)
     else:
-        out = render_tiny(session, wins, nwin, npane, cells, notes, console, cols,
-                          render_rows, no_package, cycle=cyc)
+        # AUTO: cycle ONLY when the frame is too small to hold everything at once.
+        # Derived from the measured frame every render, so a resize switches modes by
+        # itself. The probe frame must not CONSUME the between-frames CPU delta — restore
+        # the previous /proc/stat sample so the frame we actually print computes its own.
+        prev_cpu = _PREV_CPU_SAMPLE["v"]
+        combined = frame(10 ** 6, False)
+        if combined_fits(combined, rows, cells, wins):
+            out = combined
+        else:
+            _PREV_CPU_SAMPLE["v"] = prev_cpu
+            out = frame(rows, True)
     return [clip_line(l, cols) for l in out]
 
 
@@ -2457,6 +2512,110 @@ def cmd_selftest():
           not all(f"cw{i}" in " ".join(rotating_c) for i in range(8))
           and all(f"cw{i}" in " ".join(complete_c) for i in range(8)))
 
+    # Owner item A: the marker legend keys PANE states, so it must NOT render on the
+    # PLAN LIMITS phase — there it is a key to a table that isn't on screen, eating rows
+    # the bars could use. 'approval' is legend-only text (the alarm rollup says '0 ?').
+    lf_win = plain(render_full("sess", wins, 2, 3, cells, notes, console, fake_cache,
+                               160, 40, now=0))
+    lf_lim = plain(render_full("sess", calm_wins, 2, 3, cells, notes, console, fake_cache,
+                               160, 40, now=10))
+    check("itemA: render_full — full marker legend on the WINDOWS phase, ABSENT on the "
+          "PLAN LIMITS phase (a pane key over a view with no panes)",
+          any("approval" in l for l in lf_win) and any("ctx usage" in l for l in lf_win)
+          and any("PLAN LIMITS" in l for l in lf_lim)
+          and not any("approval" in l for l in lf_lim)
+          and not any("ctx usage" in l for l in lf_lim))
+    for layout_fn, dims in ((render_strip, (240, 8)), (render_narrow, (56, 40)),
+                            (render_tiny, (58, 12))):
+        mw = plain(layout_fn("sess", wins, 2, 3, cells, notes, console, *dims, now=0))
+        ml = plain(layout_fn("sess", calm_wins, 2, 3, cells, notes, console, *dims,
+                             now=10))
+        check(f"itemA: {layout_fn.__name__} — mini legend on the windows phase, ABSENT on "
+              "the limits phase; the limits bars keep their own notes",
+              any("approval" in l for l in mw)
+              and any("LIMITS" in l for l in ml)
+              and not any("approval" in l for l in ml)
+              and len(ml) <= dims[1])
+
+    # Owner item B: the ~10s cycle exists only to survive a frame too small for everything.
+    # A frame big enough gets the COMBINED view statically (auto), decided from the
+    # MEASURED size every render — the same combined frame --no-rotate forces.
+    comb_lines = render_strip("sess", fit_wins, 1, 1, cells, notes, console,
+                              220, 10 ** 6, cycle=False)
+    check("itemB: combined_fits — True when the frame has room for every combined line "
+          "(plus the one spare row every renderer reserves), False when it does not",
+          combined_fits(comb_lines, len(comb_lines) + 1) is True
+          and combined_fits(comb_lines, len(comb_lines)) is False
+          and combined_fits(comb_lines, 4) is False
+          and combined_fits([], 1) is True)
+    # Height alone is NOT enough (verified live at 100x9): a short-enough combined frame
+    # can still have dropped bars in the strip layout's column fold. Auto must refuse a
+    # frame that is missing content and fall back to the cycle, which at least SAYS what
+    # it is hiding.
+    # The exact live shape (100 cols, the box's real 8 bars): the strip fold drops 5 of
+    # them with no note, in a frame only 6 lines tall.
+    live_cells = [(l, len(l), 40.0, "renews Sat 03:00") for l in
+                  ("claude:main 5h", "claude:main 7d", "claude:main 7d fable",
+                   "claude:tecer 5h", "claude:tecer 7d", "codex 7d", "zai 5h", "zai 7d")]
+    lossy = render_strip("sess", fit_wins, 1, 1, live_cells, [], [], 100, 10 ** 6,
+                         cycle=False)
+    intact = render_strip("sess", fit_wins, 1, 1, live_cells, [], [], 140, 10 ** 6,
+                          cycle=False)
+    check("itemB: combined_fits REFUSES a short-enough combined frame that silently "
+          "dropped bars — every cell label and window name must be VISIBLY present "
+          "(live 100x9: 5 of 8 bars gone from a 6-line frame)",
+          not all(c[0] in "\n".join(plain(lossy)) for c in live_cells)
+          and combined_fits(lossy, 40, live_cells, fit_wins) is False
+          and combined_fits(lossy, 40) is True  # height-only would have ACCEPTED it
+          and combined_fits(intact, len(intact) + 1, live_cells, fit_wins) is True)
+    big = plain(comb_lines)
+    small = plain(render_strip("sess", fit_wins, 1, 1, cells, notes, console,
+                               220, 10, now=0))
+    check("itemB: a fitting frame shows BOTH blocks at once (what auto selects), while "
+          "the too-small frame still shows exactly one view per ~10s phase",
+          combined_fits(comb_lines, len(comb_lines) + 1)
+          and any("PLAN LIMITS" in l for l in big) and any("WINDOWS" in l for l in big)
+          and any("WINDOWS" in l for l in small)
+          and not any("PLAN LIMITS" in l for l in small))
+
+    # Owner item C: --view pins ONE body — no alternation at any tick, at every layout.
+    for layout_fn, dims in ((render_strip, (240, 8)), (render_narrow, (56, 40)),
+                            (render_tiny, (58, 12))):
+        lim = [plain(layout_fn("sess", fit_wins, 1, 1, cells, notes, console, *dims,
+                               now=n, phase="limits")) for n in (0, 10, 20, 30)]
+        pan = [plain(layout_fn("sess", fit_wins, 1, 1, cells, notes, console, *dims,
+                               now=n, phase="panes")) for n in (0, 10, 20, 30)]
+        check(f"itemC: {layout_fn.__name__} --view limits — LIMITS only at EVERY tick, "
+              "never a windows grid, never the pane legend",
+              all(any("LIMITS" in l for l in f) for f in lim)
+              and not any(any("WINDOWS" in l for l in f) for f in lim)
+              and not any(any("approval" in l for l in f) for f in lim)
+              and all(len(f) <= dims[1] for f in lim))
+        check(f"itemC: {layout_fn.__name__} --view panes — windows/panes only at EVERY "
+              "tick, never the limits block, legend still shown",
+              all(any("WINDOWS" in l for l in f) for f in pan)
+              and not any(any("PLAN LIMITS" in l for l in f) for f in pan)
+              and all(any("x" in l for l in f) for f in pan)
+              and all(len(f) <= dims[1] for f in pan))
+    vf_lim = [plain(render_full("sess", fit_wins, 1, 1, cells, notes, console, fake_cache,
+                                160, 40, now=n, phase="limits")) for n in (0, 10, 20)]
+    vf_pan = [plain(render_full("sess", fit_wins, 1, 1, cells, notes, console, fake_cache,
+                                160, 40, now=n, phase="panes")) for n in (0, 10, 20)]
+    check("itemC: render_full --view limits/panes pin their own body at every tick",
+          all(any("PLAN LIMITS" in l for l in f) and not any("WINDOWS" in l for l in f)
+              for f in vf_lim)
+          and all(any("WINDOWS" in l for l in f)
+                  and not any("PLAN LIMITS" in l for l in f) for f in vf_pan))
+    ap_view = argparse.ArgumentParser()
+    ap_view.add_argument("--view", choices=("auto", "limits", "panes", "combined"),
+                         default="auto")
+    check("itemC: --view parses limits/panes/combined and defaults to auto (current "
+          "behavior preserved when the flag is never passed)",
+          ap_view.parse_args([]).view == "auto"
+          and ap_view.parse_args(["--view", "limits"]).view == "limits"
+          and ap_view.parse_args(["--view", "panes"]).view == "panes"
+          and ap_view.parse_args(["--view", "combined"]).view == "combined")
+
     # Fix D (owner-approved item #172): system RAM+CPU readout, colored by pressure so an
     # operator AND watcher see resource pressure at a glance (this run hit an OOM cascade).
     check("system_cell_variants: RED when avail RAM < 500MB, cpu% >= 90, or load1 >= "
@@ -2655,7 +2814,13 @@ def main():
     ap.add_argument("--no-rotate", action="store_true",
                     help="disable rotation: show EVERY window/pane in one COMPLETE "
                          "snapshot (best with --once; output can grow taller than the "
-                         "terminal)")
+                         "terminal) — same as --view combined")
+    ap.add_argument("--view", choices=("auto", "limits", "panes", "combined"),
+                    default="auto",
+                    help="which body to show (default auto: ONE combined frame when the "
+                         "terminal fits limits+every pane, else the ~10s cycle) — limits: "
+                         "plan-limit bars only · panes: windows/panes only · combined: "
+                         "both at once (= --no-rotate)")
     ap.add_argument("--interval", type=int, default=2,
                     help="display refresh seconds (default 2) — repaint cadence only, does "
                          "NOT re-poll providers (that is --refresh / --provider-ttl)")
