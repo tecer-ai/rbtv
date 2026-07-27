@@ -243,6 +243,12 @@
         "target": ".claude/rules/rbtv-orchestrating.md",
         "mode": "copy",
         "description": "Discoverability for rbtv-orchestrating — intake trigger bar (explicit ask, orchestration-flagged plan, ≥3 coordinated dispatches, multi-hour AFK, ≥2 worker types) + mid-task escalation (context filling, 3rd same-goal dispatch, cross-repo) + counter-list (single dispatch, quick lookups, <30-min, specialized-workflow-owned) that pulls orchestration-shaped work into the skill without the user naming it"
+      },
+      {
+        "source": "orchestration/rules/native-sub-agents.md",
+        "target": ".claude/rules/rbtv-native-sub-agents.md",
+        "mode": "copy",
+        "description": "Native-lane sub-agent constraints (CMP-10 § Enforcement classes, decisions.md#d-sub-agent-exposure-enforcement) — the judgment-honored cage for any dispatch through a harness's own native sub-agent tool: native-first (prefer the native tool; CLI dispatch capability only for another model family/harness or a capability the native tool lacks), no bus access, dispatcher-owned lifecycle, no seat impersonation. Native-lane half only — never restates the CLI-lane dispatch capability's machine-enforced checks (task 7.43)"
       }
     ],
     "model_packages": {
