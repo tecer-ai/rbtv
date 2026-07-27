@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+# rbtv-ignite-daemon — the ignite OPERATOR surface, v1 stand-in.
+#
+# A thin local wrapper over this machine's systemd USER unit ops for the ignite
+# daemon. It never crosses the gateway, presents no IGNITE_SENDER_TOKEN, and works
+# precisely when the daemon is DOWN — which is why it is not an `ignite` subcommand
+# (the gateway client must never gain a lifecycle verb; DEC-4 boundary).
+#
+# v1 stand-in: folds into `rbtv ignite daemon <verb>` verbatim when the rbtv CLI
+# lands. See daemon-operator.md § Retirement.
+#
+# Contract, reasoning and rejected alternatives are carried whole by
+# 1-projects/rbtv-sb-merge-refactor-structure/ignite-operator-surface-design.md
+# (in the merge-refactor campaign workspace) — never restated here.
+#
+# NO SEAT GATE, deliberately (owner-ruled 2026-07-26): during development every
+# agent on the box may run every daemon command. The enforcement point is the OS —
+# a caged worker's namespace masks /run/user/<uid>/bus, so the user manager is
+# unreachable from inside the cage. Master-gating is PARKED pending CMP-13.
+#
+# Exit codes (the sd-graph / rbtv-goal convention):
+#   0  success (or a no-op that is already the requested state)
+#   1  refusal, unit not found, or a post-act check that did not hold
+#   2  usage error
+set -uo pipefail
+
+UNIT="${RBTV_IGNITE_UNIT:-rbtv-ignite.service}"
+SETTLE="${RBTV_IGNITE_SETTLE_SECONDS:-3}"
+JOURNAL_LINES="${RBTV_IGNITE_JOURNAL_LINES:-20}"
+JSON=0
+
+die() { printf '%s\n' "$*" >&2; exit 2; }
+sc()  { systemctl --user "$@"; }
+
+show() { sc show "$UNIT" -p "$1" --value 2>/dev/null; }
+
+# A unit the user manager has never heard of reports inactive/MainPID=0 from
+# `show` WITHOUT erroring. Reading that default as a measurement is how a missing
+# unit passes for a stopped one, so every verb resolves LoadState first.
+require_known_unit() {
+  local load; load="$(show LoadState)"
+  if [ "$load" != "loaded" ]; then
+    printf 'refused: unit %s is not loaded (LoadState=%s)\n' "$UNIT" "${load:-<unreadable>}" >&2
+    printf 'the user manager does not know this unit — install it, or set RBTV_IGNITE_UNIT\n' >&2
+    exit 1
+  fi
+}
+
+# A changed MainPID does not prove a restart succeeded: a crash-looping unit
+# reports active with an already-dead pid. Verify SURVIVAL, not a single read.
+assert_running() {
+  local want_alive="$1" pid0 pid1
+  pid0="$(show MainPID)"
+  sleep "$SETTLE"
+  pid1="$(show MainPID)"
+  local active; active="$(sc is-active "$UNIT" 2>/dev/null)"
+  if [ "$want_alive" = yes ]; then
+    if [ "$active" != active ] || [ -z "$pid1" ] || [ "$pid1" = 0 ] || [ "$pid0" != "$pid1" ]; then
+      printf 'FAILED: %s did not survive %ss — ActiveState=%s MainPID %s -> %s (NRestarts=%s)\n' \
+        "$UNIT" "$SETTLE" "$active" "${pid0:-0}" "${pid1:-0}" "$(show NRestarts)" >&2
+      printf 'a unit that reports active while its pid changes under you is crash-looping — read the journal\n' >&2
+      exit 1
+    fi
+    printf 'ok: %s active, pid %s survived %ss\n' "$UNIT" "$pid1" "$SETTLE"
+  else
+    if [ "$active" = active ]; then
+      printf 'FAILED: %s is still active after the stop verb\n' "$UNIT" >&2
+      exit 1
+    fi
+    printf 'ok: %s is %s\n' "$UNIT" "${active:-inactive}"
+  fi
+}
+
+v_start() {
+  require_known_unit
+  if [ "$(sc is-active "$UNIT" 2>/dev/null)" = active ]; then
+    printf 'ok: %s already active (no-op), pid %s\n' "$UNIT" "$(show MainPID)"; return 0
+  fi
+  sc start "$UNIT" || { printf 'FAILED: systemctl start refused\n' >&2; exit 1; }
+  assert_running yes
+}
+
+v_restart() { require_known_unit; sc restart "$UNIT" || { printf 'FAILED: systemctl restart refused\n' >&2; exit 1; }; assert_running yes; }
+v_stop()    { require_known_unit; sc stop "$UNIT"    || { printf 'FAILED: systemctl stop refused\n' >&2; exit 1; };    assert_running no; }
+v_kill()    { require_known_unit; sc kill --signal=SIGKILL "$UNIT" || { printf 'FAILED: systemctl kill refused\n' >&2; exit 1; }; assert_running no; }
+
+# The unit-level read: the MACHINE's report about the daemon, answerable when the
+# daemon is dead. Not a duplicate of `ignite status`, which is the daemon's own
+# report of itself and needs it alive — no field appears in both.
+v_unit() {
+  local load active sub pid since result estatus nrestarts
+  load="$(show LoadState)"; active="$(show ActiveState)"; sub="$(show SubState)"
+  pid="$(show MainPID)"; since="$(show ActiveEnterTimestamp)"
+  result="$(show Result)"; estatus="$(show ExecMainStatus)"; nrestarts="$(show NRestarts)"
+  if [ "$JSON" = 1 ]; then
+    printf '{"unit":"%s","load_state":"%s","active_state":"%s","sub_state":"%s","main_pid":%s,"active_since":"%s","result":"%s","exec_main_status":%s,"n_restarts":%s}\n' \
+      "$UNIT" "$load" "$active" "$sub" "${pid:-0}" "$since" "$result" "${estatus:-0}" "${nrestarts:-0}"
+  else
+    printf 'unit          %s\n' "$UNIT"
+    printf 'load/active   %s / %s (%s)\n' "${load:-?}" "${active:-?}" "${sub:-?}"
+    printf 'main pid      %s\n' "${pid:-0}"
+    printf 'active since  %s\n' "${since:-<never>}"
+    printf 'last result   %s (exec status %s, restarts %s)\n' "${result:-?}" "${estatus:-0}" "${nrestarts:-0}"
+    printf -- '--- journal (last %s) ---\n' "$JOURNAL_LINES"
+    journalctl --user -u "$UNIT" -n "$JOURNAL_LINES" --no-pager 2>&1
+  fi
+  [ "$load" = loaded ] || return 1
+  [ "$active" != failed ] || return 1
+  return 0
+}
+
+# selftest exercises every lifecycle verb against a THROWAWAY unit it creates and
+# removes. It NEVER touches the configured unit — the whole point is that proving
+# this script works must not risk the live daemon.
+v_selftest() {
+  local t=rbtv-ignite-standin-selftest.service
+  local d="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user" fails=0
+  mkdir -p "$d"
+  cat > "$d/$t" <<'EOF'
+[Unit]
+Description=throwaway probe unit for rbtv-ignite-daemon selftest
+[Service]
+Type=simple
+ExecStart=/bin/sh -c 'while :; do sleep 5; done'
+EOF
+  systemctl --user daemon-reload
+  export RBTV_IGNITE_UNIT="$t" RBTV_IGNITE_SETTLE_SECONDS=2
+  UNIT="$t"; SETTLE=2
+  check() { # name, expected-exit, verb...
+    local name="$1" want="$2"; shift 2
+    # SUBSHELL, not a bare call: the verbs `exit` on refusal, which would kill the
+    # harness mid-run and truncate the report into a shorter, greener-looking one.
+    ( "$@" ) >/dev/null 2>&1; local got=$?
+    if [ "$got" = "$want" ]; then printf 'PASS  %s\n' "$name"
+    else printf 'FAIL  %s (exit %s, wanted %s)\n' "$name" "$got" "$want"; fails=$((fails+1)); fi
+  }
+  check "start"                 0 v_start
+  check "start again is a no-op" 0 v_start
+  check "unit read while up"    0 v_unit
+  check "restart"               0 v_restart
+  check "stop"                  0 v_stop
+  check "start after stop"      0 v_start
+  check "kill"                  0 v_kill
+  UNIT=rbtv-ignite-no-such-unit.service
+  check "unknown unit refused"  1 v_start
+  check "unknown unit read"     1 v_unit
+  UNIT="$t"
+  systemctl --user stop "$t" >/dev/null 2>&1
+  systemctl --user reset-failed "$t" >/dev/null 2>&1
+  rm -f "$d/$t"; systemctl --user daemon-reload
+  printf 'throwaway unit %s removed\n' "$t"
+  if [ "$fails" = 0 ]; then printf 'selftest PASS (0 failures)\n'; return 0; fi
+  printf 'selftest FAIL (%s failures)\n' "$fails"; return 1
+}
+
+VERB=""
+for a in "$@"; do
+  case "$a" in
+    --json) JSON=1 ;;
+    -h|--help)
+      printf 'usage: rbtv-ignite-daemon start|restart|stop|kill|unit|selftest [--json]\n'
+      printf '  env: RBTV_IGNITE_UNIT (default rbtv-ignite.service) · RBTV_IGNITE_SETTLE_SECONDS · RBTV_IGNITE_JOURNAL_LINES\n'
+      printf '  --json applies to `unit` only.\n'; exit 0 ;;
+    -*) die "unknown option: $a" ;;
+    *)  [ -z "$VERB" ] || die "one verb at a time (got '$VERB' and '$a')"; VERB="$a" ;;
+  esac
+done
+[ -n "$VERB" ] || die "usage: rbtv-ignite-daemon start|restart|stop|kill|unit|selftest [--json]"
+
+case "$VERB" in
+  start) v_start ;; restart) v_restart ;; stop) v_stop ;; kill) v_kill ;;
+  unit) v_unit ;; selftest) v_selftest ;;
+  *) die "unknown verb: $VERB (start|restart|stop|kill|unit|selftest)" ;;
+esac
