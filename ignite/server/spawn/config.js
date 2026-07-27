@@ -38,8 +38,14 @@ const KNOWN_SESSION_REF_SOURCES = new Set([
   'stdout-json', 'stdout-json-event', 'cwd-implicit',
 ]);
 const KNOWN_CAPS_KEYS = new Set(['memory_max', 'cpu_quota', 'runtime_max', 'tasks_max']);
+// `SeatBinds` (task 7.11) is NOT a systemd property — it is the seat cage's ordered bind
+// template, read only by bwrap via cage.js. It rides the sandbox block because that block already
+// IS "the profile's containment declaration", and a separate top-level key would split one
+// concept in two. It can never reach the unit: carrier.js emits only the
+// BWRAP_COMPATIBLE_SANDBOX_KEYS allowlist (bwrap.js) — exactly NoNewPrivileges — so this key is
+// dropped by the same construction that already drops ProtectSystem and ReadWritePaths.
 const KNOWN_SANDBOX_KEYS = new Set([
-  'ProtectSystem', 'ReadWritePaths', 'PrivateTmp', 'NoNewPrivileges',
+  'ProtectSystem', 'ReadWritePaths', 'PrivateTmp', 'NoNewPrivileges', 'SeatBinds',
 ]);
 const KNOWN_ENV_KEYS = new Set(['file']);
 const CLOSED_SLOTS = new Set(['{workdir}', '{prompt_file}', '{session_ref}']);
@@ -135,6 +141,15 @@ function validateSandbox(sandbox, profileName, filePath) {
     for (let i = 0; i < arr.length; i++) {
       detectUnknownSlots(arr[i], `profiles.${profileName}.sandbox.ReadWritePaths[${i}]`, filePath);
     }
+  }
+  // 7.11 — SeatBinds carries its OWN slot vocabulary ({seatDir}/{goalDir}/{runDir}/{grant:FIELD}),
+  // which the CLOSED_SLOTS set above deliberately does not contain: those slots are resolved by
+  // cage.js from the seat's own records, never by resolveTemplateSlots from a workdir. So it is
+  // validated by cage.js's own parser rather than by detectUnknownSlots — one vocabulary, one
+  // definition, checked at config LOAD like every other profile key.
+  if (sandbox.SeatBinds !== undefined) {
+    const { validateSeatBindTemplate } = require('./cage');
+    validateSeatBindTemplate(sandbox.SeatBinds, profileName, filePath);
   }
 }
 

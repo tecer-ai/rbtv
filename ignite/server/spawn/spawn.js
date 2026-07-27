@@ -7,6 +7,10 @@ const { loadConfig, resolveTemplateSlots, resolveWorkdir, resolveWorkspaceRoot, 
 const { materializeHarnessConfig, harnessOf } = require('./harness-config');
 const { buildBwrapArgv } = require('./bwrap');
 const { composeSeatSpawn } = require('./tmux');
+// Task 7.11 — the seat cage and the launch-time half of the identity gate.
+const { composeSeatCage, assertGroundTruthUnwritable, specToBwrapFlags } = require('./cage');
+const { parseSeatPath, checkRunLive, checkMaterializedSeat } = require('../seat-identity/seat-folder');
+const { appendRow } = require('../seat-identity/csv');
 const {
   generateSessionId,
   selectCarrier,
@@ -32,6 +36,8 @@ const {
   E_ORPHAN_RESCAN_FAILED,
   E_MISSING_KEY,
   E_BAD_REQUEST,
+  E_RUN_NOT_LIVE,
+  E_NOT_A_SEAT_FOLDER,
 } = require('./errors');
 
 const SESSION_MODES = new Set(['headless', 'headed']);
@@ -136,6 +142,10 @@ function resolveSandbox(sandbox, workdir) {
   const values = { workdir };
   const resolved = { ...sandbox };
   for (const [key, value] of Object.entries(sandbox)) {
+    // 7.11: `SeatBinds` is resolved by cage.js against the SEAT'S OWN records (goal/run/seat dirs
+    // and worktree grants), not against a workdir. Sending it through the workdir resolver here
+    // would give one template two resolvers — and the one that runs first would silently win.
+    if (key === 'SeatBinds') continue;
     if (typeof value === 'string') {
       resolved[key] = resolveTemplateSlots([value], values)[0];
     } else if (Array.isArray(value) && value.every((v) => typeof v === 'string')) {
@@ -194,6 +204,56 @@ function ensureExitFile(dataRoot, sessionId) {
   const exitDir = path.join(dataRoot, 'exits');
   fs.mkdirSync(exitDir, { recursive: true, mode: 0o700 });
   return exitFilePath(dataRoot, sessionId);
+}
+
+// Task 7.11 §2 W2/W3 — the seat's worktree grants, DERIVED from the seat's own identity.
+//
+// A worktree belonging to this seat is `<ws>/.rbtv/worktrees/{repo}--{goal}--{seat}` (7.38's
+// ruled naming). Deriving the grant from that naming rather than from a caller argument means a
+// seat can never be handed someone else's worktree at request time — the same posture CMP-17
+// takes on the workdir, applied to the openings that were added around it.
+//
+// The repo's git dir comes from the worktree's own `.git` FILE (a linked worktree's `.git` is a
+// file reading `gitdir: <repo>/.git/worktrees/<name>`), so the plumbing paths W3 opens are read
+// out of git's own record instead of guessed from a repo list this module would have to be told.
+//
+// ZERO GRANTS IS THE CORRECT ANSWER TODAY and is not a stub: task 7.38 (the worktree flow) is
+// unbuilt, so no seat has one yet, and the cage then simply carries no W2/W3 openings. Nothing
+// here needs revisiting when 7.38 lands — the directories appear and the grants resolve.
+function resolveSeatGrants(seatPath) {
+  const worktreesDir = path.join(seatPath.workspaceRoot, '.rbtv', 'worktrees');
+  let entries;
+  try {
+    entries = fs.readdirSync(worktreesDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const suffix = `--${seatPath.goal}--${seatPath.seat}`;
+  const grants = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.endsWith(suffix)) continue;
+    const worktree = path.join(worktreesDir, entry.name);
+    const grant = { worktree, worktreeName: entry.name };
+    try {
+      const dotGit = fs.readFileSync(path.join(worktree, '.git'), 'utf8').trim();
+      const m = /^gitdir:\s*(.+)$/.exec(dotGit);
+      if (m) {
+        // <repo>/.git/worktrees/<name>  ->  <repo>/.git
+        const gitdir = m[1].trim();
+        const marker = `${path.sep}worktrees${path.sep}`;
+        const idx = gitdir.lastIndexOf(marker);
+        if (idx > 0) {
+          grant.repoGit = gitdir.slice(0, idx);
+          grant.worktreeGitDir = gitdir;
+        }
+      }
+    } catch {
+      // A worktree whose `.git` is unreadable yields NO repoGit, so every `{grant:repoGit}` entry
+      // for it fails loudly at compose time rather than opening a path derived from a guess.
+    }
+    grants.push(grant);
+  }
+  return grants;
 }
 
 function createSpawnManager({ heartStore, configPath, logger = null, userManager = true }) {
@@ -356,6 +416,65 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // which is exactly what the ruling's rider asks for — never a boundary to widen here.
     const resolvedWorkdir = resolveWorkdir(profile, seatDir, config.default_workdir_root, configPath, { execId, sessionsRoot, workspaceRoot });
 
+    // ── Task 7.11 §4a — THE LAUNCH-TIME IDENTITY GATE ───────────────────────────────────────
+    //
+    // Three checks, ALL of which must hold or the launch is REFUSED with a typed error before any
+    // pane, unit, session dir or store row past `launching` exists. That absence is the proof the
+    // acceptance bars ask for (P1/P2/P3): a refusal MESSAGE only shows the tool said no, never
+    // that nothing happened.
+    //
+    // These run on the SEAT path only. The ticker/job branch (`spawn`, above) is untouched — §5's
+    // staged retirement: seat spawns leave `.rbtv/sessions/` now, the ticker branch keeps it and
+    // says so, rather than one half being silently inconsistent with the other.
+    //
+    // L1 — canonical seat-folder shape. `resolveWorkdir` above already refused anything outside
+    // the profile's workdir_root (E_WORKDIR_ESCAPE, the mechanism REUSED not relaxed); this adds
+    // that the resolved path is a seat folder AT ALL. A profile whose workdir_root still points
+    // at `.rbtv/sessions` makes every flat interim dir fail here — which is exactly how the
+    // interim path is retired for seats: not by deleting anything, but by ceasing to be a shape a
+    // seat can launch into.
+    const seatPath = parseSeatPath(resolvedWorkdir);
+    if (!seatPath) {
+      throw new SpawnError(
+        E_WORKDIR_ESCAPE,
+        `seat spawn requires a canonical seat folder ` +
+        `(<ws>/.rbtv/goals/<goal>/runs/run-{n}/seats/<seat>/); ${resolvedWorkdir} is not one. ` +
+        'The flat .rbtv/sessions/<exec-id>/ interim path is retired for seat spawns (task 7.11 §5).',
+        { workdir: resolvedWorkdir, profile: profileName, seat: seatName },
+      );
+    }
+    if (seatName && seatName !== seatPath.seat) {
+      // The folder decides. A caller-supplied name that disagrees with it is refused rather than
+      // preferred — an asserted name outranking a derived one is precisely G-111, where two agents
+      // spoke under a single roster row for an hour because the assertion won.
+      throw new SpawnError(
+        E_NOT_A_SEAT_FOLDER,
+        `seat name "${seatName}" contradicts the seat folder "${seatPath.seat}" (${resolvedWorkdir}) — ` +
+        'the folder is the identity; a supplied name never overrides it',
+        { seatName, folderSeat: seatPath.seat, workdir: resolvedWorkdir },
+      );
+    }
+
+    // L2 — the goal is known and this run is the goal's LIVE run.
+    const live = checkRunLive(seatPath);
+    if (!live.ok) {
+      throw new SpawnError(
+        E_RUN_NOT_LIVE,
+        `refusing to spawn into ${resolvedWorkdir}: ${live.reason}`,
+        { workdir: resolvedWorkdir, goal: seatPath.goal, run: seatPath.run, reason: live.reason },
+      );
+    }
+
+    // L3 — a MATERIALIZED, ROSTERED seat: `seat.md` naming this folder, plus a taskforce row.
+    const materialized = checkMaterializedSeat(seatPath);
+    if (!materialized.ok) {
+      throw new SpawnError(
+        E_NOT_A_SEAT_FOLDER,
+        `refusing to spawn into ${resolvedWorkdir}: ${materialized.reason}`,
+        { workdir: resolvedWorkdir, seat: seatPath.seat, reason: materialized.reason },
+      );
+    }
+
     const resolvedSandbox = resolveSandbox(profile.sandbox, resolvedWorkdir);
     const editablePaths = (() => {
       const rwp = resolvedSandbox && resolvedSandbox.ReadWritePaths;
@@ -368,6 +487,34 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     const harnessArgv = (profile.headed && profile.headed.tui && profile.headed.tui.argv) || profile.exec.argv;
     const sessionId = generateSessionId();
     const maskPaths = config.auth?.senders_file ? [path.dirname(config.auth.senders_file)] : [];
+
+    // ── Task 7.11 §2 — the SEAT CAGE ────────────────────────────────────────────────────────
+    //
+    // Slots resolve from the SEAT'S OWN RECORDS — the folder gives goal/run/seat, the grants come
+    // from the seat's records. Nothing here reads caller input, which is CMP-17's interface
+    // ("callers can never inject paths at request time") carried unchanged into a wider writable
+    // set: the set grew, the door did not.
+    //
+    // `assertGroundTruthUnwritable` then REFUSES any composition in which the run-level
+    // sessions.csv — the file the identity gate reads to decide who is sitting here — would be
+    // writable from inside. It is checked on EVERY spawn rather than once in a probe, because a
+    // probe proves one composition sound and an assertion proves all of them (design §1).
+    const seatCage = (() => {
+      const template = resolvedSandbox && resolvedSandbox.SeatBinds;
+      if (!template || template.length === 0) return null;
+      const spec = composeSeatCage({
+        seatBinds: template,
+        values: {
+          workdir: resolvedWorkdir,
+          seatDir: seatPath.seatDir,
+          goalDir: seatPath.goalDir,
+          runDir: seatPath.runDir,
+        },
+        grants: resolveSeatGrants(seatPath),
+      });
+      assertGroundTruthUnwritable(spec, seatPath.sessionsCsv);
+      return specToBwrapFlags(spec);
+    })();
 
     // Composition FIRST — and this ordering is the fail-closed guarantee, not a style choice.
     // composeSeatSpawn runs buildBwrapArgv before it builds any tmux argv, so on a box without
@@ -383,10 +530,19 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       editablePaths,
       harness: harnessOf(profile),
       maskPaths,
+      seatBinds: seatCage,
       userManager,
     });
 
-    if (dryRun) return { dryRun: true, sessionId, ...composed, workdir: resolvedWorkdir };
+    // dryRun returns BEFORE anything is written — no session dir, no session row, no store row.
+    // That is what makes it safe to point a probe at a live package: composition is the half that
+    // is checkable off a live room, and it must leave no trace to be worth checking.
+    if (dryRun) return { dryRun: true, sessionId, ...composed, workdir: resolvedWorkdir, seatCage, seat: seatPath.seat };
+
+    // §4a on pass — the session artifact scratchpad, under the seat folder (task 7.11 criteria:
+    // "session artifacts land in sessions/{session-id}/ under it").
+    const sessionDir = path.join(seatPath.seatDir, 'sessions', sessionId);
+    fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
 
     heartStore.updateExecutionStatus(execId, { status: 'launching', sessionId });
     log('info', 'seat spawn', { room, seat: seatName, unit: composed.unitName, argv: composed.tmuxArgv });
@@ -398,6 +554,48 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // is NOT identity either: an in-place respawn reuses the pane id (run issue G-12). The scope
     // unit name is the third handle, and the only one a respawn cannot reproduce.
     const pidStarttime = panePid ? (setsidStatus(panePid).pidStarttime || null) : null;
+
+    // ── Task 7.11 §4a — register the occupant in the run-level session log ───────────────────
+    //
+    // This is the row the COMMAND-TIME gate later matches live /proc against, so it is written
+    // from OUTSIDE every cage (the daemon), to a file §2 leaves unwritable from INSIDE every cage.
+    // That asymmetry is the whole design: whoever can rewrite this file decides who anyone is.
+    //
+    // Written BY COLUMN NAME against the file's own header (see seat-identity/csv.js). Task 7.37
+    // owns the settled schema; measured 2026-07-27 it carries none of the identity columns, so
+    // `appendRow` reports what it had to DROP rather than inventing columns from this side.
+    // Widening a schema from the writer is how the run-1 and run-2 headers came to disagree, and
+    // the gate's own answer to a log that cannot name an occupant is a typed refusal — a loud
+    // failure later, never a silent pass.
+    try {
+      const written = appendRow(seatPath.sessionsCsv, {
+        seat: seatPath.seat,
+        'session-id': sessionId,
+        harness: harnessOf(profile) || '',
+        workdir: resolvedWorkdir,
+        pid: panePid,
+        'pid-starttime': pidStarttime,
+        tty: '',
+        'worktree-path': (resolveSeatGrants(seatPath)[0] || {}).worktree || '',
+        started: isoNow(),
+      });
+      if (!written.appended) {
+        log('warn', 'session row NOT recorded — the identity gate will refuse commands from this seat', {
+          seat: seatPath.seat, sessionsCsv: seatPath.sessionsCsv, reason: written.reason,
+        });
+      } else if (written.dropped.length > 0) {
+        log('warn', 'session log lacks identity columns; they were dropped, not invented (task 7.37 owns the schema)', {
+          seat: seatPath.seat, sessionsCsv: seatPath.sessionsCsv, dropped: written.dropped,
+        });
+      }
+    } catch (err) {
+      // A pane already exists at this point, so failing the launch here would leave a live seat
+      // with a failed launch record. Loud warning + a gate that refuses that seat's commands is
+      // the honest outcome; a silent success is the one thing that must not happen.
+      log('warn', 'session row append failed — identity gate will refuse this seat', {
+        seat: seatPath.seat, sessionsCsv: seatPath.sessionsCsv, error: err.message,
+      });
+    }
     // carrier stays `systemd`, and this is modelling rather than a workaround: the CARRIER — the
     // thing that holds the process and applies the caps — is still systemd, a --scope unit instead
     // of a transient service. What changed is the TARGET (a tmux pane), which is exactly how the

@@ -120,8 +120,21 @@ capture('probe-tmux-seat', async (lines) => {
   // resolution logic is checkable off a live room. A pane is never created anywhere in this probe.
   const ctx = setup();
   try {
-    const seatDir = path.join(ctx.workRoot, 'seat-probe');
+    // TASK 7.11 UPDATE. This fixture used to be a flat `workRoot/seat-probe` directory, and the
+    // §4a launch-time gate now REFUSES it — correctly: a seat spawn requires a canonical seat
+    // folder that is materialized (seat.md naming it) and rostered (a taskforce row), inside the
+    // goal's LIVE run. The probe's fixture is brought up to the real shape rather than the gate
+    // being loosened to accept the old one; probe-seat-launch-gate.js is where the refusals of
+    // every WRONG shape are proven.
+    const goalDir = path.join(ctx.workRoot, '.rbtv', 'goals', 'probegoal');
+    const runDir = path.join(goalDir, 'runs', 'run-1');
+    const seatDir = path.join(runDir, 'seats', 'probe-seat');
     fs.mkdirSync(seatDir, { recursive: true });
+    fs.writeFileSync(path.join(ctx.workRoot, '.rbtv', 'goals', 'goals.csv'), 'goal-id,state\nprobegoal,open\n');
+    fs.writeFileSync(path.join(goalDir, 'runs.csv'), 'run-id,state\nrun-1,open\n');
+    fs.writeFileSync(path.join(runDir, 'taskforce.csv'), 'taskforce-id,seat\ntf-1,probe-seat\n');
+    fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,session-id,pid,pid-starttime,started,ended\n');
+    fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: probe-seat\n---\nbriefing\n');
 
     const row = fire(ctx, { profile: 'test-headed', sessionMode: 'headed' });
     const res = await ctx.mgr.spawnSeat(row.exec_id, 'test-headed', {

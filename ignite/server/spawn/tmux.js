@@ -114,12 +114,16 @@ function composeSeatSpawn({
   promptFile = null,
   harness = null,
   maskPaths = [],
+  seatBinds = null,
   userManager = true,
 }) {
   assertTmuxName('tmux session', room);
   assertTmuxName('tmux window', windowName);
 
   // 1. The FS wall. Throws on a bwrap-less box — before anything tmux-shaped exists.
+  //    `seatBinds` (task 7.11) is the composed seat cage; when present it replaces the flat
+  //    workdir+editablePaths openings inside buildBwrapArgv. Passed straight through: this module
+  //    composes tmux, it does not get a vote on the walls.
   const wrappedArgv = buildBwrapArgv({
     argv: harnessArgv,
     workdir,
@@ -127,6 +131,7 @@ function composeSeatSpawn({
     promptFile,
     harness,
     maskPaths,
+    seatBinds,
   });
 
   // 2. The cgroup caps, wrapping the wall.

@@ -1,5 +1,5 @@
 probe: probe-tmux-seat
-started: 2026-07-27T04:54:34.807Z
+started: 2026-07-27T17:25:27.191Z
 command: node probes/probe-tmux-seat.js
 leg1 order: tmux -> systemd-run --scope -> bwrap -> harness  (unit rbtv-seat-0123abcd-0000-0000-0000-000000000000)
 leg2 caps: MemoryMax / CPUQuota / TasksMax emitted as scope properties
@@ -22,5 +22,5 @@ held while guard B1 is unresolved — r-bwrap-fail-posture. None of these is stu
   - pane/seat identity survival across a close/renew
 status: PASS
 exit: 0
-wall_ms: 42
-ended: 2026-07-27T04:54:34.849Z
+wall_ms: 21
+ended: 2026-07-27T17:25:27.212Z

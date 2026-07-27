@@ -1,0 +1,170 @@
+'use strict';
+
+// Task 7.11 §4a/§4b step 1 — resolving a path to a SEAT.
+//
+// One resolver, two callers, deliberately: the launch-time gate (`spawnSeat`, which is handed a
+// seat folder) and the command-time gate (a system CLI, which walks up from its own cwd) must
+// agree on what a seat folder IS. Two resolvers would be two definitions, and the failure that
+// produces — a launch landing somewhere the checker later refuses to recognise — is invisible
+// until a seat is already sitting in it.
+//
+// The canonical shape (KG `seat folder`):
+//     <ws>/.rbtv/goals/<goal>/runs/run-{n}/seats/<seat>/
+//
+// Everything here is derived from the PATH and from files on disk. Nothing is asserted by the
+// caller — no env var, no flag, no name passed in. That is G-111's lesson wired into the shape of
+// the module rather than written in a comment beside it: tonight `COORD_AGENT` (asserted)
+// outranked pane resolution (verified) and two agents spoke under one roster name for an hour.
+
+const fs = require('node:fs');
+const path = require('node:path');
+const { readCsv } = require('./csv');
+
+// Parse the canonical shape out of an ABSOLUTE, REAL path. Returns null when the path is not a
+// seat folder — the caller decides which typed refusal that becomes, because "you launched into
+// a non-seat folder" and "you ran a CLI from a non-seat folder" are different failures with
+// different remedies even though they share this test.
+function parseSeatPath(absPath) {
+  const parts = path.normalize(absPath).split(path.sep);
+  // …/.rbtv/goals/<goal>/runs/<run>/seats/<seat>
+  const seatsIdx = parts.lastIndexOf('seats');
+  if (seatsIdx < 0 || seatsIdx + 1 >= parts.length) return null;
+  const seat = parts[seatsIdx + 1];
+  if (!seat) return null;
+  const runIdx = seatsIdx - 1;
+  const runsIdx = seatsIdx - 2;
+  const goalIdx = seatsIdx - 3;
+  const goalsIdx = seatsIdx - 4;
+  const rbtvIdx = seatsIdx - 5;
+  if (rbtvIdx < 1) return null;
+  if (parts[runsIdx] !== 'runs' || parts[goalsIdx] !== 'goals' || parts[rbtvIdx] !== '.rbtv') return null;
+  if (!/^run-\d+$/.test(parts[runIdx])) return null;
+  const goal = parts[goalIdx];
+  if (!goal) return null;
+  const workspaceRoot = parts.slice(0, rbtvIdx).join(path.sep) || path.sep;
+  const seatDir = parts.slice(0, seatsIdx + 2).join(path.sep);
+  return {
+    workspaceRoot,
+    goal,
+    run: parts[runIdx],
+    seat,
+    goalDir: parts.slice(0, goalIdx + 1).join(path.sep),
+    runDir: parts.slice(0, runIdx + 1).join(path.sep),
+    seatsDir: parts.slice(0, seatsIdx + 1).join(path.sep),
+    seatDir,
+    sessionsCsv: path.join(parts.slice(0, runIdx + 1).join(path.sep), 'sessions.csv'),
+    goalsCsv: path.join(parts.slice(0, goalsIdx + 1).join(path.sep), 'goals.csv'),
+    runsCsv: path.join(parts.slice(0, goalIdx + 1).join(path.sep), 'runs.csv'),
+    taskforceCsv: path.join(parts.slice(0, runIdx + 1).join(path.sep), 'taskforce.csv'),
+  };
+}
+
+// Walk UP from a starting directory to the nearest enclosing seat folder (§4b step 1). Symlinks
+// are resolved first: a seat reached through a symlink is the same seat, and a `..` segment must
+// not be able to produce a shape the string test accepts and the filesystem does not.
+function resolveSeatFromCwd(startDir) {
+  let dir;
+  try {
+    dir = fs.realpathSync(path.resolve(startDir));
+  } catch {
+    return null;
+  }
+  while (true) {
+    const parsed = parseSeatPath(dir);
+    if (parsed) return parsed;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+// L2 — the goal is known and the run is the goal's LIVE run.
+//
+// "Live" is read from `runs.csv`'s own `state` column by NAME. A run whose row is absent is NOT
+// live: the one-live-run invariant is maintained by hand tonight (7.77 has not landed), so a
+// missing row means the record does not say this run is open, and an identity gate may not
+// supply an optimistic default for a fact the record declines to state.
+function checkRunLive(parsed) {
+  const goals = readCsv(parsed.goalsCsv);
+  if (!goals.exists) return { ok: false, reason: `goals.csv unreadable at ${parsed.goalsCsv}` };
+  const goalCol = goals.header.includes('goal-id') ? 'goal-id' : (goals.header.includes('goal') ? 'goal' : null);
+  if (!goalCol) return { ok: false, reason: `goals.csv carries no goal-id/goal column (header: ${goals.header.join(',')})` };
+  if (!goals.rows.some((r) => r[goalCol] === parsed.goal)) {
+    return { ok: false, reason: `goal ${parsed.goal} is not in ${parsed.goalsCsv}` };
+  }
+
+  const runs = readCsv(parsed.runsCsv);
+  if (!runs.exists) return { ok: false, reason: `runs.csv unreadable at ${parsed.runsCsv}` };
+  const runCol = runs.header.includes('run-id') ? 'run-id' : (runs.header.includes('run') ? 'run' : null);
+  if (!runCol) return { ok: false, reason: `runs.csv carries no run-id/run column (header: ${runs.header.join(',')})` };
+  const row = runs.rows.find((r) => r[runCol] === parsed.run);
+  if (!row) return { ok: false, reason: `run ${parsed.run} has no row in ${parsed.runsCsv} — not provably live` };
+  if (!runs.header.includes('state')) {
+    return { ok: false, reason: `runs.csv carries no state column (header: ${runs.header.join(',')})` };
+  }
+  if (row.state !== 'open') {
+    return { ok: false, reason: `run ${parsed.run} state is "${row.state}", not open` };
+  }
+  return { ok: true };
+}
+
+// Minimal frontmatter read — the `seat:` key only. A full YAML parse is not needed and would drag
+// js-yaml into a path a bare CLI runs on every command.
+function readSeatDescriptorName(seatMdPath) {
+  let raw;
+  try {
+    raw = fs.readFileSync(seatMdPath, 'utf8');
+  } catch {
+    return { present: false };
+  }
+  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(raw);
+  if (!m) return { present: true, frontmatter: false };
+  const seat = /^seat:[ \t]*(.+)$/m.exec(m[1]);
+  if (!seat) return { present: true, frontmatter: true, seat: null };
+  return { present: true, frontmatter: true, seat: seat[1].trim().replace(/^["']|["']$/g, '') };
+}
+
+// L3 — a MATERIALIZED, ROSTERED seat, not merely a folder of the right shape.
+//
+// Two independent facts, and they must AGREE with the folder name rather than merely exist:
+//   (a) `seat.md` is present, has frontmatter, and its `seat:` names THIS folder;
+//   (b) the seat has a row in the run's `taskforce.csv`.
+// A hand-made `seats/imposter/` satisfies the path shape and fails both (G5 bar P3).
+//
+// DISCLOSED DIVERGENCE from design §4a L3, which also names an "assembly lockfile": no seat in
+// any live run carries one. `materialize` is CMP-5-designed-and-unbuilt (G-109, re-verified by
+// leader as 0 hits repo-wide), so requiring a lockfile would refuse every real seat that exists.
+// It is therefore validated WHEN PRESENT and not required — the strictness returns for free the
+// day CMP-5 lands, and until then this refuses to enforce a check nothing can pass (R-stamp-wording:
+// a bar that cannot pass trains rubber-stamping).
+function checkMaterializedSeat(parsed) {
+  const seatMd = path.join(parsed.seatDir, 'seat.md');
+  const desc = readSeatDescriptorName(seatMd);
+  if (!desc.present) return { ok: false, reason: `no seat.md in ${parsed.seatDir} — not a materialized seat folder` };
+  if (!desc.frontmatter) return { ok: false, reason: `seat.md in ${parsed.seatDir} carries no frontmatter block` };
+  if (!desc.seat) return { ok: false, reason: `seat.md in ${parsed.seatDir} declares no seat: key` };
+  if (desc.seat !== parsed.seat) {
+    return { ok: false, reason: `seat.md declares seat "${desc.seat}" but the folder is "${parsed.seat}" — descriptor and folder disagree` };
+  }
+
+  const tf = readCsv(parsed.taskforceCsv);
+  if (!tf.exists) return { ok: false, reason: `taskforce.csv unreadable at ${parsed.taskforceCsv} — roster cannot be checked` };
+  if (!tf.header.includes('seat')) {
+    return { ok: false, reason: `taskforce.csv carries no seat column (header: ${tf.header.join(',')})` };
+  }
+  if (!tf.rows.some((r) => r.seat === parsed.seat)) {
+    return { ok: false, reason: `seat ${parsed.seat} has no row in ${parsed.taskforceCsv} — not rostered` };
+  }
+
+  const lockfile = path.join(parsed.seatDir, 'assembly.lock');
+  const lockPresent = fs.existsSync(lockfile);
+  return { ok: true, lockfilePresent: lockPresent };
+}
+
+module.exports = {
+  parseSeatPath,
+  resolveSeatFromCwd,
+  checkRunLive,
+  checkMaterializedSeat,
+  readSeatDescriptorName,
+};

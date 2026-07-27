@@ -77,8 +77,19 @@ capture('probe-tmux-seat-live', async (lines) => {
   const workRoot = path.join(tmp, 'work');
   fs.mkdirSync(dataRoot, { recursive: true });
   fs.mkdirSync(workRoot, { recursive: true });
-  const seatDir = path.join(workRoot, 'seat-a4');
+  // TASK 7.11 UPDATE — the fixture was a flat `work/seat-a4` dir, which the §4a launch-time gate
+  // now refuses. It is brought up to the canonical seat shape (materialized + rostered, inside the
+  // goal's LIVE run) rather than the gate being loosened: this probe's value is that it launches a
+  // REAL seat into a REAL tmux room, so its fixture must be what a real seat folder actually is.
+  const goalDir = path.join(workRoot, '.rbtv', 'goals', 'a4goal');
+  const runDir = path.join(goalDir, 'runs', 'run-1');
+  const seatDir = path.join(runDir, 'seats', 'a4seat');
   fs.mkdirSync(seatDir, { recursive: true });
+  fs.writeFileSync(path.join(workRoot, '.rbtv', 'goals', 'goals.csv'), 'goal-id,state\na4goal,open\n');
+  fs.writeFileSync(path.join(goalDir, 'runs.csv'), 'run-id,state\nrun-1,open\n');
+  fs.writeFileSync(path.join(runDir, 'taskforce.csv'), 'taskforce-id,seat\ntf-1,a4seat\n');
+  fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,session-id,harness,workdir,pid,pid-starttime,tty,worktree-path,started,ended\n');
+  fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: a4seat\n---\nprobe seat\n');
 
   const cfg = {
     bind: { host: '127.0.0.1', port: 7431 },

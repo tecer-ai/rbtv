@@ -100,13 +100,18 @@ capture('probe-carriage-vocab', async (lines) => {
     const names = Object.keys(cfg.profiles);
     const carriages = names.map((n) => `${n}=${cfg.profiles[n].exec.prompt}`);
     lines.push(`(6) shipped config loads cleanly: ${names.length} profiles [${carriages.join(', ')}]`);
-    if (names.length !== 5) throw new Error(`(6) expected 5 shipped profiles, found ${names.length}`);
+    // Task 7.11 added `claude-seat` (the seat launch profile) — ADDITIVELY, leaving every
+    // pre-existing profile untouched. The count moved 5 -> 6. It is still asserted rather than
+    // relaxed to a `>=`: this leg exists to notice a profile appearing in the shipped config, and
+    // a floor would stop noticing exactly what it was written to catch.
+    if (names.length !== 6) throw new Error(`(6) expected 6 shipped profiles, found ${names.length}`);
+    if (!names.includes('claude-seat')) throw new Error('(6) the 7.11 seat profile claude-seat is missing from the shipped config');
     for (const n of names) {
       if (cfg.profiles[n].exec.prompt !== 'stdin') throw new Error(`(6) shipped profile ${n} does not declare prompt: stdin`);
       const headedCarriage = cfg.profiles[n].headed?.tui?.prompt;
       if (headedCarriage !== undefined && headedCarriage !== null) throw new Error(`(6) shipped profile ${n} declares a headed carriage: ${headedCarriage}`);
     }
-    lines.push('RESULT: file/argv-last/argv (and the {prompt} slot) all fail config load LOUDLY; the five shipped stdin profiles load cleanly.');
+    lines.push('RESULT: file/argv-last/argv (and the {prompt} slot) all fail config load LOUDLY; the six shipped stdin profiles load cleanly.');
   } finally {
     try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* fine */ }
   }

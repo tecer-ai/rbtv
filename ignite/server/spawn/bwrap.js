@@ -125,9 +125,23 @@ function binaryBindFlags(binPath) {
 // worker sees real paths: resolveWorkdir()'s boundary, the harness config paths, and the
 // profile's own argv stay valid inside the namespace.
 //
-//   { argv, workdir, editablePaths = [], promptFile = null, harness = null, maskPaths = [] }
+//   { argv, workdir, editablePaths = [], promptFile = null, harness = null, maskPaths = [],
+//     seatBinds = null }
 // -> [bwrapPath, ...flags (in load-bearing order), '--', ...argv]
-function buildBwrapArgv({ argv, workdir, editablePaths = [], promptFile = null, harness = null, maskPaths = [] }) {
+//
+// TASK 7.11 — `seatBinds`. v1 had ONE RW opening (the session dir) and one input shape: a flat
+// list of paths, every one of them `--bind`. A seat's writable set cannot be expressed that way —
+// it is an ORDERED, TYPED stack in which a ro-bind of a parent, a tmpfs that erases a subtree,
+// and a bind of a leaf each deliberately shadow what came before. cage.js composes that stack and
+// asserts the invariant over it; this function only emits it.
+//
+// When `seatBinds` is supplied it REPLACES the workdir + editablePaths block rather than adding
+// to it, and that is load-bearing rather than tidy: the seat stack ro-binds the GOAL directory,
+// which sits ABOVE the workdir. Emitting `--bind workdir` first and the stack after would mount
+// the read-only goal tree straight over the seat's own RW opening, and the seat would launch into
+// a read-only home. There is no ordering in which both blocks can be emitted — hence a
+// replacement, not an addition.
+function buildBwrapArgv({ argv, workdir, editablePaths = [], promptFile = null, harness = null, maskPaths = [], seatBinds = null }) {
   const bwrapPath = resolveBwrapBinary();
   const home = os.homedir();
 
@@ -173,12 +187,20 @@ function buildBwrapArgv({ argv, workdir, editablePaths = [], promptFile = null, 
   }
   out.push(...binaryBindFlags(binPath));
 
-  // The ONE unconditional RW wall opening — the per-execution session dir.
-  out.push('--bind', workdir, workdir);
-
-  // The launch's declared editable paths (the test folder, when a launch declares one).
-  for (const p of editablePaths) {
-    out.push('--bind', p, p);
+  if (seatBinds && seatBinds.length > 0) {
+    // 7.11 SEAT PATH — the composed stack, in the order cage.js produced it. Emitted verbatim:
+    // this function does not sort, dedupe or "fix" the sequence, because every reordering here is
+    // a silent change to what the seat can write, and the sequence has already been asserted
+    // against the ground-truth invariant by the composer.
+    out.push(...seatBinds);
+  } else {
+    // v1 / ticker path, unchanged. The ONE unconditional RW wall opening — the per-execution
+    // session dir — plus the launch's declared editable paths (the test folder, when a launch
+    // declares one).
+    out.push('--bind', workdir, workdir);
+    for (const p of editablePaths) {
+      out.push('--bind', p, p);
+    }
   }
 
   // The prompt file (when the carriage is file) — ro.

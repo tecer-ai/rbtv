@@ -1,0 +1,31 @@
+probe: probe-seat-cage
+started: 2026-07-27T17:25:24.715Z
+command: node probes/probe-seat-cage.js
+PASS P8c — run-level sessions.csv is NOT writable from inside the cage
+       on-disk bytes UNCHANGED (in-cage exit 1, not the evidence)
+PASS P8c-ii — a template that WOULD expose the ground truth is refused at compose time
+       composer REFUSED with E_CAGE_GROUND_TRUTH
+PASS P8a — main repo working file unchanged (the tree is never bound)
+       content still "ORIGINAL\n" (in-cage exit 1)
+PASS P8b — another seat's worktree unchanged
+       content still "PEER WORK\n" (in-cage exit 1)
+PASS P8d — the seat's own seat.md unchanged (ro carve-in inside a RW folder)
+       descriptor still "---\nseat: mine\n---\nbrief"… (in-cage exit 1)
+PASS P8e — peer seat folder is not merely unreadable — it is ABSENT
+       in-cage read yielded "cat: /tmp/g4-cage-WBYW5r/ws/.rbtv/goals/testgoal/runs/run-1/seats/peer/PEER-SECRET.md: No such file or directory\nmine"; seats/ does not list peer
+PASS P9a — session artifact lands in sessions/{session-id}/ under the seat folder
+       artifact reads "ARTIFACT\n"
+PASS P9b — the seat's OWN worktree is writable
+       worktree file reads "WORK\n"
+PASS P9c — the S1 INTERIM coordination opening is writable (retires at 7.57)
+       coordination file grew: "log\na message"
+PASS P9d — the goal's decisions.md stays READABLE (a seat must still know its rulings)
+       in-cage read returned "rulings"
+PASS P-wiring — the seat stack replaces the flat workdir bind (exactly one RW opening of the seat dir)
+       seatDir --bind count 1; goal ro-bind precedes seat bind: true
+
+legs: ALL PASS
+status: PASS
+exit: 0
+wall_ms: 136
+ended: 2026-07-27T17:25:24.851Z

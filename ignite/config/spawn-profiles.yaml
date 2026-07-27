@@ -155,6 +155,87 @@ profiles:
       PrivateTmp: true
       NoNewPrivileges: true
 
+  claude-seat:
+    # ── TASK 7.11 — THE SEAT LAUNCH PROFILE. ADDED, NOT SUBSTITUTED. ───────────────────────────
+    #
+    # ⚠ NOTHING ABOVE THIS PROFILE WAS TOUCHED, AND THAT IS THE POINT. Repointing an existing
+    # profile's `workdir_root` would have moved every launch that already uses it onto the new
+    # writable set the moment the daemon next started — which is precisely the "built, not
+    # applied" line G-114 draws: caged seats have no write path to the goal ledgers or to the
+    # vault task files yet, and this run's seats file issues and run `sb-task` constantly. So the
+    # cage is BUILT and PROVEN here and reaches NO live seat: adopting it is a separate, deliberate
+    # act — point a launch at this profile — and it is not taken tonight.
+    #
+    # This profile is also INERT until a daemon restart in any case (config is read once at
+    # startup; there is no live reload), and no seat may restart it (S-5).
+    exec:
+      argv: ["claude"]
+      prompt: stdin
+    session_ref: { source: cwd-implicit }   # a seat's launch home IS its ref — the seat folder
+    headed:
+      # Seats are headed by construction (7.30: a pane in the goal's run-scoped room). No prompt
+      # carriage: a seat is driven by its DESCRIPTOR and by the room, never by argv text (R7).
+      tui: { argv: ["claude"] }
+    # ⚑ THE REPOINT — `.rbtv/sessions` -> `.rbtv/goals`. This one line is what retires the flat
+    # interim path FOR SEAT SPAWNS (owner ruling r-711-staged-retirement: "retired" means retired
+    # for seat spawns; the ticker/job branch keeps it, disclosed, until the job-seat home is
+    # ruled). It retires nothing by deleting: a flat `.rbtv/sessions/<exec-id>/` dir simply stops
+    # being a shape a seat can launch into, because it is outside this root AND fails the §4a
+    # canonical-shape check.
+    workdir_root: .rbtv/goals
+    caps: { memory_max: "4G", cpu_quota: "150%", runtime_max: "8h", tasks_max: 512 }
+    sandbox:
+      NoNewPrivileges: true
+      # Retained as the declarative source of the harness-local advisory write-restraint config
+      # (the second belt). The KERNEL set is SeatBinds below — when it is present it REPLACES the
+      # flat workdir opening in bwrap, it does not add to it.
+      ReadWritePaths: ["{workdir}"]
+      # ── THE WRITABLE SET (r-711-write-bounds, verbatim: own seat folder + own worktree + that
+      # repo's git plumbing, and NOTHING else). ORDER IS LOAD-BEARING — each line deliberately
+      # shadows the one above it, and cage.js emits them in exactly this sequence.
+      SeatBinds:
+        # READ the goal's own record — decisions.md, issues.md, doubts.md.
+        - "ro-bind:{goalDir}"
+        # Every OTHER run: ABSENT. Not denied — never bound.
+        - "tmpfs:{goalDir}/runs"
+        # READ this run — sessions.csv, state.csv, run CLAUDE.md, conduct.md.
+        - "ro-bind:{runDir}"
+        # ⚑ PEER SEAT FOLDERS: ABSENT. This is "never read another seat's folder" moved out of
+        # the conduct manual and into the kernel — the one rule in this run that was, until now,
+        # enforced entirely by every agent choosing to obey it.
+        - "tmpfs:{runDir}/seats"
+        # W1 — the seat's own folder, READ-WRITE: launch home, sessions/{session-id}/ artifacts,
+        # and the box-① work-in-progress memory the KG membership test's fourth prong names
+        # (memory*, conventions.md).
+        - "bind:{seatDir}"
+        # RO carve-IN inside W1. seat.md is the identity + permissions surface; its writers are
+        # goal-materialize and the staffer, never the sitting occupant. The cage is fixed at spawn,
+        # so editing it could not widen THIS session's walls — but it would rewrite the permission
+        # record the NEXT session's cage and the gate's permission-attach step derive from.
+        - "ro-bind:{seatDir}/seat.md"
+        # S1 INTERIM, RETIRES AT TASK 7.57 — leader-ruled, recorded, deliberately narrow. Under
+        # the pre-bound set a caged seat could not write the kit's coordination files, and the
+        # target model routes that through the gateway (7.57/7.59, unbuilt). Nothing wider: the
+        # goal-root ledgers and vault task files stay OUT, routed through uncaged stewards.
+        - "bind:{runDir}/coordination"
+        # W2 — the seat's own worktree(s), one opening per grant (task 7.38). No grants -> no
+        # openings; another seat's worktree is never a grant of this seat.
+        - "bind:{grant:worktree}"
+        # W3 — that repo's git plumbing, so a worktree COMMIT succeeds. The `.git` ROOT stays
+        # read-only, which is not incidental: it kernel-blocks fetch/push/gc from inside the cage,
+        # making 7.38's "no per-seat remote pushes" true below the review layer. Accepted cost:
+        # `git gc`/`pack-refs` fail in-cage — seats commit, they do not maintain.
+        - "ro-bind:{grant:repoGit}"
+        - "bind:{grant:repoGit}/objects"
+        - "bind:{grant:repoGit}/refs"
+        - "bind:{grant:repoGit}/logs"
+        - "bind:{grant:worktreeGitDir}"
+      # ⚑ ABSENT BY CONSTRUCTION, each one a pre-registered probe: the run folder's files for
+      # WRITE (the identity gate's ground truth — refused at compose time by cage.js, not merely
+      # unlisted here), peer seat folders even for READ, other seats' worktrees, the goal
+      # integration worktree, main repo WORKING trees, the vault root, .rbtv/heart/,
+      # .rbtv/sessions/, and the rbtv source checkout.
+
   headed-shell:
     # INERT HEADED TEST PROFILE (session #21, D12 surface test). A plain interactive shell in the
     # server-owned pty — proves the ttyd JOIN/TAKE-OVER surface (criterion 4) + the FD-1 in-order

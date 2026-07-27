@@ -1,0 +1,5 @@
+#!/usr/bin/env node
+// Thin exec shim. It CALLS main explicitly rather than relying on cli.js's `require.main` guard:
+// loaded through a shim, `require.main` is this file, so the guard is false and the tool would
+// exit 0 having done nothing — a gate that silently passes everything. Caught by probing it.
+process.exit(require('./cli').main(process.argv));
