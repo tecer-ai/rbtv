@@ -80,6 +80,20 @@ WATCHER_BROADCAST_TYPES = frozenset({"completion", "verdict"})
 # runs in minutes; a closer that dies mid-close (G-11 killed one tonight) must not leave its target
 # narrowed for the rest of the run.
 CLOSING_MAX_MIN = 45
+# G-134 shape B (`reap`), owner of the numbers: leader #312.
+# 15 min is far beyond a close/renew decision made properly (1-2 min observed) and far short of the
+# 41-minute leak that motivated this. It need not be tight — the awaiting-close marker makes the
+# debt visible from minute zero, so a generous N costs observability nothing and costs a
+# mid-decision renewal nothing either.
+REAP_MIN_AGE_MIN = 15
+# ...and the condition must SURVIVE, not merely be observed once. A single reading cannot tell an
+# orphaned pane from a renewal decision in flight: in-place renew (G-12) NEEDS the pane alive and
+# nothing machine-visible says a leader is mid-decision. Two confirmations spaced at least this far
+# apart mean the condition was observed, survived, and re-observed — a trend, not a snapshot.
+# WITHOUT THE SPACING THE TWO-PASS RULE IS DECORATIVE: `reap; reap` in one shell would satisfy a
+# bare counter instantly, which is the whole guarantee gone. Set below the ~10-min sweep cadence so
+# a slightly early pass still counts, and far above zero so no burst can manufacture a trend.
+REAP_MIN_PASS_GAP_MIN = 5
 # P2 — the registry's five canonical message types (concepts/message.md): the SOLE vocabulary.
 MESSAGE_TYPES = ["completion", "ask", "answer", "verdict", "note"]
 SUMMARY_MAX = 560
@@ -2320,7 +2334,14 @@ def set_awaiting(base, seat, pane, transcript, exported):
             # Caught by the selftest before it ever reached a live room, which is the whole point
             # of writing the record through a fixture that runs the real verb.
             data[seat] = {"since": now(), "pane": str(pane or ""),
-                          "transcript": str(transcript or ""), "exported": bool(exported)}
+                          "transcript": str(transcript or ""), "exported": bool(exported),
+                          # The harness identity AS THE SEAT LEFT IT, in the pid+starttime form
+                          # every teardown already uses (PID reuse cannot forge it). `reap` later
+                          # requires the pane to still hold EXACTLY these processes — which is how
+                          # "no human on this pane" becomes an ASSERTION recorded at the moment it
+                          # was true, rather than a guess made at kill time about a pane someone
+                          # may have repurposed in between.
+                          "pids": [[p, s] for p, s in (pane_harness_idents(pane) if pane else [])]}
             atomic_write(awaiting_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
         return True
     except (OSError, ValueError):
@@ -2355,6 +2376,88 @@ def awaiting_debts(base, live=None):
         age = closing_age_min(entry)
         out.append((seat, entry, age, bool(entry.get("pane")) and entry["pane"] in panes))
     return sorted(out, key=lambda r: (-1 if r[2] is None else r[2]), reverse=True)
+
+
+def reap_blockers(entry, age, panes):
+    """Every reason `entry` must NOT be reaped, as a list. EMPTY means every precondition holds.
+
+    A LIST, not a bool, and that is the design: `reap` kills panes, so a caller — and the leader
+    reading a dry pass — must see WHICH condition held it, never just that something did. A gate
+    that answers only yes/no teaches nobody why the run is leaking.
+
+    The two hard preconditions (leader #312, non-negotiable) are the last two rows:
+
+      TRANSCRIPT EXISTS — #259's ratified mapping gates the kill on it, and the marker records
+      whether the export actually landed rather than leaving this to be re-derived. Checked against
+      the FILE, not only the flag: a recorded path whose file has since gone is not a transcript.
+
+      NO HUMAN ON THE PANE — the reason this is not a nicety: a checked-out seat's pane can be
+      picked up by a live owner conversation, and a mechanical reap there terminates the
+      conversation rather than freeing memory. Proven by requiring the pane to still hold EXACTLY
+      the harness processes recorded at checkout (pid+starttime, so PID reuse cannot forge it). A
+      pane whose processes changed has been repurposed; a pane with no recorded identity was never
+      provably seat-only. Both refuse. FAIL-CLOSED: anything unprovable holds the reap."""
+    out = []
+    pane = (entry or {}).get("pane") or ""
+    if not pane:
+        out.append("no pane recorded")
+    elif pane not in panes:
+        out.append("its pane is already gone — nothing to free (the close is still owed)")
+    if age is None:
+        out.append("its checkout stamp is unreadable, so age cannot be established")
+    elif age < REAP_MIN_AGE_MIN:
+        out.append(f"only {age}min old (needs {REAP_MIN_AGE_MIN}min — a renewal decision may be "
+                   f"in flight, and in-place renew needs this pane alive)")
+    recorded = [(int(p), str(s)) for p, s in (entry or {}).get("pids") or []]
+    tpath = (entry or {}).get("transcript") or ""
+    if not entry.get("exported") or not tpath:
+        out.append("no transcript was exported — #259 gates the kill on it existing")
+    elif not Path(tpath).exists():
+        out.append(f"its recorded transcript {tpath} is no longer on disk")
+    if not recorded:
+        out.append("no harness identity was recorded, so the pane was never provably seat-only")
+    elif pane and pane in panes:
+        live_now = [(int(p), str(s)) for p, s in pane_harness_idents(pane)]
+        if sorted(live_now) != sorted(recorded):
+            out.append("the pane no longer holds the processes it checked out with — it has been "
+                       "repurposed, and a human may be on it")
+    return out
+
+
+def confirm_reap(base, seat, blocked):
+    """Record ONE sweep pass's observation and answer whether the two-pass rule is satisfied.
+
+    Returns (confirmations, ready). A pass whose condition FAILED resets the ledger to empty: the
+    rule is two CONSECUTIVE passes, so an interruption must cost the trend rather than leave a
+    stale half-confirmation to be completed an hour later by an unrelated sweep.
+
+    Confirmations are recorded on EVERY pass, including a dry one — observing is not acting, and
+    the whole point of a dry sweep is to build the trend the leader then acts on. What `--go`
+    gates is the KILL, and nothing else.
+
+    The spacing rule lives here rather than in the caller so no future entry point can skip it."""
+    try:
+        with coord_lock(base):
+            data = load_awaiting(base)
+            entry = data.get(seat)
+            if entry is None:
+                return [], False
+            seen = [s for s in (entry.get("confirmed") or []) if isinstance(s, str)]
+            if blocked:
+                seen = []
+            else:
+                last = seen[-1] if seen else ""
+                gap = closing_age_min({"since": last}) if last else None
+                # A first observation always counts; a later one counts only if it is far enough
+                # from the previous to be a genuinely separate pass.
+                if not seen or (gap is not None and gap >= REAP_MIN_PASS_GAP_MIN):
+                    seen.append(now())
+            entry["confirmed"] = seen
+            data[seat] = entry
+            atomic_write(awaiting_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
+            return seen, len(seen) >= 2
+    except (OSError, ValueError):
+        return [], False
 
 
 def set_closing(base, seat, closer):
@@ -5006,6 +5109,61 @@ def cmd_panel(args):
             C_HINT))
 
 
+def cmd_reap(args):
+    """One sweep pass over the awaiting-close debt: observe, confirm, and — only with --go — free.
+
+    OBSERVES BY DEFAULT AND SAYS SO. `reap` kills panes, so the destructive form is the one that
+    must be typed, not the safe one. A bare `reap` reports the debt and records this pass's
+    observation; `--go` is what kills. That also makes the two-pass rule cheap to satisfy honestly:
+    a watcher can sweep on its own cadence and the leader acts on an already-confirmed set.
+
+    It never reaps a seat the run still owes a `close-seat`: reaping frees the PANE, and the roster
+    row and session trace are finished by the close. So a reaped seat KEEPS its debt entry, with
+    its pane now gone — the leader still sees it and still owes the close. Freeing memory and
+    completing a lifecycle are different acts and this one does only the first."""
+    gate(args, "reap", is_leader_or_closer, "leader's or a closer-* seat's")
+    base = base_dir(args)
+    go = getattr(args, "go", False)
+    panes = live_panes()
+    debts = awaiting_debts(base, panes)
+    if not debts:
+        print("no awaiting-close debt — every finished seat has been closed")
+        return
+    freed, held = [], []
+    for seat, entry, age, _alive in debts:
+        blockers = reap_blockers(entry, age, panes)
+        seen, ready = confirm_reap(base, seat, blockers)
+        aged = f"{age}min" if age is not None else "unknown age"
+        if blockers:
+            held.append(f"{seat} ({aged}): HELD — " + "; ".join(blockers))
+            continue
+        if not ready:
+            held.append(f"{seat} ({aged}): every precondition holds, confirmed {len(seen)}/2 — "
+                        f"a second pass at least {REAP_MIN_PASS_GAP_MIN}min from now decides it. "
+                        f"One reading is a snapshot; two is a trend.")
+            continue
+        if not go:
+            held.append(f"{seat} ({aged}): READY to reap ({len(seen)} confirmations) — "
+                        f"pane {entry['pane']} would be freed. Re-run with --go.")
+            continue
+        idents = pane_harness_idents(entry["pane"])
+        ok, err = tmux_kill_pane(entry["pane"])
+        # G-10, same discipline every other teardown uses: kill-pane SIGHUPs the process group and
+        # a blocked harness survives it as a ghost no roster row mentions. Confirm, never assume.
+        survivors, note = verify_pids_gone(idents)
+        freed.append(f"{seat}: pane {entry['pane']} "
+                     + ("freed" if ok else f"kill FAILED — {err}")
+                     + (f"; {len(idents)} harness pid(s) "
+                        + ("GONE" if not survivors else f"NOT gone — {note}") if idents else ""))
+    for line in held:
+        print(c(f"  {line}", C_HINT))
+    for line in freed:
+        print(c(f"  {line}", C_ALIVE))
+    if not go and any("READY to reap" in h for h in held):
+        print(c(f"next: {coord_invocation(args)} reap --go — frees the panes listed READY above; "
+                f"each still owes a close-seat afterwards", C_HINT))
+
+
 def cmd_depart(args):
     """Self-service exit: export own transcript, check out, kill own pane. SELF ONLY (T1) —
     it takes no target, so no seat can depart another; leader cleans dead seats with
@@ -7181,6 +7339,46 @@ def _selftest_checks(args, failures, names):
               clear_awaiting(base_g, "theta") is True
               and clear_awaiting(base_g, "theta") is False
               and "theta" not in load_awaiting(base_g))
+        # ---- G-134 shape B: `reap` (leader #312 owns the numbers) ----
+        _fresh = {"since": now(), "pane": "%77", "transcript": "/tmp/x", "exported": True,
+                  "pids": [[1, "1"]]}
+        check("G-134/B: a debt younger than the policy age is HELD — a single reading cannot tell "
+              "an orphan from a renewal decision in flight, and in-place renew (G-12) needs that "
+              "pane alive",
+              any("needs 15min" in b for b in reap_blockers(_fresh, 3, {"%77"})))
+        check("G-134/B: NO TRANSCRIPT holds the reap (#259's ratified precondition), and it is "
+              "checked against the FILE — a recorded path whose file has since gone is not a "
+              "transcript, so the flag alone is never enough",
+              any("no transcript" in b for b in
+                  reap_blockers(dict(_fresh, exported=False), 30, {"%77"}))
+              and any("no longer on disk" in b for b in reap_blockers(_fresh, 30, {"%77"})))
+        # The pane is in the live set but holds NO recognisable harness, so the recorded identity
+        # cannot be matched — the repurposed-pane case, reached without needing a real tmux pane.
+        check("G-134/B: NO HUMAN ON THE PANE is proven by IDENTITY, not assumed — a pane that no "
+              "longer holds the processes it checked out with is refused, and one with no recorded "
+              "identity was never provably seat-only. Both FAIL CLOSED: a live owner conversation "
+              "on a reused pane must never be terminated to free memory",
+              any("repurposed" in b for b in reap_blockers(_fresh, 30, {"%77"}))
+              and any("never provably seat-only" in b for b in
+                      reap_blockers(dict(_fresh, pids=[]), 30, {"%77"})))
+        set_awaiting(base_g, "kappa", "%77", "/tmp/x", True)
+        _s1, _r1 = confirm_reap(base_g, "kappa", [])
+        _s2, _r2 = confirm_reap(base_g, "kappa", [])
+        check("G-134/B: TWO CONSECUTIVE PASSES means two SPACED passes — a burst cannot "
+              "manufacture a trend. Without the spacing rule `reap; reap` in one shell would "
+              "satisfy a bare counter instantly and the whole guarantee would be decorative",
+              len(_s1) == 1 and _r1 is False and len(_s2) == 1 and _r2 is False)
+        check("G-134/B: a pass whose condition FAILED resets the ledger — the rule is two "
+              "CONSECUTIVE passes, so an interruption costs the trend rather than leaving a stale "
+              "half-confirmation for an unrelated sweep an hour later to complete",
+              confirm_reap(base_g, "kappa", ["something broke"]) == ([], False))
+        _aw = load_awaiting(base_g)
+        _aw["kappa"]["confirmed"] = ["2026-01-01 00:00"]
+        atomic_write(awaiting_path(base_g), json.dumps(_aw, indent=2, sort_keys=True) + "\n")
+        check("G-134/B: and a genuinely separate second pass DOES confirm — the gate is spacing, "
+              "never a refusal to ever confirm",
+              confirm_reap(base_g, "kappa", [])[1] is True)
+        clear_awaiting(base_g, "kappa")
         awaiting_path(base_g).write_text("{ not json", encoding="utf-8")
         check("G-134: a corrupt awaiting-close.json reads as NO DEBT rather than raising — the "
               "fail-safe direction differs from closing's deliberately: a lost entry costs a pane "
@@ -7857,7 +8055,7 @@ HELP_EPILOG = """everyday
 leader
   launch      open one tmux seat per worker briefing and start its harness
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat  mechanical close: export, check out, kill the pane (--renew relaunches)
+  close-seat / reap  mechanical close, kill the pane (--renew) · free unclosed panes (--go)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
@@ -8113,6 +8311,25 @@ def build_parser():
     s.add_argument("--no-export", action="store_true", help="skip the transcript export (e.g. pane already dead)")
     add_identity_flags(s)
     s.set_defaults(func=cmd_close_seat)
+
+    s = command(
+        "reap",
+        "One sweep over the awaiting-close debt: seats that finished their own lifecycle whose\n"
+        "panes the leader has not yet freed. OBSERVES BY DEFAULT — a bare `reap` reports the debt\n"
+        "and records this pass; --go is what kills. A pane is freed only when it is at least\n"
+        f"{REAP_MIN_AGE_MIN}min old, its transcript exists, the pane still holds exactly the\n"
+        "harness processes it checked out with (so no human has picked it up), and the condition\n"
+        "has held across TWO passes at least "
+        f"{REAP_MIN_PASS_GAP_MIN}min apart — one reading is a snapshot, two is a trend.\n"
+        "Reaping frees the PANE only; each seat still owes a close-seat afterwards.",
+        "example:\n"
+        "  coordinate reap            # observe and confirm, kill nothing\n"
+        "  coordinate reap --go       # free the panes already confirmed READY\n"
+        "next: coordinate workers — the debt is listed there until close-seat settles it")
+    s.add_argument("--go", action="store_true",
+                   help="actually free the confirmed panes (without it, reap only observes)")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_reap)
 
     s = command(
         "approve",
