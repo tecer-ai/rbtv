@@ -1708,6 +1708,35 @@ def group_map(base):
     return {r["group"]: r["members"] for r in rows}
 
 
+def refuse_special_case_members(args, command, names):
+    """G-32 — a SPECIAL-CASE seat is not a group member (owner-spotted: "why was it included in a
+    group? it should not"). A group is the room's cheap channel, and the room's conversation is
+    exactly what G-20 cut from these seats at the front door; letting them be added walks the same
+    traffic in the side one. Enforced in the two commands that can CREATE a membership, because the
+    run makes a fresh group per wave and a rule kept only by remembering is the class this run has
+    been paying for all night. `--force` stays the single deliberate override, as on every other
+    refusal here — and even then delivery is filtered by TYPE (`addressed_to`), so the override
+    buys membership, never the traffic."""
+    blocked = sorted({n for n in names if broadcast_scope(n) is not None})
+    if not blocked:
+        return
+    many = len(blocked) > 1
+    if getattr(args, "force", False):
+        print(f"note: `{command}` added special-case seat(s) {', '.join(blocked)} with --force "
+              f"(G-32); group messages still reach them only by TYPE", file=sys.stderr)
+        return
+    print(f"refused: {', '.join(blocked)} "
+          f"{'are special-case seats' if many else 'is a special-case seat'} — group traffic is "
+          f"not {'their' if many else 'its'} input (G-32). A closer, `engineer` and the watcher "
+          f"serve the SYSTEM or the ROOM, not the goal's conversation, so the room's threads only "
+          f"spend the context {'their' if many else 'its'} one job needs.\n"
+          f"Send {'them' if many else 'it'} a DIRECT message instead — direct addressability is "
+          f"untouched: {coord_invocation(args)} send {blocked[0]} \"<what you need>\" --type note\n"
+          f"--force adds {'them' if many else 'it'} anyway, if the membership is deliberate.",
+          file=sys.stderr)
+    sys.exit(1)
+
+
 def cmd_create_group(args):
     base = base_dir(args)
     me = resolve_agent(args)
@@ -1720,6 +1749,7 @@ def cmd_create_group(args):
               f"Name the group after the WORKSTREAM instead (e.g. views-render).", file=sys.stderr)
         sys.exit(1)
     members = sorted(set(args.members) | {me, "leader"})
+    refuse_special_case_members(args, "create-group", members)
     with coord_lock(base):
         path, _, grows = load_groups(base)
         if any(g["group"] == name for g in grows):
@@ -1738,6 +1768,9 @@ def cmd_create_group(args):
 
 def cmd_add_to_group(args):
     gate(args, "add-to-group", is_leader, "leader's alone")
+    # Only the names being ADDED are policed: a group that already carries a special-case seat
+    # (three did when G-32 was filed) must stay editable, or the refusal would block its own fix.
+    refuse_special_case_members(args, "add-to-group", args.members)
     base = base_dir(args)
     with coord_lock(base):
         path, lines, grows = load_groups(base)
@@ -1753,6 +1786,39 @@ def cmd_add_to_group(args):
         atomic_write(path, "".join(lines))
     print(f"group {args.group} members: {', '.join(members)}")
     print(c(f"next: {coord_invocation(args)} send {args.group} \"<who joined, and why>\" "
+            f"--type note", C_HINT))
+
+
+def cmd_remove_from_group(args):
+    """(leader) Drop members from an existing group — add-to-group's missing half, and the ONLY
+    sanctioned way to undo a membership: `coordination/` is script-managed and hand-editing it is
+    banned, so before this command a wrong member could be added but never taken back. G-32 is the
+    case that needed it: three groups carried the watcher from before the special-case cut landed,
+    and `create-group` refuses a re-create."""
+    gate(args, "remove-from-group", is_leader, "leader's alone")
+    base = base_dir(args)
+    with coord_lock(base):
+        path, lines, grows = load_groups(base)
+        row = next((g for g in grows if g["group"] == args.group), None)
+        if not row:
+            known = ", ".join(sorted(g["group"] for g in grows)) or "(none yet)"
+            print(f"refused: there is no group '{args.group}', so there is nothing to remove "
+                  f"from.\nexisting groups: {known}", file=sys.stderr)
+            sys.exit(1)
+        absent = [m for m in args.members if m not in row["members"]]
+        if absent and not getattr(args, "force", False):
+            print(f"refused: {', '.join(absent)} "
+                  f"{'are' if len(absent) > 1 else 'is'} not in group '{args.group}', so removing "
+                  f"{'them' if len(absent) > 1 else 'it'} would report a change that did not "
+                  f"happen.\ncurrent members: {', '.join(row['members']) or '(none)'}\n"
+                  f"--force drops the names that ARE members and ignores the rest.",
+                  file=sys.stderr)
+            sys.exit(1)
+        members = [m for m in row["members"] if m not in set(args.members)]
+        lines[row["_line"]] = f"| {row['group']} | {', '.join(members)} | {row['by']} | {row['created']} |\n"
+        atomic_write(path, "".join(lines))
+    print(f"group {args.group} members: {', '.join(members) or '(none)'}")
+    print(c(f"next: {coord_invocation(args)} send {args.group} \"<who left, and why>\" "
             f"--type note", C_HINT))
 
 
@@ -1828,6 +1894,18 @@ def addressed_to(b, agent, gmap, observers, mode="any", closing=()):
         # for the watcher, entirely for the rest. Applied before the observer short-circuit: an
         # observer reads the full log by grant, but the owner's directive is about what LANDS in
         # a system seat's inbox, and a grant to read everything is not an obligation to receive it.
+        if is_closing or not in_broadcast_scope(agent, b["type"]):
+            return False
+    elif to in gmap and agent in gmap.get(to, ()):
+        # G-32: a GROUP is not a side door around the broadcast cut. The traffic the owner cut at
+        # the front door walked in this one — the watcher sat in three of the run's four groups, so
+        # essentially the whole room's lane traffic still landed in the seat the directive was
+        # written to protect. Group fan-out therefore honours the SAME scope test as `all`: the
+        # watcher keeps completion/verdict (its DAG trigger), closers and `engineer` keep nothing,
+        # and a seat mid-close is cut entirely. Membership refusal (create-group/add-to-group) is
+        # the braces; this is the belt, so even a deliberately-added member is filtered by TYPE
+        # rather than by anyone remembering the rule. A message addressed to the seat BY NAME is
+        # untouched — that invariant is what makes every one of these cuts safe.
         if is_closing or not in_broadcast_scope(agent, b["type"]):
             return False
     elif is_closing and to == agent and not closing_reaches(agent, b["sender"], None):
@@ -2059,6 +2137,19 @@ def deliver_wakes(args, base, sender, to, n, mtype="note"):
             if name in closing:
                 scope_skipped.setdefault("closing", []).append(name)
             elif not in_broadcast_scope(name, mtype):
+                scope_skipped.setdefault("special-case seat", []).append(name)
+    elif to in gmap:
+        # G-32: the wake half of the group cut — the same test `addressed_to` now applies to a
+        # group message. Scoped to actual MEMBERS: an observer or auto-wake seat pulled in from
+        # OUTSIDE the group still reads the message by grant, so cutting its wake would hide a
+        # message it can see — the one failure mode this whole filter exists to avoid.
+        members = set(gmap[to])
+        for name in sorted(recipients):
+            entry = closing.get(name)
+            if entry is not None and (name in members
+                                      or not closing_reaches(name, sender, entry)):
+                scope_skipped.setdefault("closing", []).append(name)
+            elif name in members and not in_broadcast_scope(name, mtype):
                 scope_skipped.setdefault("special-case seat", []).append(name)
     else:
         for name in sorted(recipients):
@@ -4290,7 +4381,7 @@ def cmd_selftest(args):
               and "--last-read" not in top and "read <agent>" not in top)
         check("T6 help: every command's own -h carries a worked example and the step that "
               "usually follows",
-              len(per_cmd) == 18
+              len(per_cmd) == 19
               and all("example:\n  coordinate" in h or "example:\n  python3" in h
                       for h in per_cmd.values())
               and all("\nnext: " in h for h in per_cmd.values()))
@@ -4569,6 +4660,82 @@ def cmd_selftest(args):
               load_closing(base_g) == {} and closing_seats(base_g) == set())
         clear_closing(base_g, "zeta")
 
+        # ---- G-32: a GROUP is not a side door around the inbox cut ----
+        # The owner spotted the watcher sitting in THREE of the run's four groups: the G-20 cut was
+        # real, but `addressed_to` applied it on the `to == all` branch only, so a group message
+        # reached every member unfiltered — the traffic cut at the front door walked in the side
+        # one. Two halves, and they need each other: MEMBERSHIP (the two commands that can create
+        # one refuse a special-case seat) is the braces; DELIVERY (group fan-out honours the same
+        # TYPE scope as a broadcast) is the belt, because the run makes a fresh group per wave and
+        # a deliberately-added member must still be filtered. The invariant both rest on — a
+        # message NAMING the seat always lands — is asserted last.
+        out, code = refuse(cmd_add_to_group, agent="leader", group="pair", members=["watcher"])
+        check("G-32: `add-to-group` REFUSES a special-case seat, naming the seat, the rule and the "
+              "direct-message path — a rule kept only by remembering is what filed this issue",
+              code == 1 and "watcher is a special-case seat" in out
+              and "group traffic is not its input" in out and "send watcher" in out)
+        out, code = refuse(cmd_create_group, agent="alpha", group="lane-x", members=["engineer"])
+        check("G-32: `create-group` refuses one too — a group must not be BORN carrying the seat",
+              code == 1 and "engineer is a special-case seat" in out)
+        gm32 = group_map(base_g)
+        check("G-32: a refusal WRITES NOTHING — the existing group is untouched and the refused "
+              "one was never created",
+              "watcher" not in gm32["pair"] and "lane-x" not in gm32)
+        out, code = refuse(cmd_create_group, agent="alpha", group="lane-g32",
+                           members=["watcher", "zeta"], force=True)
+        check("G-32: --force stays the single deliberate override, and SAYS so — the membership is "
+              "bought, the traffic is not (delivery is still filtered by type)",
+              code == 0 and "with --force" in out
+              and set(group_map(base_g)["lane-g32"]) == {"alpha", "leader", "watcher", "zeta"})
+        _, pre32 = load_messages(base_g)
+        mk32 = pre32[-1]["num"]
+        out = sd("alpha", "lane-g32", "lane chatter the sensor never needed", type="note")
+        check("G-32: a GROUP note does NOT reach the special-case member — even one holding an "
+              "observer grant — while an ORDINARY member of the same group reads it",
+              "lane chatter" not in rd("watcher", after=mk32, peek=True)
+              and "lane chatter" in rd("zeta", after=mk32, peek=True))
+        check("G-32: and it costs the filtered member no WAKE either — the sender is told by name "
+              "and reason, exactly as on the `all` branch",
+              "skipped (special-case seat: watcher)" in out)
+        _, mid32 = load_messages(base_g)
+        mk33 = mid32[-1]["num"]
+        sd("alpha", "lane-g32", "lane G node delivered", type="completion")
+        check("G-32: a GROUP completion DOES reach the watcher — the DAG-unblock trigger kept on "
+              "the broadcast branch must survive the group branch too, or the cure stalls the run",
+              "lane G node" in rd("watcher", after=mk33, peek=True))
+        run(cmd_checkin, agent="iota", summary="group member about to close", pane="%25")
+        run(cmd_add_to_group, agent="leader", group="lane-g32", members=["iota"])
+        set_closing(base_g, "iota", "closer-iota")
+        _, mid33 = load_messages(base_g)
+        mk34 = mid33[-1]["num"]
+        out = sd("alpha", "lane-g32", "more lane work while it closes", type="note")
+        check("G-32 + G-21: a group message does not reach a member MID-CLOSE either — closing "
+              "narrows the inbox whatever channel the message arrives on",
+              "more lane work" not in rd("iota", after=mk34, peek=True)
+              and "closing: iota" in out)
+        clear_closing(base_g, "iota")
+        _, mid34 = load_messages(base_g)
+        mk35 = mid34[-1]["num"]
+        sd("alpha", "watcher", "sensor, this one is for you", type="note")
+        check("G-32: the INVARIANT the whole design rests on — a message addressed to the seat BY "
+              "NAME still lands, group filtering or not",
+              "this one is for you" in rd("watcher", after=mk35, peek=True))
+        out, code = refuse(cmd_remove_from_group, agent="zeta", group="lane-g32",
+                           members=["watcher"])
+        check("G-32: `remove-from-group` is leader-gated exactly like add-to-group", code == 2)
+        out = run(cmd_remove_from_group, agent="leader", group="lane-g32", members=["watcher"])
+        check("G-32: leader REMOVES the member and the file is rewritten through the same writer — "
+              "the three pre-existing memberships have a sanctioned undo at last "
+              "(coordination/ is script-managed; hand-editing it is banned)",
+              "watcher" not in group_map(base_g)["lane-g32"]
+              and set(group_map(base_g)["lane-g32"]) == {"alpha", "leader", "zeta", "iota"}
+              and set(group_map(base_g)["pair"]) == {"alpha", "beta", "leader"})
+        out, code = refuse(cmd_remove_from_group, agent="leader", group="lane-g32",
+                           members=["nobody"])
+        check("G-32: removing a name that is not a member is REFUSED rather than reported as a "
+              "change that did not happen",
+              code == 1 and "not in group" in out)
+
         # ---- G-23: `close: mechanical` — a long-lived seat with an ephemeral-class CLOSE PATH ----
         # The owner's case is the watcher: its whole state is external and machine-owned, so a
         # memory.md would be a hand-kept copy of files its loop recomputes every pass. LIFETIME and
@@ -4775,7 +4942,7 @@ leader
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
-  add-to-group  add members to an existing group
+  add-to-group / remove-from-group  join or drop an existing group's members
 
 other
   workers     roster: who is alive, what each is on, how far behind the log
@@ -5070,6 +5237,20 @@ def build_parser():
     s.add_argument("members", nargs="+", help="agent names to add")
     add_identity_flags(s)
     s.set_defaults(func=cmd_add_to_group)
+
+    s = command(
+        "remove-from-group",
+        "(leader) Remove members from an existing group — the only sanctioned way to undo a\n"
+        "membership, since coordination/ is script-managed and hand-editing it is banned. Use it\n"
+        "when a seat's lane is done, or when a special-case seat (watcher, engineer, a closer)\n"
+        "was added before the G-32 rule that now refuses it.",
+        "example:\n"
+        "  coordinate remove-from-group ceremony watcher\n"
+        "next: coordinate send ceremony \"<who left, and why>\" --type note")
+    s.add_argument("group", help="an existing group name")
+    s.add_argument("members", nargs="+", help="agent names to drop (all must currently be members, unless --force)")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_remove_from_group)
 
     s = command(
         "selftest",
