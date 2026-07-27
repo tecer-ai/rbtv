@@ -164,6 +164,14 @@ FM_KEY = {
     "ephemeral": re.compile(r"^ephemeral:\s*(\S+)\s*$", re.MULTILINE),
     "observer": re.compile(r"^observer:\s*(\S+)\s*$", re.MULTILINE),
     "auto-wake": re.compile(r"^auto-wake:\s*(\S+)\s*$", re.MULTILINE),
+    # r-cos-bounded-inbox / r-engineer-contact — the SENDER BOUND: a comma-separated allow-list of
+    # the ONLY seats whose messages reach this one. ABSENT MEANS UNBOUNDED, which is every seat
+    # today, so this lands inert and no seat silently loses reachability when it does.
+    "senders": re.compile(r"^senders:\s*(.+?)\s*$", re.MULTILINE),
+    # G-20's other half, DECLARED instead of named in the kit: which `to: all` TYPES reach this
+    # seat. `none` | `all` | a comma-separated type list. ABSENT keeps the built-in default table
+    # (broadcast_scope), so every existing package behaves exactly as it does today.
+    "broadcast": re.compile(r"^broadcast:\s*(.+?)\s*$", re.MULTILINE),
     "ctx-refresh": re.compile(r"^ctx-refresh:\s*(\d+)\s*$", re.MULTILINE),
     # G-23 (owner-directed) — `close: mechanical` on a LONG-LIVED seat whose whole state is
     # external and machine-owned. It finishes one session and opens another: no closer agent, no
@@ -238,6 +246,64 @@ def observer_sets(args):
         if _fm_yes(fm, "auto-wake"):
             auto.add(agent)
     return observers, auto
+
+
+def _fm_list(fm, key):
+    """The comma-separated values of `key`, or None when the key is absent.
+
+    None and the empty list are DIFFERENT answers here and the distinction is load-bearing: absent
+    means "undeclared, keep today's behaviour", while `broadcast: none` means "declared, and the
+    answer is nothing". Collapsing them would make an explicit narrowing indistinguishable from
+    never having said anything."""
+    m = FM_KEY[key].search(fm)
+    if not m:
+        return None
+    return [v.strip() for v in m.group(1).split(",") if v.strip()]
+
+
+def inbox_decls(args):
+    """{seat: {"senders": frozenset, "broadcast": scope}} — each seat's DECLARED inbox topology,
+    read from its OWN descriptor. Keys appear only when the descriptor declares them.
+
+        senders:   leader, master        the ONLY seats whose messages reach this one
+        broadcast: none | all | a,b      which `to: all` TYPES reach it (G-20, declared)
+
+    Two owner rulings bound an inbox to named senders (`r-cos-bounded-inbox` for the
+    chief-of-staff, `r-engineer-contact` for the engineer: leader + master, a third sender is a
+    breach). Until this existed both were enforced by the SEAT DECLINING — the message still
+    arrived, still spent the seat's context, and a breach was visible only if the seat noticed and
+    said so.
+
+    DERIVED, never a kit-side name list, for the same reason `observer:`/`auto-wake:` are. A name
+    list in the kit encodes ONE campaign's role vocabulary into a tool every run shares: another
+    run's `engineer` is narrowed by accident and its differently-named system seat is not.
+    `SPECIAL_CASE_SEATS` named its members while its own comment described a MANDATE ("serve the
+    SYSTEM or the ROOM") — which is exactly how the chief-of-staff came to be omitted from the set
+    whose definition described it. A mandate cannot be expressed as a name list, so the next such
+    seat is forgotten identically. The seat descriptor already IS where topology is declared
+    (harness, model, observer, auto-wake, ctx-refresh); inbox scope belongs beside them.
+
+    ABSENCE IS TODAY'S BEHAVIOUR on both keys, and no descriptor in any package declares either —
+    so this ships INERT: it changes no seat's inbox until a descriptor says otherwise.
+    """
+    decls = {}
+    for agent, (fm, _p) in briefing_frontmatters(workers_dir(args)).items():
+        d = {}
+        named = _fm_list(fm, "senders")
+        if named:
+            d["senders"] = frozenset(named)
+        raw = _fm_list(fm, "broadcast")
+        if raw is not None:
+            low = [v.lower() for v in raw]
+            if low == ["all"]:
+                d["broadcast"] = None            # every type, explicitly
+            elif low == ["none"]:
+                d["broadcast"] = frozenset()     # no broadcast at all
+            else:
+                d["broadcast"] = frozenset(low)  # exactly these types
+        if d:
+            decls[agent] = d
+    return decls
 
 
 def now():
@@ -2052,16 +2118,26 @@ def is_closer(name):
     return bool(name) and name.startswith("closer-")
 
 
-def broadcast_scope(agent):
+def broadcast_scope(agent, decls=None):
     """Which `to: all` broadcast TYPES reach `agent` (G-20).
 
     None  = every type — an ordinary seat, unchanged.
     set   = only these types reach it.
     empty = no broadcast reaches it at all.
 
+    A seat's OWN DECLARATION (`broadcast:` in its descriptor) wins over the built-in table below,
+    including over the `closer-` prefix: an explicit statement in the one file that defines the
+    seat outranks a default inferred from its name. The table stays as the DEFAULT — every package
+    that declares nothing behaves exactly as it did — but it is no longer the mechanism, so a seat
+    is narrowed by saying so rather than by a future maintainer remembering to add its name here.
+
     This bounds BROADCAST ONLY. A message addressed to the seat BY NAME, or to a group it belongs
     to, always arrives — the point is to stop the room's conversation from spending a system seat's
-    context, never to make a seat unreachable."""
+    context, never to make a seat unreachable. (The SENDER BOUND is the one cut that may narrow a
+    by-name message, and it is refused at `send` so nothing is ever accepted and then dropped.)"""
+    declared = (decls or {}).get(agent) or {}
+    if "broadcast" in declared:
+        return declared["broadcast"]
     if is_closer(agent):
         return frozenset()          # one-shot: co-write memory, harvest, close, depart
     if agent == "watcher":
@@ -2071,9 +2147,9 @@ def broadcast_scope(agent):
     return None
 
 
-def in_broadcast_scope(agent, mtype):
+def in_broadcast_scope(agent, mtype, decls=None):
     """Does a broadcast of type `mtype` reach `agent`? (True for every ordinary seat.)"""
-    scope = broadcast_scope(agent)
+    scope = broadcast_scope(agent, decls)
     return True if scope is None else mtype in scope
 
 
@@ -2243,7 +2319,8 @@ def unread_for(args, base, agent, start, blocks=None, gmap=None, observers=None,
     if closing is None:
         closing = closing_seats(base)
     return [b for b in blocks if b["num"] > start
-            and shows_in_inbox(b, agent, gmap, observers, "any", closing)]
+            and shows_in_inbox(b, agent, gmap, observers, "any", closing,
+                               inbox_decls(args))]
 
 
 def cmd_checkin(args):
@@ -2699,7 +2776,7 @@ def log_delivery_failures(base, failures):
                 f.write(f"> delivery-failure: {fail}\n")
 
 
-def addressed_to(b, agent, gmap, observers, mode="any", closing=()):
+def addressed_to(b, agent, gmap, observers, mode="any", closing=(), decls=None):
     """Is message `b` in `agent`'s inbox? `mode` is the --addressed vocabulary: `any` = to me,
     my groups, or everyone (an observer seat sees the full log); `direct` = only messages naming
     me; `broadcast` = only messages to all.
@@ -2712,12 +2789,32 @@ def addressed_to(b, agent, gmap, observers, mode="any", closing=()):
     seat is filtered by role only."""
     to = b["to"]
     is_closing = agent in closing
+    # THE SENDER BOUND, applied before any addressing question: `r-cos-bounded-inbox` and
+    # `r-engineer-contact` bound an inbox to NAMED SENDERS, and that is a property of WHO IS
+    # SPEAKING, not of how the message is addressed — so it cuts a broadcast, a group message and a
+    # by-name message alike. That is the owner's sentence in full ("receiving all messages, not only
+    # those addressed to him; only u and master can talk to him"): one declared field answers both
+    # halves.
+    #
+    # This is BELT-AND-BRACES, not the enforcement: `send` refuses a non-permitted sender at the
+    # CLI (see cmd_send), so a bounded message should never reach the log at all. This catches the
+    # two that can — a `--force` override, and a message that predates the bound. It is safe to cut
+    # here for exactly the reason the closing cut is: the sender was told at send time and still
+    # HOLDS its message, so nothing is accepted-then-dropped. And it is never SILENT — `read`'s
+    # withheld footer names every message addressed to this seat that this predicate cut, with its
+    # number, which is what keeps a bound from manufacturing G-94's failure while fixing its family.
+    #
+    # No descriptor in any package declares `senders:` today, so this is None for every seat and
+    # the mechanism ships INERT until one does.
+    bound = ((decls or {}).get(agent) or {}).get("senders")
+    if bound is not None and b["sender"] not in bound:
+        return False
     if to == "all":
         # A special-case seat, or any seat mid-close, is cut from the room's broadcast — by TYPE
         # for the watcher, entirely for the rest. Applied before the observer short-circuit: an
         # observer reads the full log by grant, but the owner's directive is about what LANDS in
         # a system seat's inbox, and a grant to read everything is not an obligation to receive it.
-        if is_closing or not in_broadcast_scope(agent, b["type"]):
+        if is_closing or not in_broadcast_scope(agent, b["type"], decls):
             return False
     elif to in gmap and agent in gmap.get(to, ()):
         # G-32: a GROUP is not a side door around the broadcast cut. The traffic the owner cut at
@@ -2729,7 +2826,7 @@ def addressed_to(b, agent, gmap, observers, mode="any", closing=()):
         # the braces; this is the belt, so even a deliberately-added member is filtered by TYPE
         # rather than by anyone remembering the rule. A message addressed to the seat BY NAME is
         # untouched — that invariant is what makes every one of these cuts safe.
-        if is_closing or not in_broadcast_scope(agent, b["type"]):
+        if is_closing or not in_broadcast_scope(agent, b["type"], decls):
             return False
     elif is_closing and to == agent and not closing_reaches(agent, b["sender"], None):
         # Belt-and-braces: `send` refuses a peer's direct message to a closing seat at the CLI, so
@@ -2745,7 +2842,7 @@ def addressed_to(b, agent, gmap, observers, mode="any", closing=()):
     return to == agent or to == "all" or (to in gmap and agent in gmap[to])
 
 
-def shows_in_inbox(b, agent, gmap, observers, mode="any", closing=()):
+def shows_in_inbox(b, agent, gmap, observers, mode="any", closing=(), decls=None):
     """THE one answer to "will `agent`'s `read` show message `b`" — `read`, `unread_for` and the
     WAKE half all route through it.
 
@@ -2762,14 +2859,20 @@ def shows_in_inbox(b, agent, gmap, observers, mode="any", closing=()):
     the READER, not of the addressing: `addressed_to` answers "is this in my inbox", and a seat's
     own sends are in its inbox and simply must not be re-served to it.
     """
-    return b["sender"] != agent and addressed_to(b, agent, gmap, observers, mode, closing)
+    return b["sender"] != agent and addressed_to(b, agent, gmap, observers, mode, closing,
+                                                 decls)
 
 
-def why_not_woken(b, agent, gmap, observers):
+def why_not_woken(b, agent, gmap, observers, decls=None):
     """The REASON `agent` is not woken, for the sender's summary line (T3: a narrowed inbox is
     never silent at either end — the sender always learns who did not get the nudge, and why)."""
+    bound = ((decls or {}).get(agent) or {}).get("senders")
+    if bound is not None and b["sender"] not in bound:
+        # Named distinctly from the generic cut: this one is about WHO IS SPEAKING, and a sender
+        # told only "not in its inbox" would look for the fault in its addressing.
+        return "bounded inbox: you are not a permitted sender"
     if b["to"] == "all" or (b["to"] in gmap and agent in gmap.get(b["to"], ())):
-        if not in_broadcast_scope(agent, b["type"]):
+        if not in_broadcast_scope(agent, b["type"], decls):
             return "special-case seat"
     return "not in its inbox"
 
@@ -3000,6 +3103,27 @@ def cmd_send(args):
               f"override (you are certain the seat must read this before it goes): --force",
               file=sys.stderr)
         sys.exit(1)
+
+    # THE SENDER BOUND (`r-cos-bounded-inbox`, `r-engineer-contact`) — refused HERE, at the CLI,
+    # because a bound enforced only at read time is the exact failure this family is being fixed
+    # for: the message would be accepted, written to the permanent log, and then silently swallowed,
+    # which is how G-94 lost a lifecycle handover. Refusing at send inverts that — the sender still
+    # HOLDS its message, learns immediately, and is told the route that works.
+    #
+    # Only a BY-NAME message is refused. A broadcast or a group message is not: it legitimately
+    # reaches every other member, and the bounded seat's copy is cut by `addressed_to` and then
+    # NAMED in that seat's withheld footer. Refusing the whole broadcast because one member bounds
+    # this sender out would narrow the room to protect one inbox.
+    bound = ((inbox_decls(args).get(args.to) or {}).get("senders")) if args.to != "all" else None
+    if bound is not None and sender not in bound and not force:
+        print(f"refused: '{args.to}' has a BOUNDED INBOX — it receives messages from "
+              f"{', '.join(sorted(bound))} only, and '{sender}' is not among them. This is a "
+              f"standing ruling about who may spend that seat's context, not a judgement of your "
+              f"message.\n"
+              f"You still hold it, and nothing is lost: send it to leader, who routes it.\n"
+              f"override (and it will still be filtered at that seat's read, though never "
+              f"silently — its footer names it): --force", file=sys.stderr)
+        sys.exit(1)
     if len(body) > MESSAGE_MAX and not force:
         print(f"refused: message is {len(body)} chars — max {MESSAGE_MAX}.\n"
               f"A body this long is a document, and every agent pays for it at every checkpoint. "
@@ -3080,6 +3204,7 @@ def deliver_wakes(args, base, sender, to, n, mtype="note"):
     # log line — it is not a recipient of this run at all. Briefing-DECLARED auto-wake seats are
     # by construction in the briefings, so they are unaffected.
     observers, auto_wake = observer_sets(args)
+    decls = inbox_decls(args)
     known = {r["agent"] for r in rows} | set(briefing_frontmatters(workers_dir(args)))
     recipients |= (auto_wake & known) - {sender}
 
@@ -3117,9 +3242,9 @@ def deliver_wakes(args, base, sender, to, n, mtype="note"):
     # every direct message in the room and a `read` that showed it none of them. `closing` is
     # passed empty because the branch above already ruled on it.
     for name in sorted(set(recipients) - closed_out):
-        if not shows_in_inbox(pending, name, gmap, observers, "any", ()):
+        if not shows_in_inbox(pending, name, gmap, observers, "any", (), decls):
             scope_skipped.setdefault(
-                why_not_woken(pending, name, gmap, observers), []).append(name)
+                why_not_woken(pending, name, gmap, observers, decls), []).append(name)
     for names in scope_skipped.values():
         recipients -= set(names)
 
@@ -3296,9 +3421,10 @@ def cmd_read(args):
 
     filtered = (args.type is not None) or (addressed != "any")
     closing = closing_seats(base)      # hoisted: the withheld pass below needs the same set
+    decls = inbox_decls(args)
     candidates = [b for b in blocks
                   if b["num"] > start
-                  and shows_in_inbox(b, me, gmap, observers, addressed, closing)
+                  and shows_in_inbox(b, me, gmap, observers, addressed, closing, decls)
                   and (args.type is None or b["type"] == args.type)]
     # G-94 — A SILENT FILTER AND AN EMPTY INBOX ARE THE SAME OUTPUT, and that is what made the
     # defect permanent rather than merely late: `read` answered "no new messages for leader" while
@@ -3313,7 +3439,7 @@ def cmd_read(args):
     # inbox exists to keep out, burying this signal in the noise it creates.
     withheld = [b["num"] for b in blocks
                 if b["num"] > start and b["to"] == me
-                and not shows_in_inbox(b, me, gmap, observers, addressed, closing)]
+                and not shows_in_inbox(b, me, gmap, observers, addressed, closing, decls)]
     limit = getattr(args, "limit", None)
     if limit is None:
         limit = 0 if args.all else READ_LIMIT  # --all = deliberate full replay
@@ -3410,8 +3536,14 @@ def cmd_status(args):
     print(f"{c('cursor:', C_LABEL)} #{cursor} of #{tail} in the log")
     print(f"{c('unread:', C_LABEL)} {len(waiting)} ({breakdown})")
     gmap = group_map(base)
+    # `set()` for observers is DELIBERATE and survives the unification: an observer reads the whole
+    # log by grant, and "asks waiting on YOU" must stay the asks it must personally answer, not
+    # every open ask in the room. What changes is that the composition `sender != me AND
+    # addressed_to` is no longer re-spelled here — this was the FIFTH site to derive that pair by
+    # hand, and re-deriving one predicate in five places is exactly the drift that let the wake half
+    # and the read half disagree for two fixes without either being wrong on its own.
     mine = [b for b in open_asks(blocks)
-            if b["sender"] != me and addressed_to(b, me, gmap, set(), "any", closing_seats(base))]
+            if shows_in_inbox(b, me, gmap, set(), "any", closing_seats(base), inbox_decls(args))]
     # A narrowed inbox must never be invisible to the seat living in it: a seat that sees fewer
     # messages than the room is sending has to be able to tell "filtered by design" from "the
     # wakes are broken", and the second is a real failure mode this run has already hit.
@@ -6290,6 +6422,93 @@ def _selftest_checks(args, failures, names):
         sd("alpha", "watcher", "a question only you can answer", type="note")
         check("G-20: DIRECT addressability is untouched — a message naming the seat always lands",
               "a question only you can answer" in rd("watcher", after=mark3, peek=True))
+
+        # ---- stage 3: a seat's inbox topology is DECLARED, not named in the kit ----
+        # `SPECIAL_CASE_SEATS` listed its members while its own comment described a MANDATE
+        # ("serve the SYSTEM or the ROOM") — which is exactly how `chief-of-staff` came to be
+        # omitted from the set whose definition described it, and why the next such seat would be
+        # forgotten identically. A kit-side list also freezes ONE campaign's role vocabulary into a
+        # tool every run shares: another run's `engineer` is narrowed by accident, its
+        # differently-named system seat is not. Both keys therefore live in the seat descriptor,
+        # beside observer/auto-wake, and ABSENCE means exactly today's behaviour.
+        check("stage 3: absent and `none` are DIFFERENT answers — a seat that declares nothing "
+              "keeps the built-in default, which is what lets this land INERT",
+              _fm_list("agent: x\n", "broadcast") is None
+              and _fm_list("agent: x\nbroadcast: none\n", "broadcast") == ["none"]
+              and _fm_list("agent: x\nsenders: leader, master\n", "senders")
+              == ["leader", "master"])
+        (pkg / "workers" / "bcast.md").write_text(
+            "---\nagent: bcast\nbroadcast: none\n---\nbrief\n")
+        (pkg / "workers" / "bnd.md").write_text(
+            "---\nagent: bnd\nsenders: leader, alpha\n---\nbrief\n")
+        d3 = inbox_decls(ns())
+        allnote = {"sender": "alpha", "to": "all", "type": "note"}
+        check("stage 3 / D8: a seat is narrowed BY ITS OWN DESCRIPTOR with no kit-side list "
+              "touched — `bcast` is in none of them, and without its declaration it is an "
+              "ordinary seat, so the narrowing demonstrably comes from the file",
+              broadcast_scope("bcast", d3) == frozenset()
+              and "bcast" not in SPECIAL_CASE_SEATS
+              and broadcast_scope("bcast") is None)
+        check("stage 3 / D1: the declared `broadcast: none` cuts the room's broadcast from that "
+              "seat's inbox — the axis `in_broadcast_scope` already owned, now DECLARED",
+              addressed_to(allnote, "bcast", {}, set(), "any", (), d3) is False
+              and addressed_to(allnote, "bcast", {}, set(), "any", (), None) is True)
+        check("stage 3: a seat's OWN declaration outranks the built-in table — `engineer` takes "
+              "no broadcast by default, and a descriptor saying `broadcast: all` restores it. The "
+              "table is now the DEFAULT, not the mechanism",
+              broadcast_scope("engineer") == frozenset()
+              and broadcast_scope("engineer", {"engineer": {"broadcast": None}}) is None)
+        # ---- the SENDER BOUND (r-cos-bounded-inbox, r-engineer-contact) ----
+        # The third axis. (a) answers which broadcast TYPES reach me and (c) answers whether I am
+        # woken; neither answers WHO MAY ADDRESS ME AT ALL, which is the owner's actual sentence.
+        # Until this existed both rulings were enforced by the seat DECLINING BY HAND: the message
+        # still arrived, still spent the context, and a breach was visible only if the seat noticed.
+        pm = {"sender": "zeta", "to": "bnd", "type": "note"}
+        lm = {"sender": "leader", "to": "bnd", "type": "note"}
+        check("stage 3 / D3+E7: the bound cuts a BY-NAME message from a non-permitted sender, a "
+              "permitted one still lands, and a seat declaring no `senders:` is UNBOUNDED — every "
+              "existing package keeps working with no edit",
+              addressed_to(pm, "bnd", {}, set(), "any", (), d3) is False
+              and addressed_to(lm, "bnd", {}, set(), "any", (), d3) is True
+              and addressed_to({"sender": "zeta", "to": "alpha", "type": "note"},
+                               "alpha", {}, set(), "any", (), d3) is True)
+        check("stage 3 / D6: the SAME derivation bounds `engineer` for r-engineer-contact — the "
+              "mechanism keys on what a descriptor DECLARES, never on the seat's name, so it "
+              "cannot narrow one campaign's role vocabulary while missing another's",
+              addressed_to({"sender": "zeta", "to": "engineer", "type": "note"}, "engineer",
+                           {}, set(), "any", (),
+                           {"engineer": {"senders": frozenset({"leader", "master"})}}) is False
+              and addressed_to({"sender": "leader", "to": "engineer", "type": "note"}, "engineer",
+                               {}, set(), "any", (),
+                               {"engineer": {"senders": frozenset({"leader", "master"})}}) is True)
+        run(cmd_checkin, agent="bnd", summary="a bounded inbox", pane="%24")
+        _, pre_b = load_messages(base_g)
+        r_out, r_code = refuse(cmd_send, agent="zeta", to="bnd", message="a third sender",
+                               type="note", supersedes=None, re_num=None, file=None)
+        _, post_b = load_messages(base_g)
+        check("stage 3 / D4+E1+E2: a non-permitted sender is REFUSED AT SEND — told who may send "
+              "and the route that works — and the message is NEVER written, so the sender still "
+              "HOLDS it. A bound enforced only at read time would be the accept-then-silence that "
+              "cost G-94 a lifecycle handover, while claiming to fix its family",
+              r_code == 1 and "BOUNDED INBOX" in r_out and "alpha, leader" in r_out
+              and "send it to leader" in r_out and len(post_b) == len(pre_b))
+        mark_b = post_b[-1]["num"]
+        ok_out = sd("alpha", "bnd", "a permitted sender's message", type="note")
+        ok_skipped = ok_out.split("skipped (")[1] if "skipped (" in ok_out else ""
+        check("stage 3 / D7+E3: a PERMITTED sender still delivers, reads AND wakes — the bound "
+              "narrows an inbox, it must never close one",
+              "a permitted sender's message" in rd("bnd", after=mark_b, peek=True)
+              and "bnd" not in ok_skipped)
+        mark_f = load_messages(base_g)[1][-1]["num"]
+        f_out = sd("zeta", "bnd", "forced past the bound", type="note", force=True)
+        f_read = rd("bnd", after=mark_f, peek=True)
+        check("stage 3 / E4+D5+E5: a --force'd message from a non-permitted sender is filtered at "
+              "READ and NAMED in the withheld footer — never silently dropped — and the WAKE half "
+              "agrees through shows_in_inbox with no test of its own, telling the sender the "
+              "reason names WHO IS SPEAKING rather than sending it to check its addressing",
+              "forced past the bound" not in f_read
+              and "ADDRESSED TO YOU were withheld" in f_read
+              and "bounded inbox" in f_out)
 
         # G-21 — the STATE half. `close` sets it; this asserts the state's semantics directly so a
         # failure names the rule that broke rather than the ceremony around it.
