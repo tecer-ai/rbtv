@@ -21,6 +21,7 @@ const {
 const { minutesToTicks } = require('./warnings');
 
 const SCHEMA_SQL = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
+const { migrate, isFreshStore } = require('./migrations');
 
 const ACTION_TYPES = new Set(['launch-agent', 'fire-tool', 'start-workflow', 'send-message']);
 
@@ -400,8 +401,16 @@ class HeartStore {
     this.db = new DatabaseSync(this.dbPath);
     singleton = this;
 
+    // G-135: asked BEFORE schema.sql runs, and it can ONLY be asked here. Afterwards every store
+    // has the six tables and a brand-new one is indistinguishable from a months-old one — which is
+    // exactly why a schema change could never tell them apart and silently reached only the new.
+    const fresh = isFreshStore(this.db);
+
     this.db.exec('PRAGMA journal_mode = WAL;');
     this.db.exec(SCHEMA_SQL);
+    // schema.sql is six CREATE TABLE IF NOT EXISTS, so against an EXISTING store it has just done
+    // nothing at all. Everything that brings such a store forward happens here instead.
+    this.migration = migrate(this.db, { fresh });
     this.db.exec('PRAGMA foreign_keys = ON;');
     this.db.exec('PRAGMA busy_timeout = 5000;');
     this.db.exec('PRAGMA synchronous = NORMAL;');

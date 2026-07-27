@@ -36,6 +36,12 @@ const E_QUEUE_ROW_NOT_FOUND = 'E_QUEUE_ROW_NOT_FOUND';
 // sender read "unknown job" for a job that exists, which is a lie about the state.
 const E_JOB_EXISTS = 'E_JOB_EXISTS';
 
+// G-135. Raised at DAEMON START, which is the only place they can be raised: the store is opened
+// before anything else exists. Both are refusals to proceed on a store this build cannot honestly
+// operate — never a partial migration, never an open store that lies about its shape.
+const E_MIGRATION_FAILED = 'E_MIGRATION_FAILED';
+const E_STORE_NEWER_THAN_CODE = 'E_STORE_NEWER_THAN_CODE';
+
 module.exports = {
   HeartStoreError,
   E_SECOND_WRITER,
@@ -50,4 +56,6 @@ module.exports = {
   E_BAD_MODE,
   E_QUEUE_ROW_NOT_FOUND,
   E_JOB_EXISTS,
+  E_MIGRATION_FAILED,
+  E_STORE_NEWER_THAN_CODE,
 };

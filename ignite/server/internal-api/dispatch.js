@@ -317,6 +317,8 @@ const NOT_WIRE_REACHABLE = new Map([
   ['E_DUPLICATE_PROFILE', 'duplicate profile name at config-load; never raised in a handler'],
   ['E_SYSTEMD_NOT_AVAILABLE', 'carrier availability check at boot; never raised in a handler'],
   ['E_ORPHAN_RESCAN_FAILED', 'boot orphan rescan only (spawn.orphanRescan); dispatch never calls it'],
+  ['E_MIGRATION_FAILED', 'heart-store schema migration at store OPEN (G-135); the store is constructed before any listener exists, so the daemon refuses to start and no request path is reachable'],
+  ['E_STORE_NEWER_THAN_CODE', 'heart-store version check at store OPEN (G-135); same boot-only path — refusing a store written by a newer build, before the daemon serves anything'],
   // A genuine internal fault — the anonymous INTERNAL fall-through IS the honest wire answer
   // (batch-08 item 7 ruled it correctly absent; a map row would add nothing but false precision).
   ['E_SECOND_WRITER', 'single-writer invariant breach — a real daemon fault; INTERNAL is honest'],
