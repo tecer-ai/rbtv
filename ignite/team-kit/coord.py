@@ -2253,6 +2253,110 @@ def closing_seats(base):
     return {seat for seat in load_closing(base) if closing_entry(base, seat) is not None}
 
 
+# ---- G-134: the AWAITING-CLOSE debt ----------------------------------------------------------
+# A seat can complete its OWN lifecycle (`checkout` — its last act per protocol §8) but only the
+# leader can free its resources (`close-seat`, which kills the pane and verifies the harness pids
+# are gone). Nothing bounded, drove, or even NOTICED the interval between the two: a seat read
+# `active: no` on the roster while its pane held RAM against a 2800 MB launch floor, until a human
+# happened to look. One instance ran 41 minutes and was found by hand.
+#
+# THE DEFECT WAS NEVER A MISSING KILL. `close-seat` has always killed. The stated fix — have
+# `checkout` kill its own pane — was REFUSED and the refusal ratified: it would destroy the
+# in-place renew path, which respawns the successor into the SAME pane to preserve window layout
+# (G-12) and therefore needs that pane alive at close time. `depart` is the wrong precedent; it is
+# a seat leaving for good, with no renewal question open. `checkout` is the half that KEEPS it open.
+#
+# So the record is written, not the kill: checkout ASSERTS the debt (who, which pane, whether the
+# transcript landed, when), and close-seat/depart clear it. That makes #259's ratified hand-mapping
+# — roster-done + pane-alive + transcript-EXISTS -> kill by pane id — a fact the tool WROTE rather
+# than a state a later pass RECONSTRUCTS from roster + tmux + filesystem. This run has catalogued
+# six instances of inferring a property from ambient context (G-101, G-107, G-121, G-124, G-128,
+# and the engineer's own circular origin); a reaper that re-derives the debt each pass would be the
+# seventh. An assertion at the moment of truth beats an inference at the moment of action.
+#
+# ⚠ THIS STATE DELIBERATELY DOES NOT EXPIRE, and that is the one place it must NOT copy `closing`
+# above. There, expiry is fail-safe: a dead closer would otherwise leave its target narrowed and
+# silent forever, so forgetting is the safer error. Here the entry IS the leak report — an expiry
+# would delete the evidence of a pane still holding memory and restore exactly the silence this
+# exists to end. A debt that ages out unpaid is not a debt.
+
+def awaiting_path(base):
+    return base / "awaiting-close.json"
+
+
+def load_awaiting(base):
+    """{seat: {"since", "pane", "transcript", "exported"}} — seats that finished their own
+    lifecycle and whose resources the leader has not yet freed.
+
+    Never fatal, same as `load_closing`: an unreadable file reads as "no debt". The fail-safe
+    direction differs from closing's for a reason worth stating — a lost entry costs a leaked pane
+    someone must find by hand (recoverable, and the roster still shows the seat inactive), whereas
+    raising here would take down `checkout`, the one act a finishing seat must always be able to
+    complete."""
+    path = awaiting_path(base)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def set_awaiting(base, seat, pane, transcript, exported):
+    """Record the debt at checkout. Best-effort: bookkeeping ABOUT a checkout must never break the
+    checkout itself — 7.37 already ruled that shape for the session trace, and a seat that cannot
+    check out is worse than a debt nobody recorded.
+
+    `exported` is stored rather than inferred from `transcript` being truthy, because the two
+    genuinely differ: an export can be SKIPPED (a dead pane, `--no-export`) and #259's mapping
+    gates the kill on the transcript EXISTING. A reaper must be able to tell "safe to kill" from
+    "not yet safe" without re-running the export to find out."""
+    try:
+        with coord_lock(base):
+            data = load_awaiting(base)
+            # str() at the boundary: `export_transcript` hands back a Path, and a Path is not JSON
+            # serializable — an uncoerced one raises INSIDE the checkout it is bookkeeping for.
+            # Caught by the selftest before it ever reached a live room, which is the whole point
+            # of writing the record through a fixture that runs the real verb.
+            data[seat] = {"since": now(), "pane": str(pane or ""),
+                          "transcript": str(transcript or ""), "exported": bool(exported)}
+            atomic_write(awaiting_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def clear_awaiting(base, seat):
+    """Drop the debt — the leader has freed the seat's resources. Returns True when one was
+    actually cleared, so the caller can say so rather than claim it unconditionally."""
+    try:
+        with coord_lock(base):
+            data = load_awaiting(base)
+            if seat not in data:
+                return False
+            del data[seat]
+            atomic_write(awaiting_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def awaiting_debts(base, live=None):
+    """[(seat, entry, age_min, pane_alive)] oldest first — the debt, ready to render or to reap.
+
+    `pane_alive` is resolved against the live pane set so a debt whose pane is ALREADY gone (killed
+    by hand, or the whole window torn down) is distinguishable from one still holding memory. Both
+    are debts — the record is stale either way and the leader still owes a `close-seat` to complete
+    the roster and session trace — but only one of them is costing RAM."""
+    panes = live_panes() if live is None else live
+    out = []
+    for seat, entry in load_awaiting(base).items():
+        age = closing_age_min(entry)
+        out.append((seat, entry, age, bool(entry.get("pane")) and entry["pane"] in panes))
+    return sorted(out, key=lambda r: (-1 if r[2] is None else r[2]), reverse=True)
+
+
 def set_closing(base, seat, closer):
     """Mark `seat` as closing. Best-effort like every other coordination side-effect: a failure to
     write must never abort a close that has already spawned its closer."""
@@ -2498,6 +2602,7 @@ def cmd_checkout(args):
         sys.exit(1)
     # T3: the export is the seat's last durable artifact and was routinely forgotten — mechanize
     # it instead of teaching it (protocol item 8). --no-export is the escape for a dead pane.
+    out, err = "", "--no-export"
     if not getattr(args, "no_export", False):
         out, err = export_transcript(args, me, "checkout")
         print(f"transcript: {out}" if not err else f"transcript skipped — {err}")
@@ -2508,6 +2613,12 @@ def cmd_checkout(args):
 
     update_row(base, me, flip)
     print(f"checked out: {me}")
+    # G-134: the seat's half of the lifecycle is now done and its resources are NOT freed — only
+    # `close-seat` kills the pane. Assert that debt here, at the one moment every input is known
+    # for certain, instead of leaving a later pass to reconstruct it from roster + tmux + fs.
+    if set_awaiting(base, me, (row or {}).get("pane", ""), out, not err):
+        print(f"awaiting close: {me} recorded — its pane is STILL LIVE until leader runs "
+              f"`{coord_invocation(args)} close-seat {me}`")
     sid, cerr = session_trace_safe(session_close, args, me)   # 7.37: checkout ends the session as surely as a close does
     if cerr:
         print(c(f"WARNING sessions.csv row NOT completed — {cerr}. The close itself stands.",
@@ -2596,6 +2707,22 @@ def cmd_workers(args):
         pane_col = "{:<6}".format(r["pane"] or "-")
         print(f"{c(name_col, C_LABEL)} {c(state_col, tone)} pane={pane_col}{cursor}{lag} {summary}"
               f"  (in {r['checkin']}{', out ' + r['checkout'] if r['checkout'] else ''})")
+    # G-134: the debt is surfaced HERE because a record nobody reads is not a fix, and the roster
+    # is where leader already looks to decide lifecycle. Rendered oldest-first with the pane's LIVE
+    # state, because the two debts differ in what they cost: a live pane is still holding memory
+    # against the launch floor, a dead one is only an incomplete record. Both still owe a
+    # `close-seat` — the roster and session trace are not finished until it runs.
+    for seat, entry, age, alive in awaiting_debts(base, live):
+        aged = f"{age}min" if age is not None else "unknown age"
+        if alive:
+            print(c(f"awaiting close: {seat} — checked out {aged} ago and its pane "
+                    f"{entry.get('pane') or '?'} IS STILL LIVE, holding memory against the launch "
+                    f"floor. transcript {'exported' if entry.get('exported') else 'NOT exported'}"
+                    f" — {coord_invocation(args)} close-seat {seat}", C_DEAD))
+        else:
+            print(c(f"awaiting close: {seat} — checked out {aged} ago; its pane is already gone, "
+                    f"but the close never ran, so the roster and session trace are unfinished "
+                    f"— {coord_invocation(args)} close-seat {seat} --no-export", C_HINT))
     # P32: the watcher is the run's sentinel and NOTHING watched it. Its loop is detached, so a
     # dead loop looks exactly like a quiet run — no flags either way. The roster view is where
     # leader already looks, so the heartbeat is checked here rather than in a new command.
@@ -4764,6 +4891,12 @@ def cmd_close_seat(args):
     if clear_closing(base, args.target):
         print(f"inbox: '{args.target}' closing state cleared — the narrowing does not outlive the "
               f"close")
+    # G-134: the debt is settled by the act that actually frees the resources. Cleared here rather
+    # than at the kill below so the RENEW path clears it too — an in-place renew keeps the pane
+    # deliberately (G-12), and a debt left standing for a seat that is back and running would make
+    # the record lie in the opposite direction.
+    if clear_awaiting(base, args.target):
+        print(f"awaiting close: '{args.target}' debt settled")
     old_window = ""
     if old_pane:
         old_window = tmux_pane_window(old_pane)
@@ -4899,6 +5032,10 @@ def cmd_depart(args):
     # G-21: a seat that departs under its own steam mid-close (or one whose close-seat never ran)
     # must not leave its closing flag behind for a future occupant of the name.
     clear_closing(base, me)
+    # G-134: a departure frees its OWN resources — it kills its pane below and arms a reaper for
+    # any ghost — so it owes nothing and must not leave a debt behind. This also covers the
+    # checkout-then-depart order: the entry checkout wrote is settled by the act that made it moot.
+    clear_awaiting(base, me)
     pane = (row or {}).get("pane") or detect_pane(None)
     if pane:
         # G-10: kill-pane SIGHUPs the process group; a harness blocked elsewhere survives as a
@@ -5735,6 +5872,21 @@ def _selftest_checks(args, failures, names):
               "transcript:" not in out
               and len(list((pkg / "workers" / "beta" / "transcripts").glob("*.txt")))
               == before_exports)
+        # G-134 — THE SEAM, asserted on the REAL verb rather than on the helpers it calls. The
+        # helper checks further down all passed with `checkout`'s call to set_awaiting disabled:
+        # both halves green, the COMPOSITION never taken, which is G-124's lesson exactly. This is
+        # the row that fails when the wiring is cut, and it is the one that matters — the debt is
+        # worthless if the act that incurs it does not record it.
+        check("G-134 (wiring): `checkout` ITSELF records the debt, and it names the pane the "
+              "leader must free — a checked-out seat's pane stays LIVE until close-seat, which is "
+              "the 41-minute leak this exists to make impossible to miss",
+              load_awaiting(base_dir(ns())).get("beta", {}).get("pane") == "%2"
+              and "awaiting close" in out)
+        cs_out = run(cmd_close_seat, agent="leader", target="beta", no_export=True, renew=False)
+        check("G-134 (wiring): and `close-seat` SETTLES it — the debt dies with the act that "
+              "actually frees the resources, so a settled seat never lingers in the leader's view "
+              "and the record cannot outlive the leak it reports",
+              "beta" not in load_awaiting(base_dir(ns())) and "debt settled" in cs_out)
 
         check("auto-name: checkin titles the pane after the agent",
               ("%1", "alpha") in titles and ("%2", "beta") in titles)
@@ -6992,6 +7144,50 @@ def _selftest_checks(args, failures, names):
               "silence the room",
               load_closing(base_g) == {} and closing_seats(base_g) == set())
         clear_closing(base_g, "zeta")
+
+        # ---- G-134: the AWAITING-CLOSE debt ----
+        # A seat finishes its own lifecycle at `checkout`; only `close-seat` frees its resources.
+        # Nothing bounded or noticed the gap, and one instance ran 41 minutes with the pane holding
+        # memory against a 2800 MB launch floor. The stated fix (checkout kills its own pane) was
+        # REFUSED: it destroys the in-place renew path, which respawns into the SAME pane (G-12).
+        check("G-134: `checkout` ASSERTS the debt at the one moment every input is known — who, "
+              "which pane, whether the transcript landed. A later pass reconstructing this from "
+              "roster + tmux + fs would be the seventh infer-from-ambient defect this run has "
+              "catalogued (G-101, G-107, G-121, G-124, G-128, the circular origin)",
+              set_awaiting(base_g, "theta", "%99", "/tmp/t.txt", True)
+              and load_awaiting(base_g)["theta"]["pane"] == "%99"
+              and load_awaiting(base_g)["theta"]["exported"] is True)
+        # ⚠ THE FIXTURE IS THE CHECK. An earlier version of this bar used transcript=""/exported=
+        # False and transcript=<path>/exported=True — two rows where `exported == bool(transcript)`,
+        # so a mutation replacing the stored flag with `bool(transcript)` PASSED IT. The bar was
+        # green over the exact inference it existed to forbid. The discriminating row is the one
+        # where the two DISAGREE: an export that produced a path and still FAILED.
+        check("G-134: `exported` is STORED, not inferred from the transcript path being truthy — "
+              "an export can hand back a path and still fail, and #259's ratified mapping gates "
+              "the kill on the transcript EXISTING, so a reaper must tell 'safe to kill' from 'not "
+              "yet safe' without re-running the export to find out",
+              set_awaiting(base_g, "iota", "%98", "/tmp/partial.txt", False)
+              and load_awaiting(base_g)["iota"]["exported"] is False
+              and load_awaiting(base_g)["iota"]["transcript"] == "/tmp/partial.txt")
+        _live = {"%99"}
+        _debts = {s: (a, alive) for s, _e, a, alive in awaiting_debts(base_g, _live)}
+        check("G-134: a debt whose pane is ALREADY GONE is distinguished from one still holding "
+              "memory — both still owe a close-seat (the roster and session trace are unfinished "
+              "either way), but only one is costing RAM, and telling the leader they are the same "
+              "would be the silence this record exists to end",
+              _debts["theta"][1] is True and _debts["iota"][1] is False)
+        check("G-134: the debt is SETTLED by the act that frees the resources, and clearing is "
+              "reported honestly — True only when something was actually cleared",
+              clear_awaiting(base_g, "theta") is True
+              and clear_awaiting(base_g, "theta") is False
+              and "theta" not in load_awaiting(base_g))
+        awaiting_path(base_g).write_text("{ not json", encoding="utf-8")
+        check("G-134: a corrupt awaiting-close.json reads as NO DEBT rather than raising — the "
+              "fail-safe direction differs from closing's deliberately: a lost entry costs a pane "
+              "someone finds by hand, but raising here would break `checkout`, the one act a "
+              "finishing seat must always be able to complete",
+              load_awaiting(base_g) == {} and awaiting_debts(base_g, set()) == [])
+        awaiting_path(base_g).unlink()
 
         # ---- G-32: a GROUP is not a side door around the inbox cut ----
         # The owner spotted the watcher sitting in THREE of the run's four groups: the G-20 cut was
