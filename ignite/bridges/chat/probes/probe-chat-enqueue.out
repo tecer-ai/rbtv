@@ -3,18 +3,18 @@
     "probe": "probe-chat-enqueue",
     "pass": true,
     "EXIT": 0,
-    "WALL_MS": 958,
+    "WALL_MS": 955,
     "SKIPPED_COUNT": 0
   },
   "entries": [
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "step": "stood up throwaway daemon + mock Slack",
-      "gatewayAddr": "127.0.0.1:33237",
-      "slackApiBase": "http://127.0.0.1:37197"
+      "gatewayAddr": "127.0.0.1:37305",
+      "slackApiBase": "http://127.0.0.1:38035"
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "transport": {
         "level": "info",
         "message": "Socket Mode connection established (hello)",
@@ -22,14 +22,14 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "transport": {
         "level": "warn",
         "message": "conversations.list failed"
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "warn",
         "message": "goal↔channel recovery failed — goal channels will read as unroutable until re-registered",
@@ -37,7 +37,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "reply leg started",
@@ -46,7 +46,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "chat bridge started",
@@ -56,15 +56,15 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "step": "bridge connected to mock Socket Mode (outbound WS)"
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "step": "pushed a user message from allowlisted U-owner"
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -73,7 +73,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "session-create job enqueued",
@@ -85,7 +85,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "reply leg armed for conversation",
@@ -94,7 +94,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -108,7 +108,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "step": "queue after",
       "queueDepth": 1,
       "enqueuedRow": {
@@ -120,17 +120,17 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "step": "enqueue result",
       "pass": true
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "step": "pushed redelivery test message (channel A)",
       "client_msg_id": "msg-redeliver-p7-2b"
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -139,7 +139,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "session-create job enqueued",
@@ -151,7 +151,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "reply leg armed for conversation",
@@ -160,7 +160,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -174,13 +174,13 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "step": "queue after first push (channel A)",
       "queueDepth": 2,
       "delta": 1
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "transport": {
         "level": "debug",
         "message": "duplicate slack event dropped (redelivery guard)",
@@ -189,19 +189,19 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "step": "re-pushed same client_msg_id on different channel (simulated redelivery)",
       "client_msg_id": "msg-redeliver-p7-2b"
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "step": "queue after redelivery (channel B)",
       "queueDepth": 2,
       "delta": 0,
       "deduped": true
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -210,7 +210,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "chat thread bound to chain thread",
@@ -219,7 +219,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "follow-up send-message enqueued",
@@ -232,7 +232,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "reply leg armed for conversation",
@@ -241,7 +241,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -257,13 +257,13 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "step": "live-chain follow-up enqueued one send-message",
       "sendMessages": 1,
       "delta": 1
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "transport": {
         "level": "debug",
         "message": "duplicate slack event dropped (redelivery guard)",
@@ -273,18 +273,18 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:47Z",
+      "ts": "2026-07-27T04:44:23Z",
       "step": "re-pushed IDENTICAL follow-up on SAME channel (realistic Slack redelivery)",
       "client_msg_id": "msg-followup-redeliver-p7-2b"
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:23Z",
       "step": "send-message count after same-channel redelivery",
       "sendMessages": 1,
       "deduped": true
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -293,7 +293,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "chat thread bound to chain thread",
@@ -302,7 +302,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "follow-up send-message enqueued",
@@ -315,7 +315,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "reply leg armed for conversation",
@@ -324,7 +324,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:23Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -340,7 +340,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:23Z",
       "transport": {
         "level": "debug",
         "message": "duplicate slack event dropped (redelivery guard)",
@@ -349,19 +349,19 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:23Z",
       "step": "re-pushed IDENTICAL client_msg_id-less follow-up (fallback key (channel,event_ts))",
       "channel": "C-live2",
       "event_ts": "1700000000.008500"
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:24Z",
       "step": "send-message count after fallback-key redelivery",
       "sendMessages": 2,
       "deduped": true
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:24Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -370,7 +370,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:24Z",
       "bridge": {
         "level": "info",
         "message": "session-create job enqueued",
@@ -382,7 +382,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:24Z",
       "bridge": {
         "level": "info",
         "message": "reply leg armed for conversation",
@@ -391,7 +391,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:24Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -405,7 +405,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:24Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -414,7 +414,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:24Z",
       "bridge": {
         "level": "info",
         "message": "session-create job enqueued",
@@ -426,7 +426,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:24Z",
       "bridge": {
         "level": "info",
         "message": "reply leg armed for conversation",
@@ -435,7 +435,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:24Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -449,20 +449,20 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:24Z",
       "step": "two distinct messages both enqueued (never-over-drop)",
       "delta": 2,
       "ok": true
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:24Z",
       "bridge": {
         "level": "info",
         "message": "reply leg stopped"
       }
     },
     {
-      "ts": "2026-07-27T04:22:48Z",
+      "ts": "2026-07-27T04:44:24Z",
       "bridge": {
         "level": "info",
         "message": "chat bridge stopped"

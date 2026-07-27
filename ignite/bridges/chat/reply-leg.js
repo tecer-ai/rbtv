@@ -176,6 +176,23 @@ function createReplyLeg({
               const byThread = chainThread !== null && a.thread === chainThread;
               if (!byQueue && !byThread) continue;
               const execId = Number(a.execId);
+              // TEACH THE THREAD MAP WHAT WE JUST LEARNED. The driver has the
+              // conversation's exec-id in hand here; the thread map is the thing that
+              // has to resolve a chain thread for the NEXT turn. Binding it now is
+              // what makes the follow-up leg window-independent: `bindSessionExecId`
+              // is FIRST-WINS immutable, so this records the FIRST exec and every
+              // later turn derives `exec-<first exec_id>` by convention regardless of
+              // liveness (thread-map RESOLUTION ORDER tier 4).
+              //
+              // Without this the two modules each hold half the answer and neither
+              // completes it: the driver knows the exec but only watches it, while
+              // resolveChainThread re-derives from `recent_ticks`, which is WINDOWED
+              // to the last ~10 ticks. A conversation whose session ended and whose
+              // spawn then aged out of that window resolves `exec-id-unknown` and the
+              // follow-up is honestly DECLINED — correct behaviour, avoidable cause.
+              // Found live: a follow-up sent ~2.5 min after its first turn (while a
+              // seat close/renew was captured in between) declined for exactly this.
+              threadMap.bindSessionExecId(id, execId);
               if (!p.delivered.has(execId) && !p.watching.has(execId)) {
                 p.watching.set(execId, { capturedAt: Date.now(), attempts: 0 });
                 log('info', 'reply leg captured spawn exec for conversation', { chatThreadId: id, queueId: p.queueId, execId, matchedBy: byQueue ? 'queue-id' : 'chain-thread' });

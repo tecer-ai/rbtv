@@ -5,29 +5,29 @@
     "checks": 22,
     "failed": [],
     "EXIT": 0,
-    "WALL_MS": 6,
+    "WALL_MS": 5,
     "SKIPPED_COUNT": 0
   },
   "entries": [
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "name derivation round-trips (bijection)",
       "pass": true,
       "name": "test-build-core-daemon-mvp",
       "back": "build-core-daemon-mvp"
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "non-derivable goal id refused, never sanitized",
       "pass": true
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "over-long derived name refused",
       "pass": true
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "registerGoal creates the channel once",
       "pass": true,
       "first": {
@@ -40,7 +40,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "registerGoal is idempotent — second call creates nothing",
       "pass": true,
       "second": {
@@ -53,7 +53,7 @@
       "createCalls": 1
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "name_taken adopts the existing channel",
       "pass": true,
       "res": {
@@ -67,20 +67,20 @@
       "createAttempts": 1
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "recover() rebinds every derivable channel from the workspace",
       "pass": true,
       "alpha": "C_A",
       "beta": "C_B"
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "recover() ignores channels that derive no goal id",
       "pass": true,
       "size": 2
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "DM routes as MASTER traffic, never goal traffic",
       "pass": true,
       "dm": {
@@ -93,7 +93,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "mapped channel routes as GOAL traffic, attributed to its goal",
       "pass": true,
       "goal": {
@@ -106,7 +106,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "unmapped channel refused — NOTHING enqueued",
       "pass": true,
       "stray": {
@@ -116,7 +116,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "group DM (mpim) refused — neither master nor goal",
       "pass": true,
       "group": {
@@ -126,13 +126,13 @@
       }
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "exactly two jobs enqueued across four inbound messages",
       "pass": true,
       "enqueued": 2
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "one channel = one goal thread (second message is a FOLLOW-UP, not a second session)",
       "pass": true,
       "firstLeg": "session-create",
@@ -141,7 +141,7 @@
       "sendMessages": 1
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "follow-up addresses the goal thread and never send-to-session",
       "pass": true,
       "thread": "exec-7",
@@ -150,7 +150,7 @@
       ]
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "goal reply posts in-channel at top level",
       "pass": true,
       "post": {
@@ -159,7 +159,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "a threaded inbound is answered inside its thread",
       "pass": true,
       "post2": {
@@ -167,7 +167,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "closeGoal ARCHIVES the channel (never deletes it)",
       "pass": true,
       "retired": {
@@ -179,12 +179,12 @@
       }
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "archived channel is unbound — later traffic is no longer goal traffic",
       "pass": true
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "closeGoal is idempotent on an already-retired goal",
       "pass": true,
       "again": {
@@ -196,7 +196,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "a refused archive fails loud and KEEPS the binding",
       "pass": true,
       "failed": {
@@ -208,7 +208,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:37:35Z",
+      "ts": "2026-07-27T04:44:24Z",
       "check": "bridge source contains NO invite/kick/delete channel call",
       "pass": true,
       "scanned": [
