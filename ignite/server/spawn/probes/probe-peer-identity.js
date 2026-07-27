@@ -42,8 +42,8 @@ function buildFixture({ seat = 'occupant', registerPid, runState = 'open' } = {}
   const runDir = path.join(goalDir, 'runs', run);
   const seatDir = path.join(runDir, 'seats', seat);
   fs.mkdirSync(seatDir, { recursive: true });
-  fs.writeFileSync(path.join(root, '.rbtv', 'goals', 'goals.csv'), `goal-id,state\n${goal},open\n`);
-  fs.writeFileSync(path.join(goalDir, 'runs.csv'), `run-id,state\n${run},${runState}\n`);
+  fs.writeFileSync(path.join(root, '.rbtv', 'goals', 'goals.csv'), `name,created,due,type,status\n${goal},2026-07-27,,one-shot,active\n`);
+  fs.writeFileSync(path.join(goalDir, 'runs.csv'), `run-id,type,state,taskforce-ids,opened,closed\n${run},fresh,${runState},tf-1,2026-07-27 01:30,\n`);
   fs.writeFileSync(path.join(runDir, 'taskforce.csv'), `seat,role\n${seat},executor\n`);
   fs.writeFileSync(path.join(seatDir, 'seat.md'), `---\nseat: ${seat}\n---\n`);
   fs.writeFileSync(

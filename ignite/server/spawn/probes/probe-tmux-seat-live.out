@@ -1,19 +1,19 @@
 probe: probe-tmux-seat-live
-started: 2026-07-27T17:30:15.455Z
+started: 2026-07-27T20:08:36.728Z
 command: node probes/probe-tmux-seat-live.js
-throwaway room created: a4-live-1799974 (never this run's room)
-live seat spawned: pane %172 pid 1799984 unit rbtv-seat-632cddfb-882e-449b-9081-e2d883c859d7
-identity at birth: pid=1799984 starttime=160321070 unit=rbtv-seat-632cddfb-882e-449b-9081-e2d883c859d7 — the pair, plus the one handle a respawn cannot reproduce
-legA scope cgroup (systemd's own record): /user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-seat-632cddfb-882e-449b-9081-e2d883c859d7.scope
-legA /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-seat-632cddfb-882e-449b-9081-e2d883c859d7.scope/memory.max = 402653184
-legA /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-seat-632cddfb-882e-449b-9081-e2d883c859d7.scope/pids.max = 64
-legA /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-seat-632cddfb-882e-449b-9081-e2d883c859d7.scope/cpu.max = 50000 100000
-legA processes IN that cgroup: 1799984 1799986 1799987 (pane pid 1799984)
+throwaway room created: a4-live-2090797 (never this run's room)
+live seat spawned: pane %201 pid 2090808 unit rbtv-seat-def33d06-9ec5-4c85-90ac-96be110a5209
+identity at birth: pid=2090808 starttime=161271198 unit=rbtv-seat-def33d06-9ec5-4c85-90ac-96be110a5209 — the pair, plus the one handle a respawn cannot reproduce
+legA scope cgroup (systemd's own record): /user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-seat-def33d06-9ec5-4c85-90ac-96be110a5209.scope
+legA /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-seat-def33d06-9ec5-4c85-90ac-96be110a5209.scope/memory.max = 402653184
+legA /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-seat-def33d06-9ec5-4c85-90ac-96be110a5209.scope/pids.max = 64
+legA /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-seat-def33d06-9ec5-4c85-90ac-96be110a5209.scope/cpu.max = 50000 100000
+legA processes IN that cgroup: 2090808 2090810 (pane pid 2090808)
 legA caps-at-kernel PASS: memory.max read from the HOST kernel for the LIVE tmux-spawned seat == declared 384M. Not the profile's word for it, and not the seat's.
 --- seat self-report (written by the seat, read from outside) ---
   cgroup=/
   seat_view_of_own_cgroup=/
-  cwd=/tmp/a4-live-gS0hyi/work/.rbtv/goals/a4goal/runs/run-1/seats/a4seat
+  cwd=/tmp/a4-live-oBbVMk/work/.rbtv/goals/a4goal/runs/run-1/seats/a4seat
   home_entries=
   absent=/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv
   absent=/home/henri/ht-wkdir/.env
@@ -24,9 +24,9 @@ legA caps-at-kernel PASS: memory.max read from the HOST kernel for the LIVE tmux
 legB absence: in-namespace listing of the vault root = "ls: cannot access '/home/henri/ht-wkdir/second-brain': No such file or directory"
          host listing of the same path has 21 entries
 legB on-disk: the breach write left NO file on the host — checked from outside the namespace after the seat ran
-legC placement: the seat is a pane of the throwaway room (panes: %171 %172 %159 %163 %145 %165 %164 %154 %150 %146)
-throwaway room a4-live-1799974 killed; evidence left under /tmp/a4-live-gS0hyi
+legC placement: the seat is a pane of the throwaway room (panes: %200 %201 %177 %163 %197 %190 %198 %150 %199 %191 %192 %195 %194)
+throwaway room a4-live-2090797 killed; evidence left under /tmp/a4-live-oBbVMk
 status: PASS
 exit: 0
-wall_ms: 326
-ended: 2026-07-27T17:30:15.781Z
+wall_ms: 335
+ended: 2026-07-27T20:08:37.063Z

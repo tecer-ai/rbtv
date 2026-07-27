@@ -130,8 +130,8 @@ capture('probe-tmux-seat', async (lines) => {
     const runDir = path.join(goalDir, 'runs', 'run-1');
     const seatDir = path.join(runDir, 'seats', 'probe-seat');
     fs.mkdirSync(seatDir, { recursive: true });
-    fs.writeFileSync(path.join(ctx.workRoot, '.rbtv', 'goals', 'goals.csv'), 'goal-id,state\nprobegoal,open\n');
-    fs.writeFileSync(path.join(goalDir, 'runs.csv'), 'run-id,state\nrun-1,open\n');
+    fs.writeFileSync(path.join(ctx.workRoot, '.rbtv', 'goals', 'goals.csv'), 'name,created,due,type,status\nprobegoal,2026-07-27,,one-shot,active\n');
+    fs.writeFileSync(path.join(goalDir, 'runs.csv'), 'run-id,type,state,taskforce-ids,opened,closed\nrun-1,fresh,open,tf-1,2026-07-27 01:30,\n');
     fs.writeFileSync(path.join(runDir, 'taskforce.csv'), 'taskforce-id,seat\ntf-1,probe-seat\n');
     fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,session-id,pid,pid-starttime,started,ended\n');
     fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: probe-seat\n---\nbriefing\n');

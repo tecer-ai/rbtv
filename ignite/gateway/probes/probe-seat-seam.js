@@ -69,8 +69,8 @@ function fixture(seat) {
   const runDir = path.join(goalDir, 'runs', 'run-1');
   const seatDir = path.join(runDir, 'seats', seat);
   fs.mkdirSync(seatDir, { recursive: true });
-  fs.writeFileSync(path.join(root, '.rbtv', 'goals', 'goals.csv'), 'goal-id,state\nseam-goal,open\n');
-  fs.writeFileSync(path.join(goalDir, 'runs.csv'), 'run-id,state\nrun-1,open\n');
+  fs.writeFileSync(path.join(root, '.rbtv', 'goals', 'goals.csv'), 'name,created,due,type,status\nseam-goal,2026-07-27,,one-shot,active\n');
+  fs.writeFileSync(path.join(goalDir, 'runs.csv'), 'run-id,type,state,taskforce-ids,opened,closed\nrun-1,fresh,open,tf-1,2026-07-27 01:30,\n');
   fs.writeFileSync(path.join(runDir, 'taskforce.csv'), `seat,role\n${seat},executor\n`);
   fs.writeFileSync(path.join(seatDir, 'seat.md'), `---\nseat: ${seat}\n---\n`);
   fs.writeFileSync(path.join(runDir, 'sessions.csv'),

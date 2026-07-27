@@ -11,4 +11,4 @@ PASS  the caller's own x-seat claim is ignored
 CHECKS: 8/8 passed
 SEAM_OK: true
 EXIT: 0
-WALL_MS: 731
+WALL_MS: 766

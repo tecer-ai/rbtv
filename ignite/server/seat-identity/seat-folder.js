@@ -87,9 +87,21 @@ function resolveSeatFromCwd(startDir) {
 function checkRunLive(parsed) {
   const goals = readCsv(parsed.goalsCsv);
   if (!goals.exists) return { ok: false, reason: `goals.csv unreadable at ${parsed.goalsCsv}` };
-  const goalCol = goals.header.includes('goal-id') ? 'goal-id' : (goals.header.includes('goal') ? 'goal' : null);
-  if (!goalCol) return { ok: false, reason: `goals.csv carries no goal-id/goal column (header: ${goals.header.join(',')})` };
-  if (!goals.rows.some((r) => r[goalCol] === parsed.goal)) {
+  // The goals-index identifies a goal by `name`. That is not a preference: the goals-index is a
+  // FULL deterministic projection of each goal's `goal.md` frontmatter (KG `goals-index`, settled
+  // by decisions.md#d-goal-descriptor-md), and `name` is the column that projection writes. The
+  // `goal-id`/`goal` columns this once accepted were never written by any projector — they existed
+  // only in the probes' own fixtures — so this gate refused EVERY legitimate seat on every real
+  // box while reading green (G-143).
+  //
+  // Read by the settled name and by no other. Accepting `name` ALONGSIDE the invented columns
+  // would fix today's symptom by widening a comparison until the disagreement vanishes, which is
+  // the thing that hid the defect in the first place. A goals.csv with no `name` column is not a
+  // goals-index, and this says so rather than guessing which column might mean identity.
+  if (!goals.header.includes('name')) {
+    return { ok: false, reason: `goals.csv carries no name column (header: ${goals.header.join(',')}) — not a goals-index projection` };
+  }
+  if (!goals.rows.some((r) => r.name === parsed.goal)) {
     return { ok: false, reason: `goal ${parsed.goal} is not in ${parsed.goalsCsv}` };
   }
 

@@ -1,12 +1,12 @@
 probe: probe-peer-identity
-started: 2026-07-27T19:06:53.050Z
+started: 2026-07-27T20:08:10.538Z
 command: node probes/probe-peer-identity.js
 PASS P1 — uncaged caller RESOLVED to its seat from the connection alone
-       ok=true seat=occupant code=- callerPid=1985029
+       ok=true seat=occupant code=- callerPid=2090271
 PASS P1-ii — the verdict records that it came from the CONNECTION
        resolvedFrom=connection
 PASS P2 — CAGED caller RESOLVED (G-124: its own /proc cannot see the recorded host pid)
-       ok=true seat=occupant code=- callerPid=1985038 inode=29294361
+       ok=true seat=occupant code=- callerPid=2090280 inode=29789739
 PASS P3 — a caller CLAIMING another seat is resolved to its REAL one (no assertion channel)
        claimed=a-seat-i-am-not resolved=occupant
 PASS P4 — REFUSED: seat folder in a CLOSED run (G-126 checks apply on the peer path too)
@@ -25,5 +25,5 @@ PASS P10 — loopback recognised in v4, v6 and v4-mapped spellings; tailnet is n
 legs: ALL PASS
 status: PASS
 exit: 0
-wall_ms: 316
-ended: 2026-07-27T19:06:53.366Z
+wall_ms: 369
+ended: 2026-07-27T20:08:10.907Z

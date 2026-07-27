@@ -34,8 +34,8 @@ function fixture({ header = 'seat,session-id,pid,pid-starttime,tty,started,ended
   const runDir = path.join(goalDir, 'runs', 'run-1');
   const seatDir = path.join(runDir, 'seats', 'mine');
   fs.mkdirSync(seatDir, { recursive: true });
-  fs.writeFileSync(path.join(goalsDir, 'goals.csv'), 'goal-id,state\ntestgoal,open\n');
-  fs.writeFileSync(path.join(goalDir, 'runs.csv'), 'run-id,state\nrun-1,open\nrun-0,closed\n');
+  fs.writeFileSync(path.join(goalsDir, 'goals.csv'), 'name,created,due,type,status\ntestgoal,2026-07-27,,one-shot,active\n');
+  fs.writeFileSync(path.join(goalDir, 'runs.csv'), 'run-id,type,state,taskforce-ids,opened,closed\nrun-1,fresh,open,tf-1,2026-07-27 01:30,\nrun-0,fresh,closed,tf-1,2026-07-27 01:30,2026-07-27 13:11\n');
   fs.writeFileSync(path.join(runDir, 'taskforce.csv'), 'taskforce-id,seat\ntf-1,mine\n');
   fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: mine\n---\n');
   fs.writeFileSync(path.join(runDir, 'sessions.csv'), [header, ...rows].join('\n') + '\n');
