@@ -77,14 +77,15 @@ CLAUDE_WINDOW = 200_000  # default; overrides below
 def claude_window(model):
     """FALLBACK guess only — a pid-map record's `ctx.window` (the plan's real, per-session
     window straight from the statusline payload) always outranks this. Claude 5 family
-    (fable-5, sonnet-5) observed running 1M windows (verified via /context, 2026-07-24), as
-    does any [1m] long-context id; the rest 200k. RBTV_CONTEXT_WINDOW overrides everything
+    (fable-5, sonnet-5 verified via /context 2026-07-24; opus-5 verified via statusline
+    ctx.window payloads 2026-07-27) observed running 1M windows, as does any [1m]
+    long-context id; the rest 200k. RBTV_CONTEXT_WINDOW overrides everything
     (same env the orchestration hook honors)."""
     env = os.environ.get("RBTV_CONTEXT_WINDOW", "")
     if env.isdigit() and int(env) > 0:
         return int(env)
     m = model.lower()
-    if "[1m]" in m or "fable" in m or "sonnet-5" in m:
+    if "[1m]" in m or "fable" in m or "sonnet-5" in m or "opus-5" in m:
         return 1_000_000
     return CLAUDE_WINDOW
 # opencode context window by model-id substring (first match wins); its DB carries no window.
