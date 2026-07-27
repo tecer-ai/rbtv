@@ -458,11 +458,40 @@ def notify_leader(args, text):
 
 # ---------- system + leftover-window checks ----------
 
+# A flag re-fires when its condition has got MATERIALLY WORSE since the reading that last flagged.
+#
+# ⚠ WHY THESE NUMBERS, since a threshold nobody can justify is the next agent's cargo cult:
+# 250 MB is roughly HALF A SEAT — four seats closing returned ~2.4 GB on this box, ~600 MB each — so
+# a 250 MB slide is a materially different staffing picture, not noise. It also bounds the noise:
+# between the 2,800 MB launch floor and the 85%-used distress line (~1,162 MB available) there is
+# ~1,640 MB, so 250 MB yields at most ~6 further warnings across an entire slide to distress. And it
+# is calibrated against a REAL slide rather than imagined: 2,904 -> 2,773 -> 2,722 -> 2,695 MB over
+# ten minutes, measured tonight, which re-flags about once per 10-minute pass while a slide is
+# actually happening and goes quiet the moment RAM is merely low and stable.
+# 1.0 is one core's worth of load — the same "one unit of the resource" logic.
+PRESSURE_REFLAG_MEM_MB = 250
+PRESSURE_REFLAG_LOAD = 1.0
+
+
 def check_system(args, sysstate, notes):
     """PROP-9 — system memory/load as a first-class duty of the loop: the run's stuck-process
     pile-up OOM-killed the WATCHER itself, and nothing had the instrumentation to see the
-    pressure building. Flags once per episode; re-arms only when the pressure clears — the same
-    discipline as every other crossing. Returns the report line, or None where unmeasurable."""
+    pressure building. Returns the report line, or None where unmeasurable.
+
+    ⚠ A FLAG MUST BE ABLE TO FIRE AGAIN WHILE ITS CONDITION IS GETTING WORSE (leader ruling,
+    2026-07-27). This flagged ONCE PER EPISODE and re-armed only when the pressure CLEARED, which is
+    correct for a FLAPPING condition and wrong for a MONOTONIC one. Measured live the night it was
+    found: available RAM fell 2,904 -> 2,695 MB in ten minutes, the room heard about it exactly
+    once, and nothing further would have been said however far it fell — the next signal after that
+    single warning is the OOM that kills the seats AND this watcher, the one process that would have
+    reported it. Silence while the thing you warned about worsens is the same failure as silence
+    while it starts, arriving later.
+
+    So the flag ALSO re-arms on DETERIORATION, measured against the reading that last flagged rather
+    than against the threshold. Deliberately NOT a second gate: no threshold moves, nothing new is
+    refused, and the 2,800 floor and the 85%-used distress line are untouched and still serve their
+    separate purposes (conduct §8 — they must never be reconciled). The only thing that changes is
+    that the loop stops going quiet during a slide."""
     sp = system_pressure()
     if sp is None:
         return None
@@ -475,16 +504,39 @@ def check_system(args, sysstate, notes):
     if load_high:
         flags.append(f"LOAD {sp['load1']}/{sp['cores']}")
     if flags:
-        if not sysstate.get("notified_pressure"):
+        prev = sysstate.get("pressure_reading")
+        first = not sysstate.get("notified_pressure")
+        worse = ""
+        if not first and prev:
+            if mem_low and sp["avail_mb"] <= prev.get("avail_mb", 0) - PRESSURE_REFLAG_MEM_MB:
+                worse = (f"RAM has fallen a further {prev['avail_mb'] - sp['avail_mb']}MB since the "
+                         f"last warning ({prev['avail_mb']}MB -> {sp['avail_mb']}MB)")
+            elif load_high and sp["load1"] >= prev.get("load1", 0) + PRESSURE_REFLAG_LOAD:
+                worse = (f"load has risen a further {round(sp['load1'] - prev['load1'], 2)} since "
+                         f"the last warning ({prev['load1']} -> {sp['load1']})")
+        if first or worse:
+            # The trend is IN the message, because the trend is the actionable part: one reading
+            # says the box is low, two say whether it is heading for an OOM.
+            head = ("SYSTEM PRESSURE" if first
+                    else f"SYSTEM PRESSURE WORSENING — {worse}.")
             notes.append(
-                f"watch: SYSTEM PRESSURE — {sp['avail_mb']}MB RAM available (floor {floor}MB), "
+                f"watch: {head} — {sp['avail_mb']}MB RAM available (floor {floor}MB), "
                 f"load {sp['load1']}/{sp['cores']} cores. An OOM cascade kills seats AND this "
                 f"watcher itself. Free the box NOW: accelerate close-out of idle/done seats, "
                 f"tear down leftover dead wave windows (tmux kill-window), and pause further "
                 f"launches until this clears.")
             sysstate["notified_pressure"] = True
+            sysstate["pressure_reading"] = {"avail_mb": sp["avail_mb"], "load1": sp["load1"]}
+        elif prev is None:
+            # ⚠ MIGRATION, and it is the G-135/G-152 shape: this key is NEW, so an episode already
+            # in progress when the code lands carries `notified_pressure` and NO reading to compare
+            # against. Seed it from the current reading and stay QUIET — flagging here would fire a
+            # spurious duplicate on upgrade, and a fix whose first act is a false alarm teaches the
+            # room to discount the next one. Deterioration from this point re-flags normally.
+            sysstate["pressure_reading"] = {"avail_mb": sp["avail_mb"], "load1": sp["load1"]}
     else:
         sysstate.pop("notified_pressure", None)
+        sysstate.pop("pressure_reading", None)
     return (f"{'system':<18} {'FLAG' if flags else 'ok':<7} ram={sp['avail_mb']}MB "
             f"load={sp['load1']}/{sp['cores']}  {' '.join(flags)}")
 
@@ -1036,6 +1088,67 @@ def cmd_selftest():
         notes = run_pass(ns(context_pct=90))
         check("PROP-9: load at/over cores x factor fires a fresh episode after the clear",
               any("SYSTEM PRESSURE" in n and "9.2/4" in n for n in notes))
+        # ---- PROP-9b: a flag must be able to FIRE AGAIN while its condition is getting worse ----
+        # ⚠ EVERY CHECK BELOW FAILS ON THE PRE-FIX CODE BY CONSTRUCTION: it flagged once per episode
+        # and re-armed only on a CLEAR, so a worsening reading produced exactly nothing. Measured
+        # live the night this was found — RAM fell 2,904 -> 2,695 MB in ten minutes and the room
+        # heard about it once. The re-fire cannot be shown by a first flag, so each case below runs
+        # a first flag and then asserts about the SECOND.
+        sys_reading["v"] = {"avail_mb": 4000, "load1": 0.4, "cores": 4}
+        run_pass(ns(context_pct=90))                      # clear -> re-arm, known-good baseline
+        sys_reading["v"] = {"avail_mb": 400, "load1": 0.4, "cores": 4}
+        notes = run_pass(ns(context_pct=90))
+        check("PROP-9b: baseline — the FIRST flag of an episode still fires exactly as before",
+              any("SYSTEM PRESSURE" in n and "400MB" in n for n in notes)
+              and not any("WORSENING" in n for n in notes))
+        sys_reading["v"] = {"avail_mb": 351, "load1": 0.4, "cores": 4}
+        notes = run_pass(ns(context_pct=90))
+        check("PROP-9b: a SMALL further drop (49MB, under the 250MB delta) stays QUIET — the "
+              "re-arm must not turn every pass into a warning",
+              not any("SYSTEM PRESSURE" in n for n in notes))
+        sys_reading["v"] = {"avail_mb": 150, "load1": 0.4, "cores": 4}
+        notes = run_pass(ns(context_pct=90))
+        check("PROP-9b: a MATERIALLY worse reading RE-FIRES, and carries the trend (both readings) "
+              "— one reading says the box is low, two say whether it is heading for an OOM",
+              any("WORSENING" in n and "400MB -> 150MB" in n and "150MB RAM available" in n
+                  for n in notes))
+        sys_reading["v"] = {"avail_mb": 200, "load1": 0.4, "cores": 4}
+        notes = run_pass(ns(context_pct=90))
+        check("PROP-9b: an IMPROVING reading that is still under the floor does NOT re-fire — "
+              "deterioration is measured against the last FLAGGED reading, not the threshold",
+              not any("SYSTEM PRESSURE" in n for n in notes))
+        sys_reading["v"] = {"avail_mb": 4000, "load1": 0.4, "cores": 4}
+        run_pass(ns(context_pct=90))                      # clear
+        sys_reading["v"] = {"avail_mb": 4000, "load1": 4.1, "cores": 4}
+        run_pass(ns(context_pct=90))                      # first LOAD flag
+        sys_reading["v"] = {"avail_mb": 4000, "load1": 5.2, "cores": 4}
+        notes = run_pass(ns(context_pct=90))
+        check("PROP-9b: the same rule applies to LOAD — a rise of one core's worth re-fires",
+              any("WORSENING" in n and "4.1 -> 5.2" in n for n in notes))
+        # ⚠ MIGRATION, the G-135/G-152 shape: `pressure_reading` is a NEW key, so an episode already
+        # in progress when this code lands has `notified_pressure` set and nothing to compare with.
+        # It must seed and stay QUIET — a fix whose first act is a spurious duplicate warning
+        # teaches the room to discount the next one.
+        st = load_sys_state(base)
+        st.pop("pressure_reading", None)
+        st["notified_pressure"] = True
+        save_sys_state(base, st)
+        sys_reading["v"] = {"avail_mb": 300, "load1": 0.4, "cores": 4}
+        notes = run_pass(ns(context_pct=90))
+        check("PROP-9b: an episode already in flight when the key lands SEEDS silently — no "
+              "spurious duplicate on upgrade — and re-fires normally on the next deterioration",
+              not any("SYSTEM PRESSURE" in n for n in notes)
+              and load_sys_state(base).get("pressure_reading", {}).get("avail_mb") == 300)
+        sys_reading["v"] = {"avail_mb": 40, "load1": 0.4, "cores": 4}
+        notes = run_pass(ns(context_pct=90))
+        check("PROP-9b: ...and the seeded episode then re-fires on a materially worse reading",
+              any("WORSENING" in n and "300MB -> 40MB" in n for n in notes))
+        sys_reading["v"] = {"avail_mb": 4000, "load1": 0.4, "cores": 4}
+        run_pass(ns(context_pct=90))
+        check("PROP-9b: clearing still wipes BOTH keys, so the next episode starts clean",
+              "notified_pressure" not in load_sys_state(base)
+              and "pressure_reading" not in load_sys_state(base))
+
         sys_reading["v"] = None
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
