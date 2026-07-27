@@ -91,6 +91,17 @@ other row still installs. The selftest asserts the file stays **byte-identical**
 as JSON — a bar that fails by construction on the pre-fix code (verified by mutation: 5 checks
 go red).
 
+## A mirrored `rule` is not installed until it is FORCED to be read
+
+CMP-12's `rule` fallback is **two halves**. Codex auto-injects neither
+`.agents/behavior-rules/` nor anything under it, so writing the mirrored rule file alone
+produces a rule that exists and is **never read** — a file-exists check passes and nothing
+happens at runtime. This installer therefore also writes a managed
+`forced-rule-reads` block into that harness's guidance file, naming each mirrored rule as a
+mandatory read. Re-installing does not duplicate the line, and Claude Code — whose
+`.claude/rules/` is native — gets no such block. The selftest asserts the forcing half, and
+that bar fails by construction when the forcing is removed.
+
 ## ⚠ STAND-IN, pending CMP-5 — do not let this harden into the real schema
 
 `CMP-5` specifies a repo-root `cognitive-units-index.csv` mapping a version-id to

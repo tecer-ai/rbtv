@@ -265,6 +265,22 @@ def do_install(root: Path, target: Path, only_module: str | None,
                     else:
                         _write_whole(dest, body)
 
+                    # CMP-12's `rule` fallback is TWO halves, and landing only the
+                    # first leaves the rule INERT: none of the non-native harnesses
+                    # auto-injects `.agents/behavior-rules/`, so the guidance file's
+                    # preamble must FORCE the read by naming the file. Writing the
+                    # rule file alone reads green and does nothing.
+                    if method == "rule" and not real.native:
+                        forced = _force_rule_read(target, harness, part_id, rel)
+                        if forced:
+                            actions.append({
+                                "module": mod.name, "component": comp.name,
+                                "part": f"{part_id}:forced-read", "method": "rule",
+                                "harness": harness, "path": str(forced),
+                                "native": False, "shared_file": True,
+                                "note": "guidance-file preamble forcing the rule read",
+                            })
+
     state = []
     for mod_name in {a["module"] for a in actions}:
         state += _install_state(target, mod_name, [a for a in actions if a["module"] == mod_name], dry_run)
@@ -276,6 +292,47 @@ def do_install(root: Path, target: Path, only_module: str | None,
         "actions": actions, "skipped": skipped, "install_state": state,
         "version_scheme": catalog.STANDIN_VERSION_PREFIX + "<12>  (STAND-IN pending CMP-5 — G-109)",
     }
+
+
+def _force_rule_read(target: Path, harness: str, part_id: str, rule_rel: str) -> Path | None:
+    """Name a mirrored rule file in the harness's guidance file so it is READ.
+
+    CMP-12: Codex/Qwen/Kimi auto-inject neither `.agents/behavior-rules/` nor
+    anything under it, so a rule mirrored there is inert unless the guidance
+    file's preamble names it. OpenCode reads `.claude/` natively (widest
+    Claude-compat) and needs no forcing.
+
+    One managed block per harness accumulates the rule lines; re-installing a
+    rule already listed does not duplicate it.
+    """
+    if harness == "opencode":
+        return None
+    try:
+        guidance_rel, _ = adapters.realize("agents.md", harness, part_id)
+    except (adapters.UnknownMethod, adapters.NoRealization):
+        return None
+    guidance = target / guidance_rel
+    block_id = "forced-rule-reads"
+    start = MARK_START.format(id=block_id)
+    end = MARK_END.format(id=block_id)
+
+    line = f"- MANDATORY, read before acting: `{rule_rel}` (rule `{part_id}`)"
+    existing = guidance.read_text(encoding="utf-8") if guidance.exists() else ""
+    lines: list[str] = []
+    if start in existing and end in existing:
+        _, _, rest = existing.partition(start)
+        inner, _, _ = rest.partition(end)
+        lines = [l for l in inner.splitlines() if l.strip().startswith("- MANDATORY")]
+    if line not in lines:
+        lines.append(line)
+
+    body = (
+        "## Behavior rules — these are NOT optional\n\n"
+        "This harness does not auto-load the mirrored rule files below. "
+        "Read each one before acting.\n\n" + "\n".join(sorted(lines))
+    )
+    _write_block(guidance, block_id, body)
+    return guidance
 
 
 def _resolve_entry_point(comp: catalog.Component, part_id: str, entry: str) -> tuple[str, dict]:
@@ -561,6 +618,36 @@ def cmd_selftest(args) -> int:
               res4["skipped"])
         check("the module entry point still installed alongside the refusal",
               (t4 / ".claude" / "skills" / "rbtv-demo" / "SKILL.md").exists())
+        (comp / "exposure.csv").write_text(
+            "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
+            "widget-prompt,prompt,agents.md,exhibit,prompts.csv#widget-prompt,\n",
+            encoding="utf-8")
+
+        # --- a mirrored rule must not ship INERT: CMP-12's fallback needs the
+        # guidance-file preamble to FORCE the read. Writing only the rule file
+        # passes a file-exists check and does nothing at runtime.
+        (comp / "exposure.csv").write_text(
+            "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
+            "widget-prompt,prompt,rule,exhibit,prompts.csv#widget-prompt,\n",
+            encoding="utf-8")
+        t5 = Path(td) / "ws5"
+        t5.mkdir()
+        do_install(root, t5, None, None, ["claude", "codex"], dry_run=False)
+        check("rule lands natively on claude",
+              (t5 / ".claude" / "rules" / "widget-prompt.md").exists())
+        check("rule lands as the codex fallback",
+              (t5 / ".agents" / "behavior-rules" / "widget-prompt.md").exists())
+        agents = t5 / "AGENTS.md"
+        check("codex guidance file FORCES the mirrored rule read", agents.exists()
+              and ".agents/behavior-rules/widget-prompt.md" in agents.read_text(),
+              agents.read_text()[:80] if agents.exists() else "AGENTS.md absent")
+        check("claude gets NO forced-read block (its rules are native)",
+              "forced-rule-reads" not in (t5 / "CLAUDE.md").read_text()
+              if (t5 / "CLAUDE.md").exists() else True)
+        do_install(root, t5, None, None, ["codex"], dry_run=False)
+        check("forced-read line is not duplicated on re-install",
+              agents.read_text().count("rule `widget-prompt`") == 1,
+              agents.read_text().count("rule `widget-prompt`"))
         (comp / "exposure.csv").write_text(
             "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
             "widget-prompt,prompt,agents.md,exhibit,prompts.csv#widget-prompt,\n",
