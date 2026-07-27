@@ -637,14 +637,31 @@ def set_pane_title(pane, title):
                    capture_output=True, text=True)
 
 
+RENAME_ACTION = "rename-scheduled"
+
+
+def rename_injection_note(agent, delay):
+    """The write-log payload for a SCHEDULED rename (G-53). Pure, so it is testable without the
+    detached subshell — and the reason it exists is that the shell is exactly what makes the
+    delivery unobservable."""
+    return (f"/rename {agent} (scheduled: detached, fires in ~{delay}s via raw tmux; "
+            f"delivery is NOT observed by this log)")
+
+
 def schedule_session_rename(pane, agent, delay=25):
     """Inject `/rename <agent>` into the pane's Claude session once it has had time to boot.
 
     Detached (coord.py returns immediately); failures are silent — the rename is cosmetic and a
     lost keystroke must never block a launch. claude harness only: codex/opencode have no
     /rename — their seats are identified by pane/window title alone."""
-    set_injection_context(action="rename")  # name our own action: never inherit a caller's
-    log_injection(pane, "rename", "/rename " + agent)
+    # G-53: this logs INTENT, not injection. The keystrokes are sent by the DETACHED subshell
+    # below, ~25s later, with raw `tmux send-keys` that never touches the instrumented primitives
+    # — so nothing here can know whether they landed, and the line would read identically if the
+    # pane had died in the meantime. writelog proved it by observation: zero entries across every
+    # pane in the window where the real keystrokes went out. The action name now says what the
+    # line actually attests, so the write-log stops asserting what it cannot know.
+    set_injection_context(action=RENAME_ACTION)  # our own action: never inherit a caller's
+    log_injection(pane, RENAME_ACTION, rename_injection_note(agent, delay))
     script = (f"sleep {delay}; "
               f"tmux send-keys -t {shlex.quote(pane)} -l {shlex.quote('/rename ' + agent)}; "
               f"sleep 1; tmux send-keys -t {shlex.quote(pane)} Enter")
@@ -4228,6 +4245,18 @@ def cmd_selftest(args):
               ("window", "gamma") in opened and ("pane", VAULT_ROOT) in opened)
         check("v2: claude seat schedules /rename, opencode seat does not",
               "beta" in renames and "gamma" not in renames)
+        # G-53: the write-log must not assert an injection this code path cannot observe. The
+        # keystrokes go out ~25s later from a DETACHED subshell using raw tmux, bypassing the
+        # instrumented primitives entirely, so the entry attests INTENT — and the action name has
+        # to say so, or the line reads identically whether the keystroke landed or the pane died.
+        check("G-53: the scheduled rename logs `rename-scheduled`, NEVER a bare `rename`, and its "
+              "payload SAYS delivery is unobserved — this path hands the real keystrokes to a "
+              "detached subshell that bypasses the instrumented primitives, so it can attest "
+              "INTENT and must not claim the keystroke landed",
+              RENAME_ACTION == "rename-scheduled"
+              and "NOT observed" in rename_injection_note("zeta-seat", 25)
+              and "zeta-seat" in rename_injection_note("zeta-seat", 25)
+              and "~25s" in rename_injection_note("zeta-seat", 25))
 
         # ---- wave windows: `window: NAME` seats share one window, one pane each ----
         check("wave: placement plan — own / shared / pane",
