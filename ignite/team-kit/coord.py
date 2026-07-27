@@ -24,6 +24,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -327,8 +328,11 @@ def package_dir(args, register=True):
 
 def base_dir(args):
     if getattr(args, "base", None):
-        return Path(args.base).resolve()
-    return package_dir(args) / "coordination"
+        base = Path(args.base).resolve()
+    else:
+        base = package_dir(args) / "coordination"
+    set_injection_context(base=base)  # 7.39: the primitives get no args; this is the one chokepoint
+    return base
 
 
 def workers_dir(args):
@@ -426,6 +430,191 @@ def detect_pane(override=None):
     return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else pane
 
 
+# ---------- injection write-log (task 7.39; owner ruling `r-739-payload-text`) ----------------
+#
+# Every agent-to-agent keystroke injection writes ONE attributed line: WHO injected, into WHICH
+# seat/pane, WHEN, WHICH action, and THE FULL PAYLOAD TEXT. The payload is recorded on the owner's
+# explicit ruling (2026-07-27), taken AGAINST the metadata-only recommendation with the exposure on
+# the table: it re-creates the R1-dropped keystroke-transcript class for agent-to-agent injections
+# only. That call is the owner's, not this code's — do not re-decide it here.
+#
+# The log is NEVER-COMMIT / NEVER-PUSH: same exposure class as raw scrollback (issues G-3). It is
+# written into the run package's `coordination/` dir, which lives under `.rbtv/goals/**` and is
+# untracked, and it is chmod 0600 (task 7.13 tightened this artifact class 664 -> 0600).
+#
+# TWO PROPERTIES THAT ARE DELIBERATE, both from task 7.13's retention ruling:
+#   FAILS OPEN, ALWAYS — a logging error NEVER blocks or fails an injection. 7.13 ruled that a
+#   fail-closed audit disables the very function it audits. Here it would be worse: all keystroke
+#   injection funnels through these three primitives, so an unwritable path would silence EVERY
+#   seat at once. Every entry point below swallows its own exceptions and returns False.
+#   AGE SWEEP, NEVER A SIZE CAP — 7.13 criterion (2) rejects size caps in those words, because a
+#   cap either fires fail-closed or silently discards evidence. Window is env-configurable,
+#   default 90 days, 0 = never delete, values below 7 refused (a typo must not erase the trail).
+
+INJECTION_LOG = "injections.log"
+INJECTION_RETENTION_DAYS = 90          # 7.13 default
+INJECTION_RETENTION_MIN = 7            # 7.13: below this is REFUSED, never honoured
+INJECTION_RETENTION_ENV = "COORD_INJECTION_RETENTION_DAYS"
+
+# who/action/base for the primitives, which are module-level and receive no `args`.
+_INJECTION = {"agent": "", "action": "", "base": None}
+_INJECTION_PRUNED = False
+_INJECTION_SWEEP_LOCK = threading.Lock()
+
+
+def set_injection_context(agent=None, action=None, base=None):
+    """Tell the injection log who is calling, why, and where the package is (7.39).
+
+    The three tmux primitives take only `(pane, text)`, so identity, action and package land here
+    instead of being threaded through every call site. Anything left unset falls back at write
+    time to $COORD_AGENT / $COORD_PACKAGE / the calling pane's roster row — which is what covers
+    watch.py's internal API path, since it runs outside any pane."""
+    if agent is not None:
+        _INJECTION["agent"] = (agent or "").strip()
+    if action is not None:
+        _INJECTION["action"] = (action or "").strip()
+    if base is not None:
+        _INJECTION["base"] = Path(base)
+
+
+def injection_retention_days():
+    """7.13's window. Default 90; 0 = never delete; below INJECTION_RETENTION_MIN is REFUSED and
+    falls back to the default, because a mistyped '1' must not silently erase the audit trail.
+    An unparseable value is treated the same way — fail open, keep evidence."""
+    raw = os.environ.get(INJECTION_RETENTION_ENV, "").strip()
+    if not raw:
+        return INJECTION_RETENTION_DAYS
+    try:
+        days = int(raw)
+    except ValueError:
+        return INJECTION_RETENTION_DAYS
+    if days == 0:
+        return 0
+    if days < INJECTION_RETENTION_MIN:
+        return INJECTION_RETENTION_DAYS
+    return days
+
+
+def injection_log_path():
+    """The log's home: `{package}/coordination/injections.log`. None when no package resolves —
+    in which case nothing is logged and nothing fails."""
+    base = _INJECTION.get("base")
+    if base is None:
+        pkg = os.environ.get("COORD_PACKAGE", "").strip()
+        if not pkg:
+            return None
+        base = Path(pkg) / "coordination"
+    return Path(base) / INJECTION_LOG
+
+
+def injection_payload_repr(payload):
+    """One line, full text, reversible. The payload is recorded VERBATIM per the owner's ruling —
+    never truncated, never hashed — but the log stays line-oriented (one line per injection, so it
+    greps and tails), so the four characters that would break that are escaped."""
+    if payload is None:
+        return "(none)"
+    return (str(payload).replace("\\", "\\\\").replace("\t", "\\t")
+            .replace("\r", "\\r").replace("\n", "\\n"))
+
+
+def prune_injection_log(path, days):
+    """7.13 AGE sweep. Drops entries older than the window; NEVER caps by size. A line whose
+    timestamp will not parse is KEPT — evidence we cannot date is still evidence.
+
+    CHEAP-CHECKS FIRST, AND THAT IS A CORRECTNESS PROPERTY, NOT AN OPTIMISATION. A sweep is a
+    read-then-rewrite, and `deliver_wakes` fans out to recipients CONCURRENTLY (ThreadPoolExecutor),
+    so a rewrite racing an append from another thread or another `coordinate` process would silently
+    LOSE that line — in the one file whose whole purpose is that nothing is lost. Since entries are
+    appended in time order, the OLDEST line is the first one: if it is inside the window there is
+    nothing to drop, so we return having only read one line and never open the file for writing.
+    With a 90-day window that makes the racy path run about once per 90 days instead of once per
+    process. The rewrite itself then takes the package lock, and the caller holds a thread lock."""
+    if days <= 0 or not path.exists():
+        return
+    cutoff = datetime.now() - timedelta(days=days)
+    try:  # one line, not the file: is there anything old enough to be worth a rewrite?
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            first = fh.readline()
+        if not first.strip():
+            return
+        if datetime.fromisoformat(first.split("\t", 1)[0]) >= cutoff:
+            return  # oldest entry is inside the window -> nothing to sweep, no rewrite
+    except (ValueError, IndexError, OSError):
+        pass  # undateable or unreadable first line -> fall through to the full pass
+    kept, dropped = [], 0
+    for ln in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            if datetime.fromisoformat(ln.split("\t", 1)[0]) < cutoff:
+                dropped += 1
+                continue
+        except (ValueError, IndexError):
+            pass
+        kept.append(ln)
+    if dropped:
+        # Under the package lock: `coordinate` processes serialize their read-modify-writes here,
+        # which is the same guard the roster and message-id allocation use.
+        with coord_lock(path.parent):  # the log lives IN the coordination dir the lock guards
+            path.write_text("".join(f"{ln}\n" for ln in kept), encoding="utf-8")
+
+
+def log_injection(pane, primitive, payload):
+    """Append ONE attributed line for one keystroke injection (7.39). Returns True when written.
+
+    NEVER RAISES. Every failure path returns False and the injection proceeds — see this section's
+    header for why fail-open is a requirement here and not a convenience."""
+    global _INJECTION_PRUNED
+    try:
+        path = injection_log_path()
+        if path is None:
+            return False
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Wakes fan out concurrently, so the once-per-process sweep takes a thread lock: two
+        # threads must never rewrite this file at the same time. The append below needs no lock —
+        # one short line opened "a" is atomic under POSIX O_APPEND, across threads and processes.
+        with _INJECTION_SWEEP_LOCK:
+            if not _INJECTION_PRUNED:
+                _INJECTION_PRUNED = True
+                try:
+                    prune_injection_log(path, injection_retention_days())
+                except Exception:
+                    pass
+        who = _INJECTION.get("agent") or os.environ.get("COORD_AGENT", "").strip()
+        if not who:
+            try:
+                who = pane_agent(path.parent, detect_pane()) or ""
+            except Exception:
+                who = ""
+        seat = ""
+        try:
+            seat = pane_agent(path.parent, pane) if pane else ""
+        except Exception:
+            seat = ""
+        # Every injection entry point names its OWN action, so a later call can never inherit an
+        # earlier one's label — the first draft of this logged a `/rename` as `approve:rename`
+        # because it reused whatever `cmd_approve` had set. An unnamed action logs the bare
+        # primitive, which is honest; a WRONG one is worse than none in a forensic log.
+        ctx = _INJECTION.get("action", "")
+        if ctx == primitive:
+            ctx = ""
+        line = "\t".join((
+            datetime.now().isoformat(timespec="seconds"),
+            who or "(unresolved)",
+            seat or "(unregistered)",
+            pane or "(no-pane)",
+            f"{ctx}:{primitive}" if ctx else primitive,
+            injection_payload_repr(payload),
+        ))
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        return True
+    except Exception:
+        return False
+
+
 # ---------- tmux wrappers (every tmux touch goes through one of these, so selftest can stub) ----
 
 def set_pane_title(pane, title):
@@ -442,6 +631,8 @@ def schedule_session_rename(pane, agent, delay=25):
     Detached (coord.py returns immediately); failures are silent — the rename is cosmetic and a
     lost keystroke must never block a launch. claude harness only: codex/opencode have no
     /rename — their seats are identified by pane/window title alone."""
+    set_injection_context(action="rename")  # name our own action: never inherit a caller's
+    log_injection(pane, "rename", "/rename " + agent)
     script = (f"sleep {delay}; "
               f"tmux send-keys -t {shlex.quote(pane)} -l {shlex.quote('/rename ' + agent)}; "
               f"sleep 1; tmux send-keys -t {shlex.quote(pane)} Enter")
@@ -561,11 +752,13 @@ _OPENCODE_BORDER = "┃"
 
 
 def tmux_send_text(pane, text):
+    log_injection(pane, "text", text)
     r = subprocess.run(["tmux", "send-keys", "-t", pane, "-l", text], capture_output=True, text=True)
     return r.returncode == 0, r.stderr.strip()
 
 
 def tmux_send_enter(pane):
+    log_injection(pane, "enter", "<Enter>")
     r = subprocess.run(["tmux", "send-keys", "-t", pane, "Enter"], capture_output=True, text=True)
     return r.returncode == 0, r.stderr.strip()
 
@@ -667,6 +860,7 @@ def wake(pane, text):
                        "Enter — the pane's shell would execute the text line by line (G-11). "
                        "Write the text to a file and wake with a one-line command that reads it "
                        "(see prompt_file).")
+    set_injection_context(action="wake")
     ok, err = tmux_send_text(pane, text)
     if not ok:
         return False, err
@@ -1411,6 +1605,7 @@ def cmd_approve(args):
               f"Check the roster first: {coord_invocation(args)} workers", file=sys.stderr)
         sys.exit(1)
     pane = row["pane"]
+    set_injection_context(action="approve")
     if args.keys:
         tmux_send_text(pane, args.keys)
         time.sleep(0.2)
