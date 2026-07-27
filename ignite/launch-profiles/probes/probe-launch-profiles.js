@@ -231,6 +231,28 @@ check('(14) pre-flight distinguishes "could not look" from "flag is gone"', () =
   return err.code;
 });
 
+// Legs 14b/14c guard the two defects the CLOSE-OUT "run one thing you did not prove" found in
+// this very module, by running it against the REALLY-INSTALLED harness CLIs. Both would have
+// shipped: the pre-flight refused 2 of the 3 real profiles, authoritatively and wrongly.
+check('(14b) help is read from the SUBCOMMAND page, not the top-level binary', () => {
+  // Ground truth first, so this leg fails if the premise ever stops holding: `--json` is on
+  // `codex exec --help` and ABSENT from `codex --help`.
+  let top;
+  try { top = lp.readHelp('codex', { helpArgs: ['--help'] }); } catch { return 'skipped — codex not installed on this host'; }
+  if (top.includes('--json')) throw new Error('premise gone: codex --help now lists --json');
+  const r = lp.preflightPinnedFlags({ name: 'ctl', argv: ['codex', 'exec', '--cd', '{workdir}', '--json'] });
+  return `checked ${r.checked.join(' ')} against \`codex exec --help\``;
+});
+check('(14c) an EMPTY help is "could not look", never "the flag is gone"', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'silent-'));
+  const bin = path.join(dir, 'silentcli');
+  fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n');           // succeeds, prints NOTHING
+  fs.chmodSync(bin, 0o755);
+  const err = expectCode('E_PREFLIGHT_UNAVAILABLE', () => lp.preflightPinnedFlags({ name: 'ctl', argv: [bin, '--some-flag'] }));
+  if (err.details.reason !== 'empty-help') throw new Error(`reason=${err.details.reason}`);
+  return 'E_PREFLIGHT_UNAVAILABLE(empty-help) — NOT E_PINNED_FLAG_ABSENT';
+});
+
 // ── 15 · criterion 6 — no second profile file in the repo ───────────────────────────────────
 check('(15) exactly ONE file in the repo defines profiles', () => {
   const out = execFileSync('git', ['grep', '-l', '^profiles:', '--', '*.yaml', '*.yml'], {

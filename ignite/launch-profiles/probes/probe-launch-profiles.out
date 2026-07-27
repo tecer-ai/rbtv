@@ -1,5 +1,5 @@
 probe: probe-launch-profiles
-started: 2026-07-27T19:53:15.030Z
+started: 2026-07-27T19:57:38.589Z
 command: node launch-profiles/probes/probe-launch-profiles.js
 PASS (1) unknown profile name is refused typed -> E_UNKNOWN_PROFILE
 PASS (1b) a known name resolves -> sleep 60
@@ -18,9 +18,11 @@ PASS (11) an effort level outside the abstract vocabulary is refused -> E_UNKNOW
 PASS (12) pre-flight PASSES a flag the installed CLI really has -> checked --version against node
 PASS (13) pre-flight REFUSES a flag the installed CLI does not have -> E_PINNED_FLAG_ABSENT missing=--not-a-real-node-flag
 PASS (14) pre-flight distinguishes "could not look" from "flag is gone" -> E_PREFLIGHT_UNAVAILABLE
+PASS (14b) help is read from the SUBCOMMAND page, not the top-level binary -> checked --cd --json against `codex exec --help`
+PASS (14c) an EMPTY help is "could not look", never "the flag is gone" -> E_PREFLIGHT_UNAVAILABLE(empty-help) — NOT E_PINNED_FLAG_ABSENT
 PASS (15) exactly ONE file in the repo defines profiles -> ignite/config/spawn-profiles.yaml
 status: PASS
-checks: 18 (18 pass, 0 fail)
+checks: 20 (20 pass, 0 fail)
 exit: 0
-wall_ms: 327
-ended: 2026-07-27T19:53:15.357Z
+wall_ms: 331
+ended: 2026-07-27T19:57:38.920Z

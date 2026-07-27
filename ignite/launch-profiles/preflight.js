@@ -44,17 +44,38 @@ function pinnedFlagsOf(templateArgv) {
 // Read the installed CLI's live `--help`. Failure to READ is its own typed error: "the flag is
 // gone" and "I could not look" are different facts, and collapsing them would let an unrunnable
 // binary read as a clean bill of health (this run has filed that shape five times tonight).
+// ⚠ AN EMPTY HELP IS "COULD NOT LOOK", NEVER "THE FLAG IS GONE". Measured 2026-07-27:
+// `opencode run --help` writes ZERO BYTES when stdout is a pipe (it renders only to a TTY). A
+// first cut returned that empty string as help, found none of the pinned flags in it, and raised
+// E_PINNED_FLAG_ABSENT — reporting a perfectly good profile as broken, authoritatively.
+//
+// That is the exact confusion these two codes exist to prevent, committed inside the function
+// that defines them: the guard was on the THROW path only, so a command that "succeeded" with no
+// output walked straight past it. An empty read is a failure to read.
+function assertReadable(text, binary, helpArgs) {
+  if (typeof text !== 'string' || text.trim().length === 0) {
+    throw new SpawnError(
+      E_PREFLIGHT_UNAVAILABLE,
+      `\`${binary} ${helpArgs.join(' ')}\` produced no output (some CLIs render help only to a ` +
+      `TTY) — the pre-flight could not LOOK, which is not the same as a flag being absent`,
+      { binary, helpArgs, reason: 'empty-help' },
+    );
+  }
+  return text;
+}
+
 function readHelp(binary, opts = {}) {
   const { timeoutMs = DEFAULT_TIMEOUT_MS, helpArgs = ['--help'] } = opts;
   try {
-    return execFileSync(binary, helpArgs, {
+    return assertReadable(execFileSync(binary, helpArgs, {
       encoding: 'utf8',
       timeout: timeoutMs,
       stdio: ['ignore', 'pipe', 'pipe'],
       // Many CLIs print help to stderr and exit non-zero; both streams are captured and a
       // non-zero exit is NOT by itself a failure to read.
-    });
+    }), binary, helpArgs);
   } catch (err) {
+    if (err.code === E_PREFLIGHT_UNAVAILABLE) throw err;   // already typed by assertReadable
     const captured = `${err.stdout || ''}${err.stderr || ''}`;
     if (captured.trim().length > 0) return captured;
     throw new SpawnError(
@@ -63,6 +84,26 @@ function readHelp(binary, opts = {}) {
       { binary, reason: err.code || err.message },
     );
   }
+}
+
+// ⚠ THE HELP PAGE IS PER-SUBCOMMAND, and getting this wrong makes the pre-flight refuse VALID
+// profiles. Measured 2026-07-27 against the really-installed CLIs: `--json` is on
+// `codex exec --help` and ABSENT from `codex --help`; `-m` likewise belongs to `opencode run`.
+// A first cut asked the top-level binary and reported BOTH as missing — a bar that fires on 2 of
+// the 3 real profiles is worse than no bar, because a consumer wiring it would refuse legitimate
+// dispatches and the refusal would look authoritative.
+//
+// The subcommand path is the LEADING NON-FLAG tokens after argv[0] (`codex exec`,
+// `opencode run`, `claude` alone). Slot-bearing tokens end the path — a `{workdir}` is an
+// argument, never a subcommand.
+function helpCommandFor(templateArgv) {
+  const path = [];
+  for (let i = 1; i < templateArgv.length; i++) {
+    const el = templateArgv[i];
+    if (typeof el !== 'string' || el.startsWith('-') || el.includes('{')) break;
+    path.push(el);
+  }
+  return path;
 }
 
 // Verify every pinned flag of a resolved profile against the installed binary's live help.
@@ -76,7 +117,8 @@ function preflightPinnedFlags(resolved, opts = {}) {
   const flags = pinnedFlagsOf(templateArgv);
   if (flags.length === 0) return { binary, checked: [], missing: [] };
 
-  const help = readHelp(binary, opts);
+  const subcommand = opts.helpArgs ? [] : helpCommandFor(templateArgv);
+  const help = readHelp(binary, { ...opts, helpArgs: opts.helpArgs || [...subcommand, '--help'] });
   const missing = flags.filter((flag) => !help.includes(flag));
   if (missing.length > 0) {
     throw new SpawnError(

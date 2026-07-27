@@ -76,6 +76,31 @@ string onto argv as its own element — values only fill positions the profile a
 spawn would change live daemon behaviour in the same change that moved the module. Wiring is the
 consumers' act (7.43 / 7.54) or a follow-on.
 
+**Measured against the really-installed CLIs (2026-07-27), which found two defects in the
+pre-flight itself before any consumer wired it:**
+
+| profile | result |
+|---------|--------|
+| `claude-sonnet-tools` | VERIFIED — `-p --model --output-format --verbose --allowedTools --effort` all present |
+| `codex-git-write` | VERIFIED — `--cd --sandbox -c --json` (needed the subcommand fix) |
+| `opencode-sakana` | `E_PREFLIGHT_UNAVAILABLE(empty-help)` — see below |
+
+1. **Help is per-SUBCOMMAND.** `--json` is on `codex exec --help` and absent from `codex --help`.
+   Asking the top-level binary refused 2 of the 3 real profiles — a bar that fires on valid input
+   is worse than no bar, because the refusal looks authoritative.
+2. **An empty help is "could not look", never "the flag is gone."** `opencode run --help` writes
+   ZERO BYTES to a pipe (it renders only to a TTY). The first cut accepted that empty string as
+   help, found no flags in it, and raised `E_PINNED_FLAG_ABSENT` — the exact confusion these two
+   codes exist to prevent, inside the function that defines them. The guard was on the throw path
+   only; a command that *succeeded* with no output walked past it.
+
+   **Consequence a consumer must know:** the pre-flight cannot verify `opencode` profiles on this
+   host at all. It says so with a typed `E_PREFLIGHT_UNAVAILABLE` rather than passing them — an
+   unverifiable profile is reported unverifiable, never waved through.
+
+Both defects are covered by probe legs 14b/14c, each mutation-tested to go red when its fix is
+reverted.
+
 ## Known residuals — disclosed, not hidden
 
 1. **`DAEMON_ONLY_ROOT_KEYS` is duplicated** with `server/index.js:42`. The profile surface ignores
@@ -95,6 +120,6 @@ consumers' act (7.43 / 7.54) or a follow-on.
 node launch-profiles/probes/probe-launch-profiles.js
 ```
 
-18 checks. Self-contained — requires only this module and node builtins. Its bars were
+20 checks. Self-contained — requires only this module and node builtins. Its bars were
 **mutation-tested**: breaking half selection, the raw-flag bound, the effort translation, and the
 fail-closed branch each turns the intended leg red.
