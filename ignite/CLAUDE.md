@@ -22,6 +22,23 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
 
 Both are documented for the `rbtv` CLI's delegation table in `modules/ignite.md` § Capabilities.
 
+## launch-profiles/ — the ONE shared launch-profile resolver
+
+`ignite/launch-profiles/` holds the shared resolver every launch goes through (task 7.42; registry
+`decisions.md#d-profile-source-unification`, CMP-6 § Interface (1)). It owns profile resolution,
+slot validation, the carriage vocabulary, the workdir guard, caged/portable half selection, the
+effort translation slot, and the pinned-flag pre-flight.
+
+It requires **nothing under `server/`** — that bound is the point ("a second interpreter of the one
+file is the same drift as a second file"), and it is what makes the profiles consumable outside the
+daemon process. `server/spawn/config.js` is now a thin daemon-side adapter over it. It is a shared
+LIBRARY, not a capability: `capabilities/` above is for standalone operator surfaces the `rbtv` CLI
+delegates to, which this is not. The other two ruled consumers — the attached dispatch capability
+(7.43) and the orchestration conductor's CLI-worker dispatch (7.54) — are **not built**; shipping
+with one live consumer is 7.42's scope.
+
+Contract, the caller bounds, and the disclosed residuals: `launch-profiles/README.md`.
+
 ## Installation model
 
 Canonical statement of the ignite install model (owner ruling D27, 2026-07-14, `…/phase-7-plan/decisions.md`).

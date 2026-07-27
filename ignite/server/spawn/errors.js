@@ -1,24 +1,33 @@
 'use strict';
 
-class SpawnError extends Error {
-  constructor(code, message, details = {}) {
-    super(message);
-    this.name = 'SpawnError';
-    this.code = code;
-    this.details = details;
-  }
-}
+// ⚠ 7.42: `SpawnError` AND the profile-surface codes now LIVE IN `ignite/launch-profiles/errors.js`
+// and are RE-EXPORTED here. The direction is deliberate. The shared resolver may not require
+// anything under `server/`, so the class had to move outward; re-exporting keeps ONE class object
+// in the process, which is what every `instanceof SpawnError` in spawn.js, carrier.js, cage.js and
+// the gateway depends on. Two copies of the class would make those checks depend on which module
+// raised the error — a defect that would only appear once a second consumer existed.
+//
+// Everything below the re-export block is daemon-only and stays here: the carrier, tmux, cage and
+// identity-gate codes have no meaning outside the daemon and belong to no shared surface.
+const {
+  SpawnError,
+  E_CONFIG_LOAD,
+  E_DUPLICATE_PROFILE,
+  E_UNKNOWN_SLOT,
+  E_MISSING_KEY,
+  E_UNKNOWN_PROFILE,
+  E_FLAG_INJECTION,
+  E_WORKDIR_ESCAPE,
+  E_WORKDIR_MISSING,
+  E_NO_PORTABLE_HALF,
+  E_UNKNOWN_EFFORT,
+  E_RAW_FLAG,
+  E_PINNED_FLAG_ABSENT,
+  E_PREFLIGHT_UNAVAILABLE,
+} = require('../../launch-profiles/errors');
 
-const E_CONFIG_LOAD = 'E_CONFIG_LOAD';
-const E_DUPLICATE_PROFILE = 'E_DUPLICATE_PROFILE';
-const E_UNKNOWN_SLOT = 'E_UNKNOWN_SLOT';
-const E_MISSING_KEY = 'E_MISSING_KEY';
-const E_UNKNOWN_PROFILE = 'E_UNKNOWN_PROFILE';
 const E_UNKNOWN_MODE = 'E_UNKNOWN_MODE';
 const E_HEADED_NOT_CAPABLE = 'E_HEADED_NOT_CAPABLE';
-const E_FLAG_INJECTION = 'E_FLAG_INJECTION';
-const E_WORKDIR_ESCAPE = 'E_WORKDIR_ESCAPE';
-const E_WORKDIR_MISSING = 'E_WORKDIR_MISSING';
 const E_UNKNOWN_REQUEST_KEY = 'E_UNKNOWN_REQUEST_KEY';
 const E_SESSION_NOT_FOUND = 'E_SESSION_NOT_FOUND';
 const E_CARRIER_FAILED = 'E_CARRIER_FAILED';
@@ -105,4 +114,11 @@ module.exports = {
   E_IDENTITY_NO_SESSION,
   E_IDENTITY_MISMATCH,
   E_IDENTITY_SCHEMA,
+  // 7.42 — new codes on the shared surface, re-exported so daemon-side callers can catch them
+  // by the same import they already use.
+  E_NO_PORTABLE_HALF,
+  E_UNKNOWN_EFFORT,
+  E_RAW_FLAG,
+  E_PINNED_FLAG_ABSENT,
+  E_PREFLIGHT_UNAVAILABLE,
 };

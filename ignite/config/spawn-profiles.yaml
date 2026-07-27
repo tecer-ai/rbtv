@@ -44,6 +44,15 @@ profiles:
              "--output-format", "stream-json", "--verbose",
              "--allowedTools", "Bash(git *),Write"]   # allowlist BAKED into the profile (R3b); comma-joined ONE arg (POC)
       prompt: stdin
+    # 7.42 — the EFFORT translation table (#d-profile-source-unification (3)). Effort is NOT baked
+    # into profile identity (harness + model are); it is a per-dispatch parameter slot in the
+    # ABSTRACT vocabulary low|medium|high|max, translated here into this harness's own dialect.
+    # ADDITIVE and INERT for the daemon: the daemon's spawn path never passes an effort level, so
+    # no existing spawn changes. It is read by the shared resolver's resolveProfile().
+    effort:
+      dialect: effort
+      values: { low: low, medium: medium, high: high, max: max }
+      argv: ["--effort", "{effort}"]
     session_ref: { source: stdout-json, field: session_id }
     workdir_root: .rbtv/sessions   # D58: per-execution launch dirs at .rbtv/sessions/<exec-id>/. Machine-agnostic (D26(3)): workspace-relative, resolved at runtime against the workspace root that roots .rbtv/ — NEVER an instance path.
     caps: { memory_max: "4G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
@@ -70,6 +79,13 @@ profiles:
       argv: ["codex", "exec", "--cd", "{workdir}",
              "--sandbox", "danger-full-access", "-c", "approval_policy=never", "--json"]
       prompt: stdin        # codex hangs without stdin EOF from a non-TTY; the server closes stdin after writing
+    # 7.42 — the SECOND harness dialect for the same abstract vocabulary. codex spells the dial
+    # "thinking", not "effort", and its levels are its own words. This is the whole point of the
+    # translated slot: a caller says `high` once and each profile renders its harness's spelling.
+    effort:
+      dialect: thinking
+      values: { low: low, medium: medium, high: high, max: xhigh }
+      argv: ["-c", "model_reasoning_effort={effort}"]
     session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
     workdir_root: .rbtv/sessions   # D58: per-execution launch dirs at .rbtv/sessions/<exec-id>/. Machine-agnostic (D26(3)): workspace-relative, resolved at runtime against the workspace root that roots .rbtv/ — NEVER an instance path.
     caps: { memory_max: "4G", cpu_quota: "150%", runtime_max: "6h", tasks_max: 512 }
