@@ -1141,6 +1141,14 @@ def tmux_pane_window(pane):
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
+def tmux_pane_window_name(pane):
+    """Window NAME of a pane ('control', 'workers'), '' when unresolvable. The id form above
+    answers identity; this answers placement, which is what a descriptor declares."""
+    r = subprocess.run(["tmux", "display-message", "-p", "-t", pane, "#{window_name}"],
+                       capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
 def tmux_capture(pane):
     """Full scrollback of a pane, wrapped lines joined. Returns (text, err)."""
     r = subprocess.run(["tmux", "capture-pane", "-p", "-J", "-t", pane, "-S", "-"],
@@ -2692,6 +2700,24 @@ def cmd_checkin(args):
     if inherited:
         note += f" (cursor kept at #{inherited})"
     print(f"checked in: {args.agent} ({pane or 'no pane'}){note} — {summary}")
+    # PLACEMENT DRIFT: the seat checks its OWN pane against what its descriptor declares.
+    #
+    # DETECTION, NOT PREVENTION, and the distinction is the honest half of this: a pane opened BY
+    # HAND never passes through `launch`, so no validation there can ever see it — which is exactly
+    # how the trigger instance happened (a hand-renewal into the wrong window). This is the only
+    # reachable half. It also cannot self-correct: a seat cannot move its own pane without killing
+    # it, and a pane whose purpose is human contact must never be moved to tidy a layout — a door
+    # in the wrong window is cosmetic, a door killed for the layout is an outage. So it FLAGS and
+    # leaves, and the operational fix stays a human's.
+    if pane:
+        _decl = next((w["window"] for w in discover_workers(workers_dir(args))
+                      if w["agent"] == args.agent), "")
+        _actual = tmux_pane_window_name(pane)
+        if _decl and _decl != "yes" and _actual and _actual != _decl:
+            print(c(f"placement drift: your descriptor declares `window: {_decl}` but this pane is "
+                    f"in '{_actual}'. Nothing here moves it — a seat cannot move its own pane "
+                    f"without killing it. Report it; the layout fix is operational stewardship.",
+                    C_DEAD), file=sys.stderr)
     # 7.37: the seat's own checkin is where its native session id becomes resolvable — see
     # session_backfill_native. Never allowed to break a checkin (session_trace_safe).
     nat, nerr = session_trace_safe(session_backfill_native, args, args.agent)
@@ -4388,6 +4414,46 @@ CLAUDE_MODEL_ALIASES = ("opus", "sonnet", "haiku", "fable")
 OPENCODE_MODEL_RE = re.compile(r"[^/\s]+/[^/\s]+\Z")
 
 
+def peer_windows(seats, me):
+    """Every shared-window name declared by descriptors OTHER than `me`'s.
+
+    OTHER than its own, and that exclusion is the whole point: validating a value against the union
+    of all descriptors INCLUDING the seat under test is vacuous — the seat's own typo would appear
+    in the set and authorize itself. Nearly shipped that way."""
+    return {w["window"] for w in seats
+            if w["window"] and w["window"] != "yes" and w["agent"] != me}
+
+
+def window_drift(w, peers):
+    """'' when the seat's `window:` is placeable, else the reason it is a probable typo.
+
+    THE DEFECT THIS CATCHES, and it is drift that looks like success: nothing validated the value,
+    and an unrecognised window name does not fail — `launch_seat` finds no window of that name and
+    cheerfully OPENS ONE. So `window: controll` places the seat "correctly" into furniture nobody
+    ordered, and the room silently grows a window named after a misspelling.
+
+    NO LAYOUT IS HARDCODED HERE, deliberately and by ruling (leader #382): the ruled four-window
+    organization belongs to ONE campaign, and freezing its names into a tool every run shares would
+    refuse every launch in a room organized differently. That is the mistake `SPECIAL_CASE_SEATS`
+    was demoted for — a MANDATE cannot be expressed as a name list — repeated in the same file.
+
+    So the signal is a NEAR MISS, not membership: a name no peer declares is a legitimately new
+    window and passes, while a name that is one edit away from a window peers DO declare is the
+    typo. Same idiom, same cutoff, as this file's recipient-typo refusal (F5), and it refuses only
+    where it can name the intended value."""
+    name = (w or {}).get("window") or ""
+    if not name or name == "yes" or name in peers:
+        return ""
+    near = difflib.get_close_matches(name, sorted(peers), n=1, cutoff=0.8)
+    if not near:
+        return ""
+    return (f"window '{name}' is declared by no other seat, and it is one edit from '{near[0]}', "
+            f"which is. An unrecognised window is NOT refused by tmux — it silently OPENS a new "
+            f"one, so this would place the seat into a window named after a typo.\n"
+            f"declared by peers: {', '.join(sorted(peers))}\n"
+            f"Fix the descriptor, or launch with --force if '{name}' is genuinely a new window.")
+
+
 def validate_seat(w):
     """Pre-flight launch validation — PROP-8 (tv-ux-review): an invalid model slug in one
     wave's briefings stalled the ENTIRE wave at model-init, after every pane had already
@@ -4625,6 +4691,14 @@ def launch_seat(w, args, target, prompt=None, pane=None):
     verr = validate_seat(w)  # PROP-8: `close-seat --renew` relaunches single seats through here
     if verr:
         return "", verr
+    # Checked HERE because this is the one door every boot passes — `launch` and
+    # `close-seat --renew` both arrive here, so a renew cannot drift where a launch is checked.
+    # Peers are read from ALL briefings, not from the seats in this wave: a single-seat renew would
+    # otherwise have no peers to compare against and skip the check exactly when it matters.
+    if not getattr(args, "force", False):
+        derr = window_drift(w, peer_windows(discover_workers(workers_dir(args)), w["agent"]))
+        if derr:
+            return "", derr
     cmd, err = harness_command(w, prompt_path=prompt_file(args, w["agent"],
                                                           prompt or boot_prompt(w, args)))
     if cmd is None:
@@ -4987,6 +5061,32 @@ def cmd_close_seat(args):
     # The closer runs this as the tail of its own close; leader runs it directly for dead panes.
     gate(args, "close-seat", is_leader_or_closer, "leader's or a closer-* seat's")
     base = base_dir(args)
+    # A DOOR IS NOT CLOSED MECHANICALLY. A seat declaring `relays:` carries the relay path to a
+    # HUMAN role, and its pane is the surface that human is watching — the owner can be sitting at
+    # it while the seat itself is checked out. This path KILLS the pane (measured, leader #385: a
+    # renewed leader's prior pane was gone and the successor held a new id, so renew here does not
+    # respawn in place — it kills and re-creates). So both the plain close and the renew destroy
+    # the door, and neither should happen because someone was tidying the roster.
+    #
+    # REFUSED, NOT SILENTLY EXEMPTED: unlike `reap`, this command is an explicit deliberate act, so
+    # the right answer is to make the caller say they mean it rather than to ignore the request.
+    # `--force` is that, and it is the same escape every other refusal in this file offers.
+    #
+    # Derived from the descriptor, extending the predicate reap already uses — not a second list.
+    if not getattr(args, "force", False):
+        _relays = ((inbox_decls(args).get(args.target) or {}).get("relays"))
+        _row = current_row(load_workers(base)[2], args.target)
+        _pane = (_row or {}).get("pane") or ""
+        if _relays and _pane and _pane in live_panes():
+            print(f"refused: '{args.target}' carries a relay path to a human role "
+                  f"({', '.join(sorted(_relays))}), and its pane {_pane} is LIVE. This command "
+                  f"kills that pane — on the renew path too, which kills and re-creates rather "
+                  f"than respawning in place — so this would close the door a human may be "
+                  f"watching, possibly while they are away and expecting it to be there.\n"
+                  f"A door in the wrong place is cosmetic; a door destroyed is an outage.\n"
+                  f"If you mean it (the run is ending, or the owner has moved): --force",
+                  file=sys.stderr)
+            sys.exit(1)
     if not args.no_export:
         out, err = export_transcript(args, args.target, "close")
         print(f"transcript: {out}" if not err else f"transcript skipped — {err}")
@@ -7439,6 +7539,47 @@ def _selftest_checks(args, failures, names):
                   reap_blockers(dict(_fresh, since="old"), 99, {"%77"}, _door, "door"))
               and not any("DOOR, not a leak" in b for b in
                           reap_blockers(_fresh, 99, {"%77"}, _door, "ordinary")))
+        # ---- r-window-layout, the TOOL half (#332/#382) ----
+        _seats = [{"agent": "a", "window": "control"}, {"agent": "b", "window": "control"},
+                  {"agent": "c", "window": "workers"}]
+        check("r-window-layout: a seat's own declaration NEVER authorizes itself — peers exclude "
+              "the seat under test, or its typo appears in the set it is validated against and the "
+              "check is vacuous. Nearly shipped that way",
+              peer_windows(_seats, "c") == {"control"}
+              and peer_windows([{"agent": "c", "window": "typo"}], "c") == set())
+        check("r-window-layout: a TYPO is refused because it is a NEAR MISS of a window peers "
+              "declare — and the refusal names the intended value. An unrecognised window is not "
+              "refused by tmux: it SILENTLY OPENS a new one, so the seat reads as correctly placed "
+              "into furniture nobody ordered. Drift that looks like success",
+              "one edit from 'control'" in window_drift({"window": "controll"}, {"control",
+                                                                                 "workers"}))
+        check("r-window-layout: a genuinely NEW window passes — no layout is hardcoded, by ruling. "
+              "Freezing this campaign's four window names into a tool every run shares would "
+              "refuse every launch in a differently-organized room, which is the mistake "
+              "SPECIAL_CASE_SEATS was demoted for: a MANDATE cannot be a name list",
+              window_drift({"window": "hr"}, {"control", "workers"}) == ""
+              and window_drift({"window": "control"}, {"control"}) == ""
+              and window_drift({"window": ""}, {"control"}) == "")
+        # THE WIRING, not just the predicate. Removing the refusal from cmd_close_seat left the
+        # three rows above green — the helpers were covered and the path that actually kills was
+        # not. Same seam gap as G-134's, caught the same way: by mutation, not by reading.
+        (pkg / "workers" / "dr").mkdir(exist_ok=True)
+        (pkg / "workers" / "dr" / "agent.md").write_text(
+            "---\nagent: dr\nharness: claude\nmodel: opus\nrelays: master\n---\nbrief\n")
+        run(cmd_checkin, agent="dr", summary="the owner door", pane="%31")
+        live_tmux_panes["v"].add("%31")
+        _do, _dc = refuse(cmd_close_seat, target="dr", agent="leader", renew=False, no_export=True)
+        check("r-window-layout/door: `close-seat` REFUSES a seat carrying a relay path to a human "
+              "role while its pane is LIVE — this path kills the pane (on the renew path too, "
+              "which kills and re-creates rather than respawning in place), so it would destroy a "
+              "door a human may be watching. A door misplaced is cosmetic; a door destroyed is an "
+              "outage",
+              _dc == 1 and "relay path to a human role" in _do and "%31" in _do)
+        _fo, _fc = refuse(cmd_close_seat, target="dr", agent="leader", renew=False, no_export=True,
+                          force=True)
+        check("r-window-layout/door: and --force still closes it — an exemption that cannot be "
+              "overridden is a trap, not a safeguard, and the run legitimately ends",
+              _fc == 0 and "%31" in _fo)
         _ro, _rc = refuse(cmd_reap, agent="zeta", go=True)
         check("G-134/B: the gate is on the CONSEQUENCE, not the verb — `--go` is leader/closer "
               "only, and the refusal names the FLAG so the reader looks for the right permission",
