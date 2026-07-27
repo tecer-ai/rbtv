@@ -3842,10 +3842,47 @@ def cmd_depart(args):
 # ---------- selftest ----------
 
 def cmd_selftest(args):
+    """G-66: run the checks, and ALWAYS reach a verdict.
+
+    A check whose condition RAISES used to take the whole self-test down: no verdict line, no
+    `expect-fail:` line, just a traceback that reads as a broken harness rather than a caught
+    defect — strictly worse than the failure it was written to report. Measured while mutating the
+    G-61 ranking check, whose `.index()` raised on the very input the mutation produced.
+
+    It cannot be fixed inside `check()`: the condition is an ARGUMENT, evaluated in full before
+    `check` is ever entered, so by then the exception has already escaped. The honest fix is to
+    make an abort a first-class OUTCOME — reported, counted as a failure, and distinguished from
+    FAIL, because every check after the raise never ran and their results are unknown, not passing.
+    """
+    failures, names = [], []
+    aborted = ""
+    try:
+        _selftest_checks(args, failures, names)
+    except Exception as exc:                                    # noqa: BLE001 — the whole point
+        import traceback
+        frame = traceback.extract_tb(exc.__traceback__)[-1]
+        aborted = (f"{type(exc).__name__}: {exc} at "
+                   f"{os.path.basename(frame.filename)}:{frame.lineno}")
+        print(f"FAIL  selftest ABORTED after {len(names)} check(s) — {aborted}")
+        print(f"      the raising check never reported, and every check after it never ran: "
+              f"their results are UNKNOWN, not passing")
+        failures.append(f"selftest ABORTED: {aborted}")
+    verdict = "ABORTED" if aborted else ("PASS" if not failures else "FAIL")
+    print(f"\nselftest: {verdict} ({len(failures)} failure(s))")
+    if not getattr(args, "expect_fail", None):
+        sys.exit(1 if failures else 0)
+    if aborted:
+        # --expect-fail exists to make a mutation's evidence be the NAMED check's line. An abort
+        # means that line was never printed, so the mutation proves nothing either way.
+        print(f"expect-fail: FAIL — the self-test ABORTED, so the named check produced no result. "
+              f"A mutation that aborts the suite is not evidence about any check.")
+        sys.exit(1)
+    sys.exit(report_expect_fail(args.expect_fail, names, failures))
+
+
+def _selftest_checks(args, failures, names):
     import io
     from contextlib import redirect_stderr, redirect_stdout
-    failures = []
-    names = []
 
     def check(name, cond):
         print(("ok  " if cond else "FAIL") + f"  {name}")
@@ -5124,6 +5161,55 @@ def cmd_selftest(args):
               dirty_code == 1 and "bound:" in dirty_out
               and "structural findings: 0" not in dirty_out)
 
+        # ---- G-66: a raising check must still reach a VERDICT, never a bare traceback ----
+        # The abort path is exercised by substituting the check body for one that raises, which is
+        # the same global-substitution idiom the rest of this self-test uses for tmux.
+        global _selftest_checks
+        real_checks = _selftest_checks
+
+        def _boom(a, f, n):
+            n.append("a check that ran before the raise")
+            raise ValueError("substring not found")
+
+        def run_aborting(**kw):
+            buf, code = io.StringIO(), 0
+            with redirect_stdout(buf):
+                try:
+                    cmd_selftest(argparse.Namespace(expect_fail=None, **kw))
+                except SystemExit as exc:
+                    code = exc.code if isinstance(exc.code, int) else 1
+            return buf.getvalue(), code
+
+        _selftest_checks = _boom
+        try:
+            abort_out, abort_code = run_aborting()
+            ef_out, ef_code = None, None
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                try:
+                    cmd_selftest(argparse.Namespace(
+                        expect_fail="a check that ran before the raise"))
+                except SystemExit as exc:
+                    ef_code = exc.code if isinstance(exc.code, int) else 1
+            ef_out = buf.getvalue()
+        finally:
+            _selftest_checks = real_checks
+        check("G-66: a check whose condition RAISES still reaches a VERDICT — it used to take the "
+              "whole self-test down with no verdict and no expect-fail line, a traceback reading "
+              "as a broken harness rather than a caught defect",
+              abort_code == 1 and "selftest: ABORTED" in abort_out
+              and "ValueError: substring not found" in abort_out)
+        check("G-66: ABORTED is distinguished from FAIL, and says the checks after the raise never "
+              "ran — their results are UNKNOWN, not passing",
+              "ABORTED" in abort_out and "selftest: FAIL" not in abort_out
+              and "UNKNOWN, not passing" in abort_out)
+        check("G-66: the abort names WHERE it raised, so a reader can find the raising check "
+              "without re-running under a debugger",
+              "coord.py:" in abort_out and "ABORTED after 1 check(s)" in abort_out)
+        check("G-66: --expect-fail REFUSES on an abort — the named check produced no line, so the "
+              "mutation is evidence about nothing; without this it would silently mis-report",
+              ef_code == 1 and "ABORTED, so the named check produced no result" in ef_out)
+
         # ---- G-62: --expect-fail, the mutation-evidence gate, checking itself ----
         def expect_rc(expect, all_names, failed_names):
             buf = io.StringIO()
@@ -5786,10 +5872,8 @@ def cmd_selftest(args):
     check("reaper: arming with an identity that has no starttime arms NOTHING — an unidentifiable "
           "process is never a kill target", arm_pid_reaper([(4242, "")]) is None)
 
-    print(f"\nselftest: {'PASS' if not failures else 'FAIL'} ({len(failures)} failure(s))")
-    if not getattr(args, "expect_fail", None):
-        sys.exit(1 if failures else 0)
-    sys.exit(report_expect_fail(args.expect_fail, names, failures))
+    # verdict, exit code and --expect-fail all live in cmd_selftest, so an abort anywhere above
+    # still reaches them (G-66).
 
 
 def report_expect_fail(expect, names, failures):
