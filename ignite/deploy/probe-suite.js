@@ -107,6 +107,13 @@ function discoverProbes(root, only) {
 function executeProbe(probe, opts) {
   const timeoutMs = opts.timeoutMs;
   const outBefore = statMtimeMs(probe.outPath);
+  // PRESERVE MODE (default): take the probe's capture and its timestamps hostage before the run,
+  // and put them back byte-identical after — the fresh output is kept in the summary's own
+  // captures/ folder instead. A census that must mutate ~80 committed files to tell you a number
+  // is a census nobody runs, which is exactly how this suite rotted (G-141). Regeneration is still
+  // available, but it is now a deliberate act (--write-captures), not the default.
+  const preserve = opts.preserve !== false;
+  const original = preserve ? readCapture(probe.outPath) : null;
   const startedAt = Date.now();
 
   const cmd = probe.lang === 'py' ? 'python3' : process.execPath;
@@ -119,28 +126,58 @@ function executeProbe(probe, opts) {
   });
 
   const endedAt = Date.now();
+  // Read the freshness evidence BEFORE any restore — the grader must see what the probe actually
+  // did, not what the working tree looks like once we have put it back.
   const outAfter = statMtimeMs(probe.outPath);
+  const preserved = preserve ? restoreCapture(probe, original, opts.captureDir) : null;
 
-  if (res.error && res.error.code === 'ETIMEDOUT') {
-    return { attempted: true, timedOut: true, wallMs: endedAt - startedAt, startedAt, endedAt,
-      outBefore, outAfter, stderr: tail(res.stderr) };
-  }
-  if (res.error) {
-    return { attempted: true, spawnError: String(res.error.message), wallMs: endedAt - startedAt,
-      startedAt, endedAt, outBefore, outAfter, stderr: tail(res.stderr) };
-  }
-  return {
-    attempted: true,
+  const common = { attempted: true, wallMs: endedAt - startedAt, startedAt, endedAt,
+    outBefore, outAfter, preserved, stderr: tail(res.stderr) };
+
+  if (res.error && res.error.code === 'ETIMEDOUT') return Object.assign(common, { timedOut: true });
+  if (res.error) return Object.assign(common, { spawnError: String(res.error.message) });
+  return Object.assign(common, {
     exit: res.status === null ? null : res.status,
     signal: res.signal || null,
-    wallMs: endedAt - startedAt,
-    startedAt, endedAt, outBefore, outAfter,
-    stderr: tail(res.stderr),
-  };
+  });
 }
 
 function statMtimeMs(p) {
   try { return fs.statSync(p).mtimeMs; } catch { return null; }
+}
+
+function readCapture(p) {
+  try {
+    const st = fs.statSync(p);
+    return { existed: true, body: fs.readFileSync(p), atime: st.atime, mtime: st.mtime, mode: st.mode };
+  } catch { return { existed: false }; }
+}
+
+// Put the committed capture back exactly as it was — bytes AND timestamps, so `git status` and any
+// other seat see nothing at all. The probe's FRESH output is not discarded: it is written into the
+// summary's captures/ folder, outside the repo, where it is still evidence.
+function restoreCapture(probe, original, captureDir) {
+  if (!original) return null;
+  let fresh = null;
+  try { fresh = fs.readFileSync(probe.outPath); } catch { /* the probe wrote none */ }
+
+  const unchanged = fresh && original.existed && fresh.equals(original.body);
+  if (fresh && !unchanged && captureDir) {
+    const dest = path.join(captureDir, probe.id.replace(/[\\/]/g, '__'));
+    try { fs.mkdirSync(captureDir, { recursive: true }); fs.writeFileSync(dest, fresh); } catch { /* best effort */ }
+  }
+
+  if (!original.existed) {
+    if (fresh) { try { fs.unlinkSync(probe.outPath); } catch {} return 'removed-new'; }
+    return 'none';
+  }
+  if (unchanged) return 'unchanged';
+  try {
+    fs.writeFileSync(probe.outPath, original.body);
+    fs.chmodSync(probe.outPath, original.mode);
+    fs.utimesSync(probe.outPath, original.atime, original.mtime);
+    return 'restored';
+  } catch (e) { return 'RESTORE-FAILED: ' + String(e && e.message || e); }
 }
 
 function tail(s, n = 400) {
@@ -206,9 +243,11 @@ function runSuite(opts) {
 
   const rows = [];
   const dirtied = [];
+  const restoreFailures = [];
+  const preserve = opts.preserve !== false;
   for (const p of probes) {
     let r;
-    try { r = execute(p, { timeoutMs }); }
+    try { r = execute(p, { timeoutMs, preserve, captureDir: opts.captureDir }); }
     catch (e) { r = { attempted: true, spawnError: String(e && e.message || e) }; }
     const g = grade(p, r);
     const row = {
@@ -220,16 +259,19 @@ function runSuite(opts) {
     };
     rows.push(row);
     if (r && r.outAfter !== null && r.outAfter !== r.outBefore) dirtied.push(p.outPath);
+    if (r && typeof r.preserved === 'string' && r.preserved.startsWith('RESTORE-FAILED')) {
+      restoreFailures.push(p.outPath + ' — ' + r.preserved);
+    }
     emit(`${row.id} ${row.verdict} exit=${row.exit === null ? '-' : row.exit}`
       + ` wall_ms=${row.wallMs === null ? '-' : row.wallMs}`
       + (row.capture ? ` capture=${row.capture}` : '') + '\n');
     if (opts.onRow) opts.onRow(row);
   }
 
-  return finish({ discovered, rows, dirtied, opts, emit });
+  return finish({ discovered, rows, dirtied, restoreFailures, preserve, opts, emit });
 }
 
-function finish({ discovered, rows, dirtied = [], reason, opts, emit }) {
+function finish({ discovered, rows, dirtied = [], restoreFailures = [], preserve, reason, opts, emit }) {
   const attempted = rows.filter((r) => r.counted).length;
   const passed = rows.filter((r) => r.ok).length;
   const failed = attempted - passed;
@@ -248,7 +290,10 @@ function finish({ discovered, rows, dirtied = [], reason, opts, emit }) {
     'passed: ' + passed,
     'failed: ' + failed,
     'not-attempted: ' + (discovered - attempted),
-    'captures-rewritten: ' + dirtied.length,
+    (preserve === false
+      ? 'captures-rewritten-in-tree: ' + dirtied.length
+      : 'captures-written-then-restored: ' + dirtied.length + ' (working tree unchanged)'),
+    'restore-failures: ' + restoreFailures.length,
     // Written LAST and only here. Header without this line == a truncated run, readable with no
     // exit code in hand.
     `SUITE-COMPLETE verdict=${verdict} exit=${exitCode}`,
@@ -257,7 +302,8 @@ function finish({ discovered, rows, dirtied = [], reason, opts, emit }) {
   emit(trailer);
 
   return { verdict, exitCode, discovered, attempted, passed, failed,
-    notAttempted: discovered - attempted, rows, dirtied, reason: reason || null };
+    notAttempted: discovered - attempted, rows, dirtied, restoreFailures,
+    preserved: preserve !== false, reason: reason || null };
 }
 
 // ---------------------------------------------------------------- selftest
@@ -389,6 +435,48 @@ function selftest() {
     write('probe-stale.js', 'process.exit(0);');   // restore
   });
 
+  // ---- PRESERVE MODE: the census must be able to report a NUMBER without mutating the repo ----
+
+  t('P1 preserve (default) leaves the capture byte-identical AND its mtime untouched', () => {
+    const capDir = path.join(tmp, 'caps');
+    const target = path.join(dir, 'probe-ok.out');
+    fs.writeFileSync(target, 'ORIGINAL COMMITTED CAPTURE\n');
+    const old = new Date(Date.now() - 9 * 86400000);
+    fs.utimesSync(target, old, old);
+    const before = fs.readFileSync(target);
+    const beforeMtime = fs.statSync(target).mtimeMs;
+
+    const r = run({ captureDir: capDir,
+      discover: (root) => discoverProbes(root).filter((p) => /probe-ok\.js$/.test(p.id)) });
+
+    eq(r.rows[0].verdict, 'PASS', 'verdict');           // grading still saw the fresh write
+    eq(r.preserved, true, 'preserved');
+    if (!fs.readFileSync(target).equals(before)) throw new Error('capture was not restored byte-identical');
+    eq(fs.statSync(target).mtimeMs, beforeMtime, 'mtime');
+    // FIXTURE DISCRIMINATES: the sidecar must hold something DIFFERENT, else "restored" would be
+    // indistinguishable from "the probe never wrote anything" and this bar would prove nothing.
+    const side = fs.readFileSync(path.join(capDir, 'mod__probes__probe-ok.js'));
+    if (side.equals(before)) throw new Error('sidecar equals the original — the probe wrote nothing to restore');
+    if (!/PASS probe-ok/.test(side.toString())) throw new Error('sidecar did not capture the fresh output');
+  });
+
+  t('P2 --write-captures actually leaves the fresh capture in the tree', () => {
+    const target = path.join(dir, 'probe-ok.out');
+    fs.writeFileSync(target, 'ORIGINAL COMMITTED CAPTURE\n');
+    const r = run({ preserve: false,
+      discover: (root) => discoverProbes(root).filter((p) => /probe-ok\.js$/.test(p.id)) });
+    eq(r.preserved, false, 'preserved');
+    if (!/PASS probe-ok/.test(fs.readFileSync(target, 'utf8'))) throw new Error('write mode did not keep the fresh capture');
+  });
+
+  t('P3 preserve removes a capture the probe newly created — tree unchanged either way', () => {
+    const target = path.join(dir, 'probe-ok.out');
+    fs.rmSync(target, { force: true });
+    run({ captureDir: path.join(tmp, 'caps2'),
+      discover: (root) => discoverProbes(root).filter((p) => /probe-ok\.js$/.test(p.id)) });
+    if (fs.existsSync(target)) throw new Error('a capture that did not exist before the run was left behind');
+  });
+
   t('S9 the three outcomes carry three DIFFERENT exit codes', () => {
     const codes = new Set([EXIT_GREEN, EXIT_FAILED, EXIT_INCOMPLETE]);
     eq(codes.size, 3, 'distinct exit codes');
@@ -402,8 +490,10 @@ function selftest() {
 
   t('S10 verdicts never come from the content of a committed .out', () => {
     // probe-bad writes "PASS probe-bad" into its capture and exits 1. If grading ever read the
-    // file, this would be a PASS.
-    const r = run({ discover: (root) => discoverProbes(root).filter((p) => /probe-bad\.js$/.test(p.id)) });
+    // file, this would be a PASS. Runs with preserve OFF so the capture it wrote survives the run
+    // to be asserted on — under the default it would be restored away, which is P1/P3's job.
+    const r = run({ preserve: false,
+      discover: (root) => discoverProbes(root).filter((p) => /probe-bad\.js$/.test(p.id)) });
     eq(r.rows[0].verdict, 'FAIL', 'verdict');
     const body = fs.readFileSync(path.join(dir, 'probe-bad.out'), 'utf8');
     if (!/PASS/.test(body)) throw new Error('fixture broken: capture should claim PASS');
@@ -435,6 +525,7 @@ function main(argv) {
     else if (a === '--summary') summaryPath = argv[++i];
     else if (a === '--json') json = true;
     else if (a === '--list') list = true;
+    else if (a === '--write-captures') opts.preserve = false;
     else if (a === '-h' || a === '--help') {
       console.log(fs.readFileSync(__filename, 'utf8').split('\n')
         .filter((l) => l.startsWith('//')).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
@@ -452,18 +543,26 @@ function main(argv) {
   const out = summaryPath || defaultSummaryPath();
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.writeFileSync(out, '');
+  const captureDir = out.replace(/\.[^.]*$/, '') + '-captures';
   const emit = (s) => { fs.appendFileSync(out, s); if (!json) process.stdout.write(s); };
 
-  const r = runSuite(Object.assign({}, opts, { emit }));
+  const r = runSuite(Object.assign({}, opts, { emit, captureDir }));
 
   if (json) console.log(JSON.stringify(r, null, 2));
   else {
     console.log(`\nsummary: ${out}`);
-    if (r.dirtied.length) {
-      // Probes write their capture in place, hardcoded to __dirname — running the suite dirties
-      // the repo BY DESIGN. Report it rather than let a seat discover it at `git status`.
+    if (r.preserved) {
+      console.log(`working tree UNCHANGED — ${r.dirtied.length} capture(s) were written by probes`
+        + ` and restored byte-identical; the fresh output is in ${captureDir}`);
+    } else if (r.dirtied.length) {
+      // --write-captures: probes write their capture in place, hardcoded to __dirname, so this
+      // mode dirties the repo BY DESIGN. Report it rather than let a seat find it at `git status`.
       console.log(`captures rewritten in the working tree: ${r.dirtied.length}`
         + ' (commit them deliberately, by explicit pathspec, or restore them)');
+    }
+    if (r.restoreFailures.length) {
+      console.log('⚠ RESTORE FAILED — these captures are DIRTY and must be handled by hand:');
+      for (const f of r.restoreFailures) console.log('  ' + f);
     }
   }
   return r.exitCode;

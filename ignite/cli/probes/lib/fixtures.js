@@ -107,7 +107,17 @@ function bootDaemon(env) {
     const proc = spawn(process.execPath, [SERVER_ENTRY], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     let settled = false;
     const base = { proc, log: () => state.stdout, errLog: () => state.stderr };
-    const done = (res) => { if (!settled) { settled = true; resolve({ ...base, ...res }); } };
+    // G-157: this boot timeout is a SAFETY NET, and an uncleared one held the whole probe process
+    // open for its full 20s after the work was done — a probe finishing its checks in 1.3s took
+    // 20.1s to exit, measured identically to a tty, through a pipe, and to a file. Twelve cli
+    // probes paid ~3.8 minutes of pure dead time, which is a large part of why this suite was
+    // never run twice. Clear it the moment the boot settles.
+    const done = (res) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(bootTimeout);
+      resolve({ ...base, ...res });
+    };
 
     proc.stdout.on('data', (d) => {
       state.stdout += d.toString();
@@ -115,7 +125,7 @@ function bootDaemon(env) {
     });
     proc.stderr.on('data', (d) => { state.stderr += d.toString(); });
     proc.on('exit', (code) => done({ exitCode: code, listening: false }));
-    setTimeout(() => done({ listening: false, timedOut: true }), 20000);
+    const bootTimeout = setTimeout(() => done({ listening: false, timedOut: true }), 20000);
   });
 }
 
@@ -141,7 +151,10 @@ async function stopDaemon(d) {
   if (!d || !d.proc) return;
   const exited = new Promise((resolve) => d.proc.once('exit', resolve));
   try { d.proc.kill('SIGTERM'); } catch {}
-  await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]);
+  // Same G-157 shape, smaller: the grace timer must not outlive the race it was losing.
+  let grace;
+  await Promise.race([exited, new Promise((r) => { grace = setTimeout(r, 5000); })]);
+  clearTimeout(grace);
   try { d.proc.kill('SIGKILL'); } catch {}
 }
 
