@@ -12,7 +12,7 @@ pane at once, best paired with --once; the output can grow taller than the termi
 CRITICAL pane — past its own ctx-refresh threshold, >=85% context,
 or awaiting approval — is PINNED into every rotation page and never cycles out of view. A
 pane stuck at a permission/trust prompt (detected in its captured tail) renders its name RED
-with a `?!` marker. With --package, a pane whose context used % has reached ITS OWN seat's
+with a `?` marker. With --package, a pane whose context used % has reached ITS OWN seat's
 ctx-refresh threshold (from that seat's workers/<agent>/agent.md frontmatter) renders its
 ctx cell RED with a trailing `!` — WITHOUT --package this check never runs, so the header
 carries a "no --package: thresholds/roster off" cue instead of silently showing a plain
@@ -27,12 +27,13 @@ pressure so an operator or watcher spots an OOM risk at a glance; it degrades th
 graceful way and vanishes rather than crash on a platform without these readings.
 Stdlib only.
 
-Legend (dashboard markers): + working · … text cut · * active window · ctxN% context used
-(ctx~ = pane match uncertain; '~' means ONLY that, never truncation) ·
-green<60 / yellow<85 / red>=85 = ctx and limit-bar color bands (plain red = high value,
-no threshold involved) · Nm/Nh last activity · account = in use ·
-name?! = awaiting approval · ctxN%! = past this seat's ctx-refresh threshold ·
-name shell = harness exited · ? = empty-title pane.
+Legend (dashboard markers): + working · … text cut · * active window · N% ctx usage
+(~N% pane match uncertain; '~' means ONLY that, never truncation; the + … markers
+render magenta so they stay legible on dark backgrounds) ·
+green<60 / yellow<85 / red≥85 ctx and limit-bar color bands (plain red means high value,
+no threshold involved) · Nm/Nh last activity · account in use ·
+? awaiting approval (red, on the seat name) · N%! past this seat's ctx-refresh
+threshold · shell harness exited · ? empty-title pane (dim).
 
 Reference:  --help-providers  usage source per provider (read-only; keys never printed)
             --help-config     accounts config schema (multi-account)
@@ -135,12 +136,13 @@ DOC_PANES = """Pane states and markers — every form a pane row can take, and w
                   is bursty: a seat flips between + and unmarked as turns start/finish, so
                   a pane can honestly show a recent age (e.g. 'now') without a '+'.
   seat            idle this sample (no marker).
-  seat?!  (red)   AWAITING APPROVAL — the pane tail matches a permission/trust prompt.
+  seat?   (red)   AWAITING APPROVAL — the pane tail matches a permission/trust prompt.
                   Clears when the prompt is answered in that pane.
-  ctxN%           context-window used %, colored green <60 / yellow <85 / red >=85.
-  ctxN%!  (red)   past this seat's OWN ctx-refresh threshold (workers/<agent>/agent.md
+  N%              context-window used % (ctx usage), colored green <60 / yellow <85 /
+                  red >=85.
+  N%!     (red)   past this seat's OWN ctx-refresh threshold (workers/<agent>/agent.md
                   frontmatter) — only checked WITH --package.
-  ctx~N%          pane match UNCERTAIN: ctx-monitor could not uniquely map this pane's
+  ~N% (aka ctx~)  pane match UNCERTAIN: ctx-monitor could not uniquely map this pane's
                   process to one harness session record, so the value may belong to a
                   sibling pane. Clears when the mapping becomes unambiguous — e.g. the
                   team-kit statusline persists a pid->transcript record for claude panes,
@@ -157,6 +159,8 @@ TIMEOUT = 10
 BOLD, DIM, OFF = "\033[1m", "\033[2m", "\033[0m"
 CYAN, UL = "\033[36m", "\033[4m"
 GREEN, YELLOW, RED = "\033[32m", "\033[33m", "\033[31m"
+MARK = "\033[95m"  # status markers (+ …): bright magenta — legible on dark bgs, where
+#                    DIM vanished; unclaimed by the red/yellow/green/cyan semantics
 CONSOLE_URLS = {"google": "aistudio.google.com", "sakana": "console.sakana.ai",
                 "kimi": "kimi.com"}
 OPENCODE_STORE_KEYS = {"zai": "zai-coding-plan", "deepseek": "deepseek", "sakana": "sakana",
@@ -721,7 +725,7 @@ def busy_panes(pids, gap=BUSY_SAMPLE_GAP):
 
 def clean_title(title):
     t = re.sub(BUSY_GLYPHS, "", title or "").strip()
-    return (t[:18] + "…") if len(t) > 19 else (t or "?")
+    return (t[:18] + f"{MARK}…{OFF}") if len(t) > 19 else (t or "?")
 
 
 _CTX_MOD = "unset"
@@ -789,7 +793,8 @@ def ctx_str(pct, approx=False, over=False):
     '!' (past-threshold marker), regardless of the normal color-band it would otherwise get."""
     color = GREEN if pct < 60 else (YELLOW if pct < 85 else RED)
     bang = "!" if over else ""
-    return f"{RED if over else color}ctx{'~' if approx else ''}{pct:.0f}%{bang}{OFF}"
+    c = RED if over else color
+    return f"{c}{'~' if approx else ''}{pct:.0f}%{bang}{OFF}"
 
 
 def pane_agent_bits(p):
@@ -808,11 +813,11 @@ def pane_agent_bits(p):
 
 
 def pane_name(p):
-    """Seat name with its state marker: RED name?! when stuck at a permission/trust prompt
+    """Seat name with its state marker: RED name? when stuck at a permission/trust prompt
     (AWAITING approval — the pane tail matched a prompt signature), else the plain busy '+'."""
     if p.get("awaiting"):
-        return f"{RED}{p['name']}?!{OFF}"
-    return p["name"] + ("+" if p["busy"] else "")
+        return f"{RED}{p['name']}?{OFF}"
+    return p["name"] + (f"{MARK}+{OFF}" if p["busy"] else "")
 
 
 def shell_cell(p):
@@ -890,7 +895,7 @@ def clip_line(s, width):
         vis += min(len(chunk), take)
         if vis >= width - 1:
             break
-    return out + OFF + "…"
+    return out + OFF + MARK + "…" + OFF
 
 
 def pad_to(s, width):
@@ -1105,48 +1110,72 @@ def compact_window_lines(wins, width, max_lines, now=None):
 # ALARM items lead: flow() drops overflow from the END, so the keys an operator most
 # needs (approval, threshold, the color bands) are the LAST dropped, never the first
 # (the run verified the old order shed exactly those keys first at <=70 cols).
+# The ctx keys live in their OWN group, rendered right-aligned on the legend's last line
+# (owner-requested): usage %, the ~ uncertainty mark, the ! threshold mark, and the color
+# bands all describe the same on-screen number, so they read as one block, set apart from
+# the general markers by the horizontal gap.
+LEGEND_CTX = (f"{DIM}N%{OFF} ctx usage", f"{RED}~{OFF} uncertain",
+              f"{RED}!{OFF} ctx refresh due",
+              f"{GREEN}<60{OFF} {YELLOW}<85{OFF} {RED}≥85{OFF} bands")
 LEGEND_ITEMS = (
-    f"{RED}name?!{OFF} = awaiting approval",
-    f"{RED}ctxN%!{OFF} = past this seat's ctx-refresh threshold",
-    f"{GREEN}green{OFF}<60 {YELLOW}yellow{OFF}<85 {RED}red{OFF}>=85 = ctx/bar color bands",
-    f"{DIM}+{OFF} working", f"{DIM}…{OFF} text cut", f"{DIM}*{OFF} active window",
-    f"{DIM}ctxN%{OFF} = context used (ctx~ = pane match uncertain)",
-    f"{DIM}Nm/Nh{OFF} = last activity", f"{CYAN}account{OFF} = in use",
-    f"{DIM}name shell{OFF} = harness exited", f"{DIM}?{OFF} = empty-title pane",
+    f"{RED}?{OFF} awaiting approval",
+    f"{MARK}+{OFF} working", f"{MARK}…{OFF} text cut", f"{DIM}*{OFF} active window",
+    f"{DIM}Nm/Nh{OFF} last activity", f"{CYAN}account{OFF} in use",
+    f"{DIM}shell{OFF} harness exited", f"{DIM}?{OFF} empty-title pane",
 )
 
 
 def legend_lines(width, max_lines=4):
-    """The full marker legend, WORD-WRAPPED (never hard-clipped) to the given width — every
-    item always shows complete, just on however many lines it takes."""
-    return flow(LEGEND_ITEMS, width, max_lines)
+    """The full marker legend: general items WORD-WRAPPED (never hard-clipped) to the
+    given width, then the ctx key-group RIGHT-ALIGNED on its own final line — one block,
+    set apart by the gap. Ctx keys drop from their tail when even a full line is too
+    narrow for the whole group."""
+    body = flow(LEGEND_ITEMS, width, max_lines - 1)
+    sep = f" {DIM}·{OFF} "
+    ctx = shrink_to_fit([sep.join(LEGEND_CTX[:n])
+                         for n in range(len(LEGEND_CTX), 0, -1)], max(0, width - LEG_GAP))
+    if ctx:
+        body.append(" " * LEG_GAP + ctx)  # indented own line — reads as its own block
+    return body
 
 
 # Alarm keys FIRST — items drop from the END as width shrinks, so the alarm vocabulary
 # (the keys a small view exists to surface) is the LAST thing lost, never the first.
 MINI_LEGEND_ITEMS = (
-    f"{RED}?!{OFF}=approval", f"{RED}ctx%!{OFF}=threshold",
-    f"{RED}red{OFF}>=85 {YELLOW}yel{OFF}>=60",
-    f"{DIM}+{OFF}=working", f"{DIM}…{OFF}=cut", f"{DIM}~{OFF}=ctx uncertain",
+    f"{RED}?{OFF} approval", f"{MARK}+{OFF} working", f"{MARK}…{OFF} cut",
 )
+MINI_CTX = (f"{DIM}N%{OFF} ctx", f"{RED}~{OFF} uncertain",
+            f"{RED}!{OFF} refresh due", f"{RED}red{OFF}≥85 {YELLOW}yel{OFF}≥60")
+LEG_GAP = 8  # spaces between the general-keys block and the ctx block in both legends
 
 
 def mini_legend(width):
     """ONE legend line for the sub-full layouts (strip/narrow/tiny previously rendered no
-    legend at all — an operator at a small size had NO on-screen key for the alarm markers).
-    Degrades by dropping trailing items (alarm keys survive longest); '' when even the
-    alarm keys alone don't fit."""
-    variants = [f" {DIM}·{OFF} ".join(MINI_LEGEND_ITEMS[:n])
-                for n in range(len(MINI_LEGEND_ITEMS), 0, -1)]
-    return shrink_to_fit(variants, width)
+    legend at all — an operator at a small size had NO on-screen key for the alarm markers):
+    general keys LEFT, then a WIDE fixed gap, then the ctx key-group — the gap makes the
+    two read as clearly separate blocks without pinning ctx to the far edge. Degrades by
+    dropping tail items — general keys from the end first, then ctx keys from the end;
+    '? approval' alone as the floor; '' when even that doesn't fit."""
+    sep = f" {DIM}·{OFF} "
+    for nl in range(len(MINI_LEGEND_ITEMS), 0, -1):
+        left = sep.join(MINI_LEGEND_ITEMS[:nl])
+        lv = visible_len(left)
+        if lv > width:
+            continue
+        for nc in range(len(MINI_CTX), 0, -1):
+            ctx = sep.join(MINI_CTX[:nc])
+            if lv + LEG_GAP + visible_len(ctx) <= width:
+                return left + " " * LEG_GAP + ctx
+    left = MINI_LEGEND_ITEMS[0]
+    return left if visible_len(left) <= width else ""
 
 
 def rollup_variants(wins):
-    """The persistent alarm-rollup — '13 panes · worst ctx94%~ · 1 red · 0 ?!' — rendered
+    """The persistent alarm-rollup — '13 panes · worst ~94% · 1 red · 0 ?' — rendered
     at EVERY layout size on the windows header line, above the rotating detail. Rotation
     can hide panes; this line is the fixed summary that proves (or disproves) 'nothing is
     alarming' from any single glance (DESIGN item 4: a 93.7%-ctx pane once rotated fully
-    out of view). Shell panes count in the total but never in worst/red/?!."""
+    out of view). Shell panes count in the total but never in worst/red/?."""
     panes = [p for w in wins for p in w["panes"]]
     live = [p for p in panes if not p.get("shell")]
     ctxs = [p for p in live if p.get("ctx") is not None]
@@ -1158,9 +1187,9 @@ def rollup_variants(wins):
           if worst else "")
     rc, ac = (RED if red else DIM), (RED if waiting else DIM)
     full = [f"{len(panes)} panes"] + ([f"worst {wc}"] if wc else []) \
-        + [f"{rc}{red} red{OFF}", f"{ac}{waiting} ?!{OFF}"]
+        + [f"{rc}{red} red{OFF}", f"{ac}{waiting} ?{OFF}"]
     short = [f"{len(panes)}p"] + ([wc] if wc else []) \
-        + [f"{rc}{red}r{OFF}", f"{ac}{waiting}?!{OFF}"]
+        + [f"{rc}{red}r{OFF}", f"{ac}{waiting}?{OFF}"]
     return [" · ".join(full), " ".join(short)]
 
 
@@ -1376,7 +1405,7 @@ def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, 
     for c in cells:
         out.append("  " + render_bar_cell(c, label_w, bar_w))
     for n in notes:
-        out.append(f"  {DIM}{n}{OFF}")
+        out.append("  " + n)
     out.extend("  " + l for l in console_lines(console, cols - 2))
     out.append("")
     whdr = f"{BOLD}WINDOWS{OFF} {DIM}(panes beneath){OFF}"
@@ -1388,9 +1417,31 @@ def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, 
     return out[:rows - 1]
 
 
+_PREV_CPU_SAMPLE = {"v": None}  # (idle_ticks, total_ticks) of the previous frame
+
+
+def cpu_usage_pct():
+    """System CPU usage % since the PREVIOUS call — a /proc/stat busy/total tick delta,
+    the same computation top makes between refreshes, so each frame's reading averages
+    over the frame interval. None on the first call (no delta yet) and off-Linux."""
+    try:
+        vals = [int(x) for x in
+                Path("/proc/stat").read_text(encoding="utf-8").splitlines()[0].split()[1:]]
+        idle = vals[3] + (vals[4] if len(vals) > 4 else 0)  # idle + iowait
+        total = sum(vals)
+    except (OSError, ValueError, IndexError):
+        return None
+    prev, _PREV_CPU_SAMPLE["v"] = _PREV_CPU_SAMPLE["v"], (idle, total)
+    if not prev or total <= prev[1]:
+        return None
+    dtotal = total - prev[1]
+    return round(100.0 * (dtotal - (idle - prev[0])) / dtotal, 1)
+
+
 def system_load():
-    """Live (avail_mb, total_mb, load1, cores) — read-only, stdlib only (Linux
-    /proc/meminfo + os.getloadavg). Any field is None when unavailable on this platform;
+    """Live (avail_mb, total_mb, load1, cores, cpu_pct) — read-only, stdlib only (Linux
+    /proc/meminfo + /proc/stat + os.getloadavg). Any field is None when unavailable on
+    this platform (cpu_pct also on the first frame — it is a between-frames delta);
     never raises — decorative info must never crash a frame."""
     avail_mb = total_mb = load1 = None
     try:
@@ -1406,23 +1457,35 @@ def system_load():
         load1 = os.getloadavg()[0]
     except (OSError, AttributeError):
         pass
-    return avail_mb, total_mb, load1, os.cpu_count() or 1
+    return avail_mb, total_mb, load1, os.cpu_count() or 1, cpu_usage_pct()
 
 
-def system_cell_variants(avail_mb, total_mb, load1, cores):
-    """Full -> short -> RAM-only text for the system-resource cell, colored by PRESSURE
-    (red when available RAM < ~500MB or load1 >= cores; yellow at the halfway warning band;
-    else green) — an operator AND watcher see resource pressure at a glance (this run hit
-    an OOM cascade). A pure function of the 4 fields, so it's testable without touching the
-    OS. [] when neither RAM nor CPU data is available on this platform."""
+def system_cell_variants(avail_mb, total_mb, load1, cores, cpu_pct=None):
+    """Full -> short -> RAM-only text for the system-resource cell: RAM as used-% plus
+    the GB still AVAILABLE to new work (MemAvailable — top's tiny 'free' column excludes
+    reclaimable page cache and reads misleadingly low), CPU as usage % when a /proc/stat
+    delta exists (load-vs-cores fallback on the first frame / off-Linux). Colored by
+    PRESSURE — red when available RAM < ~500MB, cpu% >= 90, or load1 >= cores; yellow at
+    the halfway warning band; else green — an operator AND watcher see resource pressure
+    at a glance (this run hit an OOM cascade). A pure function of the 5 fields, so it's
+    testable without touching the OS. [] when neither RAM nor CPU data is available."""
     ram_full = ram_short = cpu = None
     if avail_mb is not None:
         color = RED if avail_mb < 500 else (YELLOW if avail_mb < 1500 else GREEN)
-        ram_full = (f"{color}RAM {avail_mb}MB/{total_mb}MB{OFF}" if total_mb
-                    else f"{color}RAM {avail_mb}MB{OFF}")
-        ram_short = f"{color}{avail_mb}MB{OFF}"
-    if load1 is not None:
-        color = RED if load1 >= cores else (YELLOW if load1 >= cores * 0.75 else GREEN)
+        free_gb = (avail_mb * 10 // 1024) / 10  # one decimal, rounded DOWN (never overstate)
+        if total_mb:
+            used_pct = round(100.0 * (total_mb - avail_mb) / total_mb)
+            ram_full = f"{color}RAM {used_pct}% ({free_gb}GB free){OFF}"
+        else:
+            ram_full = f"{color}RAM {free_gb}GB free{OFF}"
+        ram_short = f"{color}{free_gb}GB free{OFF}"
+    saturated = load1 is not None and load1 >= cores  # queueing pressure cpu% can't see
+    if cpu_pct is not None:
+        color = (RED if cpu_pct >= 90 or saturated
+                 else (YELLOW if cpu_pct >= 70 else GREEN))
+        cpu = f"{color}CPU {cpu_pct:.0f}%{OFF}"
+    elif load1 is not None:
+        color = RED if saturated else (YELLOW if load1 >= cores * 0.75 else GREEN)
         cpu = f"{color}CPU {load1:.1f}/{cores}{OFF}"
     variants = []
     for parts in ((ram_full, cpu), (ram_short, cpu), (ram_short,)):
@@ -1521,7 +1584,7 @@ def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows,
         left.append(row)
     lw = min(max([visible_len(l) for l in left] + [len("PLAN LIMITS")], default=11), cols - 42)
     if notes:
-        left.append(f"{DIM}{fit_join(notes, ' · ', max(0, lw - 1))}{OFF}")
+        left.append(fit_join(notes, " · ", max(0, lw - 1)))
     if console:
         cl = console_line(console)
         if visible_len(cl) > lw:
@@ -1556,7 +1619,7 @@ def render_narrow(session, wins, nwin, npane, cells, notes, console, cols, rows,
     for c in cells:
         out.append(render_bar_cell(c, label_w, bar_w, with_suffix=False))
     for n in notes:
-        out.append(f"{DIM}{n[:cols]}{OFF}")
+        out.append(n[:cols])
     out.extend(console_lines(console, cols, max_lines=2))
     out.append(WINDOWS_HDR + rollup_suffix(wins, cols - visible_len(WINDOWS_HDR)))
     out.extend(compact_window_lines(wins, cols, max(1, rows - len(out) - 2)))
@@ -1748,14 +1811,14 @@ def cmd_selftest():
           and all(s not in __doc__ for s in ("api.z.ai", '"accounts"')))
     check("legend: every marker discoverable from -h (fresh-eyes gap fix)",
           all(s in __doc__ for s in ("text cut", "active window", "pane match uncertain",
-                                     "last activity", "= in use", "awaiting approval",
+                                     "last activity", "account in use", "awaiting approval",
                                      "ctx-refresh threshold", "shell", "empty-title")))
     narrow_legend = [re.sub(r"\033\[[0-9;]*m", "", l) for l in legend_lines(80)]
     check("legend_lines: word-wraps at a narrow width instead of hard-clipping mid-word "
           "(the '...ctx~ = pane ma~' bug — every line fits, none end in a clip_line '~')",
           all(len(l) <= 80 for l in narrow_legend)
           and all(clip_line(l, 80) == l for l in narrow_legend)
-          and "pane match uncertain" in " ".join(narrow_legend))
+          and "~ uncertain" in " ".join(narrow_legend))
     full_legend_plain = " ".join(re.sub(r"\033\[[0-9;]*m", "", l) for l in legend_lines(500))
     check("legend_lines: no marker item dropped when everything fits on one wide line",
           all(re.sub(r"\033\[[0-9;]*m", "", item) in full_legend_plain
@@ -1829,16 +1892,16 @@ def cmd_selftest():
                 "model": model, "ctx": ctx, "age": age, "approx": approx,
                 "awaiting": awaiting, "ctx_over": ctx_over}
     pc = re.sub(r"\033\[[0-9;]*m", "", pane_cell(P("master", busy=True)))
-    check("pane_cell: seat+ harness:model ctxN% age", pc == "master+ claude:opus-4-8 ctx46% 2m")
-    check("pane_cell/pane_compact: awaiting-approval renders RED name?! (overrides busy '+')",
-          RED + "stuck?!" + OFF in pane_cell(P("stuck", busy=True, awaiting=True))
-          and RED + "stuck?!" + OFF in pane_compact(P("stuck", awaiting=True)))
+    check("pane_cell: seat+ harness:model ctxN% age", pc == "master+ claude:opus-4-8 46% 2m")
+    check("pane_cell/pane_compact: awaiting-approval renders RED name? (overrides busy '+')",
+          RED + "stuck?" + OFF in pane_cell(P("stuck", busy=True, awaiting=True))
+          and RED + "stuck?" + OFF in pane_compact(P("stuck", awaiting=True)))
     check("ctx_str: past-threshold renders RED ctxN%! regardless of the normal color band",
-          re.sub(r"\033\[[0-9;]*m", "", ctx_str(30, over=True)) == "ctx30%!"
+          re.sub(r"\033\[[0-9;]*m", "", ctx_str(30, over=True)) == "30%!"
           and ctx_str(30, over=True).startswith(RED)
-          and re.sub(r"\033\[[0-9;]*m", "", ctx_str(30, over=False)) == "ctx30%")
+          and re.sub(r"\033\[[0-9;]*m", "", ctx_str(30, over=False)) == "30%")
     check("pane_cell: ctx_over renders the past-threshold ctxN%! marker",
-          "ctx42%!" in re.sub(r"\033\[[0-9;]*m", "", pane_cell(P("seat", ctx=42.0, ctx_over=True))))
+          "42%!" in re.sub(r"\033\[[0-9;]*m", "", pane_cell(P("seat", ctx=42.0, ctx_over=True))))
     # dispatch #164-A (checker-verified FINDING-3): "no --package" clipped to a lone tilde
     # at 70w, the rotation footer clipped to '(windo~' at 80 and VANISHED at 80x14, and
     # limit/ctx values clipped mid-value ('claude:main 5h ████~' losing the %; 'ctx42%~'
@@ -1849,10 +1912,10 @@ def cmd_selftest():
     pcv = pane_cell_variants(crit_p)
     check("pane_cell_variants: ctx% (+ its past-threshold '!') NEVER drops — age/harness "
           "shrink first, the DESIGN-4 safety signal survives to the last non-bare variant",
-          all("ctx42%!" in v for v in pcv[:-1]) and pcv[-1] == pane_name(crit_p))
+          all("42%!" in v for v in pcv[:-1]) and pcv[-1] == pane_name(crit_p))
     check("pane_cell_fit: degrades to a shorter complete variant instead of mid-value "
           "clipping — ctx% survives at a width that still fits 'name ctx42%!'",
-          "ctx42%!" in pane_cell_fit(crit_p, 20) and visible_len(pane_cell_fit(crit_p, 20)) <= 20)
+          "42%!" in pane_cell_fit(crit_p, 20) and visible_len(pane_cell_fit(crit_p, 20)) <= 20)
     check("pane_cell_fit: an impossibly tight width still returns something COMPLETE "
           "(the bare name), never a mid-value clip",
           pane_cell_fit(crit_p, 3) == pane_name(crit_p))
@@ -1895,11 +1958,11 @@ def cmd_selftest():
               P("ov", harness="python3", model="", ctx=None, age=""))) == "ov python3")
     check("pane_compact: parenthesized agent info",
           re.sub(r"\033\[[0-9;]*m", "", pane_compact(P("master")))
-          == "master(claude:opus-4-8 ctx46% 2m)")
+          == "master(claude:opus-4-8 46% 2m)")
     check("ctx color bands: green<60, yellow<85, red",
           GREEN in ctx_str(45) and YELLOW in ctx_str(70) and RED in ctx_str(90))
-    check("uncertain pane match renders ctx~N%",
-          "ctx~46%" in re.sub(r"\033\[[0-9;]*m", "", pane_cell(P("m", approx=True))))
+    check("uncertain pane match renders ~N%",
+          "~46%" in re.sub(r"\033\[[0-9;]*m", "", pane_cell(P("m", approx=True))))
     wins = [{"idx": "0", "name": "control", "active": True,
              "panes": [P("master", busy=True),
                        P("watcher", harness="opencode", model="deepseek-v4-pro", ctx=91.0,
@@ -1911,7 +1974,7 @@ def cmd_selftest():
         joined = re.sub(r"\033\[[0-9;]*m", "", "\n".join(out))
         check(f"{layout_fn.__name__}: fits height, carries seats + provider + agent info",
               len(out) <= dims[1] and "master" in joined and "claude" in joined
-              and "ctx46%" in joined and "deepseek" in joined)
+              and "46%" in joined and "deepseek" in joined)
     # Regression (hk-ux-1, dispatch #95, CRITICAL): reported "claude:main 5h" showing 1%
     # instead of the correct 45% at 60x12. Could not reproduce a formatting/truncation bug
     # after extensive width/value sweeps — the pipeline reads `pct` verbatim end to end, no
@@ -1933,7 +1996,7 @@ def cmd_selftest():
     hdr = next((i for i, l in enumerate(plain) if "control" in l), None)
     check("render_full: grid — starred active window, panes with agent info beneath",
           any("PLAN LIMITS" in l for l in plain) and hdr is not None
-          and any("master+ claude:opus-4-8 ctx46% 2m" in l for l in plain[hdr:])
+          and any("master+ claude:opus-4-8 46% 2m" in l for l in plain[hdr:])
           and any("*control" in l for l in plain)
           and not any("legend:" in l for l in plain))
     out = window_grid([{"name": "big", "active": True,
@@ -2053,28 +2116,38 @@ def cmd_selftest():
 
     # Fix D (owner-approved item #172): system RAM+CPU readout, colored by pressure so an
     # operator AND watcher see resource pressure at a glance (this run hit an OOM cascade).
-    check("system_cell_variants: RED when avail RAM < 500MB or load1 >= cores",
+    check("system_cell_variants: RED when avail RAM < 500MB, cpu% >= 90, or load1 >= "
+          "cores (saturation reddens even a modest cpu%)",
           RED in system_cell_variants(200, 8000, 1.0, 4)[0]
-          and RED in system_cell_variants(4000, 8000, 4.0, 4)[0])
+          and RED in system_cell_variants(4000, 8000, 4.0, 4)[0]
+          and RED in system_cell_variants(4000, 8000, 1.0, 4, cpu_pct=95.0)[0]
+          and RED in system_cell_variants(4000, 8000, 4.5, 4, cpu_pct=50.0)[0])
     check("system_cell_variants: YELLOW at the halfway warning band (500-1500MB avail, "
-          "or load1 >= 75% of cores)",
+          "cpu% >= 70, or load1 >= 75% of cores)",
           YELLOW in system_cell_variants(1000, 8000, 1.0, 4)[0]
-          and YELLOW in system_cell_variants(4000, 8000, 3.0, 4)[0])
+          and YELLOW in system_cell_variants(4000, 8000, 3.0, 4)[0]
+          and YELLOW in system_cell_variants(4000, 8000, 1.0, 4, cpu_pct=75.0)[0])
     check("system_cell_variants: GREEN when RAM and CPU are both comfortable",
-          GREEN in system_cell_variants(4000, 8000, 1.0, 4)[0])
+          GREEN in system_cell_variants(4000, 8000, 1.0, 4)
+          [0] and GREEN in system_cell_variants(4000, 8000, 1.0, 4, cpu_pct=20.0)[0])
     check("system_cell_variants: [] when neither RAM nor CPU reading is available on "
           "this platform (decorative info must never crash or blank-render the header)",
           system_cell_variants(None, None, None, 4) == [])
-    check("system_cell_variants: degrades to RAM-only when load avg is unavailable, "
+    check("system_cell_variants: degrades to RAM-only when no CPU reading exists, "
           "never drops RAM data just because CPU data is missing",
           system_cell_variants(4000, 8000, None, 4) != []
           and all("CPU" not in v for v in system_cell_variants(4000, 8000, None, 4)))
+    check("system_cell_variants: cpu% preferred, load-vs-cores only as first-frame "
+          "fallback; RAM rendered as used-% + GB available (one decimal, rounded DOWN)",
+          "CPU 34%" in system_cell_variants(4000, 8000, 1.0, 4, cpu_pct=34.2)[0]
+          and "CPU 1.0/4" in system_cell_variants(4000, 8000, 1.0, 4)[0]
+          and "RAM 50% (3.9GB free)" in system_cell_variants(4000, 8000, 1.0, 4)[0])
     sysv = system_cell_variants(200, 8000, 1.0, 4)
     check("system_cell_variants: graceful shrink full -> short -> RAM-only — detail "
           "thins out but the RAM value itself is NEVER dropped while any variant remains",
-          "RAM 200MB/8000MB" in sysv[0] and "CPU 1.0/4" in sysv[0]
-          and "200MB" in sysv[1] and "CPU 1.0/4" in sysv[1]
-          and "200MB" in sysv[-1] and "CPU" not in sysv[-1])
+          "RAM 98% (0.1GB free)" in sysv[0] and "CPU 1.0/4" in sysv[0]
+          and "0.1GB free" in sysv[1] and "CPU 1.0/4" in sysv[1]
+          and "0.1GB free" in sysv[-1] and "CPU" not in sysv[-1])
     for avail in (2, 5, 12, 20, 200):
         fit = shrink_to_fit(sysv, avail - 2) if avail > 2 else ""
         check(f"sys_cue shrink at avail={avail}: the fitted variant never exceeds its "
@@ -2113,12 +2186,12 @@ def cmd_selftest():
         out_l = layout_fn("sess", wins, 2, 3, hot_cells, [], [], *dims)
         check(f"item2: {layout_fn.__name__} emits the one-line mini legend with the alarm "
               "keys (previously NO legend rendered below full size)",
-              "?!=approval" in strip_sgr("\n".join(out_l))
+              "? approval" in strip_sgr("\n".join(out_l))
               and all(visible_len(l) <= dims[0] for l in out_l))
     ml30 = strip_sgr(mini_legend(30))
     check("item2: mini legend drops TAIL items as width shrinks — alarm keys are the "
           "last thing lost, never the first",
-          ml30.startswith("?!=approval") and "working" not in ml30)
+          ml30.startswith("? approval") and "working" not in ml30)
     fl2 = strip_sgr(" ".join(legend_lines(70, max_lines=2)))
     check("item2: full-legend drop priority INVERTED — under a 2-line cap at 70 cols "
           "the alarm keys survive and tail items drop (was the reverse); the (+N more) "
@@ -2130,8 +2203,8 @@ def cmd_selftest():
                   "panes": [P("calm", ctx=30.0), P("hot", ctx=94.0, approx=True),
                             P("stuck", awaiting=True, ctx=91.0)]}]
     check("item4: rollup line — pane total, worst ctx (keeping its ~), red count, "
-          "?! count",
-          strip_sgr(rollup_variants(roll_wins)[0]) == "3 panes · worst ctx~94% · 2 red · 1 ?!")
+          "? count",
+          strip_sgr(rollup_variants(roll_wins)[0]) == "3 panes · worst ~94% · 2 red · 1 ?")
     full_o = render_full("sess", roll_wins, 1, 3, hot_cells, [], [], fake_cache, 220, 50)
     strip_o = render_strip("sess", roll_wins, 1, 3, hot_cells, [], [], 220, 10)
     narrow_o = render_narrow("sess", roll_wins, 1, 3, hot_cells, [], [], 70, 40)
@@ -2141,15 +2214,16 @@ def cmd_selftest():
           all(any(("2 red" in strip_sgr(l) or "2r" in strip_sgr(l)) for l in o)
               for o in (full_o, strip_o, narrow_o, tiny_o)))
 
-    check("item5: color-band thresholds documented — a legend item AND -h carry the "
-          "green<60 / yellow<85 / red>=85 numbers",
-          any("<60" in strip_sgr(i) and ">=85" in strip_sgr(i) for i in LEGEND_ITEMS)
-          and "green<60" in __doc__ and "red>=85" in __doc__)
+    check("item5: color-band thresholds documented — a legend ctx key AND -h carry the "
+          "green<60 / yellow<85 / red≥85 numbers",
+          any("<60" in strip_sgr(i) and "≥85" in strip_sgr(i) for i in LEGEND_CTX)
+          and "green<60" in __doc__ and "red≥85" in __doc__)
 
     check("item6: '…' is the ONE text-cut glyph — clip_line and clean_title never emit "
           "'~' (reserved for ctx-match uncertainty), and the legend says so",
-          clip_line("x" * 50, 10).endswith("…") and "~" not in clip_line("x" * 50, 10)
-          and clean_title("a-very-long-pane-title-here").endswith("…")
+          strip_sgr(clip_line("x" * 50, 10)).endswith("…")
+          and "~" not in clip_line("x" * 50, 10)
+          and strip_sgr(clean_title("a-very-long-pane-title-here")).endswith("…")
           and any("text cut" in strip_sgr(i) for i in LEGEND_ITEMS))
 
     check("item7: --help-security states the write-set, EVERY endpoint, and the "
@@ -2175,7 +2249,7 @@ def cmd_selftest():
 
     check("item8: --help-panes documents every pane state — ctx~ cause AND what clears "
           "it, the shell tag, the '?' empty-title placeholder, '+' vs age",
-          all(s in DOC_PANES for s in ("ctx~", "Clears when", "shell", "EMPTY title",
+          all(s in DOC_PANES for s in ("~N%", "Clears when", "shell", "EMPTY title",
                                        "WORKING", "ambiguous")))
     check("item8: pane_compact and pane_cell_variants carry the explicit 'shell' tag too",
           "gone shell" in strip_sgr(pane_compact(P("gone", shell=True)))
