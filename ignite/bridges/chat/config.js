@@ -43,6 +43,9 @@ const DEFAULT_SLACK_API_BASE = 'https://slack.com/api';
 //     "session_profile": "worker",         // named launch profile the session runs
 //     "send_message_job_id": "send-message", // catalogue slug: a send-message action-type job
 //     "workdir": "/abs/path",              // optional workdir for the session
+//     "channel_prefix": "goal-",           // goal↔channel name derivation (task 7.58)
+//     "master_profile": "master",          // profile for DM (master) traffic; defaults to session_profile
+//     "goal_profile": "worker",            // profile for goal-channel traffic; defaults to session_profile
 //     "allowlist": ["U0123ABC", "U0456DEF"] // Slack user IDs allowed to drive the bridge
 //   }
 function readConfigFile(filePath) {
@@ -88,6 +91,17 @@ function resolveConfig(overrides = {}) {
     overrides.sendMessageJobId || file.send_message_job_id || 'send-message';
   const workdir = overrides.workdir || file.workdir || null;
 
+  // Task 7.58 — the goal↔channel surface. `channelPrefix` is what makes the
+  // goal→channel name a BIJECTION (goal-channel-map.js); it also bounds which
+  // channels this bridge will ever create, so a deployment under a test-channels-only
+  // ruling sets it to `test-` and the bridge cannot create anything outside that
+  // namespace. `masterProfile`/`goalProfile` both fall back to `sessionProfile`, so
+  // an unconfigured deployment behaves exactly as it did before 7.58.
+  const channelPrefix =
+    overrides.channelPrefix || file.channel_prefix || 'goal-';
+  const masterProfile = overrides.masterProfile || file.master_profile || null;
+  const goalProfile = overrides.goalProfile || file.goal_profile || null;
+
   const allowlist = Array.isArray(overrides.allowlist)
     ? overrides.allowlist
     : (Array.isArray(file.allowlist) ? file.allowlist : []);
@@ -104,6 +118,9 @@ function resolveConfig(overrides = {}) {
     sessionProfile,
     sendMessageJobId,
     workdir,
+    channelPrefix,
+    masterProfile,
+    goalProfile,
     allowlist,
     slack: {
       apiBase: slackApiBase,

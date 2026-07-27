@@ -3,30 +3,37 @@
     "probe": "probe-chat-outbound",
     "pass": true,
     "EXIT": 0,
-    "WALL_MS": 104,
+    "WALL_MS": 117,
     "SKIPPED_COUNT": 0
   },
   "entries": [
     {
-      "ts": "2026-07-20T16:05:56Z",
+      "ts": "2026-07-27T04:22:46Z",
       "step": "listeners before bridge",
-      "count": 11,
+      "count": 10,
       "sockets": [
         "127.0.0.53%lo:53",
-        "127.0.0.1:38505",
+        "127.0.0.1:38593",
         "127.0.0.54:53",
+        "127.0.0.1:46433",
         "100.122.215.61:7431",
         "100.122.215.61:43869",
         "0.0.0.0:22",
-        "127.0.0.1:36367",
-        "127.0.0.1:7681",
         "127.0.0.1:7431",
         "[::]:22",
         "[fd7a:115c:a1e0::3301:d7d3]:58259"
       ]
     },
     {
-      "ts": "2026-07-20T16:05:56Z",
+      "ts": "2026-07-27T04:22:47Z",
+      "bridge": {
+        "level": "warn",
+        "message": "goal↔channel recovery failed — goal channels will read as unroutable until re-registered",
+        "error": "list-failed"
+      }
+    },
+    {
+      "ts": "2026-07-27T04:22:47Z",
       "bridge": {
         "level": "info",
         "message": "reply leg started",
@@ -35,27 +42,27 @@
       }
     },
     {
-      "ts": "2026-07-20T16:05:56Z",
+      "ts": "2026-07-27T04:22:47Z",
       "bridge": {
         "level": "info",
         "message": "chat bridge started",
         "transport": "slack-socket-mode",
+        "goalChannelsBound": 0,
         "connected": true
       }
     },
     {
-      "ts": "2026-07-20T16:05:56Z",
+      "ts": "2026-07-27T04:22:47Z",
       "step": "listeners after bridge",
-      "count": 11,
+      "count": 10,
       "sockets": [
         "127.0.0.53%lo:53",
-        "127.0.0.1:38505",
+        "127.0.0.1:38593",
         "127.0.0.54:53",
+        "127.0.0.1:46433",
         "100.122.215.61:7431",
         "100.122.215.61:43869",
         "0.0.0.0:22",
-        "127.0.0.1:36367",
-        "127.0.0.1:7681",
         "127.0.0.1:7431",
         "[::]:22",
         "[fd7a:115c:a1e0::3301:d7d3]:58259"
@@ -63,14 +70,14 @@
       "addedByBridge": []
     },
     {
-      "ts": "2026-07-20T16:05:56Z",
+      "ts": "2026-07-27T04:22:47Z",
       "bridge": {
         "level": "info",
         "message": "reply leg stopped"
       }
     },
     {
-      "ts": "2026-07-20T16:05:56Z",
+      "ts": "2026-07-27T04:22:47Z",
       "bridge": {
         "level": "info",
         "message": "chat bridge stopped"

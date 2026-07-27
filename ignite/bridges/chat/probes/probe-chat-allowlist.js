@@ -42,7 +42,11 @@ async function main() {
     cap.log({ step: 'non-allowlisted', strangerOutcome, queueBefore: beforeStranger, queueAfter: afterStranger, pendingPairings: pending });
 
     // 2) Admitted principal → forwards + enqueues (contrast).
-    const ownerOutcome = await bridgeH.bridge.onChatMessage({ chatUserId: 'U-owner', chatThreadId: 'C-chan:2.2', text: 'kick off', _channel: 'C-chan', _threadTs: '2.2' });
+    // `_channelType` is what the Slack transport supplies on every real message
+    // event; this probe injects PAST the transport, so it supplies it here. Both
+    // conversations are owner↔bot DMs (master traffic) — this probe tests ADMISSION,
+    // and must not accidentally depend on task 7.58's surface routing.
+    const ownerOutcome = await bridgeH.bridge.onChatMessage({ chatUserId: 'U-owner', chatThreadId: 'C-chan:2.2', text: 'kick off', _channel: 'C-chan', _threadTs: '2.2', _channelType: 'im' });
     const afterOwner = daemon.store.listQueue().length;
     cap.log({ step: 'allowlisted', ownerOutcome, queueAfter: afterOwner });
 

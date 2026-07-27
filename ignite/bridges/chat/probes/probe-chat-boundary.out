@@ -8,7 +8,7 @@
   },
   "entries": [
     {
-      "ts": "2026-07-20T16:05:54Z",
+      "ts": "2026-07-27T04:22:46Z",
       "step": "scanned runtime source",
       "files": [
         "allowlist.js",
@@ -16,6 +16,7 @@
         "config.js",
         "forward-path.js",
         "gateway-forwarder.js",
+        "goal-channel-map.js",
         "index.js",
         "reply-leg.js",
         "slack-socket-mode.js",
@@ -32,7 +33,7 @@
       ]
     },
     {
-      "ts": "2026-07-20T16:05:54Z",
+      "ts": "2026-07-27T04:22:46Z",
       "step": "forbidden-capability hits",
       "count": 0,
       "hits": []

@@ -12,7 +12,12 @@ const { createGatewayForwarder } = require('./gateway-forwarder');
 const { createAllowlist } = require('./allowlist');
 const { createThreadMap } = require('./thread-map');
 const { createSlackSocketMode } = require('./slack-socket-mode');
+const { createGoalChannelMap } = require('./goal-channel-map');
 const { createChatBridge } = require('./chat-bridge');
+
+function log_noGoalChannels(logger) {
+  if (logger) logger({ level: 'warn', message: 'transport exposes no channel admin surface — goal↔channel mapping disabled; channel traffic will be unroutable' });
+}
 
 function isoNow() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -50,9 +55,19 @@ function buildBridge(config, { logger = jsonLog, makeTransport = null, forwarder
   }));
   const transport = factory(onMessage);
 
-  bridge = createChatBridge({ config, forwarder, transport, allowlist, threadMap, logger, replyLegOptions });
+  // The goal↔channel map (task 7.58) rides the transport's narrow admin surface
+  // (create/list/archive — no invite, by construction). A transport that does not
+  // expose it (an older mock) simply yields no map: the bridge then serves master
+  // (DM) traffic and treats every channel as unroutable, which is the honest
+  // degradation, never a silent fallback to goal traffic.
+  const goalChannels = (typeof transport.createChannel === 'function')
+    ? createGoalChannelMap({ slack: transport, prefix: config.channelPrefix, logger })
+    : null;
+  if (!goalChannels) log_noGoalChannels(logger);
 
-  return { bridge, forwarder, allowlist, threadMap, transport };
+  bridge = createChatBridge({ config, forwarder, transport, allowlist, threadMap, goalChannels, logger, replyLegOptions });
+
+  return { bridge, forwarder, allowlist, threadMap, transport, goalChannels };
 }
 
 async function main() {

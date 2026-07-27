@@ -3,12 +3,19 @@
     "probe": "probe-chat-allowlist",
     "pass": true,
     "EXIT": 0,
-    "WALL_MS": 32,
+    "WALL_MS": 31,
     "SKIPPED_COUNT": 0
   },
   "entries": [
     {
-      "ts": "2026-07-20T16:05:54Z",
+      "ts": "2026-07-27T04:22:46Z",
+      "bridge": {
+        "level": "warn",
+        "message": "transport exposes no channel admin surface — goal↔channel mapping disabled; channel traffic will be unroutable"
+      }
+    },
+    {
+      "ts": "2026-07-27T04:22:46Z",
       "bridge": {
         "level": "warn",
         "message": "chat principal refused — pending owner pairing",
@@ -16,7 +23,7 @@
       }
     },
     {
-      "ts": "2026-07-20T16:05:54Z",
+      "ts": "2026-07-27T04:22:46Z",
       "bridge": {
         "level": "warn",
         "message": "chat message refused (not admitted) — no forward",
@@ -26,7 +33,7 @@
       }
     },
     {
-      "ts": "2026-07-20T16:05:54Z",
+      "ts": "2026-07-27T04:22:46Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -37,7 +44,7 @@
       }
     },
     {
-      "ts": "2026-07-20T16:05:54Z",
+      "ts": "2026-07-27T04:22:46Z",
       "step": "non-allowlisted",
       "strangerOutcome": {
         "forwarded": false,
@@ -49,13 +56,13 @@
       "pendingPairings": [
         {
           "id": "U-stranger",
-          "firstSeenAt": "2026-07-20T16:05:54.265Z",
+          "firstSeenAt": "2026-07-27T04:22:46.764Z",
           "count": 1
         }
       ]
     },
     {
-      "ts": "2026-07-20T16:05:54Z",
+      "ts": "2026-07-27T04:22:46Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -64,16 +71,19 @@
       }
     },
     {
-      "ts": "2026-07-20T16:05:54Z",
+      "ts": "2026-07-27T04:22:46Z",
       "bridge": {
         "level": "info",
         "message": "session-create job enqueued",
         "chatThreadId": "C-chan:2.2",
-        "queueId": 1
+        "queueId": 1,
+        "route": "master",
+        "goalId": null,
+        "profile": "worker"
       }
     },
     {
-      "ts": "2026-07-20T16:05:54Z",
+      "ts": "2026-07-27T04:22:46Z",
       "bridge": {
         "level": "info",
         "message": "reply leg armed for conversation",
@@ -82,7 +92,7 @@
       }
     },
     {
-      "ts": "2026-07-20T16:05:54Z",
+      "ts": "2026-07-27T04:22:46Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -90,17 +100,21 @@
         "forwarded": true,
         "leg": "session-create",
         "intent": "enqueue-job",
-        "queueId": 1
+        "queueId": 1,
+        "route": "master",
+        "goalId": null
       }
     },
     {
-      "ts": "2026-07-20T16:05:54Z",
+      "ts": "2026-07-27T04:22:46Z",
       "step": "allowlisted",
       "ownerOutcome": {
         "forwarded": true,
         "leg": "session-create",
         "intent": "enqueue-job",
-        "queueId": 1
+        "queueId": 1,
+        "route": "master",
+        "goalId": null
       },
       "queueAfter": 1
     }

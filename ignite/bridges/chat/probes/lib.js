@@ -286,9 +286,20 @@ async function startMockSlack({ logger = null } = {}) {
 
   // Push a Slack message event to the connected bridge and RESOLVE when the bridge
   // acks its envelope (Socket Mode requires an ack).
+  //
+  // A real Slack `message` event ALWAYS carries `channel_type` ('im' | 'channel' |
+  // 'group' | 'mpim'), and since task 7.58 the bridge routes on it: a DM is master
+  // traffic, a mapped goal channel is goal traffic. These fixtures predate that
+  // field and every one of them models an owner↔bot DM conversation, so `im` is the
+  // fixture DEFAULT — declared here rather than left absent, because a fixture that
+  // omits a field real Slack always sends is testing a world the bridge no longer
+  // lives in. A probe exercising channel traffic sets `channel_type` explicitly.
   function pushMessage(event, { timeoutMs = 3000 } = {}) {
     const envelopeId = crypto.randomUUID();
-    const frame = { type: 'events_api', envelope_id: envelopeId, payload: { event }, accepts_response_payload: false };
+    const withSurface = (event && event.type === 'message' && event.channel_type === undefined)
+      ? { ...event, channel_type: 'im' }
+      : event;
+    const frame = { type: 'events_api', envelope_id: envelopeId, payload: { event: withSurface }, accepts_response_payload: false };
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { acks.delete(envelopeId); reject(new Error('ack timeout')); }, timeoutMs);
       acks.set(envelopeId, () => { clearTimeout(timer); resolve({ envelopeId }); });

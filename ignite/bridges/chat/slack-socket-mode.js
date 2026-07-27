@@ -98,10 +98,18 @@ function createSlackSocketMode({
     return resp.url;
   }
 
-  // A user message event → the transport-neutral shape the forward path consumes.
-  // One chat thread = one conversation (D105): the conversation id is the Slack
-  // thread — `channel:thread_ts` (the parent-message ts roots the thread; a
-  // top-level message roots its own).
+  // A user message event → the transport-neutral shape the bridge consumes.
+  //
+  // The conversation id depends on WHICH SURFACE the message arrived on, and the
+  // BRIDGE (not this transport) makes that call — so this function reports the raw
+  // facts and leaves routing to chat-bridge.js (task 7.58, d-channel-per-goal):
+  //   • DM (`channel_type: 'im'`) — cold-contact MASTER traffic, unchanged by that
+  //     ruling. Its conversation is the Slack thread `channel:thread_ts`.
+  //   • CHANNEL — GOAL traffic when the channel is a mapped goal channel. There the
+  //     goal thread maps 1:1 onto the CHANNEL, so the channel itself is the
+  //     conversation; `channel:thread_ts` would shard one goal thread into many.
+  // `chatThreadId` below is the DM-shaped default; the bridge overrides it for goal
+  // traffic. `_channelType` carries Slack's own surface discriminator.
   function toChatMessage(event) {
     if (!event || event.type !== 'message') return null;
     // Ignore bot echoes, edits/deletes, and joins — only genuine user text drives work.
@@ -114,6 +122,8 @@ function createSlackSocketMode({
       // Kept for the outbound reply address (chat.postMessage channel + thread_ts).
       _channel: event.channel,
       _threadTs: rootTs,
+      _channelType: event.channel_type || null,  // 'im' | 'channel' | 'group' | 'mpim'
+      _inThread: Boolean(event.thread_ts),       // did the human post inside a Slack thread?
     };
   }
 
@@ -236,6 +246,60 @@ function createSlackSocketMode({
     return { delivered: true, ts: resp.ts };
   }
 
+  // ── The goal-channel ADMIN surface (task 7.58) ──────────────────────────────
+  //
+  // Three calls, and deliberately only three: create, list, archive. All are
+  // OUTBOUND HTTP POSTs on the bot token — the outbound-only property this module
+  // exists to preserve is untouched, and `probe-chat-outbound` still holds.
+  //
+  // ⚑ THERE IS NO `conversations.invite` CALL HERE, AND THERE MUST NEVER BE ONE.
+  // The bridge never adds a member to a channel; membership is a human act in the
+  // Slack UI. The run's `r-slack-etiquette` guard ("the owner is added to NO test
+  // channel") is enforced by this ABSENCE, which a probe asserts against the source
+  // — a guard that cannot be forgotten under pressure, unlike a policy.
+
+  async function createChannel({ name, isPrivate = false }) {
+    if (!botToken) throw new Error('SLACK_BOT_TOKEN is required to create a channel');
+    const resp = await slackPost('conversations.create', botToken, { name, is_private: Boolean(isPrivate) });
+    if (!resp || !resp.ok) {
+      // `name_taken` is an expected, meaningful outcome (the adopt path) — logged at
+      // info, not warn, so it does not read as a fault in an unattended log.
+      log(resp && resp.error === 'name_taken' ? 'info' : 'warn', 'conversations.create did not create', { name, error: resp && resp.error });
+      return { ok: false, error: resp && resp.error };
+    }
+    return { ok: true, channel: { id: resp.channel && resp.channel.id, name: resp.channel && resp.channel.name } };
+  }
+
+  async function listChannels({ cursor = null, excludeArchived = true, limit = 200 } = {}) {
+    if (!botToken) throw new Error('SLACK_BOT_TOKEN is required to list channels');
+    const body = {
+      types: 'public_channel,private_channel',
+      exclude_archived: Boolean(excludeArchived),
+      limit,
+    };
+    if (cursor) body.cursor = cursor;
+    const resp = await slackPost('conversations.list', botToken, body);
+    if (!resp || !resp.ok) {
+      log('warn', 'conversations.list failed', { error: resp && resp.error });
+      return { ok: false, error: resp && resp.error };
+    }
+    const channels = Array.isArray(resp.channels)
+      ? resp.channels.map((c) => ({ id: c.id, name: c.name, is_archived: Boolean(c.is_archived) }))
+      : [];
+    const nextCursor = (resp.response_metadata && resp.response_metadata.next_cursor) || null;
+    return { ok: true, channels, nextCursor: nextCursor || null };
+  }
+
+  async function archiveChannel({ channel }) {
+    if (!botToken) throw new Error('SLACK_BOT_TOKEN is required to archive a channel');
+    const resp = await slackPost('conversations.archive', botToken, { channel });
+    if (!resp || !resp.ok) {
+      log(resp && resp.error === 'already_archived' ? 'info' : 'warn', 'conversations.archive did not archive', { channel, error: resp && resp.error });
+      return { ok: false, error: resp && resp.error };
+    }
+    return { ok: true };
+  }
+
   function stop() {
     closedByUs = true;
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
@@ -243,7 +307,10 @@ function createSlackSocketMode({
     ws = null;
   }
 
-  return { start, stop, sendToOwner, openConnection, toChatMessage };
+  return {
+    start, stop, sendToOwner, openConnection, toChatMessage,
+    createChannel, listChannels, archiveChannel,
+  };
 }
 
 module.exports = { createSlackSocketMode };

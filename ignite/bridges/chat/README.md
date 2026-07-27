@@ -45,6 +45,62 @@ a new envelope for the same event). The cache is a bounded in-memory insertion-
 ordered `Map` (max ~500 entries, oldest evicted) — consistent with the bridge's
 in-memory-by-design architecture (sessions-are-cattle; no persistence).
 
+## One channel per goal (task 7.58, owner ruling `d-channel-per-goal`) — `goal-channel-map.js`
+
+A goal's Slack surface is a **dedicated channel per goal**; the goal `thread` maps 1:1
+onto it. The former per-goal chat-THREAD surface is superseded.
+
+**Which surface a message arrived on decides how it routes**, and the bridge decides
+that first (`chat-bridge.js` `routeOf`):
+
+| Inbound | Route | Conversation id |
+|---------|-------|-----------------|
+| **DM** to the bot (`channel_type: 'im'`) | **master** traffic — cold contact, unchanged by the ruling. A DM has no goal, so it can never be attributed to one. | the Slack thread `channel:thread_ts` |
+| Message in a **mapped goal channel** | **goal** traffic | the **channel id** — the goal thread IS the channel; sharding by `thread_ts` would split one goal thread into many |
+| A channel mapping to no goal, or a group DM (`mpim`) | **refused**, nothing enqueued | — |
+
+The surface gate runs **after** admission, not before: refusing earlier is no weaker,
+but it would stop a non-admitted principal from ever reaching the allowlist's pairing
+queue, and that queue is the DM-pairing feature (DEC-6).
+
+**The two formerly-open points are settled** — reasoning, alternatives and the
+registry-transcription flags are in `goal-channel-design.md`:
+
+- **(a) Creation** — the **bridge** creates the channel, at **goal registration**,
+  through one idempotent **name-derived** call (`bridge.registerGoal(goalId)` →
+  `ensureChannel`). Only the bridge holds a chat credential. Name-derivation
+  (`{prefix}{goalId}`, a bijection) is load-bearing, not cosmetic: the bridge's state
+  is in-memory, so a restart rebuilds every binding from `conversations.list` alone
+  (`recover()`, run at `start()`) — no persistence, no store handle. Slack's
+  `name_taken` is therefore the **adopt** path, not an error. A goal id that does not
+  derive cleanly is **refused, never sanitized** — sanitizing would break the inverse
+  and let two goals share one channel.
+- **(b) Close-time** — **archive, never delete** (`bridge.closeGoal(goalId)` →
+  `retire`), idempotent (`already_archived` / `channel_not_found` are success). A
+  refused archive **keeps** the binding: the channel is still live, and dropping it
+  would leave goal traffic pointed at a channel nobody believes is in use.
+
+**There is no `conversations.invite` code path anywhere in this module, and there must
+never be one.** The bridge cannot add a member to a channel; membership is a human act
+in the Slack UI. `probe-chat-goal-channel` asserts that absence against the source, so
+"the owner is in no channel" is a mechanical guarantee rather than a procedural one.
+
+**Reaching the current phase-owner voice** (CMP-8 § Thread-model routing) is the
+SERVER's derivation, not the bridge's: a sender types its message and never addresses a
+recipient. The bridge reaches that voice **by not addressing one** — it enqueues a
+`send-message` carrying the goal thread. v1 has no phase-owner router yet, so the goal
+thread collapses to the chain-stable `exec-<first exec_id>` (`concepts/thread.md` § v1
+interim handle) and delivery reaches that chain's current turn.
+
+**Operator surface:** `goal-channel-cli.js` (`whoami` · `ensure` · `list` · `members` ·
+`post` · `retire`) is the stand-in caller until the goal-registration hook exists (task
+7.63 `rbtv goal scaffold`). Same functions, same idempotence, invoked by hand rather
+than by an event.
+
+**Required Slack bot scopes:** `channels:manage` (create + archive), `channels:read`
+(+ `groups:read`, for list/members), `chat:write`, `channels:history`, `im:history`.
+Deliberately **not** required: any invite scope.
+
 ## The forward contract (D104/D105) — `forward-path.js`
 
 One chat thread = one conversation. A message from an admitted principal becomes

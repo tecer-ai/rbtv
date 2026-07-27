@@ -59,16 +59,29 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     }
   }
 
+  // The launch profile for a first message, by SURFACE (task 7.58). Master (DM) and
+  // goal (channel) traffic are different work — cold-contact intake versus a message
+  // on an existing goal's thread — so they may run different profiles. Both fall back
+  // to the single `sessionProfile`, so an unconfigured deployment behaves exactly as
+  // it did before this task. No new job payload field is introduced anywhere: the
+  // surface distinction rides the EXISTING `profile` arg, because inventing a wire
+  // field would put the bridge ahead of the job catalogue's own args schema.
+  function profileFor(route) {
+    if (route && route.kind === 'goal') return config.goalProfile || config.sessionProfile;
+    return config.masterProfile || config.sessionProfile;
+  }
+
   // A first message that STARTS work → a session-creating launch-agent job.
-  async function forwardSessionCreate({ chatThreadId, text }) {
-    if (!config.sessionProfile) {
+  async function forwardSessionCreate({ chatThreadId, text, route }) {
+    const profile = profileFor(route);
+    if (!profile) {
       // A launch-agent job MUST name a profile (DEC-1 R3; the store re-validates it
       // exists). Missing config is a loud refusal, never a silent malformed forward.
       return { forwarded: false, leg: 'session-create', reason: 'no-session-profile-configured' };
     }
     const payload = {
       job_id: config.sessionJobId,
-      args: { profile: config.sessionProfile, prompt: text },
+      args: { profile, prompt: text },
       session_mode: 'headless',                 // chat rides the headless model (notes §7b)
       trigger_kind: 'scheduled',
       run_at: nowIsoUtc(),                      // due now: the next tick dispatches it
@@ -82,13 +95,13 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     }
     const queueId = res.result && res.result.jobId;
     threadMap.create(chatThreadId, { queueId });
-    log('info', 'session-create job enqueued', { chatThreadId, queueId });
-    return { forwarded: true, leg: 'session-create', intent: 'enqueue-job', queueId };
+    log('info', 'session-create job enqueued', { chatThreadId, queueId, route: route && route.kind, goalId: route && route.goalId, profile });
+    return { forwarded: true, leg: 'session-create', intent: 'enqueue-job', queueId, route: route && route.kind, goalId: (route && route.goalId) || null };
   }
 
   // A follow-up in an already-mapped conversation → a send-message action-type
   // job on the chain's thread. NEVER send-to-session.
-  async function forwardFollowUp({ chatThreadId, text }) {
+  async function forwardFollowUp({ chatThreadId, text, route }) {
     const entry = threadMap.get(chatThreadId);
     // Resolve the chain thread via inspect (D69) — the address for the message row.
     const resolved = await threadMap.resolveChainThread(chatThreadId, forwarder);
@@ -122,23 +135,40 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
       return { forwarded: false, leg: 'follow-up', intent: 'enqueue-job', replyType, thread: resolved.chainThread, error: res.error };
     }
     if (replyType === 'answer') threadMap.setPendingAsk(chatThreadId, false); // the ask has now been answered
-    log('info', 'follow-up send-message enqueued', { chatThreadId, replyType, thread: resolved.chainThread, queueId: res.result && res.result.jobId });
-    return { forwarded: true, leg: 'follow-up', intent: 'enqueue-job', replyType, thread: resolved.chainThread, queueId: res.result && res.result.jobId };
+    log('info', 'follow-up send-message enqueued', { chatThreadId, replyType, thread: resolved.chainThread, route: route && route.kind, goalId: route && route.goalId, queueId: res.result && res.result.jobId });
+    return { forwarded: true, leg: 'follow-up', intent: 'enqueue-job', replyType, thread: resolved.chainThread, queueId: res.result && res.result.jobId, route: route && route.kind, goalId: (route && route.goalId) || null };
   }
 
   // The single entry: an inbound chat message. Admission FIRST (chat-bridge-spec.md
   // Behavior #2) — a non-admitted principal is refused with NO forward. Then route
   // by whether the conversation already exists.
-  async function onChatMessage({ chatUserId, chatThreadId, text }) {
+  //
+  // `route` (task 7.58) is resolved by the bridge and says which surface the message
+  // arrived on — 'master' (a DM) or 'goal' (a mapped goal channel). It never changes
+  // the ADMISSION decision (DEC-6's gate is per-principal, not per-surface) and it
+  // never changes the forward CONTRACT (still exactly two enqueue-job legs). It
+  // selects the launch profile and is logged, so a goal's traffic is attributable.
+  //
+  // THREE-VALUED, deliberately: an explicit `null` means the bridge RESOLVED the
+  // surface and found it unattributable → refuse. `undefined` means no caller
+  // supplied one at all (a pre-7.58 embedder) → master, the old behaviour. Collapsing
+  // the two would either refuse legitimate callers or admit unattributable traffic.
+  async function onChatMessage({ chatUserId, chatThreadId, text, route = { kind: 'master', goalId: null } }) {
     const admission = allowlist.check(chatUserId);
     if (!admission.allowed) {
       log('warn', 'chat message refused (not admitted) — no forward', { chatUserId, chatThreadId, reason: admission.reason });
       return { forwarded: false, refused: true, reason: admission.reason };
     }
-    if (threadMap.has(chatThreadId)) {
-      return forwardFollowUp({ chatThreadId, text });
+    // Surface gate, AFTER admission (see the bridge's routeOf note): a message from
+    // a channel that maps to no goal is unattributable and must never mint work.
+    if (route === null) {
+      log('warn', 'chat message refused — surface maps to no goal and is not a DM', { chatUserId, chatThreadId });
+      return { forwarded: false, refused: true, reason: 'unroutable-surface' };
     }
-    return forwardSessionCreate({ chatThreadId, text });
+    if (threadMap.has(chatThreadId)) {
+      return forwardFollowUp({ chatThreadId, text, route });
+    }
+    return forwardSessionCreate({ chatThreadId, text, route });
   }
 
   return { onChatMessage, forwardSessionCreate, forwardFollowUp, CMP8_TYPES };
