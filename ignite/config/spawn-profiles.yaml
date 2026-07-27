@@ -289,6 +289,8 @@ tools:
       - --loop
       - "10"
       - --notify
+      - --watch-arg=--mem-floor-mb
+      - --watch-arg=2800
       - --budget-s
       - "120"
 
@@ -304,5 +306,7 @@ tools:
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/watch.py
       - --loop
       - "10"
+      - --watch-arg=--mem-floor-mb
+      - --watch-arg=2800
       - --budget-s
       - "120"
