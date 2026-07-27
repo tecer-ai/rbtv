@@ -29,6 +29,9 @@
 // Usage:
 //   node ignite/deploy/probe-suite.js [options]
 //     --dir <rel>        limit to a probes directory (repeatable); default: every one discovered
+//     --only <name>      run ONE probe (repeatable) — `probe-cli-status`, `cli-status`, or the
+//                        filename. Use this instead of `node probe-x.js`: it keeps preserve mode,
+//                        so running a single probe stops dirtying its tracked capture (G-163)
 //     --timeout-ms <n>   per-probe timeout (default 180000)
 //     --summary <path>   summary file (default: <workspace>/.rbtv/runtime/probe-suite/<stamp>.txt)
 //     --list             discover and print, execute nothing (exit 0 if any found, 2 if none)
@@ -62,7 +65,7 @@ const EXIT_INCOMPLETE = 2;
 // Walk for directories literally named `probes` and take their probe-* scripts. Discovery is by
 // STRUCTURE, never a hardcoded list: the 2026-07-15 sweep listed 21 probes from 3 directories and
 // read complete, because nothing in it carried a denominator to compare against.
-function discoverProbes(root, only) {
+function discoverProbes(root, only, probeOnly) {
   const found = [];
   const skip = new Set(['node_modules', '.git', 'lib', 'fixtures']);
 
@@ -84,6 +87,12 @@ function discoverProbes(root, only) {
       if (!f.startsWith('probe-')) continue;
       const ext = path.extname(f);
       if (ext !== '.js' && ext !== '.py') continue;
+      // G-163: `--only` exists so that running ONE probe still goes through this runner, and so
+      // inherits preserve mode. Running a probe by hand is what dirties tracked captures — making
+      // the runner the way to run a single probe fixes that without touching 84 probe files.
+      if (probeOnly && probeOnly.length
+          && !probeOnly.some((n) => f === n || f.replace(/\.(js|py)$/, '') === n
+                                 || f.replace(/^probe-/, '').replace(/\.(js|py)$/, '') === n)) continue;
       const abs = path.join(dir, f);
       found.push({
         id: rel + '/' + f,
@@ -211,7 +220,7 @@ function grade(probe, r) {
 
 function runSuite(opts) {
   const root = opts.root || IGNITE_ROOT;
-  const discover = opts.discover || ((r) => discoverProbes(r, opts.only));
+  const discover = opts.discover || ((r) => discoverProbes(r, opts.only, opts.probeOnly));
   const execute = opts.execute || executeProbe;
   const timeoutMs = opts.timeoutMs || DEFAULT_TIMEOUT_MS;
   const emit = opts.emit || (() => {});
@@ -227,7 +236,9 @@ function runSuite(opts) {
     'root: ' + root,
     'discovered: ' + discovered,
     'timeout-ms: ' + timeoutMs,
-    'selection: ' + (opts.only && opts.only.length ? opts.only.join(',') : 'all'),
+    'selection: ' + [(opts.only && opts.only.length ? 'dirs=' + opts.only.join(',') : ''),
+                     (opts.probeOnly && opts.probeOnly.length ? 'probes=' + opts.probeOnly.join(',') : '')]
+                    .filter(Boolean).join(' ') || 'all',
     '--- results (appended as each probe returns) ---',
   ].join('\n') + '\n';
   emit(header);
@@ -477,6 +488,18 @@ function selftest() {
     if (fs.existsSync(target)) throw new Error('a capture that did not exist before the run was left behind');
   });
 
+  t('P4 --only selects ONE probe by any of its three spellings, and 0 matches REFUSES', () => {
+    for (const spelling of ['probe-ok.js', 'probe-ok', 'ok']) {
+      const found = discoverProbes(tmp, null, [spelling]);
+      eq(found.length, 1, 'matches for ' + spelling);
+      eq(found[0].id.endsWith('probe-ok.js'), true, 'picked for ' + spelling);
+    }
+    // A name that matches nothing must not quietly run the whole suite, and must not read green.
+    const r = run({ probeOnly: ['no-such-probe'] });
+    eq(r.discovered, 0, 'discovered');
+    eq(r.exitCode, EXIT_INCOMPLETE, 'exitCode');
+  });
+
   t('S9 the three outcomes carry three DIFFERENT exit codes', () => {
     const codes = new Set([EXIT_GREEN, EXIT_FAILED, EXIT_INCOMPLETE]);
     eq(codes.size, 3, 'distinct exit codes');
@@ -515,12 +538,13 @@ function defaultSummaryPath() {
 }
 
 function main(argv) {
-  const opts = { only: [], timeoutMs: DEFAULT_TIMEOUT_MS };
+  const opts = { only: [], probeOnly: [], timeoutMs: DEFAULT_TIMEOUT_MS };
   let json = false; let list = false; let summaryPath = null;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--selftest') return selftest();
     else if (a === '--dir') opts.only.push(argv[++i]);
+    else if (a === '--only') opts.probeOnly.push(argv[++i]);
     else if (a === '--timeout-ms') opts.timeoutMs = Number(argv[++i]);
     else if (a === '--summary') summaryPath = argv[++i];
     else if (a === '--json') json = true;
@@ -534,7 +558,7 @@ function main(argv) {
   }
 
   if (list) {
-    const found = discoverProbes(IGNITE_ROOT, opts.only);
+    const found = discoverProbes(IGNITE_ROOT, opts.only, opts.probeOnly);
     for (const p of found) console.log(p.id);
     console.log(`\ndiscovered: ${found.length}`);
     return found.length ? EXIT_GREEN : EXIT_INCOMPLETE;

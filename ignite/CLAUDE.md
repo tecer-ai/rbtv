@@ -43,7 +43,15 @@ Contract, the caller bounds, and the disclosed residuals: `launch-profiles/READM
 
 Each component keeps its probes in a `probes/` folder beside it; a probe is a self-contained script
 that writes its verdict into an adjacent `.out`. **Run them with `node deploy/probe-suite.js`** —
-`--list` to enumerate, `--dir <rel>` to scope, `--selftest` to prove the runner itself.
+`--list` to enumerate, `--dir <rel>` to scope, `--only <name>` for a single probe, `--selftest` to
+prove the runner itself.
+
+**Run ONE probe with `--only <name>`, never `node probes/probe-x.js` (`G-163`).** Running a probe
+by hand rewrites its tracked capture with pure noise — a wall time, an ephemeral port, a timestamp
+— so verification itself dirties files the seat never edited, and three commits swept that noise in
+one night. Through the runner the capture is restored byte-identical and the fresh output is kept
+outside the repo. Measured on the same probe: by hand leaves it modified, `--only retention` leaves
+the tree clean.
 
 The runner exists because nothing enumerated, executed or counted these scripts (`G-141`): two
 probes were dead for seven days across two commits, and the last "green" sweep covered 21 of 82
