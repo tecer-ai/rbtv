@@ -1416,21 +1416,87 @@ def resolve_agent(args, required=True):
     sys.exit(2)
 
 
+def role_verdict(args, command, allow, allowed_desc):
+    """The ROLE gate's verdict, WITHOUT acting on it: (caller, passed, overridden, message).
+
+    Split out of `gate` so a command carrying more than one gate can evaluate them ALL before it
+    refuses (leader #230). `passed` is the gate's own answer, ignoring --force; `overridden` says
+    --force would carry it anyway."""
+    caller = resolve_agent(args, required=False)
+    passed = bool(allow(caller))
+    forced = bool(getattr(args, "force", False))
+    if passed:
+        return caller, True, False, ""
+    msg = (f"`{command}` is {allowed_desc}; you resolve to '{caller or 'no identity'}'")
+    return caller, False, forced, msg
+
+
 def gate(args, command, allow, allowed_desc):
     """Hard role gate (T6/F14: `owner`/`launch`/`close`/`panel` documented a leader-only rule
     and never enforced it). `allow` is a predicate over the resolved caller name; '' means
-    identity was unresolvable. Returns the caller. `--force` is the escape."""
-    caller = resolve_agent(args, required=False)
-    if allow(caller):
+    identity was unresolvable. Returns the caller. `--force` is the escape.
+
+    For a command that ALSO carries the memory gate, use `launch_gates` instead — this one
+    short-circuits, which is exactly the trapdoor #230 rules against."""
+    caller, passed, overridden, msg = role_verdict(args, command, allow, allowed_desc)
+    if passed:
         return caller
-    if getattr(args, "force", False):
+    if overridden:
         print(f"note: `{command}` role gate overridden with --force "
               f"(caller: {caller or 'unresolved'})", file=sys.stderr)
         return caller
-    print(f"refused: `{command}` is {allowed_desc}; you resolve to "
-          f"'{caller or 'no identity'}'.\nAsk leader to run it, or pass --force if you are "
+    print(f"refused: {msg}.\nAsk leader to run it, or pass --force if you are "
           f"deliberately acting for leader.", file=sys.stderr)
     sys.exit(2)
+
+
+def launch_gates(args, command, allow, allowed_desc, n_seats):
+    """BOTH gates a spawning command carries — role AND memory — evaluated ALWAYS, with BOTH
+    verdicts reported in one message (leader #230). Returns the caller, or exits.
+
+    THE DEFECT THIS FIXES, and it is an ordering defect rather than a flag one. The role gate was
+    checked FIRST and SHORT-CIRCUITED, so a role refusal said nothing about memory — and the ONLY
+    seat that routinely trips the role gate is the watcher, which holds DAG-unblock authority
+    exercisable solely through `--force`. It therefore could never OBSERVE the memory verdict
+    without having already overridden the role gate, at which point (before the flags were split)
+    it had overridden memory too. A gate you cannot observe without overriding it is not a gate,
+    it is a trapdoor — and separating the flags alone would not have helped, because the second
+    verdict stayed invisible until after the first was waived.
+
+    So: compute both, say both, and refuse if EITHER refuses. `--force` carries the role gate only;
+    `--force-memory` carries the memory gate only; neither carries the other."""
+    caller, role_ok, role_forced, role_msg = role_verdict(args, command, allow, allowed_desc)
+    mgate = memory_gate(n_seats, available_mb())
+    mem_forced = bool(getattr(args, "force_memory", False))
+    lines, refused = [], False
+    if role_ok:
+        lines.append("role gate: PASS")
+    elif role_forced:
+        lines.append(f"role gate: REFUSED, overridden with --force ({role_msg})")
+    else:
+        lines.append(f"role gate: REFUSED — {role_msg}")
+        refused = True
+    if not mgate:
+        lines.append("memory gate: PASS")
+    elif mem_forced:
+        lines.append(f"memory gate: REFUSED, overridden with --force-memory — {mgate}")
+    else:
+        lines.append(f"memory gate: REFUSED — {mgate}")
+        refused = True
+    verdicts = "\n  ".join(lines)
+    if refused:
+        print(f"refused: `{command}` — BOTH gates evaluated, both verdicts below (neither flag "
+              f"carries the other):\n  {verdicts}\n"
+              f"--force carries the ROLE gate; --force-memory carries the MEMORY gate.\n"
+              f"If memory is the refusal, the right move is usually to WAIT for a seat to depart "
+              f"rather than override it.", file=sys.stderr)
+        sys.exit(2)
+    # Nothing refused. Any override that actually carried a gate is announced, so a forced launch
+    # is never silent — the WARNING wording is deliberately distinct from `refused:` (#210).
+    for line in lines:
+        if "overridden" in line:
+            print(c(f"WARNING launching anyway: {line}", C_DEAD), file=sys.stderr)
+    return caller
 
 
 def is_leader(name):
@@ -3006,8 +3072,17 @@ def seats_by_name(args, names=None):
 
 
 def cmd_launch(args):
-    gate(args, "launch", is_leader, "leader's alone (it opens seats and spends plan budget)")
+    role_desc = "leader's alone (it opens seats and spends plan budget)"
+    # #210: the roster is resolved FIRST because the memory gate is sized by seat COUNT, and both
+    # gates must be answered together. Nothing here opens a pane or writes a surface — reading
+    # briefings has no side effect — so evaluating the role gate a few lines later costs nothing
+    # and buys the caller both verdicts at once. `--dry-run` keeps the role gate ALONE: it opens
+    # nothing, so refusing it on available memory would refuse a command that cannot spend any.
     workers = seats_by_name(args, args.only)
+    if args.dry_run:
+        gate(args, "launch", is_leader, role_desc)
+    else:
+        launch_gates(args, "launch", is_leader, role_desc, len(workers) or 1)
     if not workers:
         print(f"refused: no worker briefing carries an `agent:` frontmatter key in "
               f"{workers_dir(args)}, so there is no roster to launch.\n"
@@ -3051,21 +3126,8 @@ def cmd_launch(args):
                   f"{cmd if cmd else 'REFUSED — ' + err}")
         return
 
-    # The memory gate has its OWN override and IGNORES --force (leader #210). `launch` is role-gated
-    # to the leader, and the seed rule gives the watcher DAG-unblock authority exercisable ONLY
-    # through --force — so one flag was silently clearing two independent gates, and the agent that
-    # MUST always force the role gate was the one agent for whom the memory gate was advisory. That
-    # is backwards: the seat launching most often had the weakest gate. A gate a required flag
-    # disables is not a gate.
-    mgate = memory_gate(len(workers), available_mb())
-    if mgate and not getattr(args, "force_memory", False):
-        print(f"refused: {mgate}\n"
-              f"--force does NOT override this — it covers the ROLE gate only. If you have measured "
-              f"the box and are deliberately launching under the floor, pass --force-memory (and "
-              f"say so on the log).", file=sys.stderr)
-        sys.exit(1)
-    if mgate:
-        print(c(f"WARNING launching anyway (--force-memory): {mgate}", C_DEAD), file=sys.stderr)
+    # The memory gate is answered UP FRONT, beside the role gate, by `launch_gates` — both
+    # verdicts in one message, neither flag carrying the other (#210/#230).
 
     # BEFORE any seat boots: a worker reads its rules once, at startup, so a refresh that lands
     # after the pane opens is a refresh the worker never sees.
@@ -3196,14 +3258,24 @@ def mechanical_close_seat(args, target):
 
 
 def cmd_close(args):
-    gate(args, "close", is_leader, "leader's alone (it spawns a closer seat)")
+    role_desc = "leader's alone (it spawns a closer seat)"
+    # #210/#230: `close` carries both gates too, so both are answered together — but ONLY on the
+    # path that actually spawns a closer. A `--dry-run` opens nothing, and a `close: mechanical`
+    # seat (G-23) spawns no closer at all, so neither can spend the memory the gate protects;
+    # refusing those on available memory would refuse a command that costs none. Resolving the
+    # seat's briefing first is read-only.
+    mech_seat = mechanical_close_seat(args, args.target)
+    if args.dry_run or mech_seat is not None:
+        gate(args, "close", is_leader, role_desc)
+    else:
+        launch_gates(args, "close", is_leader, role_desc, 1)
     # G-23 (owner-directed): a seat whose entire state is EXTERNAL and machine-owned finishes one
     # session and opens another — no closer agent, no memory.md, no harvest. Its memory would be a
     # hand-maintained copy of files its own loop recomputes every pass, which is the stale-derived-
     # value class this run hit repeatedly; and a harvest is spent on a seat scheduled to stop being
     # an agent at all (tasks 7.33 + 7.32). What it learns it files to the ledgers DURING its life.
     # The transcript is still exported by close-seat: evidence outlives memory.
-    mech = mechanical_close_seat(args, args.target)
+    mech = mech_seat
     if mech is not None:
         renew = getattr(args, "renew", False)
         print(f"'{args.target}' declares `close: mechanical` — closing WITHOUT a closer seat "
@@ -3234,13 +3306,7 @@ def cmd_close(args):
               "$TMUX_PANE).\nRun it from leader's tmux pane, or use --dry-run to see the closer "
               "prompt.", file=sys.stderr)
         sys.exit(1)
-    # A closer IS a claude seat and spikes like one — the memory gate applies to it too.
-    mgate = memory_gate(1, available_mb())
-    if mgate and not getattr(args, "force_memory", False):
-        print(f"refused: {mgate}\nA mechanical `close-seat` costs no memory and is the fallback.\n"
-              f"--force does NOT override this (it covers the ROLE gate only); --force-memory does.",
-              file=sys.stderr)
-        sys.exit(1)
+    # The memory gate for this spawn was answered up front by `launch_gates`, beside the role gate.
     # G-11: the closer prompt is MULTI-LINE markdown, and it used to be typed into the pane as
     # literal keystrokes — every newline arriving as Enter, so the pane's shell executed the
     # briefing line by line. It checked the closer in for real and printed a completion report
@@ -4962,6 +5028,46 @@ def cmd_selftest(args):
               "WITHOUT a closer seat" in out and not opened
               and not any(t.startswith("closer-theta") for _, t in titles)
               and current_row(rows_t, "theta")["active"] == "no")
+
+        # ---- #210 + #230: BOTH gates evaluated, BOTH verdicts reported, no short-circuit ----
+        # The watcher must pass --force on EVERY launch (the seed rule gives it DAG-unblock
+        # authority exercisable only through the leader's role gate). The role gate was checked
+        # FIRST and SHORT-CIRCUITED, so the watcher could never observe the memory verdict without
+        # having already overridden the role gate — and before the flags were split, that same flag
+        # cleared memory too. Separating the flags alone would NOT have fixed it: the second verdict
+        # stayed invisible until after the first was waived. A gate you cannot observe without
+        # overriding it is not a gate, it is a trapdoor.
+        avail_real2 = available_mb
+        available_mb = lambda: LAUNCH_MEM_FLOOR_MB - 1     # one MB under the floor
+        try:
+            out, code = refuse(cmd_launch, agent="watcher", only="gamma", dry_run=False,
+                               force=True)
+            check("#230: a role-gated caller with --force alone is REFUSED BY MEMORY, and the "
+                  "refusal names BOTH verdicts — the role override no longer hides the memory "
+                  "gate behind it",
+                  code == 2 and "role gate: REFUSED, overridden with --force" in out
+                  and "memory gate: REFUSED" in out)
+            out, code = refuse(cmd_launch, agent="watcher", only="gamma", dry_run=False,
+                               force=True, force_memory=True)
+            check("#230: with BOTH flags it proceeds, and the WARNING is distinguishable from a "
+                  "refusal — it launches and names which gate was overridden",
+                  code == 0 and "WARNING launching anyway" in out
+                  and "overridden with --force-memory" in out and "refused:" not in out)
+            out, code = refuse(cmd_launch, agent="watcher", only="gamma", dry_run=False,
+                               force_memory=True)
+            check("#230: --force-memory does NOT carry the ROLE gate — the memory flag is not a "
+                  "back door into a leader-only command",
+                  code == 2 and "role gate: REFUSED — `launch` is leader's alone" in out)
+            out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=False)
+            check("#230: the LEADER is refused by the memory gate like anyone else and still sees "
+                  "BOTH verdicts — the gate binds the seat holding lifecycle authority too",
+                  code == 2 and "role gate: PASS" in out and "memory gate: REFUSED" in out)
+            out, code = refuse(cmd_launch, agent="watcher", only="gamma", dry_run=True, force=True)
+            check("#230: --dry-run keeps the ROLE gate ALONE — it opens nothing, so refusing it "
+                  "on available memory would refuse a command that cannot spend any",
+                  "memory gate" not in out)
+        finally:
+            available_mb = avail_real2
 
         os.environ.pop("COORD_LAUNCH_TARGET", None)
 
