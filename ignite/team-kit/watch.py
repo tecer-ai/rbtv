@@ -77,6 +77,58 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import coord  # noqa: E402  — roster/messaging/discovery live there; state stays in the package
 
+
+def _loaded_code_fingerprint():
+    """sha256 per kit source file, over THE BYTES THIS PROCESS LOADED (run issue G-158).
+
+    WHY THIS EXISTS. This loop is `while True: pass; sleep` in ONE process (see cmd_watch), and
+    python binds module source at import: there is no reload path here (`execv`/`importlib.reload`
+    appear zero times, measured). So an edit to watch.py or coord.py NEVER reaches a running loop
+    — and the loop keeps heartbeating, keeps printing its pass line, and keeps reporting healthy.
+    Its output is indistinguishable from a correct run. Three long-lived processes ran stale code
+    within one hour on 2026-07-27 and every one was caught by hand, by comparing a start time
+    against a commit time. This stamps the answer into the artifact the loop already writes.
+
+    TWO THINGS IT DELIBERATELY DOES NOT DO, each a way the check would certify what it exists to
+    detect:
+
+      * NOT git metadata. A sha from `git log` describes the REPO; this process runs a FILE. On a
+        dirty tree git reports CURRENT while the loop runs bytes that were never committed. The
+        fingerprint is taken from the file contents, so it answers the question actually asked.
+      * NOT watch.py alone. The loop's live code is its whole import surface — watch.py:78 is
+        `import coord`, and on 2026-07-27 coord.py drifted FOUR commits under a running loop whose
+        own watch.py was current. A watch.py-only marker would have read CURRENT throughout, which
+        is precisely the state it is for. So the set is DERIVED from sys.modules rather than
+        enumerated: every loaded module whose file sits in the kit directory is covered, and a kit
+        module added later is covered without anyone remembering to add it here.
+
+    HONEST LIMIT, stated rather than left to be discovered: the bytes are re-read from disk
+    immediately after import, not intercepted during it. A file rewritten inside that microsecond
+    window would be fingerprinted as its new bytes. That is not the failure mode this addresses —
+    the real one lasts minutes to hours — but the marker means "the file as it stood at this
+    process's import", never "the bytes the interpreter compiled".
+    """
+    kit = Path(__file__).resolve().parent
+    out = {}
+    for mod in list(sys.modules.values()):
+        path = getattr(mod, "__file__", None)
+        if not path:
+            continue
+        try:
+            resolved = Path(path).resolve()
+            if resolved.parent != kit or resolved.suffix != ".py":
+                continue
+            out[str(resolved)] = hashlib.sha256(resolved.read_bytes()).hexdigest()
+        except OSError:
+            continue  # unreadable at import: absent from the map, reported UNKNOWN, never a crash
+    return out
+
+
+# Computed ONCE, at import, on purpose. Recomputing per pass would hash the file on disk and
+# compare it against itself — a detector that can never fire, and the exact green-harness shape
+# this run has paid for repeatedly (the harness supplying the value under test).
+LOADED_CODE = _loaded_code_fingerprint()
+
 WINDOW_DEFAULT = 1_000_000
 TAIL_LINES = 60  # pane-content hash window: enough to see any output change, cheap to capture
 
@@ -298,11 +350,15 @@ def save_heartbeat(base, loop_min):
     A SEPARATE file from watch-state.json on purpose: that file is keyed by agent name, and a
     reserved key inside it would be one roster name away from a collision. Failure is swallowed —
     a heartbeat that cannot be written must never take the watcher down with it (the same
-    read-only-package tolerance coord's cursor persistence has)."""
+    read-only-package tolerance coord's cursor persistence has).
+
+    `code` carries LOADED_CODE — the fingerprint of the source THIS PROCESS loaded, so a reader
+    outside can tell a live loop running current code from a live loop running stale code (G-158).
+    P32 answered "is it running"; this extends the same artifact to "is it running WHAT WE THINK"."""
     try:
         coord.atomic_write(base / "watch-heartbeat.json", json.dumps(
             {"last_pass": now_dt().isoformat(timespec="seconds"),
-             "loop_min": loop_min, "pid": os.getpid()}, indent=1))
+             "loop_min": loop_min, "pid": os.getpid(), "code": LOADED_CODE}, indent=1))
     except OSError as exc:
         print(f"watch: heartbeat not written ({exc}) — `coordinate workers` will report this "
               f"watcher STALE even while it runs", file=sys.stderr)
@@ -1244,6 +1300,46 @@ def cmd_selftest():
         check("P32: an unreadable or half-written heartbeat reads as 'no watcher', never a crash "
               "inside the roster view every seat runs",
               coord.watcher_heartbeat(base) is None)
+
+        # ---- G-158: is it running, vs is it running WHAT WE THINK ----
+        check("G-158: the fingerprint covers the WHOLE import surface, not just watch.py — a "
+              "marker over this file alone would have read CURRENT for two hours while coord.py "
+              "drifted four commits under a live loop, certifying the exact state it exists to "
+              "detect",
+              set(Path(p).name for p in LOADED_CODE) >= {"watch.py", "coord.py"})
+        check("G-158: the fingerprint is taken from FILE BYTES, not git metadata — a repo sha "
+              "reports CURRENT while a dirty tree runs bytes that were never committed",
+              all(v == hashlib.sha256(Path(k).read_bytes()).hexdigest()
+                  for k, v in LOADED_CODE.items()))
+        run_pass(ns(context_pct=90))
+        hb = coord.watcher_heartbeat(base)
+        check("G-158 CONTROL: a loop whose files are untouched reports NO drift — without this "
+              "the next check cannot tell a working detector from one that always cries stale",
+              hb["code_known"] is True and hb["code_drifted"] == [])
+        # The defect itself, reproduced: stamp a real pass, then change a file underneath it. This
+        # is what the live loop has been doing all evening — heartbeating over code that moved.
+        stamped = json.loads((base / "watch-heartbeat.json").read_text(encoding="utf-8"))
+        drifted_file = next(p for p in stamped["code"] if Path(p).name == "coord.py")
+        stamped["code"][drifted_file] = "0" * 64
+        coord.atomic_write(base / "watch-heartbeat.json", json.dumps(stamped))
+        hb = coord.watcher_heartbeat(base)
+        check("G-158: a file that CHANGED since the loop imported it is named in the drift list — "
+              "and coord.py specifically, because the loop's stale code is its import surface and "
+              "not merely its own script",
+              hb["code_known"] is True and hb["code_drifted"] == ["coord.py"])
+        stamped["code"] = {str(base / "vanished.py"): "0" * 64}
+        coord.atomic_write(base / "watch-heartbeat.json", json.dumps(stamped))
+        hb = coord.watcher_heartbeat(base)
+        check("G-158: a stamped file that no longer exists reads as DRIFTED, never as agreement — "
+              "an unreadable file answers 'I cannot tell', which is not 'fine'",
+              hb["code_drifted"] == ["vanished.py (unreadable now)"])
+        del stamped["code"]
+        coord.atomic_write(base / "watch-heartbeat.json", json.dumps(stamped))
+        hb = coord.watcher_heartbeat(base)
+        check("G-158: a loop predating the marker reports code_known FALSE — UNKNOWN, never OK. "
+              "Defaulting absence to healthy would rebuild the absence-reads-as-health defect "
+              "inside the detector built to close it",
+              hb["code_known"] is False and hb["code_drifted"] == [])
 
     coord.RUNS_INDEX = real_runs_index
     try:

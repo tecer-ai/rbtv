@@ -18,6 +18,7 @@ Stdlib only; no PATH install. Liveness/context monitoring lives in watch.py besi
 import argparse
 import csv
 import difflib
+import hashlib
 import json
 import os
 import re
@@ -866,7 +867,34 @@ def watcher_heartbeat(base):
     hb["age_min"] = age_min
     hb["stale"] = age_min > stale_after
     hb["stale_after"] = stale_after
+    hb["code_drifted"], hb["code_known"] = _heartbeat_code_drift(hb.get("code"))
     return hb
+
+
+def _heartbeat_code_drift(loaded):
+    """(drifted file names, whether the question could be answered at all) — run issue G-158.
+
+    The loop stamps a sha per source file it LOADED; this re-reads those same paths NOW. A
+    disagreement means a live, heartbeating, apparently-healthy loop is executing code that no
+    longer exists on disk — the failure mode that bit three long-lived processes inside one hour on
+    2026-07-27, each caught only by hand-comparing a process start time against a commit time.
+
+    ⚠ ABSENCE IS REPORTED AS UNKNOWN, NEVER AS OK. A loop started before this field existed writes
+    no `code` key, and that is indistinguishable from a current one unless it is said out loud —
+    which is the same absence-reads-as-health shape this whole class is made of. A caller that
+    treats a missing marker as "fine" has rebuilt the defect at the reader."""
+    if not isinstance(loaded, dict) or not loaded:
+        return [], False
+    drifted = []
+    for path, want in sorted(loaded.items()):
+        try:
+            now = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        except OSError:
+            drifted.append(Path(path).name + " (unreadable now)")
+            continue
+        if now != want:
+            drifted.append(Path(path).name)
+    return drifted, True
 
 
 WAKE_ENTER_ATTEMPTS = 3
@@ -3279,6 +3307,20 @@ def cmd_workers(args):
                     f"context or approval gates right now; restart the loop.", C_DEAD))
         else:
             print(c(f"watcher: ok — last pass {hb['age_min']}min ago{cadence}{pid}", C_ALIVE))
+        # G-158: "is it running" and "is it running WHAT WE THINK" are different questions, and
+        # only the first was ever asked. A loop that imported an old coord.py keeps passing every
+        # check above — fresh heartbeat, live pid, flags delivered — while executing code that no
+        # longer exists. Printed next to the liveness line because the two are read together and a
+        # separate command would be a command nobody runs.
+        if not hb.get("code_known"):
+            print(c("watcher: code version UNKNOWN — this loop predates the code marker, so "
+                    "nothing here can tell whether it is running current code. Treat it as "
+                    "UNVERIFIED, not healthy; a restart makes it answerable.", C_HINT))
+        elif hb.get("code_drifted"):
+            print(c(f"watcher: RUNNING STALE CODE — {', '.join(hb['code_drifted'])} changed on "
+                    f"disk since this loop imported it, and python binds source at import, so the "
+                    f"running loop can never pick it up. It will keep heartbeating and reporting "
+                    f"healthy on the OLD behaviour. Restart the loop to deploy.", C_DEAD))
     if not getattr(args, "history", False):
         print(c(f"-- current rows only (log tail #{tail}); --history for every row, --full for "
                 f"untruncated summaries", C_HINT))
