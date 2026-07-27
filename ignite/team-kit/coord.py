@@ -27,7 +27,7 @@ import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 try:  # POSIX advisory locking. Absent (or unusable) -> every lock falls back to lockless.
@@ -51,6 +51,22 @@ HISTORY_LIMIT = "100000"
 # PLUS any briefing declaring `observer: yes` / `auto-wake: yes` in its frontmatter.
 DEFAULT_OBSERVERS = {"leader", "scientist"}
 DEFAULT_AUTO_WAKE = {"scientist"}
+# G-20 (owner-directed) — SPECIAL-CASE seats serve the SYSTEM or the ROOM, not the goal's
+# conversation, so a `to: all` broadcast is not their input: it wakes them and spends the context
+# their one job needs. The protocol bounded a closer's SENDING and never anyone's RECEIVING; this
+# is that missing half. `closer-*` is matched by prefix (see broadcast_scope).
+SPECIAL_CASE_SEATS = {"engineer", "watcher"}
+# The watcher is special-cased only UNTIL the deterministic watch layer (tasks 7.33 team-monitor +
+# 7.32 goal-watcher-job) replaces the agentic seat — at which point this exception expires with the
+# seat. It keeps `completion` and `verdict` because its DAG-unblock trigger RIDES those broadcasts
+# (it learns a task is ready from seats' completions): cutting them with no replacement trigger
+# stops new seats launching SILENTLY, which is a quiet stall, not a saving. Leader ruled type
+# granularity (a) tonight over trigger-replacement (b), which rides 7.32/7.33 (msg #189).
+WATCHER_BROADCAST_TYPES = frozenset({"completion", "verdict"})
+# G-21 — how long a `closing` state is honoured before it is treated as orphaned. A close ceremony
+# runs in minutes; a closer that dies mid-close (G-11 killed one tonight) must not leave its target
+# narrowed for the rest of the run.
+CLOSING_MAX_MIN = 45
 # P2 — the registry's five canonical message types (concepts/message.md): the SOLE vocabulary.
 MESSAGE_TYPES = ["completion", "ask", "answer", "verdict", "note"]
 SUMMARY_MAX = 560
@@ -1217,6 +1233,153 @@ def is_leader_or_closer(name):
     return name == "leader" or name.startswith("closer-")
 
 
+def is_closer(name):
+    return bool(name) and name.startswith("closer-")
+
+
+def broadcast_scope(agent):
+    """Which `to: all` broadcast TYPES reach `agent` (G-20).
+
+    None  = every type — an ordinary seat, unchanged.
+    set   = only these types reach it.
+    empty = no broadcast reaches it at all.
+
+    This bounds BROADCAST ONLY. A message addressed to the seat BY NAME, or to a group it belongs
+    to, always arrives — the point is to stop the room's conversation from spending a system seat's
+    context, never to make a seat unreachable."""
+    if is_closer(agent):
+        return frozenset()          # one-shot: co-write memory, harvest, close, depart
+    if agent == "watcher":
+        return WATCHER_BROADCAST_TYPES
+    if agent in SPECIAL_CASE_SEATS:
+        return frozenset()
+    return None
+
+
+def in_broadcast_scope(agent, mtype):
+    """Does a broadcast of type `mtype` reach `agent`? (True for every ordinary seat.)"""
+    scope = broadcast_scope(agent)
+    return True if scope is None else mtype in scope
+
+
+# ---------- closing state (G-21) ----------
+#
+# CLOSING is a STATE, not a role: from the moment `close <seat>` spawns its closer, the seat has
+# exactly one job left — co-write its memory.md, answer the harvest, go. Every other message
+# arriving in that window is work it will never do and context the co-write needs. G-20 bounds WHO
+# a seat is; G-21 bounds WHEN. Inbox while closing: its CLOSER plus `leader`, nothing else.
+#
+# Kept in its own file rather than a roster column: workers.md's row grammar is frozen (WORKER_ROW
+# / row_text) and every reader parses it positionally, so widening it to carry a flag that lives
+# for minutes would be the expensive way to store the cheap thing.
+
+def closing_path(base):
+    return base / "closing.json"
+
+
+def load_closing(base):
+    """{seat: {"since": ts, "closer": name}} for every seat currently being closed. Never fatal:
+    an unreadable or malformed file means "nobody is closing" — the fail-safe direction, since a
+    parse error must not silence the room."""
+    path = closing_path(base)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def closing_age_min(entry):
+    """Minutes since the close began, or None when the stamp is unreadable."""
+    try:
+        return max(0, int((datetime.now()
+                           - datetime.strptime((entry or {}).get("since", "").strip(),
+                                               "%Y-%m-%d %H:%M")).total_seconds() // 60))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def closing_entry(base, seat):
+    """`seat`'s closing state, or None — EXPIRED entries read as None.
+
+    The expiry is not tidiness, it is the failure this run already had: a closer can DIE mid-close
+    (G-11 killed one outright, and three seats were SIGKILLed tonight). Without an expiry, a dead
+    closer would leave its target narrowed for the rest of the run — cut off from the room with no
+    remedy anyone would think to look for. A close ceremony takes minutes; past CLOSING_MAX_MIN the
+    state is assumed orphaned and the seat is treated as ordinary again. Fail-safe direction: an
+    unreadable stamp expires too, because a seat wrongly narrowed goes quiet where a seat wrongly
+    left open merely reads a message it did not need."""
+    entry = load_closing(base).get(seat)
+    if entry is None:
+        return None
+    age = closing_age_min(entry)
+    if age is None or age > CLOSING_MAX_MIN:
+        return None
+    return entry
+
+
+def closing_seats(base):
+    return {seat for seat in load_closing(base) if closing_entry(base, seat) is not None}
+
+
+def set_closing(base, seat, closer):
+    """Mark `seat` as closing. Best-effort like every other coordination side-effect: a failure to
+    write must never abort a close that has already spawned its closer."""
+    try:
+        with coord_lock(base):
+            data = load_closing(base)
+            data[seat] = {"since": now(), "closer": closer}
+            atomic_write(closing_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def clear_closing(base, seat):
+    """Drop `seat`'s closing state — the state dies WITH the close (or with a renew: the successor
+    is a fresh seat with a full inbox). Returns True when a state was actually cleared."""
+    try:
+        with coord_lock(base):
+            data = load_closing(base)
+            if seat not in data:
+                return False
+            del data[seat]
+            atomic_write(closing_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def inbox_scope_line(base, agent):
+    """One line naming the seat's inbox narrowing, or '' for an ordinary seat."""
+    entry = closing_entry(base, agent)
+    if entry is not None:
+        closer = entry.get("closer") or f"closer-{agent}"
+        return (f"CLOSING since {entry.get('since', '?')} — inbox is {closer} + leader only; "
+                f"peers are refused at the CLI and still hold their message (G-21)")
+    scope = broadcast_scope(agent)
+    if scope is None:
+        return ""
+    if scope:
+        return (f"special-case seat — of the room's broadcasts you receive only "
+                f"{'/'.join(sorted(scope))}; direct messages always reach you (G-20)")
+    return ("special-case seat — the room's broadcasts do not reach you; direct messages always "
+            "do (G-20)")
+
+
+def closing_reaches(seat, sender, entry):
+    """May `sender`'s DIRECT message reach `seat` while it is closing? Only its closer and the
+    leader. The closer exception is not optional: the co-write IS a conversation (the closer sends
+    its draft `--type ask` and folds in the correction), so a literal no-direct-messages would
+    break the very ceremony the state exists for. Leader stays reachable for an abort or a renew."""
+    if sender == "leader":
+        return True
+    expected = (entry or {}).get("closer") or f"closer-{seat}"
+    return sender == expected
+
+
 def cmd_approve(args):
     """(doorman) answer a seat's interactive permission/approval prompt: send keys to its
     REGISTERED pane and echo the pane tail so the caller can verify the outcome. This is
@@ -1246,7 +1409,7 @@ def cmd_approve(args):
     print(c("next: run it again if the tail above still shows the prompt", C_HINT))
 
 
-def unread_for(args, base, agent, start, blocks=None, gmap=None, observers=None):
+def unread_for(args, base, agent, start, blocks=None, gmap=None, observers=None, closing=None):
     """Messages after #start this agent would see on an unfiltered `read` — the same predicate
     `read` uses, so checkin/status/workers never disagree with it. This is the ONE unread
     derivation: it excludes the agent's own sends and honours addressing + observer status, which
@@ -1261,8 +1424,10 @@ def unread_for(args, base, agent, start, blocks=None, gmap=None, observers=None)
         gmap = group_map(base)
     if observers is None:
         observers, _ = observer_sets(args)
+    if closing is None:
+        closing = closing_seats(base)
     return [b for b in blocks if b["num"] > start and b["sender"] != agent
-            and addressed_to(b, agent, gmap, observers, "any")]
+            and addressed_to(b, agent, gmap, observers, "any", closing)]
 
 
 def cmd_checkin(args):
@@ -1631,11 +1796,31 @@ def log_delivery_failures(base, failures):
                 f.write(f"> delivery-failure: {fail}\n")
 
 
-def addressed_to(b, agent, gmap, observers, mode="any"):
+def addressed_to(b, agent, gmap, observers, mode="any", closing=()):
     """Is message `b` in `agent`'s inbox? `mode` is the --addressed vocabulary: `any` = to me,
     my groups, or everyone (an observer seat sees the full log); `direct` = only messages naming
-    me; `broadcast` = only messages to all."""
+    me; `broadcast` = only messages to all.
+
+    G-20/G-21 are applied HERE, in the one predicate `read`, `status` and every unread count share,
+    so no view can disagree with another about what a seat's inbox holds — the same reason the
+    unread derivation was collapsed into `unread_for`.
+
+    `closing` is the set of seats currently being closed (`load_closing`); pass it or a closing
+    seat is filtered by role only."""
     to = b["to"]
+    is_closing = agent in closing
+    if to == "all":
+        # A special-case seat, or any seat mid-close, is cut from the room's broadcast — by TYPE
+        # for the watcher, entirely for the rest. Applied before the observer short-circuit: an
+        # observer reads the full log by grant, but the owner's directive is about what LANDS in
+        # a system seat's inbox, and a grant to read everything is not an obligation to receive it.
+        if is_closing or not in_broadcast_scope(agent, b["type"]):
+            return False
+    elif is_closing and to == agent and not closing_reaches(agent, b["sender"], None):
+        # Belt-and-braces: `send` refuses a peer's direct message to a closing seat at the CLI, so
+        # one should never reach the log. If one does (a --force override, or a message that
+        # predates the state), it still must not spend the seat's remaining context.
+        return False
     if mode == "direct":
         return to == agent
     if mode == "broadcast":
@@ -1748,6 +1933,23 @@ def cmd_send(args):
               f"no group of that name." + (f" Did you mean '{near[0]}'?" if near else "")
               + f"\nknown: {', '.join(sorted(known))}\nsend anyway: --force", file=sys.stderr)
         sys.exit(1)
+    # G-21 — a seat mid-close has one job left, so a peer's direct message is REFUSED here, at the
+    # CLI, rather than accepted into a log the seat will depart without reading. The refusal is the
+    # POINT: it fails loud, the sender still HOLDS its message and knows now, and nothing can be
+    # orphaned. Queueing for a successor was the alternative and was ruled against (leader #189) —
+    # it assumes a successor exists, and tonight five of six closes had none, so a queue whose
+    # consumer may never exist is accept-then-silence with extra steps.
+    entry = closing_entry(base, args.to)
+    if entry is not None and not closing_reaches(args.to, sender, entry) and not force:
+        closer = entry.get("closer") or f"closer-{args.to}"
+        print(f"refused: '{args.to}' is CLOSING (since {entry.get('since', '?')}) — its inbox is "
+              f"{closer} and leader only, so this message would arrive as work it will never do "
+              f"and context its memory hand-off needs.\n"
+              f"You still hold it, and nothing is lost: send it to leader, or wait for the seat's "
+              f"successor if it is renewed and send it then.\n"
+              f"override (you are certain the seat must read this before it goes): --force",
+              file=sys.stderr)
+        sys.exit(1)
     if len(body) > MESSAGE_MAX and not force:
         print(f"refused: message is {len(body)} chars — max {MESSAGE_MAX}.\n"
               f"A body this long is a document, and every agent pays for it at every checkpoint. "
@@ -1790,13 +1992,13 @@ def cmd_send(args):
     marks = ((f", supersedes #{args.supersedes}" if args.supersedes is not None else "")
              + (f", re #{re_num}" if re_num is not None else ""))
     print(f"sent message #{n} ({sender} -> {args.to}, type: {args.type}{marks})")
-    deliver_wakes(args, base, sender, args.to, n)
+    deliver_wakes(args, base, sender, args.to, n, args.type)
     if args.type == "ask":
         print(c(f"next: {coord_invocation(args)} pending — your ask stays OPEN until an answer "
                 f"or verdict --re's #{n}", C_HINT))
 
 
-def deliver_wakes(args, base, sender, to, n):
+def deliver_wakes(args, base, sender, to, n, mtype="note"):
     """Nudge every recipient's pane. Wakes stay BEST-EFFORT (P22) — the log is the only truth.
 
     A wake is only ever ATTEMPTED for a recipient with an ACTIVE roster row AND a pane. Every
@@ -1830,10 +2032,32 @@ def deliver_wakes(args, base, sender, to, n):
     known = {r["agent"] for r in rows} | set(briefing_frontmatters(workers_dir(args)))
     recipients |= (auto_wake & known) - {sender}
 
+    # G-20/G-21: the wake half of the inbox scope. A message the seat's `read` will not show it
+    # must not cost it a wake either — waking a seat to fetch nothing is the pure-overhead version
+    # of the very interruption this bounds. Filtered seats are NAMED to the sender with the reason,
+    # exactly as every other skipped recipient is (T3): the sender always learns who did not get
+    # the nudge and why, so a narrowed inbox is never silent at either end.
+    closing = {seat: entry for seat, entry in load_closing(base).items()
+               if closing_entry(base, seat) is not None}
+    scope_skipped = {}
+    if to == "all":
+        for name in sorted(recipients):
+            if name in closing:
+                scope_skipped.setdefault("closing", []).append(name)
+            elif not in_broadcast_scope(name, mtype):
+                scope_skipped.setdefault("special-case seat", []).append(name)
+    else:
+        for name in sorted(recipients):
+            entry = closing.get(name)
+            if entry is not None and not closing_reaches(name, sender, entry):
+                scope_skipped.setdefault("closing", []).append(name)
+    for names in scope_skipped.values():
+        recipients -= set(names)
+
     # T1: the wake embeds the identity-less form — the recipient's own pane/env resolves it.
     text = (f"[coord wake] New coordination message #{n} from {sender} to {label}. "
             f"Read it now, then continue your task: {coord_invocation(args)} read")
-    targets, skipped, failures = [], {}, []
+    targets, skipped, failures = [], dict(scope_skipped), []
     for name in sorted(recipients):
         row = current_row(rows, name)
         if row is None:
@@ -1874,7 +2098,8 @@ def deliver_wakes(args, base, sender, to, n):
     parts = [f"{delivered} delivered"]
     if failures:
         parts.append(f"{len(failures)} failed")
-    for why in ("departed", "not launched", "no pane", "at an approval gate"):
+    for why in ("departed", "not launched", "no pane", "at an approval gate",
+                "special-case seat", "closing"):
         names = skipped.get(why)
         if names:
             parts.append(f"{len(names)} skipped ({why}: {', '.join(sorted(names))})")
@@ -1997,7 +2222,7 @@ def cmd_read(args):
     filtered = (args.type is not None) or (addressed != "any")
     candidates = [b for b in blocks
                   if b["num"] > start and b["sender"] != me
-                  and addressed_to(b, me, gmap, observers, addressed)
+                  and addressed_to(b, me, gmap, observers, addressed, closing_seats(base))
                   and (args.type is None or b["type"] == args.type)]
     limit = getattr(args, "limit", None)
     if limit is None:
@@ -2089,7 +2314,13 @@ def cmd_status(args):
     print(f"{c('unread:', C_LABEL)} {len(waiting)} ({breakdown})")
     gmap = group_map(base)
     mine = [b for b in open_asks(blocks)
-            if b["sender"] != me and addressed_to(b, me, gmap, set(), "any")]
+            if b["sender"] != me and addressed_to(b, me, gmap, set(), "any", closing_seats(base))]
+    # A narrowed inbox must never be invisible to the seat living in it: a seat that sees fewer
+    # messages than the room is sending has to be able to tell "filtered by design" from "the
+    # wakes are broken", and the second is a real failure mode this run has already hit.
+    scope_line = inbox_scope_line(base, me)
+    if scope_line:
+        print(f"{c('inbox: ', C_LABEL)} {scope_line}")
     detail = ("  " + ", ".join(f"#{b['num']} from {b['sender']} ({age_of(b['ts'])})"
                                for b in mine[:5])) if mine else ""
     print(f"{c('asks waiting on you:', C_LABEL)} {len(mine)}{detail}")
@@ -2684,8 +2915,15 @@ def cmd_close(args):
               file=sys.stderr)
         sys.exit(1)
     schedule_session_rename(pane, closer["agent"])
+    # G-21: the state opens only once the closer is VERIFIED up. Setting it earlier would narrow a
+    # live seat's inbox on the strength of a closer that might never have started — which is
+    # exactly how G-11 burned seven minutes of this run on a closer that was only ever a shell.
+    set_closing(base_dir(args), args.target, closer["agent"])
     print(f"closer launched for '{args.target}' in {pane} (window '{CLOSERS_WINDOW}', pane '{title}')"
           + (", renew ON" if args.renew else ""))
+    print(f"inbox: '{args.target}' is now CLOSING — broadcasts stop reaching it and a peer's direct "
+          f"message is refused at the CLI (sender keeps it); {closer['agent']} and leader still get "
+          f"through. Clears when close-seat completes.")
     print(c(f"next: {coord_invocation(args)} workers — closer-{args.target} checks in, co-writes "
             f"memory.md with the seat, then closes it", C_HINT))
 
@@ -2721,6 +2959,14 @@ def cmd_close_seat(args):
 
         update_row(base, args.target, close_row)
         print(f"roster: {args.target} closed")
+    # G-21: the state dies WITH the close, and unconditionally — including the renew path, where
+    # the successor is a fresh seat that must boot with a full inbox, and including a close-seat
+    # run directly by leader on a dead pane, which never had a closer to clear it. A closing flag
+    # that outlives its seat would quietly filter a live successor's messages, which is the failure
+    # this whole change exists to prevent, wearing the other mask.
+    if clear_closing(base, args.target):
+        print(f"inbox: '{args.target}' closing state cleared — the narrowing does not outlive the "
+              f"close")
     old_window = ""
     if old_pane:
         old_window = tmux_pane_window(old_pane)
@@ -2847,6 +3093,9 @@ def cmd_depart(args):
 
         update_row(base, me, close_row)
         print(f"checked out: {me}")
+    # G-21: a seat that departs under its own steam mid-close (or one whose close-seat never ran)
+    # must not leave its closing flag behind for a future occupant of the name.
+    clear_closing(base, me)
     pane = (row or {}).get("pane") or detect_pane(None)
     if pane:
         # G-10: kill-pane SIGHUPs the process group; a harness blocked elsewhere survives as a
@@ -3594,6 +3843,13 @@ def cmd_selftest(args):
               not any(k == "window" for k, _ in opened)
               and any(k == "pane" for k, _ in opened)
               and any(t == "closer-beta" for _, t in titles))
+        # These two closes are real closes, so they really did put gamma and beta into the G-21
+        # CLOSING state — and neither runs close-seat, so nothing would clear it. This section's
+        # subject is PANE PLACEMENT, and both seats keep working as ordinary recipients in a dozen
+        # later sections, so the state is cleared HERE rather than left to refuse thirty unrelated
+        # sends. G-21's own behaviour is exercised deliberately in its section below.
+        for seat in ("gamma", "beta"):
+            clear_closing(base_dir(ns()), seat)
 
         # ---- v2: depart (self close) ----
         run(cmd_checkin, agent="delta", summary="one pass", pane="%7")
@@ -4132,6 +4388,121 @@ def cmd_selftest(args):
             check(f"mirror: refresh_mirrors_for raised — {exc}", False)
         finally:
             globals()["refresh_mirror"] = _real_refresh
+
+        # ---- G-20 (inbox-scope) + G-21 (closing state): who a broadcast reaches ----
+        # The owner's directive bounds the RECEIVING direction the protocol never bounded. The bar
+        # below is the leader's, verbatim in shape: a special-case seat's read shows nothing after
+        # an `all`; a direct send still arrives; a COMPLETION reaches the watcher while a NOTE does
+        # not; a closing seat gets no `all`; a peer's direct send is REFUSED with its typed reason
+        # and never silently accepted; its closer's ask arrives; the leader's order arrives; the
+        # state clears when close-seat completes.
+        check("G-20: broadcast_scope — a closer takes no broadcast at all",
+              broadcast_scope("closer-alpha") == frozenset())
+        check("G-20: broadcast_scope — the watcher keeps completion+verdict and nothing else",
+              broadcast_scope("watcher") == WATCHER_BROADCAST_TYPES
+              and in_broadcast_scope("watcher", "completion")
+              and in_broadcast_scope("watcher", "verdict")
+              and not in_broadcast_scope("watcher", "note")
+              and not in_broadcast_scope("watcher", "ask"))
+        check("G-20: broadcast_scope — `engineer` (a one-agent inbox by r-engineer-practice) "
+              "takes none, and an ordinary seat is UNTOUCHED (None = every type)",
+              broadcast_scope("engineer") == frozenset()
+              and broadcast_scope("alpha") is None
+              and in_broadcast_scope("alpha", "note"))
+
+        run(cmd_checkin, agent="watcher", summary="sensor pass", pane="%20")
+        run(cmd_checkin, agent="engineer", summary="one-agent inbox", pane="%21")
+        run(cmd_checkin, agent="zeta", summary="an ordinary seat", pane="%22")
+        base_g = base_dir(ns())
+        _, before = load_messages(base_g)
+        mark = before[-1]["num"] if before else 0
+        out = sd("alpha", "all", "room chatter nobody's sensor needs", type="note")
+        check("G-20: an `all` NOTE skips the special-case seats by NAME in the sender's summary "
+              "(never silently) and still reaches an ordinary seat",
+              "skipped (special-case seat: engineer, watcher)" in out
+              and "zeta" not in out.split("skipped (special-case seat")[1].split(")")[0])
+        check("G-20: after that broadcast the watcher's and engineer's read shows NOTHING NEW, "
+              "while the ordinary seat sees it",
+              "room chatter" not in rd("watcher", after=mark, peek=True)
+              and "room chatter" not in rd("engineer", after=mark, peek=True)
+              and "room chatter" in rd("zeta", after=mark, peek=True))
+        _, mid = load_messages(base_g)
+        mark2 = mid[-1]["num"]
+        out = sd("alpha", "all", "lane A node delivered", type="completion")
+        check("G-20: an `all` COMPLETION DOES reach the watcher — its DAG-unblock trigger rides "
+              "these — while the engineer still takes none",
+              "lane A node" in rd("watcher", after=mark2, peek=True)
+              and "lane A node" not in rd("engineer", after=mark2, peek=True))
+        _, mid2 = load_messages(base_g)
+        mark3 = mid2[-1]["num"]
+        sd("alpha", "watcher", "a question only you can answer", type="note")
+        check("G-20: DIRECT addressability is untouched — a message naming the seat always lands",
+              "a question only you can answer" in rd("watcher", after=mark3, peek=True))
+
+        # G-21 — the STATE half. `close` sets it; this asserts the state's semantics directly so a
+        # failure names the rule that broke rather than the ceremony around it.
+        run(cmd_checkin, agent="eta", summary="about to be closed", pane="%23")
+        set_closing(base_g, "eta", "closer-eta")
+        check("G-21: `status` tells the closing seat its own inbox is narrowed — a seat living in "
+              "a filtered inbox must be able to tell 'by design' from 'my wakes are broken'",
+              "CLOSING" in inbox_scope_line(base_g, "eta")
+              and "closer-eta" in inbox_scope_line(base_g, "eta"))
+        _, pre = load_messages(base_g)
+        out, code = refuse(cmd_send, agent="zeta", to="eta", message="one more thing",
+                           type="note", supersedes=None, re_num=None, file=None)
+        _, post = load_messages(base_g)
+        check("G-21: a PEER's direct send to a closing seat is REFUSED with the typed reason and "
+              "the redirect, and NOTHING is appended — the sender still holds its message "
+              "(accept-then-silence is the forbidden shape)",
+              code == 1 and "is CLOSING" in out and "closer-eta and leader only" in out
+              and "send it to leader" in out and len(post) == len(pre))
+        out, code = refuse(cmd_send, agent="zeta", to="eta", message="one more thing",
+                           type="note", supersedes=None, re_num=None, file=None, force=True)
+        check("G-21: --force is the deliberate override (the sender is certain it must be read)",
+              code == 0 and "sent message #" in out)
+        _, pre2 = load_messages(base_g)
+        mark4 = pre2[-1]["num"]
+        sd("closer-eta", "eta", "draft memory — corrections?", type="ask")
+        check("G-21: its CLOSER gets through — the co-write IS a conversation, so the exception "
+              "is not optional",
+              "draft memory" in rd("eta", after=mark4, peek=True))
+        _, pre3 = load_messages(base_g)
+        mark5 = pre3[-1]["num"]
+        sd("leader", "eta", "abort the close", type="verdict")
+        check("G-21: the LEADER always gets through (abort / renew)",
+              "abort the close" in rd("eta", after=mark5, peek=True))
+        _, pre4 = load_messages(base_g)
+        mark6 = pre4[-1]["num"]
+        out = sd("alpha", "all", "a broadcast during the close", type="note")
+        check("G-21: an `all` broadcast does not reach a closing seat, and the sender is told",
+              "closing: eta" in out
+              and "a broadcast during the close" not in rd("eta", after=mark6, peek=True))
+        run(cmd_close_seat, target="eta", agent="leader", renew=False, no_export=True)
+        check("G-21: the state CLEARS when close-seat completes — the narrowing never outlives "
+              "the seat it was protecting",
+              closing_entry(base_g, "eta") is None and "eta" not in closing_seats(base_g))
+
+        # The expiry, which is not tidiness: a closer that DIES mid-close (G-11 killed one tonight)
+        # would otherwise leave its target cut off from the room for the rest of the run, silently.
+        set_closing(base_g, "zeta", "closer-zeta")
+        stale = load_closing(base_g)
+        stale["zeta"]["since"] = (datetime.now()
+                                  - timedelta(minutes=CLOSING_MAX_MIN + 5)).strftime(
+                                      "%Y-%m-%d %H:%M")
+        atomic_write(closing_path(base_g), json.dumps(stale) + "\n")
+        check("G-21: a closing state older than CLOSING_MAX_MIN is treated as ORPHANED — the seat "
+              "returns to an ordinary inbox rather than staying mute behind a dead closer",
+              closing_entry(base_g, "zeta") is None and "zeta" not in closing_seats(base_g))
+        stale["zeta"]["since"] = "not-a-timestamp"
+        atomic_write(closing_path(base_g), json.dumps(stale) + "\n")
+        check("G-21: an unreadable stamp expires too (fail-safe direction: a seat wrongly narrowed "
+              "goes quiet; one wrongly left open merely reads a message it did not need)",
+              closing_entry(base_g, "zeta") is None)
+        atomic_write(closing_path(base_g), "{ not json")
+        check("G-21: a corrupt closing.json means NOBODY is closing — a parse error must never "
+              "silence the room",
+              load_closing(base_g) == {} and closing_seats(base_g) == set())
+        clear_closing(base_g, "zeta")
 
         os.environ.pop("COORD_LAUNCH_TARGET", None)
 
