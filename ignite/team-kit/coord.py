@@ -2903,6 +2903,59 @@ def descriptor_findings(args):
     return found
 
 
+# The documents a seat is known to READ AT BOOT — its loader pair, its descriptor, its memory, and
+# the handoff/state doc that proved the class (a superseded ruling sat verbatim in SEAT-STATE.md,
+# read at boot and never re-read). Used ONLY to rank and mark the boot-stale report, never to
+# filter it: a boot-read document under a name not listed here is still reported, just lower.
+BOOT_READ_NAMES = {"seat.md", "agent.md", "memory.md", "SEAT-STATE.md", "CLAUDE.md", "AGENTS.md"}
+
+
+def boot_stale_findings(args):
+    """[(seat, path, mtime)] — files in a LIVE seat's folder modified after that seat checked in.
+
+    G-61: a seat's instructions are WRITE-ONCE AT BOOT. Nothing re-reads them, so a ruling that
+    invalidates a running seat's briefing reaches it only if someone notices by hand. Measured
+    instance: a planner booted at 06:50 on constraints reversed at 06:52 and had no way to learn it.
+
+    The scope is the seat's OWN FOLDER, not `seat.md` alone, because the widening that proved the
+    class came from `SEAT-STATE.md` — a boot-read document that is not the descriptor. A folder IS
+    the seat-scoped boot-read surface, so `memory.md`, handoff docs and successors are covered by
+    construction, with no declared list to maintain and no layout decision to settle first.
+
+    `transcripts/` is excluded: it is an export target, written by the close ceremony, never read
+    at boot.
+
+    DELIBERATELY OVER-REPORTS, and the trade is the point: mtime moves when content does not, and
+    a seat writing its OWN memory.md trips it. A false positive costs a glance; the false negative
+    this replaces cost the run a live seat planning against two dead constraints.
+    """
+    base = base_dir(args)
+    _, _, rows = load_workers(base)
+    wdir = workers_dir(args)
+    out = []
+    for name in dict.fromkeys(r["agent"] for r in rows):
+        row = current_row(rows, name)
+        if not row or row.get("active") != "yes":
+            continue
+        try:
+            since = datetime.strptime(row.get("checkin", "").strip(), "%Y-%m-%d %H:%M")
+        except ValueError:
+            continue  # an unparseable checkin stamp is not evidence of staleness either way
+        folder = wdir / name
+        if not folder.is_dir():
+            continue
+        for path in sorted(folder.rglob("*")):
+            if not path.is_file() or "transcripts" in path.relative_to(folder).parts:
+                continue
+            try:
+                mtime = datetime.fromtimestamp(path.stat().st_mtime)
+            except OSError:
+                continue
+            if mtime > since:
+                out.append((name, path.relative_to(folder), mtime))
+    return out
+
+
 def cmd_descriptors(args):
     """Read-only structural audit of every seat descriptor (G-57). Opens no briefing body."""
     findings = descriptor_findings(args)
@@ -2918,7 +2971,27 @@ def cmd_descriptors(args):
     print("bound: frontmatter fields and paths ONLY. A stale owned-surfaces claim or a stale "
           "mission narrative is PROSE and is NOT checked here — zero findings does not mean the "
           "descriptors are true.")
-    sys.exit(1 if findings else 0)
+
+    stale = boot_stale_findings(args)
+    # Measured on this run's first live pass: 11 findings, 10 of them a seat writing its OWN
+    # outputs. Full coverage is deliberate and kept — but an alarm that rings ten times per real
+    # signal is one nobody reads, so boot-read NAMES are ranked first and marked. This is a DISPLAY
+    # heuristic, never a filter: nothing is hidden, and a boot-read document under a name not on
+    # the list still appears, just lower.
+    ranked = sorted(stale, key=lambda f: (f[1].name not in BOOT_READ_NAMES, f[0], str(f[1])))
+    print(f"\n{c('boot-stale (G-61):', C_LABEL)} files changed since the LIVE seat read them")
+    for name, rel, mtime in ranked:
+        mark = "BOOT-READ" if rel.name in BOOT_READ_NAMES else "also"
+        print(f"  {c(name, C_DEAD)}  [{mark}] {rel} modified {mtime:%Y-%m-%d %H:%M} — after that "
+              f"seat checked in; it is still running the version it booted on")
+    high = sum(1 for _, rel, _ in stale if rel.name in BOOT_READ_NAMES)
+    print(f"boot-stale findings: {len(stale)} "
+          f"({high} BOOT-READ by name, {len(stale) - high} other)")
+    print("bound: MTIME, not content, over the seat's folder minus transcripts/ — it over-reports "
+          "(a seat writing its own memory.md trips it) and it CANNOT see a ruling that invalidates "
+          "a seat's instructions without anyone editing its files. Zero here is not proof a seat "
+          "is current.")
+    sys.exit(1 if (findings or stale) else 0)
 
 
 # ---------- descriptor vs taskforce.csv (G-51) ----------
@@ -4991,6 +5064,60 @@ def cmd_selftest(args):
               "(the leader's rule, applied to the check that most invites the misreading)",
               clean_code == 0 and "bound:" in clean_out and "owned-surfaces" in clean_out
               and "NOT checked" in clean_out)
+        # ---- G-61: boot-staleness, folder-scoped (a seat's instructions are write-once at boot) ----
+        (cleanpkg / "coordination").mkdir(exist_ok=True)
+        (cleanpkg / "coordination" / "workers.md").write_text(
+            "| agent | active | tmux pane | working on | checked in | checked out | last-read |\n"
+            "| solo | yes | %1 | working | 2026-07-27 06:00 |  | 0 |\n"
+            "| gone | no | %2 | departed | 2026-07-27 06:00 | closed 2026-07-27 06:30 | 0 |\n",
+            encoding="utf-8")
+        seat_dir = cleanpkg / "seats" / "solo"
+        boot_epoch = datetime(2026, 7, 27, 6, 0).timestamp()
+        os.utime(seat_dir / "seat.md", (boot_epoch - 600, boot_epoch - 600))  # read at boot
+        check("G-61 boot-stale: a seat whose folder has not changed since it checked in reports "
+              "NOTHING — the check does not fire on mere age", boot_stale_findings(cns) == [])
+        (seat_dir / "SEAT-STATE.md").write_text("superseded ruling, verbatim\n", encoding="utf-8")
+        os.utime(seat_dir / "SEAT-STATE.md", (boot_epoch + 600, boot_epoch + 600))
+        stale_found = boot_stale_findings(cns)
+        check("G-61 boot-stale: a boot-read document that is NOT the descriptor — the widening "
+              "that proved the class — is caught, because the scope is the seat's FOLDER and not "
+              "seat.md alone",
+              [(s, str(r)) for s, r, _ in stale_found] == [("solo", "SEAT-STATE.md")])
+        (seat_dir / "transcripts").mkdir()
+        (seat_dir / "transcripts" / "dump.txt").write_text("scrollback\n", encoding="utf-8")
+        os.utime(seat_dir / "transcripts" / "dump.txt", (boot_epoch + 900, boot_epoch + 900))
+        check("G-61 boot-stale: transcripts/ is EXCLUDED — it is an export target written by the "
+              "close ceremony, never read at boot, and every close would otherwise flag its own "
+              "seat", len(boot_stale_findings(cns)) == 1)
+        (cleanpkg / "seats" / "gone").mkdir()
+        (cleanpkg / "seats" / "gone" / "seat.md").write_text(
+            "---\nseat: gone\n---\nbody\n", encoding="utf-8")
+        os.utime(cleanpkg / "seats" / "gone" / "seat.md", (boot_epoch + 900, boot_epoch + 900))
+        check("G-61 boot-stale: a CHECKED-OUT seat is not flagged — nothing is running on those "
+              "instructions, so a changed file there is an edit, not a stale boot",
+              all(s != "gone" for s, _, _ in boot_stale_findings(cns)))
+        (seat_dir / "scratch-output.txt").write_text("my own work product\n", encoding="utf-8")
+        os.utime(seat_dir / "scratch-output.txt", (boot_epoch + 300, boot_epoch + 300))
+        stale_out, stale_code = run_descriptors(cns)
+        check("G-61 boot-stale: findings exit non-zero and print their OWN bound — mtime not "
+              "content, folder-scoped, over-reporting, and blind to a ruling nobody wrote down",
+              stale_code == 1 and "SEAT-STATE.md" in stale_out and "MTIME, not content" in stale_out
+              and "over-reports" in stale_out and "not proof a seat is current" in stale_out)
+        check("G-61 boot-stale: a BOOT-READ document is ranked ABOVE a seat's own work product "
+              "and marked as such — measured 10-of-11 noise on the first live pass, and an alarm "
+              "that rings ten times per real signal is one nobody reads",
+              # membership FIRST so `and` short-circuits: a mutation that removes a line must make
+              # this check FAIL, never raise — .index() on an absent substring took the whole
+              # self-test down with a ValueError and produced no verdict at all.
+              "[BOOT-READ] SEAT-STATE.md" in stale_out
+              and "[also] scratch-output.txt" in stale_out
+              and stale_out.find("SEAT-STATE.md") < stale_out.find("scratch-output.txt"))
+        check("G-61 boot-stale: the ranking is a DISPLAY heuristic and never a FILTER — the "
+              "unlisted file is still reported and still counted, because a boot-read document "
+              "under an unlisted name must not vanish",
+              "1 BOOT-READ by name, 1 other" in stale_out
+              and len(boot_stale_findings(cns)) == 2)
+
         dirty_out, dirty_code = run_descriptors(dns)
         check("G-57 descriptors: a package WITH findings exits non-zero and still prints the "
               "bound — the audit is gate-ready either way",
