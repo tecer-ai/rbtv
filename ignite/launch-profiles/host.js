@@ -53,6 +53,13 @@ const PORTABLE = 'portable';
 // testability" — that is the same defect in a thinner disguise: a caller passing a bwrap-less PATH
 // is still a caller choosing `portable`. The probe instead launches a CHILD PROCESS whose real
 // environment lacks bwrap, so this function reads the true host state and computes the answer.
+// ⚠ KNOWN GAP, FILED AS G-148 — this infers CAPABILITY from mere PRESENCE. A host where bwrap is
+// installed but user namespaces are disabled detects CAGED, resolves the caged half, and FAILS AT
+// EXEC — walking past the E_NO_PORTABLE_HALF refusal that exists so a profile whose walls are
+// missing never runs. It therefore fails in the UNSAFE direction. Reproduced with a stub bwrap
+// that is executable and always fails. The fix is a FUNCTIONAL probe (attempt a trivial namespace
+// once, cache it); it costs a fork at resolution time and belongs with whoever wires
+// resolveProfile() into a live consumer. Presence is not capability.
 function detectHostCapability() {
   return scanPath('bwrap') ? CAGED : PORTABLE;
 }

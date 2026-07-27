@@ -109,7 +109,17 @@ reverted.
 2. **`scanPath` is duplicated** with `server/spawn/bwrap.js`. The shared module may not import from
    `server/`; the fix is bwrap.js consuming this one when the seat cage is adopted (built, not
    applied — `G-124`).
-3. **`spawn.js` reads `profile.exec` unguarded** (`:160`, `:487`), so a half-shaped profile in the
+3. **⚠ PRESENCE IS NOT CAPABILITY — the highest-severity residual, and it fails UNSAFE.**
+   `detectHostCapability()` decides the half from the mere PRESENCE of a `bwrap` binary, never
+   from whether it WORKS. A host where bwrap is installed but user namespaces are disabled detects
+   `caged`, resolves the caged half, and **fails at exec** — walking straight past the
+   `E_NO_PORTABLE_HALF` refusal that exists precisely so a profile whose walls are missing never
+   runs. 7.42 exercised present+working (this VPS) and absent+absent (the probe's child process);
+   **present-but-broken is modelled by neither.** Reproduced with a stub `bwrap` that is executable
+   and always fails: the detector still reports `caged`. Fix shape is a FUNCTIONAL probe (attempt a
+   trivial namespace once, cache it), which costs a fork at resolution time and belongs with
+   whoever wires `resolveProfile()` into a live consumer. Filed `G-148`.
+4. **`spawn.js` reads `profile.exec` unguarded** (`:160`, `:487`), so a half-shaped profile in the
    shipped config would crash the daemon with a `TypeError` instead of a typed refusal. This is why
    no half-shaped profile ships in `config/spawn-profiles.yaml` — the probe uses a runtime temp
    fixture instead, which also keeps criterion 6 (no second profile file in the repo) true.
