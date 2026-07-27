@@ -30,7 +30,7 @@ Text output is one aligned row per pane (`pane win title harness model ctx activ
 
 | Harness | Record | Context math | Model | Activity |
 |---------|--------|--------------|-------|----------|
-| claude | pid→transcript map `~/.claude/rbtv-runtime/session-pids/<sid>.json` (EXACT — written by the team-kit `statusline-usage.py` running inside every session); fallback: cwd-heuristic over `~/.claude/projects/<munged-cwd>/*.jsonl`, shown as source `transcript~` | last main-chain assistant `usage`: input + cache_read + cache_creation vs the model window (200k; 1M for fable and `[1m]` ids; `RBTV_CONTEXT_WINDOW` env overrides). Synthetic/zero-usage entries (errors, interrupts) skipped | `message.model` | transcript mtime |
+| claude | pid→transcript map `~/.claude/rbtv-runtime/session-pids/<sid>.json` (EXACT — written by the team-kit `statusline-usage.py` running inside every session); fallback: cwd-heuristic over `~/.claude/projects/<munged-cwd>/*.jsonl`, shown as source `transcript~` | last main-chain assistant `usage` **of the pane agent's own model** (a sub-agent's turns are written into the PARENT's transcript with `isSidechain:false` and the sub-agent's model, so the plain last entry is often another agent's context): input + cache_read + cache_creation vs the model window (200k default; 1M for the Claude 5 family — versioned ids **and bare aliases** `opus`/`sonnet`/`fable` — and `[1m]` ids; `RBTV_CONTEXT_WINDOW` env overrides). Synthetic/zero-usage entries (errors, interrupts) skipped | argv `--model` on the pane's own process FIRST, then the pid-map model, then `message.model`; `model_source` names which | transcript mtime |
 | codex | newest `~/.codex/sessions/**/rollout-*.jsonl` whose `session_meta` cwd matches the pane | last `token_count` event: `last_token_usage.total_tokens / model_context_window` | last `turn_context` | file mtime |
 | opencode | `~/.local/share/opencode/opencode.db` (sqlite, opened read-only): newest session row for the cwd | last assistant message with non-zero tokens: total (else input+output+cache) vs a per-model window map | session/message `modelID` | message `time_updated` |
 | kimi | `~/.kimi/sessions/<md5(cwd)>/<newest>/wire.jsonl` | last `StatusUpdate`: `context_tokens / max_context_tokens` (explicit) | — (argv fallback) | file mtime |
@@ -41,7 +41,9 @@ sessions) share one cwd, only transcripts whose first timestamp postdates the pa
 start are candidates; panes claim them oldest-first in pane-creation order, one each.
 RESUMED sessions predate their process, so they instead get a stable session-start-order
 assignment over the recently-written files — sibling order can still be wrong, so
-multi-candidate picks are flagged `ambiguous` (ctx rendered `~N%`). Transcripts mapped to a
+EVERY heuristic pick is flagged `ambiguous` (ctx rendered `~N%`): certainty comes from the
+pid map, never from candidate scarcity, and a single-candidate guess reported as certain
+named one seat's model on another seat's pane (`issues.md` G-16). Transcripts mapped to a
 live foreign pid are never candidates. The pid map pins every session exactly at its next
 statusline tick (statusline renders stall through long streaming turns) — where the
 statusline is installed the heuristic is only ever a bridge.

@@ -1,7 +1,9 @@
 # `teamview` — responsive team-run dashboard CLI
 
 One live screen for a multi-agent tmux run: the session's windows/panes with agent names, plus
-plan-limit bars for every AI provider account on the machine. An orchestration-module component
+plan-limit bars for every AI provider account on the machine. Below the constant first line the
+whole body CYCLES every ~10s — the windows/panes view (itself paged into as many views as the
+height needs), then the plan-limits view, then back around. An orchestration-module component
 (runnable CLI, python3 stdlib-only — no install step). Generalized: nothing user-, workspace-,
 or machine-specific is baked in; accounts come from a config file or auto-discovery of whatever
 harness credential stores exist.
@@ -19,9 +21,10 @@ python3 .../teamview.py session <session>                       #   outside tmux
 python3 .../teamview.py --package <run-package>                 # pane->agent names from the
                                                                 #   team-kit roster (workers.md)
 python3 .../teamview.py --once | --interval 5 | --refresh       # snapshot / cadence / poll now
-python3 .../teamview.py --once --no-rotate                      # COMPLETE snapshot: every
-                                                                #   window/pane, no rotation
-                                                                #   (can exceed terminal height)
+python3 .../teamview.py --once --no-rotate                      # COMPLETE combined snapshot:
+                                                                #   limits + every window/pane,
+                                                                #   no view cycle (can exceed
+                                                                #   terminal height)
 python3 .../teamview.py --help-providers | --help-config        # reference: usage sources /
                                                                 #   accounts schema (-h stays short)
 python3 .../teamview.py --help-security | --help-panes          # audit surface (writes/endpoints/
@@ -63,19 +66,22 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   agent TUIs rewrite their own pane titles; fallback is the cleaned pane title. Pure ASCII
   markers throughout — no arrow or box-drawing glyphs (ambiguous-width characters break column
   alignment in some terminal fonts). Narrow/tiny layouts render each window as its own flowed
-  line block (`*name:` then panes), wrapping between panes. When the window set doesn't fit the
-  pane at all, the visible page ROTATES every ~10s (stateless — derived from wall clock, so the
-  refresh loop rotates naturally and `--once` shows whichever page is current) instead of
-  permanently hiding the rest; a `(windows N-M/T - rotating)` note replaces the old fixed
-  "+N more windows" drop. A SINGLE window with more panes than fit rotates its OWN pane list
+  line block (`*name:` then panes), wrapping between panes. The WHOLE VIEW CYCLES every ~10s
+  (stateless — derived from wall clock, so the refresh loop cycles naturally and `--once`
+  shows whichever page is current): the windows view — paged into as many views as the height
+  needs, with a `(windows N-M/T - rotating)` note — then ONE plan-limits view, then back
+  around; nothing is permanently hidden, and the first line stays constant across every phase.
+  A SINGLE window with more panes than fit rotates its OWN pane list
   the same way, with a `(panes N-M/T - rotating)` note — a 6-seat window in a 1-pane-tall
   slot never renders as if it were a dead 1-seat window with no hint the rest exist. A
   CRITICAL pane — past its own ctx-refresh threshold, at/above 85% context regardless of
   `--package`, or stuck awaiting approval — is PINNED into every rotation page instead of
-  cycling out of view (the note gains a `· pinned` tag when this holds a page steady).
-  `--no-rotate` disables rotation entirely for a COMPLETE snapshot in one frame — every
-  window and every pane at once, best paired with `--once` (the output can grow taller than
-  the terminal). A seat stuck at a permission or trust prompt renders its name RED
+  cycling out of view (the note gains a `· pinned` tag when this holds a page steady); the
+  pin holds the WHOLE cycle on that windows page — the limits view waits until the pane is
+  dealt with, while the alarm-rollup header line keeps every phase honest.
+  `--no-rotate` disables the cycle entirely for a COMPLETE combined snapshot in one frame —
+  the limits block plus every window and every pane at once, best paired with `--once` (the
+  output can grow taller than the terminal). A seat stuck at a permission or trust prompt renders its name RED
   with a trailing `?!` (detected in the same busy-sampling capture — claude's numbered
   Yes/No dialogs, codex's "Action Required", and generic trust-this-folder prompts — no
   extra tmux call), overriding the busy `+` marker.
@@ -143,14 +149,14 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   CYAN (bold alone proved invisible in some terminal themes); extra accounts render dim.
   Window headers in the session grid are bold+underlined to separate them from pane rows.
 
-Every layout leads with three fixed rows: the **session-stats line** (windows · panes · time) on its own, then a **two-table header row** — bold+underlined `PLAN LIMITS` and `WINDOWS · PANES`, each scoped over its block — then the tables. So the session stats are never misread as the first table's header (the small views previously lacked these headers).
+Every layout leads with two fixed rows: the **session-stats line** (windows · panes · time) on its own — constant across the whole cycle — then the current view's own bold+underlined header (`WINDOWS · PANES` or `PLAN LIMITS`), carrying the alarm rollup, scoped over the body beneath. So the session stats are never misread as a table header, and every cycle phase names itself. (`--no-rotate` renders both headers in its one combined frame.)
 
 ## Responsive layouts (chosen from the pane's own size, re-measured every frame)
 
 | Pane shape | Layout |
 |------------|--------|
 | ≥70 cols, ≥16 rows | **full** — sectioned view: big bars + per-window member list |
-| wide, <16 rows | **strip** — bars fold into 1–3 columns beside a flowed window list (the team-kit control-panel shape) |
+| wide, <16 rows | **strip** — full-width window grid and full-width folded bars, one per cycle phase (the team-kit control-panel shape); `--no-rotate` renders them side by side |
 | <70 cols, tall | **narrow** — stacked mini-bars + window list |
 | <70 cols, <18 rows (≈1/6 screen) | **tiny** — token summary lines, no bars. Plan-usage limits render ONE `label: N%` per line (never two flowed onto the same line) so a percent can never visually read as belonging to a neighboring label at this width — and the percent KEEPS its green/yellow/red urgency color (color costs zero columns; a bare `97%` rendering identically to `12%` was a verified false all-clear) |
 
@@ -158,7 +164,7 @@ Every layout leads with three fixed rows: the **session-stats line** (windows ·
 
 | Provider | Source | Shows |
 |----------|--------|-------|
-| claude | per-account OAuth usage endpoint — `GET api.anthropic.com/api/oauth/usage` with the STORED `accessToken` from that account's `{config_dir}/.credentials.json` (the same call the Claude Code `/usage` screen makes; read-only, owner-sanctioned — see Hard rule below; tokens are never refreshed, an expired one falls back to the statusline-persisted `rate_limits` JSON until that account runs a real session) | 5h/7d bars PLUS every model-scoped weekly window the plan carries (e.g. `7d fable`); statusline recency still decides IN-USE highlighting |
+| claude | per-account OAuth usage endpoint — `GET api.anthropic.com/api/oauth/usage` with the STORED `accessToken` from that account's `{config_dir}/.credentials.json` (the same call the Claude Code `/usage` screen makes; read-only, owner-sanctioned — see Hard rule below; tokens are never refreshed, an expired one falls back to the statusline-persisted `rate_limits` JSON until that account runs a real session) | 5h/7d bars PLUS every model-scoped weekly window the plan carries (e.g. `7d fable`); which Claude ACCOUNT is in use comes from the live processes' own `CLAUDE_CONFIG_DIR`, never from statusline recency |
 | codex | LOCAL `~/.codex/sessions/**/rollout-*.jsonl` `payload.rate_limits` (no API call) | plan bars; "as of <time>" when the snapshot is stale |
 | zai | `GET https://api.z.ai/api/monitor/usage/quota/limit` (`Authorization: <key>`, no Bearer) | 5h + weekly used-% bars, plan tier |
 | deepseek | `GET https://api.deepseek.com/user/balance` (Bearer) | money balance |
@@ -203,10 +209,16 @@ a real session).
 ```
 
 `source.type`: `opencode` (that harness's credential store; optional `store_key` override) ·
-`env` · `file` · `statusline` · `codex-local` · `kimi-local`. Harness-backed types
-(opencode / codex-local / statusline / kimi-local) are marked IN USE by default — they are what
-the harnesses actually read; override per account with `"in_use": true/false`. With no config,
-accounts are auto-discovered from the stores present on the machine.
+`env` · `file` · `statusline` · `codex-local` · `kimi-local`. An account is marked **IN USE**
+(cyan) only while a LIVE agent process on this box spends it — claude resolved through each
+process's own `CLAUDE_CONFIG_DIR`, opencode through its `--model <provider>/<id>` prefix,
+codex/kimi by process name; recomputed every frame, since in-use flips far faster than the
+provider poll. An account whose credential exists with nothing running is **CONFIGURED**
+(dim) — a distinct state, not a weaker one. Source type no longer implies in-use: keying on
+"a credential exists" marked six idle providers in use while dimming the two Claude accounts
+a whole run was burning (`issues.md` G-17). Pin either state per account with
+`"in_use": true/false`. With no config, accounts are auto-discovered from the stores present
+on the machine.
 
 **Multiple Claude accounts** — one config dir per account, discovered automatically: any
 `~/.claude-<tag>` directory becomes account `claude:<tag>` reading
