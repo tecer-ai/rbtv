@@ -330,6 +330,7 @@ const NOT_WIRE_REACHABLE = new Map([
   ['E_PROMPT_INJECTION_TIMEOUT', 'ticker-spawn-path only (spawnHeaded keystroke carriage); spawn is never wire-triggered'],
   ['E_HEADED_PROMPT_REJECTED', 'ticker-spawn-path only (carriage composeHeadedArgv); the QUEUE half of the D85 double gate already refuses the same sender mistake at enqueue as E_BAD_MODE -> VALIDATION_FAILED'],
   ['E_FS_SANDBOX_UNAVAILABLE', 'ticker-spawn-path only (bwrap sandbox resolve); spawn is never wire-triggered'],
+  ['E_PROFILE_HALVES_UNSUPPORTED', 'ticker-spawn-path only (the G-144 profile-shape guard, raised by spawn AND spawnSeat immediately after the profile lookup); spawn is never wire-triggered — spawn-via-named-profile is D70-dropped on entry, dispatch never calls spawnManager.spawn/spawnSeat, and the only route to spawnSeat is server/index.js spawnManagerWithPty.spawn, which is the ticker dispatch phase'],
   // Defense-in-depth behind config-load refusals (task 7.14 collapsed carriage validation to
   // LOAD time): from a config the daemon actually booted with, these cannot fire — and their
   // remaining raise sites are on the ticker-spawn path anyway.
