@@ -42,7 +42,7 @@ subcommand.
 | Command | Wraps | Notes |
 |---------|-------|-------|
 | `ignite register-job <job-id> --action-type <t>` | `register-job` | Registers a job DEFINITION in the catalogue — what the daemon is ABLE to run (task 7.12). CREATE-ONLY: an id already registered is refused typed (`E_JOB_EXISTS`); nothing is ever overwritten, and there is no update/unregister subcommand in v1. `--dry-run` validates without writing. Authorized for the owner AND — under the master APPROXIMATION — any enrolled `agent` sender; `bridge` senders are refused. |
-| `ignite add-job` | `enqueue-job` | Enqueues a job (server-side dry-run-validated before writing). `--dry-run` is refused (see § Known gap below). |
+| `ignite add-job` | `enqueue-job` | Enqueues a job (server-side dry-run-validated before writing). `--dry-run` validates without enqueueing: prints `dry-run: VALID — validated, nothing enqueued` on success, nothing else. |
 | `ignite remove-job <queue-id>` | `remove-job` | Removes a pending queue row; removing a repeating row cancels the WHOLE schedule (D68) and the CLI says so. |
 | `ignite inspect jobs\|queue\|status <id>\|logs <id> [--tail n]\|daemon\|ticker\|messages <id>` | `inspect` | Read-only. `--tail` walks the offset/limit pages client-side (the contract has no reverse read) and keeps only the last N lines. `messages <id>` (cli-expansion D3): `<id>` is an execution id; the server resolves the execution's chain-stable thread and returns that thread's message rows, paged. |
 | `ignite snooze <kind> <subject> --minutes <n>` | `snooze` | OWNER-ONLY. No standing warning is a clean no-op, never an error. There is no dismiss/clear subcommand — snooze never clears a warning (D45). |
@@ -113,17 +113,6 @@ ignite inspect messages 42
 # Kill session 42 (TERM -> grace -> KILL; status becomes "killed")
 ignite kill 42
 ```
-
-## Known gap — `add-job --dry-run`
-
-`gateway-cli-spec.md`'s CLI Surface table and behavior row 2 spec a
-`--dry-run` mode: full gateway + server validation runs, but nothing is
-enqueued. The landed wire contract (`gateway/parse.js` `ENQUEUE_KEYS`,
-`internal-api-contract-spec.md` §1 `enqueue-job`) carries no validate-only
-field — every successfully re-validated `enqueue-job` call inserts a queue
-row. `ignite add-job --dry-run` refuses loudly (`commands/add-job.js`) rather
-than either enqueueing anyway or faking a client-side validation this thin
-wrapper cannot honestly perform. See task p4-2's `open_questions`.
 
 ## Probes (`probes/`)
 
