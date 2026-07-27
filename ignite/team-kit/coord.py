@@ -5287,12 +5287,31 @@ def cmd_close(args):
             f"memory.md with the seat, then closes it", C_HINT))
 
 
-def renew_in_place(seat, pane, pane_live):
+def renew_in_place(seat, pane, pane_live, pane_window_name=None):
     """Pure: True when a renew must RESPAWN the seat's existing pane rather than kill it and split
     a fresh one. G-12 — kill+split re-tiles the whole window, so every renew destroyed the layout
-    the owner had arranged. Only a `pane` seat (no window: of its own) whose pane tmux still has
-    can be respawned in place; a window/shared seat re-places from its briefing as before."""
-    return bool(pane) and bool(pane_live) and seat_placement(seat)[0] == "pane"
+    the owner had arranged.
+
+    THE DESCRIPTOR WINS (G-154): keep the pane when it is ALREADY where the briefing asks the seat
+    to be; re-place it when it is not. Keying on placement KIND alone was correct only while no
+    seat declared a window — the moment `r-window-layout` put `window:` on thirteen descriptors it
+    silently switched EVERY one of them off this path, so each `close-seat --renew` began killing
+    its pane. Nobody edited this function; the descriptors underneath it changed, and the run
+    record went on describing renew as "respawns into the SAME pane" while it destroyed panes.
+
+    `pane_window_name` is the window the pane is in RIGHT NOW, resolved by the caller so this stays
+    pure. Omitted, a window/shared seat re-places — the pre-G-154 behaviour — so a caller that has
+    not been taught to measure the window cannot silently acquire the new path."""
+    if not (bool(pane) and bool(pane_live)):
+        return False
+    place, wname = seat_placement(seat)
+    if place == "pane":
+        return True                      # no window demand at all — wherever it sits is correct
+    # `own`/`shared`: the briefing names a window. Respawn in place only when the pane ALREADY sits
+    # in that window; otherwise this renew is also the act that moves the seat where it belongs,
+    # and keeping the pane would strand it. That is what the old comment feared, correctly — it
+    # just applied the fear to every window seat instead of only the misplaced ones.
+    return bool(pane_window_name) and pane_window_name == wname
 
 
 def cmd_close_seat(args):
@@ -5342,7 +5361,10 @@ def cmd_close_seat(args):
         check_bindings(args, seats, "close --renew")
     old_pane = (row or {}).get("pane") or ""
     old_idents = pane_harness_idents(old_pane) if old_pane else []
-    in_place = bool(seats) and renew_in_place(seats[0], old_pane, old_pane in live_panes())
+    # G-154: the window the pane is in RIGHT NOW is measured here, not inferred, because that is
+    # the only thing that can say whether the seat is already where its briefing wants it.
+    in_place = bool(seats) and renew_in_place(seats[0], old_pane, old_pane in live_panes(),
+                                              tmux_pane_window_name(old_pane) if old_pane else None)
     if row and row["active"] == "yes":
         def close_row(r):
             r["active"] = "no"
@@ -8235,9 +8257,29 @@ def _selftest_checks(args, failures, names):
           renew_in_place(_pane_seat, "%5", True))
     check("G-12: a dead pane cannot be respawned — falls back to placement",
           not renew_in_place(_pane_seat, "%5", False) and not renew_in_place(_pane_seat, "", True))
-    check("G-12: a window/shared seat still re-places from its briefing — respawning it in a pane "
-          "would silently move it out of its own window",
-          not renew_in_place(_win_seat, "%5", True))
+    # G-154 CORRECTS THIS CHECK RATHER THAN DELETING IT. It asserted that a window seat NEVER
+    # renews in place — true of the code, and it went on passing while the behaviour it guarded
+    # became a defect: `r-window-layout` put `window:` on thirteen descriptors, which silently
+    # switched every seat off the in-place path and made each renew destroy its pane. A check that
+    # encodes the old behaviour of the thing you changed does not go stale, it goes WRONG-BUT-GREEN.
+    _shared_seat = dict(_pane_seat, window="workers")
+    check("G-154: a window seat whose pane is ALREADY in its own window renews IN PLACE — the "
+          "descriptor wins, and the pane is where the descriptor asks for it",
+          renew_in_place(_win_seat, "%5", True, "eta"))
+    check("G-154: a shared seat sitting in its named wave window renews IN PLACE",
+          renew_in_place(_shared_seat, "%5", True, "workers"))
+    check("G-12/G-154: a window seat sitting in the WRONG window re-places — the renew is also the "
+          "act that moves it where its briefing asks, and keeping the pane would strand it",
+          not renew_in_place(_win_seat, "%5", True, "control")
+          and not renew_in_place(_shared_seat, "%5", True, "control"))
+    check("G-154: with the pane's window UNKNOWN a window seat re-places — the pre-fix behaviour, "
+          "so a caller that has not been taught to measure it cannot silently gain the new path",
+          not renew_in_place(_win_seat, "%5", True)
+          and not renew_in_place(_shared_seat, "%5", True, ""))
+    check("G-154: a pane seat is unaffected by the window it happens to sit in — it declares no "
+          "window, so no window can be the wrong one",
+          renew_in_place(_pane_seat, "%5", True, "anything")
+          and renew_in_place(_pane_seat, "%5", True, None))
 
     check("G-10: verify_pids_gone reports clean for identities already gone, and never blocks on "
           "an empty set", verify_pids_gone([]) == ([], "")
