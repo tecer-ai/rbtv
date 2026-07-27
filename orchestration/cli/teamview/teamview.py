@@ -4,13 +4,15 @@ plus plan-limit bars for every AI provider account on the machine.
 
 Run it inside tmux, or from outside: `teamview NAME` / `teamview session NAME` (bare
 `teamview` auto-picks the only running session). Layouts adapt to the pane size; provider
-data caches under ~/.cache/rbtv/ and re-polls in the background. When a layout cannot show
-every window OR every pane within a window at once, the visible set ROTATES every ~10s
-(wall-clock derived, so --once shows whichever page is current) instead of permanently
-hiding the overflow — or pass --no-rotate for a COMPLETE snapshot instead (every window and
+data caches under ~/.cache/rbtv/ and re-polls in the background. Below the constant first
+line, the WHOLE BODY CYCLES every ~10s: the windows/panes view — itself paged into as many
+views as the height needs — then the plan-limits view, then back around (wall-clock
+derived, so --once shows whichever page is current). Nothing is permanently hidden — or
+pass --no-rotate for a COMPLETE combined snapshot instead (limits AND every window and
 pane at once, best paired with --once; the output can grow taller than the terminal). A
-CRITICAL pane — past its own ctx-refresh threshold, >=85% context,
-or awaiting approval — is PINNED into every rotation page and never cycles out of view. A
+CRITICAL pane — past its own ctx-refresh threshold, >=85% context, or awaiting approval —
+PINS the cycle on its windows page (the limits page waits) and never cycles out of view;
+the alarm rollup rides the header of BOTH views so no glance loses it. A
 pane stuck at a permission/trust prompt (detected in its captured tail) renders its name RED
 with a `?` marker. With --package, a pane whose context used % has reached ITS OWN seat's
 ctx-refresh threshold (from that seat's workers/<agent>/agent.md frontmatter) renders its
@@ -31,7 +33,8 @@ Legend (dashboard markers): + working · … text cut · * active window · N% c
 (~N% pane match uncertain; '~' means ONLY that, never truncation; the + … markers
 render magenta so they stay legible on dark backgrounds) ·
 green<60 / yellow<85 / red≥85 ctx and limit-bar color bands (plain red means high value,
-no threshold involved) · Nm/Nh last activity · account in use ·
+no threshold involved) · Nm/Nh last activity · account in use (a live agent process is
+spending it) vs dim account configured (credential present, nothing running) ·
 ? awaiting approval (red, on the seat name) · N%! past this seat's ctx-refresh
 threshold · shell harness exited · ? empty-title pane (dim).
 
@@ -68,8 +71,10 @@ are sent ONLY to that provider's own documented endpoint):
             "7d fable"). teamview NEVER refreshes tokens: an idle account's expired token
             falls back to the statusline-persisted rate_limits file (pushed by a Claude Code
             statusline script; path per account, default ~/.claude/rbtv-runtime/
-            plan-usage.json) until a real session of that account runs again. Statusline
-            recency still decides IN-USE highlighting.
+            plan-usage.json) until a real session of that account runs again. Which Claude
+            ACCOUNT is in use comes from the live processes' own CLAUDE_CONFIG_DIR, never
+            from statusline recency (a run whose seats never fire the statusline used to
+            read as no Claude account in use at all — issues.md G-17).
   codex     LOCAL parse of ~/.codex/sessions rollout files' payload.rate_limits -> plan bars
             (fresh only while a codex session runs; staleness shown as "as of", never hidden)
   zai       GET https://api.z.ai/api/monitor/usage/quota/limit (Authorization: <key>, no
@@ -92,8 +97,11 @@ while the overall 7d still has room — a launch decision needs the scoped bar, 
 DOC_CONFIG = """Accounts config — optional; with no config, accounts are auto-discovered from
 the harness credential stores on the machine. Path: ~/.config/rbtv/teamview.json (override
 with --config or RBTV_TEAMVIEW_CONFIG). All fields optional except provider; `source.type`
-one of opencode | env | file | statusline | codex-local | kimi-local | none. Harness-backed
-types are highlighted IN USE (override per account with "in_use": true/false).
+one of opencode | env | file | statusline | codex-local | kimi-local | none. An account is
+highlighted IN USE only while a LIVE agent process on this box spends it (claude resolved
+per CLAUDE_CONFIG_DIR, opencode per its --model <provider>/<id> prefix, codex/kimi by
+process); an account with a credential and nothing running is CONFIGURED, rendered dim.
+Pin either state per account with "in_use": true/false.
 
   {"accounts": [
      {"provider": "zai",      "name": "main", "source": {"type": "opencode"}},
@@ -123,6 +131,11 @@ NETWORK — the complete endpoint list; each credential is sent ONLY to its own 
   api.kimi.com/coding/v1/usages | /usage    kimi (opt-in sk-kimi key only)
   api.moonshot.ai|.cn/v1/users/me/balance   kimi (Moonshot platform key only)
 All read-only GETs. google/sakana have no usage endpoint and are never contacted.
+
+PROCESSES — `ps -eo pid=,args=` plus /proc/<pid>/environ for the CLAUDE_CONFIG_DIR of each
+live claude process (own-uid reads only), to decide which accounts are IN USE. Read-only:
+teamview never signals, starts, or stops a process. No environment value other than
+CLAUDE_CONFIG_DIR is inspected, and none is ever printed.
 
 CREDENTIALS — read-only from the harness stores (opencode auth.json, ~/.claude*/
 .credentials.json, env vars, statusline/rollout files). Keys and tokens are NEVER printed:
@@ -221,22 +234,94 @@ def discover_accounts(home=None, opencode_path=None):
     return acc
 
 
-HARNESS_BACKED = {"opencode", "codex-local", "statusline", "kimi-local"}
-# A statusline (Claude) account counts as IN USE only if a session wrote its usage file within
-# this window — multiple Claude accounts are all statusline-backed, so recency, not source
-# type, is what distinguishes the account actually being used.
-CLAUDE_ACTIVE_SECS = 600
+# Process names that spend a provider account, and the provider each one spends. opencode is
+# provider-agnostic — its account comes from the `--model <provider>/<id>` prefix in its argv.
+AGENT_PROCESSES = {"claude": "claude", "codex": "codex", "kimi": "kimi", "opencode": None}
+# opencode's model-prefix vocabulary -> teamview provider (inverse of OPENCODE_STORE_KEYS,
+# plus the identity spellings opencode also accepts).
+OPENCODE_PROVIDER_ALIASES = {v: k for k, v in OPENCODE_STORE_KEYS.items()}
+OPENCODE_PROVIDER_ALIASES.update({k: k for k in OPENCODE_STORE_KEYS})
 
 
-def claude_in_use(data, now=None):
-    as_of = (data or {}).get("as_of")
-    if not as_of:
-        return False
-    now = now if now is not None else time.time()
-    return (now - as_of) <= CLAUDE_ACTIVE_SECS
+def ps_processes():
+    """[(pid, args)] for every process on the box — one ps call. [] if ps is unavailable."""
+    out = []
+    try:
+        r = subprocess.run(["ps", "-eo", "pid=,args="], capture_output=True, text=True)
+    except OSError:
+        return out
+    for ln in r.stdout.splitlines():
+        parts = ln.strip().split(None, 1)
+        if len(parts) == 2:
+            out.append((parts[0], parts[1]))
+    return out
 
 
-def load_accounts(cfg_path, home=None, opencode_path=None):
+def claude_account_of(pid, home=None):
+    """Which Claude account a live process spends, from CLAUDE_CONFIG_DIR in that process's
+    OWN environment: ~/.claude (or unset) -> 'main', ~/.claude-<tag> -> '<tag>'.
+    Falls back to 'main' — the meaning of an unset var — when the environment cannot be read
+    (no /proc, or a foreign uid); on such a platform a tagged account running alone would be
+    attributed to main, which is why the read, not the fallback, is the intended path."""
+    try:
+        env = Path(f"/proc/{pid}/environ").read_bytes().decode("utf-8", errors="replace")
+    except OSError:
+        return "main"
+    for entry in env.split("\0"):
+        if entry.startswith("CLAUDE_CONFIG_DIR="):
+            name = Path(entry.split("=", 1)[1].rstrip("/")).name
+            if not name.startswith(".claude-"):
+                return "main"                      # ~/.claude itself
+            return name[len(".claude-"):] or "alt"  # matches discover_accounts' tagging
+    return "main"
+
+
+def opencode_account_of(args):
+    """(provider, 'main') for an opencode process, from its `--model <provider>/<id>` argv —
+    None when the process names no provider (nothing is marked on inference)."""
+    m = re.search(r"(?:--model|-m)[= ]+([\w.-]+)/", args or "")
+    prov = OPENCODE_PROVIDER_ALIASES.get(m.group(1).lower()) if m else None
+    return (prov, "main") if prov else None
+
+
+def live_agent_accounts(procs=None, home=None):
+    """{(provider, account)} that a LIVE agent process on this box is actually spending.
+
+    IN USE is a fact about running processes, never about stored credentials (issues.md
+    G-17): the previous rule marked an account in use whenever its source type was
+    harness-backed — i.e. whenever a key or login existed — which lit up six idle providers
+    while dimming the two Claude accounts a whole run was burning. An account with a
+    credential and no live process is CONFIGURED, not IN USE.
+
+    Machine-wide by design, a superset of the rendered session's panes: an agent spending an
+    account from another tmux session, or outside tmux entirely, still spends it."""
+    live = set()
+    for pid, args in (ps_processes() if procs is None else procs):
+        toks = args.split()
+        head = os.path.basename(toks[0]) if toks else ""
+        if head not in AGENT_PROCESSES:
+            continue
+        if head == "opencode":
+            acct = opencode_account_of(args)
+            if acct:
+                live.add(acct)
+        elif head == "claude":
+            live.add(("claude", claude_account_of(pid, home)))
+        else:
+            live.add((AGENT_PROCESSES[head], "main"))
+    return live
+
+
+def account_in_use(account, live):
+    """True when a live process spends THIS account. `live` is the set from
+    live_agent_accounts(); an explicit config `in_use` overrides it (the flag survives into
+    the cache as `in_use_explicit`, so the renderer honors it too)."""
+    if account.get("_in_use_explicit") or account.get("in_use_explicit"):
+        return bool(account.get("in_use"))
+    return (account["provider"], account.get("name", "main")) in (live or set())
+
+
+def load_accounts(cfg_path, home=None, opencode_path=None, live=None):
     accounts = None
     if cfg_path.is_file():
         try:
@@ -245,12 +330,12 @@ def load_accounts(cfg_path, home=None, opencode_path=None):
             print(f"warning: unreadable config {cfg_path}: {e}", file=sys.stderr)
     if not accounts:
         accounts = discover_accounts(home, opencode_path)
+    live = live_agent_accounts(home=home) if live is None else live
     for a in accounts:
-        src = a.get("source") or {}
         if "in_use" in a:
             a["_in_use_explicit"] = True
-        else:  # harness-backed sources are what the harnesses actually read
-            a["in_use"] = src.get("type") in HARNESS_BACKED
+        else:
+            a["in_use"] = account_in_use(a, live)
     return accounts
 
 
@@ -556,12 +641,12 @@ def poll_providers(args):
     out = {"ts": int(time.time()), "accounts": []}
     for a in accounts:
         data = fetch_account(a)
-        in_use = bool(a.get("in_use"))
-        if (a["provider"] == "claude" and (a.get("source") or {}).get("type") == "statusline"
-                and not a.get("_in_use_explicit")):
-            in_use = claude_in_use(data)  # recency decides between multiple Claude accounts
+        # in_use is a LIVE fact and the cache can be minutes old, so the renderer recomputes
+        # it every frame; this value is the poll-time reading (--audit / cache readers).
         out["accounts"].append({"provider": a["provider"], "name": a.get("name", "main"),
-                                "in_use": in_use, "data": data})
+                                "in_use": bool(a.get("in_use")),
+                                "in_use_explicit": bool(a.get("_in_use_explicit")),
+                                "data": data})
     cf = cache_file()
     cf.parent.mkdir(parents=True, exist_ok=True)
     tmp = cf.with_suffix(".tmp")
@@ -964,10 +1049,15 @@ def account_label(acc, multi):
     return (f"{CYAN}{base}{OFF}" if acc.get("in_use") else f"{DIM}{base}{OFF}"), len(base)
 
 
-def usage_cells(cache):
+def usage_cells(cache, live=None):
     """(bar_cells, note_bits, console_bits): bar cell = (label, label_vis, pct, suffix);
     notes = API-backed facts (balances, errors); console_bits = providers whose usage is NOT
-    programmatically readable (nested under one 'console only' group by the renderers)."""
+    programmatically readable (nested under one 'console only' group by the renderers).
+
+    `live` = the live_agent_accounts() set: when given, IN-USE highlighting is recomputed
+    from the processes running RIGHT NOW rather than replayed from the cache, which may be
+    minutes old (in-use flips far faster than the provider poll). Omit it to render the
+    cache's own poll-time reading."""
     cells, notes, console = [], [], []
     if not cache:
         return cells, ["providers: no data yet (first poll pending)"], console
@@ -976,6 +1066,8 @@ def usage_cells(cache):
         multi[a["provider"]] = multi.get(a["provider"], 0) + 1
     now_ts = datetime.now().timestamp()
     for a in cache.get("accounts", []):
+        if live is not None:
+            a = dict(a, in_use=account_in_use(a, live))
         d = a.get("data") or {}
         label, lvis = account_label(a, multi[a["provider"]] > 1)
         plain = a["provider"] if multi[a["provider"]] == 1 else f"{a['provider']}:{a.get('name')}"
@@ -1042,13 +1134,19 @@ def flow(tokens, width, max_lines):
     return lines
 
 
-def compact_window_lines(wins, width, max_lines, now=None):
+def compact_window_lines(wins, width, max_lines, now=None, extra_slots=0):
     """Narrow/tiny windows block: each window starts its own line ('*name:' then panes),
     wrapping BETWEEN panes so no pane is ever clipped away mid-token. When the full set
     doesn't fit max_lines, ROTATES the visible page of windows every ~10s (same
     wall-clock derivation as window_grid) instead of permanently hiding overflow. A page
     holding a CRITICAL pane (is_critical_pane) is PINNED — shown steadily instead of
-    rotating away from it on a timer."""
+    rotating away from it on a timer.
+
+    extra_slots > 0 puts this block into the caller's WHOLE-VIEW cycle: the rotation
+    wheel gains that many extra slots after the window pages, and when the wall clock
+    lands on one, the function returns None — 'not this block's turn' — so the caller
+    renders its other view (the plan-limits page) instead. A CRITICAL page pins the
+    whole wheel: the extra slots are skipped until the pane is dealt with."""
     chunks, chunk_critical = [], []
     for w in wins:
         star = "*" if w["active"] else ""
@@ -1073,12 +1171,16 @@ def compact_window_lines(wins, width, max_lines, now=None):
         return []
 
     critical_page_idx = next((i for i, (_p, _n, crit) in enumerate(pages) if crit), None)
-    if len(pages) == 1:
-        page_idx = 0
-    elif critical_page_idx is not None:
+    total_slots = len(pages) + extra_slots
+    if critical_page_idx is not None:
         page_idx = critical_page_idx  # PIN: hold on the critical page, no time rotation
+    elif total_slots <= 1:
+        page_idx = 0
     else:
-        page_idx = int((time.time() if now is None else now) // 10) % len(pages)
+        slot = int((time.time() if now is None else now) // 10) % total_slots
+        if slot >= len(pages):
+            return None  # an extra slot's turn — caller renders its other view
+        page_idx = slot
     page_chunks, _, _ = pages[page_idx]
     lines = [l for c in page_chunks for l in c]
     if len(pages) > 1:
@@ -1121,6 +1223,7 @@ LEGEND_ITEMS = (
     f"{RED}?{OFF} awaiting approval",
     f"{MARK}+{OFF} working", f"{MARK}…{OFF} text cut", f"{DIM}*{OFF} active window",
     f"{DIM}Nm/Nh{OFF} last activity", f"{CYAN}account{OFF} in use",
+    f"{DIM}account{OFF} configured",
     f"{DIM}shell{OFF} harness exited", f"{DIM}?{OFF} empty-title pane",
 )
 
@@ -1249,7 +1352,7 @@ def pin_indices(base_indices, critical_idx, budget):
     return sorted(set(idx_set)), not changed
 
 
-def window_grid(wins, width, max_rows, dashes=False, now=None):
+def window_grid(wins, width, max_rows, dashes=False, now=None, extra_slots=0):
     """Windows as ASCII columns: window name as header, its panes stacked beneath.
     Fills banks left-to-right; when the full set doesn't fit max_rows, ROTATES the
     visible page of banks every ~10s (stateless: derived from wall clock, so the 2s
@@ -1258,7 +1361,13 @@ def window_grid(wins, width, max_rows, dashes=False, now=None):
     OWN pane list the same way (a 6-pane window in a 1-pane-tall slot previously looked
     like a dead 1-seat window with no hint 5 more existed). CRITICAL panes/windows (see
     is_critical_pane) are PINNED — never rotated out; a page containing one is shown
-    steadily instead of cycling away from it on a timer."""
+    steadily instead of cycling away from it on a timer.
+
+    extra_slots > 0 puts this grid into the caller's WHOLE-VIEW cycle: the rotation
+    wheel gains that many extra slots after the window pages, and when the wall clock
+    lands on one, the function returns None — 'not this block's turn' — so the caller
+    renders its other view (the plan-limits page) instead. A CRITICAL page pins the
+    whole wheel: the extra slots are skipped until the pane is dealt with."""
     pane_row_budget = max(1, max_rows - (2 if dashes else 1))
     cell_budget = max(6, width - 2)  # a single column can never exceed the frame width
     cols = []
@@ -1313,12 +1422,16 @@ def window_grid(wins, width, max_rows, dashes=False, now=None):
 
     critical_page_idx = next((i for i, (pg, _n) in enumerate(pages)
                               if any(bank_critical(b) for b in pg)), None)
-    if len(pages) == 1:
-        page_idx = 0
-    elif critical_page_idx is not None:
+    total_slots = len(pages) + extra_slots
+    if critical_page_idx is not None:
         page_idx = critical_page_idx  # PIN: hold on the critical page, no time rotation
+    elif total_slots <= 1:
+        page_idx = 0
     else:
-        page_idx = int((time.time() if now is None else now) // 10) % len(pages)
+        slot = int((time.time() if now is None else now) // 10) % total_slots
+        if slot >= len(pages):
+            return None  # an extra slot's turn — caller renders its other view
+        page_idx = slot
     page_banks, _ = pages[page_idx]
 
     lines = []
@@ -1383,8 +1496,64 @@ def bar_cell_variants(cell, label_w, max_bar_w):
     return variants
 
 
+def limits_body(cells, notes, console, width, max_lines, style="wide"):
+    """The PLAN LIMITS page body for the whole-view cycle — bars + notes + console at the
+    layout's own detail level ('wide' folds bar cells into columns when one-per-line is
+    too tall; 'narrow' drops suffixes; 'tiny' is label+percent only, keeping the urgency
+    color band), capped to max_lines with a (+N more) note instead of silent loss."""
+    lines = []
+    if style == "tiny":
+        for c in cells:
+            color = GREEN if c[2] < 60 else (YELLOW if c[2] < 85 else RED)
+            lines.append(f"{c[0]}: {color}{c[2]:.0f}%{OFF}")
+        toks = [re.sub(r"\s+", " ", n) for n in notes]
+        if console:
+            toks.append("no-API: " + " ".join(
+                re.sub(r"\033\[[0-9;]*m", "", c).split(" ")[0] for c in console))
+        if toks:
+            lines.extend(flow(toks, width, max(1, max_lines - len(lines))))
+    elif style == "narrow":
+        label_w = max([c[1] for c in cells], default=8)
+        bar_w = max(6, min(14, width - label_w - 8))
+        lines = [render_bar_cell(c, label_w, bar_w, with_suffix=False) for c in cells]
+        lines += [n[:width] for n in notes]
+        lines += console_lines(console, width, max_lines=2)
+    else:
+        label_w = max([c[1] for c in cells], default=10)
+        ncols, bar_w, cell_w = 1, 22, 0
+        for ncols in (1, 2, 3, 4):
+            bar_w = 22 if ncols == 1 else 14
+            cell_w = label_w + bar_w + 8 + 15  # same suffix budget as render_strip
+            if (math.ceil(len(cells) / ncols) <= max(1, max_lines - 1)
+                    and ncols * (cell_w + 2) <= width):
+                break
+        grid_rows = math.ceil(len(cells) / ncols) if cells else 0
+        for r in range(grid_rows):
+            row_cells = [render_bar_cell(cells[r + grid_rows * c], label_w, bar_w)
+                         for c in range(ncols) if r + grid_rows * c < len(cells)]
+            while len(row_cells) > 1 and visible_len(
+                    "  ".join(pad_to(s, cell_w) for s in row_cells)) > width:
+                row_cells = row_cells[:-1]
+            if len(row_cells) > 1:
+                row = "  ".join(pad_to(s, cell_w) for s in row_cells)
+            else:
+                row = row_cells[0] if row_cells else ""
+                if visible_len(row) > width:
+                    row = shrink_to_fit(bar_cell_variants(cells[r], label_w, bar_w),
+                                        width) or clip_line(row, width)
+            lines.append(row)
+        if notes:
+            lines.append(fit_join(notes, " · ", width))
+        lines.extend(console_lines(console, width))
+    if max_lines > 0 and len(lines) > max_lines:
+        dropped = len(lines) - max_lines
+        lines = lines[:max_lines]
+        lines[-1] = clip_line(lines[-1] + f" {DIM}(+{dropped} more){OFF}", width)
+    return lines
+
+
 def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, rows,
-                no_package=False):
+                no_package=False, now=None, cycle=True):
     base = (f"{BOLD}teamview{OFF} · session {BOLD}{session}{OFF} · {nwin} windows / "
            f"{npane} panes · {datetime.now().strftime('%H:%M:%S')}")
     head = base + package_cue(no_package, cols - visible_len(base))
@@ -1399,6 +1568,28 @@ def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, 
         hedge = (" — some bars older, see per-bar 'as of'"
                  if any(c[3].startswith("as of") for c in cells) else "")
         age = f"  {DIM}(providers polled {m}m ago{hedge}){OFF}"
+    if cycle:
+        # Whole-view cycle: below the constant header line, the body alternates between
+        # the windows pages (as many as the grid needs) and ONE plan-limits page —
+        # windows p1 … pN, limits, back to p1. The legend stays as constant chrome and
+        # the alarm rollup rides BOTH phase headers, so no glance loses it (DESIGN-4).
+        legend = legend_lines(cols)
+        body_budget = max(1, rows - len(out) - 3 - len(legend))
+        extra = 1 if (cells or notes or console) else 0
+        grid = window_grid(wins, cols - 2, body_budget, dashes=True, now=now,
+                           extra_slots=extra)
+        if grid is None:
+            lhdr = f"{BOLD}PLAN LIMITS{OFF}{age}"
+            out.append(lhdr + rollup_suffix(wins, cols - visible_len(lhdr)))
+            out.extend("  " + l for l in
+                       limits_body(cells, notes, console, cols - 2, body_budget))
+        else:
+            whdr = f"{BOLD}WINDOWS{OFF} {DIM}(panes beneath){OFF}"
+            out.append(whdr + rollup_suffix(wins, cols - visible_len(whdr)))
+            out.extend("  " + l for l in grid)
+        out.append("")
+        out.extend(legend)
+        return out[:rows - 1]
     out.append(f"{BOLD}PLAN LIMITS{OFF}{age}")
     label_w = max([c[1] for c in cells], default=10) + 1
     bar_w = max(16, min(40, cols - label_w - 30))
@@ -1546,7 +1737,25 @@ WINDOWS_HDR = f"{BOLD}{UL}WINDOWS · PANES{OFF}"
 
 
 def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows,
-                 no_package=False):
+                 no_package=False, now=None, cycle=True):
+    if cycle:
+        # Whole-view cycle (see render_full): the old side-by-side split becomes one
+        # full-width view at a time — windows pages, then the limits page, repeating.
+        out = [session_line(session, nwin, npane, cols, no_package)]
+        budget = max(1, rows - 3)  # session line + phase header + mini legend
+        extra = 1 if (cells or notes or console) else 0
+        grid = window_grid(wins, cols, budget, now=now, extra_slots=extra)
+        if grid is None:
+            out.append(LIMITS_HDR + rollup_suffix(wins, cols - visible_len(LIMITS_HDR)))
+            out.extend(limits_body(cells, notes, console, cols, budget))
+        else:
+            hdr = WINDOWS_HDR + rollup_suffix(wins, cols - visible_len(WINDOWS_HDR))
+            out.append(hdr)
+            out.extend(grid)
+        leg = mini_legend(cols)
+        if leg:
+            out.append(leg)
+        return out[:rows]
     budget = max(2, rows - 3)  # rows 0-1 are the session line + the two-table header row;
     # one more row is reserved for the mini legend appended below
     label_w = max([c[1] for c in cells], default=10)
@@ -1611,8 +1820,33 @@ def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows,
     return out[:rows]
 
 
+def cycle_compact(session, wins, nwin, npane, cells, notes, console, cols, rows,
+                  no_package, now, style):
+    """The narrow/tiny whole-view cycle frame: constant session line, then either a
+    windows page (compact_window_lines' turn) or the limits page, then the mini legend."""
+    out = [session_line(session, nwin, npane, cols, no_package)]
+    budget = max(1, rows - 4)  # session line + phase header + legend + the rows-1 cap
+    extra = 1 if (cells or notes or console) else 0
+    grid = compact_window_lines(wins, cols, budget, now=now, extra_slots=extra)
+    if grid is None:
+        lhdr = LIMITS_HDR if style == "narrow" else f"{BOLD}{UL}LIMITS{OFF}"
+        out.append(lhdr + rollup_suffix(wins, cols - visible_len(lhdr)))
+        out.extend(limits_body(cells, notes, console, cols, budget, style=style))
+    else:
+        whdr = WINDOWS_HDR if style == "narrow" else f"{BOLD}{UL}WINDOWS{OFF}"
+        out.append(whdr + rollup_suffix(wins, cols - visible_len(whdr)))
+        out.extend(grid)
+    leg = mini_legend(cols)
+    if leg:
+        out.append(leg)
+    return out[:rows - 1]
+
+
 def render_narrow(session, wins, nwin, npane, cells, notes, console, cols, rows,
-                  no_package=False):
+                  no_package=False, now=None, cycle=True):
+    if cycle:
+        return cycle_compact(session, wins, nwin, npane, cells, notes, console, cols,
+                             rows, no_package, now, "narrow")
     out = [session_line(session, nwin, npane, cols, no_package), LIMITS_HDR]
     label_w = max([c[1] for c in cells], default=8)
     bar_w = max(6, min(14, cols - label_w - 8))
@@ -1630,11 +1864,14 @@ def render_narrow(session, wins, nwin, npane, cells, notes, console, cols, rows,
 
 
 def render_tiny(session, wins, nwin, npane, cells, notes, console, cols, rows,
-                no_package=False):
+                no_package=False, now=None, cycle=True):
     """LIMITS: one label + percent PER LINE (never 2-up flowed) — at this width a flowed
     pair sits close enough that a label can misread as paired with its NEIGHBOR's percent
     (observed: 'claude:main 5h' read against a different window's value). One entry per
     line makes each label unambiguously own its own number."""
+    if cycle:
+        return cycle_compact(session, wins, nwin, npane, cells, notes, console, cols,
+                             rows, no_package, now, "tiny")
     out = [session_line(session, nwin, npane, cols, no_package), f"{BOLD}{UL}LIMITS{OFF}"]
     limit_budget = max(1, (rows - 3) // 2)
     # The percent keeps its urgency color band even at this size — color costs ZERO
@@ -1675,26 +1912,29 @@ def render(args, session):
         return [f"no such tmux session: {session}",
                 "sessions: " + " ".join(tmux_lines("list-sessions", "-F", "#{session_name}"))]
     cache = load_cache()
-    cells, notes, console = usage_cells(cache)
+    cells, notes, console = usage_cells(cache, live=live_agent_accounts())
     layout = choose_layout(cols, rows)
     no_package = not args.package
-    # --no-rotate: LAYOUT is still chosen from the real terminal shape, but every internal
+    # --no-rotate: LAYOUT is still chosen from the real terminal shape, but the whole-view
+    # cycle is disabled (both blocks render in ONE combined frame) and every internal
     # row/line budget (and the final row cap) is lifted so every window and every pane
     # renders — a COMPLETE snapshot, taller than the terminal if it must be, instead of
-    # rotating pages a single --once frame can never show you the rest of.
-    render_rows = 10 ** 6 if getattr(args, "no_rotate", False) else rows
+    # cycling pages a single --once frame can never show you the rest of.
+    no_rotate = getattr(args, "no_rotate", False)
+    render_rows = 10 ** 6 if no_rotate else rows
+    cyc = not no_rotate
     if layout == "full":
         out = render_full(session, wins, nwin, npane, cells, notes, console, cache, cols,
-                          render_rows, no_package)
+                          render_rows, no_package, cycle=cyc)
     elif layout == "strip":
         out = render_strip(session, wins, nwin, npane, cells, notes, console, cols,
-                           render_rows, no_package)
+                           render_rows, no_package, cycle=cyc)
     elif layout == "narrow":
         out = render_narrow(session, wins, nwin, npane, cells, notes, console, cols,
-                            render_rows, no_package)
+                            render_rows, no_package, cycle=cyc)
     else:
         out = render_tiny(session, wins, nwin, npane, cells, notes, console, cols,
-                          render_rows, no_package)
+                          render_rows, no_package, cycle=cyc)
     return [clip_line(l, cols) for l in out]
 
 
@@ -1774,9 +2014,34 @@ def cmd_selftest():
     check("busy_panes: awaiting-approval detected from the latest sample, same capture",
           awaiting2 == {"%b"} and working2 == set())
 
-    check("claude in-use: recent statusline write -> in use; stale/absent -> not",
-          claude_in_use({"as_of": 1000}, now=1300) and not claude_in_use({"as_of": 1000}, now=1000 + CLAUDE_ACTIVE_SECS + 1)
-          and not claude_in_use({"error": "no data file yet"}, now=1300))
+    # G-17: IN USE is derived from live processes, never from "a credential exists".
+    # pids are deliberately nonexistent: /proc read fails -> the documented 'main' fallback
+    fake_procs = [("9990001", "claude --model fable --effort high do a thing"),
+                  ("9990002", "opencode run -m deepseek/deepseek-v4-pro do a thing"),
+                  ("9990003", "-bash"), ("9990004", "python3 /home/x/teamview --once"),
+                  ("9990005", "opencode run do a thing")]  # no --model: provider unknowable
+    live = live_agent_accounts(procs=fake_procs)
+    check("live accounts: claude (default config dir) + opencode provider prefix only (G-17)",
+          live == {("claude", "main"), ("deepseek", "main")})
+    check("live accounts: no live process -> nothing in use, whatever credentials exist",
+          live_agent_accounts(procs=[("1", "-bash"), ("2", "sshd: henri")]) == set())
+    check("live accounts: codex/kimi processes map to their provider",
+          live_agent_accounts(procs=[("1", "codex --search"), ("2", "kimi")])
+          == {("codex", "main"), ("kimi", "main")})
+    check("opencode provider aliases: store key and identity spelling both resolve",
+          (opencode_account_of("opencode run -m zai-coding-plan/glm-4.6"),
+           opencode_account_of("opencode -m moonshot/kimi-k2"),
+           opencode_account_of("opencode run -m deepseek/deepseek-v4"),
+           opencode_account_of("opencode run"))
+          == (("zai", "main"), ("kimi", "main"), ("deepseek", "main"), None))
+    check("account_in_use: live wins; explicit config flag overrides in both directions",
+          account_in_use({"provider": "claude", "name": "main"}, live)
+          and not account_in_use({"provider": "claude", "name": "tecer"}, live)
+          and not account_in_use({"provider": "zai", "name": "main"}, live)
+          and account_in_use({"provider": "zai", "name": "main", "in_use": True,
+                              "_in_use_explicit": True}, live)
+          and not account_in_use({"provider": "claude", "name": "main", "in_use": False,
+                                  "in_use_explicit": True}, live))
 
     with tempfile.TemporaryDirectory() as td:
         home = Path(td)
@@ -1786,21 +2051,28 @@ def cmd_selftest():
         oc = home / "auth.json"
         oc.write_text(json.dumps({"deepseek": {"key": "k1"}, "zai-coding-plan": {"key": "k2"}}))
         (home / ".claude-work").mkdir()
-        acc = load_accounts(home / "nonexistent.json", home=home, opencode_path=oc)
+        acc = load_accounts(home / "nonexistent.json", home=home, opencode_path=oc,
+                            live={("claude", "main"), ("zai", "main")})
         provs = sorted(a["provider"] for a in acc)
         check("discovery: claude+codex+kimi+opencode providers found",
               provs == ["claude", "claude", "codex", "deepseek", "kimi", "zai"])
         extra = next((a for a in acc if a["provider"] == "claude" and a["name"] == "work"), None)
         check("discovery: extra ~/.claude-<tag> account dir found with tagged statusline path",
               extra is not None and extra["source"]["path"].endswith("plan-usage-work.json"))
-        check("discovery: harness-backed accounts marked in use",
-              all(a["in_use"] for a in acc))
+        # G-17 regression: a discovered credential is CONFIGURED, not in use. Only the
+        # accounts a live process spends light up — claude:work and codex/deepseek/kimi
+        # all have stores here and none is running.
+        by_key = {(a["provider"], a["name"]): a["in_use"] for a in acc}
+        check("discovery: only accounts with a LIVE process are in use (G-17)",
+              by_key[("claude", "main")] and by_key[("zai", "main")]
+              and not any(v for k, v in by_key.items()
+                          if k not in {("claude", "main"), ("zai", "main")}))
         cfg = home / "teamview.json"
         cfg.write_text(json.dumps({"accounts": [
             {"provider": "zai", "name": "main", "source": {"type": "opencode"}},
             {"provider": "zai", "name": "alt", "source": {"type": "env", "var": "X_ALT"}}]}))
-        acc = load_accounts(cfg, home=home, opencode_path=oc)
-        check("config: multi-account per provider; env account NOT in use",
+        acc = load_accounts(cfg, home=home, opencode_path=oc, live={("zai", "main")})
+        check("config: multi-account per provider; the idle sibling is NOT in use",
               len(acc) == 2 and acc[0]["in_use"] and not acc[1]["in_use"])
         key = resolve_key({"provider": "zai", "source": {"type": "opencode"}}, opencode_path=oc)
         check("key resolution: opencode store_key mapping (zai -> zai-coding-plan)", key == "k2")
@@ -1928,13 +2200,18 @@ def cmd_selftest():
                     for i in range(4)]
         many_cells = [(f"claude:main {lbl}", 14, pct, "renews Sat 03:00")
                      for lbl, pct in (("5h", 25.0), ("7d", 51.0), ("7d fable", 66.0))]
+        calm_wins_w = [{"idx": str(i), "name": f"win{i}", "active": i == 0,
+                        "panes": [P(f"seat{i}a"), P(f"seat{i}b", ctx=42.0)]}
+                       for i in range(4)]
         for layout_fn, h in ((render_strip, 8), (render_narrow, 30), (render_tiny, 12)):
-            out = layout_fn("improve-teamview", many_wins, 4, 8, many_cells,
-                            ["deepseek $8.63 left"], [], w, h)
-            plain = [re.sub(r"\033\[[0-9;]*m", "", l) for l in out]
-            check(f"{layout_fn.__name__} at {w}w: no line exceeds the requested width "
-                  "(no cue/footer/value overflow reaching the outer blind clip)",
-                  all(len(l) <= w for l in plain))
+            for fixture, nv in ((many_wins, 0), (calm_wins_w, 10)):
+                out = layout_fn("improve-teamview", fixture, 4, 8, many_cells,
+                                ["deepseek $8.63 left"], [], w, h, now=nv)
+                plain = [re.sub(r"\033\[[0-9;]*m", "", l) for l in out]
+                check(f"{layout_fn.__name__} at {w}w now={nv}: no line exceeds the "
+                      "requested width on either cycle phase (no cue/footer/value "
+                      "overflow reaching the outer blind clip)",
+                      all(len(l) <= w for l in plain))
     tmp_pkg = tempfile.mkdtemp()
     try:
         (Path(tmp_pkg) / "workers" / "toolsmith-tv").mkdir(parents=True)
@@ -1968,13 +2245,22 @@ def cmd_selftest():
                        P("watcher", harness="opencode", model="deepseek-v4-pro", ctx=91.0,
                          age="5m")]},
             {"idx": "1", "name": "cli", "active": False, "panes": [P("cli", shell=True)]}]
+    calm_wins = [{"idx": "0", "name": "control", "active": True,
+                  "panes": [P("master", busy=True),
+                            P("watcher", harness="opencode", model="deepseek-v4-pro",
+                              ctx=51.0, age="5m")]},
+                 {"idx": "1", "name": "cli", "active": False,
+                  "panes": [P("cli", shell=True)]}]
     for layout_fn, dims in ((render_strip, (240, 8)), (render_narrow, (56, 40)),
                             (render_tiny, (58, 12)), ):
-        out = layout_fn("sess", wins, 2, 3, cells, notes, console, *dims)
-        joined = re.sub(r"\033\[[0-9;]*m", "", "\n".join(out))
-        check(f"{layout_fn.__name__}: fits height, carries seats + provider + agent info",
-              len(out) <= dims[1] and "master" in joined and "claude" in joined
-              and "46%" in joined and "deepseek" in joined)
+        outw = layout_fn("sess", wins, 2, 3, cells, notes, console, *dims, now=0)
+        outl = layout_fn("sess", calm_wins, 2, 3, cells, notes, console, *dims, now=10)
+        jw = re.sub(r"\033\[[0-9;]*m", "", "\n".join(outw))
+        jl = re.sub(r"\033\[[0-9;]*m", "", "\n".join(outl))
+        check(f"{layout_fn.__name__}: fits height on both phases; windows phase carries "
+              "seats + agent info, limits phase carries provider info",
+              len(outw) <= dims[1] and len(outl) <= dims[1] and "master" in jw
+              and "claude" in jw and "46%" in jw and "9.26" in jl)
     # Regression (hk-ux-1, dispatch #95, CRITICAL): reported "claude:main 5h" showing 1%
     # instead of the correct 45% at 60x12. Could not reproduce a formatting/truncation bug
     # after extensive width/value sweeps — the pipeline reads `pct` verbatim end to end, no
@@ -1986,19 +2272,30 @@ def cmd_selftest():
     # root cause of "corruption" given the tester's own "misalignment" wording. This check
     # locks the exact known value in at the exact reported size.
     tiny_out = [re.sub(r"\033\[[0-9;]*m", "", l) for l in render_tiny(
-        "sess", wins, 2, 3, [("claude:main 5h", 14, 45.0, "renews 18:39")], [], [], 60, 12)]
+        "sess", calm_wins, 2, 3, [("claude:main 5h", 14, 45.0, "renews 18:39")], [], [],
+        60, 12, now=10)]
     check("render_tiny: a known plan-usage value (45%) renders EXACTLY at 60x12, one "
           "label+percent per line (no neighbor-pair bleed)",
           "claude:main 5h: 45%" in tiny_out
           and not any(l.startswith("claude:main 5h:") and "45%" not in l for l in tiny_out))
-    out = render_full("sess", wins, 2, 3, cells, notes, console, fake_cache, 160, 40)
+    out = render_full("sess", wins, 2, 3, cells, notes, console, fake_cache, 160, 40,
+                      now=0)
     plain = [re.sub(r"\033\[[0-9;]*m", "", l) for l in out]
     hdr = next((i for i, l in enumerate(plain) if "control" in l), None)
-    check("render_full: grid — starred active window, panes with agent info beneath",
-          any("PLAN LIMITS" in l for l in plain) and hdr is not None
+    check("render_full windows phase: grid — starred active window, panes with agent "
+          "info beneath, no limits block sharing the frame",
+          hdr is not None
           and any("master+ claude:opus-4-8 46% 2m" in l for l in plain[hdr:])
           and any("*control" in l for l in plain)
+          and not any("PLAN LIMITS" in l for l in plain)
           and not any("legend:" in l for l in plain))
+    lim_full = [re.sub(r"\033\[[0-9;]*m", "", l) for l in render_full(
+        "sess", calm_wins, 2, 3, cells, notes, console, fake_cache, 160, 40, now=10)]
+    check("render_full limits phase: the next cycle slot renders the PLAN LIMITS page — "
+          "windows grid absent, alarm rollup still on the phase header",
+          any("PLAN LIMITS" in l for l in lim_full)
+          and not any("control" in l for l in lim_full)
+          and any("worst" in l for l in lim_full))
     out = window_grid([{"name": "big", "active": True,
                         "panes": [P(f"p{i}", model="", ctx=None, age="") for i in range(9)]},
                        {"name": "other", "active": False, "panes": [P("x")]}], 44, 5)
@@ -2075,6 +2372,50 @@ def cmd_selftest():
           not any("rotating" in l for l in plain(window_grid(fit_wins, 80, 10)))
           and not any("rotating" in l
                      for l in plain(compact_window_lines(fit_wins, 80, 10))))
+    # Whole-view cycle: with extra_slots=1 the rotation wheel gains a limits slot AFTER
+    # the window pages — windows p1..pN, then None (the caller's limits turn), then back.
+    check("whole-view cycle: window_grid with extra_slots=1 yields every window page, "
+          "then None on the limits slot, then repeats",
+          window_grid(rot_wins, 40, 4, now=0, extra_slots=1) is not None
+          and window_grid(rot_wins, 40, 4, now=20, extra_slots=1) is not None
+          and window_grid(rot_wins, 40, 4, now=30, extra_slots=1) is None
+          and plain(window_grid(rot_wins, 40, 4, now=40, extra_slots=1))
+          == plain(window_grid(rot_wins, 40, 4, now=0, extra_slots=1)))
+    check("whole-view cycle: compact_window_lines honors the same extra limits slot",
+          compact_window_lines(rot_wins, 40, 1, now=0, extra_slots=1) is not None
+          and compact_window_lines(rot_wins, 40, 1, now=30, extra_slots=1) is None)
+    check("whole-view cycle: even a single fitting windows page alternates with the "
+          "limits slot",
+          window_grid(fit_wins, 80, 10, now=0, extra_slots=1) is not None
+          and window_grid(fit_wins, 80, 10, now=10, extra_slots=1) is None)
+    s0 = render_strip("sess", fit_wins, 1, 1, cells, notes, console, 220, 10, now=0)
+    s1 = render_strip("sess", fit_wins, 1, 1, cells, notes, console, 220, 10, now=10)
+    s2 = render_strip("sess", fit_wins, 1, 1, cells, notes, console, 220, 10, now=20)
+    p0, p1 = plain(s0), plain(s1)
+    check("whole-view cycle: strip alternates a full-width WINDOWS page and a full-width "
+          "PLAN LIMITS page, deterministically repeating",
+          any("WINDOWS" in l for l in p0) and not any("PLAN LIMITS" in l for l in p0)
+          and any("PLAN LIMITS" in l for l in p1)
+          and not any("WINDOWS · PANES" in l for l in p1)
+          and plain(s2)[1:] == p0[1:])
+    check("whole-view cycle: the first line stays constant across both phases — the "
+          "cycle phase is no input to it (only the clock and the live sys cue move)",
+          p0[0].startswith("sess · 1 windows · 1 panes")
+          and p1[0].startswith("sess · 1 windows · 1 panes"))
+    crit_cycle = [{"idx": "0", "name": "w", "active": True,
+                   "panes": [P("stuck", awaiting=True)]}]
+    pinned_frames = [plain(render_strip("sess", crit_cycle, 1, 1, cells, notes, console,
+                                        220, 10, now=n)) for n in (0, 10, 20)]
+    check("whole-view cycle: a critical pane PINS the cycle on its windows page — the "
+          "limits page waits, no frame ever hides the critical pane",
+          all(any("stuck" in l for l in f) for f in pinned_frames)
+          and not any(any("PLAN LIMITS" in l for l in f) for f in pinned_frames))
+    combined = plain(render_strip("sess", fit_wins, 1, 1, cells, notes, console,
+                                  220, 10 ** 6, cycle=False))
+    check("--no-rotate: cycle disabled -> ONE combined frame carries PLAN LIMITS and "
+          "the windows block together",
+          any("PLAN LIMITS" in l for l in combined)
+          and any("WINDOWS" in l for l in combined))
     # Regression (live crash 2026-07-24): a real full-screen frame can leave grid_budget at
     # 0 or negative once the provider bars eat the height (rows - len(out) - 4), and rotation
     # with an over-budget page produced an empty `lines` list that lines[-1] then indexed
@@ -2084,6 +2425,8 @@ def cmd_selftest():
         try:
             window_grid(rot_wins, 1, budget)
             compact_window_lines(rot_wins, 40, budget)
+            window_grid(rot_wins, 1, budget, extra_slots=1)
+            compact_window_lines(rot_wins, 40, budget, extra_slots=1)
             ok = True
         except Exception:  # noqa: BLE001 — the check itself asserts "never raises"
             ok = False
@@ -2164,18 +2507,22 @@ def cmd_selftest():
     # render_full is only reachable at cols >= 70 (choose_layout, line ~1132) — 60w always
     # routes to narrow/tiny instead, so it is excluded here (same reachability boundary
     # Fix A's own strip/narrow/tiny sweep above respects).
+    sweep_calm = [{"idx": str(i), "name": f"win{i}", "active": i == 0,
+                   "panes": [P(f"seat{i}a"), P(f"seat{i}b", ctx=42.0)]}
+                  for i in range(4)]
     for w in (70, 80):
-        out_full = render_full("improve-teamview", sweep_wins, 4, 8, sweep_cells,
-                               ["deepseek $8.63 left"], [], fake_cache, w, 30)
-        plain_full = [re.sub(r"\033\[[0-9;]*m", "", l) for l in out_full]
-        check(f"render_full at {w}w: header line (now carrying the live system RAM/CPU "
-              "cue) never exceeds the requested width",
-              all(len(l) <= w for l in plain_full))
+        for fixture, nv in ((sweep_wins, 0), (sweep_calm, 10)):
+            out_full = render_full("improve-teamview", fixture, 4, 8, sweep_cells,
+                                   ["deepseek $8.63 left"], [], fake_cache, w, 30, now=nv)
+            plain_full = [re.sub(r"\033\[[0-9;]*m", "", l) for l in out_full]
+            check(f"render_full at {w}w now={nv}: header line (carrying the live system "
+                  "RAM/CPU cue) never exceeds the requested width on either cycle phase",
+                  all(len(l) <= w for l in plain_full))
 
     # ---- UX backlog items 2,4,5,6,7,8,9,10 (findings run tv-ux-review; fixed 2026-07-26) ----
     strip_sgr = lambda s: re.sub(r"\033\[[0-9;]*m", "", s)  # noqa: E731
     hot_cells = [("claude:main 5h", 14, 97.0, ""), ("zai 7d", 6, 12.0, "")]
-    tiny_hot = render_tiny("sess", wins, 2, 3, hot_cells, [], [], 60, 12)
+    tiny_hot = render_tiny("sess", calm_wins, 2, 3, hot_cells, [], [], 60, 12, now=10)
     hot_line = next((l for l in tiny_hot if "97%" in strip_sgr(l)), "")
     cool_line = next((l for l in tiny_hot if "12%" in strip_sgr(l)), "")
     check("item2: render_tiny at 60x12 keeps the urgency color band on LIMITS rows — a "
@@ -2183,7 +2530,7 @@ def cmd_selftest():
           RED in hot_line and GREEN in cool_line)
     for layout_fn, dims in ((render_strip, (220, 10)), (render_narrow, (70, 40)),
                             (render_tiny, (60, 12))):
-        out_l = layout_fn("sess", wins, 2, 3, hot_cells, [], [], *dims)
+        out_l = layout_fn("sess", wins, 2, 3, hot_cells, [], [], *dims, now=0)
         check(f"item2: {layout_fn.__name__} emits the one-line mini legend with the alarm "
               "keys (previously NO legend rendered below full size)",
               "? approval" in strip_sgr("\n".join(out_l))
@@ -2205,10 +2552,11 @@ def cmd_selftest():
     check("item4: rollup line — pane total, worst ctx (keeping its ~), red count, "
           "? count",
           strip_sgr(rollup_variants(roll_wins)[0]) == "3 panes · worst ~94% · 2 red · 1 ?")
-    full_o = render_full("sess", roll_wins, 1, 3, hot_cells, [], [], fake_cache, 220, 50)
-    strip_o = render_strip("sess", roll_wins, 1, 3, hot_cells, [], [], 220, 10)
-    narrow_o = render_narrow("sess", roll_wins, 1, 3, hot_cells, [], [], 70, 40)
-    tiny_o = render_tiny("sess", roll_wins, 1, 3, hot_cells, [], [], 60, 12)
+    full_o = render_full("sess", roll_wins, 1, 3, hot_cells, [], [], fake_cache, 220, 50,
+                         now=0)
+    strip_o = render_strip("sess", roll_wins, 1, 3, hot_cells, [], [], 220, 10, now=0)
+    narrow_o = render_narrow("sess", roll_wins, 1, 3, hot_cells, [], [], 70, 40, now=0)
+    tiny_o = render_tiny("sess", roll_wins, 1, 3, hot_cells, [], [], 60, 12, now=0)
     check("item4: the alarm rollup renders at EVERY layout size (full 220x50, strip "
           "220x10, narrow 70x40, tiny 60x12) above the rotating windows detail",
           all(any(("2 red" in strip_sgr(l) or "2r" in strip_sgr(l)) for l in o)
@@ -2274,13 +2622,15 @@ def cmd_selftest():
           and "codex excepted" in h_flat and "pair with --once" in h_flat)
     stale_cells = [("codex 7d", 8, 40.0, "as of Wed 09:00"),
                    ("claude:main 5h", 14, 10.0, "renews 23:00")]
-    hedged = "\n".join(render_full("sess", roll_wins, 1, 3, stale_cells, [], [],
-                                   fake_cache, 220, 50))
-    unhedged = "\n".join(render_full("sess", roll_wins, 1, 3,
+    calm_roll = [{"idx": "0", "name": "w0", "active": True,
+                  "panes": [P("calm", ctx=30.0)]}]
+    hedged = "\n".join(render_full("sess", calm_roll, 1, 1, stale_cells, [], [],
+                                   fake_cache, 220, 50, now=10))
+    unhedged = "\n".join(render_full("sess", calm_roll, 1, 1,
                                      [("claude:main 5h", 14, 10.0, "renews 23:00")],
-                                     [], [], fake_cache, 220, 50))
-    check("item10: full-layout header hedges 'providers polled Nm ago' when any bar "
-          "carries its own older 'as of' stamp — and only then",
+                                     [], [], fake_cache, 220, 50, now=10))
+    check("item10: full-layout limits header hedges 'providers polled Nm ago' when any "
+          "bar carries its own older 'as of' stamp — and only then",
           "some bars older" in hedged and "some bars older" not in unhedged)
     check("item10: --help-providers explains a model-scoped weekly ('7d fable') as a "
           "SUBSET of the plain 7d window",

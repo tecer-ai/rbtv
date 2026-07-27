@@ -21,10 +21,16 @@ network, no credentials):
             process's start, claimed oldest-first in pane-creation order, one pane each;
             RESUMED sessions (transcript predates the process) get a stable session-start-
             order assignment over the recently-written files instead — sibling order can
-            still be wrong there, so multi-candidate picks carry ambiguous=True (ctx shown
+            still be wrong there, so EVERY heuristic pick carries ambiguous=True (ctx shown
             as ~N%) until the session's next statusline tick pins it exactly. Transcripts
             the pid map assigns to a LIVE pid other than the pane's (another session in
             the same cwd, possibly outside tmux) are never heuristic candidates.
+            MODEL is resolved from the pane process's own argv `--model` FIRST when present
+            (the one source that cannot belong to another session); the pid-map/transcript
+            model only fills in when argv carries no flag. `model_source` names which it
+            was (argv | pidmap | transcript | transcript~); a family-level disagreement
+            between argv and the matched transcript proves the transcript is another
+            session's and sets ambiguous=True plus `model_conflict`.
   codex     newest rollout under ~/.codex/sessions/ whose session_meta cwd matches the
             pane -> last token_count event (last_token_usage.total_tokens /
             model_context_window); model from the last turn_context; activity = file mtime
@@ -72,6 +78,27 @@ HARNESSES = {"claude", "codex", "opencode", "kimi", "gemini", "aider", "goose", 
              "crush", "droid", "cursor-agent", "copilot"}
 
 CLAUDE_WINDOW = 200_000  # default; overrides below
+# Bare model ALIASES (`claude --model opus`) — an alias always names the CURRENT generation of
+# that family, which is the Claude 5 family, so each resolves to the same window as its
+# versioned id. Matched on the whole normalized string, never as a substring: "opus-4-8" must
+# NOT inherit "opus"'s window. Add an alias here only when its current generation is 1M.
+CLAUDE_1M_ALIASES = {"fable", "opus", "sonnet"}
+# Versioned/long-context ids, matched as substrings ("opus-5" does not occur inside "opus-4-5").
+CLAUDE_1M_PATTERNS = ("[1m]", "fable", "sonnet-5", "opus-5")
+
+
+def normalize_claude_model(model):
+    """Model string reduced to its comparable form: lowercased, `claude-` prefix and any
+    date suffix dropped ('claude-opus-5' -> 'opus-5', 'opus' -> 'opus')."""
+    m = re.sub(r"^claude-", "", (model or "").strip().lower())
+    return re.sub(r"-\d{8}$", "", m)
+
+
+def model_family(model):
+    """Family identity an alias and a full id agree on — 'opus' for both `opus` and
+    `claude-opus-5`, 'sonnet' for `claude-sonnet-4-5-20250929`. Used to tell a HARMLESS
+    alias/id difference from a real disagreement between two sources."""
+    return re.split(r"[-@\[]", normalize_claude_model(model))[0]
 
 
 def claude_window(model):
@@ -80,12 +107,18 @@ def claude_window(model):
     (fable-5, sonnet-5 verified via /context 2026-07-24; opus-5 verified via statusline
     ctx.window payloads 2026-07-27) observed running 1M windows, as does any [1m]
     long-context id; the rest 200k. RBTV_CONTEXT_WINDOW overrides everything
-    (same env the orchestration hook honors)."""
+    (same env the orchestration hook honors).
+
+    Bare aliases resolve too (issues.md G-4): `claude --model opus` puts the string "opus"
+    — not "claude-opus-5" — on the wire and in argv, and matching only versioned ids scored
+    those sessions against 200k while reporting a 1M-family model in the same record."""
     env = os.environ.get("RBTV_CONTEXT_WINDOW", "")
     if env.isdigit() and int(env) > 0:
         return int(env)
-    m = model.lower()
-    if "[1m]" in m or "fable" in m or "sonnet-5" in m or "opus-5" in m:
+    m = (model or "").strip().lower()
+    if normalize_claude_model(m) in CLAUDE_1M_ALIASES:
+        return 1_000_000
+    if any(p in m for p in CLAUDE_1M_PATTERNS):
         return 1_000_000
     return CLAUDE_WINDOW
 # opencode context window by model-id substring (first match wins); its DB carries no window.
@@ -187,10 +220,23 @@ def claude_pidmap_record(pid, runtime_root=None, entries=None):
     return best
 
 
-def parse_claude_transcript(f):
-    """Last REAL main-chain assistant usage in a transcript (skips sidechains and the
-    synthetic/zero-usage entries Claude writes for errors and interruptions)."""
-    for obj in reversed(tail_json_lines(f)):
+TAIL_BYTES = 250_000        # normal read: the pane agent's own last turn is near the end
+TAIL_BYTES_WIDE = 8_000_000  # widened read, only when a sub-agent run buried that turn
+
+
+def last_usage_entry(objs, prefer_model=None):
+    """(model, tokens) of the last REAL assistant usage among `objs`, plus whether it had to
+    fall back off `prefer_model`. Skips sidechains and the synthetic/zero-usage entries
+    Claude writes for errors and interruptions.
+
+    `prefer_model` exists because a sub-agent's turns are appended to its PARENT's
+    transcript carrying isSidechain=false, the same sessionId, and the SUB-agent's model —
+    so the plain last entry is often another agent's context, not the pane agent's
+    (observed 2026-07-27: a fable seat's pane read 427k tokens that belonged to an opus
+    sub-agent running inside it). Given the pane's own model, the last entry of THAT model
+    family wins."""
+    fallback = None
+    for obj in reversed(objs):
         if obj.get("isSidechain") is True:
             continue
         msg = obj.get("message")
@@ -204,15 +250,35 @@ def parse_claude_transcript(f):
                 + int(u.get("cache_creation_input_tokens") or 0))
         if model == "<synthetic>" or used == 0:
             continue
-        window = claude_window(model)
-        return {"model": model, "ctx_pct": pct(used, window), "ctx_tokens": used,
-                "window": window, "as_of": int(f.stat().st_mtime), "source": "transcript",
-                "file": str(f)}
-    return {"file": str(f)}
+        if prefer_model and model_family(model) != model_family(prefer_model):
+            fallback = fallback if fallback is not None else (model, used)
+            continue
+        return (model, used), False
+    return fallback, True
+
+
+def parse_claude_transcript(f, prefer_model=None):
+    """Record for the transcript's last assistant usage — the pane agent's own when
+    `prefer_model` names it (see last_usage_entry). A sub-agent run can push the pane
+    agent's last turn out of the normal tail, so a miss re-reads a much larger tail once
+    before settling for another agent's entry."""
+    hit, unmatched = last_usage_entry(tail_json_lines(f, TAIL_BYTES), prefer_model)
+    if prefer_model and unmatched and os.path.getsize(f) > TAIL_BYTES:
+        wide, wide_unmatched = last_usage_entry(tail_json_lines(f, TAIL_BYTES_WIDE),
+                                                prefer_model)
+        if wide is not None and not wide_unmatched:
+            hit, unmatched = wide, False
+    if hit is None:
+        return {"file": str(f)}
+    model, used = hit
+    window = claude_window(model)
+    return {"model": model, "model_source": "transcript", "ctx_pct": pct(used, window),
+            "ctx_tokens": used, "window": window, "as_of": int(f.stat().st_mtime),
+            "source": "transcript", "file": str(f)}
 
 
 def claude_info(cwd, projects_root=None, after=None, exclude=(), pid=None,
-                runtime_root=None):
+                runtime_root=None, prefer_model=None):
     """Source order: the pid map (statusline-persisted, EXACT) -> start-time pairing
     (`after` = the pane process's start epoch; only transcripts started after it qualify,
     claimed oldest-first via `exclude`) -> stable session-start-order assignment (resumed
@@ -224,12 +290,13 @@ def claude_info(cwd, projects_root=None, after=None, exclude=(), pid=None,
     if pid:
         mapped = claude_pidmap_record(pid, runtime_root)
         if mapped:
-            rec = parse_claude_transcript(Path(mapped["transcript"]))
+            rec = parse_claude_transcript(Path(mapped["transcript"]),
+                                          prefer_model or mapped.get("model"))
             if mapped.get("model"):
-                rec["model"] = mapped["model"]
+                rec["model"], rec["model_source"] = mapped["model"], "pidmap"
             ctx = mapped.get("ctx") or {}
             if ctx.get("window"):  # the plan's REAL window (statusline payload) beats guesses
-                rec["window"] = int(ctx["window"])
+                rec["window"], rec["window_exact"] = int(ctx["window"]), True
                 tokens = rec.get("ctx_tokens") or ctx.get("tokens")
                 rec["ctx_tokens"] = tokens
                 rec["ctx_pct"] = (pct(tokens, rec["window"]) if tokens
@@ -261,10 +328,14 @@ def claude_info(cwd, projects_root=None, after=None, exclude=(), pid=None,
             f = min((s if s is not None else float("inf"), p) for s, p in recent)[1]
         else:
             f = files[0]  # nothing recent: newest by mtime
-    rec = parse_claude_transcript(f)
+    rec = parse_claude_transcript(f, prefer_model)
     if rec.get("source"):
         rec["source"] = "transcript~"  # heuristic pick — not pid-verified
-    if len(files) > 1:
+        rec["model_source"] = "transcript~"
+        # A heuristic pick is a GUESS about which session this pane owns, even when only one
+        # candidate existed (the pane may own none of them — issues.md G-16 reported a
+        # single-candidate pick as `ambiguous: false` while naming another seat's model).
+        # Certainty comes from the pid map, never from candidate scarcity.
         rec["ambiguous"] = True
     return rec
 
@@ -440,20 +511,52 @@ READERS = {"claude": claude_info, "codex": codex_info,
            "opencode": opencode_info, "kimi": kimi_info}
 
 
+def apply_argv_model(rec, amodel):
+    """Let the pane's OWN process argv decide the model (issues.md G-16).
+
+    A transcript can belong to another session — with no `session-pids` record the pane ->
+    transcript match is a guess, and a wrong guess reported a fable seat as opus while
+    claiming `ambiguous: false`. `--model` in the pane process's argv is the one source that
+    CANNOT be another session's, so it outranks every record-derived model. When the two
+    disagree by family the matched transcript is provably not this pane's: keep the numbers
+    (they are all there is) but mark them ambiguous and record what the transcript claimed.
+    The window is re-derived from the authoritative model unless it came from the statusline
+    payload — a record must never carry a model and a window that describe different models
+    (the G-4 symptom)."""
+    if not amodel:
+        return rec
+    tmodel = rec.get("model") or ""
+    rec["model"], rec["model_source"] = amodel, "argv"
+    if tmodel and model_family(tmodel) != model_family(amodel):
+        rec["model_conflict"] = tmodel
+        rec["ambiguous"] = True
+    if not rec.get("window_exact"):
+        rec["window"] = claude_window(amodel)
+        if rec.get("ctx_tokens"):
+            rec["ctx_pct"] = pct(rec["ctx_tokens"], rec["window"])
+    return rec
+
+
 def agent_info(harness, cwd, pane_id=None, pane_pid=None, procs=None,
                after=None, exclude=()):
-    """Full record for one agent: harness record first, then argv --model, then TUI scrape.
-    `after`/`exclude` feed claude's same-cwd transcript disambiguation."""
-    rec = {"harness": harness, "model": "", "ctx_pct": None, "ctx_tokens": None,
-           "window": None, "as_of": None, "source": "", "file": "", "ambiguous": False}
+    """Full record for one agent: the pane process's own argv --model (authoritative for
+    claude), the harness record, then a TUI scrape. `after`/`exclude` feed claude's same-cwd
+    transcript disambiguation."""
+    rec = {"harness": harness, "model": "", "model_source": "", "ctx_pct": None,
+           "ctx_tokens": None, "window": None, "as_of": None, "source": "", "file": "",
+           "ambiguous": False}
     if harness == "claude":
-        apid = None
+        apid, aargs = None, ""
         if pane_pid:
-            apid, _ = pane_agent_proc(pane_pid, "claude",
-                                      procs if procs is not None else ps_args_table())
+            apid, aargs = pane_agent_proc(pane_pid, "claude",
+                                          procs if procs is not None else ps_args_table())
+        amodel = argv_model(aargs)  # resolved FIRST: it also picks the pane agent's own
+        #                             usage entry out of a transcript shared with sub-agents
         rec.update({k: v for k, v in claude_info(cwd, after=after, exclude=exclude,
-                                                 pid=apid or pane_pid).items()
+                                                 pid=apid or pane_pid,
+                                                 prefer_model=amodel).items()
                     if v not in (None, "")})
+        apply_argv_model(rec, amodel)
     elif harness in READERS:
         rec.update({k: v for k, v in READERS[harness](cwd).items() if v not in (None, "")})
     if not rec["model"] and pane_pid and harness in HARNESSES:
@@ -521,7 +624,8 @@ def pane_records(session=None, pane=None):
     for p in sorted(panes, key=pane_num):
         rec = {"pane_id": p["pane_id"], "window": p["window"], "title": p["title"],
                "harness": "" if p["cmd"] in SHELLS else p["cmd"], "shell": p["cmd"] in SHELLS,
-               "model": "", "ctx_pct": None, "ctx_tokens": None, "window_tokens": None,
+               "model": "", "model_source": "", "model_conflict": "", "ctx_pct": None,
+               "ctx_tokens": None, "window_tokens": None,
                "as_of": None, "source": "", "ambiguous": False}
         if p["cmd"] in HARNESSES:
             after, exclude = None, claimed
@@ -538,7 +642,9 @@ def pane_records(session=None, pane=None):
                               after=after, exclude=exclude)
             if info.get("file"):
                 claimed.add(info["file"])
-            rec.update({"model": info["model"], "ctx_pct": info["ctx_pct"],
+            rec.update({"model": info["model"], "model_source": info.get("model_source", ""),
+                        "model_conflict": info.get("model_conflict", ""),
+                        "ctx_pct": info["ctx_pct"],
                         "ctx_tokens": info["ctx_tokens"], "window_tokens": info["window"],
                         "as_of": info["as_of"], "source": info["source"],
                         "ambiguous": bool(info.get("ambiguous"))})
@@ -631,6 +737,27 @@ def cmd_selftest():
         check("claude: last main-chain usage, sidechain skipped, 200k window",
               c.get("model") == "claude-opus-4-8" and c.get("ctx_tokens") == 92_002
               and c.get("ctx_pct") == 46.0 and c.get("source") == "transcript~")
+        check("claude: a SINGLE-candidate heuristic pick is still a guess -> ambiguous (G-16)",
+              c.get("ambiguous") is True and c.get("model_source") == "transcript~")
+        # A sub-agent's turns land in the PARENT's transcript with isSidechain=false and the
+        # sub-agent's own model: without prefer_model the pane reads the sub-agent's context.
+        sub = proj / "sub.jsonl"
+        sub.write_text("\n".join(json.dumps(l) for l in [
+            {"type": "assistant", "message": {"model": "claude-fable-5",
+                                              "usage": {"input_tokens": 40_000}}},
+            {"type": "assistant", "message": {"model": "claude-opus-5",
+                                              "usage": {"input_tokens": 900_000}}}]))
+        check("claude: prefer_model picks the PANE agent's own turn out of a transcript "
+              "shared with a sub-agent on another model",
+              parse_claude_transcript(sub)["ctx_tokens"] == 900_000
+              and parse_claude_transcript(sub, "fable")["ctx_tokens"] == 40_000
+              and parse_claude_transcript(sub, "claude-fable-5")["ctx_tokens"] == 40_000
+              and parse_claude_transcript(sub, "opus")["ctx_tokens"] == 900_000)
+        check("claude: prefer_model with NO matching turn falls back, flagged unmatched",
+              parse_claude_transcript(sub, "sonnet")["ctx_tokens"] == 900_000
+              and last_usage_entry([json.loads(l) for l in sub.read_text().splitlines()],
+                                   "sonnet")[1] is True)
+        sub.unlink()
         check("claude: unknown cwd -> {}", claude_info("/nope", projects_root=td / "projects") == {})
         (proj / "s1.jsonl").write_text((proj / "s1.jsonl").read_text() + "\n" + json.dumps(
             {"type": "assistant", "message": {"model": "<synthetic>",
@@ -755,6 +882,42 @@ def cmd_selftest():
           (claude_window("claude-opus-4-8"), claude_window("claude-fable-5"),
            claude_window("claude-sonnet-5"), claude_window("claude-sonnet-4-5[1m]"))
           == (200_000, 1_000_000, 1_000_000, 1_000_000))
+    # G-4: `claude --model opus` puts a BARE alias on the wire; matching only versioned ids
+    # scored those sessions against 200k. Bare aliases resolve, versioned 200k ids still do.
+    check("windows: BARE aliases resolve (G-4); versioned 200k ids unaffected",
+          (claude_window("opus"), claude_window("sonnet"), claude_window("fable"),
+           claude_window("claude-opus"), claude_window("OPUS"))
+          == (1_000_000,) * 5
+          and (claude_window("opus-4-8"), claude_window("claude-opus-4-8"),
+               claude_window("claude-sonnet-4-5-20250929"), claude_window("haiku"),
+               claude_window("")) == (200_000,) * 5)
+    check("model_family: alias and full id agree; different families do not",
+          (model_family("opus"), model_family("claude-opus-5"),
+           model_family("claude-sonnet-4-5-20250929"), model_family("fable"))
+          == ("opus", "opus", "sonnet", "fable")
+          and model_family("fable") != model_family("claude-opus-5"))
+    # G-16: argv beats a transcript-derived model, re-derives the window to match it, and a
+    # family disagreement proves the matched transcript belongs to another session.
+    conflict = apply_argv_model({"model": "claude-opus-5", "model_source": "transcript~",
+                                 "ctx_tokens": 400_000, "ctx_pct": 200.0, "window": 200_000,
+                                 "ambiguous": False}, "fable")
+    agree = apply_argv_model({"model": "claude-opus-5", "model_source": "transcript~",
+                              "ctx_tokens": 100_000, "window": 200_000, "ambiguous": False},
+                             "opus")
+    exact = apply_argv_model({"model": "claude-sonnet-5", "model_source": "pidmap",
+                              "ctx_tokens": 100_000, "window": 1_000_000,
+                              "window_exact": True, "ambiguous": False}, "sonnet")
+    check("argv model: outranks transcript, window re-derived, conflict -> ambiguous (G-16)",
+          (conflict["model"], conflict["model_source"], conflict["window"],
+           conflict["ambiguous"], conflict["model_conflict"])
+          == ("fable", "argv", 1_000_000, True, "claude-opus-5")
+          and conflict["ctx_pct"] == 40.0)
+    check("argv model: same family is no conflict; statusline window never overwritten",
+          (agree["ambiguous"], agree["window"], "model_conflict" in agree)
+          == (False, 1_000_000, False)
+          and (exact["window"], exact["ambiguous"], exact["model"]) == (1_000_000, False, "sonnet")
+          and apply_argv_model({"model": "claude-opus-5", "model_source": "transcript"},
+                               "")["model_source"] == "transcript")
 
     recs = [{"pane_id": "%1", "window": "0", "title": "master", "harness": "claude",
              "model": "claude-opus-4-8", "ctx_pct": 46.0, "ctx_tokens": 92_002,
