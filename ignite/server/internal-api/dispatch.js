@@ -27,6 +27,9 @@ const {
   INTERNAL,
 } = require('./errors');
 const { createAuthzPolicy } = require('./authz');
+// The ENABLED-vs-FIREABLE derivation (S-2). Imported rather than reimplemented: it reads the same
+// required-argument set enqueue enforces, so the report and the runtime cannot disagree.
+const { jobFireability } = require('../heart/heart-store');
 const { appendKeystrokeRecord, recordScreenRead, flushScreenReadRuns, appendKillRecord } = require('./keys-audit');
 
 const ENVELOPE_VERSION = 1;
@@ -601,7 +604,18 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       throw new InternalApiError(VALIDATION_FAILED, `unknown inspect target: ${target} (known: jobs, queue, status, logs, daemon, ticker, messages)`, { check: 'inspect-target', field: 'target' });
     }
 
-    if (target === 'jobs') return { target, rows: heartStore.listJobs() };
+    // ENABLED is not FIREABLE, and until now this surface only reported the first (S-2). `enabled`
+    // is evidence a catalogue ROW EXISTS; it has never been evidence that row can RUN. A fire-tool
+    // job registered with an empty args_schema reads `enabled=1` forever and is structurally unable
+    // to fire, with no in-place repair — two such ids are live on this box right now. So every row
+    // carries the derived verdict AND, when it is false, the reason. Derived in heart-store from the
+    // SAME required-argument set enqueue enforces, never re-implemented here.
+    if (target === 'jobs') {
+      return {
+        target,
+        rows: heartStore.listJobs().map((row) => ({ ...row, ...jobFireability(row) })),
+      };
+    }
     if (target === 'queue') return { target, rows: heartStore.listQueue() };
     if (target === 'daemon') return handleInspectDaemon();
     if (target === 'ticker') return handleInspectTicker();

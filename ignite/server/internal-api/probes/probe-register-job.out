@@ -1,4 +1,4 @@
-COMMAND: node server\internal-api\probes\probe-register-job.js
+COMMAND: node server/internal-api/probes/probe-register-job.js
 PASS  setup: the catalogue starts EMPTY on disk — rows=0
 PASS  a BRIDGE sender is refused UNAUTHORIZED_SENDER — code=UNAUTHORIZED_SENDER
 PASS  the denial comes from the CORE, not the gateway shape-check (a well-formed request, refused on policy) — gatewayRefused=false
@@ -27,4 +27,4 @@ PASS  an UNREGISTERED job is still refused at enqueue (E_UNKNOWN_JOB) — detail
 CHECKS: 24/24 passed
 REGISTER_INTENT_OK: true
 EXIT: 0
-WALL_MS: 41
+WALL_MS: 30

@@ -33,6 +33,7 @@ way and that is on the caller.
 """
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -122,6 +123,53 @@ def launch_argv(args):
             "launch", "--only", args.seat, "--force", "--force-memory"]
 
 
+def gate_split_violation(coord_path):
+    """'' when the flag->gate split still holds; else why this path must NOT run (issue S-6(a)).
+
+    THE DEPENDENCY THIS ASSERTS, which nothing in this path used to state. `launch_argv` passes
+    `--force` on EVERY firing — correct by necessity, because a daemon-fired exec has no pane and
+    therefore no seat identity, so it can never pass an identity-keyed gate no matter who writes it.
+    Unlike every other override in this system there is no human and no agent present AT the
+    override: it fires on a timer, at whatever hour the room dies, with everyone asleep.
+
+    That is safe ONLY because `--force` carries the role gate and nothing else. The standing rule —
+    "no gate may ever be re-attached to --force" — was enforced by memory alone, so re-attaching one
+    would silently ARM AN UNATTENDED MEMORY OVERRIDE and nothing would say so.
+
+    So the dependency is now CHECKED, against coord.py's own GATE_FLAGS map (`coordinate gates
+    --json`) — the same map `launch_gates` reads to decide what a flag carries, not a second copy
+    that could drift. If the split is ever undone this recovery REFUSES and the room stays dead,
+    which is the honest outcome: a self-heal that quietly gained a power nobody granted it is worse
+    than one that stops and says why. Fail-CLOSED on an unreadable map, deliberately — the whole
+    point is that nobody is awake to interpret a shrug."""
+    try:
+        r = subprocess.run([sys.executable, coord_path, "gates", "--json"],
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as err:
+        return f"cannot run `coord.py gates` to verify the flag->gate split: {err}"
+    if r.returncode != 0:
+        return (f"`coord.py gates --json` exited {r.returncode} — the flag->gate split cannot be "
+                f"verified, and this path overrides a gate on every firing: "
+                f"{(r.stderr or r.stdout).strip()[:200]}")
+    try:
+        gates = json.loads(r.stdout)
+    except ValueError:
+        return "`coord.py gates --json` did not return JSON — the split cannot be verified"
+
+    if "memory" in (gates.get("--force") or []):
+        return ("`--force` now carries the MEMORY gate as well as the role gate. This path passes "
+                "--force on every firing with nobody in the loop, so that recombination would arm "
+                "an UNATTENDED memory override — exactly what the split exists to prevent. "
+                "Re-separate the flags before this job may run again.")
+    if "memory" not in (gates.get("--force-memory") or []):
+        return ("`--force-memory` no longer carries the memory gate, so the explicit override this "
+                "path passes no longer does what its own docstring says it does.")
+    if "role" not in (gates.get("--force") or []):
+        return ("`--force` no longer carries the role gate, so this daemon-fired launch — which has "
+                "no seat identity and cannot pass that gate any other way — would be refused.")
+    return ""
+
+
 def disclose_overrides():
     """RIDER (leader #409): the override is LOGGED with its reason on every firing — and on every
     DRY-RUN too, or the cheap check would be silent about the very thing it should surface."""
@@ -148,6 +196,18 @@ def main():
 
     sock = args.tmux_socket
     cwd = args.cwd or args.package
+
+    # ---- 0 · the precondition this path never used to state (S-6(a)) ------
+    # Checked BEFORE anything is created, and on --dry-run too: a cheap check that stayed silent
+    # about the very thing it should surface would be the same defect one level up.
+    violation = gate_split_violation(args.coord)
+    if violation:
+        log(f"FATAL — REFUSING to recover: {violation}")
+        log("This job overrides the role gate on EVERY firing, unattended. It may only do so while "
+            "that flag carries the role gate and nothing else.")
+        return 2
+    log("precondition OK — `--force` carries the role gate only; the memory gate answers to "
+        "`--force-memory` (verified against coord.py's own GATE_FLAGS map, not assumed)")
 
     # ---- 1 · the session, created if absent -------------------------------
     if session_exists(args.session, sock):

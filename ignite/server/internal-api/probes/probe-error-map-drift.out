@@ -1,8 +1,10 @@
-typed-code universe (server/{pty,spawn,heart}/errors.js exports): 35
+typed-code universe (server/{pty,spawn,heart}/errors.js exports): 36
 STORE_TO_WIRE rows: 22
 NOT_WIRE_REACHABLE classifications: 13
-partition: 22 + 13 = 35 (universe 35)
+partition: 22 + 13 = 35 (universe 36)
 
-RESULT: PASS — every typed code is either deliberately mapped or deliberately classified; the closed map cannot decay silently.
-WALL_MS 6
-EXIT 0
+FAIL: UNCLASSIFIED TYPED CODE: 'E_TMUX_NAME_INVALID' is in neither STORE_TO_WIRE nor NOT_WIRE_REACHABLE — if it can cross toWireError() it will degrade to the anonymous INTERNAL 'server-core fault'. Rule its wire fate: map it, or classify it with a rationale.
+
+RESULT: FAIL — 1 drift finding(s) above, each naming its code.
+WALL_MS 8
+EXIT 1

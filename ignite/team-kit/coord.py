@@ -1063,9 +1063,20 @@ SKIP_HARNESS_CHECK = os.environ.get("COORD_SKIP_HARNESS_CHECK") == "1"
 # by what `ps` showed and understated the requirement threefold; the kernel answered by SIGKILLing a
 # bystander — the watcher, twice, its roster row still reading ACTIVE. So this gate is not a flat
 # floor over steady state: it holds a SPIKE reserve, because the spike is the risk.
-SEAT_SPIKE_MB = 1400        # measured peak of one claude seat
-SPIKE_RESERVE = 2           # concurrent spikes to keep room for (one boot + one compaction)
-LAUNCH_MEM_FLOOR_MB = SEAT_SPIKE_MB * SPIKE_RESERVE   # 2800 MB available
+# ⚑ THE NUMBER BELOW IS UNVALIDATED AND MACHINE-SPECIFIC. It is ONE systemd cgroup peak from one
+# claude seat on one box, doubled — and a cgroup peak INCLUDES reclaimable page cache, so it
+# counts as *required* memory the kernel would hand back under pressure. The causal OOM theory
+# behind it was RETRACTED the same night it was taken (campaign issue S-8(a), owner-raised).
+# It MUST NEVER travel to another machine as a constant: re-derive per box from a working-set or
+# PSI-pressure metric over SEVERAL samples. Overriding it with a single fresh reading would
+# repeat exactly the error that produced it. Until that measurement campaign runs, the value
+# stays put (owner ruling) and is merely made settable per machine, which is what the env vars
+# below are for — they are the per-machine seam, not a licence to guess a better number.
+# The GATE ITSELF is not in question and was ratified: seat RSS understates peak ~3x, three
+# seats died `exit 137`, and the watcher was SIGKILLed twice as a BYSTANDER.
+SEAT_SPIKE_MB = int(os.environ.get("COORD_SEAT_SPIKE_MB") or 1400)   # per-box override
+SPIKE_RESERVE = int(os.environ.get("COORD_SPIKE_RESERVE") or 2)      # boot + compaction
+LAUNCH_MEM_FLOOR_MB = SEAT_SPIKE_MB * SPIKE_RESERVE   # 2800 MB on this box
 
 
 def available_mb():
@@ -1091,7 +1102,57 @@ def memory_gate(n_seats, avail_mb, floor_mb=LAUNCH_MEM_FLOOR_MB):
             f"peaks at ~{SEAT_SPIKE_MB} MB on boot and on every compaction — steady RSS is a third "
             f"of that — and this gate holds {SPIKE_RESERVE} spikes of reserve so a spiking seat "
             f"cannot make the kernel SIGKILL a bystander (how the watcher died twice on "
-            f"2026-07-27). Close a seat first, or override with --force and say so on the log.")
+            f"2026-07-27). Close a seat first, or override with --force-memory and say so on "
+            f"the log. NOT --force: that flag carries the ROLE gate only and will not lift "
+            f"this one (campaign issue S-8(c) — this text used to name it, at the exact "
+            f"moment an unattended run is blocked and reaching for the documented escape).")
+
+
+# ---------- the flag -> gate binding, in ONE place (campaign issue S-6(a)) ----------
+# The standing invariant is "no gate may ever be re-attached to --force": `--force` carries the
+# ROLE gate, `--force-memory` carries the MEMORY gate, and NEITHER CARRIES THE OTHER. Until this
+# map existed the invariant lived in prose and in two independent getattr() reads, so recombining
+# them was a one-line edit nothing would notice.
+#
+# WHY THAT MATTERS MORE HERE THAN ANYWHERE ELSE: jobs/recover-room.py — the daemon-fired self-heal
+# path — passes `--force` on EVERY firing, at whatever hour the room dies, with nobody awake. That
+# override is correct by necessity (a timer-fired exec has no pane, hence no seat identity, hence
+# cannot pass an identity-keyed gate). Its SAFETY, however, rests entirely on `--force` not also
+# carrying memory — and nothing in that path asserted the dependency.
+#
+# This map is the ONLY place the binding exists and `gate_forced` is its ONLY reader, so adding
+# "memory" to --force's tuple genuinely ARMS it — the map cannot drift from behaviour. `coordinate
+# gates --json` publishes it, and recover-room.py ASSERTS against that output before it overrides
+# anything: undo the split and the unattended recovery REFUSES instead of silently arming a
+# memory override at 4am.
+GATE_FLAGS = {
+    "--force": ("role",),
+    "--force-memory": ("memory",),
+}
+
+
+def gate_forced(args, gate_name):
+    """True iff a flag the caller ACTUALLY passed carries `gate_name`, per GATE_FLAGS."""
+    for flag, gates in GATE_FLAGS.items():
+        if gate_name in gates and bool(getattr(args, flag[2:].replace("-", "_"), False)):
+            return True
+    return False
+
+
+def cmd_gates(args):
+    """Publish the flag -> gate binding so an UNATTENDED caller can assert it before overriding.
+
+    Exists for jobs/recover-room.py, which force-overrides the role gate on every firing with
+    nobody in the loop. It reads this and refuses to run if `--force` ever starts carrying the
+    memory gate. Printing the map is not the point — being the SAME map launch_gates reads is."""
+    payload = {flag: list(gates) for flag, gates in sorted(GATE_FLAGS.items())}
+    if getattr(args, "json", False):
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        for flag, gates in sorted(payload.items()):
+            print(f"{flag:16} carries: {', '.join(gates)}")
+        print("neither flag carries the other — no gate may ever be re-attached to --force")
+    return 0
 
 
 def ps_snapshot():
@@ -1903,7 +1964,8 @@ def role_verdict(args, command, allow, allowed_desc):
     --force would carry it anyway."""
     caller = resolve_agent(args, required=False)
     passed = bool(allow(caller))
-    forced = bool(getattr(args, "force", False))
+    # Through GATE_FLAGS, never a bare getattr: the binding lives in ONE place (S-6(a)).
+    forced = gate_forced(args, "role")
     if passed:
         return caller, True, False, ""
     msg = (f"`{command}` is {allowed_desc}; you resolve to '{caller or 'no identity'}'")
@@ -1946,7 +2008,7 @@ def launch_gates(args, command, allow, allowed_desc, n_seats):
     `--force-memory` carries the memory gate only; neither carries the other."""
     caller, role_ok, role_forced, role_msg = role_verdict(args, command, allow, allowed_desc)
     mgate = memory_gate(n_seats, available_mb())
-    mem_forced = bool(getattr(args, "force_memory", False))
+    mem_forced = gate_forced(args, "memory")   # via GATE_FLAGS, never a bare getattr (S-6(a))
     lines, refused = [], False
     if role_ok:
         lines.append("role gate: PASS")
@@ -2722,6 +2784,58 @@ def body_of(b):
     return "\n".join(split_log_notes(b)[0]).strip()
 
 
+SHELL_COMMS = {"bash", "sh", "dash", "zsh", "ksh", "fish", "csh", "tcsh"}
+
+# Set true by main() only. See main() for why the distinction cannot be inferred.
+CLI_INVOCATION = False
+
+
+def parent_is_shell():
+    """Is this process's parent a shell — i.e. was our argv PARSED by one on the way in?"""
+    try:
+        return Path(f"/proc/{os.getppid()}/comm").read_text(encoding="utf-8").strip() \
+            in SHELL_COMMS
+    except OSError:
+        return False
+
+
+def shell_source_line():
+    """The command string the PARENT was given, when the parent is a one-shot `sh -c <string>`.
+
+    This is the ONE place the PRE-SUBSTITUTION text still exists. By the time coord.py receives
+    argv the shell has already run every `backtick` and $(...) and replaced it with the output —
+    undetectable from the body alone, which is why S-4(b) bit three authors who KNEW about it.
+    '' when the parent is an interactive shell (no -c) or unreadable: that case is genuinely
+    undetectable and the gate below stays silent rather than guessing."""
+    try:
+        raw = Path(f"/proc/{os.getppid()}/cmdline").read_bytes().split(b"\0")
+    except OSError:
+        return ""
+    parts = [p.decode("utf-8", "replace") for p in raw if p]
+    if len(parts) >= 3 and Path(parts[0]).name in SHELL_COMMS and parts[1].startswith("-") \
+            and "c" in parts[1]:
+        return parts[2]
+    return ""
+
+
+def substitution_eaten(body):
+    """The substitution markers the invoking shell consumed before coord.py saw this body.
+
+    A marker present in the shell's ORIGINAL command string and absent from what arrived was
+    substituted away — the body in hand is not the body the author wrote. Once, this executed
+    the launch command a renewal broadcast was merely describing: a second live leader for four
+    minutes, and the record of how to recover a dead leader no longer contained the recovery.
+
+    THE BOUND, stated rather than implied: this catches a body sent through `sh -c`, which is
+    every agent-harness and every scripted send. It CANNOT catch a human typing at an
+    interactive prompt — there is no -c string to compare against — and it does not need to
+    catch a programmatic caller passing an argv LIST, which was never exposed."""
+    line = shell_source_line()
+    if not line:
+        return []
+    return [m for m in ("`", "$(") if m in line and m not in body]
+
+
 def message_body(args):
     """The body: the positional, or --file PATH / --file - (stdin). A file/stdin body never
     passes through a shell — the fix for the backtick-substitution class that corrupted msg #77
@@ -2746,6 +2860,43 @@ def message_body(args):
             body = p.read_text(encoding="utf-8")
     elif msg:
         body = msg
+        # S-4(b) — the body went through the sender's shell, and the shell ate part of it.
+        eaten = substitution_eaten(body)
+        if eaten and not getattr(args, "force", False):
+            print(f"refused: your shell SUBSTITUTED {' and '.join(eaten)} in this body before "
+                  f"coord.py ever saw it — what you are about to log is the OUTPUT of a command "
+                  f"that actually RAN on your box, not the text you wrote. coord.py cannot "
+                  f"repair it: the original characters are already gone from argv.\n"
+                  f"Send it via --file (or --file - with a quoted heredoc) — the only form a "
+                  f"shell cannot eat:\n"
+                  f"  cat > /tmp/msg.txt <<'EOF'\n  ...your text...\n  EOF\n"
+                  f"  {coord_invocation(args)} send {getattr(args, 'to', '<to>')} "
+                  f"--type {getattr(args, 'type', '<type>')} --file /tmp/msg.txt\n"
+                  f"your shell's original line, for reference:\n  {shell_source_line()[:400]}\n"
+                  f"override (you are certain the substitution was harmless): --force",
+                  file=sys.stderr)
+            sys.exit(1)
+        # ...and the DETERMINISTIC half. The detector above proves damage when it can see the
+        # shell's original line, but it can only see it when a shell process survives the
+        # invocation — bash EXECS ITSELF AWAY when its -c string ends with the command, and a
+        # gate that silently stops working is worse than none, because it is trusted. So a
+        # positional body from a shell is refused whether or not damage can be PROVEN: the
+        # shell-safe forms are --file and --file -, and `--inline` is the deliberate,
+        # per-message acceptance of the risk for a short body with nothing to eat.
+        # Deliberately NOT --force: --force already carries five unrelated overrides in this
+        # command, and this run's own standing rule is that no gate may ride another's flag.
+        elif CLI_INVOCATION and parent_is_shell() and not getattr(args, "inline", False):
+            print(f"refused: this body was typed on a shell command line, and a shell eats "
+                  f"backticks and $(...) BEFORE coord.py can see them — the corruption is "
+                  f"undetectable after the fact and it has silently rewritten this room's "
+                  f"record three times, each by an author who knew about it.\n"
+                  f"Shell-safe (cannot be eaten):\n"
+                  f"  cat > /tmp/msg.txt <<'EOF'\n  ...your text...\n  EOF\n"
+                  f"  {coord_invocation(args)} send {getattr(args, 'to', '<to>')} "
+                  f"--type {getattr(args, 'type', '<type>')} --file /tmp/msg.txt\n"
+                  f"Short body with no backticks, quotes or $ in it? Add --inline and it is "
+                  f"sent as typed.", file=sys.stderr)
+            sys.exit(1)
     else:
         print('refused: no message body — pass "<msg>", or --file PATH (--file - reads stdin) '
               'when the body carries backticks, quotes, or newlines', file=sys.stderr)
@@ -2786,6 +2937,31 @@ def cmd_send(args):
               f"no group of that name." + (f" Did you mean '{near[0]}'?" if near else "")
               + f"\nknown: {', '.join(sorted(known))}\nsend anyway: --force", file=sys.stderr)
         sys.exit(1)
+    # S-7 — an `ask` stays OPEN until an answer is addressed to its SENDER via --re, and
+    # `known_recipients` refuses any name with no roster row, no briefing and no group. So an
+    # ask from an unaddressable sender opens a thread WITH NO POSSIBLE TERMINUS: nobody can
+    # close it, even in principle. A daemon-fired job sending under its own name — deliberately,
+    # so flags are attributed to the detector that raised them rather than a borrowed seat —
+    # accumulated 13 of these in one run, every one reported DELIVERED by the sending side and
+    # every one permanent residue in an append-only log. The correct sibling shows the pairing
+    # is load-bearing: watch.py also sends `ask` and is RIGHT to, because it sends AS `watcher`,
+    # a real answerable seat. The TYPE was copied without the IDENTITY.
+    #
+    # One check, at the only moment it is cheap. NO --force override, deliberately and unlike
+    # every other gate in this function: those refuse things that are wrong in the usual case
+    # but right in some case. There is no state of the world in which opening an unclosable ask
+    # is correct — the sender wants `flag` or `note`, both of which need no reply.
+    if args.type == "ask" and sender not in known:
+        print(f"refused: '{sender}' cannot receive a reply — no roster row, no briefing and no "
+              f"group of that name — so an `ask` from you would stay OPEN forever. An answer "
+              f"must be addressed to its sender (--re), and nobody can address you.\n"
+              f"Send this as --type note (FYI) or --type flag if the type exists, or check in "
+              f"first so you have a roster row: {coord_invocation(args)} checkin {sender} "
+              f"\"<what you are doing>\".\n"
+              f"There is no --force for this one: 13 asks opened this way in one run and not "
+              f"one of them can ever be closed.", file=sys.stderr)
+        sys.exit(1)
+
     # G-22 / #198 — the two enforcement halves of the broadcast discipline. `all` costs every seat
     # a wake and a read, so it must be justified rather than habitual: a broadcast names the clause
     # it claims, and `note` — the type that was 35 of a live run's 86 broadcasts — cannot claim any,
@@ -5984,10 +6160,48 @@ def _selftest_checks(args, failures, names):
               code == 0 and "sent message #" in out)
         _, pre2 = load_messages(base_g)
         mark4 = pre2[-1]["num"]
+        # The real closer's FIRST act is `checkin closer-<target>` (closer-prompt.md step 1),
+        # which is what makes it answerable. The fixture used to skip it and send an ask from a
+        # name nothing could reply to — S-7's exact shape, inside the test suite. Restored.
+        run(cmd_checkin, agent="closer-eta", summary="closing eta", pane="%24")
         sd("closer-eta", "eta", "draft memory — corrections?", type="ask")
         check("G-21: its CLOSER gets through — the co-write IS a conversation, so the exception "
               "is not optional",
               "draft memory" in rd("eta", after=mark4, peek=True))
+        check("S-7: a closer that HAS checked in can ask — the gate is on unaddressability, "
+              "not on closers, and a real closer is always addressable",
+              "draft memory" in rd("eta", after=mark4, peek=True))
+        _, s7pre = load_messages(base_g)
+        out, code = refuse(cmd_send, agent="daemon-detector", to="leader",
+                           message="who closes this?", type="ask", supersedes=None,
+                           re_num=None, file=None)
+        _, s7post = load_messages(base_g)
+        check("S-7: an `ask` from an identity with no roster row, briefing or group is REFUSED "
+              "at SEND time — 13 such asks were opened in one run and not one of them can ever "
+              "be closed, because an answer must be addressed to its sender",
+              code == 1 and "cannot receive a reply" in out and len(s7post) == len(s7pre))
+        out, code = refuse(cmd_send, agent="daemon-detector", to="leader",
+                           message="a flag, for information", type="note", supersedes=None,
+                           re_num=None, file=None)
+        check("S-7: the SAME unaddressable sender's NOTE is still accepted — the gate is on "
+              "the ask/identity PAIRING, never on daemon senders, whose own-name attribution is "
+              "deliberate",
+              code == 0 and "sent message #" in out)
+        check("S-6(a): GATE_FLAGS is the single flag->gate binding and `--force` carries the "
+              "ROLE gate ONLY — jobs/recover-room.py force-overrides on every unattended firing "
+              "and asserts this map before it does",
+              GATE_FLAGS["--force"] == ("role",)
+              and GATE_FLAGS["--force-memory"] == ("memory",))
+        check("S-6(a): gate_forced reads that map rather than the flag, so recombining the "
+              "flags genuinely ARMS the gate instead of merely mislabelling it",
+              gate_forced(argparse.Namespace(force=True, force_memory=False), "role") is True
+              and gate_forced(argparse.Namespace(force=True, force_memory=False), "memory") is False
+              and gate_forced(argparse.Namespace(force=False, force_memory=True), "memory") is True)
+        check("S-8(c): the memory-gate refusal names --force-memory, the flag that actually "
+              "lifts it — it used to name --force, which carries the ROLE gate only, at the "
+              "exact moment an unattended run is blocked and reaching for the documented escape",
+              "--force-memory" in memory_gate(1, 100)
+              and "override with --force " not in memory_gate(1, 100))
         _, pre3 = load_messages(base_g)
         mark5 = pre3[-1]["num"]
         sd("leader", "eta", "abort the close", type="verdict")
@@ -6705,7 +6919,7 @@ other
   create-group       open a message group for one workstream
   export-transcript  capture a seat's pane scrollback into its worker folder
   depart      ephemeral seats: export + check out + kill your own pane
-  selftest    run the built-in self-test (temp dir, no tmux needed)
+  selftest / gates   built-in self-test (temp dir, no tmux) · which flag carries which gate
 global: --run TAG | --package DIR (which run) · --as NAME (act as) · --pretty (colour)
 details + examples: coordinate <command> -h · --force overrides a refusal, where one exists""".format(limit=READ_LIMIT)
 
@@ -6782,7 +6996,7 @@ def build_parser():
         "  coordinate send leader \"views build green; 12/12 pages render\" --type completion\n"
         "next: coordinate pending — after an ask, it shows whether anyone settled it")
     s.add_argument("to", help="recipient: an agent name, a group name, or 'all' — validated against the roster, the briefings and the groups, so a typo is refused")
-    s.add_argument("message", nargs="?", help="the body, quoted. A body with backticks, quotes or newlines goes through --file instead (a shell eats them)")
+    s.add_argument("message", nargs="?", help="the body, quoted — needs --inline when typed at a shell, because a shell eats backticks and $(...) before coord.py sees them. Anything with backticks, quotes or newlines goes through --file")
     s.add_argument("--type", required=True, choices=MESSAGE_TYPES,
                    help="completion (my briefing/milestone is done) | ask (I need an answer) | answer (replying to an ask) | verdict (a judge/checker ruling) | note (FYI)")
     s.add_argument("--re", dest="re_num", type=int, metavar="N",
@@ -6791,11 +7005,25 @@ def build_parser():
                    help="retract message N: readers see the retraction inline wherever N is rendered")
     s.add_argument("--file", metavar="PATH",
                    help="read the body from a file ('-' = stdin) — shell-safe for backticks/quotes/newlines")
+    s.add_argument("--inline", action="store_true",
+                   help="accept the quoted positional body from a shell command line: you are asserting it has no backticks, $(...) or anything else a shell would have eaten before coord.py saw it (a proven substitution is refused even with this)")
     s.add_argument("--why", choices=sorted(BROADCAST_CLAUSES), metavar="CLAUSE",
                    help="REQUIRED on `send all`: which broadcast clause justifies it — "
                         + " | ".join(f"{k} ({v})" for k, v in sorted(BROADCAST_CLAUSES.items())))
     add_identity_flags(s)
     s.set_defaults(func=cmd_send)
+
+    s = command(
+        "gates",
+        "Print the flag -> gate binding: which override flag carries which launch gate.\n"
+        "Exists so an UNATTENDED caller can assert the split before it overrides anything —\n"
+        "jobs/recover-room.py reads this and refuses to run if `--force` ever starts carrying\n"
+        "the memory gate. Reads the same map launch_gates enforces, so it cannot drift.",
+        "example:\n"
+        "  coordinate gates --json\n"
+        "next: nothing — this command reads state and changes none")
+    s.add_argument("--json", action="store_true", help="machine-readable, for an asserting caller")
+    s.set_defaults(func=cmd_gates)
 
     s = command(
         "read",
@@ -7038,6 +7266,13 @@ def build_parser():
 
 
 def main():
+    # S-4(b): only a real CLI invocation had its argv parsed by a shell. watch.py and the
+    # daemon jobs call cmd_send() IN-PROCESS with a Namespace — no argv, no shell, never
+    # exposed — and must not pay for a hazard they cannot have. This flag is the difference,
+    # and it is set HERE rather than inferred from the parent process, because an in-process
+    # caller started from a shell has a shell parent too and would otherwise be caught.
+    global CLI_INVOCATION
+    CLI_INVOCATION = True
     args = build_parser().parse_args()
     set_pretty(args)
     args.func(args)

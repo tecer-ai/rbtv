@@ -18,6 +18,7 @@ const { parseRetentionDays, sweepRetention } = require('./retention');
 const { createPtyHost } = require('./pty');
 const { createGateway } = require('../gateway/gateway');
 const { loadSendersFile } = require('../gateway/sender-auth');
+const { validateCataloguePaths } = require('./heart/catalogue-paths');
 
 // Smoke mode is an ARGV flag, never an environment variable: EnvironmentFile= and
 // inherited environments can carry an env var into a production boot by accident,
@@ -231,6 +232,26 @@ function materializeEffectiveConfig(configPath, dataRoot, workspaceRoot) {
   return { effectiveConfigPath, mergedConfig: cfg, tempConfigDir, daemonOnlyKeys };
 }
 
+// S-6(b) — the boot-time catalogue path check. The validator itself lives in
+// server/heart/catalogue-paths.js so it can be exercised without booting a daemon; this wrapper
+// owns only the REPORTING, which is where the defect was: a broken entry produced silence.
+// It logs and does NOT refuse the boot — see that module for why.
+function reportCataloguePaths(mergedConfig) {
+  const findings = validateCataloguePaths(mergedConfig);
+  for (const f of findings) {
+    log('error', 'catalogue entry references a path that does not exist', {
+      check: 'catalogue-paths', section: f.section, entry: f.name,
+      argvIndex: f.index, path: f.path, why: f.why,
+    });
+  }
+  log(findings.length ? 'error' : 'info', 'catalogue path validation complete', {
+    check: 'catalogue-paths', broken: findings.length,
+    entries: Object.keys(mergedConfig.tools || {}).length
+      + Object.keys(mergedConfig.workflows || {}).length,
+  });
+  return findings;
+}
+
 function cleanupTempConfig(tempConfigDir) {
   if (!tempConfigDir) return;
   try {
@@ -413,6 +434,10 @@ async function main() {
       `would write an instance path into the code tree, violating D26(3)).`
     );
   }
+
+  // S-6(b): every catalogue path is checked HERE, at boot, so a broken entry is an ERROR in the
+  // journal rather than a silence that surfaces months later as a confusing probe failure.
+  reportCataloguePaths(mergedConfig);
 
   // Task 7.13: the retention window is a BOOT-TIME config knob with a fail-closed floor —
   // parse it before anything opens, so a sub-7-day typo refuses the boot loudly instead of

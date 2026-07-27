@@ -1,5 +1,5 @@
 probe: probe-blocked-redispatch
-started: 2026-07-20T17:33:32.615Z
+started: 2026-07-27T14:43:35.815Z
 command: node probes/probe-blocked-redispatch.js
 tick-1 actions: [{"phase":"apply-events"},{"phase":"advance","action":"scan-stats"},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
 exec1: exec_id=1 thread=exec-1 status=running
@@ -17,7 +17,7 @@ no-new-msg-tick-1 actions: [{"phase":"apply-events"},{"phase":"advance","action"
 no-new-msg-tick-2 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-deferred","execId":1,"reason":"slot-live-or-rearmed"},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
 no-new-msg-tick-3 actions: [{"phase":"apply-events"},{"phase":"advance","action":"blocked-redispatch-deferred","execId":1,"reason":"slot-live-or-rearmed"},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
 pre-teardown live executions: 1
-  live exec_id=2 session_id=f02ced8f-b0d2-418a-8860-1de56f2683f8 status=running
+  live exec_id=2 session_id=995d1606-d604-4049-b988-23cd2090a044 status=running
 part-c tick-1 actions: [{"phase":"apply-events"},{"phase":"advance","action":"scan-stats"},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1},{"phase":"nudge"},{"phase":"enforce","action":"state"}]
 execC: exec_id=1 thread=exec-1
 part-c tick-2 actions: [{"phase":"apply-events"},{"phase":"advance","action":"recycle","execId":1},{"phase":"advance","action":"scan-stats"},{"phase":"nudge"},{"phase":"enforce","action":"state"},{"phase":"broadcast"},{"phase":"broadcast"}]
@@ -45,6 +45,6 @@ part-c seat rows on exec-1: before=4 after=4
 part-c D45 warning ticks across window: [4,10,16]
 status: PASS
 exit: 0
-wall_ms: 3044
+wall_ms: 3092
 skipped_count: 0
-ended: 2026-07-20T17:33:35.659Z
+ended: 2026-07-27T14:43:38.907Z

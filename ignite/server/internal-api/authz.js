@@ -277,12 +277,28 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver] } = {}) {
     const masterApprox = !!sender && sender.kind === 'agent';
     if (masterApprox) principals.push('master-approximation');
     const allowed = owner || masterApprox;
+    // ── S-3: the refusal names the predicate ACTUALLY ENFORCED and the sender kind SEEN ──────
+    // It used to read "register-job is owner-and-master-only". That sentence asserted a gate that
+    // DOES NOT EXIST — `PRINCIPALS.master` is `enforcedInV1: false, provenBy: null`, there is no
+    // master sender kind in v1 at all — while CONCEALING the one that does: `owner || kind ===
+    // 'agent'`, i.e. any enrolled agent token. It also pointed at the owner as the route, and the
+    // cost was measured: a seat reported an owner-only act it could not perform, the leader relayed
+    // that unchecked, and a command was one step from being handed to the owner that no owner
+    // needed to run. An error message is evidence of a REFUSAL, never of a POLICY.
+    //
+    // So: state the real predicate, and state what this sender was seen AS — "you are a bridge
+    // token; this needs an agent token" ends it in one read. `master` is deliberately not named,
+    // here or anywhere a caller can see: naming a principal the runtime cannot prove is the defect.
+    const seenAs = !sender ? 'no attested sender at all'
+      : (typeof sender.kind === 'string' && sender.kind
+        ? `a ${sender.kind} token`
+        : 'a sender carrying no attested kind');
     return {
       allowed,
       principals,
       reason: allowed
         ? `authorized as: ${principals.join(', ')}`
-        : 'register-job is owner-and-master-only; the attested sender is neither',
+        : `register-job requires the owner or an enrolled AGENT token; you are ${seenAs}`,
     };
   }
 

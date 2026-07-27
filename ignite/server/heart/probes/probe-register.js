@@ -166,28 +166,46 @@ try {
     objType !== null && objType.code === E_BAD_ARGS && !/\[object Object\]/.test(objType.message),
     `message=${objType && objType.message}`);
 
-  // The other side of the same coin: a WELL-FORMED schema with only `optional`, or with
-  // neither key, must still register — the strictness must not reject valid shapes.
-  const onlyOptional = store.registerJob({
+  // The other side of the same coin: a WELL-FORMED schema must still register — the strictness
+  // must not reject valid shapes.
+  const wellFormed = store.registerJob({
     jobId: 'x8', actionType: 'fire-tool', function: 'f',
-    argsSchema: JSON.stringify({ optional: { note: 'string' } }),
+    argsSchema: JSON.stringify({ required: { tool: 'string' }, optional: { note: 'string' } }),
   });
-  const emptySchema = store.registerJob({ jobId: 'x9', actionType: 'fire-tool', function: 'f' });
-  check('a well-formed schema (optional-only, and empty) still registers',
-    onlyOptional !== null && emptySchema !== null,
-    `optional-only=${!!onlyOptional} empty=${!!emptySchema}`);
+  check('a well-formed schema (required arg declared, plus optionals) still registers',
+    wellFormed !== null, `well-formed=${!!wellFormed}`);
+
+  // ⚑ THIS ASSERTION WAS INVERTED, 2026-07-27, and the inversion is the fix — not a relaxation of
+  // the probe. It used to assert that an OPTIONAL-ONLY and an EMPTY args_schema "still register"
+  // for a fire-tool job. That is campaign issue S-2(a) exactly: such a row registers, reports
+  // enabled=1 forever, and is STRUCTURALLY unable to ever fire, because an empty schema forbids the
+  // very `tool` argument fire-tool requires — and registration is create-only, so the id cannot be
+  // repaired. Two ids in that state are live on this box right now and cannot be removed. The probe
+  // was certifying the defect as correct behaviour, which is why nothing downstream ever
+  // contradicted it. Registration now refuses the shape, and this scores the refusal.
+  const emptySchema = refusal(() => store.registerJob({
+    jobId: 'x9', actionType: 'fire-tool', function: 'f',
+  }));
+  check('S-2(a): the DEFAULT empty args_schema is REFUSED for an action type whose enqueue needs a '
+    + 'named argument — it would register, read enabled=1, and never be able to fire',
+    emptySchema !== null && emptySchema.code === E_BAD_ARGS && /declares no "tool"/.test(emptySchema.message),
+    `code=${emptySchema && emptySchema.code} message=${emptySchema && emptySchema.message}`);
 
   // --- 4. Every refusal above wrote NOTHING.
   // 1 from the happy path + the 2 well-formed schemas just registered (x8, x9).
+  // 1 from the happy path + the 1 well-formed schema just registered (x8). x9 is now REFUSED.
   const afterRefusals = readBackJobs();
   check('no refused registration created a row',
-    afterRefusals.length === 3 && afterRefusals.every((r) => !['x1', 'x2', 'x3', 'x4', 'x5', 'x6', 'x7'].includes(r.job_id)),
+    afterRefusals.length === 2 && afterRefusals.every((r) => !['x1', 'x2', 'x3', 'x4', 'x5', 'x6', 'x7', 'x9'].includes(r.job_id)),
     `disk catalogue rows=${afterRefusals.map((r) => r.job_id).join(',')}`);
 
   // --- 5. Validate-only mode: full validation, no write.
   const beforeDryRun = readBackJobs().length;
   const verdict = store.registerJob({
     jobId: 'dry-one', actionType: 'fire-tool', function: 'fire-tool', dryRun: true,
+    // Declared, because the dry run validates EXACTLY what the real path does — including the
+    // S-2(a) check. A dry run that passed a schema the real path refuses would be the worse defect.
+    argsSchema: JSON.stringify({ required: { tool: 'string' } }),
   });
   check('dry-run returns a verdict',
     verdict && verdict.dryRun === true && verdict.valid === true,
@@ -199,6 +217,7 @@ try {
   // The duplicate check runs INSIDE the dry-run — the whole point of validating first.
   const dryDup = refusal(() => store.registerJob({
     jobId: 'launch-worker', actionType: 'launch-agent', function: 'f', dryRun: true,
+    argsSchema: JSON.stringify({ required: { profile: 'string' } }),
   }));
   check('dry-run reports a duplicate as E_JOB_EXISTS',
     dryDup !== null && dryDup.code === E_JOB_EXISTS,

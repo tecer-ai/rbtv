@@ -23,6 +23,52 @@ const { minutesToTicks } = require('./warnings');
 const SCHEMA_SQL = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
 
 const ACTION_TYPES = new Set(['launch-agent', 'fire-tool', 'start-workflow', 'send-message']);
+
+// The arguments each action type STRUCTURALLY REQUIRES — the same set validateArgs() enforces at
+// enqueue, named once so registration and the `fireable` projection cannot drift from it.
+//
+// Campaign issue S-2(a): `args_schema` defaults to `{}` and registration is CREATE-ONLY, so a
+// fire-tool job could register, report `enabled=1` forever, and be structurally unable to EVER
+// fire — an empty schema forbids the very `tool` argument fire-tool requires, every enqueue died
+// "unknown argument: tool", and there is no update or unregister surface to repair it with. Two
+// such ids exist live on this box and cannot be removed. The masking is worth recording: because
+// validateArgs() runs BEFORE the catalogue lookup on the same path, the schema failure fires first
+// and hides the tool check entirely — which is why an observer testing this reasonably concluded
+// the tool name was never validated at all. It is (E_UNKNOWN_TOOL); it was simply unreachable.
+const REQUIRED_ARGS_BY_ACTION = Object.freeze({
+  'launch-agent': Object.freeze(['profile']),
+  'fire-tool': Object.freeze(['tool']),
+  'start-workflow': Object.freeze(['workflow']),
+  'send-message': Object.freeze(['type', 'thread', 'corpus']),
+});
+
+// Can this catalogue row ever actually FIRE, as opposed to merely EXISTING and reading enabled=1?
+// `enabled` is evidence a row EXISTS; it has never been evidence the row can RUN, and the whole of
+// S-2 is that the false claim was made by a status field. Pure and read-only: it takes a job row
+// and answers, so `inspect jobs` reports the distinction instead of implying it.
+function jobFireability(job) {
+  if (!job || !job.enabled) {
+    return { fireable: false, reason: 'disabled' };
+  }
+  const needed = REQUIRED_ARGS_BY_ACTION[job.action_type] || [];
+  let declared;
+  try {
+    declared = parseArgsSchema(job.args_schema).required;
+  } catch {
+    return { fireable: false, reason: 'args_schema is unparseable, so every enqueue of this id fails' };
+  }
+  const missing = needed.filter((key) => !(key in declared));
+  if (missing.length) {
+    return {
+      fireable: false,
+      reason: `args_schema declares no ${missing.map((k) => `\`${k}\``).join(', ')} — ` +
+        `${job.action_type} requires ${missing.length > 1 ? 'them' : 'it'}, so every enqueue is ` +
+        `refused "unknown argument". Registration is create-only with no update or unregister ` +
+        `surface, so this id CANNOT be repaired in place: register a new one and stop using this.`,
+    };
+  }
+  return { fireable: true, reason: null };
+}
 const MESSAGE_TYPES = new Set(['completion', 'ask', 'answer', 'verdict', 'note']);
 const SESSION_MODES = new Set(['headless', 'headed']);
 const TRIGGER_KINDS = new Set(['scheduled', 'periodic']);
@@ -423,6 +469,34 @@ class HeartStore {
 
     if (this.getJob(jobId)) {
       throw new HeartStoreError(E_JOB_EXISTS, `job already registered: ${jobId}`, { field: 'jobId', jobId });
+    }
+
+    // ── S-2(a): registration REFUSES a schema its own action type can never satisfy ──────────
+    // Registration-only, and placed AFTER the duplicate check on purpose: an existing id is the
+    // harder refusal and the certified E_JOB_EXISTS behaviour must not change shape underneath it.
+    // Live rows are untouched — the permissive reading stays for anything already in the catalogue,
+    // exactly as the three strictness checks above are scoped.
+    //
+    // WHY AT THIS DOOR AND NOWHERE ELSE: the id is BURNT the moment it lands. Create-only, no
+    // update, no unregister, so the only repair is a direct database write on the box — the exact
+    // out-of-band path this intent exists to close. And the row does not fail loudly: it reports
+    // `enabled=1` forever while being structurally incapable of firing, so nothing downstream ever
+    // contradicts it. The door that accepts the schema is the last honest place to refuse it.
+    {
+      const needed = REQUIRED_ARGS_BY_ACTION[actionType] || [];
+      const declared = parseArgsSchema(argsSchema).required;
+      const missing = needed.filter((key) => !(key in declared));
+      if (missing.length) {
+        throw new HeartStoreError(
+          E_BAD_ARGS,
+          `args_schema.required declares no ${missing.map((k) => `"${k}"`).join(', ')}, but ` +
+          `${actionType} requires ${missing.length > 1 ? 'those arguments' : 'that argument'} at ` +
+          `enqueue — so this job would register, report enabled=1, and be unable to EVER fire. ` +
+          `Registration is create-only: there is no way to repair the id afterwards. ` +
+          `Declare it, e.g. {"required":{"${missing[0]}":"string"}}.`,
+          { field: 'args_schema', actionType, missing: missing.slice() },
+        );
+      }
     }
 
     // Validate-only mode (owner ruling 2026-07-25 Call 3; the D72/D73 model
@@ -1153,6 +1227,8 @@ function isHeartStoreOpen() {
 }
 
 module.exports = {
+  jobFireability,
+  REQUIRED_ARGS_BY_ACTION,
   openHeartStore,
   closeHeartStore,
   isHeartStoreOpen,

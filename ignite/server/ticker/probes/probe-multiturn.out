@@ -1,5 +1,5 @@
 probe: probe-multiturn
-started: 2026-07-20T17:33:44.277Z
+started: 2026-07-27T14:43:47.890Z
 command: node probes/probe-multiturn.js
 A PASS: clean exit swept done, corpus=ANSWER-len-17, exec done/0, spawn action thread=exec-1
 B PASS (negatives): quiet thread and ticker rows never wake the chain
@@ -10,6 +10,6 @@ D PASS: 3 sender-message wakes fired under slot_max_repeats=2 (sender turns neve
 D2 PASS: the compaction (automatic) recycle hit the budget gate at slot_max_repeats=1
 status: PASS
 exit: 0
-wall_ms: 9370
+wall_ms: 10639
 skipped_count: 0
-ended: 2026-07-20T17:33:53.647Z
+ended: 2026-07-27T14:43:58.529Z

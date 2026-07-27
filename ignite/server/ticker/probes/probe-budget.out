@@ -1,5 +1,5 @@
 probe: probe-budget
-started: 2026-07-20T17:33:35.729Z
+started: 2026-07-27T14:43:39.025Z
 command: node probes/probe-budget.js
 enqueued one due launch-agent job with slot_max_repeats=2
 tick 1: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"scan-stats","unroutedCompletionsScanned":0,"wakeCandidates":0,"wakeBootScan":true,"wakeWatermark":0},{"phase":"dispatch","action":"spawn","execId":1,"queueId":1,"profile":"test-sleep","thread":"exec-1"},{"phase":"nudge","skipped":true},{"phase":"enforce","action":"state","sessions":{"1":{"lastActivityTick":1,"lastLogSize":0,"silenceTicks":0}}}]
@@ -16,6 +16,6 @@ tick 8: [{"phase":"apply-events","skipped":true},{"phase":"advance","action":"sc
 PASS: fresh owner enqueue opened a new chain
 status: PASS
 exit: 0
-wall_ms: 5251
+wall_ms: 5213
 skipped_count: 0
-ended: 2026-07-20T17:33:40.980Z
+ended: 2026-07-27T14:43:44.238Z
