@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
-"""teamview — live tmux team-run dashboard: panes with per-agent model/context/activity,
-plus plan-limit bars for every AI provider account on the machine.
+"""teamview — team-run dashboard: panes with per-agent model/context/activity, plus
+plan-limit bars for every AI provider account on the machine.
 
-Run it inside tmux, or from outside: `teamview NAME` / `teamview session NAME` (bare
-`teamview` auto-picks the only running session). Layouts adapt to the pane size; provider
-data caches under ~/.cache/rbtv/ and re-polls in the background. When the terminal is big
+⚠ teamview RENDERS the run's state; it does NOT sense it (settle ledger R24, task 7.34).
+`team-monitor` is the run's one raw-source sensor — it reads the tmux panes, harness session
+files and /proc, and writes ONE canonical snapshot to {goal}/runs/run-{n}/state.json. This
+program reads that file and nothing else, ALWAYS shows the snapshot's age, and renders a stale
+snapshot as a visible WARNING rather than as silently-current data. Two lanes stay outside that
+boundary and are named where they live: the provider plan-limit bars (they read provider
+accounts, not run state) and the box CPU% (state.json's box{} carries no cpu field). See
+README.md § "Proving the boundary".
+
+The run package resolves from --package, else by walking UP from the current directory; nothing
+resolves to a guess and every failure to read the snapshot renders LOUDLY (an empty dashboard
+reads as a quiet room). Layouts adapt to the pane size; provider data caches under
+~/.cache/rbtv/ and re-polls in the background. When the terminal is big
 enough to hold the limits block AND every window/pane at once, that COMBINED view renders
 statically. Only when it is too small does the body CYCLE every ~10s below the constant
 first line: the windows/panes view — itself paged into as many views as the height needs —
@@ -48,8 +58,6 @@ Reference:  --help-providers  usage source per provider (read-only; keys never p
             full docs         orchestration/cli/teamview/README.md
 """
 import argparse
-import difflib
-import importlib.util
 import json
 import math
 import os
@@ -123,8 +131,12 @@ DOC_SECURITY = """Security / audit surface — what teamview touches (verify wit
 
 WRITES — the ONLY files teamview ever writes:
   {XDG_CACHE_HOME|~/.cache}/rbtv/teamview-providers.json  provider usage cache (+ its .tmp)
-It NEVER mutates tmux state: every tmux call is read-only (list-sessions, list-windows,
-list-panes, display-message, capture-pane) — no send-keys, no kill, no resize, ever.
+TMUX — teamview makes NO tmux call at all (R24). It reads the run's state.json snapshot;
+team-monitor is the only component that touches panes. Nothing here can mutate tmux state
+because nothing here speaks to tmux.
+
+RUN STATE — read-only from {run-folder}/state.json. teamview never writes that file; the
+sensor's single-writer flock is unaffected by any number of readers.
 
 NETWORK — the complete endpoint list; each credential is sent ONLY to its own provider:
   api.anthropic.com/api/oauth/usage         claude (stored OAuth token, NEVER refreshed)
@@ -147,9 +159,11 @@ the exception class name only, never the request.
 
 DOC_PANES = """Pane states and markers — every form a pane row can take, and what clears it:
 
-  seat+           WORKING — visible content changed across two samples ~0.6s apart. Work
-                  is bursty: a seat flips between + and unmarked as turns start/finish, so
-                  a pane can honestly show a recent age (e.g. 'now') without a '+'.
+  seat+           RECENTLY ACTIVE — this seat's harness wrote to its transcript within 45s
+                  of the snapshot's capture. ⚠ R24 changed this signal's instrument: it used
+                  to mean "visible content changed across two tmux captures ~0.6s apart".
+                  Coarser now, and relabelled rather than silently reused. Work is bursty, so
+                  a seat flips between + and unmarked as turns start and finish.
   seat            idle this sample (no marker).
   seat?   (red)   AWAITING APPROVAL — the pane tail matches a permission/trust prompt.
                   Clears when the prompt is answered in that pane.
@@ -672,163 +686,260 @@ def spawn_background_poll(args):
                      start_new_session=True)
 
 
-# ---------- tmux ----------
+# ---------- the snapshot: teamview's ONLY run-state source (settle ledger R24, task 7.34) ----------
+#
+# teamview does not sense. `team-monitor` is the run's one raw-source sensor (tmux panes,
+# harness session files, /proc RAM and pressure) and writes ONE canonical snapshot to
+# {goal}/runs/run-{n}/state.json; teamview RENDERS it. Nobody else reads the panes — PRIN-2
+# parity: one source of truth for the facts AND for their treatment.
+#
+# ⚠ TWO LANES ARE DELIBERATELY OUTSIDE THIS BOUNDARY, AND BOTH ARE NAMED SO A GREP-PROOF CAN
+# SCOPE THEM HONESTLY (a grep that passes because someone quietly scoped it is theatre):
+#
+#   LANE 1 — PROVIDER PLAN-LIMIT BARS. They read PROVIDER ACCOUNTS, not run state, and task
+#     7.34's own _Note:_ orders them left exactly as they are ("do not 'purify' them out").
+#     Their raw reads: ps_processes (`ps -eo pid=,args=`), claude_account_of
+#     (/proc/<pid>/environ, for CLAUDE_CONFIG_DIR only), opencode_store
+#     (~/.local/share/opencode/auth.json), claude_oauth_windows / parse_claude_statusline
+#     (~/.claude*), codex_windows_from_rl (~/.codex/sessions).
+#   LANE 2 — BOX CPU USAGE (cpu_usage_pct, /proc/stat). state.json's box{} carries
+#     available_mb/total_mb/swap/load1/5/15/cores/pressure_memory and NO cpu field. Ruled
+#     PROVISIONAL by the run-2 leader 2026-07-27 (seats/leader/ruling-734-cpu-cell.md),
+#     extending the _Note:_'s own classification to a second named lane: box CPU is telemetry
+#     outside the state.json boundary. ⚠ IT IS NOT A FIELD SOMEONE SHOULD "JUST MOVE" INTO
+#     box{}: cpu_usage_pct is a BETWEEN-FRAMES delta (teamview frames ~1s) while team-monitor
+#     captures every ~20s, so the same label at the sensor's cadence would silently become a
+#     20-second average. See the follow-on item; it carries this warning in its own words.
+#
+# Everything else — panes, seats, models, context %, ctx-refresh thresholds, activity,
+# prompt-pending, RAM, liveness, absent roster rows — comes from the snapshot and NOTHING else.
 
-def tmux_lines(*a):
-    r = subprocess.run(["tmux", *a], capture_output=True, text=True)
-    return r.stdout.splitlines() if r.returncode == 0 else []
+SNAPSHOT_NAME = "state.json"
+
+# team-monitor's DEFAULT_INTERVAL is 20.0s, so 60s is three missed captures — no longer "live".
+# A sensor that dies is detected by its consumer, because a snapshot that stops advancing is
+# exactly what a dead sensor looks like from outside (team-monitor README § Lifecycle).
+SNAPSHOT_STALE_S = 60.0
+
+# The `+` working marker. ⚠ ITS MEANING CHANGED WITH R24 AND THE LEGEND SAYS SO: it used to mean
+# "this pane's visible content differed across two captures 0.6s apart" (teamview sampling tmux
+# itself); it now means "this seat's harness wrote to its transcript within RECENT_ACTIVITY_S of
+# the capture". Coarser, and from a different instrument — relabelled rather than silently reused.
+RECENT_ACTIVITY_S = 45.0
 
 
-def current_session():
-    pane = os.environ.get("TMUX_PANE")
-    if not pane:
+def find_package(start=None):
+    """The run folder, by walk-up from `start` (default: cwd) — the first ancestor holding a
+    `state.json`. None when there is none.
+
+    REUSE, NOT INVENTION: `coordinate` already resolves its run package from a cwd walk-up, and
+    every seat's cwd is inside its own run package, so a bare `teamview` keeps working from any
+    seat pane. Deliberately NOT a search of `.rbtv/goals/*/runs/*` from an assumed vault root —
+    that would be inventing a discovery convention this system does not have (PRIN-7, PRIN-10)."""
+    try:
+        d = Path(start).resolve() if start else Path.cwd().resolve()
+    except OSError:
         return None
-    out = tmux_lines("display-message", "-p", "-t", pane, "#{session_name}")
-    return out[0] if out else None
-
-
-def resolve_session(tokens, current, sessions):
-    """Positional tokens -> session name. Accepts `NAME`, the spoken form `session NAME`,
-    or nothing — which means the session teamview runs inside, else (from OUTSIDE tmux)
-    the only running session. None when nothing resolves (caller lists the candidates)."""
-    toks = [t for t in tokens or [] if t]
-    if len(toks) > 1 and toks[0] == "session":
-        toks = toks[1:]
-    if toks:
-        return toks[0]
-    if current:
-        return current
-    if len(sessions) == 1:
-        return sessions[0]
+    for cand in (d, *d.parents):
+        if (cand / SNAPSHOT_NAME).is_file():
+            return cand
     return None
 
 
-def session_error(session, sessions):
-    """The teaching refusal for an unresolved/unknown session — None when `session` is a
-    live tmux session. Callers print it to stderr and exit 2: a bogus name previously
-    rendered an 'empty' frame on STDOUT with exit 0, so a wrapper script recorded success
-    for a view that showed nothing."""
-    if session and session in sessions:
-        return None
-    if not sessions:
-        return ("no tmux sessions are running" if session
-                else "not inside tmux and no tmux sessions are running")
-    if not session:
-        return (f"not inside tmux and {len(sessions)} sessions are running — pick one: "
-                "teamview <session>. sessions: " + " ".join(sessions))
-    close = difflib.get_close_matches(session, sessions, n=1)
-    hint = f" — did you mean '{close[0]}'?" if close else ""
-    return (f"no such tmux session: {session}{hint}\n"
-            "sessions: " + " ".join(sessions))
+def load_snapshot(package):
+    """(snapshot, error) — EXACTLY ONE is None; error is human text, never an exception.
 
-
-def roster_map(package):
-    out = {}
+    ⚠ EVERY FAILURE MUST BE RETURNED AS TEXT AND RENDERED, never swallowed into an empty frame.
+    That is G-153's lesson turned into a contract: teamview's per-seat ctx-refresh marker used to
+    read a pre-restructure path, got {} on every KG-shaped package, and FAILED OPEN — a total
+    read failure was indistinguishable from 'nobody set a threshold'. A dashboard that renders
+    nothing reads as a quiet room."""
     if not package:
-        return out
+        return None, "no run package given and none found by walking up from the current directory"
+    path = Path(package) / SNAPSHOT_NAME
     try:
-        text = (Path(package) / "coordination" / "workers.md").read_text(encoding="utf-8")
-    except OSError:
-        return out
-    for m in re.finditer(r"^\|\s*([^|]+?)\s*\|\s*yes\s*\|\s*(%\d+)\s*\|", text, re.M):
-        out[m.group(2)] = m.group(1)
-    return out
+        raw = path.read_text(encoding="utf-8")
+    except OSError as e:
+        return None, f"cannot read {path}: {e.strerror or e}"
+    try:
+        snap = json.loads(raw)
+    except ValueError as e:
+        return None, (f"{path} is not valid JSON ({e}) — team-monitor writes tmp+os.replace, so "
+                      "a reader never sees a PARTIAL file; this one is corrupt")
+    if not isinstance(snap, dict) or "captured_at" not in snap or "seats" not in snap:
+        return None, (f"{path} is not a team-monitor snapshot: no captured_at / seats. "
+                      "Is team-monitor running? `team-monitor status --package <run-folder>`")
+    return snap, None
 
 
-# Seat descriptors, NEWEST LAYOUT FIRST. The restructure moved a run's descriptors from
-# `workers/<agent>/agent.md` to `seats/<agent>/seat.md` (and the identity key from `agent:` to
-# `seat:`); this file kept reading the OLD path only, so on every post-restructure package
-# `ctx_refresh_thresholds` returned {} — G-153. Both layouts are read rather than the new one
-# swapped in, because this CLI is shared across runs and an older package must not go dark to fix
-# a newer one. Order matters only for the union below: a package carrying both wins on `seats/`.
-DESCRIPTOR_LAYOUTS = (("seats", "seat.md"), ("workers", "agent.md"))
-DESCRIPTOR_ID_KEYS = ("seat", "agent")
+def snapshot_refusal(package_arg, session_arg, found, snap_session=None):
+    """The teaching refusal for an unresolvable snapshot — None when everything resolves.
+    Callers print it to stderr and exit 2.
+
+    It PRINTS THE EXACT COMMAND rather than naming a flag: the owner uses teamview
+    interactively, and R24 removed the bare-invocation auto-pick this refusal replaces. The
+    contract it inherits is `session_error`'s, kept verbatim in spirit — a bogus name once
+    rendered an 'empty' frame on STDOUT at exit 0, so a wrapper script recorded success for a
+    view that showed nothing."""
+    if not found:
+        where = f"--package {package_arg}" if package_arg else f"the current directory ({Path.cwd()})"
+        return (f"no {SNAPSHOT_NAME} found from {where}.\n"
+                f"teamview renders a team-monitor snapshot; it no longer reads tmux directly.\n"
+                f"  run it from inside a run folder, or name one:\n"
+                f"      teamview --package /path/to/<goal>/runs/run-N\n"
+                f"  if the run folder is right but has no {SNAPSHOT_NAME}, the sensor is not "
+                f"running:\n"
+                f"      team-monitor start --package /path/to/<goal>/runs/run-N")
+    if session_arg and snap_session and session_arg != snap_session:
+        return (f"this run package's snapshot is for session '{snap_session}', not "
+                f"'{session_arg}'.\n"
+                f"  render it as it is:   teamview --package {found}\n"
+                f"  or point at the run folder whose session is '{session_arg}':\n"
+                f"      teamview --package /path/to/<goal>/runs/run-N")
+    return None
 
 
-def ctx_refresh_thresholds(package):
-    """{agent-name: threshold%} read from every seat descriptor's frontmatter `ctx-refresh:` key
-    (integer percent) — `seats/<agent>/seat.md`, or the pre-restructure `workers/<agent>/agent.md`.
-    An agent with no such key carries no threshold: default is none, never enforced. [] package
-    -> {}.
+# ---------- snapshot -> the shapes the renderers already consume ----------
 
-    ⚠ AN EMPTY RESULT IS NOT "EVERYONE IS FINE" — it is "no threshold was ever checked", and the
-    two are indistinguishable at the call site. That is why the caller raises a visible cue on {}
-    rather than rendering a plain green ctxN%: this function failing open is precisely how G-153
-    stayed invisible while six live seats carried a threshold."""
-    out = {}
-    if not package:
-        return out
-    for subdir, fname in reversed(DESCRIPTOR_LAYOUTS):     # newest layout written last -> it wins
-        try:
-            agent_dirs = sorted((Path(package) / subdir).iterdir())
-        except OSError:
-            continue
-        for d in agent_dirs:
-            try:
-                text = (d / fname).read_text(encoding="utf-8")
-            except OSError:
-                continue
-            if not text.startswith("---"):
-                continue
-            end = text.find("\n---", 3)
-            fm = text[:end] if end != -1 else text
-            thr = re.search(r"^ctx-refresh:\s*(\d+)", fm, re.M)
-            if not thr:
-                continue
-            for key in DESCRIPTOR_ID_KEYS:
-                name = re.search(rf"^{key}:\s*(\S+)", fm, re.M)
-                if name:
-                    out[name.group(1)] = int(thr.group(1))
-                    break
-    return out
+# TWINS of ctx_monitor.short_model / ctx_monitor.fmt_age (../ctx-monitor/ctx_monitor.py:684,:689).
+# DUPLICATED ON PURPOSE and declared so: importing the sensor engine is exactly the coupling R24
+# exists to cut, and 13 lines of pure string formatting is the cheap side of that trade. Declared
+# duplicates get fixed together; undeclared ones drift silently. Change one -> change the other.
+
+def short_model(model):
+    m = re.sub(r"^claude-", "", model or "")
+    return re.sub(r"-\d{8}$", "", m)[:14]
 
 
-BUSY_GLYPHS = r"[⠀-⣿✳✻✽✶✢]"  # TUI title spinner glyphs — they PERSIST frozen when a turn ends,
-SHELLS = {"bash", "zsh", "sh", "fish", "dash"}  # pane_current_command = shell -> harness exited
-# so a still frame cannot tell working from idle (a frozen ✳ is not activity). The honest,
-# harness-agnostic signal is CHANGE: a pane whose visible content differs across two samples a
-# fraction of a second apart is actively rendering (spinner cycling / tokens streaming / tool
-# output) — i.e. working. An idle pane's content is static between samples.
-BUSY_SAMPLE_GAP = 0.6  # seconds between the two activity samples
+def fmt_secs(secs):
+    """Compact duration, the ctx_monitor.fmt_age spelling minus its 'now' floor — an AGE display
+    must not round a real 80-second staleness down to the word 'now'."""
+    secs = max(0, int(secs))
+    if secs < 60:
+        return f"{secs}s"
+    if secs < 3600:
+        return f"{secs // 60}m{secs % 60:02d}s"
+    if secs < 86400:
+        return f"{secs // 3600}h{secs % 3600 // 60:02d}m"
+    return f"{secs // 86400}d{secs % 86400 // 3600}h"
 
 
-def pane_signature(pane):
-    r = subprocess.run(["tmux", "capture-pane", "-p", "-t", pane],
-                       capture_output=True, text=True)
-    if r.returncode != 0:
+def fmt_age(age_s):
+    """Last-activity age for a pane row — ctx_monitor.fmt_age's twin, fed the snapshot's
+    precomputed `last_activity_age_s` instead of an absolute stamp."""
+    if age_s is None:
         return ""
-    return "\n".join(r.stdout.splitlines()[-8:])
+    secs = max(0, int(age_s))
+    if secs < 90:
+        return "now"
+    if secs < 3600:
+        return f"{secs // 60}m"
+    if secs < 86400:
+        return f"{secs // 3600}h{secs % 3600 // 60:02d}m"
+    return f"{secs // 86400}d{secs % 86400 // 3600}h"
 
 
-# Permission/trust prompt signatures a stuck seat's pane tail shows — claude's numbered
-# Yes/No dialogs ("Do you want to ... ❯ 1. Yes ... Esc to cancel"), codex's "Action
-# Required", and generic trust-this-folder/workspace prompts. Matched against the SAME
-# two-sample capture busy_panes already takes — no extra tmux call.
-PROMPT_PATTERNS = tuple(re.compile(p, re.I | re.M) for p in (
-    r"do you want to",
-    r"do you trust",
-    r"esc to cancel",
-    r"action required",
-    r"^\s*[❯>]?\s*1\.\s*yes\b",
-))
+def snapshot_age_s(snap, now=None):
+    """Seconds since the snapshot's CAPTURE.
+
+    ⚠ `captured_at`, NEVER `written_at`. team-monitor stamps captured_at as the FIRST act of a
+    capture, before any raw read, and never restamps it; written_at is stamped at serialization.
+    A frozen sensor therefore produces a snapshot that visibly AGES — which is the whole thing
+    the staleness warning and this age display ride on. Keying on written_at would satisfy
+    'carries a timestamp' while defeating staleness detection entirely, and it would LOOK right:
+    on a healthy run the two differ by ~0.1s and their ISO strings are usually identical."""
+    ts = (snap or {}).get("captured_at")
+    if not isinstance(ts, (int, float)) or isinstance(ts, bool):
+        return None
+    return max(0.0, (time.time() if now is None else now) - ts)
 
 
-def is_awaiting_approval(text):
-    return any(p.search(text) for p in PROMPT_PATTERNS)
+def age_variants(age_s, stale_after=SNAPSHOT_STALE_S):
+    """(full, short) snapshot-age forms — NEITHER IS EVER EMPTY, unlike the degradable cues.
+    'age is always on screen' is a criterion, so this text is part of the header's BASE and is
+    never the thing that gets dropped to make room."""
+    if age_s is None:
+        return (f"{RED}SNAPSHOT AGE UNKNOWN{OFF}", f"{RED}age?{OFF}")
+    a = fmt_secs(age_s)
+    if age_s >= stale_after:
+        return (f"{RED}{BOLD}STALE SNAPSHOT {a} — sensor may be dead{OFF}",
+                f"{RED}{BOLD}STALE {a}{OFF}")
+    return (f"{DIM}snap {a} old{OFF}", f"{DIM}snap {a}{OFF}")
 
 
-def busy_panes(pids, gap=BUSY_SAMPLE_GAP):
-    """(working, awaiting) pane-id sets from the SAME two-sample capture: working = visible
-    content changed across the two samples -> actively rendering; awaiting = the latest
-    sample's tail matches a permission/trust prompt signature -> stuck waiting on approval."""
-    if not pids:
-        return set(), set()
-    a = {pid: pane_signature(pid) for pid in pids}
-    time.sleep(gap)
-    b = {pid: pane_signature(pid) for pid in pids}
-    working = {pid for pid in pids if a.get(pid) and a[pid] != b.get(pid)}
-    awaiting = {pid for pid in pids if is_awaiting_approval(b.get(pid, ""))}
-    return working, awaiting
+def snapshot_stale(snap, now=None, stale_after=SNAPSHOT_STALE_S):
+    age = snapshot_age_s(snap, now)
+    return age is None or age >= stale_after
+
+
+def snapshot_tree(snap, now=None):
+    """([{idx, name, active, panes:[pane-dict]}], nwin, npane) built ONLY from the snapshot.
+
+    ⚠ WINDOW NAME AND ACTIVE-WINDOW ARE NOT IN THE SNAPSHOT, so `name` is the window INDEX and
+    `active` is always False. This is FORCED, not chosen: ctx_monitor asks tmux for
+    `#{window_index}` and never `#{window_name}`/`#{window_active}` (ctx_monitor.py:619), and
+    team_monitor passes that index straight through (team_monitor.py:271). Closing it needs both
+    of those files — filed as the R24 follow-on. It costs this run a label it reasons in
+    (r-window-layout is about window NAMES), which is why the passthrough is the higher-value
+    half of that item.
+
+    `roster_absent` — the GHOSTROW input — renders as its own trailing pseudo-window. Dropping it
+    would be the exact failure this run keeps paying for: a seat whose pane left the room would
+    render as nothing, and absence would be indistinguishable from health."""
+    order, by_idx = [], {}
+    for s in (snap or {}).get("seats") or []:
+        idx = str(s.get("window") or "?")
+        if idx not in by_idx:
+            by_idx[idx] = {"idx": idx, "name": idx, "active": False, "panes": []}
+            order.append(idx)
+        act_age = s.get("last_activity_age_s")
+        pct, thr = s.get("ctx_pct"), s.get("ctx_refresh")
+        by_idx[idx]["panes"].append({
+            "name": s.get("seat") or clean_title(s.get("title")),
+            "shell": s.get("liveness") == "shell",
+            "busy": isinstance(act_age, (int, float)) and act_age <= RECENT_ACTIVITY_S,
+            "awaiting": bool(s.get("prompt_pending")),
+            "harness": "" if s.get("liveness") == "shell" else (s.get("harness") or ""),
+            "model": short_model(s.get("model")),
+            "ctx": pct,
+            "approx": bool(s.get("ctx_ambiguous")),
+            "ctx_over": thr is not None and pct is not None and pct >= thr,
+            "age": fmt_age(act_age)})
+    wins = [by_idx[i] for i in order]
+    absent = (snap or {}).get("roster_absent") or []
+    if absent:
+        wins.append({"idx": "-", "name": f"{RED}absent{OFF}", "active": False, "panes": [
+            {"name": f"{RED}{a.get('seat') or '?'}{OFF}", "shell": False, "busy": False,
+             "awaiting": False, "harness": str(a.get("liveness") or "absent"), "model": "",
+             "ctx": None, "approx": False, "ctx_over": False,
+             "age": str(a.get("reason") or "")[:12]} for a in absent]})
+    return wins, len(wins), sum(len(w["panes"]) for w in wins)
+
+
+def snapshot_thresholds(snap):
+    """{seat: ctx-refresh %} straight off the snapshot's own seat records.
+
+    THIS IS G-153'S STRUCTURAL CURE: the thresholds used to be re-read from seat descriptors by a
+    SECOND path that could drift out of step with the sensor's — and did, silently, for every
+    post-restructure package. Taking them from the same snapshot as the ctx% they gate removes
+    the second path entirely. An empty result is still NOT 'everyone is fine' — it is 'no
+    threshold was ever checked' — so the caller still raises a visible cue on {}."""
+    return {s["seat"]: s["ctx_refresh"] for s in (snap or {}).get("seats") or []
+            if s.get("seat") and isinstance(s.get("ctx_refresh"), int)}
+
+
+def box_load(snap):
+    """(avail_mb, total_mb, load1, cores, cpu_pct) for system_cell_variants.
+
+    First four from the snapshot's box{} — no /proc read. cpu_pct from THIS process's /proc/stat
+    delta: the ruled exempt LANE 2 documented at the top of this section, because box{} carries
+    no cpu field and moving it to the sensor's ~20s cadence would change the metric."""
+    box = (snap or {}).get("box") or {}
+    return (box.get("available_mb"), box.get("total_mb"), box.get("load1"),
+            box.get("cores") or os.cpu_count() or 1, cpu_usage_pct())
+
+
+BUSY_GLYPHS = r"[⠀-⣿✳✻✽✶✢]"  # TUI title spinner glyphs, stripped out of a pane title
 
 
 def clean_title(title):
@@ -836,64 +947,6 @@ def clean_title(title):
     return (t[:18] + f"{MARK}…{OFF}") if len(t) > 19 else (t or "?")
 
 
-_CTX_MOD = "unset"
-
-
-def ctx_module():
-    """The sibling ctx-monitor engine (../ctx-monitor/ctx_monitor.py), imported by path;
-    None when absent — pane rows then degrade to names + pane command."""
-    global _CTX_MOD
-    if _CTX_MOD == "unset":
-        path = Path(__file__).resolve().parent.parent / "ctx-monitor" / "ctx_monitor.py"
-        try:
-            spec = importlib.util.spec_from_file_location("ctx_monitor", path)
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            _CTX_MOD = mod
-        except Exception:  # noqa: BLE001 — a broken/absent engine must never kill a frame
-            _CTX_MOD = None
-    return _CTX_MOD
-
-
-def session_tree(session, roster, thresholds=None):
-    """[{name, active, panes: [pane-dict, ...]}], nwin, npane — [] when the session is
-    unknown. Each pane dict: name/shell/busy plus the agent in it (harness, model, ctx
-    used %, last-activity age) resolved by ctx-monitor; ctx_over marks a pane whose ctx%
-    has reached its seat's own ctx-refresh threshold (from `thresholds`, per-agent %)."""
-    thresholds = thresholds or {}
-    wins = []
-    for ln in tmux_lines("list-windows", "-t", session, "-F",
-                         "#{window_index}\t#{window_name}\t#{window_active}"):
-        idx, name, active = ln.split("\t")
-        wins.append({"idx": idx, "name": name, "active": active == "1", "panes": []})
-    by_idx = {w["idx"]: w for w in wins}
-    rows = []
-    for ln in tmux_lines("list-panes", "-s", "-t", session, "-F",
-                         "#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_title}"):
-        idx, pid, cmd, title = ln.split("\t", 3)
-        if idx in by_idx:
-            rows.append((idx, pid, cmd, title))
-    working, awaiting = busy_panes([pid for _i, pid, cmd, _t in rows if cmd not in SHELLS])
-    cm, recs = ctx_module(), {}
-    if cm:
-        try:
-            recs = {r["pane_id"]: r for r in cm.pane_records(session)}
-        except Exception:  # noqa: BLE001 — pane info is best-effort decoration
-            recs = {}
-    for idx, pid, cmd, title in rows:
-        r = recs.get(pid, {})
-        name = roster.get(pid) or clean_title(title)
-        pct = r.get("ctx_pct")
-        thr = thresholds.get(name)
-        by_idx[idx]["panes"].append({
-            "name": name,
-            "shell": cmd in SHELLS, "busy": pid in working, "awaiting": pid in awaiting,
-            "harness": "" if cmd in SHELLS else cmd,
-            "model": cm.short_model(r.get("model", "")) if cm else "",
-            "ctx": pct, "approx": bool(r.get("ambiguous")),
-            "ctx_over": thr is not None and pct is not None and pct >= thr,
-            "age": cm.fmt_age(r.get("as_of")) if cm else ""})
-    return wins, len(wins), sum(len(w["panes"]) for w in wins)
 
 
 def ctx_str(pct, approx=False, over=False):
@@ -1576,11 +1629,25 @@ def limits_body(cells, notes, console, width, max_lines, style="wide"):
 
 
 def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, rows,
-                no_package=False, now=None, cycle=True, phase=None):
-    base = (f"{BOLD}teamview{OFF} · session {BOLD}{session}{OFF} · {nwin} windows / "
-           f"{npane} panes · {datetime.now().strftime('%H:%M:%S')}")
-    head = base + package_cue(no_package, cols - visible_len(base))
-    head += sys_cue(cols - visible_len(head))
+                cue=False, now=None, cycle=True, phase=None, snap=None):
+    # ⚠ THE SNAPSHOT AGE RIDES THE BASE, and when the base no longer fits it is the SESSION LABEL
+    # that gives way, never the age. Every other element of this header degrades to "" under
+    # pressure; the age must not, because 'age is always on screen' is a criterion of this task —
+    # a STALE warning that disappears exactly when the terminal is small is the silence it exists
+    # to break. shrink_to_fit picks the widest form that fits, so the age's own short spelling is
+    # the last thing to go and it never vanishes.
+    age_full, age_short = age_variants(snapshot_age_s(snap, now))
+    clock = datetime.now().strftime("%H:%M:%S")
+    base = shrink_to_fit((
+        f"{BOLD}teamview{OFF} · session {BOLD}{session}{OFF} · {nwin} windows / "
+        f"{npane} panes · {clock} · {age_full}",
+        f"{BOLD}teamview{OFF} · {BOLD}{session}{OFF} · {nwin}w / {npane}p · {clock} · {age_full}",
+        f"{BOLD}{session}{OFF} · {nwin}w / {npane}p · {clock} · {age_short}",
+        f"{BOLD}{session}{OFF} · {nwin}w/{npane}p · {age_short}",
+        age_short,
+    ), cols) or age_short
+    head = base + package_cue(cue, cols - visible_len(base))
+    head += sys_cue(cols - visible_len(head), snap)
     out = [head, ""]
     age = ""
     if cache and cache.get("ts"):
@@ -1660,26 +1727,6 @@ def cpu_usage_pct():
     return round(100.0 * (dtotal - (idle - prev[0])) / dtotal, 1)
 
 
-def system_load():
-    """Live (avail_mb, total_mb, load1, cores, cpu_pct) — read-only, stdlib only (Linux
-    /proc/meminfo + /proc/stat + os.getloadavg). Any field is None when unavailable on
-    this platform (cpu_pct also on the first frame — it is a between-frames delta);
-    never raises — decorative info must never crash a frame."""
-    avail_mb = total_mb = load1 = None
-    try:
-        info = {}
-        for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
-            k, _, v = line.partition(":")
-            if k in ("MemAvailable", "MemTotal"):
-                info[k] = int(v.strip().split()[0]) // 1024  # kB -> MB
-        avail_mb, total_mb = info.get("MemAvailable"), info.get("MemTotal")
-    except (OSError, ValueError, IndexError):
-        pass
-    try:
-        load1 = os.getloadavg()[0]
-    except (OSError, AttributeError):
-        pass
-    return avail_mb, total_mb, load1, os.cpu_count() or 1, cpu_usage_pct()
 
 
 def system_cell_variants(avail_mb, total_mb, load1, cores, cpu_pct=None):
@@ -1717,28 +1764,25 @@ def system_cell_variants(avail_mb, total_mb, load1, cores, cpu_pct=None):
     return variants
 
 
-def sys_cue(avail):
+def sys_cue(avail, snap=None):
     """The system-resource cell, shrunk to whatever room is available (same graceful
-    degradation as package_cue) — "" when it doesn't fit or the platform has neither
-    reading, never a mid-value clip."""
+    degradation as package_cue) — "" when it doesn't fit or neither reading is available,
+    never a mid-value clip. RAM/load/cores come from the snapshot's box{}; only the CPU% is
+    read live (the ruled exempt lane — see the snapshot section header)."""
     if avail <= 2:
         return ""
-    variants = system_cell_variants(*system_load())
+    variants = system_cell_variants(*box_load(snap))
     fit = shrink_to_fit(variants, avail - 2) if variants else ""
     return f"  {fit}" if fit else ""
 
 
-NO_PACKAGE_CUE_VARIANTS = (
-    f"{YELLOW}no --package: thresholds/roster off{OFF}",
-    f"{YELLOW}no --package{OFF}",
-    f"{YELLOW}no-pkg{OFF}",
-)
-
-# RED, not yellow, and the distinction is the whole point: no-package is an operator CHOICE with a
-# known consequence, while a package that loads ZERO thresholds is a DEFECT — the run asked for
-# threshold checking and silently is not getting it (G-153). Same silent-false-negative gap the
-# no-package cue was built for after a tester made a wrong renewal call on it; it simply never
-# fired for this door, because --package WAS given.
+# ⚠ THE OLD "no --package" CUE IS RETIRED, NOT TOMBSTONED. It warned that thresholds and roster
+# names were never loaded because --package was omitted. Under R24 that state CANNOT OCCUR: a
+# package always resolves or main refuses at exit 2, and thresholds now come off the snapshot
+# itself. A cue for an unreachable state is a lie a future reader would take as live.
+#
+# RED, not yellow, and the distinction is the whole point: the surviving cue is a DEFECT signal —
+# the run asked for threshold checking and silently is not getting it (G-153).
 NO_THRESHOLD_CUE_VARIANTS = (
     f"{RED}ctx thresholds NOT loaded — none checked{OFF}",
     f"{RED}no ctx thresholds loaded{OFF}",
@@ -1753,30 +1797,36 @@ def package_cue(cue, avail):
     at a length that would need clip_line's blind mid-word cut ('...roster~' was the reported
     bug); "" (no cue at all) only when even the shortest form doesn't fit.
 
-    `cue` is falsy (no cue), True (the original no-`--package` case), or a reason key naming a
-    different degradation. The boolean spelling is kept so every existing call site and its
-    regression check keep their exact meaning; a string simply selects other wording."""
-    if not cue or avail <= 2:
+    `cue` is falsy (no cue) or a reason key naming a degradation. UNLIKE the snapshot-age text
+    this one MAY degrade to "" — it reports a policy gap, not the freshness of the data on
+    screen."""
+    variants = CUE_VARIANTS_BY_REASON.get(cue)
+    if not variants or avail <= 2:
         return ""
-    variants = CUE_VARIANTS_BY_REASON.get(cue, NO_PACKAGE_CUE_VARIANTS)
     fit = shrink_to_fit(variants, avail - 2)
     return f"  {fit}" if fit else ""
 
 
-def session_line(session, nwin, npane, cols=999, no_package=False):
-    """no_package: --package was never given, so ctx-refresh thresholds and roster names
-    never loaded — a bare ctxN% could otherwise read as 'confirmed under threshold' when
-    it is really 'no threshold was ever checked' (an operator made a wrong renewal call on
-    exactly this silent gap)."""
+def session_line(session, nwin, npane, cols=999, cue=False, snap=None, now=None):
+    """cue: no seat in the snapshot declares a ctx-refresh threshold, so a bare ctxN%
+    could read as 'confirmed under threshold' when it is really 'no threshold was ever checked'
+    (an operator made a wrong renewal call on exactly this silent gap).
+
+    ⚠ THE SNAPSHOT AGE IS PART OF THE BASE, NOT A CUE, IN BOTH THE FULL AND THE SHORT FORM.
+    package_cue and sys_cue degrade to "" when they do not fit — that is correct for them and
+    would be a defect here, because 'age is always on screen' is a criterion of this task and a
+    STALE warning that vanishes at narrow widths is precisely the silence it exists to break."""
+    age_full, age_short = age_variants(snapshot_age_s(snap, now))
     base = (f"{BOLD}{session}{OFF} · {nwin} windows · {npane} panes · "
-           f"{datetime.now().strftime('%H:%M:%S')}")
-    s = base + package_cue(no_package, cols - visible_len(base))
-    s += sys_cue(cols - visible_len(s))
+            f"{datetime.now().strftime('%H:%M:%S')} · {age_full}")
+    s = base + package_cue(cue, cols - visible_len(base))
+    s += sys_cue(cols - visible_len(s), snap)
     if visible_len(s) <= cols:
         return s
-    short_base = f"{BOLD}{session[:max(4, cols - 22)]}{OFF} · {nwin}w · {npane}p"
-    s2 = short_base + package_cue(no_package, cols - visible_len(short_base))
-    return s2 + sys_cue(cols - visible_len(s2))
+    short_base = (f"{BOLD}{session[:max(4, cols - 22 - visible_len(age_short))]}{OFF} · "
+                  f"{nwin}w · {npane}p · {age_short}")
+    s2 = short_base + package_cue(cue, cols - visible_len(short_base))
+    return s2 + sys_cue(cols - visible_len(s2), snap)
 
 
 # The two table titles — one own line, bold+underlined, so each block's SCOPE is unmistakable
@@ -1786,12 +1836,12 @@ WINDOWS_HDR = f"{BOLD}{UL}WINDOWS · PANES{OFF}"
 
 
 def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows,
-                 no_package=False, now=None, cycle=True, phase=None):
+                 cue=False, now=None, cycle=True, phase=None, snap=None):
     if cycle:
         # Whole-view cycle (see render_full): the old side-by-side split becomes one
         # full-width view at a time — windows pages, then the limits page, repeating.
         # phase pins ONE view; see render_full.
-        out = [session_line(session, nwin, npane, cols, no_package)]
+        out = [session_line(session, nwin, npane, cols, cue, snap, now)]
         budget = max(1, rows - 3)  # session line + phase header + mini legend
         extra = 1 if (cells or notes or console) else 0
         grid = None if phase == "limits" else window_grid(
@@ -1860,7 +1910,7 @@ def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows,
     right = window_grid(wins, right_w, budget)
     hdr_row = f"{pad_to(LIMITS_HDR, lw)}{DIM}|{OFF} {WINDOWS_HDR}"
     hdr_row += rollup_suffix(wins, cols - visible_len(hdr_row))
-    out = [session_line(session, nwin, npane, cols, no_package), hdr_row]
+    out = [session_line(session, nwin, npane, cols, cue, snap, now), hdr_row]
     for i in range(budget):
         lseg = left[i] if i < len(left) else ""
         rseg = right[i] if i < len(right) else ""
@@ -1874,12 +1924,12 @@ def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows,
 
 
 def cycle_compact(session, wins, nwin, npane, cells, notes, console, cols, rows,
-                  no_package, now, style, phase=None):
+                  cue, now, style, phase=None, snap=None):
     """The narrow/tiny whole-view cycle frame: constant session line, then either a
     windows page (compact_window_lines' turn) or the limits page, then the mini legend
     (windows phase only — the mini legend keys PANE markers, absent from the limits view).
     phase pins ONE view instead of alternating; see render_full."""
-    out = [session_line(session, nwin, npane, cols, no_package)]
+    out = [session_line(session, nwin, npane, cols, cue, snap, now)]
     budget = max(1, rows - 4)  # session line + phase header + legend + the rows-1 cap
     extra = 1 if (cells or notes or console) else 0
     grid = None if phase == "limits" else compact_window_lines(
@@ -1900,11 +1950,11 @@ def cycle_compact(session, wins, nwin, npane, cells, notes, console, cols, rows,
 
 
 def render_narrow(session, wins, nwin, npane, cells, notes, console, cols, rows,
-                  no_package=False, now=None, cycle=True, phase=None):
+                  cue=False, now=None, cycle=True, phase=None, snap=None):
     if cycle:
         return cycle_compact(session, wins, nwin, npane, cells, notes, console, cols,
-                             rows, no_package, now, "narrow", phase)
-    out = [session_line(session, nwin, npane, cols, no_package), LIMITS_HDR]
+                             rows, cue, now, "narrow", phase, snap)
+    out = [session_line(session, nwin, npane, cols, cue, snap, now), LIMITS_HDR]
     label_w = max([c[1] for c in cells], default=8)
     bar_w = max(6, min(14, cols - label_w - 8))
     for c in cells:
@@ -1921,15 +1971,15 @@ def render_narrow(session, wins, nwin, npane, cells, notes, console, cols, rows,
 
 
 def render_tiny(session, wins, nwin, npane, cells, notes, console, cols, rows,
-                no_package=False, now=None, cycle=True, phase=None):
+                cue=False, now=None, cycle=True, phase=None, snap=None):
     """LIMITS: one label + percent PER LINE (never 2-up flowed) — at this width a flowed
     pair sits close enough that a label can misread as paired with its NEIGHBOR's percent
     (observed: 'claude:main 5h' read against a different window's value). One entry per
     line makes each label unambiguously own its own number."""
     if cycle:
         return cycle_compact(session, wins, nwin, npane, cells, notes, console, cols,
-                             rows, no_package, now, "tiny", phase)
-    out = [session_line(session, nwin, npane, cols, no_package), f"{BOLD}{UL}LIMITS{OFF}"]
+                             rows, cue, now, "tiny", phase, snap)
+    out = [session_line(session, nwin, npane, cols, cue, snap, now), f"{BOLD}{UL}LIMITS{OFF}"]
     limit_budget = max(1, (rows - 3) // 2)
     # The percent keeps its urgency color band even at this size — color costs ZERO
     # columns, and a bare '97%' rendered identically to '12%' was a verified false
@@ -1987,17 +2037,27 @@ def combined_fits(combined_lines, rows, cells=(), wins=()):
             and all(strip(w["name"]) in body for w in wins))
 
 
-def render(args, session):
+def render(args, package, now=None):
+    """One frame from ONE re-read of the snapshot. The snapshot is re-read every frame — that is
+    what makes the age advance and the STALE warning fire while teamview keeps running."""
     cols = args.width or int(subprocess.run(["tput", "cols"], capture_output=True,
                                             text=True).stdout or 200)
     rows = args.height or int(subprocess.run(["tput", "lines"], capture_output=True,
                                              text=True).stdout or 45)
-    roster = roster_map(args.package)
-    thresholds = ctx_refresh_thresholds(args.package)
-    wins, nwin, npane = session_tree(session, roster, thresholds)
+    snap, err = load_snapshot(package)
+    if err:
+        # FAIL LOUD, never an empty frame: a dashboard that renders nothing reads as a quiet
+        # room. The error is the frame (G-153's lesson as a contract).
+        return [f"{RED}{BOLD}TEAMVIEW: NO SNAPSHOT{OFF}", f"{RED}{err}{OFF}"]
+    session = snap.get("session") or "?"
+    thresholds = snapshot_thresholds(snap)
+    wins, nwin, npane = snapshot_tree(snap, now)
     if not wins:
-        return [f"no such tmux session: {session}",
-                "sessions: " + " ".join(tmux_lines("list-sessions", "-F", "#{session_name}"))]
+        return [f"{RED}{BOLD}TEAMVIEW: SNAPSHOT HAS NO PANES{OFF}",
+                f"{RED}{Path(package) / SNAPSHOT_NAME} captured "
+                f"{fmt_secs(snapshot_age_s(snap, now) or 0)} ago and lists zero panes — "
+                f"is the tmux session '{session}' still alive?{OFF}",
+                f"{RED}session_alive: {snap.get('session_alive')!r}{OFF}"]
     cache = load_cache()
     cells, notes, console = usage_cells(cache, live=live_agent_accounts())
     layout = choose_layout(cols, rows)
@@ -2008,24 +2068,27 @@ def render(args, session):
     # `ctx-refresh:` — deliberate, because that state is ALSO "no threshold is being checked", and
     # a cue that stays quiet whenever it cannot tell a stale path from an empty policy is the
     # fail-open this fixes.
-    no_package = True if not args.package else ("no-thresholds" if not thresholds else False)
+    # R24: a package always resolves now (main refuses otherwise), so the surviving case is the
+    # one that matters — a snapshot carrying ZERO ctx-refresh thresholds.
+    cue = "no-thresholds" if not thresholds else False
     # --no-rotate / --view combined: LAYOUT is still chosen from the real terminal shape,
     # but the whole-view cycle is disabled (both blocks render in ONE combined frame) and
     # every internal row/line budget (and the final row cap) is lifted so every window and
     # every pane renders — a COMPLETE snapshot, taller than the terminal if it must be,
     # instead of cycling pages a single --once frame can never show you the rest of.
     def frame(render_rows, cyc, phase=None):
+        kw = dict(cue=cue, now=now, cycle=cyc, phase=phase, snap=snap)
         if layout == "full":
             return render_full(session, wins, nwin, npane, cells, notes, console, cache,
-                               cols, render_rows, no_package, cycle=cyc, phase=phase)
+                               cols, render_rows, **kw)
         if layout == "strip":
             return render_strip(session, wins, nwin, npane, cells, notes, console, cols,
-                                render_rows, no_package, cycle=cyc, phase=phase)
+                                render_rows, **kw)
         if layout == "narrow":
             return render_narrow(session, wins, nwin, npane, cells, notes, console, cols,
-                                 render_rows, no_package, cycle=cyc, phase=phase)
+                                 render_rows, **kw)
         return render_tiny(session, wins, nwin, npane, cells, notes, console, cols,
-                           render_rows, no_package, cycle=cyc, phase=phase)
+                           render_rows, **kw)
 
     view = "combined" if getattr(args, "no_rotate", False) else getattr(args, "view", "auto")
     if view == "combined":
@@ -2051,6 +2114,7 @@ def render(args, session):
 # ---------- selftest ----------
 
 def cmd_selftest():
+    import ast
     import tempfile
     failures = []
 
@@ -2058,6 +2122,8 @@ def cmd_selftest():
         print(("ok  " if cond else "FAIL") + f"  {name}")
         if not cond:
             failures.append(name)
+
+    strip_sgr = lambda s: re.sub(r"\033\[[0-9;]*m", "", s)  # noqa: E731
 
     z = parse_zai({"data": {"level": "lite", "limits": [
         {"type": "TIME_LIMIT", "percentage": 0},
@@ -2095,34 +2161,23 @@ def cmd_selftest():
     cw = codex_windows_from_rl({"primary": {"used_percent": 3.0, "window_minutes": 10080,
                                             "resets_at": 5}, "secondary": None})
     check("codex windows: 10080min -> 7d", cw == [{"label": "7d", "pct": 3.0, "resets_at": 5}])
-    global pane_signature
-    real_sig = pane_signature
-    sig_seq = {"%a": iter(["x", "x"]), "%b": iter(["one", "two"])}  # %a static, %b changing
-    pane_signature = lambda pid: next(sig_seq[pid])
-    working, awaiting = busy_panes(["%a", "%b"], gap=0)
-    pane_signature = real_sig
-    check("busy_panes: changed content -> working; static -> idle",
-          working == {"%b"} and awaiting == set())
-    check("busy_panes: empty input -> empty", busy_panes([], gap=0) == (set(), set()))
-
-    claude_prompt = ("Do you want to make this edit to foo.py?\n"
-                      " ❯ 1. Yes\n   2. Yes, allow all edits during this session\n"
-                      "   3. No, and tell Claude what to do differently (esc)")
-    codex_prompt = "Action Required: approve command execution before I can continue"
-    trust_prompt = "Do you trust the files in this folder?"
-    normal_tail = "streaming tokens... building response...\n$ "
-    check("is_awaiting_approval: detects claude/codex/trust prompt signatures, "
-          "not normal output",
-          is_awaiting_approval(claude_prompt) and is_awaiting_approval(codex_prompt)
-          and is_awaiting_approval(trust_prompt) and not is_awaiting_approval(normal_tail))
-
-    real_sig2 = pane_signature
-    sig_seq2 = {"%a": iter(["x", "x"]), "%b": iter([claude_prompt, claude_prompt])}
-    pane_signature = lambda pid: next(sig_seq2[pid])
-    working2, awaiting2 = busy_panes(["%a", "%b"], gap=0)
-    pane_signature = real_sig2
-    check("busy_panes: awaiting-approval detected from the latest sample, same capture",
-          awaiting2 == {"%b"} and working2 == set())
+    # R24: `busy` and `awaiting` no longer come from teamview sampling tmux — they are read off
+    # the snapshot. `awaiting` maps EXACTLY (team_monitor.prompt_pending, same prompt patterns,
+    # computed at the sensor). `busy` DOES NOT: it used to mean "visible content changed across
+    # two captures 0.6s apart" and now means "the harness wrote to its transcript within
+    # RECENT_ACTIVITY_S of the capture" — a coarser signal from a different instrument. It is
+    # RELABELLED in the legend rather than silently reused, which is what these two checks pin.
+    bw, _n, _p = snapshot_tree({"seats": [
+        {"seat": "fresh", "window": "1", "last_activity_age_s": 3.0},
+        {"seat": "idle", "window": "1", "last_activity_age_s": RECENT_ACTIVITY_S + 1},
+        {"seat": "never", "window": "1", "last_activity_age_s": None},
+        {"seat": "stuck", "window": "1", "last_activity_age_s": 1.0, "prompt_pending": True}]})
+    by_name = {q["name"]: q for q in bw[0]["panes"]}
+    check("snapshot_tree: `+` working marker = recent transcript activity, not a tmux diff",
+          by_name["fresh"]["busy"] and not by_name["idle"]["busy"]
+          and not by_name["never"]["busy"])
+    check("snapshot_tree: awaiting comes from the snapshot's prompt_pending, nothing else",
+          by_name["stuck"]["awaiting"] and not by_name["fresh"]["awaiting"])
 
     # G-17: IN USE is derived from live processes, never from "a credential exists".
     # pids are deliberately nonexistent: /proc read fails -> the documented 'main' fallback
@@ -2218,26 +2273,25 @@ def cmd_selftest():
     check("console_lines: [] for no console providers; console_line unaffected (still used "
           "by render_strip's own narrow fallback)",
           console_lines([], 80) == [] and "no usage API" in console_line(fake_console))
-    check("session resolution: NAME / 'session NAME' / inside-tmux / lone outside session",
-          (resolve_session(["kg"], None, ["a", "b"]),
-           resolve_session(["session", "kg"], None, ["a"]),
-           resolve_session([], "cur", ["a", "b"]),
-           resolve_session([], None, ["only"]),
-           resolve_session([], None, ["a", "b"]),
-           resolve_session(["session"], None, ["a"]))
-          == ("kg", "kg", "cur", "only", None, "session"))
-    # Regression (op-ux-1, dispatch #127-B): the ctx-refresh threshold '!' marker only fires
-    # WITH --package, but a bare frame showed plain green ctxN% with no cue that thresholds
-    # were never loaded — a tester made a WRONG renewal call reading "green" as "confirmed
-    # under threshold" when it really meant "never checked". A visible header cue closes the
-    # silent-false-negative gap.
-    check("session_line: no-package cue shown ONLY when --package was never given",
-          "no --package" in re.sub(r"\033\[[0-9;]*m", "", session_line("s", 1, 1, 999, True))
-          and "no --package" not in re.sub(r"\033\[[0-9;]*m", "",
-                                           session_line("s", 1, 1, 999, False))
-          and "no --package" in re.sub(r"\033\[[0-9;]*m", "",
-                                       session_line("s", 1, 1, 30, True)))  # survives the
-                                       # narrow-fallback branch too, not just the wide one
+    # R24 discovery: package-rooted, never tmux-rooted.
+    with tempfile.TemporaryDirectory() as td:
+        run = Path(td).resolve() / "goal" / "runs" / "run-9"
+        (run / "seats" / "s1").mkdir(parents=True)
+        (run / SNAPSHOT_NAME).write_text('{"captured_at": 1, "seats": []}', encoding="utf-8")
+        check("find_package: walks UP from a seat folder to the run folder holding state.json",
+              find_package(run / "seats" / "s1") == run and find_package(run) == run)
+        check("find_package: None when no ancestor carries a snapshot (never a silent guess)",
+              find_package(Path(td).resolve()) is None)
+    # Regression (op-ux-1, dispatch #127-B), R24 form: the surviving degradation is a snapshot
+    # carrying zero ctx-refresh thresholds. A bare frame showed plain green ctxN% with no cue that
+    # nothing was being checked — a tester made a WRONG renewal call reading "green" as "confirmed
+    # under threshold" when it really meant "never checked". The header cue closes that gap, and
+    # must survive the narrow-fallback branch of session_line, not just the wide one.
+    check("session_line: the zero-thresholds cue is shown ONLY when there is a degradation, and "
+          "survives the narrow fallback",
+          "ctx thresholds NOT loaded" in strip_sgr(session_line("s", 1, 1, 999, "no-thresholds"))
+          and "ctx thresholds" not in strip_sgr(session_line("s", 1, 1, 999, False))
+          and "no-thr!" in strip_sgr(session_line("s", 1, 1, 40, "no-thresholds")))
     check("layout: full / strip / narrow / tiny by pane size",
           (choose_layout(220, 50), choose_layout(280, 8),
            choose_layout(55, 40), choose_layout(60, 12))
@@ -2322,55 +2376,38 @@ def cmd_selftest():
                       "requested width on either cycle phase (no cue/footer/value "
                       "overflow reaching the outer blind clip)",
                       all(len(l) <= w for l in plain))
-    tmp_pkg = tempfile.mkdtemp()
-    try:
-        (Path(tmp_pkg) / "workers" / "toolsmith-tv").mkdir(parents=True)
-        (Path(tmp_pkg) / "workers" / "toolsmith-tv" / "agent.md").write_text(
-            "---\nagent: toolsmith-tv\nharness: claude\nctx-refresh: 50\n---\nbody\n",
-            encoding="utf-8")
-        (Path(tmp_pkg) / "workers" / "scientist").mkdir(parents=True)
-        (Path(tmp_pkg) / "workers" / "scientist" / "agent.md").write_text(
-            "---\nagent: scientist\nharness: claude\n---\nno ctx-refresh key here\n",
-            encoding="utf-8")
-        thr = ctx_refresh_thresholds(tmp_pkg)
-        check("ctx_refresh_thresholds: reads per-agent ctx-refresh from a temp package "
-              "fixture; absent key -> no threshold; no package -> {}",
-              thr == {"toolsmith-tv": 50} and "scientist" not in thr
-              and ctx_refresh_thresholds("") == {} and ctx_refresh_thresholds(None) == {})
-    finally:
-        shutil.rmtree(tmp_pkg, ignore_errors=True)
-    # G-153. THE CONTROL BELOW FAILS ON THE PRE-FIX CODE BY CONSTRUCTION: the fixture carries ONLY
-    # the post-restructure layout (`seats/<agent>/seat.md`, identity key `seat:`), which the old
-    # reader never looked at — it returned {} on exactly this shape, which is what every live
-    # post-restructure package IS. The legacy check above stays as the no-regression half: an old
-    # `workers/agent.md` package must keep working, since this CLI is shared across runs.
-    tmp_new = tempfile.mkdtemp()
-    try:
-        (Path(tmp_new) / "seats" / "engineer-2").mkdir(parents=True)
-        (Path(tmp_new) / "seats" / "engineer-2" / "seat.md").write_text(
-            "---\nseat: engineer-2\nharness: claude\nctx-refresh: 50\n---\nbody\n",
-            encoding="utf-8")
-        (Path(tmp_new) / "seats" / "no-thr").mkdir(parents=True)
-        (Path(tmp_new) / "seats" / "no-thr" / "seat.md").write_text(
-            "---\nseat: no-thr\nharness: claude\n---\nno ctx-refresh key here\n", encoding="utf-8")
-        check("G-153: ctx_refresh_thresholds reads the POST-RESTRUCTURE layout "
-              "seats/<agent>/seat.md keyed on `seat:` (pre-fix this returned {} — the live "
-              "failure, six seats carrying a threshold and none seen)",
-              ctx_refresh_thresholds(tmp_new) == {"engineer-2": 50})
-    finally:
-        shutil.rmtree(tmp_new, ignore_errors=True)
+    # G-153's STRUCTURAL CURE. The defect was a SECOND path: thresholds were re-read from seat
+    # descriptors on a hardcoded layout while the ctx% they gate came from the sensor, so the two
+    # could drift — and did, silently, on every post-restructure package. Both now come off the
+    # SAME snapshot record, so there is no second path left to drift. The descriptor reader and
+    # its layout table are DELETED, not merely bypassed: a reader kept "just in case" is a second
+    # path that a future change re-wires.
+    thr_snap = {"seats": [
+        {"seat": "engineer-2", "ctx_refresh": 50}, {"seat": "no-thr", "ctx_refresh": None},
+        {"seat": "", "ctx_refresh": 55},                 # never checked in -> not a threshold
+        {"seat": "bad", "ctx_refresh": "50"}]}           # wrong type -> refused, not coerced
+    check("snapshot_thresholds: thresholds come off the SAME record as the ctx% they gate — "
+          "absent/unnamed/mistyped entries carry NO threshold rather than a guessed one",
+          snapshot_thresholds(thr_snap) == {"engineer-2": 50}
+          and snapshot_thresholds({}) == {} and snapshot_thresholds(None) == {})
+    check("G-153 cure: a seat's ctx_over marker is computed from that seat's OWN snapshot "
+          "ctx_refresh, so a threshold can no longer be read from a stale second path",
+          [q["ctx_over"] for q in snapshot_tree({"seats": [
+              {"seat": "over", "window": "1", "ctx_pct": 52.0, "ctx_refresh": 50},
+              {"seat": "under", "window": "1", "ctx_pct": 41.0, "ctx_refresh": 50},
+              {"seat": "nothr", "window": "1", "ctx_pct": 99.0}]})[0][0]["panes"]]
+          == [True, False, False])
     # The other half of G-153, and the half that makes the first OBSERVABLE: absence must be LOUD.
-    # A package that yields zero thresholds renders every pane's plain green ctxN%, which an
-    # operator reads as "confirmed under threshold" when it means "never checked" — the wrong
-    # renewal call the no-package cue already exists to prevent, arriving through the one door it
-    # did not cover. RED, because with --package given this is a defect and not a chosen mode.
+    # A snapshot that carries zero thresholds renders every pane's plain green ctxN%, which an
+    # operator reads as "confirmed under threshold" when it means "never checked".
     plain_cue = lambda c, w=999: re.sub(r"\033\[[0-9;]*m", "", package_cue(c, w))
-    check("G-153: a package that loads ZERO thresholds raises its OWN red cue — distinct from "
-          "the no-package cue, and never silent",
+    check("G-153: zero ctx-refresh thresholds raises a RED cue, and never renders silent",
           "ctx thresholds NOT loaded" in plain_cue("no-thresholds")
-          and "no --package" not in plain_cue("no-thresholds")
-          and "no --package" in plain_cue(True) and plain_cue(False) == ""
+          and plain_cue(False) == ""
           and "no-thr!" in plain_cue("no-thresholds", 12))   # survives the narrowest fold too
+    check("the retired no-package cue is GONE, not merely unused — an unknown reason key is "
+          "silent rather than falling back to stale wording",
+          plain_cue(True) == "" and plain_cue("some-future-reason") == "")
     check("pane_cell: shell pane -> dim name + explicit 'shell' tag; no-info pane -> harness only",
           re.sub(r"\033\[[0-9;]*m", "", pane_cell(P("gone", shell=True))) == "gone shell"
           and re.sub(r"\033\[[0-9;]*m", "", pane_cell(
@@ -2797,7 +2834,6 @@ def cmd_selftest():
                   all(len(l) <= w for l in plain_full))
 
     # ---- UX backlog items 2,4,5,6,7,8,9,10 (findings run tv-ux-review; fixed 2026-07-26) ----
-    strip_sgr = lambda s: re.sub(r"\033\[[0-9;]*m", "", s)  # noqa: E731
     hot_cells = [("claude:main 5h", 14, 97.0, ""), ("zai 7d", 6, 12.0, "")]
     tiny_hot = render_tiny("sess", calm_wins, 2, 3, hot_cells, [], [], 60, 12, now=10)
     hot_line = next((l for l in tiny_hot if "97%" in strip_sgr(l)), "")
@@ -2851,11 +2887,17 @@ def cmd_selftest():
           and strip_sgr(clean_title("a-very-long-pane-title-here")).endswith("…")
           and any("text cut" in strip_sgr(i) for i in LEGEND_ITEMS))
 
-    check("item7: --help-security states the write-set, EVERY endpoint, and the "
-          "never-touches-tmux guarantee",
+    # R24 STRENGTHENED this guarantee rather than restating it: it used to be "every tmux call is
+    # read-only", which is a promise about HOW teamview calls tmux. It is now "teamview makes no
+    # tmux call at all", which is a promise there is nothing to get wrong. The check pins the new,
+    # stronger claim AND that the weaker wording is gone — a doc that still promised read-only
+    # tmux calls would be describing code that no longer exists.
+    check("item7: --help-security states the write-set, EVERY endpoint, the run-state read, and "
+          "the STRONGER R24 guarantee (no tmux call at all, not merely read-only ones)",
           all(s in DOC_SECURITY for s in ("teamview-providers.json", "api.anthropic.com",
               "api.z.ai", "api.deepseek.com", "api.kimi.com", "api.moonshot",
-              "NEVER mutates tmux", "no send-keys")))
+              "NO tmux call at all", "state.json"))
+          and "NEVER mutates tmux" not in DOC_SECURITY)
     aud_acc = [{"provider": "claude", "name": "main",
                 "source": {"type": "statusline",
                            "path": "/home/x/.claude/rbtv-runtime/plan-usage.json"}},
@@ -2875,18 +2917,30 @@ def cmd_selftest():
     check("item8: --help-panes documents every pane state — ctx~ cause AND what clears "
           "it, the shell tag, the '?' empty-title placeholder, '+' vs age",
           all(s in DOC_PANES for s in ("~N%", "Clears when", "shell", "EMPTY title",
-                                       "WORKING", "ambiguous")))
+                                       "RECENTLY ACTIVE", "ambiguous"))
+          # the `+` marker's INSTRUMENT changed in R24; the doc must say so, not just describe
+          # the new behaviour as if it had always been this way
+          and "R24 changed this signal's instrument" in DOC_PANES)
     check("item8: pane_compact and pane_cell_variants carry the explicit 'shell' tag too",
           "gone shell" in strip_sgr(pane_compact(P("gone", shell=True)))
           and "gone shell" in strip_sgr(pane_cell_variants(P("gone", shell=True))[0]))
 
-    check("item9: unknown session -> teaching refusal (stderr + exit 2 in main): names "
-          "the bad session, suggests the closest match, lists the live set; valid -> None",
-          session_error("kg-viewz", ["kg-views", "other"]).startswith(
-              "no such tmux session: kg-viewz — did you mean 'kg-views'?")
-          and "sessions: kg-views other" in session_error("kg-viewz", ["kg-views", "other"])
-          and session_error("kg-views", ["kg-views", "other"]) is None
-          and "no tmux sessions" in session_error("x", []))
+    # item9, R24 form: the refusal that replaces the tmux session lookup. It must PRINT THE EXACT
+    # COMMAND, not merely name a flag — the owner uses teamview interactively and R24 removed the
+    # bare-invocation auto-pick this refusal stands in for. It inherits session_error's contract:
+    # stderr + exit 2, never an "empty" frame on stdout at exit 0 (a wrapper once recorded success
+    # for a view that showed nothing).
+    no_pkg = snapshot_refusal(None, None, None)
+    check("item9: no snapshot -> teaching refusal carrying a RUNNABLE command for BOTH causes "
+          "(wrong directory, and sensor not started), never a bare flag name",
+          "teamview --package /path/to/<goal>/runs/run-N" in no_pkg
+          and "team-monitor start --package /path/to/<goal>/runs/run-N" in no_pkg
+          and SNAPSHOT_NAME in no_pkg)
+    check("item9: a positional NAME that disagrees with the snapshot's OWN session refuses and "
+          "names both; agreement (and no name at all) resolves to None",
+          "'other', not 'kg-views'" in snapshot_refusal(None, "kg-views", Path("/p"), "other")
+          and snapshot_refusal(None, "kg-views", Path("/p"), "kg-views") is None
+          and snapshot_refusal(None, None, Path("/p"), "other") is None)
     h = subprocess.run([sys.executable, str(Path(__file__).resolve()), "-h"],
                        capture_output=True, text=True,
                        env={**os.environ, "PYTHONIOENCODING": "utf-8"}).stdout
@@ -2912,6 +2966,256 @@ def cmd_selftest():
     check("item10: --help-providers explains a model-scoped weekly ('7d fable') as a "
           "SUBSET of the plain 7d window",
           "SUBSET" in DOC_PROVIDERS and "7d fable" in DOC_PROVIDERS)
+
+    # ================= R24 (task 7.34): teamview renders the snapshot, it no longer takes one ===
+    #
+    # ⚠ THE FIXTURES BELOW ARE BUILT TO FAIL A WRONG IMPLEMENTATION, not to exercise the right
+    # one (p-green-harness-over-a-broken-mechanism). A hand-authored snapshot that merely SAYS it
+    # is old exercises the formatter, never staleness detection — so the STALE fixture carries a
+    # captured_at 10 minutes back and a written_at of NOW. On a renderer keyed to written_at
+    # every staleness check below goes green while the feature is dead; keyed to captured_at
+    # they fire. That single field is the difference between a probe and a decoration.
+    NOW = 1_800_000_000.0
+    def snap_at(age_s, seats=None, **extra):
+        """A snapshot captured `age_s` ago but WRITTEN this instant — the discriminating shape."""
+        return {"schema": "team-monitor/1", "captured_at": NOW - age_s,
+                "captured_at_iso": "(iso)", "written_at": NOW, "written_at_iso": "(iso)",
+                "session": "kg-views", "session_alive": True,
+                "box": {"available_mb": 4000, "total_mb": 8000, "load1": 1.0, "cores": 4},
+                "seats": seats if seats is not None else [
+                    {"seat": "leader", "pane": "%1", "window": "1", "harness": "claude",
+                     "model": "claude-opus-5", "ctx_pct": 30.0, "ctx_refresh": 50,
+                     "last_activity_age_s": 5.0, "liveness": "live"}],
+                "roster_absent": [], **extra}
+
+    fresh, stale = snap_at(3), snap_at(600)
+    check("R24: snapshot age is measured from captured_at — a snapshot CAPTURED 10 min ago but "
+          "WRITTEN this instant is 600s old, NOT fresh (a written_at-keyed reader reports ~0)",
+          round(snapshot_age_s(fresh, NOW)) == 3 and round(snapshot_age_s(stale, NOW)) == 600)
+    check("R24: written_at is never consulted — deleting it changes no age reading",
+          snapshot_age_s({k: v for k, v in stale.items()
+                          if k not in ("written_at", "written_at_iso")}, NOW)
+          == snapshot_age_s(stale, NOW))
+    check("R24: staleness fires on the CAPTURE clock at the documented threshold, and a missing "
+          "captured_at is treated as STALE (unknown is never assumed healthy)",
+          not snapshot_stale(fresh, NOW) and snapshot_stale(stale, NOW)
+          and snapshot_stale(snap_at(SNAPSHOT_STALE_S + 1), NOW)
+          and not snapshot_stale(snap_at(SNAPSHOT_STALE_S - 1), NOW)
+          and snapshot_stale({"seats": []}, NOW) and snapshot_stale({"captured_at": "x"}, NOW))
+    check("R24: a stale snapshot renders the word WARNING-loudly (STALE + RED + the age), a "
+          "fresh one does not — and BOTH forms carry it, so it survives every fold",
+          all("STALE" in strip_sgr(v) and "10m00s" in strip_sgr(v)
+              and RED in v for v in age_variants(snapshot_age_s(stale, NOW)))
+          and not any("STALE" in strip_sgr(v)
+                      for v in age_variants(snapshot_age_s(fresh, NOW))))
+
+    # AGE IS ALWAYS ON SCREEN — a criterion, at EVERY layout and EVERY width. The cues around it
+    # are allowed to degrade to ""; this is not. A staleness warning that vanishes precisely when
+    # the terminal is small is the silence it exists to break.
+    r24_wins, r24_nw, r24_np = snapshot_tree(stale, NOW)
+    age_missing = []
+    for fn, needs_cache in ((render_full, True), (render_strip, False),
+                            (render_narrow, False), (render_tiny, False)):
+        for w, h in ((220, 50), (120, 24), (80, 20), (70, 12), (60, 12), (40, 10)):
+            for cyc in (True, False):
+                args_ = ([ "kg-views", r24_wins, r24_nw, r24_np, cells, [], []]
+                         + ([fake_cache] if needs_cache else []) + [w, h])
+                lines = fn(*args_, cue=False, now=NOW, cycle=cyc, snap=stale)
+                body = strip_sgr("\n".join(clip_line(l, w) for l in lines))
+                if "STALE" not in body:
+                    age_missing.append((fn.__name__, w, h, cyc))
+    check("R24: the STALE snapshot warning survives EVERY layout x width x cycle phase "
+          "(full/strip/narrow/tiny, 220w down to 40w) — it is base text, never a droppable cue",
+          not age_missing)
+    age_missing_fresh = []
+    for fn, needs_cache in ((render_full, True), (render_strip, False),
+                            (render_narrow, False), (render_tiny, False)):
+        for w, h in ((220, 50), (80, 20), (40, 10)):
+            args_ = (["kg-views", r24_wins, r24_nw, r24_np, cells, [], []]
+                     + ([fake_cache] if needs_cache else []) + [w, h])
+            body = strip_sgr("\n".join(clip_line(l, w) for l in
+                                       fn(*args_, cue=False, now=NOW, snap=fresh)))
+            if "snap 3s" not in body:
+                age_missing_fresh.append((fn.__name__, w))
+    check("R24: a HEALTHY snapshot's age is on screen too, at every layout and width — the "
+          "display is unconditional, not a warning that only appears once it is too late",
+          not age_missing_fresh)
+
+    # FAIL LOUD. G-153's lesson as a contract: a total read failure must never be
+    # indistinguishable from a quiet room. Each of these must RENDER, never blank.
+    with tempfile.TemporaryDirectory() as td:
+        d = Path(td)
+        miss, e_miss = load_snapshot(d)
+        (d / SNAPSHOT_NAME).write_text("{not json", encoding="utf-8")
+        bad, e_bad = load_snapshot(d)
+        (d / SNAPSHOT_NAME).write_text('{"hello": 1}', encoding="utf-8")
+        wrong, e_wrong = load_snapshot(d)
+        (d / SNAPSHOT_NAME).write_text(json.dumps(fresh), encoding="utf-8")
+        good, e_good = load_snapshot(d)
+        check("R24 fail-loud: missing / unparseable / wrong-shaped state.json each return a "
+              "NAMED error and no snapshot; a real one returns the snapshot and no error",
+              (miss, bad, wrong) == (None, None, None) and good is not None
+              and e_good is None
+              and all(e and SNAPSHOT_NAME in e for e in (e_miss, e_bad, e_wrong))
+              and "not valid JSON" in e_bad and "captured_at" in e_wrong)
+        check("R24 fail-loud: load_snapshot never raises and never returns a HALF answer — "
+              "exactly one of (snapshot, error) is None in all four cases",
+              all((s is None) != (e is None)
+                  for s, e in ((miss, e_miss), (bad, e_bad), (wrong, e_wrong), (good, e_good))))
+
+        class A:  # the argparse shape render() consumes
+            width, height, package, no_rotate, view = 80, 24, str(d), False, "auto"
+        (d / SNAPSHOT_NAME).write_text("{not json", encoding="utf-8")
+        loud = strip_sgr("\n".join(render(A(), str(d), now=NOW)))
+        check("R24 fail-loud: render() on a corrupt snapshot returns a VISIBLE error frame — "
+              "never an empty dashboard, which reads as a quiet room",
+              "NO SNAPSHOT" in loud and "not valid JSON" in loud and len(loud.strip()) > 40)
+        (d / SNAPSHOT_NAME).write_text(json.dumps(snap_at(3, seats=[])), encoding="utf-8")
+        empty = strip_sgr("\n".join(render(A(), str(d), now=NOW)))
+        check("R24 fail-loud: a snapshot listing ZERO panes renders as a stated condition with "
+              "session_alive, not as a blank frame (absence must be audible)",
+              "SNAPSHOT HAS NO PANES" in empty and "session_alive" in empty)
+
+    # ⚠ THE SNAPSHOT IS RE-READ EVERY FRAME, and this is the check that pins it. The live loop
+    # calls render() per frame; if the load were hoisted OUT of render(), every frame would show
+    # the age of the FIRST read — a dead sensor would render forever-fresh and the STALE warning
+    # could never fire while teamview stayed up. That is precisely the defect 7.34 exists to
+    # prevent, and it would live in the one code path --once never exercises. Verified against a
+    # frozen snapshot in a real running loop (ages advanced 50s -> 55s -> STALE 1m00s -> 1m05s
+    # -> 1m10s, crossing the threshold mid-loop); this is the deterministic form of that proof.
+    with tempfile.TemporaryDirectory() as td2:
+        d2 = Path(td2)
+
+        class B:
+            width, height, package, no_rotate, view = 200, 30, str(d2), True, "combined"
+
+        (d2 / SNAPSHOT_NAME).write_text(json.dumps(snap_at(3)), encoding="utf-8")
+        f1 = strip_sgr("\n".join(render(B(), str(d2), now=NOW)))
+        (d2 / SNAPSHOT_NAME).write_text(json.dumps(snap_at(900)), encoding="utf-8")
+        f2 = strip_sgr("\n".join(render(B(), str(d2), now=NOW)))
+        check("R24: render() RE-READS state.json every frame — replacing the file between two "
+              "calls flips a fresh frame to a STALE one, so a frozen sensor cannot render "
+              "forever-fresh while teamview stays up",
+              "snap 3s" in f1 and "STALE" not in f1 and "STALE" in f2 and "15m00s" in f2)
+
+    # roster_absent — the GHOSTROW input. A roster row whose pane left the room must be VISIBLE;
+    # dropping it would render a vanished seat as nothing, which is the failure this run keeps
+    # paying for: absence indistinguishable from health.
+    ghost = snap_at(3, roster_absent=[{"seat": "vanished", "pane": "%9", "liveness": "absent",
+                                       "reason": "pane gone"}])
+    g_wins, g_nw, g_np = snapshot_tree(ghost, NOW)
+    check("R24: roster_absent renders as its own trailing pseudo-window and counts toward the "
+          "pane total — a seat whose pane left the room is never silently dropped",
+          g_nw == 2 and g_np == 2
+          and "vanished" in strip_sgr(g_wins[-1]["panes"][0]["name"])
+          and "absent" in strip_sgr(g_wins[-1]["name"]))
+    check("R24: no roster_absent rows -> no pseudo-window invented",
+          snapshot_tree(fresh, NOW)[1] == 1)
+
+    # The snapshot's own field mapping, pinned so a sensor-side rename cannot pass silently.
+    mapped = snapshot_tree(snap_at(3, seats=[
+        {"seat": "eng", "window": "2", "harness": "claude", "model": "claude-opus-5",
+         "ctx_pct": 91.0, "ctx_ambiguous": True, "ctx_refresh": 50,
+         "last_activity_age_s": 200.0, "liveness": "live"},
+        {"seat": "", "title": "✳ btm", "window": "2", "harness": "btm",
+         "liveness": "no-harness"},
+        {"seat": "gone", "window": "2", "harness": "bash", "liveness": "shell"}]), NOW)[0][0]
+    m = mapped["panes"]
+    check("R24: seat->pane mapping — seat name, short model, ctx%/ambiguous/over, age, and the "
+          "shell tag all come off the snapshot record and nothing else",
+          m[0]["name"] == "eng" and m[0]["model"] == "opus-5" and m[0]["ctx"] == 91.0
+          and m[0]["approx"] and m[0]["ctx_over"] and m[0]["age"] == "3m"
+          and m[2]["shell"] and not m[0]["shell"] and m[2]["harness"] == "")
+    check("R24: a pane whose occupant has not checked in falls back to its cleaned TITLE — a "
+          "launched-but-silent harness is a real state, reported as one and never guessed",
+          m[1]["name"] == "btm" and not m[1]["shell"])
+    check("R24: window is the snapshot's INDEX and active-window is always False — the sensor "
+          "chain carries neither window NAME nor the active flag (see the follow-on item)",
+          mapped["idx"] == "2" and mapped["name"] == "2" and mapped["active"] is False)
+
+    # box{} feeds the system cell; only CPU% is read live (the ruled exempt lane).
+    bl = box_load(fresh)
+    check("R24: RAM / load / cores come from the snapshot's box{} — no /proc read for any of "
+          "them; an absent box{} degrades to None rather than falling back to a live read",
+          bl[:4] == (4000, 8000, 1.0, 4)
+          and box_load({"box": {}})[:3] == (None, None, None)
+          and box_load(None)[:3] == (None, None, None))
+    check("R24: the system cell still renders from snapshot-sourced values alone (RAM present "
+          "even with no CPU reading at all)",
+          "RAM 50% (3.9GB free)" in system_cell_variants(*(bl[:4] + (None,)))[0])
+
+    # ⚠ LEADER BAR (ruling-734-cpu-cell.md): THE PROOF MUST NAME BOTH EXEMPT LANES. A check that
+    # passes because someone scoped it, WITHOUT SAYING WHAT WAS SCOPED OUT, is theatre.
+    #
+    # ⚠ AND IT IS AN AST WALK, NOT A GREP, BECAUSE A GREP CANNOT DO THIS HONESTLY. Written as a
+    # text scan it matched this file's own PROSE — the module docstring's "/proc/meminfo", the
+    # --help-security text, box_load's own docstring, and the source of this very check. A proof
+    # that counts the words describing a read as a read is not a proof. The AST sees CODE ONLY:
+    # docstrings and comments are not Constant nodes in an expression position here. The plain
+    # grep a human can run by hand is documented in README.md § "Proving the boundary"; this is
+    # the machine-checkable form of the same claim.
+    tree = ast.parse(Path(__file__).resolve().read_text(encoding="utf-8"))
+    owner_of, skip = {}, set()
+
+    def descend(node, owner):
+        """Innermost enclosing def wins. `skip` collects the string nodes that are DOCUMENTATION
+        rather than code: every docstring, and the DOC_* help texts — this file DESCRIBES the
+        reads it makes, at length, and counting a description as a read is what made the text
+        scan useless."""
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)):
+            if ast.get_docstring(node, clean=False) is not None and isinstance(
+                    node.body[0], ast.Expr):
+                skip.add(id(node.body[0].value))
+            owner = getattr(node, "name", owner)
+        if isinstance(node, ast.Assign) and any(
+                isinstance(tg, ast.Name) and tg.id.startswith("DOC_") for tg in node.targets):
+            for s in ast.walk(node.value):
+                skip.add(id(s))
+        for child in ast.iter_child_nodes(node):
+            owner_of[id(child)] = owner
+            descend(child, owner)
+
+    owner_of[id(tree)] = "<module>"
+    descend(tree, "<module>")
+    docstrings = skip
+    PROVIDER_LANE = {"ps_processes", "claude_account_of", "opencode_store", "discover_accounts",
+                     "claude_oauth_windows", "parse_claude_statusline", "codex_windows_from_rl",
+                     "fetch_account", "resolve_key", "audit_lines"}
+    BOX_CPU_LANE = {"cpu_usage_pct"}
+    SELFTEST = {"cmd_selftest"}          # this proof's own fixtures are not production reads
+    raw = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+            continue
+        if id(node) in docstrings:
+            continue
+        v = node.value
+        if "/proc/" in v or v == "tmux" or "/proc" == v:
+            raw.append((node.lineno, owner_of.get(id(node), "<module>")))
+    leaks = [r for r in raw if r[1] not in PROVIDER_LANE | BOX_CPU_LANE | SELFTEST]
+    check("R24 CRITERION 1: NO raw-source read remains in executable code outside the two NAMED "
+          "exempt lanes — provider plan-limit bars (task 7.34's own _Note:_) and box CPU% "
+          f"(leader ruling, PROVISIONAL). Unaccounted: {leaks}",
+          not leaks)
+    check("R24: both exempt lanes are still REALLY present — this is an exemption list, not a "
+          "blanket, so it must go stale LOUDLY if either lane's reads move or vanish",
+          any(o in PROVIDER_LANE for _n, o in raw) and any(o in BOX_CPU_LANE for _n, o in raw))
+    check("R24: no `tmux` process is invoked from production code anywhere — team-monitor is "
+          "the run's ONE raw-source sensor, and teamview is now purely its reader",
+          not [n for n, o in raw if o not in SELFTEST
+               and any(isinstance(x, ast.Constant) and x.value == "tmux"
+                       for x in ast.walk(tree) if getattr(x, "lineno", None) == n)])
+    imported = {a.name.split(".")[0] for node in ast.walk(tree)
+                if isinstance(node, ast.Import) for a in node.names}
+    imported |= {node.module.split(".")[0] for node in ast.walk(tree)
+                 if isinstance(node, ast.ImportFrom) and node.module}
+    check("R24: the ctx-monitor engine is no longer imported by path — importlib is gone from "
+          "the import set and the module name appears in no executable expression",
+          "importlib" not in imported
+          and not [1 for node in ast.walk(tree)
+                   if isinstance(node, ast.Constant) and isinstance(node.value, str)
+                   and id(node) not in docstrings and "ctx_monitor" in node.value
+                   and owner_of.get(id(node)) not in SELFTEST])   # this check names it itself
 
     print(f"\nselftest: {'PASS' if not failures else 'FAIL'} ({len(failures)} failure(s))")
     sys.exit(1 if failures else 0)
@@ -2996,9 +3300,18 @@ def main():
         print(f"cached: {cache_file()}")
         return
 
-    sessions = tmux_lines("list-sessions", "-F", "#{session_name}")
-    session = resolve_session(args.session, current_session(), sessions)
-    err = session_error(session, sessions)
+    # R24 DISCOVERY — package-rooted, never tmux-rooted. --package wins; otherwise walk up from
+    # cwd (the convention `coordinate` already uses, and every seat's cwd is inside its own run
+    # package). A positional NAME is matched against the SNAPSHOT'S OWN `session` field, so
+    # `teamview <name>` still means something without asking tmux anything.
+    package = args.package or find_package()
+    name_toks = [t for t in (args.session or []) if t]
+    if len(name_toks) > 1 and name_toks[0] == "session":
+        name_toks = name_toks[1:]
+    wanted = name_toks[0] if name_toks else None
+    probe, _probe_err = load_snapshot(package) if package else (None, None)
+    err = snapshot_refusal(args.package, wanted, package,
+                           (probe or {}).get("session"))
     if err:
         print(err, file=sys.stderr)
         sys.exit(2)
@@ -3010,7 +3323,7 @@ def main():
         cache = load_cache()
         if cache and time.time() - cache.get("ts", 0) > args.provider_ttl:
             spawn_background_poll(args)
-        return "\n".join(render(args, session))
+        return "\n".join(render(args, package))
 
     if args.once:
         print(frame())

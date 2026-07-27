@@ -1,7 +1,15 @@
 # `teamview` — responsive team-run dashboard CLI
 
 One live screen for a multi-agent tmux run: the session's windows/panes with agent names, plus
-plan-limit bars for every AI provider account on the machine. Below the constant first line, the
+plan-limit bars for every AI provider account on the machine.
+
+> **teamview RENDERS the run's state; it no longer SENSES it** (settle ledger R24, task 7.34).
+> `team-monitor` is the run's one raw-source sensor — it reads the tmux panes, the harness session
+> files and `/proc`, and writes ONE canonical snapshot to `{goal}/runs/run-{n}/state.json`.
+> teamview reads that file and nothing else. It **always shows the snapshot's age**, and a **stale
+> snapshot renders as a visible WARNING** rather than as silently-current data. See
+> [Proving the boundary](#proving-the-boundary) for what is deliberately outside it, and
+> [What changed in R24](#what-changed-in-r24) for the two behaviour changes this cost. Below the constant first line, the
 body renders the COMBINED view (limits + every window/pane) statically whenever the measured
 frame is large enough to show everything at once; only when it is too small does the body CYCLE
 every ~10s instead — the windows/panes view (itself paged into as many views as the height
@@ -17,12 +25,12 @@ out on a live multi-agent run.
 ## Run
 
 ```bash
-python3 orchestration/cli/teamview/teamview.py                  # session you are IN; from OUTSIDE
-                                                                #   tmux: the only running session
-python3 .../teamview.py <session>                               # any session by name (works from
-python3 .../teamview.py session <session>                       #   outside tmux; both forms equal)
-python3 .../teamview.py --package <run-package>                 # pane->agent names from the
-                                                                #   team-kit roster (workers.md)
+python3 orchestration/cli/teamview/teamview.py                  # the run package found by walking
+                                                                #   UP from the current directory
+python3 .../teamview.py --package <run-folder>                  # or name the run folder outright
+                                                                #   (the canonical form)
+python3 .../teamview.py <session>                               # a name is CHECKED against the
+python3 .../teamview.py session <session>                       #   snapshot's own `session` field
 python3 .../teamview.py --once | --interval 5 | --refresh       # snapshot / cadence / poll now
 python3 .../teamview.py --once --no-rotate                      # COMPLETE combined snapshot:
                                                                 #   limits + every window/pane,
@@ -43,11 +51,18 @@ python3 .../teamview.py --audit                                 # resolved accou
 python3 .../teamview.py --selftest                              # must exit 0 after ANY edit here
 ```
 
-Outside tmux with several sessions running and no name given, it lists the candidates and
-exits rather than guessing. An UNKNOWN session name is a refusal, not an empty frame: it
-prints the bad name, a closest-match suggestion, and the live session list to stderr and
-exits 2 (a wrapper script never records success for a view that showed nothing). An
-explicit `--config` path that does not exist warns on stderr before falling back to
+**Nothing resolves to a guess.** With no `--package` and no `state.json` in any parent
+directory, teamview REFUSES — printing the two runnable commands that fix it (point at a run
+folder; or start the sensor if the run folder is right but has no snapshot) to stderr, and
+exiting 2 with an empty stdout. A positional name that disagrees with the snapshot's own
+`session` refuses the same way. This is the old unknown-session refusal's contract kept
+verbatim: a wrapper script must never record success for a view that showed nothing.
+
+Every failure to READ the snapshot — missing, corrupt, wrong-shaped, or listing zero panes —
+renders as a loud error frame naming the cause, never as an empty dashboard. An empty dashboard
+reads as a quiet room, and that mistake has a number in this project (G-153).
+
+An explicit `--config` path that does not exist warns on stderr before falling back to
 account auto-discovery — the fallback is never silent.
 
 `--interval` is the DISPLAY repaint cadence only — it never re-polls providers; provider
@@ -61,17 +76,19 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
 ## What it shows
 
 - **Session block** — an ASCII grid: each window is a column (bold header, `*` = active
-  window) with its PANES stacked beneath it; a seat whose TUI reports it is WORKING carries a
-  trailing `+` (the working indicator — detected by CHANGE: a pane whose visible content
-  differs across two samples ~0.6s apart is actively rendering — spinner cycling, tokens
-  streaming, tool output. A frozen title spinner glyph is NOT trusted, since it persists when a
-  turn ends). A pane whose harness has exited (a bare shell) renders dim with an explicit
+  window; see the R24 note on window LABELS below) with its PANES stacked beneath it; a seat
+  that has been ACTIVE RECENTLY carries a trailing `+` (⚠ R24 CHANGED THIS SIGNAL'S INSTRUMENT
+  AND ITS MEANING: it used to mean "this pane's visible content differed across two tmux
+  captures ~0.6s apart"; it now means "this seat's harness wrote to its transcript within 45s
+  of the capture". Coarser, and from a different instrument — relabelled here rather than
+  silently reused under the old description). A pane whose harness has exited (a bare shell) renders dim with an explicit
   `shell` tag — distinct from a live pane whose agent info merely failed to resolve. An
   empty-titled pane with no roster name renders a dim `?`. Work is often bursty,
   so a seat flips between `+` and unmarked as it starts and finishes turns — that is honest,
-  not a glitch. Names resolve pane-id → agent from a team-kit
-  run package's `coordination/workers.md` (`--package`, or `RBTV_TEAMVIEW_PACKAGE`) because
-  agent TUIs rewrite their own pane titles; fallback is the cleaned pane title. Pure ASCII
+  not a glitch. Seat names come from the snapshot's own `seat` field (team-monitor resolves
+  them against the run roster) because agent TUIs rewrite their own pane titles; a pane whose
+  occupant has not checked in yet carries no seat name and falls back to its cleaned title —
+  a launched-but-silent harness is a real state and is reported as one, never guessed. Pure ASCII
   markers throughout — no arrow or box-drawing glyphs (ambiguous-width characters break column
   alignment in some terminal fonts). Narrow/tiny layouts render each window as its own flowed
   line block (`*name:` then panes), wrapping between panes. The BODY renders the COMBINED
@@ -169,6 +186,57 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   Window headers in the session grid are bold+underlined to separate them from pane rows.
 
 Every layout leads with two fixed rows: the **session-stats line** (windows · panes · time) on its own — constant across the whole cycle — then the current view's own bold+underlined header (`WINDOWS · PANES` or `PLAN LIMITS`), carrying the alarm rollup, scoped over the body beneath. So the session stats are never misread as a table header, and every cycle phase names itself. (`--no-rotate` renders both headers in its one combined frame.)
+
+## Proving the boundary
+
+The R24 criterion is that **no raw-source read remains** in teamview. Two lanes are deliberately
+outside that boundary, and they are NAMED rather than quietly scoped out — a proof that passes
+because someone narrowed it, without saying what was narrowed away, is theatre.
+
+| Lane | Why it is outside | Its reads |
+|---|---|---|
+| **Provider plan-limit bars** | They read PROVIDER ACCOUNTS, not run state. Task 7.34's own `_Note:_` orders them left exactly as they are: *"do not 'purify' them out while refactoring."* | `ps_processes` (`ps -eo pid=,args=`), `claude_account_of` (`/proc/<pid>/environ`, for `CLAUDE_CONFIG_DIR` only), `opencode_store`, `claude_oauth_windows` / `parse_claude_statusline`, `codex_windows_from_rl` |
+| **Box CPU usage %** | `state.json`'s `box{}` carries RAM, swap, load, cores and memory pressure — and NO cpu field. Ruled PROVISIONAL by the run-2 leader (2026-07-27), extending the `_Note:_`'s own classification to a second named lane. | `cpu_usage_pct` (`/proc/stat`) |
+
+⚠ **Box CPU is not a field to "just move" into `box{}` later.** `cpu_usage_pct` is a
+**between-frames delta** — teamview repaints every ~1s, so it reads like `top`'s. team-monitor
+captures every ~20s. Adding a `cpu` field at the sensor's cadence, under the same label, would
+silently turn a ~1-second reading into a 20-second average. Whoever closes that follow-on must
+change the LABEL too, or not ship it.
+
+`--selftest` proves the boundary mechanically, and it is an **AST walk, not a grep**: written as
+a text scan it matched this file's own prose — the module docstring's `/proc/meminfo`, the
+`--help-security` text, and the source of the check itself. A proof that counts the words
+DESCRIBING a read as a read is not a proof. The hand-runnable grep, for a human who wants to see
+it directly (every hit must fall in a lane above):
+
+```bash
+grep -n '/proc/\|"tmux"\|ctx_monitor' teamview.py | grep -v '^\s*#'
+```
+
+## What changed in R24
+
+Two behaviour changes, stated rather than left to be discovered:
+
+1. **Bare `teamview` no longer auto-picks the only running tmux session.** It resolves a run
+   package — `--package`, else a walk UP from the current directory (the convention `coordinate`
+   already uses, so it keeps working from any seat pane). From OUTSIDE any run package it now
+   refuses with the exact command to run. That auto-pick was a *tmux* capability, and R24 removes
+   teamview's right to ask tmux anything; restoring it would mean inventing a scan of
+   `.rbtv/goals/*/runs/*` from an assumed vault root, a discovery convention this system does not
+   have.
+
+2. **Window headers show the window INDEX, not its NAME, and the `*` active-window marker is
+   gone.** This is forced, not chosen: the sensor chain asks tmux for `#{window_index}` and never
+   `#{window_name}`/`#{window_active}` (`ctx_monitor.py:619`), and `team_monitor.py:271` passes
+   that index straight through. Closing it needs BOTH of those files, so it is filed as the R24
+   follow-on rather than fixed here. It is a real cost: a run whose layout rules are written in
+   terms of window NAMES loses that label on this screen.
+
+Also new: `roster_absent` (the GHOSTROW input — a roster row whose pane left the room, or whose
+pane is still there holding no harness process) renders as a trailing `absent` pseudo-window.
+Dropping it would render a vanished seat as nothing, which is absence indistinguishable from
+health.
 
 ## Responsive layouts (chosen from the pane's own size, re-measured every frame)
 
