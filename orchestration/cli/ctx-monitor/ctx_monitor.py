@@ -27,10 +27,13 @@ network, no credentials):
             the same cwd, possibly outside tmux) are never heuristic candidates.
             MODEL is resolved from the pane process's own argv `--model` FIRST when present
             (the one source that cannot belong to another session); the pid-map/transcript
-            model only fills in when argv carries no flag. `model_source` names which it
-            was (argv | pidmap | transcript | transcript~); a family-level disagreement
-            between argv and the matched transcript proves the transcript is another
-            session's and sets ambiguous=True plus `model_conflict`.
+            model fills in when argv carries no flag, AND OUTRANKS argv when the record is
+            PID-VERIFIED (source pidmap|transcript) and disagrees by family — a mid-session
+            `/model` switch changes nothing in argv, so there the launch flag is the stale
+            one. `model_source` names which won (argv | pidmap | transcript | transcript~);
+            a family-level disagreement with a HEURISTIC transcript instead proves the
+            transcript is another session's and sets ambiguous=True. `model_conflict`
+            carries the source that lost, either way.
   codex     newest rollout under ~/.codex/sessions/ whose session_meta cwd matches the
             pane -> last token_count event (last_token_usage.total_tokens /
             model_context_window); model from the last turn_context; activity = file mtime
@@ -290,8 +293,12 @@ def claude_info(cwd, projects_root=None, after=None, exclude=(), pid=None,
     if pid:
         mapped = claude_pidmap_record(pid, runtime_root)
         if mapped:
+            # The pid map's model is REWRITTEN by the statusline on every render, so it
+            # tracks a mid-session `/model` switch that argv (`prefer_model`) never sees.
+            # Preferring it picks the pane agent's CURRENT turns out of a transcript shared
+            # with sub-agents; the launch flag would pick its pre-switch ones.
             rec = parse_claude_transcript(Path(mapped["transcript"]),
-                                          prefer_model or mapped.get("model"))
+                                          mapped.get("model") or prefer_model)
             if mapped.get("model"):
                 rec["model"], rec["model_source"] = mapped["model"], "pidmap"
             ctx = mapped.get("ctx") or {}
@@ -512,20 +519,40 @@ READERS = {"claude": claude_info, "codex": codex_info,
 
 
 def apply_argv_model(rec, amodel):
-    """Let the pane's OWN process argv decide the model (issues.md G-16).
+    """Let the pane's OWN process argv decide the model (issues.md G-16) — except against a
+    PID-VERIFIED record that disagrees, where argv is the stale source.
 
     A transcript can belong to another session — with no `session-pids` record the pane ->
     transcript match is a guess, and a wrong guess reported a fable seat as opus while
     claiming `ambiguous: false`. `--model` in the pane process's argv is the one source that
-    CANNOT be another session's, so it outranks every record-derived model. When the two
-    disagree by family the matched transcript is provably not this pane's: keep the numbers
+    CANNOT be another session's, so it outranks every HEURISTICALLY matched record. When the
+    two disagree by family that transcript is provably not this pane's: keep the numbers
     (they are all there is) but mark them ambiguous and record what the transcript claimed.
+
+    Argv is not, however, the FRESHEST source. `/model` switches the live model mid-session
+    and changes nothing in argv, so the launch flag reports the launch model forever (a seat
+    launched `--model sonnet` and switched to fable read SONNET for the rest of its life).
+    A record whose `model_source` is pidmap|transcript was matched through the statusline's
+    own session-pids entry, so it provably IS this pane's — a family disagreement there
+    means the ARGV is stale, not that the record is foreign. The record wins, the stale flag
+    goes to `model_conflict`, and NOTHING is marked ambiguous: the pane's identity was never
+    in doubt, only the flag's age. Agreement still yields to argv, which keeps every
+    agreeing pane's reported name byte-identical to before.
+
     The window is re-derived from the authoritative model unless it came from the statusline
     payload — a record must never carry a model and a window that describe different models
     (the G-4 symptom)."""
     if not amodel:
         return rec
     tmodel = rec.get("model") or ""
+    if (tmodel and rec.get("model_source") in ("pidmap", "transcript")
+            and model_family(tmodel) != model_family(amodel)):
+        rec["model_conflict"] = amodel  # the STALE launch flag, not a foreign claim
+        if not rec.get("window_exact"):
+            rec["window"] = claude_window(tmodel)
+            if rec.get("ctx_tokens"):
+                rec["ctx_pct"] = pct(rec["ctx_tokens"], rec["window"])
+        return rec
     rec["model"], rec["model_source"] = amodel, "argv"
     if tmodel and model_family(tmodel) != model_family(amodel):
         rec["model_conflict"] = tmodel
@@ -918,6 +945,25 @@ def cmd_selftest():
           and (exact["window"], exact["ambiguous"], exact["model"]) == (1_000_000, False, "sonnet")
           and apply_argv_model({"model": "claude-opus-5", "model_source": "transcript"},
                                "")["model_source"] == "transcript")
+    # Mid-session `/model`: a PID-VERIFIED record disagreeing with argv means the LAUNCH FLAG
+    # is stale (argv cannot see a `/model` switch), so the record wins and nothing is
+    # ambiguous. The G-16 case above — a HEURISTIC transcript — must still lose to argv.
+    switched = apply_argv_model({"model": "claude-fable-5", "model_source": "pidmap",
+                                 "ctx_tokens": 316_364, "window": 1_000_000,
+                                 "window_exact": True, "ambiguous": False}, "sonnet")
+    switched_tr = apply_argv_model({"model": "claude-fable-5", "model_source": "transcript",
+                                    "ctx_tokens": 100_000, "window": 200_000,
+                                    "ambiguous": False}, "sonnet")
+    check("mid-session /model: a pid-verified record beats a stale argv flag, not ambiguous",
+          (switched["model"], switched["model_source"], switched["model_conflict"],
+           switched["ambiguous"], switched["window"])
+          == ("claude-fable-5", "pidmap", "sonnet", False, 1_000_000)
+          and (switched_tr["model"], switched_tr["model_source"], switched_tr["window"],
+               switched_tr["ctx_pct"]) == ("claude-fable-5", "transcript", 1_000_000, 10.0))
+    check("mid-session /model: the exemption is PID-VERIFIED only — G-16 still holds",
+          apply_argv_model({"model": "claude-fable-5", "model_source": "transcript~",
+                            "ctx_tokens": 100_000, "window": 200_000,
+                            "ambiguous": False}, "sonnet")["model"] == "sonnet")
 
     recs = [{"pane_id": "%1", "window": "0", "title": "master", "harness": "claude",
              "model": "claude-opus-4-8", "ctx_pct": 46.0, "ctx_tokens": 92_002,
