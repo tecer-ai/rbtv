@@ -2627,7 +2627,11 @@ def closing_seats(base):
 # THE DEFECT WAS NEVER A MISSING KILL. `close-seat` has always killed. The stated fix — have
 # `checkout` kill its own pane — was REFUSED and the refusal ratified: it would destroy the
 # in-place renew path, which respawns the successor into the SAME pane to preserve window layout
-# (G-12) and therefore needs that pane alive at close time. `depart` is the wrong precedent; it is
+# (G-12) and therefore needs that pane alive at close time. That path is CONDITIONAL, not the
+# default (G-154): it is taken when the seat already sits in the window its briefing asks for. The
+# refusal still holds for every seat, because at checkout time nothing knows which case a later
+# renew will be — see G-151, where stating this half without its condition put two contradictory
+# claims in one file. `depart` is the wrong precedent; it is
 # a seat leaving for good, with no renewal question open. `checkout` is the half that KEEPS it open.
 #
 # So the record is written, not the kill: checkout ASSERTS the debt (who, which pane, whether the
@@ -3902,12 +3906,14 @@ def cmd_send(args):
     known = known_recipients(args, base)
     if args.to not in known and not force:
         near = difflib.get_close_matches(args.to, sorted(known), n=1, cutoff=0.6)
-        print(f"refused: '{args.to}' is not a known recipient — no roster row, no briefing, and "
-              f"no group of that name." + (f" Did you mean '{near[0]}'?" if near else "")
+        print(f"refused: '{args.to}' is not a known recipient — no roster row, no briefing, no "
+              f"group, no relay token and no addressable non-member of that name."
+              + (f" Did you mean '{near[0]}'?" if near else "")
               + f"\nknown: {', '.join(sorted(known))}\nsend anyway: --force", file=sys.stderr)
         sys.exit(1)
     # S-7 — an `ask` stays OPEN until an answer is addressed to its SENDER via --re, and
-    # `known_recipients` refuses any name with no roster row, no briefing and no group. So an
+    # `known_recipients` refuses any name none of its five sources carries (roster, briefing,
+    # group, relay token, addressable non-member). So an
     # ask from an unaddressable sender opens a thread WITH NO POSSIBLE TERMINUS: nobody can
     # close it, even in principle. A daemon-fired job sending under its own name — deliberately,
     # so flags are attributed to the detector that raised them rather than a borrowed seat —
@@ -9358,7 +9364,12 @@ def assert_argv_body_shell_safe(args):
         print(f"refused: this body was typed on a shell command line, and a shell eats "
               f"backticks and $(...) BEFORE coord.py can see them — the corruption is "
               f"undetectable after the fact and it has silently rewritten this room's "
-              f"record three times, each by an author who knew about it.\n"
+              # The count that used to sit here ("three times") had no maintainer and no way to be
+              # checked at read time — permanent text asserting a number that only ever grows. It
+              # is the drift the run already ruled on in its evidence layer, wearing a refusal's
+              # clothes. The force of the sentence was never the number; it is that the authors
+              # KNEW.
+              f"record repeatedly, each time by an author who knew about it.\n"
               f"Shell-safe (cannot be eaten):\n"
               f"  cat > /tmp/msg.txt <<'EOF'\n  ...your text...\n  EOF\n"
               f"  {coord_invocation(args)} send {getattr(args, 'to', '<to>')} "
