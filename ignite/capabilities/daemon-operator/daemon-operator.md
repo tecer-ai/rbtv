@@ -17,7 +17,7 @@ Not restated here (`PRIN-11`).
 | `restart` | Stops and starts. The verb that puts a config edit into effect (config is materialized at boot; there is no live reload). | `systemctl --user restart` |
 | `stop` | Graceful: SIGTERM → grace → SIGKILL. | `systemctl --user stop` |
 | `kill` | Ungraceful, SIGKILL immediately. A **distinct verb, never a flag on `stop`**, so it cannot be reached by accident. | `systemctl --user kill --signal=SIGKILL` |
-| `unit` | The unit-level read: load/active/sub state, main pid, active-since, last result and exec status, restart count, and the last journal lines. Answerable when the daemon is DOWN — which is when it is needed. `--json` for machine callers (the journal is text-only, deliberately: it is not escaped into the JSON). | `systemctl --user show` / `is-active` + `journalctl --user -u` |
+| `unit` | The unit-level read: an explicit `health` verdict, load/active/sub state, main pid, active-since **and how many seconds the current active period has lasted**, last result and exec status, restart count, and the last journal lines. Answerable when the daemon is DOWN — which is when it is needed. `--json` for machine callers (the journal is text-only, deliberately: it is not escaped into the JSON). | `systemctl --user show` / `is-active` + `journalctl --user -u` |
 | `selftest` | Exercises every lifecycle verb against a **throwaway unit it creates and removes**. It never touches the configured unit. | — |
 
 **`unit` is not `ignite status`.** `ignite status` is the *daemon's own* report of itself (tick
@@ -25,21 +25,44 @@ number, live sessions, queue depth) and needs it alive; `unit` is the *machine's
 daemon and works when it is dead. No field appears in both — the read is called `unit` rather than
 `status` for exactly this reason.
 
-**Exit codes** (the `sd-graph` / `rbtv-goal` convention): `0` success · `1` refusal, unit not
-found, or a post-act check that did not hold · `2` usage error.
+**Exit codes** (the `sd-graph` / `rbtv-goal` convention): `0` the act succeeded, or the read
+succeeded · `1` the act was refused or its post-act check did not hold, or the read FAILED · `2`
+usage error.
+
+**⚠ AN EXIT CODE REPORTS WHETHER THE READ SUCCEEDED — NEVER WHETHER THE SUBJECT IS HEALTHY**
+(leader ruling on defect `G-121`). `unit` exits **0** for any unit it could read, *including a
+failed or crash-looping one*, and reports what it found in `health`. It exits **1** only when it
+could not read the unit at all (`read_ok: false`, `error: "not-loaded"`). **A caller must branch on
+`health`, never on the exit status.**
+
+| `health` | Means |
+|----------|-------|
+| `healthy` | Active, and either never restarted or up longer than the unstable window. |
+| `unstable` | **Active, but restarted within `RBTV_IGNITE_UNSTABLE_WINDOW_SECONDS` (default 300).** This is the verdict that exists because `active` alone is not health — see below. |
+| `starting` | `activating` / `reloading` / `deactivating`. |
+| `inactive` | Stopped, cleanly. |
+| `failed` | The unit is in `failed` state. |
 
 **Environment:** `RBTV_IGNITE_UNIT` (default `rbtv-ignite.service`) · `RBTV_IGNITE_SETTLE_SECONDS`
-(default 3) · `RBTV_IGNITE_JOURNAL_LINES` (default 20). The unit name is an override so a probe can
+(default 3) · `RBTV_IGNITE_JOURNAL_LINES` (default 20) · `RBTV_IGNITE_UNSTABLE_WINDOW_SECONDS`
+(default 300). The unit name is an override so a probe can
 always be pointed at a throwaway unit instead of the live daemon.
 
-## Two behaviours that are not thin, and why they are here anyway
+## Three behaviours that are not thin, and why they are here anyway
 
 1. **`start`/`restart` verify SURVIVAL, not a single read.** A crash-looping unit reports `active`
    with an already-dead pid, and a *changed* `MainPID` does not prove a restart succeeded either.
    The verbs re-read the pid after a settle window and fail loud when it moved. This is a measured
    failure on this box, not a hypothetical: the daemon crash-looped to `NRestarts=46` on
    2026-07-27 and was reported healthy while it was down.
-2. **Every verb resolves `LoadState` first.** `systemctl --user show` reports an unknown unit as
+2. **`unit` returns a health VERDICT, not just fields.** A unit that crash-looped and was
+   restarted by systemd reports `active` / `result=success` / `exec-status 0`, with `n_restarts`
+   as the **only** dissenting field — measured on a throwaway unit, and it is how the shipped
+   version of this script reported a crash-looped daemon as perfectly healthy (`G-121`). Restarts
+   are therefore weighed against how long the current period has lasted, and a recently restarted
+   unit reads `unstable`. The survival check in (1) covers the WRITE path; this covers the READ
+   path, which was open.
+3. **Every verb resolves `LoadState` first.** `systemctl --user show` reports an unknown unit as
    `inactive` / `MainPID=0` **without erroring**, so a missing unit otherwise reads exactly like a
    stopped one. A unit the user manager does not know is a typed refusal (exit 1), never a
    measurement.

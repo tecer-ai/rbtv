@@ -19,14 +19,22 @@
 # unreachable from inside the cage. Master-gating is PARKED pending CMP-13.
 #
 # Exit codes (the sd-graph / rbtv-goal convention):
-#   0  success (or a no-op that is already the requested state)
-#   1  refusal, unit not found, or a post-act check that did not hold
+#   0  the act succeeded (or was already the requested state) / the read succeeded
+#   1  the act was refused or its post-act check did not hold / the read FAILED
 #   2  usage error
+#
+# AN EXIT CODE REPORTS WHETHER THE READ SUCCEEDED — NEVER WHETHER THE SUBJECT IS
+# HEALTHY (leader ruling, defect G-121). `unit` exits 0 for a unit it could read,
+# including a failed or crash-looping one, and reports what it found in the
+# `health` field. It exits 1 only when it could not read the unit at all. A caller
+# must branch on `health`, never on the exit status, to learn the daemon's state.
 set -uo pipefail
 
 UNIT="${RBTV_IGNITE_UNIT:-rbtv-ignite.service}"
 SETTLE="${RBTV_IGNITE_SETTLE_SECONDS:-3}"
 JOURNAL_LINES="${RBTV_IGNITE_JOURNAL_LINES:-20}"
+# A unit restarted more recently than this reads `unstable`, not `healthy`.
+UNSTABLE_WINDOW="${RBTV_IGNITE_UNSTABLE_WINDOW_SECONDS:-300}"
 JSON=0
 
 die() { printf '%s\n' "$*" >&2; exit 2; }
@@ -44,6 +52,41 @@ require_known_unit() {
     printf 'the user manager does not know this unit — install it, or set RBTV_IGNITE_UNIT\n' >&2
     exit 1
   fi
+}
+
+# Seconds the unit has been in its CURRENT active period. Read from the monotonic
+# clock, not the wall-clock string, so no date parsing or locale is involved.
+active_seconds() {
+  local mono up
+  mono="$(show ActiveEnterTimestampMonotonic)"
+  case "$mono" in ''|*[!0-9]*) printf 0; return ;; esac
+  [ "$mono" != 0 ] || { printf 0; return; }
+  up="$(cut -d' ' -f1 /proc/uptime 2>/dev/null)" || { printf 0; return; }
+  awk -v u="${up:-0}" -v m="$mono" 'BEGIN{d=u-(m/1000000); if(d<0)d=0; printf "%d", d}'
+}
+
+# HEALTH IS DATA, NEVER AN EXIT CODE (leader ruling, G-121). An exit code says
+# whether the READ succeeded; this says what was read.
+#
+# `active` alone is not health: a unit that crash-looped and was restarted by
+# systemd reports active / result=success / exec-status 0, with n_restarts as the
+# ONLY dissenting field — measured on a throwaway unit. So restarts are weighed
+# against how long the CURRENT period has lasted: recently restarted is `unstable`,
+# not `healthy`.
+health_verdict() {
+  local active="$1" nrestarts="${2:-0}"
+  case "$active" in
+    failed)             printf failed ;;
+    activating|reloading|deactivating) printf starting ;;
+    inactive)           printf inactive ;;
+    active)
+      if [ "$nrestarts" -gt 0 ] 2>/dev/null && [ "$(active_seconds)" -lt "$UNSTABLE_WINDOW" ]; then
+        printf unstable
+      else
+        printf healthy
+      fi ;;
+    *)                  printf unknown ;;
+  esac
 }
 
 # A changed MainPID does not prove a restart succeeded: a crash-looping unit
@@ -92,20 +135,32 @@ v_unit() {
   load="$(show LoadState)"; active="$(show ActiveState)"; sub="$(show SubState)"
   pid="$(show MainPID)"; since="$(show ActiveEnterTimestamp)"
   result="$(show Result)"; estatus="$(show ExecMainStatus)"; nrestarts="$(show NRestarts)"
+  # An UNREADABLE unit is the only exit-1 case: the READ failed. Health is never
+  # an exit code (see health_verdict).
+  if [ "$load" != loaded ]; then
+    if [ "$JSON" = 1 ]; then
+      printf '{"unit":"%s","read_ok":false,"error":"not-loaded","load_state":"%s","health":null}\n' \
+        "$UNIT" "${load:-unknown}"
+    else
+      printf 'unit          %s\n' "$UNIT"
+      printf 'read          FAILED — LoadState=%s; the user manager does not know this unit\n' "${load:-<unreadable>}"
+    fi
+    return 1
+  fi
+  local health; health="$(health_verdict "$active" "${nrestarts:-0}")"
   if [ "$JSON" = 1 ]; then
-    printf '{"unit":"%s","load_state":"%s","active_state":"%s","sub_state":"%s","main_pid":%s,"active_since":"%s","result":"%s","exec_main_status":%s,"n_restarts":%s}\n' \
-      "$UNIT" "$load" "$active" "$sub" "${pid:-0}" "$since" "$result" "${estatus:-0}" "${nrestarts:-0}"
+    printf '{"unit":"%s","read_ok":true,"error":null,"health":"%s","load_state":"%s","active_state":"%s","sub_state":"%s","main_pid":%s,"active_since":"%s","active_seconds":%s,"result":"%s","exec_main_status":%s,"n_restarts":%s}\n' \
+      "$UNIT" "$health" "$load" "$active" "$sub" "${pid:-0}" "$since" "$(active_seconds)" "$result" "${estatus:-0}" "${nrestarts:-0}"
   else
     printf 'unit          %s\n' "$UNIT"
+    printf 'health        %s%s\n' "$health" "$([ "$health" = unstable ] && printf ' — restarted %ss ago after %s restart(s); it is NOT simply up' "$(active_seconds)" "${nrestarts:-0}")"
     printf 'load/active   %s / %s (%s)\n' "${load:-?}" "${active:-?}" "${sub:-?}"
     printf 'main pid      %s\n' "${pid:-0}"
-    printf 'active since  %s\n' "${since:-<never>}"
+    printf 'active since  %s (%ss)\n' "${since:-<never>}" "$(active_seconds)"
     printf 'last result   %s (exec status %s, restarts %s)\n' "${result:-?}" "${estatus:-0}" "${nrestarts:-0}"
     printf -- '--- journal (last %s) ---\n' "$JOURNAL_LINES"
     journalctl --user -u "$UNIT" -n "$JOURNAL_LINES" --no-pager 2>&1
   fi
-  [ "$load" = loaded ] || return 1
-  [ "$active" != failed ] || return 1
   return 0
 }
 
@@ -143,8 +198,19 @@ EOF
   check "kill"                  0 v_kill
   UNIT=rbtv-ignite-no-such-unit.service
   check "unknown unit refused"  1 v_start
-  check "unknown unit read"     1 v_unit
+  check "unknown unit read is exit 1 (the READ failed)" 1 v_unit
   UNIT="$t"
+  # G-121 regressions. Both FAIL on the pre-fix code, which exited 1 on a failed
+  # unit (conflating health with readability) and reported a restarted unit as
+  # plain `active` with no verdict at all.
+  systemctl --user reset-failed "$t" >/dev/null 2>&1
+  systemctl --user start "$t" >/dev/null 2>&1; sleep 1
+  systemctl --user kill --signal=SIGKILL "$t" >/dev/null 2>&1; sleep 1
+  check "a FAILED unit still READS (exit 0)" 0 v_unit
+  local hv; hv="$( JSON=1 v_unit 2>/dev/null | grep -o '"health":"[a-z]*"' | head -1)"
+  if [ "$hv" = '"health":"failed"' ]; then printf 'PASS  %s\n' "a FAILED unit reports health=failed"
+  else printf 'FAIL  %s (got %s)\n' "a FAILED unit reports health=failed" "${hv:-none}"; fails=$((fails+1)); fi
+  systemctl --user reset-failed "$t" >/dev/null 2>&1
   systemctl --user stop "$t" >/dev/null 2>&1
   systemctl --user reset-failed "$t" >/dev/null 2>&1
   rm -f "$d/$t"; systemctl --user daemon-reload
@@ -159,8 +225,10 @@ for a in "$@"; do
     --json) JSON=1 ;;
     -h|--help)
       printf 'usage: rbtv-ignite-daemon start|restart|stop|kill|unit|selftest [--json]\n'
-      printf '  env: RBTV_IGNITE_UNIT (default rbtv-ignite.service) · RBTV_IGNITE_SETTLE_SECONDS · RBTV_IGNITE_JOURNAL_LINES\n'
-      printf '  --json applies to `unit` only.\n'; exit 0 ;;
+      printf '  env: RBTV_IGNITE_UNIT (default rbtv-ignite.service) · RBTV_IGNITE_SETTLE_SECONDS\n'
+      printf '       RBTV_IGNITE_JOURNAL_LINES · RBTV_IGNITE_UNSTABLE_WINDOW_SECONDS\n'
+      printf '  --json applies to `unit` only.\n'
+      printf '  `unit` exit code = did the READ succeed. Health is the `health` field, never the exit code.\n'; exit 0 ;;
     -*) die "unknown option: $a" ;;
     *)  [ -z "$VERB" ] || die "one verb at a time (got '$VERB' and '$a')"; VERB="$a" ;;
   esac
