@@ -16,6 +16,7 @@ step that usually follows. Briefing frontmatter keys: `briefing-template.md` bes
 Stdlib only; no PATH install. Liveness/context monitoring lives in watch.py beside this script.
 """
 import argparse
+import csv
 import difflib
 import json
 import os
@@ -2827,6 +2828,94 @@ def discover_workers(wdir):
     return found
 
 
+# ---------- descriptor vs taskforce.csv (G-51) ----------
+#
+# The SEAT DESCRIPTOR binds: `launch` and `close --renew` build the harness command from its
+# frontmatter. `taskforce.csv` is the run's binding REGISTRY — and until this check, the kit never
+# opened it (`grep -n taskforce coord.py` returned nothing), so the two could disagree silently and
+# permanently. They did: a seat re-bound in the registry after an owner-departure event still
+# launched on its old model, because a CSV row cannot bind anything. That defect appeared THREE
+# times in one run before it was named once.
+#
+# This does not make the CSV authoritative — it makes a DISAGREEMENT impossible to launch through
+# without seeing it. The refusal says which side binds, because a 3am reader who is only told the
+# two files differ has been handed the confusion, not the answer.
+
+def taskforce_bindings(args):
+    """{seat: {harness, model, effort}} from the run package's taskforce.csv — {} when the file is
+    absent (a legacy `workers/` package has no registry, and its seats must still launch)."""
+    path = package_dir(args) / "taskforce.csv"
+    if not path.is_file():
+        return {}
+    try:
+        rows = list(csv.DictReader(path.read_text(encoding="utf-8").splitlines()))
+    except (OSError, ValueError, csv.Error):
+        return {}
+    out = {}
+    for r in rows:
+        seat = (r.get("seat") or "").strip()
+        if seat:
+            out[seat] = {k: (r.get(k) or "").strip() for k in ("harness", "model", "effort")}
+    return out
+
+
+def binding_divergence(w, row):
+    """[(field, descriptor_value, registry_value)] where the two disagree.
+
+    A BLANK registry cell means "not stated" and is skipped — the opencode verification seats
+    legitimately carry no `effort`, and treating blank as a value would refuse every one of them.
+    """
+    out = []
+    for field in ("harness", "model", "effort"):
+        registry = (row.get(field) or "").strip()
+        if not registry:
+            continue
+        descriptor = (w.get(field) or "").strip()
+        if descriptor != registry:
+            out.append((field, descriptor or "(unset)", registry))
+    return out
+
+
+def check_bindings(args, workers, command):
+    """REFUSE when a seat's descriptor disagrees with its taskforce.csv row (G-51). `--force`
+    overrides, as on every other refusal here."""
+    registry = taskforce_bindings(args)
+    if not registry:
+        return
+    problems = []
+    for w in workers:
+        row = registry.get(w["agent"])
+        if row:
+            diff = binding_divergence(w, row)
+            if diff:
+                problems.append((w, diff))
+    if not problems or getattr(args, "force", False):
+        if problems:
+            for w, diff in problems:
+                fields = ", ".join(f"{f}: descriptor {d} vs registry {r}" for f, d, r in diff)
+                print(c(f"WARNING --force: {w['agent']} binds from its DESCRIPTOR ({fields})",
+                        C_DEAD), file=sys.stderr)
+        return
+    lines = []
+    for w, diff in problems:
+        lines.append(f"{w['agent']}:")
+        for field, descriptor, registry_value in diff:
+            lines.append(f"    {field}: descriptor says {descriptor} | taskforce.csv says "
+                         f"{registry_value}")
+        lines.append(f"    descriptor: {w['briefing']}")
+    detail = "\n  ".join(lines)
+    print(f"refused: `{command}` — {len(problems)} seat(s) disagree with the run's registry:\n  "
+          f"{detail}\n"
+          f"  registry: {package_dir(args) / 'taskforce.csv'}\n"
+          f"THE DESCRIPTOR IS AUTHORITATIVE — it is what the harness command is built from, so "
+          f"launching now would bind the DESCRIPTOR's value and the taskforce.csv row would stay "
+          f"a wrong record.\n"
+          f"Fix whichever is wrong: edit the DESCRIPTOR to change what actually binds, or the CSV "
+          f"row to correct the record. Then re-run.\n"
+          f"--force launches on the descriptor's value anyway and says so.", file=sys.stderr)
+    sys.exit(2)
+
+
 def identity_prefix(agent):
     """The shell-env prefix that gives a launched seat its identity (T1). Every command the
     seat then runs resolves `COORD_AGENT` — it never types its own name, and cannot mistype
@@ -3127,6 +3216,10 @@ def cmd_launch(args):
         gate(args, "launch", is_leader, role_desc)
     else:
         launch_gates(args, "launch", is_leader, role_desc, len(workers) or 1)
+    # G-51: the descriptor binds and the registry is a record nothing read until now. Checked on
+    # the DRY-RUN path too — a dry-run exists to show what a real launch would do, and hiding a
+    # divergence from it would make the one command meant for inspection the one that lies.
+    check_bindings(args, workers, "launch")
     if not workers:
         print(f"refused: no worker briefing carries an `agent:` frontmatter key in "
               f"{workers_dir(args)}, so there is no roster to launch.\n"
@@ -3410,6 +3503,12 @@ def cmd_close_seat(args):
     # the pids to verify dead are only readable while the pane still exists (G-10).
     seats = ([w for w in discover_workers(workers_dir(args)) if w["agent"] == args.target]
              if args.renew else [])
+    # G-51: checked BEFORE the seat is closed, not after. A renew that refuses halfway has already
+    # killed the pane — the seat would be gone AND not relaunched, which is worse than either
+    # outcome the check is choosing between. This is the exact path the run's live divergence sits
+    # on: `close --renew` reads the DESCRIPTOR, so a registry re-bind never reaches it.
+    if seats:
+        check_bindings(args, seats, "close --renew")
     old_pane = (row or {}).get("pane") or ""
     old_idents = pane_harness_idents(old_pane) if old_pane else []
     in_place = bool(seats) and renew_in_place(seats[0], old_pane, old_pane in live_panes())
@@ -5109,6 +5208,55 @@ def cmd_selftest(args):
               "WITHOUT a closer seat" in out and not opened
               and not any(t.startswith("closer-theta") for _, t in titles)
               and current_row(rows_t, "theta")["active"] == "no")
+
+        # ---- G-51: the descriptor vs the registry nothing used to read ----
+        # `taskforce.csv` is the run's binding REGISTRY and the kit never opened it, so the two
+        # could disagree silently and permanently — and did: a seat re-bound in the registry after
+        # an owner-departure event still launched on its old model, three appearances in one run.
+        # This does not make the CSV authoritative; it makes a disagreement impossible to launch
+        # through unseen.
+        check("G-51: with NO taskforce.csv the check is a no-op — a legacy `workers/` package has "
+              "no registry and its seats must still launch",
+              taskforce_bindings(ns()) == {})
+        (pkg / "taskforce.csv").write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+            "tf-1,gamma,,opencode,zai-coding-plan/glm-5.2,high,,m0\n"   # matches gamma's briefing
+            "tf-1,delta,,codex,,,,m0\n"                   # blank model/effort = not stated
+            "tf-1,epsilon-x,,claude,sonnet,high,,m0\n",   # a row for a seat with no briefing
+            encoding="utf-8")
+        reg = taskforce_bindings(ns())
+        check("G-51: the registry parses per seat, and a BLANK cell means 'not stated' rather "
+              "than a value — the opencode verification seats legitimately carry no `effort`, and "
+              "treating blank as a value would refuse every one of them",
+              set(reg) == {"gamma", "delta", "epsilon-x"}
+              and reg["delta"]["model"] == "" and reg["delta"]["harness"] == "codex"
+              and binding_divergence({"harness": "codex", "model": "anything", "effort": "low"},
+                                     reg["delta"]) == [])
+        gseat = [w for w in discover_workers(workers_dir(ns())) if w["agent"] == "gamma"][0]
+        check("G-51: a seat AGREEING with its row produces no divergence",
+              binding_divergence(gseat, reg["gamma"]) == [])
+        diverged = dict(reg["gamma"], model="deepseek/deepseek-v4-pro")
+        diff = binding_divergence(gseat, diverged)
+        check("G-51: a disagreement is reported per FIELD with both values, descriptor first",
+              diff == [("model", "zai-coding-plan/glm-5.2", "deepseek/deepseek-v4-pro")])
+        (pkg / "taskforce.csv").write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+            "tf-1,gamma,,opencode,deepseek/deepseek-v4-pro,high,,m0\n", encoding="utf-8")
+        out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True)
+        check("G-51: launch REFUSES the divergent seat, naming both values, both paths, and — the "
+              "part that makes it usable at 3am — WHICH SIDE BINDS",
+              code == 2 and "descriptor says zai-coding-plan/glm-5.2" in out
+              and "taskforce.csv says deepseek/deepseek-v4-pro" in out
+              and "THE DESCRIPTOR IS AUTHORITATIVE" in out and "taskforce.csv" in out
+              and str(pkg) in out)
+        check("G-51: the DRY-RUN is checked too — a dry-run exists to show what a real launch "
+              "would do, so hiding a divergence from it would make the one command meant for "
+              "inspection the one that lies",
+              code == 2)
+        out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True, force=True)
+        check("G-51: --force launches on the DESCRIPTOR's value anyway and says so",
+              code == 0 and "WARNING --force" in out and "binds from its DESCRIPTOR" in out)
+        (pkg / "taskforce.csv").unlink()
 
         # ---- #210 + #230: BOTH gates evaluated, BOTH verdicts reported, no short-circuit ----
         # The watcher must pass --force on EVERY launch (the seed rule gives it DAG-unblock
