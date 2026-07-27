@@ -1558,8 +1558,12 @@ def arm_pid_reaper(idents, delay=4):
 # is keyed by run-id, and a second concurrent run would add its own row rather than corrupt this.
 
 RUNS_INDEX_COLS = ["run-id", "type", "state", "taskforce-ids", "opened", "closed"]
+# `pid`/`pid-starttime`/`tty` are the seat-identity gate's PRE-REGISTERED interface to this writer
+# (ignite/server/seat-identity/identity.js: REQUIRED_IDENTITY_COLUMNS + CORROBORATING_COLUMNS).
+# The PAIR is the identity — starttime is what defeats pid reuse, so the gate refuses a pid alone
+# and explicitly does not accept a degraded mode. `tty` corroborates and never decides.
 SESSIONS_COLS = ["session-id", "seat", "harness", "native-session-id", "workdir",
-                 "recorded", "started", "ended"]
+                 "recorded", "started", "ended", "pid", "pid-starttime", "tty"]
 NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close re-resolves
 
 
@@ -1581,9 +1585,36 @@ def sessions_csv(pkg):
     return pkg / "sessions.csv"
 
 
+def widen_header(header, cols):
+    """(header, changed) — the on-disk header plus any of `cols` it is MISSING, appended in order.
+
+    G-152, and it is the difference between this task shipping and this task looking like it did.
+    `read_csv_table` preserves the on-disk header verbatim, which is correct — a column contract a
+    live reader already keys on must never be reordered or dropped under it. The consequence nobody
+    had measured is that a NEW column then reaches only files that do not yet exist: every selftest
+    fixture builds a fresh file, so the change reads green everywhere and is a silent no-op on
+    run-1, run-2 and every existing package. `G-135` is the same defect at the daemon's SQLite
+    store; two components, two persistence technologies, one blind spot — a schema change verified
+    only where the schema is BORN, never where it LIVES.
+
+    APPEND-ONLY, and that is the whole safety argument: existing columns keep their positions, so
+    a positional reader cannot break (run-1 and run-2 already disagree on column ORDER, which is
+    exactly why re-sorting into SESSIONS_COLS order would corrupt one of them). Nothing is ever
+    renamed or removed here — a column this kit no longer writes (`model`, hand-added to run-2's
+    header and never populated) stays, blank, because deleting it is a different decision with a
+    different owner.
+    """
+    missing = [c for c in cols if c not in header]
+    return (header + missing, bool(missing))
+
+
 def read_csv_table(path, cols):
     """(header, rows). The header is preserved VERBATIM from disk when the file exists — a column
-    contract another seat may already read is never rewritten by a writer that merely appends."""
+    contract another seat may already read is never rewritten by a writer that merely appends.
+
+    Widening an existing header is `widen_header`'s job, taken deliberately at the WRITE sites
+    rather than here: a read must stay a read, or every reader silently rewrites the file it opened.
+    """
     if not path.exists():
         return list(cols), []
     try:
@@ -1674,6 +1705,111 @@ def ensure_run_index(pkg):
     return changed
 
 
+def resolve_live_run(goal):
+    """(run-id, detail) — the goal's CURRENT run, resolved from the goal-level index alone.
+
+    R10: goal-level state must read correctly ACROSS A RUN BOUNDARY. This is the mechanism that
+    makes that possible — one hop from the goal folder, with no knowledge of which run the caller
+    was born in. A sensor that resolves its target this way follows the boundary instead of being
+    pinned to the run it started in; run-1's team-monitor was still writing `run-1/state.json` at
+    19:06 for a run closed at 13:11 precisely because nothing gave it this hop.
+
+    ⚠ R10 RESTS ON R9's ONE-LIVE-RUN GUARANTEE, WHOSE ENFORCEMENT (task 7.77) IS NOT BUILT. So
+    this REFUSES rather than guesses when the guarantee does not hold: zero open runs and two open
+    runs are both reported as such, naming R9. Returning "the first open row" would be right most
+    of the time and silently wrong exactly when the convention has slipped — which, with two
+    writable runs on this box tonight, is not a hypothetical. A resolver that cannot be wrong
+    quietly is the whole point.
+    """
+    path = goal / "runs.csv"
+    header, rows = read_csv_table(path, RUNS_INDEX_COLS)
+    if not path.exists():
+        return "", f"no run index at {path}"
+    idx = {c: i for i, c in enumerate(header)}
+    if "run-id" not in idx or "state" not in idx:
+        return "", f"run index carries no run-id/state column (header: {','.join(header)})"
+    live = [r[idx["run-id"]].strip() for r in (pad_row(r, header) for r in rows)
+            if r[idx["state"]].strip() == "open"]
+    if len(live) == 1:
+        return live[0], ""
+    if not live:
+        return "", (f"no OPEN run in {path} — every run is closed; a goal with no live run has no "
+                    f"current state to read")
+    return "", (f"{len(live)} runs are OPEN in {path} ({', '.join(live)}) — R9 guarantees ONE live "
+                f"run per goal and its enforcement (task 7.77) is NOT BUILT, so this is a real "
+                f"state, not an impossible one. Refusing to pick: goal-level state read against "
+                f"the wrong run is worse than a refusal that names the ambiguity.")
+
+
+def cmd_current_run(args):
+    goal = goal_dir(package_dir(args))
+    run_id, detail = resolve_live_run(goal)
+    if not run_id:
+        print(f"refused: {detail}", file=sys.stderr)
+        sys.exit(1)
+    print(run_id)
+    print(c(f"resolved from {goal / 'runs.csv'} — one hop from the goal folder, so goal-level "
+            f"state follows the run boundary (R10)", C_HINT))
+
+
+def close_run_index(pkg, when=None):
+    """Stamp this run's index row `state=closed` + `closed=<now>`. Returns (ok, detail).
+
+    LEADER RULING #398, adopted verbatim: THE CEREMONY STAYS THE LEADER'S, THE WRITE STOPS BEING
+    THE LEADER'S. The leader decides WHEN a run closes; the kit records THAT it closed. Conflating
+    the decision with the keystrokes is why run-1's closed row is in a leader's handwriting, and
+    why 7.37's criterion — the index resolves the current run WITHOUT HAND MAINTENANCE — was unmet
+    while `ensure_run_index` deliberately refused to stamp `closed` for want of a run-close command.
+    This is that command's writer half.
+
+    Why this is 7.37's and not 7.77's: 7.77 is R9's one-live-run QUEUE rule on the daemon's
+    scheduler. Stamping state/closed is a WRITE TO runs.csv, and 7.37 is the writers half.
+
+    NOT idempotent-by-overwrite: an already-closed run is REFUSED rather than re-stamped, so a
+    second close cannot quietly move a historical timestamp. Re-closing is a correction, and a
+    correction should be visible.
+    """
+    path = runs_index_csv(pkg)
+    if not path.exists():
+        return False, f"no run index at {path} — nothing to close"
+    header, rows = read_csv_table(path, RUNS_INDEX_COLS)
+    header, widened = widen_header(header, RUNS_INDEX_COLS)
+    if widened:
+        rows = [pad_row(r, header) for r in rows]
+    idx = {c: i for i, c in enumerate(header)}
+    if "run-id" not in idx or "state" not in idx:
+        return False, f"run index carries no run-id/state column (header: {','.join(header)})"
+    run_id = pkg.name
+    row = None
+    for r in rows:
+        pad_row(r, header)
+        if r[idx["run-id"]].strip() == run_id:
+            row = r
+    if row is None:
+        return False, f"no index row for {run_id} — it was never opened"
+    if row[idx["state"]].strip() == "closed":
+        return False, (f"{run_id} is ALREADY closed"
+                       + (f" at {row[idx['closed']].strip()}" if "closed" in idx else "")
+                       + " — refusing to re-stamp; a correction must be visible, not silent")
+    row[idx["state"]] = "closed"
+    if "closed" in idx:
+        row[idx["closed"]] = when or now()
+    write_csv_table(path, header, rows)
+    return True, f"{run_id} closed at {row[idx['closed']] if 'closed' in idx else '(no column)'}"
+
+
+def cmd_close_run(args):
+    gate(args, "close-run", lambda a: a == "leader", "leader's alone (it ends the run's index row)")
+    pkg = package_dir(args)
+    ok, detail = close_run_index(pkg)
+    if not ok:
+        print(f"refused: {detail}", file=sys.stderr)
+        sys.exit(1)
+    print(f"runs.csv: {detail}")
+    print(c(f"the index now resolves the goal's current run without hand maintenance "
+            f"({runs_index_csv(pkg)})", C_HINT))
+
+
 def claude_projects_dir():
     """Evaluated at CALL time, not import time, so a test can point HOME at a sandbox and have the
     resolver follow it. A module constant computed from Path.home() at import silently ignores the
@@ -1747,7 +1883,51 @@ def session_trace_safe(fn, *a, **kw):
         return None, f"{type(exc).__name__}: {exc}"
 
 
-def session_open(args, w, since=None, wait=NATIVE_ID_WAIT):
+def proc_stat_fields(pid):
+    """(starttime, tty_nr) from /proc/<pid>/stat as STRINGS, or ('', '').
+
+    Parsed from the LAST ')' rather than by splitting the line, because field 2 (comm) is
+    parenthesised and may itself contain spaces and parentheses — the classic way this parse goes
+    quietly wrong. Field numbering matches the daemon's own reader
+    (ignite/server/seat-identity/identity.js readProcStat), so both sides of the contract compute
+    the pair the same way; a starttime that disagreed by one field would refuse every seat.
+    """
+    try:
+        raw = Path(f"/proc/{int(pid)}/stat").read_text(encoding="utf-8", errors="replace")
+    except (OSError, ValueError, TypeError):
+        return "", ""
+    close = raw.rfind(")")
+    if close < 0:
+        return "", ""
+    rest = raw[close + 2:].split()
+    if len(rest) < 22 - 3 + 1:
+        return "", ""
+    return rest[22 - 3], (rest[7 - 3] if len(rest) > 7 - 3 else "")
+
+
+def pane_identity(pane):
+    """(pid, pid-starttime, tty) for a seat's pane — all strings, all '' when unresolvable.
+
+    `tty` is the NUMERIC tty_nr, not the /dev/pts path: the gate corroborates against
+    /proc/<pid>/stat's tty_nr field, so a device path here would never compare equal and would
+    look like a tty mismatch on every seat.
+
+    Never raises and never guesses. An unresolvable pane yields blanks, and `session_open`'s note
+    tells the operator — a blank identity is honest; a fabricated one authenticates an impostor.
+    """
+    if not pane:
+        return "", "", ""
+    try:
+        pid = tmux_pane_pid(pane)
+    except Exception:                                          # noqa: BLE001 — never break a boot
+        return "", "", ""
+    if not pid:
+        return "", "", ""
+    start, tty = proc_stat_fields(pid)
+    return (str(pid), start, tty) if start else ("", "", "")
+
+
+def session_open(args, w, since=None, wait=NATIVE_ID_WAIT, pane=None):
     """Append this seat's session row the moment it boots. Returns (session-id, note).
 
     `note` is non-empty when a field could not be resolved — the caller PRINTS it. A blank cell
@@ -1755,19 +1935,33 @@ def session_open(args, w, since=None, wait=NATIVE_ID_WAIT):
 
     `wait` is a parameter and not a constant read inside so the self-test can drive the resolver
     to its unresolved branch without sleeping through the real boot timeout.
+
+    `pane` carries the seat's tmux pane so the row can record the IDENTITY PAIR the seat-identity
+    gate decides on. It is the PANE's pid, deliberately, not this process's: every process the seat
+    ever runs is a descendant of the pane, and the gate matches the registered pid against the
+    CALLER'S ANCESTRY. Recording the launcher's own pid would name a process that is not an
+    ancestor of the seat and would refuse every legitimate occupant.
     """
     pkg = package_dir(args)
     native = ""
     if w.get("harness") == "claude":
         native = claude_native_session_id(w.get("cwd"), since, wait=wait)
+    pid, pid_start, tty = pane_identity(pane)
     rec = {"session-id": "", "seat": w.get("agent", ""), "harness": w.get("harness", ""),
            "native-session-id": native, "workdir": str(w.get("cwd") or ""),
            # `recorded` is the pipe-pane marker of task 7.31, which is NOT BUILT (no pipe-pane
            # anywhere in this file). The column stays, blank, rather than being invented.
-           "recorded": "", "started": now(), "ended": ""}
+           "recorded": "", "started": now(), "ended": "",
+           "pid": pid, "pid-starttime": pid_start, "tty": tty}
     with coord_lock(base_dir(args)):
         path = sessions_csv(pkg)
         header, rows = read_csv_table(path, SESSIONS_COLS)
+        # G-152: the widen happens HERE, on the one path every seat boot takes, so an EXISTING
+        # trace gains the identity columns instead of the change being a no-op everywhere it
+        # matters. Append-only, so no live reader's column positions move.
+        header, widened = widen_header(header, SESSIONS_COLS)
+        if widened:
+            rows = [pad_row(r, header) for r in rows]
         idx = {c: i for i, c in enumerate(header)}
         taken = {r[idx["session-id"]].strip() for r in rows
                  if "session-id" in idx and idx["session-id"] < len(r)}
@@ -4779,7 +4973,7 @@ def launch_seat(w, args, target, prompt=None, pane=None):
     # seat, which is exactly the "one seat, several sessions within one run" the KG names.
     # Only AFTER the harness is verified up: a row for a seat that never booted is the G-11 lie
     # in a second file.
-    res, terr2 = session_trace_safe(session_open, args, w, since=since)
+    res, terr2 = session_trace_safe(session_open, args, w, since=since, pane=pane)
     if terr2:
         print(c(f"WARNING {w['agent']}: the seat IS UP but its sessions.csv row was NOT written "
                 f"— {terr2}. The trace is incomplete; the seat is fine.", C_DEAD), file=sys.stderr)
@@ -8362,7 +8556,7 @@ HELP_EPILOG = """everyday
 leader
   launch      open one tmux seat per worker briefing and start its harness
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat / reap  mechanical close, kill the pane (--renew) · free unclosed panes (--go)
+  close-seat / reap / close-run / current-run  close a seat (--renew) · free panes (--go) · end / resolve the run
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
@@ -8618,6 +8812,29 @@ def build_parser():
     s.add_argument("--no-export", action="store_true", help="skip the transcript export (e.g. pane already dead)")
     add_identity_flags(s)
     s.set_defaults(func=cmd_close_seat)
+
+    s = command(
+        "close-run",
+        "Stamp this run's row in the goal-level runs.csv: state=closed, closed=<now>.\n"
+        "The leader still DECIDES when a run closes; this records THAT it closed, so the run\n"
+        "index resolves the goal's current run with nobody maintaining it by hand (task 7.37).",
+        "example:\n"
+        "  coordinate close-run\n"
+        "next: coordinate --package <next-run> launch — the new run opens its own index row")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_close_run)
+
+    s = command(
+        "current-run",
+        "Which run of this goal is LIVE, resolved from the goal-level runs.csv alone (R10).\n"
+        "One hop from the goal folder, so a sensor follows a run boundary instead of staying\n"
+        "pinned to the run it was born in. Refuses — never guesses — when zero or several runs\n"
+        "are open, because R9's one-live-run enforcement (task 7.77) is not built yet.",
+        "example:\n"
+        "  coordinate current-run\n"
+        "next: coordinate --run <that run> workers — read the live run's roster")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_current_run)
 
     s = command(
         "reap",
