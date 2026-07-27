@@ -239,9 +239,26 @@ tools:
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/selfheal-room.py
       - --session
       - build-core-daemon-mvp
+      # G-50: a room is alive when the session EXISTS *and* contains what it exists to contain.
+      # Without this, a recovery that creates the session and then fails to boot its agent
+      # leaves a room that exists and is EMPTY — and the detector no-ops on it forever.
+      - --require-cmd
+      - claude
+      - --require-cmd
+      - opencode
+      - --require-cmd
+      - codex
       - --budget-s
       - "600"
       - --
+      # NOT bare `coordinate launch` — that argv CANNOT recover a dead room and, worse, would
+      # guess. `launch` contains zero `new-session` calls (it only opens a window in an EXISTING
+      # session), and it resolves its target from COORD_LAUNCH_TARGET or TMUX_PANE, neither of
+      # which a daemon-fired exec has; with both unset tmux resolves the empty target to the
+      # MOST RECENT session — measured answering `build-core-daemon-mvp`, the LIVE room.
+      # recover-room.py creates the session, resolves the target EXPLICITLY, re-reads it to prove
+      # it is the room asked for, fails loud rather than falling through, and verifies the seat's
+      # harness BY PID before calling it recovered.
       - /usr/bin/python3
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/recover-room.py
       - --session
@@ -261,19 +278,33 @@ tools:
       - /usr/bin/python3
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/selfheal-room.py
       - --session
-      - tw-room-probe
+      - tw-room2
+      # SAME two-fact liveness test as the live entry, same flag, same code path.
+      - --require-cmd
+      - claude
+      - --require-cmd
+      - opencode
+      - --require-cmd
+      - codex
       - --budget-s
-      - "120"
+      - "600"
       - --
-      - /usr/bin/tmux
-      - new-session
-      - -d
-      - -s
-      - tw-room-probe
-      - -c
-      - /tmp
-      - sleep
-      - "900"
+      # The twin's recovery is the SAME PROGRAM as the live entry's, pointed at a throwaway
+      # session, package and seat. It used to be `tmux new-session`, and once the live entry
+      # moved to recover-room.py the pair stopped being twins: a staged-failure probe would
+      # have exercised a program the live entry no longer runs, and C3's room evidence would
+      # have covered the twin's action instead of the live one. That is G-41 a level up —
+      # a probe that is a DIFFERENT MECHANISM wearing the same name. Integrator's catch, #363.
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/recover-room.py
+      - --session
+      - tw-room2
+      - --package
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/runs/run-1/seats/jobs-builder/throwaway/pkg-room
+      - --seat
+      - tw-recovery
+      - --coord
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/coord.py
 
   # ── task 7.72 (issues.md G-2) — watch-heartbeat freshness + relaunch ──────
   # LIVE target: the run's only sensor. A heartbeat is TWO facts — the timestamp AND that
@@ -291,6 +322,9 @@ tools:
       - --loop
       - "10"
       - --notify
+      # The relaunch must reproduce the sensor's OWN invocation. The live loop runs with
+      # --mem-floor-mb 2800; a self-heal that silently dropped it would resurrect a WEAKER
+      # sensor than the one that died, and the run would never notice the downgrade.
       - --watch-arg=--mem-floor-mb
       - --watch-arg=2800
       - --budget-s
@@ -308,6 +342,10 @@ tools:
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/watch.py
       - --loop
       - "10"
+      # The SAME passthrough as the live entry, and it is not cosmetic: the relaunch path is
+      # only ever exercised by this twin (the live entry no-ops while the sensor is healthy),
+      # so without these the staged-failure probe would run an argv that does not contain the
+      # thing being proved. Integrator's catch, #303.
       - --watch-arg=--mem-floor-mb
       - --watch-arg=2800
       - --budget-s
