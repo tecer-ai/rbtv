@@ -96,7 +96,10 @@ def harness_pids(pane, socket=None):
         if len(parts) < 3:
             continue
         pid, ppid, argv = parts
-        if ppid == root and any(h in argv for h in ("claude", "codex", "opencode")):
+        # pane ROOT or its child: a harness typed into a shell is a child of pane_pid, but a
+        # command tmux was given directly IS pane_pid. A children-only scan is blind to the
+        # second shape (measured in selfheal-room.py's own probe, 2026-07-27 05:55).
+        if (ppid == root or pid == root) and any(h in argv for h in ("claude", "codex", "opencode")):
             kids.append((pid, argv[:120]))
     return kids
 

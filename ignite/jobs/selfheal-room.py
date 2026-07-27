@@ -64,6 +64,47 @@ def log(msg):
     print(f"selfheal-room: {msg}", flush=True)
 
 
+def panes_of(session, socket=None):
+    """EVERY pane in the session. `-s` is load-bearing — without it `list-panes -t <session>`
+    returns only the session's CURRENT WINDOW, and a seat that booted into a new window is
+    invisible (measured 2026-07-27 05:48; it produced a failure report on a success)."""
+    tmux = shutil.which("tmux")
+    if not tmux:
+        return []
+    cmd = [tmux] + (["-L", socket] if socket else []) + \
+          ["list-panes", "-s", "-t", f"={session}", "-F", "#{pane_pid}"]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    return [l.strip() for l in r.stdout.splitlines() if l.strip()] if r.returncode == 0 else []
+
+
+def room_contains(session, wanted, socket=None):
+    """Processes under the session's panes matching any of `wanted`. The room's SECOND fact.
+
+    G-50: judging a room by SESSION EXISTENCE alone means a recovery that creates the session
+    and then fails to boot an agent leaves a room that exists and is EMPTY — and the detector
+    no-ops on it forever. On an unattended night an empty room is nearly as bad as a dead one
+    and is invisible in exactly the way a dead one is not. Same shape as p-heartbeat-is-two-facts:
+    a room is alive when the session exists AND it contains what it exists to contain."""
+    pane_pids = set(panes_of(session, socket))
+    if not pane_pids:
+        return []
+    ps = subprocess.run(["ps", "-eo", "pid,ppid,args"], capture_output=True, text=True)
+    found = []
+    for line in ps.stdout.splitlines()[1:]:
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid, ppid, argv = parts
+        # BOTH the pane's own root process AND its children. When tmux is given a command
+        # directly (`new-window "sleep 900"`) the command IS the pane_pid, with no shell
+        # between; when a harness is typed into a shell it is a CHILD of the pane_pid. A
+        # children-only check sees the second and is blind to the first — measured
+        # 2026-07-27 05:55, where an inhabited room read as EMPTY.
+        if (ppid in pane_pids or pid in pane_pids) and any(w in argv for w in wanted):
+            found.append((pid, argv[:90]))
+    return found
+
+
 def session_alive(session, socket=None):
     """True when a tmux server is running AND holds a session with this exact name.
 
@@ -89,6 +130,10 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="decide and report; run no recovery")
     ap.add_argument("recovery", nargs=argparse.REMAINDER,
                     help="-- followed by the recovery argv (no shell; run verbatim)")
+    ap.add_argument("--require-cmd", action="append", default=[],
+                    help="a room is only HEALTHY if a process under its panes matches one of "
+                         "these, repeatable (G-50: a session that exists but is EMPTY is not a "
+                         "recovered run). Omit to judge on session existence alone.")
     ap.add_argument("--tmux-socket", default=None,
                     help="tmux -L socket name; omit for the default socket the room uses. "
                          "MUST match the socket the recovery argv targets, or the detector "
@@ -117,9 +162,25 @@ def main():
     alive = session_alive(args.session, args.tmux_socket)
     if alive is None:
         return 2
-    if alive:
+    if alive and not args.require_cmd:
         log(f"HEALTHY — tmux session '{args.session}' is alive. No-op.")
         return 0
+    if alive:
+        inhabitants = room_contains(args.session, args.require_cmd, args.tmux_socket)
+        if inhabitants:
+            log(f"HEALTHY — session '{args.session}' is alive AND inhabited: "
+                + "; ".join(f"pid {pid} {argv}" for pid, argv in inhabitants) + ". No-op.")
+            return 0
+        # An EMPTY room is not a healthy room, and it is not a dead one either. Re-running the
+        # dead-room recovery here would stack agents into a half-built room, so this reports
+        # and returns non-zero rather than acting. Deliberate: the operator decides.
+        log(f"EMPTY ROOM — session '{args.session}' EXISTS but nothing under its panes matches "
+            f"{args.require_cmd}. This is NOT healthy and NOT the dead-room case: a recovery that "
+            f"created the session and failed to boot its agent leaves exactly this state, and "
+            f"judging on session existence alone would no-op on it forever (G-50). Firing NO "
+            f"recovery — re-running it would stack agents into a half-built room. Fix by hand: "
+            f"{' '.join(recovery)}")
+        return 1
 
     # The recovered room must OUTLIVE this job's exec. A tmux server (or a harness)
     # started as a plain child of the job goes down with the job's cgroup — proven on
