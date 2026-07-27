@@ -5,6 +5,13 @@ The watcher seat's tool (deterministic-first: the SCRIPT measures, the watcher a
 it and relays judgment). One pass checks every ACTIVE roster seat and reports:
 
   liveness   registered pane still exists (a DEAD pane means wakes cannot reach the seat)
+  ghostrow   a roster-ACTIVE row whose pane runs NO harness process (PROP-11, leader ruling
+             2026-07-27): the row claims a seat that is not there, so its work is stopped and
+             every wake sent to it is typed into a bare shell. It is the gap common to five
+             defects in one night — a closer that checked itself in from a shell, and a watcher
+             agent that died twice with its row still reading ACTIVE. Checked HERE and in no
+             agent, because this detached loop outlives every agent, INCLUDING the watcher's own
+             row (the one row nothing else can report on). Notify only, never act.
   activity   minutes since the pane's visible content last changed (content-hash based, so it
              works for panes sharing a window, where tmux window_activity cannot distinguish)
   context    for claude-harness seats: % of the context window used, computed from the seat's
@@ -410,6 +417,38 @@ def run_pass(args):
     sysline = check_system(args, sysstate, notes)
     leftover_lines = check_leftover_windows(rows, seats, sysstate, notes)
 
+    # PROP-11 (leader ruling 2026-07-27, msg #125): reconcile every roster-ACTIVE row against the
+    # PROCESS TABLE. Nothing did, and it is the common half of five defects in one night — a row
+    # said ACTIVE while its pane held only a shell, twice on the same seat. It belongs HERE, in the
+    # detached loop, and in no agent: this loop was the only thing that survived tonight, still
+    # stamping heartbeats while the agent whose job was to watch had died of the very gap it had
+    # named. An agent that must remember to look IS vigilance; prevention has to be structural.
+    # NOTIFY ONLY — the loop never closes, kills, or relaunches anything (leader keeps lifecycle).
+    # The WATCHER'S OWN ROW is checked too, and it is the only check applied to it: watch.py
+    # outlives the watcher agent, so it is the one thing positioned to report that death.
+    for r in rows:
+        if r["active"] != "yes":
+            continue
+        agent, pane = r["agent"], r["pane"]
+        if pane and pane in live:
+            hp, verifiable = coord.pane_harness_pids(pane)
+            st = state.get(agent, {})
+            if st.get("pane") != pane:
+                st = {"pane": pane}
+            if verifiable and not hp:
+                report.append(f"{agent:<18} GHOSTROW pane {pane} has no harness process")
+                if not st.get("notified_ghostrow"):
+                    notes.append(
+                        f"watch: '{agent}' is ACTIVE in the roster but pane {pane} runs NO "
+                        f"harness process — the row claims a seat that is not there. Its work is "
+                        f"stopped and every wake sent to it is typed into a bare shell. Inspect "
+                        f"(tmux capture-pane -p -t {pane}), then either relaunch or close it: "
+                        f"{coord.coord_invocation(args)} close-seat {agent} --renew")
+                    st["notified_ghostrow"] = True
+            elif hp:
+                st.pop("notified_ghostrow", None)
+            state[agent] = st
+
     for r in rows:
         if r["active"] != "yes" or r["agent"] == "watcher":
             continue
@@ -566,6 +605,12 @@ def cmd_selftest():
     # selftest exercises the SAME function `coordinate send` calls (8(b)), not a local copy.
     pane_titles = {}
     coord.pane_title = lambda pane: pane_titles.get(pane, "")
+    # PROP-11 reads the PROCESS TABLE through coord. Unstubbed, this suite would judge fixture pane
+    # ids against whatever runs on the tester's box — and pane "%1" exists on the box this was
+    # written on. None = unverifiable (the fail-safe default), {} entries set per check.
+    pane_harness = {}
+    coord.pane_harness_pids = lambda pane: (([], False) if pane_harness.get(pane) is None
+                                            else (list(pane_harness[pane]), True))
     # Every coord call below resolves a package, and resolving a package REGISTERS its folder
     # name as a run tag. Unredirected, this selftest wrote a `pkg` tag pointing at its own temp
     # directory into the owner's real ~/.config/rbtv/coordinate-runs.json — a test that mutates
@@ -838,6 +883,46 @@ def cmd_selftest():
         check("PROP-10: fires again once the wave has closed and its window still holds panes",
               any("wave-x" in n and "kill-window" in n for n in notes))
         win_map.clear()
+
+        # ---- PROP-11: roster-ACTIVE rows reconciled against the process table (leader #125) ----
+        # The gap common to five defects in one night: nothing checked that a row claiming ACTIVE
+        # still had a harness behind it. A closer checked itself in from a bare shell and was
+        # believed; the watcher agent died twice with its row still reading ACTIVE.
+        pane_harness["%1"] = []          # alpha's pane: shell only, no harness
+        notes = run_pass(ns(context_pct=90))
+        check("PROP-11: a roster-ACTIVE row whose pane runs NO harness process is flagged "
+              "GHOSTROW and the leader is told — the roster is the run's map of what is alive, "
+              "and until now nothing ever checked it against the process table",
+              any("alpha" in n and "NO harness process" in n for n in notes))
+        check("PROP-11: the notification says what it costs (work stopped, wakes typed into a "
+              "bare shell) and names the exact remedy — never acts itself",
+              any("typed into a bare shell" in n and "close-seat alpha --renew" in n
+                  for n in notes))
+        notes = run_pass(ns(context_pct=90))
+        check("PROP-11: armed once per seat/pane, like every other flag",
+              not any("NO harness process" in n for n in notes))
+        pane_harness["%1"] = [4242]      # a harness came back up
+        run_pass(ns(context_pct=90))
+        pane_harness["%1"] = []
+        notes = run_pass(ns(context_pct=90))
+        check("PROP-11: re-arms once a harness is seen again, so a second death is reported",
+              any("NO harness process" in n for n in notes))
+        pane_harness["%1"] = None        # unverifiable
+        notes = run_pass(ns(context_pct=90))
+        check("PROP-11: 'cannot tell' is NOT 'nothing running' — an unreadable process table "
+              "raises nothing (fail-safe, same asymmetry as coord's checkin guard)",
+              not any("NO harness process" in n for n in notes))
+        coord.cmd_checkin(argparse.Namespace(package=str(pkg), base=None, workers_dir=None,
+                                             agent="watcher", summary="w", pane="%3"))
+        pane_harness["%3"] = []
+        notes = run_pass(ns(context_pct=90))
+        check("PROP-11: the WATCHER'S OWN row is reconciled too — this loop outlives the watcher "
+              "agent, so it is the only thing positioned to report that death (the watcher named "
+              "this exact gap to the owner and then died of it)",
+              any("watcher" in n and "NO harness process" in n for n in notes))
+        coord.cmd_checkout(argparse.Namespace(package=str(pkg), base=None, workers_dir=None,
+                                              agent="watcher", no_export=True))
+        pane_harness.clear()
 
         # ---- P32: every pass stamps a heartbeat, so a dead loop is visible from outside ----
         run_pass(ns(context_pct=90))
