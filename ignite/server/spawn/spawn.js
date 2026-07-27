@@ -27,6 +27,7 @@ const {
   E_UNKNOWN_PROFILE,
   E_UNKNOWN_MODE,
   E_HEADED_NOT_CAPABLE,
+  E_PROFILE_HALVES_UNSUPPORTED,
   E_FLAG_INJECTION,
   E_WORKDIR_ESCAPE,
   E_WORKDIR_MISSING,
@@ -153,6 +154,42 @@ function resolveSandbox(sandbox, workdir) {
     }
   }
   return resolved;
+}
+
+// ── G-144: this spawn path resolves `exec:` ONLY — refuse a half-shaped profile BY NAME ──────
+//
+// Task 7.42 ruled the caged/portable half shape (`command: { caged:, portable: }`,
+// #d-profile-source-unification (4)) and shipped the shared resolver
+// (launch-profiles/resolveProfile) with ONE live consumer — which is not this module. So a
+// profile declaring `command:` instead of `exec:` PASSES config load (profiles.js accepts either
+// shape) and then reads `.prompt` / `.argv` off `undefined`, taking the spawn path down with a
+// bare `TypeError: Cannot read properties of undefined` on a config the daemon booted with.
+// **Config validation is not a backstop here** — it was never asked to be: the shape is legal,
+// it is this CONSUMER that cannot resolve it.
+//
+// THIS IS A TYPED REFUSAL, NOT HALF SUPPORT. Routing this module through resolveProfile() is the
+// root-cause shape and belongs with its ruled consumers (7.43 / 7.54, both unbuilt); doing it
+// here would be reimplementing half selection in the one place 7.42 exists to remove it from.
+// What this removes is the crash and the silence — the daemon now says WHICH profile and WHICH
+// halves, so the operator reads a refusal instead of a stack.
+//
+// ⚠ CALLED AT BOTH DOORS IMMEDIATELY AFTER THE PROFILE LOOKUP, ahead of every request-, workdir-
+// and identity-level gate. Placement is the load-bearing part, not the throw: further down, a
+// half-shaped profile launched at a bad workdir would refuse with E_WORKDIR_ESCAPE and the
+// operator would fix the workdir, retry, and hit the real refusal one round trip later — a
+// correct-but-masking refusal is its own defect. It is deliberately NOT reused as a config-load
+// check: a half-shaped profile is legal to LOAD and this daemon must keep booting with one.
+function requireExecShape(profile, profileName) {
+  if (profile.exec) return;
+  const halves = profile.command ? Object.keys(profile.command) : [];
+  throw new SpawnError(
+    E_PROFILE_HALVES_UNSUPPORTED,
+    `profile ${profileName} declares command halves (${halves.join(', ') || 'none'}) and no exec block — ` +
+    `the daemon spawn path resolves \`exec:\` only and does not select a half (that is the shared ` +
+    `launch-profile resolver's job, wired at tasks 7.43/7.54). REFUSING rather than spawning a ` +
+    `half-resolved session.`,
+    { profile: profileName, halves },
+  );
 }
 
 function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot) {
@@ -284,6 +321,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       throw new SpawnError(E_UNKNOWN_PROFILE, `unknown launch profile: ${profileName}`, { profile: profileName });
     }
     const profile = config.profiles[profileName];
+    requireExecShape(profile, profileName); // G-144 — door 1 (composeArgv's `profile.exec`)
 
     if (!SESSION_MODES.has(sessionMode)) {
       throw new SpawnError(E_UNKNOWN_MODE, `invalid session_mode: ${sessionMode}`, { sessionMode });
@@ -404,6 +442,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       throw new SpawnError(E_UNKNOWN_PROFILE, `unknown profile: ${profileName}`, { profile: profileName });
     }
     const profile = config.profiles[profileName];
+    requireExecShape(profile, profileName); // G-144 — door 2 (the `profile.exec.argv` read below)
     if (!seatDir) {
       throw new SpawnError(E_BAD_REQUEST, 'seat spawn requires seatDir — the seat descriptor folder supplies role/briefing/workdir (R7)', { profile: profileName });
     }

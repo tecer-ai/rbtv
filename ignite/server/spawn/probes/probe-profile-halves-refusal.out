@@ -1,0 +1,15 @@
+probe: probe-profile-halves-refusal
+started: 2026-07-27T21:54:33.996Z
+command: node probes/probe-profile-halves-refusal.js
+shipped config baseline sha256: 01e5e089c20bc0f6431ae2a067ab1138dce41e36ffc779f80c4ea1076ebbee0a
+(1) CONTROL: the ruled half shape PASSES config load — 'exec' in profile = false, halves = [caged, portable]
+(2) CONTROL: exec-shaped profile passes the guard and lands on the LATER E_WORKDIR_ESCAPE — the guard discriminates, and nothing was spawned
+(3) spawn()      -> E_PROFILE_HALVES_UNSUPPORTED: profile halves-only declares command halves (caged, portable) and no exec block — the daemon spawn path resolves `exec:` only and does not select a half (that is the shared launch-profile resolver's job, wired at tasks 7.43/7.54). REFUSING rather than spawning a half-resolved session.
+(4) spawnSeat()  -> E_PROFILE_HALVES_UNSUPPORTED: profile halves-only declares command halves (caged, portable) and no exec block — the daemon spawn path resolves `exec:` only and does not select a half (that is the shared launch-profile resolver's job, wired at tasks 7.43/7.54). REFUSING rather than spawning a half-resolved session.
+(5) details: {"profile":"halves-only","halves":["caged","portable"]}
+(6) shipped config byte-identical after the run: 01e5e089c20bc0f6431ae2a067ab1138dce41e36ffc779f80c4ea1076ebbee0a
+RESULT: a half-shaped profile is refused by NAME at both spawn doors; the guard discriminates; the shipped config is untouched.
+status: PASS
+exit: 0
+wall_ms: 17
+ended: 2026-07-27T21:54:34.013Z

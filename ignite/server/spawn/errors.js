@@ -28,6 +28,15 @@ const {
 
 const E_UNKNOWN_MODE = 'E_UNKNOWN_MODE';
 const E_HEADED_NOT_CAPABLE = 'E_HEADED_NOT_CAPABLE';
+// G-144: the profile is WELL-FORMED — it declares the 7.42 caged/portable halves
+// (`command: { caged:, portable: }`, #d-profile-source-unification (4)) — and this DAEMON spawn
+// path resolves `exec:` only. Daemon-only by design, which is why it lives here and not in
+// launch-profiles/errors.js: the SHARED resolver handles halves fine (that is what it is for);
+// what cannot is spawn.js, and only until its ruled consumers (7.43/7.54) wire it through
+// resolveProfile(). Before this code existed the same condition read `profile.exec.argv` off
+// `undefined` and took the spawn path down with an untyped TypeError — on a config the daemon
+// had loaded cleanly, so config validation was no backstop.
+const E_PROFILE_HALVES_UNSUPPORTED = 'E_PROFILE_HALVES_UNSUPPORTED';
 const E_UNKNOWN_REQUEST_KEY = 'E_UNKNOWN_REQUEST_KEY';
 const E_SESSION_NOT_FOUND = 'E_SESSION_NOT_FOUND';
 const E_CARRIER_FAILED = 'E_CARRIER_FAILED';
@@ -95,6 +104,7 @@ module.exports = {
   E_UNKNOWN_PROFILE,
   E_UNKNOWN_MODE,
   E_HEADED_NOT_CAPABLE,
+  E_PROFILE_HALVES_UNSUPPORTED,
   E_FLAG_INJECTION,
   E_WORKDIR_ESCAPE,
   E_WORKDIR_MISSING,
