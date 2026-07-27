@@ -721,7 +721,20 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       throw new SpawnError(E_CARRIER_FAILED, `cannot kill session with unknown carrier`, { execId, carrier: row.carrier });
     }
 
-    heartStore.updateExecutionStatus(execId, { status: 'killed', endedAt: new Date() });
+    // 7.46: killing a session ends BOTH levels, and this is where the legacy conflation is still
+    // visible. `killed` is a SESSION word, but it stays on the turn row because dispatch.js reads
+    // it back and the inspect surface exposes it — retiring it is a runtime change, not the
+    // bookkeeping this task is. What is new is that the session-level kill is now recorded where
+    // it belongs instead of only being spelled on a turn.
+    const killedAt = new Date();
+    const killedExec = heartStore.updateExecutionStatus(execId, { status: 'killed', endedAt: killedAt });
+    if (killedExec && killedExec.session_pk) {
+      heartStore.closeSession(killedExec.session_pk, {
+        status: 'killed',
+        reason: `kill-session on turn ${execId}`,
+        closedAt: killedAt,
+      });
+    }
     return { execId, killed: result.killed, signal: result.signal };
   }
 

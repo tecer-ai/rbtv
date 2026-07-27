@@ -204,13 +204,68 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     return heartStore.countAutomaticChainRecycles({ execId, markerKeys: AUTOMATIC_MARKER_KEYS });
   }
 
-  function liveExecutions() {
+  // ── Task 7.46 · TWO readers, because there are two questions and they were never the same one.
+  //
+  // Before the split there was one function reading turn status, and the crash sweep (is the
+  // PROCESS there?) and the agent cap (how many SESSIONS are running?) both asked their
+  // session-level question of it. That is the inference the split exists to remove.
+  //
+  // They return the SAME SET today and must: every session the daemon spawns is a session with
+  // exactly one turn (R16), so 1:1 holds and behaviour is unchanged — that degeneracy is what
+  // keeps the existing ticker probes green. What changed is that the two answers now come from
+  // two places, so when a session outlives its turn they diverge correctly instead of one
+  // silently standing in for the other.
+
+  // TURN level — is the WORK in flight? Reads jobs_log.status.
+  function liveTurns() {
     return heartStore.listExecutionsByStatus('running')
       .concat(heartStore.listExecutionsByStatus('launching'));
   }
 
+  // SESSION level — is the PROCESS there? Membership is decided by `sessions.status = 'alive'` and
+  // by nothing else; the rows come back as TURN rows only because the carrier is keyed by exec_id
+  // and the sweep needs pid / unit_name / log_path off them.
+  function liveSessionTurns() {
+    return heartStore.listTurnsOfLiveSessions();
+  }
+
+  // 7.46 · the ticker's own terminal writes end BOTH levels, explicitly and in that order.
+  //
+  // These are the paths where the ticker itself knows the process is over — a launch that threw, an
+  // empty argv, a send-message that needed no process at all. The turn ends AND the session ends,
+  // and both are written; nothing is inferred from the other. (The agent paths do not come through
+  // here: a real agent's turn ends with a completion message, which the store handles.)
+  //
+  // Without this the session would stay `alive` forever and the agent cap would count ghosts — the
+  // failure mode of adding a level and only remembering to close one of them.
+  function endTurnAndSession(execId, { status, endedAt, reason }) {
+    const exec = heartStore.updateExecutionStatus(execId, { status, endedAt });
+    if (exec && exec.session_pk) {
+      heartStore.closeSession(exec.session_pk, {
+        status: status === 'done' ? 'closed' : 'crashed',
+        reason,
+        closedAt: endedAt,
+      });
+    }
+    return exec;
+  }
+
+  // A turn can now reach a set from two directions (its session is alive AND its own status is
+  // `stalled`). Sweeping it twice would record two completions for one exit, so the union is
+  // deduped by exec_id rather than left to the caller to remember.
+  function dedupeByExecId(rows) {
+    const seen = new Set();
+    const out = [];
+    for (const r of rows) {
+      if (seen.has(r.exec_id)) continue;
+      seen.add(r.exec_id);
+      out.push(r);
+    }
+    return out;
+  }
+
   function findLiveExecutionForThread(thread) {
-    for (const row of liveExecutions()) {
+    for (const row of liveTurns()) {
       if (row.thread === thread) return row;
     }
     return null;
@@ -416,7 +471,9 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       }
     }
 
-    const liveAgentSessions = liveExecutions().filter(r => r.action_type === 'launch-agent').length;
+    // 7.46: the cap counts live SESSIONS — it always did, in its own name; it just had to read
+    // turn status to get the number. Now it reads the session table.
+    const liveAgentSessions = liveSessionTurns().filter(r => r.action_type === 'launch-agent').length;
     if (liveAgentSessions >= cfg.max_live_agent_sessions) {
       actions.push({ phase: 'dispatch', action: 'defer', queueId: queueRow.queue_id, reason: 'global-cap' });
       return;
@@ -543,7 +600,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         });
       }
     } catch (err) {
-      heartStore.updateExecutionStatus(exec.exec_id, { status: 'failed', endedAt: new Date() });
+      endTurnAndSession(exec.exec_id, { status: 'failed', endedAt: new Date(), reason: `launch threw (${actionName})` });
       actions.push({ phase: 'dispatch', action: `${actionName}-failed`, execId: exec.exec_id, error: err.message });
     }
   }
@@ -588,7 +645,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     const workdir = args.workdir || cc.defaultWorkdir;
     const argv = Array.isArray(tool.argv) ? tool.argv : (tool.command ? [tool.command] : []);
     if (argv.length === 0) {
-      heartStore.updateExecutionStatus(exec.exec_id, { status: 'failed', endedAt: new Date() });
+      endTurnAndSession(exec.exec_id, { status: 'failed', endedAt: new Date(), reason: 'empty argv (fire-tool)' });
       actions.push({ phase: 'dispatch', action: 'fire-tool-failed', execId: exec.exec_id, error: 'empty argv' });
       return;
     }
@@ -614,7 +671,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     const workdir = args.workdir || cc.defaultWorkdir;
     const argv = Array.isArray(workflow.argv) ? workflow.argv : (workflow.command ? [workflow.command] : []);
     if (argv.length === 0) {
-      heartStore.updateExecutionStatus(exec.exec_id, { status: 'failed', endedAt: new Date() });
+      endTurnAndSession(exec.exec_id, { status: 'failed', endedAt: new Date(), reason: 'empty argv (start-workflow)' });
       actions.push({ phase: 'dispatch', action: 'start-workflow-failed', execId: exec.exec_id, error: 'empty argv' });
       return;
     }
@@ -638,10 +695,10 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         status: args.status || null,
         createdAt: now,
       });
-      heartStore.updateExecutionStatus(exec.exec_id, { status: 'done', endedAt: now });
+      endTurnAndSession(exec.exec_id, { status: 'done', endedAt: now, reason: 'send-message needs no process' });
       actions.push({ phase: 'dispatch', action: 'send-message', queueId: queueRow.queue_id });
     } catch (err) {
-      heartStore.updateExecutionStatus(exec.exec_id, { status: 'failed', endedAt: now });
+      endTurnAndSession(exec.exec_id, { status: 'failed', endedAt: now, reason: 'send-message failed' });
       actions.push({ phase: 'dispatch', action: 'send-message-failed', queueId: queueRow.queue_id, error: err.message });
     }
   }
@@ -950,8 +1007,15 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     // does — without this, the exit is recorded by nothing and the outcome is
     // unrecoverable. Dispatch semantics are unchanged: the stall ladder below
     // and every re-dispatch path still exclude `stalled` (owner-halted).
-    const liveBeforeCrash = liveExecutions()
-      .concat(heartStore.listExecutionsByStatus('stalled'));
+    // 7.46: the crash sweep asks a SESSION question — has the process gone? — so it reads the
+    // session table. `stalled` turns stay in the swept set exactly as before (the owner ruling
+    // above): stalled is a TURN state whose session is still alive, so those rows already arrive
+    // via liveSessionTurns(); the explicit concat is kept for the case where a stalled turn's
+    // session row is absent (a pre-7.46 row on a store not yet migrated), and the dedupe below
+    // keeps a row from being swept twice.
+    const liveBeforeCrash = dedupeByExecId(
+      liveSessionTurns().concat(heartStore.listExecutionsByStatus('stalled'))
+    );
     const crashedThisTick = new Set();
     for (const exec of liveBeforeCrash) {
       let info;
@@ -1012,7 +1076,11 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     // Stall ladder.
     const lastSessions = lastEnforceSessions();
     const sessions = {};
-    for (const exec of liveExecutions()) {
+    // 7.46: the stall ladder is a TURN question — it asks whether the WORK is progressing, and it
+    // writes `stalled`, a turn state whose session stays alive. (This seat's own design brief
+    // listed it among the session-level readers; reading it settled that it is not. Corrected in
+    // the design rather than quietly implemented the other way.)
+    for (const exec of liveTurns()) {
       // D101: headed sessions are EXEMPT from the silence stall ladder. A headed session emits no
       // `completion` and is expected to sit idle (an owner-driven pty waiting for JOIN/TAKE-OVER),
       // so silence must NEVER warn or stall it — that would drop it from the live-only session

@@ -51,6 +51,35 @@ CREATE INDEX IF NOT EXISTS idx_messages_unbroadcast ON messages(msg_id) WHERE br
 CREATE INDEX IF NOT EXISTS idx_messages_unrouted_completion
   ON messages(msg_id) WHERE routed_at_tick IS NULL AND type = 'completion';
 
+-- Task 7.46 — SESSION and TURN are two levels, and this table is the SESSION one.
+--
+-- Before it existed, a `jobs_log` row was rigidly BOTH: one spawned process AND one unit of work,
+-- 1:1, always. That conflation is what made session liveness (is the process there?) an answer
+-- read out of turn status (did the work report?) — the ticker's crash sweep, stall ladder and
+-- agent cap all asked a session question of a turn column. The registry settled the two terms
+-- (`concepts/session.md`, `concepts/turn.md`, R16); this is the store learning to speak them.
+--
+-- A SECOND TABLE rather than a `level` column on `jobs_log`: a polymorphic `status` would make
+-- every existing `status = 'done'` filter silently span both levels unless someone remembered a
+-- `level` predicate, and a forgotten filter returns a WRONG ANSWER instead of an error. Here a
+-- forgotten join is a SQL error. (The third candidate — deriving session state from turn rows —
+-- cannot represent idle-alive-between-turns at all, which is the entire content of R16.)
+--
+-- The 1:1 degeneracy stays TRUE of every session the daemon spawns today: a headless one-shot is a
+-- session with exactly one turn. This does not make a process outlive its turn (that is the tmux
+-- path, 7.30/7.32) — it makes the store able to REPRESENT one that does.
+CREATE TABLE IF NOT EXISTS sessions (
+  session_pk    INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id    TEXT,
+  status        TEXT NOT NULL DEFAULT 'alive'
+                CHECK (status IN ('alive','closed','killed','crashed')),
+  session_mode  TEXT NOT NULL DEFAULT 'headless' CHECK (session_mode IN ('headless','headed')),
+  opened_at     TEXT NOT NULL,
+  closed_at     TEXT,
+  close_reason  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+
 CREATE TABLE IF NOT EXISTS jobs_log (
   exec_id      INTEGER PRIMARY KEY AUTOINCREMENT,
   parent_exec_id INTEGER REFERENCES jobs_log(exec_id),
@@ -62,8 +91,25 @@ CREATE TABLE IF NOT EXISTS jobs_log (
   session_mode TEXT NOT NULL DEFAULT 'headless' CHECK (session_mode IN ('headless','headed')),
   fired_tick   INTEGER NOT NULL,
   fired_at     TEXT NOT NULL,
+  -- Task 7.46: a jobs_log row is a TURN. `status` is the TURN's state; the SESSION's state lives
+  -- on sessions.status and is never derived from this column.
+  --
+  -- ⚠ The CHECK deliberately keeps the legacy 7-value superset, INCLUDING the session-level
+  -- `killed`, and it is IDENTICAL on fresh and migrated stores. Two measured reasons:
+  --   1. SQLite can only change a CHECK by REBUILDING the table, whose documented procedure needs
+  --      `PRAGMA foreign_keys=OFF` — but heart-store.js sets it ON, `parent_exec_id` is a
+  --      self-reference, and the pragma is a NO-OP inside the transaction migrate() always opens.
+  --      A rebuild would fail at the one restart the owner performs, carrying other work with it.
+  --   2. Tightening it on fresh stores only would make fresh and migrated stores enforce DIFFERENT
+  --      constraints — green on every fixture, divergent on the real store. That is G-135's exact
+  --      shape reintroduced by the fix for it.
+  -- The turn enum is enforced at the store API instead (heart-store.js § TURN_STATUSES), which
+  -- refuses every session-level value. `killed` remains writable because the live kill path
+  -- (spawn/spawn.js) writes it and dispatch.js reads it; that residual is filed, not hidden.
   status       TEXT NOT NULL DEFAULT 'launching'
                CHECK (status IN ('launching','running','done','blocked','failed','stalled','killed')),
+  -- The turn's owning session. NULL only on rows written before 7.46 and not yet migrated.
+  session_pk   INTEGER REFERENCES sessions(session_pk),
   session_id   TEXT,
   pid          INTEGER,
   exit_code    INTEGER,

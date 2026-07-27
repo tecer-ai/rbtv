@@ -72,6 +72,23 @@ function jobFireability(job) {
 }
 const MESSAGE_TYPES = new Set(['completion', 'ask', 'answer', 'verdict', 'note']);
 const SESSION_MODES = new Set(['headless', 'headed']);
+
+// ── Task 7.46 · the two levels, as two enums that share no value.
+//
+// SESSION states live on `sessions.status`; TURN states live on `jobs_log.status`. Keeping them
+// disjoint is what makes a mis-levelled write a REFUSAL rather than a wrong answer — the failure
+// mode a `level` column would have had is a forgotten filter returning plausible rows.
+const SESSION_STATUSES = new Set(['alive', 'closed', 'killed', 'crashed']);
+const TERMINAL_SESSION_STATUSES = new Set(['closed', 'killed', 'crashed']);
+
+// ⚠ `killed` is HERE, in the turn set, and it does not belong to the level conceptually — it is a
+// session-level word. It stays writable on a turn because the LIVE kill path writes it
+// (spawn/spawn.js) and dispatch.js reads it back; refusing it tonight would be a runtime change,
+// and this task is bookkeeping. The kill path now ALSO records the session-level kill on
+// `sessions.status`, which is where the meaning actually belongs. Residual filed, not hidden:
+// retiring the turn-level `killed` is a change to the kill path plus a rebuild-capable migration
+// (see schema.sql's note on why the CHECK cannot be rebuilt inside a migration transaction).
+const TURN_STATUSES = new Set(['launching', 'running', 'done', 'blocked', 'failed', 'stalled', 'killed']);
 const TRIGGER_KINDS = new Set(['scheduled', 'periodic']);
 const VALID_PRIMITIVE_TYPES = new Set(['string', 'integer', 'number', 'boolean', 'object', 'array']);
 
@@ -740,10 +757,16 @@ class HeartStore {
         }
       }
 
+      // Task 7.46: firing a queue row spawns a PROCESS, so it opens a SESSION, and the turn it
+      // creates is that session's first. Today it is also its only one — the 1:1 degeneracy — and
+      // that is what keeps every existing probe green: `listTurnsOfLiveSessions()` returns exactly
+      // the set the old turn-status read returned, for as long as sessions and turns stay 1:1.
+      const sessionPk = this._openSessionInTx({ sessionMode: queue.session_mode, openedAt: firedAt });
+
       const insertLog = this._prepare(`
         INSERT INTO jobs_log
-          (parent_exec_id, queue_id, job_id, action_type, args, enqueued_by, session_mode, fired_tick, fired_at, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'launching')
+          (parent_exec_id, queue_id, job_id, action_type, args, enqueued_by, session_mode, fired_tick, fired_at, status, session_pk)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'launching', ?)
       `);
       const logResult = insertLog.run(
         parentExecId,
@@ -754,7 +777,8 @@ class HeartStore {
         queue.enqueued_by,
         queue.session_mode,
         tick,
-        firedAt
+        firedAt,
+        sessionPk
       );
       const execId = Number(logResult.lastInsertRowid);
 
@@ -799,10 +823,14 @@ class HeartStore {
           throw new HeartStoreError(E_BAD_ARGS, `parent_exec_id does not exist: ${parentExecId}`, { field: 'parentExecId' });
         }
       }
+      // Task 7.46 — same as fireQueueRow: a recorded start is a spawned process, so it opens a
+      // session and the new turn is that session's first.
+      const sessionPk = this._openSessionInTx({ sessionId, sessionMode, openedAt: firedAtIso });
+
       const stmt = this._prepare(`
         INSERT INTO jobs_log
-          (parent_exec_id, queue_id, job_id, action_type, args, enqueued_by, session_mode, fired_tick, fired_at, status, session_id, pid, profile, workdir)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'launching', ?, ?, ?, ?)
+          (parent_exec_id, queue_id, job_id, action_type, args, enqueued_by, session_mode, fired_tick, fired_at, status, session_id, pid, profile, workdir, session_pk)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'launching', ?, ?, ?, ?, ?)
       `);
       const result = stmt.run(
         parentExecId,
@@ -817,7 +845,8 @@ class HeartStore {
         sessionId,
         pid,
         profile,
-        workdir
+        workdir,
+        sessionPk
       );
       const execId = Number(result.lastInsertRowid);
       this.db.exec('COMMIT;');
@@ -858,6 +887,89 @@ class HeartStore {
   listExecutionsByStatus(status) {
     const stmt = this._prepare('SELECT * FROM jobs_log WHERE status = ? ORDER BY exec_id');
     return stmt.all(status).map((r) => this._attachThread(r));
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────────────────────
+  // Task 7.46 · SESSIONS — the second level. A session is the spawned process; a turn (a jobs_log
+  // row) is one unit of work inside it. Today they are 1:1 for every session the daemon spawns
+  // (a headless one-shot is a session with exactly ONE turn, R16); the split is what lets the
+  // store REPRESENT a session that outlives its turn, which the flat enum could not express.
+  //
+  // THE STRUCTURAL GUARANTEE, and it is the criterion this task is judged on: no code path moves a
+  // session out of `alive` except `closeSession()`. `updateExecutionStatus()` — the turn-end
+  // write — does not touch this table at all. So "a session survives its turn's done/blocked
+  // report" is a property of the call graph, not a policy anyone has to remember.
+  // ────────────────────────────────────────────────────────────────────────────────────────────
+
+  // Opens NO transaction of its own: the turn-creating paths already hold one, and a session and
+  // its first turn must land together or not at all — a session with no turn is a ghost the crash
+  // sweep would then chase.
+  _openSessionInTx({ sessionId = null, sessionMode = 'headless', openedAt = null } = {}) {
+    if (!SESSION_MODES.has(sessionMode)) {
+      throw new HeartStoreError(E_BAD_MODE, `invalid session_mode: ${sessionMode}`, { field: 'sessionMode' });
+    }
+    const res = this._prepare(
+      'INSERT INTO sessions (session_id, status, session_mode, opened_at) VALUES (?, ?, ?, ?)'
+    ).run(sessionId, 'alive', sessionMode, openedAt ? toIsoUtc(openedAt) : isoNow());
+    return Number(res.lastInsertRowid);
+  }
+
+  openSession(opts = {}) {
+    return this.getSession(this._openSessionInTx(opts));
+  }
+
+  // The ONLY way out of `alive`. `status` is required and explicit — there is no default and
+  // nothing is inferred from the session's turns, which is the whole point of the split.
+  closeSession(sessionPk, { status, reason = null, closedAt = null } = {}) {
+    if (!Number.isInteger(sessionPk)) {
+      throw new HeartStoreError(E_BAD_ARGS, 'sessionPk must be an integer', { field: 'sessionPk' });
+    }
+    if (!TERMINAL_SESSION_STATUSES.has(status)) {
+      throw new HeartStoreError(
+        E_BAD_ARGS,
+        `closeSession requires a terminal session status (${[...TERMINAL_SESSION_STATUSES].join('|')}), got: ${status}`,
+        { field: 'status' }
+      );
+    }
+    const row = this._prepare('SELECT session_pk FROM sessions WHERE session_pk = ?').get(sessionPk);
+    if (!row) {
+      throw new HeartStoreError(E_BAD_ARGS, `session does not exist: ${sessionPk}`, { field: 'sessionPk' });
+    }
+    // Scoped to `alive` so a re-close cannot rewrite the FIRST honest close (a crash sweep and a
+    // late exit observation can both fire on one session; the first one saw the truth).
+    this._prepare(
+      'UPDATE sessions SET status = ?, closed_at = ?, close_reason = ? WHERE session_pk = ? AND status = ?'
+    ).run(status, closedAt ? toIsoUtc(closedAt) : isoNow(), reason, sessionPk, 'alive');
+    return this.getSession(sessionPk);
+  }
+
+  getSession(sessionPk) {
+    return this._prepare('SELECT * FROM sessions WHERE session_pk = ?').get(sessionPk) || null;
+  }
+
+  listSessionsByStatus(status) {
+    return this._prepare('SELECT * FROM sessions WHERE status = ? ORDER BY session_pk').all(status);
+  }
+
+  // The turns of one session, oldest first. A multi-turn session is exactly a session with more
+  // than one of these; today every session has one.
+  listTurnsOfSession(sessionPk) {
+    return this._prepare('SELECT * FROM jobs_log WHERE session_pk = ? ORDER BY exec_id')
+      .all(sessionPk).map((r) => this._attachThread(r));
+  }
+
+  // The turn rows of every session that is ALIVE — session-keyed, so callers asking a
+  // session-liveness question (is the process there?) never read it out of turn status. The
+  // ticker's crash sweep needs the turn row's process fields (pid, unit_name, session_id) and is
+  // keyed by exec_id, so it gets rows; what makes this session-level is that `sessions.status` is
+  // the ONLY predicate deciding membership.
+  listTurnsOfLiveSessions() {
+    return this._prepare(`
+      SELECT j.* FROM jobs_log j
+        JOIN sessions s ON s.session_pk = j.session_pk
+       WHERE s.status = 'alive'
+       ORDER BY j.exec_id
+    `).all().map((r) => this._attachThread(r));
   }
 
   // How many automatic recycles the seat-slot's WHOLE turn chain has consumed:
@@ -950,7 +1062,24 @@ class HeartStore {
     return n;
   }
 
+  // ⚠ Task 7.46 — THIS IS THE TURN-END WRITE AND IT DELIBERATELY NEVER TOUCHES `sessions`.
+  // That absence is the structural guarantee the split rests on: a session survives its turn's
+  // done/blocked report because NO CODE PATH HERE CAN END IT. A session leaves `alive` only
+  // through `closeSession()`, called explicitly by whoever observed the process end.
   updateExecutionStatus(execId, { status, sessionId = null, pid = null, exitCode = null, completionMsgId = null, logPath = null, endedAt = null, carrier = null, unitName = null, pidStarttime = null, sessionRef = null, startedAt = null, profile = null, workdir = null }) {
+    // Refuse a SESSION-level value on a turn row. Without this the two enums would be disjoint by
+    // convention only, and the first mis-levelled write would land a plausible-looking row that
+    // every turn query then reads as real.
+    if (!TURN_STATUSES.has(status)) {
+      throw new HeartStoreError(
+        E_BAD_ARGS,
+        SESSION_STATUSES.has(status)
+          ? `'${status}' is a SESSION status and cannot be written to a turn (jobs_log.status). `
+            + `Use closeSession() for the session level.`
+          : `invalid turn status: ${status}`,
+        { field: 'status' }
+      );
+    }
     const stmt = this._prepare(`
       UPDATE jobs_log SET
         status = ?,
@@ -1024,6 +1153,32 @@ class HeartStore {
           UPDATE jobs_log SET status = ?, completion_msg_id = ?, ended_at = ?, exit_code = COALESCE(?, exit_code)
           WHERE exec_id = ?
         `).run(status, msgId, createdAtIso, exitCode, exec.exec_id);
+
+        // ⚠ Task 7.46 — THIS IS THE ONE LINE THAT KEEPS THE DEGENERACY EXACT, and it is the line
+        // 7.32's multi-turn path will delete.
+        //
+        // A turn-ending report does not, in itself, end a session — that is the whole point of the
+        // split, and `updateExecutionStatus()` structurally cannot end one. But every session the
+        // daemon spawns TODAY is a headless one-shot whose PROCESS exits at its report, so the
+        // session really does end here. Closing it explicitly (rather than letting a later sweep
+        // notice) is what makes `listTurnsOfLiveSessions()` return exactly the set the old
+        // turn-status read returned — byte-identical behaviour, which is what keeps the existing
+        // ticker and store probes green and what makes this task bookkeeping rather than a
+        // runtime change.
+        //
+        // When a session can outlive its turn (the tmux path, 7.30/7.32), this close moves to
+        // whoever observes the PROCESS ending, and nothing else in the store has to change.
+        if (exec.session_pk) {
+          this._prepare(
+            'UPDATE sessions SET status = ?, closed_at = ?, close_reason = ? '
+            + "WHERE session_pk = ? AND status = 'alive'"
+          ).run(
+            status === 'failed' ? 'crashed' : 'closed',
+            createdAtIso,
+            `turn ${exec.exec_id} reported '${status}' (one-shot session: the process ends here)`,
+            exec.session_pk
+          );
+        }
       }
       this.db.exec('COMMIT;');
       return this.getMessage(msgId);
@@ -1255,4 +1410,9 @@ module.exports = {
   E_BAD_MESSAGE,
   E_BAD_TRIGGER,
   E_BAD_MODE,
+  // Task 7.46 — the two enums, exported so a caller can ask which level a value belongs to
+  // instead of hardcoding a list that drifts from the store's.
+  SESSION_STATUSES,
+  TERMINAL_SESSION_STATUSES,
+  TURN_STATUSES,
 };

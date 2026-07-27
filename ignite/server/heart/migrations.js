@@ -43,6 +43,97 @@ const MIGRATIONS = [
   },
 ];
 
+// ── Task 7.46 · the session/turn split, WRITTEN AND EXERCISED BUT DELIBERATELY NOT REGISTERED.
+//
+// ⚠ LANDING A MIGRATION ARMS IT. `migrate()` runs at DAEMON START, so appending this to MIGRATIONS
+// would mean the owner's next restart — already required by other backlog items — migrates the
+// CERTIFIED store, and the morning ratification would be ratifying a deploy rather than deciding
+// the migration. `r-746-schema-pregrant` parks the LIVE migration until that ratification; a
+// registered migration makes the park unenforceable. So it is exported and proven by INJECTION
+// (`migrate(db, { migrations: [...] })` — the parameter this module exposes for exactly this).
+//
+// RATIFICATION IS THEN ONE REVIEWABLE LINE: append MIGRATION_SESSION_SPLIT to MIGRATIONS. Nothing
+// else changes. `up()` is idempotent throughout (CREATE IF NOT EXISTS, a column-exists guard, and a
+// backfill scoped to `session_pk IS NULL`), which is what makes that append a NO-OP on stores
+// created tonight from schema.sql — which already carries the shape — and a REAL migration on the
+// live store, which does not.
+//
+// Proven against a COPY OF THE REAL LIVE STORE (324 rows), never on fresh fixtures — G-135's own
+// lesson is that fresh is exactly where this class of bug is invisible.
+const MIGRATION_SESSION_SPLIT = {
+  version: 2,
+  name: 'session-turn-split-7.46',
+  up(db) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        session_pk    INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id    TEXT,
+        status        TEXT NOT NULL DEFAULT 'alive'
+                      CHECK (status IN ('alive','closed','killed','crashed')),
+        session_mode  TEXT NOT NULL DEFAULT 'headless'
+                      CHECK (session_mode IN ('headless','headed')),
+        opened_at     TEXT NOT NULL,
+        closed_at     TEXT,
+        close_reason  TEXT
+      );
+    `);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);');
+
+    // ALTER TABLE ADD COLUMN has no IF NOT EXISTS in SQLite — guard on the live column list so a
+    // second run is a no-op instead of an error.
+    const cols = db.prepare('PRAGMA table_info(jobs_log)').all().map((r) => r.name);
+    if (!cols.includes('session_pk')) {
+      db.exec('ALTER TABLE jobs_log ADD COLUMN session_pk INTEGER REFERENCES sessions(session_pk);');
+    }
+
+    // Backfill. Every pre-split row was a session with exactly ONE turn — the degenerate case,
+    // which is what every existing row actually WAS. Scoped to rows with no session yet, so
+    // re-running adds nothing.
+    const rows = db.prepare(
+      'SELECT exec_id, status, session_id, session_mode, fired_at, ended_at FROM jobs_log '
+      + 'WHERE session_pk IS NULL ORDER BY exec_id'
+    ).all();
+
+    // The mapping, so no row is stranded. Three entries are judgment, not mechanics:
+    //  · `failed` → session `crashed`: `crashed` is the session-level state for an unplanned end,
+    //    and the crash sweep is what writes `failed` today.
+    //  · `killed` → turn `failed`: `killed` carried SESSION-level meaning only, so the turn's true
+    //    outcome was never recorded by the flat enum either. The mapping is lossy against reality
+    //    but NOT against what the store ever held — the honest framing. Leaving the turn `running`
+    //    under a terminal session would strand a non-terminal turn that no query could ever close.
+    //  · `stalled` → session stays `alive`: stalled is turn-level, and the owner ruling of
+    //    2026-07-20 (batch-08 item 4 half B) already means a stalled worker is still tracked.
+    const SESSION_OF = {
+      launching: 'alive', running: 'alive', stalled: 'alive',
+      done: 'closed', blocked: 'closed', failed: 'crashed', killed: 'killed',
+    };
+    const TURN_OF = { killed: 'failed' }; // every other flat value already IS a turn state
+
+    const insSession = db.prepare(
+      'INSERT INTO sessions (session_id, status, session_mode, opened_at, closed_at, close_reason) '
+      + 'VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    const linkTurn = db.prepare('UPDATE jobs_log SET session_pk = ?, status = ? WHERE exec_id = ?');
+
+    for (const r of rows) {
+      // An unknown legacy value maps to `crashed`, never `alive`: a store sitting on disk cannot
+      // have live processes, and guessing `alive` would resurrect ghosts into the crash sweep at
+      // the first tick after the deploy.
+      const sStatus = SESSION_OF[r.status] || 'crashed';
+      const tStatus = TURN_OF[r.status] || r.status;
+      const res = insSession.run(
+        r.session_id ?? null,
+        sStatus,
+        r.session_mode || 'headless',
+        r.fired_at,
+        sStatus === 'alive' ? null : (r.ended_at || null),
+        sStatus === 'alive' ? null : `migrated from flat status '${r.status}'`
+      );
+      linkTurn.run(Number(res.lastInsertRowid), tStatus, r.exec_id);
+    }
+  },
+};
+
 const LATEST = MIGRATIONS.length ? MIGRATIONS[MIGRATIONS.length - 1].version : 0;
 
 function userVersion(db) {
@@ -121,4 +212,12 @@ function userVersionSafe(db, fallback) {
   try { return userVersion(db); } catch { return fallback; }
 }
 
-module.exports = { MIGRATIONS, LATEST, migrate, isFreshStore, userVersion };
+module.exports = {
+  MIGRATIONS,
+  LATEST,
+  migrate,
+  isFreshStore,
+  userVersion,
+  // Exported but NOT in MIGRATIONS — see the comment on it. Registering it is the ratification act.
+  MIGRATION_SESSION_SPLIT,
+};
