@@ -209,6 +209,32 @@ def session_alive(session):
                           capture_output=True).returncode == 0
 
 
+def run_closed(package):
+    """True once THIS RUN's row in the goal's runs.csv reads closed.
+
+    The session is the GOAL's room, shared by every run of that goal, so `tmux has-session`
+    cannot tell a closed run from a live one: run-2 was bootstrapped inside run-1's session,
+    and run-1's sensor went on writing run-1/state.json for nearly six hours after run-1
+    closed at 13:11 — a stale sensor watching a corpse (G-103's shape at the sensor layer,
+    found while verifying task 7.33). The run-level close signal is the run-log row, not the
+    room.
+
+    FAILS OPEN by construction: an absent, unreadable or unparseable runs.csv returns False,
+    so a broken meter can never stop a healthy sensor — the posture coord.py already takes on
+    its own memory gate.
+    """
+    import csv
+    p = Path(package).resolve()
+    try:
+        with (p.parent.parent / "runs.csv").open(newline="", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                if (row.get("run-id") or "").strip() == p.name:
+                    return (row.get("state") or "").strip().lower() == "closed"
+    except (OSError, csv.Error, UnicodeDecodeError):
+        return False
+    return False
+
+
 # ---------- capture ----------
 
 def capture(package, session=None, sensor_path=None):
@@ -395,6 +421,10 @@ def cmd_run(args):
         while True:
             if not session_alive(session):
                 print("room gone — team-monitor exiting (deterministic close)", flush=True)
+                return 0
+            if run_closed(args.package):
+                print("run closed in runs.csv — team-monitor exiting (deterministic close)",
+                      flush=True)
                 return 0
             try:
                 write_snapshot(capture(args.package, session, args.sensor), args.package)
