@@ -58,9 +58,25 @@ async function main() {
   });
   const map = createGoalChannelMap({ slack: transport, prefix, logger: null });
 
-  // A raw Slack read the map does not need but an operator does. Uses the SAME
-  // outbound POST the transport already makes — no new capability.
-  async function raw(method, body) {
+  // A raw Slack read the map does not need but an operator does. Still an outbound
+  // HTTPS call on the bot token — no new capability.
+  //
+  // ⚑ TRANSPORT MATTERS PER METHOD. Slack's cursor-paginated READ methods
+  // (`conversations.members`, `conversations.list`, `users.*`) reject a JSON body
+  // with `invalid_arguments` — they take GET query parameters (or form encoding).
+  // Only the WRITE methods accept `application/json`. Found live: a JSON-bodied
+  // `conversations.members` returned `invalid_arguments`, which reads like a bad
+  // channel id and is nothing of the kind.
+  async function rawGet(method, params) {
+    const qs = new URLSearchParams(params || {}).toString();
+    const res = await fetch(`${process.env.SLACK_API_BASE || 'https://slack.com/api'}/${method}?${qs}`, {
+      method: 'GET',
+      headers: { authorization: `Bearer ${botToken}` },
+    });
+    return res.json();
+  }
+
+  async function rawPost(method, body) {
     const res = await fetch(`${process.env.SLACK_API_BASE || 'https://slack.com/api'}/${method}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json; charset=utf-8', authorization: `Bearer ${botToken}` },
@@ -71,7 +87,7 @@ async function main() {
 
   switch (cmd) {
     case 'whoami': {
-      const r = await raw('auth.test', {});
+      const r = await rawPost('auth.test', {});
       out({ ok: Boolean(r && r.ok), team: r && r.team, user: r && r.user, user_id: r && r.user_id, bot_id: r && r.bot_id, error: r && r.error });
       process.exit(r && r.ok ? 0 : 1);
       break;
@@ -97,7 +113,7 @@ async function main() {
     case 'members': {
       const channel = positional[1];
       if (!channel) { out({ ok: false, error: 'usage: members <channel-id>' }); process.exit(2); }
-      const r = await raw('conversations.members', { channel, limit: 200 });
+      const r = await rawGet('conversations.members', { channel, limit: 200 });
       out({ ok: Boolean(r && r.ok), channel, members: (r && r.members) || [], error: r && r.error });
       process.exit(r && r.ok ? 0 : 1);
       break;

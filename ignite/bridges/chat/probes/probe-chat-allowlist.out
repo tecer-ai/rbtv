@@ -3,19 +3,19 @@
     "probe": "probe-chat-allowlist",
     "pass": true,
     "EXIT": 0,
-    "WALL_MS": 31,
+    "WALL_MS": 36,
     "SKIPPED_COUNT": 0
   },
   "entries": [
     {
-      "ts": "2026-07-27T04:22:46Z",
+      "ts": "2026-07-27T04:37:35Z",
       "bridge": {
         "level": "warn",
         "message": "transport exposes no channel admin surface — goal↔channel mapping disabled; channel traffic will be unroutable"
       }
     },
     {
-      "ts": "2026-07-27T04:22:46Z",
+      "ts": "2026-07-27T04:37:35Z",
       "bridge": {
         "level": "warn",
         "message": "chat principal refused — pending owner pairing",
@@ -23,7 +23,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:46Z",
+      "ts": "2026-07-27T04:37:35Z",
       "bridge": {
         "level": "warn",
         "message": "chat message refused (not admitted) — no forward",
@@ -33,7 +33,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:46Z",
+      "ts": "2026-07-27T04:37:35Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -44,7 +44,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:46Z",
+      "ts": "2026-07-27T04:37:35Z",
       "step": "non-allowlisted",
       "strangerOutcome": {
         "forwarded": false,
@@ -56,13 +56,13 @@
       "pendingPairings": [
         {
           "id": "U-stranger",
-          "firstSeenAt": "2026-07-27T04:22:46.764Z",
+          "firstSeenAt": "2026-07-27T04:37:35.216Z",
           "count": 1
         }
       ]
     },
     {
-      "ts": "2026-07-27T04:22:46Z",
+      "ts": "2026-07-27T04:37:35Z",
       "bridge": {
         "level": "info",
         "message": "chat thread mapped to a new conversation",
@@ -71,7 +71,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:46Z",
+      "ts": "2026-07-27T04:37:35Z",
       "bridge": {
         "level": "info",
         "message": "session-create job enqueued",
@@ -83,7 +83,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:46Z",
+      "ts": "2026-07-27T04:37:35Z",
       "bridge": {
         "level": "info",
         "message": "reply leg armed for conversation",
@@ -92,7 +92,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:46Z",
+      "ts": "2026-07-27T04:37:35Z",
       "bridge": {
         "level": "info",
         "message": "chat message handled",
@@ -106,7 +106,7 @@
       }
     },
     {
-      "ts": "2026-07-27T04:22:46Z",
+      "ts": "2026-07-27T04:37:35Z",
       "step": "allowlisted",
       "ownerOutcome": {
         "forwarded": true,
