@@ -15,6 +15,7 @@ const { selectCarrier } = require('./spawn/carrier');
 const { createInternalApi } = require('./internal-api/dispatch');
 const { flushScreenReadRuns } = require('./internal-api/keys-audit');
 const { parseRetentionDays, sweepRetention } = require('./retention');
+const settings = require('./settings');
 const { createPtyHost } = require('./pty');
 const { createGateway } = require('../gateway/gateway');
 const { resolvePeerSeat } = require('./seat-identity/peer-identity');
@@ -446,6 +447,41 @@ async function main() {
   const retentionDays = parseRetentionDays(process.env.RBTV_IGNITE_LOG_RETENTION_DAYS);
   log('info', 'log retention window resolved', { retentionDays });
 
+  // ── Task 7.66: the settings.json overlay — the file's FIRST reader ─────────────────────────
+  //
+  // `.rbtv/modules/ignite/settings.json` carries this machine's operator-set runtime values
+  // (`machines.<hostname>.<block>.<key>`, CMP-1 § Ticker settings schema). It is overlaid onto the
+  // merged config HERE, before anything reads `mergedConfig.ticker`, so every later consumer —
+  // the heart store's snooze conversion, the internal-api `config` block, and the tick timer
+  // itself — sees ONE resolved cadence and cannot disagree about it.
+  //
+  // FAIL-CLOSED, the sibling of the retention floor directly above and the same idiom: a value
+  // outside the configured floor/ceiling, or a misspelled key, REFUSES THE BOOT with a named
+  // error. That is the second of the design's two enforcement points (§ 2.4) — the operator
+  // surface refuses the same value before writing it, and this catches a file hand-edited past
+  // that surface. A surface-only bound is not a bound.
+  const settingsProblems = settings.validateMachine(workspaceRoot);
+  if (settingsProblems.length) {
+    throw new Error(
+      `${settings.settingsPaths(workspaceRoot).settingsPath} is invalid for this machine ` +
+      `(${settings.thisMachine()}) and the daemon REFUSES TO START:\n` +
+      settingsProblems.map((p) => `  - ${p}`).join('\n') +
+      `\nEdit it with \`rbtv ignite ticker set-interval <dur>\`, which refuses a bad value before writing it.`
+    );
+  }
+  const tickerSettings = settings.effectiveBlock(workspaceRoot, 'ticker');
+  mergedConfig.ticker = { ...(mergedConfig.ticker || {}), ...tickerSettings };
+  // Stated at boot, in the journal, naming the SOURCE — so "the cadence I set is running" is an
+  // observation and never an inference. This is also the line the end-to-end probe reads to prove
+  // a restart actually adopted the edit.
+  log('info', 'ticker settings resolved', {
+    machine: settings.thisMachine(),
+    tick_interval_ms: mergedConfig.ticker.tick_interval_ms,
+    source: ((settings.readSettings(workspaceRoot).machines[settings.thisMachine()] || {}).ticker || {})
+      .tick_interval_ms === undefined ? 'default' : 'settings.json',
+    settings_path: settings.settingsPaths(workspaceRoot).settingsPath,
+  });
+
   if (dataRoot) ensureConfiguredDir(dataRoot, 'spawn.data_root', 'RBTV_IGNITE_DATA_ROOT');
   if (mergedConfig.default_workdir_root) {
     ensureConfiguredDir(mergedConfig.default_workdir_root, 'default_workdir_root', 'RBTV_IGNITE_WORKDIR_ROOT');
@@ -627,6 +663,10 @@ async function main() {
     // Task 7.13: the retention window rides the daemon-config knobs so `inspect daemon`
     // surfaces it read-only on its existing `config` block (never a new intent).
     daemonConfig: { ...tickerConfig, log_retention_days: retentionDays },
+    // Task 7.66: a LIVE read of settings.json at request time, so `inspect daemon` can report a
+    // cadence edit that is written but not yet restarted into effect. `daemonConfig` above is the
+    // value materialized at THIS boot and can never show that.
+    readConfiguredTickIntervalMs: () => settings.effectiveBlock(workspaceRoot, 'ticker').tick_interval_ms,
     // The pty host is threaded to the internal API so the Batch-6 session-surface intents
     // (`send-to-session` / `capture-session-screen`, owner ruling D90) can reach the headed
     // session they drive. ADDITIVE: the pty host is unchanged, every other intent is unchanged,

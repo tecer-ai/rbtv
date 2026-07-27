@@ -16,6 +16,15 @@ const GATEWAY_CLIENT = path.join(RBTV_ROOT, 'ignite', 'cli', 'ignite.js');
 const GOALS_TREE = path.join(
   RBTV_ROOT, 'ignite', 'capabilities', 'goals-tree', 'tool', 'rbtv-goal',
 );
+const TICKER_SETTINGS = path.join(
+  RBTV_ROOT, 'ignite', 'capabilities', 'ticker-settings', 'tool', 'rbtv-ignite-ticker',
+);
+
+// Task 7.66 built the cadence-edit surface, so the namespace that previously refused now routes.
+// `set-interval` is the DESIGN's verb name (operator-surface design § 2.3), not coined here — the
+// reason the earlier route deliberately named none was to leave that word to this task, and the
+// task took it from the design rather than inventing a second one.
+const TICKER_VERBS = ['show', 'set-interval', 'history', 'selftest'];
 
 // The five daemon verbs are the DESIGN's and the registry's, not this CLI's, and
 // they fold in verbatim: same verbs, same names, same exit codes. `unit` is NOT
@@ -45,24 +54,12 @@ const ROUTES = [
     verbs: DAEMON_VERBS,
     summary: 'ignite daemon lifecycle — start/restart/stop/kill/unit (systemd user unit; works when the daemon is DOWN)',
   },
-  // The NAMESPACE is registered and refuses; NO verb name is coined. Naming a verb
-  // here would be the smallest possible invention of 7.66's schema — and if 7.66
-  // settles on a different word, a coined verb is one more thing to migrate. The
-  // namespace carries the teaching without pre-empting the task (leader ruling on
-  // this seat's premise audit, #235).
   {
     prefix: ['ignite', 'ticker'],
-    target: null,
-    exec: 'unbuilt',
-    verbs: [],
-    summary: 'ignite tick cadence — NOT BUILT (core-build task 7.66)',
-    unbuilt: {
-      task: '7.66',
-      why:
-        'The cadence edit writes settings.json, and the settings.json schema plus the '
-        + 'settings-history.jsonl line format are UNRULED — task 7.66 settles them as part of '
-        + 'building this consumer. Naming a verb here would invent that schema.',
-    },
+    target: TICKER_SETTINGS,
+    exec: 'direct',
+    verbs: TICKER_VERBS,
+    summary: 'ignite tick cadence — show/set-interval/history (edits settings.json; takes effect at the next daemon restart)',
   },
   {
     prefix: ['ignite'],

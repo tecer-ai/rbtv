@@ -1,0 +1,45 @@
+PASS  reads the daemon seed {} and falls back to the defaults  [tick=10000]
+PASS  reads the installer seed {"machines":{}} and falls back to the defaults  [tick=10000]
+PASS  reads the empty file and falls back to the defaults  [tick=10000]
+PASS  reads the no file at all and falls back to the defaults  [tick=10000]
+PASS  a corrupt settings.json THROWS rather than reading as empty
+PASS  the value lands at machines.<hostname>.ticker.tick_interval_ms  [{"ticker":{"tick_interval_ms":15000}}]
+PASS  it is NOT written flat at the top level
+PASS  the read-back effective value is the written one
+PASS  an UNSET key keeps its default beside a set one
+PASS  a write leaves ANOTHER machine's block byte-intact
+PASS  another machine's value NEVER leaks into this machine's effective read
+PASS  one appended line per change, and only one  [lines=2]
+PASS  the line carries exactly the six adopted keys {ts,machine,key,from,to,by}  [ts,machine,key,from,to,by]
+PASS  key is the path WITHIN the machine block, not repeating the hostname  [ticker.tick_interval_ms]
+PASS  machine names this machine
+PASS  ts parses as a date  [2026-07-27T21:55:00.126Z]
+PASS  first change: from is null (nothing was stored)  [null]
+PASS  ⚠ second change: from is the PRIOR STORED VALUE, not null  [15000]
+PASS  to is the new value
+PASS  setting the SAME value writes no history line and reports changed=false  [lines=2]
+PASS  earlier history lines are byte-intact after later writes
+PASS  the surface REFUSES 1s (below the floor) with a typed exit  [exit=3]
+PASS  the surface REFUSES 120s (above the ceiling) with a typed exit  [exit=3]
+PASS  a refused edit leaves settings.json BYTE-IDENTICAL
+PASS  a refused edit appends NO history line
+PASS  with the floor lowered to 1000ms the SAME 1s edit is ACCEPTED  [exit=0]
+PASS  ...and it actually landed
+PASS  an inverted floor/ceiling is reported as its own named problem  [ticker.tick_interval_floor_ms (60000) is above ticker.tick_interval_ceiling_ms (5000) — no cadence could satisfy both | ticker.tick_interval_ms (10000) is below the floor ticker.tick_interval_floor_ms (60000) | ticker.tick_interval_ms (10000) is above the ceiling ticker.tick_interval_ceiling_ms (5000)]
+PASS  boot REFUSES a cadence below the floor  [ticker.tick_interval_ms (100) is below the floor ticker.tick_interval_floor_ms (5000)]
+PASS  boot REFUSES a cadence above the ceiling  [ticker.tick_interval_ms (999999) is above the ceiling ticker.tick_interval_ceiling_ms (60000)]
+PASS  boot REFUSES a non-integer cadence  [ticker.tick_interval_ms must be an integer number of milliseconds, got "15s"]
+PASS  boot REFUSES a MISSPELLED key  [machines.ubuntu-8gb-hel-ignite-alfa.ticker.tick_interval is not a known setting — known keys in `ticker`: tick_interval_ms, tick_interval_floor_ms, tick_interval_ceiling_ms. A misspelled key would silently leave this machine at the default while the file says otherwise, so it is refused here instead.]
+PASS  boot IGNORES an unknown BLOCK (git-travelling file, forward compatibility)
+PASS  boot IGNORES another machine's out-of-bound value
+PASS  15s parses to 15000ms
+PASS  15000ms parses to 15000ms
+PASS  a BARE number is REFUSED rather than guessed
+PASS  an accepted edit says it is NOT in effect until a restart  [ / NOT IN EFFECT YET. The daemon materializes config once at boot. /   put it in effect:  rbtv ignite ticker set-interval 15s --restart /              or:     rbtv ignite daemon restart /   until then `ignite inspect daemon` reports configured != running. / ]
+PASS  ...and prints the tick-denominated ladder the new cadence implies  [stall halt @24 ticks x 15s = 360s]
+
+CHECKS: 39/39 passed
+COMPLETE: true (ran 39, expected 39)
+TICKER_SETTINGS_OK: true
+EXIT: 0
+WALL_MS: 221

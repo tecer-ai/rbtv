@@ -91,16 +91,25 @@ const CHECKS = [
     }
   }],
 
-  ['ticker namespace refuses, names task 7.66, and coins NO verb', () => {
-    const r = runCli(['ignite', 'ticker']);
-    if (r.status !== 1) throw new Error(`expected exit 1, got ${r.status}`);
-    if (!/7\.66/.test(r.stderr)) throw new Error('refusal does not name task 7.66');
+  // REPLACED, not deleted (task 7.66). The former check asserted that this namespace REFUSED and
+  // coined no verb — a check whose SUBJECT WAS A LIMITATION, so it necessarily went red the moment
+  // the limitation closed (`G-164`'s shape). What survives is the property it was really
+  // protecting: the verb name is the DESIGN's, never one this CLI invented. So the assertion moves
+  // from "no verb exists" to "the verb that exists is the design's `set-interval`" — which still
+  // fails if someone renames it here.
+  ['ticker namespace routes to the built surface, on the DESIGN\'s verb name', () => {
     const route = verbs.matchRoute(['ignite', 'ticker']);
-    if (route.verbs.length !== 0) {
-      throw new Error(`the ticker route coined verb(s): ${route.verbs.join(', ')} — 7.66 settles those names`);
+    if (!route || route.exec !== 'direct') throw new Error('the ticker route is not a built delegation');
+    if (!route.verbs.includes('set-interval')) {
+      throw new Error(`the ticker route lost the design's verb name; has: ${route.verbs.join(', ')}`);
     }
-    const r2 = runCli(['ignite', 'ticker', 'set-interval', '9000']);
-    if (r2.status !== 1) throw new Error(`a verb under the unbuilt namespace returned ${r2.status}, expected refusal 1`);
+    if (!/rbtv-ignite-ticker$/.test(route.target || '')) {
+      throw new Error(`the ticker route delegates to ${route.target}, not the ticker-settings capability`);
+    }
+    // Delegation is REAL, not declared: the surface answers for itself through a live subprocess.
+    const r = runCli(['ignite', 'ticker', '--help']);
+    if (r.status !== 0) throw new Error(`\`ignite ticker --help\` exited ${r.status}`);
+    if (!/set-interval/.test(r.stdout)) throw new Error('the delegate did not print its own help');
   }],
 
   ['delegation propagates a delegate exit code EXACTLY (real subprocess)', () => {

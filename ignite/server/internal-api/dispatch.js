@@ -365,7 +365,12 @@ function toWireError(err) {
   return { code: INTERNAL, message: 'server-core fault', details: null };
 }
 
-function createInternalApi({ heartStore, spawnManager, secret, logger = null, authzPolicy = null, daemonStartTime = null, daemonConfig = null, ptyHost = null }) {
+// `readConfiguredTickIntervalMs` (task 7.66) is a LIVE READ of settings.json, deliberately a
+// closure rather than a value: the daemon's own cadence was materialized at boot, so the only way
+// `inspect daemon` can report a PENDING edit is to read the file at request time. Absent → the
+// fields report `null`, which means "not readable", never "no pending edit" — the two must not
+// look alike.
+function createInternalApi({ heartStore, spawnManager, secret, logger = null, authzPolicy = null, daemonStartTime = null, daemonConfig = null, ptyHost = null, readConfiguredTickIntervalMs = null }) {
   if (typeof secret !== 'string' || secret.length === 0) {
     throw new Error('createInternalApi requires a non-empty per-boot client secret');
   }
@@ -516,6 +521,16 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
 
     const configKnobs = daemonConfig || {};
     const uptimeMs = daemonStartTime ? Date.now() - daemonStartTime : null;
+    // A live read, and a failing one is `null` rather than an exception: `inspect daemon` is the
+    // surface an operator reaches for when things are wrong, so an unreadable settings file must
+    // not be the thing that stops them reading everything else.
+    let configuredTick = null;
+    if (typeof readConfiguredTickIntervalMs === 'function') {
+      try {
+        const v = readConfiguredTickIntervalMs();
+        configuredTick = typeof v === 'number' && Number.isFinite(v) ? v : null;
+      } catch { configuredTick = null; }
+    }
 
     return {
       target: 'daemon',
@@ -534,6 +549,15 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       })),
       config: {
         tick_interval_ms: configKnobs.tick_interval_ms ?? 10000,
+        // Task 7.66, design § 2.1: the RUNNING cadence above and the CONFIGURED cadence here, as
+        // two fields. They differ exactly when a cadence edit is written and not yet restarted
+        // into effect — without this pair the edit mechanism is silent about its own pending
+        // state, and an operator cannot tell "my change is live" from "my change is on disk".
+        // `null` = the configured value could not be read, NOT "nothing pending".
+        tick_interval_ms_configured: configuredTick,
+        tick_interval_pending_restart: configuredTick === null
+          ? null
+          : configuredTick !== (configKnobs.tick_interval_ms ?? 10000),
         stall_warn_ticks: configKnobs.stall_warn_ticks ?? 12,
         stall_halt_ticks: configKnobs.stall_halt_ticks ?? 24,
         slot_max_repeats: configKnobs.slot_max_repeats ?? 10,

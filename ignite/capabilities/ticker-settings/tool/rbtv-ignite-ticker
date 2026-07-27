@@ -1,0 +1,275 @@
+#!/usr/bin/env node
+'use strict';
+
+// rbtv-ignite-ticker — the ticker cadence-edit OPERATOR surface (task 7.66).
+//
+// The first consumer `settings.json` has ever had. It implements the operator-surface design's
+// § 2.3 flow verbatim: validate against the floor/ceiling → write the machine-keyed value →
+// append the history line → print the derived ladder at the new cadence → say the edit is NOT in
+// effect until a restart (or perform the restart with `--restart`).
+//
+// WHY IT IS AN OPERATOR SURFACE AND NOT A GATEWAY INTENT (design § 1.1): it edits a config file and
+// controls a systemd unit. It presents no token, never reaches the gateway, and works with the
+// daemon DOWN — which is exactly when a cadence that wedged the box needs changing.
+//
+// LIVE-RELOAD IS REJECTED, not unimplemented (design § 2.3): the daemon materializes its effective
+// config once at boot, the ticker engine is stateless between ticks with tick numbering continuing
+// from MAX(tick)+1 across restarts, and CMP-17 already fixes boot-only config as the ratified
+// posture. Write-then-restart composes two mechanisms that exist; a reload path would be a second
+// code path with no second consumer (`PRIN-7`).
+//
+// The restart is delegated to the daemon-operator capability, never re-implemented here — same
+// verbs, same exit codes, one home for unit control (`PRIN-11`). `RBTV_IGNITE_UNIT` therefore
+// steers this script's restart at a throwaway unit exactly as it steers that one, which is how the
+// end-to-end probe proves the flow without ever touching the live daemon.
+
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+const S = require('../../../server/settings.js');
+
+const DAEMON_OPERATOR = path.resolve(__dirname, '..', '..', 'daemon-operator', 'tool', 'rbtv-ignite-daemon');
+const BY = `rbtv-ignite-ticker(${process.env.USER || process.env.LOGNAME || 'unknown'})`;
+
+function die(msg, code = 1) {
+  process.stderr.write(`rbtv-ignite-ticker: ${msg}\n`);
+  process.exit(code);
+}
+
+// ⚠ WHICH `.rbtv/` — and this is the defect that nearly shipped, found by RUNNING the command
+// rather than by reading it. A cwd walk-up is NOT the daemon's resolution: the daemon takes
+// `RBTV_IGNITE_WORKSPACE_ROOT` from its unit, while a walk-up takes whatever `.rbtv/` is nearest.
+// The rbtv repo has its OWN `.rbtv/` (the probe-suite runtime root), so an operator editing the
+// cadence from inside the repo wrote a settings file the live daemon would never read — the edit
+// reporting success, appending history, and doing NOTHING. That is the exact silent-no-op class
+// this whole surface exists to close, manufactured by its own resolver.
+//
+// So the daemon's OWN answer is the authority, read from the unit it runs under. A walk-up is the
+// fallback for when there is no unit (no daemon installed yet), and a walk-up that DISAGREES with
+// a live unit REFUSES rather than picking one — the operator is standing somewhere the two
+// mechanisms answer differently, and guessing is what produced the defect.
+function unitWorkspaceRoot(unit) {
+  const r = spawnSync('systemctl', ['--user', 'show', unit, '--property=Environment'], { encoding: 'utf8' });
+  if (r.status !== 0 || !r.stdout) return null;
+  const m = /RBTV_IGNITE_WORKSPACE_ROOT=(\S+)/.exec(r.stdout);
+  return m ? path.resolve(m[1]) : null;
+}
+
+function walkUpWorkspaceRoot() {
+  let dir = process.cwd();
+  for (;;) {
+    if (fs.existsSync(path.join(dir, '.rbtv'))) return dir;
+    const up = path.dirname(dir);
+    if (up === dir) return null;
+    dir = up;
+  }
+}
+
+function resolveWorkspaceRoot() {
+  // An explicit env var wins outright: it is how the probes point this surface at a throwaway
+  // world, and how an operator overrides deliberately.
+  const explicit = process.env.RBTV_IGNITE_WORKSPACE_ROOT;
+  if (explicit) return path.resolve(explicit);
+
+  const unit = process.env.RBTV_IGNITE_UNIT || 'rbtv-ignite.service';
+  const fromUnit = unitWorkspaceRoot(unit);
+  const fromCwd = walkUpWorkspaceRoot();
+
+  if (fromUnit && fromCwd && fromUnit !== fromCwd) {
+    die(
+      `REFUSING — two different workspaces answer here, and editing the wrong one would report ` +
+      `success and change nothing:\n` +
+      `  the daemon (${unit}) uses:  ${fromUnit}\n` +
+      `  walking up from your cwd:   ${fromCwd}\n` +
+      `Set RBTV_IGNITE_WORKSPACE_ROOT to the one you mean, or run from inside it.`,
+      2
+    );
+  }
+  if (fromUnit) return fromUnit;
+  if (fromCwd) return fromCwd;
+  die(
+    `cannot find the workspace that roots .rbtv/: ${unit} names none and no .rbtv/ was found above ` +
+    `${process.cwd()}. Run from inside the workspace, or set RBTV_IGNITE_WORKSPACE_ROOT.`,
+    2
+  );
+  return null;
+}
+
+// § 2.3 step 4 — print the ladder the new cadence implies, BEFORE it takes effect.
+//
+// The stall ladder is still tick-denominated in the built engine (`ticker.js` DEFAULT_CONFIG:
+// stall_warn_ticks 12, stall_halt_ticks 24; `warnings.js` announce every 6 ticks). Design § 2.2
+// rules those re-expressed in wall-clock — that is R3's coupling fix and is NOT this task. Until it
+// lands, a cadence edit silently retimes all three, so this surface makes the consequence VISIBLE
+// at the moment of the edit. Showing it is not a substitute for fixing it, and this says so.
+function ladderAt(intervalMs) {
+  const s = intervalMs / 1000;
+  return [
+    ['stall warning', 12, `${12 * s}s`],
+    ['stall halt', 24, `${24 * s}s`],
+    ['standing-warning re-announce', 6, `${6 * s}s`],
+  ];
+}
+
+function printLadder(intervalMs, out = process.stdout) {
+  out.write(`\nWhat this cadence means for every tick-denominated duration in the engine:\n`);
+  for (const [name, ticks, wall] of ladderAt(intervalMs)) {
+    out.write(`  ${name.padEnd(30)} ${String(ticks).padStart(3)} ticks = ${wall}\n`);
+  }
+  out.write(
+    `  (these are still stored in TICKS — design § 2.2 rules them re-expressed in wall-clock;\n` +
+    `   that is task-separate from this surface, so a cadence edit retimes them today.)\n`
+  );
+}
+
+function cmdShow(workspaceRoot, json) {
+  const eff = S.effectiveBlock(workspaceRoot, 'ticker');
+  const stored = (S.readSettings(workspaceRoot).machines[S.thisMachine()] || {}).ticker || {};
+  const problems = S.validateMachine(workspaceRoot);
+  if (json) {
+    process.stdout.write(`${JSON.stringify({
+      machine: S.thisMachine(), settings_path: S.settingsPaths(workspaceRoot).settingsPath,
+      effective: eff, stored, defaults: S.DEFAULTS.ticker, problems,
+    }, null, 2)}\n`);
+    return 0;
+  }
+  process.stdout.write(`machine        ${S.thisMachine()}\n`);
+  process.stdout.write(`settings file  ${S.settingsPaths(workspaceRoot).settingsPath}\n`);
+  for (const k of Object.keys(S.DEFAULTS.ticker)) {
+    const src = k in stored ? 'set' : 'default';
+    process.stdout.write(`${k.padEnd(26)} ${String(eff[k]).padStart(7)}  (${src})\n`);
+  }
+  printLadder(eff.tick_interval_ms);
+  if (problems.length) {
+    process.stderr.write(`\nREFUSED AT BOOT — this file would stop the daemon starting:\n`);
+    for (const p of problems) process.stderr.write(`  - ${p}\n`);
+    return 1;
+  }
+  return 0;
+}
+
+function cmdSetInterval(workspaceRoot, arg, doRestart) {
+  if (!arg) die('set-interval needs a duration — e.g. `set-interval 15s`');
+  let ms;
+  try { ms = S.parseDurationMs(arg); } catch (err) { die(err.message); }
+
+  const eff = S.effectiveBlock(workspaceRoot, 'ticker');
+  // Validated BEFORE anything is written (design § 2.4: out of range → typed refusal, nothing
+  // written). The daemon re-validates the same values at boot from the same module, so a value
+  // hand-edited into the file past this surface still cannot run.
+  const problems = S.validateTicker({ ...eff, tick_interval_ms: ms });
+  if (problems.length) {
+    process.stderr.write('rbtv-ignite-ticker: REFUSED, nothing written:\n');
+    for (const p of problems) process.stderr.write(`  - ${p}\n`);
+    process.stderr.write(
+      `  bounds in force on ${S.thisMachine()}: floor ${eff.tick_interval_floor_ms}ms, ` +
+      `ceiling ${eff.tick_interval_ceiling_ms}ms (both are configurable defaults, not limits)\n`
+    );
+    process.exit(3);
+  }
+
+  const res = S.setValue(workspaceRoot, { block: 'ticker', key: 'tick_interval_ms', value: ms, by: BY });
+  const fromText = res.from === null ? `default ${eff.tick_interval_ms}ms` : `${res.from}ms`;
+  if (!res.changed) {
+    process.stdout.write(`tick_interval_ms is already ${ms}ms (${S.formatMs(ms)}) — nothing written, no history line.\n`);
+    return 0;
+  }
+  process.stdout.write(`tick_interval_ms  ${fromText} -> ${ms}ms (${S.formatMs(ms)})\n`);
+  process.stdout.write(`written  ${S.settingsPaths(workspaceRoot).settingsPath} (machines.${S.thisMachine()}.ticker.tick_interval_ms)\n`);
+  process.stdout.write(`history  ${S.settingsPaths(workspaceRoot).historyPath} (+1 line)\n`);
+  printLadder(ms);
+
+  if (!doRestart) {
+    // The pending state is stated rather than left implicit — without this the edit mechanism is
+    // silent about its own effect (design § 2.1/§ 2.3 step 5).
+    process.stdout.write(
+      `\nNOT IN EFFECT YET. The daemon materializes config once at boot.\n` +
+      `  put it in effect:  rbtv ignite ticker set-interval ${arg} --restart\n` +
+      `             or:     rbtv ignite daemon restart\n` +
+      `  until then \`ignite inspect daemon\` reports configured != running.\n`
+    );
+    return 0;
+  }
+
+  process.stdout.write(`\nrestarting the daemon so the new cadence takes effect...\n`);
+  const r = spawnSync(DAEMON_OPERATOR, ['restart'], { stdio: 'inherit' });
+  if (r.error) die(`could not run the daemon operator at ${DAEMON_OPERATOR}: ${r.error.message}`, 4);
+  if (r.status !== 0) {
+    // Loud, and it does NOT undo the write: the edit is durable and correct, only unapplied. Silently
+    // reverting would leave the operator believing a restart failure had also lost their change.
+    process.stderr.write(
+      `rbtv-ignite-ticker: THE EDIT IS WRITTEN BUT THE RESTART FAILED (exit ${r.status}).\n` +
+      `  the new cadence is NOT running. Fix the unit, then \`rbtv ignite daemon restart\`.\n`
+    );
+    process.exit(4);
+  }
+  process.stdout.write(`cadence ${S.formatMs(ms)} is now in effect.\n`);
+  return 0;
+}
+
+function cmdHistory(workspaceRoot, n) {
+  const { historyPath } = S.settingsPaths(workspaceRoot);
+  let raw = '';
+  try { raw = fs.readFileSync(historyPath, 'utf8'); } catch (err) {
+    if (err.code !== 'ENOENT') die(`cannot read ${historyPath}: ${err.message}`);
+  }
+  const lines = raw.split('\n').filter((l) => l.trim() !== '');
+  const show = lines.slice(-n);
+  process.stdout.write(`${historyPath} — ${lines.length} line(s), showing ${show.length}\n`);
+  for (const l of show) {
+    let e;
+    try { e = JSON.parse(l); } catch { process.stdout.write(`  ?? unparseable: ${l}\n`); continue; }
+    process.stdout.write(`  ${e.ts}  ${e.machine}  ${e.key}: ${JSON.stringify(e.from)} -> ${JSON.stringify(e.to)}  by ${e.by}\n`);
+  }
+  return 0;
+}
+
+function usage() {
+  process.stdout.write(
+`usage: rbtv-ignite-ticker <verb> [args]
+
+  show [--json]              this machine's effective ticker settings, their source, and the
+                             tick-denominated ladder they imply
+  set-interval <dur>         change the tick cadence. <dur> needs a unit: 15s or 15000ms.
+       [--restart]           also restart the daemon so it takes effect now
+  history [-n N]             the last N settings changes (default 10)
+  selftest                   prove this surface against a throwaway workspace and unit
+
+  The cadence is stored MACHINE-KEYED at .rbtv/modules/ignite/settings.json under
+  machines.<hostname>.ticker.tick_interval_ms — the file is git-committed and travels to every
+  machine, so one flat value would be right here and wrong elsewhere (CMP-1, DEC-7 sub-ruling 3).
+
+  env: RBTV_IGNITE_WORKSPACE_ROOT (the workspace rooting .rbtv/; else walked up from cwd)
+       RBTV_IGNITE_UNIT           (steers --restart at another unit; used by the probes)
+`);
+}
+
+function main(argv) {
+  const args = argv.slice(2);
+  const json = args.includes('--json');
+  const doRestart = args.includes('--restart');
+  const positional = args.filter((a) => !a.startsWith('-'));
+  const verb = positional[0];
+
+  if (!verb || args.includes('-h') || args.includes('--help')) { usage(); return 0; }
+  if (verb === 'selftest') return require('../probes/selftest.js').run();
+
+  const workspaceRoot = resolveWorkspaceRoot();
+  switch (verb) {
+    case 'show': return cmdShow(workspaceRoot, json);
+    case 'set-interval': return cmdSetInterval(workspaceRoot, positional[1], doRestart);
+    case 'history': {
+      const i = args.indexOf('-n');
+      const n = i >= 0 ? Number(args[i + 1]) : 10;
+      if (!Number.isInteger(n) || n <= 0) die('-n needs a positive integer');
+      return cmdHistory(workspaceRoot, n);
+    }
+    default:
+      die(`unknown verb: ${verb} (show|set-interval|history|selftest)`, 2);
+      return 2;
+  }
+}
+
+if (require.main === module) process.exit(main(process.argv));
+module.exports = { main, ladderAt, resolveWorkspaceRoot };
