@@ -46,6 +46,7 @@ subcommand.
 | `ignite remove-job <queue-id>` | `remove-job` | Removes a pending queue row; removing a repeating row cancels the WHOLE schedule (D68) and the CLI says so. |
 | `ignite inspect jobs\|queue\|status <id>\|logs <id> [--tail n]\|daemon\|ticker\|messages <id>` | `inspect` | Read-only. `--tail` walks the offset/limit pages client-side (the contract has no reverse read) and keeps only the last N lines. `messages <id>` (cli-expansion D3): `<id>` is an execution id; the server resolves the execution's chain-stable thread and returns that thread's message rows, paged. |
 | `ignite snooze <kind> <subject> --minutes <n>` | `snooze` | OWNER-ONLY. No standing warning is a clean no-op, never an error. There is no dismiss/clear subcommand — snooze never clears a warning (D45). |
+| `ignite inspect executions --status <s> [--offset n] [--limit n]` | `inspect` (`target: executions`) | Read-only. Every execution in ONE `jobs_log` status, paged — `launching\|running\|done\|blocked\|failed\|stalled\|killed`. The only target that is neither a fixed view nor execution-scoped: it takes no id and answers "every failed run", "every stalled worker". `--status` is REQUIRED (no unfiltered dump) and an unknown status is REFUSED naming the valid set, never answered with an empty list — empty and invalid are different answers. Paging is server-bounded; walk `nextOffset` until `eof`. |
 | `ignite status` | `inspect` (`target: daemon`) | Alias for `ignite inspect daemon`. On transport failure (daemon unreachable) prints `daemon: DOWN` instead of a raw connect error. |
 | `ignite send <session-id> --data <string>` | `send-to-session` | Keystroke bytes into a live HEADED session's pty (D92/D93 — audited server-side before delivery). `<session-id>` is the integer execution id. Headless id → typed refusal, never a hang. The 4096-byte max is server-enforced only (never re-checked locally). |
 | `ignite screen <session-id>` | `capture-session-screen` | A live HEADED session's current rendered screen — a detached snapshot with dimensions, never a stream; every read audited server-side first (D94). `repainting: true` means the re-attached pty has not painted yet — capture again. |
@@ -110,6 +111,13 @@ ignite screen 42
 # Read the message rows of execution 42's chain-stable thread
 ignite inspect messages 42
 
+# Triage the fleet by state: every failed run, then every stalled worker
+ignite inspect executions --status failed
+ignite inspect executions --status stalled
+
+# Page through a large result (walk nextOffset until eof)
+ignite --json inspect executions --status done --offset 0 --limit 50 | jq '.result | {rows: (.rows|length), nextOffset, eof}'
+
 # Kill session 42 (TERM -> grace -> KILL; status becomes "killed")
 ignite kill 42
 ```
@@ -123,3 +131,17 @@ ignite kill 42
 `../gateway/probes/probe-gateway-live.js`) and drive this CLI as a real child
 process against it — never the live `rbtv-ignite` daemon. `probes/lib/fixtures.js`
 holds the shared boot/seed/run helpers.
+
+`probe-cli-executions.js` (task 7.62) joins them, covering `inspect executions` at this layer;
+the same feature is ALSO covered below the transport by
+`../server/internal-api/probes/probe-inspect-executions.js`, which additionally guards the closed
+target and status sets. The two are deliberately not redundant — the in-process probe cannot see
+the transport or argv, and the child-process probe cannot import a constant to compare it.
+
+⚑ A fixture fact worth knowing before writing any probe here that seeds executions: **a booted
+daemon REWRITES non-terminal statuses within its first tick.** `stalled` is swept by the stall
+ladder, `blocked` is re-dispatched, and `launching`/`running` meet the crash sweep — so a probe
+seeding one of those against a live daemon races the ticker and reads as a broken feature.
+`probe-cli-executions.js` hit exactly that on its first run (all three seeded rows read `failed`
+~1.5 s after boot) and now seeds only terminal statuses, asserting the seeded state is still on
+disk before it tests anything.

@@ -49,7 +49,22 @@ const ACTION_TYPES = new Set(['launch-agent', 'fire-tool', 'start-workflow', 'se
 // `inspect` is for. Execution-scoped like `status`/`logs`: the id is a jobs_log exec_id,
 // same coercion path; the core resolves the execution's chain-stable thread and returns
 // that thread's message rows.
-const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages']);
+// ⚑ `executions` ADDED by task 7.62: the state-filtered execution listing — again a new TARGET
+// of `inspect`, never a ninth intent, for the same ce-5/D75 reason. It is neither fixed-view nor
+// execution-SCOPED: it takes no `id` and instead filters the whole jobs_log by `status`, which
+// is why `status` joins the allowed payload keys below.
+const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages', 'executions']);
+
+// A deliberate SECOND copy of the schema's closed jobs_log.status enum (schema.sql:65-66),
+// exactly like SESSION_MODES / TRIGGER_KINDS / ACTION_TYPES above: the gateway holds no store or
+// schema import by design (DEC-4), so it cannot read the enum from the source of truth. A closed
+// enum is SHAPE, so an unknown status is refused at the door.
+//
+// ⚑ THE DRIFT THIS COPY CREATES IS GUARDED, unlike the target set it rides on: probe-inspect-
+// executions.js derives the LIVE enum from the database's own DDL and fails loud on any mismatch
+// with this constant. Task 7.46 will SPLIT this enum into session-level and turn-level states —
+// when it does, the probe fails here first and names the member, which is the point.
+const EXEC_STATUSES = new Set(['launching', 'running', 'done', 'blocked', 'failed', 'stalled', 'killed']);
 
 // Fixed-width ISO-8601 UTC. The store's own contract: lexicographic compare must
 // equal chronological compare, so "due" checks stay deterministic string compares.
@@ -187,9 +202,9 @@ function parseRemoveJob(payload) {
 
 function parseInspect(payload) {
   requireObject(payload);
-  rejectUnknownKeys(payload, new Set(['target', 'id', 'offset', 'limit']), 'inspect');
+  rejectUnknownKeys(payload, new Set(['target', 'id', 'offset', 'limit', 'status']), 'inspect');
   if (!INSPECT_TARGETS.has(payload.target)) {
-    bad(`inspect target must be jobs|queue|status|logs|daemon|ticker|messages (got "${payload.target}")`, 'target');
+    bad(`inspect target must be ${[...INSPECT_TARGETS].join('|')} (got "${payload.target}")`, 'target');
   }
   const out = { target: payload.target };
 
@@ -202,6 +217,23 @@ function parseInspect(payload) {
     if (payload.id !== undefined) bad(`inspect ${payload.target} takes no id`, 'id');
   } else if (payload.id !== undefined) {
     bad(`inspect ${payload.target} takes no id`, 'id');
+  }
+
+  // `status` belongs to `executions` and to NOTHING else. Both directions are refused: the
+  // listing without its filter (an unfiltered whole-jobs_log dump is not what this target is,
+  // and defaulting to one silently would be a design invented at the door), and the filter on a
+  // target that cannot honour it (accepted-and-ignored is the shape that teaches a caller a
+  // filter works when it does not).
+  if (payload.target === 'executions') {
+    if (typeof payload.status !== 'string' || payload.status.length === 0) {
+      bad('inspect executions requires a status', 'status');
+    }
+    if (!EXEC_STATUSES.has(payload.status)) {
+      bad(`inspect executions status must be ${[...EXEC_STATUSES].join('|')} (got "${payload.status}")`, 'status');
+    }
+    out.status = payload.status;
+  } else if (payload.status !== undefined) {
+    bad(`inspect ${payload.target} takes no status`, 'status');
   }
 
   if (payload.offset !== undefined) {
@@ -389,4 +421,8 @@ function parseRequest({ intent, payload }) {
   }
 }
 
-module.exports = { parseRequest, INTENTS };
+// INSPECT_TARGETS and EXEC_STATUSES are exported as DATA for probe-inspect-executions.js (task
+// 7.62), for the same reason dispatch.js exports INTENTS for the 7.16 lockstep guard: a drift
+// probe must compare the modules' own constants, NEVER regex over source text (7.16's ruled
+// construction requirement — a false-alarming probe gets ignored, which is worse than no probe).
+module.exports = { parseRequest, INTENTS, INSPECT_TARGETS, EXEC_STATUSES };

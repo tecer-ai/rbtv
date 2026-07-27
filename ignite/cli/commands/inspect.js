@@ -1,10 +1,16 @@
 'use strict';
 
 // `ignite inspect jobs|queue|status <id>|logs <id> [--tail <n>]|daemon|ticker|
-// messages <id>` — wraps the `inspect` intent (read-only targets, one gateway
-// intent). `messages` (cli-expansion ruling D3, ce-5) is execution-scoped like
-// status/logs: the server resolves the execution's chain-stable thread and
-// returns that thread's message rows, paged.
+// messages <id>|executions --status <s>` — wraps the `inspect` intent (read-only
+// targets, one gateway intent). `messages` (cli-expansion ruling D3, ce-5) is
+// execution-scoped like status/logs: the server resolves the execution's
+// chain-stable thread and returns that thread's message rows, paged.
+//
+// `executions` (task 7.62) is the odd one out and deliberately so: it is neither a
+// fixed view nor execution-scoped — it takes no id and lists the WHOLE jobs_log in
+// ONE status, paged. It is the only way to ask "every failed run" or "every stalled
+// worker"; every other target answers about one execution or about the fleet as a
+// whole, never about a state across it.
 
 const { CliUsageError } = require('../lib/errors');
 const { takeValue, requirePositional } = require('../lib/args');
@@ -17,11 +23,14 @@ ignite inspect logs <exec-id> [--tail <n>]
 ignite inspect daemon
 ignite inspect ticker
 ignite inspect messages <exec-id>
+ignite inspect executions --status <status> [--offset <n>] [--limit <n>]
 
   Read-only. Renders server state (or the full envelope with --json).
-  messages: the message rows of the execution's chain-stable thread.`;
+  messages:   the message rows of the execution's chain-stable thread.
+  executions: every execution in one status, paged —
+              launching|running|done|blocked|failed|stalled|killed.`;
 
-const TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages']);
+const TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages', 'executions']);
 
 // A single page's line count for the (offset, limit) walk logs paging does.
 // Generous but arbitrary — the server-side page bound (internal-api-contract-
@@ -141,6 +150,46 @@ async function runMessages(argv, ctx) {
   });
 }
 
+// One line per execution, the fields an operator triaging a fleet actually scans:
+// which execution, what fired it, when, and where its session went. `--json` stays
+// the raw envelope (finish() renders it before this ever runs).
+//
+// ⚑ The CLI does NOT carry its own copy of the status enum. It forwards whatever the
+// caller typed and lets the SERVER refuse it — one fewer copy of a closed set to
+// drift (the enum already lives at gateway/parse.js and dispatch.js, and a third
+// copy here would be guarded by nothing at the moment a caller most needs the right
+// answer). The cost is one round trip on a typo; the refusal names the valid set.
+async function runExecutions(argv, ctx) {
+  const status = takeValue(argv, '--status');
+  if (status === undefined) throw new CliUsageError('inspect executions requires --status <status>');
+
+  const payload = { target: 'executions', status };
+  for (const flag of ['--offset', '--limit']) {
+    const raw = takeValue(argv, flag);
+    if (raw === undefined) continue;
+    const key = flag.slice(2);
+    if (!/^\d+$/.test(raw)) throw new CliUsageError(`${flag} must be a non-negative integer`);
+    if (key === 'limit' && Number(raw) <= 0) throw new CliUsageError('--limit must be a positive integer');
+    payload[key] = Number(raw);
+  }
+  if (argv.length > 0) throw new CliUsageError(`inspect executions: unrecognized argument(s): ${argv.join(' ')}`);
+
+  const { envelope } = await ctx.call('inspect', payload);
+  return finish(envelope, {
+    json: ctx.json,
+    renderSuccess: (result) => {
+      const rows = result.rows || [];
+      console.log(`executions (status ${result.status}): ${rows.length} row(s)`);
+      for (const r of rows) {
+        console.log(`#${r.exec_id} ${r.fired_at} ${r.action_type} job=${r.job_id} session=${r.session_id ?? '-'} pid=${r.pid ?? '-'} exit=${r.exit_code ?? '-'} thread=${r.thread ?? '-'}`);
+      }
+      if (result.eof === false) {
+        console.log(`... more available (nextOffset=${result.nextOffset})`);
+      }
+    },
+  });
+}
+
 async function runDaemonOrTicker(target, argv, ctx) {
   if (argv.length > 0) throw new CliUsageError(`inspect ${target}: unrecognized argument(s): ${argv.join(' ')}`);
   const { envelope } = await ctx.call('inspect', { target });
@@ -151,15 +200,20 @@ async function runDaemonOrTicker(target, argv, ctx) {
 }
 
 async function run(argv, ctx) {
-  const target = requirePositional(argv, 'target (jobs|queue|status|logs|daemon|ticker|messages)');
+  const target = requirePositional(argv, `target (${[...TARGETS].join('|')})`);
   if (!TARGETS.has(target)) {
-    throw new CliUsageError(`inspect target must be jobs|queue|status|logs|daemon|ticker|messages (got "${target}")`);
+    throw new CliUsageError(`inspect target must be ${[...TARGETS].join('|')} (got "${target}")`);
   }
   if (target === 'jobs' || target === 'queue') return runJobsOrQueue(target, argv, ctx);
   if (target === 'daemon' || target === 'ticker') return runDaemonOrTicker(target, argv, ctx);
   if (target === 'status') return runStatus(argv, ctx);
   if (target === 'messages') return runMessages(argv, ctx);
+  if (target === 'executions') return runExecutions(argv, ctx);
   return runLogs(argv, ctx);
 }
 
-module.exports = { HELP, run };
+// TARGETS is exported as DATA for probe-inspect-executions.js's target-set lockstep
+// check (task 7.62) — the set exists in THREE copies (here, gateway/parse.js and
+// dispatch.js) and until that probe nothing compared them. Exported constants, never
+// regex over source text (task 7.16's ruled construction requirement).
+module.exports = { HELP, run, TARGETS };

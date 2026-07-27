@@ -87,7 +87,19 @@ const REQUIRED_ENVELOPE_KEYS = ['v', 'id', 'ts', 'sender', 'intent', 'payload'];
 // IT is a separate intent.) Execution-scoped like `status`/`logs` — the id is a jobs_log
 // exec_id; the handler resolves the execution's chain-stable thread and returns that
 // thread's message rows, paged.
-const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages']);
+//
+// ⚑ `executions` ADDED by task 7.62 — the state-filtered listing the built read surface lacked:
+// the fixed views (jobs|queue|daemon|ticker) and the execution-SCOPED views (status|logs|messages)
+// between them offered no way to ask "every failed run" or "every stalled worker". Again a TARGET
+// and not a ninth intent (same ce-5/D75 reason as `messages`), and again NO STORE CHANGE — it
+// reads the shipped `listExecutionsByStatus()` (heart-store.js:849, fourteen live callers).
+// Unlike every other target it is neither fixed nor id-scoped: it takes `status` and pages.
+const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages', 'executions']);
+// The closed jobs_log.status enum (schema.sql:65-66), re-validated at the core independently of
+// gateway origin — the defense-in-depth posture probe-snooze already proves for `minutes`. Task
+// 7.46 SPLITS this enum into session-level and turn-level states; probe-inspect-executions.js
+// derives the live enum from the database's own DDL and fails loud when this copy drifts from it.
+const EXEC_STATUSES = new Set(['launching', 'running', 'done', 'blocked', 'failed', 'stalled', 'killed']);
 // Server-enforced max page (contract § 1, `inspect`: "offset/limit bounded").
 const MAX_PAGE = 500;
 const DEFAULT_PAGE = 200;
@@ -604,13 +616,13 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
 
   async function handleInspect(payload) {
     for (const key of Object.keys(payload)) {
-      if (!['target', 'id', 'offset', 'limit'].includes(key)) {
+      if (!['target', 'id', 'offset', 'limit', 'status'].includes(key)) {
         throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });
       }
     }
     const { target } = payload;
     if (!INSPECT_TARGETS.has(target)) {
-      throw new InternalApiError(VALIDATION_FAILED, `unknown inspect target: ${target} (known: jobs, queue, status, logs, daemon, ticker, messages)`, { check: 'inspect-target', field: 'target' });
+      throw new InternalApiError(VALIDATION_FAILED, `unknown inspect target: ${target} (known: ${[...INSPECT_TARGETS].join(', ')})`, { check: 'inspect-target', field: 'target' });
     }
 
     // ENABLED is not FIREABLE, and until now this surface only reported the first (S-2). `enabled`
@@ -628,6 +640,30 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     if (target === 'queue') return { target, rows: heartStore.listQueue() };
     if (target === 'daemon') return handleInspectDaemon();
     if (target === 'ticker') return handleInspectTicker();
+
+    // executions: every jobs_log row in ONE status, paged (task 7.62). The gap it closes is
+    // "list every failed run / every stalled worker" — askable of no other target.
+    //
+    // The status is RE-VALIDATED here, never trusted from the gateway: probe-snooze's ruled
+    // defense-in-depth posture, and the core is reachable by a direct envelope that never
+    // passed a gateway at all. An unknown status is VALIDATION_FAILED naming the check — it is
+    // NOT an empty listing, because "no such status" and "no rows in that status" are different
+    // answers and collapsing them would make a typo indistinguishable from a healthy fleet.
+    if (target === 'executions') {
+      const { status } = payload;
+      if (!EXEC_STATUSES.has(status)) {
+        throw new InternalApiError(VALIDATION_FAILED, `unknown execution status: ${status} (known: ${[...EXEC_STATUSES].join(', ')})`, { check: 'exec-status', field: 'status' });
+      }
+      // Slice-after-fetch, exactly like `messages` above and for the same stated reason: the
+      // store read is the filter (`WHERE status = ?`, index-backed by idx_jobslog_status), and
+      // pushing the page bound into it would need a store change this target does not warrant
+      // (D75 — read-only surface, no store change). v1-scale only, same as its precedent.
+      const { offset, limit } = pageBounds(payload);
+      const all = heartStore.listExecutionsByStatus(status);
+      const rows = all.slice(offset, offset + limit);
+      const nextOffset = offset + rows.length;
+      return { target, status, rows, nextOffset, eof: nextOffset >= all.length };
+    }
 
     // status/logs/messages are execution-scoped: `id` is required and must exist
     // (one execution = one session row, D16).
@@ -1319,4 +1355,4 @@ function constantTimeEquals(a, b) {
 // task 7.16): the closed intent set is duplicated BY DESIGN across the DEC-4 boundary
 // (gateway/parse.js holds its own copy — the gateway may not import core), so the probe must
 // read this gate's copy here. Read-only introspection; no caller mutates it.
-module.exports = { createInternalApi, ENVELOPE_VERSION, assertSerializable, constantTimeEquals, STORE_TO_WIRE, NOT_WIRE_REACHABLE, INTENTS };
+module.exports = { createInternalApi, ENVELOPE_VERSION, assertSerializable, constantTimeEquals, STORE_TO_WIRE, NOT_WIRE_REACHABLE, INTENTS, INSPECT_TARGETS, EXEC_STATUSES };
