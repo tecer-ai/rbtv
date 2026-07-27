@@ -56,29 +56,41 @@ function topHelp() {
   ].join('\n');
 }
 
-function main(argvIn) {
-  const argv = [...argvIn];
-  const opts = { json: false, pretty: Boolean(process.env.RBTV_PRETTY), rules: false };
-
-  // Global flags are consumed only from the FRONT, before the route is known. Once
-  // a delegated route matches, every remaining token passes through verbatim —
-  // otherwise this CLI would be silently editing the delegate's argv.
-  while (argv.length && argv[0].startsWith('-')) {
-    const f = argv.shift();
+// One place that knows the global flag vocabulary, so the leading-flag pass and
+// the drill's flags-anywhere pass can never drift apart.
+function consumeFlags(flags, opts) {
+  for (const f of flags) {
     if (f === '--json') opts.json = true;
     else if (f === '--pretty') opts.pretty = true;
     else if (f === '--rules') opts.rules = true;
-    else if (f === '--help' || f === '-h') { console.log(topHelp()); return 0; }
-    else if (f === '--version') { console.log(VERSION); return 0; }
+    else if (f === '--help' || f === '-h') opts.helpRequested = true;
+    else if (f === '--version') opts.versionRequested = true;
     else {
       console.error(refusal({
         what: `\`${f}\` is not an rbtv global flag`,
-        why: 'global flags are read before the route; after a route they belong to the delegate.',
+        why: 'the drill takes global flags only; after a DELEGATED route, flags belong to the delegate.',
         fix: 'known: --json --pretty --rules --help --version. Run `rbtv --help`.',
       }));
       return 2;
     }
   }
+  return 0;
+}
+
+function main(argvIn) {
+  const argv = [...argvIn];
+  const opts = { json: false, pretty: Boolean(process.env.RBTV_PRETTY), rules: false };
+
+  // Leading flags are consumed before the route is known. Once a DELEGATED route
+  // matches, every remaining token passes through verbatim — otherwise this CLI
+  // would be silently editing the delegate's argv. On the drill path, flags are
+  // consumed from anywhere (see the module branch below).
+  const lead = [];
+  while (argv.length && argv[0].startsWith('-')) lead.push(argv.shift());
+  const leadErr = consumeFlags(lead, opts);
+  if (leadErr !== 0) return leadErr;
+  if (opts.helpRequested) { console.log(topHelp()); return 0; }
+  if (opts.versionRequested) { console.log(VERSION); return 0; }
 
   if (argv.length === 0) return level0(opts);
 
@@ -98,17 +110,32 @@ function main(argvIn) {
   // asserts the two sets stay disjoint per module, so that refusal is a tripwire
   // for a future collision rather than a path anyone is expected to hit.
   if (catalog.moduleExists(head)) {
-    if (argv.length === 1) return level1(head, opts);
-
     const nested = verbs.matchRoute(argv);
     if (nested && nested.prefix.length >= 2) return runRoute(nested, argv, opts);
 
-    const token = argv[1];
-    const component = catalog.findComponent(head, token);
     const moduleRoute = verbs.ROUTES.find((r) => r.prefix.length === 1 && r.prefix[0] === head);
+    if (moduleRoute && argv[1] && moduleRoute.verbs.includes(argv[1])) {
+      return runRoute(moduleRoute, argv, opts);
+    }
+
+    // DRILL PATH ONLY — from here a flag may appear ANYWHERE, because the drill
+    // has no per-level flags of its own: every dash token is a global one.
+    // `rbtv core --rules` is the form the top-level help itself teaches, and it
+    // used to REFUSE (only `rbtv --rules core` worked) — a CLI whose own help
+    // teaches a failing command. Delegated routes are matched above, so nothing
+    // here can edit a delegate's argv.
+    const tail = argv.slice(1);
+    const flagErr = consumeFlags(tail.filter((t) => t.startsWith('-')), opts);
+    if (flagErr !== 0) return flagErr;
+    const positionals = tail.filter((t) => !t.startsWith('-'));
+
+    if (positionals.length === 0) return level1(head, opts);
+
+    const token = positionals[0];
+    const matches = catalog.findComponents(head, token);
     const isVerb = Boolean(moduleRoute && moduleRoute.verbs.includes(token));
 
-    if (component && isVerb) {
+    if (matches.length && isVerb) {
       console.error(refusal({
         what: `\`${token}\` is AMBIGUOUS under \`${head}\` — it names both a component and an action verb`,
         why: 'resolving it either way would silently run something you did not ask for.',
@@ -117,8 +144,7 @@ function main(argvIn) {
       }));
       return 1;
     }
-    if (isVerb) return runRoute(moduleRoute, argv, opts);
-    if (component) return level2(head, token, opts);
+    if (matches.length) return level2(head, matches, opts);
 
     const known = [
       ...(catalog.components(head) || []).map((c) => c.name),
@@ -230,36 +256,42 @@ function level1(moduleName, opts) {
   return 0;
 }
 
-function level2(moduleName, componentName, opts) {
-  const comp = catalog.findComponent(moduleName, componentName);
-  if (!comp) {
-    const all = (catalog.components(moduleName) || []).map((c) => c.name);
-    const near = suggest(componentName, all);
-    console.error(refusal({
-      what: `\`${componentName}\` is not a component of \`${moduleName}\``,
-      why: near ? `Did you mean \`${near}\`?` : 'no component of that module carries this name.',
-      fix: `known: ${all.join(', ') || '(none)'}. Run \`rbtv ${moduleName}\` for the list.`,
-    }));
-    return 1;
-  }
-
-  const body = catalog.readBody(comp.entry_point);
-
+// `matches` is EVERY component carrying the name, not the first. In `core`,
+// `safe-move` is both a skill and a tool — two facets of one capability — and
+// delivering only whichever the manifest happened to list first would hide half of
+// it, with the half you got decided by key order.
+function level2(moduleName, matches, opts) {
   if (opts.json) {
     json({
       level: 2,
       module: moduleName,
-      component: comp.name,
-      kind: comp.kind,
-      entry_point: comp.entry_point,
-      entry_point_body: body,
-      entry_points: comp.tools,
+      component: matches[0].name,
+      facets: matches.map((c) => ({
+        kind: c.kind,
+        entry_point: c.entry_point,
+        entry_point_body: catalog.readBody(c.entry_point),
+        entry_points: c.tools,
+      })),
       substrate: 'stand-in pending CMP-5',
     });
     return 0;
   }
 
-  console.log(paint(opts.pretty, 'bold', `${moduleName} ${comp.name} (${comp.kind})`));
+  if (matches.length > 1) {
+    console.log(paint(opts.pretty, 'bold',
+      `${moduleName} ${matches[0].name} — ${matches.length} facets (${matches.map((c) => c.kind).join(' + ')}), all delivered`));
+  }
+  for (const comp of matches) renderFacet(moduleName, comp, opts);
+
+  const route = verbs.ROUTES.find((r) => r.prefix[0] === moduleName);
+  console.log(`\nnext: ${route ? `rbtv ${route.prefix.join(' ')} <verb>` : `rbtv ${moduleName}`}`);
+  return 0;
+}
+
+function renderFacet(moduleName, comp, opts) {
+  const body = catalog.readBody(comp.entry_point);
+
+  console.log(paint(opts.pretty, 'bold', `\n${moduleName} ${comp.name} (${comp.kind})`));
   console.log(comp.entry_point ? `entry point: ${comp.entry_point}` : 'entry point: (none recorded)');
 
   if (comp.tools.length) {
@@ -277,12 +309,8 @@ function level2(moduleName, componentName, opts) {
   if (body) {
     console.log(`\n--- ${comp.entry_point} ---\n${body}`);
   } else if (comp.entry_point) {
-    console.log(`\n(body unreadable at ${comp.entry_point} — the manifest row points somewhere the file is not)`);
+    console.log(`\n(no deliverable body at ${comp.entry_point} — it names a package or directory, not a document)`);
   }
-
-  const route = verbs.ROUTES.find((r) => r.prefix[0] === moduleName);
-  console.log(`\nnext: ${route ? `rbtv ${route.prefix.join(' ')} <verb>` : `rbtv ${moduleName}`}`);
-  return 0;
 }
 
 function doctor(opts) {

@@ -19,6 +19,13 @@ rbtv selftest               this CLI's own mechanics
 ```
 
 Flags: `--json` (machine) · `--pretty` (human; **never** TTY-derived) · `--rules` (deliver rule bodies).
+On the **drill** a flag may sit anywhere (`rbtv core --rules` ≡ `rbtv --rules core`) — the drill has
+no per-level flags, so every dash token is a global one. After a **delegated** route, every token
+passes to the delegate verbatim; a global `--json` given before the route is re-attached exactly once.
+
+A component name carrying **two facets delivers both** — `core safe-move` is a skill (the installed
+loader) and a tool (the package it loads). Handing over whichever the manifest listed first would
+make the answer depend on key order.
 
 **Exit codes** (the `sd-graph` / `rbtv-goal` / `daemon-operator` convention): `0` success · `1`
 refusal or not-found · `2` usage error. A delegated call's exit code is **the delegate's**,

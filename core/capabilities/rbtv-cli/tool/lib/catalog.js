@@ -173,10 +173,15 @@ function componentName(row, key) {
   return `<unnamed ${key} row>`;
 }
 
-function findComponent(moduleName, componentName_) {
+// ALL matches, never the first. One name can legitimately carry two facets — in
+// `core`, `safe-move` is BOTH a skill (the loader installed into `.claude/`) and a
+// tool (the package it loads). Returning the first match would deliver one facet
+// and silently hide the other, and which one you got would depend on manifest key
+// order. Level 2 delivers every facet instead.
+function findComponents(moduleName, componentName_) {
   const list = components(moduleName);
-  if (!list) return null;
-  return list.find((c) => c.name === componentName_) || null;
+  if (!list) return [];
+  return list.filter((c) => c.name === componentName_);
 }
 
 // Rules ride the drill's results (registry: "entering a module or component
@@ -231,7 +236,7 @@ module.exports = {
   moduleExists,
   components,
   capabilities,
-  findComponent,
+  findComponents,
   rulesOf,
   readBody,
   rel,

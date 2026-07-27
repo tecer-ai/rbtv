@@ -233,6 +233,39 @@ const CHECKS = [
     if (!/set in env/.test(r.stdout)) throw new Error('doctor does not report token presence at all');
   }],
 
+  ['drill flags work AFTER the module token, the form the help teaches', () => {
+    // The defect this replaced: `rbtv core --rules` refused — only `rbtv --rules
+    // core` worked — while the top-level help taught "--rules with a drill level".
+    // A CLI whose own help teaches a failing command. Found by RUNNING --rules for
+    // the first time at close, not by re-reading the parser.
+    const after = runCli(['core', '--rules']);
+    if (after.status !== 0) throw new Error(`\`rbtv core --rules\` exited ${after.status}`);
+    const bodies = (after.stdout.match(/^--- core\/rules\//gm) || []).length;
+    if (bodies < 2) throw new Error(`--rules after the module delivered ${bodies} rule bodies`);
+
+    const before = runCli(['--rules', 'core']);
+    const beforeBodies = (before.stdout.match(/^--- core\/rules\//gm) || []).length;
+    if (beforeBodies !== bodies) throw new Error('flag position changes the result');
+
+    if (runCli(['ignite', '--json']).status !== 0) throw new Error('`rbtv ignite --json` refused');
+    if (runCli(['ignite', '--nonsense']).status !== 2) throw new Error('an unknown drill flag is not a usage error');
+  }],
+
+  ['a name with two facets delivers BOTH, never whichever came first', () => {
+    // `core safe-move` is a skill AND a tool. Returning the first match would hand
+    // over one facet and hide the other, with the winner decided by manifest key
+    // order — a silent, ordering-dependent answer.
+    const facets = catalog.findComponents('core', 'safe-move');
+    if (facets.length < 2) throw new Error(`expected >=2 facets for core safe-move, got ${facets.length}`);
+    const r = runCli(['core', 'safe-move']);
+    if (r.status !== 0) throw new Error(`exited ${r.status}`);
+    for (const f of facets) {
+      if (!r.stdout.includes(f.entry_point || '')) throw new Error(`facet ${f.kind} was not delivered`);
+    }
+    const j = JSON.parse(runCli(['--json', 'core', 'safe-move']).stdout);
+    if (j.facets.length !== facets.length) throw new Error('--json dropped a facet');
+  }],
+
   ['an unresolvable rbtv root refuses with a teaching error, not a stack trace', () => {
     // Found by probing this CLI from a throwaway copy of itself: the root is
     // inferred from the script's own position, so a relocated tree crashed with an
