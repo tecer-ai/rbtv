@@ -20,6 +20,41 @@ The runtime layer of RBTV. Two parts share the module because they are two faces
 
 See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-job` / `inspect`).
 
+### Capabilities
+
+- **`daemon-operator`** (`ignite/capabilities/daemon-operator/`) — the ignite OPERATOR surface:
+  local systemd USER unit ops that work precisely when the daemon is DOWN. Contract in
+  `daemon-operator.md`.
+- **`goals-tree`** (`ignite/capabilities/goals-tree/`) — the goals-tree machinery
+  (`scaffold`/`reindex`/`lint`/`materialize`). Contract in `tool/README.md`.
+
+## Reaching this module from the `rbtv` CLI
+
+The system CLI (`core/capabilities/rbtv-cli/`, task 7.65) is the agent-facing front door. It
+**delegates** to everything below — no second implementation of any of it (`PRIN-11`), and a
+delegated call's stdout, stderr and exit code are the delegate's, unchanged.
+
+```
+rbtv ignite                      the module's components, its rules, and its action verbs
+rbtv ignite <component>          that component's entry point body + its invocable entry points
+
+rbtv ignite daemon start|restart|stop|kill|unit    -> capabilities/daemon-operator
+rbtv ignite ticker                                  NOT BUILT — core-build task 7.66
+rbtv ignite register-job|add-job|remove-job|inspect|snooze|status|send|screen|kill   -> cli/ignite.js
+```
+
+The standalone `ignite` client is **unchanged and still the working surface** — `rbtv ignite <cmd>`
+execs it and nothing else. Auth stays env-only (`IGNITE_SENDER_TOKEN` never in argv); the `rbtv`
+process never handles the token's value.
+
+⚠ **Two commands named `kill`, and they are different objects.** `rbtv ignite kill` kills a
+SESSION through the gateway; `rbtv ignite daemon kill` SIGKILLs the unit. The extra token is what
+tells them apart. Likewise `ignite status` (the daemon's report of itself, needs it alive) is not
+`rbtv ignite daemon unit` (the machine's report about the daemon, works when it is dead).
+
+⚠ **`rbtv ignite daemon unit` exits 0 for any unit it could READ**, including a failed or
+crash-looping one. Health is the `health` field. **Branch on `health`, never on the exit status.**
+
 ## Scoping
 
 Electing the module installs ONLY the `rbtv-team-kit` skill loader; the kit itself and the daemon are read/run in place from the repo. The kit was carried verbatim at promotion — its known instance couplings (a hardcoded spawn-cwd fallback, origin-vault paths in selftest fixtures and provenance prose) are enumerated in `ignite/team-kit/CLAUDE.md` § Known instance couplings and are owner-gated for generalization before this module ships beyond the `ignite/core-daemon` branch.

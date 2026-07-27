@@ -1,0 +1,373 @@
+#!/usr/bin/env node
+'use strict';
+
+// rbtv — the ONE system-wide RBTV CLI (registry `concepts/rbtv-cli.md`, d-rbtv-cli).
+//
+// Two things live here and they are deliberately different in kind:
+//
+//   THE DRILL (levels 0-2) delivers CONTENT — modules, then a module's components,
+//   then a component's entry point and its invocable entry points.
+//   THE ACTION VERBS do things — and every one of them DELEGATES to a surface that
+//   already ships. This CLI owns no second implementation of any of them (PRIN-11).
+//
+// ⚠ THE DRILL IS A STAND-IN PENDING CMP-5 — see lib/catalog.js for what is missing
+// and what is read instead. The action verbs are NOT a stand-in: they are the
+// ruled fold-in home of the surfaces they delegate to.
+//
+// Built for core-build task 7.65.
+
+const path = require('path');
+const catalog = require('./lib/catalog');
+const verbs = require('./lib/verbs');
+const { delegate, buildDelegateArgs } = require('./lib/delegate');
+const { table, blurb, json, refusal, suggest, paint } = require('./lib/render');
+const { runSelftest } = require('./lib/selftest');
+
+const VERSION = '0.1.0-standin';
+
+function topHelp() {
+  return [
+    'rbtv — the RBTV system CLI: drill for content, verbs to act.',
+    '',
+    'DRILL (delivers content)',
+    '  rbtv                       level 0 — the installed modules',
+    '  rbtv <module>              level 1 — that module\'s components, blurb-first',
+    '  rbtv <module> <component>  level 2 — the component\'s entry point + its entry points',
+    '',
+    'ACT (delegates — no second implementation)',
+    '  rbtv ignite daemon <verb>  daemon lifecycle: start|restart|stop|kill|unit',
+    '  rbtv ignite <command>      the ignite gateway client (jobs, queue, sessions)',
+    '  rbtv goal <verb>           goals-tree: scaffold|reindex|lint|materialize',
+    '',
+    'ORIENT',
+    '  rbtv doctor                can this tool work here? delegates present? substrate readable?',
+    '  rbtv selftest              exercise this CLI\'s own mechanics',
+    '',
+    'FLAGS',
+    '  --json     machine output (drill + doctor). Delegated calls emit the DELEGATE\'s json.',
+    '  --pretty   human mode: colour + alignment. Never chosen by TTY detection.',
+    '  --rules    with a drill level: also deliver that scope\'s rule BODIES.',
+    '',
+    '⚠ `rbtv ignite daemon unit` exits 0 for any unit it could READ, including a failed or',
+    '  crash-looping one. Health is the `health` FIELD. Branch on it, never on the exit status.',
+    '',
+    'next: rbtv            (level 0 — start here)',
+    'per-command help: rbtv <module> <component>, or rbtv ignite --help for the gateway client',
+  ].join('\n');
+}
+
+function main(argvIn) {
+  const argv = [...argvIn];
+  const opts = { json: false, pretty: Boolean(process.env.RBTV_PRETTY), rules: false };
+
+  // Global flags are consumed only from the FRONT, before the route is known. Once
+  // a delegated route matches, every remaining token passes through verbatim —
+  // otherwise this CLI would be silently editing the delegate's argv.
+  while (argv.length && argv[0].startsWith('-')) {
+    const f = argv.shift();
+    if (f === '--json') opts.json = true;
+    else if (f === '--pretty') opts.pretty = true;
+    else if (f === '--rules') opts.rules = true;
+    else if (f === '--help' || f === '-h') { console.log(topHelp()); return 0; }
+    else if (f === '--version') { console.log(VERSION); return 0; }
+    else {
+      console.error(refusal({
+        what: `\`${f}\` is not an rbtv global flag`,
+        why: 'global flags are read before the route; after a route they belong to the delegate.',
+        fix: 'known: --json --pretty --rules --help --version. Run `rbtv --help`.',
+      }));
+      return 2;
+    }
+  }
+
+  if (argv.length === 0) return level0(opts);
+
+  const head = argv[0];
+  if (head === 'doctor') return doctor(opts);
+  if (head === 'selftest') return runSelftest();
+
+  // RESOLUTION ORDER, and it exists because `ignite` is BOTH a module and a verb
+  // namespace — the registry rules both `rbtv <module> <component>` (the drill) and
+  // `rbtv ignite <subcommand>` (the gateway client) onto the same two tokens.
+  //
+  // A bare module token is ALWAYS the drill: `rbtv ignite` lists components, it
+  // never delegates. At position 2 the token decides — a multi-token route
+  // (`ignite daemon`, `ignite ticker`) first, then a component, then a
+  // module-level verb. A token that is BOTH is refused, never silently resolved:
+  // guessing which one the caller meant is how the wrong thing runs. selftest
+  // asserts the two sets stay disjoint per module, so that refusal is a tripwire
+  // for a future collision rather than a path anyone is expected to hit.
+  if (catalog.moduleExists(head)) {
+    if (argv.length === 1) return level1(head, opts);
+
+    const nested = verbs.matchRoute(argv);
+    if (nested && nested.prefix.length >= 2) return runRoute(nested, argv, opts);
+
+    const token = argv[1];
+    const component = catalog.findComponent(head, token);
+    const moduleRoute = verbs.ROUTES.find((r) => r.prefix.length === 1 && r.prefix[0] === head);
+    const isVerb = Boolean(moduleRoute && moduleRoute.verbs.includes(token));
+
+    if (component && isVerb) {
+      console.error(refusal({
+        what: `\`${token}\` is AMBIGUOUS under \`${head}\` — it names both a component and an action verb`,
+        why: 'resolving it either way would silently run something you did not ask for.',
+        fix: `component: \`rbtv ${head}\` to see it listed. verb: run the delegate directly `
+          + `(${catalog.rel(moduleRoute.target)}). One of the two must be renamed.`,
+      }));
+      return 1;
+    }
+    if (isVerb) return runRoute(moduleRoute, argv, opts);
+    if (component) return level2(head, token, opts);
+
+    const known = [
+      ...(catalog.components(head) || []).map((c) => c.name),
+      ...(moduleRoute ? moduleRoute.verbs : []),
+      ...verbs.ROUTES.filter((r) => r.prefix.length === 2 && r.prefix[0] === head).map((r) => r.prefix[1]),
+    ].sort();
+    const near = suggest(token, known);
+    console.error(refusal({
+      what: `\`${token}\` is neither a component nor an action verb of \`${head}\``,
+      why: near ? `Did you mean \`${near}\`?` : 'nothing under that module carries this name.',
+      fix: `known: ${known.join(', ') || '(none)'}. Run \`rbtv ${head}\` for the list.`,
+    }));
+    return 1;
+  }
+
+  // Not a module: a verb namespace of its own (`goal`) is the only thing left.
+  const route = verbs.matchRoute(argv);
+  if (route) return runRoute(route, argv, opts);
+
+  const known = [...catalog.modules().map((m) => m.name), ...verbs.verbNamespaceTokens()].sort();
+  const near = suggest(head, known);
+  console.error(refusal({
+    what: `\`${head}\` is neither a module nor an action verb`,
+    why: near ? `nothing resolves it. Did you mean \`${near}\`?` : 'nothing resolves it.',
+    fix: `known: ${known.join(', ')}. Run \`rbtv\` for level 0.`,
+  }));
+  return 1;
+}
+
+function runRoute(route, argv, opts) {
+  const rest = argv.slice(route.prefix.length);
+
+  if (route.exec === 'unbuilt') {
+    console.error(refusal({
+      what: `\`rbtv ${route.prefix.join(' ')}\` is registered but NOT BUILT`,
+      why: `${route.unbuilt.why} (core-build task ${route.unbuilt.task})`,
+      fix: `this namespace is here so its absence is visible rather than looking like an oversight. `
+        + `No verb is named under it yet — task ${route.unbuilt.task} names them when it settles the schema.`,
+    }));
+    return 1;
+  }
+
+  // A bare route with no verb: hand over the delegate's OWN help rather than a
+  // paraphrase of it. One source of truth for the command inventory.
+  if (rest.length === 0) {
+    return delegate(route, route.prefix.length > 1 ? [] : ['--help']).status || 0;
+  }
+
+  const res = delegate(route, buildDelegateArgs(rest, opts));
+  if (res.message) console.error(res.message);
+  return res.status;
+}
+
+function level0(opts) {
+  const mods = catalog.modules();
+  if (opts.json) {
+    json({ level: 0, substrate: 'stand-in pending CMP-5', modules: mods });
+    return 0;
+  }
+  const rows = mods.map((m) => [m.name, blurb(m.description) + (m.always_installed ? ' [always installed]' : '')]);
+  console.log(paint(opts.pretty, 'bold', `${mods.length} modules`));
+  console.log(table(rows, opts.pretty).join('\n'));
+  console.log(`\nnext: rbtv <module>   e.g. rbtv ${mods[0] ? mods[0].name : 'core'}`);
+  return 0;
+}
+
+function level1(moduleName, opts) {
+  const comps = catalog.components(moduleName) || [];
+  const rules = catalog.rulesOf(moduleName);
+  const routes = verbs.ROUTES.filter((r) => r.prefix[0] === moduleName);
+
+  if (opts.json) {
+    json({
+      level: 1,
+      module: moduleName,
+      substrate: 'stand-in pending CMP-5',
+      components: comps,
+      rules: opts.rules ? rules.map((r) => ({ ...r, body: catalog.readBody(r.path) })) : rules,
+      action_verbs: routes.map((r) => ({ route: r.prefix.join(' '), verbs: r.verbs, built: r.exec !== 'unbuilt' })),
+    });
+    return 0;
+  }
+
+  console.log(paint(opts.pretty, 'bold', `${moduleName} — ${comps.length} component(s)`));
+  console.log(table(comps.map((c) => [`${c.name} (${c.kind})`, blurb(c.description)]), opts.pretty).join('\n'));
+
+  if (routes.length) {
+    console.log(`\n${paint(opts.pretty, 'bold', 'action verbs')}`);
+    console.log(table(routes.map((r) => [
+      `rbtv ${r.prefix.join(' ')}${r.verbs.length ? ` <${r.verbs.join('|')}>` : ''}`,
+      r.summary,
+    ]), opts.pretty).join('\n'));
+  }
+
+  // Rules ride the result — names and paths always, bodies on request.
+  if (rules.length) {
+    console.log(`\n${paint(opts.pretty, 'bold', `rules in scope (${rules.length})`)}`);
+    if (opts.rules) {
+      for (const r of rules) {
+        console.log(`\n--- ${r.path} ---\n${catalog.readBody(r.path) || '(unreadable)'}`);
+      }
+    } else {
+      console.log(table(rules.map((r) => [r.name, blurb(r.description)]), opts.pretty).join('\n'));
+      console.log('  (bodies: add --rules)');
+    }
+  }
+
+  console.log(`\nnext: rbtv ${moduleName} <component>${comps[0] ? `   e.g. rbtv ${moduleName} ${comps[0].name}` : ''}`);
+  return 0;
+}
+
+function level2(moduleName, componentName, opts) {
+  const comp = catalog.findComponent(moduleName, componentName);
+  if (!comp) {
+    const all = (catalog.components(moduleName) || []).map((c) => c.name);
+    const near = suggest(componentName, all);
+    console.error(refusal({
+      what: `\`${componentName}\` is not a component of \`${moduleName}\``,
+      why: near ? `Did you mean \`${near}\`?` : 'no component of that module carries this name.',
+      fix: `known: ${all.join(', ') || '(none)'}. Run \`rbtv ${moduleName}\` for the list.`,
+    }));
+    return 1;
+  }
+
+  const body = catalog.readBody(comp.entry_point);
+
+  if (opts.json) {
+    json({
+      level: 2,
+      module: moduleName,
+      component: comp.name,
+      kind: comp.kind,
+      entry_point: comp.entry_point,
+      entry_point_body: body,
+      entry_points: comp.tools,
+      substrate: 'stand-in pending CMP-5',
+    });
+    return 0;
+  }
+
+  console.log(paint(opts.pretty, 'bold', `${moduleName} ${comp.name} (${comp.kind})`));
+  console.log(comp.entry_point ? `entry point: ${comp.entry_point}` : 'entry point: (none recorded)');
+
+  if (comp.tools.length) {
+    // ⚠ INFERRED, and said so rather than presented as fact. CMP-5's exposure
+    // manifest is what DECLARES which files are entry points (its `rbtv-cli`
+    // column); with it unbuilt this list is derived from the executable bit under
+    // `tool*/`, which over-reports — an importable module that happens to be +x
+    // shows up here. Inferring a property and printing it as a measurement is the
+    // exact shape this run has paid for repeatedly, so the output carries the
+    // qualifier instead of the reader having to know.
+    console.log(`\n${paint(opts.pretty, 'bold', 'entry points (INFERRED from the executable bit — CMP-5 unbuilt, nothing declares these)')}`);
+    console.log(table(comp.tools.map((t) => [t.name, t.path]), opts.pretty).join('\n'));
+  }
+
+  if (body) {
+    console.log(`\n--- ${comp.entry_point} ---\n${body}`);
+  } else if (comp.entry_point) {
+    console.log(`\n(body unreadable at ${comp.entry_point} — the manifest row points somewhere the file is not)`);
+  }
+
+  const route = verbs.ROUTES.find((r) => r.prefix[0] === moduleName);
+  console.log(`\nnext: ${route ? `rbtv ${route.prefix.join(' ')} <verb>` : `rbtv ${moduleName}`}`);
+  return 0;
+}
+
+function doctor(opts) {
+  const checks = [];
+  const push = (name, ok, detail) => checks.push({ name, ok, detail });
+
+  // Substrate
+  let mods = [];
+  try {
+    mods = catalog.modules();
+    push('manifest readable', true, `${catalog.rel(catalog.MANIFEST)} — ${mods.length} modules`);
+  } catch (err) {
+    push('manifest readable', false, err.message);
+  }
+  push('rbtv root resolved', true, catalog.RBTV_ROOT);
+
+  // Delegates — named individually, because "some delegate is missing" is not
+  // actionable and this is the check an agent runs when a verb misbehaves.
+  const fs = require('fs');
+  for (const r of verbs.ROUTES) {
+    if (r.exec === 'unbuilt') {
+      push(`delegate: ${r.prefix.join(' ')}`, true, `not built by design — core-build task ${r.unbuilt.task}`);
+      continue;
+    }
+    const present = fs.existsSync(r.target);
+    let exec = false;
+    if (present && r.exec === 'direct') {
+      try { fs.accessSync(r.target, fs.constants.X_OK); exec = true; } catch { exec = false; }
+    }
+    const ok = present && (r.exec === 'node' || exec);
+    push(
+      `delegate: ${r.prefix.join(' ')}`,
+      ok,
+      ok ? catalog.rel(r.target)
+        : present ? `present but not executable: ${catalog.rel(r.target)} (fix: chmod +x)`
+          : `MISSING: ${catalog.rel(r.target)}`,
+    );
+  }
+
+  // CMP-5 divergence — reported by doctor rather than only documented, so it
+  // cannot be forgotten by anyone who never opens the README.
+  const cmp5 = fs.existsSync(path.join(catalog.RBTV_ROOT, 'modules', 'ignite.md'));
+  push('drill substrate', true,
+    `STAND-IN pending CMP-5 (no component.md / module.md / rbtv-cli exposure column exists)${cmp5 ? '' : ' — modules/ absent too'}`);
+
+  push('node', true, process.version);
+
+  // Auth is deliberately absent: nothing here crosses the gateway. The delegated
+  // gateway client reads IGNITE_SENDER_TOKEN from the environment itself and this
+  // process never handles its value — so doctor reports PRESENCE, never content.
+  push('auth (this CLI)', true, 'none required — the drill and the daemon verbs are local');
+  push('auth (delegated gateway)', true,
+    `IGNITE_SENDER_TOKEN ${process.env.IGNITE_SENDER_TOKEN ? 'set in env' : 'not set in env'}`
+    + ` · IGNITE_GATEWAY_ADDR ${process.env.IGNITE_GATEWAY_ADDR ? 'set' : 'not set'}`);
+
+  const ok = checks.every((c) => c.ok);
+  if (opts.json) {
+    json({ ok, version: VERSION, checks });
+    return ok ? 0 : 1;
+  }
+  for (const c of checks) console.log(`${c.ok ? 'ok  ' : 'FAIL'}  ${c.name}: ${c.detail}`);
+  console.log(`\n${ok ? 'ok' : 'FAIL'} — ${checks.filter((c) => c.ok).length}/${checks.length} checks`);
+  console.log(ok ? 'next: rbtv            (level 0)' : 'next: fix the FAIL lines above, then rerun `rbtv doctor`');
+  return ok ? 0 : 1;
+}
+
+try {
+  process.exitCode = main(process.argv.slice(2));
+} catch (err) {
+  // A substrate failure is a RECOVERABLE condition with a known fix, not an
+  // internal error — it means this tool cannot find the tree it belongs to
+  // (a copied or relocated checkout). It gets a teaching refusal naming the root
+  // it resolved and the override, because a stack trace tells the caller nothing
+  // it can act on. Found by probing this CLI from a throwaway copy of itself.
+  if (err.rbtvCode === 'NO_MANIFEST' || err.rbtvCode === 'BAD_MANIFEST') {
+    console.error(refusal({
+      what: 'the rbtv module catalog is unreadable, so the drill cannot resolve anything',
+      why: `${err.message}\n       resolved rbtv root: ${catalog.RBTV_ROOT}`
+        + '\n       that root is derived from this script\'s own location, which is wrong if the tool was copied or moved.',
+      fix: 'run the tool from its place in the rbtv tree, or point it at the tree explicitly:',
+      escape: 'RBTV_ROOT=/path/to/rbtv rbtv …   (then `rbtv doctor` to confirm)',
+    }));
+    process.exitCode = 1;
+  } else {
+    console.error(`INTERNAL: ${err.stack || err.message}`);
+    process.exitCode = 1;
+  }
+}
