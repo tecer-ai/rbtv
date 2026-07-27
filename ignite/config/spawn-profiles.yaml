@@ -197,12 +197,34 @@ profiles:
 # the LIVE heartbeat requires editing this file and an integrator-owned daemon restart —
 # announced, auditable, and impossible to do by accident from an enqueue.
 #
-# CONTAINMENT LIVES INSIDE THE SCRIPTS (issues.md G-30, spawn-integrator's finding): a
-# fire-tool exec gets no bwrap namespace and no cgroup caps. Each detector caps its own
-# address space and wall clock, holds a single-instance lock, and restores the ORIGINAL
-# limits in any child it starts — so a relaunched sensor or recovery agent never inherits
-# the detector's 256 MB cap.
-# ─────────────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+# ⚠  READ BEFORE ADDING AN ENTRY BELOW — THE DAEMON DOES NOT CONTAIN THESE.
+#
+# A `fire-tool` exec runs with NO bubblewrap namespace and NO cgroup caps. This is not
+# a gap in the config, it is what the code does: `runToolLikeExec` (server/ticker/
+# ticker.js) passes literal `caps: {}` and `sandbox: {}`, and ticker.js never calls
+# `buildBwrapArgv` at all. Verified in the daemon's own journal — the `systemd-run` line
+# for a fired tool carries no MemoryMax, no TasksMax, no bwrap.
+#
+# So, unlike every SEAT (whose containment task 7.30 proves at the kernel), a tool here
+# can read and write anywhere this daemon's user can — the vault, ~/ht-wkdir/.env/, the
+# heart store, ~/.ssh — for as long and as large as it likes.
+#
+# EVERY ENTRY MUST THEREFORE CONTAIN ITSELF. The script you point `argv` at must:
+#   1. cap its own address space (RLIMIT_AS) and its own wall clock;
+#   2. hold a single-instance lock, so a slow run cannot be started twice;
+#   3. write only under paths it derives itself;
+#   4. ⚑ RESTORE THE ORIGINAL LIMITS IN ANY CHILD IT EXECS. RLIMIT_AS is INHERITED: a
+#      detector that caps itself at 256 MB and then launches a sensor or a recovery agent
+#      hands that 256 MB to the process it is resurrecting. This is the clause a later
+#      author drops silently, and the failure it causes appears in the recovered process,
+#      not in the detector — hours away from the change that caused it.
+#
+# A COMMENT IS NOT A WALL. It is here because the wall is missing and the absence needs to
+# be visible at the moment someone adds an entry. The daemon-side fix — enforcing caps on
+# the fire-tool path — is filed as issues.md G-30 for m2 (a containment-semantics change,
+# deliberately not made overnight without a shadow window).
+# ═════════════════════════════════════════════════════════════════════════════
 tools:
 
   # ── task 7.71 (r-selfheal-job) — dead-room detection + recovery ────────────
