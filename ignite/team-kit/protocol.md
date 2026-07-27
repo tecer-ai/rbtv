@@ -262,9 +262,12 @@ can actually run). Both are decided once, per run, and the briefings below only 
   own folder), `window: yes` (own tmux window/tab instead of a tiled pane — use for ephemeral/
   loop seats; long-lived core seats stay panes in the leader window: the hybrid layout),
   `ephemeral: yes` (memoryless one-pass seat: relaunched fresh, departs itself, never closed/
-  renewed, no memory.md), `observer: yes` (full-log read), `auto-wake: yes` (woken on every
-  message), and `ctx-refresh: N` (this seat's own context-refresh threshold %, enforced by the
-  watcher). Observer status is for seats whose job is watching, never a convenience for a worker.
+  renewed, no memory.md), `observer: yes` (full-log read), `auto-wake: yes` (woken immediately on
+  every message its own `read` shows — never for traffic outside its inbox), `broadcast:`
+  (`none` | `all` | a type list — which `to: all` types reach this seat; absent keeps the default),
+  `senders:` (a comma-separated allow-list of the ONLY seats whose messages reach this one; absent
+  means unbounded), and `ctx-refresh: N` (this seat's own context-refresh threshold %, enforced by
+  the watcher). Observer status is for seats whose job is watching, never a convenience for a worker.
 - Every briefing states: mission, owned surfaces, pre-reads (paths only), execution contract,
   done gate (pre-declared criteria a checker can judge against), and what the agent must never do.
 - Factual claims a briefing makes about the target system are the FIRST thing its worker verifies
