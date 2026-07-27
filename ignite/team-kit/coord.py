@@ -4814,9 +4814,26 @@ def cmd_selftest(args):
               and all(f"\n{g}\n" in top for g in ("everyday", "leader", "other"))
               and "coordinate <command> -h" in top
               and "--last-read" not in top and "read <agent>" not in top)
+        # T6: the command inventory is DERIVED from the epilog index, never counted. A hardcoded
+        # count (`len(per_cmd) == 19`) is a check that passes while the claim it stands for goes
+        # false: add a command and document nothing, bump the number to make the suite green, and
+        # the drift it existed to catch is now invisible — it can never see an UNDOCUMENTED
+        # command, only a miscounted one. The set difference sees both, and names which command
+        # and which side is missing it.
+        documented = set()
+        for epi_line in HELP_EPILOG.splitlines():
+            listed = re.match(r"^  (\S(?:.*?\S)?)\s{2,}\S", epi_line)
+            if listed:
+                documented.update(name.strip() for name in listed.group(1).split("/"))
+        undocumented = sorted(set(per_cmd) - documented)
+        phantom = sorted(documented - set(per_cmd))
+        check("T6 help: the epilog index and the parser agree on the command set, derived from "
+              "both rather than counted — accepted but undocumented: %s; documented but not "
+              "accepted: %s" % (undocumented or "none", phantom or "none"),
+              per_cmd and not undocumented and not phantom)
         check("T6 help: every command's own -h carries a worked example and the step that "
               "usually follows",
-              len(per_cmd) == 19
+              per_cmd
               and all("example:\n  coordinate" in h or "example:\n  python3" in h
                       for h in per_cmd.values())
               and all("\nnext: " in h for h in per_cmd.values()))
