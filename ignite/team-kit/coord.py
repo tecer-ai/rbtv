@@ -149,9 +149,24 @@ GROUP_ROW = re.compile(
 )
 # T4 — ` | re: N` is ADDITIVE and optional: it sits after `supersedes:` and before the timestamp,
 # so every pre-T4 log line still parses with this same regex.
+# Every added field is OPTIONAL and the trailing `ts` stays greedy-last, so every log written
+# before this grammar existed parses identically — the same additive discipline `re:` was given.
+#
+# `from-pkg:` is G-94's missing distinguisher. Identity in the log was a NAME, and a name is a
+# ROLE: run-1's leader wrote `from: leader | to: leader` INTO run-2's package, and nothing in the
+# stored record told the two leaders apart, so run-2's leader filtered it as its own send and the
+# cursor stepped past it. A sender that is not a member of the package it is writing INTO now says
+# where it came from, which is the ONE fact that makes the two distinguishable at read time.
+#
+# `why:` is G-100: `append_message` has always written this clause, but the grammar had no group
+# for it, so it was absorbed into `ts` and `age_of` returned '?' for every broadcast carrying one.
+# Fixed here rather than filed again — this is the exact line being widened, and leaving a known
+# unparsed field in a regex while editing it would be perverse.
 MSG_HEADER = re.compile(
-    r"^## (?P<num>\d+) \| from: (?P<sender>\S+) \| to: (?P<to>\S+) \| type: (?P<type>\S+)"
-    r"(?: \| supersedes: (?P<supersedes>\d+))?(?: \| re: (?P<re>\d+))? \| (?P<ts>.+)$"
+    r"^## (?P<num>\d+) \| from: (?P<sender>\S+)(?: \| from-pkg: (?P<from_pkg>\S+))?"
+    r" \| to: (?P<to>\S+) \| type: (?P<type>\S+)"
+    r"(?: \| supersedes: (?P<supersedes>\d+))?(?: \| re: (?P<re>\d+))?"
+    r"(?: \| why: (?P<why>[^|]*?))? \| (?P<ts>.+)$"
 )
 FM_KEY = {
     # roster signature: `seat:` is the KG term (seat.md descriptors); `agent:` is the legacy key
@@ -2730,9 +2745,13 @@ def load_messages(base):
         m = MSG_HEADER.match(line)
         if m:
             current = {"num": int(m.group("num")), "sender": m.group("sender"),
+                       # None = written from INSIDE this package, which is every message in every
+                       # log predating this field. Only a foreign sender carries an origin.
+                       "origin": m.group("from_pkg"),
                        "to": m.group("to"), "type": m.group("type"),
                        "supersedes": int(m.group("supersedes")) if m.group("supersedes") else None,
                        "re": int(m.group("re")) if m.group("re") else None,
+                       "why": (m.group("why") or "").strip() or None,
                        "ts": m.group("ts").strip(),
                        "lines": [line]}
             blocks.append(current)
@@ -2745,7 +2764,8 @@ def next_message_number(blocks):
     return max((b["num"] for b in blocks), default=0) + 1
 
 
-def append_message(base, sender, to, mtype, body, supersedes=None, re_num=None, why=None):
+def append_message(base, sender, to, mtype, body, supersedes=None, re_num=None, why=None,
+                   origin=None):
     """Allocate the next message number AND append the block inside one lock hold — two
     concurrent sends used to read the same tail and claim the same ID (run-obs §589).
     Returns the number."""
@@ -2754,12 +2774,16 @@ def append_message(base, sender, to, mtype, body, supersedes=None, re_num=None, 
         n = next_message_number(blocks)
         if not path.exists():
             path.write_text(MESSAGES_HEADER, encoding="utf-8")
+        # G-94: a sender writing into a package it is not rostered in NAMES WHERE IT CAME FROM.
+        # Written only for a foreign sender, so a local send's header is byte-identical to before.
+        org = f" | from-pkg: {origin}" if origin else ""
         sup = f" | supersedes: {supersedes}" if supersedes is not None else ""
         rel = f" | re: {re_num}" if re_num is not None else ""
         # #198: the clause rides IN THE LOG LINE, not just in the sender's terminal — a reader
         # judging whether a broadcast earned everyone's attention can see the claim it made.
         wc = f" | why: {why}" if why else ""
-        block = (f"\n## {n} | from: {sender} | to: {to} | type: {mtype}{sup}{rel}{wc} | {now()}\n"
+        block = (f"\n## {n} | from: {sender}{org} | to: {to} | type: {mtype}{sup}{rel}{wc} | "
+                 f"{now()}\n"
                  f"\n{body}\n")
         with open(path, "a", encoding="utf-8") as f:
             f.write(block)
@@ -2842,6 +2866,71 @@ def addressed_to(b, agent, gmap, observers, mode="any", closing=(), decls=None):
     return to == agent or to == "all" or (to in gmap and agent in gmap[to])
 
 
+def sender_origin(args, sender):
+    """Where `sender` is writing FROM, or None when it is a member of the package it writes INTO.
+
+    G-94's root, in one sentence: a sender may write into a package it is not rostered in, the log
+    records only its role name, and every downstream visibility and reachability decision is then
+    made against a roster that does not describe that sender at all. `resolve_agent` permits the
+    claim precisely because the calling pane has no roster row IN THE TARGET PACKAGE — which is
+    exactly the cross-package case — so the permission is right and the RECORD was incomplete.
+
+    THE TEST IS THE CALLING PANE, NOT THE NAME, and that distinction is the entire fix. Asking
+    "does a seat of this name belong to this package" is CIRCULAR — run-2 has a `leader` seat, so
+    run-1's leader writing into run-2 answers YES and goes unlabelled, which is precisely the
+    handover G-94 lost. Measured, not reasoned: that membership-by-name version returned None for
+    the exact case it existed to catch. The pane is the ONE identity claim the tool can verify
+    (`pane_agent`'s own docstring), so it is what verified-vs-asserted must be decided on.
+
+    An unresolvable pane returns None — today's behaviour exactly. Under-labelling is the safe
+    direction: it preserves the status quo for out-of-pane callers like watch.py, whereas
+    over-labelling would stop a seat's own sends being suppressed and re-serve them to it.
+
+    NOT a refusal. Cross-package sending is legitimate and this run does it deliberately — a
+    leader hands a run off, a liaison answers on another package's log. What was missing was the
+    record of it, so the label is additive and never blocks."""
+    try:
+        pane = detect_pane(getattr(args, "pane", None))
+        if not pane:
+            return None        # cannot verify anything; change nothing
+        if pane_agent(base_dir(args), pane):
+            # This pane holds an active row in THIS package — either as `sender`, or as the row
+            # resolve_agent already vetted a --force claim against. Local.
+            return None
+    except Exception:
+        return None            # never let bookkeeping about a send break the send
+    # Foreign. Name the caller's OWN package when it can be resolved from its cwd, so a reader
+    # learns which run spoke; `external` when it cannot, which still distinguishes it from local.
+    try:
+        here = Path.cwd().resolve()
+        for cand in (here, *here.parents):
+            if (cand / "coordination").is_dir() and cand != package_dir(args):
+                return cand.name
+    except Exception:
+        pass
+    return "external"
+
+
+def is_own_send(b, agent):
+    """Is `b` a message THIS seat sent? (G-94 — the cut that ate a lifecycle handover.)
+
+    The old test was `b["sender"] == agent`: a NAME comparison. A name is a ROLE, and roles repeat
+    across packages, so when run-1's leader wrote `from: leader | to: leader` into run-2's package
+    the receiving leader classified it as its own send, `read` answered "no new messages", and the
+    cursor advanced past it — the message was addressed to it, was never shown, and was never
+    re-offered. Correct in its designed case (a seat must not be re-served its own traffic) and
+    wrong for two distinct seats wearing one name.
+
+    A message carrying an ORIGIN was written from OUTSIDE this package, so whoever sent it is by
+    construction not the local seat reading it, whatever the two are called. Absence of an origin
+    means local, which is every message written before the field existed — so this is exactly the
+    old behaviour for every historical log, and the fix is FORWARD-LOOKING by necessity: the
+    record for the handover that motivated it does not carry the distinguisher, and inventing one
+    retroactively would be rewriting the permanent log. That message stays disclosed by `read`'s
+    withheld footer instead, which is what stage 1 exists for."""
+    return b["sender"] == agent and not b.get("origin")
+
+
 def shows_in_inbox(b, agent, gmap, observers, mode="any", closing=(), decls=None):
     """THE one answer to "will `agent`'s `read` show message `b`" — `read`, `unread_for` and the
     WAKE half all route through it.
@@ -2859,8 +2948,8 @@ def shows_in_inbox(b, agent, gmap, observers, mode="any", closing=(), decls=None
     the READER, not of the addressing: `addressed_to` answers "is this in my inbox", and a seat's
     own sends are in its inbox and simply must not be re-served to it.
     """
-    return b["sender"] != agent and addressed_to(b, agent, gmap, observers, mode, closing,
-                                                 decls)
+    return not is_own_send(b, agent) and addressed_to(b, agent, gmap, observers, mode, closing,
+                                                      decls)
 
 
 def why_not_woken(b, agent, gmap, observers, decls=None):
@@ -3161,12 +3250,16 @@ def cmd_send(args):
                   f"{coord_invocation(args)} pending", file=sys.stderr)
             sys.exit(1)
 
+    origin = sender_origin(args, sender)
     n = append_message(base, sender, args.to, args.type, body,
-                       supersedes=args.supersedes, re_num=re_num, why=why)
+                       supersedes=args.supersedes, re_num=re_num, why=why, origin=origin)
     marks = ((f", supersedes #{args.supersedes}" if args.supersedes is not None else "")
              + (f", re #{re_num}" if re_num is not None else "")
              + (f", why: {why}" if why else ""))
-    print(f"sent message #{n} ({sender} -> {args.to}, type: {args.type}{marks})")
+    # A cross-package send is called out to the SENDER too: the seat that most needs to know its
+    # message landed on a roster that does not describe it is the one that just sent it.
+    org_note = f" [from-pkg: {origin}]" if origin else ""
+    print(f"sent message #{n} ({sender} -> {args.to}, type: {args.type}{marks}){org_note}")
     deliver_wakes(args, base, sender, args.to, n, args.type)
     if args.type == "ask":
         print(c(f"next: {coord_invocation(args)} pending — your ask stays OPEN until an answer "
@@ -3576,10 +3669,14 @@ def cmd_pending(args):
     _, blocks = load_messages(base)
     gmap = group_map(base)
     opens = open_asks(blocks)
-    to_me = [b for b in opens if b["sender"] != me
+    # G-94: `pending` derives open asks over the FULL log, so a foreign seat sharing my role name
+    # put its own asks in "your asks nobody has answered" and hid its asks TO me. Same one
+    # predicate as read and the wake half — a view that answers "is this mine" differently from
+    # the inbox is the drift this class is named for.
+    to_me = [b for b in opens if not is_own_send(b, me)
              and (b["to"] == me or (b["to"] in gmap and me in gmap[b["to"]]))]
-    broadcast = [b for b in opens if b["sender"] != me and b["to"] == "all"]
-    from_me = [b for b in opens if b["sender"] == me]
+    broadcast = [b for b in opens if not is_own_send(b, me) and b["to"] == "all"]
+    from_me = [b for b in opens if is_own_send(b, me)]
 
     def section(title, items, hint):
         print(f"{c(title, C_LABEL)} ({len(items)})")
@@ -6410,6 +6507,88 @@ def _selftest_checks(args, failures, names):
         check("G-94: an ordinary read with nothing withheld stays quiet — the line is a signal, "
               "not a permanent banner",
               "were withheld" not in rd("zeta", after=g94_n, peek=True))
+
+        # ---- stage 4: the record now carries WHICH seat spoke, not just what it is called ----
+        # The cut above is correct in its designed case and wrong for two seats wearing one name.
+        # Fixing it needed the log to carry the distinguisher, which it never did: `from-pkg:` is
+        # written only for a sender that is not a member of the package it writes INTO.
+        s4_mark = load_messages(base_g)[1][-1]["num"]
+        s4_n = append_message(base_g, "zeta", "zeta", "note",
+                              "a FOREIGN seat sharing my role name", origin="run-1")
+        s4_read = rd("zeta", after=s4_mark, peek=True)
+        check("stage 4 / B1: a message from a FOREIGN seat that shares this seat's role name is "
+              "SHOWN — the self-send cut compares identity now, not a role word, so a run-1 "
+              "leader's handover into run-2 no longer reads as run-2's leader talking to itself",
+              "a FOREIGN seat sharing my role name" in s4_read)
+        s4_blocks = load_messages(base_g)[1]
+        s4_b = [b for b in s4_blocks if b["num"] == s4_n][0]
+        check("stage 4: the origin round-trips through the log — written into the header and "
+              "parsed back, so the distinguisher survives the only place it matters (the record)",
+              s4_b["origin"] == "run-1" and "from-pkg: run-1" in s4_b["lines"][0])
+        pre_cursor = cursor_of("zeta")
+        rd("zeta", after=s4_mark)          # a REAL read, not a peek: the cursor must move through it
+        check("stage 4 / B2: the cursor advances THROUGH the foreign message rather than stepping "
+              "over it — B1 without B2 would show it once and lose it on the next read",
+              cursor_of("zeta") != pre_cursor and int(cursor_of("zeta")) >= s4_n)
+        own_mark = load_messages(base_g)[1][-1]["num"]
+        own_n = append_message(base_g, "zeta", "all", "note", "zeta's own local broadcast")
+        own_read = rd("zeta", after=own_mark)
+        later_n = append_message(base_g, "alpha", "all", "note", "someone else speaks after it")
+        rd("zeta")
+        check("stage 4 / B3: a seat's OWN local send is STILL suppressed, and the cursor does not "
+              "JAM on it — G-94's ranked fix (b), 'never advance past a suppressed message', is "
+              "wrong as literally worded: a seat's own sends are suppressed on EVERY read, so that "
+              "cursor would stop at its first one forever. The real invariant is T2's — the cursor "
+              "moves through what was SHOWN, so it holds while the own send is the tail (nothing "
+              "was shown) and passes it the moment a later message is",
+              "zeta's own local broadcast" not in own_read
+              and int(cursor_of("zeta")) >= later_n)
+        check("stage 4: a LOCAL send carries no from-pkg at all — the header is byte-identical to "
+              "what it was before this field existed, which is what keeps every prior log parsing",
+              [b for b in load_messages(base_g)[1] if b["num"] == own_n][0]["origin"] is None)
+        # G-100, fixed in the same regex rather than filed a second time: `why:` has always been
+        # WRITTEN by append_message and was never PARSED, so it was absorbed into `ts` and age_of
+        # returned '?' for every broadcast carrying one.
+        old_hdr = "## 7 | from: a | to: all | type: note | 2026-07-27 14:34"
+        why_hdr = "## 8 | from: a | to: all | type: note | why: milestone | 2026-07-27 14:34"
+        pkg_hdr = ("## 9 | from: a | from-pkg: run-1 | to: b | type: ask | re: 3 | "
+                   "2026-07-27 14:34")
+        check("stage 4 / G-100: a header carrying `why:` now parses it as its OWN field, leaving "
+              "`ts` a clean timestamp — it used to swallow the clause, so age_of answered '?' for "
+              "every message that justified itself",
+              MSG_HEADER.match(why_hdr).group("why") == "milestone"
+              and MSG_HEADER.match(why_hdr).group("ts") == "2026-07-27 14:34"
+              and age_of(MSG_HEADER.match(why_hdr).group("ts")) != "?")
+        check("stage 4: the widened grammar is ADDITIVE — a header written before either field "
+              "existed parses exactly as it did, and all four optional fields compose",
+              MSG_HEADER.match(old_hdr).group("ts") == "2026-07-27 14:34"
+              and MSG_HEADER.match(old_hdr).group("from_pkg") is None
+              and MSG_HEADER.match(old_hdr).group("why") is None
+              and MSG_HEADER.match(pkg_hdr).group("from_pkg") == "run-1"
+              and MSG_HEADER.match(pkg_hdr).group("re") == "3"
+              and MSG_HEADER.match(pkg_hdr).group("ts") == "2026-07-27 14:34")
+        # The WRITER half, exercised through sender_origin itself rather than through an injected
+        # origin=. Every check above feeds append_message a label directly, so all of them would
+        # stay green while the code that DECIDES the label was broken — and the first version of
+        # it was: it asked "does a seat of this name belong here", which run-2 answers YES for a
+        # foreign `leader` because run-2 has a leader of its own. Circular, and it returned None
+        # for the exact case it existed to catch. The pane is the only verifiable claim.
+        check("stage 4: a caller whose pane holds an ACTIVE row in THIS package is LOCAL — the "
+              "verified case, and the one that must keep writing an unchanged header",
+              sender_origin(ns(pane="%22"), "zeta") is None)
+        check("stage 4: a caller whose pane is on NO row of this package is FOREIGN even when a "
+              "seat of that name exists here — the membership-by-NAME test was circular, and this "
+              "is the check that would have caught it",
+              sender_origin(ns(pane="%9999"), "zeta") is not None)
+        check("stage 4: an unresolvable pane changes NOTHING — out-of-pane callers (watch.py, an "
+              "--as claim from outside tmux) keep today's behaviour, because under-labelling is "
+              "the safe direction and over-labelling would re-serve a seat its own sends",
+              sender_origin(ns(pane=""), "zeta") is None)
+        check("stage 4: `pending` asks the SAME identity question — a foreign same-named seat's "
+              "ask counts as an ask TO me, never as one of mine, so the view that lists open work "
+              "cannot disagree with the inbox that delivers it",
+              is_own_send({"sender": "zeta", "to": "zeta", "origin": None}, "zeta") is True
+              and is_own_send({"sender": "zeta", "to": "zeta", "origin": "run-1"}, "zeta") is False)
         _, mid = load_messages(base_g)
         mark2 = mid[-1]["num"]
         out = sd("alpha", "all", "lane A node delivered", type="completion", why="milestone")
