@@ -350,3 +350,54 @@ tools:
       - --watch-arg=2800
       - --budget-s
       - "120"
+
+  # ── task 7.32 (settle ledger R24/R32) — the goal-watcher-job ───────────────
+  # STAGED DAEMON EXPOSURE (leader #628, integrator note — the only lines here NOT authored by
+  # `enforcement-builder`): the LIVE `goal-watcher` entry is DELIBERATELY ABSENT. This job had
+  # never executed under the daemon, so the twin below is applied FIRST and fired on a throwaway
+  # package to prove the fire-tool path — argv, the daemon's exec environment, `jobcontain` —
+  # before the live entry can ever fire. A by-hand shadow window exercises the PROGRAM and not
+  # that path, so a green window alone would have retired a different risk. The live entry is
+  # added only once this twin AND the shadow window are green. Block author: `enforcement-builder`;
+  # applied verbatim by `spawn-integrator` (`p-profiles-integrator`).
+
+  # THROWAWAY twin: the SAME PROGRAM with the SAME flags, pointed at a throwaway package.
+  # It is the same program deliberately — once m1's live `selfheal-room` entry changed and its
+  # twin did not, the pair stopped being twins and a staged-failure probe exercised a program
+  # the live entry no longer ran (G-41, `p-clause3-not-met-despite-two-passes`). The ONLY
+  # differences are the target package and `--to`, which points at a seat in the LIVE room so
+  # delivery is genuinely exercised without a throwaway watcher injecting traffic anyone acts on.
+  goal-watcher-throwaway:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/goal-watcher-job.py
+      - --package
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/runs/run-1/seats/enforcement-builder/throwaway/pkg
+      # The room flags are DELIVERED into is the live run; the package WATCHED is the throwaway.
+      # Those are different things, and conflating them was a real defect this build's own probe
+      # found: the recipient does not live in the room being watched.
+      - --room-package
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/runs/run-1
+      - --coord
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/coord.py
+      - --team-monitor
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/orchestration/cli/team-monitor/team_monitor.py
+      - --to
+      - enforcement-builder
+      - --fallback-to
+      - leader
+      - --standby
+      - spawn-integrator
+      - --cadence-s
+      - "20"
+      - --tolerance-mult
+      - "3"
+      - --mem-floor-mb
+      - "2800"
+      - --load-per-core
+      - "1.5"
+      - --quiet-min
+      - "30"
+      - --notify
+      - --budget-s
+      - "120"
