@@ -21,7 +21,20 @@ proving runs; the run records live in that vault under
 - **This folder is run-agnostic.** Nothing here may name, special-case, or depend on a specific
   run, roster, or target project. Run-specific rules belong in that run package's `CLAUDE.md`;
   run-specific briefings in its `workers/`.
-- **`coord.py` changes MUST pass the self-test before use:** `python3 coord.py selftest` (exit 0).
+- **NEVER save `coord.py` by hand — `python3 save-coord.py --candidate NEW.py` is the save path.**
+  Write the candidate BESIDE `coord.py`, then let the gate install it: it imports the candidate as
+  a module and builds its full parser (the two failures `ast.parse` passes), carries the live
+  file's mode, replaces atomically, and asserts the result is EXECUTABLE and byte-identical to what
+  it gated. `coord.py` is re-read by every seat on every invocation and has no fallback, so a bad
+  save takes the whole room's messaging down at module import — including every recovery path,
+  which all run through this file. Hand-rolling `shutil.copyfile` + `os.replace` is how it has gone
+  down twice: `copyfile` does not carry permissions, so the live file lands at `0644` and every
+  bare `coordinate` returns "Permission denied" (2026-07-27 22:41; the interpreter path,
+  `python3 coord.py …`, still works and is the recovery route). The gate is `save-coord.py`; its
+  proof is `probes/probe-save-gate.py`.
+- **`coord.py` changes MUST pass the self-test before use:** `python3 coord.py selftest` (exit 0),
+  run from INSIDE this folder — it aborts on missing sibling assets elsewhere. The save gate is
+  deliberately not the done gate: it does not run the self-test, so run it yourself after saving.
   The same rule applies to `watch.py` (`python3 watch.py --selftest`). Extend the self-test in the
   same change that adds or alters a mechanic — an untested mechanic is how the previous tooling
   shipped six latent defects.
