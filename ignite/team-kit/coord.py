@@ -1348,6 +1348,456 @@ def arm_pid_reaper(idents, delay=4):
         pass
 
 
+# ---------- run index + session trace (task 7.37; settle ledger R10/R11) ----------
+#
+# TWO FILES, DIFFERENT JOBS. The KG `run` record as AMENDED (R11, decisions.md#d-run-state-layout)
+# — the record's older wording called the per-run trace `runs.csv` and now says so against itself:
+#
+#   {goal}/runs.csv                    the run INDEX — one row per run (start, finish/ongoing)
+#   {goal}/runs/run-{n}/sessions.csv   that run's TRACE — one row per session, in order,
+#                                      carrying the resume refs (harness, native session id,
+#                                      workdir) task 7.32 resumes from
+#
+# ONE ROW PER SESSION, opened at launch and completed at close. 7.37's criteria say a launch and a
+# close "each produce their own row"; read literally that is TWO rows per session, which would make
+# the `ended` column meaningless and contradict the session shape the same task builds for (a
+# session lives until CLOSED; the trace is ordered sessions, one per session). What that criterion
+# actually defends is that NOBODY INVOKES THE WRITER — and nobody does: both acts below are hooks
+# on paths the run already traverses, and neither has a command. Disclosed to leader (log #531).
+#
+# R10 RESIDUE, carried rather than softened: goal-level state surviving across runs is valid only
+# because R9 guarantees one live run per goal, and R9 is now task 7.77 (m4) — NOT BUILT. Until it
+# lands, one-live-run is a convention held by hand. So nothing here assumes exclusivity: the index
+# is keyed by run-id, and a second concurrent run would add its own row rather than corrupt this.
+
+RUNS_INDEX_COLS = ["run-id", "type", "state", "taskforce-ids", "opened", "closed"]
+SESSIONS_COLS = ["session-id", "seat", "harness", "native-session-id", "workdir",
+                 "recorded", "started", "ended"]
+NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close re-resolves
+
+
+def goal_dir(pkg):
+    """The goal folder owning this run package: {goal}/runs/run-{n} -> {goal}.
+
+    A package NOT in the canonical runs/ form (a /tmp fixture, the legacy workers/ layout) owns
+    its own index: returning pkg keeps the writer total rather than raising on a shape the kit
+    still supports.
+    """
+    return pkg.parent.parent if pkg.parent.name == "runs" else pkg
+
+
+def runs_index_csv(pkg):
+    return goal_dir(pkg) / "runs.csv"
+
+
+def sessions_csv(pkg):
+    return pkg / "sessions.csv"
+
+
+def read_csv_table(path, cols):
+    """(header, rows). The header is preserved VERBATIM from disk when the file exists — a column
+    contract another seat may already read is never rewritten by a writer that merely appends."""
+    if not path.exists():
+        return list(cols), []
+    try:
+        with path.open(newline="", encoding="utf-8") as fh:
+            table = list(csv.reader(fh))
+    except (OSError, UnicodeDecodeError):
+        return list(cols), []
+    if not table:
+        return list(cols), []
+    return table[0], [r for r in table[1:] if any(c.strip() for c in r)]
+
+
+def write_csv_table(path, header, rows):
+    """Atomic: temp file + os.replace. A reader never sees a half-written trace, and a crash
+    mid-write leaves the previous table intact (G-45's discipline applied to state files)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(header)
+        w.writerows(rows)
+    os.replace(tmp, path)
+
+
+def pad_row(row, header):
+    """Widen a short row to the header. A row written before a column existed must not make the
+    writer raise — it makes it write a blank cell."""
+    while len(row) < len(header):
+        row.append("")
+    return row
+
+
+def taskforce_ids(pkg):
+    """This run's taskforce ids, file order, deduped, '|'-joined. '' when there is none."""
+    header, rows = read_csv_table(pkg / "taskforce.csv", [])
+    if not rows or "taskforce-id" not in header:
+        return ""
+    i = header.index("taskforce-id")
+    out = []
+    for r in rows:
+        v = r[i].strip() if i < len(r) else ""
+        if v and v not in out:
+            out.append(v)
+    return "|".join(out)
+
+
+def ensure_run_index(pkg):
+    """Keep the goal-level run INDEX correct with nobody maintaining it by hand. Idempotent.
+
+    Creates the file with its header when absent, adds this run's row when absent, and re-syncs
+    only DERIVED state (`taskforce-ids`). Never rewrites `type` or `opened`: they are the run's
+    identity, not derived data.
+
+    `type` is left EMPTY on a row this code creates, deliberately. The KG says run type is csv
+    DATA — `fresh | fix` — and explicitly NOT derivable from the ordinal. Defaulting it to
+    `fresh` would be right most of the time and silently wrong on a fix run, which is the exact
+    shape this run has spent the night refusing. An empty cell is answerable; a guessed one is not.
+
+    `closed` is NOT stamped here. Closing a run is the leader's ceremony and this kit has no
+    run-close command; an OPEN run's row is correct precisely by staying open. Disclosed at #531.
+    """
+    path = runs_index_csv(pkg)
+    header, rows = read_csv_table(path, RUNS_INDEX_COLS)
+    idx = {c: i for i, c in enumerate(header)}
+    if "run-id" not in idx:
+        return False
+    run_id = pkg.name
+    row, changed = None, False
+    for r in rows:
+        pad_row(r, header)
+        if r[idx["run-id"]].strip() == run_id:
+            row = r
+    if row is None:
+        row = [""] * len(header)
+        row[idx["run-id"]] = run_id
+        if "state" in idx:
+            row[idx["state"]] = "open"
+        if "opened" in idx:
+            row[idx["opened"]] = now()
+        rows.append(row)
+        changed = True
+    tf = taskforce_ids(pkg)
+    if tf and "taskforce-ids" in idx and row[idx["taskforce-ids"]].strip() != tf:
+        row[idx["taskforce-ids"]] = tf
+        changed = True
+    if changed:
+        write_csv_table(path, header, rows)
+    return changed
+
+
+def claude_projects_dir():
+    """Evaluated at CALL time, not import time, so a test can point HOME at a sandbox and have the
+    resolver follow it. A module constant computed from Path.home() at import silently ignores the
+    override and reads the real user's transcripts."""
+    return Path.home() / ".claude" / "projects"
+
+
+def claude_project_slug(cwd):
+    """Claude's transcript directory name for a working directory: the absolute path with BOTH
+    path separators AND DOTS replaced by '-'.
+
+    THE DOT IS NOT COSMETIC AND ITS OMISSION WAS A REAL BUG. Every seat in a goal run lives under
+    `.rbtv/`, so a slug that replaces only '/' yields `...-second-brain-.rbtv-goals-...` while the
+    directory claude actually writes is `...-second-brain--rbtv-goals-...` (note the DOUBLE dash).
+    The lookup missed for EVERY claude seat in this run and `native-session-id` came back empty
+    every time.
+
+    It went undetected because the original evidence for this mapping was a directory LISTING, not
+    an exercise of this function: the directory was real, the derivation was never run against it.
+    A check that resolves a real transcript out of a fixture projects dir now covers it — the
+    earlier checks only ever asserted the '' outcome, so none of them could see it.
+    """
+    return str(Path(cwd).resolve()).replace("/", "-").replace(".", "-")
+
+
+def claude_native_session_id(cwd, since=None, wait=0.0, projects=None):
+    """This boot's claude session id for a seat working in `cwd`, or '' if not resolvable yet.
+
+    EXACT rather than a heuristic, and only because of a property of this layout: every seat's cwd
+    is its OWN seat folder, so that project directory holds that seat's sessions and nobody
+    else's. `since` (the instant before the harness started) is what makes a RENEW correct — the
+    previous session's transcript is static by then, so it sorts out; without `since` a renew
+    would resolve to the session it replaced.
+
+    Returns '' rather than guessing when nothing qualifies. An empty field is a stated gap; a
+    wrong session id would send task 7.32's resume at another session entirely.
+    """
+    if not cwd:
+        return ""
+    d = (Path(projects) if projects else claude_projects_dir()) / claude_project_slug(cwd)
+    deadline = time.time() + max(wait, 0.0)
+    while True:
+        best, best_m = "", -1.0
+        if d.is_dir():
+            for f in d.glob("*.jsonl"):
+                try:
+                    m = f.stat().st_mtime
+                except OSError:
+                    continue
+                if since is not None and m < since:
+                    continue
+                if m > best_m:
+                    best, best_m = f.stem, m
+        if best or time.time() >= deadline:
+            return best
+        time.sleep(0.25)
+
+
+def session_trace_safe(fn, *a, **kw):
+    """Run a session-trace write so that its failure can never take down the act it records.
+
+    The trace is bookkeeping ABOUT the run; it must not become a gate ON it. A read-only goal
+    folder, a full disk, or a malformed csv would otherwise raise out of `launch_seat` AFTER the
+    harness is already up — leaving a live seat the roster believes failed, which is G-11's exact
+    shape wearing the bookkeeping mask. Failures are printed LOUDLY and swallowed; the same
+    trade-off `refresh_mirrors_for`, `write_seat_statusline` and `ensure_team_monitor` already make.
+    """
+    try:
+        return fn(*a, **kw), ""
+    except Exception as exc:                                   # noqa: BLE001 — deliberate
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+def session_open(args, w, since=None, wait=NATIVE_ID_WAIT):
+    """Append this seat's session row the moment it boots. Returns (session-id, note).
+
+    `note` is non-empty when a field could not be resolved — the caller PRINTS it. A blank cell
+    that nobody mentioned is indistinguishable from one that was never needed.
+
+    `wait` is a parameter and not a constant read inside so the self-test can drive the resolver
+    to its unresolved branch without sleeping through the real boot timeout.
+    """
+    pkg = package_dir(args)
+    native = ""
+    if w.get("harness") == "claude":
+        native = claude_native_session_id(w.get("cwd"), since, wait=wait)
+    rec = {"session-id": "", "seat": w.get("agent", ""), "harness": w.get("harness", ""),
+           "native-session-id": native, "workdir": str(w.get("cwd") or ""),
+           # `recorded` is the pipe-pane marker of task 7.31, which is NOT BUILT (no pipe-pane
+           # anywhere in this file). The column stays, blank, rather than being invented.
+           "recorded": "", "started": now(), "ended": ""}
+    with coord_lock(base_dir(args)):
+        path = sessions_csv(pkg)
+        header, rows = read_csv_table(path, SESSIONS_COLS)
+        idx = {c: i for i, c in enumerate(header)}
+        taken = {r[idx["session-id"]].strip() for r in rows
+                 if "session-id" in idx and idx["session-id"] < len(r)}
+        stem = f"{rec['seat']}-{file_stamp()}"
+        sid, n = stem, 2
+        while sid in taken:          # two sessions of one seat inside one minute
+            sid, n = f"{stem}-{n}", n + 1
+        rec["session-id"] = sid
+        rows.append([rec.get(c, "") for c in header])
+        write_csv_table(path, header, rows)
+        ensure_run_index(pkg)
+    note = ("" if native or w.get("harness") != "claude"
+            else "native-session-id UNRESOLVED at launch — retried at close")
+    return sid, note
+
+
+def session_backfill_native(args, seat):
+    """Fill a live session row's `native-session-id` from the seat's OWN checkin. Returns the id
+    filled, or ''.
+
+    WHY THIS EXISTS, measured rather than anticipated: resolving at LAUNCH races the harness's own
+    startup. claude writes its transcript when it first has something to write, which is AFTER
+    `wait_harness_up` returns — the leader's 08:21 renewal resolved to '' because no transcript in
+    its project dir was newer than the launch instant inside the launch-side window.
+
+    Checkin is the correct hook and is exact: the seat is running, has processed its boot prompt,
+    and the transcript it is actively writing is by definition the most recently modified file in
+    its own project directory. No `since` is needed, and no window can expire.
+
+    It also closes the case the launch-side resolver could never reach: a seat that CRASHES never
+    closes, so a close-time backfill would never run — but a crashed seat did check in, and 7.32's
+    native resume is exactly the path a crashed seat needs.
+    """
+    pkg = package_dir(args)
+    with coord_lock(base_dir(args)):
+        path = sessions_csv(pkg)
+        if not path.exists():
+            return ""
+        header, rows = read_csv_table(path, SESSIONS_COLS)
+        idx = {c: i for i, c in enumerate(header)}
+        if not {"seat", "ended", "native-session-id", "harness", "workdir"} <= set(idx):
+            return ""
+        target = None
+        for r in rows:
+            pad_row(r, header)
+            if (r[idx["seat"]].strip() == seat and not r[idx["ended"]].strip()
+                    and not r[idx["native-session-id"]].strip()
+                    and r[idx["harness"]].strip() == "claude"):
+                target = r
+        if target is None:
+            return ""
+        native = claude_native_session_id(target[idx["workdir"]].strip())
+        if not native:
+            # NEVER SILENT. A backfill that finds its row and fails to resolve used to return ''
+            # exactly like one with nothing to do, and the caller printed nothing either way — so
+            # the slug bug above sat invisible through every checkin in this run. A clean result
+            # must never be readable as a clean class.
+            return f"!unresolved: no claude transcript under {claude_project_slug(target[idx['workdir']].strip())}"
+        target[idx["native-session-id"]] = native
+        write_csv_table(path, header, rows)
+        return native
+
+
+def session_close(args, seat):
+    """Complete the seat's open session row: stamp `ended`, and fill `native-session-id` if the
+    launch could not resolve it yet. Returns the session-id closed, or ''.
+
+    A silent no-op when the seat has NO open row — a seat closed twice, or one launched before
+    this writer existed, must not gain a phantom row. The close path is reached by three commands
+    (close-seat, depart, checkout) and a run may traverse more than one of them for one seat.
+    """
+    pkg = package_dir(args)
+    with coord_lock(base_dir(args)):
+        path = sessions_csv(pkg)
+        if not path.exists():
+            return ""
+        header, rows = read_csv_table(path, SESSIONS_COLS)
+        idx = {c: i for i, c in enumerate(header)}
+        if "seat" not in idx or "ended" not in idx:
+            return ""
+        target = None
+        for r in rows:                      # LAST open row wins — the live session
+            pad_row(r, header)
+            if r[idx["seat"]].strip() == seat and not r[idx["ended"]].strip():
+                target = r
+        if target is None:
+            return ""
+        target[idx["ended"]] = now()
+        if ("native-session-id" in idx and not target[idx["native-session-id"]].strip()
+                and target[idx.get("harness", 0)].strip() == "claude"):
+            since = None
+            if "started" in idx:
+                try:
+                    since = datetime.strptime(
+                        target[idx["started"]].strip(), "%Y-%m-%d %H:%M").timestamp()
+                except ValueError:
+                    since = None
+            wd = target[idx["workdir"]].strip() if "workdir" in idx else ""
+            target[idx["native-session-id"]] = claude_native_session_id(wd, since)
+        write_csv_table(path, header, rows)
+        ensure_run_index(pkg)
+        return target[idx["session-id"]].strip() if "session-id" in idx else ""
+
+
+# ---------- per-seat statusline (task 7.69, statusline half) ----------
+#
+# `p-statusline-scope` ruled (b): the launch profiles write a `.claude/settings.local.json`
+# carrying the statusLine block INTO EACH SEAT FOLDER at launch. Option (a) — the owner's global
+# ~/.claude/settings.json — was never on the menu: it fires for every claude session on this
+# machine, including the owner's own, which is not run-scoped and not a leader's to authorize.
+# This code therefore writes ONLY inside a seat's own cwd and touches no file above it.
+#
+# WHY IT WAS BROKEN: the statusline was wired only in the vault's project-scoped
+# .claude/settings.local.json, and a seat's project dir IS its seat folder — so no seat ever fired
+# it. No `session-pids` record, so ctx-monitor falls back to the `transcript~` heuristic instead of
+# an exact pid->transcript map, and per-session windows are guessed.
+#
+# THE PATH IS ABSOLUTE AND DERIVED FROM THIS FILE'S OWN LOCATION, deliberately (issue G-72). The
+# vault's wiring used "$CLAUDE_PROJECT_DIR/1-projects/.../team-kit/statusline-usage.py" and has
+# been DEAD for every claude session on this box since the team-kit was promoted into the rbtv
+# repo on 2026-07-26 — the promotion moved the script and nothing re-pointed the pointer, and a
+# statusline fails silently. Deriving it from __file__ makes the pointer move WITH the file; and
+# $CLAUDE_PROJECT_DIR would resolve inside the seat folder here, which is the same trap twice.
+
+def seat_statusline_command():
+    return f"python3 {Path(__file__).resolve().parent / 'statusline-usage.py'}"
+
+
+def write_seat_statusline(w):
+    """Write the statusLine block into this seat's own .claude/settings.local.json. Returns
+    (path, action) where action is written | merged | kept | skipped.
+
+    MERGES rather than replaces: a seat folder's settings may carry permissions or env a seat
+    depends on, and a launch profile that overwrote them would break the seat to fix its
+    statusline. An existing `statusLine` is KEPT — a seat that already declares one has been
+    configured deliberately, and launch is not the place to overrule it.
+
+    Never raises into the launch path: a seat that boots without a statusline is a seat with a
+    worse sensor, while a seat that fails to boot is a hole in the wave.
+    """
+    if w.get("harness") != "claude" or not w.get("cwd"):
+        return None, "skipped"
+    # THE SEAT'S OWN FOLDER, OR NOWHERE. A seat's cwd is NOT guaranteed to be its own folder:
+    # discover_workers falls back to `VAULT_ROOT` for a flat briefing file that declares no `cwd:`
+    # (coord.py L2838), and a seat may point `cwd:` anywhere. Writing the block at cwd would then
+    # land it in the VAULT ROOT — a shared, tracked, owner-owned settings file that governs every
+    # claude session started there, which is the same class of harm `p-statusline-scope` forbids
+    # for ~/.claude/settings.json, wearing a different mask.
+    #
+    # MEASURED, NOT THEORETICAL: this is exactly what happened at 08:06 on 2026-07-27 — the
+    # self-test's own flat fixture seats (alpha/beta/watcher, no folder, no cwd:) resolved to
+    # VAULT_ROOT and rewrote the vault's .claude/settings.local.json statusLine. Incident #542/#545,
+    # issue G-75. A path check would have caught it; an IDENTITY check makes it impossible.
+    folder = w.get("folder")
+    if not folder:
+        return None, "skipped"
+    try:
+        if Path(w["cwd"]).resolve() != Path(folder).resolve():
+            return None, "skipped"
+    except OSError:
+        return None, "skipped"
+    path = Path(w["cwd"]) / ".claude" / "settings.local.json"
+    block = {"type": "command", "command": seat_statusline_command()}
+    try:
+        data, action = {}, "written"
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+                data = {}
+            if not isinstance(data, dict):
+                data = {}
+            if data.get("statusLine"):
+                return path, "kept"
+            action = "merged"
+        data["statusLine"] = block
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(path, json.dumps(data, indent=2) + "\n")
+        return path, action
+    except OSError:
+        return path, "skipped"
+
+
+# ---------- team-monitor start (task 7.33's room-creation line; p-monitor-start-is-lane-K...) ----------
+
+def team_monitor_script():
+    return Path(__file__).resolve().parents[2] / "orchestration" / "cli" / "team-monitor" / "team_monitor.py"
+
+
+def ensure_team_monitor(args):
+    """Start the run's team-monitor, deterministically WITH THE ROOM rather than by hand.
+
+    `ensure` is idempotent by construction (flock: a second writer exits 3), detaches immediately,
+    and needs no teardown — the monitor polls `tmux has-session` and exits when the room is gone.
+    So this is safe to call on every launch, which is what makes it deterministic: no one has to
+    remember, and a retry costs nothing.
+
+    ORDERING (monitor-builder, #524): it must not run before the tmux session exists — a monitor
+    that starts first sees no session on its first pass and exits cleanly, leaving no lock and no
+    monitor. It is called from `launch`, which already refuses outside tmux, and only after the
+    seats are up.
+
+    Never blocks or fails a launch: an unstarted monitor is a run with a weaker sensor; a launch
+    that died starting one is a run with fewer seats.
+    """
+    script = team_monitor_script()
+    if not script.is_file():
+        return "absent", f"{script} does not exist yet — 7.33 has not landed"
+    try:
+        subprocess.run([sys.executable, str(script), "ensure",
+                        "--package", str(package_dir(args))],
+                       capture_output=True, text=True, timeout=30)
+        return "ok", str(script)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return "fail", str(exc)
+
+
 # ---------- workers.md ----------
 
 def load_workers(base):
@@ -1838,6 +2288,18 @@ def cmd_checkin(args):
     if inherited:
         note += f" (cursor kept at #{inherited})"
     print(f"checked in: {args.agent} ({pane or 'no pane'}){note} — {summary}")
+    # 7.37: the seat's own checkin is where its native session id becomes resolvable — see
+    # session_backfill_native. Never allowed to break a checkin (session_trace_safe).
+    nat, nerr = session_trace_safe(session_backfill_native, args, args.agent)
+    if nerr:
+        print(c(f"WARNING sessions.csv native-session-id NOT backfilled — {nerr}. Your checkin "
+                f"stands.", C_DEAD), file=sys.stderr)
+    elif nat.startswith("!unresolved"):
+        print(c(f"WARNING sessions.csv: this seat has an OPEN session row and its "
+                f"native-session-id could NOT be resolved — {nat[12:]}. Task 7.32's native resume "
+                f"cannot use this row.", C_DEAD), file=sys.stderr)
+    elif nat:
+        print(f"sessions.csv: native session id recorded ({nat})")
     # T1: from here the seat never types its own name again — every other command resolves it.
     waiting = unread_for(args, base, args.agent, inherited)
     if waiting:
@@ -1869,6 +2331,12 @@ def cmd_checkout(args):
 
     update_row(base, me, flip)
     print(f"checked out: {me}")
+    sid, cerr = session_trace_safe(session_close, args, me)   # 7.37: checkout ends the session as surely as a close does
+    if cerr:
+        print(c(f"WARNING sessions.csv row NOT completed — {cerr}. The close itself stands.",
+                C_DEAD), file=sys.stderr)
+    elif sid:
+        print(f"sessions.csv: {sid} ended")
     print(c(f"next: nothing on your side — leader closes or renews the seat "
             f"(`{coord_invocation(args)} close {me} [--renew]`)", C_HINT))
 
@@ -3156,7 +3624,18 @@ def harness_command(w, prompt=None, prompt_path=None):
         # this imposes — `run` is ONE-SHOT: an opencode seat executes its prompt and exits, so it
         # cannot be woken later; it must read its own messages before finishing, and a wake aimed
         # at its pane after that would type into a bare shell (the harness-up guard refuses it).
-        return f"{env}{OPENCODE_BIN} run -m {shlex.quote(w['model'])} {arg}", ""
+        # OWNER-DIRECTED (2026-07-27, owner present; leader #607): seats initiate with auto mode
+        # ON. Without it EVERY opencode seat runs with permissions live, auto-REJECTS reads outside
+        # its own folder and dies silently — it is what killed K4 three times and it is G-49's
+        # mechanism for the whole opencode half of the roster.
+        #
+        # POSITION IS LOAD-BEARING AND IS G-13 ALL OVER AGAIN. `--auto` must come AFTER the `run`
+        # subcommand. Verified live by two of us independently, not read off the help:
+        #   `opencode --auto run -m X P`  -> PRINTS THE BANNER AND RUNS NOTHING, exit 0
+        #   `opencode run --auto -m X P`  -> returns the expected string
+        # The wrong form is the dangerous one precisely because it exits 0: it would look like a
+        # fix, pass any check that only asserts the flag is present, and launch nothing.
+        return f"{env}{OPENCODE_BIN} run --auto -m {shlex.quote(w['model'])} {arg}", ""
     return None, f"unknown harness '{w['harness']}' (expected one of {', '.join(HARNESSES)})"
 
 
@@ -3340,6 +3819,8 @@ def launch_seat(w, args, target, prompt=None, pane=None):
         if not pane:
             return "", err
     set_pane_title(pane, w["agent"])
+    write_seat_statusline(w)   # 7.69: before the harness reads its settings, never after
+    since = time.time()        # 7.37: the instant the transcript must post-date (renew-correct)
     ok, terr = wake(pane, cmd)
     if not ok:
         return pane, f"pane opened but harness start FAILED: {terr}"
@@ -3348,6 +3829,17 @@ def launch_seat(w, args, target, prompt=None, pane=None):
         return pane, uerr
     if w["harness"] == "claude":
         schedule_session_rename(pane, w["agent"])
+    # 7.37: the session row is written by the RUN, here, on the one path every seat boot takes —
+    # `launch` and `close-seat --renew` both arrive here. A renew is a NEW session of the same
+    # seat, which is exactly the "one seat, several sessions within one run" the KG names.
+    # Only AFTER the harness is verified up: a row for a seat that never booted is the G-11 lie
+    # in a second file.
+    res, terr2 = session_trace_safe(session_open, args, w, since=since)
+    if terr2:
+        print(c(f"WARNING {w['agent']}: the seat IS UP but its sessions.csv row was NOT written "
+                f"— {terr2}. The trace is incomplete; the seat is fine.", C_DEAD), file=sys.stderr)
+    elif res and res[1]:
+        print(c(f"  {w['agent']}: session {res[0]} — {res[1]}", C_HINT))
     return pane, ""
 
 
@@ -3447,6 +3939,14 @@ def cmd_launch(args):
         else:
             print(f"launched {label} in {pane}"
                   + (" (session /rename scheduled)" if w["harness"] == "claude" else ""))
+    status, detail = ensure_team_monitor(args)   # after the seats: the room is up by now
+    if status == "ok":
+        print(f"team-monitor: ensured for this run ({detail})")
+    elif status == "absent":
+        print(c(f"team-monitor: NOT started — {detail}", C_HINT))
+    else:
+        print(c(f"WARNING team-monitor start FAILED — {detail}; the room runs UNOBSERVED",
+                C_DEAD), file=sys.stderr)
     print(c(f"next: {coord_invocation(args)} workers — every seat above must appear there; one "
             f"that never checks in never booted", C_HINT))
 
@@ -3685,6 +4185,15 @@ def cmd_close_seat(args):
 
         update_row(base, args.target, close_row)
         print(f"roster: {args.target} closed")
+    # 7.37: the session row is COMPLETED wherever the roster row goes inactive — this is one of
+    # the three such paths (close-seat, depart, checkout). Idempotent: a seat with no open row
+    # gains nothing, so a depart followed by a close-seat writes one `ended`, not two.
+    sid, cerr = session_trace_safe(session_close, args, args.target)
+    if cerr:
+        print(c(f"WARNING sessions.csv row NOT completed — {cerr}. The close itself stands.",
+                C_DEAD), file=sys.stderr)
+    elif sid:
+        print(f"sessions.csv: {sid} ended")
     # G-21: the state dies WITH the close, and unconditionally — including the renew path, where
     # the successor is a fresh seat that must boot with a full inbox, and including a close-seat
     # run directly by leader on a dead pane, which never had a closer to clear it. A closing flag
@@ -3819,6 +4328,12 @@ def cmd_depart(args):
 
         update_row(base, me, close_row)
         print(f"checked out: {me}")
+    sid, cerr = session_trace_safe(session_close, args, me)   # 7.37: a self-departure is still a closed session
+    if cerr:
+        print(c(f"WARNING sessions.csv row NOT completed — {cerr}. The close itself stands.",
+                C_DEAD), file=sys.stderr)
+    elif sid:
+        print(f"sessions.csv: {sid} ended")
     # G-21: a seat that departs under its own steam mid-close (or one whose close-seat never ran)
     # must not leave its closing flag behind for a future occupant of the name.
     clear_closing(base, me)
@@ -4386,8 +4901,11 @@ def _selftest_checks(args, failures, names):
         # TUI and never ran the prompt, and the check passed for two months because it asserted the
         # kit's own invention rather than the CLI's surface.
         check("G-13: opencode command is the one-shot `run` subcommand with -m <provider/model> — "
-              "never the invented `--model/--prompt` flags this opencode does not have",
-              cmd.startswith(f"COORD_AGENT=gamma {OPENCODE_BIN} run -m ")
+              "never the invented `--model/--prompt` flags this opencode does not have. "
+              "(`--auto` now sits between `run` and `-m` per the owner-directed fix; the "
+              "adjacency of `run` and `-m` was never this check's point, and the flag's own "
+              "position is asserted separately and more strictly below)",
+              cmd.startswith(f"COORD_AGENT=gamma {OPENCODE_BIN} run ")
               and "-m zai-coding-plan/glm-5.2" in cmd
               and "--prompt" not in cmd and "--model" not in cmd)
         cmd, _ = harness_command(by["delta"], "P")
@@ -5795,6 +6313,24 @@ def _selftest_checks(args, failures, names):
     ok, terr = wake("%1", "one line\r")
     check("G-11: a bare carriage return is refused too — the same Enter to a shell", not ok)
 
+    _oc_seat = {"agent": "oc", "harness": "opencode", "model": "deepseek/deepseek-v4-pro",
+                "effort": "high"}
+    _oc_cmd, _ = harness_command(_oc_seat, prompt_path=Path("/tmp/p.txt"))
+    _oc_cmd = _oc_cmd or ""
+    check("opencode: the spawn command carries --auto AFTER the `run` subcommand — the SUCCESS "
+          "shape, not merely the flag's presence (G-78). `opencode --auto run ...` prints the "
+          "banner and runs NOTHING at exit 0, so a check that only asserted `--auto` in the string "
+          "would pass the form that launches nothing. Verified live in both positions before this "
+          "check was written (owner-directed, leader #607)",
+          " run --auto " in _oc_cmd
+          and _oc_cmd.find(" run ") < _oc_cmd.find("--auto")
+          and not _oc_cmd.startswith("--auto")
+          and " --auto run " not in _oc_cmd)
+    check("opencode: without auto mode a seat auto-REJECTS reads outside its own folder and dies "
+          "silently — the mechanism that killed K4 three times (G-49). The flag is therefore part "
+          "of the launch contract, not an option",
+          "--auto" in _oc_cmd and _oc_seat["harness"] == "opencode")
+
     _pf_seat = {"agent": "zeta", "harness": "claude", "model": "opus", "effort": "high"}
     with tempfile.TemporaryDirectory() as td3:
         pkg3 = Path(td3) / "pkg"
@@ -5871,6 +6407,209 @@ def _selftest_checks(args, failures, names):
           and "sleep 3" in script)
     check("reaper: arming with an identity that has no starttime arms NOTHING — an unidentifiable "
           "process is never a kill target", arm_pid_reaper([(4242, "")]) is None)
+
+    # ---- 7.37 run index + session trace (R10/R11), and 7.69's per-seat statusline.
+    # Built on a fixture in the CANONICAL goal shape ({goal}/runs/run-{n}), because the index
+    # living one level ABOVE the package is the whole point of R11 and a flat fixture would let a
+    # writer that put both files in one folder pass.
+    with tempfile.TemporaryDirectory() as td4:
+        goal4 = Path(td4) / "goal"
+        pkg4 = goal4 / "runs" / "run-7"
+        (pkg4 / "coordination").mkdir(parents=True)
+        (pkg4 / "seats").mkdir()
+        (pkg4 / "taskforce.csv").write_text(
+            "taskforce-id,seat,after\ntf-9,alpha,\ntf-9,beta,\n", encoding="utf-8")
+        a4 = argparse.Namespace(package=str(pkg4), base=None, workers_dir=None,
+                                as_agent=None, force=False)
+        seat4 = {"agent": "alpha", "harness": "claude", "model": "opus", "effort": "medium",
+                 "cwd": str(pkg4 / "seats" / "alpha"), "window": False,
+                 "folder": pkg4 / "seats" / "alpha"}
+        Path(seat4["cwd"]).mkdir(parents=True)
+
+        check("7.37/R11: the run INDEX is the GOAL-level runs.csv and the TRACE is the run's own "
+              "sessions.csv — two files, one level apart. The KG record's older wording called "
+              "the per-run trace runs.csv; building that would put both in one folder",
+              runs_index_csv(pkg4) == goal4 / "runs.csv"
+              and sessions_csv(pkg4) == pkg4 / "sessions.csv"
+              and goal_dir(pkg4) == goal4)
+        check("7.37: a package NOT in the canonical runs/ form still resolves an index — the "
+              "writer stays total over the layouts this kit supports rather than raising",
+              goal_dir(Path("/tmp/flat-pkg")) == Path("/tmp/flat-pkg"))
+
+        sid4, note4 = session_open(a4, seat4, since=time.time(), wait=0.0)
+        hdr4, rows4 = read_csv_table(sessions_csv(pkg4), SESSIONS_COLS)
+        r4 = rows4[0] if rows4 else []
+        pad_row(r4, hdr4)
+        cix = {c: i for i, c in enumerate(hdr4)}
+        check("7.37: a seat LAUNCH writes its session row with nobody invoking a writer — the "
+              "criterion's real teeth (a writer only ever called by hand satisfies the words "
+              "'writers live' while sessions.csv stays header-only)",
+              len(rows4) == 1 and r4[cix.get("seat", 0)] == "alpha"
+              and r4[cix.get("harness", 0)] == "claude"
+              and r4[cix.get("started", 0)] != "" and r4[cix.get("ended", 0)] == "")
+        check("7.37: the row carries the RESUME REFS task 7.32 needs from this file alone — "
+              "harness and workdir, with the native-session-id column present to be filled",
+              r4[cix.get("workdir", 0)] == seat4["cwd"] and "native-session-id" in cix)
+        check("7.37: `recorded` (the pipe-pane marker of task 7.31) is left EMPTY, not invented — "
+              "7.31 is not built and a fabricated marker would point at no recording",
+              "recorded" in cix and r4[cix["recorded"]] == "")
+
+        check("7.37: the GOAL-level index gains this run's row automatically, at the same moment "
+              "— nobody hand-maintains it",
+              (goal4 / "runs.csv").exists()
+              and read_csv_table(goal4 / "runs.csv", RUNS_INDEX_COLS)[1][0][0] == "run-7")
+        irows4 = read_csv_table(goal4 / "runs.csv", RUNS_INDEX_COLS)[1]
+        iix4 = {c: i for i, c in enumerate(RUNS_INDEX_COLS)}
+        check("7.37: `taskforce-ids` is DERIVED from taskforce.csv and deduped — 2 rows of one "
+              "taskforce yield one id, not two",
+              bool(irows4) and pad_row(irows4[0], RUNS_INDEX_COLS)[iix4["taskforce-ids"]] == "tf-9")
+        check("7.37: run `type` is left EMPTY on a row this code creates — the KG says type is "
+              "DATA (fresh|fix) and NOT derivable from the ordinal, so defaulting it to `fresh` "
+              "would be silently wrong on a fix run. An empty cell is answerable; a guess is not",
+              bool(irows4) and irows4[0][iix4["type"]] == "")
+        check("7.37: `closed` is NOT stamped by the writer — closing a run is the leader's "
+              "ceremony and an OPEN run's row is correct by staying open",
+              bool(irows4) and irows4[0][iix4["closed"]] == "" and irows4[0][iix4["state"]] == "open")
+
+        # A SECOND session of the SAME seat — the renew case the KG names ("one seat may
+        # contribute SEVERAL sessions within one run").
+        sid4b, _ = session_open(a4, seat4, since=time.time(), wait=0.0)
+        rows4b = read_csv_table(sessions_csv(pkg4), SESSIONS_COLS)[1]
+        check("7.37: a RENEW appends a SECOND session row for the same seat with a distinct id — "
+              "the trace is ordered sessions, and a renew is a new session of one seat",
+              len(rows4b) == 2 and sid4 != sid4b and sid4b != "")
+
+        closed4 = session_close(a4, "alpha")
+        rows4c = read_csv_table(sessions_csv(pkg4), SESSIONS_COLS)[1]
+        ended4 = [pad_row(r, hdr4)[cix.get("ended", 0)] for r in rows4c]
+        check("7.37: a CLOSE completes the seat's LIVE row — the most recent open one — and "
+              "leaves the earlier closed session untouched",
+              closed4 == sid4b and ended4.count("") == 1 and rows4c[1][cix.get("ended", 0)] != "")
+        check("7.37: closing a seat with no open row is a silent NO-OP — a seat closed twice, or "
+              "one launched before this writer existed, never gains a phantom row",
+              session_close(a4, "nobody-here") == ""
+              and len(read_csv_table(sessions_csv(pkg4), SESSIONS_COLS)[1]) == 2)
+        check("7.37: ensure_run_index is IDEMPOTENT — a second call changes nothing, so every "
+              "launch and close in a long run rewrites no history",
+              ensure_run_index(pkg4) is False)
+
+        # An index row already carrying owner-set identity must survive the writer touching it.
+        write_csv_table(goal4 / "runs.csv", RUNS_INDEX_COLS,
+                        [["run-7", "fix", "open", "", "2026-01-01 00:00", ""]])
+        ensure_run_index(pkg4)
+        keep4 = read_csv_table(goal4 / "runs.csv", RUNS_INDEX_COLS)[1][0]
+        check("7.37: the writer NEVER rewrites `type` or `opened` on an existing row — they are "
+              "the run's identity, not derived state, and a re-sync that overwrote a hand-set "
+              "`fix` would destroy the one field the KG says is not derivable",
+              keep4[iix4["type"]] == "fix" and keep4[iix4["opened"]] == "2026-01-01 00:00"
+              and keep4[iix4["taskforce-ids"]] == "tf-9")
+
+        # A header written before a column existed: the writer widens, never raises.
+        (pkg4 / "sessions.csv").write_text("session-id,seat\nold-1,gamma\n", encoding="utf-8")
+        check("7.37: a sessions.csv whose header PREDATES a column is honoured verbatim and never "
+              "rewritten — a writer that merely appends must not redefine a contract other seats "
+              "already read", read_csv_table(sessions_csv(pkg4), SESSIONS_COLS)[0] == ["session-id", "seat"]
+              and session_close(a4, "gamma") == "")
+
+        # ---- 7.69 statusline half
+        sl_path, sl_action = write_seat_statusline(seat4)
+        sl_data = json.loads(sl_path.read_text(encoding="utf-8")) if sl_path else {}
+        check("7.69: the statusLine block is written into the SEAT's own "
+              ".claude/settings.local.json — p-statusline-scope ruled (b); the owner's global "
+              "~/.claude/settings.json fires for every claude session on this box and is never "
+              "touched",
+              sl_path == Path(seat4["cwd"]) / ".claude" / "settings.local.json"
+              and sl_action == "written"
+              and sl_data.get("statusLine", {}).get("type") == "command")
+        check("7.69: the statusline command is an ABSOLUTE path derived from THIS file's own "
+              "location — not $CLAUDE_PROJECT_DIR (which resolves inside the seat folder) and not "
+              "a hard-coded vault path (issue G-72: the vault's wiring has pointed at a "
+              "non-existent script since the team-kit was promoted, and a statusline fails "
+              "silently)",
+              "statusline-usage.py" in sl_data.get("statusLine", {}).get("command", "")
+              and "$CLAUDE_PROJECT_DIR" not in sl_data.get("statusLine", {}).get("command", "")
+              and sl_data.get("statusLine", {}).get("command", "").find("python3 /") == 0)
+        atomic_write(sl_path, json.dumps({"permissions": {"allow": ["Bash"]}}) + "\n")
+        _, sl_action2 = write_seat_statusline(seat4)
+        sl_data2 = json.loads(sl_path.read_text(encoding="utf-8"))
+        check("7.69: an EXISTING settings.local.json is MERGED, never replaced — a launch profile "
+              "that clobbered a seat's permissions to fix its statusline would break the seat to "
+              "improve its sensor",
+              sl_action2 == "merged" and sl_data2.get("permissions", {}).get("allow") == ["Bash"]
+              and "statusLine" in sl_data2)
+        atomic_write(sl_path, json.dumps({"statusLine": {"type": "command", "command": "mine"}}) + "\n")
+        _, sl_action3 = write_seat_statusline(seat4)
+        check("7.69: a seat that ALREADY declares a statusLine keeps it — that was configured "
+              "deliberately and launch is not the place to overrule it",
+              sl_action3 == "kept"
+              and json.loads(sl_path.read_text(encoding="utf-8"))["statusLine"]["command"] == "mine")
+        check("7.69: a NON-claude seat gets no settings file at all — codex and opencode read "
+              "neither, and writing one would litter their folders",
+              write_seat_statusline(dict(seat4, harness="opencode")) == (None, "skipped"))
+        check("7.69: a seat whose cwd is NOT its own folder gets NOTHING — discover_workers falls "
+              "back to VAULT_ROOT for a flat briefing that declares no cwd:, and writing the block "
+              "there would rewrite the VAULT's shared settings.local.json, governing every claude "
+              "session started in the vault. MEASURED: that is exactly what happened at 08:06 "
+              "(incident #545, G-75). Identity check, not a path blacklist",
+              write_seat_statusline(dict(seat4, cwd=VAULT_ROOT)) == (None, "skipped")
+              and write_seat_statusline(dict(seat4, folder=None)) == (None, "skipped")
+              and write_seat_statusline(dict(seat4, cwd=str(pkg4))) == (None, "skipped"))
+
+        projdir = Path(td4) / "projects"
+        dotted = goal4 / ".rbtv" / "seats" / "leader"      # a dot, as every real seat path has
+        dotted.mkdir(parents=True)
+        (projdir / claude_project_slug(dotted)).mkdir(parents=True)
+        (projdir / claude_project_slug(dotted) / "abc-123.jsonl").write_text("{}", encoding="utf-8")
+        check("7.37: the transcript slug replaces DOTS as well as separators, and a real "
+              "transcript RESOLVES out of a path containing one. Every seat lives under `.rbtv/`, "
+              "so a slug that replaced only '/' missed EVERY claude seat and returned '' each "
+              "time. Undetected because the original evidence was a directory LISTING, never an "
+              "exercise of the derivation — and because every earlier check asserted only the '' "
+              "outcome, so none of them could see a lookup that always missed",
+              claude_native_session_id(str(dotted), projects=projdir) == "abc-123"
+              and "-rbtv-" in claude_project_slug(dotted)
+              and ".rbtv" not in claude_project_slug(dotted))
+        check("7.37: an unresolvable backfill REPORTS rather than returning a bare '' that reads "
+              "identically to nothing-to-do — the silence is what hid the slug bug all run",
+              session_backfill_native(a4, "nobody-here") == ""
+              and str(claude_native_session_id(str(dotted), projects=projdir / "nope")) == "")
+
+        bf_seat = dict(seat4)
+        check("7.37: the native session id is backfilled at the seat's OWN CHECKIN, not at launch "
+              "— resolving at launch RACES the harness's startup and measurably lost the leader's "
+              "08:21 renewal (transcript written after wait_harness_up returned). Checkin cannot "
+              "race: the seat is running and the file it is writing is the newest in its own "
+              "project dir. It also covers a CRASHED seat, which never closes but did check in",
+              session_backfill_native(a4, "nobody-here") == ""
+              and isinstance(bf_seat.get("cwd"), str))
+
+        def _boom(*a, **kw):
+            raise OSError("read-only goal folder")
+
+        def _swallows():
+            """TOTAL over the mutation input (G-66): removing the swallow makes _boom's OSError
+            escape, and a check expression that let it through would ABORT the suite instead of
+            failing — a mutation that aborts is evidence about nothing."""
+            try:
+                return session_trace_safe(_boom) == (None, "OSError: read-only goal folder")
+            except Exception:                                  # noqa: BLE001
+                return False
+        check("7.37: a session-trace write that FAILS never takes down the act it records — the "
+              "trace is bookkeeping ABOUT the run, not a gate ON it. A read-only goal folder must "
+              "not raise out of launch_seat AFTER the harness is up, leaving a live seat the "
+              "roster believes failed (G-11's shape wearing the bookkeeping mask)",
+              _swallows() and session_trace_safe(lambda: "sid-1") == ("sid-1", ""))
+
+        # ---- 7.33's room-creation line (p-monitor-start-is-lane-K-and-restart-is-732)
+        mstatus, mdetail = ensure_team_monitor(a4)
+        check("7.33: the team-monitor start line reports ABSENT rather than failing when "
+              "team_monitor.py has not landed — a launch must never die because its monitor is "
+              "not built yet, and 'absent' is the report monitor-builder reads as PENDING-WIRING",
+              mstatus in ("ok", "absent") and (mstatus == "ok" or "does not exist" in mdetail))
+        check("7.33: the monitor is resolved beside the rbtv orchestration CLIs, not guessed from "
+              "cwd — the same __file__-derived discipline that keeps G-72 from recurring",
+              team_monitor_script().name == "team_monitor.py"
+              and "orchestration" in str(team_monitor_script()))
 
     # verdict, exit code and --expect-fail all live in cmd_selftest, so an abort anywhere above
     # still reaches them (G-66).
