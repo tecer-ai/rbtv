@@ -26,12 +26,22 @@
 // adjacent `.out` was NOT written inside its own [start, end] window is graded STALE, not PASS.
 // Verdicts come from a live child-process exit, NEVER from the content of a committed `.out`.
 //
+// CAPTURES ARE UNTRACKED AND ALWAYS FRESH (G-171). A `.out` beside a probe is THIS run's output,
+// with a real mtime. Preserve mode — which used to restore each capture's bytes AND its mtime
+// after every run — is RETIRED: it fixed the churn (G-163) by freezing every tracked capture into
+// a snapshot nothing would refresh, and rolled the mtime back too, so nothing on disk revealed it.
+// `probe-error-map-drift.out` read "1 drift finding" while the live probe reported 15, and a seat
+// read the file, took it for its own run's output, and reported the debt 15x too small.
+// THE DETECTOR WAS NEVER FOOLED — grade() reads the pre-restore mtime — THE PERSON WAS, AND
+// NOTHING ON DISK COULD TELL THEM. Each run is also archived under the summary's captures/ folder:
+// untracked files carry no git history, so that archive is the only per-run record that survives.
+//
 // Usage:
 //   node ignite/deploy/probe-suite.js [options]
 //     --dir <rel>        limit to a probes directory (repeatable); default: every one discovered
 //     --only <name>      run ONE probe (repeatable) — `probe-cli-status`, `cli-status`, or the
-//                        filename. Use this instead of `node probe-x.js`: it keeps preserve mode,
-//                        so running a single probe stops dirtying its tracked capture (G-163)
+//                        filename. Prefer it over `node probe-x.js`: the run is counted, graded
+//                        for staleness, and archived, which a bare invocation is not
 //     --timeout-ms <n>   per-probe timeout (default 180000)
 //     --summary <path>   summary file (default: <workspace>/.rbtv/runtime/probe-suite/<stamp>.txt)
 //     --list             discover and print, execute nothing (exit 0 if any found, 2 if none)
@@ -87,9 +97,10 @@ function discoverProbes(root, only, probeOnly) {
       if (!f.startsWith('probe-')) continue;
       const ext = path.extname(f);
       if (ext !== '.js' && ext !== '.py') continue;
-      // G-163: `--only` exists so that running ONE probe still goes through this runner, and so
-      // inherits preserve mode. Running a probe by hand is what dirties tracked captures — making
-      // the runner the way to run a single probe fixes that without touching 84 probe files.
+      // `--only` exists so that running ONE probe still goes through this runner — it is then
+      // counted, graded against the 7.50 staleness bar, and archived. (It was introduced under
+      // G-163 to inherit preserve mode; preserve mode is gone, the reason to route through here
+      // is not.)
       if (probeOnly && probeOnly.length
           && !probeOnly.some((n) => f === n || f.replace(/\.(js|py)$/, '') === n
                                  || f.replace(/^probe-/, '').replace(/\.(js|py)$/, '') === n)) continue;
@@ -116,13 +127,14 @@ function discoverProbes(root, only, probeOnly) {
 function executeProbe(probe, opts) {
   const timeoutMs = opts.timeoutMs;
   const outBefore = statMtimeMs(probe.outPath);
-  // PRESERVE MODE (default): take the probe's capture and its timestamps hostage before the run,
-  // and put them back byte-identical after — the fresh output is kept in the summary's own
-  // captures/ folder instead. A census that must mutate ~80 committed files to tell you a number
-  // is a census nobody runs, which is exactly how this suite rotted (G-141). Regeneration is still
-  // available, but it is now a deliberate act (--write-captures), not the default.
-  const preserve = opts.preserve !== false;
-  const original = preserve ? readCapture(probe.outPath) : null;
+  // ⚠ PRESERVE MODE IS RETIRED (G-171). It used to take each capture and its TIMESTAMPS hostage
+  // before the run and put them back byte-identical after. That stopped the churn (G-163) and, in
+  // the same stroke, froze every tracked capture into a snapshot no ordinary run would ever
+  // refresh — while `fs.utimesSync` rolled the mtime back too, so nothing on disk revealed it.
+  // `probe-error-map-drift.out` sat at "1 drift finding" while the live probe reported 15, and a
+  // seat read the file, believed it was its own run's output, and reported a debt 15x too small.
+  // The captures are no longer tracked (see .gitignore), so there is no churn left to prevent:
+  // a run now simply refreshes the file beside its probe, with a real mtime.
   const startedAt = Date.now();
 
   const cmd = probe.lang === 'py' ? 'python3' : process.execPath;
@@ -135,13 +147,15 @@ function executeProbe(probe, opts) {
   });
 
   const endedAt = Date.now();
-  // Read the freshness evidence BEFORE any restore — the grader must see what the probe actually
-  // did, not what the working tree looks like once we have put it back.
   const outAfter = statMtimeMs(probe.outPath);
-  const preserved = preserve ? restoreCapture(probe, original, opts.captureDir) : null;
+  // The capture stays where the probe wrote it AND is archived per-run out of the repo. The
+  // archive is deliberately KEPT after preserve mode's retirement: untracked captures carry no
+  // git history, so without it a run leaves no comparable record at all — and a per-run archive
+  // is the only reason G-171's three contradictory readings could be reconciled at all.
+  const archived = archiveCapture(probe, opts.captureDir);
 
   const common = { attempted: true, wallMs: endedAt - startedAt, startedAt, endedAt,
-    outBefore, outAfter, preserved, stderr: tail(res.stderr) };
+    outBefore, outAfter, archived, stderr: tail(res.stderr) };
 
   if (res.error && res.error.code === 'ETIMEDOUT') return Object.assign(common, { timedOut: true });
   if (res.error) return Object.assign(common, { spawnError: String(res.error.message) });
@@ -155,38 +169,20 @@ function statMtimeMs(p) {
   try { return fs.statSync(p).mtimeMs; } catch { return null; }
 }
 
-function readCapture(p) {
-  try {
-    const st = fs.statSync(p);
-    return { existed: true, body: fs.readFileSync(p), atime: st.atime, mtime: st.mtime, mode: st.mode };
-  } catch { return { existed: false }; }
-}
-
-// Put the committed capture back exactly as it was — bytes AND timestamps, so `git status` and any
-// other seat see nothing at all. The probe's FRESH output is not discarded: it is written into the
-// summary's captures/ folder, outside the repo, where it is still evidence.
-function restoreCapture(probe, original, captureDir) {
-  if (!original) return null;
+// Copy this run's capture into the summary's own captures/ folder, outside the repo (ignite rule
+// 3). PURELY ADDITIVE: the probe's capture is left exactly where the probe wrote it, untouched in
+// content and in mtime. Nothing here reads, rewrites or reverts the working tree — that reversion
+// WAS G-171, and its absence is the fix.
+function archiveCapture(probe, captureDir) {
+  if (!captureDir) return null;
   let fresh = null;
-  try { fresh = fs.readFileSync(probe.outPath); } catch { /* the probe wrote none */ }
-
-  const unchanged = fresh && original.existed && fresh.equals(original.body);
-  if (fresh && !unchanged && captureDir) {
-    const dest = path.join(captureDir, probe.id.replace(/[\\/]/g, '__'));
-    try { fs.mkdirSync(captureDir, { recursive: true }); fs.writeFileSync(dest, fresh); } catch { /* best effort */ }
-  }
-
-  if (!original.existed) {
-    if (fresh) { try { fs.unlinkSync(probe.outPath); } catch {} return 'removed-new'; }
-    return 'none';
-  }
-  if (unchanged) return 'unchanged';
+  try { fresh = fs.readFileSync(probe.outPath); } catch { return 'none'; }
+  const dest = path.join(captureDir, probe.id.replace(/[\\/]/g, '__'));
   try {
-    fs.writeFileSync(probe.outPath, original.body);
-    fs.chmodSync(probe.outPath, original.mode);
-    fs.utimesSync(probe.outPath, original.atime, original.mtime);
-    return 'restored';
-  } catch (e) { return 'RESTORE-FAILED: ' + String(e && e.message || e); }
+    fs.mkdirSync(captureDir, { recursive: true });
+    fs.writeFileSync(dest, fresh);
+    return 'archived';
+  } catch (e) { return 'ARCHIVE-FAILED: ' + String(e && e.message || e); }
 }
 
 function tail(s, n = 400) {
@@ -253,12 +249,11 @@ function runSuite(opts) {
   }
 
   const rows = [];
-  const dirtied = [];
-  const restoreFailures = [];
-  const preserve = opts.preserve !== false;
+  const refreshed = [];
+  const archiveFailures = [];
   for (const p of probes) {
     let r;
-    try { r = execute(p, { timeoutMs, preserve, captureDir: opts.captureDir }); }
+    try { r = execute(p, { timeoutMs, captureDir: opts.captureDir }); }
     catch (e) { r = { attempted: true, spawnError: String(e && e.message || e) }; }
     const g = grade(p, r);
     const row = {
@@ -269,9 +264,9 @@ function runSuite(opts) {
       stderr: r && r.stderr ? r.stderr : '',
     };
     rows.push(row);
-    if (r && r.outAfter !== null && r.outAfter !== r.outBefore) dirtied.push(p.outPath);
-    if (r && typeof r.preserved === 'string' && r.preserved.startsWith('RESTORE-FAILED')) {
-      restoreFailures.push(p.outPath + ' — ' + r.preserved);
+    if (r && r.outAfter !== null && r.outAfter !== r.outBefore) refreshed.push(p.outPath);
+    if (r && typeof r.archived === 'string' && r.archived.startsWith('ARCHIVE-FAILED')) {
+      archiveFailures.push(p.outPath + ' — ' + r.archived);
     }
     emit(`${row.id} ${row.verdict} exit=${row.exit === null ? '-' : row.exit}`
       + ` wall_ms=${row.wallMs === null ? '-' : row.wallMs}`
@@ -279,10 +274,10 @@ function runSuite(opts) {
     if (opts.onRow) opts.onRow(row);
   }
 
-  return finish({ discovered, rows, dirtied, restoreFailures, preserve, opts, emit });
+  return finish({ discovered, rows, refreshed, archiveFailures, opts, emit });
 }
 
-function finish({ discovered, rows, dirtied = [], restoreFailures = [], preserve, reason, opts, emit }) {
+function finish({ discovered, rows, refreshed = [], archiveFailures = [], reason, opts, emit }) {
   const attempted = rows.filter((r) => r.counted).length;
   const passed = rows.filter((r) => r.ok).length;
   const failed = attempted - passed;
@@ -301,10 +296,11 @@ function finish({ discovered, rows, dirtied = [], restoreFailures = [], preserve
     'passed: ' + passed,
     'failed: ' + failed,
     'not-attempted: ' + (discovered - attempted),
-    (preserve === false
-      ? 'captures-rewritten-in-tree: ' + dirtied.length
-      : 'captures-written-then-restored: ' + dirtied.length + ' (working tree unchanged)'),
-    'restore-failures: ' + restoreFailures.length,
+    // Named `captures-refreshed`, and it is now the HEALTHY reading. Under preserve mode this
+    // line reported "written then restored ... working tree unchanged", which was true and read
+    // as reassurance while the file beside each probe silently went stale (G-171).
+    'captures-refreshed: ' + refreshed.length,
+    'archive-failures: ' + archiveFailures.length,
     // Written LAST and only here. Header without this line == a truncated run, readable with no
     // exit code in hand.
     `SUITE-COMPLETE verdict=${verdict} exit=${exitCode}`,
@@ -313,8 +309,8 @@ function finish({ discovered, rows, dirtied = [], restoreFailures = [], preserve
   emit(trailer);
 
   return { verdict, exitCode, discovered, attempted, passed, failed,
-    notAttempted: discovered - attempted, rows, dirtied, restoreFailures,
-    preserved: preserve !== false, reason: reason || null };
+    notAttempted: discovered - attempted, rows, refreshed, archiveFailures,
+    reason: reason || null };
 }
 
 // ---------------------------------------------------------------- selftest
@@ -446,12 +442,15 @@ function selftest() {
     write('probe-stale.js', 'process.exit(0);');   // restore
   });
 
-  // ---- PRESERVE MODE: the census must be able to report a NUMBER without mutating the repo ----
+  // ---- CAPTURES: a run must REFRESH the file beside its probe, and say so ----------------
 
-  t('P1 preserve (default) leaves the capture byte-identical AND its mtime untouched', () => {
+  t('P1 a run REFRESHES the capture in place — mtime ADVANCES and content CHANGES (G-171)', () => {
+    // THE DISCRIMINATOR preserve mode could never have passed: it restored both halves. This is
+    // the exact A/B whose absence let `probe-error-map-drift.out` sit 15 findings behind reality
+    // while a reader took it for their own run's output.
     const capDir = path.join(tmp, 'caps');
     const target = path.join(dir, 'probe-ok.out');
-    fs.writeFileSync(target, 'ORIGINAL COMMITTED CAPTURE\n');
+    fs.writeFileSync(target, 'STALE CAPTURE FROM A RUN LONG AGO\n');
     const old = new Date(Date.now() - 9 * 86400000);
     fs.utimesSync(target, old, old);
     const before = fs.readFileSync(target);
@@ -460,32 +459,32 @@ function selftest() {
     const r = run({ captureDir: capDir,
       discover: (root) => discoverProbes(root).filter((p) => /probe-ok\.js$/.test(p.id)) });
 
-    eq(r.rows[0].verdict, 'PASS', 'verdict');           // grading still saw the fresh write
-    eq(r.preserved, true, 'preserved');
-    if (!fs.readFileSync(target).equals(before)) throw new Error('capture was not restored byte-identical');
-    eq(fs.statSync(target).mtimeMs, beforeMtime, 'mtime');
-    // FIXTURE DISCRIMINATES: the sidecar must hold something DIFFERENT, else "restored" would be
-    // indistinguishable from "the probe never wrote anything" and this bar would prove nothing.
-    const side = fs.readFileSync(path.join(capDir, 'mod__probes__probe-ok.js'));
-    if (side.equals(before)) throw new Error('sidecar equals the original — the probe wrote nothing to restore');
-    if (!/PASS probe-ok/.test(side.toString())) throw new Error('sidecar did not capture the fresh output');
+    eq(r.rows[0].verdict, 'PASS', 'verdict');
+    if (fs.readFileSync(target).equals(before)) throw new Error('the stale capture SURVIVED the run — preserve mode is back');
+    if (!(fs.statSync(target).mtimeMs > beforeMtime)) throw new Error('mtime did not advance — a reader cannot tell this file is current');
+    if (!/PASS probe-ok/.test(fs.readFileSync(target, 'utf8'))) throw new Error('the capture does not hold this run output');
+    eq(r.refreshed.length, 1, 'refreshed count');
   });
 
-  t('P2 --write-captures actually leaves the fresh capture in the tree', () => {
+  t('P2 the fresh capture is ALSO archived out of the repo, byte-identical to what is on disk', () => {
+    // Untracked captures carry no git history, so this archive is the only per-run record left.
+    const capDir = path.join(tmp, 'caps-archive');
     const target = path.join(dir, 'probe-ok.out');
-    fs.writeFileSync(target, 'ORIGINAL COMMITTED CAPTURE\n');
-    const r = run({ preserve: false,
+    fs.rmSync(target, { force: true });
+    run({ captureDir: capDir,
       discover: (root) => discoverProbes(root).filter((p) => /probe-ok\.js$/.test(p.id)) });
-    eq(r.preserved, false, 'preserved');
-    if (!/PASS probe-ok/.test(fs.readFileSync(target, 'utf8'))) throw new Error('write mode did not keep the fresh capture');
+    const side = fs.readFileSync(path.join(capDir, 'mod__probes__probe-ok.js'));
+    if (!side.equals(fs.readFileSync(target))) throw new Error('the archive does not match the capture the probe wrote');
   });
 
-  t('P3 preserve removes a capture the probe newly created — tree unchanged either way', () => {
+  t('P3 a capture the probe newly created is LEFT IN PLACE — nothing is reverted or removed', () => {
+    // Preserve mode DELETED such a file ('removed-new') to keep the tree pristine. Now the tree is
+    // where the evidence lives, so removing it would be destroying this run's only local record.
     const target = path.join(dir, 'probe-ok.out');
     fs.rmSync(target, { force: true });
     run({ captureDir: path.join(tmp, 'caps2'),
       discover: (root) => discoverProbes(root).filter((p) => /probe-ok\.js$/.test(p.id)) });
-    if (fs.existsSync(target)) throw new Error('a capture that did not exist before the run was left behind');
+    if (!fs.existsSync(target)) throw new Error('the capture the probe wrote was removed');
   });
 
   t('P4 --only selects ONE probe by any of its three spellings, and 0 matches REFUSES', () => {
@@ -513,9 +512,9 @@ function selftest() {
 
   t('S10 verdicts never come from the content of a committed .out', () => {
     // probe-bad writes "PASS probe-bad" into its capture and exits 1. If grading ever read the
-    // file, this would be a PASS. Runs with preserve OFF so the capture it wrote survives the run
-    // to be asserted on — under the default it would be restored away, which is P1/P3's job.
-    const r = run({ preserve: false,
+    // file, this would be a PASS. The capture it wrote now simply survives the run (preserve mode
+    // used to restore it away, which is why this bar had to opt out of the default).
+    const r = run({
       discover: (root) => discoverProbes(root).filter((p) => /probe-bad\.js$/.test(p.id)) });
     eq(r.rows[0].verdict, 'FAIL', 'verdict');
     const body = fs.readFileSync(path.join(dir, 'probe-bad.out'), 'utf8');
@@ -549,7 +548,6 @@ function main(argv) {
     else if (a === '--summary') summaryPath = argv[++i];
     else if (a === '--json') json = true;
     else if (a === '--list') list = true;
-    else if (a === '--write-captures') opts.preserve = false;
     else if (a === '-h' || a === '--help') {
       console.log(fs.readFileSync(__filename, 'utf8').split('\n')
         .filter((l) => l.startsWith('//')).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
@@ -575,18 +573,12 @@ function main(argv) {
   if (json) console.log(JSON.stringify(r, null, 2));
   else {
     console.log(`\nsummary: ${out}`);
-    if (r.preserved) {
-      console.log(`working tree UNCHANGED — ${r.dirtied.length} capture(s) were written by probes`
-        + ` and restored byte-identical; the fresh output is in ${captureDir}`);
-    } else if (r.dirtied.length) {
-      // --write-captures: probes write their capture in place, hardcoded to __dirname, so this
-      // mode dirties the repo BY DESIGN. Report it rather than let a seat find it at `git status`.
-      console.log(`captures rewritten in the working tree: ${r.dirtied.length}`
-        + ' (commit them deliberately, by explicit pathspec, or restore them)');
-    }
-    if (r.restoreFailures.length) {
-      console.log('⚠ RESTORE FAILED — these captures are DIRTY and must be handled by hand:');
-      for (const f of r.restoreFailures) console.log('  ' + f);
+    console.log(`${r.refreshed.length} capture(s) refreshed in place beside their probes`
+      + ` (untracked since G-171 — the file next to a probe is now THIS run's output, not a`
+      + ` frozen snapshot); archived per-run in ${captureDir}`);
+    if (r.archiveFailures.length) {
+      console.log('⚠ ARCHIVE FAILED — this run leaves no durable record for these probes:');
+      for (const f of r.archiveFailures) console.log('  ' + f);
     }
   }
   return r.exitCode;
