@@ -13,7 +13,7 @@ PASS  one appended line per change, and only one  [lines=2]
 PASS  the line carries exactly the six adopted keys {ts,machine,key,from,to,by}  [ts,machine,key,from,to,by]
 PASS  key is the path WITHIN the machine block, not repeating the hostname  [ticker.tick_interval_ms]
 PASS  machine names this machine
-PASS  ts parses as a date  [2026-07-27T21:55:00.126Z]
+PASS  ts parses as a date  [2026-07-27T22:06:48.955Z]
 PASS  first change: from is null (nothing was stored)  [null]
 PASS  ⚠ second change: from is the PRIOR STORED VALUE, not null  [15000]
 PASS  to is the new value
@@ -35,11 +35,15 @@ PASS  boot IGNORES another machine's out-of-bound value
 PASS  15s parses to 15000ms
 PASS  15000ms parses to 15000ms
 PASS  a BARE number is REFUSED rather than guessed
+PASS  nothing pending: configured == running  [configured=10000, pending=false]
+PASS  an edit written but not restarted is reported PENDING  [configured=15000, pending=true]
+PASS  ⚠ an unreadable settings file reports null, NEVER false  [configured=null, pending=null]
+PASS  no reader wired reports null, not a fabricated verdict  [configured=null, pending=null]
 PASS  an accepted edit says it is NOT in effect until a restart  [ / NOT IN EFFECT YET. The daemon materializes config once at boot. /   put it in effect:  rbtv ignite ticker set-interval 15s --restart /              or:     rbtv ignite daemon restart /   until then `ignite inspect daemon` reports configured != running. / ]
 PASS  ...and prints the tick-denominated ladder the new cadence implies  [stall halt @24 ticks x 15s = 360s]
 
-CHECKS: 39/39 passed
-COMPLETE: true (ran 39, expected 39)
+CHECKS: 43/43 passed
+COMPLETE: true (ran 43, expected 43)
 TICKER_SETTINGS_OK: true
 EXIT: 0
-WALL_MS: 221
+WALL_MS: 293

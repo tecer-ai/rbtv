@@ -61,6 +61,19 @@ happen.** Filed as `G-168`.
   probe now hand-edits `tick_interval_ms: 250` PAST the surface and restarts the real unit:
   `ActiveState=failed`, with the journal carrying `REFUSES TO START` and `is below the floor`.
   Restoring a legal value starts it again, so the refusal is not sticky. Three checks, live.
+- ~~**`inspect daemon`'s two cadence fields had never executed.**~~ **NAMED, THEN RUN, THEN CLOSED.**
+  The closure was wired into `createInternalApi` and the field pair computed in
+  `handleInspectDaemon`, while every check exercised the settings MODULE instead — two halves
+  proven, composition never taken. Now driven through the real dispatch envelope, four scenarios,
+  8 checks. The one that mattered: **an unreadable settings file reports `null`, never `false`** —
+  `false` means "nothing pending" and would be a confident wrong answer.
+  ⚠ And the scratch script that first exercised it **printed `ALL PASS` having checked nothing**,
+  because its envelope was malformed and every dispatch returned `BAD_ENVELOPE` while the harness
+  counted no failures. Caught only by reading the output rather than the exit code. It is this
+  file's own subject, committed by its author, in a throwaway — which is why it is a durable probe
+  now and not a script.
+
 - **Concurrent writers.** `setValue` is read-modify-write with an atomic rename, so two simultaneous
   edits can lose one. No probe exercises it. Not a defect today (the surface is a human typing a
-  command), and stated so it is not mistaken for proven.
+  command), and stated so it is not mistaken for proven. **This is the one item on this list that
+  is still only named.**

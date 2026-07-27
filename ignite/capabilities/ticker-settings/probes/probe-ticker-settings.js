@@ -29,7 +29,7 @@ const TOOL = path.resolve(__dirname, '..', 'tool', 'rbtv-ignite-ticker');
 // INCOMPLETE, not green — a truncated run reads greener than a complete one (`G-121`).
 // (Set to the MEASURED tally of a complete run, not an estimate — my first guess was 31 and the
 // assertion turned the run red at 39, which is the assertion doing its job on its own author.)
-const EXPECTED_CHECKS = 39;
+const EXPECTED_CHECKS = 43;
 
 const checks = [];
 function out(...args) {
@@ -64,7 +64,7 @@ function runTool(root, args, env = {}) {
   }
 }
 
-function main() {
+async function main() {
   // ── 1. Both live seeds read, and so does no file at all ─────────────────────────────────────
   // MEASURED on the live VPS: the daemon seeds `{}` (server/index.js) and the installer seeds
   // `{"machines": {}}` (rbtv-install), and whichever ran first is what is on the box. A reader
@@ -237,6 +237,51 @@ function main() {
     check('a BARE number is REFUSED rather than guessed', refused);
   }
 
+  // ── 5b. `inspect daemon`'s two cadence fields, through the REAL handler ──────────────────────
+  //
+  // ⚠ THIS SECTION EXISTS BECAUSE THE CODE HAD NEVER RUN. The closure was wired into
+  // `createInternalApi` and the field pair computed in `handleInspectDaemon`, and every check
+  // elsewhere in this task exercised the settings MODULE instead — the two halves proven, the
+  // composition never taken (`G-124`'s shape). So this drives the real dispatch envelope.
+  //
+  // The case that matters most is the third: an unreadable settings file must report `null`, NEVER
+  // `false`. `false` means "nothing pending" and would be a confident wrong answer.
+  {
+    const crypto = require('node:crypto');
+    const { createInternalApi } = require('../../../server/internal-api/dispatch.js');
+    const SECRET = 'x'.repeat(64);
+    const store = {
+      getLastTick: () => ({ tick: 7 }), listExecutionsByStatus: () => [],
+      listQueue: () => [], listWarnings: () => [],
+    };
+    const ask = async (readFn, running) => {
+      const api = createInternalApi({
+        heartStore: store, spawnManager: {}, secret: SECRET,
+        daemonConfig: { tick_interval_ms: running }, readConfiguredTickIntervalMs: readFn,
+      });
+      const r = await api.dispatch({
+        v: 1, id: crypto.randomUUID(), ts: new Date().toISOString(), auth: SECRET,
+        sender: { id: 'probe-agent', kind: 'owner', via: 'cli' },
+        intent: 'inspect', payload: { target: 'daemon' },
+      });
+      return r.ok ? r.result.config : null;
+    };
+    const cases = [
+      ['nothing pending: configured == running', () => 10000, 10000, 10000, false],
+      ['an edit written but not restarted is reported PENDING', () => 15000, 10000, 15000, true],
+      ['⚠ an unreadable settings file reports null, NEVER false', () => { throw new Error('boom'); }, 10000, null, null],
+      ['no reader wired reports null, not a fabricated verdict', null, 10000, null, null],
+    ];
+    // Sequential and awaited: a forEach with an async body would let the tally finish before the
+    // checks landed, which is the truncated-run hazard this probe asserts against.
+    for (const [label, fn, running, expConf, expPend] of cases) {
+      // eslint-disable-next-line no-await-in-loop
+      const c = await ask(fn, running);
+      check(label, c && c.tick_interval_ms_configured === expConf && c.tick_interval_pending_restart === expPend,
+        c ? `configured=${c.tick_interval_ms_configured}, pending=${c.tick_interval_pending_restart}` : 'dispatch failed');
+    }
+  }
+
   // ── 6. The surface reports the pending state ────────────────────────────────────────────────
   {
     const root = mkWorkspace('{}');
@@ -249,13 +294,20 @@ function main() {
   }
 }
 
-try {
-  main();
-} catch (err) {
-  out('ERROR:', err.message, err.stack);
-  checks.push({ name: 'unhandled error', pass: false });
+// The report is emitted INSIDE the async completion, never beside it: a top-level `main()` whose
+// promise nobody awaits would print the tally before the checks ran — a green report over an
+// unfinished run, which is this file's own completeness bar violated by its own harness.
+async function run() {
+  try {
+    await main();
+  } catch (err) {
+    out('ERROR:', err.message, err.stack);
+    checks.push({ name: 'unhandled error', pass: false });
+  }
+  report();
 }
 
+function report() {
 const failed = checks.filter((c) => !c.pass);
 // The completeness assertion, separate from the pass/fail tally: a run that dies half way through
 // would otherwise print only PASS lines and exit 0.
@@ -269,3 +321,6 @@ out(`TICKER_SETTINGS_OK: ${failed.length === 0 && complete}`);
 out(`EXIT: ${failed.length === 0 && complete ? 0 : 1}`);
 out(`WALL_MS: ${Date.now() - start}`);
 process.exitCode = (failed.length === 0 && complete) ? 0 : 1;
+}
+
+run();
