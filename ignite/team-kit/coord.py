@@ -2860,43 +2860,6 @@ def message_body(args):
             body = p.read_text(encoding="utf-8")
     elif msg:
         body = msg
-        # S-4(b) — the body went through the sender's shell, and the shell ate part of it.
-        eaten = substitution_eaten(body)
-        if eaten and not getattr(args, "force", False):
-            print(f"refused: your shell SUBSTITUTED {' and '.join(eaten)} in this body before "
-                  f"coord.py ever saw it — what you are about to log is the OUTPUT of a command "
-                  f"that actually RAN on your box, not the text you wrote. coord.py cannot "
-                  f"repair it: the original characters are already gone from argv.\n"
-                  f"Send it via --file (or --file - with a quoted heredoc) — the only form a "
-                  f"shell cannot eat:\n"
-                  f"  cat > /tmp/msg.txt <<'EOF'\n  ...your text...\n  EOF\n"
-                  f"  {coord_invocation(args)} send {getattr(args, 'to', '<to>')} "
-                  f"--type {getattr(args, 'type', '<type>')} --file /tmp/msg.txt\n"
-                  f"your shell's original line, for reference:\n  {shell_source_line()[:400]}\n"
-                  f"override (you are certain the substitution was harmless): --force",
-                  file=sys.stderr)
-            sys.exit(1)
-        # ...and the DETERMINISTIC half. The detector above proves damage when it can see the
-        # shell's original line, but it can only see it when a shell process survives the
-        # invocation — bash EXECS ITSELF AWAY when its -c string ends with the command, and a
-        # gate that silently stops working is worse than none, because it is trusted. So a
-        # positional body from a shell is refused whether or not damage can be PROVEN: the
-        # shell-safe forms are --file and --file -, and `--inline` is the deliberate,
-        # per-message acceptance of the risk for a short body with nothing to eat.
-        # Deliberately NOT --force: --force already carries five unrelated overrides in this
-        # command, and this run's own standing rule is that no gate may ride another's flag.
-        elif CLI_INVOCATION and parent_is_shell() and not getattr(args, "inline", False):
-            print(f"refused: this body was typed on a shell command line, and a shell eats "
-                  f"backticks and $(...) BEFORE coord.py can see them — the corruption is "
-                  f"undetectable after the fact and it has silently rewritten this room's "
-                  f"record three times, each by an author who knew about it.\n"
-                  f"Shell-safe (cannot be eaten):\n"
-                  f"  cat > /tmp/msg.txt <<'EOF'\n  ...your text...\n  EOF\n"
-                  f"  {coord_invocation(args)} send {getattr(args, 'to', '<to>')} "
-                  f"--type {getattr(args, 'type', '<type>')} --file /tmp/msg.txt\n"
-                  f"Short body with no backticks, quotes or $ in it? Add --inline and it is "
-                  f"sent as typed.", file=sys.stderr)
-            sys.exit(1)
     else:
         print('refused: no message body — pass "<msg>", or --file PATH (--file - reads stdin) '
               'when the body carries backticks, quotes, or newlines', file=sys.stderr)
@@ -7265,6 +7228,63 @@ def build_parser():
     return p
 
 
+
+def assert_argv_body_shell_safe(args):
+    """S-4(b) at the ONE boundary where argv provenance is knowable: a body that arrived in THIS
+    process's argv, parsed by whatever launched us.
+
+    G-101 — these two checks used to sit inside `message_body`, where they interrogated AMBIENT
+    PROCESS STATE (the parent's `comm`, the parent's pre-substitution command line) rather than the
+    provenance of the body they judged. `_selftest_checks` calls `cmd_send` with synthetic
+    positional bodies, which that evidence cannot tell apart from a human typing at a shell, so the
+    guard refused the suite's own sends and `sys.exit(1)` tore the run down at check 17 of 303. The
+    gate every seat must pass before saving this file was therefore RED — and the deeper fault was
+    that its verdict was decided by the SHAPE OF THE CALLER'S INVOCATION: a shell that execs itself
+    away on a simple command, or a `timeout`/`env` wrapper, leaves a non-shell parent and the guard
+    never fires at all. Two independent verifiers reported this gate GREEN from wrapped invocations
+    while it was RED from plain ones, and re-derivation — the campaign's standard remedy — cannot
+    detect that, because both re-derivations were honest and reinforced each other. Only VARYING
+    THE INVOCATION exposes it.
+
+    Deciding it here, after parsing and before dispatch, is the fix rather than a flag: a real CLI
+    body is the only thing that can be present at this point. Synthetic and in-process callers
+    (`watch.py`, the daemon jobs, the self-test) build a Namespace and call the command function
+    directly, so they never reach this boundary and never pay for a hazard they cannot have — which
+    is what `CLI_INVOCATION` was always trying to express.
+    """
+    if not (CLI_INVOCATION and getattr(args, "func", None) is cmd_send):
+        return
+    body = getattr(args, "message", None)
+    if not body:
+        return      # --file / --file - / no body: nothing a shell could have eaten
+    eaten = substitution_eaten(body)
+    if eaten and not getattr(args, "force", False):
+        print(f"refused: your shell SUBSTITUTED {' and '.join(eaten)} in this body before "
+              f"coord.py ever saw it — what you are about to log is the OUTPUT of a command "
+              f"that actually RAN on your box, not the text you wrote. coord.py cannot "
+              f"repair it: the original characters are already gone from argv.\n"
+              f"Send it via --file (or --file - with a quoted heredoc) — the only form a "
+              f"shell cannot eat:\n"
+              f"  cat > /tmp/msg.txt <<'EOF'\n  ...your text...\n  EOF\n"
+              f"  {coord_invocation(args)} send {getattr(args, 'to', '<to>')} "
+              f"--type {getattr(args, 'type', '<type>')} --file /tmp/msg.txt\n"
+              f"your shell's original line, for reference:\n  {shell_source_line()[:400]}\n"
+              f"override (you are certain the substitution was harmless): --force",
+              file=sys.stderr)
+        sys.exit(1)
+    if parent_is_shell() and not getattr(args, "inline", False):
+        print(f"refused: this body was typed on a shell command line, and a shell eats "
+              f"backticks and $(...) BEFORE coord.py can see them — the corruption is "
+              f"undetectable after the fact and it has silently rewritten this room's "
+              f"record three times, each by an author who knew about it.\n"
+              f"Shell-safe (cannot be eaten):\n"
+              f"  cat > /tmp/msg.txt <<'EOF'\n  ...your text...\n  EOF\n"
+              f"  {coord_invocation(args)} send {getattr(args, 'to', '<to>')} "
+              f"--type {getattr(args, 'type', '<type>')} --file /tmp/msg.txt\n"
+              f"Short body with no backticks, quotes or $ in it? Add --inline and it is "
+              f"sent as typed.", file=sys.stderr)
+        sys.exit(1)
+
 def main():
     # S-4(b): only a real CLI invocation had its argv parsed by a shell. watch.py and the
     # daemon jobs call cmd_send() IN-PROCESS with a Namespace — no argv, no shell, never
@@ -7275,6 +7295,9 @@ def main():
     CLI_INVOCATION = True
     args = build_parser().parse_args()
     set_pretty(args)
+    # S-4(b)/G-101 — argv provenance is a property of the INVOCATION, so it is judged here,
+    # at the boundary, and never inside a function that also serves synthetic callers.
+    assert_argv_body_shell_safe(args)
     args.func(args)
 
 
