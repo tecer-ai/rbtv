@@ -3255,10 +3255,26 @@ def cmd_read(args):
         start = int(row["lastread"]) if row and row["lastread"].isdigit() else 0
 
     filtered = (args.type is not None) or (addressed != "any")
+    closing = closing_seats(base)      # hoisted: the withheld pass below needs the same set
     candidates = [b for b in blocks
                   if b["num"] > start and b["sender"] != me
-                  and addressed_to(b, me, gmap, observers, addressed, closing_seats(base))
+                  and addressed_to(b, me, gmap, observers, addressed, closing)
                   and (args.type is None or b["type"] == args.type)]
+    # G-94 — A SILENT FILTER AND AN EMPTY INBOX ARE THE SAME OUTPUT, and that is what made the
+    # defect permanent rather than merely late: `read` answered "no new messages for leader" while
+    # a run-1 -> run-2 LEADER LIFECYCLE HANDOVER sat in the log, then advanced the cursor past it,
+    # so no later read ever re-offered it. Recovery needed `--msg N`, which a reader with an
+    # empty-looking inbox has no reason to run.
+    #
+    # Reported here is the ONE bucket that is both dangerous and always small: messages whose `to`
+    # NAMES THIS SEAT and which the inbox predicate cut anyway. The broad "not addressed to you"
+    # count is deliberately NOT reported — in a busy room it is most of the log, and a footer that
+    # announces the room's whole traffic every read would re-import the very context a bounded
+    # inbox exists to keep out, burying this signal in the noise it creates.
+    withheld = [b["num"] for b in blocks
+                if b["num"] > start and b["to"] == me
+                and not (b["sender"] != me
+                         and addressed_to(b, me, gmap, observers, addressed, closing))]
     limit = getattr(args, "limit", None)
     if limit is None:
         limit = 0 if args.all else READ_LIMIT  # --all = deliberate full replay
@@ -3277,6 +3293,13 @@ def cmd_read(args):
     if digest and shown:
         print()
     print(c(f"-- shown {len(shown)} message(s); last message number in log: {tail}", C_HINT))
+    if withheld:
+        nums = ", ".join(f"#{n}" for n in withheld[:8])
+        more = f" (+{len(withheld) - 8} more)" if len(withheld) > 8 else ""
+        print(c(f"-- {len(withheld)} message(s) ADDRESSED TO YOU were withheld by the inbox filter: "
+                f"{nums}{more}. Read any of them in full with `{coord} read --msg N` — this line "
+                f"exists because an inbox that filters silently reads exactly like an empty one "
+                f"(G-94)", C_HINT))
     if remaining:
         print(c(f"-- {remaining} more waiting — run `{coord} read` again", C_HINT))
     # Only asks nobody has settled yet — pointing the reader at an ask that already has its
@@ -6166,6 +6189,27 @@ def _selftest_checks(args, failures, names):
               "room chatter" not in rd("watcher", after=mark, peek=True)
               and "room chatter" not in rd("engineer", after=mark, peek=True)
               and "room chatter" in rd("zeta", after=mark, peek=True))
+        # G-94: read's withheld-disclosure footer. A message whose sender NAME equals the
+        # recipient's is cut by the self-send rule — correct in its designed case, and wrong
+        # when two DISTINCT seats in two packages share a role name. That is how a run-1 ->
+        # run-2 LEADER LIFECYCLE HANDOVER reached the log and was never shown: `read` answered
+        # "no new messages for leader", then advanced the cursor past it, so nothing re-offered
+        # it. The cut stays (fixing WHO is stage 4); what must never happen again is the cut
+        # being SILENT, because an inbox that filters without saying so reads exactly like an
+        # empty one.
+        g94_mark = load_messages(base_g)[1][-1]["num"]
+        g94_n = append_message(base_g, "zeta", "zeta", "note", "cross-package lifecycle handover")
+        g94_out = rd("zeta", after=g94_mark, peek=True)
+        check("G-94: a message ADDRESSED TO a seat but cut by the inbox filter is NAMED, with its "
+              "number, in read's footer — a silent filter and an empty inbox are otherwise the "
+              "same output",
+              "ADDRESSED TO YOU were withheld" in g94_out and f"#{g94_n}" in g94_out)
+        check("G-94: the withheld message is still not RENDERED — the disclosure names it and "
+              "points at --msg, it does not quietly undo the filter",
+              "cross-package lifecycle handover" not in g94_out)
+        check("G-94: an ordinary read with nothing withheld stays quiet — the line is a signal, "
+              "not a permanent banner",
+              "were withheld" not in rd("zeta", after=g94_n, peek=True))
         _, mid = load_messages(base_g)
         mark2 = mid[-1]["num"]
         out = sd("alpha", "all", "lane A node delivered", type="completion", why="milestone")
