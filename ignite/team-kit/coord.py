@@ -187,6 +187,18 @@ FM_KEY = {
     # seat. `none` | `all` | a comma-separated type list. ABSENT keeps the built-in default table
     # (broadcast_scope), so every existing package behaves exactly as it does today.
     "broadcast": re.compile(r"^broadcast:\s*(.+?)\s*$", re.MULTILINE),
+    # KIT VOCABULARY, deliberately NOT a KG edge — same standing as `senders:`/`broadcast:` above,
+    # neither of which is a KG verb either. A seat declaring `relays: master` says it CARRIES the
+    # relay path to that role, NOT that it IS one. The distinction is the whole point and was a
+    # leader override of this seat's own first proposal (`realizes: master`): `realizes` is the KG's
+    # seat->role verb, so it would have said the seat IS a master — and the master role carries
+    # READ-EVERYTHING across every goal's threads store plus the universal initiate right. That is a
+    # privilege escalation by descriptor, granted as a side effect of fixing an addressing bug.
+    # The KG's own v1 stand-in is the authority for a relay instead: "no master agent exists in code
+    # — the owner IS the master", so THERE IS NO MASTER SEAT TO REALIZE, only a relay path to a
+    # human. The token resolves to whichever seat currently carries it; that seat gains an ADDRESS
+    # and gains no scope.
+    "relays": re.compile(r"^relays:\s*(.+?)\s*$", re.MULTILINE),
     "ctx-refresh": re.compile(r"^ctx-refresh:\s*(\d+)\s*$", re.MULTILINE),
     # G-23 (owner-directed) — `close: mechanical` on a LONG-LIVED seat whose whole state is
     # external and machine-owned. It finishes one session and opens another: no closer agent, no
@@ -282,6 +294,14 @@ def inbox_decls(args):
 
         senders:   leader, master        the ONLY seats whose messages reach this one
         broadcast: none | all | a,b      which `to: all` TYPES reach it (G-20, declared)
+        relays:    master                ROLE TOKENS this seat carries the relay path for
+
+    `relays:` is what makes the other two usable at all for a role word. `senders: leader, master`
+    is the owner's ruled wording, and `leader` resolves only because that role's name happens to BE
+    a seat name; `master` is a FUNCTION and matched nobody, so the ruled bound admitted a sender
+    that does not exist and refused the seat actually carrying the owner channel. Measured before
+    it was built (`probe_master_bound.py`): M2 and M4 red, M5 green — the bound was sound and the
+    identity layer was missing.
 
     Two owner rulings bound an inbox to named senders (`r-cos-bounded-inbox` for the
     chief-of-staff, `r-engineer-contact` for the engineer: leader + master, a third sender is a
@@ -307,6 +327,9 @@ def inbox_decls(args):
         named = _fm_list(fm, "senders")
         if named:
             d["senders"] = frozenset(named)
+        relays = _fm_list(fm, "relays")
+        if relays:
+            d["relays"] = frozenset(v.lower() for v in relays)
         raw = _fm_list(fm, "broadcast")
         if raw is not None:
             low = [v.lower() for v in raw]
@@ -2800,6 +2823,57 @@ def log_delivery_failures(base, failures):
                 f.write(f"> delivery-failure: {fail}\n")
 
 
+def relay_seats(token, decls):
+    """Every seat in THIS package declaring `relays: <token>` — the resolution of a role word.
+
+    DERIVED from descriptors, never a kit-side name list, for the reason `inbox_decls` states at
+    length: a name list in the kit freezes ONE campaign's role vocabulary into a tool every run
+    shares. It also keeps the resolution HONEST — `probe_master_bound.py`'s M6 asserts the kit does
+    not contain the live master seat's name, so a fix that hard-coded it would go green while
+    rebuilding the exact defect stage 3 removed.
+
+    PACKAGE-SCOPED BY CONSTRUCTION: `decls` is built from this package's own briefings, so a
+    foreign seat sharing a roster name cannot be resolved here at all. That is not incidental —
+    `G-111` is exactly this, live: a seat of a CLOSED run still running and sharing the live run's
+    roster name, so an unscoped resolution would deliver this run's `send master` into a dead one.
+    (The seat is deliberately not named here: `probe_master_bound.py`'s M6 asserts mechanically
+    that the kit does not contain the live relay seat's name, and a comment naming it would defeat
+    that check while proving nothing.)
+
+    N SEATS IS A VALID ANSWER, not an ambiguity. The KG is explicit that the master is ONE ROLE
+    over ONE shared state realized by N live sessions, safe because no master session owns private
+    durable state, so two live master sessions cannot diverge into two masters. N deliveries are
+    therefore N copies to ONE recipient. Refusing on N>1 would make the owner channel fail
+    precisely when it is most redundant."""
+    if not token:
+        return frozenset()
+    t = token.lower()
+    return frozenset(s for s, d in (decls or {}).items() if t in (d.get("relays") or ()))
+
+
+def sender_admitted(b, bound, decls):
+    """Does a bounded inbox admit message `b`'s sender? The SENDER half of relay resolution.
+
+    Two ways in, and the split is deliberate:
+
+      LITERAL — the sender's own seat name is in the bound. Unchanged, and no origin test: this is
+      exactly today's behaviour for every existing bound, and narrowing it while adding a feature
+      would be a silent regression dressed as a fix.
+
+      RELAY — the bound names a role TOKEN and the sender declares it. This one IS origin-tested:
+      a message carrying `from-pkg:` was written from outside this package (stage 4), so its sender
+      is not the seat this package's descriptors describe. Without that test a foreign seat named
+      like the local relay-holder would inherit the local master's reach — asserted identity beating
+      verified identity, which is `G-111` itself.
+
+    A bound that is None means UNBOUNDED and never reaches here."""
+    if b["sender"] in bound:
+        return True
+    if b.get("origin"):
+        return False
+    return any(b["sender"] in relay_seats(tok, decls) for tok in bound)
+
+
 def addressed_to(b, agent, gmap, observers, mode="any", closing=(), decls=None):
     """Is message `b` in `agent`'s inbox? `mode` is the --addressed vocabulary: `any` = to me,
     my groups, or everyone (an observer seat sees the full log); `direct` = only messages naming
@@ -2831,8 +2905,14 @@ def addressed_to(b, agent, gmap, observers, mode="any", closing=(), decls=None):
     # No descriptor in any package declares `senders:` today, so this is None for every seat and
     # the mechanism ships INERT until one does.
     bound = ((decls or {}).get(agent) or {}).get("senders")
-    if bound is not None and b["sender"] not in bound:
+    if bound is not None and not sender_admitted(b, bound, decls):
         return False
+    # A RELAY TOKEN is a by-name address in effect, and is branched EXPLICITLY rather than reusing
+    # the group machinery — which is the tempting reuse, since a group gives addressing, wake, read
+    # and recipient validation for free. It would be wrong: `G-32` makes group fan-out honour the
+    # same TYPE scope test as `all`, so `send master --type note` would be silently dropped for a
+    # special-case seat. The master's traffic is a by-name address and must never be type-scoped.
+    to_relay = to != "all" and to not in gmap and agent in relay_seats(to, decls)
     if to == "all":
         # A special-case seat, or any seat mid-close, is cut from the room's broadcast — by TYPE
         # for the watcher, entirely for the rest. Applied before the observer short-circuit: an
@@ -2852,18 +2932,22 @@ def addressed_to(b, agent, gmap, observers, mode="any", closing=(), decls=None):
         # untouched — that invariant is what makes every one of these cuts safe.
         if is_closing or not in_broadcast_scope(agent, b["type"], decls):
             return False
-    elif is_closing and to == agent and not closing_reaches(agent, b["sender"], None):
+    elif is_closing and (to == agent or to_relay) and not closing_reaches(agent, b["sender"], None):
         # Belt-and-braces: `send` refuses a peer's direct message to a closing seat at the CLI, so
         # one should never reach the log. If one does (a --force override, or a message that
         # predates the state), it still must not spend the seat's remaining context.
         return False
     if mode == "direct":
-        return to == agent
+        # `--addressed direct` means "only messages naming me". A relay token names the seat
+        # carrying it just as surely as its seat name does — that is what resolution MEANS — so
+        # excluding it here would hide the owner channel's own traffic from the filter a seat uses
+        # to find what was addressed to it.
+        return to == agent or to_relay
     if mode == "broadcast":
         return to == "all"
     if agent in observers:
         return True
-    return to == agent or to == "all" or (to in gmap and agent in gmap[to])
+    return to == agent or to_relay or to == "all" or (to in gmap and agent in gmap[to])
 
 
 def sender_origin(args, sender):
@@ -2956,7 +3040,7 @@ def why_not_woken(b, agent, gmap, observers, decls=None):
     """The REASON `agent` is not woken, for the sender's summary line (T3: a narrowed inbox is
     never silent at either end — the sender always learns who did not get the nudge, and why)."""
     bound = ((decls or {}).get(agent) or {}).get("senders")
-    if bound is not None and b["sender"] not in bound:
+    if bound is not None and not sender_admitted(b, bound, decls):
         # Named distinctly from the generic cut: this one is about WHO IS SPEAKING, and a sender
         # told only "not in its inbox" would look for the fault in its addressing.
         return "bounded inbox: you are not a permitted sender"
@@ -3096,11 +3180,20 @@ def message_body(args):
 
 def known_recipients(args, base):
     """Every name `send` can deliver to: roster rows ∪ briefing `agent:` names (a seat that
-    exists but has not launched yet) ∪ group names ∪ 'all'."""
+    exists but has not launched yet) ∪ group names ∪ RELAY TOKENS that resolve ∪ 'all'.
+
+    A relay token is admitted ONLY while some seat declares it. That asymmetry is deliberate: an
+    unresolved `master` stays an unknown recipient and is refused with the near-match hint, which
+    is the right answer — accepting an address nobody holds is how `S-7` opens a thread with no
+    possible terminus. This is also the SEND-side half of `#184`'s both-directions ruling: before
+    it, `master` was not a valid recipient at all, so a bounded seat could receive from the master
+    and could never answer it."""
     _, _, rows = load_workers(base)
     names = {r["agent"] for r in rows}
     names |= set(briefing_frontmatters(workers_dir(args)))
     names |= set(group_map(base))
+    for d in inbox_decls(args).values():
+        names |= set(d.get("relays") or ())
     names.add("all")
     return names
 
@@ -3203,8 +3296,31 @@ def cmd_send(args):
     # reaches every other member, and the bounded seat's copy is cut by `addressed_to` and then
     # NAMED in that seat's withheld footer. Refusing the whole broadcast because one member bounds
     # this sender out would narrow the room to protect one inbox.
-    bound = ((inbox_decls(args).get(args.to) or {}).get("senders")) if args.to != "all" else None
-    if bound is not None and sender not in bound and not force:
+    #
+    # `origin` is resolved HERE rather than at append time because the bound test needs it: a relay
+    # token is only honoured for a LOCAL sender (see `sender_admitted`), so the CLI refusal and the
+    # read-time cut must be computed from the same inputs or they can disagree — which is this
+    # seat's whole commission.
+    origin = sender_origin(args, sender)
+    decls = inbox_decls(args)
+    probe = {"sender": sender, "origin": origin}
+    # A relay token addresses N seats, so the bound question is asked of each: refuse only when the
+    # message can reach NOBODY. A partial cut is not a refusal — the permitted seats still get it,
+    # and each cut seat is named in the wake summary and in its own withheld footer.
+    targets = sorted(relay_seats(args.to, decls)) or ([args.to] if args.to != "all" else [])
+    bounds = {t: ((decls.get(t) or {}).get("senders")) for t in targets}
+    reachable = [t for t, bd in bounds.items() if bd is None or sender_admitted(probe, bd, decls)]
+    bound = bounds.get(args.to) if len(targets) == 1 and targets[0] == args.to else None
+    if targets and not reachable and not force:
+        if bound is None:                      # a relay token: name what it resolved to
+            named = ", ".join(sorted(bounds))
+            print(f"refused: '{args.to}' resolves to {named}, and every one of them has a BOUNDED "
+                  f"INBOX that '{sender}' is not among. This is a standing ruling about who may "
+                  f"spend those seats' context, not a judgement of your message.\n"
+                  f"You still hold it, and nothing is lost: send it to leader, who routes it.\n"
+                  f"override (it will still be filtered at each seat's read, though never silently "
+                  f"— their footers name it): --force", file=sys.stderr)
+            sys.exit(1)
         print(f"refused: '{args.to}' has a BOUNDED INBOX — it receives messages from "
               f"{', '.join(sorted(bound))} only, and '{sender}' is not among them. This is a "
               f"standing ruling about who may spend that seat's context, not a judgement of your "
@@ -3250,7 +3366,6 @@ def cmd_send(args):
                   f"{coord_invocation(args)} pending", file=sys.stderr)
             sys.exit(1)
 
-    origin = sender_origin(args, sender)
     n = append_message(base, sender, args.to, args.type, body,
                        supersedes=args.supersedes, re_num=re_num, why=why, origin=origin)
     marks = ((f", supersedes #{args.supersedes}" if args.supersedes is not None else "")
@@ -3259,14 +3374,20 @@ def cmd_send(args):
     # A cross-package send is called out to the SENDER too: the seat that most needs to know its
     # message landed on a roster that does not describe it is the one that just sent it.
     org_note = f" [from-pkg: {origin}]" if origin else ""
-    print(f"sent message #{n} ({sender} -> {args.to}, type: {args.type}{marks}){org_note}")
-    deliver_wakes(args, base, sender, args.to, n, args.type)
+    # Leader's condition on `deliver to all`: PRINT THE RESOLVED SET. A bare "delivered to master"
+    # is an unverifiable claim, and a role word that silently resolves to a different seat than the
+    # sender assumed is `G-111` with better manners. Only for a token that actually resolved —
+    # an ordinary recipient already names itself.
+    resolved = sorted(relay_seats(args.to, decls))
+    rel_note = f" [{args.to} -> {', '.join(resolved)}]" if resolved else ""
+    print(f"sent message #{n} ({sender} -> {args.to}, type: {args.type}{marks}){org_note}{rel_note}")
+    deliver_wakes(args, base, sender, args.to, n, args.type, origin)
     if args.type == "ask":
         print(c(f"next: {coord_invocation(args)} pending — your ask stays OPEN until an answer "
                 f"or verdict --re's #{n}", C_HINT))
 
 
-def deliver_wakes(args, base, sender, to, n, mtype="note"):
+def deliver_wakes(args, base, sender, to, n, mtype="note", origin=None):
     """Nudge every recipient's pane. Wakes stay BEST-EFFORT (P22) — the log is the only truth.
 
     A wake is only ever ATTEMPTED for a recipient with an ACTIVE roster row AND a pane. Every
@@ -3282,12 +3403,21 @@ def deliver_wakes(args, base, sender, to, n, mtype="note"):
     output stays deterministic."""
     _, _, rows = load_workers(base)
     gmap = group_map(base)
+    decls = inbox_decls(args)
+    relayed = relay_seats(to, decls) if to not in gmap else frozenset()
     if to == "all":
         recipients = {r["agent"] for r in rows if r["agent"] != sender}
         label = "all"
     elif to in gmap:
         recipients = set(gmap[to]) - {sender}
         label = f"group '{to}'"
+    elif relayed:
+        # A relay token is resolved for the WAKE too. Addressing it without this would produce the
+        # exact defect this seat was commissioned on, in its cleanest form: a message the master's
+        # `read` shows and no wake ever nudged it for — the two computations disagreeing again,
+        # one layer up. The label names the resolution so the wake line is self-explaining.
+        recipients = set(relayed) - {sender}
+        label = f"{to} ({', '.join(sorted(relayed))})"
     else:
         recipients = {to}
         label = to
@@ -3297,7 +3427,6 @@ def deliver_wakes(args, base, sender, to, n, mtype="note"):
     # log line — it is not a recipient of this run at all. Briefing-DECLARED auto-wake seats are
     # by construction in the briefings, so they are unaffected.
     observers, auto_wake = observer_sets(args)
-    decls = inbox_decls(args)
     known = {r["agent"] for r in rows} | set(briefing_frontmatters(workers_dir(args)))
     recipients |= (auto_wake & known) - {sender}
 
@@ -3311,7 +3440,10 @@ def deliver_wakes(args, base, sender, to, n, mtype="note"):
     # The CLOSING cut keeps its own per-branch rules verbatim — G-21 semantics are a STATE
     # machine, not a visibility question, and folding them into the predicate would have changed
     # which closing seats a group message reaches. Only the VISIBILITY test below is unified.
-    pending = {"sender": sender, "to": to, "type": mtype}
+    # `origin` rides along so the wake's visibility test is asked of the SAME message the log
+    # records. Without it a cross-package send would be judged local here and foreign at read —
+    # the two computations disagreeing about one message, which is the class this seat owns.
+    pending = {"sender": sender, "to": to, "type": mtype, "origin": origin}
     scope_skipped = {}
     closed_out = set()
     if to == "all":
@@ -6688,6 +6820,75 @@ def _selftest_checks(args, failures, names):
               "forced past the bound" not in f_read
               and "ADDRESSED TO YOU were withheld" in f_read
               and "bounded inbox" in f_out)
+
+        # ---- stage 5: MASTER RESOLUTION, both directions (#184, ruling-master-resolution.md) ----
+        # The bound above is `senders: leader, master` — the owner's ruled wording. `leader`
+        # resolved only because that role's name happens to BE a seat name; `master` is a FUNCTION
+        # and matched nobody, so the ruled bound admitted a sender that does not exist and REFUSED
+        # the seat carrying the owner channel. Measured before it was built (probe_master_bound.py:
+        # M2 and M4 red, M5 green — the mechanism sound, the identity layer missing).
+        (pkg / "workers" / "rly.md").write_text(
+            "---\nagent: rly\nrelays: master\n---\nbrief\n")
+        (pkg / "workers" / "bnd2.md").write_text(
+            "---\nagent: bnd2\nsenders: leader, master\n---\nbrief\n")
+        d5 = inbox_decls(ns())
+        local = {"sender": "rly", "to": "bnd2", "type": "note"}
+        foreign = {"sender": "rly", "to": "bnd2", "type": "note", "origin": "run-1"}
+        check("stage 5 / M2: the RULED wording `senders: leader, master` now admits the seat that "
+              "CARRIES the master relay — the bound was never wrong, `master` was simply not a "
+              "name it could resolve, so fixing it by loosening the bound would have been the "
+              "wrong layer",
+              addressed_to(local, "bnd2", {}, set(), "any", (), d5) is True)
+        check("stage 5 / G-111: the relay path is PACKAGE-SCOPED via stage 4's origin — a foreign "
+              "seat of the same name is NOT admitted. Without this, a seat of a closed run "
+              "inherits the live master's reach: asserted identity beating verified identity",
+              addressed_to(foreign, "bnd2", {}, set(), "any", (), d5) is False)
+        check("stage 5: the LITERAL path is untouched and origin-blind — a bound naming a real "
+              "seat behaves exactly as it did before this stage, and an ordinary third sender is "
+              "still refused. Narrowing the existing path while adding a feature would be a "
+              "regression dressed as a fix",
+              addressed_to({"sender": "leader", "to": "bnd2", "type": "note", "origin": "run-1"},
+                           "bnd2", {}, set(), "any", (), d5) is True
+              and addressed_to({"sender": "zeta", "to": "bnd2", "type": "note"},
+                               "bnd2", {}, set(), "any", (), d5) is False)
+        check("stage 5 / M4: `master` is a valid RECIPIENT too, so the bound closes in BOTH "
+              "directions. A bound that permits receiving and forbids answering is a dead end, "
+              "not a bound — S-7's shape, MANUFACTURED by the bound rather than merely permitted",
+              "master" in known_recipients(ns(), base_g)
+              and addressed_to({"sender": "leader", "to": "master", "type": "note"},
+                               "rly", {}, set(), "any", (), d5) is True)
+        check("stage 5 / G-32: a relay token is a BY-NAME address and is NEVER type-scoped. "
+              "Reusing the group machinery would have given addressing, wake, read and validation "
+              "for free — and silently dropped `send master --type note` for a special-case seat, "
+              "because group fan-out honours the same scope test as `all`",
+              in_broadcast_scope("engineer", "note", None) is False
+              and addressed_to({"sender": "leader", "to": "master", "type": "note"}, "engineer",
+                               {}, set(), "any", (),
+                               {"engineer": {"relays": frozenset({"master"})}}) is True)
+        check("stage 5: an UNRESOLVED token is not a recipient at all — `master` is addressable "
+              "only while some descriptor declares it, so a token nobody carries is refused with "
+              "the unknown-recipient hint rather than opening a thread with no terminus (S-7)",
+              "overseer" not in known_recipients(ns(), base_g)
+              and relay_seats("overseer", d5) == frozenset())
+        check("stage 5 / M6: resolution is DERIVED from descriptors — two seats declaring the "
+              "token both resolve, and N seats is a valid answer, not an ambiguity (one ROLE over "
+              "one shared state, realized by N live sessions, so N deliveries are N copies to ONE "
+              "recipient). A kit-side name list would freeze one campaign's vocabulary into a tool "
+              "every run shares",
+              relay_seats("master", d5) == frozenset({"rly"})
+              and relay_seats("master", {"a": {"relays": frozenset({"master"})},
+                                          "b": {"relays": frozenset({"master"})},
+                                          "c": {}}) == frozenset({"a", "b"}))
+        m5mark = load_messages(base_g)[1][-1]["num"]
+        m5_out = sd("leader", "master", "the owner channel, addressed by ROLE", type="note")
+        check("stage 5: the send REPORTS the resolved set — a bare 'delivered to master' is an "
+              "unverifiable claim, and a role word that quietly resolves to a seat the sender did "
+              "not expect is G-111 with better manners",
+              "sent message #" in m5_out and "[master -> rly]" in m5_out)
+        check("stage 5: and the seat carrying the relay READS it — the wake half and the read half "
+              "resolve the token through the same predicate, so this stage cannot reopen the very "
+              "disagreement the seat was commissioned on",
+              "addressed by ROLE" in rd("rly", after=m5mark, peek=True))
 
         # G-21 — the STATE half. `close` sets it; this asserts the state's semantics directly so a
         # failure names the rule that broke rather than the ceremony around it.
