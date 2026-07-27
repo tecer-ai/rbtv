@@ -3696,9 +3696,11 @@ def cmd_selftest(args):
     import io
     from contextlib import redirect_stderr, redirect_stdout
     failures = []
+    names = []
 
     def check(name, cond):
         print(("ok  " if cond else "FAIL") + f"  {name}")
+        names.append(name)
         if not cond:
             failures.append(name)
 
@@ -4842,6 +4844,34 @@ def cmd_selftest(args):
               all("TARGET seat" in per_cmd[n]
                   for n in ("close", "close-seat", "approve", "export-transcript")))
 
+        # ---- G-62: --expect-fail, the mutation-evidence gate, checking itself ----
+        def expect_rc(expect, all_names, failed_names):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = report_expect_fail(expect, all_names, failed_names)
+            return rc, buf.getvalue()
+
+        ef_names = ["alpha check one", "beta check two", "gamma check three"]
+        rc, out = expect_rc("beta", ef_names, ["beta check two"])
+        check("G-62 --expect-fail: exits 0 ONLY when the named check failed and every other "
+              "check passed", rc == 0 and "expect-fail: PASS" in out)
+        rc, out = expect_rc("beta", ef_names, ["gamma check three"])
+        check("G-62 --expect-fail: the suite going red while the NAMED check stayed SILENT is a "
+              "failure — the wrong-reason red this mode exists to catch",
+              rc == 1 and "never reached it" in out and "gamma check three" not in out)
+        rc, out = expect_rc("beta", ef_names, ["beta check two", "gamma check three"])
+        check("G-62 --expect-fail: the named check failing ALONGSIDE others is a failure — an "
+              "unisolated mutation is not evidence about it, and the collateral is NAMED",
+              rc == 1 and "not isolated" in out and "gamma check three" in out)
+        rc, out = expect_rc("delta", ef_names, ["beta check two"])
+        check("G-62 --expect-fail: a substring matching NO check FAILS — a typo must never be "
+              "indistinguishable from a mutation that worked",
+              rc == 1 and "no check matched" in out)
+        rc, out = expect_rc("check", ef_names, ["beta check two"])
+        check("G-62 --expect-fail: an AMBIGUOUS substring is refused, listing what it matched, "
+              "rather than silently testing whichever check sorted first",
+              rc == 1 and "EXACTLY ONE" in out and "alpha check one" in out)
+
         # ---- fix round: leader's idle next-hint drains the queue instead of self-messaging ----
         run(cmd_checkin, agent="leader", summary="arbiter, second sitting", pane="%41")
         sd("leader", "alpha", "ruling: layout A", type="answer", re_num=ask_open)
@@ -5477,7 +5507,54 @@ def cmd_selftest(args):
           "process is never a kill target", arm_pid_reaper([(4242, "")]) is None)
 
     print(f"\nselftest: {'PASS' if not failures else 'FAIL'} ({len(failures)} failure(s))")
-    sys.exit(1 if failures else 0)
+    if not getattr(args, "expect_fail", None):
+        sys.exit(1 if failures else 0)
+    sys.exit(report_expect_fail(args.expect_fail, names, failures))
+
+
+def report_expect_fail(expect, names, failures):
+    """G-62: a mutation that makes the suite go red is NOT evidence the check under test works.
+
+    The red can come from an unrelated check while the check being tested stays silent, and the
+    suite verdict looks identical either way — measured: an appended help line tripped the
+    `one-screen index` assertion while the parser-vs-epilog check under test never fired, and the
+    mutation was one step from being banked as evidence. `--expect-fail` names the check the
+    mutation is supposed to break, so the evidence becomes THAT CHECK'S LINE, never the verdict.
+    Exit 0 only when the named check failed and every other check passed.
+    """
+    matched = [n for n in names if expect in n]
+    print(f"expect-fail: {expect!r} matched {len(matched)} of {len(names)} checks")
+    if not matched:
+        # The dangerous case. A substring that names nothing must never read as success: it is a
+        # typo, or the check you believe you are testing does not exist — and both would otherwise
+        # be indistinguishable from a mutation that worked.
+        print("expect-fail: FAIL — no check matched. A substring naming nothing is a typo or a "
+              "check that does not exist; it is never a pass.")
+        return 1
+    if len(matched) > 1:
+        print("expect-fail: FAIL — the substring must name EXACTLY ONE check; narrow it:")
+        for name in matched[:10]:
+            print(f"  matched: {name}")
+        if len(matched) > 10:
+            print(f"  ... and {len(matched) - 10} more")
+        return 1
+    target = matched[0]
+    if target not in failures:
+        print("expect-fail: FAIL — the named check PASSED, so the mutation never reached it. "
+              "Whatever else the suite did, it says nothing about this check:")
+        print(f"  named: {target}")
+        return 1
+    collateral = [n for n in failures if n != target]
+    if collateral:
+        print(f"expect-fail: FAIL — the named check failed, but so did {len(collateral)} other "
+              "check(s). The mutation is not isolated, so this red is not evidence about the "
+              "named check (G-62):")
+        for name in collateral:
+            print(f"  also failed: {name}")
+        return 1
+    print("expect-fail: PASS — exactly the named check failed; every other check passed.")
+    print(f"  named: {target}")
+    return 0
 
 
 def add_identity_flags(s, force=True):
@@ -5836,8 +5913,12 @@ def build_parser():
         "Run the built-in self-test in a temp dir: no tmux, no run package, no network — every\n"
         "tmux touch is stubbed. Required to exit 0 before any change to this script is used.",
         "example:\n"
-        "  python3 coord.py selftest\n"
+        "  python3 coord.py selftest --expect-fail 'epilog index and the parser agree'\n"
         "next: nothing — a non-zero exit means the change is not ready")
+    s.add_argument("--expect-fail", metavar="SUBSTRING", default=None,
+                   help="mutation-testing: name the ONE check this mutation should break. Exits 0 "
+                        "only if that check failed and every other passed — a suite that goes red "
+                        "for an unrelated reason is not evidence (G-62)")
     s.set_defaults(func=cmd_selftest)
     p.command_parsers = made  # so the self-test can render every command's help
     return p
