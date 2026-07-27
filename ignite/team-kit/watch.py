@@ -303,21 +303,87 @@ def save_heartbeat(base, loop_min):
 
 # ---------- notification ----------
 
+def record_undelivered(args, text, reason):
+    """Append an UNDELIVERED flag to the run package, so a refused warning survives where the run
+    looks instead of dying in a detached stderr.
+
+    Deliberately NOT a coord message: this reports that the messaging layer refused something, so
+    routing it back through that layer is the one path guaranteed to be able to fail the same way.
+    A plain append under `coordination/` cannot be refused by a sender bound, a type enum, or a
+    roster row — the three things that swallowed tonight's warnings.
+
+    Best-effort like every other side-effect in this loop: a monitor must never die of its own
+    bookkeeping. But it prints on failure, because the alternative is the silence being fixed."""
+    try:
+        base = coord.base_dir(argparse.Namespace(
+            package=getattr(args, "package", None), base=getattr(args, "base", None)))
+        base.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        line = f"- {stamp} | UNDELIVERED ({reason}): {' '.join(str(text).split())}\n"
+        with open(base / "undelivered-flags.md", "a", encoding="utf-8") as fh:
+            fh.write(line)
+        return True
+    except Exception as exc:                                   # noqa: BLE001
+        print(f"watch: CANNOT RECORD an undelivered flag either ({exc}) — this warning is being "
+              f"lost entirely: {str(text)[:120]}", file=sys.stderr)
+        return False
+
+
 def notify_leader(args, text):
     """Send one flag to leader through coord (so it is logged AND wakes the pane).
 
     `agent="watcher"` is coord's internal identity API — the `--as` equivalent (the watcher loop
-    runs outside any pane, so no identity contradiction can fire). A refusal inside coord exits
-    the process; the loop must survive it, so SystemExit is caught and reported."""
+    runs outside any pane, so no identity contradiction can fire).
+
+    ⚠ THIS SENDS A `note`, NOT AN `ask`, AND THAT ONE WORD IS THE WHOLE DELIVERY FIX. It sent an
+    `ask`; the `watcher` ROLE WAS DISSOLVED mid-run and its roster row DELETED, so coord correctly
+    refused every flag — an ask whose sender cannot be addressed can never be closed (S-7). The
+    refusals went to stderr, into a detached log nobody reads, while the loop went on reporting
+    healthy. Two individually-correct mechanisms composing into a silent failure: the dissolution
+    audited the role's DUTIES and not the mechanisms that SEND AS it.
+    A flag is a FACT, not a question — nothing is owed in reply, so a note is also the honest type,
+    and coord accepts a note from an unaddressable sender by design. coord's own refusal text said
+    so ("Send this as --type note"); the fix was written on the failure the whole time.
+
+    NO SENDER IDENTITY IS MINTED HERE, deliberately: the loop is not a seat and must not become one
+    (`r-watcher-attributions-distributed` — detection is the loop's, never a seat's). Reusing the
+    relay machinery was considered and is UNNECESSARY, because a note needs no reply route at all."""
     ns = argparse.Namespace(package=getattr(args, "package", None), base=getattr(args, "base", None),
                             workers_dir=getattr(args, "workers_dir", None),
                             agent="watcher", as_agent=None, to="leader", message=text,
-                            type="ask", supersedes=None, re_num=None, file=None, force=False)
+                            type="note", supersedes=None, re_num=None, file=None, force=False)
     try:
-        coord.cmd_send(ns)
+        # ⚠ THE SECOND REFUSAL, and the ruled fix did not reach it. `resolve_agent` refuses a
+        # claimed identity that CONTRADICTS the calling pane's roster row — and its docstring
+        # assumes this loop "runs outside any pane, so no contradiction can fire". FALSE: a
+        # detached loop INHERITS `TMUX_PANE` from whatever shell started it, so when it was started
+        # from the chief-of-staff's pane every flag was refused with "you claimed 'watcher', but
+        # this pane (%145) is registered to 'chief-of-staff'" — exit 2, a different refusal from
+        # the ask/S-7 one and immune to changing the message type. Both are in
+        # /tmp/watch-run2.log; fixing only the documented one would have left the flag ABOUT the
+        # chief-of-staff still refused, which is the crossing the owner noticed by eye.
+        #
+        # The loop is genuinely not in a pane; the inherited variable is noise, not identity. So it
+        # is cleared for the send rather than overridden with --force, which would have suppressed
+        # every OTHER refusal too — including ones that should stop a bad send.
+        _prior = os.environ.pop("TMUX_PANE", None)
+        try:
+            coord.cmd_send(ns)
+        finally:
+            if _prior is not None:
+                os.environ["TMUX_PANE"] = _prior
+        return True
     except SystemExit as exc:
+        # ⚠ A MONITOR THAT CANNOT DELIVER MUST SHOUT THAT IT CANNOT DELIVER. This used to print to
+        # stderr and return, which is a fail-loud violation (conduct §9) at the exact point where
+        # silence and health are indistinguishable — the loop kept printing "N new flag(s)" while
+        # every flag was refused. stderr is not a channel: this one ran detached into /tmp for
+        # hours. So the failure is written where the run actually looks, through a path that cannot
+        # itself be refused by the messaging layer it is reporting on.
         print(f"watch: leader notification refused by coord (exit {exc.code}) — flag not sent: "
               f"{text[:80]}", file=sys.stderr)
+        record_undelivered(args, text, f"coord refused the send (exit {exc.code})")
+        return False
 
 
 # ---------- system + leftover-window checks ----------

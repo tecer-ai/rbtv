@@ -2302,6 +2302,40 @@ def closing_seats(base):
 # would delete the evidence of a pane still holding memory and restore exactly the silence this
 # exists to end. A debt that ages out unpaid is not a debt.
 
+def undelivered_flags(base):
+    """[(stamp, text)] for every monitor flag the messaging layer REFUSED, newest last.
+
+    Written by watch.py as a plain append, deliberately outside the message log: it reports that
+    the messaging layer refused something, so routing it back through that layer is the one path
+    guaranteed to fail the same way. Surfaced by `status` and `workers` because a monitor that
+    cannot deliver must SHOUT that it cannot deliver — tonight's context warnings were computed
+    correctly, refused correctly, printed to a detached stderr file, and lost, while the loop went
+    on reporting healthy. Silence and health were indistinguishable at exactly the wrong place."""
+    path = base / "undelivered-flags.md"
+    if not path.exists():
+        return []
+    try:
+        out = []
+        for ln in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            ln = ln.strip()
+            if ln.startswith("- ") and "|" in ln:
+                stamp, _, rest = ln[2:].partition("|")
+                out.append((stamp.strip(), rest.strip()))
+        return out
+    except OSError:
+        return []
+
+
+def undelivered_line(base):
+    """One line for the roster/status views, or '' when nothing was ever refused."""
+    flags = undelivered_flags(base)
+    if not flags:
+        return ""
+    return (f"UNDELIVERED MONITOR FLAGS: {len(flags)} — the watch loop computed a warning and the "
+            f"messaging layer refused it. Most recent: {flags[-1][0]} {flags[-1][1][:110]}\n"
+            f"  Read them all: {base / 'undelivered-flags.md'}")
+
+
 def awaiting_path(base):
     return base / "awaiting-close.json"
 
@@ -2856,6 +2890,9 @@ def cmd_workers(args):
         pane_col = "{:<6}".format(r["pane"] or "-")
         print(f"{c(name_col, C_LABEL)} {c(state_col, tone)} pane={pane_col}{cursor}{lag} {summary}"
               f"  (in {r['checkin']}{', out ' + r['checkout'] if r['checkout'] else ''})")
+    _und = undelivered_line(base)
+    if _und:
+        print(c(_und, C_DEAD))
     # G-134: the debt is surfaced HERE because a record nobody reads is not a fix, and the roster
     # is where leader already looks to decide lifecycle. Rendered oldest-first with the pane's LIVE
     # state, because the two debts differ in what they cost: a live pane is still holding memory
@@ -4069,6 +4106,13 @@ def cmd_status(args):
     detail = ("  " + ", ".join(f"#{b['num']} from {b['sender']} ({age_of(b['ts'])})"
                                for b in mine[:5])) if mine else ""
     print(f"{c('asks waiting on you:', C_LABEL)} {len(mine)}{detail}")
+    # Surfaced on EVERY seat's status, not only the leader's roster view: a refused monitor flag is
+    # the run failing to warn itself, and the seat it was about is often the one that most needs to
+    # see it. Tonight's two crossings were about the leader and the chief-of-staff, and neither
+    # ever learned a warning had been raised.
+    _und = undelivered_line(base)
+    if _und:
+        print(c(_und, C_DEAD))
     if waiting:
         print(c(f"next:   {coord} read", C_HINT))
     elif mine:
@@ -7539,6 +7583,36 @@ def _selftest_checks(args, failures, names):
                   reap_blockers(dict(_fresh, since="old"), 99, {"%77"}, _door, "door"))
               and not any("DOOR, not a leak" in b for b in
                           reap_blockers(_fresh, 99, {"%77"}, _door, "ordinary")))
+        # ---- the muted-monitor route (owner-directed; leader's design-context-watch-route.md) ----
+        # The watch loop computed both context crossings the owner later noticed BY EYE, and coord
+        # refused every flag: the `watcher` role had been dissolved and its roster row deleted, so
+        # an `ask` from an unaddressable sender was correctly refused (S-7), and the loop had also
+        # inherited a seat's TMUX_PANE so its identity claim was refused too. The refusals went to
+        # a detached stderr file nobody reads while the loop kept reporting healthy.
+        check("muted monitor: a `note` from a sender with NO roster row is ACCEPTED, which is the "
+              "whole delivery fix — a flag is a FACT, not a question, and coord's own refusal text "
+              "said so ('Send this as --type note'). The fix was written on the failure",
+              "sent message #" in sd("nonseat-detector", "leader", "context at 58.3%",
+                                     type="note"))
+        _, _ac = refuse(cmd_send, agent="nonseat-detector", to="leader", message="context at 52%",
+                        type="ask", supersedes=None, re_num=None, file=None)
+        check("muted monitor: and the same sender's `ask` is still REFUSED — the S-7 fix is not "
+              "weakened, because an ask nobody can answer still cannot be closed. Only the type "
+              "changed",
+              _ac == 1)
+        (base_g / "undelivered-flags.md").write_text(
+            "- 2026-07-27 20:28 | UNDELIVERED (coord refused): context at 58.3%\n", encoding="utf-8")
+        check("muted monitor: a refused flag is recorded DURABLY and surfaced where the run looks "
+              "— a monitor that cannot deliver must SHOUT that it cannot deliver. stderr is not a "
+              "channel: this one ran detached into /tmp for hours while silence and health were "
+              "indistinguishable",
+              len(undelivered_flags(base_g)) == 1
+              and "UNDELIVERED MONITOR FLAGS: 1" in undelivered_line(base_g))
+        (base_g / "undelivered-flags.md").unlink()
+        check("muted monitor: and it is SILENT when nothing was refused — a permanent warning is "
+              "one nobody reads",
+              undelivered_line(base_g) == "")
+
         # ---- r-window-layout, the TOOL half (#332/#382) ----
         _seats = [{"agent": "a", "window": "control"}, {"agent": "b", "window": "control"},
                   {"agent": "c", "window": "workers"}]
