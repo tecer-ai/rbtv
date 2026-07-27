@@ -1,14 +1,14 @@
 probe: probe-seat-identity
-started: 2026-07-27T17:25:25.020Z
+started: 2026-07-27T17:30:13.162Z
 command: node probes/probe-seat-identity.js
 PASS P4 — CLI from a non-seat cwd is refused, never treated as anonymous-but-allowed
        code=E_IDENTITY_NO_SEAT
 PASS P6 — seat folder with no session row is refused (absence fails CLOSED)
        code=E_IDENTITY_NO_SESSION
 PASS P5 — CORE: right folder, wrong process -> E_IDENTITY_MISMATCH naming the occupant
-       code=E_IDENTITY_MISMATCH registered=1788162 (a LIVE process, so the row was present — not the missing-row cheat)
+       code=E_IDENTITY_MISMATCH registered=1799756 (a LIVE process, so the row was present — not the missing-row cheat)
 PASS P9-gate — the registered occupant IS confirmed (the gate is not merely refusing everything)
-       ok=true seat=mine matched-ancestor=1788155
+       ok=true seat=mine matched-ancestor=1799749
 PASS P7 — COORD_AGENT/RBTV_SEAT asserting another seat changes no verdict, in EITHER direction
        with the assertion set: confirmed seat is still "mine"; the mismatch is still E_IDENTITY_MISMATCH
 PASS P-schema — a session log lacking pid/pid-starttime is a typed refusal, not a degraded pass
@@ -18,7 +18,7 @@ PASS P-reuse — same pid + different starttime is a MISMATCH (pid reuse cannot 
 PASS P2 — a seat of a CLOSED run is refused (run state is read by NAME from runs.csv)
        reason: run run-0 state is "closed", not open
 PASS P3 — a hand-made seats/imposter/ (right shape, no seat.md, not rostered) is refused
-       reason: no seat.md in /tmp/g4-ident-JarmB4/ws/.rbtv/goals/testgoal/runs/run-1/seats/imposter — not a materialized seat folder
+       reason: no seat.md in /tmp/g4-ident-eQFCeR/ws/.rbtv/goals/testgoal/runs/run-1/seats/imposter — not a materialized seat folder
 PASS P3-ii — a seat.md claiming ANOTHER seat's name is refused (descriptor never overrides the folder)
        reason: seat.md declares seat "mine" but the folder is "liar" — descriptor and folder disagree
 PASS P10 — the command-time verdict is IDENTICAL bare and under every exec-away wrapper
@@ -29,5 +29,5 @@ PASS P10-ii — a DIFFERENT verdict (NO_SESSION) is caller-independent too — n
 legs: ALL PASS
 status: PASS
 exit: 0
-wall_ms: 774
-ended: 2026-07-27T17:25:25.794Z
+wall_ms: 743
+ended: 2026-07-27T17:30:13.905Z

@@ -1,16 +1,16 @@
 probe: probe-seat-launch-gate
-started: 2026-07-27T17:25:25.950Z
+started: 2026-07-27T17:30:14.098Z
 command: node probes/probe-seat-launch-gate.js
 PASS P1[/tmp] — refused, and NOTHING was created (absence-proven, not message-proven)
        code=E_WORKDIR_ESCAPE store-status=launching world-unchanged=true (sessions dirs 0, csv rows 0, logs 0)
 PASS P1[.rbtv/sessions/<exec-id>] — refused, and NOTHING was created (absence-proven, not message-proven)
        code=E_WORKDIR_ESCAPE store-status=launching world-unchanged=true (sessions dirs 0, csv rows 0, logs 0)
 PASS P2 — a seat of a CLOSED run is refused E_RUN_NOT_LIVE, nothing created
-       code=E_RUN_NOT_LIVE store-status=launching — refusing to spawn into /tmp/g4-launch-wYSK0I/ws/.rbtv/goals/testgoal/runs/run-0/seats/mine
+       code=E_RUN_NOT_LIVE store-status=launching — refusing to spawn into /tmp/g4-launch-EwTYY0/ws/.rbtv/goals/testgoal/runs/run-0/seats/mine
 PASS P3 — a hand-made imposter seat folder is refused E_NOT_A_SEAT_FOLDER, nothing created
-       code=E_NOT_A_SEAT_FOLDER — refusing to spawn into /tmp/g4-launch-wYSK0I/ws/.rbtv/goals/testgoal/runs/run-1/seats/impo
+       code=E_NOT_A_SEAT_FOLDER — refusing to spawn into /tmp/g4-launch-EwTYY0/ws/.rbtv/goals/testgoal/runs/run-1/seats/impo
 PASS P3-ii — a seatName contradicting the folder is REFUSED, not preferred
-       code=E_NOT_A_SEAT_FOLDER — seat name "someone-else" contradicts the seat folder "mine" (/tmp/g4-launch-wYSK0I/ws/.rbtv/goals/te
+       code=E_NOT_A_SEAT_FOLDER — seat name "someone-else" contradicts the seat folder "mine" (/tmp/g4-launch-EwTYY0/ws/.rbtv/goals/te
 PASS P9-launch — a REAL seat composes: launch home is the seat folder, the cage is applied
        chdir->seatDir=true cage-entries=16 peer-tmpfs=true
 PASS P-dry — dryRun writes nothing — no session dir, no session row
@@ -19,5 +19,5 @@ PASS P-dry — dryRun writes nothing — no session dir, no session row
 legs: ALL PASS
 status: PASS
 exit: 0
-wall_ms: 25
-ended: 2026-07-27T17:25:25.975Z
+wall_ms: 21
+ended: 2026-07-27T17:30:14.119Z
