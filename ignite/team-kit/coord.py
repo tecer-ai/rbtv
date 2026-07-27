@@ -5867,6 +5867,71 @@ def _selftest_checks(args, failures, names):
               "mutation is evidence about nothing; without this it would silently mis-report",
               ef_code == 1 and "ABORTED, so the named check produced no result" in ef_out)
 
+        # ---- G-101: the shell guard must judge the INVOCATION, never the caller's shell ----
+        # It used to live inside `message_body` and interrogate ambient process state, so it
+        # refused THIS SUITE's own synthetic sends and tore the run down at check 17 of 303 —
+        # while the very same file reported 303/exit 0 from a `timeout`-wrapped invocation,
+        # because that leaves a non-shell parent. A gate whose verdict is decided by the shape
+        # of the caller's command line is not a gate. Both directions are pinned here, and the
+        # shell is forced ON so these cannot pass merely because this runner has no shell
+        # parent — which is exactly how the defect hid from two honest verifiers.
+        # NOTE: `_selftest_checks` is ONE long function, so every local below is `g101_`-
+        # prefixed. An unprefixed `real` silently clobbered the suite's tuple of real tmux
+        # primitives and aborted the run 50 checks later.
+        # `shell_source_line` is stubbed too, and that is not incidental: without it these
+        # checks would themselves be decided by the shape of the line that launched the suite
+        # (the substitution detector reads the invoking shell's command string), which is the
+        # exact fault under test. A check that inherits the defect it pins proves nothing.
+        g101_pis, g101_cli = parent_is_shell, CLI_INVOCATION
+        g101_ssl = shell_source_line
+        try:
+            globals()["parent_is_shell"] = lambda: True
+            globals()["CLI_INVOCATION"] = True
+            globals()["shell_source_line"] = lambda: ""
+            g101_raised = False
+            try:
+                assert_argv_body_shell_safe(
+                    ns(to="beta", message="hello", type="note", inline=False))
+            except SystemExit:
+                g101_raised = True
+            check("G-101: a SYNTHETIC caller (no argv, no `func`) is never judged by the shell "
+                  "guard — the self-test's own sends are this shape, and judging them aborted "
+                  "the whole save gate at check 17 of 303", not g101_raised)
+            g101_code = None
+            try:
+                with redirect_stderr(io.StringIO()):
+                    assert_argv_body_shell_safe(
+                        ns(to="beta", message="hi", type="note", inline=False, func=cmd_send))
+            except SystemExit as exc:
+                g101_code = exc.code
+            check("G-101: a REAL argv positional body is still refused without --inline — the "
+                  "move to the boundary must not have weakened S-4(b)", g101_code == 1)
+            g101_inline_ok = True
+            try:
+                with redirect_stderr(io.StringIO()):
+                    assert_argv_body_shell_safe(
+                        ns(to="beta", message="hi", type="note", inline=True, func=cmd_send))
+            except SystemExit:
+                g101_inline_ok = False
+            check("G-101: --inline still carries a real argv body past the guard", g101_inline_ok)
+            # ...and the substitution half, pinned against a CONTROLLED shell line rather than
+            # whatever launched this run: --inline is no escape from proven damage.
+            globals()["shell_source_line"] = lambda: 'send beta "v is $(id -u)" --inline'
+            g101_sub = None
+            try:
+                with redirect_stderr(io.StringIO()):
+                    assert_argv_body_shell_safe(
+                        ns(to="beta", message="v is 1000", type="note", inline=True,
+                           func=cmd_send))
+            except SystemExit as exc:
+                g101_sub = exc.code
+            check("G-101: a PROVEN substitution is still refused even with --inline — moving the "
+                  "guard must not turn --inline into a blanket override", g101_sub == 1)
+        finally:
+            globals()["parent_is_shell"] = g101_pis
+            globals()["CLI_INVOCATION"] = g101_cli
+            globals()["shell_source_line"] = g101_ssl
+
         # ---- G-62: --expect-fail, the mutation-evidence gate, checking itself ----
         def expect_rc(expect, all_names, failed_names):
             buf = io.StringIO()
