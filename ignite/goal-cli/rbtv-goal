@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# rbtv-goal — thin wrapper so the four verbs run from anywhere on PATH.
+# v1 stand-in: folds into `rbtv goal <verb>` verbatim when task 7.65 lands.
+exec python3 "$(dirname "$(readlink -f "$0")")/goal_cli.py" "$@"
