@@ -1,0 +1,8 @@
+{
+  "name": "rbtv-ignite",
+  "private": true,
+  "description": "ignite module — npm machine manifest. The complete human-readable dependency inventory (npm AND system tools) is dependencies.txt beside this file; both are updated in the SAME change as any dependency change (owner ruling D28).",
+  "dependencies": {
+    "js-yaml": "5.2.2"
+  }
+}

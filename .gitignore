@@ -9,6 +9,12 @@ AGENTS.md
 __pycache__/
 *.py[cod]
 
+# npm build artifact. The committed manifests (package.json + package-lock.json) are the
+# reproducible source of truth; node_modules/ is materialized per machine by `npm ci` and is
+# never committed (task 7.51). Matched at ANY depth — the ignite module root is the first
+# folder to carry a manifest, but it will not be the last.
+**/node_modules/
+
 # Done-gate evidence (proof-of-work sheets + captures) — local only, never shipped.
 # Matched at ANY depth: rbtv-done-gate writes to docs/done-gate-evidence/ at a repo
 # root by default, but sub-app docs dirs (e.g. studio/hypresent/docs/) have also held it.

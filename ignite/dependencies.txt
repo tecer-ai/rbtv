@@ -2,12 +2,16 @@
 #
 # Format: name — why — install command
 # "TBD at task N.n" marks a package whose final pick belongs to that build task — never pre-empted here.
+# npm packages: `package.json` + `package-lock.json` beside this file are npm's MACHINE manifest (exact
+# versions + integrity hashes, installed with `npm ci`); THIS file stays the complete human-readable
+# inventory on top, covering system tools npm cannot express (D28 / NEED-3 human-verifiability). Both are
+# updated in the same change. `node_modules/` is a build artifact — gitignored, never committed.
 
 Node.js 24 — runtime for the daemon, gateway, and CLI — already provisioned on the box; fresh install: apt (NodeSource) or nvm (`nvm install 24`)
 npm — package manager for all Node dependencies — ships with Node.js (no separate install)
 systemd + systemd-run — daemon unit + transient-unit spawn carrier (per-profile caps, cgroup tree-kill) — OS-provided on Ubuntu (no install)
 node:sqlite (built-in) — heart-store database engine (DatabaseSync — synchronous, WAL-capable) — resolved at task 2.1: Node 24 built-in module, ZERO external dependencies, no npm install (NEED-3 small-surface budget)
-js-yaml — YAML parser for server-config and launch-profile files — `npm install js-yaml`
+js-yaml (PINNED 5.2.2) — YAML parser for server-config and launch-profile files; the module's ONLY npm dependency — `npm ci` in this folder. NEVER `npm install js-yaml` unversioned: that resolves whatever is latest that day, which is exactly what task 7.51 closed. 5.2.2 is also the first release OUTSIDE advisory GHSA-pm4m-ph32-ghv5 (high, CVSS 7.5 — denial of service by exponential parse time in flow collections), which covers 5.0.0–5.2.1.
 tailscaled — zero-ingress network posture: tailnet bind + Tailscale Serve (Batch 5) — `apt install tailscale` (per tailscale.com/install)
 ttyd — web-terminal viewer for headed sessions (Batch 6) — `apt install ttyd` (or build from source if the apt version lags)
 dtach (0.9) — in-unit foreground pty holder for headed sessions (Batch 6, D83 OQ-E / D84) — `apt install dtach`; `screen` (4.09) is the fallback holder
