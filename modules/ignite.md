@@ -28,6 +28,17 @@ See `ignite/CLAUDE.md`. Client CLI: `ignite/cli/` (`ignite add-job` / `remove-jo
 - **`goals-tree`** (`ignite/capabilities/goals-tree/`) — the goals-tree machinery
   (`scaffold`/`reindex`/`lint`/`materialize`). Contract in `tool/README.md`.
 
+### `ignite/module.md` — the module entry point (KG shape)
+
+The skill-format front door the SECOND installer (`core/capabilities/installer/`, task 7.64)
+realizes as this module's **discovery skill** on each harness — the pushed index of the
+progressive-disclosure ladder (`PRIN-3`): one line per command-line capability, bodies on demand
+through each CLI's own `-h`. It carries no bodies and restates neither `ignite/CLAUDE.md` nor
+`protocol.md` (`PRIN-11`).
+
+This file (`modules/ignite.md`) is the LEGACY module descriptor read by `install.py`; the two
+coexist while the CMP-5 tree is unbuilt, exactly as the two installers do.
+
 ## Reaching this module from the `rbtv` CLI
 
 The system CLI (`core/capabilities/rbtv-cli/`, task 7.65) is the agent-facing front door. It

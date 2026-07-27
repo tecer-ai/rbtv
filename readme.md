@@ -32,6 +32,15 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 
 ## Install
 
+> **There are two installers, and `install.py` is the one you want.** `install.py` (below) is
+> the installer for RBTV as it ships today — flat module components installed into `.claude/`.
+> A **second** installer, `core/capabilities/installer/tool/rbtv-install`, serves the
+> KG-shape component layout (module folders with `prompts.csv`/`tasks.csv`/`seats.csv`/
+> `exposure.csv` catalogs and cognitive-unit pools) that the system-definition registry
+> specifies. The two coexist deliberately; `install.py` is untouched by it. Unless you are
+> working on that layout, use `install.py`. See
+> [core/capabilities/installer/installer.md](./core/capabilities/installer/installer.md).
+
 1. Clone RBTV as a subfolder of your workspace:
 
    ```bash

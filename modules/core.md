@@ -92,3 +92,35 @@ Rules marked **stale** are retired: the installer skips any manifest entry flagg
 | [sub-agents](../core/rules/sub-agents.md) | Pre-dispatch gate for every worker dispatch (Agent-tool, CLI, API) — the prompt must name each matching installed skill imperatively with its path, and give workspace-root-absolute write paths. Skill matching is description-based, any source; model policy lives in orchestration routing, not here |
 
 > The `source-of-truth` rule (installed copies are generated — edit the RBTV source) was recovered from retirement and now ships with the **builder** module — see [modules/builder.md](./builder.md).
+
+---
+
+## Capabilities
+
+Capability folders are **run in place** from the RBTV source — `install.py` does not copy them
+into a workspace's `.claude/`, and they carry no manifest install entry.
+
+### `installer` (`core/capabilities/installer/`)
+
+- **What**: the **second** rbtv installer, `rbtv-install` (core-build task 7.64). It installs
+  KG-shape components — module folders carrying `prompts.csv` / `tasks.csv` / `seats.csv` /
+  `exposure.csv` catalogs plus cognitive-unit pools (CMP-5, component-first) — and realizes each
+  exposure row through the CMP-12 per-harness adapter matrix, from the manifest's ONE canonical
+  method column. A module's `module.md` is realized as that module's discovery skill.
+- **The first installer is untouched.** `install.py` keeps serving today's flat module
+  components; the two coexist deliberately, and nothing in this capability modifies, wraps, or
+  re-implements it.
+- **Mirror and repo are equivalent** (CMP-3): `--catalog-root` takes either the rbtv repo or an
+  install's `.rbtv/mirror/`, and nothing branches on which — proven by installing byte-identical
+  content from both roots and diffing the results, with a mutation check so the comparison can
+  actually fail.
+- **How to invoke**: `core/capabilities/installer/tool/rbtv-install -h`
+  (`list` · `install` · `doctor` · `selftest`).
+- **⚠ Carries a stand-in**: version resolution freezes `@latest` to a content hash because
+  CMP-5's `cognitive-units-index.csv` does not exist yet (issue `G-109`). Not the settled
+  scheme — see `core/capabilities/installer/installer.md`.
+
+### `rbtv-cli` (`core/capabilities/rbtv-cli/`)
+
+- **What**: the one system-wide `rbtv` CLI — the agent-facing disclosure and action surface
+  (core-build task 7.65). Contract in `core/capabilities/rbtv-cli/rbtv-cli.md`.
