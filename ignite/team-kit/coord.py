@@ -2378,7 +2378,7 @@ def awaiting_debts(base, live=None):
     return sorted(out, key=lambda r: (-1 if r[2] is None else r[2]), reverse=True)
 
 
-def reap_blockers(entry, age, panes):
+def reap_blockers(entry, age, panes, decls=None, seat=None):
     """Every reason `entry` must NOT be reaped, as a list. EMPTY means every precondition holds.
 
     A LIST, not a bool, and that is the design: `reap` kills panes, so a caller — and the leader
@@ -2398,6 +2398,26 @@ def reap_blockers(entry, age, panes):
       pane whose processes changed has been repurposed; a pane with no recorded identity was never
       provably seat-only. Both refuse. FAIL-CLOSED: anything unprovable holds the reap."""
     out = []
+    # A PANE WHOSE PURPOSE IS HUMAN CONTACT IS NEVER REAPABLE (owner-ruled, via leader #341:
+    # `r-owner-afk-liaison-parked`). A seat can close while its pane deliberately SURVIVES as the
+    # owner's door — the owner is away and watches that spot. Such a pane matches every debt
+    # condition exactly, so this machinery reports it as a leak: a FALSE POSITIVE BY DESIGN, and
+    # the most expensive kind, because acting on it closes the door the run is reachable through.
+    #
+    # Derived from the seat's own descriptor, never a kit-side name list, for the reason
+    # `inbox_decls` states at length — a name list freezes one campaign's roles into a shared tool
+    # and the NEXT such seat is forgotten identically. `relays:` already means exactly the needed
+    # thing: this seat carries the relay path to a HUMAN role. Carrying that path is what makes the
+    # pane a door rather than a leak, so the exemption falls out of the declaration instead of
+    # needing new vocabulary.
+    #
+    # ⚠ THE EXEMPTION IS ONLY AS LIVE AS THE DECLARATION. Until a parked seat's descriptor declares
+    # `relays:`, nothing here protects it. When this landed, the live owner door was protected ONLY
+    # by accident — its debt record predated the `pids` field, so it failed closed on "no identity
+    # recorded". That is luck, not design, and luck about ordering is not compliance.
+    if seat and ((decls or {}).get(seat) or {}).get("relays"):
+        out.append("it carries a relay path to a human role — its pane is a DOOR, not a leak, and "
+                   "is never reaped (r-owner-afk-liaison-parked)")
     pane = (entry or {}).get("pane") or ""
     if not pane:
         out.append("no pane recorded")
@@ -3213,13 +3233,28 @@ def sender_origin(args, sender):
             return None
     except Exception:
         return None            # never let bookkeeping about a send break the send
-    # Foreign. Name the caller's OWN package when it can be resolved from its cwd, so a reader
-    # learns which run spoke; `external` when it cannot, which still distinguishes it from local.
+    # No ACTIVE roster row for this pane. That is NOT the same as foreign, and treating it as such
+    # was this function's defect: a seat that has checked out — or was renewed, or never checked in
+    # — keeps writing from inside its own package, and every one of its messages was stamped
+    # `external`. Measured: all four origin-labelled messages in run-2's log were the owner-liaison,
+    # local and rostered, sending while its row read inactive. Under the stage-5 sender bound a
+    # relay token is refused for any message carrying an origin, so that mislabel would have
+    # SEVERED THE OWNER CHANNEL the moment `relays: master` was declared.
+    #
+    # So resolve the caller's OWN package from its cwd and compare: the NEAREST enclosing package
+    # is where the caller is writing from. Same package -> local, whatever the roster says. A
+    # different one -> name it, which is exactly G-111 (a closed run's seat still resolves to its
+    # own package and stays refused). Only a cwd inside no package at all is `external`, which now
+    # means what it says: no package this tool could identify.
+    #
+    # The earlier form walked PAST this package looking for any other, so it could also attribute a
+    # caller to an ANCESTOR package it merely sat under. Stopping at the nearest fixes both.
     try:
         here = Path.cwd().resolve()
+        pkg = package_dir(args)
         for cand in (here, *here.parents):
-            if (cand / "coordination").is_dir() and cand != package_dir(args):
-                return cand.name
+            if (cand / "coordination").is_dir():
+                return None if cand == pkg else cand.name
     except Exception:
         pass
     return "external"
@@ -5129,9 +5164,10 @@ def cmd_reap(args):
     if not debts:
         print("no awaiting-close debt — every finished seat has been closed")
         return
+    decls = inbox_decls(args)
     freed, held = [], []
     for seat, entry, age, _alive in debts:
-        blockers = reap_blockers(entry, age, panes)
+        blockers = reap_blockers(entry, age, panes, decls, seat)
         seen, ready = confirm_reap(base, seat, blockers)
         aged = f"{age}min" if age is not None else "unknown age"
         if blockers:
@@ -7018,10 +7054,28 @@ def _selftest_checks(args, failures, names):
         check("stage 4: a caller whose pane holds an ACTIVE row in THIS package is LOCAL — the "
               "verified case, and the one that must keep writing an unchanged header",
               sender_origin(ns(pane="%22"), "zeta") is None)
-        check("stage 4: a caller whose pane is on NO row of this package is FOREIGN even when a "
-              "seat of that name exists here — the membership-by-NAME test was circular, and this "
-              "is the check that would have caught it",
-              sender_origin(ns(pane="%9999"), "zeta") is not None)
+        check("stage 4: a caller whose pane is on no row of this package AND whose cwd is in no "
+              "package is `external` even when a seat of that name exists here — the "
+              "membership-by-NAME test was circular, and this is the check that would have caught "
+              "it",
+              sender_origin(ns(pane="%9999"), "zeta") == "external")
+        # ⚠ The row above USED to read "is FOREIGN", and that wording was the defect: no active
+        # roster row was treated as another package. A checked-out, renewed, or never-checked-in
+        # seat keeps writing from inside its OWN package, and every message it sent was stamped
+        # foreign. Measured on the live run: all four origin-labelled messages were the owner
+        # channel, local and rostered, sending while its row read inactive — and under the stage-5
+        # bound a relay token is refused for anything carrying an origin, so this would have
+        # severed the owner channel the moment `relays: master` was declared.
+        _cwd = os.getcwd()
+        try:
+            os.chdir(pkg)
+            check("stage 4 (fixed): a caller writing from INSIDE this package is LOCAL whatever "
+                  "the roster says — 'has no active row here' is not 'belongs to another run'. "
+                  "This is the row that keeps a bounded inbox reachable by a seat between "
+                  "lifecycles",
+                  sender_origin(ns(pane="%9999"), "zeta") is None)
+        finally:
+            os.chdir(_cwd)
         check("stage 4: an unresolvable pane changes NOTHING — out-of-pane callers (watch.py, an "
               "--as claim from outside tmux) keep today's behaviour, because under-labelling is "
               "the safe direction and over-labelling would re-serve a seat its own sends",
@@ -7361,6 +7415,18 @@ def _selftest_checks(args, failures, names):
               any("repurposed" in b for b in reap_blockers(_fresh, 30, {"%77"}))
               and any("never provably seat-only" in b for b in
                       reap_blockers(dict(_fresh, pids=[]), 30, {"%77"})))
+        # The owner door: a seat closes and its pane deliberately SURVIVES for an AFK owner. It
+        # matches every debt condition, so the marker reports it — a false positive by design, and
+        # the most expensive kind, since acting on it closes the door the run is reachable through.
+        _door = {"door": {"relays": frozenset({"master"})}}
+        check("G-134/B: A PANE WHOSE PURPOSE IS HUMAN CONTACT IS NEVER REAPED "
+              "(r-owner-afk-liaison-parked) — and the exemption is DERIVED from the seat's own "
+              "`relays:` declaration, so the next parked door is protected without anyone "
+              "remembering to add its name to a list in the kit",
+              any("DOOR, not a leak" in b for b in
+                  reap_blockers(dict(_fresh, since="old"), 99, {"%77"}, _door, "door"))
+              and not any("DOOR, not a leak" in b for b in
+                          reap_blockers(_fresh, 99, {"%77"}, _door, "ordinary")))
         set_awaiting(base_g, "kappa", "%77", "/tmp/x", True)
         _s1, _r1 = confirm_reap(base_g, "kappa", [])
         _s2, _r2 = confirm_reap(base_g, "kappa", [])
