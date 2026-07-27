@@ -2845,6 +2845,82 @@ def discover_workers(wdir):
     return found
 
 
+# ---------- structural descriptor audit (G-57) ----------
+#
+# G-51 refuses a LAUNCH whose descriptor disagrees with the registry — one seat, at one moment,
+# on three binding fields. This is the standing sweep over the WHOLE descriptor set, and it is
+# read-only: it opens no briefing body, only frontmatter and paths, because a descriptor is a
+# BRIEFING and R-isolation bars a seat from reading another seat's briefing. Fields and paths are
+# not prose, so nobody's instructions enter anybody's context.
+#
+# WHAT IT DELIBERATELY DOES NOT COVER, printed in its own output every run: a descriptor's OWNED-
+# SURFACES claim and its mission narrative are prose, and the run's surface map is prose too, so no
+# mechanical pass can compare them. That is the half of G-57 that bit this run — a descriptor
+# claiming surfaces handed to another seat a milestone earlier — and it stays open until a
+# `surfaces:` frontmatter key makes the claim a field. A clean result here is NOT a clean class.
+
+def descriptor_findings(args):
+    """[(seat, kind, detail)] — every structural divergence in the run's descriptor set."""
+    wdir = workers_dir(args)
+    registry = taskforce_bindings(args)
+    seats = discover_workers(wdir)
+    found = []
+    by_name = {}
+    for w in seats:
+        name = w["agent"]
+        if name in by_name:
+            # Two descriptors claiming one name: `launch` resolves whichever it finds first, so
+            # the seat that boots is decided by directory order — never by anyone's intent.
+            found.append((name, "duplicate-name",
+                          f"also declared by {by_name[name]} — launch would pick by walk order"))
+            continue
+        by_name[name] = w["briefing"]
+        folder = w["folder"]
+        if folder is not None and folder.name != name:
+            found.append((name, "name-vs-folder",
+                          f"descriptor says {name}, folder is {folder.name}"))
+        cwd = Path(w["cwd"])
+        if not cwd.is_dir():
+            found.append((name, "cwd-missing", f"cwd does not exist: {cwd}"))
+        elif folder is not None and cwd.resolve() != folder.resolve():
+            found.append((name, "cwd-vs-folder",
+                          f"cwd is {cwd}, seat folder is {folder}"))
+        row = registry.get(name)
+        if row is None:
+            if registry:
+                found.append((name, "no-registry-row",
+                              "descriptor exists with no taskforce.csv row — nothing records "
+                              "this seat's binding"))
+        else:
+            for field, descriptor, reg in binding_divergence(w, row):
+                found.append((name, "binding-divergence",
+                              f"{field}: descriptor {descriptor} | taskforce.csv {reg} "
+                              f"(THE DESCRIPTOR BINDS)"))
+    for name in registry:
+        if name not in by_name:
+            found.append((name, "no-descriptor",
+                          "taskforce.csv row with no descriptor — this seat cannot launch"))
+    return found
+
+
+def cmd_descriptors(args):
+    """Read-only structural audit of every seat descriptor (G-57). Opens no briefing body."""
+    findings = descriptor_findings(args)
+    wdir = workers_dir(args)
+    print(f"{c('descriptors:', C_LABEL)} {wdir}")
+    print(f"{c('registry:', C_LABEL)} {package_dir(args) / 'taskforce.csv'}")
+    if findings:
+        for seat, kind, detail in sorted(findings):
+            print(f"  {c(seat, C_DEAD)}  {kind}: {detail}")
+    print(f"\nstructural findings: {len(findings)}")
+    # The bound is printed on EVERY run, clean or not — the leader's own ruling generalised: a
+    # clean result must never be readable as a clean class.
+    print("bound: frontmatter fields and paths ONLY. A stale owned-surfaces claim or a stale "
+          "mission narrative is PROSE and is NOT checked here — zero findings does not mean the "
+          "descriptors are true.")
+    sys.exit(1 if findings else 0)
+
+
 # ---------- descriptor vs taskforce.csv (G-51) ----------
 #
 # The SEAT DESCRIPTOR binds: `launch` and `close --renew` build the harness command from its
@@ -4844,6 +4920,83 @@ def cmd_selftest(args):
               all("TARGET seat" in per_cmd[n]
                   for n in ("close", "close-seat", "approve", "export-transcript")))
 
+        # ---- G-57: the standing structural descriptor sweep ----
+        # Fixture: three seats, each carrying one structural defect, plus a clean one — so a check
+        # that merely counts findings cannot pass; each kind must be named.
+        dpkg = Path(td) / "descpkg"
+        (dpkg / "seats" / "good").mkdir(parents=True)
+        (dpkg / "seats" / "wrongfolder").mkdir(parents=True)
+        (dpkg / "seats" / "noreg").mkdir(parents=True)
+        (dpkg / "seats" / "good" / "seat.md").write_text(
+            "---\nseat: good\nharness: claude\nmodel: opus\neffort: medium\n---\nbody\n",
+            encoding="utf-8")
+        (dpkg / "seats" / "wrongfolder" / "seat.md").write_text(
+            "---\nseat: mismatched\nharness: claude\nmodel: opus\neffort: high\n---\nbody\n",
+            encoding="utf-8")
+        (dpkg / "seats" / "noreg" / "seat.md").write_text(
+            "---\nseat: noreg\nharness: claude\nmodel: sonnet\neffort: high\n---\nbody\n",
+            encoding="utf-8")
+        (dpkg / "taskforce.csv").write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+            "1,good,,claude,fable,medium,50,m1\n"       # binding divergence on model
+            "2,mismatched,,claude,opus,high,50,m1\n"
+            "3,ghostrow,,claude,opus,medium,50,m1\n",   # registry row with no descriptor
+            encoding="utf-8")
+        dns = argparse.Namespace(package=str(dpkg), run=None, base=None, workers_dir=None)
+        kinds = {k for _, k, _ in descriptor_findings(dns)}
+        check("G-57 descriptors: the sweep names each structural kind — a descriptor whose name "
+              "disagrees with its folder, a descriptor with no registry row, a registry row with "
+              "no descriptor, and a binding divergence — never just a count",
+              kinds == {"name-vs-folder", "no-registry-row", "no-descriptor",
+                        "binding-divergence"})
+        divergence = [d for s, k, d in descriptor_findings(dns) if k == "binding-divergence"]
+        check("G-57 descriptors: a binding divergence says which side BINDS, because a reader "
+              "told only that two files differ has been handed the confusion, not the answer",
+              len(divergence) == 1 and "THE DESCRIPTOR BINDS" in divergence[0])
+        orphan = [s for s, k, _ in descriptor_findings(dns) if k == "no-descriptor"]
+        check("G-57 descriptors: an orphan registry row is reported under the SEAT NAME from the "
+              "row, so the finding names the seat that cannot launch", orphan == ["ghostrow"])
+        (dpkg / "seats" / "dup").mkdir()
+        (dpkg / "seats" / "dup" / "seat.md").write_text(
+            "---\nseat: good\nharness: claude\nmodel: opus\neffort: medium\n---\nbody\n",
+            encoding="utf-8")
+        check("G-57 descriptors: two descriptors claiming ONE name is reported — launch would "
+              "otherwise resolve it by directory walk order, not by anyone's intent",
+              any(k == "duplicate-name" for _, k, _ in descriptor_findings(dns)))
+        def run_descriptors(namespace):
+            """cmd_descriptors EXITS, and runs against its own fixture package — neither the
+            shared run() helper (which builds the self-test's own namespace) nor refuse() fits."""
+            buf, code = io.StringIO(), 0
+            with redirect_stdout(buf):
+                try:
+                    cmd_descriptors(namespace)
+                except SystemExit as exc:
+                    code = exc.code if isinstance(exc.code, int) else 1
+            return buf.getvalue(), code
+
+        cleanpkg = Path(td) / "cleanpkg"
+        (cleanpkg / "seats" / "solo").mkdir(parents=True)
+        (cleanpkg / "seats" / "solo" / "seat.md").write_text(
+            "---\nseat: solo\nharness: claude\nmodel: opus\neffort: medium\n---\nbody\n",
+            encoding="utf-8")
+        (cleanpkg / "taskforce.csv").write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+            "1,solo,,claude,opus,medium,50,m1\n", encoding="utf-8")
+        cns = argparse.Namespace(package=str(cleanpkg), run=None, base=None, workers_dir=None)
+        check("G-57 descriptors: a structurally sound package yields ZERO findings — the sweep "
+              "does not manufacture noise", descriptor_findings(cns) == [])
+        clean_out, clean_code = run_descriptors(cns)
+        check("G-57 descriptors: the BOUND is printed even on a CLEAN run — owned-surfaces and "
+              "mission prose are not checked, so zero findings must never read as a clean class "
+              "(the leader's rule, applied to the check that most invites the misreading)",
+              clean_code == 0 and "bound:" in clean_out and "owned-surfaces" in clean_out
+              and "NOT checked" in clean_out)
+        dirty_out, dirty_code = run_descriptors(dns)
+        check("G-57 descriptors: a package WITH findings exits non-zero and still prints the "
+              "bound — the audit is gate-ready either way",
+              dirty_code == 1 and "bound:" in dirty_out
+              and "structural findings: 0" not in dirty_out)
+
         # ---- G-62: --expect-fail, the mutation-evidence gate, checking itself ----
         def expect_rc(expect, all_names, failed_names):
             buf = io.StringIO()
@@ -5598,7 +5751,7 @@ leader
   add-to-group / remove-from-group  join or drop an existing group's members
 
 other
-  workers     roster: who is alive, what each is on, how far behind the log
+  workers / descriptors  who is alive and on what · structural audit of the seat descriptors
   create-group       open a message group for one workstream
   export-transcript  capture a seat's pane scrollback into its worker folder
   depart      ephemeral seats: export + check out + kill your own pane
@@ -5907,6 +6060,16 @@ def build_parser():
     s.add_argument("members", nargs="+", help="agent names to drop (all must currently be members, unless --force)")
     add_identity_flags(s)
     s.set_defaults(func=cmd_remove_from_group)
+
+    s = command(
+        "descriptors",
+        "Read-only structural audit of every seat descriptor against taskforce.csv: name vs\n"
+        "folder, cwd, orphans both directions, duplicate names, binding divergence. Opens no\n"
+        "briefing body — fields and paths only — so no seat's instructions reach the caller.",
+        "example:\n"
+        "  coordinate descriptors\n"
+        "next: nothing — findings are reported to whoever owns seats/, never fixed here")
+    s.set_defaults(func=cmd_descriptors)
 
     s = command(
         "selftest",
