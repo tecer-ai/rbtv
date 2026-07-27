@@ -243,13 +243,15 @@ tools:
       - "600"
       - --
       - /usr/bin/python3
-      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/coord.py
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/recover-room.py
+      - --session
+      - build-core-daemon-mvp
       - --package
       - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/runs/run-1
-      - launch
-      - --only
+      - --seat
       - recovery-agent
-      - --force
+      - --coord
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/coord.py
 
   # THROWAWAY twin: a scratch tmux session, recovered by re-creating that session.
   # This is the entry the staged-failure probe uses. Killing `tw-room-probe` costs the
