@@ -152,12 +152,26 @@ FM_KEY = {
     "observer": re.compile(r"^observer:\s*(\S+)\s*$", re.MULTILINE),
     "auto-wake": re.compile(r"^auto-wake:\s*(\S+)\s*$", re.MULTILINE),
     "ctx-refresh": re.compile(r"^ctx-refresh:\s*(\d+)\s*$", re.MULTILINE),
+    # G-23 (owner-directed) — `close: mechanical` on a LONG-LIVED seat whose whole state is
+    # external and machine-owned. It finishes one session and opens another: no closer agent, no
+    # memory.md written or read, no harvest. `ceremony` (the default, and every other value) keeps
+    # the full closer ceremony. The two properties this separates — a seat's LIFETIME and its CLOSE
+    # PATH — were coupled only by accident of the kit's model: `ephemeral` meant both "short-lived"
+    # and "keeps no memory", and the watcher is the case that pulls them apart.
+    "close": re.compile(r"^close:\s*(\S+)\s*$", re.MULTILINE),
 }
 
 
 def _fm_yes(fm, key):
     m = FM_KEY[key].search(fm)
     return bool(m) and m.group(1).lower() in ("yes", "true")
+
+
+def _fm_mechanical_close(fm):
+    """True when the briefing declares `close: mechanical` (G-23). Any other value, and the
+    absence of the key, mean the full closer ceremony — the default stays the careful one."""
+    m = FM_KEY["close"].search(fm)
+    return bool(m) and m.group(1).lower() == "mechanical"
 
 
 def _fm_window(fm):
@@ -2412,6 +2426,7 @@ def discover_workers(wdir):
             "ephemeral": _fm_yes(fm, "ephemeral"),
             "ctx_refresh": int(mr.group(1)) if mr else None,
             "folder": folder,
+            "mechanical_close": _fm_mechanical_close(fm),
         })
     return found
 
@@ -2508,7 +2523,10 @@ def boot_prompt(w, args):
                  f"Then read your briefing {w['briefing']}.")
     else:
         memory = ""
-        if w["folder"] and not w["ephemeral"]:
+        # G-23: a `close: mechanical` seat is memoryless BY DESIGN — it must not be told to read a
+        # memory.md, or it would trust a file its close path never writes and that goes stale the
+        # moment its external state moves. Long-lived, but boots fresh every session.
+        if w["folder"] and not w["ephemeral"] and not w.get("mechanical_close"):
             memory = (f" If {mem} exists, read it too — it is your memory from "
                       f"prior sessions of this seat; trust it as your own notes.")
         first = f"Read your briefing {w['briefing']} first.{memory}"
@@ -2747,12 +2765,21 @@ def cmd_launch(args):
                   f"{cmd if cmd else 'REFUSED — ' + err}")
         return
 
+    # The memory gate has its OWN override and IGNORES --force (leader #210). `launch` is role-gated
+    # to the leader, and the seed rule gives the watcher DAG-unblock authority exercisable ONLY
+    # through --force — so one flag was silently clearing two independent gates, and the agent that
+    # MUST always force the role gate was the one agent for whom the memory gate was advisory. That
+    # is backwards: the seat launching most often had the weakest gate. A gate a required flag
+    # disables is not a gate.
     mgate = memory_gate(len(workers), available_mb())
-    if mgate and not getattr(args, "force", False):
-        print(f"refused: {mgate}", file=sys.stderr)
+    if mgate and not getattr(args, "force_memory", False):
+        print(f"refused: {mgate}\n"
+              f"--force does NOT override this — it covers the ROLE gate only. If you have measured "
+              f"the box and are deliberately launching under the floor, pass --force-memory (and "
+              f"say so on the log).", file=sys.stderr)
         sys.exit(1)
     if mgate:
-        print(c(f"WARNING launching anyway (--force): {mgate}", C_DEAD), file=sys.stderr)
+        print(c(f"WARNING launching anyway (--force-memory): {mgate}", C_DEAD), file=sys.stderr)
 
     # BEFORE any seat boots: a worker reads its rules once, at startup, so a refresh that lands
     # after the pane opens is a refresh the worker never sees.
@@ -2865,8 +2892,45 @@ def resolve_closer_pane(target, cwd):
     return tmux_new_window(target, dest, cwd)
 
 
+def ns_like(args, **overrides):
+    """A copy of the caller's namespace with fields overridden — so a delegating command keeps the
+    package/identity flags (`--run`, `--package`, `--as`, `--force`) instead of rebuilding them and
+    silently resolving a different package than the one the caller named."""
+    data = dict(vars(args))
+    data.update(overrides)
+    return argparse.Namespace(**data)
+
+
+def mechanical_close_seat(args, target):
+    """The seat's briefing, when it declares `close: mechanical` (G-23) — else None."""
+    for w in discover_workers(workers_dir(args)):
+        if w["agent"] == target and w.get("mechanical_close"):
+            return w
+    return None
+
+
 def cmd_close(args):
     gate(args, "close", is_leader, "leader's alone (it spawns a closer seat)")
+    # G-23 (owner-directed): a seat whose entire state is EXTERNAL and machine-owned finishes one
+    # session and opens another — no closer agent, no memory.md, no harvest. Its memory would be a
+    # hand-maintained copy of files its own loop recomputes every pass, which is the stale-derived-
+    # value class this run hit repeatedly; and a harvest is spent on a seat scheduled to stop being
+    # an agent at all (tasks 7.33 + 7.32). What it learns it files to the ledgers DURING its life.
+    # The transcript is still exported by close-seat: evidence outlives memory.
+    mech = mechanical_close_seat(args, args.target)
+    if mech is not None:
+        renew = getattr(args, "renew", False)
+        print(f"'{args.target}' declares `close: mechanical` — closing WITHOUT a closer seat "
+              f"(no memory.md, no harvest; transcript still exported)."
+              + ("  Relaunching it fresh from its briefing." if renew else
+                 "  NOT relaunching: pass --renew to open the next session."))
+        if args.dry_run:
+            print(f"[dry-run] would run: close-seat {args.target}"
+                  + (" --renew" if renew else "")
+                  + " — no closer pane is opened, so no memory gate applies")
+            return
+        return cmd_close_seat(ns_like(args, target=args.target, renew=renew,
+                                      no_export=getattr(args, "no_export", False)))
     prompt = closer_prompt(args, args.target, args.renew)
     closer = {
         "agent": f"closer-{args.target}", "briefing": None, "harness": "claude",
@@ -2886,8 +2950,9 @@ def cmd_close(args):
         sys.exit(1)
     # A closer IS a claude seat and spikes like one — the memory gate applies to it too.
     mgate = memory_gate(1, available_mb())
-    if mgate and not getattr(args, "force", False):
-        print(f"refused: {mgate}\nA mechanical `close-seat` costs no memory and is the fallback.",
+    if mgate and not getattr(args, "force_memory", False):
+        print(f"refused: {mgate}\nA mechanical `close-seat` costs no memory and is the fallback.\n"
+              f"--force does NOT override this (it covers the ROLE gate only); --force-memory does.",
               file=sys.stderr)
         sys.exit(1)
     # G-11: the closer prompt is MULTI-LINE markdown, and it used to be typed into the pane as
@@ -4504,6 +4569,38 @@ def cmd_selftest(args):
               load_closing(base_g) == {} and closing_seats(base_g) == set())
         clear_closing(base_g, "zeta")
 
+        # ---- G-23: `close: mechanical` — a long-lived seat with an ephemeral-class CLOSE PATH ----
+        # The owner's case is the watcher: its whole state is external and machine-owned, so a
+        # memory.md would be a hand-kept copy of files its loop recomputes every pass. LIFETIME and
+        # CLOSE PATH were coupled only by accident of the kit's model; this separates them.
+        mdir2 = pkg / "workers" / "theta"
+        mdir2.mkdir(parents=True, exist_ok=True)
+        (mdir2 / "agent.md").write_text(
+            "---\nagent: theta\nharness: claude\nclose: mechanical\n---\nsensor loop\n",
+            encoding="utf-8")
+        theta = [w for w in discover_workers(workers_dir(ns())) if w["agent"] == "theta"][0]
+        check("G-23: `close: mechanical` is exposed per seat from the descriptor",
+              theta["mechanical_close"] is True
+              and not theta["ephemeral"])          # long-lived, and still memoryless
+        (mdir2 / "memory.md").write_text("# stale copy of machine-owned state\n", encoding="utf-8")
+        check("G-23: its boot prompt does NOT point at memory.md even though the file EXISTS and "
+              "the seat is persistent — it boots fresh every session by design",
+              "memory.md" not in boot_prompt(theta, ns()))
+        ordinary = [w for w in discover_workers(workers_dir(ns())) if w["agent"] == "gamma"]
+        check("G-23: the DEFAULT is untouched — a persistent seat with no `close:` key still "
+              "reads its memory (the careful path stays the default)",
+              bool(ordinary) and "memory.md" in boot_prompt(ordinary[0], ns()))
+        run(cmd_checkin, agent="theta", summary="mechanical-close sensor", pane="%24")
+        opened.clear()
+        out = run(cmd_close, agent="leader", target="theta", renew=False, dry_run=False,
+                  no_export=True)
+        _, _, rows_t = load_workers(base_g)
+        check("G-23: `close` on it spawns NO closer pane and closes the seat mechanically — no "
+              "closer seat, so no ~500 MB launch against the memory gate either",
+              "WITHOUT a closer seat" in out and not opened
+              and not any(t.startswith("closer-theta") for _, t in titles)
+              and current_row(rows_t, "theta")["active"] == "no")
+
         os.environ.pop("COORD_LAUNCH_TARGET", None)
 
     (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
@@ -4862,6 +4959,8 @@ def build_parser():
         "next: coordinate workers — every seat must check in; one that does not never booted")
     s.add_argument("--only", help="comma-separated agent names to launch (stages: e.g. --only judge-ux,judge-parity)")
     s.add_argument("--dry-run", action="store_true", help="print the command each seat would start with, open nothing")
+    s.add_argument("--force-memory", action="store_true",
+                   help="override the MEMORY gate only (--force does not: it covers the role gate)")
     add_identity_flags(s)
     s.set_defaults(func=cmd_launch)
 
@@ -4890,6 +4989,11 @@ def build_parser():
     s.add_argument("--renew", action="store_true",
                    help="after closing, relaunch the seat fresh (it reads the updated memory.md)")
     s.add_argument("--dry-run", action="store_true", help="print the closer prompt without launching")
+    s.add_argument("--force-memory", action="store_true",
+                   help="override the MEMORY gate only (--force does not: it covers the role gate)")
+    s.add_argument("--no-export", action="store_true", default=False,
+                   help="skip the transcript export (only reached by a `close: mechanical` seat, "
+                        "which closes without a closer)")
     add_identity_flags(s)
     s.set_defaults(func=cmd_close)
 
