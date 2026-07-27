@@ -57,6 +57,17 @@ DEFAULT_AUTO_WAKE = {"scientist"}
 # their one job needs. The protocol bounded a closer's SENDING and never anyone's RECEIVING; this
 # is that missing half. `closer-*` is matched by prefix (see broadcast_scope).
 SPECIAL_CASE_SEATS = {"engineer", "watcher"}
+# G-22 / leader #198 — `all` is legitimate ONLY when a seat that never reads it would act WRONGLY.
+# Measured on a live run: 86 broadcasts, 35 of them `note`, the leader alone accounting for 38 —
+# and ZERO groups existed after 192 messages, so the expensive channel was the only channel anyone
+# had. The four clauses are the ruling's, verbatim in intent; `--why` makes each broadcast name the
+# one it claims, in the log, where a reader can judge it.
+BROADCAST_CLAUSES = {
+    "ruling": "an owner ruling or leader verdict binding every seat",
+    "milestone": "a milestone open/close, freeze or hazard changing what every seat may do",
+    "retraction": "retracting something broadcast — it must reach everyone who read the wrong thing",
+    "roster": "a roster/lifecycle change altering who exists",
+}
 # The watcher is special-cased only UNTIL the deterministic watch layer (tasks 7.33 team-monitor +
 # 7.32 goal-watcher-job) replaces the agentic seat — at which point this exception expires with the
 # seat. It keeps `completion` and `verdict` because its DAG-unblock trigger RIDES those broadcasts
@@ -2109,7 +2120,7 @@ def next_message_number(blocks):
     return max((b["num"] for b in blocks), default=0) + 1
 
 
-def append_message(base, sender, to, mtype, body, supersedes=None, re_num=None):
+def append_message(base, sender, to, mtype, body, supersedes=None, re_num=None, why=None):
     """Allocate the next message number AND append the block inside one lock hold — two
     concurrent sends used to read the same tail and claim the same ID (run-obs §589).
     Returns the number."""
@@ -2120,7 +2131,10 @@ def append_message(base, sender, to, mtype, body, supersedes=None, re_num=None):
             path.write_text(MESSAGES_HEADER, encoding="utf-8")
         sup = f" | supersedes: {supersedes}" if supersedes is not None else ""
         rel = f" | re: {re_num}" if re_num is not None else ""
-        block = (f"\n## {n} | from: {sender} | to: {to} | type: {mtype}{sup}{rel} | {now()}\n"
+        # #198: the clause rides IN THE LOG LINE, not just in the sender's terminal — a reader
+        # judging whether a broadcast earned everyone's attention can see the claim it made.
+        wc = f" | why: {why}" if why else ""
+        block = (f"\n## {n} | from: {sender} | to: {to} | type: {mtype}{sup}{rel}{wc} | {now()}\n"
                  f"\n{body}\n")
         with open(path, "a", encoding="utf-8") as f:
             f.write(block)
@@ -2286,6 +2300,35 @@ def cmd_send(args):
               f"no group of that name." + (f" Did you mean '{near[0]}'?" if near else "")
               + f"\nknown: {', '.join(sorted(known))}\nsend anyway: --force", file=sys.stderr)
         sys.exit(1)
+    # G-22 / #198 — the two enforcement halves of the broadcast discipline. `all` costs every seat
+    # a wake and a read, so it must be justified rather than habitual: a broadcast names the clause
+    # it claims, and `note` — the type that was 35 of a live run's 86 broadcasts — cannot claim any,
+    # because a note is by definition something a seat that never reads it still acts correctly
+    # without. The cheap channel is a GROUP; before this, none had ever been created.
+    why = getattr(args, "why", None)
+    if args.to == "all" and not force:
+        if args.type == "note":
+            print(f"refused: a `note` is never an `all` broadcast — if a seat that never reads it "
+                  f"still acts correctly, it does not belong in everyone's inbox.\n"
+                  f"Send it to a GROUP (`{coord_invocation(args)} create-group <name> <members>`) "
+                  f"or direct to the seats who need it.\n"
+                  f"If it genuinely binds every seat, it is a verdict/completion under one of: "
+                  f"{', '.join(sorted(BROADCAST_CLAUSES))} — send it as that type with --why.\n"
+                  f"override: --force", file=sys.stderr)
+            sys.exit(1)
+        if not why:
+            clauses = "\n  ".join(f"{k} — {v}" for k, v in sorted(BROADCAST_CLAUSES.items()))
+            print(f"refused: `send all` requires --why <clause>, naming what makes this everyone's "
+                  f"business:\n  {clauses}\n"
+                  f"If none of them fits, the message is not a broadcast — send it to a group or "
+                  f"direct.\noverride: --force", file=sys.stderr)
+            sys.exit(1)
+    if why and args.to != "all":
+        print(f"refused: --why justifies a BROADCAST and '{args.to}' is not `all`, so it would "
+              f"record a clause for a message nobody needed one for.\nDrop --why.",
+              file=sys.stderr)
+        sys.exit(1)
+
     # G-21 — a seat mid-close has one job left, so a peer's direct message is REFUSED here, at the
     # CLI, rather than accepted into a log the seat will depart without reading. The refusal is the
     # POINT: it fails loud, the sender still HOLDS its message and knows now, and nothing can be
@@ -2341,9 +2384,10 @@ def cmd_send(args):
             sys.exit(1)
 
     n = append_message(base, sender, args.to, args.type, body,
-                       supersedes=args.supersedes, re_num=re_num)
+                       supersedes=args.supersedes, re_num=re_num, why=why)
     marks = ((f", supersedes #{args.supersedes}" if args.supersedes is not None else "")
-             + (f", re #{re_num}" if re_num is not None else ""))
+             + (f", re #{re_num}" if re_num is not None else "")
+             + (f", why: {why}" if why else ""))
     print(f"sent message #{n} ({sender} -> {args.to}, type: {args.type}{marks})")
     deliver_wakes(args, base, sender, args.to, n, args.type)
     if args.type == "ask":
@@ -3918,7 +3962,9 @@ def cmd_selftest(args):
 
         sd("beta", "alpha", "how many rows does the export have?", type="ask")
         sd("alpha", "beta", "claim: count is 11", type="answer", re_num=1)
-        sd("beta", "all", "starting")
+        # force: these fixtures exercise broadcast DELIVERY, not the #198 discipline gate — the
+        # note-to-all they send is the shape the gate now refuses, and it is the shape under test.
+        sd("beta", "all", "starting", force=True)
         _, blocks = load_messages(base_dir(ns()))
         check("P2: type recorded in header", blocks[0]["type"] == "ask" and blocks[1]["type"] == "answer")
         check("T4: `| re: N` is written into the header and parses back",
@@ -4463,7 +4509,7 @@ def cmd_selftest(args):
 
         # ---- T3: wakes to DEPARTED seats are skipped quietly, never logged as failures (F7) ----
         raw_before = (base_dir(ns()) / "messages.md").read_text(encoding="utf-8")
-        out = sd("alpha", "all", "who is still here?")
+        out = sd("alpha", "all", "who is still here?", force=True)
         raw_after = (base_dir(ns()) / "messages.md").read_text(encoding="utf-8")
         new_failures = (raw_after.count("> delivery-failure:")
                         - raw_before.count("> delivery-failure:"))
@@ -4833,7 +4879,7 @@ def cmd_selftest(args):
         base_g = base_dir(ns())
         _, before = load_messages(base_g)
         mark = before[-1]["num"] if before else 0
-        out = sd("alpha", "all", "room chatter nobody's sensor needs", type="note")
+        out = sd("alpha", "all", "room chatter nobody's sensor needs", type="note", force=True)
         check("G-20: an `all` NOTE skips the special-case seats by NAME in the sender's summary "
               "(never silently) and still reaches an ordinary seat",
               "skipped (special-case seat: engineer, watcher)" in out
@@ -4845,7 +4891,7 @@ def cmd_selftest(args):
               and "room chatter" in rd("zeta", after=mark, peek=True))
         _, mid = load_messages(base_g)
         mark2 = mid[-1]["num"]
-        out = sd("alpha", "all", "lane A node delivered", type="completion")
+        out = sd("alpha", "all", "lane A node delivered", type="completion", why="milestone")
         check("G-20: an `all` COMPLETION DOES reach the watcher — its DAG-unblock trigger rides "
               "these — while the engineer still takes none",
               "lane A node" in rd("watcher", after=mark2, peek=True)
@@ -4890,7 +4936,7 @@ def cmd_selftest(args):
               "abort the close" in rd("eta", after=mark5, peek=True))
         _, pre4 = load_messages(base_g)
         mark6 = pre4[-1]["num"]
-        out = sd("alpha", "all", "a broadcast during the close", type="note")
+        out = sd("alpha", "all", "a broadcast during the close", type="note", force=True)
         check("G-21: an `all` broadcast does not reach a closing seat, and the sender is told",
               "closing: eta" in out
               and "a broadcast during the close" not in rd("eta", after=mark6, peek=True))
@@ -4996,6 +5042,41 @@ def cmd_selftest(args):
         check("G-32: removing a name that is not a member is REFUSED rather than reported as a "
               "change that did not happen",
               code == 1 and "not in group" in out)
+
+        # ---- G-22 / #198: the broadcast discipline, enforced instead of remembered ----
+        # Measured on the live run that produced the rule: 86 broadcasts, 35 of them `note`, one
+        # seat accounting for 38 — and ZERO groups after 192 messages, so the expensive channel was
+        # the only channel anyone had. Both halves are mechanical here: a note cannot be an `all`,
+        # and every `all` names the clause that makes it everyone's business.
+        out, code = refuse(cmd_send, agent="alpha", to="all", message="fyi, lane A is green",
+                           type="note", supersedes=None, re_num=None, file=None)
+        check("#198: a `note` to `all` is REFUSED and the refusal teaches the CHEAP channel — a "
+              "note is by definition something a seat that never reads it still acts correctly "
+              "without",
+              code == 1 and "never an `all` broadcast" in out and "create-group" in out)
+        out, code = refuse(cmd_send, agent="alpha", to="all", message="m1 is closed",
+                           type="verdict", supersedes=None, re_num=None, file=None)
+        check("#198: any `all` without --why is REFUSED, and the refusal LISTS the four clauses "
+              "rather than making the sender go looking for them",
+              code == 1 and "requires --why" in out
+              and all(k in out for k in BROADCAST_CLAUSES))
+        out, code = refuse(cmd_send, agent="alpha", to="all", message="m1 is closed",
+                           type="verdict", supersedes=None, re_num=None, file=None,
+                           why="milestone")
+        check("#198: a justified broadcast goes through and the CLAUSE is recorded in the LOG LINE "
+              "itself — a reader judging whether it earned everyone's attention sees the claim it "
+              "made",
+              code == 0 and "why: milestone" in out
+              and "| why: milestone |" in (base_dir(ns()) / "messages.md").read_text(encoding="utf-8"))
+        out, code = refuse(cmd_send, agent="alpha", to="beta", message="just you",
+                           type="note", supersedes=None, re_num=None, file=None, why="ruling")
+        check("#198: --why on a NON-broadcast is refused — it would record a justification for a "
+              "message that needed none",
+              code == 1 and "not `all`" in out)
+        out, code = refuse(cmd_send, agent="alpha", to="all", message="fyi again",
+                           type="note", supersedes=None, re_num=None, file=None, force=True)
+        check("#198: --force remains the single deliberate override, as on every other refusal here",
+              code == 0 and "sent message #" in out)
 
         # ---- G-23: `close: mechanical` — a long-lived seat with an ephemeral-class CLOSE PATH ----
         # The owner's case is the watcher: its whole state is external and machine-owned, so a
@@ -5336,6 +5417,9 @@ def build_parser():
                    help="retract message N: readers see the retraction inline wherever N is rendered")
     s.add_argument("--file", metavar="PATH",
                    help="read the body from a file ('-' = stdin) — shell-safe for backticks/quotes/newlines")
+    s.add_argument("--why", choices=sorted(BROADCAST_CLAUSES), metavar="CLAUSE",
+                   help="REQUIRED on `send all`: which broadcast clause justifies it — "
+                        + " | ".join(f"{k} ({v})" for k, v in sorted(BROADCAST_CLAUSES.items())))
     add_identity_flags(s)
     s.set_defaults(func=cmd_send)
 
