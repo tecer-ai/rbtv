@@ -345,6 +345,63 @@ const NOT_WIRE_REACHABLE = new Map([
   ['E_PEER_NOT_LOCAL', 'seat-resolution outcome returned as DATA to the gateway auth step, never thrown; a remote caller simply carries no proven seat'],
   ['E_PEER_UNRESOLVED', 'seat-resolution outcome returned as DATA to the gateway auth step, never thrown'],
   ['E_PEER_AMBIGUOUS', 'seat-resolution outcome returned as DATA to the gateway auth step, never thrown'],
+
+  // ── G-138: the fourteen codes this map had never ruled on (task 7.11/7.13/7.42 arrivals) ────
+  //
+  // Filed when it was NINE and measured at FOURTEEN (G-166) — it grew because 7.42's profile work
+  // landed hours after the row. It stayed open on a GOOD objection: "a rationale written by
+  // someone who did not trace those call graphs would be a guess wearing a ruling's clothes."
+  // Each line below is a traced call graph, not a plausible sentence.
+  //
+  // ⚠ THE QUESTION WAS ASKED IN BOTH DIRECTIONS. The six identity-gate codes looked like the
+  // likeliest STORE_TO_WIRE candidates — identity.js is the COMMAND-TIME gate task 7.10 wired
+  // into the gateway seam, so a refusal there could plausibly cross the wire. It cannot, and the
+  // reason is structural rather than incidental: identity.js contains ZERO `throw` statements.
+  // Every refusal is `fail()` -> `{ ok: false, code, ... }` returned as DATA. That is the same
+  // strong ground the E_PEER_* rows above stand on, arrived at by measurement, not by symmetry.
+
+  // Task 7.11 — the seat cage (server/spawn/cage.js).
+  // ⚠ E_CAGE_TEMPLATE HAS TWO RAISE CONTEXTS and a single-context rationale would be false for
+  // half its sites: (1) config LOAD, via validateSeatBindTemplate <- config.js's seatBindValidator
+  // <- loadConfig — boot-only, the daemon refuses to start; (2) seat compose, via composeSeatCage
+  // /parseEntry/substituteScalars/normalize <- spawnSeat. Neither is wire-triggered.
+  ['E_CAGE_TEMPLATE', 'TWO contexts, both non-wire: config LOAD (validateSeatBindTemplate via loadConfig — the daemon refuses to start) and seat compose (composeSeatCage <- spawnSeat, ticker-spawn path); dispatch never calls spawnSeat'],
+  ['E_CAGE_GROUND_TRUTH', 'ticker-spawn-path only (assertGroundTruthUnwritable <- spawnSeat); dispatch never calls spawnSeat, and a cage that would leave sessions.csv writable is refused before any unit exists'],
+
+  // Task 7.11 §4b — the COMMAND-TIME identity gate (server/seat-identity/identity.js).
+  // Never thrown, by construction: zero `throw` in that module. Consumers are resolvePeerSeat
+  // (-> the gateway's authenticate step) and seat-identity/cli.js, both of which read the result
+  // as data. If a future caller ever THROWS one, MOVE it to STORE_TO_WIRE with a ruled wire code
+  // rather than widen this rationale.
+  ['E_IDENTITY_NO_SEAT', 'identity-gate outcome returned as DATA (identity.js has zero throws), consumed by resolvePeerSeat and the seat-identity CLI; nothing constructs an Error from it'],
+  ['E_IDENTITY_NO_SESSION', 'identity-gate outcome returned as DATA (identity.js has zero throws); absence of a session row is a refusal value, never an exception'],
+  ['E_IDENTITY_MISMATCH', 'identity-gate outcome returned as DATA (identity.js has zero throws); the refusal names the registered occupant to its caller, it does not raise'],
+  ['E_IDENTITY_SCHEMA', 'identity-gate outcome returned as DATA (identity.js has zero throws); the live sessions.csv carries none of the identity columns today, so this is the DEFAULT state until 7.37 — which is exactly why it must stay a typed refusal and never a fall-through to allow'],
+
+  // ⚠ These two are DUAL-CONTEXT — data on one path, thrown on the other. Both non-wire, but a
+  // rationale naming only the identity.js half would be false for the spawn.js half, and vice
+  // versa. That is the trap this whole block exists to avoid.
+  ['E_NOT_A_SEAT_FOLDER', 'TWO contexts, both non-wire: returned as DATA by the command-time gate (identity.js, zero throws) AND thrown by the launch-time gate (spawn.js spawnSeat), which is ticker-spawn-path only — dispatch never calls spawnSeat'],
+  ['E_RUN_NOT_LIVE', 'TWO contexts, both non-wire: returned as DATA by the command-time gate (identity.js, zero throws) AND thrown by the launch-time gate (spawn.js spawnSeat), which is ticker-spawn-path only'],
+
+  // Task 7.13 — server-composed tmux target names.
+  ['E_TMUX_NAME_INVALID', 'ticker-spawn-path only (tmux.js <- composeSeatSpawn <- spawnSeat); the names are server-composed, never caller strings, so no request path can carry one'],
+
+  // Task 7.42 — the shared launch-profile resolver (ignite/launch-profiles/).
+  // ⚠ STRONGER THAN "not wire-reachable": NO DAEMON PATH REACHES THESE AT ALL TODAY. Measured —
+  // server/spawn/config.js requires the launch-profiles barrel but calls only loadConfig,
+  // resolveTemplateSlots, resolveWorkdir, resolveWorkspaceRoot, sessionsRootFor and CLOSED_SLOTS.
+  // `resolveProfile` has ZERO callers in this repo outside its own module and the probes; that is
+  // G-144's finding stated from the other side (7.42 shipped with one live consumer, and the
+  // daemon spawn path is not it). preflight is exported but deliberately unwired — the barrel
+  // says so at launch-profiles/index.js:46.
+  // ⚠ TASKS 7.43 / 7.54 WIRE resolveProfile INTO THE SPAWN PATH. When they do, RE-RULE these five
+  // rather than inheriting this rationale: it is true of today's call graph, not of the design's.
+  ['E_NO_PORTABLE_HALF', 'raised only inside resolveProfile (launch-profiles/profiles.js), which has NO daemon caller today — the spawn path resolves exec: directly (G-144). Re-rule at 7.43/7.54'],
+  ['E_RAW_FLAG', 'raised only inside resolveProfile (the caller-slot bound), which has NO daemon caller today. Re-rule at 7.43/7.54'],
+  ['E_UNKNOWN_EFFORT', 'raised only inside resolveProfile (the effort translation table), which has NO daemon caller today — config-LOAD effort validation raises E_CONFIG_LOAD instead. Re-rule at 7.43/7.54'],
+  ['E_PINNED_FLAG_ABSENT', 'raised only inside preflightPinnedFlags (launch-profiles/preflight.js), exported but deliberately NOT wired into the daemon spawn path (barrel comment, index.js:46). Re-rule when pre-flight is wired'],
+  ['E_PREFLIGHT_UNAVAILABLE', 'raised only inside the pre-flight help reader (launch-profiles/preflight.js), same deliberately-unwired module; a --help that cannot be read is a pre-flight outcome, not a request outcome'],
 ]);
 
 function toWireError(err) {
