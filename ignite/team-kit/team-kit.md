@@ -18,6 +18,8 @@ runs.
 | `watch.py` | Deterministic liveness/inactivity/context/approval-gate monitor (the watcher-seat tool): flags leader with the exact command to run — `close --renew` at the context threshold, `approve <agent>` for a seat parked on its harness's approval prompt (P38), `tmux kill-window` for a wave window left with panes but no active seat (PROP-10). Also reads system RAM/load every pass and flags SYSTEM PRESSURE below `--mem-floor-mb` / at load ≥ cores (PROP-9 — graceful skip off-Linux). Every pass stamps `coordination/watch-heartbeat.json`, which `coordinate workers` reads back as `watcher: ok \| STALE` — the external check on the detached loop (P32). `python3 watch.py --selftest` verifies it. |
 | `closer-prompt.md` | The closer seat's prompt template (`close <agent>` fills and spawns it): co-writes the seat's `memory.md` with the worker, then closes (and optionally renews) the seat. |
 | `protocol.md` | The coordination protocol + execution rules every run's agents follow. |
+| `communication.md` | How a run talks: the volunteer floor plus ten rules on message form, length, address and correction, each marked `[TOOL]` (the CLI refuses a breach) or `[HAND]` (held by discipline, a breach is silent). Ships as-is — a run adopts it unchanged. |
+| `conduct-template.md` | The run conduct manual, unfilled: run-agnostic law (deterministic-first, surfaces + lifecycle distribution, decisions/ledgers, git, gated cutover, verify/fail-loud, dispatch carry-through) plus `{{slots}}` a run's conduct-author fills at bootstrap (mission, terminology hook, budget + model policy). |
 | `briefing-template.md` | Template for a seat folder briefing (`workers/{agent}/agent.md`; `harness:`/`model:`/`window:`/`ephemeral:` frontmatter). |
 | `tmux-overview` | Owner utility: live view of one tmux session's windows/panes plus Claude plan usage (`tmux-overview <session>`; on this VPS also on PATH, per-machine symlink). `--compact --package <run-package>` renders the ≤7-line control-panel dashboard via `overview-compact.py` — plan-usage bar charts left, windows with roster-resolved seat names right; the `panel` subcommand embeds exactly that in the leader window's 8-row strip. |
 | `overview-compact.py` | The compact dashboard renderer behind `tmux-overview --compact`: colored usage bars for Claude (5h/7d) AND the worker providers (GLM 5h/7d, Codex 7d) + DeepSeek balance + Sakana console note, plus every window with member seat names mapped pane→agent from `coordination/workers.md` (claude panes rewrite their own titles, so the roster is the name source). |
@@ -72,6 +74,21 @@ runs.
    the auto `/rename` like any launched claude seat; a bare `launch` still never boots leader.
    A watcher seat loops `watch.py` to flag stalls and
    context overruns. Everything else follows `protocol.md`.
+
+## Run conduct and communication — both are read-and-follow, on every seat
+
+Two documents bind every seat of a run, and neither is optional reading:
+
+- **`communication.md` ships AS-IS.** A run adopts it by pointing every seat loader at this file by
+  absolute path — never by copying it into the package, which forks it silently. Amendments inside a
+  live run are that run's leader's rulings.
+- **`conduct-template.md` is INSTANTIATED,** at bootstrap, as the package's own `conduct.md`: fill
+  every `{{slot}}` (mission + done contract, terminology hook, budget + model policy — always
+  measured per box). Once ratified it is FROZEN; amendments are leader rulings, each recorded as a
+  sitting in the goal's `decisions.md`.
+
+Every seat-folder loader lists both, with the protocol, as imperative read-and-follow steps — a
+non-claude seat reads nothing ambiently, so a manual nothing points at is a manual nobody obeys.
 
 ## Roster assembly — partition by surface, then put a checker on every surface
 
