@@ -1,11 +1,14 @@
 # `teamview` — responsive team-run dashboard CLI
 
 One live screen for a multi-agent tmux run: the session's windows/panes with agent names, plus
-plan-limit bars for every AI provider account on the machine. Below the constant first line the
-whole body CYCLES every ~10s — the windows/panes view (itself paged into as many views as the
-height needs), then the plan-limits view, then back around. An orchestration-module component
-(runnable CLI, python3 stdlib-only — no install step). Generalized: nothing user-, workspace-,
-or machine-specific is baked in; accounts come from a config file or auto-discovery of whatever
+plan-limit bars for every AI provider account on the machine. Below the constant first line, the
+body renders the COMBINED view (limits + every window/pane) statically whenever the measured
+frame is large enough to show everything at once; only when it is too small does the body CYCLE
+every ~10s instead — the windows/panes view (itself paged into as many views as the height
+needs), then the plan-limits view, then back around. `--view {auto,limits,panes,combined}` pins
+one body instead of the adaptive default. An orchestration-module component (runnable CLI,
+python3 stdlib-only — no install step). Generalized: nothing user-, workspace-, or
+machine-specific is baked in; accounts come from a config file or auto-discovery of whatever
 harness credential stores exist.
 
 Origin: promoted 2026-07-24 from a workspace team-kit's overview tooling after it proved
@@ -25,6 +28,11 @@ python3 .../teamview.py --once --no-rotate                      # COMPLETE combi
                                                                 #   limits + every window/pane,
                                                                 #   no view cycle (can exceed
                                                                 #   terminal height)
+python3 .../teamview.py --view limits | --view panes             # pin one body: bars only /
+                                                                #   windows+panes only, no
+                                                                #   alternation ever (auto is
+                                                                #   the fit-based default;
+                                                                #   combined = --no-rotate)
 python3 .../teamview.py --help-providers | --help-config        # reference: usage sources /
                                                                 #   accounts schema (-h stays short)
 python3 .../teamview.py --help-security | --help-panes          # audit surface (writes/endpoints/
@@ -66,11 +74,16 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   agent TUIs rewrite their own pane titles; fallback is the cleaned pane title. Pure ASCII
   markers throughout — no arrow or box-drawing glyphs (ambiguous-width characters break column
   alignment in some terminal fonts). Narrow/tiny layouts render each window as its own flowed
-  line block (`*name:` then panes), wrapping between panes. The WHOLE VIEW CYCLES every ~10s
+  line block (`*name:` then panes), wrapping between panes. The BODY renders the COMBINED
+  view (limits + every window/pane) STATICALLY whenever the measured frame is large enough to
+  show everything at once; only when it is too small does the view CYCLE every ~10s instead
   (stateless — derived from wall clock, so the refresh loop cycles naturally and `--once`
   shows whichever page is current): the windows view — paged into as many views as the height
   needs, with a `(windows N-M/T - rotating)` note — then ONE plan-limits view, then back
   around; nothing is permanently hidden, and the first line stays constant across every phase.
+  `--view {auto,limits,panes,combined}` pins one body instead of this adaptive default: `limits`
+  or `panes` show only that body at every tick (never alternating), `combined` forces the static
+  combined frame (= `--no-rotate`), and `auto` (default) is the fit-based behavior above.
   A SINGLE window with more panes than fit rotates its OWN pane list
   the same way, with a `(panes N-M/T - rotating)` note — a 6-seat window in a 1-pane-tall
   slot never renders as if it were a dead 1-seat window with no hint the rest exist. A
@@ -78,10 +91,13 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   `--package`, or stuck awaiting approval — is PINNED into every rotation page instead of
   cycling out of view (the note gains a `· pinned` tag when this holds a page steady); the
   pin holds the WHOLE cycle on that windows page — the limits view waits until the pane is
-  dealt with, while the alarm-rollup header line keeps every phase honest.
-  `--no-rotate` disables the cycle entirely for a COMPLETE combined snapshot in one frame —
-  the limits block plus every window and every pane at once, best paired with `--once` (the
-  output can grow taller than the terminal). A seat stuck at a permission or trust prompt renders its name RED
+  dealt with, while the alarm-rollup header line keeps every phase honest. The pin only
+  matters while CYCLING: a frame that fits the static combined view renders every window and
+  pane regardless, so nothing is hidden for the pin to hold open.
+  `--no-rotate` (= `--view combined`) disables the cycle entirely for a COMPLETE combined
+  snapshot in one frame — the limits block plus every window and every pane at once, best
+  paired with `--once` (the output can grow taller than the terminal). A seat stuck at a
+  permission or trust prompt renders its name RED
   with a trailing `?!` (detected in the same busy-sampling capture — claude's numbered
   Yes/No dialogs, codex's "Action Required", and generic trust-this-folder prompts — no
   extra tmux call), overriding the busy `+` marker.
@@ -113,7 +129,10 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   at/past red, count awaiting approval) — above the rotating detail, so a single glance
   proves (or disproves) "nothing is alarming" even when rotation currently hides most
   panes. It shrinks to a short form (`13p ctx94%~ 1r 0?!`) before ever clipping.
-- **Marker legend** — the full-screen (`full`) layout's footer explains every marker
+- **Marker legend** — keys PANE states, so it renders only on the windows/panes view; it is
+  ABSENT from the plan-limits phase (that view is not a table of panes, so those rows go back
+  to the bars instead — the limits view keeps its own notes/console footers). The full-screen
+  (`full`) layout's footer explains every marker
   (`name?!`, `ctxN%!`, the color bands, `+`, `…`, `*`, `ctxN%`, `ctx~`, `Nm/Nh`, in-use
   color, `name shell`, `?`) — ALARM items first, so when the legend must drop lines at a
   narrow width the alarm keys are the last lost, never the first; it is
@@ -122,9 +141,9 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   "ctx~ = pane match uncertain" down to "...pane ma~" with no other sign anything was
   missing). The same legend text is also in `-h`'s own description, so its meaning is
   discoverable without ever running a live frame — and `--help-panes` documents every pane
-  state with its cause and remedy. The strip/narrow/tiny layouts append a ONE-line mini
-  legend (`?!=approval · ctx%!=threshold · red>=85 yel>=60 · …`) — alarm keys first, tail
-  items dropped as width shrinks. Truncation glyphs are split: `…` marks EVERY text cut
+  state with its cause and remedy. The strip/narrow/tiny layouts append the same
+  windows/panes-only ONE-line mini legend (`?!=approval · ctx%!=threshold · red>=85 yel>=60 ·
+  …`), also absent on the limits phase — alarm keys first, tail items dropped as width shrinks. Truncation glyphs are split: `…` marks EVERY text cut
   (names, titles, clipped lines); `~` means ONLY ctx-match uncertainty, never truncation.
   Color-band thresholds are explicit everywhere: green <60, yellow <85, red ≥85 (plain red
   = high value; red with `!` = past this seat's own threshold). The console-only PROVIDER group (Sakana /
@@ -156,7 +175,7 @@ Every layout leads with two fixed rows: the **session-stats line** (windows · p
 | Pane shape | Layout |
 |------------|--------|
 | ≥70 cols, ≥16 rows | **full** — sectioned view: big bars + per-window member list |
-| wide, <16 rows | **strip** — full-width window grid and full-width folded bars, one per cycle phase (the team-kit control-panel shape); `--no-rotate` renders them side by side |
+| wide, <16 rows | **strip** — full-width window grid and full-width folded bars, one per cycle phase when cycling (the team-kit control-panel shape); `--no-rotate`/`--view combined` render them side by side |
 | <70 cols, tall | **narrow** — stacked mini-bars + window list |
 | <70 cols, <18 rows (≈1/6 screen) | **tiny** — token summary lines, no bars. Plan-usage limits render ONE `label: N%` per line (never two flowed onto the same line) so a percent can never visually read as belonging to a neighboring label at this width — and the percent KEEPS its green/yellow/red urgency color (color costs zero columns; a bare `97%` rendering identically to `12%` was a verified false all-clear) |
 
