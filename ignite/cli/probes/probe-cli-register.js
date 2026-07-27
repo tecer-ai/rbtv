@@ -39,6 +39,14 @@ function check(name, pass, detail) {
 
 const SCHEMA = '{"required":{"profile":"string"},"optional":{"prompt":"string"}}';
 
+// ⚑ The S-2(a) register-time gate (`229009b`) REFUSES a registration whose args_schema.required
+// omits an argument its action type needs at enqueue — such a row would register, report
+// enabled=1 forever, and be structurally unable to EVER fire, with no update or unregister
+// surface to repair it. `fire-tool` requires `tool`. Every fire-tool registration below that is
+// meant to SUCCEED must therefore declare it; the one that is meant to be refused is asserted
+// explicitly further down, so the gate itself is covered rather than merely avoided.
+const TOOL_SCHEMA = '{"required":{"tool":"string"}}';
+
 async function main() {
   out('COMMAND: node ' + path.relative(process.cwd(), __filename));
 
@@ -90,7 +98,7 @@ async function main() {
       `stdout=${r.stdout.trim().slice(0, 300)}`);
 
     // 4. Validate-only.
-    r = await runCli(['register-job', 'dry-only', '--action-type', 'fire-tool', '--dry-run'], ownerEnv);
+    r = await runCli(['register-job', 'dry-only', '--action-type', 'fire-tool', '--args-schema', TOOL_SCHEMA, '--dry-run'], ownerEnv);
     check('--dry-run exits 0 with a verdict',
       r.code === 0 && /dry-run: VALID/.test(r.stdout),
       `exit=${r.code} stdout=${r.stdout.trim()}`);
@@ -100,7 +108,7 @@ async function main() {
       `stdout=${r.stdout.trim().slice(0, 200)}`);
 
     // 5. --disabled registers a staged, non-runnable definition.
-    r = await runCli(['register-job', 'staged', '--action-type', 'fire-tool', '--disabled'], ownerEnv);
+    r = await runCli(['register-job', 'staged', '--action-type', 'fire-tool', '--args-schema', TOOL_SCHEMA, '--disabled'], ownerEnv);
     check('--disabled registers with enabled=false',
       r.code === 0 && /disabled\)/.test(r.stdout),
       `exit=${r.code} stdout=${r.stdout.trim()}`);
@@ -110,6 +118,23 @@ async function main() {
     check('a missing --action-type is a local usage error (exit 2)', r.code === 2, `exit=${r.code}`);
     r = await runCli(['register-job', 'bad-schema', '--action-type', 'fire-tool', '--args-schema', '{not json'], ownerEnv);
     check('a malformed --args-schema is a local usage error (exit 2)', r.code === 2, `exit=${r.code}`);
+
+    // 6b. The S-2(a) register-time gate (`229009b`, campaign defect S-2): a registration whose
+    // args_schema can NEVER satisfy its own action type is refused AT THE DOOR. This is a
+    // VALIDATION refusal from the daemon (exit 4), not a local usage error — the argv is
+    // well-formed; it is the combination that is unfireable. Added by task 7.52: the gate
+    // shipped with no cli/ probe on it, and the three checks above were only taught to satisfy
+    // it — teaching a probe to walk around a new production behaviour leaves that behaviour
+    // uncovered by the suite that exists to cover it.
+    r = await runCli(['register-job', 'unfireable', '--action-type', 'fire-tool'], ownerEnv);
+    out('--- S-2(a) gate ---', 'EXIT=' + r.code, 'STDERR=' + r.stderr.trim());
+    check('a fire-tool job declaring no `tool` is REFUSED at registration (exit 4, E_BAD_ARGS)',
+      r.code === 4 && /E_BAD_ARGS/.test(r.stderr) && /tool/.test(r.stderr),
+      `exit=${r.code} stderr=${r.stderr.trim()}`);
+    r = await runCli(['inspect', 'jobs'], ownerEnv);
+    check('the refused unfireable job was NOT registered (the id stays free)',
+      r.code === 0 && !r.stdout.includes('unfireable'),
+      `stdout=${r.stdout.trim().slice(0, 200)}`);
 
     // 7. Authorization (owner ruling Call 1, build (ii)).
     if (bridgeEnv) {
@@ -129,9 +154,14 @@ async function main() {
     if (agentEnv) {
       // ⚑ Asserts an ACCEPTED EXPOSURE, not a safety property: until CMP-13 (task 7.10)
       // lands, ANY enrolled agent token stands in for "the master".
-      r = await runCli(['register-job', 'agent-registered', '--action-type', 'fire-tool'], agentEnv);
+      r = await runCli(['register-job', 'agent-registered', '--action-type', 'fire-tool', '--args-schema', TOOL_SCHEMA], agentEnv);
+      // Assert the AUTHORIZATION property, not incidental success: exit 0 AND no authz refusal.
+      // Before the schema above was supplied this check failed at exit 4 (VALIDATION_FAILED) —
+      // i.e. the sender HAD passed authz and was stopped by an unrelated gate, so a bare
+      // `code === 0` conflates "authorized" with "the whole call happened to succeed".
       check('an AGENT sender IS allowed (master approximation, owner ruling (ii))',
-        r.code === 0, `exit=${r.code} stderr=${r.stderr.trim()}`);
+        r.code === 0 && !/UNAUTHORIZED_SENDER/.test(r.stderr),
+        `exit=${r.code} stderr=${r.stderr.trim()}`);
     } else {
       out('SKIP  agent-sender authz — the fixture workspace defines no agent token');
     }

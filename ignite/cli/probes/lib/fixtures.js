@@ -163,12 +163,26 @@ function seedCatalogue(ws, { withExecution = false, withLogLines = null } = {}) 
     profiles: { 'test-sleep': { headed: false } },
   });
   try {
-    store.registerJob({
-      jobId: 'probe-cli-sleep',
-      actionType: 'launch-agent',
-      function: 'spawnLaunchAgent',
-      argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: {} }),
-    });
+    // ⚑ Registration became CREATE-ONLY at task 7.12 (`acc661d`): re-registering an id now
+    // throws E_JOB_EXISTS. A probe may legitimately call seedCatalogue MORE THAN ONCE on the
+    // SAME workspace to obtain several execution rows — probe-cli-inspect does, and did so
+    // before 7.12 too. For those calls the catalogue row already exists and is IDENTICAL, so
+    // re-registering is a no-op by intent. Swallow exactly that one code and nothing else: a
+    // bare catch here would also hide E_BAD_ARGS, which is precisely how a fixture stops
+    // discriminating. Because nothing runs cli/probes/, this rotted unnoticed from 2026-07-25
+    // until 7.52 ran the suite, turning probe-cli-inspect into a 13ms crash before its daemon
+    // ever booted — and truncating its committed .out from 78 lines to a 9-line stack trace.
+    try {
+      store.registerJob({
+        jobId: 'probe-cli-sleep',
+        actionType: 'launch-agent',
+        function: 'spawnLaunchAgent',
+        argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: {} }),
+      });
+    } catch (err) {
+      if (!err || err.code !== 'E_JOB_EXISTS') throw err;
+      // Already seeded by an earlier call on this same workspace — intended; carry on.
+    }
     let execId = null;
     let logPath = null;
     if (withExecution) {

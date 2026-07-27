@@ -1,6 +1,6 @@
 COMMAND: node cli/probes/probe-cli-screen.js
 seeded headless exec_id=1 headed(never-spawned) exec_id=2
-PASS  the throwaway daemon boots and its gateway listens — port 34185
+PASS  the throwaway daemon boots and its gateway listens — port 42467
 --- screen missing id ---
 EXIT=2
 STDERR=USAGE ERROR: missing required argument: session-id
@@ -48,4 +48,4 @@ PASS  screen on a headed row that never spawned is the liveness refusal (VALIDAT
 
 CHECKS: 10/10 passed
 EXIT: 0
-WALL_MS: 786
+WALL_MS: 892
