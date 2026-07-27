@@ -115,7 +115,30 @@ function createGateway({ dispatch, internalSecret, sendersFilePath, logger = nul
       id: crypto.randomUUID(),
       ts: new Date().toISOString(),
       auth: internalSecret,
-      sender: { id: sender.id, kind: sender.kind, via },
+      // ⚑ FIELDS ARE LISTED EXPLICITLY, NEVER SPREAD — the authenticated sender object carries
+      // registry material, and `...sender` would forward whatever a future resolver attaches,
+      // including anything credential-shaped. So a new fact reaching the core is a DELIBERATE line
+      // here, which is why the seat below had to be added rather than arriving for free.
+      //
+      // ⚑ AND THAT IS EXACTLY HOW 7.10 FIRST SHIPPED BROKEN. The resolver proved the seat, the
+      // authz policy read `sender.seat` — and this line dropped it in between, so the seat NEVER
+      // crossed into the core. Both halves were green: the resolver's probe passed, and the policy
+      // check passed because it was HANDED a `{seat}` object by hand. The producer half was never
+      // connected to the consumer half. Found only by driving a real request end-to-end at close
+      // time (probe-seam-e2e), which is p-green-harness's own lesson landing on the seat that
+      // quoted it. `seat` is present ONLY when proven, so an unproven caller is byte-identical to
+      // the pre-7.10 envelope.
+      sender: {
+        id: sender.id,
+        kind: sender.kind,
+        via,
+        ...(sender.seat ? {
+          seat: sender.seat,
+          seatGoal: sender.seatGoal,
+          seatRun: sender.seatRun,
+          seatProvenBy: sender.seatProvenBy,
+        } : {}),
+      },
       intent,
       payload,
     };
