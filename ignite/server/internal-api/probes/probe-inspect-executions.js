@@ -416,17 +416,30 @@ async function main() {
         return { envelope: { ok: true, result: { target: 'executions', status: payload.status, rows: [], nextOffset: 0, eof: true } } };
       },
     };
-    await cliInspect(['executions', '--status', 'failed'], stubCtx);
-    check('the CLI builds the executions payload the server expects (intent inspect, target+status)',
-      seen.length === 1 && seen[0].intent === 'inspect'
-        && seen[0].payload.target === 'executions' && seen[0].payload.status === 'failed',
-      `sent=${JSON.stringify(seen[0])}`);
+    // ⚑ EVERY CLI DRIVE IS WRAPPED, and the reason is a defect THIS BLOCK ITSELF SHIPPED WITH.
+    // When `executions` is missing from the CLI's TARGETS copy — the precise drift the lockstep
+    // check above exists to catch — `run()` THROWS, and an unwrapped call faulted the probe out
+    // AFTER the lockstep legs had correctly gone red but BEFORE the summary printed: no tally, no
+    // FAILED list, just a stack trace and exit 1. G-121's truncation shape, introduced in the very
+    // block added to close a seam, in a file whose other guards (resultOf/rowsOf/setOrNull) exist
+    // to prevent exactly it. Caught by re-running the mutation against the COMMITTED probe rather
+    // than trusting an earlier run's numbers. A probe must state its WHOLE finding on the code it
+    // is meant to fail against — most of all when that code is the drift it guards.
+    const driveCli = async (args) => {
+      seen.length = 0;
+      try { await cliInspect(args, stubCtx); return null; } catch (e) { return e; }
+    };
 
-    seen.length = 0;
-    await cliInspect(['executions', '--status', 'done', '--offset', '5', '--limit', '10'], stubCtx);
+    let err = await driveCli(['executions', '--status', 'failed']);
+    check('the CLI builds the executions payload the server expects (intent inspect, target+status)',
+      !err && seen.length === 1 && seen[0].intent === 'inspect'
+        && seen[0].payload.target === 'executions' && seen[0].payload.status === 'failed',
+      err ? `CLI REFUSED the target: ${err.message}` : `sent=${JSON.stringify(seen[0])}`);
+
+    err = await driveCli(['executions', '--status', 'done', '--offset', '5', '--limit', '10']);
     check('the CLI forwards --offset/--limit as NUMBERS (a string offset would be shape-refused at the door)',
-      seen.length === 1 && seen[0].payload.offset === 5 && seen[0].payload.limit === 10,
-      `sent=${JSON.stringify(seen[0].payload)}`);
+      !err && seen.length === 1 && seen[0].payload.offset === 5 && seen[0].payload.limit === 10,
+      err ? `CLI REFUSED the target: ${err.message}` : `sent=${JSON.stringify(seen[0].payload)}`);
 
     let usageErr = null;
     try { await cliInspect(['executions'], stubCtx); } catch (e) { usageErr = e; }

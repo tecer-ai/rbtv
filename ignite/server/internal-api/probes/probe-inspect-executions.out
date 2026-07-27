@@ -39,5 +39,5 @@ PASS  gateway parseRequest refuses an unknown status BEFORE the core is ever rea
 
 checks: 36  passed: 36  failed: 0
 RESULT: PASS — inspect executions filters, pages, refuses, stays read-only, and both closed sets it extends are in lockstep.
-WALL_MS 47
+WALL_MS 79
 EXIT 0
