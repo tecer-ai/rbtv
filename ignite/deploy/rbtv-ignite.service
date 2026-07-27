@@ -38,6 +38,23 @@
 # the daemon inherits the minimal user-manager PATH and every real agent spawn fails
 # ENOENT. Verify the installed unit still carries this line before enabling.
 #
+# ── The boot cockpit (task 7.36, settle ledger R6/R15) ────────────────────────────────
+# At boot the daemon spawns a tmux session named `rbtv-cockpit`: teamview plus a LAZY
+# master pane (cd'd to place, harness NOT launched — the owner attaches and types).
+# It is a tmux session, NOT a second systemd unit — the daemon stays the sole systemd
+# citizen. It is IDEMPOTENT (an existing cockpit is left untouched, so Restart=on-failure
+# never destroys what the owner had open) and FAIL-SOFT (no tmux, no teamview, or a
+# refusing tmux server logs a reason and the daemon boots normally).
+# Optional EnvironmentFile knobs, none required:
+#   RBTV_IGNITE_COCKPIT=off             - disable the cockpit entirely
+#   RBTV_IGNITE_COCKPIT_MASTER_DIR      - master pane cwd (default: the workspace root,
+#                                         where a cold session IS the console master)
+#   RBTV_IGNITE_COCKPIT_PACKAGE         - pin teamview's run folder (default: the most
+#                                         recently active run under .rbtv/goals/*/runs/)
+#   RBTV_IGNITE_COCKPIT_TEAMVIEW        - teamview binary (default: PATH, then the
+#                                         orchestration module beside ignite/)
+# Deploy prerequisite: `tmux` on the PATH below. Its absence costs the cockpit only.
+#
 # Do NOT commit a substituted version of this file.
 
 # network-online.target does NOT exist for the user manager (it ships under

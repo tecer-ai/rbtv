@@ -21,6 +21,7 @@ const { createGateway } = require('../gateway/gateway');
 const { resolvePeerSeat } = require('./seat-identity/peer-identity');
 const { loadSendersFile } = require('../gateway/sender-auth');
 const { validateCataloguePaths } = require('./heart/catalogue-paths');
+const { ensureCockpit } = require('./cockpit');
 
 // Smoke mode is an ARGV flag, never an environment variable: EnvironmentFile= and
 // inherited environments can carry an env var into a production boot by accident,
@@ -780,6 +781,33 @@ async function main() {
   log('info', 'daemon composed', {
     heartStoreOpen: isHeartStoreOpen(),
     gatewayBind: tailnetBound ? `${bindHost}:${bindPort} + ${tailnetBound}:${bindPort}` : `${bindHost}:${bindPort} (loopback-only)`,
+  });
+
+  // ── Task 7.36: the BOOT COCKPIT (settle ledger R6/R15) ──────────────────────
+  //
+  // A goal's tmux room is RUN-scoped and torn down at run close, so between runs the owner has
+  // nothing to attach to. This spawns the cockpit: teamview plus a LAZY master pane (cd'd to
+  // place, harness NOT launched — the owner types to start it).
+  //
+  // It is spawned BY THE DAEMON and is NOT a second systemd unit — the cockpit is a tmux session,
+  // so the daemon stays the sole systemd citizen (task 7.36's criterion). It takes NO caller
+  // argument and is exposed through no gateway intent, so DEC-1's R3 sole-spawn-path is unchanged.
+  //
+  // FAIL-SOFT, and deliberately BEFORE the first tick: a box without tmux or teamview must not be
+  // stopped from running the control plane, so ensureCockpit reports and swallows every failure
+  // (it never throws) — but it always logs a REASON, so a missing cockpit is never mistaken for a
+  // healthy one. `RBTV_IGNITE_COCKPIT=off` disables it.
+  //
+  // `installed` gates the spawn on the D81 install test computed at boot entry above. Without it
+  // EVERY throwaway daemon — the ones probes boot — leaves a persistent cockpit session behind,
+  // because a cockpit is designed to outlive its daemon. Measured: a probe-suite run left a stray
+  // `rbtv-cockpit` on this box. See cockpit.js for why this gate rather than a path heuristic.
+  ensureCockpit({
+    workspaceRoot,
+    igniteSrc,
+    installed: serverJsonValidAtBoot,
+    goalRoom: tmuxRoom,
+    logger: (m) => log(m.level || 'info', m.message, m),
   });
 
   // Reconnect any headed sessions that SURVIVED a restart (session-surface-spec.md Behavior #7):

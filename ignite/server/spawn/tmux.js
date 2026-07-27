@@ -155,4 +155,8 @@ function composeSeatSpawn({
   return { tmuxArgv, scopeArgv, wrappedArgv, unitName };
 }
 
-module.exports = { composeSeatSpawn, buildScopeArgv, scopeUnitName, E_TMUX_NAME_INVALID };
+// `assertTmuxName` is exported so the boot cockpit (server/cockpit.js, task 7.36) validates its
+// session and window names through THIS guard rather than a second copy. Same reasoning as
+// `capToProperty` above: a duplicate would eventually drift, and the drift would be silent in
+// exactly the direction that matters — a name carrying `:` or `.` re-targets another pane.
+module.exports = { composeSeatSpawn, buildScopeArgv, scopeUnitName, assertTmuxName, E_TMUX_NAME_INVALID };
