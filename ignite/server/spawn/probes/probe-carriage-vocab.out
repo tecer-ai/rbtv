@@ -1,5 +1,5 @@
 probe: probe-carriage-vocab
-started: 2026-07-20T16:22:31.300Z
+started: 2026-07-27T04:30:53.225Z
 command: node probes/probe-carriage-vocab.js
 (1) headless prompt: file -> LOUD config-LOAD failure E_CONFIG_LOAD: profiles.bad.exec.prompt must be stdin — the ONLY headless carriage (file and argv-last REMOVED, batch-08 item 4: caller free text never becomes argv)
 (2) headless prompt: argv-last -> LOUD config-LOAD failure E_CONFIG_LOAD: profiles.bad.exec.prompt must be stdin — the ONLY headless carriage (file and argv-last REMOVED, batch-08 item 4: caller free text never becomes argv)
@@ -10,5 +10,5 @@ command: node probes/probe-carriage-vocab.js
 RESULT: file/argv-last/argv (and the {prompt} slot) all fail config load LOUDLY; the five shipped stdin profiles load cleanly.
 status: PASS
 exit: 0
-wall_ms: 29
-ended: 2026-07-20T16:22:31.328Z
+wall_ms: 23
+ended: 2026-07-27T04:30:53.248Z

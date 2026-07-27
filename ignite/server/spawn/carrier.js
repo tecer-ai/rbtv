@@ -390,4 +390,8 @@ module.exports = {
   killSystemd,
   killSetsid,
   listSystemdUnits,
+  // 7.30: the tmux seat target (spawn/tmux.js) composes `systemd-run --scope` and needs the SAME
+  // caps translation as the headless service carrier — including its throw-on-untranslatable
+  // behaviour, which is the D46 containment promise. Exported so there is one translator, not two.
+  capToProperty,
 };

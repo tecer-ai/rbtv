@@ -27,6 +27,9 @@ const E_SYSTEMD_NOT_AVAILABLE = 'E_SYSTEMD_NOT_AVAILABLE';
 const E_FS_SANDBOX_UNAVAILABLE = 'E_FS_SANDBOX_UNAVAILABLE';
 const E_ORPHAN_RESCAN_FAILED = 'E_ORPHAN_RESCAN_FAILED';
 const E_BAD_REQUEST = 'E_BAD_REQUEST';
+// 7.30: a tmux session/window name carrying a target separator (`:` `.`) or whitespace would
+// silently re-target another pane. Names are server-composed, so this refuses before compose.
+const E_TMUX_NAME_INVALID = 'E_TMUX_NAME_INVALID';
 
 module.exports = {
   SpawnError,
@@ -47,4 +50,5 @@ module.exports = {
   E_FS_SANDBOX_UNAVAILABLE,
   E_ORPHAN_RESCAN_FAILED,
   E_BAD_REQUEST,
+  E_TMUX_NAME_INVALID,
 };

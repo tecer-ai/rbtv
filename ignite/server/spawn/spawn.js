@@ -6,6 +6,7 @@ const { spawn: childSpawn } = require('node:child_process');
 const { loadConfig, resolveTemplateSlots, resolveWorkdir, resolveWorkspaceRoot, sessionsRootFor } = require('./config');
 const { materializeHarnessConfig, harnessOf } = require('./harness-config');
 const { buildBwrapArgv } = require('./bwrap');
+const { composeSeatSpawn } = require('./tmux');
 const {
   generateSessionId,
   selectCarrier,
@@ -68,6 +69,30 @@ async function resolvePidStarttime(carrier, pid, unitName) {
     return st.pidStarttime || null;
   }
   return null;
+}
+
+// Execute a composed tmux argv. The argv is passed as a VECTOR to childSpawn with no shell — the
+// same property tmux.js composes for, carried through to the actual exec. `shell: true` here would
+// undo the entire reason that module builds a vector (run issue G-11's class); do not add it.
+// tmux's `-P -F '#{pane_id} #{pane_pid}'` prints the two handles on stdout.
+function runTmux(tmuxArgv) {
+  return new Promise((resolve, reject) => {
+    const proc = childSpawn(tmuxArgv[0], tmuxArgv.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    let err = '';
+    proc.stdout.on('data', (d) => { out += d.toString(); });
+    proc.stderr.on('data', (d) => { err += d.toString(); });
+    proc.on('error', (e) => reject(new SpawnError(E_CARRIER_FAILED, `tmux spawn error: ${e.message}`, { carrier: 'tmux-scope' })));
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        reject(new SpawnError(E_CARRIER_FAILED, `tmux new-window failed (exit ${code}): ${err || out}`, { carrier: 'tmux-scope', exitCode: code }));
+        return;
+      }
+      const [paneId, panePidRaw] = out.trim().split(/\s+/);
+      const panePid = Number.parseInt(panePidRaw, 10);
+      resolve({ paneId: paneId || null, panePid: Number.isFinite(panePid) ? panePid : null });
+    });
+  });
 }
 
 function validateRequestKeys(req) {
@@ -298,6 +323,96 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     return fresh;
   }
 
+  // ── Task 7.30 — the SEAT spawn: a headed session landing in a tmux pane (R7/R8/R15/R28) ────
+  //
+  // The gate does not move: this is still the daemon's own door, reached by profile NAME, and no
+  // caller free text reaches argv. What moves is the TARGET — a pane in the goal's run-scoped room
+  // instead of a server-owned pty unit. Composition (and the reasons for each layer) lives in
+  // ./tmux.js; this function is the daemon-side half: resolve, compose, launch, record identity.
+  //
+  // R7's division of labour, which is the whole point of "profiles stay pure mechanism":
+  //   the PROFILE gives  exec/argv, caps, sandbox binds, session_ref     — mechanism only
+  //   the SEAT DESCRIPTOR gives  role, briefing, workdir                 — everything cognitive
+  // So the briefing never rides argv. It is a FILE the harness reads from its own launch dir, which
+  // is why `seatDir` here becomes the workdir and nothing else.
+  //
+  // `dryRun: true` composes and returns WITHOUT creating a pane or writing a store row. It exists
+  // because composition is the half that is checkable off a live room — the probe uses it, and so
+  // does any caller that wants to see the exact argv before it runs.
+  async function spawnSeat(execId, profileName, { room, seatName, seatDir, dryRun = false, enqueuedBy = 'unknown' } = {}) {
+    if (!config.profiles || !config.profiles[profileName]) {
+      throw new SpawnError(E_UNKNOWN_PROFILE, `unknown profile: ${profileName}`, { profile: profileName });
+    }
+    const profile = config.profiles[profileName];
+    if (!seatDir) {
+      throw new SpawnError(E_BAD_REQUEST, 'seat spawn requires seatDir — the seat descriptor folder supplies role/briefing/workdir (R7)', { profile: profileName });
+    }
+
+    // The workdir gate is REUSED, not relaxed. A seat folder outside the profile's `workdir_root`
+    // is refused with E_WORKDIR_ESCAPE — the same containment boundary every other spawn crosses.
+    // DISCLOSED, not silently worked around: until task 7.11 redesigns the writable set (owner
+    // ruling `r-711-write-bounds` pre-binds it to own seat folder + own worktree + git plumbing),
+    // a seat folder living outside that root cannot be spawned into. That is a need to SURFACE,
+    // which is exactly what the ruling's rider asks for — never a boundary to widen here.
+    const resolvedWorkdir = resolveWorkdir(profile, seatDir, config.default_workdir_root, configPath, { execId, sessionsRoot, workspaceRoot });
+
+    const resolvedSandbox = resolveSandbox(profile.sandbox, resolvedWorkdir);
+    const editablePaths = (() => {
+      const rwp = resolvedSandbox && resolvedSandbox.ReadWritePaths;
+      if (!rwp) return [];
+      return (Array.isArray(rwp) ? rwp : [rwp]).filter((p) => p && p !== resolvedWorkdir);
+    })();
+
+    // Headed argv when the profile is headed-capable, else its plain exec argv (R8: one door, the
+    // existing mode flag). No prompt carriage: a seat is driven by its descriptor and by the room.
+    const harnessArgv = (profile.headed && profile.headed.tui && profile.headed.tui.argv) || profile.exec.argv;
+    const sessionId = generateSessionId();
+    const maskPaths = config.auth?.senders_file ? [path.dirname(config.auth.senders_file)] : [];
+
+    // Composition FIRST — and this ordering is the fail-closed guarantee, not a style choice.
+    // composeSeatSpawn runs buildBwrapArgv before it builds any tmux argv, so on a box without
+    // bwrap this throws E_FS_SANDBOX_UNAVAILABLE and NO PANE IS EVER CREATED: the seat is not
+    // spawned unconfined, it is not spawned at all (D59, and 7.30's own criterion).
+    const composed = composeSeatSpawn({
+      room,
+      windowName: seatName || profileName,
+      sessionId,
+      workdir: resolvedWorkdir,
+      harnessArgv,
+      caps: profile.caps,
+      editablePaths,
+      harness: harnessOf(profile),
+      maskPaths,
+      userManager,
+    });
+
+    if (dryRun) return { dryRun: true, sessionId, ...composed, workdir: resolvedWorkdir };
+
+    heartStore.updateExecutionStatus(execId, { status: 'launching', sessionId });
+    log('info', 'seat spawn', { room, seat: seatName, unit: composed.unitName, argv: composed.tmuxArgv });
+
+    const { paneId, panePid } = await runTmux(composed.tmuxArgv);
+
+    // Identity is recorded as the PAIR the daemon already trusts everywhere else — pid plus
+    // /proc stat field 22 starttime — because a pid alone is reusable, and because the pane alone
+    // is NOT identity either: an in-place respawn reuses the pane id (run issue G-12). The scope
+    // unit name is the third handle, and the only one a respawn cannot reproduce.
+    const pidStarttime = panePid ? (setsidStatus(panePid).pidStarttime || null) : null;
+    heartStore.updateExecutionStatus(execId, {
+      status: 'running',
+      carrier: 'tmux-scope',
+      unitName: composed.unitName,
+      pid: panePid,
+      pidStarttime,
+      startedAt: new Date(),
+      sessionId,
+      profile: profileName,
+      workdir: resolvedWorkdir,
+    });
+
+    return { sessionId, paneId, panePid, pidStarttime, unitName: composed.unitName, workdir: resolvedWorkdir, room, seat: seatName };
+  }
+
   async function status(execId) {
     const row = heartStore.getExecution(execId);
     if (!row) throw new SpawnError(E_SESSION_NOT_FOUND, `session not found: ${execId}`, { execId });
@@ -447,6 +562,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
   return {
     config,
     spawn,
+    spawnSeat,
     status,
     logs,
     kill,

@@ -1,0 +1,26 @@
+probe: probe-tmux-seat
+started: 2026-07-27T04:30:44.286Z
+command: node probes/probe-tmux-seat.js
+leg1 order: tmux -> systemd-run --scope -> bwrap -> harness  (unit rbtv-seat-0123abcd-0000-0000-0000-000000000000)
+leg2 caps: MemoryMax / CPUQuota / TasksMax emitted as scope properties
+leg3 unsupported cap: refuses with E_CARRIER_FAILED rather than under-confining
+leg4 no-shell: metacharacter-laden argument survives as one argv element; no sh -c anywhere
+leg5 targets: a room/window name carrying ':' or '.' refuses with E_TMUX_NAME_INVALID
+leg6 fail-closed: bwrap absent -> E_FS_SANDBOX_UNAVAILABLE thrown before any tmux argv exists; no pane composed
+leg7 fail-closed: unresolvable harness binary -> E_FS_SANDBOX_UNAVAILABLE, no pane composed
+leg8 guard: buildScopeArgv refuses an empty argv
+leg9 R7 split: workdir from the seat descriptor, caps/argv from the profile, in one composition
+leg10 dry-run purity: no store row mutated, no pane created
+leg11 containment: a seat folder outside the profile workdir_root is refused with E_WORKDIR_ESCAPE — gate reused, not relaxed
+leg12 R7 guard: no seat descriptor folder -> E_BAD_REQUEST, never a profile-supplied fallback
+
+NOT RUN (require a LIVE daemon-spawned seat; they belong to node A4-verify and are
+held while guard B1 is unresolved — r-bwrap-fail-posture. None of these is stubbed:
+  - kernel-cgroup memory.max readback from a live tmux-spawned seat
+  - the bwrap file-absence check re-run inside that live seat (this, not A1, closes 7.30's flag)
+  - a headless job spawning and completing unchanged through the untouched carrier
+  - pane/seat identity survival across a close/renew
+status: PASS
+exit: 0
+wall_ms: 25
+ended: 2026-07-27T04:30:44.311Z

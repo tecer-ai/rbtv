@@ -1,14 +1,14 @@
 probe: probe-killtree
-started: 2026-07-20T16:22:39.913Z
+started: 2026-07-27T04:30:53.334Z
 command: node probes/probe-killtree.js
 action: fire row, spawn forker worker, kill it, verify whole tree gone
-spawned session_id=5a5ca798-0275-4f20-8ed9-23eb342c0bc6 unit=rbtv-worker-5a5ca798-0275-4f20-8ed9-23eb342c0bc6 pid=2405267
+spawned session_id=82ae52f8-9cb5-4ecb-9c5d-f9377a7f504f unit=rbtv-worker-82ae52f8-9cb5-4ecb-9c5d-f9377a7f504f pid=786123
 is-active before kill: active
-cgroup before: ControlGroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-5a5ca798-0275-4f20-8ed9-23eb342c0bc6.service
+cgroup before: ControlGroup=/user.slice/user-1000.slice/user@1000.service/app.slice/rbtv-worker-82ae52f8-9cb5-4ecb-9c5d-f9377a7f504f.service
 is-active after kill: inactive
 survivor PIDs in cgroup: 0
 row status after kill: killed
 status: PASS
 exit: 0
-wall_ms: 363
-ended: 2026-07-20T16:22:40.276Z
+wall_ms: 340
+ended: 2026-07-27T04:30:53.674Z
