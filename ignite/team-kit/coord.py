@@ -2242,8 +2242,8 @@ def unread_for(args, base, agent, start, blocks=None, gmap=None, observers=None,
         observers, _ = observer_sets(args)
     if closing is None:
         closing = closing_seats(base)
-    return [b for b in blocks if b["num"] > start and b["sender"] != agent
-            and addressed_to(b, agent, gmap, observers, "any", closing)]
+    return [b for b in blocks if b["num"] > start
+            and shows_in_inbox(b, agent, gmap, observers, "any", closing)]
 
 
 def cmd_checkin(args):
@@ -2745,6 +2745,35 @@ def addressed_to(b, agent, gmap, observers, mode="any", closing=()):
     return to == agent or to == "all" or (to in gmap and agent in gmap[to])
 
 
+def shows_in_inbox(b, agent, gmap, observers, mode="any", closing=()):
+    """THE one answer to "will `agent`'s `read` show message `b`" — `read`, `unread_for` and the
+    WAKE half all route through it.
+
+    `addressed_to` already collapsed the READ-side views into one predicate so no two of them could
+    disagree about a seat's inbox. The wake half was never brought in: `deliver_wakes` re-derived a
+    weaker test of its own (`in_broadcast_scope` on the `all` and group branches, `closing_reaches`
+    on the direct branch, and NO visibility test at all on a bare direct message), so the wake set
+    and the read set drifted apart in both directions. A seat with `auto-wake: yes` was woken for
+    every direct message in the room and could read none of them — the pure-overhead version of the
+    very interruption a bounded inbox exists to prevent — while the code's own comment already
+    stated the invariant it was breaking.
+
+    The `sender != agent` half lives here rather than in `addressed_to` because it is a property of
+    the READER, not of the addressing: `addressed_to` answers "is this in my inbox", and a seat's
+    own sends are in its inbox and simply must not be re-served to it.
+    """
+    return b["sender"] != agent and addressed_to(b, agent, gmap, observers, mode, closing)
+
+
+def why_not_woken(b, agent, gmap, observers):
+    """The REASON `agent` is not woken, for the sender's summary line (T3: a narrowed inbox is
+    never silent at either end — the sender always learns who did not get the nudge, and why)."""
+    if b["to"] == "all" or (b["to"] in gmap and agent in gmap.get(b["to"], ())):
+        if not in_broadcast_scope(agent, b["type"]):
+            return "special-case seat"
+    return "not in its inbox"
+
+
 def open_asks(blocks):
     """Asks nobody has settled: type ask, not superseded, and no answer/verdict carrying `re:`
     its number (T4/F11 — before the link existed, an unanswered ask was invisible without
@@ -3050,7 +3079,7 @@ def deliver_wakes(args, base, sender, to, n, mtype="note"):
     # briefing). A default name absent from the package produces no wake, no skip mention and no
     # log line — it is not a recipient of this run at all. Briefing-DECLARED auto-wake seats are
     # by construction in the briefings, so they are unaffected.
-    _, auto_wake = observer_sets(args)
+    observers, auto_wake = observer_sets(args)
     known = {r["agent"] for r in rows} | set(briefing_frontmatters(workers_dir(args)))
     recipients |= (auto_wake & known) - {sender}
 
@@ -3061,31 +3090,36 @@ def deliver_wakes(args, base, sender, to, n, mtype="note"):
     # the nudge and why, so a narrowed inbox is never silent at either end.
     closing = {seat: entry for seat, entry in load_closing(base).items()
                if closing_entry(base, seat) is not None}
+    # The CLOSING cut keeps its own per-branch rules verbatim — G-21 semantics are a STATE
+    # machine, not a visibility question, and folding them into the predicate would have changed
+    # which closing seats a group message reaches. Only the VISIBILITY test below is unified.
+    pending = {"sender": sender, "to": to, "type": mtype}
     scope_skipped = {}
+    closed_out = set()
     if to == "all":
-        for name in sorted(recipients):
-            if name in closing:
-                scope_skipped.setdefault("closing", []).append(name)
-            elif not in_broadcast_scope(name, mtype):
-                scope_skipped.setdefault("special-case seat", []).append(name)
+        closed_out = {n for n in recipients if n in closing}
     elif to in gmap:
-        # G-32: the wake half of the group cut — the same test `addressed_to` now applies to a
-        # group message. Scoped to actual MEMBERS: an observer or auto-wake seat pulled in from
-        # OUTSIDE the group still reads the message by grant, so cutting its wake would hide a
-        # message it can see — the one failure mode this whole filter exists to avoid.
+        # G-32: an observer or auto-wake seat pulled in from OUTSIDE the group still reads the
+        # message by grant, so its closing cut is the direct-message rule, not the member rule.
         members = set(gmap[to])
-        for name in sorted(recipients):
-            entry = closing.get(name)
-            if entry is not None and (name in members
-                                      or not closing_reaches(name, sender, entry)):
-                scope_skipped.setdefault("closing", []).append(name)
-            elif name in members and not in_broadcast_scope(name, mtype):
-                scope_skipped.setdefault("special-case seat", []).append(name)
+        closed_out = {n for n in recipients
+                      if closing.get(n) is not None
+                      and (n in members or not closing_reaches(n, sender, closing[n]))}
     else:
-        for name in sorted(recipients):
-            entry = closing.get(name)
-            if entry is not None and not closing_reaches(name, sender, entry):
-                scope_skipped.setdefault("closing", []).append(name)
+        closed_out = {n for n in recipients
+                      if closing.get(n) is not None
+                      and not closing_reaches(n, sender, closing[n])}
+    for name in sorted(closed_out):
+        scope_skipped.setdefault("closing", []).append(name)
+    # G-20/G-21/G-101 — and the fix this seat was commissioned for: the wake half now asks the
+    # SAME question `read` asks, instead of re-deriving a weaker one per branch. The bare direct
+    # branch had no visibility test at all, so `auto-wake: yes` bought a seat an interruption for
+    # every direct message in the room and a `read` that showed it none of them. `closing` is
+    # passed empty because the branch above already ruled on it.
+    for name in sorted(set(recipients) - closed_out):
+        if not shows_in_inbox(pending, name, gmap, observers, "any", ()):
+            scope_skipped.setdefault(
+                why_not_woken(pending, name, gmap, observers), []).append(name)
     for names in scope_skipped.values():
         recipients -= set(names)
 
@@ -3133,8 +3167,14 @@ def deliver_wakes(args, base, sender, to, n, mtype="note"):
     parts = [f"{delivered} delivered"]
     if failures:
         parts.append(f"{len(failures)} failed")
-    for why in ("departed", "not launched", "no pane", "at an approval gate",
-                "special-case seat", "closing"):
+    # The tuple fixes the ORDER of the reasons worth leading with; the trailing pass catches any
+    # reason not named in it. Before that pass a skip reason absent from this list was computed,
+    # applied, and never printed — the seat was silently not woken and the sender was told
+    # nothing, which is precisely the silent-drop this summary exists to prevent. A hard-coded
+    # list of what may be reported is a list of what can vanish.
+    ordered = ("departed", "not launched", "no pane", "at an approval gate",
+               "special-case seat", "not in its inbox", "closing")
+    for why in ordered + tuple(w for w in sorted(skipped) if w not in ordered):
         names = skipped.get(why)
         if names:
             parts.append(f"{len(names)} skipped ({why}: {', '.join(sorted(names))})")
@@ -3257,8 +3297,8 @@ def cmd_read(args):
     filtered = (args.type is not None) or (addressed != "any")
     closing = closing_seats(base)      # hoisted: the withheld pass below needs the same set
     candidates = [b for b in blocks
-                  if b["num"] > start and b["sender"] != me
-                  and addressed_to(b, me, gmap, observers, addressed, closing)
+                  if b["num"] > start
+                  and shows_in_inbox(b, me, gmap, observers, addressed, closing)
                   and (args.type is None or b["type"] == args.type)]
     # G-94 — A SILENT FILTER AND AN EMPTY INBOX ARE THE SAME OUTPUT, and that is what made the
     # defect permanent rather than merely late: `read` answered "no new messages for leader" while
@@ -3273,8 +3313,7 @@ def cmd_read(args):
     # inbox exists to keep out, burying this signal in the noise it creates.
     withheld = [b["num"] for b in blocks
                 if b["num"] > start and b["to"] == me
-                and not (b["sender"] != me
-                         and addressed_to(b, me, gmap, observers, addressed, closing))]
+                and not shows_in_inbox(b, me, gmap, observers, addressed, closing)]
     limit = getattr(args, "limit", None)
     if limit is None:
         limit = 0 if args.all else READ_LIMIT  # --all = deliberate full replay
@@ -6197,6 +6236,35 @@ def _selftest_checks(args, failures, names):
         # it. The cut stays (fixing WHO is stage 4); what must never happen again is the cut
         # being SILENT, because an inbox that filters without saying so reads exactly like an
         # empty one.
+        # ---- the wake half must ask the SAME question `read` asks ----
+        # `auto-wake: yes` injects a seat into EVERY send's recipient set. The `all` and group
+        # branches scope-filtered it; the bare direct branch tested nothing, so `cos` was woken
+        # for every direct message in the room and could read none of them. `in_broadcast_scope`
+        # is NOT the cure — it type-scopes BROADCASTS and answers True for an ordinary seat like
+        # `cos`, so the symmetric-looking fix would have left this exact case broken while
+        # passing a test written over `engineer`/`watcher`.
+        # Created HERE, not at package setup: `auto-wake: yes` puts this seat into EVERY send's
+        # recipient set, so introducing it earlier would perturb unrelated wake checks upstream.
+        # A fixture that changes results it is not testing makes every mutation non-isolated.
+        (pkg / "workers" / "cos.md").write_text("---\nagent: cos\nauto-wake: yes\n---\nbrief\n")
+        run(cmd_checkin, agent="cos", summary="auto-wake, not an observer", pane="%23")
+        w_mark = load_messages(base_g)[1][-1]["num"]
+        w_out = sd("alpha", "zeta", "a direct message to a third party", type="note", force=True)
+        check("wake/read: an auto-wake seat is NOT woken for a direct message addressed to "
+              "someone else — and is NAMED to the sender with the reason, never dropped silently",
+              "not in its inbox: cos" in w_out)
+        check("wake/read: and its own `read` confirms the wake would have fetched nothing",
+              "a direct message to a third party" not in rd("cos", after=w_mark, peek=True))
+        check("wake/read: in_broadcast_scope would NOT have cut it — the naive symmetric fix "
+              "passes over engineer/watcher and leaves the reported seat woken",
+              in_broadcast_scope("cos", "note") is True)
+        w_mark2 = load_messages(base_g)[1][-1]["num"]
+        w_out2 = sd("alpha", "cos", "a direct message TO the auto-wake seat", type="note",
+                    force=True)
+        check("wake/read: a direct message TO that seat still reaches it — the cut narrows the "
+              "inbox, it must never make a seat unreachable",
+              "not in its inbox: cos" not in w_out2
+              and "a direct message TO the auto-wake seat" in rd("cos", after=w_mark2, peek=True))
         g94_mark = load_messages(base_g)[1][-1]["num"]
         g94_n = append_message(base_g, "zeta", "zeta", "note", "cross-package lifecycle handover")
         g94_out = rd("zeta", after=g94_mark, peek=True)
