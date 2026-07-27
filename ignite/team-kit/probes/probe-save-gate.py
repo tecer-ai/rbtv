@@ -127,6 +127,47 @@ def main():
               "bit and hand every seat 'Permission denied'",
               os.stat(target).st_mode & 0o111 == 0o111)
 
+        # ---- 4b · the target's OWN mode is already broken (the 22:41 shape) ----
+        # Leg 4 proves a 0644 CANDIDATE cannot strip the bit. This is the other direction, and it
+        # is the one that shipped: when the LIVE file is already 0644 — exactly the state a
+        # hand-rolled save left the room in on 2026-07-27 22:41 — carrying its mode forward
+        # faithfully installs the outage. The pre-fix gate printed SAVED and exited 0 over a file
+        # os.access(X_OK) said was unrunnable: a gate reporting success about an artifact the room
+        # cannot execute. Refusing would be the wrong repair, because a broken live mode is
+        # precisely the state you need to save a fix over; so the gate REPAIRS and SAYS SO.
+        os.chmod(target, 0o644)
+        good2 = work / "candidate-good2.py"
+        good2.write_text(live_src + "\n# a second harmless trailing comment\n", encoding="utf-8")
+        os.chmod(good2, 0o644)
+        good2_sha = sha(good2)
+        r = run([sys.executable, str(SAVE_COORD), "--candidate", str(good2),
+                 "--target", str(target)], home)
+        check("a save over an ALREADY-NON-EXECUTABLE target leaves the target RUNNABLE — carrying "
+              "a broken mode forward is how the 22:41 outage would have survived its own fix",
+              os.access(target, os.X_OK))
+        check("...and the gate does not report SAVED silently: the repair of the target's own "
+              "broken mode is announced on stdout", "⚠" in r.stdout and "not executable" in r.stdout.lower())
+        check("...and it still exits 0 — a broken live mode must not BLOCK the save that fixes it",
+              r.returncode == 0)
+        check("...and the bytes that landed are the bytes that were gated (the post-replace "
+              "content assertion, not merely that os.replace did not raise)",
+              sha(target) == good2_sha)
+
+        # ---- 4c · the assertion is real: an unrunnable result is REPORTED, never SAVED ----
+        # Without this the fix above is unfalsifiable — "the file happened to be executable" and
+        # "the gate checked that it was" look identical. Here the exec bits cannot be restored at
+        # all (a target with no read bits either), so the post-replace assertion is the only thing
+        # standing between the room and a silent "SAVED".
+        os.chmod(target, 0o000)
+        good3 = work / "candidate-good3.py"
+        good3.write_text(live_src + "\n# third comment\n", encoding="utf-8")
+        r = run([sys.executable, str(SAVE_COORD), "--candidate", str(good3),
+                 "--target", str(target)], home)
+        check("a save whose result is NOT runnable exits non-zero and says so — the gate never "
+              "prints SAVED over a file the room cannot execute",
+              r.returncode == 1 and "NOT RUNNABLE" in r.stderr and "SAVED:" not in r.stdout)
+        os.chmod(target, 0o755)
+
         # ---- 5 · cross-filesystem replace is refused, not silently non-atomic ----
         far = td / "elsewhere.py"
         far.write_text(live_src, encoding="utf-8")

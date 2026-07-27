@@ -24,6 +24,11 @@ WHAT IT PROVES, exactly (say what you scored over):
      argparse construction is where G-45 actually died, and it happens after the module body.
   3. Only then is the file moved into place with os.replace(), which is atomic on the same
      filesystem: no reader ever observes a half-written coord.py.
+  4. The target is EXECUTABLE afterwards — asserted, not assumed. The mode is carried from the live
+     file before the replace, and if the live file's own mode was already broken the exec bits are
+     restored and the repair is announced. `import` passing is not runnability: a 0644 coord.py
+     imports perfectly and hands every seat "Permission denied".
+  5. The target's bytes equal the bytes that were gated — proof the replace landed what was checked.
 It does NOT run `coord.py selftest` — that takes minutes and is the DONE gate, not the SAVE gate. Run
 it yourself after saving.
 
@@ -116,6 +121,10 @@ def main():
     # through a different door. Found the hard way: this gate did exactly that on its first real
     # save, 2026-07-27. The mode is carried over BEFORE the replace, never after, so no reader can
     # observe a non-executable coord.py even for an instant.
+    # Read the gated bytes BEFORE any chmod: carrying a target mode that denies reads would
+    # otherwise make the gate unable to read its own candidate.
+    gated_bytes = src.read_bytes()
+
     try:
         mode = os.stat(target).st_mode & 0o7777
         os.chmod(src, mode)
@@ -124,9 +133,41 @@ def main():
               f"strip the exec bit and take messaging down for every seat.", file=sys.stderr)
         return 1
 
+    # CARRYING the mode is not the same as the result being RUNNABLE, and the difference is not
+    # theoretical: on 2026-07-27 22:41 a hand-rolled save left the live coord.py at 0644, and every
+    # seat's bare `coordinate` returned "Permission denied". Gate that state and the mode carried
+    # forward is the BROKEN one — measured: the gate printed SAVED, exit 0, over a file os.access
+    # said was unrunnable. Refusing here would be worse than useless, because that is exactly the
+    # state you are trying to save a fix over. So the exec bits are RESTORED and the repair is
+    # announced: `chmod +X` semantics — x wherever r is already granted — never a hardcoded 0o755,
+    # which would one day silently "fix" a mode somebody meant.
+    repaired = ""
+    if not (mode & 0o111):
+        mode |= (mode & 0o444) >> 2
+        os.chmod(src, mode)
+        repaired = (f"\n  ⚠ the TARGET's own mode was NOT executable — repaired to {oct(mode)}. "
+                    f"Something saved over it without carrying the mode; that is the outage shape.")
+
     os.replace(src, target)
+
+    # The two assertions no syntax, import or parser check can substitute for. They run AFTER the
+    # replace because that is the only moment the claim "the room can run this" is about the file
+    # the room will actually run. A failure here has already installed the file, so it is reported
+    # LOUDLY with the remedy — never as SAVED.
+    if not os.access(target, os.X_OK):
+        print(f"⚠⚠ REPLACED BUT NOT RUNNABLE: {target} is not executable ({oct(os.stat(target).st_mode & 0o7777)}). "
+              f"`coordinate` is a symlink to it, so EVERY seat now gets 'Permission denied'. "
+              f"Fix now: chmod +x {target}", file=sys.stderr)
+        return 1
+    if target.read_bytes() != gated_bytes:
+        print(f"⚠⚠ REPLACED BUT NOT THE CANDIDATE: {target} does not match the bytes that were "
+              f"gated. Something else wrote it between the gate and the replace. Nothing here is "
+              f"trustworthy — re-check the file before the room uses it.", file=sys.stderr)
+        return 1
+
     print(f"SAVED: {target} replaced atomically (import OK, parser build OK, mode {oct(mode)} "
-          f"carried over). Now run `{target} selftest` — the save gate is not the done gate.")
+          f"carried over, target verified EXECUTABLE and byte-identical to the gated candidate)."
+          f"{repaired}\nNow run `{target} selftest` — the save gate is not the done gate.")
     return 0
 
 
