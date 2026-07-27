@@ -178,3 +178,109 @@ profiles:
       ReadWritePaths: ["{workdir}"]
       PrivateTmp: true
       NoNewPrivileges: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# tools:  — task 7.70. DAEMON-ONLY root key (server/index.js:40 DAEMON_ONLY_ROOT_KEYS);
+# the daemon strips it into {dataRoot}/.runtime-config/ itself, so it belongs in this
+# committed file. Read at boot only (loadMergedConfig, no fs.watch) — reaches the daemon
+# through the integrator's restart.
+#
+# `fire-tool` resolves argv from config.tools[<args.tool>] and runs it VERBATIM
+# (ticker.js runToolLikeExec, caps:{} sandbox:{}). Only `args.workdir` is per-run.
+#
+# DESIGN CALL — ONE ENTRY PER TARGET, and the twin entries are NOT redundant.
+# The integrator correctly noted that `workdir` is per-run, so one entry could in
+# principle serve two targets. It cannot serve THESE two: each detector's target lives in
+# its ARGV (--session for the room, --package for the heartbeat), not in its cwd. Making
+# the target implicit in workdir would mean the target of a recovery job could be changed
+# by whoever enqueues it. With one entry per target, re-pointing a job at the LIVE room or
+# the LIVE heartbeat requires editing this file and an integrator-owned daemon restart —
+# announced, auditable, and impossible to do by accident from an enqueue.
+#
+# CONTAINMENT LIVES INSIDE THE SCRIPTS (issues.md G-30, spawn-integrator's finding): a
+# fire-tool exec gets no bwrap namespace and no cgroup caps. Each detector caps its own
+# address space and wall clock, holds a single-instance lock, and restores the ORIGINAL
+# limits in any child it starts — so a relaunched sensor or recovery agent never inherits
+# the detector's 256 MB cap.
+# ─────────────────────────────────────────────────────────────────────────────
+tools:
+
+  # ── task 7.71 (r-selfheal-job) — dead-room detection + recovery ────────────
+  # LIVE target: the run's own room. Fires only when the room is ALREADY dead.
+  # Recovery goes through the KIT, not the daemon — the room is a tmux SESSION, not a
+  # daemon-spawned seat; the daemon's tmux-room target is deliberately off
+  # (RBTV_IGNITE_TMUX_ROOM unset); and r-cutover-gated bars the run's own control loop
+  # from adopting an un-shadowed path. Reasoning in selfheal-room.py's docstring.
+  selfheal-room:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/selfheal-room.py
+      - --session
+      - build-core-daemon-mvp
+      - --budget-s
+      - "600"
+      - --
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/coord.py
+      - --package
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/runs/run-1
+      - launch
+      - --only
+      - recovery-agent
+      - --force
+
+  # THROWAWAY twin: a scratch tmux session, recovered by re-creating that session.
+  # This is the entry the staged-failure probe uses. Killing `tw-room-probe` costs the
+  # run nothing; killing `build-core-daemon-mvp` would kill the run the job protects.
+  selfheal-room-throwaway:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/selfheal-room.py
+      - --session
+      - tw-room-probe
+      - --budget-s
+      - "120"
+      - --
+      - /usr/bin/tmux
+      - new-session
+      - -d
+      - -s
+      - tw-room-probe
+      - -c
+      - /tmp
+      - sleep
+      - "900"
+
+  # ── task 7.72 (issues.md G-2) — watch-heartbeat freshness + relaunch ──────
+  # LIVE target: the run's only sensor. A heartbeat is TWO facts — the timestamp AND that
+  # its stated pid is a live watch.py (p-heartbeat-is-two-facts). Tolerance 3 matches
+  # coord.watcher_heartbeat()'s loop_min x 3, so the job and `coordinate workers` never
+  # disagree about the same file. Refuses to double-start.
+  selfheal-watch:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/selfheal-watch.py
+      - --package
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/runs/run-1
+      - --watch-py
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/watch.py
+      - --loop
+      - "10"
+      - --notify
+      - --budget-s
+      - "120"
+
+  # THROWAWAY twin: a scratch package with its own heartbeat and its own watch.py.
+  # No --notify: a throwaway watcher must never inject traffic into the live room.
+  selfheal-watch-throwaway:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/selfheal-watch.py
+      - --package
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/build-core-daemon-mvp/runs/run-1/seats/jobs-builder/throwaway/pkg-watch
+      - --watch-py
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/watch.py
+      - --loop
+      - "10"
+      - --budget-s
+      - "120"
