@@ -48,7 +48,11 @@ const STATUS_FOR = {
   INTERNAL: 500,
 };
 
-function createGateway({ dispatch, internalSecret, sendersFilePath, logger = null }) {
+// `checkPeerSeat` (task 7.10, CMP-13) is the seat resolver, INJECTED exactly as `dispatch` is.
+// The gateway must not require it: `probe-gateway-boundary` fails the build on any reach from
+// gateway/ into server-core internals, and it caught precisely that import when this first landed.
+// Omitting it is supported and means only that senders carry no proven seat.
+function createGateway({ dispatch, internalSecret, sendersFilePath, logger = null, checkPeerSeat = null }) {
   if (typeof dispatch !== 'function') {
     throw new Error('createGateway requires the server core\'s internal-API dispatch endpoint');
   }
@@ -65,14 +69,18 @@ function createGateway({ dispatch, internalSecret, sendersFilePath, logger = nul
   const senders = loadSendersFile(sendersFilePath);
   log('info', 'sender registry loaded', { sendersFile: sendersFilePath, senderCount: senders.length });
 
-  const authenticate = createSenderAuthenticator({ senders, logger });
+  const authenticate = createSenderAuthenticator({ senders, logger, checkPeerSeat });
 
   // ── The pipeline ───────────────────────────────────────────────────────────
   //
   // `credential` and `body` arrive SEPARATED on purpose. The body is not touched
   // until authentication has passed, which is what makes step 2-before-3 true rather
   // than merely intended.
-  async function handleRequest({ credential, body, via = 'cli', source = null }) {
+  // `socket` (task 7.10) is the live connection, carried so the CMP-13 seat resolver can MEASURE
+  // who the caller is rather than take its word (gateway/sender-auth.js `attachProvenSeat`). It is
+  // a property OF THE CONNECTION, never anything the caller sent, and it defaults to null so every
+  // other caller of this function keeps working unchanged — the seat simply goes unproven.
+  async function handleRequest({ credential, body, via = 'cli', source = null, socket = null }) {
     let sender;
     try {
       // ⚑ AUTH PRECEDES PARSE. A malformed request from an unauthenticated sender is
@@ -80,7 +88,7 @@ function createGateway({ dispatch, internalSecret, sendersFilePath, logger = nul
       // its request vocabulary to unauthenticated callers, and NOTHING reaches the
       // server core. This ordering is load-bearing and probe-cli-authfail mutates it
       // to prove so.
-      sender = authenticate(credential, { source });
+      sender = authenticate(credential, { source, socket });
     } catch (err) {
       return renderError(err);
     }
@@ -200,6 +208,7 @@ function createGateway({ dispatch, internalSecret, sendersFilePath, logger = nul
           body: bodyOk ? body : { intent: null, payload: null },
           via: 'cli',
           source,
+          socket: req.socket,
         });
 
         res.writeHead(out.status, { 'content-type': 'application/json' });

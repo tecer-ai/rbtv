@@ -9,8 +9,15 @@
 // measurables and NOTHING ambient:
 //
 //   1. the calling process's cwd            -> which seat folder it is in
-//   2. the run-level `sessions.csv`         -> who is REGISTERED in that seat
-//   3. `/proc` ancestry                     -> whether the caller IS that registered process
+//   2. the goal's `runs.csv` + the seat's `seat.md`/`taskforce.csv`
+//                                           -> whether that folder is a LIVE, ROSTERED seat at all
+//   3. the run-level `sessions.csv`         -> who is REGISTERED in that seat
+//   4. `/proc` ancestry                     -> whether the caller IS that registered process
+//
+// Measurable 2 was absent until G-126 was fixed (task 7.10): the two checks existed but were wired
+// into the LAUNCH-time gate only, so the command-time gate confirmed a hand-made folder in a closed
+// run. The lesson is not "someone forgot a call" — it is that a suite can prove two helpers work
+// and never prove the production entry point INVOKES them, which is what a 13/13 green did here.
 //
 // There is no env var, no `--as`, no flag, and no config that can substitute for or override the
 // match. That is not a policy this module enforces; it is the absence of any code path that reads
@@ -27,7 +34,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { readCsv } = require('./csv');
-const { resolveSeatFromCwd } = require('./seat-folder');
+const { resolveSeatFromCwd, checkRunLive, checkMaterializedSeat } = require('./seat-folder');
 
 // The identity columns §7 pre-registers as the gate's interface to 7.37's writer. `pid` and
 // `pid-starttime` are the pair the daemon already trusts everywhere else (spawn.js:396-399) —
@@ -104,6 +111,7 @@ function currentOccupantRow(rows, seat, header) {
 function checkIdentity({ cwd = process.cwd(), pid = process.pid } = {}) {
   const {
     E_IDENTITY_NO_SEAT, E_IDENTITY_NO_SESSION, E_IDENTITY_MISMATCH, E_IDENTITY_SCHEMA,
+    E_RUN_NOT_LIVE, E_NOT_A_SEAT_FOLDER,
   } = require('../spawn/errors');
 
   // 1 — resolve the folder.
@@ -118,7 +126,46 @@ function checkIdentity({ cwd = process.cwd(), pid = process.pid } = {}) {
     );
   }
 
-  // 2 — resolve the registered occupant.
+  // 2 — L2/L3: is this seat folder a LIVE, MATERIALIZED, ROSTERED seat at all?
+  //
+  // G-126 (fixed here): these two checks existed and were wired into `spawnSeat`'s LAUNCH-time
+  // gate ONLY. The command-time gate — the one a seat runs against for its entire lifetime after
+  // launch, and the one task 7.10 wires into the D15 seam — never called them. Proven live before
+  // the fix: a hand-made folder with no `seat.md`, an empty `taskforce.csv`, inside a run marked
+  // `closed`, returned `{"ok":true}` and exit 0.
+  //
+  // WHY IT IS NOT ENOUGH THAT LAUNCH CHECKED: launch-time is a single instant, and every fact
+  // these two read can change AFTER it. A run CLOSES while its seats keep running — that is not
+  // hypothetical, it is tonight: `runs.csv` records run-1 closed while `G-111` found a live pane
+  // still sitting in a run-1 seat folder, and nothing prunes `sessions.csv` on close. A gate that
+  // only asks at launch answers a question nobody is asking by the time it matters.
+  //
+  // ORDER IS DELIBERATE: these run BEFORE the session/process match so the refusal names the
+  // REAL reason. "this run is closed" is actionable; the same case reaching the pid check would
+  // refuse with a mismatch message about ancestry, which sends the reader hunting the wrong thing.
+  const live = checkRunLive(parsed);
+  if (!live.ok) {
+    return fail(
+      E_RUN_NOT_LIVE,
+      `seat "${parsed.seat}" is in ${parsed.run} of goal ${parsed.goal}, which is not provably the ` +
+      `goal's live run: ${live.reason}. Identity is scoped to a LIVE run — a seat in a closed run ` +
+      'has no standing to act, however genuinely it occupies the folder.',
+      { seat: parsed.seat, goal: parsed.goal, run: parsed.run, reason: live.reason },
+    );
+  }
+
+  const materialized = checkMaterializedSeat(parsed);
+  if (!materialized.ok) {
+    return fail(
+      E_NOT_A_SEAT_FOLDER,
+      `${parsed.seatDir} has the shape of a seat folder but is not a materialized, rostered seat: ` +
+      `${materialized.reason}. The path shape is a NAMING convention, not a credential — a folder ` +
+      'anyone can mkdir must not confer an identity.',
+      { seat: parsed.seat, seatDir: parsed.seatDir, reason: materialized.reason },
+    );
+  }
+
+  // 3 — resolve the registered occupant.
   const log = readCsv(parsed.sessionsCsv);
   if (!log.exists) {
     return fail(
@@ -158,7 +205,7 @@ function checkIdentity({ cwd = process.cwd(), pid = process.pid } = {}) {
     );
   }
 
-  // 3 — match the live process. The registered pair must appear among MY ancestors (or be me).
+  // 4 — match the live process. The registered pair must appear among MY ancestors (or be me).
   const chain = processAncestry(pid);
   const match = chain.find((p) => p.pid === regPid && String(p.starttime) === regStart);
   if (!match) {

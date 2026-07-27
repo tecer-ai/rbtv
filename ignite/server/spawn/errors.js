@@ -41,9 +41,13 @@ const E_CAGE_TEMPLATE = 'E_CAGE_TEMPLATE';
 const E_CAGE_GROUND_TRUTH = 'E_CAGE_GROUND_TRUTH';
 
 // ── 7.11 — the identity gate (seat-identity/) ────────────────────────────────────────────────
-// Launch-time (§4a): the seat folder resolves, but its run is not the goal's LIVE run.
+// BOTH gates (§4a launch-time AND §4b command-time): the seat folder resolves, but its run is not
+// the goal's LIVE run. One condition, one code, deliberately — the remedy is identical whichever
+// gate asks it, and a second code would only invite a caller to handle one and miss the other.
 const E_RUN_NOT_LIVE = 'E_RUN_NOT_LIVE';
-// Launch-time: right shape, but not a materialized + rostered seat (no `seat.md`, or no roster row).
+// BOTH gates: right shape, but not a materialized + rostered seat (no `seat.md`, or no roster row).
+// ⚑ These two read "Launch-time" until task 7.10 — ACCURATELY, because the command-time gate did
+// not call them. That omission was G-126.
 const E_NOT_A_SEAT_FOLDER = 'E_NOT_A_SEAT_FOLDER';
 // Command-time (§4b): the caller's cwd has no seat-folder ancestor. A system CLI command from a
 // non-seat directory has no identity — refused, never treated as anonymous-but-allowed.
@@ -59,8 +63,22 @@ const E_IDENTITY_MISMATCH = 'E_IDENTITY_MISMATCH';
 // which is exactly why it must be a typed refusal and never a fall-through to allow.
 const E_IDENTITY_SCHEMA = 'E_IDENTITY_SCHEMA';
 
+// ── 7.10 — resolving a caller ACROSS a socket (seat-identity/peer-identity.js, issue G-124) ──
+// The peer is not on this host, so it owns no process here and holds no seat. NOT a failure: it
+// is the handoff to the per-sender TOKEN resolver, which stays the plug for non-seat callers.
+const E_PEER_NOT_LOCAL = 'E_PEER_NOT_LOCAL';
+// The connection could not be attributed to a pid — no matching socket, or no readable holder.
+const E_PEER_UNRESOLVED = 'E_PEER_UNRESOLVED';
+// The connection maps to MORE THAN ONE process (an fd inherited across fork, or passed with
+// SCM_RIGHTS). Refused rather than resolved to the first match: choosing among holders would make
+// the identity depend on /proc enumeration order, which is a lottery, not a measurement.
+const E_PEER_AMBIGUOUS = 'E_PEER_AMBIGUOUS';
+
 module.exports = {
   SpawnError,
+  E_PEER_NOT_LOCAL,
+  E_PEER_UNRESOLVED,
+  E_PEER_AMBIGUOUS,
   E_CONFIG_LOAD,
   E_DUPLICATE_PROFILE,
   E_UNKNOWN_SLOT,

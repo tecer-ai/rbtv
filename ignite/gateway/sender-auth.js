@@ -134,6 +134,53 @@ function hashToken(token) {
 // forwarded envelope (which already carries `sender`), and the CLI surface do not
 // change when it does. That is the whole point of the seam: it is the landing
 // slot, reserved now so the later gate costs no rewrite.
+// ── The CMP-13 seat resolver (task 7.10) ─────────────────────────────────────
+//
+// It lands as the seam always promised: an ADDITIONAL resolver, no pipeline change, no envelope
+// change, no CLI change. What it adds is the thing a token can never carry — WHICH SEAT the caller
+// is sitting in, measured from the connection (see server/seat-identity/peer-identity.js).
+//
+// ⚑ IT ENRICHES, IT DOES NOT AUTHENTICATE. A proven seat is attached to a sender the token
+// resolver already authenticated; it never admits a caller that presented no valid token. That is
+// a deliberate bound, not an oversight: making "I am in a seat folder" sufficient to pass the
+// ingress would open a SECOND door into the daemon for any local process, and the ingress's one
+// door is the property the startup gate above exists to protect. Proving WHO a caller is and
+// deciding WHETHER it may in are different questions, and only the first is CMP-13's.
+//
+// ⚑ AND IT NEVER OVERRIDES. If the seat cannot be proven, the sender is returned exactly as the
+// token resolver produced it — so this resolver can only ever ADD a fact, never remove a caller's
+// existing access. Every refusal path downstream therefore behaves today exactly as it did before
+// this landed, which is what makes it safe to ship while G-123 masks it.
+//
+// ⚑ THE SEAT CHECKER IS INJECTED, NEVER REQUIRED — and this is an ENFORCED boundary, not a
+// preference. `probe-gateway-boundary` scans every file in gateway/ for reaches into server-core
+// internals and FAILS the build on one; it caught exactly this import when 7.10 first wired the
+// resolver in. The gateway reaches the core only through arguments handed to it at construction,
+// the same way `dispatch` arrives. So this function takes `checkPeerSeat` as a parameter and knows
+// nothing about where the implementation lives.
+function makeSeatAttacher(checkPeerSeat) {
+  if (typeof checkPeerSeat !== 'function') return null;
+  return function attachProvenSeat(sender, context) {
+    if (!sender || !context || !context.socket) return sender;
+    let verdict;
+    try {
+      verdict = checkPeerSeat(context.socket);
+    } catch {
+      // A resolver that throws must never take the ingress down with it: the caller is already
+      // authenticated by token, so the correct degrade is "seat unproven", not "request refused".
+      return sender;
+    }
+    if (!verdict || verdict.ok !== true) return sender;
+    return {
+      ...sender,
+      seat: verdict.seat,
+      seatGoal: verdict.goal,
+      seatRun: verdict.run,
+      seatProvenBy: 'connection: socket inode -> owning pid -> that pid\'s cwd + /proc ancestry, matched against the run\'s sessions.csv',
+    };
+  };
+}
+
 function createTokenResolver(senders) {
   // Pre-hash comparison operates over the registry as a whole so that a miss costs
   // the same walk as a hit — no early return on the first non-match.
@@ -164,13 +211,17 @@ function createTokenResolver(senders) {
 // refusal. Every failure mode — no token, unknown token, disabled sender — yields
 // the SAME error with the same message, so the refusal cannot be used as an oracle
 // to enumerate senders or probe token validity.
-function createSenderAuthenticator({ senders, resolvers = null, logger = null }) {
+function createSenderAuthenticator({ senders, resolvers = null, logger = null, checkPeerSeat = null }) {
+  const seatResolver = makeSeatAttacher(checkPeerSeat);
   const chain = resolvers || [createTokenResolver(senders)];
 
   return function authenticate(credential, context = {}) {
     let sender = null;
     for (const resolve of chain) {
-      const r = resolve(credential);
+      // `context` is passed so a resolver can consult properties of the CONNECTION. Existing
+      // resolvers take one argument and are unaffected — extra arguments are inert in JS, which is
+      // why this widening costs no call-site change anywhere.
+      const r = resolve(credential, context);
       if (r && sender === null) sender = r;
     }
     if (sender === null) {
@@ -181,8 +232,13 @@ function createSenderAuthenticator({ senders, resolvers = null, logger = null })
       }
       throw new GatewayError(AUTH_REFUSED, 'authentication required');
     }
-    return sender;
+    // Enrichment runs AFTER authentication, deliberately: an unauthenticated caller is refused
+    // before any /proc work is done, so an attacker cannot make the ingress walk /proc by
+    // connecting without a token.
+    return seatResolver ? seatResolver(sender, context) : sender;
   };
 }
 
-module.exports = { loadSendersFile, createTokenResolver, createSenderAuthenticator, hashToken };
+module.exports = {
+  loadSendersFile, createTokenResolver, createSenderAuthenticator, hashToken, makeSeatAttacher,
+};

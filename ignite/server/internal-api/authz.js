@@ -36,10 +36,19 @@
 //      ruling wherever a token is SHARED: every seat behind a shared `agent`
 //      token can cancel another seat's job. Do not describe it as seat-based.
 //
-// `master`, `leader`, and true seat-identity are RECORDED below as authorized
-// principals but are INERT in v1 — no such sender kind exists and the resolver
-// that would prove them is deferred. They activate ADDITIVELY when CMP-13 lands:
-// a new resolver is registered here, and NO call site changes.
+// ⚑ UPDATED BY TASK 7.10 — CMP-13 HAS NOW LANDED, and exactly as promised: one
+// additional resolver (`seatPrincipalResolver`), NO call site changed.
+//   • `master` and `leader` are now PROVABLE and are ARMED. The proof is a seat
+//     resolved by MEASURING the connection, not a sender kind.
+//   • The creator APPROXIMATION is NOT yet retired, and the two paragraphs above
+//     still describe the shipped behaviour. Retiring it needs (a) the identity
+//     columns in `sessions.csv` (task 7.37 — until then G-123 means NO live seat
+//     resolves, so retiring would remove the only principal a live agent holds),
+//     and (b) a column recording the enqueuing SEAT, which no table has. Issue
+//     G-137 carries both. Until then this file's model is UNCHANGED for every
+//     decision that rests on the approximation.
+// So the honest reading of "what v1 can prove" is now: owner (kind), master and
+// leader (seat), creator (still an approximation, still coarser than the ruling).
 //
 // EXPLICITLY DECLINED (D65(B) — do not "improve" these):
 //   • extending the sender `kind` enum with master/leader — it would bake two
@@ -88,17 +97,31 @@ const PRINCIPALS = Object.freeze({
     enforcedInV1: false,
     provenBy: 'APPROXIMATION: sender.kind === "agent" — i.e. ANY enrolled agent token, not the master specifically',
   }),
+  // ⚑ ARMED BY TASK 7.10, and this is a genuine WIDENING — say so rather than let it read as a
+  // typo fix. D65(B) authorized these two all along; they were inert ONLY because no resolver
+  // could prove them. `seatPrincipalResolver` now can, so the flag stops being a lie and starts
+  // being a gate. Arming it makes master and leader authorized for canRemoveQueueRow /
+  // canDriveSession / canKillSession — which is what the ruling says, and what "the principals the
+  // shipped policy records but cannot prove become enforceable" asks for.
+  //
+  // This is NOT the widening the `master-approximation` note above warns against. That warning is
+  // about arming an APPROXIMATION (`kind === 'agent'`, i.e. any enrolled token) for three
+  // decisions it was never ruled for. Here the principal is PROVEN — a specific seat, matched by
+  // folder, descriptor, roster, live run and (pid, pid-starttime). The approximation stays
+  // `enforcedInV1: false` and stays confined to canRegisterJob, exactly as that note requires.
+  //
+  // Inert in practice today: G-123 means no live seat resolves at all (see seatPrincipalResolver).
   master: Object.freeze({
     id: 'master',
     describes: 'the system-plane agent with system-wide oversight (registry concept, DRAFT)',
-    enforcedInV1: false,
-    provenBy: null, // no such sender kind exists; CMP-13 resolver deferred (D15)
+    enforcedInV1: true,
+    provenBy: 'CMP-13 seat gate: the connection resolves to a seat named `master`, matched by folder + descriptor + roster + live run + (pid, pid-starttime)',
   }),
   leader: Object.freeze({
     id: 'leader',
     describes: 'the team agent that unblocks workers and is the sole team voice to the owner (registry concept, DRAFT)',
-    enforcedInV1: false,
-    provenBy: null, // no such sender kind exists; CMP-13 resolver deferred (D15)
+    enforcedInV1: true,
+    provenBy: 'CMP-13 seat gate: the connection resolves to a seat named `leader`, matched by folder + descriptor + roster + live run + (pid, pid-starttime)',
   }),
 });
 
@@ -130,7 +153,58 @@ function tokenKindResolver(sender, subject) {
   return held;
 }
 
-function createAuthzPolicy({ resolvers = [tokenKindResolver] } = {}) {
+// ── The CMP-13 seat principal resolver (task 7.10) ───────────────────────────
+//
+// This is the resolver every comment above promised: it lands as an ADDITIONAL entry in the chain
+// and no call site changes. It reads `sender.seat` — a PROVEN seat, attached at the ingress by
+// measuring the connection (gateway/sender-auth.js `attachProvenSeat`), never a claim the caller
+// made — and answers which principals that seat holds.
+//
+// ⚑ WHAT IT PROVES, AND THE LINE UNDER IT. The gate proves WHICH SEAT the caller occupies: the
+// folder, the descriptor naming that folder, the roster row, the live run, and the (pid,
+// pid-starttime) match. It does NOT prove that seat's ROLE, because no record states one —
+// measured 2026-07-27: `taskforce.csv`'s header is
+// `taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id`, with no `role` column
+// anywhere. So the seat NAME is the mapping, declared in the table below rather than inferred by
+// pattern-matching a string at a call site. When a role column exists, this table reads it and the
+// function keeps its shape.
+const SEAT_NAME_PRINCIPALS = Object.freeze({
+  master: ['master'],
+  leader: ['leader'],
+});
+
+// ⚠ RETIREMENT IS GATED ON TASK 7.37, AND SHIPPING IT UNGATED WOULD BE A SILENT REGRESSION.
+//
+// 7.10's criteria retire the sender-id creator APPROXIMATION. This does NOT do that yet, and the
+// reason is measured, not cautious: G-123 — NEITHER live run's `sessions.csv` carries the `pid` /
+// `pid-starttime` columns identity is decided on (run-2's header is
+// `seat,session-id,harness,native-session-id,model,workdir,started,ended`; run-1's differs in
+// order AND set). So the seat resolver refuses EVERY real seat today and `sender.seat` is
+// undefined for all of them.
+//
+// Retiring an approximation now would therefore not tighten authorization — it would REMOVE the
+// only principal any live agent can hold, turning register-job and cancel into owner-only, and it
+// would do so at the NEXT DAEMON START, which no seat can perform. Fixtures would not catch it:
+// a fixture writes the columns, so every test would pass on the one path that works.
+//
+// That is `p-green-harness-over-a-broken-mechanism` at the deployment layer, and it is the same
+// shape the leader ruled on for the schema half of this task. So the approximations STAY ARMED and
+// this resolver is purely ADDITIVE — it can only ever GRANT a principal, never remove one. The
+// retirement is a one-line change (drop `master-approximation` from canRegisterJob and the
+// creator branch from tokenKindResolver) and belongs to whoever lands 7.37's columns. Issue G-137.
+//
+// `creator-seat` is NOT returned here either, and that is a SCHEMA fact rather than a choice:
+// `queue.enqueued_by` and `jobs_log.enqueued_by` are sender-ids (schema.sql:25,61) and no column
+// records the enqueuing SEAT. Proving creator-seat needs that column — the same absent migration
+// path that deferred this task's sender-kind half.
+function seatPrincipalResolver(sender, _subject) {
+  const held = [];
+  if (!sender || typeof sender.seat !== 'string' || sender.seat.length === 0) return held;
+  for (const p of SEAT_NAME_PRINCIPALS[sender.seat] || []) held.push(p);
+  return held;
+}
+
+function createAuthzPolicy({ resolvers = [tokenKindResolver, seatPrincipalResolver] } = {}) {
   function principalsOf(sender, subject) {
     const held = new Set();
     for (const resolve of resolvers) {

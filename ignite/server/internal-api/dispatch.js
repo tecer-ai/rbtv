@@ -321,6 +321,15 @@ const NOT_WIRE_REACHABLE = new Map([
   // remaining raise sites are on the ticker-spawn path anyway.
   ['E_HEADED_PROMPT_CARRIAGE', 'refused earlier at config LOAD (task 7.14); residual raise sites are ticker-spawn-path only'],
   ['E_HEADED_STDIN_CARRIAGE', 'refused earlier at config LOAD (task 7.14); residual raise sites are ticker-spawn-path only'],
+  // Task 7.10 — the peer-identity resolver's refusals, classified on a stronger ground than "no
+  // handler raises them": they are never THROWN at all. `resolvePeerSeat` returns every refusal as
+  // DATA (`{ ok: false, code }`) and its one caller — the gateway's authenticate step — consumes
+  // that data to decide whether to attach a proven seat. Nothing constructs an Error from these,
+  // so no value carrying them can reach toWireError() by any path. If a future caller throws one,
+  // MOVE it to STORE_TO_WIRE with a ruled wire code rather than widen this rationale.
+  ['E_PEER_NOT_LOCAL', 'seat-resolution outcome returned as DATA to the gateway auth step, never thrown; a remote caller simply carries no proven seat'],
+  ['E_PEER_UNRESOLVED', 'seat-resolution outcome returned as DATA to the gateway auth step, never thrown'],
+  ['E_PEER_AMBIGUOUS', 'seat-resolution outcome returned as DATA to the gateway auth step, never thrown'],
 ]);
 
 function toWireError(err) {

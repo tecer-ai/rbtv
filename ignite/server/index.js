@@ -17,6 +17,7 @@ const { flushScreenReadRuns } = require('./internal-api/keys-audit');
 const { parseRetentionDays, sweepRetention } = require('./retention');
 const { createPtyHost } = require('./pty');
 const { createGateway } = require('../gateway/gateway');
+const { resolvePeerSeat } = require('./seat-identity/peer-identity');
 const { loadSendersFile } = require('../gateway/sender-auth');
 const { validateCataloguePaths } = require('./heart/catalogue-paths');
 
@@ -639,6 +640,10 @@ async function main() {
     internalSecret,
     sendersFilePath,
     logger: (m) => log(m.level || 'info', m.message, m),
+    // CMP-13 (task 7.10): the seat resolver is INJECTED here, at the composition root — the one
+    // place allowed to know both the gateway and the server core. The gateway must never require
+    // it; probe-gateway-boundary enforces that and caught exactly that import when 7.10 landed.
+    checkPeerSeat: resolvePeerSeat,
   });
 
   // ── The bind: loopback AND tailnet, never public (network-posture-spec.md) ──
