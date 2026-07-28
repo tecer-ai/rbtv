@@ -53,7 +53,15 @@ closes it, since pointing the flags at any single seat just moves the hole to th
 
   python3 watch.py --package <abs-run-package> [--notify] [--loop 10]
 
-State: <package>/coordination/watch-state.json (script-managed). Transcript matching: the seat's
+State (7.37 criterion 3 / R10): the agent-keyed re-arm state lives at the GOAL folder —
+<goal>/watch-state.json, SECTIONED BY RUN (`{"runs": {"run-1": {...}, "run-2": {...}}}`) — so it
+survives a run boundary while a run reads only its OWN section. Every key it holds (`pane`, `hash`,
+`stable_since`, `notified_*`) describes a seat in the run-scoped tmux room R15 tears down at run
+close, so NO field is correct to inherit across runs and none is. A package with no goal folder
+above it (a bare `--base`, a test tree) keeps the per-run `<package>/coordination/watch-state.json`
+unchanged. The other two state files stay PER-RUN on purpose: `watch-system.json` is run-scoped
+(windows) and box-scoped (pressure), never goal-scoped; `watch-heartbeat.json` is this loop's own
+liveness stamp plus the daemon reading (see `save_heartbeat`). Transcript matching: the seat's
 launch cwd maps to ~/.claude/projects/<munged-cwd>/*.jsonl; the boot prompt names the agent
 ("You are agent '<name>'" / "You are **<name>**"), newest matching file wins. Fallback (a
 hand-started seat's boot prompt never carries that phrasing): the seat's REGISTERED pane's live
@@ -313,18 +321,108 @@ def transcript_usage(path):
 
 # ---------- state ----------
 
-def load_state(base):
-    p = base / "watch-state.json"
-    if p.exists():
+def goal_state(base):
+    """(goal-level watch-state.json, this run's tag) — or (None, None) if `base` is not inside a
+    goal folder (task 7.37 criterion 3 / settle-ledger R10).
+
+    RESOLVED HERE, NOT IN coord.base_dir: base_dir is coord's, and coord.py is a separate custody.
+    watch.py:78 is `import coord`; a watcher relocation has no business reaching into the file the
+    whole room's messaging shares.
+
+    THE GOAL FOLDER IS IDENTIFIED BY ITS `runs.csv` — the run INDEX (R11), not by counting path
+    segments. A parent-walk of fixed depth would silently pick the wrong directory for any package
+    that is not exactly `{goal}/runs/run-{n}/coordination`, and would resolve SOMETHING rather than
+    nothing — the failure mode where a watcher writes a goal file outside the goal.
+
+    Returns (None, None) rather than raising or guessing when there is no goal above: a package
+    with no goal folder (the selftest's temp tree, a bare `--base`) keeps the pre-7.37 per-run
+    behaviour untouched. Absence of a goal is a legitimate shape, not an error."""
+    try:
+        run_dir = base.parent                      # {goal}/runs/run-{n}
+        goal = run_dir.parent.parent               # {goal}
+        if run_dir.parent.name != "runs" or not (goal / "runs.csv").is_file():
+            return None, None
+        return goal / "watch-state.json", run_dir.name
+    except (OSError, IndexError):
+        return None, None
+
+
+def _migrate_runs(goal):
+    """Every run's legacy per-run state, as {run-tag: {...}} — the one-time lift into the goal file.
+
+    MIGRATED, NOT DISCARDED, and the reason is not sentiment: the live loop already holds this
+    run's flags, so a goal file that started EMPTY would re-arm every seat on the first pass and
+    re-fire notifications already sent. The migration is what makes the cutover SILENT. Discarding
+    would also satisfy a naive reading of "survives across runs" while destroying every flag on
+    disk — the trap ruling-737-watchpy-bars.md §7 names."""
+    out = {}
+    for p in sorted((goal / "runs").glob("run-*/coordination/watch-state.json")):
         try:
-            return json.loads(p.read_text(encoding="utf-8"))
+            d = json.loads(p.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
-            pass
-    return {}
+            continue
+        if isinstance(d, dict) and d:
+            out[p.parent.parent.name] = d
+    return out
+
+
+def _read_goal_file(p):
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    runs = d.get("runs") if isinstance(d, dict) else None
+    return runs if isinstance(runs, dict) else {}
+
+
+def load_state(base):
+    """This run's watcher state — from the GOAL-level file when there is a goal, else per-run.
+
+    ⚠ THIS RUN'S SECTION ONLY. Prior runs are PRESERVED in the file and never merged into the
+    evaluation, and that is the whole of criterion 3's "read correctly". Measured across both runs
+    on disk, EVERY key this file holds is per-run by construction — `pane`, `hash`, `stable_since`
+    and the `notified_*` re-arm flags all describe a seat in a tmux room that R15 tears down at run
+    close. There is no field for which cross-run inheritance is correct, so a flat name-keyed merge
+    is not merely risky: it has nothing to get right.
+
+    Proven by A/B on an identical fixture (seats/S9-737-watchstate/probe_737_c3.py): a flat merge
+    SUPPRESSES a real ghostrow flag and SPURIOUSLY fires an inactivity flag; per-run sections do
+    neither. ⚠ The suppression is gated on PANE-ID EQUALITY — `:813`/`:836` re-arm when the pane
+    differs — so it is narrower than ruling-737-watchpy-bars.md §3 states, and that guard is
+    coincidental rather than designed (nothing keeps tmux pane ids unique across runs; a tmux
+    server restart resets the counter). A protection nobody knows they have is one nobody maintains.
+    """
+    p, tag = goal_state(base)
+    if p is None:
+        legacy = base / "watch-state.json"          # no goal above: pre-7.37 behaviour, untouched
+        if legacy.exists():
+            try:
+                return json.loads(legacy.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                pass
+        return {}
+    runs = _read_goal_file(p) if p.exists() else _migrate_runs(p.parent)
+    got = runs.get(tag)
+    return got if isinstance(got, dict) else {}
 
 
 def save_state(base, state):
-    coord.atomic_write(base / "watch-state.json", json.dumps(state, indent=1))
+    """Write back THIS RUN'S SECTION, leaving every other run's byte-for-byte.
+
+    Read-modify-write, because the file is shared with any other run's loop. ⚠ THIS NARROWS THE
+    UNLOCKED-WRITER HAZARD, IT DOES NOT CLOSE IT, and saying so is the point: two coexisting loops
+    touch DIFFERENT sections so neither clobbers the other's flags in the ordinary case, but a
+    read-modify-write race can still drop a section. `coord.atomic_write` is atomic PER WRITE,
+    which is not the same as safe under two writers. The real fix is R9's one-live-run enforcement
+    (task 7.77, unbuilt) — until it lands this rests on the hand-held convention 7.37's own task
+    body names. NO `coord_lock` is added here: that lives in coord.py, which is a separate custody."""
+    p, tag = goal_state(base)
+    if p is None:
+        coord.atomic_write(base / "watch-state.json", json.dumps(state, indent=1))
+        return
+    runs = _read_goal_file(p) if p.exists() else _migrate_runs(p.parent)
+    runs[tag] = state
+    coord.atomic_write(p, json.dumps({"runs": runs}, indent=1))
 
 
 def load_sys_state(base):
@@ -1555,6 +1653,62 @@ def cmd_selftest():
               "Defaulting absence to healthy would rebuild the absence-reads-as-health defect "
               "inside the detector built to close it",
               hb["code_known"] is False and hb["code_drifted"] == [])
+
+        # ---- 7.37 criterion 3 / R10: goal-level state, per-run sections ----
+        # ⚠ THIS BLOCK EXISTS BECAUSE THE SUITE ABOVE PASSED WITHOUT EXERCISING ONE LINE OF IT.
+        # The temp package has no goal folder, so every case above takes the no-goal fallback —
+        # a green suite over code that never ran (G-78). The goal shape has to be built on purpose.
+        goal = Path(td) / "goalfolder"
+        for tag in ("run-1", "run-2"):
+            (goal / "runs" / tag / "coordination").mkdir(parents=True)
+        gbase1 = goal / "runs" / "run-1" / "coordination"
+        gbase2 = goal / "runs" / "run-2" / "coordination"
+
+        check("R10 CONTROL: with no runs.csv the goal does NOT resolve — the resolver refuses to "
+              "GUESS a goal folder. Without this, the checks below could pass against a directory "
+              "picked by counting path segments, which is how a watcher writes outside its goal",
+              goal_state(gbase2) == (None, None))
+
+        (goal / "runs.csv").write_text("run,status\nrun-1,closed\nrun-2,open\n")
+        gp, gtag = goal_state(gbase2)
+        check("R10: the goal folder resolves by its runs.csv (the R11 run INDEX), and the state "
+              "file sits at GOAL level — not inside the run",
+              gp == goal / "watch-state.json" and gtag == "run-2")
+        check("R10: a bare --base outside any goal keeps the pre-7.37 per-run behaviour",
+              goal_state(Path(td) / "coordination") == (None, None))
+
+        # legacy per-run files, as they exist on disk before the cutover
+        (gbase1 / "watch-state.json").write_text(json.dumps(
+            {"ghost": {"pane": "%40", "notified_ghostrow": True}}))
+        (gbase2 / "watch-state.json").write_text(json.dumps({"live": {"pane": "%292"}}))
+
+        check("R10 MIGRATE, not discard: the first load lifts EVERY run's legacy file into "
+              "sections and returns THIS run's — a goal file starting empty would re-arm every "
+              "seat and re-fire notifications already sent",
+              load_state(gbase2) == {"live": {"pane": "%292"}})
+        check("R10 MIGRATE: the prior run's entries are lifted too, not dropped on the floor",
+              load_state(gbase1) == {"ghost": {"pane": "%40", "notified_ghostrow": True}})
+
+        save_state(gbase2, {"live": {"pane": "%292", "notified_dead": True}})
+        on_disk = json.loads((goal / "watch-state.json").read_text())
+        check("R10: the goal-level file is written, sectioned by run tag",
+              set(on_disk["runs"]) == {"run-1", "run-2"})
+        check("R10: writing run-2 leaves run-1's section INTACT — a whole-file write that dropped "
+              "the other run would be the silent-flag-loss this shape exists to prevent",
+              on_disk["runs"]["run-1"] == {"ghost": {"pane": "%40", "notified_ghostrow": True}})
+        check("⚠ R10 THE CRITERION ITSELF — read correctly ACROSS a run boundary: run-2's loop "
+              "opens a file that CONTAINS run-1's stale notified_ghostrow and does NOT inherit it. "
+              "A flat name-keyed merge returns that flag and pre-suppresses the warning; this "
+              "returns only run-2's section (A/B measured in seats/S9-737-watchstate/)",
+              "ghost" not in load_state(gbase2))
+        check("R10: run-1's section is still readable after run-2 wrote — SURVIVES across runs, "
+              "which is R10's actual words",
+              load_state(gbase1) == {"ghost": {"pane": "%40", "notified_ghostrow": True}})
+
+        (goal / "watch-state.json").write_text("{ this is not json")
+        check("R10: a corrupt goal file degrades to EMPTY, never raises — a watcher that dies on "
+              "its own state file takes the run's only sensor down with it",
+              load_state(gbase2) == {})
 
     coord.RUNS_INDEX = real_runs_index
     try:
