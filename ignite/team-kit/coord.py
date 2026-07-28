@@ -3208,8 +3208,15 @@ def cmd_owner(args):
                      "# owner-status — script-managed (coord.py owner <present|afk>)\n"
                      f"owner: {args.state} | since {now()}{note}\n")
     print(f"owner is now: {args.state}{note}")
-    print(c(f"next: {coord_invocation(args)} send all \"owner is {args.state}{note}\" --type note "
-            f"— workers infer it wrongly when nobody says it (P15)", C_HINT))
+    # G-181: this used to coach `send all "owner is ..." --type note`, which the tool REFUSES
+    # twice over (positional body, then `a note is never an all broadcast`). Adding --inline would
+    # have silenced a substring check while the command stayed refused. But the deeper reason not
+    # to restore it in any form is DIVERGENCE, not the refusal: the line above just wrote the
+    # MACHINE surface, and a hand-typed second statement of owner presence is a copy that can
+    # disagree with it. `owner: unknown` sat on the roster through hours of explicit AFK posture
+    # precisely because presence was being restated by hand instead of read from one home.
+    print(c(f"next: nothing to send — {coord_invocation(args)} status and workers now report "
+            f"this to every seat that asks, from the surface just written (P15)", C_HINT))
 
 
 def truncate(text, limit=DIGEST_SNIPPET):
@@ -3389,7 +3396,7 @@ def refuse_special_case_members(args, command, names):
           f"serve the SYSTEM or the ROOM, not the goal's conversation, so the room's threads only "
           f"spend the context {'their' if many else 'its'} one job needs.\n"
           f"Send {'them' if many else 'it'} a DIRECT message instead — direct addressability is "
-          f"untouched: {coord_invocation(args)} send {blocked[0]} \"<what you need>\" --type note\n"
+          f"untouched: {coord_invocation(args)} send {blocked[0]} \"<what you need>\" --type note --inline\n"
           f"--force adds {'them' if many else 'it'} anyway, if the membership is deliberate.",
           file=sys.stderr)
     sys.exit(1)
@@ -3420,7 +3427,7 @@ def cmd_create_group(args):
         with open(path, "a", encoding="utf-8") as f:
             f.write(f"| {name} | {', '.join(members)} | {me} | {now()} |\n")
     print(f"group created: {name} — members: {', '.join(members)}")
-    print(c(f"next: {coord_invocation(args)} send {name} \"<why this group exists>\" --type note "
+    print(c(f"next: {coord_invocation(args)} send {name} \"<why this group exists>\" --type note --inline "
             f"— a group nobody was told about carries no thread", C_HINT))
 
 
@@ -3444,7 +3451,7 @@ def cmd_add_to_group(args):
         atomic_write(path, "".join(lines))
     print(f"group {args.group} members: {', '.join(members)}")
     print(c(f"next: {coord_invocation(args)} send {args.group} \"<who joined, and why>\" "
-            f"--type note", C_HINT))
+            f"--type note --inline", C_HINT))
 
 
 def cmd_remove_from_group(args):
@@ -3477,7 +3484,7 @@ def cmd_remove_from_group(args):
         atomic_write(path, "".join(lines))
     print(f"group {args.group} members: {', '.join(members) or '(none)'}")
     print(c(f"next: {coord_invocation(args)} send {args.group} \"<who left, and why>\" "
-            f"--type note", C_HINT))
+            f"--type note --inline", C_HINT))
 
 
 # ---------- messages.md ----------
@@ -4478,7 +4485,7 @@ def cmd_read(args):
     if asked:
         first = asked[0]
         print(c(f"next: answer what is yours — {coord} send {first['sender']} \"<answer>\" "
-                f"--type answer --re {first['num']}", C_HINT))
+                f"--type answer --inline --re {first['num']}", C_HINT))
 
     advance = not (args.peek or args.all or digest or filtered)
     if not advance:
@@ -4575,7 +4582,7 @@ def cmd_status(args):
         print(c(f"next:   {coord} pending — drain the run's open asks, then {coord} read",
                 C_HINT))
     else:
-        print(c(f"next:   continue your task ({coord} send leader \"<msg>\" --type ask when "
+        print(c(f"next:   continue your task ({coord} send leader \"<msg>\" --type ask --inline when "
                 f"blocked)", C_HINT))
 
 
@@ -4609,7 +4616,7 @@ def cmd_pending(args):
         print(c(f"  {hint}", C_HINT))
 
     section("asks waiting on you", to_me,
-            f"answer one: {coord} send <sender> \"<answer>\" --type answer --re <#>")
+            f"answer one: {coord} send <sender> \"<answer>\" --type answer --inline --re <#>")
     section("open asks to everyone", broadcast, "answer only what is yours to answer")
     section("your asks nobody has answered", from_me,
             "chase the recipient, or retract with --supersedes <#>")
@@ -7094,6 +7101,23 @@ def _selftest_checks(args, failures, names):
               all("TARGET seat" in per_cmd[n]
                   for n in ("close", "close-seat", "approve", "export-transcript")))
 
+        # ---- G-181: the advice surface must not coach a command the tool refuses ----
+        # Three advice populations (runtime `next:` hints, per-command -h epilogs, refusal texts)
+        # all coach `send`, and all three drifted the moment the positional-body guard went
+        # unconditional (rbtv 4837088): 14 sites taught the refused shape and nothing noticed,
+        # because a behaviour change swept logic and comments and left the text that teaches it.
+        g181_bad, g181_total = advice_refused_sends()
+        check("G-181: every `send` this file's advice coaches is ACCEPTED by the real send path "
+              "— evaluated through main()'s own parser+guard sequence, never a substring check "
+              "for `--inline` (which the owner hint would have passed while still being refused "
+              "as `a note is never an all broadcast`) — offenders: %s"
+              % ("none" if g181_bad == [] else
+                 ("SCAN INOPERATIVE: only %d coached sends matched, floor %d — the advice shape "
+                  "stopped matching this source and a blind check reporting clean IS the defect"
+                  % (g181_total, ADVICE_FLOOR) if g181_bad is None else
+                  "; ".join(f"line {ln}: {cmd} -> {why}" for ln, cmd, why in g181_bad))),
+              g181_bad == [])
+
         # ---- G-57: the standing structural descriptor sweep ----
         # Fixture: three seats, each carrying one structural defect, plus a clean one — so a check
         # that merely counts findings cannot pass; each kind must be named.
@@ -8975,6 +8999,202 @@ global: --run TAG | --package DIR (which run) · --as NAME (act as) · --pretty 
 details + examples: coordinate <command> -h · --force overrides a refusal, where one exists""".format(limit=READ_LIMIT)
 
 
+ADVICE_SEND = re.compile(
+    r'send\s+(?P<to>\{[^}]*\}|<[^>]*>|[A-Za-z0-9_.-]+)\s+\\?"(?P<body>[^"\\]*)\\?"'
+    r'(?P<rest>(?:\s+--[a-z-]+(?:\s+(?!--)[^\s"]+)?)*)')
+ADVICE_FLOOR = 5
+_ADVICE_PLACEHOLDER = re.compile(r'^(\{.*\}|<.*>)$')
+
+
+def _advice_render(n):
+    """The text of a string expression, with f-string slots shown as {expr}."""
+    import ast
+    if isinstance(n, ast.Constant):
+        return n.value if isinstance(n.value, str) else ""
+    if isinstance(n, ast.JoinedStr):
+        return "".join(_advice_render(v) for v in n.values)
+    if isinstance(n, ast.FormattedValue):
+        try:
+            return "{" + ast.unparse(n.value) + "}"
+        except Exception:
+            return "{?}"
+    if isinstance(n, ast.BinOp):
+        return _advice_render(n.left) + _advice_render(n.right)
+    return ""
+
+
+def advice_coached_sends(path=None):
+    """Every `send` this file's own advice coaches, as argv — hints, -h epilogs, refusal texts.
+
+    G-181. The advice surface and the send guards drift apart silently: rbtv 4837088 made the
+    positional-body guard UNCONDITIONAL and 14 advice strings kept teaching the shape it now
+    refuses, for hours, because nothing tied the two together.
+
+    DERIVED, NEVER ENUMERATED (G-158): sites are found by scanning, so a hint added tomorrow is
+    covered without editing this function. Selftest fixtures are excluded by their enclosing
+    function name — their strings are controlled inputs, not advice to a user.
+    """
+    import ast
+    src = Path(path or __file__).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    spans = [(n.lineno, n.end_lineno) for n in ast.walk(tree)
+             if isinstance(n, ast.FunctionDef) and "selftest" in n.name]
+    # which `send` flags take a value, asked of the PARSER — the advice string runs on into prose
+    # ("--force adds them anyway, if ..."), and guessing that the next word is a value swallows
+    # that prose into argv, which the parser then rejects: a false RED on a hint that was fine.
+    value_flags = set()
+    for act in _send_actions(build_parser()):
+        if act.nargs != 0 and getattr(act, "const", None) is None:
+            value_flags.update(o for o in act.option_strings if o.startswith("--"))
+
+    outer = []
+
+    class _V(ast.NodeVisitor):
+        def visit_JoinedStr(self, n):
+            outer.append(n)
+
+        def visit_Constant(self, n):
+            if isinstance(n.value, str):
+                outer.append(n)
+
+        def visit_BinOp(self, n):
+            if _advice_render(n):
+                outer.append(n)
+            else:
+                self.generic_visit(n)
+
+    _V().visit(tree)
+
+    sites = []
+    for node in outer:
+        text = _advice_render(node)
+        if not text or any(a <= node.lineno <= b for a, b in spans):
+            continue
+        for m in ADVICE_SEND.finditer(text):
+            to = m.group("to")
+            # `all` is NEVER normalised to a seat name: it is the recipient the owner hint was
+            # refused for, and rewriting it would lose the only case a flag cannot fix.
+            if to != "all":
+                to = "beta"
+            body = m.group("body") or "body"
+            if _ADVICE_PLACEHOLDER.match(body.strip()):
+                body = "body"
+            argv = ["send", to, body]
+            toks = (m.group("rest") or "").split()
+            i = 0
+            while i < len(toks):
+                t = toks[i]
+                if not t.startswith("--"):
+                    break                      # prose begins; the command ended
+                argv.append(t)
+                if t in value_flags and i + 1 < len(toks):
+                    v = toks[i + 1]
+                    argv.append("ASK" if t == "--re"
+                                else ("body" if _ADVICE_PLACEHOLDER.match(v) else v))
+                    i += 2
+                else:
+                    i += 1
+            sites.append((node.lineno, argv))
+    return sites
+
+
+def _send_actions(parser):
+    """The `send` subparser's actions, found by walking the parser rather than by name."""
+    for act in parser._actions:
+        subs = getattr(act, "choices", None)
+        if isinstance(subs, dict) and "send" in subs:
+            return subs["send"]._actions
+    return []
+
+
+def advice_refused_sends(path=None):
+    """-> (offenders, total). Offenders are advice-coached sends the REAL send path refuses.
+
+    ASSERTS THE PROPERTY, NOT THE VOCABULARY. An earlier draft checked each advice string for the
+    substring `--inline`; the leader killed it with this file's own evidence — the `owner` hint was
+    refused TWICE (positional body, then `a note is never an all broadcast`), so adding --inline
+    turns a substring check green while the command stays refused. That detector would certify the
+    exact state it exists to detect. So each command is parsed by the real parser and run through
+    main()'s own boundary sequence instead, which covers any guard, including ones added later.
+    """
+    import io
+    import tempfile
+    from contextlib import redirect_stderr, redirect_stdout
+
+    global CLI_INVOCATION, shell_source_line, RUNS_INDEX
+    sites = advice_coached_sends(path)
+    if len(sites) < ADVICE_FLOOR:
+        return None, len(sites)        # INOPERATIVE — the pattern stopped matching the source
+
+    saved = (CLI_INVOCATION, shell_source_line, RUNS_INDEX)
+    offenders = []
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            RUNS_INDEX = Path(td) / "runs.json"
+            pkg = Path(td) / "pkg"
+            (pkg / "coordination").mkdir(parents=True)
+            (pkg / "workers").mkdir()
+            for a in ("leader", "alpha", "beta"):
+                (pkg / "workers" / f"{a}.md").write_text(f"---\nagent: {a}\n---\nbrief\n")
+            parser = build_parser()
+            # Fixture setup must not be judged by the guard under test: the selftest replaces
+            # shell_source_line with controlled lines for its own G-101 checks, and a seed send
+            # refused by an inherited stub silently left the log with no ask in it — after which
+            # every `--re` site failed for a reason that was this harness's, not the advice's.
+            CLI_INVOCATION, shell_source_line = False, (lambda: "")
+
+            def _run(argv):
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    try:
+                        main_args = parser.parse_args(
+                            ["--package", str(pkg)] + argv)
+                        assert_argv_body_shell_safe(main_args)
+                        main_args.func(main_args)
+                    except SystemExit:
+                        pass
+
+            for a in ("leader", "alpha", "beta"):
+                _run(["checkin", a, "x"])
+            # a REAL open ask, so `--re` binds to something: left dangling it refuses for an
+            # unrelated reason, and a false RED is how a correct hint gets deleted (G-151).
+            _run(["--as", "alpha", "send", "leader", "seed", "--type", "ask", "--inline"])
+            # DERIVE the ask's number instead of assuming it is #1: checkins and the coached
+            # sends themselves put other traffic in this log, and a `--re` pointed at a note
+            # refuses for a reason that has nothing to do with the advice — a false RED, which is
+            # how a correct hint gets deleted (G-151). Measured: 3 sites failed this way first.
+            _, _blocks = load_messages(pkg / "coordination")
+            _asks = [b["num"] for b in _blocks if b.get("type") == "ask"]
+            ask_no = str(_asks[-1]) if _asks else "1"
+
+            for lineno, argv in sites:
+                argv = [ask_no if t == "ASK" else t for t in argv]
+                err = io.StringIO()
+                CLI_INVOCATION, shell_source_line = True, (lambda: "")
+                try:
+                    with redirect_stderr(err):
+                        parsed = parser.parse_args(
+                            ["--package", str(pkg), "--as", "leader"] + argv)
+                except SystemExit:
+                    offenders.append((lineno, " ".join(argv),
+                                      "the parser rejects this argv"))
+                    continue
+                try:
+                    with redirect_stdout(io.StringIO()), redirect_stderr(err):
+                        # main()'s EXACT sequence: the positional-body guard runs BEFORE dispatch,
+                        # not inside cmd_send. Calling cmd_send alone skipped it and passed 12
+                        # sites the real CLI refuses — the check rebuilding the very class it
+                        # exists to catch.
+                        assert_argv_body_shell_safe(parsed)
+                        parsed.func(parsed)
+                except SystemExit as exc:
+                    if exc.code not in (0, None):
+                        first = (err.getvalue().strip().splitlines() or ["(refused)"])[0]
+                        offenders.append((lineno, " ".join(argv), first[:150]))
+    finally:
+        CLI_INVOCATION, shell_source_line, RUNS_INDEX = saved
+    return offenders, len(sites)
+
+
 def build_parser():
     """The whole CLI surface. Split out of main() so the self-test can render the help texts."""
     p = argparse.ArgumentParser(
@@ -9044,7 +9264,7 @@ def build_parser():
         "panes. Send at coordination points: starting, before touching a shared surface, at a\n"
         "milestone, when blocked, when done. The log is the truth — wakes are best-effort.",
         "example:\n"
-        "  coordinate send leader \"views build green; 12/12 pages render\" --type completion\n"
+        "  coordinate send leader \"views build green; 12/12 pages render\" --type completion --inline\n"
         "next: coordinate pending — after an ask, it shows whether anyone settled it")
     s.add_argument("to", help="recipient: an agent name, a group name, or 'all' — validated against the roster, the briefings and the groups, so a typo is refused")
     s.add_argument("message", nargs="?", help="the body, quoted — needs --inline when typed at a shell, because a shell eats backticks and $(...) before coord.py sees them. Anything with backticks, quotes or newlines goes through --file")
@@ -9119,7 +9339,7 @@ def build_parser():
         "stays open until an answer or verdict --re's it, or it is superseded.",
         "example:\n"
         "  coordinate pending\n"
-        "next: coordinate send <asker> \"<answer>\" --type answer --re <ask#>")
+        "next: coordinate send <asker> \"<answer>\" --type answer --inline --re <ask#>")
     add_pretty_flag(s)
     add_identity_flags(s)
     s.set_defaults(func=cmd_pending)
@@ -9145,7 +9365,8 @@ def build_parser():
         "shell outside any seat.",
         "example:\n"
         "  coordinate owner afk --note \"back in 2h\"\n"
-        "next: coordinate send all \"owner is afk until ~18h\" --type note")
+        "next: nothing to send — coordinate status and workers report it from the surface\n"
+        "      this command just wrote; a hand-typed copy is a second answer that can disagree")
     s.add_argument("state", choices=["present", "afk"], help="present = rulings can be escalated now; afk = queue them")
     s.add_argument("--note", default="", help="optional context, e.g. 'back in 2h'")
     add_identity_flags(s)
@@ -9300,7 +9521,7 @@ def build_parser():
         "one group per identified overlap, and detailed discussion happens there.",
         "example:\n"
         "  coordinate create-group views-render builder judge-ux\n"
-        "next: coordinate send views-render \"<why this group exists>\" --type note")
+        "next: coordinate send views-render \"<why this group exists>\" --type note --inline")
     s.add_argument("group", help="the group name — a workstream, never an agent name or 'all'")
     s.add_argument("members", nargs="*", help="agent names to include (you and leader are added automatically)")
     add_identity_flags(s)
@@ -9312,7 +9533,7 @@ def build_parser():
         "already running.",
         "example:\n"
         "  coordinate add-to-group views-render toolsmith\n"
-        "next: coordinate send views-render \"<who joined, and why>\" --type note")
+        "next: coordinate send views-render \"<who joined, and why>\" --type note --inline")
     s.add_argument("group", help="an existing group name")
     s.add_argument("members", nargs="+", help="agent names to add")
     add_identity_flags(s)
@@ -9326,7 +9547,7 @@ def build_parser():
         "was added before the G-32 rule that now refuses it.",
         "example:\n"
         "  coordinate remove-from-group ceremony watcher\n"
-        "next: coordinate send ceremony \"<who left, and why>\" --type note")
+        "next: coordinate send ceremony \"<who left, and why>\" --type note --inline")
     s.add_argument("group", help="an existing group name")
     s.add_argument("members", nargs="+", help="agent names to drop (all must currently be members, unless --force)")
     add_identity_flags(s)
