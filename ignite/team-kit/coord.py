@@ -3023,6 +3023,83 @@ def clear_closing(base, seat):
         return False
 
 
+def permitted_senders(agent, decls, roster):
+    """Who may write to `agent` — or None when its inbox is unbounded. G-197.
+
+    ⚠ `roster` IS A SEPARATE ARGUMENT AND MUST NOT BE `decls`. `inbox_decls` keeps a seat only
+    when that seat DECLARES something (`if d: decls[agent] = d`), so an ordinary seat — the leader
+    included — is ABSENT from it. Deriving the candidates from `decls` therefore skipped every
+    plain seat and reported them as unreachable. Measured, and not by the suite: the first live
+    render told this seat that `leader`, which had been messaging it all session, "NO seat
+    declares". The fixture had listed `leader: {}` explicitly and so could never produce the bug —
+    a fixture shaped to dodge the real path.
+
+    ⚠ THE ANSWER IS EVALUATED, NEVER RE-DERIVED. Every candidate is run through
+    `sender_admitted` — the SAME predicate `send` enforces and `why_not_woken` reports — against a
+    probe message. Spelling the rule a second time here would produce two computations of "may X
+    write to me" that agree today and drift apart on the next bound; this run has already paid for
+    that twice (the wake set vs the read set, and the five hand-derived copies of
+    `sender != me AND addressed_to`).
+
+    `origin: ""` in the probe is the LOCAL case, deliberately: the question is who may write from
+    inside this package. A foreign sender is refused by `sender_admitted`'s own origin test, and
+    asserting that here would be the second copy this docstring exists to prevent.
+
+    Returns (literal, relayed, dead_tokens): seats admitted by name, (seat, token) pairs admitted
+    by relay, and bound tokens that resolve to NOBODY — the last because a bound naming a token no
+    seat carries makes the seat unreachable by that name, silently. That is not hypothetical: it is
+    what `senders: leader, master` did before `relays:` existed.
+    """
+    bound = ((decls or {}).get(agent) or {}).get("senders")
+    if bound is None:
+        return None
+    literal, relayed, live = [], [], set()
+    for cand in sorted(set(roster) | set(decls)):
+        if cand == agent or not sender_admitted({"sender": cand, "origin": ""}, bound, decls):
+            continue
+        live.add(cand)
+        if cand in bound:
+            literal.append(cand)
+        else:
+            relayed.extend((cand, tok) for tok in sorted(bound)
+                           if cand in relay_seats(tok, decls))
+    dead = sorted(tok for tok in bound
+                  if tok not in live and not relay_seats(tok, decls))
+    return literal, relayed, dead
+
+
+def inbox_bound_line(agent, decls, roster):
+    """One line telling a bounded seat WHO may write to it, or '' when unbounded. G-197.
+
+    ⚠ CALLER-ONLY BY CONSTRUCTION, and this is the acceptance bar rather than a nicety: the single
+    call site passes the identity the CLI resolved for the caller, and there is no argument here
+    that lets a seat ask about another. A command that answered for any seat would hand every seat
+    a roster-wide map of who may talk to whom — a strictly larger disclosure than the foreign
+    descriptor read this exists to make unnecessary.
+
+    The defect it closes: a bounded seat could not learn its own bound from the tool at all. The
+    kit RESOLVES `senders:`/`relays:` on every send and reports the refusal to the SENDER — while
+    the bounded seat's own `inbox:` line described only broadcast scope, and said "direct messages
+    always reach you", which for a bounded seat IS FALSE. Verifying the bound therefore meant
+    reading another seat's descriptor: the tool knew the answer and offered no way to ask, so the
+    only available act was the one the boundary forbids.
+    """
+    res = permitted_senders(agent, decls, roster)
+    if res is None:
+        return ""
+    literal, relayed, dead = res
+    who = [f"{s}" for s in literal] + [f"{s} (carries relays: {tok})" for s, tok in relayed]
+    line = (f"BOUNDED — only {', '.join(who)} may write to you; every other seat is refused at "
+            f"ITS OWN cli and keeps its message" if who else
+            "BOUNDED — and NOBODY currently resolves: no seat can reach you at all")
+    if dead:
+        # Loud rather than omitted: a token nothing carries is indistinguishable, in the bound's
+        # own text, from one that works — which is exactly how `master` named nobody for a whole run.
+        line += (f" · ⚠ the bound also names {', '.join(dead)}, which NO seat declares — "
+                 f"nobody can reach you by that name")
+    return line
+
+
 def inbox_scope_line(base, agent):
     """One line naming the seat's inbox narrowing, or '' for an ordinary seat."""
     entry = closing_entry(base, agent)
@@ -3035,9 +3112,14 @@ def inbox_scope_line(base, agent):
         return ""
     if scope:
         return (f"special-case seat — of the room's broadcasts you receive only "
-                f"{'/'.join(sorted(scope))}; direct messages always reach you (G-20)")
-    return ("special-case seat — the room's broadcasts do not reach you; direct messages always "
-            "do (G-20)")
+                f"{'/'.join(sorted(scope))}; G-20 does not filter direct messages (a `senders:` "
+                f"bound can, and the senders: line below reports it)")
+    # ⚠ THIS USED TO SAY "direct messages always do", which is FALSE for a bounded seat and was
+    # printed to bounded seats: G-20 is about BROADCASTS, and the sender bound is a separate
+    # narrowing this line never knew about. Stating a scope you do not compute is how a seat comes
+    # to trust a line that contradicts the refusal its senders are getting.
+    return ("special-case seat — the room's broadcasts do not reach you; G-20 does not filter "
+            "direct messages (a `senders:` bound can, and the senders: line below reports it)")
 
 
 def closing_reaches(seat, sender, entry):
@@ -4667,6 +4749,14 @@ def cmd_status(args):
     scope_line = inbox_scope_line(base, me)
     if scope_line:
         print(f"{c('inbox: ', C_LABEL)} {scope_line}")
+    # The SENDER bound, which the line above never carried — and the omission was not neutral: for
+    # a bounded seat that line asserts "direct messages always reach you", which is the opposite of
+    # true. `me` is the identity the CLI resolved for THIS caller; there is deliberately no way to
+    # ask for another seat's (G-197, and see inbox_bound_line).
+    bound_line = inbox_bound_line(me, inbox_decls(args),
+                                  [w["agent"] for w in discover_workers(workers_dir(args))])
+    if bound_line:
+        print(f"{c('senders:', C_LABEL)} {bound_line}")
     detail = ("  " + ", ".join(f"#{b['num']} from {b['sender']} ({age_of(b['ts'])})"
                                for b in mine[:5])) if mine else ""
     print(f"{c('asks waiting on you:', C_LABEL)} {len(mine)}{detail}")
@@ -7975,6 +8065,45 @@ def _selftest_checks(args, failures, names):
               and addressed_to({"sender": "leader", "to": "engineer", "type": "note"}, "engineer",
                                {}, set(), "any", (),
                                {"engineer": {"senders": frozenset({"leader", "master"})}}) is True)
+        # ---- G-197: the bounded seat can ask the TOOL who may write to it ----
+        # The kit resolved this on every send and reported the refusal to the SENDER, while the
+        # bounded seat's own status said only what G-20 filtered — so verifying the bound meant
+        # reading another seat's descriptor. The tool knew the answer and offered no way to ask,
+        # which made the boundary-breaking act the only available one. Measured: that is exactly
+        # what the engineer did, and disclosed against itself.
+        # ⚠ `leader` DECLARES NOTHING here, deliberately: `inbox_decls` keeps only seats that
+        # declare something, so an ordinary seat is ABSENT from it and the roster is a SEPARATE
+        # input. The first draft derived candidates from `decls` and the live render told this
+        # seat that `leader` — its own permitted sender, messaging it all session — "NO seat
+        # declares". The fixture had listed `leader: {}`, so it could not produce the bug: shaped
+        # to dodge the real path. It is now shaped like the real one.
+        d197 = {"bnd": {"senders": frozenset({"leader", "master"})},
+                "ol": {"relays": frozenset({"master"})}}
+        r197 = ["alpha", "bnd", "leader", "ol", "zeta"]
+        lit197, rel197, dead197 = permitted_senders("bnd", d197, r197)
+        check("G-197: a bounded seat is told WHO may write to it, split by HOW — `leader` by name, "
+              "and the seat CARRYING the role token by relay. The relay holder is the member no "
+              "seat could name without opening a peer's descriptor, which is the read this closes",
+              lit197 == ["leader"] and rel197 == [("ol", "master")] and dead197 == []
+              and "ol (carries relays: master)" in inbox_bound_line("bnd", d197, r197))
+        check("G-197: an UNBOUNDED seat gets NO line rather than a reassuring one — an inbox with "
+              "no bound has no senders answer to give, and printing one would invent a narrowing",
+              permitted_senders("alpha", d197, r197) is None
+              and inbox_bound_line("alpha", d197, r197) == "")
+        check("G-197: a bound naming a token NO seat carries is reported LOUDLY, not omitted — in "
+              "the bound's own text a dead token is indistinguishable from a live one, which is "
+              "precisely what `senders: leader, master` did before `relays:` resolved it",
+              permitted_senders("bnd", {"bnd": d197["bnd"]}, ["bnd", "leader"])[2] == ["master"]
+              and "NO seat declares" in inbox_bound_line("bnd", {"bnd": d197["bnd"]}, ["bnd", "leader"]))
+        check("G-197: the answer is EVALUATED through `sender_admitted`, the same predicate `send` "
+              "enforces — so a change to admission moves both together. Proven by the property "
+              "only that predicate has: a relay is refused for a FOREIGN sender (origin set), and "
+              "permitted_senders lists the relay holder only because it asks the local question",
+              sender_admitted({"sender": "ol", "origin": "run-1"},
+                              d197["bnd"]["senders"], d197) is False
+              and sender_admitted({"sender": "ol", "origin": ""},
+                                  d197["bnd"]["senders"], d197) is True)
+
         run(cmd_checkin, agent="bnd", summary="a bounded inbox", pane="%24")
         _, pre_b = load_messages(base_g)
         r_out, r_code = refuse(cmd_send, agent="zeta", to="bnd", message="a third sender",
