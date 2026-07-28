@@ -370,7 +370,17 @@ async function main() {
           `refused at the front door; a target in the gateway but not the CLI is unreachable by the shipped ` +
           `client; a target in the CLI but not the gateway fails at the door with a shape error; and a target ` +
           `in the HELP but in no set means the CLI's own help LIES about what it accepts, which breaks nothing ` +
-          `and misleads the operator who trusts help instead of source.`,
+          `and misleads the operator who trusts help instead of source.`
+          // The HELP member is the only one that is PARSED, so it is the only one that can be
+          // wrong about itself. A reformat preserving operator meaning but changing line shape
+          // yields a FALSE RED here — and a false red is how a correct thing gets thrown away
+          // (G-151's shape). Say so in the failure, where the person who has to act reads it.
+          + (setName.includes('HELP')
+            ? ` ⚠ BEFORE changing any Set: if the help still READS correctly to a human, suspect the `
+              + `PARSE, not the code. HELP is the one member extracted rather than imported, and `
+              + `targetsFromHelp anchors on 'ignite inspect <target>' at LINE START — a reformat that `
+              + `keeps the meaning and changes the line shape breaks the extractor, not the CLI.`
+            : ''),
       },
     });
     for (const f of failures) out(`FAIL  ${f}`);
