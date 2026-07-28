@@ -9,8 +9,9 @@
 | 1 | Match | Scan the installed skill list and identify EVERY skill the planned task triggers — any source (RBTV, sb-os, user-defined, plugin), matched on each skill's description, never on a hardcoded keyword table. |
 | 2 | Name + path | For each match, the dispatch prompt MUST contain an imperative directive — "Invoke `<skill-name>` and follow it exactly" — AND the skill file's workspace-root-absolute path so the worker can read it. Imperative only ("invoke", "follow exactly", "execute"); never permissive ("may", "consider", "can"). Mere mention of the skill name is insufficient. |
 | 3 | Write hygiene | A dispatch that will CREATE, WRITE, or MOVE files gives every target path workspace-root-absolute — never bare-relative (a worker resolves relative paths from its OWN working directory, which is not guaranteed to match the dispatcher's). On return, VERIFY each claimed file exists at its intended path before trusting the report. |
+| 4 | Environment hygiene | An in-process worker INHERITS the dispatcher's environment — including `TMUX`/`TMUX_PANE` — so it is born holding the dispatcher's OWN pane as its default target, and any tool acting on "the current pane" hits that pane WITHOUT NAMING IT. Every dispatch MUST bind the worker to a hermetic environment as a PRECONDITION in the prompt, before the worker's first command: unset `TMUX`/`TMUX_PANE`, and grant no terminal-multiplexer commands and no coordination-bus writes. A worker that genuinely needs the live environment MUST name its target explicitly, never inherit one. **This step is UNCONDITIONAL** — a bar keyed on ANTICIPATED contact never fires, because the target arrives from the environment rather than the prompt. |
 
-You MUST NOT dispatch until the prompt satisfies all three steps. If you catch yourself about to dispatch without the gate, STOP and rewrite the prompt.
+You MUST NOT dispatch until the prompt satisfies all four steps. If you catch yourself about to dispatch without the gate, STOP and rewrite the prompt.
 
 ## Red Flags — STOP and Rewrite
 
@@ -21,6 +22,8 @@ You MUST NOT dispatch until the prompt satisfies all three steps. If you catch y
 | "I already named the skill last dispatch" | STOP. Each dispatch is independent. Name it again. |
 | "No skill matches this task" | STOP. Re-scan the skill descriptions for partial matches before declaring none. |
 | "The worker shares my working directory — a bare relative write path is fine" | STOP. Workspace-root-absolute write paths; verify each file landed on return. |
+| "This task has nothing to do with the terminal — the environment bar is overkill here" | STOP. The worker holds your pane whether or not the task mentions one, and routine commands act on the CALLING pane. Bind it hermetic. |
+| "I'll tell the worker to be careful with the live environment" | STOP. Care is not a bound. Unset the variables in the prompt as a precondition, before its first command. |
 
 ## Scope
 

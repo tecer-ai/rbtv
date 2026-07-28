@@ -778,11 +778,25 @@ def _is_rbtv_hook_entry(entry: dict) -> bool:
     script-path signature in any of its commands (harness-robust: survives the
     sentinel being stripped on a settings re-serialize). A foreign hook invoking an
     unrelated command matches neither and is left untouched.
+
+    OWNERSHIP OUTRANKS THE SIGNATURE. An entry carrying ANOTHER component's `__*__`
+    ownership marker (`__sb__`, …) is foreign no matter what it invokes — a wrapper
+    around the rbtv script is still someone else's entry, and `sync_hook_entry()`
+    DELETES what this returns True for, so an over-match destroys a foreign entry
+    whole (marker, matcher and command). The signature fallback exists only to
+    re-adopt an entry whose OWN `__rbtv__` key the harness stripped, and a stripped
+    entry carries no ownership marker at all — so declining on a foreign marker
+    costs that fallback nothing.
     """
     if not isinstance(entry, dict):
         return False
     if entry.get("__rbtv__") == _HOOK_SENTINEL:
         return True
+    if any(
+        k != "__rbtv__" and k.startswith("__") and k.endswith("__") and len(k) > 4
+        for k in entry
+    ):
+        return False
     return any(_HOOK_COMMAND_SIGNATURE in cmd for cmd in _entry_commands(entry))
 
 
