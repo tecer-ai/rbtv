@@ -226,7 +226,7 @@ def control():
             print("CONTROL FAIL: an empty tree reported %d violation(s)" % len(clean))
             ok = False
         else:
-            print("control 1/4 — empty tree is GREEN: ok")
+            print("control 1/6 — empty tree is GREEN: ok")
 
         with open(os.path.join(d, CONTROL_FILE), "w") as fh:
             fh.write(CONTROL_BODY)
@@ -236,7 +236,7 @@ def control():
                   "every green it has ever printed is uninformative. got: %r" % (red,))
             ok = False
         else:
-            print("control 2/4 — planted literal turns it RED: ok (%s:%d value=%d)"
+            print("control 2/6 — planted literal turns it RED: ok (%s:%d value=%d)"
                   % (red[0]["file"], red[0]["line"], red[0]["value"]))
 
         os.remove(os.path.join(d, CONTROL_FILE))
@@ -245,7 +245,7 @@ def control():
             print("CONTROL FAIL: removing the literal did not restore GREEN: %r" % (back,))
             ok = False
         else:
-            print("control 3/4 — removing it restores GREEN: ok")
+            print("control 3/6 — removing it restores GREEN: ok")
 
         # ⚠ control 4 exists because the HOME branch IS UNREACHABLE ON THE REAL SCAN: budget.json
         # lives in the run package under the VAULT, not in the rbtv repo this lint scans by
@@ -261,9 +261,36 @@ def control():
                   "violation. violations=%r home_rows=%r" % (v4, home_rows))
             ok = False
         else:
-            print("control 4/4 — a floor inside budget.json is PERMITTED as HOME: ok "
+            print("control 4/6 — a floor inside budget.json is PERMITTED as HOME: ok "
                   "(%s:%d value=%d)" % (home_rows[0]["file"], home_rows[0]["line"],
                                         home_rows[0]["value"]))
+
+        # ⚠ controls 5 and 6 exist because PROSE and FIXTURE are the two branches that make this
+        # lint QUIETER, and a classifier that over-permits reports exactly what a clean tree does.
+        # Each plants the SAME knob-and-value line twice -- once where the branch should swallow it
+        # and once where it must not -- so a branch that swallowed everything fails here.
+        for n, name, body, expect in (
+            (5, "prose.py",
+             '# floor was --mem-floor-mb 2000 once\nx = 1\nMEM_FLOOR_MB = 2000\n', "PROSE"),
+            (6, "fixture.py",
+             'def _selftest():\n    d = {"ram_available_mb": 2800}\n\n'
+             'def live():\n    d = {"ram_available_mb": 2800}\n', "FIXTURE"),
+        ):
+            p = os.path.join(d, name)
+            with open(p, "w") as fh:
+                fh.write(body)
+            v, pm = scan(d)
+            got = [r for r in pm if r["permitted"].startswith(expect)]
+            # exactly one swallowed by the branch, and exactly one still a violation
+            if len(got) != 1 or len(v) != 1:
+                print("CONTROL FAIL: %s must swallow ONE line and leave the twin a violation — "
+                      "a branch that permits both is an over-permissive classifier and every "
+                      "green it prints is uninformative. permitted=%r violations=%r"
+                      % (expect, got, v))
+                ok = False
+            else:
+                print("control %d/6 — %s swallows its own line and NOT its twin: ok" % (n, expect))
+            os.remove(p)
 
     print("CONTROLS: %s" % ("all fired" if ok else "BROKEN — do not trust this lint"))
     return 0 if ok else 2
