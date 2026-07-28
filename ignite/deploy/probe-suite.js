@@ -154,11 +154,16 @@ function executeProbe(probe, opts) {
   // is the only reason G-171's three contradictory readings could be reconciled at all.
   const archived = archiveCapture(probe, opts.captureDir);
 
-  // ⚠ STDOUT IS KEPT. It used to be dropped here while stderr was kept, and 59 of this repo's
-  // 94 probes write NOTHING to either stream — they write their verdict into an adjacent capture
-  // by design. So a failing probe produced: no stdout (discarded), empty stderr, and no capture
-  // reference (grade() dropped it on the failure path). Everything the probe said was thrown away
-  // at exactly the moment it failed, leaving a bare `exit=1` that no reader can act on.
+  // ⚠ STDOUT IS KEPT — it used to be dropped here while stderr was kept.
+  //
+  // ⚠⚠ AND THE REASON THIS MATTERS IS NOT THAT PROBES ARE SILENT. Writing nothing to either stream
+  // is the CONTRACT this file's own header states (G-141): a probe writes its verdict into an
+  // adjacent capture. 59 of the 94 do exactly that and nothing else, and that is correct. The
+  // defect was that on the FAILURE path the runner named nowhere: `grade()` returned FAIL with NO
+  // capture reference, so a red probe was undiagnosable EVEN THOUGH ITS DIAGNOSIS WAS ALREADY
+  // WRITTEN TO DISK, one directory away, by the run that just failed. The runner did not fail to
+  // make probes speak; it failed to say where they had spoken. (The 35 that DO print were losing
+  // that too, which is what this line fixes.)
   const common = { attempted: true, wallMs: endedAt - startedAt, startedAt, endedAt,
     outBefore, outAfter, archived, stderr: tail(res.stderr), stdout: tail(res.stdout) };
 
