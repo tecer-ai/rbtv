@@ -38,7 +38,9 @@ proving runs; the run records live in that vault under
   The same rule applies to `watch.py` (`python3 watch.py --selftest`). Extend the self-test in the
   same change that adds or alters a mechanic — an untested mechanic is how the previous tooling
   shipped six latent defects.
-- **Protocol changes are evidence-gated.** `protocol.md` rules carry a pointer to the measured
+- **Protocol changes are evidence-gated.** `protocol.md` rules — and equally those in its two
+  role-scoped siblings `briefing-authoring.md` and `roles.md`, split out of it 2026-07-28 so a seat
+  stops loading another role's content — carry a pointer to the measured
   failure they were earned from — a P-number (a numbered proposal from a proving run) or an `S§n`
   section reference (a run-1 strategic finding that was never numbered as a proposal). Both resolve
   into the proving runs' observer files, preserved in the origin vault under

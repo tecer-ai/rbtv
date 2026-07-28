@@ -4,8 +4,9 @@ One FOLDER per seat: `workers/{agent}/` holds `agent.md` (this briefing), a thin
 `AGENTS.md` loader pair (read briefing → memory → package protocol; mark memoryless seats
 MEMORYLESS), `memory.md` (closer-written — persistent seats only, never pre-created), and
 `transcripts/` (created by export). Fill every section; delete the guidance comments. Rules for
-authoring briefings: `protocol.md` § Briefing authoring rules (isolation, folder form +
-frontmatter keys, verifiable premises, pre-declared done gate).
+authoring briefings: `briefing-authoring.md` beside the protocol (isolation, folder form +
+frontmatter keys, verifiable premises, pre-declared done gate) — read it before filling this
+template.
 
 ```markdown
 ---
@@ -46,7 +47,11 @@ ctx-refresh: 50            # optional; context-refresh threshold % for THIS seat
 
 ## Pre-reads (paths only — never another worker's briefing)
 
-{Absolute paths, each with one line saying what the agent needs FROM it.}
+{Absolute paths, each with one line saying what the agent needs FROM it.
+ Two kit files are role-scoped and reach a seat ONLY through this list — omit them for every other
+ seat: `{team-kit}/roles.md` for a leader, deputy, scientist, judge, verifier, closer or watcher
+ seat and for any codex/opencode seat; `{team-kit}/briefing-authoring.md` for the seat that
+ authors this run's briefings or seat descriptors.}
 
 ## Premises to verify first (R-audit-premises)
 
@@ -66,8 +71,7 @@ ctx-refresh: 50            # optional; context-refresh threshold % for THIS seat
  For every fix this briefing commissions, pre-register the acceptance bar HERE, before the work:
  the exact observation that will count as proof, and the ones that will NOT. A fix to a
  detection/matching/parsing mechanic must be proved against a fixture captured from the REAL
- regime it fails in — a hand-authored fixture is not evidence (protocol.md § Briefing authoring
- rules).}
+ regime it fails in — a hand-authored fixture is not evidence (`briefing-authoring.md`).}
 
 ## Never
 
