@@ -9188,6 +9188,31 @@ def advice_refused_sends(path=None):
     turns a substring check green while the command stays refused. That detector would certify the
     exact state it exists to detect. So each command is parsed by the real parser and run through
     main()'s own boundary sequence instead, which covers any guard, including ones added later.
+
+    VERB-SCOPED TO `send`, DELIBERATELY — the extension was MEASURED AND REJECTED, and this is the
+    place that question gets asked, so the answer lives here rather than in a ledger row nobody
+    opens. All 24 subcommands are coached by some advice string (~72 non-send sites against send's
+    14), and NONE of them refuses: every apparent failure was extraction noise or a fixture
+    artifact.
+
+    WHY IT CANNOT BE WIDENED: `send` is extractable because THE QUOTED BODY IS A DELIMITER — the
+    quotes around a body give the command an unambiguous end. Nothing else has one. Advice reads
+    `close <agent> — the closer reads this export`, and no rule separates argv from English without
+    guessing; placeholders also carry semantic constraints a generic fixture cannot satisfy (a
+    group name must not collide with an agent name). Measured, a widened check flags ~28% of sites
+    spuriously. A check whose only value is being trusted, wrong a quarter of the time, is WORSE
+    than no check: it trains readers to ignore it, it still looks like coverage, and it RETIRES the
+    human attention now covering those sites while certifying nothing.
+
+    The unlock, if this is ever revisited, is an AUTHORING CONVENTION (commands in advice must be
+    delimited), which converts guessing into parsing — a documented, owner-gated change, not a
+    tweak to this function.
+
+    ⚠ WRITING THIS DOCSTRING TRIPPED THIS CHECK, which is worth knowing before you edit it: the
+    CODE scanner EXECUTES what it extracts, while advice_doc_sends() only tests for --inline/--file
+    presence. So a SYNOPSIS with a metavariable — `--type T` — is fine in a .md and fails here,
+    because `T` is not a real type. Illustrate with a concrete type, or the example you add to
+    explain this function will be reported as an offender by it.
     """
     import io
     import tempfile
