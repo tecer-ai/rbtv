@@ -46,6 +46,21 @@ that writes its verdict into an adjacent `.out`. **Run them with `node deploy/pr
 `--list` to enumerate, `--dir <rel>` to scope, `--only <name>` for a single probe, `--selftest` to
 prove the runner itself.
 
+**⚠ ASKING WHETHER ANYTHING ALREADY GUARDS X? USE THE ENUMERATOR — never a hand-glob of `probes/`
+folders.** There are TWELVE of them and the obvious guesses miss: the inspect target set is guarded
+from `server/internal-api/probes/`, not `server/probes/`.
+
+```
+node deploy/probe-suite.js --list | grep -E '\.(js|py)$' | xargs grep -l <SYMBOL>
+```
+
+`G-179`: a leader and the engineer independently hand-globbed the wrong folders, both concluded
+"unguarded", and **corroborated each other into ratifying work on a defect that had been closed for
+hours**. Nothing caught it, because **a search of the wrong places and a search of the right places
+return the SAME EMPTY RESULT** — absence is the one claim whose wrong answer is indistinguishable
+from its right one. The runner already knew: a tool not used, not a tool missing. General form:
+**an absence claim over a tree that HAS an enumerator must go through the enumerator.**
+
 **Run ONE probe with `--only <name>`, never `node probes/probe-x.js` (`G-163`).** Running a probe
 by hand rewrites its tracked capture with pure noise — a wall time, an ephemeral port, a timestamp
 — so verification itself dirties files the seat never edited, and three commits swept that noise in
