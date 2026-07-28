@@ -3787,6 +3787,39 @@ def truncate(text, limit=DIGEST_SNIPPET):
     return text if len(text) <= limit else text[:limit].rstrip() + "…"
 
 
+def state_agent_types(base):
+    """{seat: agent_type} straight off `state.json`'s own snapshot (task 7.80's `coordinate`
+    half, G-195) — never re-derived, never a second source. `teamview` reads the identical
+    field the identical way (`teamview.py:agent_type_bit`); this is the same property read a
+    second time, not a second classification.
+
+    Returns {} on anything short of a clean snapshot — missing file, unparseable, wrong shape,
+    or a pre-7.80 snapshot with no such key on any row — so `workers` degrades to its
+    pre-7.80 rendering rather than raising or inventing a value (same fail-safe shape as
+    `team_monitor_last_seen`, same file, read independently here because the two callers want
+    different things on failure: a bound there, nothing here).
+
+    ⚠⚠ DISPLAY ONLY, NEVER A GATE. This field is a SENSOR OBSERVATION of a descriptor's
+    declared claim, not an authorization — the identity gate (`resolve_agent`/`gate`) is the
+    only authorization, and nothing may ever branch on this dict's values
+    (`r-agent-type-field-name`'s binding condition, restated here because this is now a fourth
+    site that touches the field)."""
+    try:
+        snap = json.loads((base.parent / "state.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return {}
+    if not isinstance(snap, dict):
+        return {}
+    out = {}
+    for s in snap.get("seats") or []:
+        if not isinstance(s, dict):
+            continue
+        seat, atype = (s.get("seat") or "").strip(), (s.get("agent_type") or "").strip()
+        if seat and atype:
+            out[seat] = atype
+    return out
+
+
 def cmd_workers(args):
     """Who is alive, at a glance (T2/F4). DEFAULT is one CURRENT row per agent with truncated
     summaries and an unread-lag column; --full keeps summaries whole, --history replays every
@@ -3816,6 +3849,7 @@ def cmd_workers(args):
     gmap = group_map(base)
     observers, _ = observer_sets(args)
     live = live_panes()
+    agent_types = state_agent_types(base)  # task 7.80's `coordinate` half, G-195
     if getattr(args, "history", False):
         shown = rows
     else:
@@ -3841,7 +3875,13 @@ def cmd_workers(args):
         name_col = "{:<16}".format(r["agent"])
         state_col = "{:<7}".format(status)
         pane_col = "{:<6}".format(r["pane"] or "-")
-        print(f"{c(name_col, C_LABEL)} {c(state_col, tone)} pane={pane_col}{cursor}{lag} {summary}"
+        # `agent_type` (task 7.80/G-195): shown exactly as the snapshot carries it, including
+        # "unclassified" — that value is a real, loud OBSERVATION (never silently defaulted),
+        # not a gap to hide. Omitted only when the seat has no state.json row at all (pre-7.80
+        # snapshot, or team-monitor has not captured this seat yet) — never invented.
+        atype = agent_types.get(r["agent"], "")
+        atype_bit = f" {c('[' + atype + ']', C_HINT)}" if atype else ""
+        print(f"{c(name_col, C_LABEL)} {c(state_col, tone)} pane={pane_col}{atype_bit}{cursor}{lag} {summary}"
               f"  (in {r['checkin']}{', out ' + r['checkout'] if r['checkout'] else ''})")
     _und = undelivered_line(base)
     if _und:
@@ -8842,6 +8882,52 @@ def _selftest_checks(args, failures, names):
         check("P32: a run with no watcher prints no line at all — the row is evidence, not chrome",
               "watcher:" not in out)
         live_tmux_panes["v"] = set()
+
+        # ---- 7.80/G-195: coordinate's agent_type render half ----
+        # `teamview` already renders this field straight off state.json (agent_type_bit); the
+        # row that kept 7.80 #wip was that `coordinate` did not. Same field, same snapshot, no
+        # second source — these checks pin exactly that, plus the fail-safe degradations
+        # teamview's own tests already established the shape of (no empty ghost, no crash).
+        run(cmd_checkin, agent="atype-a", summary="carries a state.json agent_type", pane="%81")
+        run(cmd_checkin, agent="atype-b", summary="unclassified in the snapshot", pane="%82")
+        run(cmd_checkin, agent="atype-c", summary="absent from the snapshot entirely", pane="%83")
+        live_tmux_panes["v"] |= {"%81", "%82", "%83"}
+
+        def agent_row_line(out, agent):
+            return next((ln for ln in out.splitlines() if ln.startswith(agent)), "")
+
+        state_path = pkg / "state.json"
+        state_path.write_text(json.dumps({"seats": [
+            {"seat": "atype-a", "agent_type": "staff"},
+            {"seat": "atype-b", "agent_type": "unclassified"},
+        ]}), encoding="utf-8")
+        out = run(cmd_workers, full=False, history=False)
+        check("7.80/G-195: agent_type reaches the row straight off state.json's snapshot — no "
+              "second source, the identical field teamview.py's agent_type_bit reads the "
+              "identical way",
+              "[staff]" in agent_row_line(out, "atype-a"))
+        check("7.80/G-195: `unclassified` is a REAL observed value and renders as one, never "
+              "hidden as a blank — team-monitor writes it LOUDLY for exactly this reason and a "
+              "renderer that swallowed it would put the confident-wrong shape right back",
+              "[unclassified]" in agent_row_line(out, "atype-b"))
+        check("7.80/G-195: a seat with NO row in state.json's snapshot at all renders exactly "
+              "as it did before this feature existed — no empty bracket, no invented value "
+              "(teamview.py's own 'no empty ghost' bar, same shape here)",
+              "atype-c" in out and "[" not in agent_row_line(out, "atype-c"))
+
+        state_path.write_text("{not json", encoding="utf-8")
+        out = run(cmd_workers, full=False, history=False)
+        check("7.80/G-195: an unparseable state.json degrades `workers` to its pre-7.80 "
+              "rendering rather than raising — this is a live, script-managed, shared file and "
+              "a torn write must never take the roster view down with it",
+              "atype-a" in out and "[" not in agent_row_line(out, "atype-a"))
+
+        state_path.unlink()
+        out = run(cmd_workers, full=False, history=False)
+        check("7.80/G-195: a run with NO state.json at all (pre-7.80, or team-monitor never "
+              "ran here) renders exactly as before this feature existed — purely additive",
+              "atype-a" in out and "[" not in agent_row_line(out, "atype-a"))
+        live_tmux_panes["v"] -= {"%81", "%82", "%83"}
 
         # ---- worker-mirror refresh: launch is the moment the mirror must be current ----
         # A codex/opencode seat reads AGENTS.md + .agents/ at boot; every AGENTS.md is gitignored,
