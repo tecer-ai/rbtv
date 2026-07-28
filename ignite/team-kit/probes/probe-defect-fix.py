@@ -40,11 +40,29 @@ COORD = KIT / "coord.py"
 RECOVER = KIT.parent / "jobs" / "recover-room.py"
 
 RESULTS = []
+SKIPPED = []
 
 
 def check(label, cond, detail=""):
     RESULTS.append((bool(cond), label))
     print(("ok    " if cond else "FAIL  ") + label + (f"\n        {detail}" if detail and not cond else ""))
+
+
+def skip(label, why):
+    """Record a check that COULD NOT RUN. Run issue G-194(b).
+
+    ⚠ WHY THIS EXISTS: `RECOVER` sits OUTSIDE this kit (`KIT.parent/"jobs"`), so a copy of
+    `team-kit` alone cannot find it — and this probe used to report that as TWO FAILING ASSERTIONS.
+    Identical bytes gave 20/21 in the live kit and 18/21 in a copy. A failed assertion claims THE
+    BEHAVIOUR IS BROKEN; a missing dependency means THE PROBE COULD NOT RUN, and they are different
+    claims. The false red mattered because copy-and-run is a documented gating practice in this
+    room, so the lie was produced on every use.
+
+    Skipped checks are listed IN FULL, never counted: a count in permanent output has no maintainer
+    and only grows. Exit status is 2 (INOPERATIVE), never 0 and never 1 — a probe that could not run
+    has proven nothing, and reporting that as a pass is the absence-reads-as-health shape."""
+    SKIPPED.append((label, why))
+    print(f"SKIP  {label}\n        INOPERATIVE: {why}")
 
 
 def make_pkg(root: Path) -> Path:
@@ -145,20 +163,27 @@ def main():
               r.returncode == 0 and "EATENHERE" in added and "`echo EATENHERE`" not in added,
               added[:300])
 
-        # THE BLIND SPOT, asserted so it is a KNOWN bound and not a discovery. `bash -c` given ONE
-        # simple command execs itself away: the substitution still happens, but no shell parent
-        # survives for the gate to compare against, so this body IS logged corrupted. Agent
-        # harnesses do not hit it (they chain setup commands); a hand-written one-shot script can.
+        # ⚠ THIS BOUND IS CLOSED, AND THE CHECK BELOW USED TO ASSERT THE OLD WORLD (run issue
+        # G-194(a), 2026-07-28). It was written when the gate INFERRED shell provenance from a
+        # surviving shell parent: `bash -c` with ONE simple command execs itself away, no parent
+        # survived, and the corrupted body WAS logged. `4837088` ("the shell guard must assert, not
+        # infer") removed that inference, so this shape is now REFUSED like any other.
+        # ⇒ The check therefore asserted a VULNERABILITY as expected behaviour. It did not merely
+        # fail to catch a defect — it DEFENDED one: the red it produced could only be "fixed" by
+        # reintroducing the corruption, and a permanently-red probe teaches everyone to ignore it,
+        # so a real red goes unread. It is now a REGRESSION TEST for the closed bound: if anyone
+        # restores provenance-by-inference, this fails and says so.
         before = log_text(pkg)
         r = shell_send(pkg, home, "sender-seat",
                        f'{base} leader --type note "blindspot `echo EXECOPT` here"',
                        keep_shell=False)
         added = log_text(pkg)[len(before):]
-        check("S-4(b) KNOWN BOUND: a bash -c ONE-COMMAND invocation execs the shell away, so the "
-              "gate cannot see it and the corrupted body IS logged — the fix covers the shell "
-              "shapes agents actually use, not every shape",
-              r.returncode == 0 and "EXECOPT" in added and "`echo EXECOPT`" not in added,
-              added[:300])
+        check("S-4(b) BOUND CLOSED: a bash -c ONE-COMMAND invocation is REFUSED like any other "
+              "shell-typed body — the guard ASSERTS provenance instead of inferring it from a "
+              "surviving shell parent (4837088), so no corrupted body is logged. This check once "
+              "asserted the opposite and thereby defended the vulnerability (G-194(a))",
+              r.returncode != 0 and "EXECOPT" not in added,
+              f"rc={r.returncode} added={added[:200]!r}")
 
         # ── S-7 ────────────────────────────────────────────────────────────
         before = log_text(pkg)
@@ -189,10 +214,19 @@ def main():
 
         recover_args = ["--session", "tw-probe-never-created", "--package", str(pkg),
                         "--seat", "tw-x", "--dry-run"]
-        r = subprocess.run([sys.executable, str(RECOVER), "--coord", str(COORD)] + recover_args,
-                           capture_output=True, text=True, timeout=120, env=env_for(home))
-        check("S-6(a): the unattended recovery path ASSERTS the split and proceeds when it holds",
-              r.returncode == 0 and "precondition OK" in r.stdout, (r.stdout + r.stderr)[:300])
+        # G-194(b): RECOVER lives OUTSIDE this kit, so it is absent whenever team-kit is copied
+        # alone — which is a documented gating practice here. Absent means INOPERATIVE, never FAIL.
+        recover_here = RECOVER.exists()
+        why_no_recover = (f"{RECOVER} is absent — it sits outside team-kit, so a copy of the kit "
+                          f"alone cannot reach it. This says nothing about the code under test.")
+        if recover_here:
+            r = subprocess.run([sys.executable, str(RECOVER), "--coord", str(COORD)] + recover_args,
+                               capture_output=True, text=True, timeout=120, env=env_for(home))
+            check("S-6(a): the unattended recovery path ASSERTS the split and proceeds when it holds",
+                  r.returncode == 0 and "precondition OK" in r.stdout, (r.stdout + r.stderr)[:300])
+        else:
+            skip("S-6(a): the unattended recovery path ASSERTS the split and proceeds when it holds",
+                 why_no_recover)
 
         # The mutant: the two gates recombined onto --force, exactly the silent recombination the
         # standing rule forbids and nothing used to detect.
@@ -207,11 +241,16 @@ def main():
         mgates = json.loads(r.stdout) if r.returncode == 0 else {}
         check("S-6(a): the mutant's map really did change (the map is the mechanism, not a label)",
               "memory" in (mgates.get("--force") or []))
-        r = subprocess.run([sys.executable, str(RECOVER), "--coord", str(mutant)] + recover_args,
-                           capture_output=True, text=True, timeout=120, env=env_for(home))
-        check("S-6(a) RED HALF: against the recombined map the unattended recovery REFUSES (exit 2) "
-              "instead of silently arming a memory override at 4am",
-              r.returncode == 2 and "REFUSING to recover" in r.stdout, (r.stdout + r.stderr)[:300])
+        if recover_here:
+            r = subprocess.run([sys.executable, str(RECOVER), "--coord", str(mutant)] + recover_args,
+                               capture_output=True, text=True, timeout=120, env=env_for(home))
+            check("S-6(a) RED HALF: against the recombined map the unattended recovery REFUSES "
+                  "(exit 2) instead of silently arming a memory override at 4am",
+                  r.returncode == 2 and "REFUSING to recover" in r.stdout,
+                  (r.stdout + r.stderr)[:300])
+        else:
+            skip("S-6(a) RED HALF: against the recombined map the unattended recovery REFUSES "
+                 "(exit 2) instead of silently arming a memory override at 4am", why_no_recover)
 
         # ── S-8(c) ─────────────────────────────────────────────────────────
         sys.path.insert(0, str(KIT))
@@ -227,11 +266,26 @@ def main():
               and coord.gate_forced(_ns(force_memory=True), "memory") is True)
 
     failed = [l for ok, l in RESULTS if not ok]
-    print(f"\nprobe-defect-fix: {'PASS' if not failed else 'FAIL'} "
-          f"({len(RESULTS) - len(failed)}/{len(RESULTS)} checks)")
+    # THREE OUTCOMES, DISTINCT IN BOTH THE TEXT AND THE EXIT CODE, so a reader skimming exit codes
+    # cannot mistake one for another (the bar on G-194(b)): FAIL means THE CODE IS BROKEN and
+    # nothing else; INOPERATIVE means this probe could not run and has proven nothing; PASS means
+    # every check ran and held.
+    if failed:
+        verdict, code = "FAIL", 1
+    elif SKIPPED:
+        verdict, code = "INOPERATIVE", 2
+    else:
+        verdict, code = "PASS", 0
+    print(f"\nprobe-defect-fix: {verdict} "
+          f"({len(RESULTS) - len(failed)}/{len(RESULTS)} checks ran and held"
+          f"{f', {len(SKIPPED)} could not run' if SKIPPED else ''})")
     for l in failed:
         print("  failed: " + l)
-    return 1 if failed else 0
+    for l, why in SKIPPED:
+        print(f"  could not run: {l}\n      because: {why}")
+    if SKIPPED and not failed:
+        print("  ⇒ INOPERATIVE, not passing: a probe that could not run has proven nothing.")
+    return code
 
 
 class _ns:
