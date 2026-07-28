@@ -13,7 +13,8 @@ plan-limit bars for every AI provider account on the machine.
 body renders the COMBINED view (limits + every window/pane) statically whenever the measured
 frame is large enough to show everything at once; only when it is too small does the body CYCLE
 every ~10s instead — the windows/panes view (itself paged into as many views as the height
-needs), then the plan-limits view, then back around. `--view {auto,limits,panes,combined}` pins
+needs), then the plan-limits view, then the messages view (the coordination log's last sends,
+off the snapshot), then back around. `--view {auto,limits,panes,messages,combined}` pins
 one body instead of the adaptive default. An orchestration-module component (runnable CLI,
 python3 stdlib-only — no install step). Generalized: nothing user-, workspace-, or
 machine-specific is baked in; accounts come from a config file or auto-discovery of whatever
@@ -36,8 +37,9 @@ python3 .../teamview.py --once --no-rotate                      # COMPLETE combi
                                                                 #   limits + every window/pane,
                                                                 #   no view cycle (can exceed
                                                                 #   terminal height)
-python3 .../teamview.py --view limits | --view panes             # pin one body: bars only /
-                                                                #   windows+panes only, no
+python3 .../teamview.py --view limits | panes | messages         # pin one body: bars only /
+                                                                #   windows+panes only / last
+                                                                #   coordination sends only, no
                                                                 #   alternation ever (auto is
                                                                 #   the fit-based default;
                                                                 #   combined = --no-rotate)
@@ -96,11 +98,26 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   show everything at once; only when it is too small does the view CYCLE every ~10s instead
   (stateless — derived from wall clock, so the refresh loop cycles naturally and `--once`
   shows whichever page is current): the windows view — paged into as many views as the height
-  needs, with a `(windows N-M/T - rotating)` note — then ONE plan-limits view, then back
-  around; nothing is permanently hidden, and the first line stays constant across every phase.
-  `--view {auto,limits,panes,combined}` pins one body instead of this adaptive default: `limits`
-  or `panes` show only that body at every tick (never alternating), `combined` forces the static
+  needs, with a `(windows N-M/T - rotating)` note — then ONE plan-limits view, then ONE
+  messages view (see below; the slot exists only when the snapshot carries a message tail),
+  then back around; nothing is permanently hidden, and the first line stays constant across
+  every phase. `--view {auto,limits,panes,messages,combined}` pins one body instead of this
+  adaptive default: `limits`, `panes`, or `messages` show only that body at every tick (never
+  alternating), `combined` forces the static
   combined frame (= `--no-rotate`), and `auto` (default) is the fit-based behavior above.
+  The WINDOWS header carries the run's average dispatch payload — `dispatch ~N tok avg/seat`,
+  the ~tokens a freshly launched seat must read before working regardless of its prompt or
+  agent type (shared boot files + its own `seat.md`/`memory.md`), rendered straight off the
+  snapshot's `dispatch_tokens` field and rendered as NOTHING (never a fake 0) when the
+  snapshot predates the field.
+- **Messages block** — the coordination log's last sends off the snapshot's `messages` field
+  (team-monitor parses `coordination/messages.md`; teamview never opens the log — R24), in
+  log order (newest LAST), one aligned row each: how long ago · sender → recipient · as much
+  of the text as the row can hold (`…` marks the cut; the age and route columns pad to the
+  block's widest so the text starts on one straight edge). Overflow drops the OLDEST rows
+  with a `(+N older not shown)`
+  note, never the newest. A snapshot without the field renders a loud explanation on the
+  messages page rather than an empty one.
   A SINGLE window with more panes than fit rotates its OWN pane list
   the same way, with a `(panes N-M/T - rotating)` note — a 6-seat window in a 1-pane-tall
   slot never renders as if it were a dead 1-seat window with no hint the rest exist. A

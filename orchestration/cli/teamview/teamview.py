@@ -18,10 +18,17 @@ reads as a quiet room). Layouts adapt to the pane size; provider data caches und
 enough to hold the limits block AND every window/pane at once, that COMBINED view renders
 statically. Only when it is too small does the body CYCLE every ~10s below the constant
 first line: the windows/panes view — itself paged into as many views as the height needs —
-then the plan-limits view, then back around (wall-clock derived, so --once shows whichever
-page is current). Nothing is permanently hidden. --view pins one body instead: limits
-(bars only), panes (windows/panes only), or combined (= --no-rotate: everything in one
-frame even when it grows taller than the terminal, best paired with --once). A
+then the plan-limits view, then the MESSAGES view (the coordination log's last sends off
+the snapshot, aligned rows: how long ago · sender→recipient · as much text as the row
+holds; the slot exists
+only when the snapshot carries a message tail), then back around (wall-clock derived, so
+--once shows whichever page is current). Nothing is permanently hidden. --view pins one
+body instead: limits (bars only), panes (windows/panes only), messages (last sends only),
+or combined (= --no-rotate: everything in one
+frame even when it grows taller than the terminal, best paired with --once). The WINDOWS
+header carries the run's average dispatch payload ("dispatch ~N tok avg/seat" — the
+~tokens a freshly launched seat must read before working: shared boot files plus its own
+seat.md/memory.md, computed by the sensor into the snapshot's dispatch_tokens field). A
 CRITICAL pane — past its own ctx-refresh threshold, >=85% context, or awaiting approval —
 PINS the cycle on its windows page (the limits page waits) and never cycles out of view;
 the alarm rollup rides the header of BOTH views so no glance loses it. A
@@ -1287,9 +1294,10 @@ def compact_window_lines(wins, width, max_lines, now=None, extra_slots=0):
 
     extra_slots > 0 puts this block into the caller's WHOLE-VIEW cycle: the rotation
     wheel gains that many extra slots after the window pages, and when the wall clock
-    lands on one, the function returns None — 'not this block's turn' — so the caller
-    renders its other view (the plan-limits page) instead. A CRITICAL page pins the
-    whole wheel: the extra slots are skipped until the pane is dealt with."""
+    lands on one, the function returns that extra slot's 0-based INDEX (an int, not a
+    list) — 'not this block's turn' — so the caller renders the matching other view
+    (plan limits, messages). A CRITICAL page pins the whole wheel: the extra slots are
+    skipped until the pane is dealt with."""
     chunks, chunk_critical = [], []
     for w in wins:
         star = "*" if w["active"] else ""
@@ -1322,7 +1330,7 @@ def compact_window_lines(wins, width, max_lines, now=None, extra_slots=0):
     else:
         slot = int((time.time() if now is None else now) // 10) % total_slots
         if slot >= len(pages):
-            return None  # an extra slot's turn — caller renders its other view
+            return slot - len(pages)  # an extra slot's turn — its index picks the view
         page_idx = slot
     page_chunks, _, _ = pages[page_idx]
     lines = [l for c in page_chunks for l in c]
@@ -1527,9 +1535,10 @@ def window_grid(wins, width, max_rows, dashes=False, now=None, extra_slots=0):
 
     extra_slots > 0 puts this grid into the caller's WHOLE-VIEW cycle: the rotation
     wheel gains that many extra slots after the window pages, and when the wall clock
-    lands on one, the function returns None — 'not this block's turn' — so the caller
-    renders its other view (the plan-limits page) instead. A CRITICAL page pins the
-    whole wheel: the extra slots are skipped until the pane is dealt with."""
+    lands on one, the function returns that extra slot's 0-based INDEX (an int, not a
+    list) — 'not this block's turn' — so the caller renders the matching other view
+    (plan limits, messages). A CRITICAL page pins the whole wheel: the extra slots are
+    skipped until the pane is dealt with."""
     pane_row_budget = max(1, max_rows - (2 if dashes else 1))
     cell_budget = max(6, width - 2)  # a single column can never exceed the frame width
     cols = []
@@ -1592,7 +1601,7 @@ def window_grid(wins, width, max_rows, dashes=False, now=None, extra_slots=0):
     else:
         slot = int((time.time() if now is None else now) // 10) % total_slots
         if slot >= len(pages):
-            return None  # an extra slot's turn — caller renders its other view
+            return slot - len(pages)  # an extra slot's turn — its index picks the view
         page_idx = slot
     page_banks, _ = pages[page_idx]
 
@@ -1623,6 +1632,100 @@ def window_grid(wins, width, max_rows, dashes=False, now=None, extra_slots=0):
             if note:
                 lines.append(note)
     return lines
+
+
+def snapshot_messages(snap):
+    """The sensor's coordination-log tail ({total, tail:[...]}) off the snapshot — R24: the
+    log itself is a raw source and team-monitor is its reader; teamview renders only what the
+    snapshot carries. None when the snapshot predates the field or the sensor found no log."""
+    m = (snap or {}).get("messages")
+    return m if isinstance(m, dict) and isinstance(m.get("tail"), list) else None
+
+
+def extra_view_names(cells, notes, console, snap):
+    """The whole-view cycle's extra slots after the window pages, in wheel order. The
+    messages slot exists only when the snapshot actually carries a message tail — an old
+    sensor or a log-less run must not buy a 10s blank page."""
+    names = ["limits"] if (cells or notes or console) else []
+    msgs = snapshot_messages(snap)
+    if msgs and msgs["tail"]:
+        names.append("messages")
+    return names
+
+
+def messages_body(snap, width, max_lines, now=None):
+    """The MESSAGES page body: the last coordination sends in log order (newest LAST, like
+    the log itself), one ALIGNED row each — how long ago · sender→recipient · as much of
+    the text as the row can hold (the age and route columns are padded to the block's own
+    widest, so the text starts on one straight edge). Overflow drops the OLDEST rows with
+    a count note, never the newest. A snapshot with no messages field renders a LOUD
+    explanation, not an empty page (G-153's lesson)."""
+    msgs = snapshot_messages(snap)
+    if msgs is None:
+        return [f"{YELLOW}no message data in snapshot — sensor predates the messages "
+                f"field or found no coordination/messages.md{OFF}"[:width + 20]]
+    if not msgs["tail"]:
+        return [f"{DIM}message log is empty{OFF}"]
+    t = time.time() if now is None else now
+    rows = []
+    for e in msgs["tail"]:
+        age = (fmt_age(t - e["sent_epoch"]) if e.get("sent_epoch") else "") or "?"
+        route = f"{BOLD}{e.get('from', '?')}{OFF} {DIM}→{OFF} {e.get('to', '?')}"
+        rows.append((age, route, (e.get("text") or "").strip()))
+    age_w = max(len(a) for a, _r, _x in rows)
+    route_w = max(visible_len(r) for _a, r, _x in rows)
+    lines = []
+    for age, route, text in rows:
+        room = max(12, width - age_w - route_w - 4)  # the text NEVER loses its whole column
+        if len(text) > room:
+            text = text[:room - 1] + f"{MARK}…{OFF}"
+        lines.append(f"{DIM}{age:>{age_w}}{OFF}  {pad_to(route, route_w)}  {text}")
+    if 0 < max_lines < len(lines):
+        keep = max(1, max_lines - 1)  # the note takes a row only when there is a spare one
+        dropped = len(lines) - keep
+        note = f"{DIM}(+{dropped} older not shown){OFF}"
+        lines = lines[-keep:]
+        if max_lines > 1:
+            lines.insert(0, note)
+        else:
+            lines[0] = clip_line(f"{note} {lines[0]}", width)
+    return lines
+
+
+def messages_hdr_count(snap):
+    """' (last N of T)' for the MESSAGES header — '' when the counts are unavailable."""
+    msgs = snapshot_messages(snap)
+    if not msgs or not msgs["tail"]:
+        return ""
+    return f" {DIM}(last {len(msgs['tail'])} of {msgs.get('total') or '?'}){OFF}"
+
+
+def fmt_tok(n):
+    """Compact ~token count: 850, 46k, 1.2M."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1000:
+        return f"{round(n / 1000)}k"
+    return str(n)
+
+
+def dispatch_cue(snap, avail):
+    """The average dispatch payload — the ~tokens a freshly launched seat must read before
+    working (shared boot files + its own seat.md/memory.md), computed by the sensor and
+    rendered on the WINDOWS header (it describes the seats, not the plan bars). Degrades
+    gracefully and to '' when the snapshot lacks the field — absence renders as nothing
+    rather than a fake 0."""
+    d = (snap or {}).get("dispatch_tokens") or {}
+    avg = d.get("avg_tokens")
+    if avg is None or avail <= 2:
+        return ""
+    # the VALUE renders bright (CYAN, like the in-use account labels) — a fully-DIM cue
+    # proved invisible on a dark terminal ("I can't see the token counter", owner 2026-07-28)
+    variants = (f"{DIM}dispatch{OFF} {CYAN}~{fmt_tok(avg)} tok{OFF} {DIM}avg/seat{OFF}",
+                f"{DIM}disp{OFF} {CYAN}~{fmt_tok(avg)} tok{OFF}",
+                f"{CYAN}disp~{fmt_tok(avg)}{OFF}")
+    fit = shrink_to_fit(variants, avail - 3)
+    return f" · {fit}" if fit else ""
 
 
 def choose_layout(cols, rows):
@@ -1755,11 +1858,19 @@ def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, 
         # dashboard entirely, to `teamview interface-legend` (owner ruling 2026-07-28,
         # reversing the earlier decision that put a mini legend on the small layouts).
         body_budget = max(1, rows - len(out) - 3)
-        extra = 1 if (cells or notes or console) else 0
-        grid = None if phase == "limits" else window_grid(
-            wins, cols - 2, body_budget, dashes=True, now=now,
-            extra_slots=0 if phase == "panes" else extra)
-        if grid is None:
+        extras = extra_view_names(cells, notes, console, snap)
+        if phase in ("limits", "messages"):
+            grid, which = None, phase
+        else:
+            grid = window_grid(wins, cols - 2, body_budget, dashes=True, now=now,
+                               extra_slots=0 if phase == "panes" else len(extras))
+            which = extras[grid] if isinstance(grid, int) else None
+        if which == "messages":
+            mhdr = f"{BOLD}MESSAGES{OFF}{messages_hdr_count(snap)}"
+            out.append(mhdr + rollup_suffix(wins, cols - visible_len(mhdr)))
+            out.extend("  " + l for l in messages_body(snap, cols - 2, body_budget, now))
+            return out[:rows - 1]
+        if which == "limits":
             lhdr = f"{BOLD}PLAN LIMITS{OFF}{age}"
             out.append(lhdr + rollup_suffix(wins, cols - visible_len(lhdr)))
             out.extend("  " + l for l in
@@ -1767,6 +1878,7 @@ def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, 
             return out[:rows - 1]
         else:
             whdr = f"{BOLD}WINDOWS{OFF} {DIM}(panes beneath){OFF}"
+            whdr += dispatch_cue(snap, cols - visible_len(whdr))
             out.append(whdr + rollup_suffix(wins, cols - visible_len(whdr)))
             out.extend("  " + l for l in grid)
         return out[:rows - 1]
@@ -1780,9 +1892,15 @@ def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, 
     out.extend("  " + l for l in console_lines(console, cols - 2))
     out.append("")
     whdr = f"{BOLD}WINDOWS{OFF} {DIM}(panes beneath){OFF}"
+    whdr += dispatch_cue(snap, cols - visible_len(whdr))
     out.append(whdr + rollup_suffix(wins, cols - visible_len(whdr)))
     grid_budget = rows - len(out) - 1
     out.extend("  " + l for l in window_grid(wins, cols - 2, grid_budget, dashes=True))
+    if snapshot_messages(snap):
+        out.append("")
+        out.append(f"{BOLD}MESSAGES{OFF}{messages_hdr_count(snap)}")
+        out.extend("  " + l for l in
+                   messages_body(snap, cols - 2, max(1, rows - len(out) - 1), now))
     return out[:rows - 1]
 
 
@@ -1913,6 +2031,7 @@ def session_line(session, nwin, npane, cols=999, cue=False, snap=None, now=None)
 # and the session-stats line above is never mistaken for a table header.
 LIMITS_HDR = f"{BOLD}{UL}PLAN LIMITS{OFF}"
 WINDOWS_HDR = f"{BOLD}{UL}WINDOWS · PANES{OFF}"
+MESSAGES_HDR = f"{BOLD}{UL}MESSAGES{OFF}"
 
 
 def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows,
@@ -1923,15 +2042,25 @@ def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows,
         # phase pins ONE view; see render_full.
         out = [session_line(session, nwin, npane, cols, cue, snap, now)]
         budget = max(1, rows - 2)  # session line + phase header (no legend — see render_full)
-        extra = 1 if (cells or notes or console) else 0
-        grid = None if phase == "limits" else window_grid(
-            wins, cols, budget, now=now, extra_slots=0 if phase == "panes" else extra)
-        if grid is None:
+        extras = extra_view_names(cells, notes, console, snap)
+        if phase in ("limits", "messages"):
+            grid, which = None, phase
+        else:
+            grid = window_grid(wins, cols, budget, now=now,
+                               extra_slots=0 if phase == "panes" else len(extras))
+            which = extras[grid] if isinstance(grid, int) else None
+        if which == "messages":
+            mhdr = MESSAGES_HDR + messages_hdr_count(snap)
+            out.append(mhdr + rollup_suffix(wins, cols - visible_len(mhdr)))
+            out.extend(messages_body(snap, cols, budget, now))
+            return out[:rows]
+        if which == "limits":
             out.append(LIMITS_HDR + rollup_suffix(wins, cols - visible_len(LIMITS_HDR)))
             out.extend(limits_body(cells, notes, console, cols, budget))
             return out[:rows]
         else:
-            hdr = WINDOWS_HDR + rollup_suffix(wins, cols - visible_len(WINDOWS_HDR))
+            hdr = WINDOWS_HDR + dispatch_cue(snap, cols - visible_len(WINDOWS_HDR))
+            hdr += rollup_suffix(wins, cols - visible_len(hdr))
             out.append(hdr)
             out.extend(grid)
         return out[:rows]
@@ -1984,6 +2113,7 @@ def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows,
     right_w = cols - lw - 3
     right = window_grid(wins, right_w, budget)
     hdr_row = f"{pad_to(LIMITS_HDR, lw)}{DIM}|{OFF} {WINDOWS_HDR}"
+    hdr_row += dispatch_cue(snap, cols - visible_len(hdr_row))
     hdr_row += rollup_suffix(wins, cols - visible_len(hdr_row))
     out = [session_line(session, nwin, npane, cols, cue, snap, now), hdr_row]
     for i in range(budget):
@@ -1992,6 +2122,9 @@ def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows,
         if not lseg and not rseg:
             break
         out.append(f"{pad_to(lseg, lw)}{DIM}|{OFF} {rseg}")
+    if snapshot_messages(snap):
+        out.append(MESSAGES_HDR + messages_hdr_count(snap))
+        out.extend(messages_body(snap, cols, max(1, rows - len(out) - 1), now))
     return out[:rows]
 
 
@@ -2002,16 +2135,27 @@ def cycle_compact(session, wins, nwin, npane, cells, notes, console, cols, rows,
     — see render_full. phase pins ONE view instead of alternating; see render_full."""
     out = [session_line(session, nwin, npane, cols, cue, snap, now)]
     budget = max(1, rows - 3)  # session line + phase header + the rows-1 cap
-    extra = 1 if (cells or notes or console) else 0
-    grid = None if phase == "limits" else compact_window_lines(
-        wins, cols, budget, now=now, extra_slots=0 if phase == "panes" else extra)
-    if grid is None:
+    extras = extra_view_names(cells, notes, console, snap)
+    if phase in ("limits", "messages"):
+        grid, which = None, phase
+    else:
+        grid = compact_window_lines(wins, cols, budget, now=now,
+                                    extra_slots=0 if phase == "panes" else len(extras))
+        which = extras[grid] if isinstance(grid, int) else None
+    if which == "messages":
+        mhdr = (MESSAGES_HDR if style == "narrow" else f"{BOLD}{UL}MSGS{OFF}") \
+            + messages_hdr_count(snap)
+        out.append(mhdr + rollup_suffix(wins, cols - visible_len(mhdr)))
+        out.extend(messages_body(snap, cols, budget + 1, now))
+        return out[:rows - 1]
+    if which == "limits":
         lhdr = LIMITS_HDR if style == "narrow" else f"{BOLD}{UL}LIMITS{OFF}"
         out.append(lhdr + rollup_suffix(wins, cols - visible_len(lhdr)))
         out.extend(limits_body(cells, notes, console, cols, budget + 1, style=style))
         return out[:rows - 1]
     else:
         whdr = WINDOWS_HDR if style == "narrow" else f"{BOLD}{UL}WINDOWS{OFF}"
+        whdr += dispatch_cue(snap, cols - visible_len(whdr))
         out.append(whdr + rollup_suffix(wins, cols - visible_len(whdr)))
         out.extend(grid)
     return out[:rows - 1]
@@ -2030,8 +2174,12 @@ def render_narrow(session, wins, nwin, npane, cells, notes, console, cols, rows,
     for n in notes:
         out.append(n[:cols])
     out.extend(console_lines(console, cols, max_lines=2))
-    out.append(WINDOWS_HDR + rollup_suffix(wins, cols - visible_len(WINDOWS_HDR)))
+    whdr = WINDOWS_HDR + dispatch_cue(snap, cols - visible_len(WINDOWS_HDR))
+    out.append(whdr + rollup_suffix(wins, cols - visible_len(whdr)))
     out.extend(compact_window_lines(wins, cols, max(1, rows - len(out) - 1)))
+    if snapshot_messages(snap):
+        out.append(MESSAGES_HDR + messages_hdr_count(snap))
+        out.extend(messages_body(snap, cols, max(1, rows - len(out) - 1), now))
     return out[:rows - 1]
 
 
@@ -2064,8 +2212,12 @@ def render_tiny(session, wins, nwin, npane, cells, notes, console, cols, rows,
             re.sub(r"\033\[[0-9;]*m", "", c).split(" ")[0] for c in console))
     out.extend(flow(note_toks, cols, max(1, rows - len(out) - 3)))
     thdr = f"{BOLD}{UL}WINDOWS{OFF}"
+    thdr += dispatch_cue(snap, cols - visible_len(thdr))
     out.append(thdr + rollup_suffix(wins, cols - visible_len(thdr)))
     out.extend(compact_window_lines(wins, cols, max(1, rows - len(out) - 1)))
+    if snapshot_messages(snap):
+        out.append(f"{BOLD}{UL}MSGS{OFF}" + messages_hdr_count(snap))
+        out.extend(messages_body(snap, cols, max(1, rows - len(out) - 1), now))
     return out[:rows - 1]
 
 
@@ -2155,8 +2307,8 @@ def render(args, package, now=None):
     view = "combined" if getattr(args, "no_rotate", False) else getattr(args, "view", "auto")
     if view == "combined":
         out = frame(10 ** 6, False)
-    elif view in ("limits", "panes"):
-        # single-view modes: one view, pinned — no alternation with the other
+    elif view in ("limits", "panes", "messages"):
+        # single-view modes: one view, pinned — no alternation with the others
         out = frame(rows, True, phase=view)
     else:
         # AUTO: cycle ONLY when the frame is too small to hold everything at once.
@@ -2616,19 +2768,26 @@ def cmd_selftest():
     # Whole-view cycle: with extra_slots=1 the rotation wheel gains a limits slot AFTER
     # the window pages — windows p1..pN, then None (the caller's limits turn), then back.
     check("whole-view cycle: window_grid with extra_slots=1 yields every window page, "
-          "then None on the limits slot, then repeats",
-          window_grid(rot_wins, 40, 4, now=0, extra_slots=1) is not None
-          and window_grid(rot_wins, 40, 4, now=20, extra_slots=1) is not None
-          and window_grid(rot_wins, 40, 4, now=30, extra_slots=1) is None
+          "then the extra slot's index on its turn, then repeats",
+          isinstance(window_grid(rot_wins, 40, 4, now=0, extra_slots=1), list)
+          and isinstance(window_grid(rot_wins, 40, 4, now=20, extra_slots=1), list)
+          and window_grid(rot_wins, 40, 4, now=30, extra_slots=1) == 0
           and plain(window_grid(rot_wins, 40, 4, now=40, extra_slots=1))
           == plain(window_grid(rot_wins, 40, 4, now=0, extra_slots=1)))
-    check("whole-view cycle: compact_window_lines honors the same extra limits slot",
-          compact_window_lines(rot_wins, 40, 1, now=0, extra_slots=1) is not None
-          and compact_window_lines(rot_wins, 40, 1, now=30, extra_slots=1) is None)
+    check("whole-view cycle: compact_window_lines honors the same extra slot",
+          isinstance(compact_window_lines(rot_wins, 40, 1, now=0, extra_slots=1), list)
+          and compact_window_lines(rot_wins, 40, 1, now=30, extra_slots=1) == 0)
     check("whole-view cycle: even a single fitting windows page alternates with the "
-          "limits slot",
-          window_grid(fit_wins, 80, 10, now=0, extra_slots=1) is not None
-          and window_grid(fit_wins, 80, 10, now=10, extra_slots=1) is None)
+          "extra slot",
+          isinstance(window_grid(fit_wins, 80, 10, now=0, extra_slots=1), list)
+          and window_grid(fit_wins, 80, 10, now=10, extra_slots=1) == 0)
+    check("whole-view cycle: TWO extra slots take their turns IN ORDER after the window "
+          "pages (limits then messages), 0 then 1, then the wheel repeats",
+          window_grid(fit_wins, 80, 10, now=10, extra_slots=2) == 0
+          and window_grid(fit_wins, 80, 10, now=20, extra_slots=2) == 1
+          and isinstance(window_grid(fit_wins, 80, 10, now=30, extra_slots=2), list)
+          and compact_window_lines(fit_wins, 80, 10, now=10, extra_slots=2) == 0
+          and compact_window_lines(fit_wins, 80, 10, now=20, extra_slots=2) == 1)
     s0 = render_strip("sess", fit_wins, 1, 1, cells, notes, console, 220, 10, now=0)
     s1 = render_strip("sess", fit_wins, 1, 1, cells, notes, console, 220, 10, now=10)
     s2 = render_strip("sess", fit_wins, 1, 1, cells, notes, console, 220, 10, now=20)
@@ -2657,6 +2816,77 @@ def cmd_selftest():
           "the windows block together",
           any("PLAN LIMITS" in l for l in combined)
           and any("WINDOWS" in l for l in combined))
+
+    # Owner request 2026-07-28: (a) a MESSAGES page joins the whole-view cycle — the
+    # coordination log's last sends (how long ago · sender→recipient · first 70 chars),
+    # rendered R24-style off the snapshot's `messages` field, never off the log itself;
+    # (b) the WINDOWS header carries the sensor's average dispatch payload
+    # (`dispatch_tokens.avg_tokens` — what every seat must read regardless of its prompt
+    # or agent type).
+    msg_snap = {"captured_at": 1000.0,
+                "messages": {"total": 42, "tail": [
+                    {"n": 41, "from": "leader", "to": "engineer", "type": "note",
+                     "sent": "2026-07-28 10:00", "sent_epoch": 400.0, "text": "A" * 100},
+                    {"n": 42, "from": "chief-of-staff", "to": "leader", "type": "verdict",
+                     "sent": "2026-07-28 10:05", "sent_epoch": 700.0, "text": "short"}]},
+                "dispatch_tokens": {"avg_tokens": 46200, "shared_tokens": 9000, "seats": 4}}
+    mb = plain(messages_body(msg_snap, 200, 10, now=1000.0))
+    check("messages_body: one ALIGNED row per send — age · sender → recipient · text, "
+          "log order (newest last), text on one straight edge",
+          len(mb) == 2 and "leader → engineer" in mb[0]
+          and "chief-of-staff → leader" in mb[1]
+          and mb[1].strip().startswith("5m") and "short" in mb[1]
+          and mb[0].index("A" * 5) == mb[1].index("short"))
+    check("messages_body: the text fills the row's remaining width (not a fixed 70) and "
+          "cuts with the … marker only when the row runs out",
+          "A" * 100 in mb[0]
+          and (lambda n: "A" * 49 + "…" in n[0] and "A" * 50 not in n[0])(
+              plain(messages_body(msg_snap, 80, 10, now=1000.0))))
+    check("messages_body: overflow drops the OLDEST rows with a count note, never the "
+          "newest — down to a 1-row budget, where the note shares the newest row's line",
+          (lambda o: len(o) == 2 and "+3 older not shown" in o[0] and "short" in o[1])(
+              plain(messages_body(dict(msg_snap, messages={"total": 42, "tail":
+                    msg_snap["messages"]["tail"] * 2}), 200, 2, now=1000.0)))
+          and (lambda o: len(o) == 1 and "+1 older" in o[0] and "short" in o[0])(
+              plain(messages_body(msg_snap, 200, 1, now=1000.0))))
+    check("messages_body: a snapshot without the field renders a LOUD explanation, "
+          "not an empty page",
+          any("no message data" in l for l in plain(messages_body({}, 200, 5))))
+    m0, m1, m2, m3 = (plain(render_strip("sess", fit_wins, 1, 1, cells, notes, console,
+                                         220, 10, now=n, snap=msg_snap))
+                      for n in (0, 10, 20, 30))
+    check("whole-view cycle: with a message tail in the snapshot the wheel runs windows "
+          "-> PLAN LIMITS -> MESSAGES -> back to windows",
+          any("WINDOWS" in l for l in m0) and any("PLAN LIMITS" in l for l in m1)
+          and any("MESSAGES (last 2 of 42)" in l for l in m2)
+          and any("leader → engineer" in l for l in m2)
+          and m3[1:] == m0[1:])
+    check("whole-view cycle: NO messages slot when the snapshot carries no tail — an old "
+          "sensor must not buy a blank 10s page",
+          not any(any("MESSAGES" in l for l in
+                      plain(render_strip("sess", fit_wins, 1, 1, cells, notes, console,
+                                         220, 10, now=n)))
+                  for n in (0, 10, 20, 30)))
+    check("--view messages: pinned — every tick shows the messages page, never the others",
+          all(any("MESSAGES" in l for l in f) and not any("WINDOWS" in l for l in f)
+              and not any("PLAN LIMITS" in l for l in f)
+              for f in (plain(render_strip("sess", fit_wins, 1, 1, cells, notes, console,
+                                           220, 10, now=n, phase="messages",
+                                           snap=msg_snap)) for n in (0, 10, 20))))
+    combined_m = plain(render_strip("sess", fit_wins, 1, 1, cells, notes, console,
+                                    220, 10 ** 6, cycle=False, snap=msg_snap))
+    check("--no-rotate: the combined frame carries the MESSAGES block too",
+          any("MESSAGES" in l for l in combined_m)
+          and any("chief-of-staff → leader" in l for l in combined_m))
+    check("dispatch tokens: the WINDOWS header carries the snapshot's average dispatch "
+          "payload, and its absence renders as NOTHING rather than a fake 0",
+          any("dispatch ~46k tok avg/seat" in l for l in m0)
+          and not any("disp" in l for l in
+                      plain(render_strip("sess", fit_wins, 1, 1, cells, notes, console,
+                                         220, 10, now=0))))
+    check("dispatch cue: degrades to shorter forms at narrow room, never a mid-value clip",
+          dispatch_cue(msg_snap, 14).endswith(f"disp~46k{OFF}")
+          and dispatch_cue(msg_snap, 2) == "")
     # Regression (live crash 2026-07-24): a real full-screen frame can leave grid_budget at
     # 0 or negative once the provider bars eat the height (rows - len(out) - 4), and rotation
     # with an over-budget page produced an empty `lines` list that lines[-1] then indexed
@@ -3382,12 +3612,13 @@ def main():
                     help="disable rotation: show EVERY window/pane in one COMPLETE "
                          "snapshot (best with --once; output can grow taller than the "
                          "terminal) — same as --view combined")
-    ap.add_argument("--view", choices=("auto", "limits", "panes", "combined"),
+    ap.add_argument("--view", choices=("auto", "limits", "panes", "messages", "combined"),
                     default="auto",
                     help="which body to show (default auto: ONE combined frame when the "
                          "terminal fits limits+every pane, else the ~10s cycle) — limits: "
-                         "plan-limit bars only · panes: windows/panes only · combined: "
-                         "both at once (= --no-rotate)")
+                         "plan-limit bars only · panes: windows/panes only · messages: "
+                         "the coordination log's last sends only · combined: "
+                         "everything at once (= --no-rotate)")
     ap.add_argument("--interval", type=int, default=2,
                     help="display refresh seconds (default 2) — repaint cadence only, does "
                          "NOT re-poll providers (that is --refresh / --provider-ttl)")

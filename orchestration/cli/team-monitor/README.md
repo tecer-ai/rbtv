@@ -70,10 +70,23 @@ take no lock. Every write is `tmp` + `os.replace`, so a reader never sees a part
            model_source, ctx_pct, ctx_tokens, window_tokens, ctx_ambiguous, ctx_source,
            ctx_refresh, last_activity, last_activity_age_s, prompt_pending, ram_mb,
            liveness, roster_active}],
-    roster_absent[{seat, pane, liveness, reason}]
+    roster_absent[{seat, pane, liveness, reason}],
+    messages{total, tail[{n, from, to, type, sent, sent_epoch, text}]},
+    dispatch_tokens{avg_tokens, shared_tokens, seats}
 
 `box{}` carries the **same** `captured_at` as the rest of the snapshot — box pressure is
 thresholded continuously by `goal-watcher-job` without a second raw-source reader.
+
+`messages` is the coordination log's tail — the last 10 entries of
+`coordination/messages.md`, parsed off the file's last 128KB (the log grows into the
+megabytes), each with its header fields plus the body's first 400 chars flattened to one
+line. `null` when the log is absent (distinct from an empty log). `dispatch_tokens` is the
+average dispatch payload per live seat in ~tokens (bytes/4): the shared boot files every
+seat reads regardless of its prompt or agent type (run `CLAUDE.md` + `bars.md` +
+`conduct.md` + `communication.md`) plus that seat's own `seat.md` + `memory.md`, averaged
+over the captured seats that have a `seats/<seat>/seat.md` briefing; `avg_tokens` is `null`
+when no captured seat has one. Both exist so teamview can RENDER them without touching the
+raw sources (R24).
 
 `roster_absent` is the GHOSTROW input, and it separates two failures that look alike from a
 distance: a roster row whose **pane left the room**, and a roster row whose **pane is still

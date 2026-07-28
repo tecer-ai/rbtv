@@ -433,6 +433,84 @@ def run_closed(package):
     return False
 
 
+MSG_HDR_RE = re.compile(
+    r"^## (\d+) \| from: (.+?) \| to: (.+?) \| type: (\S+) \| "
+    r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s*$")
+MESSAGES_TAIL_N = 10
+MESSAGES_TAIL_BYTES = 131072
+MSG_TEXT_CAP = 400
+
+
+def messages_tail(package, limit=MESSAGES_TAIL_N, tail_bytes=MESSAGES_TAIL_BYTES):
+    """The last `limit` entries of the run's coordination/messages.md, parsed off the file's
+    TAIL (last `tail_bytes` bytes — the log grows into the megabytes and a full read per 2s
+    capture would be the sensor's biggest read). Each entry: header fields plus the body's
+    first MSG_TEXT_CAP chars flattened to one line. `total` is the highest entry number seen,
+    which IS the log's total (the log is append-only with sequential numbers). None when the
+    log is absent — a renderer must distinguish 'no log' from 'log empty'. A tail cut that
+    lands mid-entry drops only that partial entry's body lines (no header, no entry)."""
+    p = Path(package) / "coordination" / "messages.md"
+    try:
+        size = p.stat().st_size
+        with open(p, "rb") as fh:
+            if size > tail_bytes:
+                fh.seek(size - tail_bytes)
+            text = fh.read().decode("utf-8", "replace")
+    except OSError:
+        return None
+    entries, cur = [], None
+    for line in text.splitlines():
+        m = MSG_HDR_RE.match(line)
+        if m:
+            cur = {"n": int(m.group(1)), "from": m.group(2), "to": m.group(3),
+                   "type": m.group(4), "sent": m.group(5), "text": ""}
+            entries.append(cur)
+        elif cur is not None and len(cur["text"]) < MSG_TEXT_CAP:
+            t = line.strip()
+            if t:
+                cur["text"] = (cur["text"] + " " + t).strip()[:MSG_TEXT_CAP]
+    for e in entries:
+        try:  # local wall-clock stamps, same clock coord.py writes them with
+            e["sent_epoch"] = time.mktime(time.strptime(e["sent"], "%Y-%m-%d %H:%M"))
+        except (ValueError, OverflowError):
+            e["sent_epoch"] = None
+    return {"total": entries[-1]["n"] if entries else 0, "tail": entries[-limit:]}
+
+
+# The boot payload every seat reads REGARDLESS of its dispatch prompt or agent type: the run
+# CLAUDE.md plus the boot-mandatory coordination docs (protocol.md § seat boot). Absent files
+# count 0 — a run without a conduct.md simply has a smaller shared payload.
+SHARED_BOOT_FILES = ("CLAUDE.md", "bars.md", "conduct.md", "communication.md")
+TOKEN_BYTES = 4  # the standard ~4-bytes-per-token estimate; label stays approximate
+
+
+def dispatch_tokens(package, seats):
+    """Average dispatch payload per LIVE seat, in ~tokens: the shared boot files every seat
+    must read plus that seat's own seat.md + memory.md, averaged over the captured seats that
+    have a seats/<seat>/seat.md briefing (the door pane and bare shells have none and are
+    excluded, not counted as zero). avg_tokens is None when no captured seat has a briefing —
+    'not measurable' must stay distinct from 'zero'."""
+    root = Path(package)
+
+    def nbytes(p):
+        try:
+            return p.stat().st_size
+        except OSError:
+            return 0
+
+    shared = sum(nbytes(root / f) for f in SHARED_BOOT_FILES)
+    per_seat = []
+    for s in seats:
+        name = s.get("seat") or ""
+        d = root / "seats" / name
+        if name and (d / "seat.md").is_file():
+            per_seat.append(nbytes(d / "seat.md") + nbytes(d / "memory.md"))
+    out = {"shared_tokens": round(shared / TOKEN_BYTES), "seats": len(per_seat)}
+    out["avg_tokens"] = (round((shared + sum(per_seat) / len(per_seat)) / TOKEN_BYTES)
+                         if per_seat else None)
+    return out
+
+
 # ---------- capture ----------
 
 def capture(package, session=None, sensor_path=None):
@@ -509,6 +587,8 @@ def capture(package, session=None, sensor_path=None):
         "box": box_facts(),
         "seats": seats,
         "roster_absent": absent_rows(rost, panes, seats, decls),
+        "messages": messages_tail(package),
+        "dispatch_tokens": dispatch_tokens(package, seats),
     }
 
 
@@ -910,6 +990,56 @@ def cmd_selftest(args):
         # ones. A rename that leaves both keys present is the disagreement, not the fix.
         check("agent_type: the withdrawn `class`/`class_source` keys are ABSENT from the row",
               "class" not in ghost[0] and "class_source" not in ghost[0])
+
+    # ---- messages tail + dispatch tokens (owner-requested teamview feed, 2026-07-28) ----
+    with tempfile.TemporaryDirectory() as td:
+        coord = Path(td) / "coordination"
+        coord.mkdir()
+        check("messages_tail: absent log reads None, never an empty tail",
+              messages_tail(td) is None)
+        body = ["# messages — append-only coordination log\n"]
+        for i in range(1, 13):
+            body.append(f"## {i} | from: seat-a | to: seat-b | type: note "
+                        f"| 2026-07-28 10:{i:02d}\n\nline one of msg {i}.\n"
+                        f"line two of msg {i}.\n")
+        (coord / "messages.md").write_text("\n".join(body), encoding="utf-8")
+        mt = messages_tail(td)
+        check("messages_tail: last 10 of 12 entries, in log order, total = highest number",
+              mt["total"] == 12 and len(mt["tail"]) == 10
+              and [e["n"] for e in mt["tail"]] == list(range(3, 13)))
+        e = mt["tail"][-1]
+        check("messages_tail: entry carries from/to/type/sent + flattened body text",
+              e["from"] == "seat-a" and e["to"] == "seat-b" and e["type"] == "note"
+              and e["sent"] == "2026-07-28 10:12"
+              and e["text"] == "line one of msg 12. line two of msg 12."
+              and isinstance(e["sent_epoch"], float))
+        long = ("## 13 | from: a | to: b | type: note | 2026-07-28 11:00\n\n"
+                + "x" * 1000 + "\n")
+        with (coord / "messages.md").open("a", encoding="utf-8") as fh:
+            fh.write("\n" + long)
+        check("messages_tail: body text is capped, never the whole essay",
+              len(messages_tail(td)["tail"][-1]["text"]) <= MSG_TEXT_CAP + 1)
+        # a tail cut landing MID-ENTRY drops the partial entry, never mis-parses it
+        cut = messages_tail(td, tail_bytes=600)
+        check("messages_tail: a mid-entry tail cut still parses the complete entries after it",
+              cut is not None and all(e["n"] for e in cut["tail"]))
+
+        (Path(td) / "CLAUDE.md").write_text("c" * 4000, encoding="utf-8")
+        (Path(td) / "bars.md").write_text("b" * 2000, encoding="utf-8")
+        sd = Path(td) / "seats"
+        (sd / "s1").mkdir(parents=True)
+        (sd / "s1" / "seat.md").write_text("s" * 1000, encoding="utf-8")
+        (sd / "s1" / "memory.md").write_text("m" * 3000, encoding="utf-8")
+        (sd / "s2").mkdir(parents=True)
+        (sd / "s2" / "seat.md").write_text("s" * 2000, encoding="utf-8")
+        seats_in = [{"seat": "s1"}, {"seat": "s2"}, {"seat": ""}, {"seat": "no-briefing"}]
+        dt = dispatch_tokens(td, seats_in)
+        # shared 6000B + mean(4000, 2000)=3000B -> 9000B / 4 = 2250 tok, over exactly 2 seats
+        check("dispatch_tokens: avg = (shared + mean per-seat payload)/4 over briefed seats "
+              "only — the door pane and briefing-less seats are excluded, not zeroed",
+              dt == {"shared_tokens": 1500, "seats": 2, "avg_tokens": 2250})
+        check("dispatch_tokens: no briefed seat -> avg is None, never a fake zero",
+              dispatch_tokens(td, [{"seat": ""}])["avg_tokens"] is None)
 
     print(f"\n{'PASS' if not failures else 'FAIL'} — {len(failures)} failure(s)")
     return 1 if failures else 0
