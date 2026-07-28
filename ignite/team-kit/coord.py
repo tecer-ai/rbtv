@@ -2057,7 +2057,7 @@ def pane_identity(pane):
     return (str(pid), start, tty) if start else ("", "", "")
 
 
-def session_open(args, w, since=None, wait=NATIVE_ID_WAIT, pane=None):
+def session_open(args, w, since=None, wait=None, pane=None):
     """Append this seat's session row the moment it boots. Returns (session-id, note).
 
     `note` is non-empty when a field could not be resolved — the caller PRINTS it. A blank cell
@@ -2065,6 +2065,13 @@ def session_open(args, w, since=None, wait=NATIVE_ID_WAIT, pane=None):
 
     `wait` is a parameter and not a constant read inside so the self-test can drive the resolver
     to its unresolved branch without sleeping through the real boot timeout.
+
+    ⚠ AND `None` MEANS "read NATIVE_ID_WAIT NOW", because a default written as `wait=NATIVE_ID_WAIT`
+    IS BOUND AT `def` TIME: a caller that lowers the module constant is then silently ignored, and
+    the parameter above delivers its promise only to callers that pass one EXPLICITLY. The path
+    that actually spends the budget — launch_seat — passes nothing, so the suite slept through the
+    full timeout on every launch while believing it had opted out. Same trap, and the same cure, as
+    `claude_projects_dir` evaluating Path.home() at call time instead of import.
 
     `pane` carries the seat's tmux pane so the row can record the IDENTITY PAIR the seat-identity
     gate decides on. It is the PANE's pid, deliberately, not this process's: every process the seat
@@ -2075,7 +2082,8 @@ def session_open(args, w, since=None, wait=NATIVE_ID_WAIT, pane=None):
     pkg = package_dir(args)
     native = ""
     if w.get("harness") == "claude":
-        native = claude_native_session_id(w.get("cwd"), since, wait=wait)
+        native = claude_native_session_id(w.get("cwd"), since,
+                                          wait=NATIVE_ID_WAIT if wait is None else wait)
     pid, pid_start, tty = pane_identity(pane)
     rec = {"session-id": "", "seat": w.get("agent", ""), "harness": w.get("harness", ""),
            "native-session-id": native, "workdir": str(w.get("cwd") or ""),
@@ -6058,6 +6066,40 @@ def _selftest_checks(args, failures, names):
             _acquire_flock, atomic_write, pane_title)
     env_agent = os.environ.pop("COORD_AGENT", None)
 
+    # ---- The three REAL-TIME budgets, zeroed for the duration.
+    #
+    # These are waits for something the stubs above make IMPOSSIBLE, so the suite paid them in
+    # full, every run, to reach the outcome it was always going to reach: 56.2s of a 60.3s run was
+    # `time.sleep` (cProfile, 181 calls) against ~6s of actual work. It is the vacuous-guard family
+    # on the COST axis — a retry budget spent in a state where the awaited event cannot occur — and
+    # it priced every save gate and every mutation run at a minute of mostly sleeping.
+    #
+    # ⚠ EACH SITE, AND IN ONE CLAUSE WHY THE WAIT IS NOT THAT CHECK'S SUBJECT. An escape with no
+    # named holder gets taken; shortening a budget on a check whose subject IS the wait would go
+    # green WITHOUT EXERCISING THE BEHAVIOUR, which is the same family arriving in the grader.
+    #
+    #   NATIVE_ID_WAIT (40.3s / 13 calls, via launch_seat -> session_open)
+    #     Subject: that a launch WRITES its session row and that the id RESOLVES. Launch is stubbed
+    #     here, so no transcript is ever written and the poll returns '' at the deadline whatever
+    #     the budget is. The one check that asserts resolution SUCCEEDING (the launch-path check in
+    #     the 7.37 block) supplies its own transcript and passes `wait=0.0` explicitly, so it does
+    #     not read this at all. No check anywhere asserts the polling itself.
+    #
+    #   WAKE_ENTER_VERIFY_DELAY_FIRST / _RETRY (15.2s / 11 calls, the P35 blocks)
+    #     Subject: the Enter-verify RETRY MECHANICS — how many Enters, that the text is never
+    #     retyped, that it is bounded, and the failure string. Every assertion is over
+    #     `enter_calls` / `sent_texts` / `terr`. In production the delay lets the pane render
+    #     before the re-capture; here `tmux_capture_tail` is a scripted stub popping a fixed
+    #     sequence, so ITS ANSWER IS INDEPENDENT OF ELAPSED TIME — provably, not by judgement.
+    #
+    # NOT zeroed: HARNESS_UP_POLL, because `wait_harness_up` is already stubbed wholesale below;
+    # zeroing a constant nothing reads would be decoration.
+    global NATIVE_ID_WAIT, WAKE_ENTER_VERIFY_DELAY_FIRST, WAKE_ENTER_VERIFY_DELAY_RETRY
+    waits_real = (NATIVE_ID_WAIT, WAKE_ENTER_VERIFY_DELAY_FIRST, WAKE_ENTER_VERIFY_DELAY_RETRY)
+    NATIVE_ID_WAIT = 0.0
+    WAKE_ENTER_VERIFY_DELAY_FIRST = 0.0
+    WAKE_ENTER_VERIFY_DELAY_RETRY = 0.0
+
     # The process-truth helpers (G-10/G-11) read the LIVE process table and live tmux panes. Left
     # real, this suite would judge fixture panes against whatever happens to run on the tester's
     # box — and it did: a fixture checkin at "%5" hit a real, bare-shell pane of the running team
@@ -8651,6 +8693,8 @@ def _selftest_checks(args, failures, names):
      _acquire_flock, atomic_write, pane_title) = real
     (pane_harness_pids, pane_harness_idents, wait_harness_up, verify_pids_gone, arm_pid_reaper,
      tmux_pane_pid, tmux_respawn_pane, available_mb) = proc_real
+    (NATIVE_ID_WAIT, WAKE_ENTER_VERIFY_DELAY_FIRST,
+     WAKE_ENTER_VERIFY_DELAY_RETRY) = waits_real
     if env_agent is not None:
         os.environ["COORD_AGENT"] = env_agent
 
@@ -8907,6 +8951,66 @@ def _selftest_checks(args, failures, names):
               "`fix` would destroy the one field the KG says is not derivable",
               keep4[iix4["type"]] == "fix" and keep4[iix4["opened"]] == "2026-01-01 00:00"
               and keep4[iix4["taskforce-ids"]] == "tf-9")
+
+        # The native session id RESOLVING, through a real CALL SITE. Every other assertion about
+        # that field in this suite reaches '' or, at the row-shape check above, asserts only that
+        # THE COLUMN EXISTS — and a resolver that ALWAYS MISSES satisfies every one of them. That
+        # is not hypothetical: it is the 7.37 slug bug's own post-mortem ("every earlier check
+        # asserted only the '' outcome, so none of them could see a lookup that always missed")
+        # recurring ONE LAYER UP. The derivation got covered that day; its three call sites —
+        # launch (session_open), checkin (session_backfill_native) and close — did not.
+        # HOME is the lever claude_projects_dir's docstring already names, so no stubbing is
+        # needed, and `wait=0.0` is deliberate: success must not depend on a poll budget.
+        home4 = Path(td4) / "home"
+        proj4 = home4 / ".claude" / "projects" / claude_project_slug(seat4["cwd"])
+        proj4.mkdir(parents=True)
+        (proj4 / "live-sess.jsonl").write_text("{}", encoding="utf-8")
+        home_real4 = os.environ.get("HOME")
+        os.environ["HOME"] = str(home4)
+        try:
+            sid4d, _ = session_open(a4, seat4, since=None, wait=0.0)
+        finally:
+            if home_real4 is None:
+                os.environ.pop("HOME", None)
+            else:
+                os.environ["HOME"] = home_real4
+        live4 = pad_row(read_csv_table(sessions_csv(pkg4), SESSIONS_COLS)[1][-1], hdr4)
+        check("7.37: a session_open on the LAUNCH path RESOLVES a real transcript into the row's "
+              "native-session-id — the SUCCESS path asserted THROUGH a call site, not by calling "
+              "the resolver directly with a fixture. Without this, every native-id assertion here "
+              "is satisfied by a resolver that always returns '', which is exactly how the slug "
+              "bug survived: the outcome under test was the failure outcome",
+              live4[cix["native-session-id"]] == "live-sess" and sid4d != "")
+
+        # The budget a caller that passes NOTHING actually gets. Asserted by CAPTURING THE ARGUMENT
+        # — what the code BUILDS — never by timing the call: a check that measured elapsed seconds
+        # would pass for a resolver that slept for any reason at all, and would be the slowest
+        # check in the suite besides.
+        #
+        # ⚠ IT DEFENDS A FIX WHOSE REGRESSION IS SILENT. Written `wait=NATIVE_ID_WAIT`, the default
+        # is bound at `def` time, so lowering the module constant is IGNORED — the suite would
+        # simply go back to sleeping through the full timeout on every launch, staying GREEN while
+        # doing it. Nothing else here would notice, which is exactly why this check exists.
+        seen_wait = []
+        global claude_native_session_id
+        cnsi_real = claude_native_session_id
+        claude_native_session_id = lambda cwd, since=None, wait=0.0, projects=None: (
+            seen_wait.append(wait) or "")
+        nw_real = globals()["NATIVE_ID_WAIT"]
+        globals()["NATIVE_ID_WAIT"] = 7.5
+        try:
+            session_open(a4, seat4, since=None)                     # no `wait=` — the launch path
+            session_open(a4, seat4, since=None, wait=0.25)          # an explicit budget still wins
+        finally:
+            globals()["NATIVE_ID_WAIT"] = nw_real
+            claude_native_session_id = cnsi_real
+        check("7.37: a session_open given no `wait` reads NATIVE_ID_WAIT AT CALL TIME, and an "
+              "explicit budget still overrides it. A default written `wait=NATIVE_ID_WAIT` is "
+              "bound at def time, so the parameter that exists to let a caller opt out of the boot "
+              "timeout delivers that only to callers who pass one — and launch_seat, the path that "
+              "actually spends it, passes none. Same trap as a module constant computed from "
+              "Path.home() at import",
+              seen_wait == [7.5, 0.25])
 
         # A header written before a column existed: the writer widens, never raises.
         (pkg4 / "sessions.csv").write_text("session-id,seat\nold-1,gamma\n", encoding="utf-8")
