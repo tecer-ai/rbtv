@@ -9121,12 +9121,27 @@ def advice_refused_sends(path=None):
     import tempfile
     from contextlib import redirect_stderr, redirect_stdout
 
-    global CLI_INVOCATION, shell_source_line, RUNS_INDEX
+    global CLI_INVOCATION, shell_source_line, RUNS_INDEX, wake, detect_pane, live_panes
     sites = advice_coached_sends(path)
     if len(sites) < ADVICE_FLOOR:
         return None, len(sites)        # INOPERATIVE — the pattern stopped matching the source
 
-    saved = (CLI_INVOCATION, shell_source_line, RUNS_INDEX)
+    # G-182 — HERMETIC IN THE ENVIRONMENT, not only in the package. This used to isolate its temp
+    # package and nothing else, which made it safe ONLY inside the selftest, because the selftest
+    # globally stubs pane resolution and wakes. Called directly — which is how a ratifier verifies
+    # a fix against a mutated copy — it inherited the caller's live pane, so the fixture roster
+    # bound a fixture seat to a REAL pane and then:
+    #   * every send refused "you claimed 'leader' but this pane (%N) is registered to 'beta'",
+    #     11 false offenders on a WORKING file, and the leader was one message from reporting a
+    #     correct fix as broken;
+    #   * deliver_wakes sent real tmux keystrokes to that pane. A check that audits advice must
+    #     not interrupt the room to do it.
+    # The precondition existed as a COMMENT in the probe that developed this and never as code.
+    # A gate that is prose is not a gate, so it is built in here and restored in `finally`.
+    saved = (CLI_INVOCATION, shell_source_line, RUNS_INDEX, wake, detect_pane, live_panes)
+    wake = lambda pane, text: None            # noqa: E731 — no tmux contact, ever
+    detect_pane = lambda override=None: ""    # noqa: E731 — identity comes from --as, not a pane
+    live_panes = lambda: set()                # noqa: E731 — no live roster to collide with
     offenders = []
     try:
         with tempfile.TemporaryDirectory() as td:
@@ -9191,7 +9206,8 @@ def advice_refused_sends(path=None):
                         first = (err.getvalue().strip().splitlines() or ["(refused)"])[0]
                         offenders.append((lineno, " ".join(argv), first[:150]))
     finally:
-        CLI_INVOCATION, shell_source_line, RUNS_INDEX = saved
+        (CLI_INVOCATION, shell_source_line, RUNS_INDEX,
+         wake, detect_pane, live_panes) = saved
     return offenders, len(sites)
 
 
