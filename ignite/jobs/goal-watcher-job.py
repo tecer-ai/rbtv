@@ -149,7 +149,10 @@ DEFAULT_FALLBACK = "leader"
 DEFAULT_CADENCE_S = 20.0
 DEFAULT_TOLERANCE_MULT = 3.0
 DEFAULT_QUIET_MIN = 30
-DEFAULT_MEM_FLOOR_MB = 2800
+# Tracks the owner-ruled launch floor (r-mem-floor-2000). The normative home is the run's
+# budget.json; this default exists so the job is runnable without the flag, and it MUST be
+# re-synchronised whenever that ruling moves — it is a copy, and a copy drifts.
+DEFAULT_MEM_FLOOR_MB = 2000
 DEFAULT_LOAD_PER_CORE = 1.5
 SWAP_RISE_READS = 3
 
