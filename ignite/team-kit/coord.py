@@ -3301,12 +3301,23 @@ def cmd_workers(args):
     if hb:
         cadence = f", loop {hb['loop_min']}min" if hb.get("loop_min") else ", one-shot"
         pid = f", pid {hb['pid']}" if hb.get("pid") else ""
+        # G-158, second pass: UNKNOWN and STALE were both loud and the HEALTHY case printed
+        # NOTHING, so "checked and current" was left to be INFERRED from an absence — in the one
+        # feature whose whole subject is that absence and health look identical. It cost a real
+        # reader real time: the chief-of-staff opened coord.py at this print site to confirm the
+        # silence was by design rather than assume the absence was good news.
+        # Appended to the ok line rather than given a line of its own: the success line already
+        # exists, so terse-on-success survives and the common path gains no new noise.
+        code_ok = ""
+        if hb.get("code_known") and not hb.get("code_drifted"):
+            names = sorted(Path(p).name for p in (hb.get("code") or {}))
+            code_ok = f", running current {' + '.join(names)}" if names else ""
         if hb["stale"]:
             print(c(f"watcher: STALE — last pass {hb['age_min']}min ago (stale past "
                     f"{hb['stale_after']}min{cadence}{pid}). Nothing is measuring liveness, "
                     f"context or approval gates right now; restart the loop.", C_DEAD))
         else:
-            print(c(f"watcher: ok — last pass {hb['age_min']}min ago{cadence}{pid}", C_ALIVE))
+            print(c(f"watcher: ok — last pass {hb['age_min']}min ago{cadence}{pid}{code_ok}", C_ALIVE))
         # G-158: "is it running" and "is it running WHAT WE THINK" are different questions, and
         # only the first was ever asked. A loop that imported an old coord.py keeps passing every
         # check above — fresh heartbeat, live pid, flags delivered — while executing code that no
