@@ -6222,6 +6222,7 @@ def _selftest_checks(args, failures, names):
     global tmux_split_strip, restore_overview_strip, tmux_find_window_pane
     global tmux_send_text, tmux_send_enter, tmux_capture_tail, tmux_pane_window, RUNS_INDEX
     global detect_pane, live_panes, _acquire_flock, atomic_write, pane_title
+    global session_close       # rebound to exercise the trace-write FAILURE direction
     real = (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
             tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
             tmux_split_strip, restore_overview_strip, tmux_find_window_pane, tmux_send_text,
@@ -9109,6 +9110,77 @@ def _selftest_checks(args, failures, names):
               "closing: iota" in _go2
               and "lane note from the leader" not in rd("iota", after=mkc2, peek=True))
         clear_closing(base_g, "iota")
+
+        # ---- the session-trace REPORT at ALL THREE closing verbs (the slice-2 residual) ----
+        # `session_close` itself is covered DIRECTLY by the 7.37 block, against its own package.
+        # Its three CALL SITES — `checkout`, `close-seat` and `depart` — each report the outcome
+        # in the same two lines, and NOTHING asserted either line at any of them. That is this
+        # seat's own 7.37 post-mortem recurring one layer up: THE DERIVATION GOT COVERED AND THE
+        # CALL SITES DID NOT.
+        # ⚠ These were sites 4-5 of the ratified slice 2 and were EXCLUDED there, because the
+        # premise that selected them was false: `cmd_checkout`'s copy was named as the COVERED
+        # safer sibling and it is uncovered too. All three are. So they are covered here as one
+        # REPLICATION item under their own justification, rather than smuggled in under a key that
+        # never selected them — a gap admitted under a wrong reason is worse than an open gap,
+        # because the reason is what the next seat inherits.
+        # WHY `refuse` AND NOT `run`: it captures STDERR — where the warning goes by design, so a
+        # bookkeeping failure is never mistaken for the act's own output — and it returns the exit
+        # code, and THAT CODE BEING 0 IS THE CLAIM "the close itself stands".
+        def _sc_boom(_a, _seat):
+            raise OSError("sessions.csv is read-only")
+
+        _sc_real = session_close
+        _sh_sc = __import__("shutil")
+        try:
+            for _verb, _seat, _pane, _call in (
+                    ("checkout", "st1", "%61",
+                     lambda s: refuse(cmd_checkout, agent=s, no_export=True)),
+                    ("close-seat", "st2", "%62",
+                     lambda s: refuse(cmd_close_seat, agent="leader", target=s, renew=False,
+                                      no_export=True)),
+                    ("depart", "st3", "%63",
+                     lambda s: refuse(cmd_depart, agent=s))):
+                (pkg / "workers" / _seat).mkdir(exist_ok=True)
+                (pkg / "workers" / _seat / "agent.md").write_text(
+                    f"---\nagent: {_seat}\nharness: claude\nmodel: opus\n---\nbrief\n")
+                run(cmd_checkin, agent=_seat, summary=f"session-trace probe: {_verb}", pane=_pane)
+                # `session_open` takes the SEAT RECORD, not a name — and `harness: claude`
+                # would send it into the native-id resolver, so the fixture declares a harness
+                # that does not, and passes wait=0.0 as well. Neither is this row's subject.
+                _srec = {"agent": _seat, "harness": "probe", "model": "opus",
+                         "cwd": str(pkg / "workers" / _seat)}
+                _sid, _ = session_open(ns(), _srec, since=time.time(), wait=0.0)
+                _sout, _scode = _call(_seat)
+                _, _, _rows_sc = load_workers(base_dir(ns()))
+                check(f"7.37/{_verb}: the session-trace outcome is REPORTED — the id of the row "
+                      f"the close completed, named at the one moment the seat's session actually "
+                      f"ends. `session_close` is covered directly and all three of its CALL SITES "
+                      f"were covered nowhere; the roster flip is asserted alongside so this "
+                      f"cannot pass for a verb that did nothing",
+                      _scode == 0 and _sid != "" and f"sessions.csv: {_sid} ended" in _sout
+                      and current_row(_rows_sc, _seat)["active"] == "no")
+                run(cmd_checkin, agent=_seat, summary=f"session-trace probe: {_verb} again",
+                    pane=_pane)
+                session_open(ns(), _srec, since=time.time(), wait=0.0)
+                session_close = _sc_boom
+                _bout, _bcode = _call(_seat)
+                session_close = _sc_real
+                _, _, _rows_b = load_workers(base_dir(ns()))
+                check(f"7.37/{_verb}: and when the trace write FAILS the act STILL STANDS and the "
+                      f"failure is ANNOUNCED — bookkeeping ABOUT a close must never become a gate "
+                      f"ON it (7.37's own ruling), so `session_trace_safe` swallows the exception. "
+                      f"A swallow nobody reports is a session trace that goes quietly incomplete, "
+                      f"and the only thing standing between those two is this line printing",
+                      _bcode == 0 and "sessions.csv row NOT completed" in _bout
+                      and "The close itself stands" in _bout
+                      and current_row(_rows_b, _seat)["active"] == "no")
+                clear_awaiting(base_g, _seat)
+                _sh_sc.rmtree(pkg / "workers" / _seat)
+        finally:
+            # Restored under `finally` because a leak here does not fail loudly at the leak: the
+            # 7.37 block calls `session_close` DIRECTLY much later, and a stub still bound there
+            # would report as an abort three thousand lines from its cause.
+            session_close = _sc_real
 
         # ---- G-22 / #198: the broadcast discipline, enforced instead of remembered ----
         # Measured on the live run that produced the rule: 86 broadcasts, 35 of them `note`, one
