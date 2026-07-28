@@ -66,7 +66,7 @@ take no lock. Every write is `tmp` + `os.replace`, so a reader never sees a part
     session, session_alive, package, sensor,
     box{available_mb, total_mb, swap_used_mb, swap_total_mb, load1/5/15, cores,
         pressure_memory{some_avg10..300, some_total, full_avg10..300, full_total}},
-    seats[{seat, pane, window, title, cwd, harness, harness_pid, pane_pid, model,
+    seats[{seat, class, class_source, pane, window, title, cwd, harness, harness_pid, pane_pid, model,
            model_source, ctx_pct, ctx_tokens, window_tokens, ctx_ambiguous, ctx_source,
            ctx_refresh, last_activity, last_activity_age_s, prompt_pending, ram_mb,
            liveness, roster_active}],
@@ -78,6 +78,44 @@ thresholded continuously by `goal-watcher-job` without a second raw-source reade
 `roster_absent` is the GHOSTROW input, and it separates two failures that look alike from a
 distance: a roster row whose **pane left the room**, and a roster row whose **pane is still
 there but holds no harness process**. The second is the one that looks healthy.
+
+## Seat class — declared in the descriptor, only OBSERVED here (task 7.80)
+
+`class` is the seat's team function. **The registry record behind it is `agent type`** —
+*"the classifier of an agent's team function — the four-member TOP set (`master`, `staff`,
+`worker`, `verifier`)"* (`sd-graph show "agent type"`, settled-by
+`decisions.md#d-agent-taxonomy`). The key is spelled `class:` because that is the owner's
+word in `r-room-flag-built-portable`; the two names are recorded together so a reader of the
+field can reach the record that defines its values.
+
+**Declared in the seat descriptor, beside `harness`/`model`/`observer`/`auto-wake`/
+`ctx-refresh`. There is NO value list in `team_monitor.py` and adding one is forbidden** — a
+name list inside a shared tool encodes one campaign's role vocabulary into every run, which
+is how `SPECIAL_CASE_SEATS` came to omit the `chief-of-staff` from a set whose own comment
+described it (`coord.py:338-345`). A mandate cannot be expressed as a name list. Whatever
+string the descriptor declares is published verbatim.
+
+`class_source` says where the answer came from, and every absence is reported rather than
+defaulted — a room aggregate built on this field is wrong in whichever direction a default
+leans:
+
+| `class_source` | Means |
+|---|---|
+| `descriptor` | the seat's descriptor declared it |
+| `undeclared` | the descriptor exists and is silent — a staffer duty |
+| `no-descriptor` | the seat has no descriptor at all |
+| `no-seat` | the pane has no roster row, so no descriptor can reach it — the parked owner door's case, structural rather than a missing edit |
+
+**⚠ NOTHING MAY EVER GATE A PERMISSION ON THIS FIELD.** The registry's definition of an agent
+type says it "drives some of the agent's permissions", so the field will read as a privilege
+token — it is not one. The descriptor's declared type is a **claim**; this field is a
+**sensor observation** of that claim; the identity gate is the **only authorization**. The
+moment anything keys on it, editing a descriptor becomes a privilege grant — the
+`realizes: master` escalation `coord.py:205-216` already refused.
+
+**An aggregate over these rows MUST report its own incompleteness.** Until every live seat
+declares, a count of any class is a count over a partly-`unclassified` population; publish
+the `unclassified` count beside it rather than a number that looks whole.
 
 `seat` is empty for a pane whose occupant has not checked in yet — a launched-but-silent
 harness is a real state and is reported as one, never guessed.

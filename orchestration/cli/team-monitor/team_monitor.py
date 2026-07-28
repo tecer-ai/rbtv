@@ -19,6 +19,12 @@ raw read. Serialization stamps `written_at` separately and NEVER re-stamps captu
 a frozen sensor produces a snapshot that visibly ages — which is the whole basis of task
 7.32's staleness tripwire and 7.34's age display.
 
+SEAT CLASS (task 7.80). Each seat row carries `class` + `class_source`, DECLARED in the seat
+descriptor and only observed here — the registry record behind it is `agent type` (values
+`master | staff | worker | verifier`, settled-by decisions.md#d-agent-taxonomy). This module
+holds NO value list and validates nothing. ⚠ NOTHING MAY GATE A PERMISSION ON THAT FIELD; see
+`declared_classes` for the claim / observation / authorization split that bar rests on.
+
 LIFECYCLE. Run-scoped: `start` is idempotent (safe as a room-creation hook) and the loop
 EXITS when the room's tmux session disappears, so the close is deterministic by
 construction rather than by remembering. Exactly one writer is enforced mechanically by an
@@ -198,6 +204,107 @@ def roster(package):
     return out
 
 
+# ---------- the DECLARED class (task 7.80) ----------
+
+# The explicit record of an ABSENT declaration. It is not a class and never a default: the
+# aggregate this field exists for ("live task-executor count == 0 while the free set is
+# non-empty") is wrong in whichever direction a default leans, so absence is REPORTED.
+UNCLASSIFIED = "unclassified"
+
+_FM_SEAT = re.compile(r"^(?:seat|agent):\s*(\S+)\s*$", re.MULTILINE)
+_FM_CLASS = re.compile(r"^class:\s*(.+?)\s*$", re.MULTILINE)
+
+
+def seats_dir(package):
+    """The run's descriptor folder: seats/ (the KG run-folder form) or the legacy workers/.
+    Same resolution order coord.py uses, so both tools read the same descriptors."""
+    p = Path(package)
+    s = p / "seats"
+    return s if s.is_dir() else p / "workers"
+
+
+def declared_classes(package):
+    """{seat: class-string-or-empty} — each seat's class, READ FROM ITS OWN DESCRIPTOR.
+
+    ⚠ THERE IS DELIBERATELY NO VALUE LIST IN THIS FILE, and adding one is forbidden (leader
+    ruling `ruling-780-literals-withdrawn-derive-dont-list.md`, RULING 2). Whatever string a
+    descriptor declares is published verbatim; this module validates nothing and knows no
+    vocabulary. The reason is already ruled in code at `coord.py:338-345`, for `observer:` /
+    `auto-wake:` / `senders:`: a name list inside a shared tool encodes ONE campaign's role
+    vocabulary into every run, and `SPECIAL_CASE_SEATS` named its members while its own
+    comment described a MANDATE — which is exactly how the chief-of-staff came to be omitted
+    from the set whose definition described it. A MANDATE CANNOT BE EXPRESSED AS A NAME LIST,
+    so the next differently-named seat is forgotten identically.
+
+    A key is absent from this map when the seat has no descriptor at all; it maps to "" when
+    the descriptor exists and declares no class. Those are DIFFERENT answers — `class_of`
+    reports which — because "nobody wrote a descriptor" and "the descriptor is silent" need
+    different fixes and only one of them is the staffer's standing duty.
+
+    THE REGISTRY RECORD THIS FIELD PUBLISHES is `agent type` — "the classifier of an agent's
+    team function — the four-member TOP set (`master`, `staff`, `worker`, `verifier`)"
+    (`sd-graph show "agent type"`, settled-by decisions.md#d-agent-taxonomy). The values live
+    THERE, deliberately not here. The key is spelled `class:` because that is the owner's word
+    in `r-room-flag-built-portable`; the two names are linked here so a reader of the field can
+    reach the record that defines its values (leader ruling
+    `ruling-780-vocabulary-agent-type.md`, item D).
+
+    ⚠⚠ NOTHING MAY EVER GATE A PERMISSION ON THIS FIELD. BINDING (same ruling, item B).
+    The registry's own definition of an agent type says it is a classification "which DRIVES
+    SOME OF THE AGENT'S PERMISSIONS", so this field WILL look like a privilege token to a
+    future reader. It is not one, and the three surfaces must stay separate:
+
+        the descriptor's declared type  -> a CLAIM
+        this field in state.json        -> a SENSOR OBSERVATION of that claim
+        the identity gate               -> the ONLY authorization
+
+    A self-declared value read back by a sensor is not an authorization. The moment anything
+    keys a permission on it, EDITING A DESCRIPTOR BECOMES A PRIVILEGE GRANT — which is exactly
+    the `realizes: master` escalation-by-descriptor that `coord.py:205-216` already refused.
+    """
+    out = {}
+    wdir = seats_dir(package)
+    if not wdir.is_dir():
+        return out
+    for p in sorted(list(wdir.glob("*.md")) + list(wdir.glob("*/agent.md"))
+                    + list(wdir.glob("*/seat.md"))):
+        try:
+            text = p.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if not text.startswith("---"):
+            continue
+        end = text.find("\n---", 3)
+        if end == -1:
+            continue
+        fm = text[:end]
+        m = _FM_SEAT.search(fm)
+        if not m:
+            continue
+        c = _FM_CLASS.search(fm)
+        out[m.group(1)] = c.group(1).strip() if c else ""
+    return out
+
+
+def class_of(seat, decls):
+    """(class, source) for one row. UNCLASSIFIED is always paired with WHY it is unclassified.
+
+    `no-seat` is the case a descriptor-declared field cannot reach by construction: a pane
+    with no roster row has no descriptor to declare anything. The parked owner door is
+    exactly that pane, and it reads unclassified for a structural reason rather than a
+    missing edit — which is a different finding from an undeclared seat, so it is a
+    different source string.
+    """
+    if not seat:
+        return UNCLASSIFIED, "no-seat"
+    if seat not in decls:
+        return UNCLASSIFIED, "no-descriptor"
+    declared = decls[seat]
+    if not declared:
+        return UNCLASSIFIED, "undeclared"
+    return declared, "descriptor"
+
+
 def default_session(package):
     """The room is the goal's tmux session: .../goals/<goal>/runs/<run> -> <goal>."""
     p = Path(package).resolve()
@@ -249,6 +356,7 @@ def capture(package, session=None, sensor_path=None):
     procs = ps_table()
     kids = children_index(procs)
     rost = roster(package)
+    decls = declared_classes(package)
     seat_by_pane = {v["pane"]: k for k, v in rost.items() if v.get("pane")}
 
     seats = []
@@ -265,8 +373,11 @@ def capture(package, session=None, sensor_path=None):
                             if procs.get(p, {}).get("comm") in eng.HARNESSES), None)
         tail = "\n".join(eng.capture_pane(pane_id).splitlines()[-8:])
         seat = seat_by_pane.get(pane_id, "")
+        seat_class, class_source = class_of(seat, decls)
         seats.append({
             "seat": seat,
+            "class": seat_class,
+            "class_source": class_source,
             "pane": pane_id,
             "window": rec.get("window"),
             "window_name": rec.get("window_name") or "",
@@ -306,27 +417,34 @@ def capture(package, session=None, sensor_path=None):
         "sensor": str((Path(sensor_path) if sensor_path else SENSOR_PATH).resolve()),
         "box": box_facts(),
         "seats": seats,
-        "roster_absent": absent_rows(rost, panes, seats),
+        "roster_absent": absent_rows(rost, panes, seats, decls),
     }
 
 
-def absent_rows(rost, panes, seats):
+def absent_rows(rost, panes, seats, decls):
     """The GHOSTROW input (task 7.32): a roster row claiming to be active whose pane is
     either gone from the room or holds no harness process. Two distinct failures, reported
     separately — a pane that vanished is a different incident from a harness that died in a
-    pane that is still there, and the second is the one that looks healthy from a distance."""
+    pane that is still there, and the second is the one that looks healthy from a distance.
+
+    Ghost rows carry `class`/`class_source` for the same reason the live rows do: a room
+    aggregate that counted only the live rows would silently exclude exactly the seats whose
+    absence it is meant to notice."""
     live_harness = {s["pane"] for s in seats if s["liveness"] == "live"}
     out = []
     for seat, r in sorted(rost.items()):
         if not r.get("active"):
             continue
         pane = r.get("pane") or ""
+        seat_class, class_source = class_of(seat, decls)
         if pane not in panes:
-            out.append({"seat": seat, "pane": pane, "roster_active": True,
+            out.append({"seat": seat, "class": seat_class, "class_source": class_source,
+                        "pane": pane, "roster_active": True,
                         "liveness": "absent",
                         "reason": "roster row active, pane not in the room"})
         elif pane not in live_harness:
-            out.append({"seat": seat, "pane": pane, "roster_active": True,
+            out.append({"seat": seat, "class": seat_class, "class_source": class_source,
+                        "pane": pane, "roster_active": True,
                         "liveness": "no-harness",
                         "reason": "roster row active, pane present but no harness process"})
     return out
@@ -605,7 +723,7 @@ def cmd_selftest(args):
     panes = {"%1": {}, "%2": {}, "%3": {}}
     seats_ = [{"pane": "%1", "liveness": "live"}, {"pane": "%2", "liveness": "no-harness"},
               {"pane": "%3", "liveness": "shell"}]
-    got = {g["seat"]: g["liveness"] for g in absent_rows(rost, panes, seats_)}
+    got = {g["seat"]: g["liveness"] for g in absent_rows(rost, panes, seats_, {})}
     check("GHOSTROW: an active row whose pane left the room", got.get("vanished") == "absent")
     check("GHOSTROW: an active row whose pane lost its harness",
           got.get("hollow") == "no-harness")
@@ -614,6 +732,43 @@ def cmd_selftest(args):
 
     check("default_session derives the room from the package path",
           default_session("/x/goals/my-goal/runs/run-1") == "my-goal")
+
+    # ---- the declared class (task 7.80) ----
+    # Four descriptor states, and the ABSENCES are checked as hard as the presence: an
+    # aggregate built on this field is wrong in whichever direction a default leans, so
+    # "unclassified" must arrive with the REASON it is unclassified and never as a value.
+    with tempfile.TemporaryDirectory() as td:
+        sd = Path(td) / "seats"
+        for name, fm in (
+            # a nonsense value NO vocabulary would admit — this is the check that proves
+            # there is no enum and no name list here, which RULING 2 forbids. If someone
+            # ever adds validation, this is the check that fails.
+            ("declared", "---\nseat: declared\nclass: zzz-not-a-real-class\n---\nbody\n"),
+            ("silent", "---\nseat: silent\nharness: claude\n---\nbody\n"),
+        ):
+            (sd / name).mkdir(parents=True)
+            (sd / name / "seat.md").write_text(fm)
+        # a legacy flat workers/-form descriptor must be read too
+        (sd / "flat.md").write_text("---\nagent: flat\nclass: legacy-form\n---\nbody\n")
+        d = declared_classes(td)
+        check("class: read verbatim from the seat descriptor — NO enum, NO name list",
+              class_of("declared", d) == ("zzz-not-a-real-class", "descriptor"))
+        check("class: the legacy flat `agent:` descriptor form is read too",
+              class_of("flat", d) == ("legacy-form", "descriptor"))
+        check("class: a descriptor that declares nothing reads UNCLASSIFIED/undeclared",
+              class_of("silent", d) == (UNCLASSIFIED, "undeclared"))
+        check("class: a seat with no descriptor reads UNCLASSIFIED/no-descriptor",
+              class_of("nobody", d) == (UNCLASSIFIED, "no-descriptor"))
+        check("class: a pane with no seat reads UNCLASSIFIED/no-seat (the parked door's case)",
+              class_of("", d) == (UNCLASSIFIED, "no-seat"))
+        check("class: UNCLASSIFIED is never silently substituted for a declared value",
+              all(class_of(s, d)[0] != UNCLASSIFIED for s in ("declared", "flat")))
+        # a ghost row carries the field too, or a room aggregate would exclude exactly the
+        # seats whose absence it exists to notice
+        ghost = absent_rows({"declared": {"active": True, "pane": "%9"}}, {}, [], d)
+        check("class: roster_absent rows carry class + class_source",
+              ghost[0]["class"] == "zzz-not-a-real-class"
+              and ghost[0]["class_source"] == "descriptor")
 
     print(f"\n{'PASS' if not failures else 'FAIL'} — {len(failures)} failure(s)")
     return 1 if failures else 0
