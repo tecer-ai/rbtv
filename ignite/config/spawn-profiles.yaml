@@ -501,3 +501,25 @@ tools:
       - --notify
       - --budget-s
       - "120"
+
+  # ── G-221 (A) — the IN-DAEMON arm of the verification trigger ──────────────
+  # Leader ruling #1373/#1400: A+B. B is the systemd timer (deploy/rbtv-probe-suite.timer).
+  #
+  # ⚠⚠ A IS DOGFOODING, NOT COVERAGE, and the distinction is the leader's bound, not a nicety:
+  # this entry is the run adopting the feature it builds (conduct.md §1). It is NOT redundancy
+  # for B, and B IS NEVER WEAKENED BECAUSE THIS EXISTS. A checker that lives inside the system
+  # it checks SHARES ITS FAILURE MODE — if the daemon stops, this stops, and its silence looks
+  # exactly like health. That is the whole ruling, and it was measured the same day: the two
+  # selfheal jobs below were dead for 23 hours and nothing reported it (G-254).
+  #
+  # Same runner as B, deliberately — ONE implementation of "run the suite and say so on every
+  # fire". The runner writes <workspace>/.rbtv/runtime/probe-suite/latest.json, so whichever arm
+  # fired last is visible in one place with its own instant and staleness budget.
+  #
+  # ⚠ NO --watch-arg-style passthrough here and none is wanted: the runner takes no arguments,
+  # so there is nothing for a twin to fail to mirror (G-243, where a throwaway twin carried a
+  # flag the live entry did not and thereby proved an argv production never runs).
+  probe-suite:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/deploy/probe-suite-scheduled.py
