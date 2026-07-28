@@ -1,0 +1,52 @@
+# rbtv-probe-suite.service — machine-agnostic systemd USER unit template.
+#
+# Fires the verification machinery (G-221 ruling, leader #1373: A+B — this is B).
+# Paired with rbtv-probe-suite.timer, which is what actually schedules it.
+#
+# ⚠⚠ THIS UNIT IS DELIBERATELY NOT PART OF THE DAEMON, and the reason is the whole point:
+# A CHECKER THAT LIVES INSIDE THE SYSTEM IT CHECKS SHARES ITS FAILURE MODE. An in-daemon
+# periodic job stops when the daemon stops, and its silence looks exactly like health.
+# Measured the day this was written: the self-healing jobs were dead for 23 hours and
+# nothing reported it (G-254). The in-daemon job (A) is ALSO ruled and this does not
+# replace it — B is not a stopgap and must never be called one.
+#
+# Install-time substitution points (replace each @@NAME@@ with the instance value):
+#   @@IGNITE_SRC@@       - absolute path to the ignite module source root
+#   @@WORKSPACE_ROOT@@   - workspace root: the folder that roots .rbtv/
+#
+# Install location for the user manager:
+#   ~/.config/systemd/user/rbtv-probe-suite.service
+#
+# After installing and substituting BOTH units:
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now rbtv-probe-suite.timer
+#
+# ⚠ ENABLE THE **TIMER**, NOT THE SERVICE. Enabling the service would run it once at boot
+# and never again — which is the failure this whole change exists to end, installed by hand.
+#
+# Do NOT commit a substituted version of this file.
+
+[Unit]
+Description=RBTV ignite probe suite (scheduled verification run)
+# No dependency on rbtv-ignite.service, deliberately: this must run — and must report —
+# precisely when the daemon is NOT running. Ordering it after the daemon would make the
+# checker unavailable in the case it exists to catch.
+
+[Service]
+Type=oneshot
+WorkingDirectory=@@WORKSPACE_ROOT@@
+# The suite spawns node and python probes; keep the same user-local bin dirs the daemon
+# unit carries, for the same reason (a minimal user-manager PATH fails probe spawns).
+Environment="PATH=%h/.local/bin:%h/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin"
+# Must MATCH the timer's OnUnitActiveSec. It is passed in rather than inferred because the
+# runner writes it into its own artifact, so a reader can tell "dead" from "quiet" without
+# knowing the schedule out of band. If you change one, change both.
+Environment="PROBE_SUITE_INTERVAL_SECONDS=3600"
+ExecStart=/usr/bin/python3 @@IGNITE_SRC@@/deploy/probe-suite-scheduled.py
+# A RED suite is a successful FIRE — the trigger did its job. Without this, systemd marks the
+# unit failed on every red run, and a reader watching unit state learns "something is wrong"
+# without learning whether the trigger is alive. Liveness lives in the artifact, not here.
+SuccessExitStatus=0 1
+TimeoutStartSec=3600
+StandardOutput=journal
+StandardError=journal

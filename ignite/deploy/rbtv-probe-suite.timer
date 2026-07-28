@@ -1,0 +1,43 @@
+# rbtv-probe-suite.timer — machine-agnostic systemd USER unit template.
+#
+# THIS is the trigger. rbtv-probe-suite.service is only what it runs.
+# G-221 ruling (leader #1373): nothing fired the verification machinery, and the probes it
+# runs had been dead for seven days before anyone noticed.
+#
+# No @@PLACEHOLDER@@ substitution is needed in this file — install it as-is.
+# Install location for the user manager:
+#   ~/.config/systemd/user/rbtv-probe-suite.timer
+#
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now rbtv-probe-suite.timer
+#   systemctl --user list-timers rbtv-probe-suite.timer     # confirm NEXT is populated
+#
+# ⚠ ENABLE THE TIMER, NOT THE SERVICE (see the .service header).
+#
+# Do NOT commit a substituted version of this file.
+
+[Unit]
+Description=Fire the RBTV ignite probe suite hourly
+# If the timer is ever disabled, the artifact it maintains goes stale rather than
+# disappearing — which is the point: `latest.json` carries `stale_after_seconds`, so a
+# reader can distinguish A DEAD TRIGGER from A QUIET ONE. That distinction is the entire
+# reason this exists and it is the property to preserve in any future edit.
+
+[Timer]
+Unit=rbtv-probe-suite.service
+# First run shortly after boot rather than immediately: the box has other things to do at
+# boot, and a verification sweep is not urgent — its value is that it happens AT ALL.
+OnBootSec=5min
+OnCalendar=hourly
+# ⚠ LOAD-BEARING. After downtime the missed run fires on next start instead of being
+# silently skipped. Without it, a box that was off overnight produces an artifact gap that
+# is indistinguishable from a trigger that stopped working — the exact ambiguity this
+# change exists to remove.
+Persistent=true
+AccuracySec=1min
+# MUST MATCH PROBE_SUITE_INTERVAL_SECONDS in the .service (3600). The runner writes that
+# value into its own artifact so a reader needs no out-of-band knowledge of the cadence;
+# if these two disagree, the artifact teaches a staleness threshold that is not the real one.
+
+[Install]
+WantedBy=timers.target
