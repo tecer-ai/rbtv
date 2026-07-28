@@ -1,0 +1,45 @@
+# ⚠ INTERIM — module-root placement, not the ruled `<module>/<component>/exposure.csv`. Authored
+# by task 7.48's seat, 2026-07-28, populating the catalog task 7.43's dispatch lane reads
+# (`decisions.md#d-catalog-bound-exposure-manifest`; CMP-10 § Standing sub-agent lane).
+#
+# WHY A NEW FILE HERE rather than adding a row to `ignite/exposure.csv`: that file is scoped to the
+# `ignite` module (its own header says so, and it holds only an `ignite` capability). `source-mining`
+# lives under the `orchestration` module — a different module, per the repo's module-first
+# structure. `catalog.js` aggregates every manifest it finds via `findManifests` (both depths, every
+# module), so a second per-module file is the SAME artifact KIND, not a second list-kind
+# (`rbtv-reasoning` § Verify absence; grepped as `find … -name "exposure*.csv"` before writing this).
+#
+# WHY IT SITS AT THE MODULE ROOT rather than `orchestration/<component>/exposure.csv`: measured
+# 2026-07-28 (re-verified live, matching 7.43's own measurement for `ignite`), NO component folders
+# exist anywhere in this repo — `find 3-resources/tools/rbtv -name component.md` → 0. `catalog.js`
+# scans depths 1 AND 2 from the repo root, so this module-root file (depth 1) is read today with no
+# code change, and when the component-first layout materializes and this row moves one level down
+# to `orchestration/<component>/exposure.csv` (depth 2), nothing needs editing there either.
+#
+# COLUMNS: the same six of `concepts/exposure-manifest.md` § file schema, in the same order —
+# `part-id, part-kind, method, rbtv-cli, entry-point, description` — routed, not invented, and
+# matching `ignite/exposure.csv`'s own choice so the two interim files read as one convention.
+#
+# ENTRY-POINT CHOICE for `source-mining`: its own primary file, `workflow.md` — not the thin
+# `orchestration/commands/source-mining.md` loader. `workflow.md`'s frontmatter chains to
+# `step-01-init.md` and its own body documents YOLO invocation directly ("Invocation:
+# `/source-mining yolo`"), so it is self-sufficient as a sub-agent-dispatch entry point. This
+# matches the ticker-settings precedent in `ignite/exposure.csv`: entry-point is the part's own
+# doc, never a wrapper. The command-method exposure (already real:
+# `orchestration/commands/source-mining.md` exists) is a DIFFERENT row this file does not add,
+# because backfilling `command`/`skill` exposure coverage is out of this task's scope
+# ("populate the catalog the sub-agent lane keys on") — see the multi-exposure note below for why
+# adding it later costs nothing.
+#
+# MULTI-EXPOSURE (fork 2, `#1528`) — PROPOSED to the leader for PROVISIONAL ruling, not settled
+# here: `source-mining` is already exposed as a `command`. `catalog.js`'s `loadCatalog` filters
+# every row by `method === 'sub-agent'` BEFORE indexing by `part-id` (a flat array + `.find()`,
+# never an object keyed by `part-id`), so a future `source-mining,workflow,command,,orchestration/
+# commands/source-mining.md,` row in THIS SAME FILE would coexist with the `sub-agent` row below
+# with zero collision and zero `catalog.js` change — multiple rows per part-id, one row per method,
+# is the proposed mechanic. Costed against a multi-valued `method` cell (needs a `catalog.js`
+# parsing change, touches 7.43's delivered code) and a dedicated marker column (needs a registry
+# schema change, Phase-3/4-deferred, outside a worker seat's authority) in
+# `seats/S21-748-catalog/design-notes.md` § 3.
+part-id,part-kind,method,rbtv-cli,entry-point,description
+source-mining,workflow,sub-agent,,orchestration/workflows/source-mining/workflow.md,
