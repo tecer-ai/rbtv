@@ -68,8 +68,65 @@ answer. Absent/empty means proceed with the HALT exactly as written; this proced
    `scripts/detect-handback.py`, which reads it back out of the dispatcher's persisted stdout log.
 4. STOP. Do not print `### 3. Step Menu`, do not wait, do not proceed to step-06.
 
-Resuming a hand-back (answering the recorded questions and continuing to step-06) has no mechanism
-today — this procedure proves the hand-back signal exists and is real, not that resumption is wired.
+### Resuming a Hand-Back
+
+A hand-back record (`handback.json`) names `runtime_root` and `questions_file` as absolute paths.
+Resuming means (1) merge answers into the questions file, then (2) re-enter the workflow directly
+at `step-06-write.md` against that SAME `runtime_root` — never a fresh `/source-mining` dispatch:
+a fresh run mints a new `run_id`/`runtime_root` (`step-01-init.md` § 4-5) and derives its own
+reflection prompts from its own `extractions/grouping.yaml` at 2B.2, so a fresh run's questions
+share no join key with the recorded ones (task 7.92 measured this; a fresh re-dispatch would re-pay
+steps 01-04 to reach questions it must then discard).
+
+**1. Merge answers.** Write a JSON file mapping `Q<N>` (matching the `### Q<N>:` headers in
+`questions_file`) to the answer text, then run:
+
+```
+python3 {rbtv_path}/orchestration/workflows/source-mining/scripts/merge-answers.py \
+  --questions <questions_file> --answers <your-answers.json> --in-place
+```
+
+Exit 0: every question in the file is now answered — each appended as `- Answer: <text>`, the same
+form 2A.5/2B.3 use for a live answer — and the file was written. Exit 2: the merge was refused
+(coverage gap, an answer key matching no question, or an attempt to re-answer an
+already-answered question) and NOTHING was written; the JSON on stdout says which. The script
+never partially writes.
+
+**2. Re-enter at step-06.** Dispatch (or, if interactive, instruct) an agent with a task that
+explicitly overrides this workflow's own entry point. `workflow.md` stays the cataloged dispatch
+target (`orchestration/exposure.csv:45`) — no new catalog row, no new entry point, zero bytes of
+`ignite/` change:
+
+```
+RESUME (not a fresh run). A prior source-mining dispatch handed back at <halted_at>. Do NOT follow
+workflow.md's own "load step-01-init.md" instruction (see workflow.md § RESUMING A HAND-BACK).
+Instead:
+1. Read `{rbtv_path}/orchestration/workflows/source-mining/step-06-write.md` directly and follow
+   its MANDATORY SEQUENCE exactly, starting at "1. Read State".
+2. Treat every `<runtime_root>` reference in that file as: <absolute runtime_root path>
+3. `<questions_file>` at that runtime_root already carries every `- Answer:` block from step 1
+   above — they are resolved; do not re-halt for input.
+```
+
+`step-06-write.md` asserts nothing about `current_step` and carries no precondition guard — its
+MANDATORY SEQUENCE opens straight at "1. Read State" — so a resumed run and an in-flight run reach
+it identically. If the hand-back's `manifest.json` carries `"yolo": true`, step-06's own YOLO
+bypass (§5) skips the `[D] Done` halt and the dispatch exits cleanly on its own.
+
+**If `runtime_root` no longer exists on disk** (the auto-delete below already ran, or the caller
+never preserved it), reconstruct it before step 1: recreate `<runtime_root>/manifest.json` and
+`<runtime_root>/synthesis/` from any preserved copies of those files, at the SAME absolute paths
+`handback.json` names. Step-06's Read State needs exactly `manifest.json` plus the two synthesis
+files for the run's mode (`study-draft.md` + `questions_file` for study; `delta-draft.md` +
+`questions_file` for reconcile) — it does not read `grouping.yaml`. A reconstruction built this way
+cannot exercise `scripts/detect-handback.py`: that script's only input is a dispatch workdir's
+persisted `stdout.log` (a different, unrelated path tree — see the script's own docstring), which a
+reconstruction from preserved synthesis artifacts alone does not carry.
+
+**⚠ A successful resume deletes what it just consumed.** `workflow.md` § Critical Rules and
+`step-06-write.md` § 4 auto-delete `<runtime_root>/` once the final write succeeds (and the parent
+`.rbtv-runtime/source-mining/` too, if it becomes empty). Copy anything you need from
+`runtime_root` BEFORE dispatching the resume in step 2 — not after.
 
 ---
 

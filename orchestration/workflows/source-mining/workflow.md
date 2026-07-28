@@ -39,6 +39,8 @@ This workflow uses micro-file architecture. Each step is a self-contained file.
 - 💾 ALWAYS update `manifest.json` after completing each step
 - ⏸️ ALWAYS halt at menus and wait for user input
 - 🧹 ALWAYS clean up `<run-folder>` at end of step-06 (auto-delete after final write succeeds)
+- 🔁 A RESUME task (see § RESUMING A HAND-BACK below) skips Initialization/step-01 entirely — the
+  one exception to "Sequential Enforcement" above
 
 ---
 
@@ -106,7 +108,21 @@ The workflow auto-adds `.rbtv-runtime/` to workspace `.gitignore` on first run i
 
 ---
 
+## RESUMING A HAND-BACK
+
+A dispatcher's task text may say this is a RESUME of a prior headless hand-back rather than a
+fresh run (`step-05-synthesize.md` § Headless Hand-Back Procedure creates the record; that same
+file's § Resuming a Hand-Back documents the caller's side in full). When it does: skip
+Initialization below entirely — do NOT load `step-01-init.md` — and follow the task's own
+instruction to read `step-06-write.md` directly against the `runtime_root` the task names. This is
+the only exception to "Load first step file" below: the workflow's own step-chain has no way to
+express "a prior run already reached here", so the dispatcher's task text is what carries that
+fact.
+
+---
+
 ## Initialization
 
 1. Determine output destination via `rbtv-output-resolution` rule when needed (target docs in reconcile mode; study doc destination in study mode).
-2. Load first step file: `./step-01-init.md` and follow its instructions exactly.
+2. Load first step file: `./step-01-init.md` and follow its instructions exactly. **Exception:** a
+   RESUME task (§ RESUMING A HAND-BACK above) — follow its own instruction instead.
