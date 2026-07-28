@@ -57,7 +57,7 @@ const { openHeartStore, closeHeartStore } = require('../../heart/heart-store');
 const { createInternalApi, INSPECT_TARGETS: CORE_TARGETS, EXEC_STATUSES: CORE_STATUSES } = require('../dispatch');
 const { createGateway } = require('../../../gateway/gateway');
 const { parseRequest, INSPECT_TARGETS: GW_TARGETS, EXEC_STATUSES: GW_STATUSES } = require('../../../gateway/parse');
-const { TARGETS: CLI_TARGETS, run: cliInspect } = require('../../../cli/commands/inspect');
+const { TARGETS: CLI_TARGETS, HELP: CLI_HELP, run: cliInspect } = require('../../../cli/commands/inspect');
 const { hashToken } = require('../../../gateway/sender-auth');
 const { checkClosedSetsLockstep } = require('./lib/closed-set');
 
@@ -111,6 +111,30 @@ function rowsOf(r) {
 // blind spot, and dereferencing it would fault the probe out mid-run (the same G-121 truncation
 // the result guards above exist to prevent). An absent export is reported as the finding it is.
 function setOrNull(v) { return v instanceof Set ? v : null; }
+
+// The FOURTH copy of the target set (run issue G-159): cli/commands/inspect.js HELP states the same
+// set again, in prose. Drift there is not behavioural and is worse in one specific way — THE CLI'S
+// OWN HELP LIES ABOUT WHAT IT ACCEPTS, and help is what an operator trusts INSTEAD of reading
+// source. No Set-comparison touches it.
+//
+// ★ This is the one member that needs PARSING, and probe-intent-drift's review sitting ruled this
+// family compares exported constants and never regexes SOURCE TEXT, because a source regex
+// false-alarmed there. The distinction is deliberate, not a loophole: HELP is not source, it is the
+// ARTIFACT UNDER TEST — the exact string an operator reads — and its target lines are anchored at
+// line start, so the `messages:`/`executions:` explanation prose below cannot inflate the set.
+//
+// Below the plausibility floor the extraction is not believable, and the caller reports the check
+// INOPERATIVE rather than passing. A parse that silently yielded {} would make every other copy
+// trivially a superset — absence reading as health, in the guard built to prevent it.
+const HELP_TARGETS_FLOOR = 2;
+function targetsFromHelp(help) {
+  const found = new Set();
+  for (const line of String(help == null ? '' : help).split('\n')) {
+    const m = /^ignite inspect ([a-z][a-z0-9-]*)/.exec(line);
+    if (m) found.add(m[1]);
+  }
+  return found;
+}
 
 // The gateway's typed refusals carry `details.field`. Asserting the FIELD, not merely that
 // something was refused, is what makes these checks discriminate: on pre-change code the target
@@ -312,7 +336,7 @@ async function main() {
       `before=${diskBefore.length} row(s) after=${diskAfter.length} row(s)`);
   }
 
-  // ── 7. TARGET-SET LOCKSTEP — the three copies, guarded by nothing before this probe. ────────
+  // ── 7. TARGET-SET LOCKSTEP — the FOUR copies (the help was added by G-159). ─────────────────
   {
     const gwT = setOrNull(GW_TARGETS), coreT = setOrNull(CORE_TARGETS), cliT = setOrNull(CLI_TARGETS);
     const unexported = [
@@ -323,25 +347,36 @@ async function main() {
     check('all three inspect TARGET sets are EXPORTED as data (a set the probe cannot read is a set nothing guards)',
       unexported.length === 0, unexported.length ? `NOT exported: ${unexported.join(' · ')}` : 'all three exported');
 
+    // G-159's fourth copy. Reported INOPERATIVE rather than skipped: a help check that quietly
+    // stops running is indistinguishable from one that keeps passing.
+    const helpT = targetsFromHelp(CLI_HELP);
+    const helpUsable = helpT.size >= HELP_TARGETS_FLOOR;
+    check('the CLI HELP is PARSEABLE as a target list (below the floor this check is INOPERATIVE, '
+      + 'never passing — a help parse yielding nothing would make every other copy a trivial superset)',
+      helpUsable, `parsed ${helpT.size} target(s) from HELP, floor ${HELP_TARGETS_FLOOR}`);
+
     const failures = unexported.length ? [] : checkClosedSetsLockstep({
       sets: [
         { name: 'gateway/parse.js INSPECT_TARGETS (front-door allowlist)', keys: [...gwT] },
         { name: 'dispatch.js INSPECT_TARGETS (server-core gate)', keys: [...coreT] },
         { name: 'cli/commands/inspect.js TARGETS (the CLI surface)', keys: [...cliT] },
+        ...(helpUsable ? [{ name: 'cli/commands/inspect.js HELP (the prose an operator reads)', keys: [...helpT] }] : []),
       ],
       describe: {
         missing: (setName, target) =>
           `INSPECT-TARGET DRIFT: ${setName} is MISSING '${target}'. The inspect target set is duplicated ` +
           `BY DESIGN across the DEC-4 boundary (the gateway holds no core import) and again in the CLI, so ` +
-          `every new target must extend ALL THREE together. A target in the core but not the gateway is ` +
+          `every new target must extend ALL FOUR together. A target in the core but not the gateway is ` +
           `refused at the front door; a target in the gateway but not the CLI is unreachable by the shipped ` +
-          `client; a target in the CLI but not the gateway fails at the door with a shape error.`,
+          `client; a target in the CLI but not the gateway fails at the door with a shape error; and a target ` +
+          `in the HELP but in no set means the CLI's own help LIES about what it accepts, which breaks nothing ` +
+          `and misleads the operator who trusts help instead of source.`,
       },
     });
     for (const f of failures) out(`FAIL  ${f}`);
-    check('the THREE copies of the inspect TARGET set are in lockstep',
-      unexported.length === 0 && failures.length === 0,
-      `gateway=${gwT ? gwT.size : 'unexported'} core=${coreT ? coreT.size : 'unexported'} cli=${cliT ? cliT.size : 'unexported'}`);
+    check('the FOUR copies of the inspect TARGET set are in lockstep, the operator-facing HELP included',
+      unexported.length === 0 && helpUsable && failures.length === 0,
+      `gateway=${gwT ? gwT.size : 'unexported'} core=${coreT ? coreT.size : 'unexported'} cli=${cliT ? cliT.size : 'unexported'} help=${helpT.size}`);
     check("'executions' is present in ALL THREE copies (this task's own additive change)",
       Boolean(gwT && coreT && cliT && gwT.has('executions') && coreT.has('executions') && cliT.has('executions')),
       `gateway=${gwT && gwT.has('executions')} core=${coreT && coreT.has('executions')} cli=${cliT && cliT.has('executions')}`);
