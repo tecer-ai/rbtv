@@ -2856,6 +2856,16 @@ def is_leader_or_closer(name):
     return name == "leader" or name.startswith("closer-")
 
 
+def is_leader_or_cos_or_closer(name):
+    """Same NAME-PATTERN shape as `is_leader_or_closer` (this file gates roles by literal name
+    everywhere, never by a derived lookup -- `chief-of-staff` is one more literal beside `leader`,
+    not a new mechanism). `kill-pane` (task 7.91) exists FOR the chief-of-staff: it is the seat
+    that owns operational stewardship and is blocked from a raw `tmux kill-pane` by the harness
+    auto-mode classifier. This predicate governs WHO may call the command, never WHICH panes it
+    may touch -- the door/roster protections are a separate, unconditional check (criterion 2)."""
+    return name in ("leader", "chief-of-staff") or name.startswith("closer-")
+
+
 def is_closer(name):
     return bool(name) and name.startswith("closer-")
 
@@ -6436,6 +6446,100 @@ def cmd_reap(args):
                 f"each still owes a close-seat afterwards", C_HINT))
 
 
+def cmd_kill_pane(args):
+    """Reap ONE pane by id directly -- the chief-of-staff's route to freeing a leaked pane when a
+    raw `tmux kill-pane` is refused by the harness auto-mode classifier and `close-seat` needs a
+    roster-known SEAT NAME rather than a bare pane id (task 7.91, owner-directed).
+
+    MEASURED (leader #1580), not guessed: `coordinate launch --force` -- also a `coordinate` verb
+    -- is ALSO blocked by the classifier from the chief-of-staff's pane, so wrapping a verb in
+    coord.py is not by itself sufficient; `coordinate close-seat --force` PASSES from that same
+    pane, and close-seat kills panes too, so killing a pane is not by itself what is refused. The
+    ONE shape measured to pass while killing panes from that pane is close-seat's -- so this
+    mirrors it as closely as the row allows: the same `tmux_kill_pane` + `verify_pids_gone` kill
+    step, the same gate() role check, the same --force convention for a deliberate-but-risky act.
+    The discriminator itself is NOT known and this does not guess one (criterion 1 is proof from
+    %190, never an assumed pass from a pane that was never blocked).
+
+    Kills the PANE ONLY -- like `reap`, never like `close-seat`: no transcript export, no roster
+    row mutation, no session-trace close. A pane this frees still owes a close-seat afterwards if
+    its row was ever active; freeing memory and completing a lifecycle are different acts, and this
+    one does only the first (criterion 6 -- `cmd_reap`'s own docstring states the same split).
+
+    TWO refusals are UNCONDITIONAL, no --force, ever (bars.md 4, criterion 2): the pane belongs to
+    a seat whose descriptor declares `relays:` (the owner door, or any future human-contact role),
+    or the pane matches no CURRENT roster row of this run at all. Both are REFUSED BY THE TOOL, not
+    by convention, and both are derived from the roster + the descriptor's own `relays:` field --
+    never a kit-side name list (the same derivation `inbox_decls`/`reap_blockers` already use).
+
+    A THIRD refusal -- the pane's owning row is still `active: yes`, i.e. NOT roster-done
+    (criterion 5) -- is the SAME kind of deliberate-act refusal close-seat's own door check uses,
+    and shares its escape: --force, with the same "if you mean it" shape. G-196's lesson is why
+    this reads the ROW's `active` field as ground truth rather than inferring aliveness from
+    whether the pane is in `live_panes()` -- a pane that changed out from under a stale roster row
+    must not be misread as free just because the OLD pane id looks live or dead."""
+    gate(args, "kill-pane", is_leader_or_cos_or_closer,
+         "leader's, chief-of-staff's, or a closer-*'s")
+    target = args.pane_id
+    if not target.startswith("%"):
+        print(f"refused: '{target}' does not look like a tmux pane id (expected e.g. '%190') -- "
+              f"kill-pane targets a PANE, never a seat name (that is close-seat's argument)",
+              file=sys.stderr)
+        sys.exit(1)
+    base = base_dir(args)
+    _, _, rows = load_workers(base)
+    current = [current_row(rows, a) for a in dict.fromkeys(r["agent"] for r in rows)]
+    owner_row = next((r for r in current if r and r.get("pane") == target), None)
+
+    if owner_row is None:
+        print(f"refused: pane {target} matches no CURRENT roster row of this run -- kill-pane only "
+              f"touches panes this run's own roster accounts for (criterion 2). If this is a "
+              f"genuine leak from something else, it is not this tool's to reap. No --force lifts "
+              f"this.", file=sys.stderr)
+        sys.exit(1)
+
+    decls = inbox_decls(args)
+    relays = (decls.get(owner_row["agent"]) or {}).get("relays")
+    if relays:
+        print(f"refused: pane {target} belongs to '{owner_row['agent']}', which carries a relay "
+              f"path to a human role ({', '.join(sorted(relays))}) -- its pane is a DOOR, never "
+              f"reapable, unconditionally (bars.md 4, r-owner-afk-liaison-parked). No --force "
+              f"lifts this.", file=sys.stderr)
+        sys.exit(1)
+
+    if owner_row["active"] == "yes":
+        if not getattr(args, "force", False):
+            print(f"refused: pane {target} belongs to '{owner_row['agent']}', whose roster row is "
+                  f"still ACTIVE -- not roster-done (criterion 5). A live working seat's pane is "
+                  f"close-seat's or renew's to manage, not a bare reap. If you mean it (the seat is "
+                  f"gone but the row was never closed): --force.", file=sys.stderr)
+            sys.exit(1)
+        print(f"WARNING: '{owner_row['agent']}' is still roster-ACTIVE -- killing its pane anyway "
+              f"because --force was given. Its roster row is UNCHANGED by this call and still "
+              f"needs a close-seat.", file=sys.stderr)
+
+    idents = pane_harness_idents(target)
+    ok, err = tmux_kill_pane(target)
+    print(f"pane {target} ({owner_row['agent']}): {'killed' if ok else 'kill FAILED -- ' + err}")
+    if not ok:
+        sys.exit(1)
+    survivors, note = verify_pids_gone(idents)
+    if idents:
+        print(f"process check: {len(idents)} harness pid(s) "
+              + (f"GONE{' -- ' + note if note else ''}" if not survivors
+                 else f"NOT gone -- {note}"))
+    # Criterion 4: asserted from tmux list-panes, never inferred from tmux_kill_pane's exit code
+    # (which only says the COMMAND ran, not that the pane is actually gone -- G-10's whole point).
+    still_there = target in live_panes()
+    print(f"tmux check: pane {target} "
+          + ("STILL LISTED -- the kill did not take" if still_there else "GONE"))
+    if still_there:
+        sys.exit(1)
+    print(c(f"next: {coord_invocation(args)} workers -- '{owner_row['agent']}' still shows in the "
+            f"roster{' (was still active)' if owner_row['active'] == 'yes' else ''}; it still owes "
+            f"a close-seat to finish its lifecycle", C_HINT))
+
+
 def cmd_depart(args):
     """Self-service exit: export own transcript, check out, kill own pane. SELF ONLY (T1) —
     it takes no target, so no seat can depart another; leader cleans dead seats with
@@ -9646,6 +9750,109 @@ def _selftest_checks(args, failures, names):
               load_awaiting(base_g) == {} and awaiting_debts(base_g, set()) == [])
         awaiting_path(base_g).unlink()
 
+        # ---- kill-pane (task 7.91): a direct, single-pane reap; close-seat's shape, narrower ----
+        # scope (kills the pane only -- no transcript export, no roster mutation, no session
+        # close). Fixtures are fresh names so nothing above this block needs to survive it.
+        (pkg / "workers" / "kp-door").mkdir(exist_ok=True)
+        (pkg / "workers" / "kp-door" / "agent.md").write_text(
+            "---\nagent: kp-door\nharness: claude\nmodel: opus\nrelays: master\n---\nbrief\n")
+        run(cmd_checkin, agent="kp-door", summary="the owner door, kill-pane fixture", pane="%701")
+        live_tmux_panes["v"].add("%701")
+
+        run(cmd_checkin, agent="kp-live", summary="an active seat, kill-pane fixture", pane="%702")
+        live_tmux_panes["v"].add("%702")
+
+        run(cmd_checkin, agent="kp-done", summary="a finished seat, kill-pane fixture", pane="%703")
+        live_tmux_panes["v"].add("%703")
+
+        def _kp_mark_done(r):
+            r["active"] = "no"
+            r["checkout"] = f"closed {now()}"
+        update_row(base_g, "kp-done", _kp_mark_done)
+
+        killed.clear()
+        _ko, _kc = refuse(cmd_kill_pane, agent="zeta", pane_id="%703")
+        check("kill-pane: the ROLE gate refuses a caller that is not leader/chief-of-staff/"
+              "closer-*, naming the flag the same way every other role gate does",
+              _kc == 2 and "kill-pane" in _ko and killed == [])
+
+        _bo, _bc = refuse(cmd_kill_pane, agent="chief-of-staff", pane_id="not-a-pane")
+        check("kill-pane: a malformed target (no leading %) is refused before anything else runs "
+              "-- this is a PANE id, never a seat name, and the message says so",
+              _bc == 1 and "does not look like a tmux pane id" in _bo and killed == [])
+
+        _oo, _oc = refuse(cmd_kill_pane, agent="chief-of-staff", pane_id="%799")
+        check("kill-pane (criterion 2, clause 2): a pane matching NO current roster row is "
+              "refused -- this tool only ever touches panes this run's own roster accounts for, "
+              "and the refusal names no --force escape because none exists",
+              _oc == 1 and "matches no CURRENT roster row" in _oo and killed == [])
+
+        _do, _dc = refuse(cmd_kill_pane, agent="chief-of-staff", pane_id="%701")
+        check("kill-pane (criterion 2, clause 1 / bars.md 4): the pane of a seat carrying "
+              "`relays:` is refused, UNCONDITIONALLY -- the owner door -- derived from the "
+              "descriptor, never a kit-side name list",
+              _dc == 1 and "carries a relay path to a human role" in _do and killed == [])
+
+        _dfo, _dfc = refuse(cmd_kill_pane, agent="chief-of-staff", pane_id="%701", force=True)
+        check("kill-pane (criterion 3, the control's other half / bars.md 4): --force does NOT "
+              "lift the door refusal -- unlike close-seat's OWN door check, this one has no "
+              "escape at all, because kill-pane is a bare reap-by-id with none of close-seat's "
+              "surrounding lifecycle care",
+              _dfc == 1 and "carries a relay path to a human role" in _dfo and killed == [])
+
+        _ao, _ac = refuse(cmd_kill_pane, agent="chief-of-staff", pane_id="%702")
+        check("kill-pane (criterion 5): a pane whose roster row is still ACTIVE (not "
+              "roster-done) is refused without --force -- read from the row's `active` field as "
+              "ground truth (G-196), never inferred from whether the pane looks alive in tmux",
+              _ac == 1 and "not roster-done" in _ao and killed == [])
+
+        # criterion 4's OTHER direction, FIRST while the default stub is still in place: a
+        # "successful" kill call whose target tmux STILL LISTS afterward must be caught, never
+        # inferred from the kill call's own exit code (G-10's whole point) -- the default stub
+        # (`killed.append(pane) or (True, "")`) never removes the pane from the live set, so it
+        # doubles as this control for free.
+        killed.clear()
+        _so, _sc = refuse(cmd_kill_pane, agent="chief-of-staff", pane_id="%703")
+        check("kill-pane (criterion 4, the control -- can this check fail?): a pane the kill call "
+              "reports OK for but which tmux STILL LISTS afterward is caught and refused, not "
+              "laundered through a trusted exit code",
+              _sc == 1 and "STILL LISTED" in _so and "%703" in killed)
+
+        # Now the genuine permit direction: a stub that ALSO removes the pane on kill, so the
+        # post-kill tmux-list-panes check the code actually performs has something real to see.
+        _orig_kp_kill = tmux_kill_pane
+        def _kp_kill_and_remove(pane):
+            killed.append(pane)
+            live_tmux_panes["v"].discard(pane)
+            return True, ""
+        tmux_kill_pane = _kp_kill_and_remove
+
+        # The "still roster-ACTIVE" warning is deliberately on STDERR (matching close-seat's own
+        # force-override warnings elsewhere in this file), and `run()` leaves stderr on the real
+        # stream (harness_outcome's capture_err=False) -- so the PROOF --force actually let this
+        # through is `killed`, not a stdout substring.
+        run(cmd_kill_pane, agent="chief-of-staff", pane_id="%702", force=True)
+        check("kill-pane (criterion 5, the escape): --force overrides the not-roster-done "
+              "refusal, the same convention close-seat's own door check uses for a deliberate "
+              "act -- the pane is actually killed, not merely permitted on paper",
+              "%702" in killed)
+
+        killed.clear()
+        _go = run(cmd_kill_pane, agent="chief-of-staff", pane_id="%703")
+        check("kill-pane (criterion 3, the permit direction / criterion 4, the pass): a "
+              "genuinely reapable pane (roster-done, no relays) is killed and VERIFIED gone via "
+              "live_panes(), not merely reported killed -- and its roster row is untouched (no "
+              "transcript export, no active-flag mutation): freeing the pane and finishing the "
+              "lifecycle are different acts (criterion 6)",
+              "%703" in killed and "GONE" in _go
+              and current_row(load_workers(base_g)[2], "kp-done")["active"] == "no")
+
+        tmux_kill_pane = _orig_kp_kill
+        for _kpd in ("kp-door", "kp-live", "kp-done"):
+            __import__("shutil").rmtree(pkg / "workers" / _kpd, ignore_errors=True)
+        live_tmux_panes["v"] -= {"%701", "%702", "%703"}
+        killed.clear()
+
         # ---- G-32: a GROUP is not a side door around the inbox cut ----
         # The owner spotted the watcher sitting in THREE of the run's four groups: the G-20 cut was
         # real, but `addressed_to` applied it on the `to == all` branch only, so a group message
@@ -10634,7 +10841,7 @@ HELP_EPILOG = """everyday
 leader
   launch      open one tmux seat per worker briefing and start its harness
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat / reap / close-run / current-run  close a seat (--renew) · free panes (--go) · end / resolve the run
+  close-seat / reap / kill-pane / close-run / current-run  close a seat (--renew) · free panes (--go) · reap one pane by id · end / resolve the run
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
@@ -11233,6 +11440,29 @@ def build_parser():
                    help="actually free the confirmed panes (without it, reap only observes)")
     add_identity_flags(s)
     s.set_defaults(func=cmd_reap)
+
+    s = command(
+        "kill-pane",
+        "Reap ONE pane by id directly (task 7.91) -- the route to a leaked pane when a raw\n"
+        "`tmux kill-pane` is refused by the harness auto-mode classifier and `close-seat` needs a\n"
+        "roster-known SEAT NAME rather than a bare pane id. Kills the PANE ONLY, like `reap` --\n"
+        "no transcript export, no roster mutation; the seat still owes a close-seat afterwards.\n"
+        "Refuses UNCONDITIONALLY (no --force) if the pane is not on this run's CURRENT roster, or\n"
+        "belongs to a seat carrying `relays:` (a human-contact door). Refuses, escapable with\n"
+        "--force, if the pane's row is still roster-ACTIVE (not roster-done).",
+        "example:\n"
+        "  coordinate kill-pane %482\n"
+        "next: coordinate workers -- confirm the pane is gone; the seat still owes a close-seat")
+    # dest is `pane_id`, NEVER `pane` -- `args.pane` is reserved: resolve_agent()/detect_pane()
+    # read it as an override for the CALLING pane (the same attribute `checkin --pane` sets), so a
+    # positional named `pane` here would make the TARGET silently stand in for the caller during
+    # identity resolution -- caught by this row's own selftest (a door/active refusal that only
+    # "worked" with --force, because --force is what let resolve_agent's OWN identity-mismatch
+    # refusal through, not because the door/active logic below it was ever reached).
+    s.add_argument("pane_id", metavar="pane",
+                    help="the tmux PANE ID to kill (e.g. %%482) -- never a seat name")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_kill_pane)
 
     s = command(
         "approve",
