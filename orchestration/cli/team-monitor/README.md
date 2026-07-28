@@ -66,7 +66,7 @@ take no lock. Every write is `tmp` + `os.replace`, so a reader never sees a part
     session, session_alive, package, sensor,
     box{available_mb, total_mb, swap_used_mb, swap_total_mb, load1/5/15, cores,
         pressure_memory{some_avg10..300, some_total, full_avg10..300, full_total}},
-    seats[{seat, class, class_source, pane, window, title, cwd, harness, harness_pid, pane_pid, model,
+    seats[{seat, agent_type, agent_type_source, pane, window, title, cwd, harness, harness_pid, pane_pid, model,
            model_source, ctx_pct, ctx_tokens, window_tokens, ctx_ambiguous, ctx_source,
            ctx_refresh, last_activity, last_activity_age_s, prompt_pending, ram_mb,
            liveness, roster_active}],
@@ -79,14 +79,23 @@ thresholded continuously by `goal-watcher-job` without a second raw-source reade
 distance: a roster row whose **pane left the room**, and a roster row whose **pane is still
 there but holds no harness process**. The second is the one that looks healthy.
 
-## Seat class — declared in the descriptor, only OBSERVED here (task 7.80)
+## `agent_type` — declared in the descriptor, only OBSERVED here (task 7.80)
 
-`class` is the seat's team function. **The registry record behind it is `agent type`** —
+`agent_type` is the seat's team function. **The registry record behind it is `agent type`** —
 *"the classifier of an agent's team function — the four-member TOP set (`master`, `staff`,
 `worker`, `verifier`)"* (`sd-graph show "agent type"`, settled-by
-`decisions.md#d-agent-taxonomy`). The key is spelled `class:` because that is the owner's
-word in `r-room-flag-built-portable`; the two names are recorded together so a reader of the
-field can reach the record that defines its values.
+`decisions.md#d-agent-taxonomy`). The field name and the record name are **the same one word
+for the same one idea** (`PRIN-10`, terminology is king).
+
+> ⚠ **The key was spelled `class` until 2026-07-28** — the owner's word in
+> `r-room-flag-built-portable`. Owner ruling **`r-agent-type-field-name`** renamed it to exact
+> registry parity, **atomically** across the writer, both renderers, `budget.py` and every seat
+> descriptor, because piecemeal *"leaves the snapshot and its renderers disagreeing about the
+> field's name, which is worse than either name."* **The key was RENAMED, NOT ALIASED:** a
+> descriptor still declaring `class:` reads `unclassified`/`undeclared`, loudly, and a snapshot
+> still carrying `class` renders as absent. Both are pinned by a selftest check in
+> `team_monitor.py`, `teamview.py` and `budget.py` that asserts the new behaviour against the
+> old spelling — the one shape of check a rename cannot make pass by rewriting its fixtures.
 
 **Declared in the seat descriptor, beside `harness`/`model`/`observer`/`auto-wake`/
 `ctx-refresh`. There is NO value list in `team_monitor.py` and adding one is forbidden** — a
@@ -95,27 +104,49 @@ is how `SPECIAL_CASE_SEATS` came to omit the `chief-of-staff` from a set whose o
 described it (`coord.py:338-345`). A mandate cannot be expressed as a name list. Whatever
 string the descriptor declares is published verbatim.
 
-`class_source` says where the answer came from, and every absence is reported rather than
+`agent_type_source` says where the answer came from, and every absence is reported rather than
 defaulted — a room aggregate built on this field is wrong in whichever direction a default
 leans:
 
-| `class_source` | Means |
+| `agent_type_source` | Means |
 |---|---|
 | `descriptor` | the seat's descriptor declared it |
 | `undeclared` | the descriptor exists and is silent — a staffer duty |
 | `no-descriptor` | the seat has no descriptor at all |
 | `no-seat` | the pane has no roster row, so no descriptor can reach it — the parked owner door's case, structural rather than a missing edit |
 
-**⚠ NOTHING MAY EVER GATE A PERMISSION ON THIS FIELD.** The registry's definition of an agent
-type says it "drives some of the agent's permissions", so the field will read as a privilege
-token — it is not one. The descriptor's declared type is a **claim**; this field is a
-**sensor observation** of that claim; the identity gate is the **only authorization**. The
-moment anything keys on it, editing a descriptor becomes a privilege grant — the
-`realizes: master` escalation `coord.py:205-216` already refused.
+**⚠⚠ THIS FIELD IS A SENSOR OBSERVATION OF A DECLARED CLAIM AND IS NEVER AN AUTHORIZATION;
+THE IDENTITY GATE IS THE ONLY AUTHORIZATION. NOTHING MAY EVER GATE A PERMISSION ON IT.**
+
+| Surface | What it is |
+|---|---|
+| the seat descriptor's declared type | a **CLAIM** |
+| this field in `state.json` | a **SENSOR OBSERVATION** of that claim |
+| the identity gate (`checkIdentity`, the seat resolver) | the **only AUTHORIZATION** |
+
+The moment anything keys a permission on it, **editing a descriptor becomes granting a
+privilege** — the `realizes: master` escalation `coord.py:205-216` already refuses.
+
+⚠ **The bar is written out here rather than implied, and that is a CONDITION of the rename, not
+documentation hygiene** (`r-agent-type-field-name`). The registry's own definition of an agent
+type says it is a classification *"which drives some of the agent's permissions"*. **It does
+not do so here.** While the key was spelled `class`, its very DIFFERENCE from the registry's
+term was doing defensive work — a reader could not mistake it for the permission-bearing
+concept. The rename removed that passive defence, so **the guard now rests entirely on this
+written bar.** Deleting it re-opens the hole.
 
 **An aggregate over these rows MUST report its own incompleteness.** Until every live seat
-declares, a count of any class is a count over a partly-`unclassified` population; publish
+declares, a count of any agent type is a count over a partly-`unclassified` population; publish
 the `unclassified` count beside it rather than a number that looks whole.
+
+⚠⚠ **AND THE INCOMPLETENESS MACHINERY DOES NOT COVER AN ABSENT KEY — MEASURED, not reasoned.**
+It fires on the explicit `unclassified` **value**. A row whose key is **missing** (a consumer
+reading `agent_type` against a writer still emitting `class`, or the reverse) matches neither
+the counted branch nor the unclassified branch: in `budget.py` it falls through to
+`not_counted`, and the census then reports **`in_use` 0, `complete` TRUE, verdict `OK`** — a
+fully confident, fully wrong answer with nothing raised. **That is why the rename had to be
+atomic across the writer and every consumer in one change**, and it is pinned by
+`budget.py`'s `--selftest`. A writer/consumer name disagreement on this field is **silent**.
 
 `seat` is empty for a pane whose occupant has not checked in yet — a launched-but-silent
 harness is a real state and is reported as one, never guessed.

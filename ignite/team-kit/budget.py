@@ -34,7 +34,7 @@ THREE THINGS IT REFUSES TO DO, each because the run got burned by the opposite:
      "no descriptor" is NOT the predicate, and getting that wrong is what the
      first draft of this module did.
 
-     state.json's `class_source: no-seat` means "no descriptor IN THIS RUN".
+     state.json's `agent_type_source: no-seat` means "no descriptor IN THIS RUN".
      It does NOT mean "no descriptor anywhere". The staffer is summoned on
      demand, is deliberately not a run member, and is declared in its OWN
      goal folder -- so the first draft flagged it as an undeclared agent, and
@@ -58,7 +58,7 @@ THREE THINGS IT REFUSES TO DO, each because the run got burned by the opposite:
 
      ⚠ AND IT IS STILL NOT ENOUGH TO FLAG ON, WHICH IS THE FINDING. The
      predicate must survive at least three legitimate descriptor-less agent
-     panes: the staffer (resolves -- fine), the owner door (carries class
+     panes: the staffer (resolves -- fine), the owner door (carries agent_type
      master -- fine), and THE OWNER'S OWN CLAUDE SESSION ON THIS BOX, whose cwd
      is the vault root and resolves to nothing. MEASURED, not reasoned:
      resolve_descriptor("/home/henri/ht-wkdir/second-brain") -> None.
@@ -76,12 +76,24 @@ THREE THINGS IT REFUSES TO DO, each because the run got burned by the opposite:
      pushes.
 
 BINDING BAR, inherited from task 7.80 and restated because this is exactly the
-module that would breach it: NOTHING HERE MAY EVER GATE A PERMISSION ON `class`.
-The field is a sensor's observation of a descriptor's claim, never an
-authorization; the identity gate is the only authorization. The moment anything
-keys a permission on it, editing a descriptor becomes granting a privilege.
-This module reports capacity. It launches nothing, refuses nothing, kills
-nothing.
+module that would breach it: NOTHING HERE MAY EVER GATE A PERMISSION ON
+`agent_type`. THIS FIELD IS A SENSOR OBSERVATION OF A DECLARED CLAIM AND IS
+NEVER AN AUTHORIZATION; THE IDENTITY GATE IS THE ONLY AUTHORIZATION. The moment
+anything keys a permission on it, editing a descriptor becomes granting a
+privilege. This module reports capacity. It launches nothing, refuses nothing,
+kills nothing.
+
+⚠ THE FIELD WAS SPELLED `class` UNTIL 2026-07-28, and this bar moved with it
+rather than being left pointing at a name that no longer exists (owner ruling
+`r-agent-type-field-name`; the rename was ruled ATOMIC across the writer, the
+renderers and the descriptors, and a bar restated in three places and stale in a
+fourth is the decay that rename was meant to end). The rename ALSO made this bar
+matter more, not less: the old name's very DIFFERENCE from the registry's term
+was doing defensive work, because a reader could not mistake `class` for the
+permission-bearing concept. The field now carries the registry's own word, and
+that record's definition says an agent type is a classification "which DRIVES
+SOME OF THE AGENT'S PERMISSIONS". IT DOES NOT DO SO HERE. This paragraph is what
+replaced the passive defence the name used to provide.
 """
 
 import argparse
@@ -159,22 +171,22 @@ def census(budget, state, now=None, resolver=resolve_descriptor):
     counted, unaccounted, cross_goal, unclassified, free = [], [], [], [], []
     for s in state.get("seats") or []:
         name = (s.get("seat") or "").strip()
-        cls = s.get("class")
-        src = s.get("class_source")
+        atype = s.get("agent_type")
+        src = s.get("agent_type_source")
         harness = (s.get("harness") or "").strip().lower()
         live = s.get("liveness") == "live"
         row = {
             "seat": name or None,
             "pane": s.get("pane"),
-            "class": cls,
-            "class_source": src,
+            "agent_type": atype,
+            "agent_type_source": src,
             "harness": harness or None,
             "liveness": s.get("liveness"),
             "cwd": s.get("cwd"),
         }
         if not live:
             free.append(row)  # a dead pane spends nothing
-        elif cls in counts_toward:
+        elif atype in counts_toward:
             counted.append(row)
         elif src == "no-seat" and harness in AGENT_HARNESSES:
             # Rule 3. NOT "no descriptor in this run" -- that fires on every
@@ -185,7 +197,7 @@ def census(budget, state, now=None, resolver=resolve_descriptor):
                 cross_goal.append(row)  # accounted elsewhere; ruled not to count here
             else:
                 unaccounted.append(row)  # nothing anywhere explains this pane
-        elif cls == "unclassified":
+        elif atype == "unclassified":
             # Rule 2: a descriptor exists and is silent. Neither counted nor
             # dropped -- surfaced, so the aggregate declares its own hole.
             unclassified.append(row)
@@ -303,7 +315,7 @@ def render(c):
         out.append(
             "  counted: "
             + ", ".join(
-                "%s[%s]" % (r["seat"] or r["pane"], r["class"]) for r in c["counted"]
+                "%s[%s]" % (r["seat"] or r["pane"], r["agent_type"]) for r in c["counted"]
             )
         )
     if c["verdict"].startswith("OK") and c["headroom"] and c["ram_ok"] is not False:
@@ -327,8 +339,8 @@ def _selftest():
     def seat(**kw):
         d = {
             "seat": "x",
-            "class": "staff",
-            "class_source": "descriptor",
+            "agent_type": "staff",
+            "agent_type_source": "descriptor",
             "harness": "claude",
             "liveness": "live",
             "pane": "%1",
@@ -347,7 +359,7 @@ def _selftest():
     check("verdict", c["verdict"], "OK")
 
     # the master door never counts
-    c = census(b, {"captured_at": now, "seats": [seat(**{"class": "master"})]}, now=now)
+    c = census(b, {"captured_at": now, "seats": [seat(**{"agent_type": "master"})]}, now=now)
     check("door uncounted", c["in_use"], 0)
 
     # a non-agent pane with no descriptor is genuinely free
@@ -355,7 +367,7 @@ def _selftest():
         b,
         {
             "captured_at": now,
-            "seats": [seat(seat="", **{"class": "unclassified", "class_source": "no-seat", "harness": "python3"})],
+            "seats": [seat(seat="", **{"agent_type": "unclassified", "agent_type_source": "no-seat", "harness": "python3"})],
         },
         now=now,
     )
@@ -365,7 +377,7 @@ def _selftest():
     # NOT automatically undeclared -- ask whether any goal declares it.
     nameless = seat(
         seat="",
-        **{"class": "unclassified", "class_source": "no-seat", "harness": "claude", "cwd": "/somewhere"}
+        **{"agent_type": "unclassified", "agent_type_source": "no-seat", "harness": "claude", "cwd": "/somewhere"}
     )
 
     # (a) the staffer's shape: declared in ANOTHER goal -> accounted, NOT counted,
@@ -392,12 +404,49 @@ def _selftest():
     # a silent descriptor makes the aggregate declare itself incomplete
     c = census(
         b,
-        {"captured_at": now, "seats": [seat(**{"class": "unclassified", "class_source": "descriptor"})]},
+        {"captured_at": now, "seats": [seat(**{"agent_type": "unclassified", "agent_type_source": "descriptor"})]},
         now=now,
     )
     check("unclassified not counted", c["in_use"], 0)
     check("aggregate incomplete", c["complete"], False)
     check("verdict incomplete", c["verdict"], "OK-INCOMPLETE")
+
+    # ⚠⚠ THE RENAME'S OWN REGRESSION CHECK (2026-07-28, `r-agent-type-field-name`), and it
+    # pins a HAZARD rather than a nicety. A snapshot still carrying the WITHDRAWN `class`
+    # key must NOT be honoured here -- the key was renamed, NOT aliased.
+    #
+    # WHY THIS CHECK IS NOT BLIND, which every other check in this block is vulnerable to
+    # being: renaming the reads and the fixtures together passes on the pre-rename code too,
+    # because the harness supplies both sides of the assertion. This one asserts the NEW
+    # behaviour against the OLD spelling, so it can only pass if the rename really happened,
+    # and it FAILS on any back-compat shim that reads both names.
+    #
+    # ⚠⚠ AND READ WHAT IT ASSERTS, BECAUSE IT IS WORSE THAN "reports its own incompleteness":
+    # an old-key row has agent_type None, so it matches NEITHER counts_toward NOR the
+    # "unclassified" branch -- it falls through to `free`. The census then reports
+    # in_use 0, complete TRUE, verdict OK: A FULLY CONFIDENT, FULLY WRONG ANSWER. The
+    # incompleteness machinery does NOT save this case, because it fires on the explicit
+    # "unclassified" VALUE and never on an ABSENT KEY. That is exactly why this module had to
+    # move in the same atomic change as the writer: a writer/consumer name disagreement here
+    # is silent, and this check is the only thing in the file that would name it.
+    legacy = {"seat": "L", "class": "staff", "class_source": "descriptor",
+              "harness": "claude", "liveness": "live", "pane": "%7"}
+    c = census(b, {"captured_at": now, "seats": [legacy]}, now=now)
+    check("withdrawn `class` key is NOT honoured (renamed, never aliased)", c["in_use"], 0)
+    # Guarded rather than indexed: on a back-compat shim the row IS counted and not_counted
+    # goes empty, and a bare [0] would raise instead of naming which check failed. A crash is
+    # loud, but a label a future reader can act on is the point of the check.
+    lrow = (c["not_counted"] or [None])[0]
+    check("the old-key row lands in not_counted (empty here means a shim is reading `class`)",
+          lrow is not None, True)
+    check("withdrawn `class` key does not reach the row", "class" in (lrow or {}), False)
+    check("row carries the new key, valued None", (lrow or {}).get("agent_type", "MISSING"),
+          None)
+    # ⚠ THE CONFIDENT-WRONG-ANSWER ITSELF, pinned so the hazard is a fact in the file rather
+    # than a paragraph about one: an old-key room reads OK and COMPLETE, not INCOMPLETE.
+    check("an old-key room reads COMPLETE — the incompleteness path does NOT fire on an "
+          "absent key, only on the explicit 'unclassified' value", c["complete"], True)
+    check("an old-key room reads OK — silently, with zero seats counted", c["verdict"], "OK")
 
     # a dead pane spends nothing
     c = census(b, {"captured_at": now, "seats": [seat(liveness="no-harness")]}, now=now)

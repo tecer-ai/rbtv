@@ -919,7 +919,7 @@ def snapshot_tree(snap, now=None):
             "ctx": pct,
             "approx": bool(s.get("ctx_ambiguous")),
             "ctx_over": thr is not None and pct is not None and pct >= thr,
-            "cls": (s.get("class") or "").strip(),
+            "cls": (s.get("agent_type") or "").strip(),
             "age": fmt_age(act_age)})
     wins = [by_idx[i] for i in order]
     absent = (snap or {}).get("roster_absent") or []
@@ -929,7 +929,7 @@ def snapshot_tree(snap, now=None):
              "shell": False, "busy": False,
              "awaiting": False, "harness": str(a.get("liveness") or "absent"), "model": "",
              "ctx": None, "approx": False, "ctx_over": False,
-             "cls": (a.get("class") or "").strip(),
+             "cls": (a.get("agent_type") or "").strip(),
              "age": str(a.get("reason") or "")[:12]} for a in absent]})
     return wins, len(wins), sum(len(w["panes"]) for w in wins)
 
@@ -991,9 +991,12 @@ def pane_agent_bits(p):
     return bits
 
 
-def class_bit(p):
-    """The seat's declared class (task 7.80), straight off the snapshot — the sensor's
-    `class` field, rendered without a second source.
+def agent_type_bit(p):
+    """The seat's declared agent type (task 7.80), straight off the snapshot — the sensor's
+    `agent_type` field, rendered without a second source.
+
+    ⚠ The key was spelled `class` until 2026-07-28; it is `agent_type` now, for exact parity
+    with the registry record it publishes (owner ruling `r-agent-type-field-name`, PRIN-10).
 
     ⚠ NO VALUE LIST HERE, DELIBERATELY, and this renderer must never grow one. The string
     is displayed exactly as the snapshot carries it; teamview knows no vocabulary and
@@ -1002,9 +1005,14 @@ def class_bit(p):
     before it): a name list inside a tool every run shares encodes ONE campaign's role
     vocabulary into all of them, and a MANDATE cannot be expressed as a name list.
 
-    ⚠ AND IT IS NOT A PRIVILEGE TOKEN. The descriptor's declaration is a CLAIM, the
-    snapshot's field is a SENSOR OBSERVATION of that claim, and the identity gate is the
-    only authorization. Nothing here may ever gate on it — displaying is not authorizing.
+    ⚠⚠ AND IT IS NOT A PRIVILEGE TOKEN. THIS FIELD IS A SENSOR OBSERVATION OF A DECLARED
+    CLAIM AND IS NEVER AN AUTHORIZATION; THE IDENTITY GATE IS THE ONLY AUTHORIZATION. The
+    descriptor's declaration is a CLAIM, the snapshot's field is an OBSERVATION of it.
+    Nothing here may ever gate a permission on it — displaying is not authorizing. The bar is
+    spelled out rather than implied because the 2026-07-28 rename took the field's NAME to
+    exact parity with a registry record whose own definition says an agent type "DRIVES SOME
+    OF THE AGENT'S PERMISSIONS". It does not do so here, and the old name's difference from
+    that record used to make the confusion impossible; this paragraph replaced that defence.
     """
     return f"{DIM}{p['cls']}{OFF}" if p.get("cls") else ""
 
@@ -1053,9 +1061,9 @@ def pane_cell_variants(p):
     drops first, then harness:model; ctx% — the DESIGN-4 safety signal — survives until the
     very last non-bare variant.
 
-    The seat CLASS is carried as its own bit rather than folded into pane_agent_bits(),
+    The seat's AGENT TYPE is carried as its own bit rather than folded into pane_agent_bits(),
     whose three bits are indexed POSITIONALLY just below — a fourth bit in that list would
-    silently shift ctx% into the age slot. It drops FIRST of all: a class is near-static, so
+    silently shift ctx% into the age slot. It drops FIRST of all: an agent type is near-static,
     it is the cheapest thing to lose when the frame narrows, and the safety signals must
     outlive it."""
     if p["shell"]:
@@ -1069,7 +1077,7 @@ def pane_cell_variants(p):
         ctx, idx = bits[idx], idx + 1
     if p.get("age"):
         age = bits[idx]
-    cls = class_bit(p)
+    cls = agent_type_bit(p)
     variants = []
     for parts in ((name, cls, hm, ctx, age), (name, hm, ctx, age),
                   (name, hm, ctx), (name, ctx), (name,)):
@@ -1089,7 +1097,7 @@ def pane_compact(p):
     if p["shell"]:
         return shell_cell(p)
     name = pane_name(p)
-    bits = [b for b in [class_bit(p)] if b] + pane_agent_bits(p)
+    bits = [b for b in [agent_type_bit(p)] if b] + pane_agent_bits(p)
     return f"{name}({' '.join(bits)})" if bits else name
 
 
@@ -1401,7 +1409,7 @@ def interface_legend_lines(width=80):
     return out
 
 
-def class_census(panes):
+def agent_type_census(panes):
     """['3 staff', '1 worker', '2 unclassified'] — the room's seats GROUPED BY THE VALUE THE
     SNAPSHOT CARRIES, most common first, ties broken alphabetically so the line is stable
     between refreshes.
@@ -1444,7 +1452,7 @@ def rollup_variants(wins):
           if worst else "")
     rc, ac = (RED if red else DIM), (RED if waiting else DIM)
     full = [f"{len(panes)} panes"] + ([f"worst {wc}"] if wc else []) \
-        + [f"{rc}{red} red{OFF}", f"{ac}{waiting} ?{OFF}"] + class_census(panes)
+        + [f"{rc}{red} red{OFF}", f"{ac}{waiting} ?{OFF}"] + agent_type_census(panes)
     short = [f"{len(panes)}p"] + ([wc] if wc else []) \
         + [f"{rc}{red}r{OFF}", f"{ac}{waiting}?{OFF}"]
     return [" · ".join(full), " ".join(short)]
@@ -3301,42 +3309,56 @@ def cmd_selftest():
                    and id(node) not in docstrings and "ctx_monitor" in node.value
                    and owner_of.get(id(node)) not in SELFTEST])   # this check names it itself
 
-    # ---- seat class, rendered from the snapshot alone (task 7.80) ----
+    # ---- the seat's agent type, rendered from the snapshot alone (task 7.80) ----
     csnap = {"seats": [
-        {"seat": "a", "pane": "%1", "window": "1", "class": "zzz-invented-class",
+        {"seat": "a", "pane": "%1", "window": "1", "agent_type": "zzz-invented-type",
          "harness": "claude", "model": "opus", "ctx_pct": 10.0, "liveness": "live"},
-        {"seat": "b", "pane": "%2", "window": "1", "class": "zzz-invented-class",
+        {"seat": "b", "pane": "%2", "window": "1", "agent_type": "zzz-invented-type",
          "harness": "claude", "model": "opus", "ctx_pct": 20.0, "liveness": "live"},
-        {"seat": "c", "pane": "%3", "window": "1", "class": "unclassified",
+        {"seat": "c", "pane": "%3", "window": "1", "agent_type": "unclassified",
          "harness": "claude", "model": "opus", "ctx_pct": 30.0, "liveness": "live"}],
-        "roster_absent": [{"seat": "g", "pane": "%9", "class": "ghost-class",
+        "roster_absent": [{"seat": "g", "pane": "%9", "agent_type": "ghost-type",
                            "liveness": "absent", "reason": "gone"}]}
     cwins, _, _ = snapshot_tree(csnap)
     cpanes = [p for w in cwins for p in w["panes"]]
-    check("7.80: the class reaches the pane record straight off the snapshot — no second source",
-          [p["cls"] for p in cpanes] == ["zzz-invented-class", "zzz-invented-class",
-                                         "unclassified", "ghost-class"])
+    check("7.80: agent_type reaches the pane record straight off the snapshot — no second source",
+          [p["cls"] for p in cpanes] == ["zzz-invented-type", "zzz-invented-type",
+                                         "unclassified", "ghost-type"])
     check("7.80: an INVENTED value renders verbatim — teamview holds no value list and "
           "validates nothing (this fails the moment someone adds one)",
-          "zzz-invented-class" in strip_sgr(pane_cell_variants(cpanes[0])[0])
-          and "zzz-invented-class" in strip_sgr(pane_compact(cpanes[0])))
-    census = strip_sgr(" · ".join(class_census(cpanes)))
+          "zzz-invented-type" in strip_sgr(pane_cell_variants(cpanes[0])[0])
+          and "zzz-invented-type" in strip_sgr(pane_compact(cpanes[0])))
+    census = strip_sgr(" · ".join(agent_type_census(cpanes)))
     check("7.80: the rollup census GROUPS BY OBSERVED VALUE, most common first — it does not "
           "classify, so no vocabulary is encoded here either",
-          census == "2 zzz-invented-class · 1 ghost-class · 1 unclassified")
+          census == "2 zzz-invented-type · 1 ghost-type · 1 unclassified")
     check("7.80: the absence marker is NOT special-cased — it is counted as one of the values, "
           "which is how an incompletely-classified room reports its own incompleteness",
           "1 unclassified" in census)
-    check("7.80: the class DROPS FIRST as the cell narrows — the ctx% safety signal outlives it",
-          "zzz-invented-class" not in strip_sgr(pane_cell_variants(cpanes[0])[1])
+    check("7.80: agent_type DROPS FIRST as the cell narrows — the ctx% safety signal outlives it",
+          "zzz-invented-type" not in strip_sgr(pane_cell_variants(cpanes[0])[1])
           and "10%" in strip_sgr(pane_cell_variants(cpanes[0])[1]))
-    check("7.80: a pre-7.80 snapshot with NO class field renders exactly as before — no empty "
+    check("7.80: a snapshot with NO agent_type field renders exactly as before — no empty "
           "term in the census, no stray separator in the cell",
-          class_census([{"name": "x"}]) == []
+          agent_type_census([{"name": "x"}]) == []
           and "  " not in strip_sgr(pane_cell_variants(
               {"name": "x", "cls": "", "shell": False, "busy": False, "awaiting": False,
                "active": False, "harness": "claude", "model": "opus", "ctx": 5.0,
                "age": "1m"})[0]))
+    # ⚠ THE RENAME'S OWN REGRESSION CHECK (2026-07-28, `r-agent-type-field-name`). A snapshot
+    # carrying the WITHDRAWN `class` key must render as if the field were ABSENT — the key was
+    # renamed, NOT aliased. Without this, renaming the reads and the fixtures together would
+    # pass on the pre-rename code too: the harness would be supplying both sides of the
+    # assertion. This check asserts the NEW behaviour against the OLD spelling, so it can only
+    # pass if the rename actually happened, and it FAILS on any back-compat shim reading both.
+    lsnap = {"seats": [{"seat": "a", "pane": "%1", "window": "1", "class": "staff",
+                        "harness": "claude", "model": "opus", "ctx_pct": 10.0,
+                        "liveness": "live"}]}
+    lpanes = [p for w in snapshot_tree(lsnap)[0] for p in w["panes"]]
+    check("7.80: a snapshot on the WITHDRAWN `class` key reads as ABSENT, never rendered — "
+          "renamed, NEVER aliased (r-agent-type-field-name)",
+          [p["cls"] for p in lpanes] == [""] and agent_type_census(lpanes) == []
+          and "staff" not in strip_sgr(pane_cell_variants(lpanes[0])[0]))
 
     print(f"\nselftest: {'PASS' if not failures else 'FAIL'} ({len(failures)} failure(s))")
     sys.exit(1 if failures else 0)
