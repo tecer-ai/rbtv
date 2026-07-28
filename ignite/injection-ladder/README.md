@@ -78,6 +78,32 @@ types into a bare shell. Live-verified (`G-13`), and the failure it originally c
 the pre-`G-13` command form exited 0 having run nothing, so any check that only asserted the flag
 was present read green.
 
+## Verified against the REALLY installed CLIs (2026-07-28, ignite VPS)
+
+The table's rung claims are transcribed from measured sources; they were then re-checked here
+against the binaries actually on this box, because `G-145`'s lesson is that a per-harness claim
+read off prose — or off the WRONG help — refuses valid input while looking authoritative.
+
+| harness | installed | headless rung claim | result |
+|---------|-----------|---------------------|--------|
+| `claude` | 2.1.220 | `claude -p`, resumable by session id | **VERIFIED** — `-p, --print`, `--resume`, `--session-id`, `--model` all present |
+| `codex` | codex-cli 0.144.5 | `codex exec`, resumable | **VERIFIED** — `exec` subcommand present; `resume`, `--model`, `--sandbox`, `--cd` present on `codex exec --help` |
+| `opencode` | 1.17.18 | `opencode run`, **one-shot** | **UNKNOWN by help — and that is reported, not waved through** |
+| `kimi` | 1.48.0 | *(not in this table)* | installed on this box but carries no measured rung set here — `E_UNKNOWN_HARNESS`, see residual 3 |
+
+⚠ **`opencode run --help` writes ZERO BYTES into a pipe on this host, and so does `opencode --help`**
+(measured: `help_bytes=0` for both) — it renders only to a TTY. That is `E_PREFLIGHT_UNAVAILABLE`'s
+whole reason for existing, and it is reproduced here independently of 7.42's finding. **An empty help
+is "could not look", never "the flag is gone."** opencode's rung basis therefore rests on LIVE
+verification (`G-13`, a real dispatch on deepseek and glm-5.2) rather than on a help scrape, which is
+the correct evidence class for a harness whose help cannot be read.
+
+⚠ **Version drift, found in passing and NOT this task's to fix:** the box runs **codex-cli 0.144.5**
+while `orchestration/models/codex-cli/delta.md` pins its flag verification to **0.137.0**. The flags
+this ladder relies on are present at 0.144.5 (checked above), so nothing here is broken — but the
+orchestration delta's pinned-flag evidence is 7 minor versions stale, and that surface retires at
+task 7.54. Recorded so it is not re-discovered.
+
 ## Probe
 
 ```
