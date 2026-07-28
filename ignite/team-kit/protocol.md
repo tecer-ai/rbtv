@@ -36,7 +36,9 @@ $COORD send <to> --file PATH|- --type T         # body from a file or stdin — 
 $COORD send <to> "<msg>" --type answer --re N --inline   # the ask this settles — REQUIRED on answer, optional on verdict
 $COORD send <to> "<msg>" --type T --supersedes N --inline   # retract message N (P12)
 $COORD workers                                  # roster + live-pane check + owner presence + per-seat unread lag
-$COORD owner present|afk [--note ".."]          # owner/leader only (P15)
+$COORD owner present|reachable|afk [--note ".."]  # owner/leader only (P15). reachable = at the PC,
+                                                #   no master session running: escalate by LAUNCHING
+                                                #   THE DOOR. `--help` states all three (7.85)
 $COORD launch [--only a,b,c] [--dry-run]        # leader only — per-seat harness/model/effort; pre-validates every seat's harness/model and refuses BEFORE opening any pane (PROP-8)
 $COORD create-group <group> [member ...]        # creator + leader auto-included
 $COORD add-to-group <group> <member ...>        # leader only
