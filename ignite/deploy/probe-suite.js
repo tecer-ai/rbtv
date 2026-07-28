@@ -154,8 +154,13 @@ function executeProbe(probe, opts) {
   // is the only reason G-171's three contradictory readings could be reconciled at all.
   const archived = archiveCapture(probe, opts.captureDir);
 
+  // ⚠ STDOUT IS KEPT. It used to be dropped here while stderr was kept, and 59 of this repo's
+  // 94 probes write NOTHING to either stream — they write their verdict into an adjacent capture
+  // by design. So a failing probe produced: no stdout (discarded), empty stderr, and no capture
+  // reference (grade() dropped it on the failure path). Everything the probe said was thrown away
+  // at exactly the moment it failed, leaving a bare `exit=1` that no reader can act on.
   const common = { attempted: true, wallMs: endedAt - startedAt, startedAt, endedAt,
-    outBefore, outAfter, archived, stderr: tail(res.stderr) };
+    outBefore, outAfter, archived, stderr: tail(res.stderr), stdout: tail(res.stdout) };
 
   if (res.error && res.error.code === 'ETIMEDOUT') return Object.assign(common, { timedOut: true });
   if (res.error) return Object.assign(common, { spawnError: String(res.error.message) });
@@ -212,6 +217,47 @@ function grade(probe, r) {
   return { verdict: 'PASS', ok: true, counted: true, capture: 'fresh' };
 }
 
+// ⚠⚠ DIAGNOSTIC ONLY — NEVER GRADING, AND THE SEPARATION IS THE WHOLE DESIGN.
+// The verdict is already decided above from the LIVE exit code, and S10 proves a capture claiming
+// PASS cannot make a failing probe pass. This function runs AFTER that decision and changes
+// nothing about it; it exists because a reader facing `exit=1` had nothing else to go on.
+//
+// ⚠ FRESHNESS IS STATED EVERY TIME (G-171). A capture beside a probe may predate this run. A seat
+// once read `probe-error-map-drift.out`, took it for its own run's output and reported a debt 15x
+// too small — with nothing on disk able to reveal it. So lines this run did not write are LABELLED
+// as not-this-run rather than quoted as evidence of this failure. Quoting them silently would
+// rebuild G-171 inside the mechanism meant to make failures readable.
+function diagnose(probe, r) {
+  if (!r) return [];
+  const lines = [];
+  const push = (what, body) => {
+    const t = String(body || '').trim();
+    if (t) lines.push(`      ${what}:`, ...t.split('\n').slice(-12).map((l) => '        ' + l));
+  };
+  push('stdout', r.stdout);
+  push('stderr', r.stderr);
+  const wroteThisRun = r.outAfter !== null && r.outAfter !== r.outBefore;
+  let body = null;
+  try { body = fs.readFileSync(probe.outPath, 'utf8'); } catch { body = null; }
+  if (body === null) {
+    if (!lines.length) lines.push('      (no stdout, no stderr, and no capture beside the probe)');
+    return lines;
+  }
+  // ⚠ ANCHORED AT LINE START, and that is not tidiness. Unanchored, this matched PASS lines
+  // whose TEXT contains a failure word — `PASS  a SESSION status is REFUSED on a turn row`
+  // in probe-session-turn-split — and the diagnostic filled with passing rows at the moment
+  // a reader most needs the failing ones. Same shape as a grader keying on a token that its
+  // own green control prints: assert the PROPERTY (this line reports a failure), never the
+  // VOCABULARY (this line contains a word). Every probe here writes its verdict FIRST.
+  const marked = body.split('\n').filter((l) => /^\s*(FAIL|FAILED|ERROR|REFUSED)\b/.test(l));
+  const shown = (marked.length ? marked : body.trim().split('\n').slice(-8));
+  lines.push(`      capture ${probe.outPath}${wroteThisRun
+    ? ' (written by THIS run)'
+    : ' ⚠ NOT written by this run — the lines below are from an EARLIER run, not this failure'}:`);
+  for (const l of shown.slice(0, 12)) lines.push('        ' + l);
+  return lines;
+}
+
 // ---------------------------------------------------------------- the suite
 
 function runSuite(opts) {
@@ -262,7 +308,11 @@ function runSuite(opts) {
       wallMs: r && r.wallMs != null ? r.wallMs : null,
       capture: g.capture || null,
       stderr: r && r.stderr ? r.stderr : '',
+      stdout: r && r.stdout ? r.stdout : '',
     };
+    // A failing row now carries WHAT THE PROBE SAID, in the machine-readable output as well as
+    // the summary — a consumer reading --json had exactly the same nothing a human did.
+    row.diagnostic = g.ok ? [] : diagnose(p, r);
     rows.push(row);
     if (r && r.outAfter !== null && r.outAfter !== r.outBefore) refreshed.push(p.outPath);
     if (r && typeof r.archived === 'string' && r.archived.startsWith('ARCHIVE-FAILED')) {
@@ -271,6 +321,7 @@ function runSuite(opts) {
     emit(`${row.id} ${row.verdict} exit=${row.exit === null ? '-' : row.exit}`
       + ` wall_ms=${row.wallMs === null ? '-' : row.wallMs}`
       + (row.capture ? ` capture=${row.capture}` : '') + '\n');
+    for (const l of row.diagnostic) emit(l + '\n');
     if (opts.onRow) opts.onRow(row);
   }
 
@@ -521,6 +572,103 @@ function selftest() {
     if (!/PASS/.test(body)) throw new Error('fixture broken: capture should claim PASS');
   });
 
+  // ---- the diagnostic's fixtures, in their OWN root ----
+  // ⚠ A SEPARATE ROOT ON PURPOSE. Written into `dir` above, these three files moved the fixture
+  // count from 6 to 9 and turned S1, S3, M2, M2b and M4 red — rows whose subject is precisely that
+  // a denominator is established independently of the work. Adding a fixture to a directory
+  // something COUNTS is a change to that count, and the tests that caught it were right to.
+  const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-suite-diag-'));
+  const dir2 = path.join(tmp2, 'mod', 'probes');
+  fs.mkdirSync(dir2, { recursive: true });
+  const write2 = (name, body) => fs.writeFileSync(path.join(dir2, name), body);
+  const run2 = (re) => runSuite({ root: tmp2, timeoutMs: 4000,
+    discover: (root) => discoverProbes(root).filter((p) => re.test(p.id)) });
+
+  // The SILENT-STREAM shape, which is 59 of this repo's 94 probes: the verdict goes into the
+  // capture and nothing at all is printed.
+  write2('probe-diag.js',
+    `const fs=require('fs'),p=require('path');`
+    + `fs.writeFileSync(p.join(__dirname,'probe-diag.out'),`
+    + `'PASS  something fine\\nFAIL  the fixture is not what this probe needs\\n');`
+    + 'process.exit(1);');
+  // Fails WITHOUT touching its capture, so a diagnostic that quoted it would be quoting an
+  // earlier run's lines as though they were this failure's.
+  write2('probe-diagstale.js', 'process.exit(1);');
+  fs.writeFileSync(path.join(dir2, 'probe-diagstale.out'),
+    'FAIL  a line from an EARLIER run, days ago\n');
+  fs.utimesSync(path.join(dir2, 'probe-diagstale.out'),
+    new Date(Date.now() - 7 * 86400000), new Date(Date.now() - 7 * 86400000));
+  write2('probe-diagout.js', 'console.log("spoken on stdout, not in any capture");process.exit(1);');
+  // A capture whose PASSING line contains a failure WORD — the shape that flooded the
+  // diagnostic with green rows before the marker was anchored to line start.
+  write2('probe-diagword.js',
+    `const fs=require('fs'),p=require('path');`
+    + `fs.writeFileSync(p.join(__dirname,'probe-diagword.out'),`
+    + `'PASS  a bad status is REFUSED on this path\\nFAIL  the real failure\\n');`
+    + 'process.exit(1);');
+  // Claims PASS in its capture and exits 1 — S14's subject.
+  write2('probe-diagliar.js',
+    `const fs=require('fs'),p=require('path');`
+    + `fs.writeFileSync(p.join(__dirname,'probe-diagliar.out'),'PASS  all good here\\n');`
+    + 'process.exit(1);');
+
+  t('S11 a FAILING probe reports what the probe itself SAID — its capture path and its failing '
+    + 'lines. 59 of this repo\'s 94 probes print nothing on either stream, so a red row was '
+    + '`exit=1` and nothing else: undiagnosable unless you already knew to go and read a file',
+    () => {
+      const r = run2(/probe-diag\.js$/);
+      eq(r.rows[0].verdict, 'FAIL', 'verdict');
+      const d = r.rows[0].diagnostic.join('\n');
+      if (!/the fixture is not what this probe needs/.test(d)) {
+        throw new Error('the probe\'s own FAIL line is missing from the diagnostic');
+      }
+      if (!/written by THIS run/.test(d)) throw new Error('freshness not stated');
+    });
+
+  t('S12 ⚠ a failing probe whose capture this run did NOT write is LABELLED as such — quoting an '
+    + 'earlier run\'s lines as this failure\'s evidence would rebuild G-171 inside the mechanism '
+    + 'that exists to make failures readable', () => {
+      const r = run2(/probe-diagstale\.js$/);
+      eq(r.rows[0].verdict, 'FAIL', 'verdict');
+      const d = r.rows[0].diagnostic.join('\n');
+      if (!/NOT written by this run/.test(d)) {
+        throw new Error('a stale capture was quoted as this run\'s output');
+      }
+      if (!/an EARLIER run/.test(d)) {
+        throw new Error('fixture broken: the stale line should still be SHOWN, labelled');
+      }
+    });
+
+  t('S13 stdout is REPORTED rather than discarded — the runner kept stderr and threw stdout away, '
+    + 'so even a probe that did speak was silenced by its own runner', () => {
+      if (!/spoken on stdout/.test(run2(/probe-diagout\.js$/).rows[0].diagnostic.join('\n'))) {
+        throw new Error('stdout missing from the diagnostic');
+      }
+    });
+
+  t('S14 ⚠ the diagnostic NEVER grades. Its capture claims PASS and the probe exits 1: the verdict '
+    + 'stays FAIL and the claim is still QUOTED, because S10\'s guarantee now has to hold across '
+    + 'new code that deliberately READS that file', () => {
+      const r = run2(/probe-diagliar\.js$/);
+      eq(r.rows[0].verdict, 'FAIL', 'verdict');
+      eq(r.exitCode, EXIT_FAILED, 'suite exit');
+      if (!/all good here/.test(r.rows[0].diagnostic.join('\n'))) {
+        throw new Error('fixture broken: the capture\'s PASS claim should be shown');
+      }
+    });
+
+  t('S15 ⚠ the failure marker is ANCHORED — a PASSING line that merely CONTAINS a failure word '
+    + 'is not selected. Unanchored it matched `PASS  a SESSION status is REFUSED ...` and filled '
+    + 'the diagnostic with green rows exactly when a reader needed the red ones: a check keying on '
+    + 'a token its own passing output prints', () => {
+      const d = run2(/probe-diagword\.js$/).rows[0].diagnostic.join('\n');
+      if (!/the real failure/.test(d)) throw new Error('the genuine FAIL line is missing');
+      if (/a bad status is REFUSED/.test(d)) {
+        throw new Error('a PASS line containing a failure word was selected as a failure');
+      }
+    });
+
+  fs.rmSync(tmp2, { recursive: true, force: true });
   fs.rmSync(tmp, { recursive: true, force: true });
 
   const failures = results.filter((r) => !r[0]);
