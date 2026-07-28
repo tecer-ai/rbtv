@@ -7118,6 +7118,23 @@ def _selftest_checks(args, failures, names):
                   "; ".join(f"line {ln}: {cmd} -> {why}" for ln, cmd, why in g181_bad))),
               g181_bad == [])
 
+        # ---- G-181 population 4: the kit's DOCS ----
+        # protocol.md is loader step 4 for every seat, so a refused shape here mis-teaches the
+        # room at BOOT. The skip count is asserted too: a guard that silently exempts lines is a
+        # check that stops catching things while still reading green.
+        g181_docs, g181_skipped = advice_doc_sends()
+        g181_doc_bad = [d for d in g181_docs if not d[3]]
+        check("G-181: no kit .md teaches a `send` shape the tool refuses — a doc synopsis is a "
+              "STATEMENT ABOUT WHAT coord.py ACCEPTS, and protocol.md is loader step 4 for every "
+              "seat (scanned %d command line(s); explicitly-marked refused examples, listed in "
+              "full because a bare count has no maintainer and only grows: %s) — offenders: %s"
+              % (len(g181_docs),
+                 "none" if not g181_skipped else
+                 " | ".join(f"{f}:{ln}: {txt}" for f, ln, txt in g181_skipped),
+                 "none" if not g181_doc_bad else
+                 "; ".join(f"{f}:{ln}: {txt}" for f, ln, txt, _ in g181_doc_bad)),
+              g181_docs and not g181_doc_bad)
+
         # ---- G-57: the standing structural descriptor sweep ----
         # Fixture: three seats, each carrying one structural defect, plus a clean one — so a check
         # that merely counts findings cannot pass; each kind must be named.
@@ -9096,6 +9113,61 @@ def advice_coached_sends(path=None):
                     i += 1
             sites.append((node.lineno, argv))
     return sites
+
+
+# G-181 population 4: the kit's DOCS coach commands too, and protocol.md is loader step 4 for
+# every seat — the highest-traffic advice surface in a run. Three of its four `send` synopsis lines
+# taught the positional form the guard refuses, mis-teaching the room at BOOT.
+#
+# The invocation is DERIVED, never a literal: the docs write `$COORD`, and a scan keyed on
+# `coordinate` returned ZERO and nearly certified them clean — verify-absence violated by the
+# wrong pattern, which is the same class this whole check exists for.
+ADVICE_INVOCATION = re.compile(r'^\s*(?:\$?COORD|coordinate|python3?\s+coord\.py)\s+', re.I)
+# A doc may QUOTE a refused form in order to FORBID it, and flagging that would delete the warning
+# that prevents the defect — G-176's trap one layer out. The first design keyed on negation words
+# near the line. The leader found the residual and it points the DANGEROUS way — a FALSE GREEN:
+#
+#     Do not forget the type flag.          <- incidental "not"
+#     $COORD send x "body" --type note      <- genuinely TAUGHT, silently exempted
+#
+# A false red wastes a seat; that loses the defect. And it is not fixed by moving the lookback:
+# `# do not forget --type` on the command line itself exempts it just as well. Any negation
+# heuristic can be tripped by prose that was never about this check.
+#
+# So the vocabulary check is replaced by an EXPLICIT MARKER — the same shape as the guard this all
+# started from, where a positional body pays an explicit `--inline`. Only an assertion cures an
+# inference. The marker is an HTML comment: invisible in rendered markdown, and impossible to write
+# by accident, so an incidental sentence can never exempt a taught command.
+ADVICE_DOC_OPTOUT = re.compile(r'<!--\s*advice-check:\s*refused-example\s*-->', re.I)
+
+
+def advice_doc_sends(root=None):
+    """-> (sites, skipped_as_warnings). Coached sends in the kit's own .md files.
+
+    TAUGHT vs QUOTED-AS-WRONG: a candidate must be a COMMAND LINE — the invocation at line start,
+    which is how a synopsis presents something to run. A prose mention mid-sentence is not a
+    command being taught. A doc that deliberately shows a refused form marks it with the explicit
+    opt-out comment; every skipped line is RETURNED IN FULL, never counted, because a count in
+    permanent output has no maintainer and only grows, while three lines of real text are
+    auditable at a glance.
+    """
+    root = Path(root or Path(__file__).resolve().parent)
+    sites, skipped = [], []
+    for md in sorted(root.glob("*.md")):
+        lines = md.read_text(encoding="utf-8").splitlines()
+        for i, line in enumerate(lines):
+            if not ADVICE_INVOCATION.match(line) or " send " not in f" {line} ":
+                continue
+            m = ADVICE_SEND.search(line)
+            if not m:
+                continue
+            prev = next((x for x in reversed(lines[:i]) if x.strip()), "")
+            if ADVICE_DOC_OPTOUT.search(line) or ADVICE_DOC_OPTOUT.search(prev):
+                skipped.append((md.name, i + 1, line.strip()[:90]))
+                continue
+            sites.append((md.name, i + 1, line.strip()[:110],
+                          bool(re.search(r"--inline|--file", line))))
+    return sites, skipped
 
 
 def _send_actions(parser):
