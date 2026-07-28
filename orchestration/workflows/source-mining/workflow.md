@@ -67,6 +67,13 @@ User picks mode in step-01.
 
 Each step's HALT block specifies its yolo bypass behavior inline. The user-decision halts in step-05 are NEVER bypassed.
 
+Step-05 also has a HEADLESS hand-back disposition, ORTHOGONAL to yolo (task 7.90): when no interactive
+user is present (detected via `RBTV_SUBAGENT_DEPTH`), the 2A.5/2B.3 halts hand back with a structured
+record instead of waiting — see `step-05-synthesize.md` § Headless Hand-Back Procedure. Headless does
+NOT imply yolo: a headless dispatch without `yolo` still halts at every EARLIER menu/approval and never
+reaches step-05 at all; this disposition only ever fires for a headless run that was ALSO launched with
+`yolo` (the only way it reaches step-05 unattended).
+
 ---
 
 ## STEP OVERVIEW

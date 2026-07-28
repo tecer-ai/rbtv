@@ -23,6 +23,53 @@ Mode-branched synthesis. Reconcile produces a delta + open questions list (HALT 
 - 📖 You (parent agent) MAY read: target docs (reconcile), context references, grouping.yaml, user comments
 - 🛑 You MUST NOT read source files
 - ⏸️ ALWAYS HALT for user input on open questions / shaping before proceeding to step-06
+- 🤖 HEADLESS DISPOSITION (orthogonal to yolo — see § Headless Hand-Back Procedure below): if
+  `RBTV_SUBAGENT_DEPTH` is set in the environment, there is no interactive user, and 2A.5/2B.3 hand
+  back instead of halting. If unset, HALT for user input exactly as written below — unchanged.
+
+---
+
+## HEADLESS HAND-BACK PROCEDURE (dispatched runs only — interactive behavior is never touched)
+
+Fires at 2A.5 / 2B.3 only. Orthogonal to `yolo` (`workflow.md` § YOLO MODE): a headless run without
+`yolo` never reaches this step at all (the menus/approvals in earlier steps still halt); a `yolo` run
+with an interactive user still uses the HALT below, unchanged. Headless means "no interactive user is
+present," not "don't ask me to confirm."
+
+**Detect once:** run `printenv RBTV_SUBAGENT_DEPTH` (Bash). A value present means this process was
+launched by the `rbtv-subagent` CLI-lane dispatcher (`ignite/capabilities/sub-agent-dispatch/env.js`
+stamps it into every dispatch's environment and nothing else does) — there is no interactive user to
+answer. Absent/empty means proceed with the HALT exactly as written; this procedure does not apply.
+
+**If headless, at 2A.5 or 2B.3, instead of the HALT:**
+
+1. Write `<runtime_root>/synthesis/handback.json`:
+   ```json
+   {
+     "handback": true,
+     "workflow": "source-mining",
+     "run_id": "<manifest.json run_id>",
+     "mode": "reconcile | study",
+     "halted_at": "2A.5 | 2B.3",
+     "reason": "headless dispatch, no interactive user available to answer open questions / reflection prompts",
+     "runtime_root": "<absolute path to <runtime_root>>",
+     "questions_file": "<absolute path to open-questions.md (reconcile) or reflection-prompts.md (study)>",
+     "question_count": "<int>",
+     "detected_via": "RBTV_SUBAGENT_DEPTH env var present",
+     "timestamp": "<ISO-8601>"
+   }
+   ```
+2. Update `manifest.json` — ADD (never remove or replace existing keys) a top-level `handback` object:
+   `{"at": "2A.5 | 2B.3", "record": "<absolute path to handback.json>", "timestamp": "<ISO-8601>"}`.
+   Do NOT touch `current_step` or `completed_steps` — step-05 has not completed, it has handed back.
+3. Print, as your FINAL output line, exactly this and nothing else on that line:
+   `##RBTV-SOURCE-MINING-HANDBACK## <absolute path to handback.json>`
+   This is the one documented, machine-parseable signal a caller's tooling greps for — see
+   `scripts/detect-handback.py`, which reads it back out of the dispatcher's persisted stdout log.
+4. STOP. Do not print `### 3. Step Menu`, do not wait, do not proceed to step-06.
+
+Resuming a hand-back (answering the recorded questions and continuing to step-06) has no mechanism
+today — this procedure proves the hand-back signal exists and is real, not that resumption is wired.
 
 ---
 
@@ -108,9 +155,12 @@ Write to `<runtime_root>/synthesis/open-questions.md`:
     - no user signal — tradeoffs: A=<one line>, B=<one line>, C=<one line>
 ```
 
-#### 2A.5 Present and HALT
+#### 2A.5 Present and HALT — or hand back if headless
 
-Per `rbtv-chat-discipline` (chunked presentation):
+Headless? (§ Headless Hand-Back Procedure above) → follow it now with mode=reconcile,
+halted_at=2A.5, questions_file=open-questions.md, then STOP.
+
+Otherwise (interactive — unchanged), per `rbtv-chat-discipline` (chunked presentation):
 
 - Print `Open questions: <count>. Top 2:` followed by Q1 and Q2 inline.
 - Print `Full list at: <runtime_root>/synthesis/open-questions.md`
@@ -151,9 +201,12 @@ Save to `<runtime_root>/synthesis/study-draft.md`.
 
 Write to `<runtime_root>/synthesis/reflection-prompts.md` in the same Q-block format as 2A.4.
 
-#### 2B.3 Present and HALT
+#### 2B.3 Present and HALT — or hand back if headless
 
-Same chunked presentation pattern as 2A.5. Append user responses to `reflection-prompts.md` as `Answer: ...` blocks.
+Headless? (§ Headless Hand-Back Procedure above) → follow it now with mode=study,
+halted_at=2B.3, questions_file=reflection-prompts.md, then STOP.
+
+Otherwise (interactive — unchanged): same chunked presentation pattern as 2A.5. Append user responses to `reflection-prompts.md` as `Answer: ...` blocks.
 
 ### 3. Step Menu
 
