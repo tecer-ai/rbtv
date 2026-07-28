@@ -13,7 +13,7 @@ const { createSpawnManager } = require('./spawn/spawn');
 const { createTicker } = require('./ticker/ticker');
 const { selectCarrier } = require('./spawn/carrier');
 const { createInternalApi } = require('./internal-api/dispatch');
-const { captureLoadedCode } = require('./code-fingerprint');
+const { captureLoadedCode, writeCodeMarker } = require('./code-fingerprint');
 const { flushScreenReadRuns } = require('./internal-api/keys-audit');
 const { parseRetentionDays, sweepRetention } = require('./retention');
 const settings = require('./settings');
@@ -651,6 +651,13 @@ async function main() {
   // failure, because this runs at boot and a boot throw reaches the hard exit below — the daemon
   // must never refuse to start because of the machinery watching whether it started.
   const daemonLoadedCode = captureLoadedCode(__dirname);
+  // G-188 stage 3: publish it where a CREDENTIAL-FREE reader can find it. `inspect daemon` needs
+  // auth, so a continuously-watching loop would have to hold the owner's token for its whole life
+  // (standing bar 11: read at call time, never held) — refused on principle by leader #840. The
+  // marker is gitignored and stamps this boot's pid + INVOCATION_ID, because A MARKER OUTLIVES THE
+  // PROCESS THAT WROTE IT and a reader must correlate it against the live unit before trusting it.
+  // Fail-soft: returns false, never throws — see the boot bar in code-fingerprint.js.
+  writeCodeMarker(workspaceRoot, daemonLoadedCode);
 
   const ticker = createTicker({
     heartStore,

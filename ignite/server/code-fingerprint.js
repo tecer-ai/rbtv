@@ -90,4 +90,63 @@ function captureLoadedCode(rootDir) {
   }
 }
 
-module.exports = { captureLoadedCode };
+/**
+ * Publish the boot fingerprint where a reader with NO CREDENTIAL can find it — G-188 stage 3.
+ *
+ * WHY A FILE AND NOT THE GATEWAY (leader ruling `#840`, and (b) is refused on principle, not cost):
+ * `inspect daemon` requires auth, so a continuously-watching loop would have to HOLD the owner's
+ * sender token for its whole life. Standing bar 11 reads the credential at CALL TIME and never
+ * holds it; a daemon-lifetime process holding it is a durable exposure in a room that publishes
+ * three surfaces by design. The marker needs no credential and is gitignored (`.rbtv/runtime/*`).
+ *
+ * ⚠⚠ THE FAILURE THIS FILE INTRODUCES, AND THE BAR THAT ANSWERS IT (leader, binding): THE MARKER
+ * OUTLIVES THE PROCESS THAT WROTE IT. It is written at boot; if the daemon dies the file SURVIVES,
+ * carrying the last boot's fingerprint, and a reader trusting it standalone reports "code is
+ * current" about a daemon that is not running — absence-reading-as-health, arriving through the
+ * very artifact built to prevent it.
+ *
+ * ⇒ SO THE MARKER STAMPS ITS OWN BOOT IDENTITY — `pid` and systemd's `INVOCATION_ID` — and a reader
+ * MUST correlate that against the LIVE unit before believing a word of it. `INVOCATION_ID` is in
+ * the service's own environment (verified on this box: it equals the `InvocationID` the unit
+ * reports), so the daemon and the watcher key on the SAME identity with no inference in between.
+ * A marker that does not match the live unit is UNKNOWN — never stale, never current.
+ *
+ * Fail-soft on the same terms as the capture: this runs at boot, so it returns false rather than
+ * throwing. A marker that cannot be written leaves the reader saying UNKNOWN, out loud, which is
+ * strictly better than a daemon that will not start.
+ *
+ * @returns {boolean} whether the marker was written (never throws)
+ */
+function writeCodeMarker(workspaceRoot, fingerprint) {
+  try {
+    if (!fingerprint) return false;   // absent stays ABSENT: never publish an empty marker
+    const fs = require('fs');
+    const dir = path.join(path.resolve(workspaceRoot), '.rbtv', 'runtime');
+    fs.mkdirSync(dir, { recursive: true });
+    const body = JSON.stringify({
+      pid: process.pid,
+      // The absolute root the fingerprint's paths are relative to. CARRIED, never re-derived by the
+      // reader: the reader is `watch.py` in a kit SHARED by every workspace, and a literal like
+      // `3-resources/tools/rbtv/ignite/server` there would freeze this vault's layout into a tool
+      // other installs use — the same objection that keeps role names out of that kit. G-107's
+      // lesson: carry the subject, never infer it.
+      root: path.resolve(__dirname),
+      // Absent when the daemon is run outside systemd (a dev run). Written as null rather than
+      // omitted, so a reader can tell "no systemd identity" from "field I forgot to read".
+      invocation: process.env.INVOCATION_ID || null,
+      written_at: new Date().toISOString(),
+      code: fingerprint,
+    }, null, 1);
+    // Same-directory temp + rename: a reader must never observe a half-written marker, and a
+    // truncated JSON would read as a CORRUPT marker — which the reader must treat as UNKNOWN, but
+    // it is cheaper not to create the case at all.
+    const tmp = path.join(dir, `.daemon-code.json.${process.pid}.tmp`);
+    fs.writeFileSync(tmp, body);
+    fs.renameSync(tmp, path.join(dir, 'daemon-code.json'));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { captureLoadedCode, writeCodeMarker };

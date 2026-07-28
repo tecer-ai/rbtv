@@ -334,6 +334,113 @@ def main():
         line = watch.check_daemon({}, RUN, None, [])
         check("and stays terse at zero", "restarts" not in line, line.strip())
 
+        print("\nARM K — the boot marker OUTLIVES its process, so identity is checked before bytes.")
+        # ⚠ The leader's binding bar (#840). The marker is a FILE: if the daemon dies it survives,
+        # carrying the last boot's fingerprint, and a reader trusting it standalone would report
+        # "code is current" about a daemon that is not running. Three outcomes must stay distinct;
+        # collapsing any two IS the defect. Everything here happens in a TEMP workspace — writing a
+        # marker into the real .rbtv/runtime/ would plant false data describing the live daemon.
+        import hashlib as _h
+
+        def _mk(ws, invocation, files, root=None):
+            """Write a marker as the daemon would, without importing the JS writer."""
+            src = ws / "srv"
+            src.mkdir(parents=True, exist_ok=True)
+            entries = {}
+            for name, text in files.items():
+                (src / name).write_text(text)
+                entries[name] = _h.sha256(text.encode()).hexdigest()
+            d = ws / ".rbtv" / "runtime"
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "daemon-code.json").write_text(json.dumps({
+                "pid": 1234, "invocation": invocation, "root": str(root or src),
+                "code": {"files": len(entries), "digest": "x", "entries": entries}}))
+            return src
+
+        LIVE = {"state": "running", "unit": "u", "pid": 1, "invocation": "INV-LIVE", "restarts": 0}
+        with tempfile.TemporaryDirectory() as td:
+            ws = Path(td)
+            src = _mk(ws, "INV-LIVE", {"a.js": "one\n", "b.js": "two\n"})
+            v, why = watch.daemon_code_state(ws, LIVE)
+            check("a matching marker with matching bytes is CURRENT", v == "current", f"{v}: {why}")
+            (src / "b.js").write_text("CHANGED\n")
+            v, why = watch.daemon_code_state(ws, LIVE)
+            check("a matching marker with changed bytes is STALE", v == "stale", f"{v}: {why}")
+            check("and the drifted file is NAMED, not just counted", "b.js" in why, why)
+
+            # THE BAR: same bytes, but the marker is from a boot that is gone.
+            _mk(ws, "INV-OLD", {"a.js": "one\n", "b.js": "two\n"})
+            v, why = watch.daemon_code_state(ws, LIVE)
+            check("a marker from a DIFFERENT boot is UNKNOWN — never current",
+                  v == "unknown", f"{v}: {why}")
+            check("and the reason says it describes a process that is gone",
+                  "DIFFERENT boot" in why or "gone" in why, why)
+
+            # The same non-matching marker must not be readable as STALE either.
+            (src / "b.js").write_text("CHANGED AGAIN\n")
+            v, _ = watch.daemon_code_state(ws, LIVE)
+            check("nor is a stale-looking foreign marker reported as STALE", v == "unknown", v)
+
+        with tempfile.TemporaryDirectory() as td:
+            ws = Path(td)
+            v, why = watch.daemon_code_state(ws, LIVE)
+            check("no marker at all is UNKNOWN, said out loud", v == "unknown", why[:60])
+            (ws / ".rbtv" / "runtime").mkdir(parents=True)
+            (ws / ".rbtv" / "runtime" / "daemon-code.json").write_text("{not json")
+            v, why = watch.daemon_code_state(ws, LIVE)
+            check("a CORRUPT marker is UNKNOWN, never a crash", v == "unknown", why[:50])
+            (ws / ".rbtv" / "runtime" / "daemon-code.json").write_text(json.dumps(
+                {"invocation": "INV-LIVE", "root": str(ws), "code": {"entries": {}}}))
+            v, why = watch.daemon_code_state(ws, LIVE)
+            check("an EMPTY entries map is UNKNOWN — the state that lies is refused",
+                  v == "unknown", why[:50])
+            (ws / ".rbtv" / "runtime" / "daemon-code.json").write_text(json.dumps(
+                {"invocation": "INV-LIVE", "code": {"entries": {"a.js": "deadbeef"}}}))
+            v, why = watch.daemon_code_state(ws, LIVE)
+            check("a marker with NO root is UNKNOWN rather than guessing this install's layout",
+                  v == "unknown", why[:60])
+
+        # ⚠ THE OBVIOUS FORM OF THIS CHECK IS VACUOUS AND A MUTANT PROVED IT — the FOURTH time
+        # tonight in this family. Passing a workspace with NO marker returns UNKNOWN through the
+        # missing-marker path, so deleting the not-running guard entirely left the probe GREEN. The
+        # guard has to be isolated: a workspace whose marker WOULD otherwise verify clean, with the
+        # live state as the only thing that differs. The invocation is supplied deliberately (a real
+        # stopped reading carries none) so that state, and nothing else, decides the verdict.
+        with tempfile.TemporaryDirectory() as td:
+            ws = Path(td)
+            _mk(ws, "INV-LIVE", {"a.js": "one\n"})
+            v, _ = watch.daemon_code_state(ws, LIVE)
+            check("control: with this marker a RUNNING daemon does verify clean", v == "current", v)
+            for state in ({"state": "stopped", "why": "x", "invocation": "INV-LIVE"},
+                          {"state": "unknown", "why": "y", "invocation": "INV-LIVE"}):
+                v, why = watch.daemon_code_state(ws, state)
+                check(f"a {state['state']} daemon yields UNKNOWN even though the marker WOULD verify",
+                      v == "unknown", f"{v}: {why[:52]}")
+
+        print("\nARM L — the stale-code flag: announced once per deploy, and UNKNOWN never pushes.")
+        st, notes = {}, []
+        for _ in range(3):
+            watch.check_daemon(st, LIVE, None, notes, ("stale", "b.js"))
+        check("STALE CODE flags exactly once across three passes", len(notes) == 1, str(len(notes)))
+        check("and the flag names the file and the remedy",
+              "b.js" in notes[0] and "7.68" in notes[0])
+        watch.check_daemon(st, LIVE, None, notes, ("stale", "b.js, c.js"))
+        check("a DIFFERENT drift set flags again — a second deploy is a second event",
+              len(notes) == 2)
+        watch.check_daemon(st, LIVE, None, notes, ("current", "ok"))
+        check("returning to current clears the state and raises no flag", len(notes) == 2)
+        watch.check_daemon(st, LIVE, None, notes, ("stale", "b.js"))
+        check("and a later drift flags again", len(notes) == 3)
+        st, notes = {}, []
+        for _ in range(3):
+            watch.check_daemon(st, LIVE, None, notes, ("unknown", "no marker"))
+        check("an UNKNOWN code verdict NEVER pushes", not notes, repr(notes)[:50])
+        line = watch.check_daemon({}, LIVE, None, [], ("current", "12 files match"))
+        check("the row says 'running current code' even when healthy (G-158's second pass)",
+              "running current code" in line, line.strip())
+        line = watch.check_daemon({}, LIVE, None, [], ("unknown", "no marker"))
+        check("and an UNKNOWN row says so rather than looking healthy", "UNKNOWN" in line)
+
         print("\nARM I — one reading per pass: the flag and the heartbeat cannot disagree.")
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
@@ -354,8 +461,8 @@ def main():
     if FAILED:
         print("FAILED: " + "; ".join(FAILED))
         return 1
-    if len(PASSED) < 65:
-        print(f"INOPERATIVE: only {len(PASSED)} checks ran; this probe asserts at least 65")
+    if len(PASSED) < 86:
+        print(f"INOPERATIVE: only {len(PASSED)} checks ran; this probe asserts at least 86")
         return 2
     return 0
 

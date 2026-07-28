@@ -586,7 +586,77 @@ def daemon_reading(base):
     return daemon, change
 
 
-def check_daemon(sysstate, daemon, change, notes):
+def daemon_code_state(workspace_root, daemon):
+    """Is the DAEMON running current code? — G-188 stage 3. Returns (verdict, detail).
+
+    The watcher already gets this question asked of itself (`G-158`); the daemon never did, and its
+    answer was an INFERENCE from start-time against commit-time. The daemon now writes a
+    credential-free marker at boot; this correlates it and hashes the same files from disk NOW.
+
+    ⚠⚠ THE MARKER OUTLIVES THE PROCESS THAT WROTE IT, and that is the whole reason this function is
+    careful (leader ruling `#840`, binding). It is a file: if the daemon dies, the marker SURVIVES
+    carrying the last boot's fingerprint. A reader trusting it standalone would report "code is
+    current" about a daemon that is not running — absence-reading-as-health, arriving through the
+    artifact built to prevent it.
+
+    ⇒ THE THREE OUTCOMES ARE KEPT DISTINCT AND COLLAPSING ANY TWO IS THE DEFECT:
+        "stale"    the marker MATCHES the live unit's boot AND named files have changed on disk.
+        "current"  the marker matches the live unit's boot and every named file still agrees.
+        "unknown"  anything else — no marker, corrupt marker, a marker from a DIFFERENT boot, or a
+                   daemon that is not determinately running. NEVER stale, NEVER current.
+    A marker whose identity does not match the live unit says nothing about the running process, so
+    the only honest verdict is UNKNOWN — and it is said out loud rather than left as silence."""
+    if not isinstance(daemon, dict) or daemon.get("state") != "running":
+        # No determinate live identity to correlate against. Any verdict about "the running code"
+        # would be a claim about a process we cannot even confirm is running.
+        return "unknown", "the daemon is not determinately running, so nothing can be correlated"
+    p = Path(workspace_root) / ".rbtv" / "runtime" / "daemon-code.json"
+    try:
+        marker = json.loads(p.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return "unknown", ("no boot marker at .rbtv/runtime/daemon-code.json — this daemon booted "
+                           "before the marker existed, or its write failed")
+    except (json.JSONDecodeError, OSError) as exc:
+        return "unknown", f"the boot marker is unreadable ({exc.__class__.__name__})"
+    if not isinstance(marker, dict):
+        return "unknown", "the boot marker is not an object"
+    live_inv, mark_inv = daemon.get("invocation"), marker.get("invocation")
+    # ⚠ THE CORRELATION, and it is the bar. Identity first, bytes second — a byte comparison against
+    # a marker from a previous boot is arithmetic about a process that no longer exists.
+    if not mark_inv or not live_inv or mark_inv != live_inv:
+        return "unknown", (f"the marker is from a DIFFERENT boot than the running unit "
+                           f"(marker {str(mark_inv)[:12] or 'none'}, live {str(live_inv)[:12]}), so "
+                           f"it describes a process that is gone")
+    entries = (marker.get("code") or {}).get("entries")
+    if not isinstance(entries, dict) or not entries:
+        # Empty-but-present is the state that lies; the writer never emits it, and a reader that
+        # accepted it would report "nothing drifted" forever.
+        return "unknown", "the marker carries no file fingerprints"
+    # ⚠ THE ROOT IS TAKEN FROM THE MARKER, NEVER RE-DERIVED HERE. This kit is shared by every
+    # workspace, and a literal like `3-resources/tools/rbtv/ignite/server` would freeze one vault's
+    # layout into a tool other installs run — the same objection that keeps campaign role names out
+    # of this file. The writer knows its own root; it says so, and this trusts what it said.
+    root = marker.get("code_root") or marker.get("root")
+    if not root:
+        return "unknown", ("the marker does not say which root its paths are relative to, so they "
+                           "cannot be resolved without guessing this install's layout")
+    root = Path(root)
+    drifted = []
+    for rel, want in sorted(entries.items()):
+        try:
+            got = hashlib.sha256((root / rel).read_bytes()).hexdigest()
+        except OSError:
+            drifted.append(f"{rel} (unreadable now)")
+            continue
+        if got != want:
+            drifted.append(rel)
+    if drifted:
+        return "stale", ", ".join(drifted[:6]) + (f" (+{len(drifted) - 6} more)"
+                                                 if len(drifted) > 6 else "")
+    return "current", f"{len(entries)} files match the bytes this daemon booted on"
+
+
+def check_daemon(sysstate, daemon, change, notes, code=None):
     """PROP-9's box-level sibling for the ignite daemon — the PUSH half of G-188.
 
     What landed first was PULL-ONLY: it renders on `coordinate workers`, so somebody must type it.
@@ -677,6 +747,22 @@ def check_daemon(sysstate, daemon, change, notes):
         # A fix whose first act is a false alarm teaches the room to discount the next one.
         if isinstance(restarts, int):
             sysstate["daemon_restarts_flagged"] = restarts
+    # G-188 stage 3: the daemon running STALE CODE is a hard, measurable transition and belongs in
+    # the same single note. Keyed on the digest so one deploy is announced ONCE, not every pass —
+    # the same reason the restart flag keys on the InvocationID rather than on a record existing.
+    # UNKNOWN never pushes here either: it is the marker failing to correlate, not an event.
+    if code and code[0] == "stale":
+        seen_stale = sysstate.get("notified_daemon_stale")
+        key = f"{(daemon or {}).get('invocation')}:{code[1]}"
+        if seen_stale != key:
+            lines.append(f"watch: IGNITE DAEMON IS RUNNING STALE CODE — {code[1]} changed on disk "
+                         f"since this daemon booted, and node binds a module's source at require, "
+                         f"so the running daemon can never pick it up. It will keep serving the OLD "
+                         f"behaviour while every surface reports healthy. A restart deploys it "
+                         f"(owner-only, task 7.68).")
+            sysstate["notified_daemon_stale"] = key
+    elif code and code[0] == "current":
+        sysstate.pop("notified_daemon_stale", None)
     # `unknown` falls through: no note, and NOTHING IS CLEARED. Popping the down-flag on an
     # unreadable pass would silently re-arm a duplicate announcement for an outage the room has
     # already been told about — a measurement failing must never be able to manufacture a flag.
@@ -687,6 +773,13 @@ def check_daemon(sysstate, daemon, change, notes):
               else (daemon or {}).get("why") or "unreadable")
     if isinstance(restarts, int) and restarts:
         detail += f" (systemd restarts: {restarts})"
+    if code:
+        # Printed in EVERY state, including current: G-158's second pass proved that a healthy case
+        # printing nothing leaves "checked and current" to be inferred from an absence, in the one
+        # feature whose whole subject is that absence and health look identical.
+        detail += {"current": ", running current code",
+                   "stale": ", RUNNING STALE CODE",
+                   "unknown": f", code UNKNOWN ({code[1]})"}.get(code[0], "")
     return f"{'daemon':<18} {label:<7} {detail}"
 
 
@@ -1033,7 +1126,13 @@ def run_pass(args):
     # G-188 push half: the daemon is box-level, not a seat, so it runs here with the other
     # box duties. ONE reading, taken now and reused by save_heartbeat at the end of the pass.
     daemon, daemon_change = daemon_reading(base)
-    daemonline = check_daemon(sysstate, daemon, daemon_change, notes)
+    # G-188 stage 3: the workspace root is RESOLVED by coord's own rbtv.json walk-up, never a
+    # literal — this kit is shared, and the daemon's root is carried in the marker itself. A
+    # workspace with no rbtv.json yields None, and the verdict is then UNKNOWN, said out loud.
+    ws_root, _ = coord.find_workspace_root(base)
+    daemon_code = daemon_code_state(ws_root, daemon) if ws_root else (
+        "unknown", "no rbtv.json above the run package, so the daemon marker cannot be located")
+    daemonline = check_daemon(sysstate, daemon, daemon_change, notes, daemon_code)
     leftover_lines = check_leftover_windows(rows, seats, sysstate, notes)
 
     # PROP-11 (leader ruling 2026-07-27, msg #125): reconcile every roster-ACTIVE row against the
