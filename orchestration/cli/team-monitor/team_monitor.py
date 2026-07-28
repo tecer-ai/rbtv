@@ -184,8 +184,13 @@ def roster(package):
     """{seat: {'pane','active','checked_in','ctx_refresh'}} from the run package.
 
     coordination/workers.md is the live roster (script-managed); a renewed seat appends a
-    row under the same name, so the LAST row for a name wins. taskforce.csv supplies the
-    seat's ctx-refresh threshold.
+    row under the same name, so the LAST row for a name wins.
+
+    ⚠ THE ctx-refresh THRESHOLD COMES FROM THE SEAT'S DESCRIPTOR, NOT FROM taskforce.csv.
+    The CSV column is a birth-time copy that is never revisited and drifts LOOSER as seats are
+    tightened (`G-255`); it is kept only as a fallback for a seat whose descriptor declares no
+    threshold. See declared_ctx_refresh for the measurement and for why the fix lives here
+    rather than in either consumer.
     """
     out = {}
     wm = Path(package) / "coordination" / "workers.md"
@@ -210,6 +215,10 @@ def roster(package):
                 rec = out.setdefault(seat, {"pane": "", "active": False,
                                             "checked_in": "", "ctx_refresh": None})
                 rec["ctx_refresh"] = int(raw) if raw.isdigit() else None
+    for seat, thr in declared_ctx_refresh(package).items():
+        rec = out.setdefault(seat, {"pane": "", "active": False,
+                                    "checked_in": "", "ctx_refresh": None})
+        rec["ctx_refresh"] = thr
     return out
 
 
@@ -229,6 +238,9 @@ _FM_SEAT = re.compile(r"^(?:seat|agent):\s*(\S+)\s*$", re.MULTILINE)
 # shim is exactly the "renderers disagreeing about the field's name" the rename was ruled
 # ATOMIC to prevent.
 _FM_AGENT_TYPE = re.compile(r"^agent_type:\s*(.+?)\s*$", re.MULTILINE)
+# The same pattern coord.py:228 uses for the same key, so every consumer of a seat's
+# refresh threshold reads the ONE place a threshold is set. See declared_ctx_refresh.
+_FM_CTX_REFRESH = re.compile(r"^ctx-refresh:\s*(\d+)\s*$", re.MULTILINE)
 
 
 def seats_dir(package):
@@ -305,6 +317,63 @@ def declared_agent_types(package):
             continue
         c = _FM_AGENT_TYPE.search(fm)
         out[m.group(1)] = c.group(1).strip() if c else ""
+    return out
+
+
+def declared_ctx_refresh(package):
+    """{seat: int} — each seat's context-refresh threshold, READ FROM ITS OWN DESCRIPTOR.
+
+    ⚠ THE DESCRIPTOR IS THE ONLY PLACE A THRESHOLD IS SET. `taskforce.csv` also carries a
+    `ctx-refresh` column, and `roster()` still reads it — but ONLY as a fallback for a seat
+    whose descriptor declares none. The roster copy is written once when the row is minted and
+    is never revisited, so it records the threshold a seat was BORN with, not the one it has.
+
+    Measured on the live run-2 package, 2026-07-28 (issue `G-255`): the descriptors and the
+    roster agreed at birth for all five live seats, then three were deliberately tightened —
+    chief-of-staff 55->35, owner-liaison 55->40, engineer 50->45 — while every roster row
+    stayed at its birth value across all 10 commits that touched the file. ⚠ EVERY DIVERGENCE
+    WAS IN THE LOOSER DIRECTION, so publishing the roster copy raises a seat's flag (by 20
+    points for the chief-of-staff) and the CONTEXT check quietly stops firing while every
+    surface still reports a clean sweep.
+
+    ⚠⚠ THE TWO CONSUMERS OF THIS FIELD BOTH ALREADY BELIEVE THEY ARE READING THE DESCRIPTOR,
+    AND THAT IS WHY THE FIX BELONGS HERE RATHER THAN IN EITHER OF THEM:
+
+        teamview.snapshot_thresholds()  "straight off the snapshot's own seat records" —
+                                        G-153's structural cure, which removed a SECOND
+                                        drifting path by taking the threshold from the same
+                                        snapshot as the ctx% it gates. Sound; it just landed
+                                        on a field the sensor was filling from the roster.
+        goal-watcher-job.py ROW 3       "its briefing's `ctx-refresh`" — its own comment.
+
+    Feeding this field from the descriptor makes both comments true and needs no change in
+    either consumer. Fixing it in the consumers instead would re-create exactly the second
+    path G-153 was filed to remove.
+
+    A seat absent from this map declares no threshold; `roster()` then falls back to the CSV
+    and, failing that, publishes None — which every consumer already reads as "this seat
+    carries no threshold", never as "zero".
+    """
+    out = {}
+    wdir = seats_dir(package)
+    if not wdir.is_dir():
+        return out
+    for p in sorted(list(wdir.glob("*.md")) + list(wdir.glob("*/agent.md"))
+                    + list(wdir.glob("*/seat.md"))):
+        try:
+            text = p.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if not text.startswith("---"):
+            continue
+        end = text.find("\n---", 3)
+        if end == -1:
+            continue
+        fm = text[:end]
+        m = _FM_SEAT.search(fm)
+        c = _FM_CTX_REFRESH.search(fm)
+        if m and c:
+            out[m.group(1)] = int(c.group(1))
     return out
 
 
@@ -736,7 +805,37 @@ def cmd_selftest(args):
         r = roster(td)
         check("roster: last row wins for a renewed seat", r["leader"]["pane"] == "%17")
         check("roster: active parsed", r["leader"]["active"] is True)
-        check("roster: ctx-refresh joined from taskforce.csv", r["leader"]["ctx_refresh"] == 50)
+        check("roster: ctx-refresh falls back to taskforce.csv when no descriptor declares one",
+              r["leader"]["ctx_refresh"] == 50)
+
+    # G-255: the descriptor OUTRANKS the CSV, and the fixture makes them DISAGREE so the check
+    # cannot pass if the descriptor is ignored. The disagreement runs LOOSER-IN-THE-CSV — the
+    # only direction measured live, and the one that silently mutes the flag.
+    with tempfile.TemporaryDirectory() as td:
+        (Path(td) / "coordination").mkdir()
+        (Path(td) / "coordination" / "workers.md").write_text(
+            "| agent | active | tmux pane | working on | checked in | checked out | last-read |\n"
+            "|---|---|---|---|---|---|---|\n"
+            "| tightened | yes | %1 | w | t1 |  | 1 |\n"
+            "| csv-only | yes | %2 | w | t1 |  | 1 |\n")
+        (Path(td) / "taskforce.csv").write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+            "tf-1,tightened,,claude,opus,high,55,m0\n"
+            "tf-2,csv-only,,claude,opus,high,60,m0\n")
+        sd = Path(td) / "seats"
+        (sd / "tightened").mkdir(parents=True)
+        (sd / "tightened" / "seat.md").write_text(
+            "---\nseat: tightened\nharness: claude\nctx-refresh: 35\n---\nbrief\n")
+        (sd / "csv-only").mkdir(parents=True)
+        (sd / "csv-only" / "seat.md").write_text(
+            "---\nseat: csv-only\nharness: claude\n---\nbrief\n")
+        r = roster(td)
+        check("G-255: a tightened descriptor BEATS the stale CSV copy (35, not 55)",
+              r["tightened"]["ctx_refresh"] == 35)
+        check("G-255: a descriptor declaring none still falls back to the CSV (60)",
+              r["csv-only"]["ctx_refresh"] == 60)
+        check("G-255: declared_ctx_refresh reports only descriptor-declared thresholds",
+              declared_ctx_refresh(td) == {"tightened": 35})
 
     # GHOSTROW: both failure shapes, and — the check that matters — no ghost for a healthy
     # seat, because a detector that fires on everything is not a detector.
