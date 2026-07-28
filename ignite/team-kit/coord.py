@@ -3593,21 +3593,72 @@ def cmd_checkout(args):
 # reconstructed it in prose on the same afternoon (the leader set `present` at 16:5x and then
 # qualified it away in ~400 characters; the chief-of-staff relayed an order built on the same
 # distinction). Prose does not survive a rewrite. Delete every note and the distinction still stands.
+#
+# ⚠⚠ THE ACT IS A FUNCTION OF THE WORLD AT RENDER TIME, NOT OF THE STATE TOKEN ALONE (task 7.89,
+# `G-269`). It was static text for about forty minutes and went stale BY BEING OBEYED: `reachable`
+# told every seat to LAUNCH THE DOOR, someone did, and the instruction stayed up — true when the
+# state was set, false the moment it was carried out. ⇒ THE SURFACE WAS MOST WRONG EXACTLY WHEN THE
+# ROOM HAD BEEN MOST RESPONSIVE, which is the worst possible correlation for an escalation
+# instruction. `reachable` still describes the OWNER correctly; only the run-side ACT decayed, so
+# this needs no fourth state and no new field — just a world the act is composed against.
 OWNER_STATES = {
     "present": (
         "rulings can be escalated NOW",
-        "message the owner directly — a session is receiving",
+        lambda w: (
+            f"message the owner directly — the door ({w['door']}) is up and receiving"
+            if w["door_active"] else
+            "⚠ state says PRESENT but NO door session is running — nothing is receiving. "
+            "Launch the door, or correct the state; do not assume a message lands"
+        ),
     ),
     "reachable": (
         "at the PC, AFK FROM THE RUN — no master session running, a pane standing where one can be",
-        "LAUNCH THE DOOR — relaunch the owner-liaison seat in the standing pane (resolve the "
-        "pane from `workers`, never a remembered %n), then message it",
+        lambda w: (
+            f"the door is ALREADY UP ({w['door']}) — just MESSAGE it. No launch needed"
+            if w["door_active"] else
+            "LAUNCH THE DOOR — relaunch the seat that carries the owner relay in the standing pane "
+            "(resolve the pane from `workers`, never a remembered %n), then message it"
+        ),
     ),
+    # ⚠ CHECKED UNDER THE SAME LENS AND NOT STALE (criterion 2): `afk`'s act is the NULL act, and a
+    # null act cannot go stale by being obeyed — there is nothing to carry out that would falsify
+    # it. Deliberately left unconditional rather than gated for symmetry's sake.
     "afk": (
         "queue rulings; do NOT page",
-        "none until the owner returns — anything urgent waits",
+        lambda w: "none until the owner returns — anything urgent waits",
     ),
 }
+
+
+def owner_world(args, base):
+    """The facts an escalation act is composed against. READ-ONLY, and that is criterion 4.
+
+    ⚠⚠ IT NEVER TOUCHES A PANE, NEVER LAUNCHES, NEVER PROBES THE DOOR. The question "does a
+    relaunch work?" is DESIGNED OUT rather than answered — `bars.md` 4 says a pane whose purpose is
+    human contact is never reaped, and testing a relaunch against the live door is that same
+    hazard one step earlier. This reads two files.
+
+    The door is derived from `relays:` in the seat descriptors — NEVER a kit-side name list, the
+    same derivation the reap exemption uses, and for the reason stated there: a name list freezes
+    one campaign's roles into a shared tool and the next such seat is forgotten identically.
+    """
+    door, active = None, False
+    try:
+        decls = inbox_decls(args)
+    except Exception:  # noqa: BLE001 — a bad descriptor must never break `status`
+        decls = {}
+    for seat, d in sorted((decls or {}).items()):
+        if (d or {}).get("relays"):
+            door = seat
+            break
+    if door:
+        try:
+            _p, _l, rows = load_workers(base)
+            row = current_row(rows, door)
+            active = bool(row and row.get("active") == "yes")
+        except Exception:  # noqa: BLE001
+            active = False
+    return {"door": door or "the owner-relay seat", "door_active": active}
 OWNER_STATE_UNKNOWN = (
     "no owner state has been recorded",
     "none defined — run `owner <state>` before relying on this",
@@ -3652,7 +3703,19 @@ def owner_status(base):
     }
 
 
-def print_owner_status(base, label_width=7):
+def owner_escalation(state, world):
+    """The act for `state` composed against `world` — the ONE place an act is produced.
+
+    ⚠ CRITERION 5: the conditional lives HERE, where the act is composed, never in a note a human
+    writes. A note-borne condition is exactly the defect 7.85 existed to end, and its own follow-up
+    must not reintroduce it.
+    """
+    entry = OWNER_STATES.get(state)
+    act = entry[1] if entry else OWNER_STATE_UNKNOWN[1]
+    return act(world) if callable(act) else act
+
+
+def print_owner_status(base, label_width=7, args=None):
     """Render owner state for a consumer. ONE renderer, called by BOTH `status` and `workers`.
 
     Two consumers rendering this by hand is how the distinction collapsed in the first place, so
@@ -3661,7 +3724,8 @@ def print_owner_status(base, label_width=7):
     subordinate, so it can be empty without the state becoming ambiguous.
     """
     st = owner_status(base)
-    meaning, act = OWNER_STATES.get(st["state"], OWNER_STATE_UNKNOWN)
+    meaning = OWNER_STATES.get(st["state"], OWNER_STATE_UNKNOWN)[0]
+    act = owner_escalation(st["state"], owner_world(args, base))
     tone = C_ALIVE if st["state"] == "present" else (C_LABEL if st["known"] else C_DEAD)
     head = c("owner:".ljust(label_width), C_LABEL)
     since = f" | since {st['since']}" if st["since"] else ""
@@ -3691,9 +3755,9 @@ def cmd_owner(args):
     # renders. The leader set `present` at 16:5x and then spent a long note explaining that it did
     # NOT mean "escalate now" — a setter shown what the value it just wrote will TELL EVERY READER
     # is a setter given the chance to notice it picked the wrong one (task 7.85, criterion 3).
-    _meaning, _act = OWNER_STATES.get(args.state, OWNER_STATE_UNKNOWN)
+    _meaning = OWNER_STATES.get(args.state, OWNER_STATE_UNKNOWN)[0]
     print(f"  means:      {_meaning}")
-    print(f"  escalation: {_act}")
+    print(f"  escalation: {owner_escalation(args.state, owner_world(args, base))}")
     # G-181: this used to coach `send all "owner is ..." --type note`, which the tool REFUSES
     # twice over (positional body, then `a note is never an all broadcast`). Adding --inline would
     # have silenced a substring check while the command stayed refused. But the deeper reason not
@@ -3719,7 +3783,7 @@ def cmd_workers(args):
     base = base_dir(args)
     _, _, rows = load_workers(base)
     nonmembers, addr_errors = addressable_nonmembers(args, base)
-    print_owner_status(base, label_width=6)
+    print_owner_status(base, label_width=6, args=args)
     # Listed SEPARATELY from the roster, never merged into it: these are not seats, hold no row,
     # and must never be counted in a census, a cap or a sweep. Shown at all because a name that
     # resolves invisibly is its own kind of fail-silent — and the errors are shown for the same
@@ -5027,7 +5091,7 @@ def cmd_status(args):
         pane_state, pane_tone = "ok", C_ALIVE
     print(f"{c('pane:  ', C_LABEL)} {row['pane'] or '-'} ({c(pane_state, pane_tone)})")
     print(f"{c('work:  ', C_LABEL)} {truncate(row['summary'], 120)}")
-    print_owner_status(base, label_width=7)
+    print_owner_status(base, label_width=7, args=args)
     _, blocks = load_messages(base)
     tail = blocks[-1]["num"] if blocks else 0
     cursor = int(row["lastread"]) if row["lastread"].isdigit() else 0
@@ -7830,6 +7894,50 @@ def _selftest_checks(args, failures, names):
               all(f"{k} = {v[0]}" in " ".join(_owner_help.split())
                   for k, v in OWNER_STATES.items())
               and "NARROWING" in _owner_help)
+        # ---- 7.89 (G-269): an act that went stale BY BEING OBEYED ---------------------------
+        # ⚠⚠ BOTH DIRECTIONS, and criterion 3 says why: a control proving only the gated case
+        # cannot distinguish "the act is conditional" from "the act was DELETED", and the second
+        # passes every test the first does.
+        _up = {"door": "owner-liaison", "door_active": True}
+        _down = {"door": "owner-liaison", "door_active": False}
+        check("7.89 criterion 1+3: with the door NOT active, `reachable`'s act says LAUNCH THE "
+              "DOOR — the act is a function of the WORLD AT RENDER TIME, not of the state token",
+              "LAUNCH THE DOOR" in owner_escalation("reachable", _down))
+        check("7.89 criterion 3, the other direction: with the door ACTIVE, `reachable` does NOT "
+              "say launch — it says MESSAGE the door that is already up. This is the direction "
+              "that went stale by being OBEYED: someone launched it and the instruction stayed",
+              # ⚠ ASSERT THE PROPERTY, NOT THE VOCABULARY — the first version of this row also
+              # checked the literal "already up" against text that reads "ALREADY UP", and failed
+              # on the CASE while the behaviour was correct. What matters is that the act does not
+              # instruct a launch and does instruct a message; the exact phrasing is not the test.
+              "LAUNCH THE DOOR" not in owner_escalation("reachable", _up)
+              and "MESSAGE it" in owner_escalation("reachable", _up))
+        check("7.89: the act is not merely conditional but NAMES THE DOOR it found, so a reader "
+              "is never left resolving which seat carries the owner relay",
+              "owner-liaison" in owner_escalation("reachable", _up))
+        # CRITERION 2 — the other two states re-read under the same lens, in the same change.
+        check("7.89 criterion 2: `present` was stale in the OPPOSITE direction and is fixed here "
+              "too — with NO door running, 'message the owner directly' is false, so it now warns "
+              "that nothing is receiving instead of promising delivery",
+              "receiving" in owner_escalation("present", _up)
+              and "NO door session is running" in owner_escalation("present", _down))
+        check("7.89 criterion 2: `afk`'s act is the NULL act and is checked-and-not-stale — "
+              "nothing can be carried out that would falsify it, so it renders identically in "
+              "both worlds. Left unconditional deliberately, not overlooked",
+              owner_escalation("afk", _up) == owner_escalation("afk", _down))
+        # ⚠ THE WIRING, without which both rows above are a claim about a lambda: the SURFACE must
+        # actually compose through `owner_escalation`, not carry its own copy of the text.
+        run(cmd_owner, agent="leader", state="reachable", note="")
+        _st_out = run(cmd_status, agent="alpha")
+        _w = owner_world(ns(), base_dir(ns()))
+        check("7.89: `status` renders the act the COMPOSER produces for the world it actually "
+              "reads — asserted by composing it independently and finding that exact text on the "
+              "surface, so the surface cannot be carrying a second, drifting copy",
+              owner_escalation("reachable", _w) in _st_out)
+        check("7.89 criterion 4: the world is READ-ONLY — resolving it touches no pane, launches "
+              "nothing and probes no door. `owner_world` reads descriptors and the roster, so "
+              "'does a relaunch work?' is DESIGNED OUT rather than answered on the owner's door",
+              set(_w) == {"door", "door_active"} and isinstance(_w["door_active"], bool))
         legacy.unlink()
         out = run(cmd_status, agent="alpha")
         check("7.85: a MISSING owner-status.md reports `unknown` with no escalation path claimed — "
