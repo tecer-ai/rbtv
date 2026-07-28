@@ -8,78 +8,39 @@
 // It restrains writes to the launch dir + the editable paths the launch's kernel sandbox already
 // grants (the designated test folder, when a launch declares it). Minimal: one file per harness,
 // no wrappers, no new subsystems.
+//
+// ⚠ TASK 7.45 — THIS FILE IS NOW A THIN ADAPTER, NOT A HOME. The per-harness KNOWLEDGE it used to
+// carry (which harness an argv[0] names, and what each harness's config file is) moved to the ONE
+// shared injection ladder, `ignite/injection-ladder/` (CMP-9, decisions.md#d-injection-ladder-shared).
+// What stays here is the DAEMON's half and only that: the filesystem writes and the daemon's log
+// line. The split follows CMP-9 § Interface literally — the ladder "exposes no command, holds no
+// state, spawns nothing, and WRITES nothing" — which is exactly what lets the no-daemon lanes
+// (7.43/7.44/7.54) read the same knowledge without keeping a private second copy.
+//
+// The direction of the require matters and is the same rule 7.42 established: `server/` may import
+// the shared module; the shared module may NEVER import anything under `server/`.
+//
+// `harnessOf` is RE-EXPORTED rather than redefined. Its four other call sites (spawn.js:366/579/622,
+// pty-host.js:249) keep importing it from here, so this re-home changes where the knowledge lives
+// and nothing any caller observes.
 
 const fs = require('node:fs');
-const path = require('node:path');
+const { harnessOf, hooksConfigFor } = require('../../injection-ladder');
 
-// The harness is identified from the profile's own exec argv[0] (D23: reuse the profile's words,
-// never mint a parallel registry). sleep/test profiles carry no harness and get no config.
-function harnessOf(profile) {
-  const argv0 = profile && profile.exec && profile.exec.argv && profile.exec.argv[0];
-  if (argv0 === 'claude') return 'claude';
-  if (argv0 === 'codex') return 'codex';
-  if (argv0 === 'opencode') return 'opencode';
-  return null;
-}
-
+// Execute the ladder's hooks-rung descriptor. The bytes, paths, modes and returned object are the
+// ladder's; the I/O is the daemon's. A null harness (sleep/test/bash profiles) descriptor carries
+// no dirs and no files, so it performs no I/O — the same "no harness, no config" behaviour as before.
 function materializeHarnessConfig({ sessionDir, profile, editablePaths = [] }) {
-  const kind = harnessOf(profile);
-  if (!kind) return { harness: null, written: null, enforceable: false };
+  const plan = hooksConfigFor(harnessOf(profile), { sessionDir, editablePaths });
 
-  const roots = Array.from(new Set([sessionDir, ...editablePaths].filter(Boolean)));
-
-  if (kind === 'claude') {
-    // Claude Code reads `.claude/settings.json` from its working directory. By default it writes
-    // only within the working dir; `permissions.additionalDirectories` extends that to the
-    // declared editable paths. Advisory — the kernel sandbox is authoritative.
-    const dot = path.join(sessionDir, '.claude');
-    fs.mkdirSync(dot, { recursive: true, mode: 0o700 });
-    const settings = { permissions: { additionalDirectories: editablePaths } };
-    const p = path.join(dot, 'settings.json');
-    fs.writeFileSync(p, JSON.stringify(settings, null, 2));
-    return { harness: 'claude', written: p, enforceable: true, note: 'Claude Code honours it (advisory); kernel authoritative' };
+  for (const dir of plan.dirs) {
+    fs.mkdirSync(dir.path, { recursive: true, mode: dir.mode });
   }
-
-  if (kind === 'codex') {
-    // Codex runs `--sandbox danger-full-access` in its profile (the .git-write erratum), so
-    // codex's OWN sandbox is OFF and NO local config can restrain its writes. Written for
-    // transparency only: the kernel systemd sandbox is the SOLE enforcement.
-    const dot = path.join(sessionDir, '.codex');
-    fs.mkdirSync(dot, { recursive: true, mode: 0o700 });
-    const toml = [
-      '# ADVISORY ONLY. This profile runs --sandbox danger-full-access (.git-write erratum);',
-      "# codex's own sandbox is OFF. Kernel systemd confinement is the SOLE enforcement.",
-      'approval_policy = "never"',
-      `# kernel-enforced editable roots: ${roots.join(', ')}`,
-      '',
-    ].join('\n');
-    const p = path.join(dot, 'config.toml');
-    fs.writeFileSync(p, toml);
-    return { harness: 'codex', written: p, enforceable: false, note: 'danger-full-access — kernel is sole enforcement' };
+  for (const file of plan.files) {
+    if (file.mode === undefined) fs.writeFileSync(file.path, file.content);
+    else fs.writeFileSync(file.path, file.content, { mode: file.mode });
   }
-
-  // opencode: POC finding 3 — it has NO native path-scoped write sandbox (it touched the live
-  // vault unprompted). A local `opencode.json` cannot confine writes to a path set. The kernel
-  // systemd/bwrap sandbox is the SOLE enforcement.
-  //
-  // opencode STRICT-VALIDATES opencode.json and REFUSES any unrecognized key, so the advisory
-  // MUST NOT ride in the config it parses (a `_note` key killed every opencode session at startup
-  // with "Configuration is invalid ↳ Unrecognized key: _note"). The materialized config carries
-  // ONLY opencode-schema-valid keys; the no-native-sandbox advisory (POC finding 3) is preserved
-  // in a sidecar file beside it and never seen by opencode's parser.
-  const cfg = {
-    $schema: 'https://opencode.ai/config.json',
-  };
-  const p = path.join(sessionDir, 'opencode.json');
-  fs.writeFileSync(p, JSON.stringify(cfg, null, 2));
-  const notePath = path.join(sessionDir, '.ignite-sandbox-note.txt');
-  fs.writeFileSync(
-    notePath,
-    `ADVISORY ONLY: opencode has no path-scoped write sandbox (POC finding 3). ` +
-    `Kernel-enforced editable roots: ${roots.join(', ')}\n`,
-    { mode: 0o600 }
-  );
-  return { harness: 'opencode', written: p, advisoryNote: notePath, enforceable: false, note: 'no native sandbox — kernel is sole enforcement' };
+  return plan.result;
 }
 
 module.exports = { materializeHarnessConfig, harnessOf };
