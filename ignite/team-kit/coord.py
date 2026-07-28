@@ -6190,7 +6190,20 @@ def cmd_selftest(args):
               f"their results are UNKNOWN, not passing")
         failures.append(f"selftest ABORTED: {aborted}")
     verdict = "ABORTED" if aborted else ("PASS" if not failures else "FAIL")
-    print(f"\nselftest: {verdict} ({len(failures)} failure(s))")
+    # G-218: A VERDICT IS A CLAIM ABOUT THE ENVIRONMENT IT WAS TAKEN IN, so the environment is
+    # printed beside it. Two rows here read ambient state nobody declared — the caller's cwd and
+    # the NAME the file was invoked under — and gave different verdicts on the same bytes to two
+    # agents who were each reporting honestly. Both rows now establish their own preconditions;
+    # this line exists so the NEXT such divergence is visible in the output instead of argued
+    # about, and so a green quoted between agents carries the conditions it was obtained under.
+    try:
+        _in_pkg = discover_package_from(Path.cwd()) is not None
+    except OSError:
+        _in_pkg = None
+    print(f"\nenvironment: invoked as `{os.path.basename(__file__)}` · cwd "
+          f"{'INSIDE' if _in_pkg else ('outside' if _in_pkg is False else 'UNREADABLE for')} "
+          f"a run package")
+    print(f"selftest: {verdict} ({len(failures)} failure(s))")
     if not getattr(args, "expect_fail", None):
         sys.exit(1 if failures else 0)
     if aborted:
@@ -7877,9 +7890,22 @@ def _selftest_checks(args, failures, names):
               "ran — their results are UNKNOWN, not passing",
               "ABORTED" in abort_out and "selftest: FAIL" not in abort_out
               and "UNKNOWN, not passing" in abort_out)
-        check("G-66: the abort names WHERE it raised, so a reader can find the raising check "
-              "without re-running under a debugger",
-              "coord.py:" in abort_out and "ABORTED after 1 check(s)" in abort_out)
+        # ⚠ G-218, and it is `assert the PROPERTY, never the VOCABULARY` again: this row used to
+        # assert the LITERAL "coord.py:". A traceback carries the name the file was INVOKED as, and
+        # every seat invokes the installed `coordinate` symlink — so this row was RED for every
+        # seat and GREEN for anyone typing `python3 coord.py`, on identical bytes. The property is
+        # that the abort names a FILE AND A LINE; the filename is derived from this module's own
+        # path, which is exactly what the traceback reports.
+        # (The same fact was already known here as the "false-red filename trap" — that gating a
+        # candidate named `coord-candidate.py` fails this row. It was recorded as a caveat about
+        # gating and never read as what it is: this check depends on the invocation name.)
+        _where = os.path.basename(__file__) + ":"
+        check("G-66: the abort names WHERE it raised — file AND line — so a reader can find the "
+              "raising check without re-running under a debugger. The filename is DERIVED from "
+              "this module's own path, never a literal, because the traceback carries the name "
+              "the file was invoked under and a seat always invokes the symlink (G-218)",
+              _where in abort_out and re.search(re.escape(_where) + r"\d+", abort_out)
+              and "ABORTED after 1 check(s)" in abort_out)
         check("G-66: --expect-fail REFUSES on an abort — the named check produced no line, so the "
               "mutation is evidence about nothing; without this it would silently mis-report",
               ef_code == 1 and "ABORTED, so the named check produced no result" in ef_out)
@@ -8302,11 +8328,28 @@ def _selftest_checks(args, failures, names):
         check("stage 4: a caller whose pane holds an ACTIVE row in THIS package is LOCAL — the "
               "verified case, and the one that must keep writing an unchanged header",
               sender_origin(ns(pane="%22"), "zeta") is None)
+        # ⚠ G-218: THIS ROW'S SCENARIO PRESUPPOSES A CALLER OUTSIDE ANY PACKAGE, and
+        # `sender_origin` reads the PROCESS's cwd — not anything in `args`. Left to the ambient
+        # cwd, the row was green only when the suite happened to be run from outside a package,
+        # AND A SEAT IS NEVER OUTSIDE ONE: it invokes `coordinate` from its own seat folder, which
+        # is inside the run package. So the same bytes gave PASS to one agent and FAIL to another,
+        # both reporting honestly — a verdict resting on undeclared ambient state makes two honest
+        # reporters who cannot both be right. The precondition is now ESTABLISHED: `td` is the
+        # suite's own temp root, and a row above already ASSERTS `discover_package_from(Path(td))
+        # is None`, so the setup is not merely believed to be package-free.
+        _outside = Path(td) / "outside-any-package"
+        _outside.mkdir(exist_ok=True)
+        _cwd_ext = os.getcwd()
+        try:
+            os.chdir(_outside)
+            _ext_origin = sender_origin(ns(pane="%9999"), "zeta")
+        finally:
+            os.chdir(_cwd_ext)
         check("stage 4: a caller whose pane is on no row of this package AND whose cwd is in no "
               "package is `external` even when a seat of that name exists here — the "
               "membership-by-NAME test was circular, and this is the check that would have caught "
-              "it",
-              sender_origin(ns(pane="%9999"), "zeta") == "external")
+              "it. The cwd is now SET for the assertion rather than inherited (G-218)",
+              _ext_origin == "external")
         # ⚠ The row above USED to read "is FOREIGN", and that wording was the defect: no active
         # roster row was treated as another package. A checked-out, renewed, or never-checked-in
         # seat keeps writing from inside its OWN package, and every message it sent was stamped
