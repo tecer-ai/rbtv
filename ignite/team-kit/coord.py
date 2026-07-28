@@ -6119,6 +6119,43 @@ def cmd_depart(args):
 
 # ---------- selftest ----------
 
+def harness_outcome(fn, args, capture_err=True):
+    """Run a self-test SUBJECT and return (stdout, stderr, exit_code_or_None), never propagating
+    its termination. `exit_code_or_None` is None when the subject returned normally.
+
+    G-215(a). A TEST HARNESS MUST CONVERT A SUBJECT'S TERMINATION INTO A VERDICT, NEVER INHERIT
+    IT. `SystemExit` is not an `Exception` subclass, so it walked straight through
+    `cmd_selftest`'s abort handler — and `sys.exit` is how EVERY gate in this file refuses. One
+    mutated guard was therefore enough to kill the whole suite with no verdict line, no FAIL line
+    and exit 1. The mute death was not the whole cost: every row AFTER it went unrun and
+    unreported, and an unrun row is indistinguishable from a passing one in the exit code. That is
+    G-121 (a truncated run reads greener than a complete one) inside the suite written to catch it.
+
+    Measured 2026-07-28: 16 of a 543-site mutation sweep's 226 CAUGHT verdicts were this shape —
+    graded a catch on the exit code alone, with no failing row behind it.
+
+    ONE derivation for both callers (PRIN-11): `refuse` used to carry its own copy of this
+    try/except and `run` had none, which is exactly how the two disagreed about what a terminating
+    command means.
+
+    `capture_err=False` leaves stderr on the real stream, which is what `run` has always done —
+    a warning a command prints during a successful row stays visible to whoever is watching.
+    """
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+    out, err, code = io.StringIO(), io.StringIO(), None
+    try:
+        if capture_err:
+            with redirect_stdout(out), redirect_stderr(err):
+                fn(args)
+        else:
+            with redirect_stdout(out):
+                fn(args)
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 1
+    return out.getvalue(), err.getvalue(), code
+
+
 def cmd_selftest(args):
     """G-66: run the checks, and ALWAYS reach a verdict.
 
@@ -6131,12 +6168,19 @@ def cmd_selftest(args):
     `check` is ever entered, so by then the exception has already escaped. The honest fix is to
     make an abort a first-class OUTCOME — reported, counted as a failure, and distinguished from
     FAIL, because every check after the raise never ran and their results are unknown, not passing.
+
+    ⚠ G-215(a): `SystemExit` IS CAUGHT HERE TOO, and it is not a subclass of `Exception` — so
+    until 2026-07-28 a subject that called `sys.exit` (every gate in this file refuses that way)
+    walked through this handler and ended the run with NO verdict line at all: not even an ABORTED
+    one. This handler is the LAST resort; the first is `harness_outcome`, which converts a
+    subject's termination into that ROW's verdict so the suite continues. Reaching this line with
+    a `SystemExit` now means one escaped a path that does not go through it.
     """
     failures, names = [], []
     aborted = ""
     try:
         _selftest_checks(args, failures, names)
-    except Exception as exc:                                    # noqa: BLE001 — the whole point
+    except (Exception, SystemExit) as exc:                      # noqa: BLE001 — the whole point
         import traceback
         frame = traceback.extract_tb(exc.__traceback__)[-1]
         aborted = (f"{type(exc).__name__}: {exc} at "
@@ -6483,20 +6527,26 @@ def _selftest_checks(args, failures, names):
             return argparse.Namespace(**d)
 
         def run(fn, **kw):
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                fn(ns(**kw))
-            return buf.getvalue()
+            """Run a command expected to SUCCEED.
+
+            NO ROW MAY TERMINATE THE SUITE (leader's bound on G-215(a)). A command that refuses
+            here is a failure OF THIS ROW — recorded as its own failing check, with the suite
+            continuing to every row behind it. A command EXPECTED to refuse belongs in `refuse()`,
+            which is what the `cmd_reap` block's comment has been telling readers for weeks while
+            nothing enforced it.
+            """
+            out, _err, code = harness_outcome(fn, ns(**kw), capture_err=False)
+            if code is not None:
+                check(f"harness/G-215(a): `{getattr(fn, '__name__', fn)}` was expected to SUCCEED "
+                      f"and REFUSED instead (exit {code}) — recorded as THIS row's failure so the "
+                      f"suite continues and every row behind it still reports. A command expected "
+                      f"to refuse belongs in `refuse()`, never `run()`", False)
+            return out
 
         def refuse(fn, **kw):
             """Run a command expected to REFUSE: returns (combined output, exit code)."""
-            out, err, code = io.StringIO(), io.StringIO(), 0
-            with redirect_stdout(out), redirect_stderr(err):
-                try:
-                    fn(ns(**kw))
-                except SystemExit as exc:
-                    code = exc.code if isinstance(exc.code, int) else 1
-            return out.getvalue() + err.getvalue(), code
+            out, err, code = harness_outcome(fn, ns(**kw))
+            return out + err, (0 if code is None else code)
 
         def rd(agent, **kw):
             d = {"agent": agent, "after": None, "peek": False, "all": False, "type": None,
@@ -6514,6 +6564,33 @@ def _selftest_checks(args, failures, names):
             _, _, rr = load_workers(base_dir(ns()))
             row = current_row(rr, agent)
             return row["lastread"] if row else None
+
+        # ---- G-215(a): the control for "no row may terminate the suite" ----
+        # This is the one thing that can prove the fix, and it has to run a subject that REALLY
+        # terminates: a claim that the suite no longer truncates cannot be established by a subject
+        # that never exits. Placed here, near the top, so the ~400 rows below are the "rows behind
+        # it" — if the conversion regresses, this run dies HERE and every one of them goes unrun,
+        # which is precisely the failure being fixed and is therefore its own loudest signal.
+        def _harness_refuser(_a):
+            print("the subject reached its refusal")
+            sys.exit(3)
+
+        def _harness_returner(_a):
+            print("the subject returned normally")
+
+        _hx_out, _hx_err, _hx_code = harness_outcome(_harness_refuser, ns())
+        check("harness/G-215(a): a subject that TERMINATES is converted into an outcome instead of "
+              "ending the run — this row EXECUTES after one called sys.exit, its exit code is "
+              "reported as a value and its output was still captured. `SystemExit` is not an "
+              "`Exception`, so it used to escape the abort handler entirely: no verdict line, no "
+              "FAIL line, exit 1, and every row after it unrun — and an unrun row is "
+              "indistinguishable from a passing one in the exit code",
+              _hx_code == 3 and "the subject reached its refusal" in _hx_out)
+        _hn_out, _hn_err, _hn_code = harness_outcome(_harness_returner, ns())
+        check("harness/G-215(a): and a subject that RETURNS reports NO exit code — the two "
+              "outcomes are distinct values, so 'it refused' can never be inferred from an empty "
+              "one. Without this row the one above passes for a subject that never exits at all",
+              _hn_code is None and "the subject returned normally" in _hn_out)
 
         run(cmd_checkin, agent="alpha", summary="first check-in", pane="%1")
         run(cmd_checkin, agent="beta", summary="beta work", pane="%2")
