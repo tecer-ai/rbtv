@@ -650,6 +650,11 @@ def run_pass(args):
     base = coord.base_dir(args)
     _, _, rows = coord.load_workers(base)
     seats = {w["agent"]: w for w in coord.discover_workers(coord.workers_dir(args))}
+    # G-176: seats whose pane is a DOOR to a human role. Read from coord.inbox_decls, which is the
+    # ONE home of the `relays:` derivation and already backs the reap exemption (rbtv 6b25104) —
+    # NOT re-parsed here and NOT added to discover_workers, either of which would give one fact a
+    # second home to drift in (that is G-159, which this seat fixed an hour before writing this).
+    door_seats = {a for a, d in (coord.inbox_decls(args) or {}).items() if d.get("relays")}
     state = load_state(base)
     live = live_panes()
     nnow = now_dt()
@@ -760,9 +765,42 @@ def run_pass(args):
         if inact_min is not None and inact_min >= args.inactive_min:
             flags.append(f"INACTIVE {inact_min}min")
             if not st.get("notified_inactive"):
-                notes.append(Flag(agent, f"watch: '{agent}' has shown no pane activity for {inact_min} min "
-                             f"(threshold {args.inactive_min}). Check on it; if hung or done-but-"
-                             f"stuck, close it — or renew: {coord.coord_invocation(args)} close {agent} --renew"))
+                # G-176: the remedy above coaches `close`, and on ONE class of seat that is an act a
+                # standing owner ruling FORBIDS. A seat declaring `relays:` carries the relay path to
+                # a human role, so its pane is a DOOR — the spot a human watches while away — and it
+                # is never closed or reaped mechanically (r-owner-afk-liaison-parked). At 23:58 this
+                # flag fired on the live owner door and recommended exactly that; the chief-of-staff
+                # refused and routed it up, which is the only reason it cost nothing.
+                #
+                # ⚠ THE FLAG IS NOT SUPPRESSED, AND THE EVENING PROVED WHY RATHER THAN THE PRINCIPLE
+                # ALONE. The first draft of this text reassured the reader — "idle is expected while
+                # the human is away, so this is not evidence of a fault". THAT REASSURANCE WOULD HAVE
+                # BEEN WRONG THE NIGHT IT WAS WRITTEN: the door flagged here had been silent since
+                # 23:01 (verified by PARSING the transcript — its mtime lied, showing a write with no
+                # new content) and its pane was GONE by ~23:58. A door waiting quietly for its human
+                # and a door in trouble are INDISTINGUISHABLE FROM OUTSIDE, so this text must not
+                # talk anyone out of looking. Suppressing the flag would have muted the last warning
+                # before the door died.
+                #
+                # So: the flag stays, the REMEDY becomes true, and the text asserts the ambiguity
+                # instead of resolving it. What is NOT solved is a general notion of
+                # legitimately-idle (7.32/7.33's flag set); this closes the one class where the
+                # generic advice is actively DESTRUCTIVE.
+                if agent in door_seats:
+                    notes.append(Flag(agent, f"watch: '{agent}' has shown no pane activity for {inact_min} min "
+                                 f"(threshold {args.inactive_min}) — and it declares `relays:`, so its pane is a "
+                                 f"DOOR to a human role, not a worker that has stalled. ⚠ THIS FLAG CANNOT TELL A "
+                                 f"DOOR WAITING QUIETLY FOR ITS HUMAN FROM A DOOR IN TROUBLE — they look identical "
+                                 f"from outside, and on 2026-07-27 a door flagged after 37 min of silence was GONE "
+                                 f"twenty minutes later. So LOOK, do not assume either way: "
+                                 f"`tmux capture-pane -p -t {pane}`. ⚠ AND DO NOT close, renew or reap it — that is "
+                                 f"forbidden on a door (r-owner-afk-liaison-parked) and it is how a run severs the "
+                                 f"channel it is reachable through. If it needs action, that is the leader's "
+                                 f"judgment, never a mechanical response to this flag."))
+                else:
+                    notes.append(Flag(agent, f"watch: '{agent}' has shown no pane activity for {inact_min} min "
+                                 f"(threshold {args.inactive_min}). Check on it; if hung or done-but-"
+                                 f"stuck, close it — or renew: {coord.coord_invocation(args)} close {agent} --renew"))
                 st["notified_inactive"] = True
         # A seat may declare its OWN refresh threshold in its briefing (`ctx-refresh: 60`) — a
         # cheap ephemeral seat and a long-lived builder do not want the same one. The watcher's
@@ -887,6 +925,12 @@ def cmd_selftest():
         (wdir / "zeta").mkdir(parents=True)
         (wdir / "zeta" / "agent.md").write_text(
             "---\nagent: zeta\nharness: claude\ncwd: /w/one\nctx-refresh: 40\n---\nb\n")
+        # G-176: a DOOR — a seat declaring `relays:`, so its pane carries the relay path to a human
+        # role. Identical to the others in every other respect, which is the point: only the
+        # declaration may change the remedy.
+        (wdir / "door").mkdir(parents=True)
+        (wdir / "door" / "agent.md").write_text(
+            "---\nagent: door\nharness: claude\nrelays: master\n---\nb\n")
 
         # fake claude projects dir with a matching transcript at 57% of a 1M window
         proj = Path(td) / "projects" / munge_cwd("/w/one")
@@ -977,6 +1021,47 @@ def cmd_selftest():
         notes = run_pass(ns())
         check("inactivity: re-fires after activity resumed and went stale again",
               any("alpha" in n and "no pane activity" in n for n in notes))
+        # Captured from a REAL firing above, so the G-176 control below compares against an
+        # ordinary seat's actual remedy rather than a re-derived expectation.
+        alpha_note = next((n for n in notes if "alpha" in n and "no pane activity" in n), "")
+
+        # ---- G-176: the remedy on a DOOR must not coach the act a ruling forbids ----
+        coord.cmd_checkin(argparse.Namespace(package=str(pkg), base=None, workers_dir=None,
+                                             agent="door", summary="w", pane="%3"))
+        tails["%3"] = "door idle"
+        run_pass(ns())
+        st = load_state(base)
+        st["door"]["stable_since"] = "2000-01-01T00:00:00"
+        save_state(base, st)
+        notes = run_pass(ns())
+        door_note = next((n for n in notes if "door" in n and "no pane activity" in n), "")
+        check("G-176: a DOOR still FLAGS when idle — the fix makes the remedy true, it does not "
+              "silence the loop. A door that genuinely hangs is the last seat a run can afford to "
+              "go unreported, so suppressing it here would make the re-mute the fix's own failure mode",
+              bool(door_note))
+        # ⚠ ASSERTS THE ABSENT COMMAND, NOT ABSENT WORDS. The first draft of this check forbade the
+        # substrings "close"/"reap" and FAILED ON CORRECT CODE, because the door remedy says "DO NOT
+        # close, renew or reap it" — a false RED produced by testing vocabulary instead of the
+        # property. What is forbidden is the runnable coaching: an invocation the reader can paste.
+        check("G-176: the door's remedy NEVER hands the reader a close/renew INVOCATION — at 23:58 "
+              "this flag fired on the live owner door and did exactly that "
+              "(r-owner-afk-liaison-parked forbids it); a flag advising the severing of the channel "
+              "the run is reachable through is worse than no flag",
+              bool(door_note) and "close door" not in door_note and "--renew" not in door_note)
+        check("G-176: the door's remedy says DOOR and tells the reader to LOOK, not act",
+              "DOOR" in door_note and "capture-pane" in door_note)
+        # The first draft reassured — "idle is expected, not evidence of a fault". It would have
+        # been WRONG the night it was written: that door had been silent since 23:01 and its pane
+        # was gone by ~23:58. A remedy that talks a reader out of looking at a dying door is a
+        # second way to lose it, so the text must assert the ambiguity, never resolve it.
+        check("G-176: the door's remedy does NOT reassure — it states that a quiet door and a "
+              "failing door are indistinguishable from outside, because on the night this was "
+              "written the door flagged here was gone twenty minutes later",
+              "CANNOT TELL" in door_note and "not evidence of a fault" not in door_note)
+        check("G-176 CONTROL: an ORDINARY seat's remedy is UNCHANGED and still carries the close "
+              "--renew invocation — the door text is scoped by the `relays:` declaration, so this "
+              "check is what separates a scoped fix from a blanket rewrite of the remedy",
+              "--renew" in alpha_note and "DOOR" not in alpha_note)
 
         # dead pane
         live_panes_backup = live_panes
