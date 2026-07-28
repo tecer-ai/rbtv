@@ -559,9 +559,18 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // composeSeatSpawn runs buildBwrapArgv before it builds any tmux argv, so on a box without
     // bwrap this throws E_FS_SANDBOX_UNAVAILABLE and NO PANE IS EVER CREATED: the seat is not
     // spawned unconfined, it is not spawned at all (D59, and 7.30's own criterion).
+    // The window name falls back to the FOLDER'S OWN seat name, never the profile name (task 7.11
+    // — G9). Two reasons, both measured: a caller that wants a safe window name should not have to
+    // supply `seatName`, because supplying it also asserts an identity (`:487` above refuses a
+    // disagreement) — that conflation made the only production call site unable to spawn any real
+    // seat. And `profileName` is the WRONG fallback regardless: every seat sharing a profile would
+    // collide on one window name. `seatPath.seat` is derived from the resolved workdir, which has
+    // already passed the workdir_root containment gate and parseSeatPath's shape check, and
+    // assertTmuxName still refuses `:`/`.`/whitespace — so this is a derived-and-validated name,
+    // which is the same standard that makes the `:487` refusal correct.
     const composed = composeSeatSpawn({
       room,
-      windowName: seatName || profileName,
+      windowName: seatName || seatPath.seat,
       sessionId,
       workdir: resolvedWorkdir,
       harnessArgv,
@@ -658,7 +667,13 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       workdir: resolvedWorkdir,
     });
 
-    return { sessionId, paneId, panePid, pidStarttime, unitName: composed.unitName, workdir: resolvedWorkdir, room, seat: seatName };
+    // `seat` is the FOLDER-DERIVED name, matching the dryRun return above (task 7.11 — G9). It
+    // used to be `seatName`, the CALLER'S string — which is exactly the value the launch gate at
+    // `:487` exists to refuse to trust ("the folder is the identity; a supplied name never
+    // overrides it"). The two returns therefore disagreed: dryRun reported the folder, live
+    // reported the assertion. It was MASKED while the only caller always supplied a name; dropping
+    // that supply (index.js) turned it into a literal `undefined` and surfaced it.
+    return { sessionId, paneId, panePid, pidStarttime, unitName: composed.unitName, workdir: resolvedWorkdir, room, seat: seatPath.seat };
   }
 
   async function status(execId) {

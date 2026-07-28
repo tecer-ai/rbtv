@@ -593,12 +593,22 @@ async function main() {
       if (!tmuxRoom) {
         return ptyHost.spawnHeaded(execId, profileName, prompt, workdir, enqueuedBy);
       }
-      // Window name is server-composed from the exec id — never a caller string, and free of the
-      // `:`/`.` tmux target separators that would let a name re-target another pane (tmux.js
-      // refuses those outright, so this is belt and braces on a value already ours).
+      // NO `seatName` IS SUPPLIED, and its absence is the point (task 7.11 — G9, verified by
+      // execution rather than read). `seatName` does two jobs inside spawnSeat: it is an IDENTITY
+      // ASSERTION checked against the seat folder ("the folder is the identity; a supplied name
+      // never overrides it" — the G-111 lesson), and it is the tmux window name. This call site
+      // only ever wanted the second. Supplying `seat-${execId}` for the window name made an
+      // identity claim this layer has no standing to make, and spawnSeat REFUSED it with
+      // E_NOT_A_SEAT_FOLDER for every REAL seat — a real seat folder is never named
+      // `seat-<execId>`. That left this, the ONLY route to spawnSeat, able to spawn nothing but a
+      // folder literally named `seat-<execId>`.
+      //
+      // The window name is now DERIVED by spawnSeat from the resolved seat folder, which is
+      // strictly safer than the string this site used to compose: it has already passed
+      // resolveWorkdir's containment gate and parseSeatPath's shape check, so it is not a caller
+      // string either — and tmux.js still refuses `:`/`.`/whitespace outright (assertTmuxName).
       return spawnManager.spawnSeat(execId, profileName, {
         room: tmuxRoom,
-        seatName: `seat-${execId}`,
         seatDir: workdir,
         enqueuedBy,
       });

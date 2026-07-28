@@ -161,6 +161,33 @@ capture('probe-seat-launch-gate', async (lines) => {
       Boolean(dry.dryRun) && chdirOk && cageOk && peerAbsent,
       `chdir->seatDir=${chdirOk} cage-entries=${cageOk ? dry.seatCage.length : 0} peer-tmpfs=${peerAbsent}`);
 
+    // ── P10 — THE PRODUCTION CALL SHAPE (task 7.11, G9). `server/index.js` is the ONLY route to
+    // spawnSeat (dispatch.js's error map says so, and a tree-wide grep confirms it), and it
+    // supplies NO seatName: the folder is the identity, and the window name is DERIVED from it.
+    //
+    // This leg DISCRIMINATES, which is the whole reason it asserts the window name rather than
+    // just "it composed": before the fix the fallback was `seatName || profileName`, so with no
+    // seatName the window took the PROFILE's name ('seat-probe'). Asserting it is the seat's own
+    // name ('mine') fails on pre-fix code and passes on post-fix code. A leg that only checked
+    // "composed without throwing" would read green on both.
+    const rowP = fire(f);
+    const prod = await f.mgr.spawnSeat(rowP.exec_id, 'seat-probe', { room: 'probe-room', seatDir: f.seatDir, dryRun: true });
+    const prodArgv = (prod.tmuxArgv || []).join(' ');
+    const windowIsSeat = / -n mine( |$)/.test(prodArgv);
+    const windowNotProfile = !/ -n seat-probe( |$)/.test(prodArgv);
+    leg('P10', 'the production call shape (NO seatName) composes, and the window is named for the SEAT not the profile',
+      Boolean(prod.dryRun) && prod.seat === 'mine' && windowIsSeat && windowNotProfile,
+      `seat=${prod.seat} window-is-seat-name=${windowIsSeat} window-is-profile-name=${!windowNotProfile}`);
+
+    // ── P10-ii — THE FIX MUST NOT WEAKEN THE GATE IT ROUTES AROUND. Dropping the caller's
+    // seatName removes an identity ASSERTION; the refusal that fires when one IS supplied and
+    // disagrees (P3-ii, the G-111 lesson) must survive untouched. A "fix" that made the gate
+    // permissive would satisfy P10 and silently retire the protection.
+    const r10b = await refuse(f.seatDir, `seat-${rowP.exec_id}`);
+    leg('P10-ii', 'a supplied `seat-<execId>` STILL contradicts a real seat folder — the gate did not go permissive',
+      r10b.threw && r10b.code === 'E_NOT_A_SEAT_FOLDER' && /never overrides/.test(r10b.message),
+      `code=${r10b.code} — ${(r10b.message || '').slice(0, 90)}`);
+
     // ── And a dryRun must leave NO trace — it is what makes composition checkable off a live room.
     const afterDry = worldAfter(f, f.seatDir);
     leg('P-dry', 'dryRun writes nothing — no session dir, no session row',
