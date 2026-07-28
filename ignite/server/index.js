@@ -7,10 +7,14 @@ const net = require('node:net');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const yaml = require('js-yaml');
-const { openHeartStore, closeHeartStore, isHeartStoreOpen } = require('./heart/heart-store');
+const { closeHeartStore, isHeartStoreOpen } = require('./heart/heart-store');
 const { WARNING_KINDS } = require('./heart/warnings');
-const { createSpawnManager } = require('./spawn/spawn');
-const { createTicker } = require('./ticker/ticker');
+// Task 7.44 — ONE implementation of workflow advancement, TWO attachments (owner ruling
+// decisions.md#d-attached-run-embedded-engine). The daemon no longer composes the store, the spawn
+// manager and the ticker itself: it boots THE SAME library the `rbtv run` verb boots, and adds
+// only what is genuinely daemon-side (gateway, internal-api, pty, cockpit, retention, settings,
+// tailnet bind). Its headed/pty fork rides the decorate hook, unchanged.
+const { createEngine } = require('../engine');
 const { selectCarrier } = require('./spawn/carrier');
 const { createInternalApi } = require('./internal-api/dispatch');
 const { captureLoadedCode, writeCodeMarker } = require('./code-fingerprint');
@@ -517,16 +521,6 @@ async function main() {
       '(spawn.data_root or RBTV_IGNITE_DATA_ROOT) — batch-08 item 10 state-layout boundary.'
     );
   }
-  const heartStore = openHeartStore({
-    dbPath: path.join(dataRoot, 'heart.db'),
-    profiles: mergedConfig.profiles || {},
-    tools: mergedConfig.tools || {},
-    workflows: mergedConfig.workflows || {},
-    // The snooze minutes→ticks conversion lives in the store (D44) and needs the live
-    // cadence. TICKER-namespaced key, same as the daemon loop below reads it.
-    tickIntervalMs: (mergedConfig.ticker || {}).tick_interval_ms,
-  });
-
   // Worker containment (profile `caps:` and `sandbox:`) exists ONLY on the systemd carrier.
   // With carrier `auto`, an unreachable user manager silently degrades to setsid and drops
   // every cap and sandbox property — so state the resolved carriage mode at boot and warn
@@ -543,32 +537,11 @@ async function main() {
     });
   }
 
-  const spawnManager = createSpawnManager({
-    heartStore,
-    configPath: effectiveConfigPath,
-    logger: (m) => log(m.level || 'info', m.message, m),
-    userManager,
-  });
+  // tick_interval_ms is a TICKER-namespaced key (ticker.js DEFAULT_CONFIG). Reading it
+  // from the config top level meant an operator's configured cadence was honoured by the
+  // ticker's own config but silently ignored by the daemon loop that actually drives it.
+  const tickerConfig = mergedConfig.ticker || {};
 
-  // ── The headed/pty session surface (task 6.2, session-surface-spec.md Design 1–3) ──────────
-  //
-  // The pty host is an EXTENSION at the existing spawn/kill/log owner: it OWNS only the headed
-  // spawn path (the in-unit dtach holder + the vt-model screen capture + POST /keys/:id + the
-  // watch-tee), reusing the spawn manager's config + kill/status surface. Headless one-shot stays
-  // the DEFAULT and rides the sole-spawn-path UNCHANGED — the decoration below routes ONLY
-  // session_mode:headed to the pty host and delegates everything else to spawnManager.spawn.
-  // POST /keys/:id and screen capture are the server-core surface (ptyHost methods held here).
-  // ⚑ UPDATED at p6-3a: that Batch-6 seam work (Amendment #2) IS now wired — the pty host is
-  // threaded to the internal API below, where owner ruling D90's two additive intents
-  // (`send-to-session` / `capture-session-screen`) expose it to authenticated senders through
-  // the gateway. The daemon remains the SOLE keystroke mediator: no caller touches a pty.
-  const ptyHost = createPtyHost({
-    heartStore,
-    spawnManager,
-    dataRoot,
-    userManager,
-    logger: (m) => log(m.level || 'info', m.message, m),
-  });
   // Task 7.30 — the headed TARGET moves from the server-owned pty to a tmux pane (R7/R8/R15/R28).
   //
   // The switch is ONE environment variable on the unit, and that is deliberate (`r-cutover-gated`):
@@ -585,7 +558,58 @@ async function main() {
   // argv. The seat's launch dir rides the EXISTING `workdir` argument, already validated by the
   // profile's `workdir_root` gate.
   const tmuxRoom = process.env.RBTV_IGNITE_TMUX_ROOM || null;
-  const spawnManagerWithPty = {
+
+  // ── The engine (task 7.44) ─────────────────────────────────────────────────────────────────
+  //
+  // The store, the fire path and the tick algorithm are composed by the LIBRARY now — the same
+  // one `rbtv run` boots in-process (owner ruling decisions.md#d-attached-run-embedded-engine:
+  // one implementation of workflow advancement, two attachments). Everything below this call is
+  // daemon-side and stays daemon-side.
+  //
+  // The store's placement is UNCHANGED and is the daemon's kind of store: `{data_root}/heart.db`,
+  // the per-machine state root (batch-08 item 10 state-layout boundary, checked immediately
+  // above). CMP-2 § Two store kinds: an attached run passes its OWN run-folder path here and never
+  // this one; the daemon never passes anything else.
+  //
+  // `ptyHost` is assigned inside the decorate hook rather than after this call, because the pty
+  // decoration has always sat BETWEEN the spawn manager's construction and the ticker's — the hook
+  // is that exact point, so the composition order is byte-for-byte what it was.
+  let ptyHost = null;
+  const engine = createEngine({
+    dbPath: path.join(dataRoot, 'heart.db'),
+    profiles: mergedConfig.profiles || {},
+    tools: mergedConfig.tools || {},
+    workflows: mergedConfig.workflows || {},
+    // The snooze minutes→ticks conversion lives in the store (D44) and needs the live
+    // cadence. TICKER-namespaced key, same as the daemon loop below reads it.
+    tickIntervalMs: tickerConfig.tick_interval_ms,
+    spawnConfigPath: effectiveConfigPath,
+    userManager,
+    tickerConfig,
+    feedPath: dataRoot ? path.join(dataRoot, 'feed.jsonl') : null,
+    logPath: dataRoot ? path.join(dataRoot, 'ticker.log') : null,
+    logger: (m) => log(m.level || 'info', m.message, m),
+    decorateSpawnManager: (spawnManager, heartStore) => {
+  // ── The headed/pty session surface (task 6.2, session-surface-spec.md Design 1–3) ──────────
+  //
+  // The pty host is an EXTENSION at the existing spawn/kill/log owner: it OWNS only the headed
+  // spawn path (the in-unit dtach holder + the vt-model screen capture + POST /keys/:id + the
+  // watch-tee), reusing the spawn manager's config + kill/status surface. Headless one-shot stays
+  // the DEFAULT and rides the sole-spawn-path UNCHANGED — the decoration below routes ONLY
+  // session_mode:headed to the pty host and delegates everything else to spawnManager.spawn.
+  // POST /keys/:id and screen capture are the server-core surface (ptyHost methods held here).
+  // ⚑ UPDATED at p6-3a: that Batch-6 seam work (Amendment #2) IS now wired — the pty host is
+  // threaded to the internal API below, where owner ruling D90's two additive intents
+  // (`send-to-session` / `capture-session-screen`) expose it to authenticated senders through
+  // the gateway. The daemon remains the SOLE keystroke mediator: no caller touches a pty.
+  ptyHost = createPtyHost({
+    heartStore,
+    spawnManager,
+    dataRoot,
+    userManager,
+    logger: (m) => log(m.level || 'info', m.message, m),
+  });
+  return {
     ...spawnManager,
     spawn: (execId, profileName, sessionMode = 'headless', prompt = null, workdir = null, enqueuedBy = 'unknown') => {
       if (sessionMode !== 'headed') {
@@ -635,11 +659,14 @@ async function main() {
       return info;
     },
   };
+    },
+  });
 
-  // tick_interval_ms is a TICKER-namespaced key (ticker.js DEFAULT_CONFIG). Reading it
-  // from the config top level meant an operator's configured cadence was honoured by the
-  // ticker's own config but silently ignored by the daemon loop that actually drives it.
-  const tickerConfig = mergedConfig.ticker || {};
+  // The daemon's own handles on the engine it just booted. `spawnManagerWithPty` keeps its name
+  // because it is what the internal API is handed, and it is the SAME decorated object the ticker
+  // above was built with — the decoration is applied once, inside the composition, not twice.
+  const { heartStore, ticker } = engine;
+  const spawnManagerWithPty = engine.spawnManager;
 
   // Captured once at boot for `inspect daemon` uptime reporting.
   const daemonStartTime = Date.now();
@@ -658,15 +685,6 @@ async function main() {
   // PROCESS THAT WROTE IT and a reader must correlate it against the live unit before trusting it.
   // Fail-soft: returns false, never throws — see the boot bar in code-fingerprint.js.
   writeCodeMarker(workspaceRoot, daemonLoadedCode);
-
-  const ticker = createTicker({
-    heartStore,
-    spawnManager: spawnManagerWithPty,
-    config: tickerConfig,
-    logger: (m) => log(m.level || 'info', m.message, m),
-    feedPath: dataRoot ? path.join(dataRoot, 'feed.jsonl') : null,
-    logPath: dataRoot ? path.join(dataRoot, 'ticker.log') : null,
-  });
 
   // ── The composition root (internal-api-contract-spec.md § 4) ────────────────
   //

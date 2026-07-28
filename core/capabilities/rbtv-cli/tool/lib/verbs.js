@@ -19,6 +19,9 @@ const GOALS_TREE = path.join(
 const TICKER_SETTINGS = path.join(
   RBTV_ROOT, 'ignite', 'capabilities', 'ticker-settings', 'tool', 'rbtv-ignite-ticker',
 );
+const ATTACHED_RUN = path.join(
+  RBTV_ROOT, 'ignite', 'capabilities', 'attached-run', 'tool', 'rbtv-run',
+);
 
 // Task 7.66 built the cadence-edit surface, so the namespace that previously refused now routes.
 // `set-interval` is the DESIGN's verb name (operator-surface design § 2.3), not coined here — the
@@ -74,6 +77,17 @@ const ROUTES = [
     exec: 'direct',
     verbs: GOAL_VERBS,
     summary: 'goals-tree machinery — scaffold/reindex/lint/materialize a goal folder',
+  },
+  // Core-build task 7.44. `run` takes no sub-verb: its argument is a RUN FOLDER, not a word from a
+  // fixed set, so `verbs` is empty and the disjointness check has nothing to collide with. It is
+  // the one route that BOOTS the ignite engine rather than talking to something that already runs
+  // it — attached to this terminal, dying with it (decisions.md#d-attached-run-embedded-engine).
+  {
+    prefix: ['run'],
+    target: ATTACHED_RUN,
+    exec: 'direct',
+    verbs: [],
+    summary: 'run a goal ATTACHED to this terminal — the daemon\'s own engine, in-process, resumable from the run folder',
   },
 ];
 

@@ -38,6 +38,7 @@ function topHelp() {
     '  rbtv ignite daemon <verb>  daemon lifecycle: start|restart|stop|kill|unit',
     '  rbtv ignite <command>      the ignite gateway client (jobs, queue, sessions)',
     '  rbtv goal <verb>           goals-tree: scaffold|reindex|lint|materialize',
+    '  rbtv run <run-folder>      advance a run ATTACHED to this terminal (the daemon\'s engine, in-process)',
     '',
     'ORIENT',
     '  rbtv doctor                can this tool work here? delegates present? substrate readable?',
