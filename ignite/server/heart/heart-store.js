@@ -1172,8 +1172,32 @@ class HeartStore {
           WHERE exec_id = ?
         `).run(status, msgId, createdAtIso, exitCode, exec.exec_id);
 
-        // ⚠ Task 7.46 — THIS IS THE ONE LINE THAT KEEPS THE DEGENERACY EXACT, and it is the line
-        // 7.32's multi-turn path will delete.
+        // ⚠⚠ STOP — THIS IS THE ONE LINE THAT KEEPS THE 1:1 DEGENERACY EXACT, AND DELETING IT IS
+        // BARRED UNTIL THE SEAM ROWS ARE RESOLVED (task 7.81, `#barred`, 2026-07-28).
+        //
+        // The bar lives HERE and not only on the task, deliberately: the degeneracy is held by TWO
+        // CODE SITES — `recordExecutionStart()` opens a session per turn, and this line closes it —
+        // so a change that lets a session outlive its turn can arrive under ANY task, but it cannot
+        // avoid touching this line. 7.81 is the discoverable anchor; this comment is the load-
+        // bearing one.
+        //
+        // WHY IT IS BARRED, measured 2026-07-28: four live seams answer a SESSION question by
+        // reading the TURN level, and at 1:1 the two levels return the same rows, so every probe is
+        // green either way. They all change behaviour the moment this line goes:
+        //   G-227  the retention sweep deletes a LIVE session's artifacts (data loss)
+        //   G-228  a headed session is not reconnected after a daemon restart
+        //   G-229  the boot orphan rescan leaves a ghost that the agent cap counts
+        //   G-226  `live_agent_sessions` reports a turn count under a session name
+        // Plus G-225 (a turn write and its session close are two statements, not one transaction).
+        //
+        // ⚠ THE PREVIOUS VERSION OF THIS COMMENT SAID "the line 7.32's multi-turn path will delete"
+        // AND NAMED "the tmux path, 7.30/7.32" BELOW. BOTH ATTRIBUTIONS WERE FALSE and they were
+        // measured false against the task store: 7.30 is DONE and did not remove the degeneracy
+        // (its content is the tmux spawn target and containment); 7.32 is the goal-watcher-job and
+        // the R4 restart path and touches this lifecycle nowhere. A reader following those numbers
+        // landed on two rows that own none of this, with none of the seam knowledge above — and an
+        // intention that reaches a code comment instead of a task reads as settled scope and
+        // propagates: this seat repeated "7.30/7.32" three times on the strength of this comment.
         //
         // A turn-ending report does not, in itself, end a session — that is the whole point of the
         // split, and `updateExecutionStatus()` structurally cannot end one. But every session the
@@ -1184,8 +1208,9 @@ class HeartStore {
         // ticker and store probes green and what makes this task bookkeeping rather than a
         // runtime change.
         //
-        // When a session can outlive its turn (the tmux path, 7.30/7.32), this close moves to
-        // whoever observes the PROCESS ending, and nothing else in the store has to change.
+        // When a session can outlive its turn, this close moves to whoever observes the PROCESS
+        // ending — and "nothing else in the store has to change" is true of the STORE and false of
+        // its readers: see the four seam rows above, none of which is in this file.
         if (exec.session_pk) {
           this._prepare(
             'UPDATE sessions SET status = ?, closed_at = ?, close_reason = ? '
