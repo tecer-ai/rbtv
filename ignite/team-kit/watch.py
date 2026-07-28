@@ -459,6 +459,19 @@ def load_heartbeat(base):
 IGNITE_UNIT = "rbtv-ignite.service"
 
 
+def _int_or_none(kv, key):
+    """systemd's counter as an int, or None when it is absent/unparseable — never 0 on failure.
+
+    0 is a MEANINGFUL value here (a unit that has never restarted), so defaulting a failed read to
+    0 would report the healthiest possible answer at the moment the read broke. None is the only
+    honest absence, and the caller treats it as "no comparison possible" rather than "no climb"."""
+    raw = kv.get(key)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def daemon_identity():
     """The ignite daemon's systemd identity THIS PASS — or UNKNOWN, said out loud (run issue G-188).
 
@@ -497,7 +510,7 @@ def daemon_identity():
     line whose job is telling an operator which unit to go and ask about (run issue G-107's shape:
     carry the subject, never re-derive it)."""
     props = ["LoadState", "ActiveState", "SubState", "MainPID", "ActiveEnterTimestamp",
-             "InvocationID"]
+             "InvocationID", "NRestarts"]
     try:
         out = subprocess.run(["systemctl", "--user", "show", IGNITE_UNIT,
                               "--property=" + ",".join(props)],
@@ -524,7 +537,7 @@ def daemon_identity():
                        f"is NOT reported as absent"}
     active = kv.get("ActiveState", "")
     if active != "active":
-        return {"state": "stopped", "unit": IGNITE_UNIT,
+        return {"state": "stopped", "unit": IGNITE_UNIT, "restarts": _int_or_none(kv, "NRestarts"),
                 "why": f"the unit answered for itself: ActiveState={active or '?'} "
                        f"SubState={kv.get('SubState') or '?'}"}
     invocation = kv.get("InvocationID") or ""
@@ -534,6 +547,7 @@ def daemon_identity():
                 "why": f"unit is active but its identity is unreadable "
                        f"(MainPID={pid or '?'}, InvocationID={'set' if invocation else 'empty'})"}
     return {"state": "running", "unit": IGNITE_UNIT, "pid": int(pid),
+            "restarts": _int_or_none(kv, "NRestarts"),
             "since": kv.get("ActiveEnterTimestamp") or "", "invocation": invocation}
 
 
@@ -554,7 +568,129 @@ def _daemon_change(prev, now):
     return {"at": now_dt().isoformat(timespec="seconds"), "from": prev, "to": now}
 
 
-def save_heartbeat(base, loop_min):
+def daemon_reading(base):
+    """(this pass's daemon identity, the sticky change record) — sampled ONCE per pass.
+
+    ⚠ WHY THIS IS ITS OWN FUNCTION RATHER THAN LEFT INSIDE save_heartbeat, and it is a correctness
+    point rather than tidiness: the box-level FLAG runs at the top of a pass and the heartbeat is
+    written at the BOTTOM. Sampling in both places would issue two `systemctl` calls per pass whose
+    answers can differ — the daemon can restart between them — and the room would then get a flag
+    announcing a restart while the heartbeat on disk recorded the identity from BEFORE it, or the
+    reverse. Two readings of one moment that disagree is the defect class this whole feature exists
+    to close, so the pass takes ONE reading and both consumers use it."""
+    prev = load_heartbeat(base)
+    daemon = daemon_identity()
+    change = _daemon_change((prev or {}).get("daemon"), daemon)
+    if change is None:
+        change = (prev or {}).get("daemon_change")
+    return daemon, change
+
+
+def check_daemon(sysstate, daemon, change, notes):
+    """PROP-9's box-level sibling for the ignite daemon — the PUSH half of G-188.
+
+    What landed first was PULL-ONLY: it renders on `coordinate workers`, so somebody must type it.
+    A daemon that dies at 04:00 stays invisible until somebody does — and *nobody thought to ask*
+    IS the original defect. `ignite inspect daemon` answered for anyone who asked the whole time.
+
+    HOME, ruled (leader `#811`): the daemon is NOT a seat, so 7.32/7.33's per-seat flag set is the
+    wrong population; this belongs beside `check_system`, which is already the BOX-level path.
+
+    ⚠ THE CALIBRATION THIS IS BUILT AGAINST. Of run-1's 12 attributable PER-SEAT flags, ELEVEN WERE
+    FALSE POSITIVES, and the one class that actually cost the run anything raised no flag at all.
+    A flag earns its interruption by naming a HARD, MEASURABLE transition — never a judgment, never
+    the watcher's own difficulty. That is why:
+
+      DOWN       flags ONCE PER EPISODE, re-arming when the unit returns.
+      RESTARTED  flags ONCE PER EVENT, keyed on the new InvocationID.
+      UNKNOWN    NEVER pushes. It means THE MEASUREMENT FAILED, not that something happened; it is
+                 unactionable at 04:00, and a flag that fires on the watcher's own blindness is
+                 exactly what trains a room to discount the next one. It stays LOUD on `workers`.
+                 ⚠ THE PRICE, named rather than buried: a daemon dying while `systemctl` is
+                 unreadable is un-pushed. Never invisible — un-pushed. Judged the right trade at
+                 11-of-12; one branch to reverse if the leader ever overrules it.
+
+    ⚠ ONCE-PER-EPISODE IS CORRECT HERE FOR THE REASON THAT MAKES IT WRONG IN check_system, and the
+    difference must be argued rather than copied across. PROP-9 carries a leader ruling that a flag
+    must re-fire while its condition WORSENS — because RAM slid 2,904 -> 2,695 MB and the room heard
+    once. That ruling turns on MONOTONIC vs FLAPPING. RAM slides toward an OOM, so each new reading
+    is a new actionable fact. DOWN IS BINARY: a daemon down three hours is not more down than at
+    three minutes and the remedy does not change, so a duration ladder would emit alerts carrying no
+    new decision — the 11-of-12 failure mode with a timer bolted on. The standing state is never
+    lost either way: `coordinate workers` shows DOWN on every pull; only the INTERRUPTION is bounded.
+
+    ⚠ THE RESTART KEY IS THE INVOCATION, NOT THE PRESENCE OF A CHANGE RECORD. `daemon_change` is
+    STICKY by design, so flagging on its mere presence would re-announce the same restart on every
+    pass forever. Keying on the new InvocationID also means a restart that happened while the LOOP
+    was down is still announced exactly once when the loop returns — which is the case the run
+    actually suffered. If `watch-system.json` is ever lost, the notified key goes with it and one
+    duplicate announcement follows; a single duplicate, not a storm, and stated here so it is not
+    mistaken for a second restart.
+
+    At most ONE note per pass (the bound this seat proposed and the leader held it to). Returns the
+    report line."""
+    state = (daemon or {}).get("state")
+    restarts = (daemon or {}).get("restarts")
+    seen = sysstate.get("daemon_restarts_flagged")
+    # ⚠ THE CRASH-LOOP CASE, and my own design argument was INCOMPLETE until the run's history
+    # corrected it. I argued DOWN is BINARY — three hours down is not more down than three minutes,
+    # so once per episode. That is true of a STEADY outage and FALSE of a crash loop, which is the
+    # shape the real incident took: 2026-07-27 16:15, `NRestarts=32 and climbing every 5 seconds`,
+    # learned by a seat noticing BY HAND. A crash loop is MONOTONIC — the count climbs — so it is
+    # PROP-9's deterioration case exactly, and PROP-9's ruling (a flag must re-fire while its
+    # condition worsens) governs rather than my binary argument.
+    # It is read from systemd's OWN NRestarts rather than counted from my sampling: a 10-minute
+    # loop watching a 5-second loop would undercount by two orders of magnitude and call a storm
+    # a single restart.
+    climbing = isinstance(restarts, int) and isinstance(seen, int) and restarts > seen
+    lines = []
+    if state == "stopped":
+        if not sysstate.get("notified_daemon_down") or climbing:
+            loop = (f" ⚠ AND IT IS CRASH-LOOPING: systemd's own restart count has risen "
+                    f"{seen} -> {restarts} since the last warning, so it is failing repeatedly "
+                    f"rather than sitting still." if climbing else
+                    " Announced ONCE for this outage: it stays on `coordinate workers` until it "
+                    "clears.")
+            lines.append(f"watch: IGNITE DAEMON IS DOWN — {daemon.get('why') or 'unit inactive'}. "
+                         f"Nothing is running jobs, ticks or spawns.{loop}")
+            sysstate["notified_daemon_down"] = True
+            if isinstance(restarts, int):
+                sysstate["daemon_restarts_flagged"] = restarts
+    elif state == "running":
+        # Re-arm on recovery, so a SECOND outage is announced. Only a determinate `running` clears
+        # it — see the `unknown` branch below, which deliberately clears nothing.
+        sysstate.pop("notified_daemon_down", None)
+        to = (change or {}).get("to") or {}
+        inv = to.get("invocation")
+        if inv and sysstate.get("notified_daemon_invocation") != inv:
+            frm = (change or {}).get("from") or {}
+            lines.append(
+                f"watch: IGNITE DAEMON RESTARTED — pid {frm.get('pid') or '?'} -> "
+                f"{to.get('pid') or '?'}, observed {(change or {}).get('at') or '?'}. An "
+                f"owner-side deploy or bounce is otherwise INVISIBLE to this run; that happened "
+                f"twice on 2026-07-27 and was noticed hours late both times. This says THAT it "
+                f"restarted, never WHICH CODE it loaded.")
+            sysstate["notified_daemon_invocation"] = inv
+        # SEEDED QUIETLY on the running path, never flagged from here (PROP-9's migration lesson,
+        # the G-135/G-152 shape): a unit that crash-looped BEFORE this code landed carries a high
+        # NRestarts, and announcing it now would report an outage the room already lived through.
+        # A fix whose first act is a false alarm teaches the room to discount the next one.
+        if isinstance(restarts, int):
+            sysstate["daemon_restarts_flagged"] = restarts
+    # `unknown` falls through: no note, and NOTHING IS CLEARED. Popping the down-flag on an
+    # unreadable pass would silently re-arm a duplicate announcement for an outage the room has
+    # already been told about — a measurement failing must never be able to manufacture a flag.
+    if lines:
+        notes.append(" ".join(lines))
+    label = {"running": "ok", "stopped": "DOWN", "unknown": "UNKNOWN"}.get(state, "UNKNOWN")
+    detail = (f"pid {daemon.get('pid')}" if state == "running"
+              else (daemon or {}).get("why") or "unreadable")
+    if isinstance(restarts, int) and restarts:
+        detail += f" (systemd restarts: {restarts})"
+    return f"{'daemon':<18} {label:<7} {detail}"
+
+
+def save_heartbeat(base, loop_min, daemon=None, change=None):
     """P32 — stamp this pass so something outside the loop can tell a live watcher from a dead one.
 
     A SEPARATE file from watch-state.json on purpose: that file is keyed by agent name, and a
@@ -576,12 +712,14 @@ def save_heartbeat(base, loop_min):
 
     `daemon_change` is STICKY — it survives later passes until the next change replaces it, and it
     is stamped with `at`. A restart signal that expires after one pass would reproduce the exact
-    miss this exists for: both restarts on 2026-07-27 were noticed hours late, by hand."""
-    prev = load_heartbeat(base)
-    daemon = daemon_identity()
-    change = _daemon_change((prev or {}).get("daemon"), daemon)
-    if change is None:
-        change = (prev or {}).get("daemon_change")
+    miss this exists for: both restarts on 2026-07-27 were noticed hours late, by hand.
+
+    `daemon`/`change` are PASSED IN by a pass that already took the reading, so one pass issues one
+    `systemctl` call and the flag and the heartbeat can never describe different moments (see
+    `daemon_reading`). They default to None for standalone callers — a direct call still samples,
+    so the function keeps working on its own."""
+    if daemon is None and change is None:
+        daemon, change = daemon_reading(base)
     try:
         coord.atomic_write(base / "watch-heartbeat.json", json.dumps(
             {"last_pass": now_dt().isoformat(timespec="seconds"),
@@ -892,6 +1030,10 @@ def run_pass(args):
     # leftover dead window is invisible to the per-seat loop (its seats have no active row).
     sysstate = load_sys_state(base)
     sysline = check_system(args, sysstate, notes)
+    # G-188 push half: the daemon is box-level, not a seat, so it runs here with the other
+    # box duties. ONE reading, taken now and reused by save_heartbeat at the end of the pass.
+    daemon, daemon_change = daemon_reading(base)
+    daemonline = check_daemon(sysstate, daemon, daemon_change, notes)
     leftover_lines = check_leftover_windows(rows, seats, sysstate, notes)
 
     # PROP-11 (leader ruling 2026-07-27, msg #125): reconcile every roster-ACTIVE row against the
@@ -1053,11 +1195,13 @@ def run_pass(args):
 
     save_state(base, state)
     save_sys_state(base, sysstate)
-    save_heartbeat(base, getattr(args, "loop", None))
+    save_heartbeat(base, getattr(args, "loop", None), daemon, daemon_change)
     stamp = nnow.strftime("%Y-%m-%d %H:%M")
     print(f"watch pass {stamp} — {len(report)} active seat(s), {len(notes)} new flag(s)")
     if sysline:
         print("  " + sysline)
+    if daemonline:
+        print("  " + daemonline)
     for line in report:
         print("  " + line)
     for line in leftover_lines:
