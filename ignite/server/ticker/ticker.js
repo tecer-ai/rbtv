@@ -14,6 +14,11 @@ const { runWarningCheck } = require('./warnings-check');
 // constructs or opens one. Imported rather than re-spelled so the crash sweep's notion of "the
 // turn already reported" is the store's, not a second copy that can drift from it.
 const { TERMINAL_TURN_STATUSES, sessionStatusForEndedTurn } = require('../heart/heart-store');
+// Task 7.12 — the job->seat pointer (`r-job-seat-home`). The RESOLVER is imported, never
+// re-implemented: `seat-folder.js` is the one definition of what a seat folder is, and a second
+// spelling here would be a second definition that drifts (that module's own opening argument).
+const { resolveSeatHome } = require('../seat-identity/seat-folder');
+const { resolveWorkspaceRoot } = require('../spawn/config');
 
 const DEFAULT_CONFIG = {
   tick_interval_ms: 10000,
@@ -469,6 +474,50 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     return effective.map((i) => `[${i.label}] ${i.text}`).join('\n\n');
   }
 
+  // ── Task 7.12 · where a job's action RUNS (owner ruling `r-job-seat-home`, 2026-07-27) ────────
+  //
+  // "A job's action is always homed as a SEAT in a goal; the job itself is only the trigger." A
+  // catalogue row carrying `goal_name`/`seat_name` launches into that seat's folder; a row without
+  // them keeps the interim `<ws>/.rbtv/sessions/<exec-id>/` path. That is the staged retirement
+  // `r-711-staged-retirement` ruled and `G-122` tracks: seat spawns left the interim path at 7.11,
+  // and THIS is the ticker/job branch finally leaving it too — for homed jobs.
+  //
+  // ⚠ A FAILURE HERE IS LOUD AND NEVER A FALLBACK. If a row says it is homed and the seat cannot
+  // be resolved, this THROWS — it does not quietly launch into the interim path instead. A silent
+  // fallback would undo the homing at the one moment nobody is watching, and would look identical
+  // in the log to a job that was never homed at all. Thrown inside the caller's existing try, so it
+  // lands as `spawn-failed` against a REAL `jobs_log` row with the reason attached, rather than as
+  // a `defer` that retries every tick forever (the `unknown-tool` shape task 7.70 exists to fix).
+  function resolveJobHome(queueRow, argsWorkdir) {
+    const job = heartStore.getJob(queueRow.job_id);
+    if (!job || !job.goal_name || !job.seat_name) return argsWorkdir; // UNHOMED — interim path
+    if (argsWorkdir) {
+      // The catalogue row and the enqueue disagree about where this runs. Refused, not ranked:
+      // preferring either one silently would let an enqueue-time argument move a job out of the
+      // seat its DEFINITION assigns it — an asserted value outranking a declared one, which is
+      // G-111 exactly.
+      throw new Error(
+        `job "${job.job_id}" is homed at ${job.goal_name}/${job.seat_name} but the queue row also `
+        + `supplies workdir "${argsWorkdir}" — refusing rather than choosing between them`,
+      );
+    }
+    const workspaceRoot = resolveWorkspaceRoot(heartStore.dbPath);
+    if (!workspaceRoot) {
+      throw new Error(
+        `job "${job.job_id}" is homed at ${job.goal_name}/${job.seat_name} but no workspace root is `
+        + 'resolvable from the heart store path',
+      );
+    }
+    const home = resolveSeatHome({ workspaceRoot, goal: job.goal_name, seat: job.seat_name });
+    if (!home.ok) {
+      throw new Error(
+        `job "${job.job_id}" is homed at ${job.goal_name}/${job.seat_name} but that seat cannot be `
+        + `resolved: ${home.reason}`,
+      );
+    }
+    return home.seatDir;
+  }
+
   // Launch helpers
   async function launchAgent(queueRow, actions, tick, now) {
     const { parentExecId, cleanedArgs } = extractChainMarker(queueRow);
@@ -528,8 +577,12 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     }
 
     try {
-      await spawnManager.spawn(exec.exec_id, profileName, queueRow.session_mode, spawnPrompt, workdir, queueRow.enqueued_by);
+      // Task 7.12 — resolved INSIDE the try so a homed job whose seat cannot be resolved fails
+      // loud against this exec's own jobs_log row (see resolveJobHome above).
+      const homedWorkdir = resolveJobHome(queueRow, workdir);
+      await spawnManager.spawn(exec.exec_id, profileName, queueRow.session_mode, spawnPrompt, homedWorkdir, queueRow.enqueued_by);
       const spawnAction = { phase: 'dispatch', action: 'spawn', execId: exec.exec_id, queueId: queueRow.queue_id, profile: profileName, thread: exec.thread };
+      if (homedWorkdir !== workdir) spawnAction.homed = homedWorkdir;
       if (compactTurn) spawnAction.compact = true;
       actions.push(spawnAction);
     } catch (err) {
