@@ -3453,14 +3453,98 @@ def cmd_checkout(args):
             f"(`{coord_invocation(args)} close {me} [--renew]`)", C_HINT))
 
 
+# ---- owner state (task 7.85, owner ruling r-owner-state-is-not-binary) --------------------
+# THE STATES ARE ESCALATION POLICIES, NOT FACTS ABOUT THE HUMAN. That is why a third VALUE is
+# right and a second FIELD is wrong: `present` and `afk` never meant "at the desk"/"away", they
+# meant "escalate now"/"queue them". `reachable` is the third policy — escalate BY LAUNCHING THE
+# DOOR — and the owner ruled it a first-class state of the system, not a run's convention.
+#
+# ⚠ THIS TABLE IS THE SINGLE HOME. `choices=`, the `--help` text, and what every consumer RENDERS
+# are all derived from it, so none of them can drift from the others or from behaviour. The
+# ESCALATION ACT lives here, in code — NOT in the free-text note. That is the whole point of the
+# row: before this, the third state existed only when someone wrote a good note, and two seats
+# reconstructed it in prose on the same afternoon (the leader set `present` at 16:5x and then
+# qualified it away in ~400 characters; the chief-of-staff relayed an order built on the same
+# distinction). Prose does not survive a rewrite. Delete every note and the distinction still stands.
+OWNER_STATES = {
+    "present": (
+        "rulings can be escalated NOW",
+        "message the owner directly — a session is receiving",
+    ),
+    "reachable": (
+        "at the PC, AFK FROM THE RUN — no master session running, a pane standing where one can be",
+        "LAUNCH THE DOOR — relaunch the owner-liaison seat in the standing pane (resolve the "
+        "pane from `workers`, never a remembered %n), then message it",
+    ),
+    "afk": (
+        "queue rulings; do NOT page",
+        "none until the owner returns — anything urgent waits",
+    ),
+}
+OWNER_STATE_UNKNOWN = (
+    "no owner state has been recorded",
+    "none defined — run `owner <state>` before relying on this",
+)
+
+
 def owner_status(base):
+    """Parse `owner-status.md` into STRUCTURE — state, since, note — never one opaque string.
+
+    ⚠ IT USED TO RETURN THE WHOLE LINE AFTER `owner:`, and both consumers printed that raw. So the
+    enum value and the operator's free text were literally the same field to every reader, and a
+    third state would have rendered identically to the other two no matter what the enum accepted.
+    Splitting them is what makes the state itself renderable, which is criterion 5 of task 7.85.
+
+    BACK-COMPAT IS REQUIRED, NOT BEST-EFFORT: a file written before this change must still read
+    correctly (its state token is already the first word after `owner:`), and an UNRECOGNISED state
+    — hand-edited, or from a newer writer — degrades honestly: it is reported as the state it says,
+    marked unknown, with the raw line preserved. Vanishing would be worse than being wrong.
+    """
+    raw, state, since, note = "", "unknown", "", ""
     path = base / "owner-status.md"
-    if not path.exists():
-        return "unknown"
-    for ln in path.read_text(encoding="utf-8").splitlines():
-        if ln.startswith("owner:"):
-            return ln[len("owner:"):].strip()
-    return "unknown"
+    if path.exists():
+        for ln in path.read_text(encoding="utf-8").splitlines():
+            if ln.startswith("owner:"):
+                raw = ln[len("owner:"):].strip()
+                break
+    if raw:
+        head, sep, tail = raw.partition("|")
+        state = head.strip() or "unknown"
+        rest = tail.strip() if sep else ""
+        # The writer's shape is `since {ts}[ — {note}]`. The note delimiter is an EM DASH, which
+        # is also legal inside a note; partition on the FIRST one, which is the writer's.
+        if rest.startswith("since"):
+            rest = rest[len("since"):].strip()
+        since, _, note = (p.strip() for p in rest.partition("—"))
+    return {
+        "state": state,
+        "since": since,
+        "note": note,
+        "raw": raw,
+        "known": state in OWNER_STATES,
+    }
+
+
+def print_owner_status(base, label_width=7):
+    """Render owner state for a consumer. ONE renderer, called by BOTH `status` and `workers`.
+
+    Two consumers rendering this by hand is how the distinction collapsed in the first place, so
+    they share this function rather than each formatting the dict. The MEANING and the ESCALATION
+    ACT come from OWNER_STATES — from code — and the operator note is printed separately and
+    subordinate, so it can be empty without the state becoming ambiguous.
+    """
+    st = owner_status(base)
+    meaning, act = OWNER_STATES.get(st["state"], OWNER_STATE_UNKNOWN)
+    tone = C_ALIVE if st["state"] == "present" else (C_LABEL if st["known"] else C_DEAD)
+    head = c("owner:".ljust(label_width), C_LABEL)
+    since = f" | since {st['since']}" if st["since"] else ""
+    unknown = "" if st["known"] else "  (UNRECOGNISED STATE — reported verbatim, not translated)"
+    pad = " " * (label_width + 1)
+    print(f"{head} {c(st['state'], tone)}{since}{unknown}")
+    print(f"{pad}{meaning}")
+    print(f"{pad}escalation: {act}")
+    if st["note"]:
+        print(f"{pad}note (operator, not the carrier): {st['note']}")
 
 
 def cmd_owner(args):
@@ -3472,9 +3556,17 @@ def cmd_owner(args):
     note = f" — {args.note}" if args.note else ""
     with coord_lock(base):
         atomic_write(base / "owner-status.md",
-                     "# owner-status — script-managed (coord.py owner <present|afk>)\n"
+                     "# owner-status — script-managed (coord.py owner "
+                     f"<{'|'.join(OWNER_STATES)}>)\n"
                      f"owner: {args.state} | since {now()}{note}\n")
     print(f"owner is now: {args.state}{note}")
+    # Echo the MEANING and the ESCALATION ACT back at the setter, from the same table every reader
+    # renders. The leader set `present` at 16:5x and then spent a long note explaining that it did
+    # NOT mean "escalate now" — a setter shown what the value it just wrote will TELL EVERY READER
+    # is a setter given the chance to notice it picked the wrong one (task 7.85, criterion 3).
+    _meaning, _act = OWNER_STATES.get(args.state, OWNER_STATE_UNKNOWN)
+    print(f"  means:      {_meaning}")
+    print(f"  escalation: {_act}")
     # G-181: this used to coach `send all "owner is ..." --type note`, which the tool REFUSES
     # twice over (positional body, then `a note is never an all broadcast`). Adding --inline would
     # have silenced a substring check while the command stayed refused. But the deeper reason not
@@ -3500,7 +3592,7 @@ def cmd_workers(args):
     base = base_dir(args)
     _, _, rows = load_workers(base)
     nonmembers, addr_errors = addressable_nonmembers(args, base)
-    print(f"{c('owner:', C_LABEL)} {owner_status(base)}")
+    print_owner_status(base, label_width=6)
     # Listed SEPARATELY from the roster, never merged into it: these are not seats, hold no row,
     # and must never be counted in a census, a cap or a sweep. Shown at all because a name that
     # resolves invisibly is its own kind of fail-silent — and the errors are shown for the same
@@ -4808,7 +4900,7 @@ def cmd_status(args):
         pane_state, pane_tone = "ok", C_ALIVE
     print(f"{c('pane:  ', C_LABEL)} {row['pane'] or '-'} ({c(pane_state, pane_tone)})")
     print(f"{c('work:  ', C_LABEL)} {truncate(row['summary'], 120)}")
-    print(f"{c('owner: ', C_LABEL)} {owner_status(base)}")
+    print_owner_status(base, label_width=7)
     _, blocks = load_messages(base)
     tail = blocks[-1]["num"] if blocks else 0
     cursor = int(row["lastread"]) if row["lastread"].isdigit() else 0
@@ -7461,6 +7553,164 @@ def _selftest_checks(args, failures, names):
         out = run(cmd_owner, state="afk", note="dinner")
         check("gate: owner ACCEPTS an unresolvable identity — that caller is the human owner",
               "owner is now: afk" in out)
+        run(cmd_owner, agent="leader", state="present", note="back")
+
+        # ---- 7.85: the THIRD owner state, and the control that can actually fail ----------------
+        # ⚠ A ROW ASSERTING `"reachable" in choices` WOULD BE VACUOUS: it proves the enum accepts a
+        # word, not that any consumer renders it. These rows assert on the RENDERED OUTPUT of the
+        # two surfaces a seat actually queries, `status` and `workers`.
+        #
+        # ⚠⚠ AND THE NOTE IS EMPTY THROUGHOUT. That is what makes this evidence rather than
+        # theatre: with a note, `reachable` and `afk` would differ because someone wrote prose,
+        # which is the defect the row exists to fix (criterion 6). If they still differ with NO
+        # note, the carrier is the code.
+        def owner_block(text):
+            """The owner lines only, WITH THE TIMESTAMP REMOVED.
+
+            ⚠ WITHOUT THE STRIPPING THIS CHECK IS VACUOUS AND LOOKS FINE: every `owner` write
+            stamps `| since {now()}`, so three renders taken in sequence differ from each other
+            whatever the state does — the comparison would pass against a build where all three
+            states rendered identically. The timestamp is noise for this question and is removed
+            before anything is compared.
+            """
+            lines = text.splitlines()
+            for i, ln in enumerate(lines):
+                if ln.startswith("owner:"):
+                    blk = [ln.split("| since")[0].rstrip()]
+                    for nxt in lines[i + 1:]:
+                        if not nxt.startswith(" "):
+                            break
+                        blk.append(nxt.rstrip())
+                    return "\n".join(blk)
+            return ""
+
+        def owner_renders(state, note=""):
+            run(cmd_owner, agent="leader", state=state, note=note)
+            return (owner_block(run(cmd_status, agent="alpha")),
+                    owner_block(run(cmd_workers, full=False, history=False)))
+
+        def coded(block):
+            """The SEMANTIC lines only — the render minus its `owner: <state>` header line.
+
+            ⚠⚠ MEASURED, NOT REASONED, AND IT COST THIS ROW ITS FIRST VERSION: comparing the WHOLE
+            block is VACUOUS. I ran the pre-7.85 renderer (one opaque string, printed raw) against
+            this suite as a mutant, and the two distinctness rows PASSED — because that string
+            BEGINS WITH THE STATE TOKEN, so `owner: reachable ...` and `owner: afk ...` differ
+            textually whatever the code does with them. A build that never learned what the third
+            state MEANS satisfies "renders differently" for free.
+            ⇒ THE DISCRIMINATING PROPERTY IS NOT THAT THE THREE RENDERS DIFFER — IT IS THAT EACH
+            CARRIES ITS OWN MEANING AND ESCALATION ACT, FROM THE TABLE. That is what the old code
+            could not do at any note setting, and it is what criterion 5 is actually asking for.
+            Never widen this back to the whole block: the row goes green and stops testing.
+            """
+            return "\n".join(block.splitlines()[1:])
+
+        st_r, wk_r = owner_renders("reachable")
+        st_p, wk_p = owner_renders("present")
+        st_a, wk_a = owner_renders("afk")
+        check("7.85 criterion 5: all three owner states render DISTINCT SEMANTICS through `status` "
+              "— compared on the CODED lines, with an EMPTY note, so the carrier is proven to be "
+              "the code and not the prose. A state that renders identically to `afk` has not been "
+              "added, whatever the enum accepts",
+              all(coded(b) for b in (st_r, st_p, st_a))
+              and len({coded(st_r), coded(st_p), coded(st_a)}) == 3)
+        check("7.85 criterion 5: and DISTINCTLY through `workers` too — the other surface a seat "
+              "queries. One consumer rendering the state is not the state being renderable; both "
+              "printed the same opaque line before this",
+              all(coded(b) for b in (wk_r, wk_p, wk_a))
+              and len({coded(wk_r), coded(wk_p), coded(wk_a)}) == 3)
+        check("7.85 criterion 3: the ESCALATION ACT is carried by the render, not by the note — "
+              "`reachable` tells a reader to launch the door, with no note written anywhere",
+              "LAUNCH THE DOOR" in st_r and "LAUNCH THE DOOR" in wk_r
+              and "LAUNCH THE DOOR" not in st_a and "LAUNCH THE DOOR" not in st_p)
+        # ⚠ THE ANTI-VACUITY CONTROL, and it is the reason the three rows above mean anything: the
+        # SAME state rendered twice must come back BYTE-IDENTICAL. If it does not, `owner_block` is
+        # leaking something that varies per call (a timestamp, a cursor, a lag column) and every
+        # "they differ" row above would pass on that noise alone, against any build.
+        st_a2, wk_a2 = owner_renders("afk")
+        check("7.85 control: the same state rendered twice is BYTE-IDENTICAL in both surfaces — "
+              "so the distinctness rows above are reading the STATE and not per-call noise. "
+              "Without this, three renders taken in sequence always differ and the check is blind",
+              (st_a, wk_a) == (st_a2, wk_a2))
+        st_n, wk_n = owner_renders("afk", note="dinner")
+        check("7.85 criterion 6: a note is ADDITIVE and subordinate — it appears in the render, "
+              "and the state and escalation lines are unchanged by it. The note may inform; it may "
+              "never be what distinguishes one state from another",
+              "dinner" in st_n and "dinner" in wk_n
+              and st_a.splitlines()[:3] == st_n.splitlines()[:3])
+        check("7.85 criterion 4: `present` and `afk` still mean exactly what they meant — "
+              "escalate now / queue them — and the help says so from the same table the "
+              "consumers render, so it cannot drift from behaviour",
+              "escalated NOW" in st_p and "do NOT page" in st_a)
+        # BACK-COMPAT: a file written before this change, and one hand-edited past it. Both must
+        # read; neither may vanish. `owner_status` is now a parser, and a parser that silently
+        # returns nothing on an unrecognised line is worse than one that reports honestly.
+        legacy = base_dir(ns()) / "owner-status.md"
+        legacy.write_text("# owner-status — script-managed (coord.py owner <present|afk>)\n"
+                          "owner: afk | since 2026-01-01 10:00 — back in 2h\n", encoding="utf-8")
+        parsed = owner_status(base_dir(ns()))
+        check("7.85 back-compat: a LEGACY owner-status.md (written by the two-state writer) still "
+              "parses — state, since and note all recovered, not one opaque string",
+              parsed["state"] == "afk" and parsed["since"] == "2026-01-01 10:00"
+              and parsed["note"] == "back in 2h" and parsed["known"])
+        legacy.write_text("owner: on-a-call | since 2026-01-01 10:00\n", encoding="utf-8")
+        out = run(cmd_status, agent="alpha")
+        parsed = owner_status(base_dir(ns()))
+        check("7.85: an UNRECOGNISED state degrades HONESTLY — reported verbatim and flagged, "
+              "never dropped and never silently translated into a known value. A hand-edited or "
+              "newer-writer file must not read as `unknown` or vanish",
+              parsed["state"] == "on-a-call" and not parsed["known"]
+              and "on-a-call" in out and "UNRECOGNISED" in out)
+        # ⚠ THESE TWO ROWS EXIST BECAUSE A MUTANT SHOWED THE OTHERS COULD NOT SEE THIS: every row
+        # above calls the command FUNCTION directly, which never goes through argparse — so with
+        # `reachable` deleted from OWNER_STATES, `owner reachable` still "worked" in the suite
+        # while the real CLI would have refused it. Criterion 1 is that the state is first-class AT
+        # THE CLI, so it is asserted at the PARSER, which is where a seat actually meets it.
+        def parses(argv):
+            """Does the REAL parser accept this command line? Public API, no argparse internals —
+            argparse exits on a bad choice, so SystemExit IS the refusal."""
+            buf = io.StringIO()
+            try:
+                with redirect_stdout(buf), redirect_stderr(buf):
+                    return build_parser().parse_args(argv).state
+            except SystemExit:
+                return None
+
+        # ⚠⚠ THE LITERAL `"reachable"` BELOW IS DELIBERATE AND MUST NOT BE "TIDIED" INTO A LOOP
+        # OVER OWNER_STATES. MEASURED: the first version of this row asserted only that the parser
+        # accepts exactly the table's keys — and when a mutant DELETED `reachable` FROM THE TABLE,
+        # the row still PASSED, because both sides of the comparison moved together. A check
+        # written entirely in terms of the thing it checks cannot see that thing go missing.
+        # The derived half proves choices track the table; the literal half proves WHICH states.
+        check("7.85 criterion 1: the third state is first-class AT THE CLI — the REAL parser "
+              "accepts `owner reachable` BY NAME, accepts the other two, and rejects a word that "
+              "is not a state. Asserted by PARSING, not by reading `choices` off the action object",
+              parses(["owner", "reachable"]) == "reachable"
+              and parses(["owner", "present"]) == "present"
+              and parses(["owner", "afk"]) == "afk"
+              and [parses(["owner", s]) for s in OWNER_STATES] == list(OWNER_STATES)
+              and parses(["owner", "at-pc"]) is None)
+        _help = "; ".join(f"{k} = {v[0]}" for k, v in OWNER_STATES.items())
+        _owner_help = ""
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf), redirect_stderr(buf):
+                build_parser().parse_args(["owner", "--help"])
+        except SystemExit:
+            _owner_help = buf.getvalue()
+        check("7.85 criterion 2: `--help` states each state's meaning FROM THE SAME TABLE the "
+              "consumers render — a reader tells 'escalate now' from 'queue them' from "
+              "'reachable in one act' without out-of-band knowledge, and the help cannot go stale "
+              "against behaviour because there is only one home for both. Read off the REAL "
+              "`--help` output, not off the string that was passed in",
+              all(f"{k} = {v[0]}" in " ".join(_owner_help.split())
+                  for k, v in OWNER_STATES.items())
+              and "NARROWING" in _owner_help)
+        legacy.unlink()
+        out = run(cmd_status, agent="alpha")
+        check("7.85: a MISSING owner-status.md reports `unknown` with no escalation path claimed — "
+              "the state was never recorded, which is not the same as the owner being away",
+              "unknown" in out and "no owner state has been recorded" in out)
         run(cmd_owner, agent="leader", state="present", note="back")
 
         # ---- T3: recipient validation, length guard, file/stdin bodies ----
@@ -10550,11 +10800,19 @@ def build_parser():
         "Record whether the owner is at the keyboard. Workers were inferring it and getting it\n"
         "wrong (P15), so it is stated instead. Leader's to set — or the owner's own, from a\n"
         "shell outside any seat.",
+        "⚠ NARROWING (task 7.85): `afk` used to carry the door-closed case too, because it was the\n"
+        "least-wrong of two values. It no longer does — that case is `reachable`. `present` and\n"
+        "`afk` mean exactly what they always meant; what changed is that neither has to stretch.\n"
         "example:\n"
         "  coordinate owner afk --note \"back in 2h\"\n"
+        "  coordinate owner reachable        # at the PC, no door running — no note needed\n"
         "next: nothing to send — coordinate status and workers report it from the surface\n"
         "      this command just wrote; a hand-typed copy is a second answer that can disagree")
-    s.add_argument("state", choices=["present", "afk"], help="present = rulings can be escalated now; afk = queue them")
+    # ⚠ choices AND help are DERIVED from OWNER_STATES — never re-spelled here. A hand-written
+    # `choices=[...]` beside a hand-written help string is two more places for the state set to
+    # drift from what the consumers actually render.
+    s.add_argument("state", choices=list(OWNER_STATES),
+                   help="; ".join(f"{k} = {v[0]}" for k, v in OWNER_STATES.items()))
     s.add_argument("--note", default="", help="optional context, e.g. 'back in 2h'")
     add_identity_flags(s)
     s.set_defaults(func=cmd_owner)
