@@ -45,7 +45,25 @@ function liveStorePath() {
   return fs.existsSync(p) ? p : null;
 }
 
-function legacyFixture(label) {
+// ⚠⚠ TWO FIXTURES, BECAUSE THIS PROBE ASKS TWO QUESTIONS AND ONE STORE CAN NO LONGER ANSWER BOTH.
+//
+// It used to have one — a copy of the live store — which satisfied both preconditions only because
+// the live store happened to be unstamped. On 2026-07-28 the owner ratified MIGRATION_SESSION_SPLIT
+// and the daemon restarted; the live store is now user_version 2. Its own guard fired
+// ("else this probe tests nothing"), correctly, and two checks went red.
+//
+// ⚠ THE CONDITION IS ONE-WAY: A STORE THAT HAS BEEN ADOPTED IS NEVER PRE-VERSIONING AGAIN. So this
+// is not a fixture that went stale and can be refreshed — the world stopped supplying that input,
+// permanently. The repair is to ESTABLISH the precondition rather than sample it:
+//
+//   · existingStoreFixture() — a store that ALREADY EXISTS, real schema and real rows, at whatever
+//     version it is at. This is G-135's subject: a schema change must reach a store schema.sql
+//     cannot touch. LIVE COPY when this box has one, and it must stay a live copy — fresh is the
+//     one shape on which G-135's bug is invisible.
+//   · preVersioningFixture() — a store that has NEVER been stamped, at the PRE-SPLIT shape.
+//     SYNTHESIZED, necessarily and permanently, and the output says so rather than implying live
+//     coverage it did not have.
+function existingStoreFixture(label) {
   const dest = path.join(tmp, label + '.db');
   const live = liveStorePath();
   if (live) {
@@ -54,21 +72,59 @@ function legacyFixture(label) {
     const src = new DatabaseSync(live, { readOnly: true });
     src.exec(`VACUUM INTO '${dest.replace(/'/g, "''")}'`);
     src.close();
-    // A real store predates versioning, so it carries user_version 0 already. Assert rather than
-    // assume — if a future live store is already stamped, this fixture stops being "legacy" and
-    // the probe must say so instead of quietly testing nothing.
     const chk = new DatabaseSync(dest, { readOnly: true });
     const v = Number(chk.prepare('PRAGMA user_version').get().user_version || 0);
     const rows = Number(chk.prepare('SELECT count(*) AS n FROM jobs_log').get().n || 0);
     chk.close();
     return { path: dest, source: 'LIVE COPY', version: v, rows };
   }
-  // No live store on this machine: synthesise one shaped like a pre-versioning store.
+  // No live store on this box: synthesise one that already exists. It is a WEAKER fixture for
+  // G-135 (no real rows, no real history) and the output must not imply otherwise.
   const db = new DatabaseSync(dest);
   db.exec(SCHEMA_SQL);
-  db.exec('PRAGMA user_version = 0');
   db.close();
-  return { path: dest, source: 'SYNTHETIC (no live store on this box)', version: 0, rows: 0 };
+  const chk = new DatabaseSync(dest, { readOnly: true });
+  const v = Number(chk.prepare('PRAGMA user_version').get().user_version || 0);
+  chk.close();
+  return { path: dest, source: 'SYNTHETIC (no live store on this box)', version: v, rows: 0 };
+}
+
+// A store as it was BEFORE any migration ran: tables present, never stamped, and without the
+// artifacts migration 2 adds — because a store that predates a migration is, by definition, one
+// that does not already carry its result. Built by removing those two declarations from schema.sql,
+// exactly as § 3 below edits schema.sql to reproduce the pre-fix path.
+//
+// ⚠ THE STRIP IS ASSERTED, NOT ASSUMED (`shape` below, checked in § 1). If schema.sql is reworded
+// so a pattern stops matching, the fixture silently becomes post-split, migration 2 becomes a no-op
+// on it, and the adoption checks would keep passing while covering nothing — this probe's own
+// history, in which two checks passed against a migration that never ran.
+function preVersioningFixture(label) {
+  const dest = path.join(tmp, label + '.db');
+  const preSplit = SCHEMA_SQL
+    .replace(/CREATE TABLE IF NOT EXISTS sessions \([\s\S]*?\n\);\n/, '')
+    .replace(/CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions\(status\);\n/, '')
+    .replace(/^\s*session_pk\s+INTEGER REFERENCES sessions\(session_pk\),\n/m, '');
+  const db = new DatabaseSync(dest);
+  db.exec(preSplit);
+  // Real turn rows, spanning the statuses migration 2's backfill maps differently (`done` closes a
+  // session, `failed` crashes one, `killed` is the lossy case, `running` stays alive) — so
+  // "adoption did not touch the data" is a claim about rows that exist.
+  const ins = db.prepare(
+    'INSERT INTO jobs_log (job_id, action_type, args, enqueued_by, fired_tick, fired_at, status) '
+    + "VALUES ('probe-legacy-job', 'launch-agent', '{}', 'probe-owner', 0, '2026-07-01T00:00:00Z', ?)"
+  );
+  for (const s of ['done', 'failed', 'killed', 'running']) ins.run(s);
+  db.exec('PRAGMA user_version = 0');
+  const shape = {
+    sessionsTable: db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='sessions'").get().n > 0,
+    sessionPkColumn: db.prepare('PRAGMA table_info(jobs_log)').all().some((r) => r.name === 'session_pk'),
+  };
+  const rows = Number(db.prepare('SELECT count(*) AS n FROM jobs_log').get().n || 0);
+  db.close();
+  const chk = new DatabaseSync(dest, { readOnly: true });
+  const v = Number(chk.prepare('PRAGMA user_version').get().user_version || 0);
+  chk.close();
+  return { path: dest, source: 'SYNTHETIC pre-versioning, pre-split (the live store is adopted and can never supply this again)', version: v, rows, shape };
 }
 
 // Opens a store the way HeartStore's constructor does, with an optional extra migration appended.
@@ -89,7 +145,8 @@ function open(dbPath, extraMigration) {
   return { db, res, fresh };
 }
 
-const fx = legacyFixture('legacy');
+const fx = existingStoreFixture('existing');
+const lg = preVersioningFixture('preversioning');
 // ⚠ A PRISTINE, UNMIGRATED COPY, taken before anything opens `fx.path`. The first version of this
 // probe copied its later fixtures FROM fx.path after the add-column test had already walked it to
 // version 2 — so the doomed migration was numbered at-or-below the store's own version, was
@@ -98,28 +155,44 @@ const fx = legacyFixture('legacy');
 const pristine = path.join(tmp, 'pristine.db');
 fs.copyFileSync(fx.path, pristine);
 out(`COMMAND: node ${path.relative(process.cwd(), __filename)}`);
-out(`FIXTURE: ${fx.source} — user_version ${fx.version}, jobs_log rows ${fx.rows}`);
+out(`FIXTURE (G-135, §2-§5): ${fx.source} — user_version ${fx.version}, jobs_log rows ${fx.rows}`);
+out(`FIXTURE (adoption, §1): ${lg.source} — user_version ${lg.version}, jobs_log rows ${lg.rows}`);
 out('');
 
-// ---- 1 · the legacy store is adopted, not rebuilt ----------------------------------------
+// ---- 1 · the pre-versioning store is adopted, not rebuilt ---------------------------------
+// Runs on the PRE-VERSIONING fixture, never on the live copy: adoption is a claim about a store
+// that was never stamped, and the live store has been stamped since the owner's ratification.
 check('the fixture really is a pre-versioning store (user_version 0) — else this probe tests nothing',
-  fx.version === 0, `user_version=${fx.version}`);
+  lg.version === 0, `user_version=${lg.version}`);
+check('and it really predates the split — no sessions table, no session_pk column, else migration 2 is a no-op on it and this section covers nothing',
+  lg.shape.sessionsTable === false && lg.shape.sessionPkColumn === false,
+  `sessionsTable=${lg.shape.sessionsTable} session_pk=${lg.shape.sessionPkColumn}`);
 check('the fixture is NOT fresh — it already has tables, which is the case schema.sql cannot reach',
-  (() => { const d = new DatabaseSync(fx.path); const f = isFreshStore(d); d.close(); return !f; })());
+  (() => { const d = new DatabaseSync(lg.path); const f = isFreshStore(d); d.close(); return !f; })());
 
-let a = open(fx.path);
+let a = open(lg.path);
 check('opening an existing store walks it forward and STAMPS it', a.res.to === LATEST,
   `from=${a.res.from} to=${a.res.to} applied=[${a.res.applied}]`);
 check('adoption ran the baseline migration rather than assuming the store was current',
   a.res.applied.includes(1), `applied=[${a.res.applied}]`);
 const rowsAfter = Number(a.db.prepare('SELECT count(*) AS n FROM jobs_log').get().n || 0);
-check('adoption did not touch the data', rowsAfter === fx.rows, `rows ${fx.rows} -> ${rowsAfter}`);
+check('adoption did not touch the data', rowsAfter === lg.rows, `rows ${lg.rows} -> ${rowsAfter}`);
+check('adoption REALLY RAN THE SPLIT on it: every pre-split turn now carries a session',
+  Number(a.db.prepare('SELECT count(*) AS n FROM jobs_log WHERE session_pk IS NULL').get().n || 0) === 0,
+  `unlinked turns=${a.db.prepare('SELECT count(*) AS n FROM jobs_log WHERE session_pk IS NULL').get().n}`);
 a.db.close();
 
-const b = open(fx.path);
+const b = open(lg.path);
 check('re-opening is a no-op — migrations are not re-applied on every start',
   b.res.applied.length === 0 && b.res.from === LATEST, `applied=[${b.res.applied}]`);
 b.db.close();
+
+// The G-135 fixture's own precondition — it must be a store that ALREADY EXISTS, or § 2 below is
+// asserting nothing. (Its VERSION is deliberately unconstrained: a real store advances, and
+// pinning it here is what put this probe in the ruling that produced this repair.)
+check('the G-135 fixture is a store that ALREADY EXISTS (not fresh) — fresh is the one shape on which the defect is invisible',
+  (() => { const d = new DatabaseSync(fx.path); const f = isFreshStore(d); d.close(); return !f; })(),
+  `source=${fx.source}`);
 
 // ---- 2 · A REAL SCHEMA CHANGE REACHES AN EXISTING STORE — the defect itself ---------------
 // This is the check G-135 exists for. It must run against the legacy copy, never a fresh store.
@@ -232,7 +305,9 @@ function userVersionOf(p) {
 const passed = checks.filter((c) => c.pass).length;
 out('');
 out(`CHECKS: ${passed}/${checks.length} passed`);
-out(`FIXTURE WAS: ${fx.source}`);
+// Both fixtures, because a reader diagnosing a red needs to know WHICH store the failing section
+// ran against — naming only one is how the last red read as a defect in the other.
+out(`FIXTURE WAS: G-135 §2-§5 = ${fx.source} (user_version ${fx.version}, ${fx.rows} rows) | adoption §1 = ${lg.source}`);
 out(`EXIT: ${passed === checks.length ? 0 : 1}`);
 out(`WALL_MS: ${Date.now() - started}`);
 fs.rmSync(tmp, { recursive: true, force: true });
