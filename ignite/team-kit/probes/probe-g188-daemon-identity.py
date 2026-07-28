@@ -128,6 +128,12 @@ def main():
         watch.subprocess.run = fake_systemctl("", returncode=1, stderr="Failed to connect to bus")
         d = watch.daemon_identity()
         check("non-zero exit yields unknown", d.get("state") == "unknown")
+        # ⚠ THE VERDICT ALONE WAS VACUOUS AND THE GUARD SWEEP PROVED IT. With `if out.returncode != 0`
+        # neutralized, empty stdout falls through to the NO-LoadState guard and STILL returns
+        # `unknown` — so this arm passed while the guard it names was gone. The verdict was satisfied
+        # by a DIFFERENT PATH. ⇒ Assert the REASON, which only the intended guard can produce.
+        check("...and the REASON names the exit status, so a fallback path cannot satisfy it",
+              "exited 1" in (d.get("why") or ""), repr(d.get("why"))[:70])
 
         def boom(*a, **k):
             raise OSError("no systemctl on this box")
@@ -395,6 +401,21 @@ def main():
             (ws / ".rbtv" / "runtime" / "daemon-code.json").write_text("{not json")
             v, why = watch.daemon_code_state(ws, LIVE)
             check("a CORRUPT marker is UNKNOWN, never a crash", v == "unknown", why[:50])
+            # The guard sweep showed `if not isinstance(marker, dict)` was UNREACHED by any check:
+            # invalid JSON is caught earlier by the decode guard, so nothing ever supplied a marker
+            # that PARSES but is not an object. A bare list does.
+            (ws / ".rbtv" / "runtime" / "daemon-code.json").write_text("[]")
+            # Wrapped so a REGRESSION here reads as a clean FAIL rather than taking the probe down.
+            # Verified: with the isinstance guard neutralized this path raises, and an unwrapped call
+            # made the whole probe crash — detection, but the kind a reader mistakes for "the probe is
+            # broken" instead of "the code is". Same distinction this seat insists on elsewhere:
+            # INOPERATIVE and FAILED are different claims and must look different.
+            try:
+                v, why = watch.daemon_code_state(ws, LIVE)
+            except Exception as exc:  # noqa: BLE001
+                v, why = "raised", f"{exc.__class__.__name__}: {exc}"
+            check("a marker that parses but is NOT an object is UNKNOWN, not a crash",
+                  v == "unknown" and "not an object" in why, f"{v}: {why[:44]}")
             (ws / ".rbtv" / "runtime" / "daemon-code.json").write_text(json.dumps(
                 {"invocation": "INV-LIVE", "root": str(ws), "code": {"entries": {}}}))
             v, why = watch.daemon_code_state(ws, LIVE)
@@ -532,8 +553,8 @@ def main():
     if FAILED:
         print("FAILED: " + "; ".join(FAILED))
         return 1
-    if len(PASSED) < 95:
-        print(f"INOPERATIVE: only {len(PASSED)} checks ran; this probe asserts at least 95")
+    if len(PASSED) < 97:
+        print(f"INOPERATIVE: only {len(PASSED)} checks ran; this probe asserts at least 97")
         return 2
     return 0
 
