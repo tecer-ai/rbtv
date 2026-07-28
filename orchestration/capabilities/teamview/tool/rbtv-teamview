@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# rbtv-teamview — thin wrapper so the dashboard runs from anywhere on PATH.
+#
+# v1 exposure stand-in (core-build task 7.40). The implementation stays at
+# orchestration/cli/teamview/ by rbtv/CLAUDE.md § CLI Tool Placement, which names
+# that path explicitly and rules it stays put until the Phase-6 migration
+# materializes the CMP-5 tree. When that move happens, THIS FILE is the one that
+# changes. Same shape as ignite/capabilities/goals-tree/tool/rbtv-goal.
+#
+# cwd is preserved through the exec deliberately: teamview resolves its run
+# package by walking UP from the caller's directory when --package is absent.
+set -euo pipefail
+here="$(dirname "$(readlink -f "$0")")"
+target="$here/../../../cli/teamview/teamview.py"
+if [ ! -f "$target" ]; then
+  echo "rbtv-teamview: implementation not found at $target" >&2
+  echo "  (this wrapper resolves it relative to its own location; if the Phase-6" >&2
+  echo "   migration moved orchestration/cli/teamview/, repoint this wrapper.)" >&2
+  exit 2
+fi
+exec python3 "$target" "$@"

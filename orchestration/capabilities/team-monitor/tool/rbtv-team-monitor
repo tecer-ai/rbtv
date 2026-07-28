@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# rbtv-team-monitor — thin wrapper so the sensor runs from anywhere on PATH.
+#
+# v1 exposure stand-in (core-build task 7.40). The implementation stays at
+# orchestration/cli/team-monitor/ by rbtv/CLAUDE.md § CLI Tool Placement, which
+# rules the off-tree orchestration CLIs stay put until the Phase-6 migration
+# materializes the CMP-5 tree. When that move happens, THIS FILE is the one that
+# changes. Same shape as ignite/capabilities/goals-tree/tool/rbtv-goal.
+set -euo pipefail
+here="$(dirname "$(readlink -f "$0")")"
+target="$here/../../../cli/team-monitor/team_monitor.py"
+if [ ! -f "$target" ]; then
+  echo "rbtv-team-monitor: implementation not found at $target" >&2
+  echo "  (this wrapper resolves it relative to its own location; if the Phase-6" >&2
+  echo "   migration moved orchestration/cli/team-monitor/, repoint this wrapper.)" >&2
+  exit 2
+fi
+exec python3 "$target" "$@"
