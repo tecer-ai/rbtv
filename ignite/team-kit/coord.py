@@ -6889,6 +6889,36 @@ def _selftest_checks(args, failures, names):
               "a pane into the window its old pane occupied (the control panel)",
               "%6" in killed and split_targets == ["@7"] and "renewed: leader" in out)
 
+        # ---- guard sweep, slice 1 site 5: the transcript export on CLOSE-SEAT ----
+        # ⚠ `cmd_checkout`'s export is covered in BOTH directions further down — and that is the
+        # NON-DESTRUCTIVE verb. `close-seat` KILLS THE PANE, so its export is the last chance the
+        # record ever gets, and it was asserted by nothing: every close-seat in this suite passes
+        # `no_export=True` except two renews that pass False and then assert only rows, kills and
+        # relaunch text. The covered sibling is the one that destroys nothing; the uncovered one
+        # is the one that destroys the pane. Same shape as the drift gate and the wake abort.
+        # This run's own standing bar — preserve a dying seat's transcript BEFORE any
+        # `close-seat --no-export` — rests on this guard behaving in both directions.
+        (pkg / "workers" / "xp").mkdir(exist_ok=True)
+        (pkg / "workers" / "xp" / "agent.md").write_text(
+            "---\nagent: xp\nharness: claude\nmodel: opus\n---\nbrief\n")
+        xp_tr = pkg / "workers" / "xp" / "transcripts"
+        run(cmd_checkin, agent="xp", summary="export probe", pane="%41")
+        run(cmd_close_seat, agent="leader", target="xp", renew=False, no_export=False)
+        check("close-seat EXPORTS the seat's transcript before killing its pane — the pane is the "
+              "only place the scrollback lives, so a close that skips the export destroys the "
+              "record with no second chance. `checkout` is covered for this and destroys nothing; "
+              "the verb that kills was not",
+              xp_tr.is_dir() and len(list(xp_tr.glob("*-xp-close.txt"))) == 1)
+        _xp_before = len(list(xp_tr.glob("*.txt")))
+        run(cmd_checkin, agent="xp", summary="export probe again", pane="%41")
+        _xo = run(cmd_close_seat, agent="leader", target="xp", renew=False, no_export=True)
+        check("close-seat --no-export SKIPS it — the escape exists for a pane that is already "
+              "dead, where a capture attempt reports a failure about a seat that ended normally. "
+              "Asserted so the flag cannot silently become a no-op and start exporting anyway",
+              len(list(xp_tr.glob("*.txt"))) == _xp_before and "transcript:" not in _xo)
+        import shutil as _sh
+        _sh.rmtree(pkg / "workers" / "xp")
+
         # ---- G-10/G-11/G-12 on the real command paths (2026-07-27 close/renew ceremony) ----
         # Fixture hygiene: this block uses probe-* names and restores alpha's row at the end, so it
         # cannot consume a row a later check needs (it did once — the suite died on an unrelated
@@ -6930,7 +6960,41 @@ def _selftest_checks(args, failures, names):
               "landed and no harness came up; here the wake itself failed, and the seat must not "
               "be reported launched on the strength of a pane existing",
               "FAILED" in _ko and "harness start FAILED" in _ko and _kc == 1)
+
+        # ---- guard sweep, slice 1 sites 6-7: a CLOSER that never booted must not open CLOSING --
+        # `cmd_close` sets the CLOSING state only after the closer is verified up, and its own
+        # comment says why: setting it earlier "would narrow a live seat's inbox on the strength of
+        # a closer that might never have started — which is exactly how G-11 burned seven minutes
+        # of this run on a closer that was only ever a shell". Both failure guards that protect
+        # that ordering — the wake, and the harness-up verify — were asserted by NOTHING: every
+        # cmd_close in this suite runs the happy path. The assertion that matters is not the exit
+        # code, it is that THE TARGET IS NOT LEFT CLOSING: an inbox narrowed for an absent closer
+        # is a live seat cut off from the room with nobody coming to close it.
+        # FIXTURE HYGIENE: a failing close still RESOLVES its closer pane, which creates the
+        # shared 'closers' window as a side effect — and a later row asserts that the FIRST close
+        # of a run is what creates it. Saved and restored so this block cannot consume a window a
+        # later check needs. (It did: that row went red before this restore existed.)
+        _cw_saved = closers_window_pane["v"]
+        wake_ok["v"] = False
+        _co1, _cc1 = refuse(cmd_close, agent="leader", target="alpha", renew=False, dry_run=False)
+        wake_ok["v"] = True
+        check("G-11/G-21: a close whose closer START LINE was never delivered FAILS, and leaves "
+              "the target NOT CLOSING — the state that narrows a live seat's inbox must not open "
+              "on the strength of a pane that exists, or the seat is cut off from the room with "
+              "no closer coming",
+              _cc1 == 1 and "closer launch FAILED" in _co1
+              and closing_entry(base_dir(ns()), "alpha") is None)
+        harness_up["v"] = []            # wake lands, nothing comes up
+        _co2, _cc2 = refuse(cmd_close, agent="leader", target="alpha", renew=False, dry_run=False)
+        check("G-11/G-21: and the same when the wake LANDS but no harness comes up — a distinct "
+              "guard one line later, with the same consequence. The refusal also names the pane "
+              "BY ID to kill, because the pane outlives the failure and nothing else will say "
+              "which one it was",
+              _cc2 == 1 and "NOT closed" in _co2 and "kill-pane" in _co2
+              and closing_entry(base_dir(ns()), "alpha") is None)
         harness_up["v"] = None
+        closers_window_pane["v"] = _cw_saved
+        opened.clear()
 
         # G-12: the renew respawns the seat's own pane instead of killing it and splitting a new
         # one, so an arranged window layout survives. Exercised through the real command.
