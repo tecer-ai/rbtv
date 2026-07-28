@@ -24,8 +24,15 @@
 //     crossings that EXIST; it will never find a missing one.
 //  2. TRANSITIVE CROSSINGS ARE ATTRIBUTED TO THE WRAPPER, NOT THE CONSUMER. `isSlotLiveOrRearmed`
 //     asks its question through `findLiveExecutionForThread` -> `liveTurns()`; the enumerator sees
-//     the crossing at `liveTurns` and the consumer's own question is one hop away and unclassified.
-//     Every wrapper in the manifest is a place where a second question may be hiding.
+//     the crossing at `liveTurns` and the consumer's own question is TWO hops away.
+//     ⚠⚠ THIS BLIND SPOT WAS NOT HYPOTHETICAL AND IS NO LONGER FULLY OPEN. The consumer ladder was
+//     swept to a fixpoint (`FINDING-wrapper-sweep.md`): 11 crossings + 6 at depth 1 + 2 at depth 2,
+//     closing at depth 3 — complete FOR CALLS, which does not make every ROUTE enumerated. All 19
+//     were classified, and the sweep found `G-237` at depth 2: the guard against double-dispatching
+//     a blocked slot, which SPAWNS a second process once a session outlives its turn.
+//     ⇒ THE ENUMERATOR BELOW STILL SEES ONLY DIRECT CROSSINGS. A consumer reached through a wrapper
+//     is invisible to it, so a NEW one appearing at depth 1+ does NOT turn this probe red. That
+//     ladder was swept by hand and is not held closed by any check.
 //  3. ROW EXISTENCE IS NOT ASSERTED, DELIBERATELY. Rule 3 checks a row's FORMAT (`G-<n>`), not that
 //     it exists in a ledger: `issues.md` lives in a run package, not in this repo, so a ledger check
 //     would silently skip in every workspace this probe ships to — and a check that skips where it
