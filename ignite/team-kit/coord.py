@@ -6758,6 +6758,48 @@ def _selftest_checks(args, failures, names):
               "REFUSED" in out and "opsu" in out)
         badf.unlink()
 
+        # ---- r-window-layout, THE LAUNCH-SIDE WIRING (guard sweep, slice 1 site 1) ----
+        # The three r-window-layout rows below test `window_drift` ITSELF, and the close-side row
+        # tests its wiring into `cmd_close_seat`. That close-side row exists because removing the
+        # refusal from cmd_close_seat "left the three rows above green — the helpers were covered
+        # and the path that actually kills was not". THE LAUNCH PATH HAD THE IDENTICAL GAP AND WAS
+        # NEVER SWEPT: nothing drove a drifting window through `launch_seat`, so both halves of its
+        # gate — that it refuses, and that `--force` skips it — were asserted by nothing. Found by
+        # mutation: `if not getattr(args, "force", False)` at launch_seat could be removed and the
+        # suite stayed green. Same seam, same file, diagnosed on one path and not carried to the
+        # other — which is this run's recurring shape, not a new one.
+        drf = pkg / "workers" / "drifty.md"
+        drf.write_text("---\nagent: drifty\nmodel: opus\nwindow: wave-haiky\n---\nbrief\n")
+        opened_pre_drift = len(opened)
+        # `refuse` (not `run`) because the per-seat failure is written to STDERR, and this helper
+        # is the only one that returns both streams. Its exit code is captured and deliberately
+        # NOT asserted — see below.
+        _wo, _wc = refuse(cmd_launch, agent="leader", only="drifty", dry_run=False)
+        check("r-window-layout: the drift gate is WIRED INTO LAUNCH, not only into the predicate — "
+              "a near-miss window stops the seat and NO pane is opened, and the message names the "
+              "window it is one edit from. tmux does not refuse an unrecognised name: it SILENTLY "
+              "OPENS one, so an unwired gate would leave the seat reading as correctly placed "
+              "into furniture nobody ordered",
+              "wave-haiku" in _wo and "FAILED" in _wo
+              and len(opened) == opened_pre_drift)
+        # ⚠ THE EXIT CODE IS DELIBERATELY NOT ASSERTED HERE, and the omission is the finding.
+        # `cmd_launch`'s loop PRINTS `FAILED — <reason>` to stderr and EXITS 0, so a launch in
+        # which every seat was refused still reports success to a caller reading the exit status —
+        # and still prints the reassuring `next: … workers` line. Pre-spawn refusals (PROP-8, the
+        # role and memory gates) all `sys.exit(1)`, so the intent is plainly that a refused launch
+        # is non-zero; the per-seat loop is the one path that does not. Asserting `== 0` here would
+        # encode that as expected behaviour — the G-194(a) trap, a check whose red could only be
+        # cleared by REINTRODUCING the defect. Raised to the leader as a behaviour question
+        # (exit-code semantics are not the engineer's to change); this row asserts only what is
+        # unambiguously correct today: the seat is stopped and no pane opens.
+        _fo2, _fc2 = refuse(cmd_launch, agent="leader", only="drifty", dry_run=False, force=True)
+        check("r-window-layout: and `--force` SKIPS it — the gate is conditional, which is the "
+              "half a mutant removing `if not args.force` silently deleted. An exemption that "
+              "cannot be exercised is untested, and a gate that cannot be overridden is a trap "
+              "(the close-side door row rules the same way)",
+              _fc2 == 0 and len(opened) > opened_pre_drift)
+        drf.unlink()
+
         # ---- v2: transcript export ----
         run(cmd_checkin, agent="gamma", summary="gamma work", pane="%5")
         out = run(cmd_export_transcript, target="gamma", label="test")
