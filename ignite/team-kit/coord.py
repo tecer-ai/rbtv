@@ -6534,6 +6534,45 @@ def _selftest_checks(args, failures, names):
               ("%3", "1") in keys_log and ("%3", "<Enter>") in keys_log
               and "tail-of-%3" in out and "('tail-of-%3'" not in out)
 
+        # ---- guard sweep, slice 2 site 3: `approve`'s OWN precondition ----
+        # The SAME predicate — an ACTIVE roster row plus a pane — is covered where it merely
+        # SKIPS A WAKE (deliver_wakes' 8(b) chain: its `active != yes` and approval-gate branches
+        # both fail their own rows under mutation). Here it AUTHORIZES KEYSTROKES into a pane, and
+        # nothing asserted it. Coverage accreted around the harmless use of the predicate and not
+        # the dangerous one, which is this slice's selection key.
+        # The roster row is the ONLY thing vouching that a pane still belongs to a seat. Approving
+        # against a departed seat is not a no-op: it types into whatever now occupies a pane the
+        # run stopped tracking, which is the owner door's failure mode wearing a different verb.
+        (pkg / "workers" / "apx").mkdir(exist_ok=True)
+        (pkg / "workers" / "apx" / "agent.md").write_text(
+            "---\nagent: apx\nharness: claude\nmodel: opus\n---\nbrief\n")
+        run(cmd_checkin, agent="apx", summary="approval-gate probe", pane="%44")
+        # Departed through the REAL verb, not by hand-writing the row: the state `approve` must
+        # refuse has to be the state `checkout` actually produces, or the check asserts against a
+        # fixture nobody's code can create. The debt checkout records is cleared below, so this
+        # block cannot hand the G-134 section a seat it never set up.
+        run(cmd_checkout, agent="apx", no_export=True)
+        keys_log.clear()
+        _apo, _apc = refuse(cmd_approve, target="apx", keys="1", no_enter=False)
+        check("approve REFUSES a seat that is no longer ACTIVE even though its row still records "
+              "a pane — a checked-out seat's pane is exactly the one that gets reused, and the "
+              "roster is the only thing vouching it is still that seat's. The covered sibling is "
+              "the same predicate deciding whether to skip a WAKE, which destroys nothing",
+              _apc == 1 and "no ACTIVE pane is registered" in _apo
+              and not any(p == "%44" for p, _ in keys_log))
+        run(cmd_checkin, agent="apx", summary="approval-gate probe, no pane", pane="%44")
+        update_row(base_dir(ns()), "apx", lambda r: r.__setitem__("pane", ""))
+        keys_log.clear()
+        _npo, _npc = refuse(cmd_approve, target="apx", keys="1", no_enter=False)
+        check("approve refuses an ACTIVE row with NO pane too — the second disjunct, and a real "
+              "state the wake chain has its own branch for. Without it the keys go to an EMPTY "
+              "target, and tmux resolves that to the caller's own current pane: the approval "
+              "lands on whoever typed it",
+              _npc == 1 and "no ACTIVE pane is registered" in _npo and keys_log == [])
+        clear_awaiting(base_dir(ns()), "apx")
+        import shutil as _sh_ap
+        _sh_ap.rmtree(pkg / "workers" / "apx")
+
         check("run tags: --package use auto-registers; --run resolves; cwd walk-up works",
               load_runs_index().get("pkg") == str(pkg)
               and package_dir(argparse.Namespace(package=None, run="pkg", base=None)) == pkg
@@ -8800,6 +8839,69 @@ def _selftest_checks(args, failures, names):
               "wanting to verify against the live room to override the gate or skip the check. A "
               "gate that manufactures its own breaches bills whoever behaves best (G-106)",
               _oc == 0 and "reap --go" not in _oo)
+
+        # ---- guard sweep, slice 2 sites 1-2: what the KILLING pass reports ----
+        # `reap_blockers`, `confirm_reap` and `awaiting_debts` each have covered rows above, and
+        # the GATE is covered in both directions (`--go` is leader/closer, observing is ungated).
+        # Everything covered is a part that destroys nothing. `cmd_reap`'s own use of those
+        # helpers — the branches deciding what the pane-killing pass says — was asserted by
+        # nothing: the same seam `cmd_close_seat`'s comment names, in the verb that kills.
+        _rp_panes = set(live_tmux_panes["v"])
+        harness_up["v"] = [4242]
+        (pkg / "workers" / "door2").mkdir(exist_ok=True)
+        (pkg / "workers" / "door2" / "agent.md").write_text(
+            "---\nagent: door2\nharness: claude\nmodel: opus\nrelays: master\n---\nbrief\n")
+        _rt = pkg / "reap-probe-transcript.txt"
+        _rt.write_text("scrollback", encoding="utf-8")
+        live_tmux_panes["v"] = {"%81", "%82"}
+        set_awaiting(base_g, "door2", "%81", str(_rt), True)
+        set_awaiting(base_g, "free2", "%82", str(_rt), True)
+        _aw2 = load_awaiting(base_g)
+        for _s in ("door2", "free2"):
+            # Aged past the policy minimum and already confirmed once, so READY is genuinely
+            # REACHABLE here. Without that, a mutant would be stopped one guard later by the
+            # two-pass rule and these rows could not fail whatever the guard did (bar 11).
+            _aw2[_s]["since"] = (datetime.now()
+                                 - timedelta(minutes=REAP_MIN_AGE_MIN + 5)).strftime(
+                                     "%Y-%m-%d %H:%M")
+            _aw2[_s]["confirmed"] = ["2026-01-01 00:00"]
+        atomic_write(awaiting_path(base_g), json.dumps(_aw2, indent=2, sort_keys=True) + "\n")
+        killed.clear()
+        _rpo = run(cmd_reap, agent="leader", go=False)
+        check("G-134/B: an observe pass that found a READY seat ends with the EXACT command that "
+              "frees it, naming the pane — the two-pass rule makes the dry sweep the normal way "
+              "to reach a reap, so a pass that reports a ready seat and no route forward sends "
+              "the reader to improvise the destructive command from memory",
+              "READY to reap" in _rpo and "%82" in _rpo
+              and "reap --go" in _rpo and killed == [])
+        _aw3 = load_awaiting(base_g)
+        _aw3["free2"]["confirmed"] = []
+        atomic_write(awaiting_path(base_g), json.dumps(_aw3, indent=2, sort_keys=True) + "\n")
+        _rpq = run(cmd_reap, agent="leader", go=False)
+        check("G-134/B: and it is SILENT when nothing is READY — a hint printed on every pass is "
+              "one nobody reads, and this one names a command that kills panes",
+              "reap --go" not in _rpq and "READY to reap" not in _rpq)
+        _aw4 = load_awaiting(base_g)
+        for _s in ("door2", "free2"):
+            _aw4[_s]["confirmed"] = ["2026-01-01 00:00"]
+        atomic_write(awaiting_path(base_g), json.dumps(_aw4, indent=2, sort_keys=True) + "\n")
+        killed.clear()
+        _rgo = run(cmd_reap, agent="leader", go=True)
+        check("G-134/B: on the KILLING pass a blocked debt is held WITH ITS REASON NAMED, beside "
+              "an unblocked one that is actually freed — the blocker list is computed for every "
+              "debt and nothing asserted the branch that consumes it. Reporting the owner door as "
+              "'every precondition holds' states the opposite of the one fact that matters about "
+              "it. (The kill itself is separately barred by the two-pass ledger, which resets on "
+              "a blocked pass — this row claims the REPORT, not the kill)",
+              "DOOR, not a leak" in _rgo and "%81" not in killed and "%82" in killed)
+        clear_awaiting(base_g, "door2")
+        clear_awaiting(base_g, "free2")
+        _rt.unlink()
+        _sh_rp = __import__("shutil")
+        _sh_rp.rmtree(pkg / "workers" / "door2")
+        live_tmux_panes["v"] = _rp_panes
+        harness_up["v"] = None
+        killed.clear()
         set_awaiting(base_g, "kappa", "%77", "/tmp/x", True)
         _s1, _r1 = confirm_reap(base_g, "kappa", [])
         _s2, _r2 = confirm_reap(base_g, "kappa", [])
@@ -8901,6 +9003,35 @@ def _selftest_checks(args, failures, names):
         check("G-32: removing a name that is not a member is REFUSED rather than reported as a "
               "change that did not happen",
               code == 1 and "not in group" in out)
+
+        # ---- guard sweep, slice 2 sites 6-7: WHICH closing rule a wake applies ----
+        # Two rows above already assert that a closing seat is cut out of an `all` broadcast and
+        # of a group message — and BOTH send as `alpha`, who is neither the leader nor anyone's
+        # closer, so the direct rule would exclude the seat too. The branch SELECTION is therefore
+        # unasserted: delete either test and both rows stay green. `closing_reaches` is the whole
+        # disagreement, and only the leader (or the seat's own closer) can tell the rules apart.
+        # This is the wake/read disagreement class in its cleanest form: the wake half re-deriving
+        # a scope the read half computes elsewhere.
+        set_closing(base_g, "iota", "closer-iota")
+        _, pre_c1 = load_messages(base_g)
+        mkc1 = pre_c1[-1]["num"]
+        _bo = sd("leader", "all", "m-probe closed", type="verdict", why="milestone")
+        check("G-21/G-32: a closing seat is cut out of an `all` BROADCAST even when the sender is "
+              "the LEADER — the one sender whose DIRECT message still reaches it. Under the "
+              "direct rule the leader's broadcast would WAKE the seat while `read` hid the "
+              "message: the wake and read halves disagreeing about one message",
+              "closing: iota" in _bo
+              and "m-probe closed" not in rd("iota", after=mkc1, peek=True))
+        _, pre_c2 = load_messages(base_g)
+        mkc2 = pre_c2[-1]["num"]
+        _go2 = sd("leader", "lane-g32", "lane note from the leader", type="note")
+        check("G-21/G-32: and a GROUP message applies the MEMBER rule rather than the direct one "
+              "— a closing MEMBER is cut out however reachable its closer exception would make "
+              "it, which is what keeps the closer exception from turning every group into a side "
+              "door around the closing cut",
+              "closing: iota" in _go2
+              and "lane note from the leader" not in rd("iota", after=mkc2, peek=True))
+        clear_closing(base_g, "iota")
 
         # ---- G-22 / #198: the broadcast discipline, enforced instead of remembered ----
         # Measured on the live run that produced the rule: 86 broadcasts, 35 of them `note`, one
