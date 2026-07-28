@@ -225,6 +225,9 @@ module.exports = {
   migrate,
   isFreshStore,
   userVersion,
-  // Exported but NOT in MIGRATIONS — see the comment on it. Registering it is the ratification act.
+  // Exported BY NAME as well as being in MIGRATIONS: the probes inject it directly to prove it
+  // WORKS, which is a separate claim from it being registered. (This line said "exported but NOT
+  // in MIGRATIONS" until 2026-07-28 — true while it was parked, false from the owner's
+  // ratification onward, and it sat one line above the push that falsified it.)
   MIGRATION_SESSION_SPLIT,
 };

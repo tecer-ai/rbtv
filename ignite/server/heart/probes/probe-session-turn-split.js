@@ -14,16 +14,17 @@
 // it is about to prove was impossible. A bar its predecessor could pass is not a bar.
 //
 // The live store is never opened. Every fixture here is a throwaway file in tmpdir
-// (`r-746-schema-pregrant`: throwaway store only; the live migration is parked for the owner's
-// morning ratification). The MIGRATION half is proven separately, against a COPY of the real live
-// store, because fresh fixtures are exactly where a migration bug is invisible (G-135).
+// (`r-746-schema-pregrant` — which the owner DISCHARGED on 2026-07-28 by ratifying the migration;
+// the throwaway-only rule stands, the park does not). The MIGRATION half is proven separately,
+// against a COPY of the real live store, because fresh fixtures are exactly where a migration bug
+// is invisible (G-135).
 
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
 const { openHeartStore, closeHeartStore, HeartStoreError } = require('../heart-store');
-const { migrate, userVersion, MIGRATION_SESSION_SPLIT, MIGRATIONS } = require('../migrations');
+const { migrate, userVersion, MIGRATION_SESSION_SPLIT, MIGRATIONS, LATEST } = require('../migrations');
 
 const OUT = path.join(__dirname, 'probe-session-turn-split.out');
 const started = new Date();
@@ -221,14 +222,31 @@ try {
     closeHeartStore();
   }
 
-  // ───────────────────────────────────────────────────────── the park is real, not a promise
-  check('the split migration is NOT registered — landing it must not ARM it',
-    !MIGRATIONS.some((m) => m.version === MIGRATION_SESSION_SPLIT.version),
-    `MIGRATIONS holds versions [${MIGRATIONS.map((m) => m.version).join(',')}]; `
-    + 'the live migration executes only when the owner ratifies, by appending it');
+  // ──────────────────────────────────────── the RATIFICATION is real, and it must stay ratified
+  //
+  // ⚠⚠ THIS ROW USED TO ASSERT THE OPPOSITE — "the split migration is NOT registered" — and it was
+  // right for as long as the park lasted. The owner ratified MIGRATION_SESSION_SPLIT on 2026-07-28
+  // by the exact one-line mechanism migrations.js prescribes, and this row went RED. The code was
+  // correct; the check had encoded the parked state as the expected one.
+  //
+  // THAT IS WHY IT IS INVERTED RATHER THAN DELETED. A red whose obvious repair is "delete the push
+  // in migrations.js" would silently UN-ARM a migration the owner directed and verified — the check
+  // going red at the moment the intended thing happened, with the revert looking like the fix.
+  // Inverted, the same row now guards the ratification it used to guard the absence of.
+  check('the split migration IS registered — the owner ratified it 2026-07-28, and un-registering it would silently un-arm a migration the owner directed and verified',
+    MIGRATIONS.some((m) => m.version === MIGRATION_SESSION_SPLIT.version),
+    `MIGRATIONS holds versions [${MIGRATIONS.map((m) => m.version).join(',')}]`);
+  // The hazard migrations.js names in its own comment, and which nothing asserted: LATEST is
+  // derived FROM the array, so registering the migration BELOW that derivation leaves LATEST at 1
+  // while MIGRATIONS holds 2 — every store then stamps short of the migrations it has run.
+  check('and it is registered BEFORE LATEST is derived — else LATEST lags the list and stores stamp short of what ran',
+    LATEST === MIGRATION_SESSION_SPLIT.version,
+    `LATEST=${LATEST} split.version=${MIGRATION_SESSION_SPLIT.version}`);
 
-  // …and it must nonetheless WORK, or the park is hiding a broken migration. Proven by injection
-  // on a store built in the PRE-SPLIT shape, so the migration has real work to do.
+  // …and it must nonetheless WORK, or the registration is arming a broken migration. Proven by
+  // injection on a store built in the PRE-SPLIT shape, so the migration has real work to do.
+  // ⚠ KEEP THIS: it is what separates "the owner's ratification landed" from "the thing it armed
+  // does its job", and the two reds look identical from the row above.
   {
     const { DatabaseSync } = require('node:sqlite');
     const p = tmpStore('migrate');
