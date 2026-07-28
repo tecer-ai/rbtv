@@ -242,15 +242,26 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
   //
   // Without this the session would stay `alive` forever and the agent cap would count ghosts — the
   // failure mode of adding a level and only remembering to close one of them.
+  //
+  // ⚠ G-225 — THE TWO WRITES ARE ONE STORE CALL, NOT TWO STATEMENTS. They used to be
+  // `updateExecutionStatus()` followed by `closeSession()` with nothing around them, so a failure
+  // or a daemon death BETWEEN them left a TERMINAL TURN UNDER AN `alive` SESSION. On the `:702`
+  // send-message path that terminal turn is a `done` — the direction that destroys a real outcome
+  // rather than merely adding noise, and the exact state `G-222`'s sweep used to overwrite.
+  // `endTurnAndCloseSession()` lands both or neither.
+  //
+  // The `done ? closed : crashed` mapping is UNCHANGED and stays HERE rather than moving into the
+  // store: it disagrees with the store's own `sessionStatusForEndedTurn()` on `blocked` (that one
+  // maps `blocked`->`closed`), the disagreement predates this and is filed, and resolving it is a
+  // behaviour change that must not ride in on an atomicity fix. No status reaching this function
+  // today is `blocked` — the callers below pass `failed` and `done` only.
   function endTurnAndSession(execId, { status, endedAt, reason }) {
-    const exec = heartStore.updateExecutionStatus(execId, { status, endedAt });
-    if (exec && exec.session_pk) {
-      heartStore.closeSession(exec.session_pk, {
-        status: status === 'done' ? 'closed' : 'crashed',
-        reason,
-        closedAt: endedAt,
-      });
-    }
+    const { exec } = heartStore.endTurnAndCloseSession(execId, {
+      turnStatus: status,
+      sessionStatus: status === 'done' ? 'closed' : 'crashed',
+      endedAt,
+      reason,
+    });
     return exec;
   }
 

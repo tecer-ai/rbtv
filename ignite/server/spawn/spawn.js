@@ -741,15 +741,18 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // it back and the inspect surface exposes it — retiring it is a runtime change, not the
     // bookkeeping this task is. What is new is that the session-level kill is now recorded where
     // it belongs instead of only being spelled on a turn.
+    //
+    // ⚠ G-225 — ONE STORE CALL, NOT TWO STATEMENTS. This used to be `updateExecutionStatus()` then
+    // `closeSession()` with nothing around them, so a failure between the two left a `killed` turn
+    // under an `alive` session: a slot the agent cap keeps counting, holding a session nothing will
+    // ever close except a sweep that happens to visit. Both levels land together or neither does.
     const killedAt = new Date();
-    const killedExec = heartStore.updateExecutionStatus(execId, { status: 'killed', endedAt: killedAt });
-    if (killedExec && killedExec.session_pk) {
-      heartStore.closeSession(killedExec.session_pk, {
-        status: 'killed',
-        reason: `kill-session on turn ${execId}`,
-        closedAt: killedAt,
-      });
-    }
+    heartStore.endTurnAndCloseSession(execId, {
+      turnStatus: 'killed',
+      sessionStatus: 'killed',
+      endedAt: killedAt,
+      reason: `kill-session on turn ${execId}`,
+    });
     return { execId, killed: result.killed, signal: result.signal };
   }
 
