@@ -7036,6 +7036,39 @@ def _selftest_checks(args, failures, names):
 
         live_tmux_panes["v"] = set()
 
+        # ---- guard sweep, slice 1 site 4: the guard that CANNOT FIRE, and the coupling that ----
+        # ---- makes it so ------------------------------------------------------------------
+        # `launch_seat`'s `if cmd is None: return "", err` survived the sweep, and it survived
+        # because IT IS UNREACHABLE. `harness_command` returns None in exactly two cases — an
+        # unknown harness, and an opencode seat with no model — and `validate_seat` refuses BOTH,
+        # one guard earlier on the same path. No input reaches the branch, so no honest check can
+        # cover it and none is written here: a test that appeared to exercise it would be asserting
+        # a state the code cannot enter.
+        #
+        # What IS testable is the COUPLING that makes it unreachable, and that is worth more than
+        # the branch. The implication runs one way — harness_command returning None MUST imply
+        # validate_seat refuses — and it is one-way on purpose: validate_seat is allowed to be
+        # STRICTER (it rejects a malformed opencode slug that harness_command would happily quote).
+        # If someone adds a new None-return to harness_command without a matching rule in
+        # validate_seat, this row fails and the dead branch quietly comes alive.
+        _hc_matrix = [
+            {"agent": "m1", "harness": "claude", "model": "opus", "effort": "medium", "cwd": "/tmp"},
+            {"agent": "m2", "harness": "nonesuch", "model": "opus", "effort": "medium", "cwd": "/tmp"},
+            {"agent": "m3", "harness": "opencode", "model": "", "effort": "medium", "cwd": "/tmp"},
+            {"agent": "m4", "harness": "opencode", "model": "not-a-slug", "effort": "medium",
+             "cwd": "/tmp"},
+            {"agent": "m5", "harness": "codex", "model": "gpt-5.5", "effort": "medium", "cwd": "/tmp"},
+        ]
+        _viol = [w["agent"] for w in _hc_matrix
+                 if harness_command(w, prompt_path="/tmp/p.txt")[0] is None
+                 and not validate_seat(w)]
+        check("PROP-8: every input on which `harness_command` gives up is one `validate_seat` "
+              "already refuses — which is WHY launch_seat's `cmd is None` branch cannot fire. The "
+              "implication is one-way by design: validate_seat may be stricter. Break the coupling "
+              "and a guard this suite cannot otherwise reach comes back to life unannounced",
+              _viol == [] and validate_seat(_hc_matrix[0]) == ""
+              and harness_command(_hc_matrix[1], prompt_path="/tmp/p.txt")[0] is None)
+
         # G-10: a teardown proves the process died instead of assuming kill-pane was enough.
         harness_up["v"] = [98765]
         run(cmd_checkin, agent="probe-b", summary="ghost probe", pane="%32")
@@ -8435,6 +8468,29 @@ def _selftest_checks(args, failures, names):
               "outsider" not in reg.read_text(encoding="utf-8").replace(str(out_home), "")
               and set(addressable_nonmembers(ns(), base_an)[0]) == {"outsider"}
               and "outsider" in known_recipients(ns(), base_an))
+        # ---- guard sweep, slice 1 site 8: a RELATIVE descriptor path is package-relative ----
+        # Every fixture above writes an ABSOLUTE path, so the branch that resolves a relative one
+        # was never exercised. Its claim is not cosmetic: a relative path resolved against the
+        # PROCESS's cwd instead of the package works perfectly for whoever authored the register
+        # (who runs from the package) and fails for every seat, which runs `coordinate` from its
+        # OWN folder. That is the shape that passes review and breaks in the room.
+        _rel = os.path.relpath(out_home / "seat.md", pkg)
+        reg.write_text(f"descriptor,admitted-by,admitted\n{_rel},leader,now\n", encoding="utf-8")
+        _cwd_saved = os.getcwd()
+        os.chdir(tempfile.gettempdir())      # anywhere that is NOT the package
+        try:
+            _rel_names = set(addressable_nonmembers(ns(), base_an)[0])
+        finally:
+            os.chdir(_cwd_saved)
+        check("addressable: a RELATIVE descriptor path resolves against the PACKAGE, not the "
+              "caller's cwd — every seat runs `coordinate` from its own folder, so a cwd-relative "
+              "register would admit the correspondent for whoever wrote it and silently admit "
+              "NOBODY for everyone else. Asserted from a cwd outside the package, because run "
+              "from inside it the two resolutions are indistinguishable",
+              _rel_names == {"outsider"} and not Path(_rel).is_absolute())
+        reg.write_text(f"descriptor,admitted-by,admitted\n{out_home / 'seat.md'},leader,now\n",
+                       encoding="utf-8")
+
         a_ask = sd("outsider", "alpha", "now answerable", type="ask")
         a_n = load_messages(base_an)[1][-1]["num"]
         a_ans = sd("alpha", "outsider", "the answer", type="answer", re_num=a_n)
