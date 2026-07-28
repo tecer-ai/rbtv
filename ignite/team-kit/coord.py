@@ -941,6 +941,40 @@ def _heartbeat_daemon_lines(hb, stale):
                              f"not-found, byte-identical to a unit that never existed. Ask "
                              f"`systemctl --user status {dmn.get('unit') or 'the ignite unit'}` "
                              f"before concluding."))
+    # G-188 stage 3, THE PULL SURFACE — and its absence here was the defect. The watcher computes
+    # "is the daemon running current code" every pass; this is the ONLY place that turns it into
+    # something a reader sees, because `coordinate workers` composes from the heartbeat file. A
+    # verdict computed and never surfaced is a value with no consumer (G-184's shape), and it fails
+    # in the direction that looks healthiest: a silent line.
+    dcode = hb.get("daemon_code")
+    # ⚠ THE CODE VERDICT IS ONLY WORTH A LINE WHILE THE DAEMON IS RUNNING. A down or unreadable
+    # daemon ALREADY has a loud line above saying so, and "code state UNKNOWN" underneath it adds no
+    # decision — it is the 11-of-12 false-positive shape, arriving as a second line about the same
+    # fact. The gap this closes is a RUNNING daemon whose line would otherwise imply healthy bytes.
+    running_now = isinstance(dmn, dict) and dmn.get("state") == "running"
+    if not running_now:
+        dcode = None
+    if isinstance(dcode, dict) and dcode.get("verdict") == "current":
+        # Folded into the ok line, never given one of its own: G-158's second pass proved that a
+        # healthy case printing NOTHING leaves "checked and current" to be inferred from an absence,
+        # in the one feature whose whole subject is absence looking like health.
+        fold += ", running current code"
+    elif isinstance(dcode, dict) and dcode.get("verdict") == "stale":
+        loud.append(("dead", f"daemon: RUNNING STALE CODE — {dcode.get('detail') or 'files changed'} "
+                             f"changed on disk since this daemon booted, and node binds a module's "
+                             f"source at require, so the running daemon can never pick it up. It "
+                             f"keeps serving the OLD behaviour while every other surface reports "
+                             f"healthy. A restart deploys it (owner-only, task 7.68)."))
+    elif isinstance(dcode, dict):
+        loud.append(("hint", f"daemon: code state UNKNOWN — {dcode.get('detail') or 'not determinable'}"
+                             f". Treat it as UNVERIFIED, not healthy."))
+    elif running_now:
+        # A loop predating the field writes no key at all. Said out loud for the same reason the
+        # watcher's own missing marker is: a caller that reads a missing marker as "fine" has
+        # rebuilt the defect at the reader. Bounded to the running case by the rule above.
+        loud.append(("hint", "daemon: code state UNKNOWN — this watch loop predates the daemon "
+                             "code-state check, so nothing here can tell whether the daemon is "
+                             "running current bytes. A loop restart makes it answerable."))
     chg = hb.get("daemon_change")
     if isinstance(chg, dict) and isinstance(chg.get("to"), dict):
         frm, to = chg.get("from") or {}, chg["to"]

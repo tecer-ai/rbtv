@@ -156,8 +156,14 @@ def main():
         fold, loud = coord._heartbeat_daemon_lines({}, False)
         check("a heartbeat with no daemon key renders UNKNOWN, not silence",
               fold == "" and any("UNKNOWN" in ln for _, ln in loud), repr(loud)[:80])
-        fold, loud = coord._heartbeat_daemon_lines({"daemon": a}, False)
-        check("a running daemon folds into the ok line and takes no line of its own",
+        # ⚠ EXPECTATION CORRECTED, not weakened: this once passed `{"daemon": a}` with no code key
+        # and asserted "no extra line". After the pull-surface fix a RUNNING daemon with no code
+        # verdict deliberately DOES get a loud UNKNOWN line (arm M asserts exactly that), because
+        # absence must not read as health. Terse-on-success is about the HEALTHY case, so the healthy
+        # case is what this now supplies — otherwise the check would be asserting the old bug.
+        fold, loud = coord._heartbeat_daemon_lines(
+            {"daemon": a, "daemon_code": {"verdict": "current", "detail": "ok"}}, False)
+        check("a fully healthy daemon folds into the ok line and takes no line of its own",
               "2561514" in fold and not loud, repr(fold))
         fold, loud = coord._heartbeat_daemon_lines({"daemon": b}, False)
         check("the reader's UNKNOWN line teaches the --user check",
@@ -441,6 +447,62 @@ def main():
         line = watch.check_daemon({}, LIVE, None, [], ("unknown", "no marker"))
         check("and an UNKNOWN row says so rather than looking healthy", "UNKNOWN" in line)
 
+        print("\nARM M — ⚠ THE CODE VERDICT REACHES THE PULL SURFACE (the stage-3 defect).")
+        # ⚠⚠ WHY THIS ARM EXISTS: stage 3 computed the code verdict every pass and it reached ONLY
+        # the push surface. `coordinate workers` composes its line from the HEARTBEAT FILE, so a
+        # verdict never written there could never be printed there — and the pull surface is the one
+        # this whole arc exists to serve, since its premise is that `inspect daemon` already answered
+        # whoever asked and "nobody thought to ask" WAS the defect. Found by the chief-of-staff
+        # reading the source, not by any check here.
+        # ⇒ A FIFTH MEMBER OF THE VACUOUS FAMILY, one step on: my four were guards tested where the
+        # guard was unreachable; this was a VALUE CORRECTLY COMPUTED WITH NO CONSUMER (G-184's
+        # shape). No assertion on check_daemon's RETURN or on save_heartbeat's ARGUMENTS can see it,
+        # because the break is BETWEEN computation and surface. So this arm goes through the real
+        # write-then-read path and ends at the string a human is shown.
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            watch.subprocess.run = fake_systemctl(RUNNING_ANSWER)
+            live = watch.daemon_identity()
+            for verdict, detail, want, forbid in (
+                ("current", "12 files match", "running current code", None),
+                ("stale", "b.js", "RUNNING STALE CODE", None),
+                ("unknown", "no boot marker", "UNKNOWN", None),
+            ):
+                watch.save_heartbeat(base, 10, live, None, (verdict, detail))
+                raw = json.loads((base / "watch-heartbeat.json").read_text())
+                check(f"[{verdict}] the verdict is PERSISTED to the heartbeat file",
+                      (raw.get("daemon_code") or {}).get("verdict") == verdict,
+                      json.dumps(raw.get("daemon_code")))
+                hb = coord.watcher_heartbeat(base)
+                fold, loud = coord._heartbeat_daemon_lines(hb, hb["stale"])
+                shown = fold + " " + " ".join(ln for _, ln in loud)
+                check(f"[{verdict}] and it REACHES the rendered line a human is shown",
+                      want in shown, shown.strip()[:88])
+            # The healthy case must not grow a line of its own — terse-on-success survives.
+            watch.save_heartbeat(base, 10, live, None, ("current", "12 files match"))
+            hb = coord.watcher_heartbeat(base)
+            fold, loud = coord._heartbeat_daemon_lines(hb, hb["stale"])
+            check("[current] rides the ok line and adds no line of its own", not loud, repr(loud)[:60])
+            # A heartbeat with NO daemon_code key (a loop predating the field) must say so, not be
+            # silent — absence must never read as health, which is this feature's whole subject.
+            raw = json.loads((base / "watch-heartbeat.json").read_text())
+            raw.pop("daemon_code")
+            (base / "watch-heartbeat.json").write_text(json.dumps(raw))
+            hb = coord.watcher_heartbeat(base)
+            fold, loud = coord._heartbeat_daemon_lines(hb, hb["stale"])
+            check("a heartbeat with NO code key renders UNKNOWN rather than nothing",
+                  any("code state UNKNOWN" in ln for _, ln in loud), repr(loud)[:70])
+            # ...but a DOWN daemon already explains itself; a second line about the same fact is the
+            # 11-of-12 false-positive shape.
+            watch.subprocess.run = fake_systemctl(STOPPED_ANSWER)
+            down_now = watch.daemon_identity()
+            watch.save_heartbeat(base, 10, down_now, None, ("unknown", "not running"))
+            hb = coord.watcher_heartbeat(base)
+            fold, loud = coord._heartbeat_daemon_lines(hb, hb["stale"])
+            check("a DOWN daemon gets ONE line, not a code-UNKNOWN line underneath it",
+                  sum(1 for _, ln in loud if "code state" in ln) == 0,
+                  " | ".join(ln[:40] for _, ln in loud))
+
         print("\nARM I — one reading per pass: the flag and the heartbeat cannot disagree.")
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
@@ -461,8 +523,8 @@ def main():
     if FAILED:
         print("FAILED: " + "; ".join(FAILED))
         return 1
-    if len(PASSED) < 86:
-        print(f"INOPERATIVE: only {len(PASSED)} checks ran; this probe asserts at least 86")
+    if len(PASSED) < 95:
+        print(f"INOPERATIVE: only {len(PASSED)} checks ran; this probe asserts at least 95")
         return 2
     return 0
 

@@ -783,7 +783,7 @@ def check_daemon(sysstate, daemon, change, notes, code=None):
     return f"{'daemon':<18} {label:<7} {detail}"
 
 
-def save_heartbeat(base, loop_min, daemon=None, change=None):
+def save_heartbeat(base, loop_min, daemon=None, change=None, daemon_code=None):
     """P32 — stamp this pass so something outside the loop can tell a live watcher from a dead one.
 
     A SEPARATE file from watch-state.json on purpose: that file is keyed by agent name, and a
@@ -807,6 +807,17 @@ def save_heartbeat(base, loop_min, daemon=None, change=None):
     is stamped with `at`. A restart signal that expires after one pass would reproduce the exact
     miss this exists for: both restarts on 2026-07-27 were noticed hours late, by hand.
 
+    ⚠ `daemon_code` carries the (verdict, detail) of "is the DAEMON running current code" — and it
+    is here because LEAVING IT OUT WAS A REAL DEFECT, found by the chief-of-staff reading the source
+    rather than trusting a prediction. The comparison ran every pass and reached ONLY the push
+    surface: `coordinate workers` composes its line from THIS FILE, so a verdict absent here can
+    never be printed there. **THE PULL SURFACE IS THE ONE THIS WHOLE FEATURE EXISTS TO SERVE** — the
+    arc's own premise is that `inspect daemon` already answered whoever asked, and that *nobody
+    thought to ask* WAS the defect. A value correctly computed with no consumer is `G-184`'s shape
+    ("the sum was the signal and there is no consumer of the sum"), and no probe asserting this
+    function's ARGUMENTS or `check_daemon`'s RETURN can see it: the break is between computation and
+    surface, so the assertion has to live at the surface.
+
     `daemon`/`change` are PASSED IN by a pass that already took the reading, so one pass issues one
     `systemctl` call and the flag and the heartbeat can never describe different moments (see
     `daemon_reading`). They default to None for standalone callers — a direct call still samples,
@@ -817,7 +828,11 @@ def save_heartbeat(base, loop_min, daemon=None, change=None):
         coord.atomic_write(base / "watch-heartbeat.json", json.dumps(
             {"last_pass": now_dt().isoformat(timespec="seconds"),
              "loop_min": loop_min, "pid": os.getpid(), "code": LOADED_CODE,
-             "daemon": daemon, "daemon_change": change}, indent=1))
+             "daemon": daemon, "daemon_change": change,
+             # A tuple would round-trip through JSON as a list; named keys instead, so the reader
+             # never indexes into a shape it has to remember.
+             "daemon_code": ({"verdict": daemon_code[0], "detail": daemon_code[1]}
+                             if daemon_code else None)}, indent=1))
     except OSError as exc:
         print(f"watch: heartbeat not written ({exc}) — `coordinate workers` will report this "
               f"watcher STALE even while it runs", file=sys.stderr)
@@ -1294,7 +1309,7 @@ def run_pass(args):
 
     save_state(base, state)
     save_sys_state(base, sysstate)
-    save_heartbeat(base, getattr(args, "loop", None), daemon, daemon_change)
+    save_heartbeat(base, getattr(args, "loop", None), daemon, daemon_change, daemon_code)
     stamp = nnow.strftime("%Y-%m-%d %H:%M")
     print(f"watch pass {stamp} — {len(report)} active seat(s), {len(notes)} new flag(s)")
     if sysline:
