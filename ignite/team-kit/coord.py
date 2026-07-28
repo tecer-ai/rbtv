@@ -2334,6 +2334,54 @@ def team_monitor_script():
     return Path(__file__).resolve().parents[2] / "orchestration" / "cli" / "team-monitor" / "team_monitor.py"
 
 
+def team_monitor_holder(base):
+    """Which pid holds the monitor slot right now, or None.
+
+    ⚠ ASKED THE WAY `team_monitor.py`'s OWN `lock_holder` ASKS IT — pid file plus `/proc` — so the
+    two cannot disagree about who is running. Deliberately NOT parsed out of `ensure`'s stdout:
+    that output is vocabulary ("already running" / "started"), and a report keyed on a sibling's
+    wording breaks silently the day the wording changes. This reads the same PROPERTY the sibling
+    reads.
+    """
+    p = base / "team-monitor.lock"
+    try:
+        pid = int(p.read_text(encoding="utf-8").strip() or 0)
+    except (OSError, ValueError):
+        return None
+    return pid if pid and Path(f"/proc/{pid}").exists() else None
+
+
+def team_monitor_last_seen(base):
+    """The DEAD sensor's own final heartbeat: (written_at_iso, writer_pid), or None.
+
+    ⚠⚠ THIS IS WHAT MAKES THE OUTAGE BOUNDABLE, AND IT IS A MEASUREMENT, NOT AN INFERENCE.
+    `state.json` carries `written_at_iso` and `writer_pid`, rewritten by the monitor itself every
+    pass — so the last line the dead process wrote is still on disk when we replace it. That gives
+    LAST OBSERVED ALIVE. The restart instant gives DEAD BY.
+
+    ⚠ WHAT IT DOES **NOT** GIVE, and the report must never claim otherwise: the DEATH INSTANT.
+    Nothing was watching. The monitor died somewhere inside (last_seen, restart] — so that interval
+    is an UPPER BOUND ON THE OUTAGE, never the outage. "Down for 28 minutes" would be a fabrication;
+    "down for AT MOST 28 minutes, last observed alive at T" is what the disk actually supports.
+
+    Returns None whenever the bound cannot be READ — no file, unparseable, no timestamp, or a
+    `written_at` in the future (a clock moved; a bound derived from it would be fiction). The
+    caller then reports the death instant as unknown, which is the honest floor.
+    """
+    try:
+        snap = json.loads((base.parent / "state.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(snap, dict):
+        return None
+    iso, at, pid = snap.get("written_at_iso"), snap.get("written_at"), snap.get("writer_pid")
+    if not iso or not isinstance(at, (int, float)):
+        return None
+    if at > time.time() + 60:  # clock skew — refuse to derive a window from it
+        return None
+    return iso, pid
+
+
 def ensure_team_monitor(args):
     """Start the run's team-monitor, deterministically WITH THE ROOM rather than by hand.
 
@@ -2349,17 +2397,96 @@ def ensure_team_monitor(args):
 
     Never blocks or fails a launch: an unstarted monitor is a run with a weaker sensor; a launch
     that died starting one is a run with fewer seats.
+
+    ⚠⚠ TASK 7.88 (`G-259`, reporting half). THIS USED TO RETURN `("ok", script)` WHETHER IT FOUND
+    THE SENSOR ALIVE OR RAISED IT FROM THE DEAD, and the launch line printed "ensured for this run"
+    for both. The run's ONLY raw-source sensor died and was silently respawned here; every consumer
+    of `state.json` read a stale room until a LAUNCH happened to repair it, and nothing said so.
+    ⇒ A REPAIR THAT LEAVES NO REPORT IS INDISTINGUISHABLE, FROM EVERY SURFACE THE ROOM READS, FROM
+    NOTHING HAVING BEEN WRONG. Starting a dead monitor is CORRECT and is not being removed; doing
+    it silently is the defect.
+
+    The two outcomes are now distinct statuses — `already` and `started` — decided by reading the
+    lock slot BEFORE and AFTER, never by parsing the child's wording.
     """
+    base = base_dir(args)
     script = team_monitor_script()
     if not script.is_file():
-        return "absent", f"{script} does not exist yet — 7.33 has not landed"
+        return "absent", {"why": f"{script} does not exist yet — 7.33 has not landed"}
+    before = team_monitor_holder(base)
+    # Read the outgoing snapshot BEFORE starting anything: the replacement immediately begins
+    # overwriting `state.json`, and with it the dead process's last heartbeat. Read it after the
+    # start and the bound is gone — this ordering IS the measurement.
+    last_seen = team_monitor_last_seen(base) if before is None else None
     try:
         subprocess.run([sys.executable, str(script), "ensure",
                         "--package", str(package_dir(args))],
                        capture_output=True, text=True, timeout=30)
-        return "ok", str(script)
     except (OSError, subprocess.SubprocessError) as exc:
-        return "fail", str(exc)
+        return "fail", {"why": str(exc)}
+    after = team_monitor_holder(base)
+    if before is not None:
+        return "already", {"pid": before}
+    if after is None:
+        # Started nothing and nothing is holding the slot: the sensor is DOWN and the room is
+        # unobserved. Reported as a failure rather than as a quiet success — the pre-7.88 code
+        # returned "ok" here too.
+        return "fail", {"why": "ensure returned but no process holds the monitor lock"}
+    record = {"event": "team-monitor-restarted", "at": now(), "pid": after,
+              "last_seen": last_seen[0] if last_seen else None,
+              "last_seen_pid": last_seen[1] if last_seen else None}
+    append_sensor_event(base, record)
+    return "started", record
+
+
+def append_sensor_event(base, record):
+    """Durable, greppable record of a repair we performed — criterion 1's "a surface the room reads".
+
+    ⚠ `team-monitor.log` was NOT enough and that is measured, not assumed: it already carried all
+    three `team-monitor up:` lines for this run, so the restart WAS logged and still went
+    unreported for the length of a milestone. A log nothing consumes is not a report.
+
+    This records only what we DID, at the instant we did it. It watches nothing and it is not a
+    detector — noticing a dead sensor WITHOUT waiting for a launch is 7.32/7.33's flag-set work and
+    is deliberately absent here.
+    """
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+        with (base / "sensor-events.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, sort_keys=True) + "\n")
+    except OSError:
+        pass  # never fail a launch over its own bookkeeping (the posture this file already takes)
+
+
+def render_monitor_report(status, detail):
+    """The launch line. Returns (text, tone, to_stderr).
+
+    ⚠ CRITERION 2: `already` and `started` MUST NOT render alike. Everything below the status word
+    exists so a reader with no out-of-band knowledge can tell "the sensor was fine" from "the
+    sensor was DEAD and I just raised it".
+    """
+    if status == "already":
+        return f"team-monitor: already up (pid {detail['pid']}) — not restarted", C_ALIVE, False
+    if status == "absent":
+        return f"team-monitor: NOT started — {detail['why']}", C_HINT, False
+    if status == "fail":
+        return (f"WARNING team-monitor start FAILED — {detail['why']}; the room runs UNOBSERVED",
+                C_DEAD, True)
+    # started — the sensor was DEAD. Say so, and say exactly how much is known.
+    line = (f"⚠ team-monitor WAS DEAD — RESTARTED (pid {detail['pid']}) at {detail['at']}. "
+            f"Until now every reader of state.json saw a STALE room.")
+    if detail.get("last_seen"):
+        line += (f"\n  last observed alive: {detail['last_seen']} (its own final state.json write, "
+                 f"pid {detail['last_seen_pid']})"
+                 f"\n  ⇒ the sensor was down AT MOST from then until now. The DEATH INSTANT IS "
+                 f"UNKNOWN — nothing was watching — so that span is an UPPER BOUND on the outage, "
+                 f"never the outage itself.")
+    else:
+        line += ("\n  last observed alive: UNKNOWN — no readable final write from the dead process, "
+                 "so the outage cannot be bounded at all. Not estimated.")
+    line += ("\n  a dead sensor is still only noticed by a launch (G-259 detection half, 7.32/7.33)"
+             " — this reports the repair, it does not detect the death.")
+    return line, C_DEAD, True
 
 
 # ---------- workers.md ----------
@@ -5719,13 +5846,10 @@ def cmd_launch(args):
             print(f"launched {label} in {pane}"
                   + (" (session /rename scheduled)" if w["harness"] == "claude" else ""))
     status, detail = ensure_team_monitor(args)   # after the seats: the room is up by now
-    if status == "ok":
-        print(f"team-monitor: ensured for this run ({detail})")
-    elif status == "absent":
-        print(c(f"team-monitor: NOT started — {detail}", C_HINT))
-    else:
-        print(c(f"WARNING team-monitor start FAILED — {detail}; the room runs UNOBSERVED",
-                C_DEAD), file=sys.stderr)
+    # 7.88: ONE renderer for every outcome, so "already up" and "was dead, restarted" cannot drift
+    # back into printing the same thing — which is the defect this row exists to fix.
+    text, tone, to_stderr = render_monitor_report(status, detail)
+    print(c(text, tone), **({"file": sys.stderr} if to_stderr else {}))
     # ---- the launch's VERDICT (leader ruling, exit-code semantics) -------------------------
     #
     # Every PRE-SPAWN refusal in this command — PROP-8, the role gate, the memory gate — already
@@ -10235,7 +10359,85 @@ def _selftest_checks(args, failures, names):
         check("7.33: the team-monitor start line reports ABSENT rather than failing when "
               "team_monitor.py has not landed — a launch must never die because its monitor is "
               "not built yet, and 'absent' is the report monitor-builder reads as PENDING-WIRING",
-              mstatus in ("ok", "absent") and (mstatus == "ok" or "does not exist" in mdetail))
+              # 7.88 changed this contract: the old flat "ok" split into `already`/`started`, and
+              # `detail` became a dict. Updated in the SAME change rather than left to break later.
+              mstatus in ("already", "started", "absent", "fail")
+              and (mstatus != "absent" or "does not exist" in mdetail["why"]))
+
+        # ---- 7.88 (G-259 reporting half): a silent repair is indistinguishable from no fault ----
+        # ⚠ THE DECISION IS A PURE FUNCTION OF (before, after, last_seen), so all four outcomes are
+        # exercised here deterministically. The LIVE arm — kill a real monitor, watch the report
+        # fire, then run it again with the monitor alive and watch it NOT fire — is criterion 4 and
+        # is run against a real tmux session outside the suite; it is reported in the record, not
+        # asserted here, because a suite that spawns real sensors is a suite that leaks them.
+        started = {"event": "team-monitor-restarted", "at": "2026-07-28 16:28",
+                   "pid": 3630881, "last_seen": "2026-07-28T16:00:12Z", "last_seen_pid": 3181095}
+        t_started, _tone, t_err = render_monitor_report("started", started)
+        t_already, _tone2, a_err = render_monitor_report("already", {"pid": 3630881})
+        check("7.88 criterion 2: 'the sensor was already up' and 'the sensor was DEAD and I "
+              "restarted it' render DIFFERENTLY — that collapse IS the defect. Before this, both "
+              "printed 'team-monitor: ensured for this run'",
+              t_started != t_already and "WAS DEAD" in t_started and "WAS DEAD" not in t_already
+              and "not restarted" in t_already)
+        check("7.88 criterion 3: the report names WHAT IT CANNOT KNOW — it gives `last observed "
+              "alive` from the dead process's OWN final write and calls the span an UPPER BOUND, "
+              "and it never states an outage duration as fact. An inferred window is worse than "
+              "none, so the bound is offered only as a bound",
+              "last observed alive: 2026-07-28T16:00:12Z" in t_started
+              and "UPPER BOUND" in t_started and "DEATH INSTANT IS UNKNOWN" in t_started)
+        no_bound, _t3, _e3 = render_monitor_report(
+            "started", {**started, "last_seen": None, "last_seen_pid": None})
+        check("7.88 criterion 3, the honest floor: when the dead process left NO readable final "
+              "write, the report says the outage CANNOT BE BOUNDED and estimates nothing — the "
+              "one case where 'unknown' is the whole truth",
+              "UNKNOWN" in no_bound and "cannot be bounded" in no_bound
+              and "UPPER BOUND" not in no_bound)
+        check("7.88 criterion 5: the report does NOT claim the detection half — it says in its own "
+              "text that a dead sensor is still only noticed by a launch, and names 7.32/7.33. "
+              "Closing this row must not read as closing G-259",
+              "only noticed by a launch" in t_started and "7.32/7.33" in t_started
+              and "it does not detect the death" in t_started)
+        check("7.88: a `started` report goes to STDERR and an `already` report does not — the "
+              "repair is an exception the launcher must see, not a routine line to scroll past",
+              t_err is True and a_err is False)
+        fail_txt, _t4, _e4 = render_monitor_report("fail", {"why": "boom"})
+        check("7.88: `ensure` returning with NOTHING holding the lock is a FAILURE, not a quiet "
+              "success — the pre-7.88 code returned 'ok' on that path, so a launch that started no "
+              "sensor at all reported exactly like one that did",
+              "UNOBSERVED" in fail_txt and "boom" in fail_txt)
+        # The bound-reader itself, against real files rather than a hand-made dict.
+        # ⚠ ITS OWN TEMP PACKAGE, DELIBERATELY. The first version of these four arms wrote
+        # `state.json` into the SUITE'S SHARED package and the run ABORTED on the unlink — the file
+        # was gone before I removed it, so something else in the suite owns that path's lifecycle.
+        # Sharing a fixture with the rest of the suite made these arms depend on machinery they do
+        # not test; a private directory makes each arm's precondition entirely mine to state.
+        _tmb = Path(tempfile.mkdtemp(prefix="coord-788-")) / "pkg"
+        (_tmb / "coordination").mkdir(parents=True, exist_ok=True)
+        _tmbase = _tmb / "coordination"
+        (_tmb / "state.json").write_text(json.dumps(
+            {"written_at_iso": "2026-07-28T16:00:12Z", "written_at": time.time() - 300,
+             "writer_pid": 3181095}), encoding="utf-8")
+        check("7.88: the outage bound is READ off state.json's own `written_at_iso`/`writer_pid` "
+              "— the dead sensor's final heartbeat, which is a MEASUREMENT and not an inference",
+              team_monitor_last_seen(_tmbase) == ("2026-07-28T16:00:12Z", 3181095))
+        (_tmb / "state.json").write_text(json.dumps(
+            {"written_at_iso": "2099-01-01T00:00:00Z", "written_at": time.time() + 8000,
+             "writer_pid": 1}), encoding="utf-8")
+        check("7.88: a `written_at` in the FUTURE yields NO bound — a clock moved, and a window "
+              "derived from it would be fiction presented as a measurement",
+              team_monitor_last_seen(_tmbase) is None)
+        (_tmb / "state.json").write_text("{not json", encoding="utf-8")
+        check("7.88: an unreadable state.json yields NO bound rather than an exception — the "
+              "report degrades to 'unknown' and the launch is never failed over its bookkeeping",
+              team_monitor_last_seen(_tmbase) is None)
+        (_tmb / "state.json").unlink()
+        check("7.88: and a MISSING state.json likewise — this is the first launch of a fresh run, "
+              "not a sensor that died",
+              team_monitor_last_seen(_tmbase) is None)
+        check("7.88: the lock slot is read as a PROPERTY (pid file + /proc), the same question "
+              "team_monitor.py's own lock_holder asks — never parsed out of the child's wording, "
+              "which would break silently the day that wording changes",
+              team_monitor_holder(_tmbase) is None)
         check("7.33: the monitor is resolved beside the rbtv orchestration CLIs, not guessed from "
               "cwd — the same __file__-derived discipline that keeps G-72 from recurring",
               team_monitor_script().name == "team_monitor.py"
