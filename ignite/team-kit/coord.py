@@ -6635,6 +6635,149 @@ def cmd_kill_pane(args):
             f"a close-seat to finish its lifecycle", C_HINT))
 
 
+def cmd_relaunch_pane(args):
+    """Relaunch a seat's harness INTO A NAMED, ALREADY-REGISTERED PANE, in place (task 7.95,
+    G-282) — the path `close-seat --renew` cannot take for a seat carrying `relays:`, because
+    the door guard inside cmd_close_seat refuses that pane UNCONDITIONALLY once it is live,
+    checked out or not (bars.md 4). This is not a weaker close-seat: it never kills anything and
+    never touches that guard — it only respawns a pane that is ALREADY bare (no harness running
+    in it) and ALREADY roster-done, so the worst case of a wrong call is a refusal, never a
+    destroyed pane. It retires the chief-of-staff's `tmux send-keys` stopgap, which brought the
+    door back with none of `launch`'s three gates behind it (criterion 3): the memory floor,
+    check_bindings (G-51), and the roster/session-trace writes launch_seat always carries.
+
+    MIRRORS THE RENEW-IN-PLACE PATH, NOT close-seat ITSELF (criterion 2): the same two
+    primitives `cmd_close_seat --renew`'s in-place branch uses — `tmux_respawn_pane` then
+    `launch_seat(..., pane=pane_id)` — called directly, so this command never reaches
+    `cmd_close_seat` and therefore never reaches its guard, and never needs --force to do its
+    job. The roster row is NOT written here: it is written by the relaunched seat's own
+    subsequent `checkin`, exactly as a real renew relies on — and that checkin is not refused by
+    P37 (the zombie double-checkin guard), because it lands from the SAME pane its own prior row
+    (if any) already names.
+
+    THE PANE ID IS A REQUIRED, CROSS-CHECKED INPUT (criterion 1, bars.md 3): never resolved by
+    this tool from memory or by name alone — the caller reads it fresh from `coordinate workers`
+    and it must match the roster's OWN latest recorded pane for the target, or this refuses
+    unconditionally. A caller naming the wrong pane is exactly the failure bars.md 3 exists to
+    prevent, and there is no legitimate reason to force through a mismatch: it means either the
+    id is wrong or the roster is stale, and neither is fixed by acting on a pane current records
+    do not attribute to this seat.
+
+    FOUR REFUSALS carry NO --force escape, because the risk on each is silent and undoable:
+      - no briefing carries this agent name — nothing to relaunch (use `launch` instead)
+      - the pane id does not match the roster's own recorded pane for this agent (bars.md 3 —
+        resolve it fresh)
+      - the pane is not a live tmux pane at all (use `launch --only` for a fresh one)
+      - the pane still holds a LIVE HARNESS PROCESS — this is not a bare pane, and respawning it
+        would silently kill whatever is running there, worst case an owner mid-session; ground
+        truth is read from /proc (G-10/G-11's own discipline: ask the process table, never the
+        roster), so a stale-but-ACTIVE roster row cannot mask a genuinely running harness even
+        under --force below
+    ONE refusal IS force-escapable, matching kill-pane's own criterion-5 convention exactly: the
+    roster row is still ACTIVE (not roster-done) — same "if you mean it" shape, for the same
+    reason (a live seat's pane is close-seat's or renew's to manage). --force lifts ONLY this
+    one; the live-harness check right after it is a separate, unconditional backstop and stays in
+    force regardless — the roster can be wrong, /proc cannot be argued with.
+
+    check_bindings (G-51) runs before any of the pane-state checks, on the dry-run path too,
+    matching `cmd_launch`'s own reasoning verbatim: a dry-run exists to show what a real relaunch
+    would do, and hiding a registry divergence from it would make the one command meant for
+    inspection the one that lies."""
+    role_desc = "leader's, chief-of-staff's, or a closer-*'s"
+    seats = [w for w in discover_workers(workers_dir(args)) if w["agent"] == args.target]
+    if not seats:
+        print(f"refused: no worker briefing carries `agent: {args.target}` in "
+              f"{workers_dir(args)}, so there is nothing to relaunch. This verb only revives an "
+              f"already-registered seat into its own pane; a seat with no briefing has never had "
+              f"one.", file=sys.stderr)
+        sys.exit(1)
+
+    if args.dry_run:
+        gate(args, "relaunch-pane", is_leader_or_cos_or_closer, role_desc)
+    else:
+        launch_gates(args, "relaunch-pane", is_leader_or_cos_or_closer, role_desc, 1)
+
+    # G-51, on the dry-run path too (see docstring) — check_bindings does not special-case
+    # dry_run itself; it refuses on a real divergence regardless.
+    check_bindings(args, seats, "relaunch-pane")
+
+    if not args.pane_id.startswith("%"):
+        print(f"refused: '{args.pane_id}' does not look like a tmux pane id (expected e.g. "
+              f"'%501') -- relaunch-pane targets a PANE, never a bare number or a seat name.",
+              file=sys.stderr)
+        sys.exit(1)
+
+    base = base_dir(args)
+    _, _, rows = load_workers(base)
+    row = current_row(rows, args.target)
+    recorded = (row or {}).get("pane") or ""
+    if recorded != args.pane_id:
+        print(f"refused: {args.pane_id} does not match the roster's own recorded pane for "
+              f"'{args.target}' ({recorded or 'none on record'}). Resolve the pane fresh with "
+              f"`{coord_invocation(args)} workers` (bars.md 3 -- never recall a pane id) and "
+              f"retarget. No --force lifts this: a mismatch means either the id is wrong or the "
+              f"roster is stale, and neither is fixed by acting on a pane current records do not "
+              f"attribute to this seat.", file=sys.stderr)
+        sys.exit(1)
+
+    if row["active"] == "yes":
+        if not getattr(args, "force", False):
+            print(f"refused: '{args.target}'s roster row is still ACTIVE -- not roster-done. A "
+                  f"live seat's pane is close-seat's or renew's to manage, not a bare relaunch. "
+                  f"If you are certain the row is stale (the seat is gone but was never closed): "
+                  f"--force.", file=sys.stderr)
+            sys.exit(1)
+        print(f"WARNING: '{args.target}' is still roster-ACTIVE -- relaunching into its pane "
+              f"anyway because --force was given. Its roster row is unchanged by this call.",
+              file=sys.stderr)
+
+    if args.pane_id not in live_panes():
+        print(f"refused: {args.pane_id} is not a live tmux pane -- there is nothing to relaunch "
+              f"into. If the pane is genuinely gone, use `{coord_invocation(args)} launch --only "
+              f"{args.target}` to open a fresh one instead.", file=sys.stderr)
+        sys.exit(1)
+
+    live_idents = pane_harness_idents(args.pane_id)
+    if live_idents:
+        print(f"refused: {args.pane_id} still holds a live harness process "
+              f"({', '.join(str(p) for p, _ in live_idents)}) -- this is not a bare pane, and "
+              f"respawning it would silently kill whatever is running there, with no undo. No "
+              f"--force lifts this. If that process is a stuck registration, tear it down "
+              f"properly first: {coord_invocation(args)} close-seat {args.target}.",
+              file=sys.stderr)
+        sys.exit(1)
+
+    seat = seats[0]
+    if args.dry_run:
+        cmd, _err = harness_command(seat, prompt_path=(base_dir(args) / "prompts" /
+                                                        f"{seat['agent']}-<stamp>.txt"))
+        print(f"[dry-run] would respawn {args.pane_id} and start {seat['agent']} "
+              f"({seat['harness']}/{seat['model'] or 'plan-default'}) in it, in place: "
+              f"{cmd if cmd else '(harness_command refused -- see validate_seat)'}")
+        return
+
+    # A relaunch reads current rules just as a fresh launch does — it lands mid-run, exactly
+    # when sources have been drifting (mirrors cmd_close_seat's own renew branch).
+    refresh_mirrors_for(seats[:1])
+    tmux_raise_history_limit()
+    ok, rerr = tmux_respawn_pane(args.pane_id, seat["cwd"])
+    if not ok:
+        print(f"refused: respawn of {args.pane_id} FAILED -- {rerr}. Nothing was started; verify "
+              f"at tmux capture-pane -p -t {args.pane_id} before retrying.", file=sys.stderr)
+        sys.exit(1)
+    pane, err = launch_seat(seat, args, args.pane_id, pane=args.pane_id)
+    if err:
+        print(f"relaunch FAILED: {err}\nThe pane was respawned but the harness never verified "
+              f"up -- capture it: tmux capture-pane -p -t {args.pane_id}", file=sys.stderr)
+        sys.exit(1)
+    relays = (inbox_decls(args).get(args.target) or {}).get("relays")
+    print(f"relaunched: {args.target} back up in {pane} (same pane, in place)"
+          + (f" -- carries relays: {', '.join(sorted(relays))}; the door is up again"
+             if relays else ""))
+    print(c(f"next: {coord_invocation(args)} workers -- confirm '{args.target}' checked back in "
+            f"on {pane}", C_HINT))
+
+
 def cmd_depart(args):
     """Self-service exit: export own transcript, check out, kill own pane. SELF ONLY (T1) —
     it takes no target, so no seat can depart another; leader cleans dead seats with
@@ -9994,6 +10137,218 @@ def _selftest_checks(args, failures, names):
         live_tmux_panes["v"] -= {"%701", "%702", "%703"}
         killed.clear()
 
+        # ---- relaunch-pane (task 7.95, G-282): revive an ALREADY-REGISTERED, bare pane IN ----
+        # ---- PLACE via the same tmux_respawn_pane + launch_seat(pane=...) pair close-seat's ----
+        # ---- in-place renew uses -- never close-seat itself, so its door guard is never in ----
+        # ---- this call graph at all (criteria 1/2). Fixtures are fresh names; nothing above ----
+        # ---- this block needs to survive it. ----
+        (pkg / "workers" / "rp-door").mkdir(exist_ok=True)
+        (pkg / "workers" / "rp-door" / "agent.md").write_text(
+            "---\nagent: rp-door\nharness: claude\nmodel: opus\nrelays: master\n---\nbrief\n")
+        run(cmd_checkin, agent="rp-door", summary="the owner door, relaunch-pane fixture",
+            pane="%711")
+        live_tmux_panes["v"].add("%711")
+
+        def _rp_mark_done(r):
+            r["active"] = "no"
+            r["checkout"] = f"closed {now()}"
+        update_row(base_g, "rp-door", _rp_mark_done)
+
+        (pkg / "workers" / "rp-live").mkdir(exist_ok=True)
+        (pkg / "workers" / "rp-live" / "agent.md").write_text(
+            "---\nagent: rp-live\nharness: claude\nmodel: opus\n---\nbrief\n")
+        run(cmd_checkin, agent="rp-live", summary="a still-active seat, relaunch-pane fixture",
+            pane="%712")
+        live_tmux_panes["v"].add("%712")
+
+        respawned.clear()
+        _role_o, _role_c = refuse(cmd_relaunch_pane, agent="zeta", target="rp-door",
+                                  pane_id="%711", dry_run=False)
+        check("relaunch-pane: the ROLE gate refuses a caller that is not leader/chief-of-staff/"
+              "closer-*, the SAME predicate kill-pane uses (PRIN-11 — one derivation, not a new "
+              "mechanism)",
+              _role_c == 2 and "relaunch-pane" in _role_o and respawned == [])
+
+        _nb_o, _nb_c = refuse(cmd_relaunch_pane, agent="chief-of-staff", target="rp-ghost",
+                              pane_id="%999", dry_run=False)
+        check("relaunch-pane: an agent with no briefing at all is refused before any gate runs "
+              "— there is nothing to relaunch, and no --force escape exists because there is "
+              "nothing to force",
+              _nb_c == 1 and "no worker briefing carries" in _nb_o and respawned == [])
+
+        _mp_o, _mp_c = refuse(cmd_relaunch_pane, agent="chief-of-staff", target="rp-door",
+                              pane_id="not-a-pane", dry_run=False)
+        check("relaunch-pane: a malformed target (no leading %) is refused before anything else "
+              "runs — this is a PANE id, never a seat name or a bare number",
+              _mp_c == 1 and "does not look like a tmux pane id" in _mp_o and respawned == [])
+
+        _pm_o, _pm_c = refuse(cmd_relaunch_pane, agent="chief-of-staff", target="rp-door",
+                              pane_id="%999", dry_run=False)
+        check("relaunch-pane (criterion 1 / bars.md 3): a pane id that does NOT match the "
+              "roster's own recorded pane for the target is refused UNCONDITIONALLY — the "
+              "caller must resolve it fresh from `workers`, never from memory; no --force lifts "
+              "a mismatch because forcing one does not make the id correct",
+              _pm_c == 1 and "does not match the roster's own recorded pane" in _pm_o
+              and "%711" in _pm_o and respawned == [])
+
+        _act_o, _act_c = refuse(cmd_relaunch_pane, agent="chief-of-staff", target="rp-live",
+                                pane_id="%712", dry_run=False)
+        check("relaunch-pane (kill-pane's own criterion-5 convention): a roster row still "
+              "ACTIVE (not roster-done) is refused without --force — a live seat's pane is "
+              "close-seat's or renew's to manage, not a bare relaunch",
+              _act_c == 1 and "still ACTIVE" in _act_o and respawned == [])
+
+        _fo = run(cmd_relaunch_pane, agent="chief-of-staff", target="rp-live", pane_id="%712",
+                  dry_run=False, force=True)
+        check("relaunch-pane: --force lifts ONLY the still-active refusal (the same "
+              "'if you mean it' convention close-seat's own door check and kill-pane's "
+              "criterion 5 both use) and the call completes end to end — the WARNING itself is "
+              "deliberately on stderr (matching close-seat), so the proof is `respawned` and "
+              "the success line, never a stdout substring for the warning",
+              respawned and respawned[0][0] == "%712" and "relaunched: rp-live back up" in _fo)
+        respawned.clear()
+
+        live_tmux_panes["v"].discard("%711")
+        _tl_o, _tl_c = refuse(cmd_relaunch_pane, agent="chief-of-staff", target="rp-door",
+                              pane_id="%711", dry_run=False)
+        check("relaunch-pane: a pane that is not currently live in tmux AT ALL is refused — "
+              "nothing to relaunch into; `launch --only` is the tool for a genuinely fresh pane",
+              _tl_c == 1 and "is not a live tmux pane" in _tl_o and respawned == [])
+        live_tmux_panes["v"].add("%711")
+
+        harness_up["v"] = [4242]
+        _hr_o, _hr_c = refuse(cmd_relaunch_pane, agent="chief-of-staff", target="rp-door",
+                              pane_id="%711", dry_run=False)
+        check("relaunch-pane (the unconditional backstop, bar 11 — can this check fail?): a "
+              "pane that still holds a LIVE HARNESS PROCESS is refused with NO --force offered "
+              "at all — ground truth is read from /proc (G-10/G-11's own discipline: ask the "
+              "process table, never the roster), so a stale-but-inactive roster row cannot let "
+              "a genuinely running harness be silently respawned over",
+              _hr_c == 1 and "still holds a live harness process" in _hr_o and respawned == [])
+        harness_up["v"] = None
+
+        # ---- criterion 3, gate 1: check_bindings (G-51), exercised on the DRY-RUN path too, ----
+        # ---- matching cmd_launch's own reasoning verbatim (a dry-run exists to show what a ----
+        # ---- real relaunch would do, so a divergence must not be hidden from it either). ----
+        (pkg / "taskforce.csv").write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+            "tf-9,rp-door,,claude,fable,,,m0\n", encoding="utf-8")
+        _gd_o, _gd_c = refuse(cmd_relaunch_pane, agent="chief-of-staff", target="rp-door",
+                              pane_id="%711", dry_run=True)
+        check("relaunch-pane (criterion 3, check_bindings/G-51, exercised on the dry-run path): "
+              "a descriptor that disagrees with taskforce.csv's binding registry is refused, "
+              "naming the divergence — the command carries its own name through the refusal, "
+              "not a hardcoded label",
+              _gd_c == 2 and "relaunch-pane" in _gd_o
+              and "taskforce.csv says fable" in _gd_o and respawned == [])
+        (pkg / "taskforce.csv").unlink()
+
+        _dr_o = run(cmd_relaunch_pane, agent="chief-of-staff", target="rp-door", pane_id="%711",
+                    dry_run=True)
+        check("relaunch-pane: a clean --dry-run previews the command it would start and "
+              "mutates NOTHING — no respawn, no launch, matching cmd_launch's own dry-run shape",
+              "[dry-run] would respawn %711 and start rp-door" in _dr_o and respawned == []
+              and current_row(load_workers(base_g)[2], "rp-door")["active"] == "no")
+
+        # ---- criterion 3, gate 2: the launch memory floor, via the SAME launch_gates() ----
+        # ---- cmd_launch itself uses -- exercised through a REAL call (dry_run=False), since ----
+        # ---- --dry-run deliberately skips the memory gate (matches cmd_launch's own G-51/5). ----
+        avail_real_rp = available_mb
+        available_mb = lambda: budget_mod.read_floor(pkg, "refuse") - 1
+        _mem_o, _mem_c = refuse(cmd_relaunch_pane, agent="chief-of-staff", target="rp-door",
+                                pane_id="%711", dry_run=False)
+        available_mb = avail_real_rp
+        check("relaunch-pane (criterion 3, gate 2 — the memory floor): one MB under the "
+              "package's declared floor refuses through the SAME launch_gates() cmd_launch "
+              "itself uses (PRIN-11), even though nothing else about this call is wrong",
+              _mem_c == 2 and "memory gate: REFUSED" in _mem_o and respawned == [])
+
+        # ---- criterion 3, gate 3 (both halves) + criteria 1/2, the genuine permit direction ----
+        _sess_before = len(read_csv_table(sessions_csv(pkg), SESSIONS_COLS)[1])
+        _ok_o = run(cmd_relaunch_pane, agent="chief-of-staff", target="rp-door", pane_id="%711",
+                    dry_run=False)
+        _sess_after = len(read_csv_table(sessions_csv(pkg), SESSIONS_COLS)[1])
+        check("relaunch-pane (criteria 1+2, the permit direction): roster-done, pane alive, no "
+              "harness running, bindings agree, memory clears — rp-door is respawned IN PLACE "
+              "via tmux_respawn_pane then launch_seat(pane=...), the exact pair close-seat "
+              "--renew's in-place branch uses, and reports the SAME pane back, naming its "
+              "relays: declaration",
+              respawned and respawned[0][0] == "%711"
+              and "relaunched: rp-door back up in %711 (same pane, in place)" in _ok_o
+              and "carries relays: master; the door is up again" in _ok_o)
+        check("relaunch-pane (criterion 3, gate 3a — session-trace write): launch_seat's own "
+              "session_open call fires on this path exactly as it does for `launch` and "
+              "`close-seat --renew` — a sessions.csv row is appended, not skipped",
+              _sess_after == _sess_before + 1)
+        respawned.clear()
+
+        _ci_o = run(cmd_checkin, agent="rp-door",
+                    summary="back up via relaunch-pane, checking in from the same pane",
+                    pane="%711")
+        check("relaunch-pane (criterion 3, gate 3b — the roster write): the relaunched seat's "
+              "own next `checkin` is NOT refused by P37 (the zombie-double-checkin guard) — it "
+              "lands from the SAME pane its own prior row already named, which is the specific "
+              "exception P37 carries for a recovery rather than a twin. This is how the roster "
+              "row actually gets rewritten active — this verb deliberately does not write it "
+              "directly",
+              "checked in: rp-door" in _ci_o)
+
+        for _rpd in ("rp-door", "rp-live"):
+            __import__("shutil").rmtree(pkg / "workers" / _rpd, ignore_errors=True)
+        live_tmux_panes["v"] -= {"%711", "%712"}
+        respawned.clear()
+
+        # ---- criterion 4: the relays: door guard inside cmd_close_seat is UNTOUCHED by any of ----
+        # ---- the above -- re-run its own refusal on a checked-out seat with a live bare pane ----
+        # ---- and confirm BOTH close-seat and close-seat --renew still refuse it exactly as ----
+        # ---- before (no existing selftest row covered this guard directly before this task). ----
+        (pkg / "workers" / "rp-door2").mkdir(exist_ok=True)
+        (pkg / "workers" / "rp-door2" / "agent.md").write_text(
+            "---\nagent: rp-door2\nharness: claude\nmodel: opus\nrelays: master\n---\nbrief\n")
+        run(cmd_checkin, agent="rp-door2", summary="second door fixture, criterion-4 regression",
+            pane="%713")
+        live_tmux_panes["v"].add("%713")
+
+        def _rp2_mark_done(r):
+            r["active"] = "no"
+            r["checkout"] = f"closed {now()}"
+        update_row(base_g, "rp-door2", _rp2_mark_done)
+
+        killed.clear()
+        _g4a_o, _g4a_c = refuse(cmd_close_seat, agent="leader", target="rp-door2")
+        check("criterion 4 (report, task 7.95): a checked-out door seat with a live bare pane "
+              "is STILL refused by plain close-seat after this task's change, exactly as "
+              "before — the guard was never touched",
+              _g4a_c == 1 and "carries a relay path to a human role" in _g4a_o and killed == [])
+        _g4b_o, _g4b_c = refuse(cmd_close_seat, agent="leader", target="rp-door2", renew=True,
+                                no_export=True)
+        check("criterion 4 (report, task 7.95): close-seat --renew on the same checked-out "
+              "door seat is ALSO still refused, unweakened and not made pane-state-aware — the "
+              "renew path offers no back door around the plain close's refusal",
+              _g4b_c == 1 and "carries a relay path to a human role" in _g4b_o and killed == [])
+
+        # ---- criterion 6, a GENUINE mutation control (bar 11 — can this check fail?): a ----
+        # ---- respawn that "succeeds" but whose harness never actually comes up must be ----
+        # ---- reported as a FAILURE, never laundered into the success line — this is new ----
+        # ---- glue code (launch_seat's own G-11 check is already covered elsewhere; what is ----
+        # ---- NOT covered anywhere else is THIS command's own handling of that return value). ----
+        harness_up["v"] = []   # positively absent: wait_harness_up will report failure
+        _wf_o, _wf_c = refuse(cmd_relaunch_pane, agent="chief-of-staff", target="rp-door2",
+                              pane_id="%713", dry_run=False)
+        harness_up["v"] = None
+        check("relaunch-pane (criterion 6, the control — can this check fail?): a respawn that "
+              "reports OK but whose harness never verifies up is surfaced as `relaunch FAILED`, "
+              "never printed as `relaunched:` — this command does not trust tmux_respawn_pane's "
+              "own exit code any further than launch_seat already does, and does not swallow "
+              "launch_seat's error",
+              _wf_c == 1 and "relaunch FAILED" in _wf_o and "relaunched:" not in _wf_o
+              and respawned and respawned[-1][0] == "%713")
+
+        __import__("shutil").rmtree(pkg / "workers" / "rp-door2", ignore_errors=True)
+        live_tmux_panes["v"].discard("%713")
+        killed.clear()
+        respawned.clear()
+
         # ---- G-32: a GROUP is not a side door around the inbox cut ----
         # The owner spotted the watcher sitting in THREE of the run's four groups: the G-20 cut was
         # real, but `addressed_to` applied it on the `to == all` branch only, so a group message
@@ -11111,7 +11466,7 @@ HELP_EPILOG = """everyday
 leader
   launch      open one tmux seat per worker briefing and start its harness
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat / reap / kill-pane / close-run / current-run  close a seat (--renew) · free panes (--go) · reap one pane by id · end / resolve the run
+  close-seat / reap / kill-pane / relaunch-pane / close-run / current-run  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · end / resolve the run
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
@@ -11733,6 +12088,32 @@ def build_parser():
                     help="the tmux PANE ID to kill (e.g. %%482) -- never a seat name")
     add_identity_flags(s)
     s.set_defaults(func=cmd_kill_pane)
+
+    s = command(
+        "relaunch-pane",
+        "(leader/chief-of-staff/closer-*) Relaunch a seat's harness INTO a named, already-\n"
+        "registered pane, in place (task 7.95, G-282) -- the door's own path back up when a\n"
+        "plain `launch` would move it and `close-seat --renew` is refused by the relays: guard.\n"
+        "Never kills anything: refuses unless the pane is already bare (no harness running) and\n"
+        "the roster row is already roster-done. Never routes through close-seat and never needs\n"
+        "--force for the intended case -- retires the chief-of-staff's raw `tmux send-keys`\n"
+        "stopgap, restoring the memory floor, check_bindings (G-51), and the roster/session-\n"
+        "trace writes that stopgap skipped.",
+        "example:\n"
+        "  coordinate relaunch-pane owner-liaison %501\n"
+        "next: coordinate workers -- confirm the seat checked back in on the SAME pane")
+    s.add_argument("target", help="the TARGET seat to relaunch (the seat acted on)")
+    s.add_argument("pane_id", metavar="pane",
+                    help="the tmux PANE ID to relaunch into (e.g. %%501) -- must match the "
+                         "roster's own recorded pane for TARGET; resolve it fresh from "
+                         "`coordinate workers`, never from memory (bars.md 3)")
+    s.add_argument("--dry-run", action="store_true",
+                    help="print the command that would start, respawn/launch nothing")
+    s.add_argument("--force-memory", action="store_true",
+                    help="override the MEMORY gate only (--force does not: it covers the role "
+                         "gate and the roster-still-active refusal)")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_relaunch_pane)
 
     s = command(
         "approve",
