@@ -1109,15 +1109,38 @@ def check_budget(base, notes, prev_hb):
     NEVER PUSHES: a stale snapshot means the SENSOR is the incident, and check_system already owns
     that alarm. Flagging capacity off a frozen room would describe a room that no longer exists.
     """
-    b, err_b = budget_mod._load(str(base / "budget.json"), "budget.json")
-    s, err_s = budget_mod._load(str(base / "state.json"), "state.json")
-    if err_b or err_s:
-        # A run with no declared budget is the NORMAL case for every other package — silent, not a
-        # defect. An absent input is never reported as an empty room.
+    # ⚠ THE RUN ROOT, NOT `base`. `base` is coord.base_dir() = {run}/coordination/, and both inputs
+    # live one level up at the run root. The first version of this read them from `base`, found
+    # neither, and took the fail-soft branch below EVERY PASS — a flag that could never fire, in
+    # either direction, forever.
+    root = base.parent
+    bpath, spath = root / "budget.json", root / "state.json"
+
+    # SILENT: no budget is declared here. The normal case for every other package, and it must stay
+    # silent or this module cannot be shipped kit-wide.
+    if not bpath.exists():
         return None, None
 
+    # ⚠ LOUD: a budget WAS declared and could not be read. This half is the load-bearing one and its
+    # absence is what hid the path defect — the fail-soft that makes the module safe everywhere else
+    # made a WRONG PATH observationally identical to a run with no budget. Absence of a declaration
+    # and failure to read a declaration are DIFFERENT FACTS; collapsing them is how this recurs
+    # invisibly the next time a path moves, and tasks 7.32/7.33 WILL move this code.
+    b, err_b = budget_mod._load(str(bpath), "budget.json")
+    s, err_s = budget_mod._load(str(spath), "state.json")
+    prev = (prev_hb or {}).get("budget") or {}
+    if err_b or err_s:
+        if not prev.get("broken"):  # once per episode, like every other flag here
+            notes.append(
+                f"watch: BUDGET CHECK BROKEN — a budget.json IS declared at {bpath} but the "
+                f"capacity check cannot run: {err_b or err_s}. THE ROOM HAS NO CAPACITY SIGNAL "
+                f"UNTIL THIS IS FIXED — treat it as the check being down, never as the room being "
+                f"within budget. Silence from this check is not a green.")
+        return (f"{'budget':<18} {'BROKEN':<7} {err_b or err_s}",
+                {"broken": True, "breaching": False})
+
     c = budget_mod.census(b, s)
-    was = bool((prev_hb or {}).get("budget", {}).get("breaching"))
+    was = bool(prev.get("breaching"))
     now_breach = c["verdict"] == "BREACH"
 
     if now_breach and not was:
@@ -1128,7 +1151,7 @@ def check_budget(base, notes, prev_hb):
             f"goes back to being folklore. No seat is closed for this: report and judge.")
 
     state = {"breaching": now_breach, "in_use": c["in_use"], "cap": c["cap"],
-             "verdict": c["verdict"]}
+             "verdict": c["verdict"], "broken": False}
     # ⚠ The status word is the VERDICT, never a breach/no-breach binary. A stale snapshot renders
     # UNKNOWN, not `ok` — printing `ok` beside "SNAPSHOT STALE" would be absence reading as health,
     # which is this run's signature failure and was in the first draft of this very line.
