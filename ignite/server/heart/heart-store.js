@@ -28,11 +28,22 @@ const ACTION_TYPES = new Set(['launch-agent', 'fire-tool', 'start-workflow', 'se
 // The arguments each action type STRUCTURALLY REQUIRES — the same set validateArgs() enforces at
 // enqueue, named once so registration and the `fireable` projection cannot drift from it.
 //
-// Campaign issue S-2(a): `args_schema` defaults to `{}` and registration is CREATE-ONLY, so a
-// fire-tool job could register, report `enabled=1` forever, and be structurally unable to EVER
-// fire — an empty schema forbids the very `tool` argument fire-tool requires, every enqueue died
-// "unknown argument: tool", and there is no update or unregister surface to repair it with. Two
-// such ids exist live on this box and cannot be removed. The masking is worth recording: because
+// Campaign issue S-2(a) — ⚠ TRUE OF LEGACY ROWS ONLY, AND THAT SCOPE IS THE WHOLE POINT (G-258).
+// The registration door below (search `args_schema.required declares no`) now REFUSES this shape
+// outright, so the unfireable job described here CAN NO LONGER BE CREATED. What follows describes
+// rows that landed BEFORE that guard existed; `jobFireability()` still exists to report them,
+// which is exactly why this note reads as current when it is not.
+//
+// As it stood: `args_schema` defaults to `{}` and registration is CREATE-ONLY, so a fire-tool job
+// could register, report `enabled=1` forever, and be structurally unable to EVER fire — an empty
+// schema forbids the very `tool` argument fire-tool requires, every enqueue died "unknown
+// argument: tool", and there is no update or unregister surface to repair it with. Two such ids
+// exist live on this box and cannot be removed.
+//
+// ⚠ WHY THE SCOPE IS WRITTEN AT THE TOP RATHER THAN APPENDED: this comment was READ AND BELIEVED
+// by a seat writing a probe control, which then reported a severity the code no longer supports.
+// A stale comment is checked against nothing until somebody relies on it, and THE READER LEAST
+// ABLE TO CATCH IT IS THE ONE WHO OPENED IT BECAUSE THEY DID NOT ALREADY KNOW. The masking is worth recording: because
 // validateArgs() runs BEFORE the catalogue lookup on the same path, the schema failure fires first
 // and hides the tool check entirely — which is why an observer testing this reasonably concluded
 // the tool name was never validated at all. It is (E_UNKNOWN_TOOL); it was simply unreachable.
