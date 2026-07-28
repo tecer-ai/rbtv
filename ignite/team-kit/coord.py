@@ -5528,12 +5528,14 @@ def cmd_launch(args):
     refresh_mirrors_for(workers)
 
     tmux_raise_history_limit()  # exports capture full scrollback (see export-transcript)
+    refused = []
     for w in workers:
         pane, err = launch_seat(w, args, target)
         kind, wname = seat_placement(w)
         place = {"own": "window", "shared": f"window:{wname}"}.get(kind, "pane")
         label = f"{w['agent']} ({w['harness']}/{w['model'] or 'plan-default'}, {place})"
         if err:
+            refused.append(w["agent"])
             print(f"  {label}: FAILED — {err}", file=sys.stderr)
         else:
             print(f"launched {label} in {pane}"
@@ -5546,6 +5548,33 @@ def cmd_launch(args):
     else:
         print(c(f"WARNING team-monitor start FAILED — {detail}; the room runs UNOBSERVED",
                 C_DEAD), file=sys.stderr)
+    # ---- the launch's VERDICT (leader ruling, exit-code semantics) -------------------------
+    #
+    # Every PRE-SPAWN refusal in this command — PROP-8, the role gate, the memory gate — already
+    # exits 1, and `close-seat --renew` exits 1 when its launch_seat fails. This per-seat loop was
+    # the ONE path that printed `FAILED` and exited 0, so a launch in which every seat was refused
+    # reported SUCCESS to anything reading the status. Making the path consistent with the command
+    # it lives in, not new policy.
+    #
+    # SUCCESSES ARE KEPT — no rollback. A partially-launched wave is a real state and tearing down
+    # working seats to make the exit code tidy would cost more than the defect.
+    #
+    # ⚠ THE COUNTS ARE NOT DECORATION: an exit code cannot distinguish PARTIAL from TOTAL failure,
+    # and that difference decides what the operator does next (relaunch two seats, or find out why
+    # nothing came up). The code says "something failed"; only this line says how much.
+    launched = len(workers) - len(refused)
+    if refused:
+        print(c(f"launch INCOMPLETE: {launched} launched, {len(refused)} refused "
+                f"({', '.join(refused)}). The launched seats are UP and were not rolled back.",
+                C_DEAD), file=sys.stderr)
+        # ⚠ AND THE NEXT-HINT IS ITSELF PART OF THE DEFECT: "every seat above must appear there"
+        # is false the moment one was refused, and a reader who checks `workers` and finds the
+        # refused seat missing would read the tool's own instruction as evidence something ELSE
+        # broke. Fixing the exit code and leaving this sentence unqualified MOVES the lie.
+        print(c(f"next: {coord_invocation(args)} workers — the {launched} LAUNCHED seat(s) must "
+                f"appear there; the {len(refused)} refused one(s) will not, and that is this "
+                f"command's own result, not a second failure", C_HINT))
+        sys.exit(1)
     print(c(f"next: {coord_invocation(args)} workers — every seat above must appear there; one "
             f"that never checks in never booted", C_HINT))
 
@@ -6782,6 +6811,18 @@ def _selftest_checks(args, failures, names):
               "into furniture nobody ordered",
               "wave-haiku" in _wo and "FAILED" in _wo
               and len(opened) == opened_pre_drift)
+        check("launch: a refused seat makes the COMMAND exit non-zero, and the summary carries "
+              "COUNTS — an exit code cannot distinguish PARTIAL from TOTAL failure, and that is "
+              "the difference between relaunching two seats and finding out why nothing came up. "
+              "This row previously asserted nothing about the exit code on purpose: it was 0, and "
+              "asserting 0 would have encoded the defect as expected behaviour",
+              _wc == 1 and "launch INCOMPLETE" in _wo and "0 launched, 1 refused" in _wo)
+        check("launch: and the NEXT-HINT is qualified — `every seat above must appear there` is "
+              "false the moment one was refused, and a reader who then finds it missing from "
+              "`workers` would read the tool's own instruction as evidence something ELSE broke. "
+              "Fixing the exit code and leaving this sentence would MOVE the lie, not remove it",
+              "every seat above must appear there" not in _wo
+              and "that is this command" in _wo)
         # ⚠ THE EXIT CODE IS DELIBERATELY NOT ASSERTED HERE, and the omission is the finding.
         # `cmd_launch`'s loop PRINTS `FAILED — <reason>` to stderr and EXITS 0, so a launch in
         # which every seat was refused still reports success to a caller reading the exit status —
@@ -6797,7 +6838,8 @@ def _selftest_checks(args, failures, names):
               "half a mutant removing `if not args.force` silently deleted. An exemption that "
               "cannot be exercised is untested, and a gate that cannot be overridden is a trap "
               "(the close-side door row rules the same way)",
-              _fc2 == 0 and len(opened) > opened_pre_drift)
+              _fc2 == 0 and len(opened) > opened_pre_drift
+              and "launch INCOMPLETE" not in _fo2)
         drf.unlink()
 
         # ---- v2: transcript export ----
@@ -6887,7 +6929,7 @@ def _selftest_checks(args, failures, names):
               "the harness was never told to run. Distinct from the row above: there the wake "
               "landed and no harness came up; here the wake itself failed, and the seat must not "
               "be reported launched on the strength of a pane existing",
-              "FAILED" in _ko and "harness start FAILED" in _ko)
+              "FAILED" in _ko and "harness start FAILED" in _ko and _kc == 1)
         harness_up["v"] = None
 
         # G-12: the renew respawns the seat's own pane instead of killing it and splitting a new
