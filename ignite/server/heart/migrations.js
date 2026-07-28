@@ -134,6 +134,13 @@ const MIGRATION_SESSION_SPLIT = {
   },
 };
 
+// Registered 2026-07-28, owner-directed and owner-verified. MUST sit here: MIGRATION_SESSION_SPLIT
+// is defined AFTER the array literal (so it cannot be written inside it) and LATEST derives FROM
+// the array on the next line — registering later would leave LATEST at 1 while MIGRATIONS held 2.
+// Proven against a COPY of the live store before registering: 0 -> 2, session_pk created, and the
+// query that crash-looped the daemon (no such column: j.session_pk) then ran clean.
+MIGRATIONS.push(MIGRATION_SESSION_SPLIT);
+
 const LATEST = MIGRATIONS.length ? MIGRATIONS[MIGRATIONS.length - 1].version : 0;
 
 function userVersion(db) {
