@@ -434,9 +434,18 @@ def main():
         check("a DIFFERENT drift set flags again — a second deploy is a second event",
               len(notes) == 2)
         watch.check_daemon(st, LIVE, None, notes, ("current", "ok"))
-        check("returning to current clears the state and raises no flag", len(notes) == 2)
-        watch.check_daemon(st, LIVE, None, notes, ("stale", "b.js"))
-        check("and a later drift flags again", len(notes) == 3)
+        check("returning to current raises no flag of its own", len(notes) == 2)
+        # ⚠⚠ THIS PAIR WAS VACUOUS AND MY OWN GUARD-NEUTRALIZATION SWEEP CAUGHT IT — an EIGHTH
+        # instance of the family, inside the probe built to close it. The re-flag check used a
+        # DIFFERENT drift set either side of the return-to-current, so the later flag was explained
+        # by the SET CHANGING and not by the state being cleared: neutralizing the clear left all 95
+        # checks green. Proven, not reasoned — `elif code[0] == "current"` → `elif False:` survived.
+        # ⇒ The drift set is now IDENTICAL across the transition, so ONLY the clearing can explain a
+        # second flag. Same discipline as everywhere else here: make the property under test the one
+        # difference between pass and fail.
+        watch.check_daemon(st, LIVE, None, notes, ("stale", "b.js, c.js"))
+        check("the SAME drift set flags again ONLY because current cleared the state",
+              len(notes) == 3, "identical set either side — the clear is the only explanation")
         st, notes = {}, []
         for _ in range(3):
             watch.check_daemon(st, LIVE, None, notes, ("unknown", "no marker"))
