@@ -1326,13 +1326,28 @@ SKIP_HARNESS_CHECK = os.environ.get("COORD_SKIP_HARNESS_CHECK") == "1"
 # It MUST NEVER travel to another machine as a constant: re-derive per box from a working-set or
 # PSI-pressure metric over SEVERAL samples. Overriding it with a single fresh reading would
 # repeat exactly the error that produced it. Until that measurement campaign runs, the value
-# stays put (owner ruling) and is merely made settable per machine, which is what the env vars
-# below are for — they are the per-machine seam, not a licence to guess a better number.
+# stays put (owner ruling) and is merely made settable per machine, which is what the env var
+# below is for — it is the per-machine seam, not a licence to guess a better number.
 # The GATE ITSELF is not in question and was ratified: seat RSS understates peak ~3x, three
 # seats died `exit 137`, and the watcher was SIGKILLed twice as a BYSTANDER.
-SEAT_SPIKE_MB = int(os.environ.get("COORD_SEAT_SPIKE_MB") or 1400)   # per-box override
-SPIKE_RESERVE = int(os.environ.get("COORD_SPIKE_RESERVE") or 2)      # boot + compaction
-LAUNCH_MEM_FLOOR_MB = SEAT_SPIKE_MB * SPIKE_RESERVE   # 2800 MB on this box
+SEAT_SPIKE_MB = int(os.environ.get("COORD_SEAT_SPIKE_MB") or 1400)   # per-box override — a MEASUREMENT
+
+# ⚠⚠ THE FLOOR IS POLICY. IT IS ITS OWN CONSTANT AND TAKES NO ENV OVERRIDE.
+# Owner ruling `r-mem-floor-2000` (2026-07-28), shape ruled by the leader (#1210 pt 3, #1269 pt 2).
+#
+# It used to read `SEAT_SPIKE_MB * SPIKE_RESERVE`, and that derivation is exactly why 2000 could not
+# be expressed: 2000 is not 1400 x 2. Reaching it through the factors would have moved SEAT_SPIKE_MB
+# — a MEASUREMENT held put by a standing owner ruling (see the block above) — in order to encode a
+# POLICY number. Measurement and policy are different things and the code now says so.
+#
+# ⚠ AND NO `COORD_*` OVERRIDE HERE, DELIBERATELY: an env override on the floor would let an
+# environment silently overrule an owner ruling with NO FILE ANYWHERE TO GREP — for the very number
+# `budget.json` was just made the normative home of. The per-machine seam belongs on the spike,
+# which is measured per box; the floor is decided once, by the owner.
+# (`SPIKE_RESERVE` and `COORD_SPIKE_RESERVE` are deleted with this change: their only uses were
+# building this product and printing it in the refusal below, and the env var was set nowhere in
+# the repo. The reserve is now DERIVED FROM THE FLOOR, which is the direction that stays honest.)
+LAUNCH_MEM_FLOOR_MB = 2000
 
 
 def available_mb():
@@ -1354,9 +1369,16 @@ def memory_gate(n_seats, avail_mb, floor_mb=LAUNCH_MEM_FLOOR_MB):
     need = floor_mb + max(0, n_seats - 1) * SEAT_SPIKE_MB
     if avail_mb >= need:
         return ""
+    # ⚠ THE RESERVE THIS MESSAGE CLAIMS IS DERIVED FROM THE FLOOR ACTUALLY IN FORCE — `floor_mb`,
+    # the argument, not the module constant and not a separate reserve knob. The old text printed
+    # `SPIKE_RESERVE`, a number that BUILT the floor; once floor and spike stopped being multiples
+    # that would have printed "2 spikes of reserve" while holding 1.43, teaching a false
+    # measurement at the exact moment an operator is blocked and reading it. A caller passing its
+    # own `floor_mb` now gets a message about ITS floor.
+    reserve = (floor_mb / SEAT_SPIKE_MB) if SEAT_SPIKE_MB else 0
     return (f"{avail_mb} MB available, {need} MB needed to spawn {n_seats} seat(s). A claude seat "
             f"peaks at ~{SEAT_SPIKE_MB} MB on boot and on every compaction — steady RSS is a third "
-            f"of that — and this gate holds {SPIKE_RESERVE} spikes of reserve so a spiking seat "
+            f"of that — and this gate holds {reserve:.2f} spikes of reserve so a spiking seat "
             f"cannot make the kernel SIGKILL a bystander (how the watcher died twice on "
             f"2026-07-27). Close a seat first, or override with --force-memory and say so on "
             f"the log. NOT --force: that flag carries the ROLE gate only and will not lift "
