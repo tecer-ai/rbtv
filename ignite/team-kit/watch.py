@@ -84,6 +84,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import coord  # noqa: E402  — roster/messaging/discovery live there; state stays in the package
+import budget as budget_mod  # noqa: E402  — declared capacity vs the live census; reads state.json only
 
 
 def _loaded_code_fingerprint():
@@ -783,7 +784,7 @@ def check_daemon(sysstate, daemon, change, notes, code=None):
     return f"{'daemon':<18} {label:<7} {detail}"
 
 
-def save_heartbeat(base, loop_min, daemon=None, change=None, daemon_code=None):
+def save_heartbeat(base, loop_min, daemon=None, change=None, daemon_code=None, budget=None):
     """P32 — stamp this pass so something outside the loop can tell a live watcher from a dead one.
 
     A SEPARATE file from watch-state.json on purpose: that file is keyed by agent name, and a
@@ -832,7 +833,11 @@ def save_heartbeat(base, loop_min, daemon=None, change=None, daemon_code=None):
              # A tuple would round-trip through JSON as a list; named keys instead, so the reader
              # never indexes into a shape it has to remember.
              "daemon_code": ({"verdict": daemon_code[0], "detail": daemon_code[1]}
-                             if daemon_code else None)}, indent=1))
+                             if daemon_code else None),
+             # Room-capacity re-arm state. HERE and not in watch-state.json for the same measured
+             # reason as the daemon fields above: that file is agent-keyed and merged across runs,
+             # so a stale run-1 flag would silently pre-suppress a run-2 one.
+             "budget": budget}, indent=1))
     except OSError as exc:
         print(f"watch: heartbeat not written ({exc}) — `coordinate workers` will report this "
               f"watcher STALE even while it runs", file=sys.stderr)
@@ -1071,6 +1076,70 @@ def check_system(args, sysstate, notes):
             f"load={sp['load1']}/{sp['cores']}  {' '.join(flags)}")
 
 
+def check_budget(base, notes, prev_hb):
+    """ROOM CAPACITY — declared cap vs the live census. Returns (report_line, state).
+
+    Box-level, so it sits beside `check_system` rather than in the per-seat loop: capacity is not
+    a property of any seat, the same call `check_daemon` made for the daemon.
+
+    ⚠ WHY THIS EXISTS AT ALL: run-2 spent a night at one executor against an "executor budget of
+    2" that was written in NO ruling surface. It was a past census, saved into a seat's memory.md,
+    carried across a renewal, and read by the successor as live policy — while RAM, the pane cap
+    and the DAG all had room. A capacity number that lives only in prose decays into folklore, and
+    nothing in the room could contradict it. This recomputes it every pass from two declared
+    inputs, so the number can never again be something a seat merely remembers.
+
+    ⚠⚠ IT PUSHES **BREACH ONLY**, and the omission is the design, not a gap. The obvious second
+    flag — "a live agent pane nobody declared" — CANNOT BE STATED CORRECTLY over this data and was
+    deliberately NOT shipped. Three legitimate descriptor-less agent panes exist (the staffer, the
+    owner door, and the OWNER'S OWN claude session), and an owner session is observationally
+    IDENTICAL to a leaked pane in state.json: live harness, no roster row, no descriptor. A flag
+    on that predicate would have coached the chief-of-staff to close the owner's own session,
+    which is G-176 — already fixed once here. Of run-1's 12 per-seat flags ELEVEN were false
+    positives, and a usually-wrong flag trains its reader to ignore the real one (G-194). The
+    unaccounted set is REPORTED by `budget.py` for whoever asks and wakes nobody.
+    Full finding: seats/owner-liaison/finding-undeclared-pane-predicate.md.
+
+    ⚠ RE-ARM STATE LIVES IN watch-heartbeat.json, NEVER watch-state.json — the engineer's catch,
+    and the hazard is measured: watch-state.json is keyed by AGENT NAME and MERGED ACROSS RUNS, so
+    a stale run-1 `notified_*` would pre-suppress a run-2 flag and the silence would be
+    unexplainable from inside the room. Same reasoning that put the daemon fields here (G-188).
+
+    HARD TRANSITIONS ONLY — flags on entering breach, once, and re-arms when it clears. UNKNOWN
+    NEVER PUSHES: a stale snapshot means the SENSOR is the incident, and check_system already owns
+    that alarm. Flagging capacity off a frozen room would describe a room that no longer exists.
+    """
+    b, err_b = budget_mod._load(str(base / "budget.json"), "budget.json")
+    s, err_s = budget_mod._load(str(base / "state.json"), "state.json")
+    if err_b or err_s:
+        # A run with no declared budget is the NORMAL case for every other package — silent, not a
+        # defect. An absent input is never reported as an empty room.
+        return None, None
+
+    c = budget_mod.census(b, s)
+    was = bool((prev_hb or {}).get("budget", {}).get("breaching"))
+    now_breach = c["verdict"] == "BREACH"
+
+    if now_breach and not was:
+        notes.append(
+            f"watch: ROOM OVER CAPACITY — {c['in_use']} agent panes live against a declared cap of "
+            f"{c['cap']} ({-c['headroom']} over). The cap is in budget.json with its ruling; if the "
+            f"cap is what is wrong, change it THERE rather than working around it, or the number "
+            f"goes back to being folklore. No seat is closed for this: report and judge.")
+
+    state = {"breaching": now_breach, "in_use": c["in_use"], "cap": c["cap"],
+             "verdict": c["verdict"]}
+    # ⚠ The status word is the VERDICT, never a breach/no-breach binary. A stale snapshot renders
+    # UNKNOWN, not `ok` — printing `ok` beside "SNAPSHOT STALE" would be absence reading as health,
+    # which is this run's signature failure and was in the first draft of this very line.
+    status = "FLAG" if now_breach else ("UNKNOWN" if c["verdict"] == "UNKNOWN" else "ok")
+    line = (f"{'budget':<18} {status:<7} "
+            f"{c['in_use']}/{c['cap'] if c['cap'] is not None else '?'} panes"
+            f"{'' if c['complete'] else '  (INCOMPLETE — unclassified seats)'}"
+            f"{'  SNAPSHOT STALE — no capacity claim is made' if c['stale'] else ''}")
+    return line, state
+
+
 def check_leftover_windows(rows, seats, sysstate, notes):
     """PROP-10 — a briefing-declared window whose panes are ALL agent-dead: no ACTIVE roster
     seat's pane is in it. Covers both halves of the incident: a closed wave leaving bash-only
@@ -1138,6 +1207,9 @@ def run_pass(args):
     # leftover dead window is invisible to the per-seat loop (its seats have no active row).
     sysstate = load_sys_state(base)
     sysline = check_system(args, sysstate, notes)
+    # Room capacity is box-level too. Read the PREVIOUS heartbeat before this pass overwrites it —
+    # the re-arm comparison needs the prior breach state, and save_heartbeat rewrites the file whole.
+    budgetline, budget_state = check_budget(base, notes, load_heartbeat(base))
     # G-188 push half: the daemon is box-level, not a seat, so it runs here with the other
     # box duties. ONE reading, taken now and reused by save_heartbeat at the end of the pass.
     daemon, daemon_change = daemon_reading(base)
@@ -1309,13 +1381,16 @@ def run_pass(args):
 
     save_state(base, state)
     save_sys_state(base, sysstate)
-    save_heartbeat(base, getattr(args, "loop", None), daemon, daemon_change, daemon_code)
+    save_heartbeat(base, getattr(args, "loop", None), daemon, daemon_change, daemon_code,
+                   budget_state)
     stamp = nnow.strftime("%Y-%m-%d %H:%M")
     print(f"watch pass {stamp} — {len(report)} active seat(s), {len(notes)} new flag(s)")
     if sysline:
         print("  " + sysline)
     if daemonline:
         print("  " + daemonline)
+    if budgetline:
+        print("  " + budgetline)
     for line in report:
         print("  " + line)
     for line in leftover_lines:
