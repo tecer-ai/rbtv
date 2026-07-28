@@ -6871,6 +6871,23 @@ def _selftest_checks(args, failures, names):
         check("G-11: a launch whose pane never brings a harness up FAILS LOUDLY instead of "
               "reporting a launched seat — the submitted start line is not evidence it ran",
               "FAILED" in out and "G-11" in out)
+
+        # ---- guard sweep, slice 1 site 3: the WAKE-FAILURE abort, one guard EARLIER ----
+        # ⚠ The row above reads as though it covers this, and it does not. It drives
+        # `wait_harness_up` (harness_up = []) with the wake SUCCEEDING, so it exercises
+        # launch_seat's `uerr` guard — the one AFTER. The `if not ok` guard on wake() itself was
+        # asserted by nothing: no launch anywhere in this suite ran with a failing wake, because
+        # `wake_ok` is set True before the first cmd_launch and never lowered again. Two adjacent
+        # guards, one covered, one not, under a check name that sounds like it covers both.
+        harness_up["v"] = [4242]        # a harness IS up: isolates the wake failure as the cause
+        wake_ok["v"] = False
+        _ko, _kc = refuse(cmd_launch, agent="leader", only="alpha", dry_run=False, force=False)
+        wake_ok["v"] = True
+        check("G-11: a launch whose START LINE was never delivered FAILS — the pane is open and "
+              "the harness was never told to run. Distinct from the row above: there the wake "
+              "landed and no harness came up; here the wake itself failed, and the seat must not "
+              "be reported launched on the strength of a pane existing",
+              "FAILED" in _ko and "harness start FAILED" in _ko)
         harness_up["v"] = None
 
         # G-12: the renew respawns the seat's own pane instead of killing it and splitting a new
@@ -6887,6 +6904,30 @@ def _selftest_checks(args, failures, names):
               "the window", not killed and not opened and not split_targets)
         check("G-12: it reports the seat back in the SAME pane", "renewed: alpha" in out
               and "%31" in out and "layout intact" in out)
+        # ---- guard sweep, slice 1 site 2: seat VALIDATION on the RENEW path ----
+        # PROP-8 validates every seat BEFORE any pane opens — but that sweep lives in `cmd_launch`,
+        # and `close-seat --renew` does not go through it: it calls `launch_seat` directly, whose
+        # own `verr` guard is the ONLY validation a renew ever meets. That guard was asserted by
+        # nothing — every renew in this suite renews a VALID seat. A descriptor edited between a
+        # seat's launch and its renewal is exactly when it matters, and a renewal is the one boot
+        # that happens after a descriptor has been touched.
+        alpha_md = pkg / "workers" / "alpha.md"
+        alpha_src = alpha_md.read_text(encoding="utf-8")
+        alpha_md.write_text("---\nagent: alpha\nmodel: opsu\neffort: xhigh\n---\nbrief\n",
+                            encoding="utf-8")
+        run(cmd_checkin, agent="alpha", summary="pane seat", pane="%31")
+        live_tmux_panes["v"] = {"%31"}
+        killed.clear(); opened.clear(); respawned.clear()
+        _vo, _vc = refuse(cmd_close_seat, agent="leader", target="alpha", renew=True,
+                          no_export=True)
+        alpha_md.write_text(alpha_src, encoding="utf-8")
+        live_tmux_panes["v"] = set()
+        check("PROP-8: a RENEW validates the seat too — the descriptor may have been edited since "
+              "it last booted, and a renew is the one boot that happens AFTER someone touched the "
+              "file. cmd_launch's pre-spawn sweep does not run here, so launch_seat's own check is "
+              "the only one a renew meets",
+              "opsu" in _vo and not opened)
+
         live_tmux_panes["v"] = set()
 
         # G-10: a teardown proves the process died instead of assuming kill-pane was enough.
