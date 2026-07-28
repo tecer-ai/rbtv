@@ -919,6 +919,7 @@ def snapshot_tree(snap, now=None):
             "ctx": pct,
             "approx": bool(s.get("ctx_ambiguous")),
             "ctx_over": thr is not None and pct is not None and pct >= thr,
+            "cls": (s.get("class") or "").strip(),
             "age": fmt_age(act_age)})
     wins = [by_idx[i] for i in order]
     absent = (snap or {}).get("roster_absent") or []
@@ -928,6 +929,7 @@ def snapshot_tree(snap, now=None):
              "shell": False, "busy": False,
              "awaiting": False, "harness": str(a.get("liveness") or "absent"), "model": "",
              "ctx": None, "approx": False, "ctx_over": False,
+             "cls": (a.get("class") or "").strip(),
              "age": str(a.get("reason") or "")[:12]} for a in absent]})
     return wins, len(wins), sum(len(w["panes"]) for w in wins)
 
@@ -989,6 +991,24 @@ def pane_agent_bits(p):
     return bits
 
 
+def class_bit(p):
+    """The seat's declared class (task 7.80), straight off the snapshot — the sensor's
+    `class` field, rendered without a second source.
+
+    ⚠ NO VALUE LIST HERE, DELIBERATELY, and this renderer must never grow one. The string
+    is displayed exactly as the snapshot carries it; teamview knows no vocabulary and
+    validates nothing. The reason is already ruled for the sensor
+    (`ruling-780-literals-withdrawn-derive-dont-list.md` RULING 2, and `coord.py:338-345`
+    before it): a name list inside a tool every run shares encodes ONE campaign's role
+    vocabulary into all of them, and a MANDATE cannot be expressed as a name list.
+
+    ⚠ AND IT IS NOT A PRIVILEGE TOKEN. The descriptor's declaration is a CLAIM, the
+    snapshot's field is a SENSOR OBSERVATION of that claim, and the identity gate is the
+    only authorization. Nothing here may ever gate on it — displaying is not authorizing.
+    """
+    return f"{DIM}{p['cls']}{OFF}" if p.get("cls") else ""
+
+
 def pane_star(p):
     """The '*' PREFIX marking tmux's active pane — the one split in this window holding the
     cursor. Every window has exactly one, so a multi-window frame shows several; the window
@@ -1031,7 +1051,13 @@ def pane_cell_variants(p):
     otherwise overflow the frame width shrink GRACEFULLY instead of getting hard-clipped
     mid-value downstream (observed: 'ctx42~' losing its own % sign and color reset). Age
     drops first, then harness:model; ctx% — the DESIGN-4 safety signal — survives until the
-    very last non-bare variant."""
+    very last non-bare variant.
+
+    The seat CLASS is carried as its own bit rather than folded into pane_agent_bits(),
+    whose three bits are indexed POSITIONALLY just below — a fourth bit in that list would
+    silently shift ctx% into the age slot. It drops FIRST of all: a class is near-static, so
+    it is the cheapest thing to lose when the frame narrows, and the safety signals must
+    outlive it."""
     if p["shell"]:
         return [shell_cell(p), f"{pane_star(p)}{DIM}{p['name']}{OFF}"]
     name = pane_name(p)
@@ -1043,8 +1069,10 @@ def pane_cell_variants(p):
         ctx, idx = bits[idx], idx + 1
     if p.get("age"):
         age = bits[idx]
+    cls = class_bit(p)
     variants = []
-    for parts in ((name, hm, ctx, age), (name, hm, ctx), (name, ctx), (name,)):
+    for parts in ((name, cls, hm, ctx, age), (name, hm, ctx, age),
+                  (name, hm, ctx), (name, ctx), (name,)):
         v = " ".join(x for x in parts if x)
         if not variants or variants[-1] != v:
             variants.append(v)
@@ -1061,7 +1089,7 @@ def pane_compact(p):
     if p["shell"]:
         return shell_cell(p)
     name = pane_name(p)
-    bits = pane_agent_bits(p)
+    bits = [b for b in [class_bit(p)] if b] + pane_agent_bits(p)
     return f"{name}({' '.join(bits)})" if bits else name
 
 
@@ -1373,6 +1401,32 @@ def interface_legend_lines(width=80):
     return out
 
 
+def class_census(panes):
+    """['3 staff', '1 worker', '2 unclassified'] — the room's seats GROUPED BY THE VALUE THE
+    SNAPSHOT CARRIES, most common first, ties broken alphabetically so the line is stable
+    between refreshes.
+
+    ⚠ IT GROUPS, IT DOES NOT CLASSIFY. There is no list of known values here and no notion
+    of which value 'counts' as anything — that arithmetic is the consumer's (the room-idle
+    aggregate reads the snapshot, not this line), and putting it here would encode one
+    campaign's vocabulary into a tool every run shares.
+
+    The absence marker is NOT special-cased: it is simply one of the values counted, which
+    is why an incompletely-classified room reads its own incompleteness off this line
+    instead of showing a number that looks whole. A room where nothing declares renders
+    exactly one term, and that term says so.
+
+    Empty when no pane carries the field at all — a pre-7.80 snapshot renders as it always
+    did rather than growing an empty term."""
+    counts = {}
+    for p in panes:
+        c = (p.get("cls") or "").strip()
+        if c:
+            counts[c] = counts.get(c, 0) + 1
+    return [f"{DIM}{n} {c}{OFF}"
+            for c, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
 def rollup_variants(wins):
     """The persistent alarm-rollup — '13 panes · worst ~94% · 1 red · 0 ?' — rendered
     at EVERY layout size on the windows header line, above the rotating detail. Rotation
@@ -1390,7 +1444,7 @@ def rollup_variants(wins):
           if worst else "")
     rc, ac = (RED if red else DIM), (RED if waiting else DIM)
     full = [f"{len(panes)} panes"] + ([f"worst {wc}"] if wc else []) \
-        + [f"{rc}{red} red{OFF}", f"{ac}{waiting} ?{OFF}"]
+        + [f"{rc}{red} red{OFF}", f"{ac}{waiting} ?{OFF}"] + class_census(panes)
     short = [f"{len(panes)}p"] + ([wc] if wc else []) \
         + [f"{rc}{red}r{OFF}", f"{ac}{waiting}?{OFF}"]
     return [" · ".join(full), " ".join(short)]
@@ -3246,6 +3300,43 @@ def cmd_selftest():
                    if isinstance(node, ast.Constant) and isinstance(node.value, str)
                    and id(node) not in docstrings and "ctx_monitor" in node.value
                    and owner_of.get(id(node)) not in SELFTEST])   # this check names it itself
+
+    # ---- seat class, rendered from the snapshot alone (task 7.80) ----
+    csnap = {"seats": [
+        {"seat": "a", "pane": "%1", "window": "1", "class": "zzz-invented-class",
+         "harness": "claude", "model": "opus", "ctx_pct": 10.0, "liveness": "live"},
+        {"seat": "b", "pane": "%2", "window": "1", "class": "zzz-invented-class",
+         "harness": "claude", "model": "opus", "ctx_pct": 20.0, "liveness": "live"},
+        {"seat": "c", "pane": "%3", "window": "1", "class": "unclassified",
+         "harness": "claude", "model": "opus", "ctx_pct": 30.0, "liveness": "live"}],
+        "roster_absent": [{"seat": "g", "pane": "%9", "class": "ghost-class",
+                           "liveness": "absent", "reason": "gone"}]}
+    cwins, _, _ = snapshot_tree(csnap)
+    cpanes = [p for w in cwins for p in w["panes"]]
+    check("7.80: the class reaches the pane record straight off the snapshot — no second source",
+          [p["cls"] for p in cpanes] == ["zzz-invented-class", "zzz-invented-class",
+                                         "unclassified", "ghost-class"])
+    check("7.80: an INVENTED value renders verbatim — teamview holds no value list and "
+          "validates nothing (this fails the moment someone adds one)",
+          "zzz-invented-class" in strip_sgr(pane_cell_variants(cpanes[0])[0])
+          and "zzz-invented-class" in strip_sgr(pane_compact(cpanes[0])))
+    census = strip_sgr(" · ".join(class_census(cpanes)))
+    check("7.80: the rollup census GROUPS BY OBSERVED VALUE, most common first — it does not "
+          "classify, so no vocabulary is encoded here either",
+          census == "2 zzz-invented-class · 1 ghost-class · 1 unclassified")
+    check("7.80: the absence marker is NOT special-cased — it is counted as one of the values, "
+          "which is how an incompletely-classified room reports its own incompleteness",
+          "1 unclassified" in census)
+    check("7.80: the class DROPS FIRST as the cell narrows — the ctx% safety signal outlives it",
+          "zzz-invented-class" not in strip_sgr(pane_cell_variants(cpanes[0])[1])
+          and "10%" in strip_sgr(pane_cell_variants(cpanes[0])[1]))
+    check("7.80: a pre-7.80 snapshot with NO class field renders exactly as before — no empty "
+          "term in the census, no stray separator in the cell",
+          class_census([{"name": "x"}]) == []
+          and "  " not in strip_sgr(pane_cell_variants(
+              {"name": "x", "cls": "", "shell": False, "busy": False, "awaiting": False,
+               "active": False, "harness": "claude", "model": "opus", "ctx": 5.0,
+               "age": "1m"})[0]))
 
     print(f"\nselftest: {'PASS' if not failures else 'FAIL'} ({len(failures)} failure(s))")
     sys.exit(1 if failures else 0)
