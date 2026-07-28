@@ -122,6 +122,27 @@ function withLock(dir, fn) {
   }
 }
 
+// ⚠ A DEAD SESSION'S DIRECTORY IS NEVER READ AGAIN, so its stale claims are never pruned by
+// `liveClaims` — which only runs against the CURRENT dispatcher's dir. Observed immediately: the
+// two dispatchers this capability's probe SIGKILLs left a claim file each under session ids that
+// can never recur. Harmless to the cap (a dead session cannot dispatch) but unbounded litter under
+// the runtime root, so the sweep happens here, where a live dispatcher is already holding a lock
+// and paying for a directory read. A sibling is removed only when BOTH tests hold: its session
+// leader is gone AND it holds no live claim — either alone would be enough to be plausible and
+// neither alone is enough to be safe.
+function sweepDeadSessions(runtimeRoot, keepSid) {
+  const root = path.join(runtimeRoot, 'sub-agent-dispatch');
+  let names;
+  try { names = fs.readdirSync(root); } catch { return; }
+  for (const name of names) {
+    const sid = Number(name);
+    if (!Number.isInteger(sid) || sid === keepSid || pidAlive(sid)) continue;
+    const dir = path.join(root, name);
+    if (liveClaims(dir).length > 0) continue;
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* raced with another sweeper */ }
+  }
+}
+
 // RESERVE a slot BEFORE the spawn, then bind it to the supervisor once spawned. The two steps are
 // separate on purpose: counting after spawning would admit the (max+1)th sub-agent for as long as
 // it takes to write the claim.
@@ -129,6 +150,7 @@ function reserve({ runtimeRoot, max = FANOUT_MAX, meta = {} }) {
   const sid = dispatcherId();
   const dir = registryDir(runtimeRoot, sid);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  sweepDeadSessions(runtimeRoot, sid);
 
   return withLock(dir, () => {
     const live = liveClaims(dir);

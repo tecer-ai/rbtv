@@ -137,15 +137,28 @@ Each is outside this task's write surface, and each is a real consequence a late
 
 ## Probes
 
-`probes/probe-sub-agent-dispatch.js` — 29 checks, run with `node probes/probe-sub-agent-dispatch.js`.
-It runs against the committed config, the committed manifest, the real workspace `.rbtv/sessions/`
-and a REAL claude harness; it supplies no paths of its own to the dispatch path.
+`probes/probe-sub-agent-dispatch.js`. It runs against the committed config, the committed manifest,
+the real workspace `.rbtv/sessions/` and — in the paid half — a REAL claude harness; it supplies no
+paths of its own to the dispatch path.
 
-**⚠ It costs real money and real time, and `deploy/probe-suite.js` discovers it by structure** — so
-every suite run now makes TWO real claude invocations (~60–90 s, a few tens of cents) and SIGKILLs
-a process tree. Deliberate, and not free: 7.43's positive criteria say *"a real run"* and *"proven
-by path inspection **after a real run** rather than by a claim"*, so a probe that mocked the harness
-would satisfy the suite and fail the row.
+| Mode | Command | Checks | Cost |
+|---|---|---|---|
+| free (default) | `node probes/probe-sub-agent-dispatch.js` | **16** — every refusal, both walls that need no harness turn, and the boundary-11 pre-fix control | seconds, nothing |
+| paid | `… --real` (or `SUBAGENT_PROBE_REAL_RUN=1`) | **29** — the above plus every check needing a real run | ~60–90 s, two real claude invocations, a SIGKILLed process tree |
+
+**⚠ The split is leader-ruled (`G-213`), and the risk was named and accepted rather than
+engineered away: an opt-in check tends never to run again.** The mitigation is a TRIGGER, not a
+mechanism — **run `--real` before accepting any change to this capability's own files.** Nothing
+enforces it. The reasoning: `deploy/probe-suite.js` discovers by structure, and a 60–90 s
+real-money tax on every suite run makes the suite a thing people avoid — **an avoided suite protects
+nothing**, the same failure mode as a permanently-red probe (`G-194`). 7.43's *"proven by path
+inspection **after a real run** rather than by a claim"* is an ACCEPTANCE artifact, satisfied once
+by the run recorded on its row, not a standing requirement to re-purchase hourly.
+
+**Check numbers are stable across the split**, deliberately: the free half runs 1–11 then 21–23,
+the paid half 12–20 and 24–27, so output order is not numeric and every citation in the seat's
+`report-743.md` still resolves. A skipped paid half prints a loud SKIPPED block and is graded
+against its own literal — **the tally never shrinks silently to read complete**.
 
 **Every check is paired where pairing is possible.** A refusal check is worthless unless the same
 call succeeds when the bound is not violated, and a wall check is worthless unless the same

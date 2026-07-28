@@ -16,12 +16,21 @@
 // wall check is worthless unless the same instrument finds the thing on the unwalled side. Each
 // CONTROL below is the second half of that pair and is marked `control:`.
 //
-// ⚠⚠ THIS PROBE COSTS REAL MONEY AND REAL TIME, AND `deploy/probe-suite.js` DISCOVERS IT BY
-// STRUCTURE — so every suite run now makes TWO REAL claude invocations (~60-90s, a few tens of
-// cents) and SIGKILLs a process tree. That is deliberate and it is not free: 7.43's positive
-// criteria say "a real run" and "proven by path inspection AFTER A REAL RUN rather than by a
-// claim", so a probe that mocked the harness would satisfy the suite and fail the row. Disclosed
-// here and in the capability doc rather than quietly added to everyone's suite time.
+// ⚠⚠ THE PAID HALF IS OPT-IN — `--real` (or `SUBAGENT_PROBE_REAL_RUN=1`). LEADER-RULED, G-213.
+// Two REAL claude invocations (~60-90s, real money) and a SIGKILLed process tree do not belong in
+// every `deploy/probe-suite.js` run: measured next door, the engineer's grader fix took a selftest
+// from 60.26s to 4.96s and that alone made a 543-site sweep affordable. AN AVOIDED SUITE PROTECTS
+// NOTHING — the same failure mode as a permanently-red probe (G-194). 7.43's criterion "after a
+// real run rather than by a claim" is an ACCEPTANCE artifact, satisfied ONCE by the run recorded on
+// its row; it is not a standing requirement to re-purchase the proof hourly.
+//
+// ⚠ THE RISK THE LEADER NAMED AND ACCEPTED: an opt-in check tends never to run again. The
+// mitigation is a TRIGGER, not a mechanism, and it is not dressed up as one — RUN `--real` BEFORE
+// ACCEPTING ANY CHANGE TO THIS CAPABILITY'S OWN FILES.
+//
+// ⚠ CHECK NUMBERS ARE STABLE ACROSS THE SPLIT, deliberately: the free half runs 1-11 then 21-23,
+// the paid half 12-20 and 24-27. Output order is therefore not numeric, so that every citation in
+// `report-743.md` still resolves to the check it named.
 //
 // ⚠ HERMETIC (`G-182`): every child this probe spawns has TMUX / TMUX_PANE / COORD_AGENT stripped
 // from its environment, asserted by check 0 before anything else runs. This probe kills processes;
@@ -41,6 +50,12 @@ const envMod = require(path.join(HERE, 'env.js'));
 
 const SENTINEL = 'RBTV_PROBE_SENTINEL_LEAK_CANARY';
 const SENTINEL_VALUE = 'not-a-secret-just-a-canary';
+
+// The opt-in gate. Default OFF: the free half proves every REFUSAL and every wall that can be
+// proved without buying a harness turn.
+const REAL = process.argv.includes('--real') || process.env.SUBAGENT_PROBE_REAL_RUN === '1';
+const FREE_CHECKS = 16;   // 0a, 0b, 1-11, 21, 22, 23 — hand-counted, asserted at the end
+const REAL_CHECKS = 29;   // the above plus 12-20 and 24-27
 
 let pass = 0;
 let fail = 0;
@@ -200,9 +215,51 @@ async function main() {
     fs.rmSync(fake, { recursive: true, force: true });
   }
 
-  // ═══ POSITIVE HALF — a REAL run of a REAL harness ═══════════════════════════════════════════
-  let real = null;
+    // control: THE PRE-FIX CODE, BY CONSTRUCTION. The same supervisor, the same spec, spawned the
+  // way a build that had not written env.js would spawn it — with no `env` option, so the child
+  // inherits the dispatcher's environment. If the canary is absent HERE, checks 18-20 (paid half) prove
+  // nothing, because they would be green with or without the wall.
   {
+    const ctlDir = fs.mkdtempSync(path.join(os.tmpdir(), 'subagent-probe-envctl-'));
+    const spec = { argv: ['/bin/true'], workdir: ctlDir, promptFile: null, sessionDir: ctlDir };
+    const specFile = path.join(ctlDir, 'spec.json');
+    fs.writeFileSync(specFile, JSON.stringify(spec));
+    const ctl = spawn(process.execPath, [dispatchMod.SUPERVISOR, specFile], {
+      detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe'],
+      env: hermeticEnv({ [SENTINEL]: SENTINEL_VALUE }),   // <- the pre-fix spawn: inherited env
+    });
+    await sleep(1500);
+    let ctlNames = [];
+    try { ctlNames = JSON.parse(fs.readFileSync(path.join(ctlDir, 'env-names.json'), 'utf8')).names; } catch { /* recorded below as empty */ }
+    check('21 control: the SAME supervisor spawned WITHOUT the built environment DOES carry the canary',
+      ctlNames.includes(SENTINEL),
+      `${ctlNames.length} names; canary ${ctlNames.includes(SENTINEL) ? 'present' : 'ABSENT — checks 18-20 (paid half) prove nothing'}`);
+    try { process.kill(-ctl.pid, 'SIGKILL'); } catch { /* already gone */ }
+    fs.rmSync(ctlDir, { recursive: true, force: true });
+  }
+
+    // ── boundary 3 — the bus is not reachable BY NAME on the child's PATH ────────────────────
+  const busCli = ['coordinate', 'sd-graph', 'sb-task', 'ignite', 'rbtv'];
+  const onPath = (pathValue) => busCli.filter((b) => pathValue.split(':').some((d) => {
+    try { fs.accessSync(path.join(d, b), fs.constants.X_OK); return true; } catch { return false; }
+  }));
+  check('22 no coordination CLI is on the sub-agent\'s PATH (boundary 3)',
+    onPath(envMod.MINIMAL_PATH).length === 0, onPath(envMod.MINIMAL_PATH).join(' '));
+  check('23 control: the same scan DOES find them on the dispatcher\'s own PATH',
+    onPath(process.env.PATH).length > 0, onPath(process.env.PATH).join(' '));
+
+  // ═══ POSITIVE HALF — a REAL run of a REAL harness. OPT-IN (--real), G-213. ══════════════════
+  if (!REAL) {
+    process.stdout.write(
+      `\nSKIPPED: the paid half (checks 12-20, 24-27) — ${REAL_CHECKS - FREE_CHECKS} checks needing ` +
+      `two REAL claude invocations and a SIGKILLed process tree. Re-run with --real to buy them.\n` +
+      `They are NOT unproven: they were run and recorded as 7.43's acceptance evidence (G-213 ruling,\n` +
+      `seats/leader/ruling-g213-and-743-deferred.md). RUN --real BEFORE ACCEPTING ANY CHANGE TO THIS\n` +
+      `CAPABILITY'S OWN FILES — that trigger is the whole mitigation, and nothing enforces it.\n`);
+  }
+
+  let real = null;
+  if (REAL) {
     const r = runTool([
       'dispatch', '--target', 'ticker-settings', '--profile', 'claude-sonnet-tools',
       '--effort', 'low', '--resumable', '--json',
@@ -218,7 +275,7 @@ async function main() {
       real && real.argv && real.argv.join(' '));
   }
 
-  if (real && real.workdir) {
+  if (REAL && real && real.workdir) {
     const files = fs.readdirSync(real.workdir);
     // ── boundary 6, ON DISK, after a real run ────────────────────────────────────────────────
     check('15 the sub-agent produced its artifact', files.includes('summary.md'), files.join(' '));
@@ -241,44 +298,12 @@ async function main() {
     check('20 no coordination/credential-shaped variable survived the scrub (boundary 3)',
       !envNames.some((n) => envMod.FORBIDDEN_NAME_RE.test(n) && n !== envMod.DEPTH_VAR), envNames.join(','));
 
-    // control: THE PRE-FIX CODE, BY CONSTRUCTION. The same supervisor, the same spec, spawned the
-    // way a build that had not written env.js would spawn it — with no `env` option, so the child
-    // inherits the dispatcher's environment. If the canary is absent HERE, checks 18-20 prove
-    // nothing, because they would be green with or without the wall.
-    {
-      const ctlDir = fs.mkdtempSync(path.join(os.tmpdir(), 'subagent-probe-envctl-'));
-      const spec = { argv: ['/bin/true'], workdir: ctlDir, promptFile: null, sessionDir: ctlDir };
-      const specFile = path.join(ctlDir, 'spec.json');
-      fs.writeFileSync(specFile, JSON.stringify(spec));
-      const ctl = spawn(process.execPath, [dispatchMod.SUPERVISOR, specFile], {
-        detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe'],
-        env: hermeticEnv({ [SENTINEL]: SENTINEL_VALUE }),   // <- the pre-fix spawn: inherited env
-      });
-      await sleep(1500);
-      let ctlNames = [];
-      try { ctlNames = JSON.parse(fs.readFileSync(path.join(ctlDir, 'env-names.json'), 'utf8')).names; } catch { /* recorded below as empty */ }
-      check('21 control: the SAME supervisor spawned WITHOUT the built environment DOES carry the canary',
-        ctlNames.includes(SENTINEL),
-        `${ctlNames.length} names; canary ${ctlNames.includes(SENTINEL) ? 'present' : 'ABSENT — checks 18-20 prove nothing'}`);
-      try { process.kill(-ctl.pid, 'SIGKILL'); } catch { /* already gone */ }
-      fs.rmSync(ctlDir, { recursive: true, force: true });
-    }
-
-    // ── boundary 3 — the bus is not reachable BY NAME on the child's PATH ────────────────────
-    const busCli = ['coordinate', 'sd-graph', 'sb-task', 'ignite', 'rbtv'];
-    const onPath = (pathValue) => busCli.filter((b) => pathValue.split(':').some((d) => {
-      try { fs.accessSync(path.join(d, b), fs.constants.X_OK); return true; } catch { return false; }
-    }));
-    check('22 no coordination CLI is on the sub-agent\'s PATH (boundary 3)',
-      onPath(envMod.MINIMAL_PATH).length === 0, onPath(envMod.MINIMAL_PATH).join(' '));
-    check('23 control: the same scan DOES find them on the dispatcher\'s own PATH',
-      onPath(process.env.PATH).length > 0, onPath(process.env.PATH).join(' '));
-  } else {
-    check('15-23 post-run disk checks', false, 'no real run to inspect');
+  } else if (REAL) {
+    check('15-20 post-run disk checks', false, 'no real run to inspect');
   }
 
-  // ═══ boundary 8 + 4 — KILL THE DISPATCHER MID-RUN, WATCH THE TREE DIE ═══════════════════════
-  {
+  // ═══ boundary 8 + 4 — KILL THE DISPATCHER MID-RUN, WATCH THE TREE DIE (paid) ═══════════════
+  if (REAL) {
     const cli = spawn(process.execPath, [
       TOOL, 'dispatch', '--target', 'ticker-settings', '--profile', 'claude-sonnet-tools',
       '--effort', 'low', '--json',
@@ -337,12 +362,13 @@ async function main() {
   }
 
   // ── completeness (G-121): a short tally is a FAILURE however many checks passed ─────────────
-  // 29 = the 2 hermeticity checks plus the 27 numbered ones. Hand-counted, and it EARNED its keep
-  // on the probe's first run: the literal said 27, the run reported 29/27, and an all-green run was
-  // correctly graded a FAILURE until the count was reconciled.
-  const EXPECTED_CHECKS = 29;
+  // Hand-counted per MODE, and the literal EARNED its keep on the probe's first run: it said 27,
+  // the run reported 29/27, and an all-green run was correctly graded a FAILURE until the count was
+  // reconciled. A skipped paid half must never make the tally read complete by shrinking silently —
+  // which is why there are two literals and not one derived count.
+  const EXPECTED_CHECKS = REAL ? REAL_CHECKS : FREE_CHECKS;
   const complete = results.length === EXPECTED_CHECKS;
-  process.stdout.write(`\n${complete ? '' : '⚠ INCOMPLETE RUN — '}${pass} passed, ${fail} failed, ${results.length}/${EXPECTED_CHECKS} checks run\n`);
+  process.stdout.write(`\n${complete ? '' : '⚠ INCOMPLETE RUN — '}${pass} passed, ${fail} failed, ${results.length}/${EXPECTED_CHECKS} checks run  [${REAL ? 'REAL — paid half bought' : 'free half only; --real buys the paid half'}]\n`);
   if (!complete) process.stdout.write('A truncated run reads greener than a complete one (G-121). Treating it as a failure.\n');
   process.exit(fail === 0 && complete ? 0 : 1);
 }

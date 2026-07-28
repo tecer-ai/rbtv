@@ -35,5 +35,13 @@ The cage (fail-closed, in this capability's own code; no --force exists for any 
  11  scrubbed env       built from an empty object: a minimal PATH/HOME base plus what the
                         profile declares, and nothing else
 
+Probes
+  node probes/probe-sub-agent-dispatch.js            16 free checks (every refusal + both walls
+                                                     provable without buying a harness turn)
+  node probes/probe-sub-agent-dispatch.js --real     29 checks; buys two real claude invocations.
+                                                     RUN THIS BEFORE ACCEPTING ANY CHANGE TO THIS
+                                                     CAPABILITY'S OWN FILES (leader ruling G-213 —
+                                                     the trigger IS the mitigation).
+
 Boundary 7 (native-first) is NOT enforced here: it is guidance for the dispatching agent, carried
 by the native-lane rule (task 7.49). This CLI does not detect native tools.
