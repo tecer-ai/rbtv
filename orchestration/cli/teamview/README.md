@@ -146,21 +146,20 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   at/past red, count awaiting approval) — above the rotating detail, so a single glance
   proves (or disproves) "nothing is alarming" even when rotation currently hides most
   panes. It shrinks to a short form (`13p ctx94%~ 1r 0?!`) before ever clipping.
-- **Marker legend** — keys PANE states, so it renders only on the windows/panes view; it is
-  ABSENT from the plan-limits phase (that view is not a table of panes, so those rows go back
-  to the bars instead — the limits view keeps its own notes/console footers). The full-screen
-  (`full`) layout's footer explains every marker
-  (`name?!`, `ctxN%!`, the color bands, `+`, `…`, `*`, `ctxN%`, `ctx~`, `Nm/Nh`, in-use
-  color, `name shell`, `?`) — ALARM items first, so when the legend must drop lines at a
-  narrow width the alarm keys are the last lost, never the first; it is
-  WORD-WRAPPED to the frame's own width so a narrow pane never hard-clips an item mid-word
-  (previously it could silently drop everything past ~80 columns, e.g. cutting
-  "ctx~ = pane match uncertain" down to "...pane ma~" with no other sign anything was
-  missing). The same legend text is also in `-h`'s own description, so its meaning is
-  discoverable without ever running a live frame — and `--help-panes` documents every pane
-  state with its cause and remedy. The strip/narrow/tiny layouts append the same
-  windows/panes-only ONE-line mini legend (`?!=approval · ctx%!=threshold · red>=85 yel>=60 ·
-  …`), also absent on the limits phase — alarm keys first, tail items dropped as width shrinks. Truncation glyphs are split: `…` marks EVERY text cut
+- **Marker legend — OFF the dashboard entirely** (owner ruling 2026-07-28). No layout renders
+  a legend at any size, on either phase: every row goes to data. This REVERSES the earlier
+  decision that put a one-line mini legend on the strip/narrow/tiny layouts, and the accepted
+  cost is stated plainly — an operator on a small pane now has no on-screen key for `?`
+  (awaiting approval) or the color bands, and must run the command below to decode them.
+
+  The key lives in one place: **`teamview interface-legend`** — prints every marker, one per
+  line, and exits. It is a positional subcommand intercepted BEFORE package discovery, so it
+  works from anywhere, including outside a run package where the dashboard itself refuses with
+  exit 2; reading the key never depends on having a live run. It touches no snapshot, no cache,
+  no network. It renders from the SAME `LEGEND_ITEMS` / `LEGEND_CTX` tuples the pane cells mark
+  with, so a marker added to the dashboard cannot silently go undocumented (pinned by a
+  selftest). The same legend text remains in `-h`'s description, and `--help-panes` documents
+  every pane state with its cause and remedy. Truncation glyphs are split: `…` marks EVERY text cut
   (names, titles, clipped lines); `~` means ONLY ctx-match uncertainty, never truncation.
   Color-band thresholds are explicit everywhere: green <60, yellow <85, red ≥85 (plain red
   = high value; red with `!` = past this seat's own threshold). The console-only PROVIDER group (Sakana /
@@ -226,12 +225,28 @@ Two behaviour changes, stated rather than left to be discovered:
    `.rbtv/goals/*/runs/*` from an assumed vault root, a discovery convention this system does not
    have.
 
-2. **Window headers show the window INDEX, not its NAME, and the `*` active-window marker is
-   gone.** This is forced, not chosen: the sensor chain asks tmux for `#{window_index}` and never
-   `#{window_name}`/`#{window_active}` (`ctx_monitor.py:619`), and `team_monitor.py:271` passes
-   that index straight through. Closing it needs BOTH of those files, so it is filed as the R24
-   follow-on rather than fixed here. It is a real cost: a run whose layout rules are written in
-   terms of window NAMES loses that label on this screen.
+2. **Window headers show `INDEX NAME`, and the `*` marker works again.** Field (1) of the R24
+   follow-on is CLOSED. The sensor chain now asks tmux for `#{window_name}`, `#{window_active}`
+   and `#{pane_active}` alongside `#{window_index}` (`ctx_monitor.list_panes`), and
+   `team_monitor` carries all three into `seats[].window_name` / `.window_active` /
+   `.pane_active`.
+
+   The INDEX always leads the header and is never dropped — it is the tmux target, while the
+   name is display-only and drifts independently of what the window holds.
+
+   The two active flags are **distinct facts and are never collapsed**: tmux has one active
+   window per SESSION and one active pane per WINDOW. So `*` on a header marks the single tab
+   you'd land on when attaching, while `*` prefixing a seat name marks that window's focused
+   split — several of those show at once, and the starred header is what ranks them. It is a
+   PREFIX by design: the suffix slot already carries `+` (busy) and `?` (awaiting approval),
+   and cells shrink from the right, so a suffixed star would be the first casualty on exactly
+   the narrow frames where focus matters most.
+
+   A snapshot written by a pre-follow-on sensor still renders — bare index, nothing starred.
+   It degrades by one field; it never blanks or crashes.
+
+   Field (2), box CPU%, is deliberately NOT closed with it — at the sensor's ~20s cadence it
+   becomes a different metric wearing teamview's ~1s label. See `ideas.md`.
 
 Also new: `roster_absent` (the GHOSTROW input — a roster row whose pane left the room, or whose
 pane is still there holding no harness process) renders as a trailing `absent` pseudo-window.

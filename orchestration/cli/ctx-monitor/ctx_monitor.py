@@ -615,19 +615,36 @@ def current_session():
 
 
 def list_panes(session=None, pane=None):
-    """[{pane_id, window, title, cmd, pid, cwd}] for a session (or one pane)."""
-    fmt = ("#{pane_id}\t#{window_index}\t#{pane_pid}\t#{pane_current_command}"
-           "\t#{pane_current_path}\t#{pane_title}")
+    """[{pane_id, window, window_name, window_active, pane_active, title, cmd, pid, cwd}]
+    for a session (or one pane).
+
+    `window_name` is asked for alongside the index because consumers downstream (teamview's
+    window headers, the r-window-layout rules) reason in NAMES — an index alone cannot be
+    matched back to a seat layout. It stays a separate field from `window`: the index is the
+    tmux target, the name is drift-prone and display-only.
+
+    `window_active` and `pane_active` are TWO DIFFERENT FACTS and are never collapsed into
+    one: tmux has exactly ONE active window per session, and one active pane per WINDOW —
+    so every window contributes an active pane, and only one of those sits in the active
+    window. A consumer that wants "the focused split" needs both flags ANDed; a consumer
+    that wants "the tab you'd attach to" needs only the first. Both arrive as tmux's "1"/"0"
+    and are normalised to bool here so no downstream reader has to know that "0" is truthy.
+
+    `pane_title` remains LAST in the format so a title carrying a tab cannot shift any
+    earlier field."""
+    fmt = ("#{pane_id}\t#{window_index}\t#{window_name}\t#{window_active}\t#{pane_active}"
+           "\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_title}")
     args = (["display-message", "-p", "-t", pane, fmt] if pane
             else ["list-panes", "-s", "-t", session, "-F", fmt])
     out = []
     for ln in tmux_lines(*args):
-        parts = ln.split("\t", 5)
-        if len(parts) < 6:
+        parts = ln.split("\t", 8)
+        if len(parts) < 9:
             continue
-        pid_, win, ppid, cmd, cwd, title = parts
-        out.append({"pane_id": pid_, "window": win, "pid": ppid, "cmd": cmd,
-                    "cwd": cwd, "title": title})
+        pid_, win, wname, wact, pact, ppid, cmd, cwd, title = parts
+        out.append({"pane_id": pid_, "window": win, "window_name": wname,
+                    "window_active": wact == "1", "pane_active": pact == "1",
+                    "pid": ppid, "cmd": cmd, "cwd": cwd, "title": title})
     return out
 
 
@@ -649,7 +666,10 @@ def pane_records(session=None, pane=None):
         except ValueError:
             return 1 << 30
     for p in sorted(panes, key=pane_num):
-        rec = {"pane_id": p["pane_id"], "window": p["window"], "title": p["title"],
+        rec = {"pane_id": p["pane_id"], "window": p["window"],
+               "window_name": p.get("window_name", ""),
+               "window_active": bool(p.get("window_active")),
+               "pane_active": bool(p.get("pane_active")), "title": p["title"],
                "harness": "" if p["cmd"] in SHELLS else p["cmd"], "shell": p["cmd"] in SHELLS,
                "model": "", "model_source": "", "model_conflict": "", "ctx_pct": None,
                "ctx_tokens": None, "window_tokens": None,

@@ -41,7 +41,12 @@ pressure so an operator or watcher spots an OOM risk at a glance; it degrades th
 graceful way and vanishes rather than crash on a platform without these readings.
 Stdlib only.
 
-Legend (dashboard markers): + working · … text cut · * active window · N% ctx usage
+The legend is NOT on the dashboard — every row there goes to data. Run
+`teamview interface-legend` to print the marker key and exit.
+
+Legend (dashboard markers): + working · … text cut · * active window (on a window
+header) and * active pane (prefixing a seat name — tmux has one active pane per
+window, so several can show; the starred header ranks them) · N% ctx usage
 (~N% pane match uncertain; '~' means ONLY that, never truncation; the + … markers
 render magenta so they stay legible on dark backgrounds) ·
 green<60 / yellow<85 / red≥85 ctx and limit-bar color bands (plain red means high value,
@@ -875,13 +880,19 @@ def snapshot_stale(snap, now=None, stale_after=SNAPSHOT_STALE_S):
 def snapshot_tree(snap, now=None):
     """([{idx, name, active, panes:[pane-dict]}], nwin, npane) built ONLY from the snapshot.
 
-    ⚠ WINDOW NAME AND ACTIVE-WINDOW ARE NOT IN THE SNAPSHOT, so `name` is the window INDEX and
-    `active` is always False. This is FORCED, not chosen: ctx_monitor asks tmux for
-    `#{window_index}` and never `#{window_name}`/`#{window_active}` (ctx_monitor.py:619), and
-    team_monitor passes that index straight through (team_monitor.py:271). Closing it needs both
-    of those files — filed as the R24 follow-on. It costs this run a label it reasons in
-    (r-window-layout is about window NAMES), which is why the passthrough is the higher-value
-    half of that item.
+    `name` is "INDEX NAME" when the snapshot carries a window name, and the bare INDEX when it
+    does not — a snapshot written by a pre-window-name sensor still renders, one field poorer,
+    never blank. The index is ALWAYS shown and always leads: it is the tmux target, while the
+    name is display-only and drifts independently of what the window holds.
+
+    `active` on a window is tmux's `#{window_active}` — exactly ONE per session. Each pane
+    carries its own `active` from `#{pane_active}` — one per WINDOW, so a multi-window frame
+    stars several panes and the starred HEADER is what ranks them. The two are kept as
+    separate fields and never ANDed here: a renderer that wants "the focused split" ANDs
+    them itself, and one that wants "the tab you'd attach to" reads only the header's.
+
+    This closes field (1) of the R24 follow-on. Its field (2), box CPU%, must NOT be merged
+    in — see ideas.md for why that one changes meaning at the sensor's cadence.
 
     `roster_absent` — the GHOSTROW input — renders as its own trailing pseudo-window. Dropping it
     would be the exact failure this run keeps paying for: a seat whose pane left the room would
@@ -890,12 +901,16 @@ def snapshot_tree(snap, now=None):
     for s in (snap or {}).get("seats") or []:
         idx = str(s.get("window") or "?")
         if idx not in by_idx:
-            by_idx[idx] = {"idx": idx, "name": idx, "active": False, "panes": []}
+            wname = (s.get("window_name") or "").strip()
+            label = f"{idx} {wname}" if wname and wname != idx else idx
+            by_idx[idx] = {"idx": idx, "name": label,
+                           "active": bool(s.get("window_active")), "panes": []}
             order.append(idx)
         act_age = s.get("last_activity_age_s")
         pct, thr = s.get("ctx_pct"), s.get("ctx_refresh")
         by_idx[idx]["panes"].append({
             "name": s.get("seat") or clean_title(s.get("title")),
+            "active": bool(s.get("pane_active")),
             "shell": s.get("liveness") == "shell",
             "busy": isinstance(act_age, (int, float)) and act_age <= RECENT_ACTIVITY_S,
             "awaiting": bool(s.get("prompt_pending")),
@@ -909,7 +924,8 @@ def snapshot_tree(snap, now=None):
     absent = (snap or {}).get("roster_absent") or []
     if absent:
         wins.append({"idx": "-", "name": f"{RED}absent{OFF}", "active": False, "panes": [
-            {"name": f"{RED}{a.get('seat') or '?'}{OFF}", "shell": False, "busy": False,
+            {"name": f"{RED}{a.get('seat') or '?'}{OFF}", "active": False,
+             "shell": False, "busy": False,
              "awaiting": False, "harness": str(a.get("liveness") or "absent"), "model": "",
              "ctx": None, "approx": False, "ctx_over": False,
              "age": str(a.get("reason") or "")[:12]} for a in absent]})
@@ -973,19 +989,34 @@ def pane_agent_bits(p):
     return bits
 
 
+def pane_star(p):
+    """The '*' PREFIX marking tmux's active pane — the one split in this window holding the
+    cursor. Every window has exactly one, so a multi-window frame shows several; the window
+    header's own '*' is what ranks them (only ONE window is active session-wide, so
+    '*header + *pane' together read as 'the focused split you'd land on').
+
+    A PREFIX, not a suffix, and deliberately: the suffix slot already carries '+' (busy) and
+    '?' (awaiting approval), and pane_cell_variants shrinks cells from the RIGHT — a suffix
+    star would be the first thing dropped on a narrow frame, which is where knowing the
+    focus matters most. One column, never dropped."""
+    return f"{DIM}*{OFF}" if p.get("active") else ""
+
+
 def pane_name(p):
     """Seat name with its state marker: RED name? when stuck at a permission/trust prompt
-    (AWAITING approval — the pane tail matched a prompt signature), else the plain busy '+'."""
+    (AWAITING approval — the pane tail matched a prompt signature), else the plain busy '+'.
+    Both forms keep the active-pane '*' prefix — a focused pane is still focused while it
+    waits on a prompt, and that combination ('*name?') is precisely the one worth seeing."""
     if p.get("awaiting"):
-        return f"{RED}{p['name']}?{OFF}"
-    return p["name"] + (f"{MARK}+{OFF}" if p["busy"] else "")
+        return f"{pane_star(p)}{RED}{p['name']}?{OFF}"
+    return pane_star(p) + p["name"] + (f"{MARK}+{OFF}" if p["busy"] else "")
 
 
 def shell_cell(p):
     """Harness exited — a bare shell sits in the pane. The explicit 'shell' tag separates
     this KNOWN state from a live pane whose agent info merely failed to resolve (the two
     previously rendered identically as a dim bare name)."""
-    return f"{DIM}{p['name']} shell{OFF}"
+    return f"{pane_star(p)}{DIM}{p['name']} shell{OFF}"
 
 
 def pane_cell(p):
@@ -1002,7 +1033,7 @@ def pane_cell_variants(p):
     drops first, then harness:model; ctx% — the DESIGN-4 safety signal — survives until the
     very last non-bare variant."""
     if p["shell"]:
-        return [shell_cell(p), f"{DIM}{p['name']}{OFF}"]
+        return [shell_cell(p), f"{pane_star(p)}{DIM}{p['name']}{OFF}"]
     name = pane_name(p)
     bits = pane_agent_bits(p)
     idx, hm, ctx, age = 0, None, None, None
@@ -1297,7 +1328,8 @@ LEGEND_CTX = (f"{DIM}N%{OFF} ctx usage", f"{RED}~{OFF} uncertain",
               f"{GREEN}<60{OFF} {YELLOW}<85{OFF} {RED}≥85{OFF} bands")
 LEGEND_ITEMS = (
     f"{RED}?{OFF} awaiting approval",
-    f"{MARK}+{OFF} working", f"{MARK}…{OFF} text cut", f"{DIM}*{OFF} active window",
+    f"{MARK}+{OFF} working", f"{MARK}…{OFF} text cut",
+    f"{DIM}*{OFF} active window (header) / active pane (seat)",
     f"{DIM}Nm/Nh{OFF} last activity", f"{CYAN}account{OFF} in use",
     f"{DIM}account{OFF} configured",
     f"{DIM}shell{OFF} harness exited", f"{DIM}?{OFF} empty-title pane",
@@ -1318,35 +1350,27 @@ def legend_lines(width, max_lines=4):
     return body
 
 
-# Alarm keys FIRST — items drop from the END as width shrinks, so the alarm vocabulary
-# (the keys a small view exists to surface) is the LAST thing lost, never the first.
-MINI_LEGEND_ITEMS = (
-    f"{RED}?{OFF} approval", f"{MARK}+{OFF} working", f"{MARK}…{OFF} cut",
-)
-MINI_CTX = (f"{DIM}N%{OFF} ctx", f"{RED}~{OFF} uncertain",
-            f"{RED}!{OFF} refresh due", f"{RED}red{OFF}≥85 {YELLOW}yel{OFF}≥60")
-LEG_GAP = 8  # spaces between the general-keys block and the ctx block in both legends
+LEG_GAP = 8  # spaces between the general-keys block and the ctx block
 
 
-def mini_legend(width):
-    """ONE legend line for the sub-full layouts (strip/narrow/tiny previously rendered no
-    legend at all — an operator at a small size had NO on-screen key for the alarm markers):
-    general keys LEFT, then a WIDE fixed gap, then the ctx key-group — the gap makes the
-    two read as clearly separate blocks without pinning ctx to the far edge. Degrades by
-    dropping tail items — general keys from the end first, then ctx keys from the end;
-    '? approval' alone as the floor; '' when even that doesn't fit."""
-    sep = f" {DIM}·{OFF} "
-    for nl in range(len(MINI_LEGEND_ITEMS), 0, -1):
-        left = sep.join(MINI_LEGEND_ITEMS[:nl])
-        lv = visible_len(left)
-        if lv > width:
-            continue
-        for nc in range(len(MINI_CTX), 0, -1):
-            ctx = sep.join(MINI_CTX[:nc])
-            if lv + LEG_GAP + visible_len(ctx) <= width:
-                return left + " " * LEG_GAP + ctx
-    left = MINI_LEGEND_ITEMS[0]
-    return left if visible_len(left) <= width else ""
+def interface_legend_lines(width=80):
+    """The standalone marker key — `teamview interface-legend`. NO layout renders a legend
+    any more (owner ruling 2026-07-28: every dashboard row goes to data), so this command is
+    the ONLY place the key exists on screen, and it is built from the SAME LEGEND_ITEMS /
+    LEGEND_CTX tuples the renderers mark with. That shared source is the point: a marker
+    added to the dashboard cannot silently go undocumented here.
+
+    One item per line rather than the old packed row — this output is not competing for
+    dashboard space, so it spends the rows on legibility instead."""
+    out = [f"{BOLD}teamview interface-legend{OFF} {DIM}— the dashboard's marker key{OFF}", ""]
+    out.append(f"{BOLD}PANE AND WINDOW MARKERS{OFF}")
+    out.extend("  " + clip_line(i, max(0, width - 2)) for i in LEGEND_ITEMS)
+    out.append("")
+    out.append(f"{BOLD}CONTEXT USAGE{OFF}")
+    out.extend("  " + clip_line(i, max(0, width - 2)) for i in LEGEND_CTX)
+    out.append("")
+    out.append(f"{DIM}Cause and remedy for each pane state: teamview --help-panes{OFF}")
+    return out
 
 
 def rollup_variants(wins):
@@ -1665,28 +1689,24 @@ def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, 
         # so no glance loses it (DESIGN-4).
         # phase pins ONE view (--view limits / --view panes): no alternation, the other
         # view is never rendered. phase=None keeps the timed cycle.
-        legend = legend_lines(cols)
-        body_budget = max(1, rows - len(out) - 3 - len(legend))
+        # No marker legend on ANY frame — every row goes to data. The key moved OFF the
+        # dashboard entirely, to `teamview interface-legend` (owner ruling 2026-07-28,
+        # reversing the earlier decision that put a mini legend on the small layouts).
+        body_budget = max(1, rows - len(out) - 3)
         extra = 1 if (cells or notes or console) else 0
         grid = None if phase == "limits" else window_grid(
             wins, cols - 2, body_budget, dashes=True, now=now,
             extra_slots=0 if phase == "panes" else extra)
         if grid is None:
-            # LIMITS phase: the marker legend explains PANE states, which this view does
-            # not render — so it is not chrome here, it is a key to an absent table. Its
-            # rows go back to the bars instead.
             lhdr = f"{BOLD}PLAN LIMITS{OFF}{age}"
             out.append(lhdr + rollup_suffix(wins, cols - visible_len(lhdr)))
             out.extend("  " + l for l in
-                       limits_body(cells, notes, console, cols - 2,
-                                   body_budget + len(legend)))
+                       limits_body(cells, notes, console, cols - 2, body_budget))
             return out[:rows - 1]
         else:
             whdr = f"{BOLD}WINDOWS{OFF} {DIM}(panes beneath){OFF}"
             out.append(whdr + rollup_suffix(wins, cols - visible_len(whdr)))
             out.extend("  " + l for l in grid)
-        out.append("")
-        out.extend(legend)
         return out[:rows - 1]
     out.append(f"{BOLD}PLAN LIMITS{OFF}{age}")
     label_w = max([c[1] for c in cells], default=10) + 1
@@ -1699,10 +1719,8 @@ def render_full(session, wins, nwin, npane, cells, notes, console, cache, cols, 
     out.append("")
     whdr = f"{BOLD}WINDOWS{OFF} {DIM}(panes beneath){OFF}"
     out.append(whdr + rollup_suffix(wins, cols - visible_len(whdr)))
-    grid_budget = rows - len(out) - 4
+    grid_budget = rows - len(out) - 1
     out.extend("  " + l for l in window_grid(wins, cols - 2, grid_budget, dashes=True))
-    out.append("")
-    out.extend(legend_lines(cols))
     return out[:rows - 1]
 
 
@@ -1842,25 +1860,20 @@ def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows,
         # full-width view at a time — windows pages, then the limits page, repeating.
         # phase pins ONE view; see render_full.
         out = [session_line(session, nwin, npane, cols, cue, snap, now)]
-        budget = max(1, rows - 3)  # session line + phase header + mini legend
+        budget = max(1, rows - 2)  # session line + phase header (no legend — see render_full)
         extra = 1 if (cells or notes or console) else 0
         grid = None if phase == "limits" else window_grid(
             wins, cols, budget, now=now, extra_slots=0 if phase == "panes" else extra)
         if grid is None:
-            # LIMITS phase: no pane legend (see render_full) — its row goes to the bars
             out.append(LIMITS_HDR + rollup_suffix(wins, cols - visible_len(LIMITS_HDR)))
-            out.extend(limits_body(cells, notes, console, cols, budget + 1))
+            out.extend(limits_body(cells, notes, console, cols, budget))
             return out[:rows]
         else:
             hdr = WINDOWS_HDR + rollup_suffix(wins, cols - visible_len(WINDOWS_HDR))
             out.append(hdr)
             out.extend(grid)
-        leg = mini_legend(cols)
-        if leg:
-            out.append(leg)
         return out[:rows]
-    budget = max(2, rows - 3)  # rows 0-1 are the session line + the two-table header row;
-    # one more row is reserved for the mini legend appended below
+    budget = max(2, rows - 2)  # rows 0-1 are the session line + the two-table header row
     label_w = max([c[1] for c in cells], default=10)
     for ncols in (1, 2, 3):
         bar_w = 22 if ncols == 1 else 14
@@ -1917,20 +1930,16 @@ def render_strip(session, wins, nwin, npane, cells, notes, console, cols, rows,
         if not lseg and not rseg:
             break
         out.append(f"{pad_to(lseg, lw)}{DIM}|{OFF} {rseg}")
-    leg = mini_legend(cols)
-    if leg:
-        out.append(leg)
     return out[:rows]
 
 
 def cycle_compact(session, wins, nwin, npane, cells, notes, console, cols, rows,
                   cue, now, style, phase=None, snap=None):
     """The narrow/tiny whole-view cycle frame: constant session line, then either a
-    windows page (compact_window_lines' turn) or the limits page, then the mini legend
-    (windows phase only — the mini legend keys PANE markers, absent from the limits view).
-    phase pins ONE view instead of alternating; see render_full."""
+    windows page (compact_window_lines' turn) or the limits page. No legend on any frame
+    — see render_full. phase pins ONE view instead of alternating; see render_full."""
     out = [session_line(session, nwin, npane, cols, cue, snap, now)]
-    budget = max(1, rows - 4)  # session line + phase header + legend + the rows-1 cap
+    budget = max(1, rows - 3)  # session line + phase header + the rows-1 cap
     extra = 1 if (cells or notes or console) else 0
     grid = None if phase == "limits" else compact_window_lines(
         wins, cols, budget, now=now, extra_slots=0 if phase == "panes" else extra)
@@ -1943,9 +1952,6 @@ def cycle_compact(session, wins, nwin, npane, cells, notes, console, cols, rows,
         whdr = WINDOWS_HDR if style == "narrow" else f"{BOLD}{UL}WINDOWS{OFF}"
         out.append(whdr + rollup_suffix(wins, cols - visible_len(whdr)))
         out.extend(grid)
-    leg = mini_legend(cols)
-    if leg:
-        out.append(leg)
     return out[:rows - 1]
 
 
@@ -1963,10 +1969,7 @@ def render_narrow(session, wins, nwin, npane, cells, notes, console, cols, rows,
         out.append(n[:cols])
     out.extend(console_lines(console, cols, max_lines=2))
     out.append(WINDOWS_HDR + rollup_suffix(wins, cols - visible_len(WINDOWS_HDR)))
-    out.extend(compact_window_lines(wins, cols, max(1, rows - len(out) - 2)))
-    leg = mini_legend(cols)
-    if leg:
-        out.append(leg)
+    out.extend(compact_window_lines(wins, cols, max(1, rows - len(out) - 1)))
     return out[:rows - 1]
 
 
@@ -2000,10 +2003,7 @@ def render_tiny(session, wins, nwin, npane, cells, notes, console, cols, rows,
     out.extend(flow(note_toks, cols, max(1, rows - len(out) - 3)))
     thdr = f"{BOLD}{UL}WINDOWS{OFF}"
     out.append(thdr + rollup_suffix(wins, cols - visible_len(thdr)))
-    out.extend(compact_window_lines(wins, cols, max(1, rows - len(out) - 2)))
-    leg = mini_legend(cols)
-    if leg:
-        out.append(leg)
+    out.extend(compact_window_lines(wins, cols, max(1, rows - len(out) - 1)))
     return out[:rows - 1]
 
 
@@ -2636,30 +2636,31 @@ def cmd_selftest():
           not all(f"cw{i}" in " ".join(rotating_c) for i in range(8))
           and all(f"cw{i}" in " ".join(complete_c) for i in range(8)))
 
-    # Owner item A: the marker legend keys PANE states, so it must NOT render on the
-    # PLAN LIMITS phase — there it is a key to a table that isn't on screen, eating rows
-    # the bars could use. 'approval' is legend-only text (the alarm rollup says '0 ?').
+    # Owner item A, REVERSED 2026-07-28: the marker legend no longer renders on ANY frame,
+    # at ANY size, on EITHER phase — every dashboard row goes to data, and the key lives
+    # only behind `teamview interface-legend`. The old check pinned "legend on the windows
+    # phase, absent on the limits phase"; this one pins absence everywhere, so the legend
+    # cannot creep back onto a layout unnoticed. 'approval' and 'ctx usage' are legend-only
+    # strings — the alarm rollup says '0 ?' and a pane cell says a bare 'N%'.
     lf_win = plain(render_full("sess", wins, 2, 3, cells, notes, console, fake_cache,
                                160, 40, now=0))
     lf_lim = plain(render_full("sess", calm_wins, 2, 3, cells, notes, console, fake_cache,
                                160, 40, now=10))
-    check("itemA: render_full — full marker legend on the WINDOWS phase, ABSENT on the "
-          "PLAN LIMITS phase (a pane key over a view with no panes)",
-          any("approval" in l for l in lf_win) and any("ctx usage" in l for l in lf_win)
-          and any("PLAN LIMITS" in l for l in lf_lim)
-          and not any("approval" in l for l in lf_lim)
-          and not any("ctx usage" in l for l in lf_lim))
+    check("itemA(rev): render_full — NO marker legend on either phase, and the PLAN LIMITS "
+          "phase still renders its bars",
+          any("PLAN LIMITS" in l for l in lf_lim)
+          and not any("approval" in l for l in lf_win + lf_lim)
+          and not any("ctx usage" in l for l in lf_win + lf_lim))
     for layout_fn, dims in ((render_strip, (240, 8)), (render_narrow, (56, 40)),
                             (render_tiny, (58, 12))):
         mw = plain(layout_fn("sess", wins, 2, 3, cells, notes, console, *dims, now=0))
         ml = plain(layout_fn("sess", calm_wins, 2, 3, cells, notes, console, *dims,
                              now=10))
-        check(f"itemA: {layout_fn.__name__} — mini legend on the windows phase, ABSENT on "
-              "the limits phase; the limits bars keep their own notes",
-              any("approval" in l for l in mw)
-              and any("LIMITS" in l for l in ml)
-              and not any("approval" in l for l in ml)
-              and len(ml) <= dims[1])
+        check(f"itemA(rev): {layout_fn.__name__} — NO legend on either phase; the limits "
+              "bars keep their own notes and the frame still fits its height",
+              any("LIMITS" in l for l in ml)
+              and not any("approval" in l for l in mw + ml)
+              and len(ml) <= dims[1] and len(mw) <= dims[1])
 
     # Owner item B: the ~10s cycle exists only to survive a frame too small for everything.
     # A frame big enough gets the COMBINED view statically (auto), decided from the
@@ -2747,7 +2748,7 @@ def cmd_selftest():
               and not any(any("approval" in l for l in f) for f in lim)
               and all(len(f) <= dims[1] for f in lim))
         check(f"itemC: {layout_fn.__name__} --view panes — windows/panes only at EVERY "
-              "tick, never the limits block, legend still shown",
+              "tick, never the limits block",
               all(any("WINDOWS" in l for l in f) for f in pan)
               and not any(any("PLAN LIMITS" in l for l in f) for f in pan)
               and all(any("x" in l for l in f) for f in pan)
@@ -2844,20 +2845,22 @@ def cmd_selftest():
     for layout_fn, dims in ((render_strip, (220, 10)), (render_narrow, (70, 40)),
                             (render_tiny, (60, 12))):
         out_l = layout_fn("sess", wins, 2, 3, hot_cells, [], [], *dims, now=0)
-        check(f"item2: {layout_fn.__name__} emits the one-line mini legend with the alarm "
-              "keys (previously NO legend rendered below full size)",
-              "? approval" in strip_sgr("\n".join(out_l))
+        check(f"item2(rev): {layout_fn.__name__} emits NO legend line at all — the mini "
+              "legend is GONE from the small layouts (reversed 2026-07-28); frames still "
+              "respect their width",
+              "approval" not in strip_sgr("\n".join(out_l))
               and all(visible_len(l) <= dims[0] for l in out_l))
-    ml30 = strip_sgr(mini_legend(30))
-    check("item2: mini legend drops TAIL items as width shrinks — alarm keys are the "
-          "last thing lost, never the first",
-          ml30.startswith("? approval") and "working" not in ml30)
     fl2 = strip_sgr(" ".join(legend_lines(70, max_lines=2)))
-    check("item2: full-legend drop priority INVERTED — under a 2-line cap at 70 cols "
-          "the alarm keys survive and tail items drop (was the reverse); the (+N more) "
-          "note never pushes a line past width",
+    check("legend_lines: drop priority — under a 2-line cap at 70 cols the alarm keys "
+          "survive and tail items drop; no line exceeds width. Still pinned because "
+          "interface_legend_lines marks from the SAME tuples",
           "awaiting approval" in fl2 and "empty-title" not in fl2
           and all(len(strip_sgr(l)) <= 70 for l in legend_lines(70, max_lines=2)))
+    ilg = [strip_sgr(l) for l in interface_legend_lines(100)]
+    check("interface-legend: the standalone key carries EVERY marker the renderers use — "
+          "it is the only on-screen key now, so a gap here is a gap everywhere",
+          all(strip_sgr(i) in "\n".join(ilg) for i in LEGEND_ITEMS + LEGEND_CTX)
+          and any("--help-panes" in l for l in ilg))
 
     roll_wins = [{"idx": "0", "name": "w0", "active": True,
                   "panes": [P("calm", ctx=30.0), P("hot", ctx=94.0, approx=True),
@@ -3129,9 +3132,36 @@ def cmd_selftest():
     check("R24: a pane whose occupant has not checked in falls back to its cleaned TITLE — a "
           "launched-but-silent harness is a real state, reported as one and never guessed",
           m[1]["name"] == "btm" and not m[1]["shell"])
-    check("R24: window is the snapshot's INDEX and active-window is always False — the sensor "
-          "chain carries neither window NAME nor the active flag (see the follow-on item)",
-          mapped["idx"] == "2" and mapped["name"] == "2" and mapped["active"] is False)
+    check("R24 follow-on(1): a snapshot with NO window_name/active fields still renders — "
+          "header falls back to the bare INDEX and nothing is starred (a pre-follow-on "
+          "sensor degrades by one field, it never blanks or crashes)",
+          mapped["idx"] == "2" and mapped["name"] == "2" and mapped["active"] is False
+          and all(p["active"] is False for p in mapped["panes"]))
+
+    # R24 follow-on(1), CLOSED: window_name + window_active + pane_active come off the
+    # snapshot. The two active flags are DISTINCT facts — one active window per session,
+    # one active pane per window — so this pins that a second window also stars a pane
+    # while only ONE window header is starred. Collapsing them into a single flag is the
+    # failure this check exists to catch.
+    act = snapshot_tree(snap_at(0, seats=[
+        {"seat": "leader", "window": "2", "window_name": "control", "window_active": True,
+         "pane_active": True, "harness": "claude", "liveness": "live"},
+        {"seat": "cos", "window": "2", "window_name": "control", "window_active": True,
+         "pane_active": False, "harness": "claude", "liveness": "live"},
+        {"seat": "eng", "window": "3", "window_name": "workers", "window_active": False,
+         "pane_active": True, "harness": "claude", "liveness": "live"}]), NOW)[0]
+    check("R24 follow-on(1): window_name labels the header 'INDEX NAME', window_active "
+          "stars exactly ONE header, pane_active stars one pane PER window",
+          [w["name"] for w in act] == ["2 control", "3 workers"]
+          and [w["active"] for w in act] == [True, False]
+          and [[p["active"] for p in w["panes"]] for w in act] == [[True, False], [True]])
+    check("R24 follow-on(1): the '*' reaches the rendered cell as a PREFIX and survives the "
+          "narrowest variant — it must not be the first thing a shrinking cell drops",
+          strip_sgr(pane_cell(act[0]["panes"][0])).startswith("*leader")
+          and not strip_sgr(pane_cell(act[0]["panes"][1])).startswith("*")
+          and all(strip_sgr(v).startswith("*")
+                  for v in pane_cell_variants(act[0]["panes"][0]))
+          and strip_sgr(pane_compact(act[1]["panes"][0])).startswith("*eng"))
 
     # box{} feeds the system cell; only CPU% is read live (the ruled exempt lane).
     bl = box_load(fresh)
@@ -3228,7 +3258,9 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("session", nargs="*",
                     help="tmux session — NAME or 'session NAME' (default: the session you "
-                         "are in; outside tmux, the only running session)")
+                         "are in; outside tmux, the only running session). The single "
+                         "token 'interface-legend' instead prints the dashboard's marker "
+                         "key and exits — the key is NOT rendered on the dashboard")
     ap.add_argument("--package", default=os.environ.get("RBTV_TEAMVIEW_PACKAGE", ""),
                     help="team-kit run package for pane->agent roster names")
     ap.add_argument("--config", help="accounts config JSON (default ~/.config/rbtv/teamview.json)")
@@ -3275,6 +3307,16 @@ def main():
                     help="run the built-in offline self-test suite (pure Python — no tmux, "
                          "no network, no writes outside temp dirs) and exit 0/1")
     args = ap.parse_args()
+
+    # `teamview interface-legend` — a positional SUBCOMMAND. Intercepted here, ahead of
+    # package discovery, so it prints from ANYWHERE including outside a run package, where
+    # the dashboard itself refuses with exit 2. Reading the key must never depend on having
+    # a live run. It touches no snapshot, no cache, no network.
+    if [t.lower() for t in (args.session or []) if t] == ["interface-legend"]:
+        width = args.width or shutil.get_terminal_size((100, 45)).columns
+        for line in interface_legend_lines(width):
+            print(line)
+        return
 
     docs = {"help_providers": DOC_PROVIDERS, "help_config": DOC_CONFIG,
             "help_security": DOC_SECURITY, "help_panes": DOC_PANES}
