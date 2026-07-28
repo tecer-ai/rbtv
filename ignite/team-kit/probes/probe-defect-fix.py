@@ -236,11 +236,22 @@ def main():
         check("S-6(a) mutation is constructible — GATE_FLAGS is where the probe thinks it is",
               src.count(old) == 1)
         mutant.write_text(src.replace(old, '    "--force": ("role", "memory"),', 1), encoding="utf-8")
+        # ⚠ coord.py HAS A SIBLING DEPENDENCY SINCE TASK 7.82: it imports budget.py at module level
+        # (the one reader of the run's declared floor) from its OWN directory. A mutant written to a
+        # temp dir therefore dies at import with ModuleNotFoundError, `gates --json` exits non-zero,
+        # and this check fails for a reason that has nothing to do with GATE_FLAGS. Copying the
+        # sibling is the honest fix: the probe builds a RUNNABLE copy of coord.py, and running it
+        # now requires budget.py beside it.
+        shutil.copy2(KIT / "budget.py", td / "budget.py")
         r = subprocess.run([sys.executable, str(mutant), "gates", "--json"],
                            capture_output=True, text=True, timeout=60, env=env_for(home))
         mgates = json.loads(r.stdout) if r.returncode == 0 else {}
+        # ⚠ CARRY THE STDERR INTO THE FAILURE. Without it a non-zero exit renders as an empty map
+        # and this check reports "the map did not change" — blaming the mechanism under test for an
+        # import error. A check that fails for the wrong stated reason costs more than a red.
         check("S-6(a): the mutant's map really did change (the map is the mechanism, not a label)",
-              "memory" in (mgates.get("--force") or []))
+              "memory" in (mgates.get("--force") or []),
+              f"exit={r.returncode} stderr={(r.stderr or '')[-200:]}")
         if recover_here:
             r = subprocess.run([sys.executable, str(RECOVER), "--coord", str(mutant)] + recover_args,
                                capture_output=True, text=True, timeout=120, env=env_for(home))
@@ -255,7 +266,13 @@ def main():
         # ── S-8(c) ─────────────────────────────────────────────────────────
         sys.path.insert(0, str(KIT))
         import coord  # noqa: E402  — the module under test, imported after its path is known
-        refusal = coord.memory_gate(1, 100)
+        # ⚠ AN EXPLICIT FLOOR, BECAUSE THERE IS NO LONGER A DEFAULT ONE. Task 7.82 deleted
+        # `LAUNCH_MEM_FLOOR_MB`: a module constant is the same class of copy as an argv literal, so
+        # `memory_gate` now REQUIRES `floor_mb` and the caller must have resolved a floor before it
+        # may ask about one. This probe supplies a FIXTURE floor deliberately — S-8(c) is about the
+        # refusal's WORDING, and keying it to whatever the live run declares today would make a
+        # wording probe fail whenever a policy number moved.
+        refusal = coord.memory_gate(1, 100, 2000)
         check("S-8(c): the memory-gate refusal names `--force-memory`", "--force-memory" in refusal)
         check("S-8(c): ...and no longer tells the operator to override with `--force`",
               "override with --force " not in refusal and "override with --force." not in refusal,

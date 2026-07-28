@@ -63,6 +63,15 @@ def main():
         work = td / "kit"
         work.mkdir()
 
+        # ⚠ THE STAND-IN KIT MUST CARRY coord.py'S SIBLINGS, NOT ONLY coord.py. Since task 7.82
+        # coord.py imports budget.py at module level (the one reader of the run's declared floor),
+        # so a lone copy in an empty directory dies at import with ModuleNotFoundError — and this
+        # probe would then report "the LIVE coord.py fails the gate", blaming production for the
+        # probe's own incomplete fixture. Measured: that is exactly the 10-failure red of 17:00.
+        # The live file gates clean where it actually lives (`save-coord.py --check coord.py`
+        # exits 0); what changed is that a CANDIDATE now needs its siblings beside it.
+        shutil.copy2(HERE.parent / "budget.py", work / "budget.py")
+
         # A stand-in target: a COPY of the live coord.py, so nothing here can touch the real one.
         target = work / "coord.py"
         target.write_text(live_src, encoding="utf-8")
@@ -169,7 +178,16 @@ def main():
         os.chmod(target, 0o755)
 
         # ---- 5 · cross-filesystem replace is refused, not silently non-atomic ----
-        far = td / "elsewhere.py"
+        # ⚠ THE FAR CANDIDATE MUST STILL BE IMPORTABLE, or this check stops testing what it names.
+        # Since 7.82 coord.py imports budget.py from its own directory, so a candidate dropped in a
+        # bare temp dir now fails the IMPORT gate first — still refused, still not moved, but for a
+        # reason that has nothing to do with cross-directory atomicity. The guard below would then
+        # be UNREACHABLE, and an unreachable guard passes and fails identically no matter what it
+        # protects. So: a second kit-shaped directory, importable, and DIFFERENT from the target's.
+        far_dir = td / "elsewhere-kit"
+        far_dir.mkdir()
+        shutil.copy2(HERE.parent / "budget.py", far_dir / "budget.py")
+        far = far_dir / "elsewhere.py"
         far.write_text(live_src, encoding="utf-8")
         r = run([sys.executable, str(SAVE_COORD), "--candidate", str(far),
                  "--target", str(target)], home)
