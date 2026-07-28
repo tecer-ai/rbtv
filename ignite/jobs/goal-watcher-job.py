@@ -140,6 +140,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import jobcontain  # noqa: E402
+sys.path.insert(0, str(HERE.parent / "team-kit"))
+import budget as budget_mod  # noqa: E402 — the ONE reader of the run's declared floor (task 7.82)
 
 # The chief-of-staff ROLE is what this job escalates to (registry `chief-of-staff`, R32).
 # The legacy alias for that role is deliberately ABSENT from this file, its config and its
@@ -149,10 +151,11 @@ DEFAULT_FALLBACK = "leader"
 DEFAULT_CADENCE_S = 20.0
 DEFAULT_TOLERANCE_MULT = 3.0
 DEFAULT_QUIET_MIN = 30
-# Tracks the owner-ruled launch floor (r-mem-floor-2000). The normative home is the run's
-# budget.json; this default exists so the job is runnable without the flag, and it MUST be
-# re-synchronised whenever that ruling moves — it is a copy, and a copy drifts.
-DEFAULT_MEM_FLOOR_MB = 2000
+# ⚠ `DEFAULT_MEM_FLOOR_MB = 2000` STOOD HERE, and its own comment said the quiet part out loud:
+# "it MUST be re-synchronised whenever that ruling moves — it is a copy, and a copy drifts." A
+# default that documents its own drift is still a home. Task 7.82 / `r-floor-single-source` deletes
+# it: the floor is READ from the run's budget.json (this job already requires `--package`), and
+# `--mem-floor-mb` survives ONLY as a deliberate operator override. No fallback number lives here.
 DEFAULT_LOAD_PER_CORE = 1.5
 SWAP_RISE_READS = 3
 
@@ -533,7 +536,13 @@ def main():
                         "over the fallback is the production behaviour, so inducing a real "
                         "CONTEXT crossing needs an override rather than a lower fallback. "
                         "Discovered by a probe that failed for exactly this reason.")
-    p.add_argument("--mem-floor-mb", type=int, default=DEFAULT_MEM_FLOOR_MB)
+    # ⚠ DEFAULT None, NOT A NUMBER (task 7.82 criterion 3). ABSENT means READ the run's
+    # budget.json; a value means an operator deliberately overrode the ruling, and the job says so.
+    p.add_argument("--mem-floor-mb", type=int, default=None,
+                   help="DELIBERATE OVERRIDE ONLY. Absent, the floor is read from "
+                        "{--package}/budget.json (floors.pressure_warn_mb), which is its one "
+                        "normative home (r-floor-single-source). Passing a number here overrules "
+                        "an owner ruling, so the job reports which value it used and why.")
     p.add_argument("--load-per-core", type=float, default=DEFAULT_LOAD_PER_CORE)
     p.add_argument("--standby", action="append", default=[],
                    help="a seat whose correct state is WAITING (G-68); repeatable")
@@ -554,6 +563,22 @@ def main():
     jobcontain.contain(mem_mb=args.mem_mb, seconds=args.budget_s)
     args.room_package = args.room_package or args.package
     pkg = Path(args.package)
+
+    # ⚠ RESOLVED ONCE, HERE, AND REPORTED. Criterion 5: a missing or unreadable declaration is a
+    # HARD START FAILURE, never a silent fallback -- the ONLY thing that may stand in for a
+    # declaration is an EXPLICIT operator override, which is what `--mem-floor-mb` now means.
+    # Criterion 8: the job says WHICH VALUE IT USED AND WHY, on the way up, not only when it flags.
+    try:
+        args.mem_floor_mb, floor_why = budget_mod.floor_source(pkg, "warn", args.mem_floor_mb)
+    except (budget_mod.FloorUndeclared, budget_mod.FloorUnreadable) as exc:
+        print("goal-watcher-job: REFUSING TO START — %s\n"
+              "  The floor's one home is the run's budget.json (r-floor-single-source, G-42). This "
+              "job will not invent a number to watch against: a pressure flag raised against a "
+              "made-up floor is worse than no flag, because it reads as a measurement.\n"
+              "  Declare floors.pressure_warn_mb there, or pass --mem-floor-mb to override "
+              "deliberately." % exc, file=sys.stderr)
+        return 2
+    print("goal-watcher-job: floor %s" % floor_why, file=sys.stderr)
     snap_path = args.state_json or str(pkg / "state.json")
     state_path = args.state_file or str(pkg / "coordination" / "goal-watcher-state.json")
     lock = jobcontain.single_instance(str(pkg / "coordination" / "goal-watcher-job.lock"))

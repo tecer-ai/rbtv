@@ -425,8 +425,6 @@ tools:
       # ⚠ THIS COMMENT DELIBERATELY NAMES NO FLOOR VALUE. It used to quote one, and a number in
       # prose is a HOME IN WAITING — it drifts silently because nothing consumes it, and the
       # argument above never needed it. The floor's normative home is the run's budget.json.
-      - --watch-arg=--mem-floor-mb
-      - --watch-arg=2000
       - --budget-s
       - "120"
 
@@ -446,8 +444,6 @@ tools:
       # only ever exercised by this twin (the live entry no-ops while the sensor is healthy),
       # so without these the staged-failure probe would run an argv that does not contain the
       # thing being proved. Integrator's catch, #303.
-      - --watch-arg=--mem-floor-mb
-      - --watch-arg=2000
       - --budget-s
       - "120"
 
@@ -492,8 +488,6 @@ tools:
       - "20"
       - --tolerance-mult
       - "3"
-      - --mem-floor-mb
-      - "2000"
       - --load-per-core
       - "1.5"
       - --quiet-min

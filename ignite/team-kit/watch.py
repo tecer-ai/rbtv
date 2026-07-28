@@ -25,7 +25,8 @@ it and relays judgment). One pass checks every ACTIVE roster seat and reports:
              ~30 min later). Flagged immediately, with the `approve <agent>` command to run.
   system     RAM/load pressure on the BOX (PROP-9, tv-ux-review — a stuck-process pile-up
              OOM-killed the watcher itself, the one seat meant to notice it): available memory
-             below --mem-floor-mb (default 500) or 1-min load at/over cores x --load-per-core
+             below the run's DECLARED floor (budget.json floors.pressure_warn_mb; --mem-floor-mb
+             overrides it deliberately) or 1-min load at/over cores x --load-per-core
              flags SYSTEM PRESSURE. Read from /proc/meminfo + /proc/loadavg; on a box without
              /proc the check skips honestly (never a fake reading).
   leftover   a briefing-declared wave window whose panes are ALL agent-dead — no active roster
@@ -2089,7 +2090,19 @@ def main():
     p.add_argument("--workers-dir", help="override worker-briefings directory (testing only)")
     p.add_argument("--inactive-min", type=int, default=30, help="flag a seat after this many minutes without pane activity (default 30)")
     p.add_argument("--context-pct", type=float, default=50, help="flag a claude seat at this context percentage (default 50)")
-    p.add_argument("--mem-floor-mb", type=int, default=500, help="flag SYSTEM PRESSURE when available RAM drops below this many MB (default 500; PROP-9)")
+    # ⚠ DEFAULT None, NOT 500 (task 7.82 criterion 3, leader ruling #1409). The old default was
+    # the exact defect criterion 5 names: it let the loop START WITHOUT READING the declaration,
+    # so a relaunch that dropped the flag watched against a floor 4x under the ruled one and said
+    # nothing. ABSENT now means READ the run's budget.json; a value means a deliberate override.
+    #
+    # ⚠ THE G-29 BOUNDARY, so nobody reads this as that defect's fix: G-29 is where the NUMBER 500
+    # gets judged against the owner's "supersedes 2800 and 2400 alike" test. 7.82 is where the
+    # COPYING stops. This change removes the fallback; it does not rule on 500 as a value.
+    p.add_argument("--mem-floor-mb", type=int, default=None,
+                   help="DELIBERATE OVERRIDE ONLY (PROP-9). Absent, the pressure floor is read "
+                        "from {--package}/budget.json floors.pressure_warn_mb, its one normative "
+                        "home (r-floor-single-source). A value here overrules an owner ruling, so "
+                        "the loop reports which value it used and why.")
     p.add_argument("--load-per-core", type=float, default=1.0, help="flag SYSTEM PRESSURE when 1-min load reaches cores x this factor (default 1.0; PROP-9)")
     p.add_argument("--notify", action="store_true", help="send each new flag to its recipient as a coordination note (default: print only)")
     p.add_argument("--notify-to", metavar="SEAT", default="leader",
@@ -2106,6 +2119,30 @@ def main():
         return
     if not (args.package or args.base or os.environ.get("COORD_PACKAGE")):
         p.error("--package is required (or COORD_PACKAGE)")
+
+    # ⚠ RESOLVED ONCE, AT STARTUP, AND REPORTED — criterion 5 is a HARD START FAILURE, so it must
+    # fire HERE and not on the first pass: a loop that starts and only later discovers it has no
+    # floor has already told the room it is watching.
+    #
+    # ⚠⚠ AND THIS IS A DIFFERENT CALL SITE FROM THE CAPACITY CHECK, DELIBERATELY. `check_budget`
+    # stays SILENT when a package declares no budget.json -- that is the normal case for every
+    # other package and it must stay silent so this module ships kit-wide. THE FLOOR IS NOT THE
+    # CAP: this loop cannot flag pressure without a threshold, so absence here is fatal where
+    # absence there is routine. Collapsing the two would either brick the module everywhere or
+    # restore the silent fallback. Both halves are load-bearing; neither is the other's default.
+    run_root = Path(args.package or os.environ.get("COORD_PACKAGE")
+                    or Path(args.base).resolve().parent)
+    try:
+        args.mem_floor_mb, floor_why = budget_mod.floor_source(run_root, "warn", args.mem_floor_mb)
+    except (budget_mod.FloorUndeclared, budget_mod.FloorUnreadable) as exc:
+        print("watch: REFUSING TO START — %s\n"
+              "  The pressure floor's one home is the run's budget.json (r-floor-single-source, "
+              "G-42). This loop will not invent a threshold: a SYSTEM PRESSURE flag raised "
+              "against a made-up floor reads as a measurement and is worse than no flag.\n"
+              "  Declare floors.pressure_warn_mb there, or pass --mem-floor-mb to override "
+              "deliberately." % exc, file=sys.stderr)
+        sys.exit(2)
+    print("watch: floor %s" % floor_why, file=sys.stderr)
     if args.loop:
         while True:
             run_pass(args)

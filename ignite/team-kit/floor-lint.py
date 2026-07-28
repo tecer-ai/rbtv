@@ -269,12 +269,20 @@ def control():
         # lint QUIETER, and a classifier that over-permits reports exactly what a clean tree does.
         # Each plants the SAME knob-and-value line twice -- once where the branch should swallow it
         # and once where it must not -- so a branch that swallowed everything fails here.
+        # ⚠ ASSEMBLED FROM PARTS, for the same reason CONTROL_BODY is: a literal knob-and-value
+        # line written out in this source makes the lint fire on ITSELF. Measured -- it did, on
+        # all three of these, one commit after the same bug was fixed for CONTROL_BODY. The fix
+        # did not generalise because it was applied to a constant rather than to the habit.
+        knob_line = "%s = %d" % (CONTROL_KNOB, CONTROL_VALUE)
+        stale_value = 2800          # a bare number: no knob on this line, so nothing to match
+        dict_line = '    d = {"%s": %d}' % ("ram_available" + "_mb", stale_value)
         for n, name, body, expect in (
             (5, "prose.py",
-             '# floor was --mem-floor-mb 2000 once\nx = 1\nMEM_FLOOR_MB = 2000\n', "PROSE"),
+             "# floor was --mem-floor-mb %d once\nx = 1\n%s\n" % (CONTROL_VALUE, knob_line),
+             "PROSE"),
             (6, "fixture.py",
-             'def _selftest():\n    d = {"ram_available_mb": 2800}\n\n'
-             'def live():\n    d = {"ram_available_mb": 2800}\n', "FIXTURE"),
+             "def _selftest():\n%s\n\ndef live():\n%s\n" % (dict_line, dict_line),
+             "FIXTURE"),
         ):
             p = os.path.join(d, name)
             with open(p, "w") as fh:
