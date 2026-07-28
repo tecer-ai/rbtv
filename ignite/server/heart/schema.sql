@@ -9,7 +9,19 @@ CREATE TABLE IF NOT EXISTS jobs (
   description  TEXT,
   enabled      INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
   created_at   TEXT NOT NULL,
-  updated_at   TEXT NOT NULL
+  updated_at   TEXT NOT NULL,
+  -- task 7.12 · the job->seat pointer (owner ruling `r-job-seat-home`, 2026-07-27).
+  -- A job is only the TRIGGER; its action is always homed as a SEAT in a goal. The pointer names
+  -- the goal and the seat and DELIBERATELY NOT THE RUN: goal-serving jobs are seats of the goal's
+  -- LIVE run and retire with it, so the run is resolved at FIRE time. Storing it would pin the
+  -- pointer to a run that later closes.
+  -- Both NULL = the interim `.rbtv/sessions/<exec-id>/` path, which is still what the ticker
+  -- branch uses for an unhomed job (the staged retirement of `r-711-staged-retirement` / G-122).
+  goal_name    TEXT,
+  seat_name    TEXT,
+  -- Both or neither. A half-pointer resolves to nothing and would fail at fire time — the one
+  -- moment there is no operator watching — so it is refused at rest instead.
+  CHECK ((goal_name IS NULL) = (seat_name IS NULL))
 );
 
 CREATE TABLE IF NOT EXISTS queue (

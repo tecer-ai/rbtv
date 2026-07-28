@@ -342,6 +342,11 @@ function parseKillSession(payload) {
 // interacts with the action type. Both are the core's complete re-validation (DEC-3).
 const REGISTER_KEYS = new Set([
   'job_id', 'action_type', 'function', 'args_schema', 'description', 'enabled', 'dry_run',
+  // task 7.12 · the job->seat pointer (`r-job-seat-home`). SHAPE ONLY here, like everything else
+  // in this file: whether the goal exists, whether it has a live run, and whether the seat is
+  // materialized and rostered are resolved at FIRE time against the filesystem — which the gateway
+  // holds no handle to and must not grow one to (DEC-3, the no-state-writes bound).
+  'goal_name', 'seat_name',
 ]);
 
 function parseRegisterJob(payload) {
@@ -391,6 +396,32 @@ function parseRegisterJob(payload) {
     dryRun = payload.dry_run;
   }
 
+  // task 7.12 · the job->seat pointer. The both-or-neither rule IS a shape fact — it is decidable
+  // from the payload alone with no store and no filesystem — so it is refused at the front door as
+  // well as at the writer. The two checks are not redundant: this one turns a malformed wire
+  // message away before it reaches the core, and the writer's covers every non-gateway caller.
+  let goalName = null;
+  if (payload.goal_name !== undefined && payload.goal_name !== null) {
+    if (typeof payload.goal_name !== 'string' || payload.goal_name.length === 0) {
+      bad('goal_name must be a non-empty string', 'goal_name');
+    }
+    goalName = payload.goal_name;
+  }
+  let seatName = null;
+  if (payload.seat_name !== undefined && payload.seat_name !== null) {
+    if (typeof payload.seat_name !== 'string' || payload.seat_name.length === 0) {
+      bad('seat_name must be a non-empty string', 'seat_name');
+    }
+    seatName = payload.seat_name;
+  }
+  if ((goalName === null) !== (seatName === null)) {
+    bad(
+      'goal_name and seat_name are both or neither — a job is only the trigger, and its action is '
+      + 'homed as a seat in a goal (r-job-seat-home). Omit both to leave the job unhomed.',
+      goalName === null ? 'goal_name' : 'seat_name',
+    );
+  }
+
   return {
     job_id: payload.job_id,
     action_type: payload.action_type,
@@ -398,6 +429,8 @@ function parseRegisterJob(payload) {
     args_schema: JSON.stringify(argsSchema),
     description,
     enabled,
+    goal_name: goalName,
+    seat_name: seatName,
     dry_run: dryRun,
   };
 }

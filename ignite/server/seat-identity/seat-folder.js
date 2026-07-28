@@ -120,6 +120,72 @@ function checkRunLive(parsed) {
   return { ok: true };
 }
 
+// Task 7.12 §job->seat — resolve a job's (goal, seat) POINTER to the seat folder its action runs in.
+//
+// The third caller of the same definition, and it is here rather than in `spawn/` for the reason
+// stated at the top of this file: two resolvers would be two definitions of what a seat folder is.
+// This one differs from `checkRunLive` in DIRECTION — that validates a run already named by a path;
+// this must FIND the run, because the job row deliberately does not store one.
+//
+// WHY THE RUN IS NOT STORED (owner ruling `r-job-seat-home` (1)): goal-serving jobs "are seats of
+// that goal's live run and RETIRE WITH IT". A stored run would pin the pointer to a run that later
+// closes, and the job would go on firing into a dead run's folder — which is `G-103`'s stale-fire
+// class, the very thing the ruling structurally kills. So the run is resolved at FIRE time, here.
+//
+// ⚠ AMBIGUITY IS A REFUSAL, NEVER A CHOICE. Zero open runs and MORE THAN ONE open run are both
+// typed failures. The one-live-run invariant is maintained BY HAND today (7.77 is unbuilt), so a
+// second open row is a real possibility, and picking one — the newest, the first, any rule at all —
+// would let a job fire into a run nobody pointed it at. `checkRunLive` already refuses to supply an
+// optimistic default for a fact the record declines to state; this refuses for the same reason.
+function resolveSeatHome({ workspaceRoot, goal, seat }) {
+  if (!workspaceRoot || !goal || !seat) {
+    return { ok: false, reason: 'resolveSeatHome requires workspaceRoot, goal and seat' };
+  }
+  const goalDir = path.join(workspaceRoot, '.rbtv', 'goals', goal);
+  const runsCsv = path.join(goalDir, 'runs.csv');
+  const runs = readCsv(runsCsv);
+  if (!runs.exists) {
+    return { ok: false, reason: `runs.csv unreadable at ${runsCsv} — goal "${goal}" has no run log` };
+  }
+  const runCol = runs.header.includes('run-id') ? 'run-id' : (runs.header.includes('run') ? 'run' : null);
+  if (!runCol) {
+    return { ok: false, reason: `runs.csv carries no run-id/run column (header: ${runs.header.join(',')})` };
+  }
+  if (!runs.header.includes('state')) {
+    return { ok: false, reason: `runs.csv carries no state column (header: ${runs.header.join(',')})` };
+  }
+
+  const open = runs.rows.filter((r) => r.state === 'open');
+  if (open.length === 0) {
+    return { ok: false, reason: `goal "${goal}" has no run in state "open" in ${runsCsv} — nothing to fire into` };
+  }
+  if (open.length > 1) {
+    const names = open.map((r) => r[runCol]).join(', ');
+    return {
+      ok: false,
+      reason: `goal "${goal}" has ${open.length} runs in state "open" (${names}) in ${runsCsv} — `
+        + 'the one-live-run invariant is violated and this refuses to choose between them',
+    };
+  }
+
+  const run = open[0][runCol];
+  if (!run) return { ok: false, reason: `the open run row in ${runsCsv} carries no ${runCol} value` };
+
+  const seatDir = path.join(goalDir, 'runs', run, 'seats', seat);
+  // Round-tripped through the SAME parser every other caller uses, so a pointer that assembles a
+  // path this module would not itself recognise as a seat folder fails here rather than at spawn.
+  const parsed = parseSeatPath(seatDir);
+  if (!parsed) {
+    return { ok: false, reason: `assembled path is not a canonical seat folder: ${seatDir}` };
+  }
+  const live = checkRunLive(parsed);
+  if (!live.ok) return { ok: false, reason: live.reason };
+  const materialized = checkMaterializedSeat(parsed);
+  if (!materialized.ok) return { ok: false, reason: materialized.reason };
+
+  return { ok: true, seatDir, parsed, run };
+}
+
 // Minimal frontmatter read — the `seat:` key only. A full YAML parse is not needed and would drag
 // js-yaml into a path a bare CLI runs on every command.
 function readSeatDescriptorName(seatMdPath) {
@@ -176,6 +242,7 @@ function checkMaterializedSeat(parsed) {
 module.exports = {
   parseSeatPath,
   resolveSeatFromCwd,
+  resolveSeatHome,
   checkRunLive,
   checkMaterializedSeat,
   readSeatDescriptorName,

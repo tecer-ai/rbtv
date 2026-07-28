@@ -19,11 +19,18 @@ const HELP = `ignite register-job <job-id> --action-type <${ACTION_TYPES.join('|
                      [--function <name>]        # defaults to the action type
                      [--args-schema '<json>']   # defaults to {}
                      [--description '<text>']
+                     [--goal <goal-name> --seat <seat-name>]   # both or neither
                      [--disabled] [--dry-run]
 
   Registers a job DEFINITION in the catalogue (what the daemon is able to run);
   use add-job to schedule a run of it. Create-only: an id already registered is
-  refused — nothing is ever overwritten. --dry-run: validate-only, nothing written.`;
+  refused — nothing is ever overwritten. --dry-run: validate-only, nothing written.
+
+  --goal/--seat HOME the job's action: a job is only the TRIGGER, and its action
+  runs as a SEAT in a goal (r-job-seat-home). The RUN is not named here — it is
+  resolved to the goal's LIVE run each time the job fires, so a homed job follows
+  the goal forward instead of pinning to a run that later closes. Omit both and the
+  job is UNHOMED: it still fires, into the interim .rbtv/sessions/<exec-id>/ path.`;
 
 function build(argv) {
   const jobId = argv.shift();
@@ -56,8 +63,21 @@ function build(argv) {
   }
 
   const description = takeValue(argv, '--description');
+  const goalName = takeValue(argv, '--goal');
+  const seatName = takeValue(argv, '--seat');
   const disabled = takeFlag(argv, '--disabled');
   const dryRun = takeFlag(argv, '--dry-run');
+
+  // Refused HERE as well as at the gateway and the store, and that is deliberate rather than
+  // belt-and-braces theatre: this is the only one of the three that can name the FLAGS the
+  // operator actually typed. A wire-level "goal_name without seat_name" is a correct message
+  // about the wrong vocabulary when someone typed `--goal` and forgot `--seat`.
+  if ((goalName === undefined) !== (seatName === undefined)) {
+    throw new CliUsageError(
+      `register-job: --goal and --seat are both or neither (got ${goalName !== undefined ? '--goal' : '--seat'} alone). `
+      + 'A job is only the trigger; its action is homed as a seat in a goal. Omit both to leave it unhomed.',
+    );
+  }
 
   if (argv.length > 0) {
     throw new CliUsageError(`register-job: unrecognized argument(s): ${argv.join(' ')}`);
@@ -70,6 +90,8 @@ function build(argv) {
     args_schema: argsSchema,
   };
   if (description !== undefined) payload.description = description;
+  if (goalName !== undefined) payload.goal_name = goalName;
+  if (seatName !== undefined) payload.seat_name = seatName;
   if (disabled) payload.enabled = false;
   if (dryRun) payload.dry_run = true;
 
@@ -83,7 +105,14 @@ async function run(argv, ctx) {
     json: ctx.json,
     renderSuccess: (result) => {
       if (result.dry_run) console.log('dry-run: VALID — validated, nothing registered');
-      else console.log(`registered: job "${result.job_id}" (${result.action_type}, ${result.enabled ? 'enabled' : 'disabled'})`);
+      else {
+        // The home is stated on EVERY success, including when there is none. "unhomed" printed
+        // out loud is what stops a forgotten --goal/--seat from looking identical to a decision.
+        const home = result.homed
+          ? `homed at ${result.homed.goal}/${result.homed.seat}`
+          : 'UNHOMED — fires into the interim .rbtv/sessions/ path';
+        console.log(`registered: job "${result.job_id}" (${result.action_type}, ${result.enabled ? 'enabled' : 'disabled'}) — ${home}`);
+      }
     },
   });
 }

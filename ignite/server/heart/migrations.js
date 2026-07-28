@@ -141,6 +141,49 @@ const MIGRATION_SESSION_SPLIT = {
 // query that crash-looped the daemon (no such column: j.session_pk) then ran clean.
 MIGRATIONS.push(MIGRATION_SESSION_SPLIT);
 
+// ── Task 7.12 · the job->seat pointer, WRITTEN AND EXERCISED BUT DELIBERATELY NOT REGISTERED.
+//
+// Same posture as the 7.46 split above, for the same reason and under the same ruling
+// (`r-746-schema-pregrant`): LANDING A MIGRATION ARMS IT. `migrate()` runs at DAEMON START, so
+// pushing this would migrate the live catalogue on the owner's next restart — a deploy nobody
+// decided to make, carrying whatever else is riding that tree. The owner is AFK, and a schema
+// change to the production store is not a thing an unattended build run arms on its own authority.
+//
+// Proven by INJECTION (`migrate(db, { migrations: [...] })` — the parameter this module exposes for
+// exactly this). RATIFICATION IS THEN ONE REVIEWABLE LINE, placed immediately below, exactly where
+// 7.46's went and for the reason stated above it — above the `LATEST` derivation:
+//
+//     MIGRATIONS.push(MIGRATION_JOB_SEAT_HOME);
+//
+// `up()` is idempotent (the column-exists guard SQLite forces, since `ALTER TABLE` has no
+// `IF NOT EXISTS`), which is what makes that append a NO-OP on stores built from `schema.sql` —
+// which already carries the columns — and a REAL migration on the live store, which does not.
+//
+// ⚠ DISCLOSED DIVERGENCE, not a silent one: SQLite's `ALTER TABLE` cannot add the both-or-neither
+// CHECK that `schema.sql` puts on a fresh store, so a MIGRATED store carries the columns without
+// it. The same invariant is enforced in `registerJob`, the only writer these columns have, so the
+// CHECK is a second line of defence on fresh stores rather than the only one. Closing the gap
+// needs SQLite's 12-step table rebuild — not worth arming against a live catalogue for a check
+// already held at the writer.
+const MIGRATION_JOB_SEAT_HOME = {
+  version: 3,
+  name: 'job-seat-home-7.12',
+  up(db) {
+    const cols = db.prepare('PRAGMA table_info(jobs)').all().map((r) => r.name);
+    if (!cols.includes('goal_name')) {
+      db.exec('ALTER TABLE jobs ADD COLUMN goal_name TEXT;');
+    }
+    if (!cols.includes('seat_name')) {
+      db.exec('ALTER TABLE jobs ADD COLUMN seat_name TEXT;');
+    }
+    // NO BACKFILL, and that is a ruling rather than an omission. Every existing row is UNHOMED, and
+    // `r-job-seat-home` decides where each belongs by a classification the OWNER made (goal-serving
+    // vs system-serving) — where the system-serving rows belong is a `system-health` goal that does
+    // not yet exist and whose birth is owner-gated ("born ONCE by owner promotion"). Writing a home
+    // here would bake a pending owner decision into the store as though it had been taken.
+  },
+};
+
 const LATEST = MIGRATIONS.length ? MIGRATIONS[MIGRATIONS.length - 1].version : 0;
 
 function userVersion(db) {
@@ -230,4 +273,9 @@ module.exports = {
   // in MIGRATIONS" until 2026-07-28 — true while it was parked, false from the owner's
   // ratification onward, and it sat one line above the push that falsified it.)
   MIGRATION_SESSION_SPLIT,
+  // Task 7.12. Exported and NOT in MIGRATIONS — the probes inject it to prove it works, which is a
+  // separate claim from it being armed. Per the note above its definition, the day this is
+  // ratified the push goes above `LATEST` and THIS COMMENT BECOMES FALSE: correct it in the same
+  // change, as the line above had to be.
+  MIGRATION_JOB_SEAT_HOME,
 };

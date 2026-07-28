@@ -147,6 +147,8 @@ const REGISTER_ALLOWED_KEYS = new Set([
   // Validate-only mode (owner ruling 2026-07-25 Call 3) — not a column; it selects a
   // pre-insert exit and is never written.
   'dry_run',
+  // task 7.12 · the job->seat pointer (owner ruling `r-job-seat-home`, 2026-07-27).
+  'goal_name', 'seat_name',
 ]);
 
 // ── Boundary serialization ───────────────────────────────────────────────────
@@ -978,6 +980,11 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         : JSON.stringify(payload.args_schema ?? {}),
       description: payload.description ?? null,
       enabled: payload.enabled === undefined ? 1 : (payload.enabled ? 1 : 0),
+      // task 7.12 · the job->seat pointer, passed through UNVALIDATED-BY-SHAPE here on purpose:
+      // the store re-runs the complete deterministic validation including both-or-neither, and
+      // this handler's contract is to hand the core the payload, never to pre-judge it (DEC-3).
+      goalName: payload.goal_name ?? null,
+      seatName: payload.seat_name ?? null,
       dryRun,
     });
 
@@ -990,6 +997,10 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       job_id: result.job_id,
       action_type: result.action_type,
       enabled: result.enabled === 1,
+      // Echoed because an UNHOMED job is a silent condition otherwise: it registers, reports
+      // enabled=1, and only reveals at fire time that it lands in the interim path. Saying
+      // `homed: null` out loud at registration is the difference between a decision and a default.
+      homed: result.goal_name ? { goal: result.goal_name, seat: result.seat_name } : null,
     };
   }
 

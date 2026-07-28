@@ -491,7 +491,7 @@ class HeartStore {
   //
   // ⚑ AUTHORIZATION IS NOT ASKED HERE. This is the data layer; the caller (the
   // internal API) owns policy — the D65(B) split p4-0 set for removeQueueRow.
-  registerJob({ jobId, actionType, function: fn, argsSchema = '{}', description = null, enabled = 1, createdAt, updatedAt, dryRun = false }) {
+  registerJob({ jobId, actionType, function: fn, argsSchema = '{}', description = null, enabled = 1, goalName = null, seatName = null, createdAt, updatedAt, dryRun = false }) {
     if (typeof jobId !== 'string' || jobId.length === 0) {
       throw new HeartStoreError(E_BAD_ARGS, 'job_id must be a non-empty string', { field: 'jobId' });
     }
@@ -507,6 +507,35 @@ class HeartStore {
     if (description !== null && typeof description !== 'string') {
       throw new HeartStoreError(E_BAD_ARGS, 'description must be a string or null', { field: 'description' });
     }
+    // ── Task 7.12 · the job->seat pointer (owner ruling `r-job-seat-home`, 2026-07-27) ──────────
+    // A job is only the TRIGGER; its action is homed as a SEAT in a goal. The pointer names the
+    // goal and the seat and NOT the run — the run is resolved at FIRE time, because goal-serving
+    // jobs are seats of the goal's LIVE run and retire with it.
+    //
+    // ⚠ THIS IS WHERE BOTH-OR-NEITHER IS ACTUALLY ENFORCED. `schema.sql` carries the same CHECK,
+    // but a store brought forward by MIGRATION_JOB_SEAT_HOME cannot have it (SQLite's ALTER TABLE
+    // adds no constraints), so on the live store this writer is the ONLY guard. Relying on the
+    // CHECK alone would be a bound that holds exactly where it is tested and nowhere it matters —
+    // G-135's lesson, one table over.
+    if (goalName !== null && (typeof goalName !== 'string' || goalName.length === 0)) {
+      throw new HeartStoreError(E_BAD_ARGS, 'goal_name must be a non-empty string or null', { field: 'goalName' });
+    }
+    if (seatName !== null && (typeof seatName !== 'string' || seatName.length === 0)) {
+      throw new HeartStoreError(E_BAD_ARGS, 'seat_name must be a non-empty string or null', { field: 'seatName' });
+    }
+    if ((goalName === null) !== (seatName === null)) {
+      const given = goalName === null ? 'seat_name' : 'goal_name';
+      const missing = goalName === null ? 'goal_name' : 'seat_name';
+      throw new HeartStoreError(
+        E_BAD_ARGS,
+        `${given} was given without ${missing} — the job->seat pointer is both or neither. `
+        + 'A half-pointer resolves to nothing and would fail at FIRE time, which is the one moment '
+        + 'no operator is watching; it is refused here instead. Omit both to leave the job unhomed '
+        + '(it then uses the interim .rbtv/sessions/<exec-id>/ path).',
+        { field: missing, goalName, seatName },
+      );
+    }
+
     // Schema SHAPE through the shared parser (the same code enqueue validates
     // with), then the registration-only strictness on every declared type.
     validateSchemaTypes(argsSchema, parseArgsSchema(argsSchema));
@@ -555,10 +584,10 @@ class HeartStore {
     const now = createdAt || isoNow();
     const upd = updatedAt || now;
     const stmt = this._prepare(`
-      INSERT INTO jobs (job_id, action_type, function, args_schema, description, enabled, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO jobs (job_id, action_type, function, args_schema, description, enabled, goal_name, seat_name, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(jobId, actionType, fn, argsSchema, description, enabled ? 1 : 0, now, upd);
+    stmt.run(jobId, actionType, fn, argsSchema, description, enabled ? 1 : 0, goalName, seatName, now, upd);
     return this.getJob(jobId);
   }
 
@@ -1118,6 +1147,51 @@ class HeartStore {
     `);
     stmt.run(status, carrier, unitName, pidStarttime, sessionRef, startedAt ? toIsoUtc(startedAt) : null, sessionId, pid, exitCode, completionMsgId, logPath, endedAt ? toIsoUtc(endedAt) : null, profile, workdir, execId);
     return this.getExecution(execId);
+  }
+
+  // ⚠ Task 7.46 · G-225 — END A TURN AND CLOSE ITS SESSION AS ONE ACT.
+  //
+  // Callers that observe a process end must write BOTH levels. Before this method they did it as
+  // two statements — `updateExecutionStatus()` then `closeSession()` — with nothing around them, so
+  // a failure or a daemon death BETWEEN the two left a TERMINAL TURN UNDER AN `alive` SESSION.
+  // That is the exact state `G-222`'s crash sweep used to overwrite, and this window is the
+  // DANGEROUS producer of it: the unclosed writers elsewhere only ever leave `failed` (noise),
+  // while this one can leave a `done` — a real outcome, destroyed.
+  //
+  // ⚠⚠ THE GUARANTEE THIS DOES NOT WEAKEN, and the reason the cure is a NEW method rather than a
+  // parameter on the turn-end write: `updateExecutionStatus()` still cannot touch `sessions`. That
+  // absence is what lets a session outlive its turn at all (the whole point of the split), and it
+  // is precisely what forced every caller into the two-statement shape. Removing the window by
+  // letting the turn-end write close the session would remove the window AND the split. So the
+  // session close stays an EXPLICIT act by whoever observed the process end — it has simply
+  // stopped being a SEPARATE act.
+  //
+  // `sessionStatus` is required and explicit, exactly as `closeSession()` requires it: nothing is
+  // inferred from the turn. The tree holds two different turn->session spellings (this file's
+  // `sessionStatusForEndedTurn()` maps `blocked`->`closed`; ticker.js's wrapper maps it to
+  // `crashed`), and that disagreement is FILED, not silently resolved here — making this method
+  // pick one would be a behaviour change riding in on an atomicity fix.
+  //
+  // Argument validation is deliberately NOT duplicated ahead of the transaction: the turn status is
+  // checked by `updateExecutionStatus()` and the session status by `closeSession()`, each in its
+  // one home, and a refusal from either rolls the whole act back. Two copies of a rule are how a
+  // defect survives one of them being fixed.
+  endTurnAndCloseSession(execId, { turnStatus, sessionStatus, endedAt = null, reason = null, exitCode = null } = {}) {
+    this.db.exec('BEGIN EXCLUSIVE;');
+    try {
+      const exec = this.updateExecutionStatus(execId, { status: turnStatus, endedAt, exitCode });
+      let session = null;
+      // A turn with no session is not an error: the row predates the split, or the caller is
+      // ending something that was never spawned as a session. The turn write still stands.
+      if (exec && exec.session_pk) {
+        session = this.closeSession(exec.session_pk, { status: sessionStatus, reason, closedAt: endedAt });
+      }
+      this.db.exec('COMMIT;');
+      return { exec, session };
+    } catch (err) {
+      try { this.db.exec('ROLLBACK;'); } catch { /* rollback best-effort */ }
+      throw err;
+    }
   }
 
   recordMessage({ type, sender, thread, corpus, status = null, createdAt, execId = null, exitCode = null }) {
