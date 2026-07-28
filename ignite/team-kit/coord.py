@@ -33,6 +33,13 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
+# ⚠ RESOLVE THE SYMLINK BEFORE DERIVING THE DIRECTORY. `coordinate` on this box is a symlink into
+# ~/.local/bin, and a bare `Path(__file__).parent` would point there rather than at the kit — so
+# the import would work when the script is called directly and fail through the symlink every
+# other seat uses. Same form watch.py uses, for the same reason.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import budget as budget_mod  # noqa: E402 — the ONE reader of the run's declared floor (task 7.82)
+
 try:  # POSIX advisory locking. Absent (or unusable) -> every lock falls back to lockless.
     import fcntl
 except ImportError:  # pragma: no cover - non-POSIX
@@ -1331,6 +1338,13 @@ SKIP_HARNESS_CHECK = os.environ.get("COORD_SKIP_HARNESS_CHECK") == "1"
 # The GATE ITSELF is not in question and was ratified: seat RSS understates peak ~3x, three
 # seats died `exit 137`, and the watcher was SIGKILLed twice as a BYSTANDER.
 SEAT_SPIKE_MB = int(os.environ.get("COORD_SEAT_SPIKE_MB") or 1400)   # per-box override — a MEASUREMENT
+# ⚠ THE SOURCE IS CAPTURED AT THE SAME INSTANT AS THE VALUE, AND THAT IS NOT PEDANTRY. The value is
+# read ONCE, at import; a report that re-asked the environment at CALL time could say
+# "COORD_SEAT_SPIKE_MB" while printing the built-in 1400, because a var set after import never
+# reaches SEAT_SPIKE_MB. A provenance label that can disagree with the number it labels is worse
+# than no label — it is a confident wrong answer at the moment someone is auditing the gate.
+SEAT_SPIKE_SOURCE = ("COORD_SEAT_SPIKE_MB" if os.environ.get("COORD_SEAT_SPIKE_MB")
+                     else "built-in default")
 
 # ⚠⚠ THE FLOOR IS POLICY. IT IS ITS OWN CONSTANT AND TAKES NO ENV OVERRIDE.
 # Owner ruling `r-mem-floor-2000` (2026-07-28), shape ruled by the leader (#1210 pt 3, #1269 pt 2).
@@ -1347,7 +1361,16 @@ SEAT_SPIKE_MB = int(os.environ.get("COORD_SEAT_SPIKE_MB") or 1400)   # per-box o
 # (`SPIKE_RESERVE` and `COORD_SPIKE_RESERVE` are deleted with this change: their only uses were
 # building this product and printing it in the refusal below, and the env var was set nowhere in
 # the repo. The reserve is now DERIVED FROM THE FLOOR, which is the direction that stays honest.)
-LAUNCH_MEM_FLOOR_MB = 2000
+#
+# ⚠⚠ AND THE CONSTANT ITSELF IS NOW GONE — task 7.82, owner ruling `r-floor-single-source`:
+#
+#     A POLICY NUMBER MUST NEVER BE TRANSPORTED BY ARGV. argv is a COPY; a file is a REFERENCE.
+#
+# A module constant is the same class of copy as an argv literal: it is a number this file decided
+# to believe. The floor is READ, per launch, from the run package's `budget.json` via
+# `budget.read_floor()` — see `launch_gates()`. `memory_gate()` therefore takes `floor_mb` as a
+# REQUIRED argument with NO DEFAULT: a default here would be the constant coming back under
+# another name, and every caller must have resolved a floor before it may ask about one.
 
 
 def available_mb():
@@ -1361,7 +1384,7 @@ def available_mb():
     return 0
 
 
-def memory_gate(n_seats, avail_mb, floor_mb=LAUNCH_MEM_FLOOR_MB):
+def memory_gate(n_seats, avail_mb, floor_mb):
     """Pure: '' when it is safe to spawn `n_seats`, else the refusal reason. avail_mb == 0 means
     unmeasurable and PASSES — a broken sensor must not be able to stop a run."""
     if not avail_mb:
@@ -2624,9 +2647,47 @@ def launch_gates(args, command, allow, allowed_desc, n_seats):
     So: compute both, say both, and refuse if EITHER refuses. `--force` carries the role gate only;
     `--force-memory` carries the memory gate only; neither carries the other."""
     caller, role_ok, role_forced, role_msg = role_verdict(args, command, allow, allowed_desc)
-    mgate = memory_gate(n_seats, available_mb())
+
+    # ⚠ THE FLOOR IS READ HERE, PER LAUNCH, FROM THE RUN PACKAGE — never held as a constant
+    # (task 7.82, `r-floor-single-source`). `floor_why` is not decoration: criterion 8's acceptance
+    # is that the gate SAYS WHICH VALUE IT USED AND WHY, so an operator can never be silently
+    # overruled by an environment or a stale copy. It is printed on PASS as well as on REFUSAL —
+    # a value you only see when you are blocked is one you cannot check while things work.
+    floor_mb, floor_why, floor_err = None, None, None
+    try:
+        floor_mb, floor_why = budget_mod.floor_source(package_dir(args), "refuse", None)
+    except budget_mod.FloorUnreadable as exc:
+        floor_err = ("budget.json IS declared for this package and could not be read: %s. That is "
+                     "NOT the same as no budget being declared, and it is never treated as one — "
+                     "a wrong path and an undeclared budget must not look alike." % exc)
+    except budget_mod.FloorUndeclared as exc:
+        floor_err = ("%s. The floor's one home is the run's budget.json (r-floor-single-source): "
+                     "a launch gate may not invent a number, so it refuses instead. Declare "
+                     "floors.launch_refuse_mb there, or override this gate with --force-memory and "
+                     "say so on the log." % exc)
+
+    mgate = floor_err if floor_err else memory_gate(n_seats, available_mb(), floor_mb)
     mem_forced = gate_forced(args, "memory")   # via GATE_FLAGS, never a bare getattr (S-6(a))
     lines, refused = [], False
+
+    # ⚠⚠ THE PROVENANCE LINES ARE KEPT SEPARATE FROM THE VERDICT LINES, AND THAT IS THE WHOLE
+    # POINT. `lines` is printed ONLY on a refusal or an override — so folding the floor in there
+    # would make the number visible exactly when a launch is BLOCKED and invisible every time one
+    # SUCCEEDS. Task 7.82 criterion 8's acceptance is that the consumer says WHICH VALUE IT USED
+    # AND WHY, and "which value did this launch use?" has to be answerable while things work, not
+    # only while they do not. Measured: the first version of this code put them in `lines` and its
+    # own comment claimed they printed on PASS. They did not.
+    provenance = []
+    if floor_why:
+        provenance.append(f"floor: {floor_why}")
+    # ⚠ AND THE SPIKE SAYS WHERE IT CAME FROM TOO. `COORD_SEAT_SPIKE_MB` no longer touches the
+    # FLOOR, but it still moves the EFFECTIVE gate at n_seats > 1 (`need` below), so it is a live
+    # MECHANISM even on a box where it is set nowhere — and a live mechanism is not a live
+    # divergence (#1254, #1380). Criterion 8 is about the mechanism, so the mechanism reports.
+    provenance.append(
+        "spike: %d MB per seat (%s) — a MEASUREMENT, not a policy number"
+        % (SEAT_SPIKE_MB, SEAT_SPIKE_SOURCE))
+    lines.extend(provenance)
     if role_ok:
         lines.append("role gate: PASS")
     elif role_forced:
@@ -2649,7 +2710,10 @@ def launch_gates(args, command, allow, allowed_desc, n_seats):
               f"If memory is the refusal, the right move is usually to WAIT for a seat to depart "
               f"rather than override it.", file=sys.stderr)
         sys.exit(2)
-    # Nothing refused. Any override that actually carried a gate is announced, so a forced launch
+    # Nothing refused. The floor and spike this launch actually used are stated even on the happy
+    # path (task 7.82 criterion 8) — one line, on stderr, so it never pollutes a piped stdout.
+    print(c("gates: " + " · ".join(provenance), C_HINT), file=sys.stderr)
+    # Any override that actually carried a gate is announced, so a forced launch
     # is never silent — the WARNING wording is deliberately distinct from `refused:` (#210).
     for line in lines:
         if "overridden" in line:
@@ -6532,6 +6596,12 @@ def _selftest_checks(args, failures, names):
         RUNS_INDEX = Path(td) / "coordinate-runs.json"  # never touch the real registry
         pkg = Path(td) / "pkg"
         (pkg / "coordination").mkdir(parents=True)
+        # ⚠ THE FIXTURE PACKAGE MUST DECLARE A FLOOR (task 7.82). Without this the launch gate
+        # refuses every launch here for FloorUndeclared, and the memory-gate checks below would
+        # still go green — while testing "no budget declared" instead of "below the floor". That is
+        # the misgrading shape: the assertion passes for a reason the test does not name.
+        (pkg / "budget.json").write_text(
+            json.dumps({"floors": {"launch_refuse_mb": 2000, "pressure_warn_mb": 2000}}))
         (pkg / "workers").mkdir()
         (pkg / "workers" / "alpha.md").write_text("---\nagent: alpha\nmodel: fable\neffort: xhigh\n---\nbrief\n")
         (pkg / "workers" / "beta.md").write_text("---\nagent: beta\n---\nbrief\n")
@@ -7241,17 +7311,29 @@ def _selftest_checks(args, failures, names):
 
         # Memory pre-flight (leader ruling #128): the gate holds a SPIKE reserve, not a floor over
         # steady state. Pure, so both branches are checkable without touching /proc.
+        # ⚠ A FIXTURE FLOOR, NOT THE RUN'S. Task 7.82 deleted the module constant these checks used
+        # to read: the floor is now READ from the package's budget.json per launch. Pinning the
+        # arithmetic to a local number keeps these checks about the GATE'S SHAPE — spike reserve,
+        # per-seat scaling, broken sensor — instead of quietly re-testing whatever the live run
+        # happens to declare today. A check whose expected value moves with production data cannot
+        # fail for the reason it claims to.
+        FLOOR_FX = 2000
         check("mem gate: room for the spike reserve -> no refusal",
-              memory_gate(1, LAUNCH_MEM_FLOOR_MB) == "" and memory_gate(2, 4300) == "")
+              memory_gate(1, FLOOR_FX, FLOOR_FX) == "" and memory_gate(2, 4300, FLOOR_FX) == "")
         check("mem gate: below the reserve -> refused, naming the peak and the reason a flat "
               "steady-state floor is the wrong shape",
-              "peaks at" in memory_gate(1, LAUNCH_MEM_FLOOR_MB - 1)
-              and "SIGKILL a bystander" in memory_gate(1, 1000))
+              "peaks at" in memory_gate(1, FLOOR_FX - 1, FLOOR_FX)
+              and "SIGKILL a bystander" in memory_gate(1, 1000, FLOOR_FX))
         check("mem gate: an N-seat wave needs a spike per seat beyond the first",
-              memory_gate(3, LAUNCH_MEM_FLOOR_MB + SEAT_SPIKE_MB) != ""
-              and memory_gate(3, LAUNCH_MEM_FLOOR_MB + 2 * SEAT_SPIKE_MB) == "")
+              memory_gate(3, FLOOR_FX + SEAT_SPIKE_MB, FLOOR_FX) != ""
+              and memory_gate(3, FLOOR_FX + 2 * SEAT_SPIKE_MB, FLOOR_FX) == "")
+        # ⚠ AND THE GATE MUST TRACK THE FLOOR IT IS GIVEN, not a remembered one. Without this, a
+        # gate that ignored its floor_mb argument entirely would pass every check above.
+        check("mem gate: the floor is the ARGUMENT — a higher floor refuses what a lower one "
+              "allows, at identical available memory",
+              memory_gate(1, 2500, 2000) == "" and memory_gate(1, 2500, 3000) != "")
         check("mem gate: an unreadable sensor PASSES — a broken meter must not stop a run",
-              memory_gate(5, 0) == "")
+              memory_gate(5, 0, FLOOR_FX) == "")
 
         # ---- v2: control panel — overview pane, idempotent ----
         opened.clear()
@@ -8787,8 +8869,8 @@ def _selftest_checks(args, failures, names):
         check("S-8(c): the memory-gate refusal names --force-memory, the flag that actually "
               "lifts it — it used to name --force, which carries the ROLE gate only, at the "
               "exact moment an unattended run is blocked and reaching for the documented escape",
-              "--force-memory" in memory_gate(1, 100)
-              and "override with --force " not in memory_gate(1, 100))
+              "--force-memory" in memory_gate(1, 100, 2000)
+              and "override with --force " not in memory_gate(1, 100, 2000))
         _, pre3 = load_messages(base_g)
         mark5 = pre3[-1]["num"]
         sd("leader", "eta", "abort the close", type="verdict")
@@ -9383,7 +9465,10 @@ def _selftest_checks(args, failures, names):
         # stayed invisible until after the first was waived. A gate you cannot observe without
         # overriding it is not a gate, it is a trapdoor.
         avail_real2 = available_mb
-        available_mb = lambda: LAUNCH_MEM_FLOOR_MB - 1     # one MB under the floor
+        # One MB under the floor the FIXTURE PACKAGE declares (task 7.82 — the gate reads
+        # pkg/budget.json now, so the number this test undercuts must be that same declaration,
+        # not a module constant that no longer exists).
+        available_mb = lambda: budget_mod.read_floor(pkg, "refuse") - 1
         try:
             out, code = refuse(cmd_launch, agent="watcher", only="gamma", dry_run=False,
                                force=True)
@@ -9411,6 +9496,63 @@ def _selftest_checks(args, failures, names):
             check("#230: --dry-run keeps the ROLE gate ALONE — it opens nothing, so refusing it "
                   "on available memory would refuse a command that cannot spend any",
                   "memory gate" not in out)
+
+            # ---- task 7.82 criterion 5: THE CONTROL THAT FAILS BY CONSTRUCTION ----
+            # "Move budget.json aside and show each consumer REFUSING to start; a consumer that
+            # starts anyway is the defect this criterion exists to catch." Asserted through a REAL
+            # cmd_launch (dry_run=False), not a direct call to the gate — `--dry-run` deliberately
+            # skips the memory gate, so a dry run could never show this.
+            available_mb = lambda: 999999          # ⚠ MASSES of memory: the ONLY thing that can
+            # refuse this launch is the missing declaration. Without this line the check would pass
+            # off the previous below-floor stub and prove nothing about the floor being UNDECLARED.
+            bjson = pkg / "budget.json"
+            saved = bjson.read_text()
+            bjson.unlink()
+            try:
+                out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=False)
+                check("7.82/5: with budget.json MOVED ASIDE the launch gate REFUSES — with memory "
+                      "to spare, so the refusal can only be the missing declaration. A floor is "
+                      "READ, never invented, and 'no declaration' is never a silent fallback",
+                      code == 2 and "memory gate: REFUSED" in out
+                      and "budget.json" in out and "may not invent a number" in out)
+                # ...and the positive twin, or the check above passes on a gate that refuses
+                # everything. Same command, same memory, declaration restored -> PASSES.
+                bjson.write_text(saved)
+                out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=False)
+                check("7.82/5: restoring budget.json restores the launch — the refusal above "
+                      "tracked the declaration and not some unrelated failure",
+                      code == 0 and "refused:" not in out)
+                # ⚠ THIS ASSERTS ON A SUCCESSFUL LAUNCH, DELIBERATELY. The verdict block prints
+                # only on a refusal or an override, so an earlier version of this check looked for
+                # the floor in a REFUSAL and passed — while a successful launch said nothing about
+                # which floor it used. Criterion 8 has to hold when things WORK.
+                check("7.82/8: a SUCCESSFUL launch still says WHICH VALUE IT USED AND WHY — the "
+                      "floor names budget.json and the spike names its source. A number visible "
+                      "only when you are blocked is one nobody can check while things work",
+                      "floor: budget.json floors.launch_refuse_mb" in out and "spike:" in out)
+                # ⚠ THE PROVENANCE LABEL MUST AGREE WITH THE NUMBER IT LABELS. SEAT_SPIKE_MB is
+                # read ONCE at import, so a label that re-asked the environment at call time would
+                # print "COORD_SEAT_SPIKE_MB" beside the built-in 1400 whenever the var was set
+                # after import — a confident wrong answer to the exact question criterion 8 asks.
+                # Asserted as an AGREEMENT, so it fails whichever of the two drifts.
+                check("7.82/8: the spike's SOURCE and its VALUE are captured at the same instant "
+                      "— the label cannot claim an env override the number never saw",
+                      (SEAT_SPIKE_SOURCE == "COORD_SEAT_SPIKE_MB")
+                      == (os.environ.get("COORD_SEAT_SPIKE_MB") not in (None, ""))
+                      and ("(%s)" % SEAT_SPIKE_SOURCE) in out)
+
+                # ⚠ A DECLARED-BUT-UNREADABLE budget.json IS A DIFFERENT FACT FROM AN ABSENT ONE,
+                # and this pair is the one that stops them collapsing. A wrong path and a corrupt
+                # declaration must never read alike to the operator holding the refusal.
+                bjson.write_text("{ not json")
+                out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=False)
+                check("7.82/5: a DECLARED but UNREADABLE budget.json refuses with its own reason, "
+                      "distinct from 'nothing declares a floor' — collapsing the two is what made "
+                      "a wrong path look identical to a package with no budget",
+                      code == 2 and "could not be read" in out
+                      and "NOT the same as no budget" in out)
+            finally:
+                bjson.write_text(saved)
         finally:
             available_mb = avail_real2
 
