@@ -178,6 +178,7 @@ variants:
       write_enforcement: git-diff-vs-allowlist
 
     # --- invocation + failures ---
+    launch_profile: opencode-sakana   # task 7.54 — THE named profile this variant resolves through (ignite/config/spawn-profiles.yaml, resolved by ignite/launch-profiles/). Picking the variant IS picking the profile. The one CLEAN match of the three harness profiles: it bakes no posture the conductor did not choose.
     invocation_pointer: ./manual.md
     manual_path: ./manual.md
     delta_path: ./delta.md

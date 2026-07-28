@@ -160,7 +160,7 @@ The composition this card defines (§1 packaging, §2 addendum, §3 schema, + th
 
 ### Pre-flight — scripted, runs before any dispatch (pre-spend)
 
-The scaffold runs four scripted pre-flight gates before it writes anything; ANY failure ⇒ EXIT≠0 + a machine-readable error naming the gap, with NO file written (a broken dispatch is caught before spend):
+The scaffold runs five scripted pre-flight gates before it writes anything; ANY failure ⇒ EXIT≠0 + a machine-readable error naming the gap, with NO file written (a broken dispatch is caught before spend):
 
 | # | Scripted check | Passes when |
 |---|----------------|-------------|
@@ -168,6 +168,13 @@ The scaffold runs four scripted pre-flight gates before it writes anything; ANY 
 | 2 | **Manual fresh** | `render-manuals.py --check --model {model}` reports zero drift — the rendered manual is current with the card + delta (a stale manual signals a re-render is owed first; the scaffold reports it, never papers over it) |
 | 3 | **Guidance file present** | the model's guidance-file convention resolves for the LAUNCH ROOT — the orchestrator root the worker's guidance keys to, never the work-target (present, or its absence is reported so the conductor mirrors it). This is the guidance-FILE check, NOT the rules-library reach (that is Review-5's hook, no-op by default) |
 | 4 | **Output folder exists** | `--output-folder` is an existing directory — the scaffold never creates it |
+| 5 | **Profile resolve + dispatch pre-flight** (task 7.54) | the variant's `launch_profile` resolves through the ONE shared resolver, its pinned flags exist in the live `--help`, and a work-target was supplied — **one call**, `orchestration/capabilities/dispatch-resolve`. Applies ONLY to a `(model, variant)` whose manifest records a `launch_profile`; a variant without one dispatches from its package manual as before. |
+
+**Gate 5 — what it replaced, and what it does NOT cover.** The pinned-flag check used to be prose the conductor ran by hand (`routing.md` §4). It is now a **resolver call**: `preflightDispatch(config, profileName, { addDir, effort })` resolves the NAMED profile through `ignite/launch-profiles/` (task 7.42) and in the same call refuses on `E_SEATBINDS_PROFILE`, `E_ADD_DIR_ABSENT`, `E_ADD_DIR_RELATIVE`, `E_UNKNOWN_PROFILE`, `E_RAW_FLAG`, `E_UNKNOWN_EFFORT`, `E_PINNED_FLAG_ABSENT` or `E_PREFLIGHT_UNAVAILABLE`. The conductor supplies a profile NAME, an abstract effort level and declared-slot values — **never argv, never flags.** Effort reaches the harness in that harness's own dialect via the profile's translation table (`high` → `--effort high` for claude, `-c model_reasoning_effort=high` for codex), never as a hand-written flag.
+
+⚠ **THE CONFINEMENT SPLIT (row G1) IS ENFORCED HERE, AND ENFORCEMENT IS NOT CORRECTNESS.** `{extra_dir}` is not an authorable slot — `CLOSED_SLOTS` is `{workdir} {prompt_file} {session_ref}`, closed at config LOAD, and widening it is task **7.87**. So **the add-dir flag is still hand-composed.** Gate 5 does not make that correct; it makes its ABSENCE LOUD — a dispatch that forgot the work-target is refused rather than launching a worker rooted at its guidance root, which is how the `a3e217d` incident swept 5 foreign files. Never read gate 5 as "confinement solved": it is *enforced, and carried to 7.87*.
+
+⚠ **COVERAGE IS 2 OF 11 AND THAT IS DELIBERATE, NOT AN OVERSIGHT.** Measured 2026-07-28: only `claude-code-cli:sonnet` and `opencode:sakana` record a `launch_profile`. The other 9 elected CLI pairs have no profile and keep their package manuals — **authoring the missing ones is task 7.86**, and the manuals stay until it lands. Two live gaps are tripwired in the capability's own probe: `opencode-sakana` declares no effort dial and does not declare `effort: { inert: true }`, and `opencode run --help` writes to stderr while exiting 0, which the shared `readHelp` cannot read. ⇒ **1 of 11 pairs completes a fully resolver-backed pre-flight today.**
 
 **Conductor pre-flight hygiene (ADX-1) — these run ALONGSIDE the scripted gates, conductor-side:** any auth/config pre-flight (e.g. confirming an API key resolves, reading a manifest field) queries SPECIFIC non-secret fields ONLY — NEVER dump a whole settings/config file into a command or a transcript (a live key reached a transcript once — a real incident). Secret PRESENCE is checked as a boolean (resolves / does not resolve); a secret VALUE is never echoed, logged, or pasted.
 

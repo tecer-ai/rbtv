@@ -1,0 +1,42 @@
+probe-dispatch-resolve — task 7.54
+
+  PASS  P1             the committed config exists at the path this lane reads
+        /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml
+  PASS  P2             BARE load REFUSES (so the stub is load-bearing, not decorative)
+        REFUSED with E_CONFIG_LOAD — as required
+  PASS  P3             claude-seat REALLY declares sandbox.SeatBinds (else check 1 is vacuous)
+        claude-seat.sandbox.SeatBinds = ["ro-bind:{goalDir}","tmpfs:{goalDir}/runs","ro-bind:{runDir}","tmpfs:{runDir}/seats","bind:{seatDir}","ro-bind:{seatDir}/seat.md","bind:{runDir}/coordination","bind:{grant:worktree}","ro-bind:{grant:repoGit}","bind:{grant:repoGit}/objects","bind:{grant:repoGit}/refs","bind:{grant:repoGit}/logs","bind:{grant:worktreeGitDir}"]
+  PASS  P4             WITH the stub the whole file loads (all 6 profiles)
+        6 profiles loaded
+  PASS  1-RED          resolving claude-seat is REFUSED (the deny-list FIRES)
+        REFUSED with E_SEATBINDS_PROFILE — as required
+  PASS  1-GREEN        a profile WITHOUT SeatBinds passes the deny-list (it is not blanket-refusing)
+        claude-sonnet-tools admitted
+  PASS  1-RED-via-entry the deny-list fires through the ENTRY POINT too, not only the bound
+        REFUSED with E_SEATBINDS_PROFILE — as required
+  PASS  2a-RED         a dispatch with NO work-target is REFUSED
+        REFUSED with E_ADD_DIR_ABSENT — as required
+  PASS  2b-RED         a RELATIVE work-target is REFUSED
+        REFUSED with E_ADD_DIR_RELATIVE — as required
+  PASS  2-GREEN        an ABSOLUTE work-target passes the bound (it is not blanket-refusing)
+        /home/henri admitted
+  PASS  3-GREEN        claude-sonnet-tools pre-flights CLEAN against the live installed claude
+        checked ["-p","--model","--output-format","--verbose","--allowedTools","--effort"] missing []
+  PASS  3-RED          a pinned flag absent from live --help goes RED (the green discriminates)
+        REFUSED with E_PINNED_FLAG_ABSENT — as required
+  PASS  4              abstract effort is translated per-profile, never hand-written
+        abstract 'high' -> claude '--effort high' AND codex '-c model_reasoning_effort=high'
+  PASS  4-RED          an effort level outside the closed vocabulary is REFUSED
+        REFUSED with E_UNKNOWN_EFFORT — as required
+  PASS  5-RED          a slot the profile does not declare is REFUSED (no raw-flag smuggling)
+        REFUSED with E_RAW_FLAG — as required
+  PASS  6              every recorded launch_profile resolves + pre-flights end-to-end
+        claude-code-cli:sonnet -> claude-sonnet-tools PRE-FLIGHT GREEN | opencode:sakana -> opencode-sakana (NO effort dial) PRE-FLIGHT UNAVAILABLE (see 6-PREFLIGHT-GAP)
+  PASS  6-EFFORT-GAP   the opencode-sakana effort gap is still open (tripwire — flip when fixed)
+        REFUSED with E_UNKNOWN_EFFORT — as required
+  PASS  6-PREFLIGHT-GAP the opencode pre-flight gap is still open (tripwire — flip when fixed)
+        REFUSED with E_PREFLIGHT_UNAVAILABLE — as required
+  PASS  6-COUNTS       covered-vs-elected counts are as MEASURED (criterion 2 reports them)
+        covered 2 / elected 11; all 4 CLI package manuals intact
+
+19 passed, 0 failed
