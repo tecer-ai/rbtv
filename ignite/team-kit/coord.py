@@ -39,6 +39,7 @@ from pathlib import Path
 # other seat uses. Same form watch.py uses, for the same reason.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import budget as budget_mod  # noqa: E402 — the ONE reader of the run's declared floor (task 7.82)
+import gateway_client  # noqa: E402 — stdlib-only gateway wire, `gateway-status` (task 7.57)
 
 try:  # POSIX advisory locking. Absent (or unusable) -> every lock falls back to lockless.
     import fcntl
@@ -5195,6 +5196,60 @@ def cmd_pending(args):
     section("open asks to everyone", broadcast, "answer only what is yours to answer")
     section("your asks nobody has answered", from_me,
             "chase the recipient, or retract with --supersedes <#>")
+
+
+def cmd_gateway_status(args):
+    """Task 7.57 criterion (1), the DETECT half only. Reports whether an ignite daemon
+    serves THIS workspace on THIS machine (`.rbtv/modules/ignite/server.json`,
+    machine-keyed, D27) — a pure file read, always safe, never opt-in.
+
+    It does NOT route send/read through the gateway: RULED NOT MET, with the finding
+    (task 7.57 fork 1) — the gateway's nine intents carry no addressed-message door.
+    `checkin`/`send`/`read`/`pending`/... are UNCHANGED by this command's existence and
+    never call anything in this function.
+
+    `--probe` is the SPEAK half, and it is INERT UNLESS PASSED (Fork 2, ruled: client
+    mode is opt-in, never silently switched) — it makes exactly ONE live, read-only
+    `inspect` call to prove the client can authenticate to the gateway as a sender. It
+    never sends or reads a coordination message; there is no door for that yet.
+    """
+    root = gateway_client.resolve_workspace_root(VAULT_ROOT)
+    info = gateway_client.detect_daemon(root)
+    print(f"workspace root: {root}")
+    if info["detected"]:
+        print(f"daemon detected: yes — {info['host']}:{info['port']}  ({info['reason']})")
+    else:
+        print(f"daemon detected: no  ({info['reason']})")
+    print("coordination transport: run-package substrate (file log + flock), UNCHANGED —")
+    print("  send/read/checkin/pending never route through the gateway. NOT MET (task 7.57")
+    print("  fork 1): the gateway's 9 intents carry no addressed-message door — enqueue-job's")
+    print("  send-message action takes exactly (type, thread, corpus), no recipient; inspect")
+    print("  messages requires an integer execution id a tmux seat does not have.")
+    if not getattr(args, "probe", False):
+        print(c("next:   --probe to make one live read-only `inspect` call and prove the "
+                 "authenticated wire", C_HINT))
+        return
+    if not info["detected"]:
+        print("PROBE SKIPPED: no daemon detected for this workspace/machine — nothing to call.")
+        sys.exit(1)
+    token = gateway_client.resolve_token()
+    print(f"probing {info['host']}:{info['port']} as an authenticated sender "
+          f"({'token present' if token else 'NO TOKEN in env — expect AUTH_REFUSED'}) ...")
+    try:
+        status, envelope = gateway_client.call_gateway(
+            info["host"], info["port"], "inspect", {"target": "queue"}, token=token)
+    except gateway_client.GatewayTransportError as exc:
+        print(f"PROBE FAILED (transport): {exc}")
+        sys.exit(5)
+    print(f"HTTP {status} — {json.dumps(envelope)}")
+    if envelope.get("ok") is True:
+        print("PROBE: authenticated call SUCCEEDED (ok:true) — the client CAN reach the "
+              "gateway as an authenticated sender. This proves the WIRE only — it is not a "
+              "coordination send or read, and none exists on this door yet.")
+        return
+    err = envelope.get("error") or {}
+    print(f"PROBE: call returned ok:false — code={err.get('code')} message={err.get('message')}")
+    sys.exit(3 if err.get("code") == "AUTH_REFUSED" else 1)
 
 
 # ---------- launch / lifecycle ----------
@@ -10758,6 +10813,135 @@ def _selftest_checks(args, failures, names):
               team_monitor_script().name == "team_monitor.py"
               and "orchestration" in str(team_monitor_script()))
 
+        # ---- 7.57: the gateway client's mode split — DETECT half only (fork 1: the SPEAK half's
+        # coordination routing is RULED NOT MET, so nothing here calls the network; call_gateway
+        # is exercised live, once, outside selftest — this suite stays "no tmux, no run package,
+        # no network" per its own docstring). Own temp packages throughout, same reason as the
+        # 7.88 block above: a shared fixture would make each arm depend on machinery it does not
+        # test.
+        _g757 = Path(tempfile.mkdtemp(prefix="coord-757-"))
+
+        # A. THE STANDALONE CONTROL: no server.json at all is what every workspace looks like
+        # today, and criterion (2) ("with no daemon configured, behavior is identical to today")
+        # depends on this branch staying false — this is the branch every seat's `coordinate`
+        # actually runs through right now.
+        _g757_none = _g757 / "none"
+        check("7.57: detect_daemon reports NOT detected when no server.json exists — the "
+              "standalone branch every workspace is in today, criterion (2)'s control",
+              gateway_client.detect_daemon(_g757_none, hostname="whatever-box")["detected"] is False)
+
+        # B. THE POSITIVE CONTROL: a server.json naming THIS fixture's own hostname is detected,
+        # with the right host/port carried through. This is the check mutated by
+        # `--expect-fail "names a live server"` to prove the pair in A/B can actually go red —
+        # see the row's own report for the demonstrated mutation run (bars.md 10/11).
+        _g757_yes = _g757 / "yes"
+        (_g757_yes / ".rbtv" / "modules" / "ignite").mkdir(parents=True)
+        (_g757_yes / ".rbtv" / "modules" / "ignite" / "server.json").write_text(json.dumps(
+            {"machines": {"fixture-box": {"tailnet_host": "fixture.ts.net", "gateway_port": 4242}}}))
+        _g757_info = gateway_client.detect_daemon(_g757_yes, hostname="fixture-box")
+        check("7.57: detect_daemon reports detected=True on a server.json naming THIS machine, "
+              "with host/port carried through unchanged — names a live server for the caller",
+              _g757_info["detected"] is True and _g757_info["host"] == "fixture.ts.net"
+              and _g757_info["port"] == 4242)
+
+        # B2. OWN BEATS AMBIGUOUS: TWO machines both name a server and one of them IS this one —
+        # the caller must resolve ITSELF, never fall into the ambiguous refusal C proves below.
+        # Distinct from B (B's fixture has only one machine total, so a broken `own` match would
+        # silently fall through to the single-server fallback and produce the SAME answer,
+        # proving nothing — this fixture is the one where own-priority is load-bearing).
+        _g757_own2 = _g757 / "own-among-many"
+        (_g757_own2 / ".rbtv" / "modules" / "ignite").mkdir(parents=True)
+        (_g757_own2 / ".rbtv" / "modules" / "ignite" / "server.json").write_text(json.dumps(
+            {"machines": {"my-box": {"tailnet_host": "mine.ts.net", "gateway_port": 7},
+                          "other-box": {"tailnet_host": "other.ts.net", "gateway_port": 8}}}))
+        _g757_own2_info = gateway_client.detect_daemon(_g757_own2, hostname="my-box")
+        check("7.57: own machine has a server AND another machine also has one — OWN WINS, "
+              "resolves to the caller's own entry, never the ambiguous refusal C proves below",
+              _g757_own2_info["detected"] is True and _g757_own2_info["host"] == "mine.ts.net"
+              and _g757_own2_info["port"] == 7)
+
+        # C. Machine-keyed selection (config.js parity): TWO machines both name a server and
+        # NEITHER is this one — ambiguous, refused rather than guessed, never silently the wrong
+        # daemon.
+        _g757_ambig = _g757 / "ambig"
+        (_g757_ambig / ".rbtv" / "modules" / "ignite").mkdir(parents=True)
+        (_g757_ambig / ".rbtv" / "modules" / "ignite" / "server.json").write_text(json.dumps(
+            {"machines": {"box-a": {"tailnet_host": "a.ts.net", "gateway_port": 1},
+                          "box-b": {"tailnet_host": "b.ts.net", "gateway_port": 2}}}))
+        _g757_amb_info = gateway_client.detect_daemon(_g757_ambig, hostname="box-c")
+        check("7.57: two machines both naming a server, neither this one, is AMBIGUOUS and "
+              "refused — never silently picks one (config.js parity)",
+              _g757_amb_info["detected"] is False and "ambiguous" in _g757_amb_info["reason"])
+
+        # C2. THE TYPICAL CLIENT SHAPE, distinct from B: exactly ONE machine entry names a
+        # server and it is NOT the calling hostname (most workspaces have one server machine and
+        # N client machines calling FROM elsewhere) — single-server fallback, config.js parity.
+        # B alone cannot cover this: B's fixture hostname MATCHES its own entry, so B only ever
+        # exercises the `own` branch, never the fallback `len(servers) == 1` branch below it.
+        _g757_single = _g757 / "single-other"
+        (_g757_single / ".rbtv" / "modules" / "ignite").mkdir(parents=True)
+        (_g757_single / ".rbtv" / "modules" / "ignite" / "server.json").write_text(json.dumps(
+            {"machines": {"the-server-box": {"tailnet_host": "s.ts.net", "gateway_port": 9}}}))
+        _g757_cli_info = gateway_client.detect_daemon(_g757_single, hostname="my-laptop")
+        check("7.57: exactly one OTHER machine names a server — the single-server fallback "
+              "resolves it, the typical shape for a client calling from a non-server machine",
+              _g757_cli_info["detected"] is True and _g757_cli_info["host"] == "s.ts.net"
+              and _g757_cli_info["port"] == 9)
+
+        # D. Malformed JSON is a LOUD, distinguishable reason — never silently indistinguishable
+        # from "not configured" (config.js: readServerJson throws, never returns null, on bad JSON).
+        _g757_bad = _g757 / "bad"
+        (_g757_bad / ".rbtv" / "modules" / "ignite").mkdir(parents=True)
+        (_g757_bad / ".rbtv" / "modules" / "ignite" / "server.json").write_text("{not json")
+        _g757_bad_info = gateway_client.detect_daemon(_g757_bad, hostname="whatever")
+        check("7.57: malformed server.json is NOT detected AND says so loudly — distinguishable "
+              "from 'no record at all', never a silent identical false",
+              _g757_bad_info["detected"] is False and "not valid JSON" in _g757_bad_info["reason"])
+
+        # E. Legacy flat shape (no `machines` key) — config.js's own stated backward-compat case
+        # ("a workspace pulled at either side of the shape change resolves").
+        _g757_flat = _g757 / "flat"
+        (_g757_flat / ".rbtv" / "modules" / "ignite").mkdir(parents=True)
+        (_g757_flat / ".rbtv" / "modules" / "ignite" / "server.json").write_text(json.dumps(
+            {"tailnet_host": "legacy.ts.net", "gateway_port": 5555}))
+        _g757_flat_info = gateway_client.detect_daemon(_g757_flat, hostname="any-box")
+        check("7.57: the legacy flat server.json shape (no `machines` key) still resolves — "
+              "config.js's own stated backward-compat case",
+              _g757_flat_info["detected"] is True and _g757_flat_info["host"] == "legacy.ts.net")
+
+        # F. RBTV_IGNITE_WORKSPACE_ROOT env override actually redirects resolution — the same env
+        # var name the JS side reads (ignite/cli/lib/config.js), so a workspace root override
+        # means the same thing on both sides of the wire.
+        check("7.57: RBTV_IGNITE_WORKSPACE_ROOT overrides the given default workspace root",
+              str(gateway_client.resolve_workspace_root(
+                  "/does/not/matter", env={"RBTV_IGNITE_WORKSPACE_ROOT": str(_g757_yes)}))
+              == str(_g757_yes))
+        check("7.57: with no override, resolve_workspace_root returns the caller's default "
+              "unchanged — the production path (VAULT_ROOT) is untouched by this env var today",
+              str(gateway_client.resolve_workspace_root("/some/default", env={})) == "/some/default")
+
+        # G. Client mode is INERT UNLESS EXPLICITLY OPTED IN (Fork 2, ruled) — asserted at the
+        # PARSER, not just the function default, so an argparse edit that silently flipped the
+        # default would be caught here, not just in cmd_gateway_status's own signature.
+        _g757_parser = build_parser()
+        _g757_bare = _g757_parser.parse_args(["gateway-status"])
+        _g757_opt = _g757_parser.parse_args(["gateway-status", "--probe"])
+        check("7.57: `gateway-status` with no flag parses --probe=False — client mode (the SPEAK "
+              "half) is inert by default, never silently on",
+              _g757_bare.probe is False)
+        check("7.57: `gateway-status --probe` parses --probe=True — the opt-in is reachable, not "
+              "just theoretically present",
+              _g757_opt.probe is True)
+
+        # H. IGNITE_GATEWAY_ADDR parsing (host:port / bare host / full URL) — config.js parity,
+        # pure string parsing, no network.
+        check("7.57: IGNITE_GATEWAY_ADDR parses bare `host:port`",
+              gateway_client._parse_addr("addr-host:1234") == ("addr-host", 1234))
+        check("7.57: IGNITE_GATEWAY_ADDR parses a bare host with no port as port 80",
+              gateway_client._parse_addr("addr-host") == ("addr-host", 80))
+        check("7.57: IGNITE_GATEWAY_ADDR parses a full https URL, defaulting to port 443",
+              gateway_client._parse_addr("https://addr-host") == ("addr-host", 443))
+
     # verdict, exit code and --expect-fail all live in cmd_selftest, so an abort anywhere above
     # still reaches them (G-66).
 
@@ -10848,7 +11032,7 @@ leader
   add-to-group / remove-from-group  join or drop an existing group's members
 
 other
-  workers / descriptors  who is alive and on what · structural audit of the seat descriptors
+  workers / descriptors / gateway-status  who is alive and on what · seat-descriptor audit · is a daemon serving this workspace (--probe proves the wire)
   create-group       open a message group for one workstream
   export-transcript  capture a seat's pane scrollback into its worker folder
   depart      ephemeral seats: export + check out + kill your own pane
@@ -11547,6 +11731,23 @@ def build_parser():
         "  coordinate descriptors\n"
         "next: nothing — findings are reported to whoever owns seats/, never fixed here")
     s.set_defaults(func=cmd_descriptors)
+
+    s = command(
+        "gateway-status",
+        "Task 7.57 (DETECT half only). Reports whether an ignite daemon serves THIS\n"
+        "workspace on THIS machine (.rbtv/modules/ignite/server.json) — a pure file read,\n"
+        "always safe. Does NOT route coordination send/read through the gateway: that is\n"
+        "RULED NOT MET (fork 1) — the gateway has no addressed-message door yet.\n"
+        "checkin/send/read/pending/... never call this and are unaffected by it.",
+        "example:\n"
+        "  coordinate gateway-status            # detection only, zero network\n"
+        "  coordinate gateway-status --probe    # ALSO makes one live read-only `inspect`\n"
+        "                                       # call to prove the authenticated wire\n"
+        "next: nothing — informational; coordination messages still use the run package")
+    s.add_argument("--probe", action="store_true",
+                   help="explicit opt-in (inert by default, Fork 2 ruled): make one live "
+                        "read-only `inspect` call against the detected gateway")
+    s.set_defaults(func=cmd_gateway_status)
 
     s = command(
         "selftest",
