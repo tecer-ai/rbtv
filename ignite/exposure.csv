@@ -1,0 +1,29 @@
+# ⚠ INTERIM — ONE ROW, ONE TARGET. Authored by task 7.43's seat, 2026-07-28, under an explicit
+# leader ruling (fork 3, option (d)) and four binding bounds: one row only; this file states on its
+# own face that it is interim; the seat records WHICH COLUMNS IT CHOSE AND WHY; and task 7.48 is
+# FREE TO RE-SHAPE IT without treating it as precedent.
+#
+# WHY IT EXISTS AT ALL: `decisions.md#d-catalog-bound-exposure-manifest` (owner, 2026-07-26) ruled
+# that the catalog CMP-10 boundary 1 checks IS the component's exposure manifest. Measured on this
+# tree the same day: ZERO exposure manifests existed anywhere, so the catalog-bound check failed
+# closed on every target and the lane could dispatch nothing — which made 7.43's two POSITIVE
+# criteria (both of which say "a real run") unprovable. 7.48 populates the catalog and depends on
+# 7.43 for its SHAPE, so deferring would have been a cycle rather than a queue.
+#
+# WHY IT SITS AT THE MODULE ROOT rather than at the ruled `<module>/<component>/exposure.csv`:
+# measured 2026-07-28, NO component folders exist anywhere in this repo — CMP-5's component-first
+# layout is Phase-6 migration work and is unbuilt. The reader
+# (ignite/capabilities/sub-agent-dispatch/catalog.js) scans BOTH depths, so when the component tree
+# materializes and 7.48 moves this file one level down, nothing needs editing.
+#
+# COLUMNS: exactly the six of `concepts/exposure-manifest.md` § file schema, in its order. They are
+# ROUTED, not invented — the record already specifies them. The one thing the ruling left unsettled
+# is WHICH column carries dispatchability ("the `method` column's `sub-agent` value, the `rbtv-cli`
+# column, or a dedicated marker are Phase-3/4 design output"). THIS FILE USES THE `method` COLUMN'S
+# `sub-agent` VALUE, because `sub-agent` is ALREADY a member of the canonical exposure-method
+# vocabulary (`decisions.md#d-exposure-method-canon`): reading it from `method` mints nothing,
+# while a dedicated marker column would be a second way to say what the vocabulary already says
+# (PRIN-11). The full rationale, including what the other two options would have cost, is in
+# ignite/capabilities/sub-agent-dispatch/sub-agent-dispatch.md § The interim exposure manifest.
+part-id,part-kind,method,rbtv-cli,entry-point,description
+ticker-settings,capability,sub-agent,,ignite/capabilities/ticker-settings/ticker-settings.md,

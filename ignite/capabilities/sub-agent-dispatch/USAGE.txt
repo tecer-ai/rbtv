@@ -1,0 +1,39 @@
+rbtv-subagent — CLI-lane sub-agent dispatch (task 7.43; CMP-10 § Standing sub-agent lane)
+
+  rbtv-subagent dispatch --target <part-id> --profile <name> [--task <text>]
+                         [--effort low|medium|high|max] [--resumable] [--json]
+  rbtv-subagent targets [--json]
+  rbtv-subagent doctor
+
+dispatch
+  --target      a part exposed for `sub-agent` dispatch by a component's exposure manifest.
+                Only cataloged parts; never a free-form agent (boundary 1).
+  --profile     a launch profile from ignite/config/spawn-profiles.yaml — the SAME shared config
+                the daemon spawns from. No raw flags reach the harness (boundary 2).
+  --task        the task text. If omitted, it is read from stdin.
+  --effort      an abstract effort level, translated by the profile's own table.
+  --resumable   the caller must be able to reach this session again after the first turn. This is
+                a SITUATION handed to the injection ladder, not a rung: a profile whose headless
+                rung is one-shot resolves to no rung at all under it, and the dispatch is refused.
+  --json        machine-readable result on stdout instead of streamed sub-agent output.
+
+Exit codes
+  0  the sub-agent ran and exited 0
+  2  the sub-agent ran and exited non-zero
+  3  the cage REFUSED the launch — nothing was spawned
+  1  anything else
+
+The cage (fail-closed, in this capability's own code; no --force exists for any of it)
+  1  catalog-bound      the target must be exposed for sub-agent dispatch by an exposure manifest
+  2  profile-bound      a named profile from the shared config; slots only, never appended argv
+  3  no bus access      constructed environment + a system PATH carrying no coordination CLI
+  4  dies with the step a death pipe the kernel closes when this process dies, by any means
+  6  no impersonation   the workdir may not carry a taskforce seat's identity
+  8  own process group  one kill cleans the whole tree
+  9  no nesting         a sub-agent may not dispatch a sub-agent
+ 10  fan-out cap        5 simultaneous sub-agents per dispatcher (POSIX session)
+ 11  scrubbed env       built from an empty object: a minimal PATH/HOME base plus what the
+                        profile declares, and nothing else
+
+Boundary 7 (native-first) is NOT enforced here: it is guidance for the dispatching agent, carried
+by the native-lane rule (task 7.49). This CLI does not detect native tools.
