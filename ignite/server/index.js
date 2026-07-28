@@ -13,6 +13,7 @@ const { createSpawnManager } = require('./spawn/spawn');
 const { createTicker } = require('./ticker/ticker');
 const { selectCarrier } = require('./spawn/carrier');
 const { createInternalApi } = require('./internal-api/dispatch');
+const { captureLoadedCode } = require('./code-fingerprint');
 const { flushScreenReadRuns } = require('./internal-api/keys-audit');
 const { parseRetentionDays, sweepRetention } = require('./retention');
 const settings = require('./settings');
@@ -643,6 +644,14 @@ async function main() {
   // Captured once at boot for `inspect daemon` uptime reporting.
   const daemonStartTime = Date.now();
 
+  // G-188 stage 2: what code THIS process loaded, captured ONCE, here, from file bytes over the
+  // require closure. Answers "is the daemon running current code" — a question the run could only
+  // answer by INFERENCE (start time later than commit time), which is the reasoning G-158 exists
+  // to replace. FAIL-SOFT BY CONTRACT: captureLoadedCode never throws and returns null on any
+  // failure, because this runs at boot and a boot throw reaches the hard exit below — the daemon
+  // must never refuse to start because of the machinery watching whether it started.
+  const daemonLoadedCode = captureLoadedCode(__dirname);
+
   const ticker = createTicker({
     heartStore,
     spawnManager: spawnManagerWithPty,
@@ -671,6 +680,7 @@ async function main() {
     secret: internalSecret,
     logger: (m) => log(m.level || 'info', m.message, m),
     daemonStartTime,
+    daemonLoadedCode,
     // Task 7.13: the retention window rides the daemon-config knobs so `inspect daemon`
     // surfaces it read-only on its existing `config` block (never a new intent).
     daemonConfig: { ...tickerConfig, log_retention_days: retentionDays },

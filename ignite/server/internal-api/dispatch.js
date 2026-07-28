@@ -428,7 +428,7 @@ function toWireError(err) {
 // `inspect daemon` can report a PENDING edit is to read the file at request time. Absent → the
 // fields report `null`, which means "not readable", never "no pending edit" — the two must not
 // look alike.
-function createInternalApi({ heartStore, spawnManager, secret, logger = null, authzPolicy = null, daemonStartTime = null, daemonConfig = null, ptyHost = null, readConfiguredTickIntervalMs = null }) {
+function createInternalApi({ heartStore, spawnManager, secret, logger = null, authzPolicy = null, daemonStartTime = null, daemonLoadedCode = null, daemonConfig = null, ptyHost = null, readConfiguredTickIntervalMs = null }) {
   if (typeof secret !== 'string' || secret.length === 0) {
     throw new Error('createInternalApi requires a non-empty per-boot client secret');
   }
@@ -594,6 +594,13 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       target: 'daemon',
       pid: process.pid,
       uptime_ms: uptimeMs,
+      // G-188 stage 2. null is a REPORTABLE STATE, not a gap to paper over: a daemon that predates
+      // this field, or whose capture failed, publishes null and the reader must say UNKNOWN rather
+      // than treat the silence as health — the absence-reads-as-health shape this whole class is
+      // made of. It is the value captured at BOOT and is deliberately never recomputed here:
+      // hashing the files again at request time would compare them against themselves and could
+      // only ever report agreement, which is a detector that cannot fire.
+      code: daemonLoadedCode,
       last_tick: lastTick ? lastTick.tick : null,
       live_agent_sessions: liveAgentSessions,
       max_live_agent_sessions: configKnobs.max_live_agent_sessions ?? 2,
