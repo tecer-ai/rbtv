@@ -2381,8 +2381,8 @@ def cmd_selftest():
         return {"name": name, "busy": busy, "shell": shell, "harness": harness,
                 "model": model, "ctx": ctx, "age": age, "approx": approx,
                 "awaiting": awaiting, "ctx_over": ctx_over}
-    pc = re.sub(r"\033\[[0-9;]*m", "", pane_cell(P("master", busy=True)))
-    check("pane_cell: seat+ harness:model ctxN% age", pc == "master+ claude:opus-4-8 46% 2m")
+    pc = re.sub(r"\033\[[0-9;]*m", "", pane_cell(P("leader", busy=True)))
+    check("pane_cell: seat+ harness:model ctxN% age", pc == "leader+ claude:opus-4-8 46% 2m")
     check("pane_cell/pane_compact: awaiting-approval renders RED name? (overrides busy '+')",
           RED + "stuck?" + OFF in pane_cell(P("stuck", busy=True, awaiting=True))
           and RED + "stuck?" + OFF in pane_compact(P("stuck", awaiting=True)))
@@ -2467,19 +2467,19 @@ def cmd_selftest():
           and re.sub(r"\033\[[0-9;]*m", "", pane_cell(
               P("ov", harness="python3", model="", ctx=None, age=""))) == "ov python3")
     check("pane_compact: parenthesized agent info",
-          re.sub(r"\033\[[0-9;]*m", "", pane_compact(P("master")))
-          == "master(claude:opus-4-8 46% 2m)")
+          re.sub(r"\033\[[0-9;]*m", "", pane_compact(P("leader")))
+          == "leader(claude:opus-4-8 46% 2m)")
     check("ctx color bands: green<60, yellow<85, red",
           GREEN in ctx_str(45) and YELLOW in ctx_str(70) and RED in ctx_str(90))
     check("uncertain pane match renders ~N%",
           "~46%" in re.sub(r"\033\[[0-9;]*m", "", pane_cell(P("m", approx=True))))
     wins = [{"idx": "0", "name": "control", "active": True,
-             "panes": [P("master", busy=True),
+             "panes": [P("leader", busy=True),
                        P("watcher", harness="opencode", model="deepseek-v4-pro", ctx=91.0,
                          age="5m")]},
             {"idx": "1", "name": "cli", "active": False, "panes": [P("cli", shell=True)]}]
     calm_wins = [{"idx": "0", "name": "control", "active": True,
-                  "panes": [P("master", busy=True),
+                  "panes": [P("leader", busy=True),
                             P("watcher", harness="opencode", model="deepseek-v4-pro",
                               ctx=51.0, age="5m")]},
                  {"idx": "1", "name": "cli", "active": False,
@@ -2492,7 +2492,7 @@ def cmd_selftest():
         jl = re.sub(r"\033\[[0-9;]*m", "", "\n".join(outl))
         check(f"{layout_fn.__name__}: fits height on both phases; windows phase carries "
               "seats + agent info, limits phase carries provider info",
-              len(outw) <= dims[1] and len(outl) <= dims[1] and "master" in jw
+              len(outw) <= dims[1] and len(outl) <= dims[1] and "leader" in jw
               and "claude" in jw and "46%" in jw and "9.26" in jl)
     # Regression (hk-ux-1, dispatch #95, CRITICAL): reported "claude:main 5h" showing 1%
     # instead of the correct 45% at 60x12. Could not reproduce a formatting/truncation bug
@@ -2518,7 +2518,7 @@ def cmd_selftest():
     check("render_full windows phase: grid — starred active window, panes with agent "
           "info beneath, no limits block sharing the frame",
           hdr is not None
-          and any("master+ claude:opus-4-8 46% 2m" in l for l in plain[hdr:])
+          and any("leader+ claude:opus-4-8 46% 2m" in l for l in plain[hdr:])
           and any("*control" in l for l in plain)
           and not any("PLAN LIMITS" in l for l in plain)
           and not any("legend:" in l for l in plain))

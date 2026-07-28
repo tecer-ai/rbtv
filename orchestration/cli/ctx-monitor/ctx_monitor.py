@@ -985,7 +985,7 @@ def cmd_selftest():
                             "ctx_tokens": 100_000, "window": 200_000,
                             "ambiguous": False}, "sonnet")["model"] == "sonnet")
 
-    recs = [{"pane_id": "%1", "window": "0", "title": "master", "harness": "claude",
+    recs = [{"pane_id": "%1", "window": "0", "title": "leader", "harness": "claude",
              "model": "claude-opus-4-8", "ctx_pct": 46.0, "ctx_tokens": 92_002,
              "window_tokens": 200_000, "as_of": int(time.time()) - 120, "source": "transcript"}]
     rows = render_rows(recs)
