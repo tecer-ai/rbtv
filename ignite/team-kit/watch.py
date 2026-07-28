@@ -344,6 +344,118 @@ def save_sys_state(base, st):
     coord.atomic_write(base / "watch-system.json", json.dumps(st, indent=1))
 
 
+def load_heartbeat(base):
+    """The heartbeat this loop last wrote, or None. Read back rather than held in memory ON
+    PURPOSE: a one-shot pass has no memory of a previous one, and the restart comparison must work
+    across separate invocations exactly as it does across loop iterations."""
+    p = base / "watch-heartbeat.json"
+    if not p.exists():
+        return None
+    try:
+        hb = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return hb if isinstance(hb, dict) else None
+
+
+IGNITE_UNIT = "rbtv-ignite.service"
+
+
+def daemon_identity():
+    """The ignite daemon's systemd identity THIS PASS — or UNKNOWN, said out loud (run issue G-188).
+
+    WHY THE LOOP SAMPLES A DAEMON AT ALL. Twice on 2026-07-27 the daemon was restarted by an
+    owner-side act and the run did not know: a 15:27 restart nobody noticed, and a full deploy at
+    03:45 that the run spent ~50 minutes reasoning around with a false picture, including an owner
+    brief that had to be withdrawn. `ignite inspect daemon` does publish pid and uptime — but only
+    to whoever thinks to ask, and nobody asks a question they do not know to have. This loop is the
+    run's only thing that observes continuously, so the observation belongs here.
+
+    ⚠⚠ `--user` IS LOAD-BEARING AND IS NOT A STYLE CHOICE. The unit is user-scoped. Asking the
+    SYSTEM bus for it returns, MEASURED on this box against the live daemon:
+        LoadState=not-found  ActiveState=inactive  SubState=dead  MainPID=0  exit 0
+    which is BYTE-IDENTICAL to what the user bus returns for a unit that genuinely does not exist.
+    Exit status is 0 in both cases. So "the daemon is gone" and "I asked the wrong bus" are THE SAME
+    ANSWER, and no amount of care at the call site can tell them apart afterwards.
+
+    ⇒ THEREFORE `not-found` IS REPORTED AS UNKNOWN, NEVER AS ABSENT. That is not caution; it is the
+    measurement above. This run's signature failure is absence being indistinguishable from health,
+    and a checker that answers "absent" here would be asserting a fact it provably cannot hold.
+    A determinate `loaded` + `inactive` IS reportable as stopped — there the unit answered for
+    itself. Only the ambiguous case degrades to UNKNOWN.
+
+    Returns one of:
+        {"state": "running", "unit": str, "pid": int, "since": str, "invocation": str}
+        {"state": "stopped", "unit": str, "why": str}     — the unit answered; it is down
+        {"state": "unknown", "unit": str, "why": str}     — the question could not be answered
+    `invocation` is systemd's InvocationID, minted fresh on every start, and it is the identity the
+    restart comparison keys on rather than MainPID: a pid is recycled by the kernel and carries no
+    promise of uniqueness across time, while the InvocationID exists precisely to say "this is a
+    different run of the same unit".
+
+    Every reading CARRIES the unit it asked about. The reader in `coord.workers` renders that value
+    instead of holding a literal of its own — coord cannot import watch (watch imports coord), so a
+    second copy of the name would be a copy nobody keeps in step, and it would go stale in the one
+    line whose job is telling an operator which unit to go and ask about (run issue G-107's shape:
+    carry the subject, never re-derive it)."""
+    props = ["LoadState", "ActiveState", "SubState", "MainPID", "ActiveEnterTimestamp",
+             "InvocationID"]
+    try:
+        out = subprocess.run(["systemctl", "--user", "show", IGNITE_UNIT,
+                              "--property=" + ",".join(props)],
+                             capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"state": "unknown", "unit": IGNITE_UNIT,
+                "why": f"systemctl --user did not answer ({exc})"}
+    if out.returncode != 0:
+        return {"state": "unknown", "unit": IGNITE_UNIT,
+                "why": f"systemctl --user exited {out.returncode}: "
+                       f"{(out.stderr or '').strip()[:120] or 'no stderr'}"}
+    kv = {}
+    for line in (out.stdout or "").splitlines():
+        if "=" in line:
+            k, _, v = line.partition("=")
+            kv[k.strip()] = v.strip()
+    load = kv.get("LoadState")
+    if not load:
+        return {"state": "unknown", "unit": IGNITE_UNIT,
+                "why": "systemctl --user printed no LoadState"}
+    if load != "loaded":
+        return {"state": "unknown", "unit": IGNITE_UNIT,
+                "why": f"LoadState={load} — indistinguishable from asking the wrong bus, so this "
+                       f"is NOT reported as absent"}
+    active = kv.get("ActiveState", "")
+    if active != "active":
+        return {"state": "stopped", "unit": IGNITE_UNIT,
+                "why": f"the unit answered for itself: ActiveState={active or '?'} "
+                       f"SubState={kv.get('SubState') or '?'}"}
+    invocation = kv.get("InvocationID") or ""
+    pid = kv.get("MainPID") or ""
+    if not invocation or not pid.isdigit() or int(pid) <= 0:
+        return {"state": "unknown", "unit": IGNITE_UNIT,
+                "why": f"unit is active but its identity is unreadable "
+                       f"(MainPID={pid or '?'}, InvocationID={'set' if invocation else 'empty'})"}
+    return {"state": "running", "unit": IGNITE_UNIT, "pid": int(pid),
+            "since": kv.get("ActiveEnterTimestamp") or "", "invocation": invocation}
+
+
+def _daemon_change(prev, now):
+    """The restart record to persist, or None — given the PREVIOUS pass's reading and this one's.
+
+    A change is only claimed when BOTH readings are determinate. A transition into or out of
+    `unknown` is a MEASUREMENT failing, not an event observed, and reporting it as a restart would
+    manufacture exactly the false certainty this feature exists to remove."""
+    if not isinstance(prev, dict) or not isinstance(now, dict):
+        return None
+    if prev.get("state") == "unknown" or now.get("state") == "unknown":
+        return None
+    same = (prev.get("state") == now.get("state")
+            and prev.get("invocation", "") == now.get("invocation", ""))
+    if same:
+        return None
+    return {"at": now_dt().isoformat(timespec="seconds"), "from": prev, "to": now}
+
+
 def save_heartbeat(base, loop_min):
     """P32 — stamp this pass so something outside the loop can tell a live watcher from a dead one.
 
@@ -354,11 +466,29 @@ def save_heartbeat(base, loop_min):
 
     `code` carries LOADED_CODE — the fingerprint of the source THIS PROCESS loaded, so a reader
     outside can tell a live loop running current code from a live loop running stale code (G-158).
-    P32 answered "is it running"; this extends the same artifact to "is it running WHAT WE THINK"."""
+    P32 answered "is it running"; this extends the same artifact to "is it running WHAT WE THINK".
+
+    `daemon` / `daemon_change` carry the ignite daemon's identity this pass and the last observed
+    restart (G-188). THIS FILE, deliberately, and NOT watch-state.json — stated here because task
+    7.37 relocates watch-state.json to goal level and whoever takes it inherits this field. Two
+    reasons: watch-state.json is keyed by AGENT NAME and the daemon is not an agent (a reserved key
+    there is one roster name away from a collision — the same reason this heartbeat file was split
+    out for P32); and it is merged across runs, which is how a stale `notified_*` from run-1 can
+    pre-suppress a run-2 flag. A restart record must never inherit another run's history.
+
+    `daemon_change` is STICKY — it survives later passes until the next change replaces it, and it
+    is stamped with `at`. A restart signal that expires after one pass would reproduce the exact
+    miss this exists for: both restarts on 2026-07-27 were noticed hours late, by hand."""
+    prev = load_heartbeat(base)
+    daemon = daemon_identity()
+    change = _daemon_change((prev or {}).get("daemon"), daemon)
+    if change is None:
+        change = (prev or {}).get("daemon_change")
     try:
         coord.atomic_write(base / "watch-heartbeat.json", json.dumps(
             {"last_pass": now_dt().isoformat(timespec="seconds"),
-             "loop_min": loop_min, "pid": os.getpid(), "code": LOADED_CODE}, indent=1))
+             "loop_min": loop_min, "pid": os.getpid(), "code": LOADED_CODE,
+             "daemon": daemon, "daemon_change": change}, indent=1))
     except OSError as exc:
         print(f"watch: heartbeat not written ({exc}) — `coordinate workers` will report this "
               f"watcher STALE even while it runs", file=sys.stderr)

@@ -897,6 +897,63 @@ def _heartbeat_code_drift(loaded):
     return drifted, True
 
 
+def _heartbeat_daemon_lines(hb, stale):
+    """(fold-into-the-ok-line suffix, [loud lines]) for the ignite daemon — run issue G-188.
+
+    The run had NO detector for "the daemon restarted". It tracked MainPID in PROSE, in a handoff
+    doc, BY HAND — and prose does not execute. Twice on 2026-07-27 a restart went unnoticed; the
+    second cost ~50 minutes of a false picture and an owner brief that had to be withdrawn. The
+    watch loop samples the unit each pass; this renders it on the line the reader already reads,
+    because a separate command is a command nobody runs.
+
+    ⚠ THE BOUND, and it must not be read as more than it is: this says THAT the daemon restarted.
+    It says NOTHING about WHICH BYTES it is running. There is no G-158-style import-time
+    fingerprint on the daemon side, so "the deploy took" remains an inference — a refinement that
+    lands in the daemon's own boot code, not here.
+
+    ⚠ ABSENCE IS REPORTED AS UNKNOWN, NEVER AS OK, in both directions: a loop predating the field
+    writes no `daemon` key, and a pass that could not read the unit writes state=unknown. Both are
+    said out loud, for the reason `_heartbeat_code_drift` gives — a caller that reads a missing
+    marker as "fine" has rebuilt the defect at the reader."""
+    dmn = hb.get("daemon")
+    loud = []
+    fold = ""
+    # A STALE watcher's daemon reading is as old as its last pass. Saying so is the difference
+    # between a fact and a fossil: without the qualifier the reader takes an hours-old pid for a
+    # live one, which is this class's whole failure shape wearing a different hat.
+    asof = " (as of that last pass, which is STALE)" if stale else ""
+    if not isinstance(dmn, dict) or not dmn.get("state"):
+        loud.append(("hint", "daemon: UNKNOWN — this loop predates the daemon marker, so nothing "
+                             "here can tell whether the ignite daemon has restarted. Treat it as "
+                             "UNVERIFIED, not healthy; a restart of the loop makes it answerable."))
+        dmn = {}
+    elif dmn["state"] == "running":
+        pid = dmn.get("pid")
+        since = (dmn.get("since") or "").replace("UTC", "").strip()
+        fold = f", daemon pid {pid}" + (f" since {since}" if since else "") + asof
+    elif dmn["state"] == "stopped":
+        loud.append(("dead", f"daemon: DOWN — {dmn.get('why') or 'the unit reports inactive'}"
+                             f"{asof}. Nothing is running jobs, ticks or spawns."))
+    else:
+        loud.append(("dead", f"daemon: UNKNOWN — {dmn.get('why') or 'unreadable'}{asof}. This is "
+                             f"NOT a report that the daemon is absent: on this box a system-scope "
+                             f"query for the user-scoped unit answers exit 0 with LoadState="
+                             f"not-found, byte-identical to a unit that never existed. Ask "
+                             f"`systemctl --user status {dmn.get('unit') or 'the ignite unit'}` "
+                             f"before concluding."))
+    chg = hb.get("daemon_change")
+    if isinstance(chg, dict) and isinstance(chg.get("to"), dict):
+        frm, to = chg.get("from") or {}, chg["to"]
+        loud.append(("dead", f"daemon: RESTARTED — observed {chg.get('at') or '?'} "
+                             f"(pid {frm.get('pid') or '?'} -> {to.get('pid') or '?'}, "
+                             f"state {frm.get('state') or '?'} -> {to.get('state') or '?'}). "
+                             f"An owner-side deploy or bounce is INVISIBLE to this run otherwise; "
+                             f"this line is sticky and stays until the next change, because both "
+                             f"restarts on 2026-07-27 were noticed hours late. It does NOT say "
+                             f"which code the daemon loaded."))
+    return fold, loud
+
+
 WAKE_ENTER_ATTEMPTS = 3
 # A real production wake (300+ chars) takes some TUIs noticeably longer than round-2's 0.15s
 # first-check assumed just to REDRAW the pasted text, before Enter's effect is even relevant — a
@@ -3319,12 +3376,14 @@ def cmd_workers(args):
         if hb.get("code_known") and not hb.get("code_drifted"):
             names = sorted(Path(p).name for p in (hb.get("code") or {}))
             code_ok = f", running current {' + '.join(names)}" if names else ""
+        daemon_fold, daemon_loud = _heartbeat_daemon_lines(hb, hb["stale"])
         if hb["stale"]:
             print(c(f"watcher: STALE — last pass {hb['age_min']}min ago (stale past "
                     f"{hb['stale_after']}min{cadence}{pid}). Nothing is measuring liveness, "
                     f"context or approval gates right now; restart the loop.", C_DEAD))
         else:
-            print(c(f"watcher: ok — last pass {hb['age_min']}min ago{cadence}{pid}{code_ok}", C_ALIVE))
+            print(c(f"watcher: ok — last pass {hb['age_min']}min ago{cadence}{pid}{code_ok}"
+                    f"{daemon_fold}", C_ALIVE))
         # G-158: "is it running" and "is it running WHAT WE THINK" are different questions, and
         # only the first was ever asked. A loop that imported an old coord.py keeps passing every
         # check above — fresh heartbeat, live pid, flags delivered — while executing code that no
@@ -3339,6 +3398,11 @@ def cmd_workers(args):
                     f"disk since this loop imported it, and python binds source at import, so the "
                     f"running loop can never pick it up. It will keep heartbeating and reporting "
                     f"healthy on the OLD behaviour. Restart the loop to deploy.", C_DEAD))
+        # G-188: the daemon. Same print site as the two questions above, and for the same reason —
+        # this is where the reader already looks. The healthy case rides the ok line; only DOWN,
+        # UNKNOWN and RESTARTED take a line of their own.
+        for kind, line in daemon_loud:
+            print(c(line, C_DEAD if kind == "dead" else C_HINT))
     if not getattr(args, "history", False):
         print(c(f"-- current rows only (log tail #{tail}); --history for every row, --full for "
                 f"untruncated summaries", C_HINT))
