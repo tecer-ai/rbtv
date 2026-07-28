@@ -156,13 +156,112 @@ def _load(path, what):
         return None, "%s is UNREADABLE at %s: %s" % (what, path, exc)
 
 
+# ---------------------------------------------------------------- the floor, read never copied
+#
+# Owner ruling `r-floor-single-source` (2026-07-28), defect G-42:
+#
+#     A POLICY NUMBER MUST NEVER BE TRANSPORTED BY ARGV. argv is a COPY; a file is a REFERENCE.
+#
+# The floor lived in 7 places across 5 files and they disagreed; the set grew 2 -> 3 -> 4 -> 7 in
+# forty minutes, each growth found only because someone looked again. Every consumer that needs the
+# floor now READS it here. This function is the only reader; a second one would be a second home.
+#
+# TWO THRESHOLDS, NAMED SEPARATELY, EVEN WHEN EQUAL (task 7.82 criterion 1). They are the same
+# number today by the owner's "kept in sync", and collapsing them into one field would make
+# "warn me before you start refusing" permanently unexpressible.
+FLOOR_FIELDS = {
+    "refuse": "launch_refuse_mb",   # coord.py DENIES a launch below this
+    "warn": "pressure_warn_mb",     # the watch loop FLAGS pressure below this
+}
+
+
+class FloorUndeclared(Exception):
+    """No floor is declared for this package. NOT an error by itself -- the caller decides, and
+    for most callers the answer is 'refuse to start unless an explicit flag was passed'."""
+
+
+class FloorUnreadable(Exception):
+    """A budget.json IS declared here and could not be read or does not parse. ALWAYS loud.
+
+    ⚠ THIS IS A DIFFERENT FACT FROM `FloorUndeclared` AND COLLAPSING THEM IS A MEASURED DEFECT.
+    Absence of a declaration and failure to read a declaration look identical to a fail-soft
+    caller, and that identity is what once made a WRONG PATH observationally the same as a package
+    with no budget -- see the comment at watch.py's capacity check, which pays for the same lesson.
+    """
+
+
+def read_floor(run_root, which):
+    """The run's declared floor in MB, read from `{run_root}/budget.json`. Never a fallback number.
+
+    `which` is a key of FLOOR_FIELDS. Raises FloorUndeclared / FloorUnreadable; returns an int.
+
+    ⚠ THERE IS DELIBERATELY NO `default=` PARAMETER. A default would be a literal, a literal is a
+    home, and homes are what this whole change exists to delete. A caller that wants to proceed
+    without a declaration must say so explicitly with its own flag, and SAY WHICH VALUE IT USED --
+    which is also how task 7.82 criterion 8's acceptance is met.
+    """
+    field = FLOOR_FIELDS[which]
+    path = os.path.join(str(run_root), "budget.json")
+    if not os.path.exists(path):
+        raise FloorUndeclared("no budget.json at %s — nothing declares a floor for this package" % path)
+    b, err = _load(path, "budget.json")
+    if err:
+        raise FloorUnreadable(err)
+    floors = b.get("floors") or {}
+    if field not in floors:
+        raise FloorUndeclared(
+            "budget.json at %s declares no floors.%s. The floor's one home is this file "
+            "(r-bar-home-is-the-run-budget-json); a consumer must not invent one." % (path, field))
+    v = floors[field]
+    if not isinstance(v, int) or isinstance(v, bool) or v <= 0:
+        raise FloorUnreadable(
+            "budget.json at %s has floors.%s = %r, which is not a positive integer number of MB"
+            % (path, field, v))
+    return v
+
+
+def floor_source(run_root, which, flag_value):
+    """Resolve the floor a consumer will actually use, and the REASON, as (value, why).
+
+    ⚠ THE `why` IS NOT DECORATION -- IT IS TASK 7.82 CRITERION 8's ACCEPTANCE. The criterion is
+    that with a declaration present and an environment or flag disagreeing, the consumer's
+    behaviour is DEFINED AND VISIBLE: it says WHICH VALUE IT USED AND WHY, never silently
+    environment-decided. A consumer that resolves correctly and prints nothing fails it.
+
+    Raises FloorUnreadable always, and FloorUndeclared only when there is no flag to fall back on
+    -- which is criterion 5: an unreadable or missing declaration is a hard start failure, and the
+    ONLY thing that may proceed in its place is an EXPLICIT operator override, never a number this
+    code chose.
+    """
+    if flag_value is not None:
+        try:
+            declared = read_floor(run_root, which)
+        except FloorUndeclared:
+            return flag_value, ("--mem-floor-mb %d (explicit override; no floors.%s declared at %s)"
+                                % (flag_value, FLOOR_FIELDS[which], run_root))
+        if declared != flag_value:
+            return flag_value, (
+                "--mem-floor-mb %d (explicit override) — budget.json declares floors.%s = %d and "
+                "the FLAG WINS because an operator passed it. Remove the flag to follow the ruling."
+                % (flag_value, FLOOR_FIELDS[which], declared))
+        return flag_value, ("--mem-floor-mb %d (explicit override; agrees with budget.json)"
+                            % flag_value)
+    v = read_floor(run_root, which)
+    return v, "budget.json floors.%s = %d (the declared floor; no override passed)" % (
+        FLOOR_FIELDS[which], v)
+
+
 def census(budget, state, now=None, resolver=resolve_descriptor):
     """Arithmetic over the snapshot. Returns a dict; raises nothing."""
     now = now if now is not None else time.time()
     counting = budget.get("counting", {})
     counts_toward = set(counting.get("counts_toward_cap") or [])
     cap = (budget.get("cap") or {}).get("agent_panes")
-    floor = (budget.get("floors") or {}).get("ram_available_mb")
+    # The REFUSE threshold: census reports whether the room is below the line at which a launch is
+    # DENIED, which is the one an operator acts on. `ram_available_mb` was this field's name until
+    # 7.82 split it in two; it is gone rather than aliased, because an alias is a second home in
+    # the same file and that is the disease.
+    floor = (budget.get("floors") or {}).get(FLOOR_FIELDS["refuse"])
 
     captured = state.get("captured_at")
     age = None if captured is None else round(now - float(captured), 1)
@@ -330,7 +429,12 @@ def _selftest():
     """Every branch this module refuses to guess on. Exits 0 clean, 1 on failure."""
     b = {
         "cap": {"agent_panes": 10},
-        "floors": {"ram_available_mb": 2800},
+        # ⚠ THIS FIXTURE READ `{"ram_available_mb": 2800}` UNTIL 7.82 -- a 2,800 left behind by the
+        # hand-synchronisation that moved every live home to 2,000, sitting in a module the live
+        # watch loop imports. It determined no behaviour, which is exactly why nothing caught it
+        # for a day: a fixture is invisible to every check that asks what the SYSTEM does. It rides
+        # along with 7.82 by the leader's ruling rather than being left as a tidy-up nobody owns.
+        "floors": {"launch_refuse_mb": 2000, "pressure_warn_mb": 2000},
         "counting": {"counts_toward_cap": ["staff", "worker", "verifier"]},
     }
     now = 1000.0
@@ -478,12 +582,99 @@ def _selftest():
         except Exception as exc:
             fails.append("render raised on %r: %s" % (st, exc))
 
+    # ---------------------------------------------------------------- read_floor (task 7.82)
+    #
+    # ⚠ EVERY CHECK HERE IS PAIRED WITH ITS OPPOSITE, because this reader's whole job is to REFUSE,
+    # and a refuser that refuses nothing prints exactly what a working one prints on the happy
+    # path. `bars.md` 11: a negative needs a positive control in the same run.
+    import tempfile as _tf
+
+    with _tf.TemporaryDirectory() as d:
+        # (1) no declaration at all -> FloorUndeclared, never a number
+        try:
+            read_floor(d, "refuse")
+            fails.append("read_floor: an absent budget.json returned a value instead of refusing")
+        except FloorUndeclared:
+            pass
+        except Exception as exc:
+            fails.append("read_floor: absent budget.json raised %r, want FloorUndeclared" % exc)
+
+        # (2) declared but corrupt -> FloorUnreadable, and NOT the same exception as (1).
+        # This pair is the load-bearing one: collapsing "absent" into "unreadable" is what once
+        # made a WRONG PATH observationally identical to a package with no budget.
+        with open(os.path.join(d, "budget.json"), "w") as fh:
+            fh.write("{not json")
+        try:
+            read_floor(d, "refuse")
+            fails.append("read_floor: a corrupt budget.json returned a value instead of refusing")
+        except FloorUnreadable:
+            pass
+        except Exception as exc:
+            fails.append("read_floor: corrupt budget.json raised %r, want FloorUnreadable" % exc)
+
+        # (3) declared and valid -> the declared number, for BOTH thresholds, and they are read
+        # from DIFFERENT fields. Distinct values on purpose: equal ones would pass even if both
+        # keys resolved to the same field, which is the bug criterion 1 exists to prevent.
+        with open(os.path.join(d, "budget.json"), "w") as fh:
+            json.dump({"floors": {"launch_refuse_mb": 2000, "pressure_warn_mb": 2400}}, fh)
+        check("read_floor refuse", read_floor(d, "refuse"), 2000)
+        check("read_floor warn", read_floor(d, "warn"), 2400)
+
+        # (4) a declaration missing THIS field is undeclared, not zero and not the other field
+        with open(os.path.join(d, "budget.json"), "w") as fh:
+            json.dump({"floors": {"launch_refuse_mb": 2000}}, fh)
+        try:
+            read_floor(d, "warn")
+            fails.append("read_floor: a missing floors.pressure_warn_mb did not refuse")
+        except FloorUndeclared:
+            pass
+
+        # (5) a non-integer floor is UNREADABLE, never coerced
+        for bad in ("2000", 0, -1, True, None):
+            with open(os.path.join(d, "budget.json"), "w") as fh:
+                json.dump({"floors": {"launch_refuse_mb": bad}}, fh)
+            try:
+                read_floor(d, "refuse")
+                fails.append("read_floor: floors.launch_refuse_mb=%r was accepted" % (bad,))
+            except FloorUnreadable:
+                pass
+            except FloorUndeclared:
+                fails.append("read_floor: floors.launch_refuse_mb=%r read as UNDECLARED; it IS "
+                             "declared and it IS wrong -- the two must not collapse" % (bad,))
+
+        # (6) floor_source SAYS WHICH VALUE IT USED AND WHY -- criterion 8's acceptance. The
+        # check is that a conflicting override is VISIBLE, not merely correct: it must name both
+        # numbers, so an operator reading one line can see the declaration it overrode.
+        with open(os.path.join(d, "budget.json"), "w") as fh:
+            json.dump({"floors": {"launch_refuse_mb": 2000}}, fh)
+        v, why = floor_source(d, "refuse", None)
+        check("floor_source declared value", v, 2000)
+        check("floor_source names the file", "budget.json" in why, True)
+        v, why = floor_source(d, "refuse", 1500)
+        check("floor_source override wins", v, 1500)
+        check("floor_source names BOTH numbers", ("1500" in why and "2000" in why), True)
+
+        # (7) with NO declaration, an explicit flag proceeds and says so -- criterion 5's escape.
+        # Without this the hard failure would refuse every launch in the six packages on this box
+        # that declare no budget, selftest fixtures included.
+        os.remove(os.path.join(d, "budget.json"))
+        v, why = floor_source(d, "refuse", 1500)
+        check("floor_source flag without declaration", v, 1500)
+        check("floor_source says no declaration", "no floors." in why, True)
+        # ...and with NEITHER, it refuses. This is the pair that makes (7) mean something.
+        try:
+            floor_source(d, "refuse", None)
+            fails.append("floor_source: no declaration AND no flag returned a value — that is the "
+                         "silent fallback number criterion 5 forbids")
+        except FloorUndeclared:
+            pass
+
     if fails:
         print("SELFTEST FAILED (%d):" % len(fails))
         for f in fails:
             print("  -", f)
         return 1
-    print("selftest: 16 checks OK")
+    print("selftest: 16 checks OK + 12 floor-reader checks")
     return 0
 
 
