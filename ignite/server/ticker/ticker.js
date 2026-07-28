@@ -10,6 +10,10 @@ const {
 } = require('../spawn/carrier');
 const { exitFilePath, ensureExitFile } = require('../spawn/spawn');
 const { runWarningCheck } = require('./warnings-check');
+// Constants only — the ticker's store is INJECTED (`heartStore`), and this require never
+// constructs or opens one. Imported rather than re-spelled so the crash sweep's notion of "the
+// turn already reported" is the store's, not a second copy that can drift from it.
+const { TERMINAL_TURN_STATUSES, sessionStatusForEndedTurn } = require('../heart/heart-store');
 
 const DEFAULT_CONFIG = {
   tick_interval_ms: 10000,
@@ -1021,6 +1025,40 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       let info;
       try { info = await spawnManager.status(exec.exec_id); } catch { continue; }
       if (!info.live) {
+        // ── G-222 · THE TURN ALREADY REPORTED. Write the SESSION, never the turn.
+        //
+        // What this sweep just observed is that a PROCESS is gone — a session-level fact. Before
+        // 7.46 it could only ever reach non-terminal turns (`running`/`launching`/`stalled`), so
+        // "the turn has not reported yet" was a STRUCTURAL property of the set and no code had to
+        // state it. 7.46 re-keyed the set on `sessions.status = 'alive'` — correct for the
+        // question the set asks — and the exclusion vanished with the old query. Measured: a turn
+        // seeded `done` was rewritten to `failed` at the first tick, with a manufactured crash
+        // completion and a "slot halted" owner note for a session that had ended normally.
+        //
+        // ⚠ THE EXCLUSION IS RESTORED HERE AND NOT IN listTurnsOfLiveSessions(), deliberately.
+        // That function feeds the AGENT CAP too (`liveAgentSessions` above), and a turn-level
+        // predicate there would hide a session that is alive with its turn reported — R16's
+        // idle-between-turns session, the exact state the split exists to represent — from the cap
+        // that must count it. It would also leave these sessions `alive` forever: this sweep is
+        // the only thing that ever closes a leaked one.
+        //
+        // So the sweep still LOOKS at the row (it must — otherwise nothing closes the session) and
+        // writes only what it actually observed.
+        if (TERMINAL_TURN_STATUSES.has(exec.status)) {
+          if (exec.session_pk) {
+            heartStore.closeSession(exec.session_pk, {
+              status: sessionStatusForEndedTurn(exec.status),
+              reason: `process gone; turn ${exec.exec_id} had already reported '${exec.status}'`,
+              closedAt: now,
+            });
+          }
+          // Named its own action, not folded into `crash-sweep`: this tick ended a SESSION and
+          // ended no turn, and an action log that calls both "crash-sweep" cannot tell an
+          // operator which happened.
+          actions.push({ phase: 'enforce', action: 'session-closed-turn-already-reported', execId: exec.exec_id, turnStatus: exec.status });
+          continue;
+        }
+
         // The carrier's exit marker is the ONLY honest exit observation for a
         // detached --collect unit: `systemctl show` on a collected unit
         // returns DEFAULT values (ExecMainStatus=0), so info.exitCode here is

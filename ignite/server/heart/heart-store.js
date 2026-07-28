@@ -89,6 +89,24 @@ const TERMINAL_SESSION_STATUSES = new Set(['closed', 'killed', 'crashed']);
 // retiring the turn-level `killed` is a change to the kill path plus a rebuild-capable migration
 // (see schema.sql's note on why the CHECK cannot be rebuilt inside a migration transaction).
 const TURN_STATUSES = new Set(['launching', 'running', 'done', 'blocked', 'failed', 'stalled', 'killed']);
+
+// A turn that HAS REPORTED. ⚠ `stalled` is deliberately absent: it means "the owner should look",
+// never "the work is over" (owner ruling 2026-07-20), and a stalled turn's session is still alive —
+// so a stalled row stays in the crash sweep's swept set exactly as it always did.
+const TERMINAL_TURN_STATUSES = new Set(['done', 'blocked', 'failed', 'killed']);
+
+// The session state implied by a ONE-SHOT session whose turn ended this way. Exported because the
+// derivation belongs to the store rather than to whoever happened to observe the end: recordMessage
+// uses it below, and the ticker's crash sweep uses it when it finds a process gone under a turn
+// that had already reported (G-222).
+// ⚠ It is not the only spelling in the tree — ticker.js's endTurnAndSession maps `blocked` to
+// `crashed` where this maps it to `closed`. That disagreement PREDATES this function; it is filed,
+// not silently rewired here, because changing it is a behaviour change on an accepted path.
+function sessionStatusForEndedTurn(turnStatus) {
+  if (turnStatus === 'killed') return 'killed';
+  return turnStatus === 'failed' ? 'crashed' : 'closed';
+}
+
 const TRIGGER_KINDS = new Set(['scheduled', 'periodic']);
 const VALID_PRIMITIVE_TYPES = new Set(['string', 'integer', 'number', 'boolean', 'object', 'array']);
 
@@ -1173,7 +1191,8 @@ class HeartStore {
             'UPDATE sessions SET status = ?, closed_at = ?, close_reason = ? '
             + "WHERE session_pk = ? AND status = 'alive'"
           ).run(
-            status === 'failed' ? 'crashed' : 'closed',
+            // ONE derivation, shared with the crash sweep's already-reported branch (G-222).
+            sessionStatusForEndedTurn(status),
             createdAtIso,
             `turn ${exec.exec_id} reported '${status}' (one-shot session: the process ends here)`,
             exec.session_pk
@@ -1415,4 +1434,6 @@ module.exports = {
   SESSION_STATUSES,
   TERMINAL_SESSION_STATUSES,
   TURN_STATUSES,
+  TERMINAL_TURN_STATUSES,
+  sessionStatusForEndedTurn,
 };
