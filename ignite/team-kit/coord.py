@@ -8956,10 +8956,21 @@ def _selftest_checks(args, failures, names):
         # which is G-121 (a truncated run reads greener than a complete one) inside the suite that
         # exists to catch it.
         _oo, _oc = refuse(cmd_reap, agent="zeta", go=False)
+        # ⚠ G-215(b): this row USED to prove "not refused" with `"reap --go" not in _oo` — the
+        # ABSENCE of a token the command's own HEALTHY next-hint also prints ("next: … reap --go —
+        # frees the panes listed READY above"). So it went RED whenever a READY debt happened to
+        # exist at this point in the suite: a false red produced by FIXTURE ORDER rather than by
+        # any behaviour change, and it made the row's placement silently load-bearing. It is the
+        # same lesson as the G-66 filename row one commit ago — ASSERT THE PROPERTY, NEVER THE
+        # VOCABULARY — and the property here is that NO ROLE GATE FIRED. `gate()`'s refusal is the
+        # only thing that can say so, and it carries a signature no hint can collide with.
         check("G-134/B: OBSERVING IS UNGATED — it destroys nothing, and gating it forced any seat "
               "wanting to verify against the live room to override the gate or skip the check. A "
-              "gate that manufactures its own breaches bills whoever behaves best (G-106)",
-              _oc == 0 and "reap --go" not in _oo)
+              "gate that manufactures its own breaches bills whoever behaves best (G-106). Keyed "
+              "on the GATE's own refusal signature, never on the flag name: the healthy next-hint "
+              "names that flag too (G-215(b))",
+              _oc == 0 and "Ask leader to run it" not in _oo
+              and "refused:" not in _oo)
 
         # ---- guard sweep, slice 2 sites 1-2: what the KILLING pass reports ----
         # `reap_blockers`, `confirm_reap` and `awaiting_debts` each have covered rows above, and
