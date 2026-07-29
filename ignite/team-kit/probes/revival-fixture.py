@@ -652,12 +652,17 @@ def kit_digests():
 #   blocked fire, Stage 3's settle is `LIFECYCLE_SETTLE_S` = 10 s per revival, and the ladder needs
 #   nine blocked ticks to reach abandonment.
 #
-#   SO IT IS KILLED MID-RUN — and a SIGKILL does not run `finally`, so `AcceptanceRoom.teardown()`
-#   NEVER EXECUTES: every fire leaks a tmpfs room AND a live private tmux server. Observed in the
-#   20:00Z fire: `team-kit/probes/probe-lifecycle-exec.py TIMEOUT exit=- wall_ms=180010`, and a
-#   leaked `/tmp/accroom-*` tree holding a live tmux server was found on disk. This box has an
+#   SO IT CAN BE KILLED MID-RUN — and a SIGKILL does not run `finally`, so
+#   `AcceptanceRoom.teardown()` NEVER EXECUTES: any killed fire leaks a tmpfs room AND a live
+#   private tmux server. Observed in the 20:00Z fire:
+#   `team-kit/probes/probe-lifecycle-exec.py TIMEOUT exit=- wall_ms=180010`, and a leaked
+#   `/tmp/accroom-*` tree holding a live tmux server was found on disk. The kill is INTERMITTENT,
+#   not hourly: of the only three scheduled fires that ever reached that probe, one TIMED OUT at
+#   wall_ms=180010 and two PASSED at 133535 and 133200 ms — a ~133 s run sitting ~47 s from the
+#   180 s cliff (`d-scheduled-probe-refuses-unattended-premise-corrected`). This box has an
 #   uncontained memory-runaway failure mode (six global OOM kills, 2026-07-28/29) and `/tmp` is a
-#   RAM-backed tmpfs, so an hourly leak is RAM the box does not have.
+#   RAM-backed tmpfs, so an intermittent leak is RAM the box does not have — and the ~133 s of real
+#   tmux/fork/RAM-gate work is spent every hour regardless.
 #
 # The guard therefore REFUSES fast (well under a second) and LOUDLY, with exit 2 — "this probe could
 # not run", which is this family's documented meaning and is RED, never a green that hides an absent
@@ -671,9 +676,15 @@ UNATTENDED_REFUSAL = (
     "memory-runaway failure mode. Exiting 2 (`the probe could not run`) rather than starting\n"
     "something that will be killed halfway.\n"
     "  Run it deliberately:  python3 -u {path} --go\n"
-    "  The scheduled-suite defect is filed in this file's guard block; the fix is an entry in\n"
-    "  probe-suite-scheduled.py's EXCLUDED_DIRS (or a per-probe budget), which is NOT in this\n"
-    "  folder's write set.")
+    "  THIS REFUSAL IS THE FIX — owner-ruled `d-scheduled-probe-refuses-unattended`, premise\n"
+    "  corrected in `d-scheduled-probe-refuses-unattended-premise-corrected`. It addresses the real\n"
+    "  failure — cleanup skipped by a kill — not the timeout that triggers it. Measured: of the only\n"
+    "  three scheduled fires that ever reached `probe-lifecycle-exec.py`, ONE timed out\n"
+    "  (wall_ms=180010) and two PASSED at ~133 s, so the leak is INTERMITTENT and what recurs every\n"
+    "  hour is ~133 s of real tmux/fork/RAM-gate work ~47 s from the 180 s cliff.\n"
+    "  A longer per-probe budget and excluding this directory were BOTH considered and REJECTED —\n"
+    "  do not re-propose either. `EXCLUDED_DIRS` in probe-suite-scheduled.py is RESERVED for a\n"
+    "  different, live purpose (a probe that makes real PAID calls, G-213), not available-but-unused.")
 
 
 def refuse_unattended(path):
