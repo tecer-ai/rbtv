@@ -21,8 +21,17 @@ rules (F4/F5/F8), the coord.validate_seat whole-batch gate before any write
 (F6), the one-shot boot text (F10), the empty-assembly and no-permissions
 hard gates, the contract §1 fixed block-kind reorder, and inline
 `Reference: <id>@latest` body resolution (d-run3-assembled-shape (i)).
-`relays:` is DELIBERATELY not emitted and refused as an input: owner ask A-40
-is OPEN — do not add it here without that ruling.
+`relays:` is a PASS-THROUGH — emitted when, and only when, the mirror
+definition declares it (owner ask A-40 ruled (a),
+`d-relays-frontmatter-passthrough`). `relays: <token>` declares that this seat
+CARRIES THE RELAY PATH for a role word: it is how an abstract role word
+resolves to a concrete seat, so a message addressed to `master` reaches
+whichever seat declares `relays: master` (coord.py `inbox_decls` ->
+`relay_seats`). The reap exemption is a SECOND, DERIVED consequence of the
+same declaration (watch.py builds `door_seats` from it, on the standing ruling
+that a seat carrying a relay path to a HUMAN is never closed mechanically), so
+dropping the key on materialization would cost BOTH properties. `class:` is
+the one key still refused as an input (never emitted).
 
 The dag-05 REGISTRY HALF is landed — render_taskforce_rows/append_taskforce_rows:
 the taskforce.csv append in topological order of the added subgraph, the three
@@ -176,15 +185,16 @@ KIND_ORDER = ("role", "procedure", "permissions", "restrictions", "constraints",
               "io-spec", "resources", "task-goal", "scope", "done-contract")
 
 # Per-seat bindings keys this command understands. Anything else is a refusal
-# (a typo'd key must never pass silently). `class` and `relays` are refused
-# with their own messages: `class:` is the WITHDRAWN spelling of agent_type
-# (r-agent-type-field-name, G-217); `relays:` has no row in the ruled emitted
-# key set — owner ask A-40 is OPEN, so emitting OR silently dropping it would
-# both be wrong.
+# (a typo'd key must never pass silently). `class` is refused with its own
+# message: it is the WITHDRAWN spelling of agent_type (r-agent-type-field-name,
+# G-217). `relays` is ACCEPTED and passes through to the emitted frontmatter —
+# the ruled key set gained that one row (d-relays-frontmatter-passthrough,
+# extending d-seatmd-keys-dag04-schema); see the module docstring for what the
+# declaration means and what dropping it would cost.
 ALLOWED_BINDING_KEYS = frozenset((
     "after", "cwd-mode", "description", "agent_type", "harness", "model",
     "effort", "mode", "ctx-refresh", "window", "senders", "close",
-    "auto-wake", "ephemeral", "broadcast", "component",
+    "auto-wake", "ephemeral", "broadcast", "component", "relays",
 ))
 
 # The assembled projection's shapes this file READS (it never emits a block
@@ -619,7 +629,9 @@ def _descriptor_frontmatter(seat: str, b: dict, package: str,
                             seats_cat: dict, plan: dict) -> dict:
     """The ruled emitted key set, in its ruled order (d-seatmd-keys-dag04-
     schema; the table in dag-04's task file). `seat:` — never `id:` (B3).
-    `class:` and `relays:` never emitted, refused as inputs."""
+    `class:` is never emitted and is refused as an input; `relays:` IS
+    emitted — a pass-through, present only when the bindings declare it
+    (d-relays-frontmatter-passthrough)."""
     for key in b:
         if key == "class":
             raise Refuse(
@@ -627,14 +639,6 @@ def _descriptor_frontmatter(seat: str, b: dict, package: str,
                 f"bindings for seat '{seat}' carry 'class:' — the WITHDRAWN "
                 "spelling (r-agent-type-field-name, G-217); write "
                 "agent_type: staff|worker instead",
-            )
-        if key == "relays":
-            raise Refuse(
-                "relays-unruled",
-                f"bindings for seat '{seat}' carry 'relays:' — the ruled "
-                "emitted key set has no relays row and owner ask A-40 is "
-                "OPEN; refusing rather than inventing or silently dropping "
-                "the key",
             )
         if key not in ALLOWED_BINDING_KEYS:
             raise Refuse(
@@ -777,7 +781,12 @@ def _descriptor_frontmatter(seat: str, b: dict, package: str,
         fm["senders"] = senders
     if close:
         fm["close"] = close
-    for key in ("auto-wake", "ephemeral", "broadcast", "component"):
+    # The PASS-THROUGH keys: emitted verbatim when the definition declares
+    # them, ABSENT (never empty) when it does not. `relays` joined this set
+    # when A-40 was ruled (a) — d-relays-frontmatter-passthrough; it is the
+    # seat's relay-path declaration for a role word, and both the addressing
+    # resolution and the reap exemption hang off it (module docstring).
+    for key in ("auto-wake", "ephemeral", "broadcast", "component", "relays"):
         val = b.get(key)
         if val not in (None, ""):
             fm[key] = val
@@ -2231,7 +2240,7 @@ def run_dag04_acceptance(check, env: dict) -> None:
               cp.stdout.strip()[:200])
 
     # ---- group 3: SC-13 batch gate, SC-14/16 one-shot arms, F5 codex,
-    #      SC-17 class:, relays (A-40), senders, SC-19 window ------------
+    #      SC-17 class:, relays pass-through, senders, SC-19 window -------
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         fx = build_fixture(tmp)
@@ -2291,16 +2300,16 @@ def run_dag04_acceptance(check, env: dict) -> None:
               and f"coordinate --package {fx['pkg']} --as s1 checkout"
               in s1_text)
 
-        def s1_bindings(name: str, extra: dict) -> str:
+        def s1_bindings(name: str, extra: dict, seat: str = "s1") -> str:
             entry = {"model": "deepseek/deepseek-chat", "after": [], **extra}
             p = bdir / name
             p.write_text(json.dumps({"version": 1, "defaults": wide_defaults,
-                                     "seats": {"s1": entry}}),
+                                     "seats": {seat: entry}}),
                          encoding="utf-8")
             return str(p)
 
-        def s1_argv(b: str, dry: bool = True) -> list[str]:
-            base = ["--package", fx["pkg9"], "--seat", "s1",
+        def s1_argv(b: str, dry: bool = True, seat: str = "s1") -> list[str]:
+            base = ["--package", fx["pkg9"], "--seat", seat,
                     "--catalog-root", fx["catalog"], "--bindings", b,
                     "--root", "--json"]
             return base + (["--dry-run"] if dry else [])
@@ -2342,14 +2351,28 @@ def run_dag04_acceptance(check, env: dict) -> None:
               cp.returncode == 0, cp.stderr.strip()[:200])
         check("SC-19 control: no window: value, no renew-consequence line",
               plain.get("warnings") == [], str(plain.get("warnings")))
-        cp = _invoke(s1_argv(s1_bindings("relays.json",
-                                         {"relays": "master"})), env)
-        check("relays: refused as an input — A-40 is OPEN, never invented "
-              "or silently dropped",
-              cp.returncode == 1
-              and _refusal(cp).get("code") == "relays-unruled"
-              and "A-40" in _refusal(cp).get("message", ""),
-              cp.stdout.strip()[:200])
+        # relays — the ONE pass-through row the ruled key set gained when
+        # owner ask A-40 was ruled (a) (d-relays-frontmatter-passthrough,
+        # task 7.104). This row's POLARITY was INVERTED here: it used to
+        # assert the refusal `relays-unruled`. GREEN = a declared relays:
+        # reaches the emitted frontmatter; RED (the counter-case) = a
+        # definition declaring none emits NO relays: key. `class:` above is
+        # UNCHANGED and still refused (r-agent-type-field-name, G-217).
+        # Written into seat s2 so the senders arm below still owns s1.
+        cp = _invoke(s1_argv(s1_bindings("relays.json", {"relays": "master"},
+                                         seat="s2"), dry=False, seat="s2"),
+                     env)
+        s2_md = Path(fx["pkg9"]) / "seats" / "s2" / "seat.md"
+        s2_fm = (yaml.safe_load(
+            _FM_RE.match(s2_md.read_text(encoding="utf-8")).group(1))
+            if cp.returncode == 0 and s2_md.is_file() else {})
+        check("relays: a declared relays: passes THROUGH to the emitted "
+              "descriptor's frontmatter (d-relays-frontmatter-passthrough)",
+              cp.returncode == 0 and s2_fm.get("relays") == "master",
+              cp.stdout.strip()[:200] or str(s2_fm))
+        check("relays counter-case: a definition declaring NO relays: emits "
+              "no relays: key at all — absent, never empty",
+              "relays" not in s1_fm, str(list(s1_fm)))
         cp = _invoke(s1_argv(s1_bindings("window.json",
                                          {"window": "main"})), env)
         wobj = json.loads(cp.stdout)
@@ -3250,6 +3273,10 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
               ("SC-15: a catalog/mirror path is refused",)),
     "SC-16": (("SC-16: a cheap one-shot worker",), ("SC-16 control",)),
     "SC-17": (("SC-17 control",), ("SC-17: class: is refused",)),
+    # 7.104 — the pass-through row (d-relays-frontmatter-passthrough). Its
+    # red arm is the counter-case: no declaration -> no key.
+    "relays": (("relays: a declared relays: passes THROUGH",),
+               ("relays counter-case",)),
     "SC-18": (("SC-18: every emitted frontmatter parses",), ("SC-18 red",)),
     "SC-19": (("SC-19: a window: value prints",), ("SC-19 control",)),
     "SC-20": (("SC-20: inline Reference resolved",
