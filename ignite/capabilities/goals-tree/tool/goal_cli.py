@@ -502,10 +502,20 @@ def lint_goal(root: Path, name: str) -> Findings:
         for key, val in sfm.items():
             if key in ("id", "description", *BINDING_COLUMNS):
                 continue
-            if isinstance(val, str) and val.startswith("cu-"):
-                refs.append((key, val))
+            # Widened with _refs_of (d-spec-open-points-ruled Q10): bare ids
+            # qualify, not just cu-prefixed ones. Assembled refs carry a FROZEN
+            # version segment (`@latest+standin-sha256:<digest>`, registry
+            # divergence 5), so only the id part before `@` is grammar-checked.
+            # Discrimination from non-ref keys rests on the exclusion list
+            # above — any non-ref SCALAR key a future emitted-schema change
+            # adds (provenance stamps, dates) MUST be added there, or a
+            # token-shaped value false-positives as an unresolved ref.
+            if isinstance(val, str) and _UNIT_ID_RE.match(val.strip().split("@", 1)[0]):
+                refs.append((key, val.strip()))
             elif isinstance(val, list):
-                refs.extend((key, v) for v in val if isinstance(v, str) and v.startswith("cu-"))
+                refs.extend((key, v.strip()) for v in val
+                            if isinstance(v, str)
+                            and _UNIT_ID_RE.match(v.strip().split("@", 1)[0]))
         for kind, ref in refs:
             unit_id = ref.split("@", 1)[0]
             if f'id="{unit_id}"' not in sbody:
@@ -608,6 +618,9 @@ def load_catalogs(catalog_root: Path) -> tuple[dict, dict, dict]:
 
 
 _UNIT_REF_RE = re.compile(r"^[a-z0-9][a-z0-9-]*(@[a-z0-9][a-z0-9-]*)?$")
+# Id-only grammar for ASSEMBLED frontmatter refs, whose version segment is the
+# frozen `latest+standin-sha256:<digest>` form _UNIT_REF_RE cannot carry.
+_UNIT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
 def _refs_of(row: dict, skip: tuple[str, ...]) -> list[tuple[str, list[str]]]:
