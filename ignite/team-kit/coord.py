@@ -4013,24 +4013,275 @@ LIFECYCLE_INTENT_ABSENT = None
 LIFECYCLE_INTENT_OF = {"close": "done", "renew": "renew"}
 
 
-def lifecycle_alarm(layer, msg, code=2, base=None):
-    """The executor's ONE refusal chokepoint: emit the layered refusal and exit.
+# ---- STAGE 3 (s3-08): THE BUS ALARM — the one surface an executor failure reaches a human on --
+#
+# ⚠ THE LOG IS EVIDENCE, NEVER THE ALARM. Everything `lifecycle_alarm` prints lands on THIS
+# process's INHERITED stderr — the file `s3-09` opens, detached from every pane, that nobody is
+# watching at 04:00. watch.py's recorded failure IS that shape, and `undelivered_flags`' own
+# docstring one screen up spells it out: warnings "computed correctly, refused correctly, printed
+# to a detached stderr file, and lost, while the loop went on reporting healthy. Silence and health
+# were indistinguishable at exactly the wrong place." R-8 is explicit that a refused act reporting
+# nothing is worse than no act, so every refusal is ALSO raised WHERE THE RUN LOOKS, in three
+# steps, each one the fallback for the previous one failing:
+#
+#   1. MARKER   `finish_lifecycle(base, seat, "FAILED", failure)` — the DURABLE record, written
+#               BEFORE the perishable one and read back INTO the alarm body, so the note can never
+#               report a state the disk does not hold (R-7: a fact recorded only in a perishable
+#               surface is not recorded).
+#   2. BUS      ONE `type: note` from the machinery identity `lifecycle-exec`, sent IN-PROCESS
+#               through `cmd_send` with a hand-built Namespace — watch.py's `notify_leader`
+#               precedent (watch.py:957-985), field for field.
+#   3. FLAG     on ANY refusal from that send, an append to `{base}/undelivered-flags.md` — the
+#               file `undelivered_flags` reads and `undelivered_line` surfaces through `status` and
+#               `workers`. Deliberately NOT a coord message: this reports that the MESSAGING LAYER
+#               refused something, so routing it back through that layer is the one path guaranteed
+#               to fail the same way.
+#   …and when even the append fails, a last-resort PRINT. A monitor that cannot deliver must SHOUT
+#   that it cannot deliver.
+#
+# WHAT THIS IS NOT: one loud message per failure and nothing else. No retry, no second recipient,
+# no escalation policy — who is woken, how often, and what happens when nobody answers is Stage
+# 4's, and this file must not grow a private copy of it. No memory machinery of any kind (R-14).
 
-    Every entry guard refuses through here, and that is the point — `s3-08` adds the BUS ALARM at
-    ONE site instead of five, and can never add it to four of them.
+# THE RECIPIENT IS RESOLVED FROM THE PACKAGE, NEVER ASSUMED. `leader` is the ROLE WORD this file
+# already holds as its ONE definition of the leader role (`is_leader`), not a seat name typed here:
+# it is offered to `known_recipients` — the SAME predicate `cmd_send` validates `--to` against — and
+# admitted only when THIS package carries a roster row, a briefing, a group, a RELAY TOKEN or an
+# addressable non-member of that name. A run that renames its leader seat declares
+# `relays: leader` on the successor and this follows it with no code change (run-2 renamed
+# `owner-liaison` -> `master` mid-run, so this is not hypothetical); a run that does neither gets
+# the undelivered flag WITH THE REASON, never a send into a name nobody holds — which is S-7's
+# shape and is refused by `cmd_send` anyway.
+#
+# The alarm is FAILURE-PATH traffic and failure path is the leader's lane, so no chief-of-staff
+# `senders:` bound is implicated: the executor never addresses the chief-of-staff and needs no
+# entry in any seat's sender allow-list.
+LIFECYCLE_ALARM_ROLE = "leader"
 
-    [INTEGRATION POINT — STAGE 3: `s3-08` raises the bus alarm HERE, beside the refusal.]
 
-    ⚠ THE LOG IS EVIDENCE, NEVER THE ALARM. This text lands on the executor's inherited stderr,
-    i.e. in the caller's log file, where nobody is watching at 04:00. `watch.py`'s recorded failure
-    is exactly that shape — "printed to a detached stderr file, and lost, while the loop went on
-    reporting healthy". Until `s3-08` lands, the marker (and `lifecycle_line`'s rendering of it in
-    `status`/`workers`) is the only surface a human sees.
+def lifecycle_alarm_recipient(args, base):
+    """(name, why) — WHO this run routes an executor failure to, resolved from its own package.
+
+    `("", why)` when nothing resolves, and the caller must then take the undelivered-flags path
+    rather than send into the void. Never raises: this runs inside a refusal, and a traceback
+    replacing a refusal is worse than the defect it reports (`refusal_text`'s own rule)."""
+    try:
+        known = known_recipients(args, base)
+    except Exception as exc:                                   # noqa: BLE001
+        return "", (f"this package's recipient set could not be read at all "
+                    f"({type(exc).__name__}: {exc})")
+    if LIFECYCLE_ALARM_ROLE in known:
+        return LIFECYCLE_ALARM_ROLE, ""
+    return "", (f"nothing in this package resolves {LIFECYCLE_ALARM_ROLE!r} — no roster row, no "
+                f"briefing, no group, no relay token and no addressable non-member of that name. "
+                f"A run that renamed its leader seat declares `relays: {LIFECYCLE_ALARM_ROLE}` on "
+                f"the successor and this resolves again")
+
+
+def lifecycle_alarm_body(layer, msg, base, args):
+    """The alarm's TEXT — enough that a reader ACTS without opening the executor's log first.
+
+    Six things, because a reader woken by this has none of them: the SEAT, the DISPOSITION, WHAT
+    failed, what the DURABLE marker says (read back from disk AFTER step 1 wrote it), where that
+    marker is, and where the executor's log landed. The LAYER is named per the layer-prefix
+    convention s12-03 sweeps across this file: a seat that cannot tell coord.py's own gate from its
+    harness's permission classifier sends the run at the wrong fix (R-8).
+
+    An absent log path is ADMITTED with its reason rather than invented — `inherited_log_path`'s
+    rule, restated at the one place a human reads the answer."""
+    seat = str(getattr(args, "seat", "") or "<unknown seat>")
+    disp = str(getattr(args, "disposition", "") or "<unknown disposition>")
+    entry = {}
+    if base is not None:
+        try:
+            found = load_lifecycle(base).get(seat)
+            entry = found if isinstance(found, dict) else {}
+        except Exception:                                      # noqa: BLE001
+            entry = {}
+    state = str(entry.get("state") or "")
+    failed_text = str(entry.get("failure") or "")
+    steps = entry.get("steps-completed")
+    steps = [str(s) for s in steps] if isinstance(steps, list) else []
+    log = str(entry.get("log") or "")
+    log_note = str(entry.get("log-note") or "")
+    return "\n".join([
+        f"LIFECYCLE-EXEC ALARM — seat '{seat}', disposition '{disp}'.",
+        f"what failed: {msg}",
+        f"last verified step: {steps[-1] if steps else 'NONE — no step was verified'}",
+        f"marker says: {state or 'NO ENTRY for this seat'}"
+        + (f" — {failed_text}" if failed_text else ""),
+        f"marker file: {lifecycle_path(base) if base is not None else 'NOT RESOLVED'}",
+        f"executor log: {log or ('NOT RECORDED — ' + (log_note or 'the marker carries no path'))}",
+        f"refusal layer: {layer} — this is coord.py's OWN gate, NOT the harness permission "
+        f"classifier. Report it as \"coord {layer} refused\"; the two look alike and a bare "
+        f"\"refused\" sends the run at the wrong fix.",
+    ])
+
+
+def lifecycle_alarm_namespace(args, to, body):
+    """The Namespace `cmd_send` is called with IN-PROCESS. watch.py's `notify_leader`, field for
+    field — this is a COPY of a precedent that works, not a new send path.
+
+    ⚠ `agent="lifecycle-exec"` IS LOAD-BEARING, not decoration. `cmd_send` calls `resolve_agent`
+    with `required=True`, whose order is `--as` > `args.agent` > `COORD_AGENT` > the calling pane's
+    roster row and which EXITS 2 when all four are empty. This executor scrubbed COORD_AGENT and
+    TMUX_PANE at entry (guard 1) and holds no roster row, so WITHOUT the explicit token every alarm
+    would exit 2 by construction and could never reach the bus. It is an honest MACHINERY identity,
+    exactly as the watch loop sends as the literal `agent="watcher"` — a seat's name here would be
+    a fabricated identity and is what `as_agent=None` forbids.
+
+    ⚠ NO `pane` ATTRIBUTE. `sender_origin` reads it and returns None for an unresolvable pane
+    precisely to "preserve the status quo for out-of-pane callers like watch.py"; supplying one
+    would make this process claim a pane it does not hold.
+
+    ⚠ `type="note"`, NEVER `ask`. An `ask` from a sender no one can address opens a thread with NO
+    POSSIBLE TERMINUS and `cmd_send` refuses it outright, with no `--force` override, deliberately
+    (S-7 — 13 unclosable asks in one run). A failure report is a FACT, not a question: nothing is
+    owed in reply, so `note` is also the honest type.
+
+    ⚠ `force=False`. watch.py's own comment carries the reason: `--force` "would have suppressed
+    every OTHER refusal too — including ones that should stop a bad send."
+
+    ⚠ NO `inline` ATTRIBUTE, and that was VERIFIED rather than assumed (2026-07-29):
+    `assert_argv_body_shell_safe` decides at `main()`'s dispatch boundary, gated on
+    `CLI_INVOCATION and args.func is cmd_send`, so an in-process Namespace caller never reaches it.
+    The gate has NOT moved into `cmd_send`. If it ever does, set `inline=True` here."""
+    return argparse.Namespace(
+        package=getattr(args, "package", None), base=getattr(args, "base", None),
+        workers_dir=getattr(args, "workers_dir", None),
+        agent="lifecycle-exec", as_agent=None, to=to, message=body,
+        type="note", supersedes=None, re_num=None, file=None, force=False)
+
+
+def lifecycle_record_undelivered(base, text, reason):
+    """STEP 3 — append the alarm to `{base}/undelivered-flags.md`. True when it landed.
+
+    `record_undelivered`'s shape from watch.py, including its own last-resort branch: a plain
+    append under `coordination/` cannot be refused by a sender bound, a type enum, or a roster row
+    — the three things that swallowed that night's warnings — and when even THIS fails it PRINTS,
+    because the alternative is the silence being fixed.
+
+    ⚠ THIS IS A SECOND WRITER OF ONE FILE, AND IT IS DECLARED RATHER THAN HIDDEN (PRIN-11 —
+    single source of truth). watch.py's `record_undelivered` writes the same file in the same
+    format, and it CANNOT be imported here: watch.py imports coord, never the reverse, so putting
+    the shared home in watch.py would invert the dependency. The home belongs HERE, beside the two
+    READERS (`undelivered_flags`, `undelivered_line`) that already live in this file — so this is
+    the writer arriving next to its readers, and watch.py's copy is the one left to retire.
+    Editing watch.py is out of this task's scope, so the unification is FILED, not smuggled in.
+    The signature takes `base`, not `args`, precisely so watch.py can call it unchanged
+    (PRIN-13 — built as a separable part, decoupled from its first caller). Both copies write
+    through `now()`, so the stamp format cannot drift between them."""
+    try:
+        Path(base).mkdir(parents=True, exist_ok=True)
+        line = (f"- {now()} | UNDELIVERED ({reason}): "
+                f"{' '.join(str(text).split())}\n")
+        with open(Path(base) / "undelivered-flags.md", "a", encoding="utf-8") as fh:
+            fh.write(line)
+        return True
+    except Exception as exc:                                   # noqa: BLE001
+        print(f"lifecycle-exec: CANNOT RECORD an undelivered flag either ({exc}) — this alarm is "
+              f"being LOST ENTIRELY, and this stderr line is all that is left of it: "
+              f"{' '.join(str(text).split())[:400]}", file=sys.stderr)
+        return False
+
+
+def lifecycle_raise_alarm(layer, msg, base, args):
+    """STEPS 2-3 — raise the bus alarm. Returns `(outcome, line)`; NEVER raises, NEVER exits.
+
+    THE OUTCOME IS THE CONTRACT, and it is what lets `s3-06`/`s3-07` (and a human reading the
+    detached log) tell "alarm raised" from "alarm failed to raise" instead of guessing:
+
+      "sent"         a `type: note` from `lifecycle-exec` is in the package's message log.
+      "undelivered"  the send was REFUSED and `undelivered-flags.md` holds the alarm instead —
+                     `status` and `workers` surface it through `undelivered_line`.
+      "lost"         the send was refused AND the flag could not be appended. The alarm now exists
+                     ONLY in this process's stderr, which is the failure this whole function
+                     exists to prevent, reported rather than hidden.
+      "no-package"   the call site had no resolved package, so there was no bus to send on and no
+                     directory to append to. Guard 2 is that site BY DESIGN — it refuses BEFORE
+                     `base_dir` is called precisely so a guard claiming "it acted on nothing" has
+                     not registered a run tag first — so its refusal reaches stderr ONLY. That is a
+                     KNOWN, NAMED HOLE, not an oversight: `line` says so, out loud, every time.
+
+    `line` is appended to the refusal text so the log states which of the four happened. It is the
+    only self-report a detached process can make.
+
+    ⚠ TMUX_PANE IS POPPED FOR THE SEND AND RESTORED AFTER — belt-and-braces over guard 1's scrub,
+    and kept because watch.py's SECOND refusal was exactly this: a detached loop INHERITED
+    TMUX_PANE from the shell that started it and every send was refused with "you claimed
+    'watcher', but this pane (%145) is registered to 'chief-of-staff'". An executor forked from a
+    dying seat's pane is the same shape. `--force` is NOT the remedy and is not used.
+
+    ⚠ EVERY exception is caught, not just `SystemExit`. This runs inside a refusal; a traceback
+    escaping here would REPLACE a refusal with a stack trace, which is strictly worse than the
+    defect being reported."""
+    if base is None or args is None:
+        return "no-package", (
+            "ALARM NOT RAISED — no package was resolved at this refusal, so there is no message "
+            "log to post to and no coordination directory to flag in. This refusal exists ONLY in "
+            "this process's stderr, which is a detached log file nobody is watching. Whoever reads "
+            "it is the only reader it will ever get.")
+    body = lifecycle_alarm_body(layer, msg, base, args)
+    to, why = lifecycle_alarm_recipient(args, base)
+    if not to:
+        landed = lifecycle_record_undelivered(base, body, f"no recipient resolved — {why}")
+        if landed:
+            return "undelivered", (
+                f"ALARM NOT SENT — {why}. It is recorded in "
+                f"{Path(base) / 'undelivered-flags.md'} instead, where `status` and `workers` "
+                f"surface it.")
+        return "lost", (f"⚠⚠ ALARM LOST — {why}, AND the undelivered flag could not be appended "
+                        f"either. This refusal exists only in this process's stderr.")
+    ns = lifecycle_alarm_namespace(args, to, body)
+    prior = os.environ.pop("TMUX_PANE", None)
+    reason = ""
+    try:
+        cmd_send(ns)
+    except SystemExit as exc:
+        reason = f"coord refused the send (exit {exc.code})"
+    except Exception as exc:                                   # noqa: BLE001
+        reason = f"the send raised {type(exc).__name__}: {exc}"
+    finally:
+        if prior is not None:
+            os.environ["TMUX_PANE"] = prior
+    if not reason:
+        return "sent", (f"ALARM RAISED: a `type: note` from `lifecycle-exec` is on this package's "
+                        f"bus, addressed to '{to}'.")
+    landed = lifecycle_record_undelivered(base, body, reason)
+    if landed:
+        return "undelivered", (
+            f"ALARM NOT DELIVERED — {reason}. It is recorded in "
+            f"{Path(base) / 'undelivered-flags.md'} instead, where `status` and `workers` surface "
+            f"it through `undelivered_line`.")
+    return "lost", (f"⚠⚠ ALARM LOST — {reason}, AND the undelivered flag could not be appended "
+                    f"either. This refusal exists only in this process's stderr.")
+
+
+def lifecycle_alarm(layer, msg, code=2, base=None, args=None, failure=None):
+    """The executor's ONE refusal chokepoint: mark, alarm the bus, emit the refusal, exit.
+
+    Every entry guard refuses through here, and that is the point — the BUS ALARM is added at ONE
+    site instead of five, and can never be added to four of them.
+
+    THE THREE STEPS RUN IN THIS ORDER, and the order is the design (the section header above
+    carries the full argument):
+
+      1. the marker, when the caller passes `failure=` — DURABLE, and written FIRST;
+      2. the bus alarm and its undelivered-flags fallback (`lifecycle_raise_alarm`);
+      3. the layered refusal on stderr, carrying the outcome of step 2.
+
+    ⚠ `failure=` IS OPT-IN, AND THAT IS NOT LAZINESS. An entry guard's whole claim is that it acted
+    on NOTHING, and guard 3 in particular refuses precisely because ANOTHER live executor owns that
+    seat's marker — flipping it FAILED there would destroy the other executor's record, which is
+    the exact double-launch damage the marker exists to prevent. So a guard passes no `failure` and
+    writes no marker; a FAILURE BRANCH (`s3-06`, `s3-07`) passes the text of the break and the
+    marker is flipped before anything perishable is attempted.
 
     `base` is optional because guard 2 runs BEFORE the package is resolved. When it is given, the
     marker's own alarm block is appended by CALLING `lifecycle_line` — never by re-spelling
     STALE/FAILED/UNKNOWN here, so this surface and `s3-04`'s cannot hold two definitions that
-    drift apart.
+    drift apart. When it is ABSENT the bus alarm cannot be raised at all, and `lifecycle_raise_alarm`
+    says so in the refusal rather than letting the caller assume it was.
 
     ⚠ `layer` is passed through to `refuse` as a NAME, not a literal, so s12-03's L-a scan (which
     collects literals at `refuse`/`refusal_text` call sites and SKIPS any whose first argument is a
@@ -4038,11 +4289,21 @@ def lifecycle_alarm(layer, msg, code=2, base=None):
     function's own call sites for that reason; without it, routing a refusal through a helper
     routes it out of the file's five-layer bound.
     """
+    # ---- STEP 1: THE DURABLE RECORD, BEFORE THE PERISHABLE ONE (R-7). --------------------------
+    if failure is not None and base is not None and getattr(args, "seat", ""):
+        finish_lifecycle(base, args.seat, "FAILED", failure)
+    # ---- STEPS 2-3: THE BUS ALARM. Reads the marker step 1 just wrote, so the note cannot report
+    # a state the disk does not hold. Never raises and never exits — the refusal below is the ONE
+    # exit of this chokepoint.
+    _alarm_outcome, alarm_line = lifecycle_raise_alarm(layer, msg, base, args)
+    # ---- STEP 3: the layered refusal, on the inherited stderr. `lifecycle_line` is read HERE,
+    # after step 1, so `status`/`workers`' own rendering of the marker agrees with the note.
     text = "lifecycle-exec: " + msg
     if base is not None:
         marker = lifecycle_line(base)
         if marker:
             text += "\n" + marker
+    text += "\n" + alarm_line
     refuse(layer, text, code)
 
 
@@ -4148,14 +4409,15 @@ def cmd_lifecycle_exec(args):
             "(guard 1 popped both) and it will NOT fall back to them the way cmd_close_seat does: "
             "with both unset tmux resolves an empty target to the MOST RECENT session, which was "
             "measured to be the LIVE room. Acting on nothing instead. The caller (s3-09) must "
-            "pass the pane or window id it measured.", 2)
+            "pass the pane or window id it measured.", 2, args=args)
     target_ok, why = lifecycle_target_live(target)
     if not target_ok:
         lifecycle_alarm(
             "environment",
             f"--tmux-target {target!r} is unusable: {why}. Refusing and acting on nothing — a "
             f"lifecycle act aimed at a target tmux cannot resolve would land wherever tmux picks, "
-            f"and opening a session into the wrong room is worse than not opening one at all.", 2)
+            f"and opening a session into the wrong room is worse than not opening one at all.",
+            2, args=args)
 
     base = base_dir(args)
 
@@ -4187,7 +4449,7 @@ def cmd_lifecycle_exec(args):
                 f"{steps[-1] if steps else 'NONE — it has not verified a step yet'}. A second "
                 f"executor on one seat is the double-launch this marker exists to prevent, so "
                 f"this process acts on NOTHING and leaves the other one's record untouched.",
-                2, base)
+                2, base, args=args)
 
     # ---- GUARD 4: CROSS-VERIFY THE DISPOSITION, THROUGH THE MAPPING. ----------------------------
     # The full argument for the mapping (and for why raw equality refuses the NORMAL path) is on
@@ -4197,7 +4459,7 @@ def cmd_lifecycle_exec(args):
             "state",
             f"--disposition {args.disposition!r} is accepted by the parser but has NO row in "
             f"LIFECYCLE_INTENT_OF, so this executor cannot tell what checkout intent it should "
-            f"correspond to. The enum and the mapping were widened apart; widen both.", 2, base)
+            f"correspond to. The enum and the mapping were widened apart; widen both.", 2, base, args=args)
     expected = LIFECYCLE_INTENT_OF[args.disposition]
     record = load_awaiting(base).get(args.seat)
     if record is not None and not isinstance(record, dict):
@@ -4205,7 +4467,7 @@ def cmd_lifecycle_exec(args):
             "state",
             f"awaiting-close.json holds an entry for {args.seat!r} that is not a record but a "
             f"{type(record).__name__}. The checkout intent is unreadable, and this executor never "
-            f"proceeds on an intent it cannot read.", 2, base)
+            f"proceeds on an intent it cannot read.", 2, base, args=args)
     if expected is LIFECYCLE_INTENT_ABSENT:
         # `revive` (lands with s3-07): there was no checkout, so there must be no record.
         if record is not None:
@@ -4214,13 +4476,13 @@ def cmd_lifecycle_exec(args):
                 f"--disposition {args.disposition} means NO checkout happened, but "
                 f"awaiting-close.json HOLDS a record for {args.seat!r} "
                 f"(disposition={str(record.get('disposition', 'done'))!r}). Absence is legal for "
-                f"this disposition only, and this is not absence.", 2, base)
+                f"this disposition only, and this is not absence.", 2, base, args=args)
     elif record is None:
         lifecycle_alarm(
             "state",
             f"--disposition {args.disposition} requires the checkout that DECLARED it, and "
             f"awaiting-close.json holds NO record for {args.seat!r}. The intent is stated once, at "
-            f"checkout, and this executor does not infer one that was never written.", 2, base)
+            f"checkout, and this executor does not infer one that was never written.", 2, base, args=args)
     else:
         # `.get("disposition", "done")`, NEVER `record["disposition"]` — run packages written
         # before s12-07 hold records with no such key, and `done` is what those records meant.
@@ -4232,7 +4494,7 @@ def cmd_lifecycle_exec(args):
                 f"{args.disposition!r}, which maps to the checkout intent {expected!r}, but "
                 f"awaiting-close.json records disposition={declared!r}. The record is the "
                 f"assertion made at the one moment the intent was known; argv is a copy that "
-                f"travelled. Acting on nothing rather than picking a side.", 2, base)
+                f"travelled. Acting on nothing rather than picking a side.", 2, base, args=args)
 
     # ---- The `renew` handoff re-read. `--handoff-written` is the caller's ASSERTION. ------------
     # ⚠ `revive` (lands with s3-07) passes 0 and MUST NOT require a block: a crashed session had no
@@ -4245,7 +4507,7 @@ def cmd_lifecycle_exec(args):
                 "input",
                 "--handoff-written is REQUIRED on --disposition renew: the successor session is "
                 "handed the block this flag claims exists, and an unasserted claim cannot be "
-                "re-verified.", 2, base)
+                "re-verified.", 2, base, args=args)
         if str(args.handoff_written) == "1":
             memory = workers_dir(args) / args.seat / "memory.md"
             try:
@@ -4267,7 +4529,7 @@ def cmd_lifecycle_exec(args):
                     f"--handoff-written 1 claims this seat's checkout appended a handoff block, "
                     f"but {memory} carries NO COMPLETE block — {shape}. Renewing on that claim "
                     f"would open the successor with nothing carried over, which is the one "
-                    f"artifact the whole ceremony exists to produce.", 2, base)
+                    f"artifact the whole ceremony exists to produce.", 2, base, args=args)
 
     # ---- GUARD 5: RECORD THE LOG PATH — the executor does NOT open the log. ---------------------
     # `s3-09` owns opening `{base}/lifecycle-exec-{seat}-{stamp}.log` and handing it over as this
@@ -4296,7 +4558,7 @@ def cmd_lifecycle_exec(args):
             "environment",
             f"the lifecycle marker for seat {args.seat!r} could NOT be written, so nothing would "
             f"record that this executor ran: no reader could see it start, and Stage 4 could never "
-            f"see it fail. Refusing before acting rather than acting unrecorded.", 2)
+            f"see it fail. Refusing before acting rather than acting unrecorded.", 2, args=args)
 
     # [INTEGRATION POINT — STAGE 3: `s3-06` runs the DISPOSITION SEQUENCE here, and `s3-07` adds
     # `revive`'s. Both replace the two statements below; every guard above stays.]
@@ -4304,15 +4566,19 @@ def cmd_lifecycle_exec(args):
     # The marker is flipped FAILED rather than left `in-flight`, because `in-flight` with a dead
     # executor becomes a STALE alarm only after LIFECYCLE_STALE_MIN, and until then it reads as
     # MID-RENEWAL — the one reading Stage 4 must never be handed wrongly.
-    finish_lifecycle(base, args.seat, "FAILED",
-                     f"the {args.disposition} sequence is not implemented yet (s3-06); every "
-                     f"entry guard passed and nothing was acted on")
+    #
+    # ⚠ THE FLIP IS `lifecycle_alarm`'s `failure=` (s3-08), no longer a `finish_lifecycle` call of
+    # this seam's own. Same write, same text, same order — the marker is still durable-first — but
+    # the ORDERING NOW LIVES IN THE CHOKEPOINT, which is what makes it hold for `s3-06`'s and
+    # `s3-07`'s failure branches too instead of being a discipline each of them could forget.
     lifecycle_alarm(
         "state",
         f"every entry guard PASSED and the marker is stamped, but the {args.disposition} SEQUENCE "
         f"ITSELF IS NOT BUILT — it lands with s3-06 (and `revive` with s3-07). Nothing has been "
         f"launched, killed, respawned or cleared. Exit code 3 (not 2) says exactly this: the "
-        f"guards did not refuse you.", 3, base)
+        f"guards did not refuse you.", 3, base, args=args,
+        failure=(f"the {args.disposition} sequence is not implemented yet (s3-06); every "
+                 f"entry guard passed and nothing was acted on"))
 
 
 def permitted_senders(agent, decls, roster):
@@ -13304,16 +13570,17 @@ def _selftest_checks(args, failures, names):
         # reach 2 however correct the code was.
         _h6_ip = "[INTEGRATION POINT " + "— STAGE 3"
         check("s12-06 S6-h: EVERY Stage-3 seam exists and is GREPPABLE — the module source carries "
-              "the named marker exactly FIVE times. Three are s12's: the renew path's fork "
+              "the named marker exactly FOUR times. Three are s12's: the renew path's fork "
               "(the detached executor), the done path's fork (the detached reaper), and — added "
               "by s12-07 — the `reap_blockers` block that every renew disposition holds until "
-              "that executor releases it. Two are s3-05's, inside the executor itself: the "
-              "point past the entry guards where s3-06 runs the disposition sequence, and "
-              "`lifecycle_alarm`, where s3-08 raises the bus alarm at ONE site instead of five. "
-              "A named comment is how the sites stay findable instead of being re-derived from "
-              "a spec nobody reads at the time — and this count is bumped in the SAME change "
-              "as any seam added or discharged, or the inventory starts lying quietly",
-              Path(__file__).read_text(encoding="utf-8").count(_h6_ip) == 5)
+              "that executor releases it. ONE is s3-05's, inside the executor itself: the point "
+              "past the entry guards where s3-06 runs the disposition sequence. ⚠ THE COUNT WENT "
+              "5 -> 4 WITH s3-08, WHICH DISCHARGED THE FIFTH: `lifecycle_alarm` no longer carries "
+              "a seam comment because it now RAISES the bus alarm rather than promising to. A "
+              "named comment is how the sites stay findable instead of being re-derived from a "
+              "spec nobody reads at the time — and this count is bumped in the SAME change as any "
+              "seam added or discharged, or the inventory starts lying quietly",
+              Path(__file__).read_text(encoding="utf-8").count(_h6_ip) == 4)
 
         # ============ s12-07: the DISPOSITION in awaiting-close.json =============================
         # Spec: stage-1-2-gate-checkout-spec.md §2.3. The rows that need a live pane, a recorded
@@ -14414,6 +14681,219 @@ def _selftest_checks(args, failures, names):
               _s5_layers and _s5_layers <= set(REFUSAL_LAYERS) and not _s5_opaque)
 
         live_panes, tmux_session_name = _s5_real_panes, _s5_real_sess
+
+        # ============ s3-08: the BUS ALARM — the executor's ONE surface that reaches a human ====
+        # Spec: stage-3-executor-spec.md §2.4 (alarmer 1). The read-side surface (`lifecycle_line`)
+        # is alarmer 2 and is s3-04's; this block is about the message that LEAVES the process.
+        #
+        # ⚠ EVERY ROW BELOW RIDES THE REAL EXECUTOR THROUGH THE REAL `cmd_send`. The two failing
+        # sends are REAL REFUSALS, not stubs: one package's leader declares `senders: leader`, so
+        # the sender bound refuses `lifecycle-exec` exactly as run-2's bounds refused watch.py's
+        # flags — which is the failure this fallback was built from, reproduced rather than
+        # imitated. `cmd_send` is stubbed in exactly ONE row (7), whose subject is the ENVIRONMENT
+        # the send is made in and which therefore has to observe the send from inside.
+        #
+        # ⚠ THE EXECUTOR HOLDS NO PANE, and the suite's `detect_pane` must agree: with a calling
+        # pane left set by an earlier block, `sender_origin` would stamp every alarm `from-pkg:`
+        # and row (6)'s "nothing from the environment" claim would be false while reading green.
+        _s8_prior_pane, calling_pane["v"] = calling_pane["v"], ""
+        _s8_prior_wake, wake_ok["v"] = wake_ok["v"], True
+
+        def _s8_make(name, leader_fm=""):
+            pk = Path(td) / name
+            (pk / "coordination").mkdir(parents=True)
+            (pk / "workers" / "leader").mkdir(parents=True)
+            (pk / "workers" / "leader" / "agent.md").write_text(
+                f"---\nagent: leader\nmodel: opus\n{leader_fm}---\nbrief\n")
+            return pk, pk / "coordination"
+
+        _s8_pkg, _s8_base = _s8_make("s8-run")
+        # The BOUNDED package: its leader admits `leader` only, so the alarm's send is REFUSED by
+        # coord itself (exit 1) — a real SystemExit out of `cmd_send`, no stub anywhere.
+        _s8_bpkg, _s8_bbase = _s8_make("s8-bound", leader_fm="senders: leader\n")
+        _s8_ns = ns(package=str(_s8_pkg), seat="s8-seat", disposition="renew")
+
+        def _s8_exec(pkg, **kw):
+            """Drive the REAL executor to the s3-06 seam — the one failure branch that exists
+            today — so these rows ride the same chokepoint `s3-06`'s branches will call. Every
+            invocation refuses (2 at a guard, 3 at the seam), so `refuse()` is the right harness."""
+            d = {"package": str(pkg), "seat": "s8-seat", "disposition": "renew",
+                 "pane": "%40", "tmux_target": "%40", "caller_pid": 41190,
+                 "caller_starttime": "884118", "handoff_written": "0"}
+            d.update(kw)
+            return refuse(cmd_lifecycle_exec, **d)
+
+        # ---- (0) THE PREMISE.
+        _s8_known = known_recipients(_s8_ns, _s8_base)
+        check("s3-08 (0) THE FIXTURE'S OWN PREMISE, so no row below can be vacuous: this package "
+              "RESOLVES 'leader' as a recipient (its briefing declares the seat) and does NOT "
+              "resolve 'lifecycle-exec'. Both halves are load-bearing — the first is what makes "
+              "the note deliverable at all, the second is what makes the `ask` refusal (2) real "
+              "and the explicit sender token (6b) load-bearing rather than decorative. On a "
+              "fixture where 'leader' did not resolve, every delivery row would pass through the "
+              "undelivered path and prove nothing about the bus",
+              "leader" in _s8_known and "lifecycle-exec" not in _s8_known)
+
+        # ---- (1) THE NOTE LANDS ON THE BUS.
+        set_awaiting(_s8_base, "s8-seat", "%40", "", False, disposition="renew")
+        _s8_out, _s8_code = _s8_exec(_s8_pkg)
+        _, _s8_blocks = load_messages(_s8_base)
+        _s8_note = _s8_blocks[-1] if _s8_blocks else None
+        _s8_body = "\n".join((_s8_note or {}).get("lines", []))
+        check("s3-08 (1) THE NOTE LANDS ON THE BUS: a real executor failure puts a message in THIS "
+              "package's log — type `note`, addressed to the resolved leader-role recipient, its "
+              "body naming the seat and the step that failed — and the refusal says ALARM RAISED "
+              "so a reader of the detached log knows it left the process. Before s3-08 this row "
+              "was red by construction: the executor printed to an inherited stderr and sent "
+              "nothing, which is watch.py's recorded failure verbatim",
+              _s8_code == 3 and _s8_note is not None and _s8_note["type"] == "note"
+              and _s8_note["to"] == "leader" and "s8-seat" in _s8_body
+              and "SEQUENCE ITSELF IS NOT BUILT" in _s8_body and "ALARM RAISED" in _s8_out)
+
+        check("s3-08 (1b) THE BODY IS ACTIONABLE WITHOUT OPENING THE LOG: it carries the seat, the "
+              "disposition, what failed, where the marker file is, where the executor's log "
+              "landed (or an ADMITTED absence with its reason — never an invented path), and the "
+              "refusal LAYER named as coord.py's own gate rather than the harness classifier "
+              "(R-8). A reader woken at 04:00 has none of those and must not have to go find them",
+              "seat 's8-seat'" in _s8_body and "disposition 'renew'" in _s8_body
+              and f"marker file: {lifecycle_path(_s8_base)}" in _s8_body
+              and "executor log: " in _s8_body
+              and "refusal layer: state" in _s8_body
+              and "NOT the harness permission classifier" in _s8_body)
+
+        # ---- (2) `ask` IS REFUSED FROM THIS SENDER — the type is a constraint, not a style.
+        _s8_ask = lifecycle_alarm_namespace(_s8_ns, "leader", "an alarm shaped as a question")
+        _s8_ask.type = "ask"
+        _s8_ask_o, _s8_ask_e, _s8_ask_c = harness_outcome(cmd_send, _s8_ask)
+        _, _s8_ask_blocks = load_messages(_s8_base)
+        check("s3-08 (2) `ask` IS REFUSED FROM THIS SENDER, so `note` is a CONSTRAINT and not a "
+              "preference: the alarm's own Namespace with only `type` flipped to `ask` is refused "
+              "by the real send path — 'cannot receive a reply', 'stay OPEN forever', no --force "
+              "override — and NOTHING is appended to the log. The executor holds no roster row, so "
+              "an ask from it would open a thread with no possible terminus (S-7: 13 of them in "
+              "one run, every one permanent residue in an append-only log)",
+              _s8_ask_c not in (0, None)
+              and "cannot receive a reply" in _s8_ask_o + _s8_ask_e
+              and "stay OPEN forever" in _s8_ask_o + _s8_ask_e
+              and len(_s8_ask_blocks) == len(_s8_blocks))
+
+        # ---- (6) NO SEAT IDENTITY, AND NOTHING FROM THE ENVIRONMENT.
+        _s8_probe = lifecycle_alarm_namespace(_s8_ns, "leader", "body")
+        check("s3-08 (6) NO SEAT IDENTITY, NOTHING FROM THE ENVIRONMENT: the Namespace carries the "
+              "explicit machinery token `agent='lifecycle-exec'`, `as_agent` is None, `force` is "
+              "False, and it declares NO `pane` — so `sender_origin` verifies nothing and stamps "
+              "nothing. The message that actually landed is attributed to `lifecycle-exec` with no "
+              "origin. `cmd_send` calling `resolve_agent` is the MECHANISM, not a violation: the "
+              "explicit token is resolved before COORD_AGENT or a pane is ever consulted, which is "
+              "how an honest machinery identity differs from a borrowed seat's name",
+              _s8_probe.agent == "lifecycle-exec" and _s8_probe.as_agent is None
+              and _s8_probe.force is False and not hasattr(_s8_probe, "pane")
+              and (_s8_note or {}).get("sender") == "lifecycle-exec"
+              and (_s8_note or {}).get("origin") is None)
+
+        _s8_noid = lifecycle_alarm_namespace(_s8_ns, "leader", "body")
+        _s8_noid.agent = None
+        _s8_ni_o, _s8_ni_e, _s8_ni_c = harness_outcome(cmd_send, _s8_noid)
+        check("s3-08 (6b) AND THE EXPLICIT TOKEN IS LOAD-BEARING, not decoration: drop it and rely "
+              "on the environment the way an ordinary caller does, and the send EXITS 2 — "
+              "`resolve_agent` is `required=True` and this process has no --as, no COORD_AGENT "
+              "(guard 1 popped it) and no roster row for its pane. Without this row, `agent=` "
+              "reads as an optional label; with it, the alarm is unsendable without it and the "
+              "spec's earlier 'no fabricated identity' wording is shown to have meant something "
+              "else than 'no identity'",
+              _s8_ni_c == 2 and "cannot resolve who you are" in _s8_ni_o + _s8_ni_e)
+
+        # ---- (3) THE FALLBACK, ON A REAL REFUSAL.
+        set_awaiting(_s8_bbase, "s8-seat", "%40", "", False, disposition="renew")
+        _s8_b_out, _s8_b_code = _s8_exec(_s8_bpkg)
+        _s8_bflags = undelivered_flags(_s8_bbase)
+        _s8_bline = undelivered_line(_s8_bbase)
+        _, _s8_b_blocks = load_messages(_s8_bbase)
+        check("s3-08 (3) FALLBACK ON A REFUSED SEND — the row that separates REPORTED from "
+              "RECORDED WHERE THE RUN LOOKS. The bound inbox refuses the alarm (a REAL SystemExit "
+              "out of `cmd_send`, not a stub), nothing reaches the message log, and "
+              "`undelivered-flags.md` gains ONE entry naming the refusal AND the seat — so "
+              "`undelivered_line` is non-empty and `status`/`workers` will show it. A plain append "
+              "under coordination/ is the one path a sender bound, a type enum or a missing roster "
+              "row cannot refuse, which is why the fallback is not another coord message",
+              _s8_b_code == 3 and _s8_b_blocks == []
+              and "BOUNDED INBOX" in _s8_b_out and "ALARM NOT DELIVERED" in _s8_b_out
+              and len(_s8_bflags) == 1
+              and "coord refused the send (exit 1)" in _s8_bflags[0][1]
+              and "s8-seat" in _s8_bflags[0][1] and _s8_bline != "")
+
+        # ---- (5) THE MARKER IS FAILED BEFORE THE SEND, NOT AFTER.
+        _s8_brec = load_lifecycle(_s8_bbase).get("s8-seat") or {}
+        check("s3-08 (5) THE MARKER IS FAILED BEFORE THE SEND, NOT AFTER (R-7 — the durable record "
+              "must not depend on the perishable one): with the send REFUSED the marker still "
+              "reads FAILED with its failure text, and — ⚠ THE DISCRIMINATING HALF — the DELIVERED "
+              "note reports `marker says: FAILED` with that same text, which is only possible if "
+              "step 1 wrote it before step 2 composed the body. The on-disk half alone would stay "
+              "green under a reordering, because the write still happens; only the note's own "
+              "account of the marker can tell the two orders apart",
+              _s8_brec.get("state") == "FAILED"
+              and "not implemented yet (s3-06)" in (_s8_brec.get("failure") or "")
+              and "marker says: FAILED — the renew sequence is not implemented yet (s3-06)"
+              in _s8_body)
+
+        # ---- (4) THE LAST-RESORT PRINT, when even the append cannot land.
+        # The append is blocked with a DIRECTORY at the flag file's path — a real OSError from the
+        # real `open(..., "a")`, not a raised stub, so the row exercises the branch a full disk or
+        # a read-only package would take.
+        _s8_blocked = Path(td) / "s8-noflag"
+        (_s8_blocked / "undelivered-flags.md").mkdir(parents=True)
+        _s8_lr = []
+        _s8_lr_o, _s8_lr_e, _s8_lr_c = harness_outcome(
+            lambda _a: _s8_lr.append(lifecycle_record_undelivered(
+                _s8_blocked, "seat s8-seat: the renew sequence broke at step 2",
+                "coord refused the send (exit 1)")), ns())
+        check("s3-08 (4) LAST-RESORT PRINT: when even the undelivered append fails, the failure is "
+              "SHOUTED on stderr — naming that the alarm is being lost entirely and carrying its "
+              "text — instead of vanishing, and the function reports False rather than claiming a "
+              "record it did not make. A monitor that cannot deliver must say it cannot deliver; "
+              "silence here is exactly the state where health and total failure look identical",
+              _s8_lr == [False] and _s8_lr_c is None
+              and "CANNOT RECORD an undelivered flag either" in _s8_lr_e
+              and "LOST ENTIRELY" in _s8_lr_e and "s8-seat" in _s8_lr_e)
+
+        # ---- (7) TMUX_PANE IS POPPED FOR THE SEND, AND RESTORED AFTER.
+        # The ONE row that stubs `cmd_send`: its subject is the ENVIRONMENT the send is made in,
+        # which can only be observed from inside the call.
+        _s8_seen, _s8_real_send = [], cmd_send
+        os.environ["TMUX_PANE"] = "%145"
+        try:
+            globals()["cmd_send"] = lambda _a: _s8_seen.append(
+                os.environ.get("TMUX_PANE", "<POPPED>"))
+            _s8_tp_outcome, _s8_tp_line = lifecycle_raise_alarm(
+                "state", "a probe refusal", _s8_base, _s8_ns)
+        finally:
+            globals()["cmd_send"] = _s8_real_send
+            _s8_tp_after = os.environ.pop("TMUX_PANE", "<absent>")
+        check("s3-08 (7) TMUX_PANE IS POPPED FOR THE SEND AND RESTORED AFTER, and `--force` is "
+              "NOT used instead: watch.py's SECOND refusal was a detached loop INHERITING "
+              "TMUX_PANE from the shell that started it — 'you claimed watcher, but this pane "
+              "(%145) is registered to chief-of-staff', exit 2, immune to changing the message "
+              "type. An executor forked out of a dying seat's pane is the same shape. Guard 1 "
+              "already scrubs it, so this is belt-and-braces and is kept: --force would have "
+              "suppressed every OTHER refusal too, including ones that should stop a bad send",
+              _s8_seen == ["<POPPED>"] and _s8_tp_after == "%145"
+              and _s8_tp_outcome == "sent")
+
+        # ---- (8) WHEN THE ALARM CANNOT BE RAISED AT ALL, IT SAYS SO.
+        _s8_before8 = len(load_messages(_s8_base)[1])
+        _s8_ng_out, _s8_ng_code = _s8_exec(_s8_pkg, seat="s8-notarget", tmux_target="")
+        check("s3-08 (8) A REFUSAL THAT CANNOT REACH THE BUS SAYS SO, OUT LOUD: guard 2 refuses "
+              "BEFORE the package is resolved — deliberately, so a guard claiming it acted on "
+              "nothing has not registered a run tag first — so there is no log to post to and no "
+              "directory to flag in. The refusal states ALARM NOT RAISED and why, rather than "
+              "leaving a reader to assume it was. This is the ONE hole in the alarm's coverage and "
+              "it is named at the site, every time, instead of being discovered later",
+              _s8_ng_code == 2 and "ALARM NOT RAISED" in _s8_ng_out
+              and "no package was resolved" in _s8_ng_out
+              and len(load_messages(_s8_base)[1]) == _s8_before8
+              and undelivered_flags(_s8_base) == [])
+
+        calling_pane["v"], wake_ok["v"] = _s8_prior_pane, _s8_prior_wake
 
     (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
      tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
