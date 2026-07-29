@@ -3017,6 +3017,27 @@ def is_leader_or_closer(name):
     return name == "leader" or name.startswith("closer-")
 
 
+def is_authorized_launcher(name):
+    """Who may OPEN panes in this run: the leader, and the chief-of-staff.
+
+    THE CoS's HALF IS AN OWNER RULING, NOT A LOOSENING -- `r-cos-launches-the-staffed-seat` (goal
+    decisions.md) makes launching the seat the staffer produces the chief-of-staff's ROUTINE DUTY,
+    and this gate predated it (G-257). Before this, compliance with a standing ruling required
+    `--force`: a flag that reads as an override of policy while actually being compliance with it,
+    which trains the room to force and spends the flag's only signal.
+
+    MINTED RATHER THAN REUSING `is_leader_or_cos_or_closer`
+    (`core-build-run-adjustments/decisions.md#d-g257-widening-not-threading`). That predicate
+    exists for `kill-pane`/`relaunch-pane` and also admits every `closer-*` seat -- widening
+    `launch` to closers is not what was ruled, and reusing it here would have quietly granted it.
+    ⚠ THIS WIDENS `launch` ALONE (`d-cos-inbox-is-convention`: "`launch` and nothing else").
+    `close-run`, `panel`, `reap --go`, `add-to-group` and `remove-from-group` stay the leader's,
+    and `d-cos-may-launch` bars the chief-of-staff from every TERMINATING verb -- close, renew,
+    reap, kill, revive. The bound is open-versus-terminate; this is not a second leader.
+    """
+    return name in ("leader", "chief-of-staff")
+
+
 def is_leader_or_cos_or_closer(name):
     """Same NAME-PATTERN shape as `is_leader_or_closer` (this file gates roles by literal name
     everywhere, never by a derived lookup -- `chief-of-staff` is one more literal beside `leader`,
@@ -6145,17 +6166,29 @@ def seats_by_name(args, names=None):
 
 
 def cmd_launch(args):
-    role_desc = "leader's alone (it opens seats and spends plan budget)"
+    role_desc = "leader's and the chief-of-staff's (it opens seats and spends plan budget)"
     # #210: the roster is resolved FIRST because the memory gate is sized by seat COUNT, and both
     # gates must be answered together. Nothing here opens a pane or writes a surface — reading
     # briefings has no side effect — so evaluating the role gate a few lines later costs nothing
     # and buys the caller both verdicts at once. `--dry-run` keeps the role gate ALONE: it opens
     # nothing, so refusing it on available memory would refuse a command that cannot spend any.
     workers = seats_by_name(args, args.only)
+    # G-257 / `d-g257-widening-not-threading`: BOTH BRANCHES CARRY THE SAME PREDICATE. Missing
+    # one leaves a --dry-run and a real launch disagreeing about who may act -- the shape a reader
+    # trusts and a test misses (S4-g is its control).
+    #
+    # The TARGET is threaded for the REFUSAL TEXT ONLY, so a refusal names WHO was being launched;
+    # `launch`'s target is the `--only` set, or a mass launch when none was named. `self_legal` is
+    # passed EXPLICITLY as False at both sites rather than left to the default: there is no self
+    # case at `launch` -- a seat does not launch itself into existence -- and s12-02's self/other
+    # threading is therefore INERT here, which is exactly why it could not have discharged G-257.
+    launch_target = args.only or "(mass launch)"
     if args.dry_run:
-        gate(args, "launch", is_leader, role_desc)
+        gate(args, "launch", is_authorized_launcher, role_desc,
+             target=launch_target, self_legal=False)
     else:
-        launch_gates(args, "launch", is_leader, role_desc, len(workers) or 1)
+        launch_gates(args, "launch", is_authorized_launcher, role_desc, len(workers) or 1,
+                     target=launch_target, self_legal=False)
     # G-51: the descriptor binds and the registry is a record nothing read until now. Checked on
     # the DRY-RUN path too — a dry-run exists to show what a real launch would do, and hiding a
     # divergence from it would make the one command meant for inspection the one that lies.
@@ -10967,7 +11000,9 @@ def _selftest_checks(args, failures, names):
                                force_memory=True)
             check("#230: --force-memory does NOT carry the ROLE gate — the memory flag is not a "
                   "back door into a leader-only command",
-                  code == 2 and "role gate: REFUSED — `launch` is leader's alone" in out)
+                  code == 2
+                  and "role gate: REFUSED — `launch` is leader's and the chief-of-staff's"
+                  in out)
             out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=False)
             check("#230: the LEADER is refused by the memory gate like anyone else and still sees "
                   "BOTH verdicts — the gate binds the seat holding lifecycle authority too",
@@ -11270,6 +11305,136 @@ def _selftest_checks(args, failures, names):
               and re.search(r"^refused \[coord input\]: ", _s3_lb_cont, re.M) is not None
               and re.search(r"^refused \[coord state\]: ", _s3_lb_head, re.M) is not None
               and re.search(r"^refused \[coord role gate\]: ", _s12k_out, re.M) is not None)
+
+        # ============ s12-04: the launch gate recognises the CHIEF-OF-STAFF (G-257) ============
+        # `r-cos-launches-the-staffed-seat` (goal decisions.md) makes launching the staffed seat
+        # the chief-of-staff's ROUTINE DUTY, and this gate predated it: every routine CoS launch
+        # required `--force` -- a flag that reads as an override of policy while actually being
+        # compliance with it, which trains the room to force and spends the flag's only signal.
+        #
+        # THE FIX IS A PREDICATE WIDENING, NOT THE SELF/OTHER THREADING
+        # (`core-build-run-adjustments/decisions.md#d-g257-widening-not-threading`): a
+        # chief-of-staff launching a WORKER is never a self-act, so `is_self` stays False and
+        # s12-02's threading is INERT here -- it could never have discharged G-257. Scope is
+        # `launch` and nothing else (`d-cos-inbox-is-convention`), which S4-f is the control for.
+        _s4_only = "hk-1"     # never the caller's OWN name: the SELF template is not this claim
+
+        _s4b_out, _s4b_code = refuse(cmd_launch, as_agent="gamma", only=_s4_only,
+                                     dry_run=True, force=False, force_memory=False)
+        _s4b2_out, _s4b2_code = refuse(cmd_launch, as_agent="closer-alpha", only=_s4_only,
+                                       dry_run=True, force=False, force_memory=False)
+        _s4cos_dry, _s4cos_dry_code = refuse(cmd_launch, as_agent="chief-of-staff", only=_s4_only,
+                                             dry_run=True, force=False, force_memory=False)
+        _s4gamma_real, _s4gamma_real_code = refuse(cmd_launch, as_agent="gamma", only=_s4_only,
+                                                   dry_run=False, force=False, force_memory=False)
+        # ⚠ S4-d USES ITS OWN REFUSED CALLER, and that is isolation rather than duplication. Read
+        # off `gamma`, S4-d and S4-b would go red TOGETHER under the one mutation that admits
+        # gamma into the predicate -- and a mutation that reds two rows is evidence about neither
+        # (G-62). `beta` is refused for the same reason and by the same gate, and shares nothing.
+        _s4d_dry, _s4d_dry_code = refuse(cmd_launch, as_agent="beta", only=_s4_only,
+                                         dry_run=True, force=False, force_memory=False)
+        _s4d_real, _s4d_real_code = refuse(cmd_launch, as_agent="beta", only=_s4_only,
+                                           dry_run=False, force=False, force_memory=False)
+
+        # ⚠ THE CoS's REAL-BRANCH CALL RUNS ONE MB UNDER THE PACKAGE'S DECLARED FLOOR, and that is
+        # what makes a PASS verdict OBSERVABLE AT ALL: `launch_gates` prints its verdict block only
+        # on a refusal, so "role gate: PASS" is readable only when the OTHER gate supplies the
+        # refusal. It also means this row opens no pane and spends nothing.
+        _s4_avail_real = available_mb
+        available_mb = lambda: budget_mod.read_floor(pkg, "refuse") - 1
+        try:
+            _s4a_out, _s4a_code = refuse(cmd_launch, as_agent="chief-of-staff", only=_s4_only,
+                                         dry_run=False, force=False, force_memory=False)
+        finally:
+            available_mb = _s4_avail_real
+
+        check("s12-04 S4-a: the chief-of-staff's ROUTINE LAUNCH NEEDS NO FLAG -- with force=False "
+              "and force_memory=False it passes the role gate and the command PROCEEDS. An "
+              "owner-ruled duty (`r-cos-launches-the-staffed-seat`) is what the tool PERMITS now, "
+              "instead of compliance a seat has to spell as an override -- which is what trained "
+              "the room to force, and is the defect G-257 filed",
+              _s4cos_dry_code == 0
+              and "[dry-run] hk-1" in _s4cos_dry
+              and "refused [coord role gate]" not in _s4cos_dry)
+
+        check("s12-04 S4-b (control): an ordinary seat is STILL refused on `launch`, the refusal "
+              "NAMES ITS LAYER, and it names who may act -- the widening ADDED the chief-of-staff, "
+              "it did not open the gate. S4-a without this row is not evidence",
+              _s4b_code == 2
+              and re.search(r"^refused \[coord role gate\]: ", _s4b_out, re.M) is not None
+              and "leader's and the chief-of-staff's" in _s4b_out)
+
+        check("s12-04 S4-b2 (control): a `closer-*` seat is STILL refused on `launch` -- the row "
+              "that proves `is_leader_or_cos_or_closer` was NOT reused. It admits every closer, "
+              "and `d-cos-inbox-is-convention` scopes this widening to the chief-of-staff on "
+              "`launch` and nothing else (`d-g257-widening-not-threading`)",
+              _s4b2_code == 2
+              and re.search(r"^refused \[coord role gate\]: ", _s4b2_out, re.M) is not None)
+
+        check("s12-04 S4-c: the widening did NOT touch the MEMORY gate -- that same flagless "
+              "chief-of-staff launch, one MB under the package's declared floor, still REFUSES on "
+              "MEMORY and opens nothing. `--force` carries the ROLE gate ONLY (G-257 says so "
+              "explicitly), so a widened role predicate may never become a way under the floor",
+              _s4a_code == 2 and "memory gate: REFUSED" in _s4a_out
+              and "WARNING launching anyway" not in _s4a_out)
+
+        check("s12-04 S4-d: the launch role refusal no longer teaches `--force` as the route for "
+              "a duty the tool now simply permits -- the dry-run branch carries the string "
+              "NOWHERE, and the real branch carries it on the two-flag disambiguation line ALONE. "
+              "That line STAYS: it is what keeps --force and --force-memory distinguishable "
+              "(jobs/recover-room.py reasons about exactly that split), never an invitation",
+              _s4d_dry_code == 2 and _s4d_real_code == 2
+              and "--force" not in _s4d_dry
+              and [ln for ln in _s4d_real.splitlines() if "--force" in ln]
+              == ["--force carries the ROLE gate; --force-memory carries the MEMORY gate."])
+
+        _s4e_out = run(cmd_gates, json=True)
+        check("s12-04 S4-e: the flag map is UNTOUCHED and its PUBLISHED form still agrees with it "
+              "-- `gates --json` reports --force carrying the role gate alone. "
+              "jobs/recover-room.py reads THIS OUTPUT (not the constant) and refuses to run if it "
+              "ever changed, so a publisher drifting from GATE_FLAGS is as bad as GATE_FLAGS "
+              "drifting: `p-override-split-is-safety-critical`",
+              json.loads(_s4e_out) == {"--force": ["role"], "--force-memory": ["memory"]})
+
+        _s4f = [
+            ("close", refuse(cmd_close, target="delta", as_agent="chief-of-staff", dry_run=True,
+                             renew=False, no_export=True, force_memory=False)),
+            ("close-seat", refuse(cmd_close_seat, target="delta", as_agent="chief-of-staff",
+                                  renew=False, no_export=True)),
+            ("reap --go", refuse(cmd_reap, as_agent="chief-of-staff", go=True)),
+            ("panel", refuse(cmd_panel, as_agent="chief-of-staff")),
+            ("owner", refuse(cmd_owner, as_agent="chief-of-staff", state="afk", note="")),
+            ("close-run", refuse(cmd_close_run, as_agent="chief-of-staff")),
+            ("add-to-group", refuse(cmd_add_to_group, as_agent="chief-of-staff", group="pair",
+                                    members=["gamma"])),
+            ("remove-from-group", refuse(cmd_remove_from_group, as_agent="chief-of-staff",
+                                         group="pair", members=["gamma"])),
+        ]
+        check("s12-04 S4-f: the widening is scoped to `launch` AND NOTHING ELSE -- close, "
+              "close-seat, reap --go, panel, owner, close-run, add-to-group and "
+              "remove-from-group every one still REFUSE the chief-of-staff on the role gate. The "
+              "terminating verbs among them are barred by `d-cos-may-launch`: the bound is "
+              "open-versus-terminate, and a chief-of-staff is not a second leader",
+              all(code == 2
+                  and re.search(r"^refused \[coord role gate\]: ", out, re.M) is not None
+                  for _name, (out, code) in _s4f))
+
+        # ⚠ AGREEMENT, NOT VERDICT. This row asserts the two branches SAY THE SAME THING, never
+        # what they say -- S4-a and S4-b own the verdicts. Asserting the verdict here would make a
+        # revert of BOTH branches red this row too, and a mutation that reds two rows is evidence
+        # about neither (G-62, and `--expect-fail` refuses it by construction). It is with S4-a
+        # that this row establishes the REAL branch's chief-of-staff verdict: S4-a proves the
+        # dry-run branch passes, this one proves the real branch says the same. And the real-side
+        # token is not read off silence -- S4-c independently proves that same call RENDERS its
+        # verdict block (it refuses on memory), so "not refused" here is a read, not an absence.
+        _s4g = [("chief-of-staff", _s4cos_dry, _s4a_out), ("gamma", _s4b_out, _s4gamma_real)]
+        check("s12-04 S4-g: BOTH of `launch`'s branches carry the SAME predicate -- a --dry-run "
+              "and a real launch return the SAME role verdict, for the chief-of-staff and for an "
+              "ordinary seat alike. Widening one branch and not the other leaves a dry-run and a "
+              "real launch disagreeing about who may act: the shape a reader trusts and a test "
+              "misses",
+              all(("refused [coord role gate]" in dry) == ("role gate: REFUSED" in real)
+                  for _who, dry, real in _s4g))
 
     (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
      tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
