@@ -200,6 +200,12 @@ FM_KEY = {
     "cwd": re.compile(r"^cwd:\s*(\S+)\s*$", re.MULTILINE),
     "window": re.compile(r"^window:\s*(\S+)\s*$", re.MULTILINE),
     "ephemeral": re.compile(r"^ephemeral:\s*(\S+)\s*$", re.MULTILINE),
+    # dag-11: the seat's HARNESS MODE — `one-shot` | `interactive`. The attest-exit arm gates on
+    # THIS DECLARED PROPERTY and never on `harness:`, because harness is a proxy that is true
+    # today and breaks the moment an opencode seat runs in TUI mode or a second one-shot harness
+    # arrives. Absent means UNDECLARED, which is NOT `one-shot`: the arm refuses rather than
+    # assuming, so no existing seat becomes attestable by having said nothing.
+    "mode": re.compile(r"^mode:\s*(\S+)\s*$", re.MULTILINE),
     "observer": re.compile(r"^observer:\s*(\S+)\s*$", re.MULTILINE),
     "auto-wake": re.compile(r"^auto-wake:\s*(\S+)\s*$", re.MULTILINE),
     # r-cos-bounded-inbox / r-engineer-contact — the SENDER BOUND: a comma-separated allow-list of
@@ -476,11 +482,15 @@ def package_dir(args, register=True):
     return pkg
 
 
-def base_dir(args):
+def base_dir(args, register=True):
+    # `register` (dag-10) exists for the READ-ONLY commands: resolving a package normally
+    # (re-)registers the run tag, which is a WRITE, and a command whose whole contract is "this
+    # writes nothing" cannot make one. It is a parameter here rather than a second resolver in the
+    # read-only command, so both paths keep using the one resolution order (PRIN-11).
     if getattr(args, "base", None):
         base = Path(args.base).resolve()
     else:
-        base = package_dir(args) / "coordination"
+        base = package_dir(args, register=register) / "coordination"
     set_injection_context(base=base)  # 7.39: the primitives get no args; this is the one chokepoint
     return base
 
@@ -1810,9 +1820,107 @@ RUNS_INDEX_COLS = ["run-id", "type", "state", "taskforce-ids", "opened", "closed
 # (ignite/server/seat-identity/identity.js: REQUIRED_IDENTITY_COLUMNS + CORROBORATING_COLUMNS).
 # The PAIR is the identity — starttime is what defeats pid reuse, so the gate refuses a pid alone
 # and explicitly does not accept a degraded mode. `tty` corroborates and never decides.
+# `disposition` (dag-09) is APPENDED LAST, and it is the DURABLE home of the value the DAG reads.
+# `awaiting-close.json` is the declaration at the moment of truth, but the lifecycle executor
+# CLEARS that entry on success — so without a durable copy every successful renewal or completion
+# erases the fact the ready arithmetic depends on, and the whole DAG advances exactly once and
+# then goes blind. It lives on the SESSION ROW because a check-out IS a session end, and because
+# the alternatives are worse: `taskforce.csv` may not carry run state (it is DERIVED), and a new
+# coordination file re-imports the two-surfaces hazard this module already names.
+# ⚠ AN EMPTY CELL IS `unknown`, NEVER `done` — see `session_disposition` below.
 SESSIONS_COLS = ["session-id", "seat", "harness", "native-session-id", "workdir",
-                 "recorded", "started", "ended", "pid", "pid-starttime", "tty"]
+                 "recorded", "started", "ended", "pid", "pid-starttime", "tty", "disposition"]
 NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close re-resolves
+
+
+# ---- dag-08: THE RECORD DISPOSITION ENUM — the value space the DAG reads --------------------
+#
+# ⚠⚠ THIS IS NOT `LIFECYCLE_DISPOSITIONS` (defined much further down, beside the executor), AND
+# THE TWO SHARE NO VALUE. Two enums live in this file and conflating them is the readiest way to
+# break it:
+#
+#   LIFECYCLE_DISPOSITIONS      `renew|close|revive` — executor ACTIONS, the argv vocabulary of
+#                               `lifecycle-exec`. What the detached executor DOES.
+#   RECORD_DISPOSITION_WRITER   `done|renew|revive|exited` — the RECORDED disposition, the value
+#   (here)                      stored on `awaiting-close.json` AND in the `disposition` column of
+#                               `sessions.csv` above (dag-09). What the DAG READS.
+#
+# ⚠ IT SITS HERE, BESIDE `SESSIONS_COLS`, AND NOT DOWN IN THE AWAITING-CLOSE SECTION WHERE dag-08
+# first put it. It stopped being one record's private enum the moment dag-09 gave it a second
+# surface: it is now the value space BOTH writers validate against, and `session_close`'s
+# signature reads it at `def` time, several hundred lines above the old home. One enum, one
+# definition, above every consumer (PRIN-11).
+#
+# `LIFECYCLE_INTENT_OF` is the MAP between them: its keys are argv actions, its non-ABSENT values
+# are members of THIS enum. The self-test asserts that containment, so widening one enum without
+# the other cannot pass silently.
+#
+# WHAT EACH VALUE MEANS, AND WHO MAY WRITE IT — ONE mapping, because "is this a legal value" and
+# "may THIS writer write it" are the same question asked twice. Two constants would be two things
+# to widen, and the second one is the one somebody forgets (PRIN-11).
+#
+#   done    the SEAT, at its own clean check-out    — the ONLY value that advances a DAG edge
+#   renew   the SEAT, at a context refresh          — the same seat comes back; no advancement
+#   revive  the KIT's revival path (stage 4)        — the same seat comes back; no advancement.
+#           It never reaches `awaiting-close.json` at all: a crash had no check-out, which is
+#           exactly what `LIFECYCLE_INTENT_OF["revive"] is LIFECYCLE_INTENT_ABSENT` says. Its
+#           home is the durable session row (`dag-09`). Listed here because this constant is the
+#           VALUE SPACE, not one file's column, and both writers validate against it.
+#   exited  the KIT's attest-exit arm (`dag-11`) ONLY, NEVER a seat — and it means, in full:
+#           THE HARNESS TERMINATED; WHETHER THE WORK IS DONE IS NOT ESTABLISHED HERE.
+#
+# ⚠ NOTHING ANYWHERE MAPS `exited` TO `done`. An implementation that does it "because the work is
+# probably fine" has reintroduced F1 — the measured one-shot (seat `oc2`, 2026-07-28) that
+# finished its work, exited without checking out, and left every surface reading "still working,
+# forever" — with extra steps, and it has done it by ATTESTING TO A FACT IT DID NOT WITNESS,
+# which is the misgrading R-6 bars. An `exited` row is routed to a LEADER's judgment; it is never
+# resolved by a default.
+DISPOSITION_WRITER_SEAT = "seat"
+DISPOSITION_WRITER_KIT = "kit"
+RECORD_DISPOSITION_WRITER = {"done": DISPOSITION_WRITER_SEAT,
+                             "renew": DISPOSITION_WRITER_SEAT,
+                             "revive": DISPOSITION_WRITER_KIT,
+                             "exited": DISPOSITION_WRITER_KIT}
+
+
+def validate_disposition(disposition, writer):
+    """Refuse a disposition AT THE MOMENT IT IS WRITTEN. RAISES ValueError; never normalizes.
+
+    Three refusals out of one mapping: an unknown writer, a value outside the enum, and a legal
+    value reached for by the side that does not own it.
+
+    ⚠ IT RAISES, AND THAT IS THE POINT. Every other failure around this record is best-effort —
+    a disk that will not take the write costs a debt nobody recorded, and `set_awaiting` answers
+    False rather than taking the checkout down with it. This one is a different KIND of failure:
+    a value outside the enum, or a writer reaching across the bound, can only be introduced by
+    somebody EDITING THIS FILE, never by the environment. Answering False would leave the DAG
+    reading a surface that silently stopped being written, and normalizing would leave it
+    advancing on a fact nobody established. Loud, at the boundary, is the only safe direction
+    (R-8).
+
+    The writer set is derived from the mapping's own values rather than kept as a second
+    constant, so a new writer cannot exist without a value that names it."""
+    writers = set(RECORD_DISPOSITION_WRITER.values())
+    if writer not in writers:
+        raise ValueError(
+            f"unknown disposition writer {writer!r} — the writers are "
+            f"{', '.join(sorted(writers))}. A writer is DECLARED by its call site so this "
+            f"boundary can tell a seat's own check-out from an act of the kit; an undeclared "
+            f"one cannot be checked against anything.")
+    if disposition not in RECORD_DISPOSITION_WRITER:
+        raise ValueError(
+            f"{disposition!r} is not a recorded disposition. The enum is exactly "
+            f"{', '.join(sorted(RECORD_DISPOSITION_WRITER))}. The value is REFUSED here rather "
+            f"than normalized to a neighbour: the DAG advances on this field, and a normalized "
+            f"guess advances it on something nobody established.")
+    owner = RECORD_DISPOSITION_WRITER[disposition]
+    if owner != writer:
+        raise ValueError(
+            f"the {writer} may not write disposition {disposition!r} — that value belongs to the "
+            f"{owner}. The bound is not decoration: `exited` is the kit attesting that a harness "
+            f"terminated, a fact a seat cannot witness about itself, and `done` is a seat "
+            f"reporting its own work finished, a fact the kit never witnessed. Each side writes "
+            f"only what it saw.")
 
 
 def goal_dir(pkg):
@@ -2294,20 +2402,37 @@ def session_backfill_native(args, seat):
         return native
 
 
-def session_close(args, seat):
+def session_close(args, seat, disposition="", writer=DISPOSITION_WRITER_SEAT):
     """Complete the seat's open session row: stamp `ended`, and fill `native-session-id` if the
     launch could not resolve it yet. Returns the session-id closed, or ''.
 
     A silent no-op when the seat has NO open row — a seat closed twice, or one launched before
     this writer existed, must not gain a phantom row. The close path is reached by three commands
     (close-seat, depart, checkout) and a run may traverse more than one of them for one seat.
-    """
+
+    dag-09: `disposition` is the DURABLE copy of the value `set_awaiting` records, and the two
+    come from ONE variable at the one call site that knows it (`cmd_checkout`) — computing it
+    twice is precisely the defect this column's acceptance row exists to catch.
+
+    It DEFAULTS TO EMPTY, and empty is a truthful answer rather than a gap. Of the three commands
+    that close a session, only `checkout` is the SEAT declaring its own disposition; `close-seat`
+    and `depart` are somebody else ending the row, and neither witnessed what the occupant meant.
+    An empty cell reads as `unknown` — never as `done` — so the fail-safe direction is a successor
+    that stays BLOCKED, never one advanced on a fact nobody asserted."""
     pkg = package_dir(args)
     with coord_lock(base_dir(args)):
         path = sessions_csv(pkg)
         if not path.exists():
             return ""
         header, rows = read_csv_table(path, SESSIONS_COLS)
+        # G-152, and it is the reason this widen is HERE and not only in `session_open`: a column
+        # added to the constant reaches only files that do not yet exist unless a LIVE writer
+        # widens the header it opened. Every selftest fixture builds a fresh file, so a change
+        # verified only at the birth site reads green everywhere and is a silent no-op on run-2 —
+        # a schema change proven where the schema is BORN and never where it LIVES.
+        header, widened = widen_header(header, SESSIONS_COLS)
+        if widened:
+            rows = [pad_row(r, header) for r in rows]
         idx = {c: i for i, c in enumerate(header)}
         if "seat" not in idx or "ended" not in idx:
             return ""
@@ -2319,6 +2444,16 @@ def session_close(args, seat):
         if target is None:
             return ""
         target[idx["ended"]] = now()
+        # dag-09: validated through the SAME boundary `awaiting-close.json`'s writer uses, so the
+        # two surfaces cannot hold values from two different vocabularies AND the writer bound
+        # holds on BOTH of them — `exited` is the attest arm's on this surface exactly as it is
+        # over there. `writer` is a PARAMETER and not looked up from the mapping: deriving it from
+        # the very table it is then checked against would be a guard that cannot fire.
+        # An empty string is the one value that skips validation, because "nobody declared one" is
+        # not a disposition — it is the absence of one, and it is recorded as such.
+        if disposition and "disposition" in idx:
+            validate_disposition(disposition, writer)
+            target[idx["disposition"]] = disposition
         if ("native-session-id" in idx and not target[idx["native-session-id"]].strip()
                 and target[idx.get("harness", 0)].strip() == "claude"):
             since = None
@@ -2333,6 +2468,40 @@ def session_close(args, seat):
         write_csv_table(path, header, rows)
         ensure_run_index(pkg)
         return target[idx["session-id"]].strip() if "session-id" in idx else ""
+
+
+def session_disposition(pkg, seat):
+    """The DURABLE check-out disposition of `seat`, read off its LAST ENDED session row. `None`
+    when there is not one.
+
+    ⚠ `None` MEANS UNKNOWN AND NEVER MEANS `done`, and every case that returns it is a case
+    nobody declared anything in: no `sessions.csv`, no `disposition` column (a run whose header
+    predates dag-09), no ended row for this seat, or the cell is empty. THE ASYMMETRY IS THE
+    SAFETY ARGUMENT — `done` is the single value that advances a DAG edge, so a reader that
+    guessed `done` from an absence would advance a workflow on a check-out that never happened.
+    Every historical row in every existing run package carries an empty cell, so a lenient reading
+    here would mark an entire run's back-catalogue as cleanly finished in one release.
+
+    The LAST ended row wins, mirroring `session_close`'s last-open-row rule: a seat that has been
+    renewed several times has several ended rows, and its CURRENT disposition is the newest one.
+
+    Read-only, and it takes `pkg` rather than `args` deliberately — it is the durable half of the
+    ready arithmetic and must be callable by anything that can name a run package, not only by a
+    command with a parsed argv (PRIN-13: the boundary is what makes it reusable, and `dag-10`'s
+    `terminal()` is its first caller, not its owner)."""
+    path = sessions_csv(pkg)
+    if not path.exists():
+        return None
+    header, rows = read_csv_table(path, SESSIONS_COLS)
+    idx = {c: i for i, c in enumerate(header)}
+    if not {"seat", "ended", "disposition"} <= set(idx):
+        return None
+    found = None
+    for r in rows:
+        pad_row(r, header)
+        if r[idx["seat"]].strip() == seat and r[idx["ended"]].strip():
+            found = r[idx["disposition"]].strip()
+    return found or None
 
 
 # ---------- per-seat statusline (task 7.69, statusline half) ----------
@@ -2437,6 +2606,22 @@ def team_monitor_holder(base):
     return pid if pid and Path(f"/proc/{pid}").exists() else None
 
 
+def load_state_snapshot(base):
+    """team-monitor's `state.json` snapshot as a dict, or `None` on anything short of a clean
+    read — missing, unreadable, unparseable, or the wrong shape. NEVER raises.
+
+    ONE reader (PRIN-11). Three consumers want three different things on failure — a bound
+    (`team_monitor_last_seen`), nothing (`state_agent_types`), a refusal (`attest_exit_blockers`)
+    — and each keeps its own fail-safe direction; what they no longer keep is a private copy of
+    the read. CMP-20's architecture is exactly this: ONE component touches the raw sources and
+    writes one canonical snapshot, and every consumer reads that snapshot only."""
+    try:
+        snap = json.loads((base.parent / "state.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    return snap if isinstance(snap, dict) else None
+
+
 def team_monitor_last_seen(base):
     """The DEAD sensor's own final heartbeat: (written_at_iso, writer_pid), or None.
 
@@ -2454,11 +2639,8 @@ def team_monitor_last_seen(base):
     `written_at` in the future (a clock moved; a bound derived from it would be fiction). The
     caller then reports the death instant as unknown, which is the honest floor.
     """
-    try:
-        snap = json.loads((base.parent / "state.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        return None
-    if not isinstance(snap, dict):
+    snap = load_state_snapshot(base)
+    if snap is None:
         return None
     iso, at, pid = snap.get("written_at_iso"), snap.get("written_at"), snap.get("writer_pid")
     if not iso or not isinstance(at, (int, float)):
@@ -3323,7 +3505,8 @@ def load_awaiting(base):
     return data if isinstance(data, dict) else {}
 
 
-def set_awaiting(base, seat, pane, transcript, exported, disposition="done", handoff_stamp=""):
+def set_awaiting(base, seat, pane, transcript, exported, disposition="done", handoff_stamp="",
+                 writer=DISPOSITION_WRITER_SEAT):
     """Record the debt at checkout. Best-effort: bookkeeping ABOUT a checkout must never break the
     checkout itself — 7.37 already ruled that shape for the session trace, and a seat that cannot
     check out is worse than a debt nobody recorded.
@@ -3342,7 +3525,21 @@ def set_awaiting(base, seat, pane, transcript, exported, disposition="done", han
 
     The default is `done` so every pre-s12-07 caller keeps its meaning unchanged; the checkout
     passes BOTH arms explicitly anyway, because a default a reader must chase is not an assertion.
-    Both are coerced with `str()` at the boundary for the reason the record below states."""
+    `handoff_stamp` is coerced with `str()` at the boundary for the reason the record below states.
+
+    dag-08: `writer` DECLARES WHICH SIDE IS WRITING — a seat's own check-out, or an act of the
+    kit — and it defaults to the seat because every call site that existed before dag-08 is a
+    seat check-out path. `disposition` is no longer coerced-with-a-fallback: it is validated
+    against `RECORD_DISPOSITION_WRITER` and written EXACTLY as validated, so the value the DAG
+    later reads is the value a caller asserted, never one this function chose."""
+    # dag-08 — THE BOUNDARY, and it sits OUTSIDE the try below ON PURPOSE. The handler there
+    # catches (OSError, ValueError) to keep this function best-effort, so a validation raised
+    # inside it would be swallowed into a `False` that reads exactly like a full disk. The two
+    # failures are different in kind and must stay so: a disk failure is the environment's and is
+    # survivable (S7-d's subject — bookkeeping about a checkout must never break the checkout);
+    # an out-of-enum value, or a writer reaching across the bound, is a CALLER CONTRACT BREACH
+    # that only an edit to this file can introduce, and it must be loud (R-8).
+    validate_disposition(disposition, writer)
     try:
         with coord_lock(base):
             data = load_awaiting(base)
@@ -3362,7 +3559,11 @@ def set_awaiting(base, seat, pane, transcript, exported, disposition="done", han
                           # s12-07, str()-coerced for the same reason the transcript is: these
                           # arrive from a caller, and a non-serializable value here would raise
                           # INSIDE the checkout this record is bookkeeping for.
-                          "disposition": str(disposition or "done"),
+                          # dag-08: written EXACTLY as validated. The former
+                          # `str(disposition or "done")` normalized an empty value into `done`,
+                          # which is the one normalization this record can never afford — `done`
+                          # is the single value that advances a DAG edge.
+                          "disposition": disposition,
                           "handoff_stamp": str(handoff_stamp or "")}
             atomic_write(awaiting_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
         return True
@@ -5920,11 +6121,29 @@ def cmd_checkout(args):
     # It goes in THIS record, never a second file. A second surface would force `cmd_reap` and
     # `watch.py` to reconcile two of them, re-importing the re-derivation hazard the comment block
     # at the top of this section exists to name.
+    #
+    # dag-08: `writer` is declared EXPLICITLY, and this is the seat's OWN path — the occupant is
+    # reporting a fact about itself. Declaring it here is what puts this call under the writer
+    # bound, so `exited` (the kit attesting that a harness terminated — a fact no seat can
+    # witness about itself) is refused on this path by construction rather than by nobody ever
+    # passing it.
+    #
+    # dag-09 (LG-9): ONE VARIABLE, READ BY BOTH SURFACES. `awaiting-close.json` is the live
+    # declaration and `sessions.csv` is the durable copy the executor's `clear_awaiting` cannot
+    # erase — and the ready arithmetic cross-verifies the two and reports a disagreement as SKEW.
+    # Computing the value independently at the two write sites is what would MANUFACTURE that
+    # skew, from one branch discriminant, in one function, twelve lines apart.
+    checkout_disposition = "renew" if renew else "done"
     if set_awaiting(base, me, (row or {}).get("pane", ""), out, not err,
-                    disposition=("renew" if renew else "done"), handoff_stamp=handoff_stamp):
+                    disposition=checkout_disposition, handoff_stamp=handoff_stamp,
+                    writer=DISPOSITION_WRITER_SEAT):
         print(f"awaiting close: {me} recorded — its pane is STILL LIVE until leader runs "
               f"`{coord_invocation(args)} close-seat {me}`")
-    sid, cerr = session_trace_safe(session_close, args, me)   # 7.37: checkout ends the session as surely as a close does
+    # 7.37: checkout ends the session as surely as a close does. dag-09: and it carries the SAME
+    # `checkout_disposition` the record above got — the same name, on the same line of sight.
+    sid, cerr = session_trace_safe(session_close, args, me,
+                                   disposition=checkout_disposition,
+                                   writer=DISPOSITION_WRITER_SEAT)
     if cerr:
         print(c(f"WARNING sessions.csv row NOT completed — {cerr}. The close itself stands.",
                 C_DEAD), file=sys.stderr)
@@ -6242,11 +6461,8 @@ def state_agent_types(base):
     only authorization, and nothing may ever branch on this dict's values
     (`r-agent-type-field-name`'s binding condition, restated here because this is now a fourth
     site that touches the field)."""
-    try:
-        snap = json.loads((base.parent / "state.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        return {}
-    if not isinstance(snap, dict):
+    snap = load_state_snapshot(base)
+    if snap is None:
         return {}
     out = {}
     for s in snap.get("seats") or []:
@@ -7792,6 +8008,67 @@ def cmd_gateway_status(args):
 
 # ---------- launch / lifecycle ----------
 
+def frontmatter_text(text):
+    """The descriptor's frontmatter block, or `None` when it has none.
+
+    ⚠ BYTE-FOR-BYTE THE SPAN `discover_workers` READS — `startswith("---")`, then `find("\\n---",
+    3)`. That equality is load-bearing, not tidiness: `descriptor_yaml_findings` hands this block
+    to a real YAML parser while every other check in this file reads the SAME block with regexes,
+    and a check that parsed a different span from the one the kit acts on would be reporting about
+    a file nobody reads.
+
+    ⚠ THREE OTHER SITES STILL INLINE THIS SPLIT (`discover_workers`, the descriptor-name reader
+    around :293, the addressable-row reader around :2872). They are NOT rewired here — that is a
+    sweep with its own blast radius across three audited readers, and this task's scope is the
+    parse check. Filed as a loose end; until it is done, an edit to the split must reach four
+    places."""
+    if not text.startswith("---"):
+        return None
+    fm_end = text.find("\n---", 3)
+    return None if fm_end == -1 else text[:fm_end]
+
+
+def descriptor_yaml_findings(wdir):
+    """[(seat, path, error)] — every descriptor whose frontmatter NO YAML READER CAN LOAD (G-256).
+
+    THE DEFECT THIS CLOSES, and it is a green that means nothing: every structural check in this
+    file reads frontmatter with REGEXES, and a regex is delighted by a document YAML rejects. So a
+    descriptor no parser can load passed the whole structural audit — while any consumer that
+    parses it properly (the daemon, a materializer, a linter) fails on it. Two such files were
+    measured live on run-2, and the audit reported them clean.
+
+    THE KNOWN SHAPE, worth naming because the step-1 authoring wave hit it FOUR times: an
+    UNQUOTED COLON-SPACE inside a `description:` value silently breaks YAML — `description: fix
+    the gate: threading` is a mapping value where a mapping is not allowed — while every
+    structural check keeps passing.
+
+    A parse failure is a FINDING: named, with the file path and THE PARSER'S OWN ERROR. Never a
+    silent skip, never a pass. And PyYAML's absence is itself reported as a finding rather than
+    skipped — a check that cannot run and says nothing is indistinguishable from a check that ran
+    and found nothing, which is this very defect one level up."""
+    out = []
+    try:
+        import yaml
+    except ImportError as exc:                      # noqa: BLE001 — reported, never swallowed
+        return [("(all seats)", wdir,
+                 f"the YAML parse check COULD NOT RUN — {exc}. Reported as a finding rather than "
+                 f"skipped. Install PyYAML.")]
+    for path in briefing_files(wdir):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            out.append((path.parent.name or path.stem, path, f"unreadable: {exc}"))
+            continue
+        fm = frontmatter_text(text)
+        if fm is None:
+            continue                                 # no frontmatter is a DIFFERENT finding
+        try:
+            yaml.safe_load(fm)
+        except yaml.YAMLError as exc:
+            out.append((path.parent.name or path.stem, path, " ".join(str(exc).split())))
+    return out
+
+
 def discover_workers(wdir):
     """Every briefing with an `agent:` frontmatter key — leader INCLUDED, so an explicit
     by-name `launch --only leader` or `close-seat leader --renew` can target it. A bare
@@ -7830,6 +8107,8 @@ def discover_workers(wdir):
             "window": _fm_window(fm),
             "ephemeral": _fm_yes(fm, "ephemeral"),
             "ctx_refresh": int(mr.group(1)) if mr else None,
+            "mode": (FM_KEY["mode"].search(fm).group(1)
+                     if FM_KEY["mode"].search(fm) else ""),
             "folder": folder,
             "mechanical_close": _fm_mechanical_close(fm),
         })
@@ -7963,6 +8242,17 @@ def cmd_descriptors(args):
           "mission narrative is PROSE and is NOT checked here — zero findings does not mean the "
           "descriptors are true.")
 
+    # dag-19 / G-256: its OWN section, appended after every line this command already printed,
+    # so the pre-existing output is byte-identical to what it was before the check existed.
+    yml = descriptor_yaml_findings(wdir)
+    print(f"\n{c('yaml-parse (G-256):', C_LABEL)} descriptors NO YAML READER CAN LOAD")
+    for _y_seat, _y_path, _y_detail in sorted(yml, key=lambda f: str(f[1])):
+        print(f"  {c(_y_seat, C_DEAD)}  {_y_path}: {_y_detail}")
+    print(f"yaml-parse findings: {len(yml)}")
+    print("bound: the FRONTMATTER BLOCK ONLY, parsed by the same reader a consumer would use. "
+          "Every other check on this command reads that block with REGEXES, which are delighted "
+          "by a document YAML rejects — that is the gap this closes, and it closes only that.")
+
     stale = boot_stale_findings(args)
     # Measured on this run's first live pass: 11 findings, 10 of them a seat writing its OWN
     # outputs. Full coverage is deliberate and kept — but an alarm that rings ten times per real
@@ -7982,7 +8272,7 @@ def cmd_descriptors(args):
           "(a seat writing its own memory.md trips it) and it CANNOT see a ruling that invalidates "
           "a seat's instructions without anyone editing its files. Zero here is not proof a seat "
           "is current.")
-    sys.exit(1 if (findings or stale) else 0)
+    sys.exit(1 if (findings or stale or yml) else 0)
 
 
 # ---------- descriptor vs taskforce.csv (G-51) ----------
@@ -8084,6 +8374,425 @@ def identity_prefix(agent):
 
 CLAUDE_MODEL_ALIASES = ("opus", "sonnet", "haiku", "fable")
 OPENCODE_MODEL_RE = re.compile(r"[^/\s]+/[^/\s]+\Z")
+
+
+# ---------- dag-10: the ready-SEAT arithmetic (`coordinate ready-seats`) ----------
+#
+# The ruling this realizes (`d-advancement-on-checkout`): the whole workflow's seat rows are
+# registered at materialization, and A SEAT IS READY WHEN EVERY `after` PREDECESSOR HAS A CLEAN
+# CHECK-OUT WITH DISPOSITION `done`. This is CMP-25's fast path emulated in a CLI with no
+# long-lived driver — THE CALLER HOLDS NO LIST; it recomputes from disk every sweep. That is the
+# whole reason this is a command and not a daemon: a cached frontier is a second copy of run
+# state, and run state is DERIVED (the KG is explicit that `taskforce.csv` carries no status
+# column).
+#
+# WHY IT LIVES IN `coord.py` and not in a sibling script: the computation reads `workers.md`,
+# `awaiting-close.json` and `sessions.csv` through `load_workers`, `current_row`, `load_awaiting`
+# and `session_disposition` — all four of them here. A sibling would re-implement all four, which
+# is the two-surfaces re-derivation hazard this module names in half a dozen places. Inside, it
+# also earns the `save-coord.py` gate and its self-test rows for free.
+#
+# ⚠ IT LAUNCHES NOTHING, WRITES NOTHING, MESSAGES NOBODY. It is a pure read whose output another
+# actor acts on.
+
+def taskforce_after(pkg):
+    """{seat: [predecessors]} from the run's `taskforce.csv`, in FILE ORDER. `{}` when absent.
+
+    The `after` cell is COMMA-separated, parsed exactly as `materialize-seats.py` WRITES it
+    (`preds = [p.strip() for p in raw.split(",") if p.strip()]`). One producer, one parse — a
+    reader that invented its own separator would silently see one predecessor named
+    "a,b" and mark a seat ready that has two unfinished parents."""
+    header, rows = read_csv_table(pkg / "taskforce.csv", [])
+    if not rows or "seat" not in header:
+        return {}
+    idx = {c: i for i, c in enumerate(header)}
+    out = {}
+    for r in rows:
+        pad_row(r, header)
+        seat = r[idx["seat"]].strip()
+        if not seat:
+            continue
+        raw = r[idx["after"]].strip() if "after" in idx else ""
+        out[seat] = [p.strip() for p in raw.split(",") if p.strip()]
+    return out
+
+
+def terminal_disposition(pkg, base, seat, awaiting=None):
+    """(value, source, skew) — the seat's DURABLE check-out disposition.
+
+    `value`  the disposition, or `None` when nobody declared one — and `None` NEVER means `done`.
+    `source` which surface it came from, for the reason string.
+    `skew`   `(live, durable)` when BOTH surfaces carry a disposition and they DISAGREE.
+
+    TWO SURFACES, AND A DISAGREEMENT IS A LOUD FAILURE RATHER THAN A TIE-BREAK. The live surface
+    is `awaiting-close.json` — the declaration at the moment of truth, which the lifecycle
+    executor CLEARS on success. The durable one is the `disposition` column on `sessions.csv`,
+    which survives that clear. Picking a winner between two disagreeing records would be this
+    tool deciding a question only a human can: which of two contradictory statements about a
+    seat's own ending is the true one. It reports SKEW instead, prints both with their sources,
+    and exits non-zero — the same cross-verify discipline the lifecycle executor already
+    requires of itself ("fail loud on mismatch — never silently proceed on a skew").
+
+    The awaiting-close read goes through `entry.get("disposition", "done")`, which is
+    `load_awaiting`'s DOCUMENTED contract and not a guess: a record exists only because a
+    check-out happened, and packages written before that key existed meant `done`."""
+    entry = (load_awaiting(base) if awaiting is None else awaiting).get(seat)
+    live = (entry.get("disposition", "done") or "").strip() if isinstance(entry, dict) else ""
+    durable = session_disposition(pkg, seat) or ""
+    if live and durable and live != durable:
+        return None, "", (live, durable)
+    if live:
+        return live, "awaiting-close.json", None
+    if durable:
+        return durable, "sessions.csv", None
+    return None, "", None
+
+
+def ready_seat_rows(args):
+    """[{seat, verdict, reason, ...}] for every `taskforce.csv` row, in file order.
+
+    ONE ROW PER SEAT, AND EVERY ROW CARRIES A REASON. A bare verdict re-installs agent judgment
+    at the read: the caller would have to reconstruct WHY, and reconstruction is exactly the act
+    the chief-of-staff's engine bounds forbid it.
+
+    Verdict precedence, and the order is the design:
+      SKEW     first, always — a contradiction must never be masked by a later verdict
+      DONE     this seat already has a terminal disposition on record (`terminal(S) is not None`),
+               so it is not a candidate to launch. ⚠ THE WORD IS THE COARSE CLASS, NOT A CLAIM
+               THAT THE WORK IS DONE: the reason string and the json `disposition` field always
+               name the actual value, and for `exited` the reason carries the routing in full.
+               Nothing here maps `exited` to `done`.
+      RUNNING  an ACTIVE roster row — the seat is occupied; launching it again double-launches it
+      UNBUILT  no descriptor on disk — a `taskforce.csv`-only row would be launched into nothing
+      BLOCKED  at least one `after` predecessor lacks a `done` check-out
+      READY    every term above cleared
+    """
+    pkg = package_dir(args, register=False)
+    base = base_dir(args, register=False)
+    after = taskforce_after(pkg)
+    _, _, roster = load_workers(base)
+    built = {w["agent"] for w in discover_workers(workers_dir(args))}
+    awaiting = load_awaiting(base)
+    term = {}
+    for seat in after:
+        term[seat] = terminal_disposition(pkg, base, seat, awaiting=awaiting)
+    # A predecessor named in an `after` set but carrying no row of its own is still a real term of
+    # the predicate — resolved here so a dangling edge reads as "no check-out" rather than raising.
+    for preds in after.values():
+        for p in preds:
+            if p not in term:
+                term[p] = terminal_disposition(pkg, base, p, awaiting=awaiting)
+
+    out = []
+    for seat, preds in after.items():
+        value, source, skew = term[seat]
+        row = current_row(roster, seat)
+        active = bool(row) and row.get("active") == "yes"
+        rec = {"seat": seat, "after": list(preds), "disposition": value, "source": source,
+               "skew": list(skew) if skew else None, "active": active,
+               "built": seat in built}
+        if skew:
+            rec["verdict"] = "SKEW"
+            rec["reason"] = (f"awaiting-close.json={skew[0]} | sessions.csv={skew[1]}  "
+                             f"⚠ ADJUDICATE — the two records of this seat's own ending "
+                             f"disagree; nothing advances on either until a human rules")
+        elif value is not None:
+            rec["verdict"] = "DONE"
+            rec["reason"] = f"check-out `{value}` ({source})"
+            if value != "done":
+                rec["reason"] += (f" — this seat advances NO edge; only `done` does"
+                                  if value != "exited" else
+                                  " — THE HARNESS TERMINATED; whether the work is done is NOT "
+                                  "established. Routes to the leader, which investigates and "
+                                  "either relaunches or flips the row to `done`. It advances "
+                                  "NO edge meanwhile")
+        elif active:
+            rec["verdict"] = "RUNNING"
+            rec["reason"] = f"roster: active since {row.get('checkin') or '(unstamped)'}"
+        elif seat not in built:
+            rec["verdict"] = "UNBUILT"
+            rec["reason"] = f"no descriptor under {workers_dir(args) / seat}"
+        else:
+            unmet = []
+            for p in preds:
+                pv, psrc, pskew = term[p]
+                if pskew:
+                    unmet.append(f"{p}=SKEW({pskew[0]}|{pskew[1]})")
+                elif pv is None:
+                    unmet.append(f"{p}=<no check-out>")
+                elif pv != "done":
+                    unmet.append(f"{p}={pv}")
+            if unmet:
+                rec["verdict"] = "BLOCKED"
+                rec["reason"] = "after: " + " ".join(unmet)
+            else:
+                rec["verdict"] = "READY"
+                rec["reason"] = ("after: " + " ".join(f"{p}=done" for p in preds)) if preds \
+                    else "after: (root — no predecessors)"
+        out.append(rec)
+    return out
+
+
+# ---------- dag-11: the attest-exit arm (`coordinate attest-exit`) ----------
+#
+# THE MEASURED FAILURE THIS CLOSES (F1, 2026-07-28, seat `oc2`). The seat DID THE WORK — `done.txt`
+# read `OK` — and its one-shot harness exited without checking out. Afterwards: the roster still
+# said `oc2 ACTIVE pane=%466`; the pane held a bare `bash`; the `sessions.csv` row was open with no
+# `ended`; and `awaiting-close.json` had NO `oc2` entry at all. Only the sensor saw it, as
+# `roster_absent`. So every surface the ready arithmetic reads says "still working, forever", the
+# successor never becomes READY, and the work is complete on disk the whole time.
+#
+# NOT OPENCODE-SPECIFIC IN PRINCIPLE: any harness whose terminal state is ABSENCE has this shape.
+#
+# ⚠⚠ WHAT THIS ARM ATTESTS IS ONE FACT AND ONLY ONE: THE HARNESS TERMINATED. It does NOT decide
+# whether the work succeeded, and it MUST NOT — an attestation by a third party to a fact it did
+# not witness is exactly the misgrading R-6 bars. It writes `exited`, never `done`, and the writer
+# bound makes `done` structurally unreachable from here. An `exited` row then routes to the LEADER,
+# which investigates and either relaunches the seat or flips the row to `done`; this arm performs
+# neither of those exits.
+#
+# WHY THE KIT AND NOT THE CHIEF-OF-STAFF: the CoS is barred from lifecycle actuation, and its pane
+# is the measured-unreliable surface. This is pure code; the CoS may READ its report.
+
+# One full sensor cadence. team-monitor's own default interval is 20s, and this is deliberately a
+# WHOLE multiple of it rather than equal to it: the debounce must span a complete sensor pass plus
+# the slack of one more, or a seat observed absent in the snapshot written the instant its harness
+# began exiting would be attested while its check-out was still in flight.
+# ⚠ THE CADENCE IS NOT READABLE FROM THE SNAPSHOT — team-monitor does not record the interval it
+# is running at, so this constant cannot be derived from the run and is a documented second home
+# for that number. Filed as a loose end; the fix is on the monitor's side (record `interval` in
+# `state.json`), not here.
+ATTEST_MIN_ABSENCE_S = 60
+
+
+def attest_exit_blockers(args, seat, snap=None, now_ts=None):
+    """Every reason `seat` must NOT be exit-attested, as a list. EMPTY means every term holds.
+
+    A LIST, not a bool, and for `reap_blockers`' reason: this arm writes to four surfaces, so a
+    caller — and a human reading a dry pass — must see WHICH term held it, never merely that
+    something did. A gate that answers only yes/no teaches nobody why the run is stuck.
+
+    THE PREDICATE, and every term is required:
+
+      (a) the seat is in `state.json`'s `roster_absent`      — sensor-detected, never self-derived
+      (b) its descriptor declares `mode: one-shot`           — the terminal state is EXPECTED
+      (c) it has NO terminal disposition                     — it never checked out
+      (d) no LIVE `lifecycle-inflight.json` entry            — it is not mid-renewal
+      (e) the condition has HELD longer than one full sensor cadence — not a race with a slow exit
+
+    ⚠ HOW (e) IS MEASURED, because it is the term with no field behind it. Nothing on disk records
+    HOW LONG a seat has been absent: `roster_absent` rows carry no duration, and this is a
+    stateless CLI with no tick counter of its own (watch.py keeps `gone_ticks` in its private
+    state; reading that would couple this arm to a component being retired). So (e) is taken as
+    TWO INDEPENDENT OBSERVATIONS SEPARATED BY REAL TIME rather than as an inferred duration:
+
+      (e1) the SNAPSHOT saw the seat absent, and that snapshot is at least one cadence old;
+      (e2) a LIVE re-read of the room, taken now, still finds no harness on the seat's pane;
+      (e3) the seat's OPEN session row started BEFORE the snapshot was written — so the absence
+           the snapshot recorded belongs to THIS session and not to an earlier one that has
+           since been relaunched into the same seat.
+
+    Two observations a cadence apart, both absent, provably about the same session. That is
+    stronger than a tick count, because (e2) is taken AT ACT TIME: a classification carried from a
+    snapshot is up to one cadence stale, and this arm must decide on the room as it stands."""
+    base = base_dir(args, register=False)
+    pkg = package_dir(args, register=False)
+    now_ts = time.time() if now_ts is None else now_ts
+    snap = load_state_snapshot(base) if snap is None else snap
+    why = []
+    if snap is None:
+        return ["no readable `state.json` snapshot — the sensor's observation is this arm's ONLY "
+                "evidence that the harness is gone, and an unreadable one is evidence in neither "
+                "direction (refuse, never assume)"]
+    absent = {(r.get("seat") or ""): r for r in (snap.get("roster_absent") or [])
+              if isinstance(r, dict)}
+    row = absent.get(seat)
+    if row is None:
+        why.append("(a) not in `state.json`'s roster_absent — the sensor does not report this "
+                   "seat as an active roster row whose harness is gone")
+    decl = next((w for w in discover_workers(workers_dir(args)) if w["agent"] == seat), None)
+    mode = (decl or {}).get("mode") or ""
+    if mode != "one-shot":
+        why.append(f"(b) descriptor declares mode: {mode or '<undeclared>'} — attestation is only "
+                   f"for a harness whose terminal state is EXPECTED to be absence. An undeclared "
+                   f"mode is NOT one-shot: this refuses rather than assumes, so no existing seat "
+                   f"becomes attestable by having said nothing")
+    value, source, skew = terminal_disposition(pkg, base, seat)
+    if skew:
+        why.append(f"(c) its two disposition records DISAGREE (awaiting-close.json={skew[0]} | "
+                   f"sessions.csv={skew[1]}) — a skew is a human's to adjudicate, and attesting "
+                   f"on top of one would bury the contradiction")
+    elif value is not None:
+        why.append(f"(c) it already has a check-out: disposition `{value}` ({source}) — there is "
+                   f"nothing left to attest")
+    entry = load_lifecycle(base).get(seat)
+    # PLAIN pid+starttime liveness, NEVER `ident_is_live_harness`: the lifecycle executor is a
+    # PYTHON process, and the harness predicate answers DEAD for every live one of them — which
+    # would turn MID-RENEWAL into "exited" and attest a seat that is actively being renewed.
+    _ex = lifecycle_ident(entry.get("executor")) if isinstance(entry, dict) else None
+    if (isinstance(entry, dict) and entry.get("state") == "in-flight" and _ex
+            and ident_is_live_process((_ex["pid"], _ex["starttime"]))):
+        why.append("(d) a LIVE lifecycle executor holds this seat — it is mid-renewal, not exited")
+    written = snap.get("written_at")
+    age = (now_ts - written) if isinstance(written, (int, float)) else None
+    if age is None:
+        why.append("(e1) the snapshot carries no `written_at`, so its age — and with it whether "
+                   "the absence has held for a full sensor cadence — cannot be established")
+    elif age < ATTEST_MIN_ABSENCE_S:
+        why.append(f"(e1) the snapshot is only {int(age)}s old and the absence must have held "
+                   f"longer than one full sensor cadence ({ATTEST_MIN_ABSENCE_S}s) — this would "
+                   f"be a race with a slow exit, attesting a harness still shutting down")
+    pane = (row or {}).get("pane") or ""
+    if pane and pane in live_panes() and pane_harness_idents(pane):
+        why.append(f"(e2) pane {pane} holds a LIVE harness right now — the snapshot's observation "
+                   f"is up to one cadence stale and the room as it stands contradicts it")
+    if isinstance(written, (int, float)):
+        started = session_open_started(pkg, seat)
+        if started is not None and started > written:
+            why.append("(e3) this seat's open session row STARTED AFTER the snapshot was written, "
+                       "so the absence the snapshot recorded belongs to an earlier session — "
+                       "attesting it would close the wrong one")
+    return why
+
+
+def session_open_started(pkg, seat):
+    """The epoch seconds at which `seat`'s LAST OPEN session row started, or None.
+
+    `None` covers every unreadable case — no file, no columns, no open row, an unparseable stamp —
+    and the caller treats it as "cannot establish", never as "old enough"."""
+    path = sessions_csv(pkg)
+    if not path.exists():
+        return None
+    header, rows = read_csv_table(path, SESSIONS_COLS)
+    idx = {c: i for i, c in enumerate(header)}
+    if not {"seat", "ended", "started"} <= set(idx):
+        return None
+    found = None
+    for r in rows:
+        pad_row(r, header)
+        if r[idx["seat"]].strip() == seat and not r[idx["ended"]].strip():
+            found = r[idx["started"]].strip()
+    if not found:
+        return None
+    try:
+        return datetime.strptime(found, "%Y-%m-%d %H:%M").timestamp()
+    except ValueError:
+        return None
+
+
+def attest_exit_seat(args, seat):
+    """Perform the attestation for ONE seat. Returns the list of step strings performed.
+
+    THE ORDER IS `cmd_checkout`'S OWN, deliberately, so the surfaces this leaves behind can never
+    diverge from the ones a normal check-out leaves: export, flip the roster row, record the debt,
+    close the session row. A different order here would be a second definition of what a finished
+    seat looks like."""
+    base = base_dir(args, register=False)
+    _, _, rows = load_workers(base)
+    row = current_row(rows, seat) or {}
+    steps = []
+    out, err = export_transcript(args, seat, "attest-exit")
+    steps.append(f"transcript: {out}" if not err else f"transcript SKIPPED — {err}")
+
+    def flip(r):
+        r["active"] = "no"
+        r["checkout"] = now()
+
+    ok, note = update_row(base, seat, flip)
+    steps.append(f"roster: flipped to inactive" if ok else f"roster: NOT flipped — {note}")
+    # `exited`, from the KIT writer. Both bounds are structural: this arm CANNOT write `done`
+    # (the writer bound refuses it) and a seat CANNOT write `exited` (the same bound, other side).
+    if set_awaiting(base, seat, row.get("pane", ""), out, not err,
+                    disposition="exited", writer=DISPOSITION_WRITER_KIT):
+        steps.append("awaiting-close.json: disposition `exited` recorded")
+    else:
+        steps.append("awaiting-close.json: NOT recorded — the debt is unrecorded, say so")
+    sid, cerr = session_trace_safe(session_close, args, seat,
+                                   disposition="exited", writer=DISPOSITION_WRITER_KIT)
+    steps.append(f"sessions.csv: {sid} ended, disposition `exited`" if not cerr
+                 else f"sessions.csv: row NOT completed — {cerr}")
+    return steps
+
+
+def cmd_attest_exit(args):
+    """Attest that a one-shot harness terminated. BARE = report; `--go` = act."""
+    base = base_dir(args, register=False)
+    snap = load_state_snapshot(base)
+    candidates = ([args.seat] if getattr(args, "seat", None)
+                  else sorted({(r.get("seat") or "") for r in ((snap or {}).get("roster_absent")
+                                                               or []) if isinstance(r, dict)}))
+    if not candidates:
+        print("no candidate: nothing is in `state.json`'s roster_absent, so no harness is "
+              "sensor-reported as gone from a seat the roster still calls active.")
+        return
+    acted = 0
+    for seat in candidates:
+        why = attest_exit_blockers(args, seat, snap=snap)
+        if why:
+            print(f"{c(seat, C_LABEL)}  NOT ATTESTABLE")
+            for w in why:
+                print(f"    {w}")
+            continue
+        print(f"{c(seat, C_LABEL)}  EXIT-ATTESTABLE — every term of the predicate holds")
+        if not getattr(args, "go", False):
+            print("    (report only — nothing was written. Re-run with --go to act.)")
+            continue
+        for step in attest_exit_seat(args, seat):
+            print(f"    {step}")
+        acted += 1
+    if acted:
+        print(c(f"\n{acted} seat(s) attested `exited`. THAT IS THE ONLY CLAIM MADE: the harness "
+                f"terminated. Whether the work is done is NOT established here — each row routes "
+                f"to the LEADER, which investigates and either relaunches the seat or flips its "
+                f"disposition to `done`. Until then it advances NO edge "
+                f"({coord_invocation(args)} ready-seats).", C_HINT))
+
+
+def cmd_ready_seats(args):
+    """The ready-SEAT frontier, computed from disk. READ-ONLY: launches nothing, writes nothing,
+    messages nobody."""
+    rows = ready_seat_rows(args)
+    target = getattr(args, "explain", None)
+    if target:
+        rec = next((r for r in rows if r["seat"] == target), None)
+        if rec is None:
+            refuse("input",
+                   f"'{target}' has no row in this run's taskforce.csv, so there is no predicate "
+                   f"to evaluate for it. Seats in this run: "
+                   f"{', '.join(r['seat'] for r in rows) or '(none)'}\n"
+                   f"The whole frontier: {coord_invocation(args)} ready-seats", 2)
+        # TERM BY TERM, in the predicate's own order, each with the value that decided it — so a
+        # reader learns WHICH term held the seat, never merely that something did.
+        print(f"{c('seat:', C_LABEL)} {rec['seat']}    {c(rec['verdict'], C_LABEL)}")
+        print(f"  terminal(self)      = {rec['disposition'] or 'None'}"
+              f"{' (' + rec['source'] + ')' if rec['source'] else ''}"
+              f"   -> not itself finished: {rec['disposition'] is None}")
+        print(f"  no ACTIVE roster row                                 -> {not rec['active']}")
+        print(f"  descriptor on disk                                   -> {rec['built']}")
+        if not rec["after"]:
+            print("  every `after` predecessor is `done`                   -> True (root — none)")
+        for p in rec["after"]:
+            prec = next((r for r in rows if r["seat"] == p), None)
+            pv = prec["disposition"] if prec else None
+            print(f"  after `{p}` = {pv or '<no check-out>'}"
+                  f"   -> {pv == 'done'}")
+        print(f"  {c('reason:', C_LABEL)} {rec['reason']}")
+        return
+    if getattr(args, "json", False):
+        print(json.dumps(rows, indent=2, sort_keys=True))
+    else:
+        width = max([len(r["seat"]) for r in rows] or [4])
+        for r in rows:
+            print(f"{r['verdict']:<8}  {r['seat']:<{width}}  {r['reason']}")
+        counts = {}
+        for r in rows:
+            counts[r["verdict"]] = counts.get(r["verdict"], 0) + 1
+        print(f"\n{len(rows)} seat(s): "
+              + " · ".join(f"{k}={counts[k]}" for k in sorted(counts)))
+    if any(r["verdict"] == "SKEW" for r in rows):
+        # NON-ZERO, and it is the only non-zero this command has. A skew is the one outcome a
+        # caller must not be able to sweep past on exit status alone.
+        sys.exit(1)
 
 
 def peer_windows(seats, me):
@@ -11321,6 +12030,84 @@ def _selftest_checks(args, failures, names):
               "(the leader's rule, applied to the check that most invites the misreading)",
               clean_code == 0 and "bound:" in clean_out and "owned-surfaces" in clean_out
               and "NOT checked" in clean_out)
+
+        # ---- dag-19 / G-256: a descriptor NO YAML READER CAN LOAD is a FINDING ----
+        # Spec: implementation-tasks/dag-19-descriptors-yaml-parse-finding.md (MM-10, DS-1…DS-4).
+        # Reproduces the shape measured FOUR times in the step-1 authoring wave and twice live on
+        # run-2: an unquoted colon-space inside a value. Every structural check above reads
+        # frontmatter with REGEXES and passes it happily.
+        _y_pkg = Path(td) / "yamlpkg"
+        (_y_pkg / "seats" / "okseat").mkdir(parents=True)
+        (_y_pkg / "seats" / "okseat" / "seat.md").write_text(
+            "---\nseat: okseat\nharness: claude\nmodel: opus\neffort: medium\n"
+            "description: \"a quoted value: safe\"\n---\nbody\n", encoding="utf-8")
+        (_y_pkg / "taskforce.csv").write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+            "1,okseat,,claude,opus,medium,50,m1\n"
+            "2,colonseat,,claude,opus,medium,50,m1\n"
+            "3,tabseat,,claude,opus,medium,50,m1\n", encoding="utf-8")
+        _y_ns = argparse.Namespace(package=str(_y_pkg), run=None, base=None, workers_dir=None)
+        _y_clean_out, _y_clean_code = run_descriptors(_y_ns)
+        # ⚠ THE PACKAGE ABOVE IS NOT STRUCTURALLY CLEAN (two registry rows have no descriptor
+        # yet), so DS-1's "exit 0 on an all-valid roster" is taken on `cleanpkg`, which IS —
+        # `_y_clean_code` is only used to prove the SECTION renders with zero yaml findings.
+        (_y_pkg / "seats" / "colonseat").mkdir(parents=True)
+        (_y_pkg / "seats" / "colonseat" / "seat.md").write_text(
+            "---\nseat: colonseat\nharness: claude\nmodel: opus\neffort: medium\n"
+            "description: fix the gate: threading\n---\nbody\n", encoding="utf-8")
+        (_y_pkg / "seats" / "tabseat").mkdir(parents=True)
+        (_y_pkg / "seats" / "tabseat" / "seat.md").write_text(
+            "---\nseat: tabseat\nharness: claude\nmodel: opus\neffort: medium\n"
+            "notes:\n\t- a tab where YAML forbids one\n---\nbody\n", encoding="utf-8")
+        _y_found = descriptor_yaml_findings(_y_pkg / "seats")
+        _y_by = {s: d for s, _p, d in _y_found}
+        _y_out, _y_code = run_descriptors(_y_ns)
+        _y_struct = {k for _, k, _ in descriptor_findings(_y_ns)}
+        check("dag-19 / G-256 (MM-10 + DS-1 + DS-2): A DESCRIPTOR NO YAML READER CAN LOAD IS "
+              "REPORTED AS A FINDING — named, with the FILE PATH and THE PARSER'S OWN ERROR — and "
+              "the command EXITS NON-ZERO for it. ⚠ A REPORT LINE WITH A ZERO EXIT IS A SKIP "
+              "WEARING A FINDING'S CLOTHES, which is why the exit status is in this row. Two "
+              "fixtures with DIFFERENT parse errors produce DIFFERENT messages, so the message "
+              "cannot be a constant that proves nothing. And the valid descriptor beside them is "
+              "NOT reported — every structural check on this command reads that same frontmatter "
+              "with regexes and passes all three, which is the whole gap",
+              set(_y_by) == {"colonseat", "tabseat"}
+              and "mapping values are not allowed" in _y_by["colonseat"]
+              and _y_by["colonseat"] != _y_by["tabseat"]
+              and "tab" in _y_by["tabseat"].lower()
+              and all(str(_y_pkg / "seats" / s / "seat.md") in _y_out for s in _y_by)
+              and _y_by["colonseat"] in _y_out and _y_by["tabseat"] in _y_out
+              and _y_code == 1
+              and "yaml-parse findings: 2" in _y_out
+              # THE PREMISE, asserted rather than assumed: the regex-based reader every other
+              # check on this command depends on ACCEPTS both unparseable files — it resolves
+              # their seat names happily. That is exactly why a green structural audit meant
+              # nothing about them, and it is the reason this check had to exist.
+              and {"colonseat", "tabseat"}
+                  <= {w["agent"] for w in discover_workers(_y_pkg / "seats")}
+              and not any(k.startswith("yaml") for _, k, _ in descriptor_findings(_y_ns)))
+        _y_order = [clean_out.find(_y_h) for _y_h in
+                    ("descriptors:", "registry:", "structural findings:", "bound:",
+                     "yaml-parse (G-256):", "boot-stale (G-61):")]
+        check("dag-19 DS-3: THE CHECK ADDS A SECTION AND CHANGES NOTHING ELSE. Every line the "
+              "command printed before this task is byte-identical on a structurally sound "
+              "package; the only difference is the appended yaml-parse section, and on a clean "
+              "roster it reports ZERO and the command still exits 0. A check that perturbed the "
+              "existing audit would make every reader re-verify output they already trusted",
+              clean_code == 0
+              and "yaml-parse (G-256):" in clean_out
+              and "yaml-parse findings: 0" in clean_out
+              and descriptor_yaml_findings(cleanpkg / "seats") == []
+              # APPENDED, not interleaved: every pre-existing section header still renders, in
+              # its original order, with the new one slotted between the structural audit and
+              # boot-staleness. Positions are compared, never merely membership — a section that
+              # moved would leave a reader re-verifying output they already trusted.
+              # `find`, never `index` (G-215(a)): a missing header must FAIL THIS ROW, not raise
+              # a ValueError that takes the whole suite down with no verdict — and a mutation
+              # that drops the section is exactly what this clause exists to catch.
+              and all(_y_at >= 0 for _y_at in _y_order)
+              and _y_order == sorted(_y_order)
+              and "yaml-parse (G-256):" in _y_clean_out)
         # ---- G-61: boot-staleness, folder-scoped (a seat's instructions are write-once at boot) ----
         (cleanpkg / "coordination").mkdir(exist_ok=True)
         (cleanpkg / "coordination" / "workers.md").write_text(
@@ -14264,12 +15051,773 @@ def _selftest_checks(args, failures, names):
               "positional parameters the signature has always had are unchanged and still first, "
               "no call passes more than those five positionally, and every added value is passed "
               "BY NAME. Counted against the source itself, so a caller added later cannot quietly "
-              "fall outside a sweep that was true once",
+              "fall outside a sweep that was true once. ⚠ THIS ROW WENT RED WHEN `dag-08` ADDED "
+              "`writer`, WHICH IS THE ROW WORKING: dag-08's spec explicitly required the call "
+              "sites be swept before the signature moved, and this row is what makes the sweep a "
+              "re-run rather than a sentence in a return nobody reads. All eleven added values "
+              "since s12-07 are still keyword-only in practice",
               len(_s7_calls) >= 6
               and _s7_params[:5] == ["base", "seat", "pane", "transcript", "exported"]
-              and _s7_params[5:] == ["disposition", "handoff_stamp"]
+              and _s7_params[5:] == ["disposition", "handoff_stamp", "writer"]
               and all(len(n.args) <= 5 for n in _s7_calls)
-              and _s7_kwnames <= {"disposition", "handoff_stamp"})
+              and _s7_kwnames <= {"disposition", "handoff_stamp", "writer"})
+
+        # ============ dag-08: THE RECORD DISPOSITION ENUM AND ITS WRITER BOUND ===================
+        # Spec: implementation-tasks/dag-08-exited-disposition-enum.md (EX-1…EX-4, EX-6).
+        # EX-5 (`exited` never advances the DAG) is NOT here: it is arithmetic over the enum, not a
+        # property of the enum, and it is exercised by `dag-10`'s `ready-seats` rows — cited, not
+        # duplicated, because a second home for that claim is a second one to drift (PRIN-11).
+        #
+        # ⚠ EACH ROW BELOW ISOLATES UNDER A DIFFERENT MUTATION OF THE SAME MAPPING, and that was
+        # designed rather than assumed. The obvious mutations do NOT isolate — dropping `exited`
+        # from the enum reds EX-1 AND EX-2 together, and flipping `done` to the kit reds EX-3 AND
+        # EX-2 together — so the probe VALUES are chosen so each row's red arm touches exactly one
+        # row: EX-1 reds on a FIFTH key, EX-2 on `exited` flipped to the seat, EX-3 on `revive`
+        # flipped to the seat, EX-4 on the validation being moved inside `set_awaiting`'s
+        # best-effort `try`. Change a probe value here and the isolation is gone.
+        def _d8_val(_d, _w):
+            """None when the value is accepted; the refusal's own text when it is refused. A
+            string rather than a bool, because every row below asserts WHAT the refusal said —
+            a refusal that does not name the value and the side is a refusal nobody can act on."""
+            try:
+                validate_disposition(_d, _w)
+                return None
+            except ValueError as _d8_e:
+                return str(_d8_e)
+
+        _d8_names = sorted(RECORD_DISPOSITION_WRITER)
+        _d8_each = {_d: _d8_val(_d, _w) for _d, _w in RECORD_DISPOSITION_WRITER.items()}
+        _d8_fifth = _d8_val("harvest", DISPOSITION_WRITER_SEAT) or ""
+        _d8_bridge = [v for v in LIFECYCLE_INTENT_OF.values() if v is not LIFECYCLE_INTENT_ABSENT]
+        check("dag-08 EX-1: THE RECORD ENUM IS EXACTLY `done|renew|revive|exited`, EACH ACCEPTED "
+              "FROM ITS OWN WRITER, AND A FIFTH VALUE IS REFUSED BY NAME WITH THE LEGAL SET SPELLED "
+              "OUT — so a caller reading a detached log learns what it may pass instead of that "
+              "something was wrong. The row also pins the BRIDGE to the OTHER enum: every "
+              "non-ABSENT value of `LIFECYCLE_INTENT_OF` (whose keys are argv ACTIONS, a disjoint "
+              "vocabulary) is a member of this one, so widening the executor's enum without "
+              "widening this one cannot pass silently",
+              _d8_names == ["done", "exited", "renew", "revive"]
+              and all(v is None for v in _d8_each.values())
+              and "harvest" in _d8_fifth
+              and all(n in _d8_fifth for n in _d8_names)
+              and _d8_bridge and all(v in RECORD_DISPOSITION_WRITER for v in _d8_bridge))
+
+        # The AST read is the second half of EX-2's claim: the refusal below binds `cmd_checkout`
+        # only if `cmd_checkout` actually declares itself the SEAT writer. Read off the source so
+        # a later edit that drops the declaration reds this row instead of quietly leaving the
+        # seat path unbound.
+        import ast as _d8_ast
+        _d8_ckt = next((n for n in _d8_ast.walk(
+                            _d8_ast.parse(Path(__file__).read_text(encoding="utf-8")))
+                        if isinstance(n, _d8_ast.FunctionDef) and n.name == "cmd_checkout"), None)
+        _d8_ckt_writer = ""
+        for _d8_n in _d8_ast.walk(_d8_ckt) if _d8_ckt else []:
+            if isinstance(_d8_n, _d8_ast.Call) and getattr(_d8_n.func, "id", "") == "set_awaiting":
+                for _d8_k in _d8_n.keywords:
+                    if _d8_k.arg == "writer":
+                        _d8_ckt_writer = getattr(_d8_k.value, "id", "")
+        _d8_seat_exited = _d8_val("exited", DISPOSITION_WRITER_SEAT) or ""
+        check("dag-08 EX-2: A SEAT'S OWN CHECK-OUT PATH CANNOT WRITE `exited`, and the refusal "
+              "names BOTH the value and the side that owns it. `exited` is the kit attesting that "
+              "a harness TERMINATED — a fact a seat cannot witness about itself — so a seat "
+              "writing it would be the misgrading R-6 bars. The bound reaches `cmd_checkout` only "
+              "because that call site DECLARES `writer=DISPOSITION_WRITER_SEAT`, asserted here off "
+              "the module's own AST rather than trusted; the control arm is `renew` from the same "
+              "writer, which must still be accepted",
+              _d8_seat_exited and "exited" in _d8_seat_exited
+              and DISPOSITION_WRITER_KIT in _d8_seat_exited
+              and _d8_val("renew", DISPOSITION_WRITER_SEAT) is None
+              and _d8_ckt_writer == "DISPOSITION_WRITER_SEAT")
+
+        _d8_kit_done = _d8_val("done", DISPOSITION_WRITER_KIT) or ""
+        check("dag-08 EX-3: THE KIT CANNOT WRITE `done`. `done` is a seat reporting its OWN work "
+              "finished, and it is the single value that advances a DAG edge — an arm that could "
+              "write it would be able to advance the whole workflow on a fact it never witnessed, "
+              "which is exactly the `exited -> done` mapping this task exists to make impossible. "
+              "Control: `revive`, which IS the kit's, is accepted from the same side. An "
+              "UNDECLARED writer is refused too, so the bound cannot be slipped by passing a name "
+              "that matches nothing",
+              _d8_kit_done and "done" in _d8_kit_done
+              and DISPOSITION_WRITER_SEAT in _d8_kit_done
+              and _d8_val("revive", DISPOSITION_WRITER_KIT) is None
+              and (_d8_val("done", "auditor") or "").startswith("unknown disposition writer"))
+
+        # ---- EX-4: the boundary is ON THE WRITE, and the record it guards is unchanged ----
+        # The control the task names is "a call from a PRE-CHANGE call site still works unchanged",
+        # so the reference entry is written through EXACTLY the five-positional-argument shape every
+        # pre-dag-08 caller used, and the post-change call is compared against it field by field.
+        _d8_pre_ok = set_awaiting(base_g, "d8-pre", "%84", "/tmp/d8.txt", True)
+        _d8_pre = load_awaiting(base_g).get("d8-pre") or {}
+        _d8_post_ok = set_awaiting(base_g, "d8-post", "%84", "/tmp/d8.txt", True,
+                                   disposition="done", writer=DISPOSITION_WRITER_SEAT)
+        _d8_post = load_awaiting(base_g).get("d8-post") or {}
+        try:
+            _d8_bad_ret = set_awaiting(base_g, "d8-bad", "%84", "/tmp/d8.txt", True,
+                                       disposition="harvest")
+            _d8_bad_msg = ""
+        except ValueError as _d8_exc:
+            _d8_bad_ret, _d8_bad_msg = "raised", str(_d8_exc)
+        _d8_fields = {"since", "pane", "transcript", "exported", "pids", "disposition",
+                      "handoff_stamp"}
+        check("dag-08 EX-4: `set_awaiting` GAINED A WRITER BOUND AND LOST NOTHING — a pre-change "
+              "call site (five positional arguments, no keywords) still records every field it "
+              "always did, with the same values, and the explicit post-change call is "
+              "field-identical to it apart from the clock. And the refusal happens AT THE WRITE: "
+              "an out-of-enum value RAISES out of this function rather than being answered `False` "
+              "like a full disk, and NOTHING is written for it. The distinction is the row's whole "
+              "subject — a `False` here is survivable bookkeeping, a bad disposition on disk is a "
+              "DAG that advances on a value nobody established",
+              _d8_pre_ok is True and _d8_post_ok is True
+              and set(_d8_pre) == _d8_fields and set(_d8_post) == _d8_fields
+              and _d8_pre["disposition"] == "done" and _d8_pre["pane"] == "%84"
+              and _d8_pre["transcript"] == "/tmp/d8.txt" and _d8_pre["exported"] is True
+              and _d8_pre["handoff_stamp"] == "" and _d8_pre["since"]
+              and {k: v for k, v in _d8_pre.items() if k != "since"}
+                  == {k: v for k, v in _d8_post.items() if k != "since"}
+              and _d8_bad_ret == "raised" and "harvest" in _d8_bad_msg
+              and "d8-bad" not in load_awaiting(base_g))
+
+        # ============ dag-09: THE DURABLE DISPOSITION COLUMN ON `sessions.csv` ===================
+        # Spec: implementation-tasks/dag-09-sessions-disposition-column.md (LG-7…LG-9, LG-13, LG-14).
+        #
+        # WHY THE COLUMN EXISTS, in one line, because a reader who does not know this will "tidy"
+        # it away: `awaiting-close.json` is the declaration at the moment of truth, but the
+        # lifecycle executor CLEARS that entry on success — so without a durable copy, every
+        # successful renewal or completion ERASES the fact the ready arithmetic depends on, and the
+        # DAG advances exactly once and then goes blind.
+        _d9_cols_before_dag09 = ["session-id", "seat", "harness", "native-session-id", "workdir",
+                                 "recorded", "started", "ended", "pid", "pid-starttime", "tty"]
+
+        def _d9_row(seat):
+            """That seat's LAST session row as a dict, read HEADER-KEYED off disk."""
+            _h, _r = read_csv_table(sessions_csv(pkg), SESSIONS_COLS)
+            _i = {c: n for n, c in enumerate(_h)}
+            _hit = None
+            for _x in _r:
+                pad_row(_x, _h)
+                if _x[_i["seat"]].strip() == seat:
+                    _hit = _x
+            return ({c: _hit[_i[c]] for c in _h} if _hit else {}), _h
+
+        def _d9_seed(seat, ended="", disposition=None):
+            """An open (or pre-ended) session row for `seat`, written through the file's OWN
+            header — never a hand-built line, so a change to the schema reaches this fixture
+            instead of passing it by. No `coord_lock`: nesting one inside `session_close`'s would
+            DEADLOCK (measured, s4-05), and this suite is single-threaded."""
+            _p = sessions_csv(pkg)
+            _h, _r = read_csv_table(_p, SESSIONS_COLS)
+            _h, _w = widen_header(_h, SESSIONS_COLS)
+            if _w:
+                _r = [pad_row(_x, _h) for _x in _r]
+            _i = {c: n for n, c in enumerate(_h)}
+            _new = ["" for _ in _h]
+            _new[_i["session-id"]] = f"{seat}-sid"
+            _new[_i["seat"]] = seat
+            _new[_i["started"]] = now()
+            _new[_i["ended"]] = ended
+            if disposition is not None:
+                _new[_i["disposition"]] = disposition
+            _r.append(_new)
+            write_csv_table(_p, _h, _r)
+
+        # ---- LG-7: BOTH ARMS, driven through the real `cmd_checkout` ----
+        # The renew arm needs CALL 2 (`--renew --handoff`), which needs a seat FOLDER with a
+        # memory.md — so both fixture seats are built folder-form. Built HERE, at the end of the
+        # fixture, so no earlier row that enumerates seats or descriptors inherits them.
+        for _d9_name in ("d9done", "d9renew"):
+            _d9_dir = pkg / "workers" / _d9_name
+            _d9_dir.mkdir()
+            (_d9_dir / "agent.md").write_text(
+                f"---\nagent: {_d9_name}\nmodel: haiku\n---\nbrief\n", encoding="utf-8")
+            (_d9_dir / "memory.md").write_text(f"# {_d9_name} — seat memory\nprior\n",
+                                               encoding="utf-8")
+        run(cmd_checkin, agent="d9done", summary="dag-09 done fixture", pane="%84", force=True)
+        _d9_seed("d9done")
+        run(cmd_checkout, agent="d9done", renew=False, handoff=None, no_export=True)
+        _d9_done_row, _ = _d9_row("d9done")
+        run(cmd_checkin, agent="d9renew", summary="dag-09 renew fixture", pane="%84", force=True)
+        _d9_seed("d9renew")
+        # Straight through `harness_outcome`, not `run()`: `run()` posts its OWN failing check on a
+        # refusal (G-215(a)), so a mutation that made call 2 refuse would red TWO rows while
+        # `--expect-fail` demands exactly one. `code is None` is carried in this row's condition.
+        _d9_ro, _d9_re, _d9_rc = harness_outcome(
+            cmd_checkout, ns(agent="d9renew", renew=True, handoff="carry this forward",
+                             no_export=True))
+        _d9_renew_row, _d9_header = _d9_row("d9renew")
+        check("dag-09 LG-7: A DONE-CHECKOUT WRITES `disposition=done` ON THE SESSION ROW AND A "
+              "RENEW-CHECKOUT WRITES `renew` — both arms, both driven through the real "
+              "`cmd_checkout`, both read back HEADER-KEYED off disk. One arm alone could not "
+              "distinguish a column that carries the disposition from a column hard-wired to the "
+              "commoner value, and `done` is the only value that advances a DAG edge",
+              _d9_rc is None
+              and _d9_done_row.get("disposition") == "done"
+              and _d9_renew_row.get("disposition") == "renew"
+              and _d9_done_row.get("ended") and _d9_renew_row.get("ended"))
+
+        # ---- LG-8: an empty cell is UNKNOWN, never `done` ----
+        _d9_seed("d9legacy", ended=now(), disposition="")
+        _d9_legacy = session_disposition(pkg, "d9legacy")
+        _d9_seed("d9filled", ended=now(), disposition="done")
+        _d9_filled = session_disposition(pkg, "d9filled")
+        check("dag-09 LG-8: A LEGACY ROW NEVER READS AS DONE — an ENDED row whose `disposition` "
+              "cell is empty resolves to `None` (unknown), and the control is the same row with "
+              "the cell filled, which resolves to `done`. EVERY historical row in EVERY existing "
+              "run package carries an empty cell, so a lenient reading here would mark an entire "
+              "run's back-catalogue as cleanly finished in one release and advance the whole DAG "
+              "on check-outs that never happened. (The dependents-stay-BLOCKED half of this claim "
+              "is `dag-10`'s arithmetic and is exercised in its rows, not restated here.)",
+              _d9_legacy is None and _d9_filled == "done"
+              and session_disposition(pkg, "no-such-seat-anywhere") is None)
+
+        # ---- LG-9: the two surfaces are written from ONE value ----
+        # STRUCTURAL, off the module's own AST, and that is deliberate: the BEHAVIOURAL twin is
+        # `dag-10`'s skew test (RS-5), which can only exist once something READS both surfaces.
+        # Asserting here that both writes take the SAME Name is what makes a skew impossible to
+        # manufacture at the source — two independently-computed expressions from one branch
+        # discriminant, in one function, twelve lines apart.
+        _d9_ckt = next((n for n in _d8_ast.walk(
+                            _d8_ast.parse(Path(__file__).read_text(encoding="utf-8")))
+                        if isinstance(n, _d8_ast.FunctionDef) and n.name == "cmd_checkout"), None)
+        _d9_args = {}
+        for _d9_n in _d8_ast.walk(_d9_ckt) if _d9_ckt else []:
+            if not isinstance(_d9_n, _d8_ast.Call):
+                continue
+            _d9_fn = getattr(_d9_n.func, "id", "")
+            _d9_names_in = [getattr(a, "id", "") for a in _d9_n.args]
+            # `session_close` reaches the file through `session_trace_safe(session_close, ...)`,
+            # so it is matched as an ARGUMENT of that wrapper, never as the callee.
+            if _d9_fn == "set_awaiting" or (_d9_fn == "session_trace_safe"
+                                            and "session_close" in _d9_names_in):
+                for _d9_k in _d9_n.keywords:
+                    if _d9_k.arg == "disposition":
+                        _d9_args[_d9_fn] = getattr(_d9_k.value, "id", "<not-a-plain-name>")
+        _d9_assigns = [n for n in _d8_ast.walk(_d9_ckt) if isinstance(n, _d8_ast.Assign)
+                       and any(getattr(t, "id", "") == "checkout_disposition" for t in n.targets)]
+        check("dag-09 LG-9: THE TWO SURFACES ARE WRITTEN FROM ONE VALUE — `awaiting-close.json` "
+              "and the durable session row both receive the SAME bare name, and that name is "
+              "computed EXACTLY ONCE in `cmd_checkout`. A second expression, however identical "
+              "today, is a skew waiting for the day one of them is edited; the ready arithmetic "
+              "would then report SKEW on a disagreement this file manufactured itself",
+              len(_d9_args) == 2
+              and set(_d9_args.values()) == {"checkout_disposition"}
+              and len(_d9_assigns) == 1)
+
+        # ---- LG-13: no positional reader breaks, and the question was a real one ----
+        _d9_hdr, _d9_rows = read_csv_table(sessions_csv(pkg), SESSIONS_COLS)
+        _d9_idx = {c: n for n, c in enumerate(_d9_hdr)}
+        _d9_fields = list(_d9_rows[-1]) if _d9_rows else []
+        # The CONTROL the task demands: a reader built against the OLD column list, run against the
+        # NEW file. `zip` is the shape every hand-rolled positional parse takes, and it stops at
+        # the shorter side — so the appended field is SILENTLY DROPPED and no exception is raised.
+        _d9_positional = dict(zip(_d9_cols_before_dag09, _d9_fields))
+        check("dag-09 LG-13: THE APPENDED COLUMN BREAKS NO READER, AND THE SWEEP'S QUESTION WAS "
+              "REAL. The eleven pre-dag-09 columns are still a PREFIX of the on-disk header in "
+              "their original order and `disposition` is APPENDED LAST, which is what every "
+              "header-keyed reader needs — coord.py's own (`idx` off the header) and the ignite "
+              "seat-identity gate's (`csv.js` builds rows as `row[header[c]]` and checks required "
+              "columns with `header.includes`). The CONTROL proves the risk was not imaginary: a "
+              "positional reader built on the OLD eleven names silently DROPS the new field "
+              "instead of raising, which is exactly how an appended column goes wrong quietly",
+              _d9_hdr[:len(_d9_cols_before_dag09)] == _d9_cols_before_dag09
+              and _d9_hdr[-1] == "disposition"
+              and _d9_idx["tty"] == 10 and _d9_idx["disposition"] == len(_d9_hdr) - 1
+              and len(_d9_fields) == len(_d9_hdr)
+              and "disposition" not in _d9_positional
+              and len(_d9_positional) == len(_d9_cols_before_dag09))
+
+        check("dag-09 LG-14: `disposition` APPEARS EXACTLY ONCE — in the column constant and in "
+              "the header on disk. A duplicated column is not cosmetic: `idx` maps a name to the "
+              "LAST position carrying it, so one writer would fill a cell every header-keyed "
+              "reader ignores, and the DAG would read a permanently empty column while the "
+              "check-outs were being recorded faithfully one cell to the left",
+              SESSIONS_COLS.count("disposition") == 1
+              and _d9_hdr.count("disposition") == 1)
+
+        # ============ dag-10: THE READY-SEAT ARITHMETIC ==========================================
+        # Spec: implementation-tasks/dag-10-ready-seats-command.md (RS-1…RS-8, RS-12).
+        # Every fixture below is a WHOLE run package of its own — a taskforce DAG, descriptors, a
+        # roster, and BOTH disposition surfaces — because the predicate has four terms and a row
+        # that shares a package with its neighbours cannot isolate which term it moved.
+        def _rs_make(name, tf, built=None, active=(), awaiting=(), sessions=()):
+            """A self-contained run package. `tf` is [(seat, after-cell)]; `awaiting` and
+            `sessions` are [(seat, disposition)] on the live and durable surfaces."""
+            p = Path(td) / f"rs-{name}"
+            (p / "coordination").mkdir(parents=True)
+            (p / "seats").mkdir()
+            (p / "taskforce.csv").write_text(
+                "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+                + "".join(f'tf-x,{s},"{a}",claude,opus,medium,50,m1\n' for s, a in tf),
+                encoding="utf-8")
+            for s, _a in tf:
+                if built is None or s in built:
+                    (p / "seats" / s).mkdir(exist_ok=True)
+                    (p / "seats" / s / "seat.md").write_text(
+                        f"---\nagent: {s}\nmodel: opus\n---\nbrief\n", encoding="utf-8")
+            (p / "coordination" / "workers.md").write_text(
+                WORKERS_HEADER + "".join(
+                    row_text({"agent": s, "active": "yes", "pane": "%1", "summary": "working",
+                              "checkin": "2026-07-29 14:57", "checkout": "", "lastread": "0"})
+                    for s in active), encoding="utf-8")
+            if awaiting:
+                (p / "coordination" / "awaiting-close.json").write_text(
+                    json.dumps({s: {"since": "2026-07-29 15:02", "pane": "", "transcript": "",
+                                    "exported": False, "pids": [], "disposition": d,
+                                    "handoff_stamp": ""} for s, d in awaiting},
+                               indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            if sessions:
+                write_csv_table(p / "sessions.csv", SESSIONS_COLS,
+                                [[{"session-id": f"{s}-sid", "seat": s,
+                                   "started": "2026-07-29 14:00", "ended": "2026-07-29 15:02",
+                                   "disposition": d}.get(_c2, "") for _c2 in SESSIONS_COLS]
+                                 for s, d in sessions])
+            return p
+
+        def _rs(pkg, **kw):
+            """(stdout, stderr, exit) — stdout kept SEPARATE so `--json` output stays parseable
+            even on the SKEW path, which prints the rows and then exits non-zero."""
+            _d = {"package": str(pkg), "base": None, "workers_dir": None, "as_agent": None,
+                  "force": False, "json": False, "explain": None}
+            _d.update(kw)
+            return harness_outcome(cmd_ready_seats, argparse.Namespace(**_d))
+
+        def _rs_v(pkg, **kw):
+            """({seat: verdict}, exit) read off the JSON — no row parses the human text."""
+            _o, _e, _c = _rs(pkg, json=True, **kw)
+            return {r["seat"]: r["verdict"] for r in json.loads(_o)}, (0 if _c is None else _c)
+
+        # ---- RS-1: the disposition decides, not the mere existence of a record ----
+        _rs1_done = _rs_make("1done", [("a", ""), ("b", "a")], sessions=[("a", "done")])
+        _rs1_renew = _rs_make("1renew", [("a", ""), ("b", "a")], sessions=[("a", "renew")])
+        _rs1_dv, _ = _rs_v(_rs1_done)
+        _rs1_rv, _ = _rs_v(_rs1_renew)
+        check("dag-10 RS-1: A SEAT WHOSE SINGLE PREDECESSOR HAS A `done` CHECK-OUT IS READY, AND "
+              "THE SAME SEAT IS BLOCKED WHEN THAT PREDECESSOR'S DISPOSITION IS `renew`. The two "
+              "fixtures differ in ONE CELL, which is the point: without the second arm this row "
+              "could not tell an implementation that READS THE DISPOSITION from one that merely "
+              "notices A ROW EXISTS — and the second is the whole class of defect that lets a "
+              "context refresh advance a workflow",
+              _rs1_dv == {"a": "DONE", "b": "READY"}
+              and _rs1_rv == {"a": "DONE", "b": "BLOCKED"})
+
+        # ---- RS-2: EVERY predecessor, not any ----
+        _rs2 = _rs_make("2", [("a", ""), ("b", ""), ("c", "a,b")], sessions=[("a", "done")])
+        _rs2_v, _ = _rs_v(_rs2)
+        _rs2b = _rs_make("2b", [("a", ""), ("b", ""), ("c", "a,b")],
+                         sessions=[("a", "done"), ("b", "done")])
+        _rs2b_v, _ = _rs_v(_rs2b)
+        _rs2_out, _, _ = _rs(_rs2)
+        check("dag-10 RS-2: A SEAT WITH TWO PREDECESSORS, ONE `done` AND ONE WITH NO CHECK-OUT AT "
+              "ALL, IS BLOCKED — and becomes READY only when the SECOND one is done too. Both "
+              "arms, because `any` and `all` agree on every single-predecessor fixture and differ "
+              "only here. The comma-separated `after` cell is parsed exactly as "
+              "`materialize-seats.py` writes it, so the two members resolve as two seats and never "
+              "as one seat named `a,b`",
+              _rs2_v == {"a": "DONE", "b": "READY", "c": "BLOCKED"}
+              and _rs2b_v == {"a": "DONE", "b": "DONE", "c": "READY"}
+              and "b=<no check-out>" in _rs2_out)
+
+        # ---- RS-3: an OCCUPIED seat is never READY ----
+        _rs3 = _rs_make("3", [("a", ""), ("b", "a")], sessions=[("a", "done")], active=["b"])
+        _rs3_v, _ = _rs_v(_rs3)
+        _rs3_out, _, _ = _rs(_rs3)
+        check("dag-10 RS-3: AN OCCUPIED SEAT (ACTIVE ROSTER ROW) IS NEVER READY — it reports "
+              "RUNNING with the check-in time — and the SAME package with the roster row removed "
+              "reports READY. A verdict that ignored the roster would tell its caller to launch a "
+              "seat that is already sitting there, which is a double-launch into a live pane",
+              _rs3_v == {"a": "DONE", "b": "RUNNING"}
+              and "roster: active since 2026-07-29 14:57" in _rs3_out
+              and _rs_v(_rs1_done)[0]["b"] == "READY")
+
+        # ---- RS-4: a taskforce row with no descriptor is UNBUILT, never READY ----
+        _rs4 = _rs_make("4", [("a", ""), ("b", "a")], built=["a"], sessions=[("a", "done")])
+        _rs4_v, _ = _rs_v(_rs4)
+        (_rs4 / "seats" / "b").mkdir()
+        (_rs4 / "seats" / "b" / "seat.md").write_text(
+            "---\nagent: b\nmodel: opus\n---\nbrief\n", encoding="utf-8")
+        _rs4_after, _ = _rs_v(_rs4)
+        check("dag-10 RS-4: A `taskforce.csv` ROW WITH NO DESCRIPTOR ON DISK REPORTS UNBUILT, "
+              "NEVER READY, and materializing it flips the very same package to READY. Without "
+              "this term the command would hand its caller a seat to launch into nothing — the "
+              "row exists, the folder does not, and the launch fails after the frontier has "
+              "already been reported as advanced",
+              _rs4_v == {"a": "DONE", "b": "UNBUILT"}
+              and _rs4_after == {"a": "DONE", "b": "READY"})
+
+        # ---- RS-5: a skew is REPORTED, never resolved ----
+        _rs5 = _rs_make("5", [("a", ""), ("b", "a")],
+                        awaiting=[("a", "renew")], sessions=[("a", "done")])
+        _rs5_v, _rs5_code = _rs_v(_rs5)
+        _rs5_out, _rs5_err, _ = _rs(_rs5)
+        _rs5_match = _rs_make("5m", [("a", ""), ("b", "a")],
+                              awaiting=[("a", "done")], sessions=[("a", "done")])
+        _rs5_mv, _rs5_mcode = _rs_v(_rs5_match)
+        check("dag-10 RS-5: DISPOSITION SKEW IS REPORTED, NOT RESOLVED. When the live surface says "
+              "`renew` and the durable one says `done` for the same seat, the verdict is SKEW — "
+              "never `done`, never `not-done` — BOTH values are printed WITH THEIR SOURCES, the "
+              "exit status is non-zero, and the successor does not advance. Picking a winner would "
+              "be this tool ruling on which of two contradictory records of a seat's own ending is "
+              "true, which is a human's call. Control: the same package with the two values "
+              "AGREEING gives a clean verdict and exit 0",
+              _rs5_v.get("a") == "SKEW" and _rs5_code != 0
+              and "awaiting-close.json=renew" in _rs5_out
+              and "sessions.csv=done" in _rs5_out
+              and _rs5_v.get("b") == "BLOCKED"
+              and _rs5_mv == {"a": "DONE", "b": "READY"} and _rs5_mcode == 0)
+
+        # ---- RS-6: the command writes NOTHING ----
+        def _rs_hash(p):
+            """Every file under the package, path -> (bytes-hash, mtime). mtime is included so a
+            rewrite with identical content still counts as a write."""
+            return {str(f.relative_to(p)): (hashlib.sha256(f.read_bytes()).hexdigest(),
+                                            f.stat().st_mtime_ns)
+                    for f in sorted(p.rglob("*")) if f.is_file()}
+        _rs6 = _rs_make("6", [("a", ""), ("b", "a")], sessions=[("a", "done")])
+        _rs6_before = _rs_hash(_rs6)
+        _rs6_o1, _, _ = _rs(_rs6)
+        _rs6_o2, _, _ = _rs(_rs6)
+        _rs6_after = _rs_hash(_rs6)
+        # The structural half, off the AST: the byte-comparison above can only see writes INSIDE
+        # the package, and the one write this command was at risk of making lands OUTSIDE it —
+        # resolving a package normally RE-REGISTERS the run tag in the global runs index.
+        _rs6_fn = next((n for n in _d8_ast.walk(
+                            _d8_ast.parse(Path(__file__).read_text(encoding="utf-8")))
+                        if isinstance(n, _d8_ast.FunctionDef) and n.name == "ready_seat_rows"),
+                       None)
+        _rs6_reg = {}
+        for _rs6_n in _d8_ast.walk(_rs6_fn) if _rs6_fn else []:
+            if isinstance(_rs6_n, _d8_ast.Call) and getattr(_rs6_n.func, "id", "") in (
+                    "package_dir", "base_dir"):
+                _rs6_reg[_rs6_n.func.id] = [getattr(k.value, "value", "<expr>")
+                                            for k in _rs6_n.keywords if k.arg == "register"]
+        check("dag-10 RS-6: THE COMMAND WRITES NOTHING AND IS PURE — every file under the package "
+              "is byte- AND mtime-identical after two runs, and the two runs' output is identical. "
+              "AND THE ONE WRITE IT WAS AT RISK OF MAKING IS INVISIBLE TO THAT COMPARISON: "
+              "resolving a package normally RE-REGISTERS the run tag in the GLOBAL runs index, "
+              "outside the package the hashes cover. Both resolutions therefore pass "
+              "`register=False`, asserted here off the AST — a read-only contract that quietly "
+              "touches disk is the one property a caller cannot verify by reading the output",
+              _rs6_before == _rs6_after and _rs6_o1 == _rs6_o2 and _rs6_o1
+              and _rs6_reg == {"package_dir": [False], "base_dir": [False]})
+
+        # ---- RS-7: proven against a SANE dag, and proven WRONG against run-2's shape ----
+        # ⚠ SUBSTITUTION, DISCLOSED: the task says "run against a FIXTURE COPY of run-2's
+        # taskforce.csv". A copy would hardcode one vault's goal path into a run-agnostic kit —
+        # the coupling this folder's CLAUDE.md exists to keep out — and would make the suite
+        # unrunnable on any other machine. The fixture is built to run-2's MEASURED SHAPE instead:
+        # 52 rows, one root (`chief-of-staff`), one row after it (`leader`), and 50 rows whose
+        # `after` is exactly `leader`. Measured 2026-07-29 against the live file; the spec's 51 and
+        # its earlier 47/45 are both stale, which is why the shape is re-measured and not quoted.
+        _rs7_tf = ([("chief-of-staff", ""), ("leader", "chief-of-staff")]
+                   + [(f"w{n:02d}", "leader") for n in range(50)])
+        _rs7_live = _rs_make("7live", _rs7_tf, sessions=[("chief-of-staff", "done")],
+                             active=["leader"])
+        _rs7_lv, _ = _rs_v(_rs7_live)
+        _rs7_done = _rs_make("7done", _rs7_tf,
+                             sessions=[("chief-of-staff", "done"), ("leader", "done")])
+        _rs7_dv, _ = _rs_v(_rs7_done)
+        # …and a SANE dag: a chain with a fan-out at the tail. One frontier seat, not fifty.
+        _rs7_sane = _rs_make("7sane", [("root", ""), ("mid", "root"),
+                                       ("leafA", "mid"), ("leafB", "mid"), ("tail", "leafA,leafB")],
+                             sessions=[("root", "done")])
+        _rs7_sv, _ = _rs_v(_rs7_sane)
+        check("dag-10 RS-7: THE ARITHMETIC IS PROVEN AGAINST A SANE DAG *AND* PROVEN TO GIVE THE "
+              "PATHOLOGICAL ANSWER ON RUN-2'S SHAPE. Run-2's `after` column carries BIRTH ORDER, "
+              "not dependency — 50 of 52 rows say `after: leader` — so the correct arithmetic "
+              "reports NOTHING ready while `leader` is alive and ALL FIFTY ready the instant "
+              "`leader` checks out done. ⚠ WITHOUT THIS PAIR A GREEN SWEEP ON TODAY'S FILE WOULD "
+              "READ AS A WORKING MECHANISM: the mechanism is right and the answer is worthless, "
+              "and only the sane-DAG arm distinguishes the two. The sane arm reports exactly ONE "
+              "frontier seat behind a done root. It deliberately does NOT assert that `leader` reads "
+              "RUNNING — that is RS-3's subject, and restating a neighbour's claim destroys the "
+              "neighbour's red arm",
+              sorted(_rs7_lv.values()).count("BLOCKED") == 50
+              and sorted(_rs7_dv.values()).count("READY") == 50
+              and len([s for s, v in _rs7_sv.items() if v == "READY"]) == 1
+              and _rs7_sv["mid"] == "READY" and _rs7_sv["tail"] == "BLOCKED")
+
+        # ---- RS-8: every verdict line carries a reason ----
+        # ITS OWN PACKAGE, carrying all six verdicts at once — sharing RS-7's would make RS-7's
+        # red arm (which changes how many rows are processed) red this row along with it.
+        _rs8 = _rs_make("8", [("done1", ""), ("run1", ""), ("unb1", ""), ("skew1", ""),
+                              ("rdy1", "done1"), ("blk1", "run1")],
+                        built=["done1", "run1", "skew1", "rdy1", "blk1"],
+                        active=["run1"],
+                        awaiting=[("skew1", "renew")],
+                        sessions=[("done1", "done"), ("skew1", "done")])
+        _rs8_out, _, _ = _rs(_rs8)
+        _rs8_bare = [_l for _l in _rs8_out.splitlines()
+                     if re.match(r"^(READY|BLOCKED|DONE|RUNNING|UNBUILT|SKEW)\s+\S+\s*$", _l)]
+        _rs8_verdict_lines = [_l for _l in _rs8_out.splitlines()
+                              if re.match(r"^(READY|BLOCKED|DONE|RUNNING|UNBUILT|SKEW)\s", _l)]
+        check("dag-10 RS-8: EVERY VERDICT LINE CARRIES A REASON — no line is a bare verdict plus a "
+              "seat name. A bare verdict re-installs agent judgment at the read: the caller would "
+              "have to reconstruct WHY from the same three files this command just read, and "
+              "reconstruction is precisely the act the chief-of-staff's engine bounds forbid it. The "
+              "fixture carries all six verdicts at once so every branch's reason is "
+              "scanned — but WHICH verdicts appear is deliberately NOT asserted: that is "
+              "RS-3's, RS-4's and RS-5's subject, and pinning it here red all three of "
+              "their red arms along with this row",
+              len(_rs8_verdict_lines) == 6 and _rs8_bare == [])
+
+        # ---- RS-12: `exited` never advances the DAG ----
+        _rs12 = _rs_make("12", [("a", ""), ("b", "a")], sessions=[("a", "exited")])
+        _rs12_v, _ = _rs_v(_rs12)
+        _rs12_out, _, _ = _rs(_rs12)
+        _rs12_flip = _rs_make("12flip", [("a", ""), ("b", "a")], sessions=[("a", "done")])
+        _rs12_fv, _ = _rs_v(_rs12_flip)
+        check("dag-10 RS-12 (and dag-08 EX-5): `exited` NEVER ADVANCES THE DAG. A predecessor at "
+              "`exited` leaves its dependents BLOCKED, and the reason names the value AND the "
+              "routing — the harness terminated, whether the work is done is NOT established, the "
+              "leader investigates and either relaunches or flips the row to `done`. ⚠ THE "
+              "CONTROL IS THE WHOLE ROW: flipping that ONE cell to `done` makes the dependent "
+              "READY, so an implementation that mapped `exited` to `done` `because the work is "
+              "probably fine` would pass the first arm and fail this one",
+              _rs12_v == {"a": "DONE", "b": "BLOCKED"}
+              and "a=exited" in _rs12_out
+              and "leader" in _rs12_out and "relaunch" in _rs12_out
+              and _rs12_fv == {"a": "DONE", "b": "READY"})
+
+        # ---- --explain: the predicate, term by term ----
+        # ON RS-2'S FIXTURE, NOT RS-12'S: sharing RS-12's meant this row asserted the printed
+        # value `exited`, so RS-12's red arm (mapping `exited` to `done`) red this row too.
+        _rs_ex_out, _, _rs_ex_code = _rs(_rs2, explain="c")
+        _rs_ex_bad, _rs_ex_baderr, _rs_ex_badcode = _rs(_rs2, explain="nobody")
+        check("dag-10: `--explain SEAT` PRINTS THE PREDICATE TERM BY TERM, each term with the "
+              "value that decided it, so a reader learns WHICH term held the seat and not merely "
+              "that something did. An unknown seat is REFUSED and the refusal lists the seats "
+              "this run actually has, rather than printing an empty evaluation that reads like a "
+              "seat with no constraints",
+              _rs_ex_code is None
+              and "terminal(self)" in _rs_ex_out and "ACTIVE roster row" in _rs_ex_out
+              and "descriptor on disk" in _rs_ex_out
+              and "after `a` = done" in _rs_ex_out
+              and "after `b` = <no check-out>" in _rs_ex_out
+              and _rs_ex_badcode == 2
+              and "nobody" in (_rs_ex_bad + _rs_ex_baderr)
+              and "a, b, c" in (_rs_ex_bad + _rs_ex_baderr))
+
+        # ============ dag-11: THE ATTEST-EXIT ARM ================================================
+        # Spec: implementation-tasks/dag-11-attest-exit-arm.md (RS-11, RS-13, RS-14, AE-1…AE-3).
+        # Reproduces F1's measured fixture: a one-shot seat that DID THE WORK and whose harness
+        # exited without checking out — roster still ACTIVE, pane holding no harness, session row
+        # open with no `ended`, and NO awaiting-close entry at all. Only the sensor saw it.
+        _ae_real_live, _ae_real_idents = live_panes, pane_harness_idents
+
+        def _ae_make(name, mode="one-shot", absent=True, snap_age_s=600, dispo=None,
+                     awaiting_dispo=None, inflight=None, session_started="2026-07-29 10:00"):
+            p = Path(td) / f"ae-{name}"
+            (p / "coordination").mkdir(parents=True)
+            (p / "seats" / "oc2").mkdir(parents=True)
+            (p / "seats" / "oc2").joinpath("seat.md").write_text(
+                f"---\nseat: oc2\nharness: opencode\nmodel: deepseek\n"
+                + (f"mode: {mode}\n" if mode else "") + "---\nbrief\n", encoding="utf-8")
+            (p / "seats" / "succ").mkdir(parents=True)
+            (p / "seats" / "succ").joinpath("seat.md").write_text(
+                "---\nseat: succ\nmodel: opus\n---\nbrief\n", encoding="utf-8")
+            (p / "taskforce.csv").write_text(
+                "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+                'tf-x,oc2,"",opencode,deepseek,medium,50,m1\n'
+                'tf-x,succ,"oc2",claude,opus,medium,50,m1\n', encoding="utf-8")
+            (p / "coordination" / "workers.md").write_text(
+                WORKERS_HEADER + row_text({"agent": "oc2", "active": "yes", "pane": "%466",
+                                           "summary": "one-shot", "checkin": "2026-07-29 10:00",
+                                           "checkout": "", "lastread": "0"}), encoding="utf-8")
+            # ⚠ A DISPOSITION ONLY COUNTS ON AN *ENDED* ROW. An earlier version of this fixture
+            # put one on an OPEN row and the `(c)` arm went green while attesting anyway — the
+            # fixture, not the predicate, was wrong: `session_disposition` reads the last ENDED
+            # row, correctly, because a disposition with no `ended` is not a completed check-out.
+            write_csv_table(p / "sessions.csv", SESSIONS_COLS,
+                            [[{"session-id": "oc2-sid", "seat": "oc2",
+                               "started": session_started,
+                               "ended": "2026-07-29 11:00" if dispo else "",
+                               "disposition": dispo or ""}.get(_c3, "") for _c3 in SESSIONS_COLS]])
+            if awaiting_dispo:
+                (p / "coordination" / "awaiting-close.json").write_text(
+                    json.dumps({"oc2": {"since": "2026-07-29 11:00", "pane": "%466",
+                                        "transcript": "", "exported": False, "pids": [],
+                                        "disposition": awaiting_dispo, "handoff_stamp": ""}},
+                               indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            (p / "state.json").write_text(json.dumps({
+                "schema": 1, "written_at": time.time() - snap_age_s,
+                "written_at_iso": "2026-07-29T10:00:00Z", "writer_pid": 1,
+                "roster_absent": ([{"seat": "oc2", "pane": "%466", "roster_active": True,
+                                    "liveness": "absent",
+                                    "reason": "roster row active, pane not in the room"}]
+                                  if absent else [])}) + "\n", encoding="utf-8")
+            if inflight is not None:
+                (p / "coordination" / "lifecycle-inflight.json").write_text(
+                    json.dumps({"oc2": inflight}) + "\n", encoding="utf-8")
+            return p
+
+        def _ae(pkg, **kw):
+            """Run the arm with the room stubbed EMPTY — pane %466 is gone, which is F1's own
+            shape. Restored immediately so no later block inherits it."""
+            global live_panes, pane_harness_idents
+            live_panes = lambda: set()
+            pane_harness_idents = lambda pane: []
+            try:
+                _d = {"package": str(pkg), "base": None, "workers_dir": None, "as_agent": None,
+                      "force": False, "seat": None, "go": False}
+                _d.update(kw)
+                return harness_outcome(cmd_attest_exit, argparse.Namespace(**_d))
+            finally:
+                live_panes, pane_harness_idents = _ae_real_live, _ae_real_idents
+
+        def _ae_state(pkg):
+            """The four surfaces a check-out touches, as one comparable dict."""
+            _, _, _rows = load_workers(pkg / "coordination")
+            _r = current_row(_rows, "oc2") or {}
+            return {"roster_active": _r.get("active"),
+                    "awaiting": load_awaiting(pkg / "coordination").get("oc2"),
+                    "session_disposition": session_disposition(pkg, "oc2"),
+                    "succ": _rs_v(pkg)[0].get("succ")}
+
+        # ---- RS-11 + AE-1: the backstop works, and BARE acts on nothing ----
+        _ae1 = _ae_make("1")
+        _ae1_hash_before = _rs_hash(_ae1)
+        _ae1_bare_out, _, _ = _ae(_ae1)
+        _ae1_hash_bare = _rs_hash(_ae1)
+        _ae1_bare_state = _ae_state(_ae1)
+        _ae1_before_reason = [r for r in json.loads(_rs(_ae1, json=True)[0])
+                              if r["seat"] == "succ"][0]["reason"]
+        _ae1_go_out, _, _ = _ae(_ae1, go=True)
+        _ae1_go_state = _ae_state(_ae1)
+        _ae1_after = {r["seat"]: r for r in json.loads(_rs(_ae1, json=True)[0])}
+        # …and then the LEADER's half, simulated: an `exited` row has exactly two mechanically
+        # defined exits — relaunch, or a flip to `done`. The flip is what releases the successor,
+        # and it is a HUMAN's act, never this arm's.
+        _ae1_leader = _ae_make("1leader")
+        _ae(_ae1_leader, go=True)
+        _ae1_lb = _ae1_leader / "coordination"
+        _ae1_aw = load_awaiting(_ae1_lb)
+        _ae1_aw["oc2"]["disposition"] = "done"
+        (_ae1_lb / "awaiting-close.json").write_text(
+            json.dumps(_ae1_aw, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        _ae1_hdr, _ae1_rows = read_csv_table(sessions_csv(_ae1_leader), SESSIONS_COLS)
+        _ae1_rows[0][_ae1_hdr.index("disposition")] = "done"
+        write_csv_table(sessions_csv(_ae1_leader), _ae1_hdr, _ae1_rows)
+        _ae1_flipped, _ = _rs_v(_ae1_leader)
+        check("dag-11 RS-11 + AE-1: A COMPLETED ONE-SHOT THAT SKIPPED ITS CHECK-OUT IS ATTESTED, "
+              "AND BARE `attest-exit` ACTS ON NOTHING. Before `--go`: every file under the "
+              "package is byte- AND mtime-identical, the seat reads RUNNING FOREVER and its "
+              "successor is BLOCKED on `<no check-out>` — which is the control RS-11 demands, "
+              "since without it this row could not tell `the backstop worked` from `the seat "
+              "checked out after all`. After `--go` all four surfaces move together: roster "
+              "flipped, `exited` on BOTH disposition surfaces, session row ended. ⚠ AND THE "
+              "SUCCESSOR IS STILL BLOCKED — deliberately. `exited` advances no edge; what moved "
+              "is that the seat stopped being invisible, and its successor's reason now NAMES "
+              "`exited` and the routing instead of reporting a seat that is still working. The "
+              "release is the LEADER's act, simulated in the last arm: flip the disposition to "
+              "`done` and the successor becomes READY. An implementation that skipped straight "
+              "to READY on `exited` would be the F1 conflation with extra steps",
+              "EXIT-ATTESTABLE" in _ae1_bare_out and "report only" in _ae1_bare_out
+              and _ae1_hash_before == _ae1_hash_bare
+              and _ae1_bare_state == {"roster_active": "yes", "awaiting": None,
+                                      "session_disposition": None, "succ": "BLOCKED"}
+              and "oc2=<no check-out>" in _ae1_before_reason
+              # WHICH VALUE landed is RS-14's subject and WHETHER IT ADVANCES is RS-12's; both
+              # are deliberately absent here, because asserting them made RS-14's red arm red
+              # this row too. What this row owns is that the four surfaces MOVED and that the
+              # seat stopped reading "still working, forever".
+              and _ae1_go_state["roster_active"] == "no"
+              and _ae1_go_state["awaiting"] is not None
+              and _ae1_go_state["session_disposition"] is not None
+              and _ae1_after["oc2"]["verdict"] != "RUNNING"
+              and "<no check-out>" not in _ae1_after["succ"]["reason"]
+              and _ae1_flipped == {"oc2": "DONE", "succ": "READY"})
+
+        # ---- RS-13: the predicate is EXACT — four negative arms ----
+        _ae13 = {
+            "b/interactive": _ae_make("13b", mode="interactive"),
+            "b/undeclared": _ae_make("13b2", mode=""),
+            "d/inflight": _ae_make("13d", inflight={
+                "state": "in-flight", "stamped-at": now(),
+                "executor": {"pid": os.getpid(), "starttime": proc_stat(os.getpid())[1]}}),
+            "c/session-row": _ae_make("13c", dispo="done"),
+            "c/awaiting": _ae_make("13c2", awaiting_dispo="renew"),
+            "e1/too-fresh": _ae_make("13e", snap_age_s=1),
+        }
+        _ae13_out = {k: _ae(v, seat="oc2", go=True)[0] for k, v in _ae13.items()}
+        _ae13_states = {k: _ae_state(v) for k, v in _ae13.items()}
+        _ae13_pos = _ae_make("13pos")
+        _ae13_pos_out, _, _ = _ae(_ae13_pos, seat="oc2", go=True)
+        check("dag-11 RS-13: THE PREDICATE IS EXACT — six negative arms, each run WITH `--go` so a "
+              "leak would actually write, and NONE of them attests: an `interactive` seat in "
+              "roster_absent; a seat whose mode is UNDECLARED (absent is not one-shot — it "
+              "refuses rather than assumes); a one-shot held by a LIVE lifecycle executor "
+              "(mid-renewal, not exited); a one-shot that already has a check-out, on EITHER disposition surface; a one-shot "
+              "whose absence is one second old (a race with a slow exit). Term (a), roster_absent "
+              "itself, is AE-2's and is deliberately not re-asserted here. Each refusal NAMES its term. Control: the full "
+              "positive case, same command, attests",
+              all("NOT ATTESTABLE" in v for v in _ae13_out.values())
+              # "nothing was attested" is: the roster row is still ACTIVE and the word `exited`
+              # reached NEITHER surface. The successor's verdict is deliberately NOT asserted —
+              # it legitimately differs per fixture (the `c/session-row` arm's predecessor carries
+              # a real `done`, so its successor IS ready), and that is dag-10's subject anyway.
+              and all(s["roster_active"] == "yes" and s["session_disposition"] != "exited"
+                      and (s["awaiting"] or {}).get("disposition") != "exited"
+                      for s in _ae13_states.values())
+              and "(b) descriptor declares mode: interactive" in _ae13_out["b/interactive"]
+              and "<undeclared>" in _ae13_out["b/undeclared"]
+              and "(d) a LIVE lifecycle executor" in _ae13_out["d/inflight"]
+              and "(c) it already has a check-out: disposition `done` (sessions.csv)" \
+                  in _ae13_out["c/session-row"]
+              and "(c) it already has a check-out: disposition `renew` (awaiting-close.json)" \
+                  in _ae13_out["c/awaiting"]
+              and "(e1) the snapshot is only" in _ae13_out["e1/too-fresh"]
+              and "EXIT-ATTESTABLE" in _ae13_pos_out)
+
+        # ---- RS-14: it attests ONLY what it witnessed ----
+        _ae14_entry = load_awaiting(_ae1 / "coordination").get("oc2") or {}
+        _ae14_kit_done = _d8_val("done", DISPOSITION_WRITER_KIT)
+        check("dag-11 RS-14: THE ARM ATTESTS ONLY WHAT IT WITNESSED — the record it wrote carries "
+              "`exited` and the word `done` appears NOWHERE in it, and the arm is STRUCTURALLY "
+              "unable to write `done`: the writer bound refuses it from the kit side. The two are "
+              "demonstrably different code paths — a real seat check-out writes `done` through "
+              "`cmd_checkout` (dag-09 LG-7 exercises exactly that, on the same surfaces) while "
+              "this arm reaches the same surfaces from `attest_exit_seat` with the KIT writer. An "
+              "attestation to a fact the attester did not witness is the misgrading R-6 bars",
+              _ae14_entry.get("disposition") == "exited"
+              and "done" not in json.dumps(_ae14_entry)
+              and _ae14_kit_done and "may not write disposition 'done'" in _ae14_kit_done)
+
+        # ---- AE-2: is `roster_absent` real? ----
+        # ⚠ NAMED AS THE WEAKER CONTROL IT IS (AE-2 demands this be said aloud). What runs HERE is
+        # a CONSTRUCTED snapshot: this suite writes `state.json` itself, so it proves the arm READS
+        # the field correctly and nothing about whether a live monitor ever populates it.
+        # THE LIVE EVIDENCE IS SEPARATE, AND IT IS POSITIVE — and it CORRECTS the spec. Both the
+        # dag-11 brief and stage-4 record that `roster_absent` "has NEVER been observed non-empty
+        # in run-2". Measured 2026-07-29 against run-2's live `state.json`: it IS non-empty —
+        # one row, seat `master`, pane `%528`, liveness `absent`, reason "roster row active, pane
+        # not in the room" — in a snapshot carrying `writer_pid`, i.e. written by the monitor
+        # PROCESS and not by a manual `team-monitor once`. The caveat is stale; the field is real.
+        # (That snapshot is itself hours old — the monitor is not currently running, which is
+        # build state, not an incident.)
+        _ae2_seen = "EXIT-ATTESTABLE" in _ae13_pos_out
+        _ae2_blind = _ae(_ae_make("2blind", absent=False), seat="oc2")[0]
+        check("dag-11 AE-2: THE ARM READS `roster_absent` AND GATES ON IT — a seat present in the "
+              "field reaches EXIT-ATTESTABLE and the same package with the field EMPTY refuses at "
+              "term (a). ⚠ THIS IS THE WEAKER CONTROL AND IS LABELLED ONE: the snapshot here is "
+              "CONSTRUCTED by this suite, so it proves the read, not the sensor. The live "
+              "evidence is in this block's comment and it is POSITIVE — run-2's live state.json "
+              "carries a non-empty roster_absent, which CORRECTS the spec's `never observed "
+              "non-empty` caveat",
+              _ae2_seen and "(a) not in `state.json`'s roster_absent" in _ae2_blind
+              and "NOT ATTESTABLE" in _ae2_blind)
+
+        # ---- AE-3: an unreadable snapshot REFUSES rather than assumes ----
+        _ae3 = _ae_make("3")
+        (_ae3 / "state.json").write_text("{not json", encoding="utf-8")
+        _ae3_out, _, _ = _ae(_ae3, seat="oc2", go=True)
+        _ae3_state = _ae_state(_ae3)
+        check("dag-11 AE-3: AN UNREADABLE SNAPSHOT REFUSES AND WRITES NOTHING. The sensor's "
+              "observation is this arm's ONLY evidence that the harness is gone, so a snapshot it "
+              "cannot parse is evidence in NEITHER direction — the same fail-safe direction "
+              "watch.py's revival detector takes on an unreadable ledger. Assuming absence from a "
+              "broken file would close a live seat's session",
+              "no readable `state.json` snapshot" in _ae3_out
+              and _ae3_state == {"roster_active": "yes", "awaiting": None,
+                                 "session_disposition": None, "succ": "BLOCKED"})
 
 
         # ============ s12-08: the CHECK-IN DELIVERS the unread handoff ===========================
@@ -16497,12 +18045,34 @@ def _selftest_checks(args, failures, names):
               "Path.home() at import",
               seen_wait == [7.5, 0.25])
 
-        # A header written before a column existed: the writer widens, never raises.
+        # A header written before a column existed: the READ honours it verbatim, the WRITER widens.
         (pkg4 / "sessions.csv").write_text("session-id,seat\nold-1,gamma\n", encoding="utf-8")
-        check("7.37: a sessions.csv whose header PREDATES a column is honoured verbatim and never "
-              "rewritten — a writer that merely appends must not redefine a contract other seats "
-              "already read", read_csv_table(sessions_csv(pkg4), SESSIONS_COLS)[0] == ["session-id", "seat"]
-              and session_close(a4, "gamma") == "")
+        _37_read_hdr = read_csv_table(sessions_csv(pkg4), SESSIONS_COLS)[0]
+        _37_sid = session_close(a4, "gamma", disposition="done")
+        _37_hdr, _37_rows = read_csv_table(sessions_csv(pkg4), SESSIONS_COLS)
+        _37_i = {c: n for n, c in enumerate(_37_hdr)}
+        check("7.37 + dag-09: A READ HONOURS A PRE-COLUMN HEADER VERBATIM; THE CLOSE WRITER WIDENS "
+              "IT. ⚠ THE SECOND HALF CHANGED WITH dag-09 AND THE CHANGE IS THE POINT — this row "
+              "used to assert `session_close` returned '' here, i.e. that a legacy header made the "
+              "close a silent no-op. That is G-152 exactly: a schema change proven where the "
+              "schema is BORN (`session_open` has widened since G-152) and never where it LIVES, "
+              "so the FIRST check-out on run-2 — whose live header carries no `disposition` — "
+              "would have dropped the very value the DAG reads, silently, and the column would "
+              "have appeared only if some unrelated launch happened to widen it first. The close "
+              "path now widens too: the read is still verbatim (append-only, so no existing "
+              "column moves and no positional reader can break), the row completes, and the "
+              "disposition column becomes reachable at all. ⚠ THIS ROW DELIBERATELY DOES NOT "
+              "ASSERT WHICH VALUE LANDED IN THAT COLUMN, NOR WHERE THE COLUMN SITS — those are "
+              "LG-7's and LG-13's subjects, and asserting them here made BOTH of their red arms "
+              "red two rows apiece, which `--expect-fail` refuses. A row that restates its "
+              "neighbour's claim destroys its neighbour's instrument. What is left is exactly "
+              "this row's own: read verbatim, close completes, header carries every declared "
+              "column",
+              _37_read_hdr == ["session-id", "seat"]
+              and _37_sid == "old-1"
+              and _37_hdr[:2] == ["session-id", "seat"]
+              and set(SESSIONS_COLS) <= set(_37_hdr)
+              and _37_rows[0][_37_i["ended"]])
 
         # ---- 7.69 statusline half
         sl_path, sl_action = write_seat_statusline(seat4)
@@ -16894,14 +18464,14 @@ HELP_EPILOG = """everyday
 leader
   launch      open one tmux seat per worker briefing and start its harness
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat / reap / kill-pane / relaunch-pane / close-run / current-run  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · end / resolve the run
+  close-seat / reap / kill-pane / relaunch-pane / close-run / current-run / attest-exit  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · end / resolve the run · record that a one-shot harness terminated (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
   add-to-group / remove-from-group  join or drop an existing group's members
 
 other
-  workers / descriptors / gateway-status  who is alive and on what · seat-descriptor audit · is a daemon serving this workspace (--probe proves the wire)
+  workers / descriptors / ready-seats / gateway-status  who is alive and on what · seat-descriptor audit · which seats are launchable NOW, recomputed from disk (a seat is READY when every `after` predecessor checked out done) · is a daemon serving this workspace (--probe proves the wire)
   create-group       open a message group for one workstream
   export-transcript  capture a seat's pane scrollback into its worker folder
   depart      ephemeral seats: export + check out + kill your own pane
@@ -17649,6 +19219,45 @@ def build_parser():
         "  coordinate descriptors\n"
         "next: nothing — findings are reported to whoever owns seats/, never fixed here")
     s.set_defaults(func=cmd_descriptors)
+
+    s = command(
+        "attest-exit",
+        "The kit writes the check-out a one-shot harness could not (dag-11, F1). A seat is\n"
+        "EXIT-ATTESTABLE when the sensor reports it in state.json's roster_absent, its descriptor\n"
+        "declares `mode: one-shot`, it has no check-out of its own, no live lifecycle executor\n"
+        "holds it, and the absence has held longer than one full sensor cadence. It then records\n"
+        "disposition `exited` — THE HARNESS TERMINATED, and nothing more: whether the work is\n"
+        "done is NOT established here, and the row routes to the leader. BARE = report only.",
+        "example:\n"
+        "  coordinate attest-exit                    # report every candidate, write nothing\n"
+        "  coordinate attest-exit --seat oc2 --go    # act on one\n"
+        "next: coordinate ready-seats — an `exited` row advances no edge until the leader "
+        "relaunches the seat or flips its disposition to `done`")
+    s.add_argument("--seat", help="one seat to consider; default is every roster_absent candidate")
+    s.add_argument("--go", action="store_true",
+                   help="ACT: export, flip the roster row, record `exited`, close the session row")
+    s.set_defaults(func=cmd_attest_exit)
+
+    s = command(
+        "ready-seats",
+        "The ready-SEAT frontier, recomputed from disk (dag-10). A seat is READY when it has no\n"
+        "check-out of its own, no ACTIVE roster row, a descriptor on disk, and EVERY `after`\n"
+        "predecessor in taskforce.csv carries a check-out with disposition `done`. Only `done`\n"
+        "advances an edge — `renew`, `revive`, `exited` and the absence of a check-out all leave\n"
+        "the successor BLOCKED. Reads workers.md, awaiting-close.json and sessions.csv; when the\n"
+        "last two disagree about one seat it reports SKEW and exits 1 rather than picking a\n"
+        "winner. READ-ONLY: launches nothing, writes nothing, messages nobody.",
+        "example:\n"
+        "  coordinate ready-seats\n"
+        "  coordinate ready-seats --json\n"
+        "  coordinate ready-seats --explain execution-strategist\n"
+        "next: launch what it reports READY — `coordinate launch --only <seat>`")
+    s.add_argument("--json", action="store_true",
+                   help="the same rows as JSON, each carrying its verdict, reason, disposition "
+                        "and source — so a machine consumer never parses the reason text")
+    s.add_argument("--explain", metavar="SEAT",
+                   help="print the full predicate evaluation for ONE seat, term by term")
+    s.set_defaults(func=cmd_ready_seats)
 
     s = command(
         "gateway-status",
