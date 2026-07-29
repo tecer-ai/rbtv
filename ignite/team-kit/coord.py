@@ -4584,6 +4584,208 @@ def inherited_log_path(fd=1):
     return resolved, ""
 
 
+# ---- STAGE 3 (s3-09): THE CALLER-SIDE FORK — where the pane stops being trusted --------------
+#
+# THE SEAT'S OWN CHECKOUT FORKS THE EXECUTOR AND THEN EXITS. Everything `cmd_checkout` does before
+# this seam is in-pane work that is SAFE in-pane — the handoff append, the transcript export, the
+# roster flip, the sessions.csv close, the awaiting-close record. The renewal itself is not: it
+# respawns or kills the very pane the caller runs in, so a process attempting it would die halfway
+# through its own act (W1, and the reason `cmd_close_seat` prints its self-act WARNING). The fork
+# is the seam between the two, and its ORDER is load-bearing:
+#
+#     … set_awaiting -> STAMP THE MARKER -> FORK -> EXIT.
+#
+# A caller killed BEFORE the fork degrades to TODAY's state — checked out, awaiting-close debt
+# standing, leader closes it by hand. A known state with an existing remedy, not a new failure
+# mode. That is also why the marker is stamped by the CALLER and not by the child: a stamped
+# marker means a fork was reached, and no marker means the seat never got that far — a distinction
+# nobody can recover afterwards if the child owns the first write.
+#
+# ⚠⚠ THE CHILD'S ENVIRONMENT IS A DENYLIST, NEVER AN ALLOWLIST, and that is load-bearing rather
+# than stylistic. The four names in `LIFECYCLE_SCRUB_ENV` are the ones that would make the child
+# act AS the dying seat or IN the caller's pane, and they are the ones removed. EVERYTHING ELSE IS
+# INHERITED ON PURPOSE — `TMUX_TMPDIR` above all, which is what binds a process to ONE tmux SERVER.
+# An acceptance room that isolates itself by giving the room its own `TMUX_TMPDIR` (rather than
+# `tmux -L`, measured NON-isolating for the context sensor, which shells out to bare `tmux` and
+# takes no socket parameter) would leak straight back onto the LIVE server the moment a narrow
+# allowlist dropped that name — and its suite would report green while acting on the real box.
+# That is `recover-room.py:13-19`'s hazard wearing a new mask: it would not fail, it would guess.
+
+
+def lifecycle_fork_target(seat, pane):
+    """(target, why) — the EXPLICIT tmux target for `seat`'s detached executor, or ("", reason).
+
+    `cmd_close_seat`'s OWN placement logic, MINUS ITS FALLBACK. In-place (G-154) -> the pane
+    itself; a PANE-placed seat whose old window still resolves to a session -> that window. What
+    is deliberately NOT copied is the last line of that block,
+    `os.environ.get("COORD_LAUNCH_TARGET") or os.environ.get("TMUX_PANE")` — the executor has
+    NEITHER (it scrubs both at entry), and an empty target is not an error tmux reports:
+
+        Worse: it would not fail, it would guess. `launch` resolves its target as
+        COORD_LAUNCH_TARGET or TMUX_PANE … and a daemon-fired `fire-tool` exec has NEITHER. With
+        both unset, tmux resolves an empty target to the MOST RECENT session — measured, it
+        answered `build-core-daemon-mvp`, the LIVE room. A recovery that opens agents into the
+        live room believing it is repairing a dead one is worse than no recovery at all.
+        — ignite/jobs/recover-room.py:13-19
+
+    So the answer here is a target or a REFUSAL, never a blank a caller might pass on. The two
+    tmux measurements are skipped when the pane is dead, which cannot change the verdict:
+    `renew_in_place` short-circuits on `pane_live` and a dead pane has no window to read. That is
+    an elision of unreachable work, not a second rule.
+    """
+    if not pane:
+        return "", "its roster row carries no pane, so there is nothing to measure a target from"
+    pane_live = pane in live_panes()
+    if renew_in_place(seat, pane, pane_live, tmux_pane_window_name(pane) if pane_live else None):
+        return pane, ""
+    window = tmux_pane_window(pane) if pane_live else ""
+    if seat_placement(seat)[0] == "pane" and window and tmux_session_name(window):
+        return window, ""
+    if not pane_live:
+        return "", (f"its pane {pane} is NOT LIVE, so neither that pane nor the window it sat in "
+                    f"can name one")
+    return "", (f"its pane {pane} is not in the window its descriptor asks for (so the pane "
+                f"cannot be respawned in place) and tmux names no session for the window "
+                f"{window or '(none)'} that pane sits in")
+
+
+def fork_lifecycle_renewal(args, base, seat_name, pane):
+    """Stamp the in-flight marker and FORK the detached `lifecycle-exec` for a RENEW checkout.
+
+    `arm_pid_reaper`'s FORM, verbatim — `setsid` plus `start_new_session=True`, ONE call, no
+    double-fork anywhere — with the three deltas Stage 3 forces:
+
+      · `sys.executable` + THIS FILE's absolute path, never `bash -c`. The reaper's payload is
+        pure shell; this executor must reach `renew_in_place`, `launch_seat` and
+        `verify_pids_gone`, which are Python.
+      · stdout/stderr to a FILE, never `DEVNULL`. `DEVNULL` is right for a four-line reaper and
+        wrong here: this room has already lost a detached loop's output that way — "printed to a
+        detached stderr file, and lost, while the loop went on reporting healthy"
+        (`undelivered_flags`). ⚠ THE LOG IS EVIDENCE, NEVER THE ALARM. The alarm path is
+        `lifecycle_alarm` (marker -> bus -> refusal) and nothing here duplicates any part of it.
+      · the four `LIFECYCLE_SCRUB_ENV` names REMOVED from the child's `env=` — a DENYLIST, for the
+        reason the section header above states at length. The executor pops them AGAIN at entry
+        (`s3-05` guard 1); the redundancy is deliberate, so a future caller that forgets is still
+        caught by the child.
+
+    IT REFUSES RATHER THAN FORKING BLIND. Five ways this can fail — no descriptor, no computable
+    target, no readable caller identity, no marker, no log — and each exits 2 naming the seat and
+    the manual remedy. THE CHECKOUT ITSELF HAS ALREADY HAPPENED at this point and is NOT undone;
+    every refusal says so in as many words, so a seat reading one does not believe its handoff was
+    thrown away.
+
+    ⚠ ONE `{stamp}`, COMPUTED ONCE, HERE. `s3-05`'s guard 5 reads the log path back off
+    `/proc/self/fd/1` instead of recomputing a name, precisely so two independent stamps can never
+    name two files for one run and leave the marker pointing at the empty one.
+
+    ⚠ RENEW ONLY. `d-cos-may-launch` bounds this: the fork is the SEAT's own act on its OWN
+    checkout, and nothing here is reachable from a chief-of-staff-facing command, flag or path.
+    """
+    seats = [w for w in discover_workers(workers_dir(args)) if w["agent"] == seat_name]
+    if not seats:
+        refuse(
+            "state",
+            f"NO EXECUTOR WAS FORKED for '{seat_name}': no briefing in {workers_dir(args)} "
+            f"carries `agent: {seat_name}`, so its placement cannot be read and no tmux target "
+            f"can be computed for the successor. YOUR CHECKOUT STANDS — the handoff is written, "
+            f"the roster flipped, the debt recorded. What did not happen is the relaunch.\n"
+            f"Leader brings the seat back by hand once the briefing exists: "
+            f"{coord_invocation(args)} launch --only {seat_name}",
+            2)
+    target, why = lifecycle_fork_target(seats[0], pane)
+    if not target:
+        refuse(
+            "state",
+            f"NO EXECUTOR WAS FORKED for '{seat_name}': its tmux target could not be computed — "
+            f"{why}. This process refuses to fork without one rather than passing an empty target "
+            f"down: with no target tmux resolves to the MOST RECENT session, measured to be the "
+            f"live room, so the successor would open wherever tmux happened to point. YOUR "
+            f"CHECKOUT STANDS — handoff written, transcript exported, roster flipped, "
+            f"awaiting-close debt recorded.\n"
+            f"Leader brings the seat back by hand: {coord_invocation(args)} close-seat "
+            f"{seat_name} --renew",
+            2)
+    caller_start = proc_stat(os.getpid())[1]
+    if not caller_start:
+        refuse(
+            "environment",
+            f"NO EXECUTOR WAS FORKED for '{seat_name}': this process cannot read its own "
+            f"/proc/{os.getpid()}/stat, so it has no (pid, starttime) pair to hand over. The PAIR "
+            f"is what lets the executor tell 'my caller exited' from 'a recycled pid landed on "
+            f"its number'; a pid alone is not an identity. YOUR CHECKOUT STANDS.\n"
+            f"Leader brings the seat back by hand: {coord_invocation(args)} close-seat "
+            f"{seat_name} --renew",
+            2)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    log_path = Path(base) / f"lifecycle-exec-{seat_name}-{stamp}.log"
+    # THE CALLER'S RECORD, AND ONLY THE CALLER'S. `executor` is deliberately ABSENT: the child
+    # writes its own pair as its first act (`s3-05` guard 5), so an `executor` key in this file
+    # always means a child really started. `stamp_lifecycle` owns `state`, `steps-completed` and
+    # `stamped-at` and overwrites anything passed for them — a caller able to pre-load a step
+    # could claim one before it ran, which is the inversion the G-134 block rules against.
+    if not stamp_lifecycle(base, seat_name, {
+            "disposition": "renew",
+            "caller": (os.getpid(), caller_start),
+            "pane": str(pane or ""),
+            "tmux-target": target,
+            "log": str(log_path)}):
+        refuse(
+            "environment",
+            f"NO EXECUTOR WAS FORKED for '{seat_name}': the in-flight marker at "
+            f"{lifecycle_path(base)} could NOT be written. Forking anyway would leave a renewal "
+            f"running that nothing on disk records — invisible to `status`, and invisible to the "
+            f"revival arm, which reads exactly this file. YOUR CHECKOUT STANDS.\n"
+            f"Leader brings the seat back by hand: {coord_invocation(args)} close-seat "
+            f"{seat_name} --renew",
+            2)
+    argv = ["setsid", sys.executable, str(Path(__file__).resolve()), "lifecycle-exec",
+            "--package", str(package_dir(args)),
+            "--seat", seat_name,
+            "--disposition", "renew",
+            "--pane", str(pane or ""),
+            "--tmux-target", target,
+            "--caller-pid", str(os.getpid()),
+            "--caller-starttime", caller_start,
+            # Always "1" on this path BY CONSTRUCTION, not by assumption: `cmd_checkout` reaches
+            # this seam only from CALL 2, and call 2 refuses before the body unless the block
+            # landed and verified. The executor re-reads memory.md and refuses the claim anyway.
+            "--handoff-written", "1"]
+    child_env = {k: v for k, v in os.environ.items() if k not in LIFECYCLE_SCRUB_ENV}
+    try:
+        handle = open(log_path, "ab")
+    except OSError as exc:
+        finish_lifecycle(base, seat_name, "FAILED",
+                         f"the executor log {log_path} could not be opened ({exc}); nothing was "
+                         f"forked")
+        refuse(
+            "environment",
+            f"NO EXECUTOR WAS FORKED for '{seat_name}': its log {log_path} could not be opened "
+            f"({exc}). A detached executor whose output goes nowhere is the exact failure this "
+            f"room has already paid for once, so it is not started at all. The marker is flipped "
+            f"FAILED so nothing reads this as a renewal in progress. YOUR CHECKOUT STANDS.\n"
+            f"Leader brings the seat back by hand: {coord_invocation(args)} close-seat "
+            f"{seat_name} --renew",
+            2)
+    try:
+        subprocess.Popen(argv, stdout=handle, stderr=handle,
+                         start_new_session=True, env=child_env)
+    except OSError as exc:
+        finish_lifecycle(base, seat_name, "FAILED",
+                         f"the detached executor could not be spawned ({exc})")
+        handle.close()
+        refuse(
+            "environment",
+            f"NO EXECUTOR WAS FORKED for '{seat_name}': the spawn itself failed ({exc}). The "
+            f"marker is flipped FAILED so nothing reads this as a renewal in progress. YOUR "
+            f"CHECKOUT STANDS.\n"
+            f"Leader brings the seat back by hand: {coord_invocation(args)} close-seat "
+            f"{seat_name} --renew",
+            2)
+    handle.close()
+    print(f"lifecycle: detached executor forked for '{seat_name}' — target {target}, evidence "
+          f"{log_path}")
+
+
 # ---- STAGE 3 (s3-06): THE DISPOSITION SEQUENCES — what the executor actually DOES -------------
 #
 # ONE SEQUENCE, THREE DISPOSITIONS. `close` IS `renew` MINUS EVERY RELAUNCH STEP, and `revive`
@@ -6150,13 +6352,17 @@ def cmd_checkout(args):
     elif sid:
         print(f"sessions.csv: {sid} ended")
     if renew:
-        # [INTEGRATION POINT — STAGE 3: fork the detached executor]
-        # Stage 3 forks the renewal executor HERE, after the close is recorded and before this
-        # process exits, on the `arm_pid_reaper` pattern (setsid + start_new_session=True, the
-        # exact (pid, starttime) re-derived at act time). THE PATTERN IS `arm_pid_reaper`; IT IS
-        # NOT THE API. Nothing is wired yet, so the seat is told the truth about what remains.
-        print(c(f"next: nothing on your side — the renewal executor is not wired yet (Stage 3); "
-                f"leader runs `close-seat {me} --renew`.", C_HINT))
+        # ---- STAGE 3 (s3-09): THE FORK. The seam s12-06 left greppable here is DISCHARGED. -----
+        # Everything above ran in-pane and is safe in-pane; the renewal is not, so it leaves with a
+        # DETACHED process and this one exits. `fork_lifecycle_renewal` stamps the marker first and
+        # REFUSES rather than forking blind — its own contract carries the five refusal arms and
+        # the denylist argument for the child's environment. NOTHING BELOW MAY ASSUME THE PANE
+        # SURVIVES: from the moment the child starts, this pane can be respawned out from under
+        # this process at any instant.
+        fork_lifecycle_renewal(args, base, me, (row or {}).get("pane", ""))
+        print(c(f"next: nothing on your side — a detached executor is running '{me}'s renewal OUT "
+                f"of this pane and will bring the seat back. This session is over; do not type "
+                f"another command.", C_HINT))
     else:
         # [INTEGRATION POINT — STAGE 3: fork the detached reaper]
         # The done path's twin seam: Stage 3 forks the pane reaper here instead of leaving the
@@ -10245,6 +10451,10 @@ def _selftest_checks(args, failures, names):
     # DELEGATES, so the renew rows still exercise the real launch path. Both are saved and restored
     # inside the s3-06 block, not in the positional `real` tuple above.
     global tmux_pane_window_name, launch_seat
+    # s3-09: the CALLER-SIDE FORK. Declared with the others for the same reason the line above
+    # states — a `global` after the name is read in this scope is a SyntaxError `ast.parse` does
+    # not raise and only `compile()` catches.
+    global fork_lifecycle_renewal
     # s3-06: the settle budget, zeroed for that block only (its own comment carries the clause).
     global LIFECYCLE_SETTLE_S
     real = (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
@@ -10313,6 +10523,14 @@ def _selftest_checks(args, failures, names):
     tmux_pane_pid = lambda pane: 0
     tmux_respawn_pane = lambda pane, cwd: (respawned.append((pane, cwd)) or (True, ""))
     available_mb = lambda: 0   # unmeasurable -> the memory gate passes (fail-safe)
+    # s3-09: the caller-side fork, stubbed SUITE-WIDE so that no `checkout --renew` anywhere below
+    # spawns a real detached executor against a fixture package (it would reach real tmux and a
+    # real relaunch). Its OWN rows — the s3-09 block, far below — restore the real builder and stub
+    # `subprocess.Popen` underneath it instead, so the argv, the `env=` and the kwargs the child
+    # would actually receive are asserted against the REAL builder rather than against a recorder.
+    _fork_real = fork_lifecycle_renewal
+    forked_renewals = []
+    fork_lifecycle_renewal = lambda _a, _b, _seat, _pane: forked_renewals.append((_seat, _pane))
 
     # ---- P35 (round 2): wake()'s Enter-verify + bounded Enter-only retry, exercised against the
     # REAL wake() with only its three tmux primitives stubbed (wake itself is stubbed wholesale
@@ -14962,19 +15180,20 @@ def _selftest_checks(args, failures, names):
         # reach 2 however correct the code was.
         _h6_ip = "[INTEGRATION POINT " + "— STAGE 3"
         check("s12-06 S6-h: EVERY Stage-3 seam exists and is GREPPABLE — the module source carries "
-              "the named marker exactly TWICE. BOTH are s12's, both still open and both s3-09's: "
-              "the renew path's fork (the detached executor) and the done path's fork (the "
-              "detached reaper). ⚠ THE COUNT WENT 5 -> 4 WITH s3-08, 4 -> 3 WITH s3-06 AND 3 -> 2 "
-              "WITH s3-07, EACH DISCHARGING ONE: s3-08's `lifecycle_alarm` now RAISES the bus "
-              "alarm rather than promising to; s3-06 both BUILT the disposition sequence the "
-              "executor's seam promised and SETTLED s12-07's deferred question in `reap_blockers` "
-              "(the executor clears the entry, at step 9); and s3-07 WIDENED the sequence's "
-              "relaunch predicate for `revive` — the boolean is now read off "
-              "`LIFECYCLE_RELAUNCHING`, which is where a fourth disposition declares its side. A "
+              "the named marker exactly ONCE, and the one left is the DONE path's reaper. ⚠ THE "
+              "COUNT WENT 5 -> 4 WITH s3-08, 4 -> 3 WITH s3-06, 3 -> 2 WITH s3-07 AND 2 -> 1 WITH "
+              "s3-09, EACH DISCHARGING ONE: s3-08's `lifecycle_alarm` now RAISES the bus alarm "
+              "rather than promising to; s3-06 both BUILT the disposition sequence the executor's "
+              "seam promised and SETTLED s12-07's deferred question in `reap_blockers` (the "
+              "executor clears the entry, at step 9); s3-07 WIDENED the sequence's relaunch "
+              "predicate for `revive`; and s3-09 BUILT the RENEW path's caller-side fork. The "
+              "done path's seam stays OPEN DELIBERATELY and is not s3-09's to close — its own "
+              "acceptance requires a plain checkout to fork nothing, because G-134's debt keeps "
+              "the pane alive until `close-seat`, which is where the relay-door refusal lives. A "
               "named comment is how the sites stay findable instead of being re-derived from a "
               "spec nobody reads at the time — and this count is bumped in the SAME change as any "
               "seam added or discharged, or the inventory starts lying quietly",
-              Path(__file__).read_text(encoding="utf-8").count(_h6_ip) == 2)
+              Path(__file__).read_text(encoding="utf-8").count(_h6_ip) == 1)
 
         # ============ s12-07: the DISPOSITION in awaiting-close.json =============================
         # Spec: stage-1-2-gate-checkout-spec.md §2.3. The rows that need a live pane, a recorded
@@ -17698,6 +17917,236 @@ def _selftest_checks(args, failures, names):
         calling_pane["v"], wake_ok["v"] = _s6_prior_pane, _s6_prior_wake
         harness_up["v"] = _s6_prior_up
 
+        # ============ s3-09: the CALLER-SIDE FORK — argv, environment, ordering, refusal ========
+        # Spec: stage-3-executor-spec.md §1.1 (detachment mechanics), §3.1 (the caller's ordering),
+        # §4.2 (the explicit target). These rows drive the REAL `cmd_checkout --renew --handoff`
+        # end to end against a fixture package with `fork_lifecycle_renewal` RESTORED to the real
+        # builder and `subprocess.Popen` stubbed underneath it — so every assertion below is about
+        # the argv, the `env=` and the kwargs the child would ACTUALLY have received, and never
+        # about a recorder standing in for them.
+        #
+        # ⚠⚠ THE FOUR SCRUBBED NAMES, `TMUX_TMPDIR`, AND `COORD_LAUNCH_TARGET` ARE SET IN THIS
+        # PROCESS'S ENVIRONMENT FOR THE WHOLE BLOCK, AND THAT IS WHAT LETS THREE ROWS GO RED AT ALL.
+        # A scrub row run in an environment that never held the variables is green whatever the
+        # code does. And row (5)'s red arm is "restore the `COORD_LAUNCH_TARGET or TMUX_PANE`
+        # fallback", which can only resolve a target if those names are PRESENT — absent them the
+        # mutation is a no-op and the row would be a green that could not have gone red. Setting
+        # them is the instrument, not scenery.
+        # `COORD_AGENT` is safe to set here: `resolve_agent` prefers `args.agent`, which every row
+        # passes, and `detect_pane` is stubbed to an empty calling pane, so no identity
+        # contradiction can fire off it.
+        _f9_real_panes, _f9_real_sess = live_panes, tmux_session_name
+        _f9_real_wname, _f9_real_popen = tmux_pane_window_name, subprocess.Popen
+        _f9_real_fork = fork_lifecycle_renewal
+        _f9_prior_pane, calling_pane["v"] = calling_pane["v"], ""
+        fork_lifecycle_renewal = _fork_real          # the REAL builder, for this block only
+        _f9_env_prior = {k: os.environ.get(k) for k in
+                         ("TMUX", "TMUX_PANE", "COORD_AGENT", "COORD_LAUNCH_TARGET", "TMUX_TMPDIR")}
+        os.environ.update({"TMUX": "/tmp/f9/default,1,0", "TMUX_PANE": "%999",
+                           "COORD_AGENT": "not-the-seat", "COORD_LAUNCH_TARGET": "%998",
+                           "TMUX_TMPDIR": "/tmp/f9-private-tmux"})
+        # %90 is the in-place seat's pane, %91 the drifted window-seat's, %92 the done seat's.
+        _f9_live = {"v": {"%90", "%91", "%92"}}
+        live_panes = lambda: set(_f9_live["v"])
+        # The drifted seat sits in `elsewhere` while its descriptor asks for its own window, so
+        # `renew_in_place` says no; and `tmux_pane_window` (the suite-wide stub) names no window
+        # for %91, so the pane-seat branch cannot rescue it either. Both halves are needed: with
+        # either one satisfied the target would resolve and row (5) would have nothing to refuse.
+        tmux_pane_window_name = lambda pane: ("f9win" if pane in ("%90", "%92") else "elsewhere")
+        tmux_session_name = lambda target: "f9sess"
+        pane_windows["%90"] = "@90"
+        pane_windows["%92"] = "@92"
+
+        _f9_pkg = Path(td) / "f9-run"
+        _f9_base = _f9_pkg / "coordination"
+        _f9_base.mkdir(parents=True)
+        (_f9_pkg / "workers").mkdir()
+        (_f9_pkg / "budget.json").write_text(
+            json.dumps({"floors": {"launch_refuse_mb": 2000, "pressure_warn_mb": 2000}}))
+        for _f9_seat, _f9_win in (("r9", ""), ("r9drift", "yes"), ("r9done", "")):
+            _f9_d = _f9_pkg / "workers" / _f9_seat
+            _f9_d.mkdir()
+            (_f9_d / "agent.md").write_text(
+                f"---\nagent: {_f9_seat}\nmodel: opus\n"
+                + (f"window: {_f9_win}\n" if _f9_win else "") + "---\nbrief\n", encoding="utf-8")
+            (_f9_d / "memory.md").write_text(f"# {_f9_seat} — seat memory\nprior state\n",
+                                             encoding="utf-8")
+
+        _f9_pop = []
+
+        class _F9Child:
+            """What `Popen` returns. Nothing here reads it; it exists so the stub cannot be
+            mistaken for a function that returns None on a path that later grows a `.wait()`."""
+            pid = 909090
+
+        def _f9_popen(argv, **kw):
+            # THE MARKER AND THE DEBT ARE SNAPSHOT *AT THE MOMENT OF THE CALL*, which is the only
+            # way row (4) can assert ORDER rather than mere presence: read afterwards, a stamp
+            # written after the fork would be indistinguishable from one written before it.
+            _f9_pop.append({
+                "argv": list(argv), "kw": dict(kw),
+                "marker": dict(load_lifecycle(_f9_base).get(_f9_who["v"]) or {}),
+                "awaiting": dict(load_awaiting(_f9_base).get(_f9_who["v"]) or {})})
+            return _F9Child()
+
+        _f9_who = {"v": "r9"}
+        subprocess.Popen = _f9_popen
+
+        def _f9_checkout(seat, **kw):
+            d = {"package": str(_f9_pkg), "agent": seat, "renew": True,
+                 "handoff": "carry this forward", "no_export": True}
+            d.update(kw)
+            _o, _e, _c = harness_outcome(cmd_checkout, ns(**d))
+            return _o + _e, _c
+
+        # ---- (0) THE PREMISE for rows 1-4: the happy path RUNS and forks EXACTLY ONE child. ----
+        run(cmd_checkin, package=str(_f9_pkg), agent="r9", summary="s3-09 in-place fixture",
+            pane="%90", force=True)
+        _f9_out, _f9_code = _f9_checkout("r9")
+        _f9_rec = _f9_pop[0] if _f9_pop else {}
+        _f9_argv = list(_f9_rec.get("argv") or [])
+        _f9_kw = dict(_f9_rec.get("kw") or {})
+        check("s3-09 (0) THE PREMISE FOR ROWS 1-4: a `checkout --renew --handoff` on a seat whose "
+              "pane is live and already in the window its descriptor names RETURNS NORMALLY and "
+              "forks EXACTLY ONE detached child. Without this row every assertion below would read "
+              "an empty record and could go green on a build that forks nothing at all",
+              _f9_code is None and len(_f9_pop) == 1 and bool(_f9_argv))
+
+        # ---- (1) ARGV: complete, absolute, and IT PARSES. ----
+        # ⚠ THE ARGV IS FED BACK THROUGH `build_parser()`, not merely inspected. A hand-written list
+        # of expected flag names would assert that this test agrees with this test; the parser is
+        # the CONSUMER, and it is what actually decides whether the child can start. It also makes
+        # the red arm sharp: `--tmux-target` is `required=True`, so dropping it from the builder
+        # turns this row red on the parse, not on a string compare.
+        _f9_flags = ("--package", "--seat", "--disposition", "--pane", "--tmux-target",
+                     "--caller-pid", "--caller-starttime", "--handoff-written")
+        _f9_vals = {}
+        for _f9_flag in _f9_flags:
+            _f9_at = _f9_argv.index(_f9_flag) if _f9_flag in _f9_argv else -1
+            _f9_vals[_f9_flag] = (_f9_argv[_f9_at + 1]
+                                  if 0 <= _f9_at < len(_f9_argv) - 1 else "")
+        _f9_parsed = harness_outcome(
+            lambda _a: build_parser().parse_args(_f9_argv[3:]), ns()) if len(_f9_argv) > 3 else \
+            ("", "", 2)
+        check("s3-09 (1) ARGV IS COMPLETE AND ABSOLUTE: the spawn begins `setsid`, this "
+              "interpreter, this file's ABSOLUTE path and `lifecycle-exec`, carries all EIGHT "
+              "flags with non-empty values, and PARSES CLEANLY through the real `build_parser()`. "
+              "A relative coord.py path would resolve against the child's cwd, which is the dying "
+              "pane's and is not guaranteed to be anything",
+              len(_f9_argv) > 3 and _f9_argv[0] == "setsid" and _f9_argv[1] == sys.executable
+              and os.path.isabs(_f9_argv[2])
+              and Path(_f9_argv[2]).resolve() == Path(__file__).resolve()
+              and _f9_argv[3] == "lifecycle-exec"
+              and all(v and not v.startswith("--") for v in _f9_vals.values())
+              and _f9_parsed[2] is None)
+
+        # ---- (2) DETACHED, and the output lands in a FILE. ----
+        _f9_out_fd, _f9_err_fd = _f9_kw.get("stdout"), _f9_kw.get("stderr")
+        _f9_logname = getattr(_f9_out_fd, "name", "")
+        check("s3-09 (2) DETACHED, AND ITS OUTPUT LANDS IN A FILE UNDER THE PACKAGE: "
+              "`start_new_session=True` is passed (the belt-and-braces half of `setsid`), and BOTH "
+              "stdout and stderr are a real file object under {base} named "
+              "`lifecycle-exec-{seat}-{stamp}.log` — never DEVNULL. DEVNULL is right for a "
+              "four-line reaper and wrong here: this room has already lost a detached loop's "
+              "output that way while the loop went on reporting healthy",
+              _f9_kw.get("start_new_session") is True
+              and _f9_out_fd is not None and _f9_out_fd is not subprocess.DEVNULL
+              and _f9_err_fd is not None and _f9_err_fd is not subprocess.DEVNULL
+              and hasattr(_f9_out_fd, "fileno") and hasattr(_f9_err_fd, "fileno")
+              and _f9_logname.startswith(str(_f9_base))
+              and Path(_f9_logname).name.startswith("lifecycle-exec-r9-")
+              and _f9_logname.endswith(".log"))
+
+        # ---- (3) THE FOUR SCRUBBED NAMES ARE ABSENT — four assertions, one per variable. ----
+        # ⚠ FOUR, NOT ONE. A row asserting only `TMUX_PANE` would have passed the `COORD_AGENT`
+        # bug — the one that makes a detached executor resolve AS the dying seat.
+        _f9_env = dict(_f9_kw.get("env") or {})
+        check("s3-09 (3) THE ENVIRONMENT HANDED TO THE CHILD IS SCRUBBED: none of TMUX, TMUX_PANE, "
+              "COORD_AGENT or COORD_LAUNCH_TARGET reaches it, asserted ONE BY ONE — all four are "
+              "set in this process for the duration, so the row is measuring removal rather than "
+              "absence. COORD_AGENT would make the executor resolve as the DYING seat; TMUX_PANE "
+              "produced watch.py's measured refusal storm",
+              _f9_kw.get("env") is not None
+              and "TMUX" not in _f9_env and "TMUX_PANE" not in _f9_env
+              and "COORD_AGENT" not in _f9_env and "COORD_LAUNCH_TARGET" not in _f9_env)
+
+        # ---- (3b) …AND NOTHING ELSE IS DROPPED. The denylist bound, stated as its own row. ----
+        check("s3-09 (3b) THE SCRUB IS A DENYLIST, AND `TMUX_TMPDIR` SURVIVES IT: the child's env "
+              "still carries TMUX_TMPDIR and PATH. TMUX_TMPDIR is what binds a process to ONE tmux "
+              "SERVER, and an acceptance room isolates itself by owning one (`tmux -L` was "
+              "measured NON-isolating for the context sensor, which shells out to bare tmux). An "
+              "allowlist that dropped it would fork a detached executor from inside a throwaway "
+              "room straight onto the LIVE server, while the suite reported green — the "
+              "recover-room hazard in a new place: it would not fail, it would guess",
+              _f9_env.get("TMUX_TMPDIR") == "/tmp/f9-private-tmux" and bool(_f9_env.get("PATH")))
+
+        # ---- (4) ORDERING: the marker is stamped BEFORE the fork, and the debt before that. ----
+        _f9_marker = dict(_f9_rec.get("marker") or {})
+        _f9_caller = dict(_f9_marker.get("caller") or {})
+        check("s3-09 (4) ORDERING — THE MARKER EXISTS BEFORE THE FORK, AND `set_awaiting` BEFORE "
+              "THE MARKER: read AT THE MOMENT OF THE SPAWN, the seat's entry is already "
+              "`in-flight` with the CALLER's (pid, starttime) and an EMPTY step list, its "
+              "awaiting-close record already declares disposition=renew, and NO `executor` key is "
+              "present yet — that one is the child's first act, so a marker carrying it always "
+              "means a child really started",
+              _f9_marker.get("state") == "in-flight"
+              and _f9_caller.get("pid") == os.getpid() and bool(_f9_caller.get("starttime"))
+              and _f9_marker.get("steps-completed") == []
+              and _f9_marker.get("disposition") == "renew"
+              and not _f9_marker.get("executor")
+              and (_f9_rec.get("awaiting") or {}).get("disposition") == "renew")
+
+        # ---- (5) REFUSE TO FORK when the target cannot be computed. ----
+        # The single most dangerous line in this task is the one NOT copied from `cmd_close_seat`.
+        # `COORD_LAUNCH_TARGET`/`TMUX_PANE` are live in this process (see the block header), so the
+        # mutation that restores that fallback WOULD resolve a target here — which is what makes
+        # this red arm able to fire instead of being a green nobody can shake.
+        _f9_pop.clear()
+        _f9_who["v"] = "r9drift"
+        run(cmd_checkin, package=str(_f9_pkg), agent="r9drift", summary="s3-09 drifted fixture",
+            pane="%91", force=True)
+        _f9_d_out, _f9_d_code = _f9_checkout("r9drift")
+        check("s3-09 (5) NO TARGET, NO FORK: a window seat whose live pane sits OUTSIDE the window "
+              "its descriptor names — so it can be neither respawned in place nor re-placed from "
+              "its old window — REFUSES with exit 2, spawns NOTHING, names the seat, says the "
+              "checkout itself stands, and hands over the manual remedy. It does NOT inherit "
+              "`cmd_close_seat`'s `COORD_LAUNCH_TARGET or TMUX_PANE` fallback: with both unset "
+              "tmux resolves an empty target to the most recent session, measured to be the LIVE "
+              "room, so an unresolved target does not fail — it guesses",
+              _f9_d_code == 2 and _f9_pop == []
+              and re.search(r"^refused \[coord state\]: ", _f9_d_out, re.M) is not None
+              and "NO EXECUTOR WAS FORKED for 'r9drift'" in _f9_d_out
+              and "YOUR CHECKOUT STANDS" in _f9_d_out
+              and "close-seat r9drift --renew" in _f9_d_out)
+
+        # ---- (6) A PLAIN (done) CHECKOUT FORKS NOTHING. ----
+        # G-134's debt is DELIBERATE: the pane stays live until leader frees it, and `close-seat`
+        # is where the relay-door refusal lives. A done-checkout that forked a reaper would kill
+        # panes behind that refusal's back, so this seam stays open on purpose.
+        _f9_pop.clear()
+        _f9_who["v"] = "r9done"
+        run(cmd_checkin, package=str(_f9_pkg), agent="r9done", summary="s3-09 done fixture",
+            pane="%92", force=True)
+        _f9_done_out, _f9_done_code = _f9_checkout("r9done", renew=False, handoff=None)
+        check("s3-09 (6) A PLAIN CHECKOUT FORKS NOTHING: the done path returns normally and "
+              "records NO spawn — the fork is the RENEW disposition's act, not every checkout's. "
+              "The seat's pane is left alive with the awaiting-close debt standing, which is the "
+              "G-134 design and the only state `close-seat`'s relay-door refusal can protect",
+              _f9_done_code is None and _f9_pop == []
+              and "awaiting close" in _f9_done_out)
+
+        subprocess.Popen = _f9_real_popen
+        fork_lifecycle_renewal = _f9_real_fork
+        live_panes, tmux_session_name = _f9_real_panes, _f9_real_sess
+        tmux_pane_window_name = _f9_real_wname
+        calling_pane["v"] = _f9_prior_pane
+        for _f9_k, _f9_v in _f9_env_prior.items():
+            if _f9_v is None:
+                os.environ.pop(_f9_k, None)
+            else:
+                os.environ[_f9_k] = _f9_v
+
+
     (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
      tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
      tmux_split_strip, restore_overview_strip, tmux_find_window_pane, tmux_send_text,
@@ -17705,6 +18154,7 @@ def _selftest_checks(args, failures, names):
      _acquire_flock, atomic_write, pane_title) = real
     (pane_harness_pids, pane_harness_idents, wait_harness_up, verify_pids_gone, arm_pid_reaper,
      tmux_pane_pid, tmux_respawn_pane, available_mb) = proc_real
+    fork_lifecycle_renewal = _fork_real
     (NATIVE_ID_WAIT, WAKE_ENTER_VERIFY_DELAY_FIRST,
      WAKE_ENTER_VERIFY_DELAY_RETRY) = waits_real
     if env_agent is not None:
